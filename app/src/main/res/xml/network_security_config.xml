@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- 允许校内系统的明文 HTTP 连接 -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">xjtu.edu.cn</domain>
+    </domain-config>
+</network-security-config>

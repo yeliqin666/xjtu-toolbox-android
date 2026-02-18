@@ -1,0 +1,26 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 远山（小山，灰蓝色） -->
+    <path
+        android:fillColor="#7BAED4"
+        android:pathData="M22,78 L40,52 L58,78 Z" />
+
+    <!-- 主峰（大山，深蓝色） -->
+    <path
+        android:fillColor="#2E6B9E"
+        android:pathData="M38,78 L62,36 L86,78 Z" />
+
+    <!-- 雪顶（白色三角） -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M56,44 L62,36 L68,44 Z" />
+
+    <!-- 地面线 -->
+    <path
+        android:fillColor="#1B4F72"
+        android:pathData="M18,78 L90,78 L90,82 L18,82 Z" />
+</vector>
