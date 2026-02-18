@@ -1687,7 +1687,8 @@ private fun ProfileTab(loginState: AppLoginState, onNavigateWithLogin: (String, 
                     Text("Yeliqin666", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                     Text("runqinliu666.cn", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.width(4.dp))
-                    Icon(Icons.AutoMirrored.Filled.OpenInNew, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                    @Suppress("DEPRECATION")
+                    Icon(Icons.Default.OpenInNew, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
                 }
 
                 HorizontalDivider(Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
