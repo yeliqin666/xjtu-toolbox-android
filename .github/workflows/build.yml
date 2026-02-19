@@ -3,9 +3,6 @@ name: Build & Release
 on:
   push:
     branches: [ main ]
-    tags: [ 'v*' ]
-  pull_request:
-    branches: [ main ]
 
 jobs:
   build:
@@ -35,31 +32,33 @@ jobs:
       - name: Install Android SDK 36
         run: $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
-      - name: Build Debug APK
-        if: "!startsWith(github.ref, 'refs/tags/v')"
-        run: ./gradlew assembleDebug
+      - name: Extract version name
+        id: version
+        run: |
+          VERSION=$(grep 'versionName' app/build.gradle.kts | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
-        if: startsWith(github.ref, 'refs/tags/v')
         run: ./gradlew assembleRelease
 
-      - name: Upload Debug APK
-        if: "!startsWith(github.ref, 'refs/tags/v')"
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
-
       - name: Upload Release APK
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@v4
         with:
           name: app-release
           path: app/build/outputs/apk/release/app-release.apk
 
+      - name: Delete existing tag (if any)
+        run: |
+          git tag -d ${{ steps.version.outputs.tag }} 2>/dev/null || true
+          git push origin :refs/tags/${{ steps.version.outputs.tag }} 2>/dev/null || true
+
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
           files: app/build/outputs/apk/release/app-release.apk
           generate_release_notes: true
+          make_latest: true
+          prerelease: ${{ contains(steps.version.outputs.version, 'alpha') || contains(steps.version.outputs.version, 'beta') }}
