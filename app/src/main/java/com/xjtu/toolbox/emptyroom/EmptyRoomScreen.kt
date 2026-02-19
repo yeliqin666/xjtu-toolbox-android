@@ -30,6 +30,7 @@ import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
+import com.xjtu.toolbox.ui.components.AppFilterChip
 
 /** 每节课对应的时间段 (1-11) */
 private val PERIOD_TIMES = listOf(
@@ -215,10 +216,11 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         campusNames.forEach { campus ->
-                            FilterChip(
+                            AppFilterChip(
                                 selected = selectedCampus == campus,
                                 onClick = { selectedCampus = campus },
-                                label = { Text(campus.removeSuffix("校区"), fontSize = 13.sp) }
+                                label = campus.removeSuffix("校区"),
+                                fontSize = 13f
                             )
                         }
                     }
@@ -229,10 +231,11 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         buildings.forEach { building ->
-                            FilterChip(
+                            AppFilterChip(
                                 selected = selectedBuilding == building,
                                 onClick = { selectedBuilding = building },
-                                label = { Text(building, fontSize = 12.sp) }
+                                label = building,
+                                fontSize = 12f
                             )
                         }
                     }
@@ -254,10 +257,10 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
                     ) {
                         availableDates.forEachIndexed { index, date ->
                             val label = if (index == 0) "今天" else "明天"
-                            FilterChip(
+                            AppFilterChip(
                                 selected = selectedDate == date,
                                 onClick = { selectedDate = date },
-                                label = { Text("$label ${date.substring(5)}") }
+                                label = "$label ${date.substring(5)}"
                             )
                         }
                         Spacer(Modifier.weight(1f))
@@ -298,10 +301,11 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
                         // 起始节
                         var startExpanded by remember { mutableStateOf(false) }
                         Box {
-                            FilterChip(
+                            AppFilterChip(
                                 selected = true,
                                 onClick = { startExpanded = true },
-                                label = { Text("第${startPeriod}节起", fontSize = 12.sp) }
+                                label = "第${startPeriod}节起",
+                                fontSize = 12f
                             )
                             DropdownMenu(expanded = startExpanded, onDismissRequest = { startExpanded = false }) {
                                 (1..11).forEach { p ->
@@ -320,10 +324,11 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
                         // 结束节
                         var endExpanded by remember { mutableStateOf(false) }
                         Box {
-                            FilterChip(
+                            AppFilterChip(
                                 selected = true,
                                 onClick = { endExpanded = true },
-                                label = { Text("第${endPeriod}节止", fontSize = 12.sp) }
+                                label = "第${endPeriod}节止",
+                                fontSize = 12f
                             )
                             DropdownMenu(expanded = endExpanded, onDismissRequest = { endExpanded = false }) {
                                 (startPeriod..11).forEach { p ->
@@ -348,10 +353,11 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         listOf("全部", "现在空闲", "刚解放", "大教室").forEach { filter ->
-                            FilterChip(
+                            AppFilterChip(
                                 selected = smartFilter == filter,
                                 onClick = { smartFilter = filter },
-                                label = { Text(filter, fontSize = 11.sp) }
+                                label = filter,
+                                fontSize = 11f
                             )
                         }
                     }

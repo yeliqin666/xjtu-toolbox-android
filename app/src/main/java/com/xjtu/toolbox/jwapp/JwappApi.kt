@@ -15,10 +15,17 @@ import okhttp3.RequestBody.Companion.toRequestBody
 
 private const val TAG = "JwappGPA"
 
-// ==================== 数据类 ====================
+// ── 数据类 ──────────────────────────────
 
-/** 成绩数据来源 */
 enum class ScoreSource { JWAPP, REPORT }
+
+enum class CourseGroup(val label: String, val shortLabel: String) {
+    GEN_CORE("通核", "通核"),
+    GEN_ELECTIVE("通选", "通选"),
+    MAJOR_ELECTIVE("专选", "专选"),
+    CORE("核心", "核心"),
+    OUT_OF_PLAN("方案外", "外");
+}
 
 data class ScoreItem(
     val id: String,
@@ -34,7 +41,10 @@ data class ScoreItem(
     val examProp: String,
     val replaceFlag: Boolean,
     val gpa: Double? = null,
-    val source: ScoreSource = ScoreSource.JWAPP
+    val source: ScoreSource = ScoreSource.JWAPP,
+    val courseCategory: String? = null,
+    val courseCode: String? = null,
+    val courseGroup: CourseGroup? = null,
 )
 
 data class ScoreDetailItem(
@@ -94,58 +104,7 @@ data class GpaInfo(
     val courseCount: Int
 )
 
-// ==================== API 类 ====================
-
-/**
- * 清理成绩字符串：去掉零宽字符、不可见控制字符等
- * 只保留字母、数字、中文、+、- 号
- * 关键：先将全角 ＋（U+FF0B）→ + 和 ＋（U+FF0D）→ - ，API 返回的是全角符号
- */
-private fun cleanGradeString(raw: String): String {
-    return raw.trim()
-        .replace('＋', '+')   // 全角 plus  U+FF0B → ASCII +
-        .replace('－', '-')   // 全角 minus U+FF0D → ASCII -
-        .replace(Regex("[^a-zA-Z0-9+\\-\\u4e00-\\u9fff]"), "")
-}
-
-/**
- * 等级制成绩转数字分数
- * 映射依据：西安交通大学本科生学籍管理与学位授予规定（西交教〔2015〕87号）
- * XJTU 采用 11 级制（无 D+），英文/中文等级一一对应
- */
-fun gradeToNumericScore(grade: String): Double? {
-    val g = cleanGradeString(grade)
-    // 依据《西安交通大学本科生学籍管理与学位授予规定（2017）》国（境）外成绩转换标准
-    return when {
-        // 英文等级制（11级）
-        g.equals("A+", true) -> 98.0
-        g.equals("A", true) && !g.contains("+") && !g.contains("-") -> 92.0
-        g.equals("A-", true) -> 87.0
-        g.equals("B+", true) -> 83.0
-        g.equals("B", true) && !g.contains("+") && !g.contains("-") -> 79.0
-        g.equals("B-", true) -> 76.0
-        g.equals("C+", true) -> 73.0
-        g.equals("C", true) && !g.contains("+") && !g.contains("-") -> 70.0
-        g.equals("C-", true) -> 66.0
-        g.equals("D", true) -> 62.0
-        g.equals("F", true) -> 0.0
-        // 中文等级制（11级，与英文一一对应）
-        g == "优+" -> 98.0
-        g == "优" -> 92.0
-        g == "优-" -> 87.0
-        g == "良+" -> 83.0
-        g == "良" -> 79.0
-        g == "良-" -> 76.0
-        g == "中+" -> 73.0
-        g == "中" -> 70.0
-        g == "中-" -> 66.0
-        g == "及格" -> 62.0
-        g == "不及格" -> 0.0
-        // 二等级制（通过/不通过）→ 不映射数字分数
-        g == "通过" || g == "不通过" -> null
-        else -> null
-    }
-}
+// ── API ──────────────────────────────
 
 class JwappApi(private val login: JwappLogin) {
 
@@ -182,14 +141,11 @@ class JwappApi(private val login: JwappLogin) {
                 val apiGpa = s.get("gpa").safeDoubleOrNull()
                 val apiPassFlag = s.get("passFlag")
 
-                // 诊断日志：记录API原始返回值（帮助定位等级制GPA=0问题）
                 val courseName = s.get("courseName").safeString()
-                if (numericScore == null && rawScore.isNotEmpty()) {
-                    // 可能是等级制课程，记录完整原始数据
-                    Log.d(TAG, "解析[等级制?] $courseName: score='$rawScore' " +
-                            "gpa_raw=${s.get("gpa")} passFlag_raw=$apiPassFlag " +
-                            "examProp=${s.get("examProp").safeString()}")
-                }
+
+                // 从 "课程名(课程号)" 提取 courseCode（CjcxApi enrichment 会覆盖）
+                val extractedCode = Regex("\\(([A-Z]{2,}\\d{4,}\\w*)\\)$")
+                    .find(courseName.trim())?.groupValues?.get(1)
 
                 ScoreItem(
                     id = s.get("id").safeString(),
@@ -204,7 +160,8 @@ class JwappApi(private val login: JwappLogin) {
                     majorFlag = s.get("majorFlag").safeStringOrNull(),
                     examProp = s.get("examProp").safeString(),
                     replaceFlag = s.get("replaceFlag").safeBoolean(),
-                    gpa = s.get("gpa").safeDoubleOrNull()
+                    gpa = s.get("gpa").safeDoubleOrNull(),
+                    courseCode = extractedCode
                 )
             }
             TermScore(
@@ -345,23 +302,12 @@ class JwappApi(private val login: JwappLogin) {
         return allGrades.map { it.termCode to it.termName }
     }
 
-    /**
-     * 从成绩列表本地计算 GPA（无需逐课程请求）
-     * 优先使用服务器返回的 gpa 字段，否则用本地映射
-     */
-    fun calculateGpaFromGrades(termScores: List<TermScore>): GpaInfo {
-        val allCourses = termScores.flatMap { it.scoreList }
-        return calculateGpaForCourses(allCourses)
-    }
+    fun calculateGpaFromGrades(termScores: List<TermScore>): GpaInfo =
+        calculateGpaForCourses(termScores.flatMap { it.scoreList })
 
     /**
-     * 对指定课程列表计算 GPA（用于用户自选课程）
-     *
-     * 逻辑：
-     *  1. 二等级制（通过/不通过）不参与 GPA
-     *  2. 先算出 courseGpa / numericScore，再综合判断是否真正"未通过"
-     *     （API 的 passFlag 对等级制课程可能返回 null/0 → safeBoolean 变 false，
-     *      必须用 GPA/分数二次兜底，否则等级制课程全部被跳过→GPA=0）
+     * GPA 计算：二等级制不参与，优先 xscjcx.do 精确值，fallback 本地映射。
+     * passFlag 对等级制课程可能错误返回 false，需 GPA/分数二次兜底。
      */
     fun calculateGpaForCourses(courses: List<ScoreItem>): GpaInfo {
         var totalCredits = 0.0
@@ -369,59 +315,27 @@ class JwappApi(private val login: JwappLogin) {
         var weightedScore = 0.0
         var courseCount = 0
 
-        Log.d(TAG, "═══ GPA 计算开始 ═══ 共 ${courses.size} 门课程")
-
         for (score in courses) {
-            // 清理成绩字符串（去掉零宽字符等）
-            val cleanedScore = cleanGradeString(score.score)
-            val rawScore = score.score.trim()
+            val raw = score.score.trim()
+            if (raw == "通过" || raw == "不通过") continue
 
-            // 二等级制（通过/不通过）不参与 GPA 计算（西交教〔2015〕87号）
-            if (cleanedScore == "通过" || cleanedScore == "不通过") {
-                Log.d(TAG, "  跳过[二等级制]: ${score.courseName} score='$rawScore'")
-                continue
-            }
-
-            // ── 先计算 GPA & 均分 ──
-            // 优先用 API 返回的 gpa（>0 时），其次本地映射
-            val apiGpa = score.gpa?.takeIf { it > 0.0 }
-            val localGpa = com.xjtu.toolbox.score.ScoreReportApi.scoreToGpa(cleanedScore)
-            val courseGpa = apiGpa ?: localGpa ?: 0.0
-
-            // 均分计算：优先用数字成绩，等级制用映射值
-            val numericScore = score.scoreValue
-                ?: gradeToNumericScore(rawScore)
+            val courseGpa = score.gpa?.takeIf { it > 0.0 }
+                ?: com.xjtu.toolbox.score.ScoreReportApi.scoreToGpa(raw)
                 ?: 0.0
+            val numeric = score.scoreValue ?: 0.0
+            val passed = score.passFlag || courseGpa > 0.0 || numeric >= 60.0
 
-            // ── 判断是否真正通过 ──
-            // 不能仅依赖 passFlag（API 对等级制课程可能返回 null/false）
-            val isPassed = score.passFlag
-                    || courseGpa > 0.0       // 本地映射得到正值 → 通过
-                    || numericScore >= 60.0  // 数字分 ≥60 → 通过
-
-            Log.d(TAG, "  [${score.courseName}] rawScore='$rawScore' cleaned='$cleanedScore' | " +
-                    "apiGpa=${score.gpa} localGpa=$localGpa → courseGpa=$courseGpa | " +
-                    "scoreValue=${score.scoreValue} numericScore=$numericScore | " +
-                    "passFlag=${score.passFlag} isPassed=$isPassed examProp='${score.examProp}' | " +
-                    "credit=${score.coursePoint}")
-
-            // 仅跳过"确实未通过"的初修课程
-            if (!isPassed && score.examProp == "初修") {
-                Log.d(TAG, "    → 跳过: 未通过的初修课程")
-                continue
-            }
+            if (!passed && score.examProp == "初修") continue
 
             totalCredits += score.coursePoint
             weightedGpa += courseGpa * score.coursePoint
-            weightedScore += numericScore * score.coursePoint
+            weightedScore += numeric * score.coursePoint
             courseCount++
-            Log.d(TAG, "    → 纳入计算: weighted += $courseGpa * ${score.coursePoint}")
         }
 
         val gpa = if (totalCredits > 0) weightedGpa / totalCredits else 0.0
         val avg = if (totalCredits > 0) weightedScore / totalCredits else 0.0
-        Log.d(TAG, "═══ GPA 计算完毕 ═══ GPA=${"%.4f".format(gpa)}, 均分=${"%.2f".format(avg)}, " +
-                "计入课程=$courseCount/${ courses.size}, 总学分=$totalCredits")
-        return GpaInfo(gpa = gpa, averageScore = avg, totalCredits = totalCredits, courseCount = courseCount)
+        Log.d(TAG, "GPA=${"%.4f".format(gpa)}, 均分=${"%.2f".format(avg)}, $courseCount/${courses.size}门, ${totalCredits}学分")
+        return GpaInfo(gpa, avg, totalCredits, courseCount)
     }
 }

@@ -24,6 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.xjtu.toolbox.ui.components.AppFilterChip
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -203,16 +204,16 @@ fun NotificationScreen(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 // "全部" chip
-                FilterChip(
+                AppFilterChip(
                     selected = selectedCategory == null,
                     onClick = { selectedCategory = null },
-                    label = { Text("全部", fontSize = 13.sp) }
+                    label = "全部"
                 )
                 SourceCategory.entries.forEach { cat ->
-                    FilterChip(
+                    AppFilterChip(
                         selected = selectedCategory == cat,
                         onClick = { selectedCategory = cat },
-                        label = { Text(cat.displayName, fontSize = 13.sp) }
+                        label = cat.displayName
                     )
                 }
             }
@@ -227,8 +228,7 @@ fun NotificationScreen(
             ) {
                 sourcesInCategory.forEach { source ->
                     if (mergeMode) {
-                        // 合并模式：多选
-                        FilterChip(
+                        AppFilterChip(
                             selected = source in selectedSources,
                             onClick = {
                                 selectedSources = if (source in selectedSources) {
@@ -237,14 +237,13 @@ fun NotificationScreen(
                                     selectedSources + source
                                 }
                             },
-                            label = { Text(source.displayName, fontSize = 12.sp) }
+                            label = source.displayName, fontSize = 12f
                         )
                     } else {
-                        // 单选模式
-                        FilterChip(
+                        AppFilterChip(
                             selected = source == selectedSource,
                             onClick = { selectedSource = source },
-                            label = { Text(source.displayName, fontSize = 12.sp) }
+                            label = source.displayName, fontSize = 12f
                         )
                     }
                 }

@@ -62,6 +62,7 @@ dependencies {
     implementation(libs.coroutines.android)
     implementation(libs.navigation.compose)
     implementation(libs.security.crypto)
+    implementation(libs.zxing.core)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

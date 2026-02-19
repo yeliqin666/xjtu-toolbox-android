@@ -18,6 +18,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:configChanges="uiMode"
             android:label="@string/app_name"
             android:theme="@style/Theme.XJTUToolBox.Splash">
             <intent-filter>

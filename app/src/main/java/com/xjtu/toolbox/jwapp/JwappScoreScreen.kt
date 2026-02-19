@@ -40,6 +40,7 @@ import com.xjtu.toolbox.auth.JwxtLogin
 import com.xjtu.toolbox.score.ScoreReportApi
 import com.xjtu.toolbox.score.ReportedGrade
 import com.xjtu.toolbox.judge.JudgeApi
+import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.ErrorState
 import kotlinx.coroutines.Dispatchers
@@ -62,7 +63,7 @@ fun JwappScoreScreen(
     var allTermScores by remember { mutableStateOf<List<TermScore>>(emptyList()) }
     var termList by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var selectedTermIndex by remember { mutableIntStateOf(0) }
-    var currentWeek by remember { mutableIntStateOf(0) }
+    var currentTermName by remember { mutableStateOf("") }
     var expandedCourseId by remember { mutableStateOf<String?>(null) }
     var courseDetails by remember { mutableStateOf<Map<String, ScoreDetail>>(emptyMap()) }
     var detailLoading by remember { mutableStateOf<String?>(null) }
@@ -74,14 +75,14 @@ fun JwappScoreScreen(
 
     // 搜索 & 过滤
     var searchQuery by remember { mutableStateOf("") }
-    var excludedCategories by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedGroups by remember { mutableStateOf<Set<CourseGroup>>(emptySet()) }
 
-    // GPA 小数精度（点击循环 2 → 3 → 4 → 2）
+    // GPA 精度（点击循环 2→3→4→2）
     var gpaPrecision by remember { mutableIntStateOf(2) }
 
-    // 未评教课程名集合（来自 JudgeApi）
+    // 未评教课程名集合
     var unevaluatedCourses by remember { mutableStateOf<Set<String>>(emptySet()) }
-    // 报表补充数据加载状态
+    // 报表补充提示
     var reportHint by remember { mutableStateOf<String?>(null) }
 
     fun loadScoreData() {
@@ -91,10 +92,79 @@ fun JwappScoreScreen(
             try {
                 withContext(Dispatchers.IO) {
                     val basis = api.getTimeTableBasis()
-                    currentWeek = basis.todayWeekNum
+                    currentTermName = basis.termName
                     val grades = api.getGrade(null).toMutableList()
 
-                    // 课程名标准化（去除各种空格、特殊字符、课程标记符号差异）
+                    // CjcxApi 精确化：ZCJ/XFJD 替换 JWAPP 数据
+                    if (jwxtLogin != null) {
+                        try {
+                            val cjcxApi = CjcxApi(jwxtLogin)
+                            val preciseScores = cjcxApi.getAllScores()
+                            val lookup = cjcxApi.buildLookup(preciseScores)
+                            val preciseByKch = preciseScores.associateBy { it.kch }
+
+                            var matchCount = 0
+                            for (i in grades.indices) {
+                                val ts = grades[i]
+                                val enrichedList = ts.scoreList.map { score ->
+                                    val key = "${ts.termCode}|${CjcxApi.normalizeName(score.courseName)}"
+                                    val precise = lookup[key]
+                                        ?: score.courseCode?.let { preciseByKch[it] }
+                                    if (precise != null) {
+                                        matchCount++
+                                        score.copy(
+                                            scoreValue = precise.zcj,
+                                            gpa = precise.xfjd,
+                                            courseCategory = precise.kclbdm.ifBlank { null },
+                                            courseCode = precise.kch.ifBlank { score.courseCode }
+                                        )
+                                    } else {
+                                        android.util.Log.w("Score", "xscjcx.do 未匹配: ${score.courseName} (code=${score.courseCode}, key=$key)")
+                                        score
+                                    }
+                                }
+                                grades[i] = ts.copy(scoreList = enrichedList)
+                            }
+                            val totalScores = grades.sumOf { it.scoreList.size }
+                            android.util.Log.d("Score", "CjcxApi: $matchCount/$totalScores 匹配")
+                        } catch (e: Exception) {
+                            android.util.Log.w("Score", "CjcxApi 失败(fallback JWAPP): ${e.message}")
+                        }
+
+                        // 培养方案感知分类
+                        try {
+                            val pyfaApi = PyfaApi(jwxtLogin)
+                            val summary = pyfaApi.getPersonalPlan()
+                            val planCourses = pyfaApi.getPlanCourses(summary.pyfadm)
+                            val groupTree = pyfaApi.getCourseGroups(summary.pyfadm)
+
+                            val nodeMap = flattenGroupTree(groupTree)
+                            val planCourseByKch = planCourses.associateBy { it.kch }
+                            val planCourseNames = planCourses.map { CjcxApi.normalizeName(it.name) }.toSet()
+                            val openGroupNodes = nodeMap.values.filter {
+                                it.courseCount == 0 && it.children.isEmpty()
+                            }
+
+                            val allScores = grades.flatMap { it.scoreList }
+                            val classified = classifyCoursesWithCaps(
+                                allScores, planCourseByKch, planCourseNames,
+                                nodeMap, openGroupNodes
+                            )
+                            // 回填分类结果
+                            var offset = 0
+                            for (i in grades.indices) {
+                                val ts = grades[i]
+                                val newList = classified.subList(offset, offset + ts.scoreList.size)
+                                grades[i] = ts.copy(scoreList = newList)
+                                offset += ts.scoreList.size
+                            }
+                            android.util.Log.d("Score", "分类完成: ${planCourseNames.size}门方案课, ${openGroupNodes.size}个开放组")
+                        } catch (e: Exception) {
+                            android.util.Log.w("Score", "分类失败: ${e.message}")
+                        }
+                    }
+
+                    // 课程名标准化（空格/全角/符号统一）
                     fun normalizeKey(term: String, name: String): String {
                         val n = name.trim()
                             .replace("\u3000", " ")  // 全角空格
@@ -109,37 +179,30 @@ fun JwappScoreScreen(
                         return "${term.trim()}|$n"
                     }
 
-                    // 已有课程名+学期 索引（用于去重）
                     val existingKeys = grades.flatMap { ts ->
                         ts.scoreList.map { normalizeKey(ts.termCode, it.courseName) }
                     }.toMutableSet()
 
-                    // 加载报表成绩 + 未评教（先加载未评教列表，再用评教状态安全去重）
+                    // 报表补充未评教课程
                     if (jwxtLogin != null && studentId.isNotEmpty()) {
-                        // ⚠ 第一步：加载未评教课程列表（用于安全去重判断）
-                        // 已评教课程 jwapp 必定已包含，仅补充未评教课程的报表成绩
                         var unevalSet = emptySet<String>()
                         try {
                             val judgeApi = JudgeApi(jwxtLogin)
                             val unfinished = judgeApi.unfinishedQuestionnaires()
                             unevalSet = unfinished.map { it.KCM }.toSet()
                             unevaluatedCourses = unevalSet
-                            android.util.Log.d("ScoreDedup", "未评教课程 ${unevalSet.size} 门: ${unevalSet.joinToString()}")
                         } catch (e: Exception) {
-                            android.util.Log.w("Score", "未评教查询失败(报表补充跳过): ${e.message}")
+                            android.util.Log.w("Score", "未评教查询失败: ${e.message}")
                         }
 
-                        // 第二步：仅在有未评教课程时才从报表补充
                         if (unevalSet.isNotEmpty()) {
                             try {
                                 val reportGrades = ScoreReportApi(jwxtLogin).getReportedGrade(studentId)
                                 val supplementByTerm = mutableMapOf<String, MutableList<ScoreItem>>()
                                 for (rg in reportGrades) {
-                                    // 安全策略：仅补充未评教课程（课名相同但课号不同是不同课，按名去重危险）
                                     if (rg.courseName !in unevalSet) continue
                                     val key = normalizeKey(rg.term, rg.courseName)
                                     if (key !in existingKeys) {
-                                        android.util.Log.d("ScoreDedup", "ADDING report(未评教): key='$key' name='${rg.courseName}' term='${rg.term}'")
                                         existingKeys.add(key)
                                         val item = rg.toScoreItem()
                                         supplementByTerm.getOrPut(rg.term) { mutableListOf() }.add(item)
@@ -163,7 +226,7 @@ fun JwappScoreScreen(
                                 android.util.Log.w("Score", "报表加载失败: ${e.message}")
                             }
                         } else {
-                            android.util.Log.d("ScoreDedup", "无未评教课程或查询失败，跳过报表补充")
+                            // 无未评教课程，跳过报表补充
                         }
                     }
 
@@ -189,24 +252,25 @@ fun JwappScoreScreen(
         emptyList()
     }
 
-    // 所有出现的课程类别（majorFlag），用于过滤 chips
+    // 所有出现的课程分组
     val allCategories = remember(allTermScores) {
         allTermScores.flatMap { it.scoreList }
-            .mapNotNull { it.majorFlag }
-            .filter { it.isNotBlank() }
+            .mapNotNull { it.courseGroup }
             .distinct()
-            .sorted()
+            .sortedBy { it.ordinal }
     }
 
-    // 经过搜索 + 类别排除后的课程列表
-    val filteredScores = remember(currentTermScores, searchQuery, excludedCategories) {
+    // 搜索 + 分组筛选
+    val filteredScores = remember(currentTermScores, searchQuery, selectedGroups) {
         currentTermScores.filter { score ->
+            val group = score.courseGroup
             (searchQuery.isBlank() || score.courseName.contains(searchQuery, ignoreCase = true)) &&
-            (excludedCategories.isEmpty() || score.majorFlag !in excludedCategories)
+            (if (selectedGroups.isEmpty()) group != CourseGroup.OUT_OF_PLAN
+             else group in selectedGroups)
         }
     }
 
-    // 基于当前选中学期 + 过滤条件计算 GPA（非选课模式）
+    // 当前筛选范围 GPA
     val displayGpaInfo = remember(filteredScores) {
         if (filteredScores.isNotEmpty()) {
             api.calculateGpaForCourses(filteredScores)
@@ -255,12 +319,13 @@ fun JwappScoreScreen(
                             Icon(Icons.Default.Calculate, contentDescription = "选课算GPA")
                         }
                     } else {
-                        // 全选/取消
+                        // 全选/取消当前筛选范围内的课程
                         IconButton(onClick = {
-                            val allIds = allTermScores.flatMap { it.scoreList }.map { it.id }.toSet()
-                            selectedCourseIds = if (selectedCourseIds.size == allIds.size) emptySet() else allIds
+                            val filteredIds = filteredScores.map { it.id }.toSet()
+                            val allFilteredSelected = filteredIds.isNotEmpty() && filteredIds.all { it in selectedCourseIds }
+                            selectedCourseIds = if (allFilteredSelected) selectedCourseIds - filteredIds else selectedCourseIds + filteredIds
                         }) {
-                            Icon(Icons.Default.SelectAll, contentDescription = "全选")
+                            Icon(Icons.Default.SelectAll, contentDescription = "全选当前")
                         }
                     }
                 }
@@ -290,7 +355,7 @@ fun JwappScoreScreen(
                     item {
                         GpaCard(
                             gpaInfo = if (gpaSelectMode) selectedGpaInfo else displayGpaInfo,
-                            currentWeek = currentWeek,
+                            termName = currentTermName,
                             totalCourses = if (gpaSelectMode) selectedCourseIds.size else filteredScores.size,
                             totalCredits = if (gpaSelectMode) {
                                 allTermScores.flatMap { it.scoreList }
@@ -301,6 +366,17 @@ fun JwappScoreScreen(
                             precision = gpaPrecision,
                             onPrecisionToggle = { gpaPrecision = if (gpaPrecision >= 4) 2 else gpaPrecision + 1 }
                         )
+                    }
+
+                    // 分类别 GPA 概览（非选课模式下显示）
+                    if (!gpaSelectMode && filteredScores.any { it.courseCategory != null }) {
+                        item {
+                            CategoryGpaBreakdown(
+                                scores = filteredScores,
+                                calculateGpa = { api.calculateGpaForCourses(it) },
+                                precision = gpaPrecision
+                            )
+                        }
                     }
 
                     item {
@@ -332,30 +408,53 @@ fun JwappScoreScreen(
                         )
                     }
 
-                    // 类别排除 chips
+                    // 类别筛选 chips
                     if (allCategories.isNotEmpty()) {
                         item {
-                            Column {
-                                Text("排除类别", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Spacer(Modifier.height(4.dp))
-                                @OptIn(ExperimentalLayoutApi::class)
-                                FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    allCategories.forEach { category ->
-                                        val isExcluded = category in excludedCategories
-                                        FilterChip(
-                                            selected = isExcluded,
-                                            onClick = {
-                                                excludedCategories = if (isExcluded)
-                                                    excludedCategories - category
-                                                else
-                                                    excludedCategories + category
-                                            },
-                                            label = { Text(category, style = MaterialTheme.typography.labelSmall) }
-                                        )
-                                    }
+                            if (gpaSelectMode) {
+                                Text(
+                                    "筛选类别 → 全选按钮批量勾选",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.tertiary
+                                )
+                            }
+                            @OptIn(ExperimentalLayoutApi::class)
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                // "全部" chip
+                                AppFilterChip(
+                                    selected = selectedGroups.isEmpty(),
+                                    onClick = { selectedGroups = emptySet() },
+                                    label = "全部"
+                                )
+                                // 方案内类别 chips
+                                allCategories.filter { it != CourseGroup.OUT_OF_PLAN }.forEach { group ->
+                                    val isSelected = group in selectedGroups
+                                    AppFilterChip(
+                                        selected = isSelected,
+                                        onClick = {
+                                            selectedGroups = if (isSelected)
+                                                (selectedGroups - group).let { if (it.isEmpty()) emptySet() else it }
+                                            else
+                                                selectedGroups + group
+                                        },
+                                        label = group.label
+                                    )
+                                }
+                                // "方案外" chip
+                                if (CourseGroup.OUT_OF_PLAN in allCategories) {
+                                    AppFilterChip(
+                                        selected = CourseGroup.OUT_OF_PLAN in selectedGroups,
+                                        onClick = {
+                                            selectedGroups = if (CourseGroup.OUT_OF_PLAN in selectedGroups)
+                                                (selectedGroups - CourseGroup.OUT_OF_PLAN).let { if (it.isEmpty()) emptySet() else it }
+                                            else
+                                                selectedGroups + CourseGroup.OUT_OF_PLAN
+                                        },
+                                        label = "方案外"
+                                    )
                                 }
                             }
                         }
@@ -440,7 +539,7 @@ fun JwappScoreScreen(
 }
 
 @Composable
-fun GpaCard(gpaInfo: GpaInfo?, currentWeek: Int, totalCourses: Int, totalCredits: Double, isSelectMode: Boolean, precision: Int = 2, onPrecisionToggle: () -> Unit = {}) {
+fun GpaCard(gpaInfo: GpaInfo?, termName: String, totalCourses: Int, totalCredits: Double, isSelectMode: Boolean, precision: Int = 2, onPrecisionToggle: () -> Unit = {}) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -457,8 +556,8 @@ fun GpaCard(gpaInfo: GpaInfo?, currentWeek: Int, totalCourses: Int, totalCredits
                     color = if (isSelectMode) MaterialTheme.colorScheme.onTertiaryContainer
                     else MaterialTheme.colorScheme.onPrimaryContainer
                 )
-                if (currentWeek > 0 && !isSelectMode) {
-                    SuggestionChip(onClick = {}, label = { Text("第${currentWeek}周", style = MaterialTheme.typography.labelMedium) })
+                if (termName.isNotEmpty() && !isSelectMode) {
+                    SuggestionChip(onClick = {}, label = { Text(termName, style = MaterialTheme.typography.labelMedium) })
                 }
                 if (isSelectMode) {
                     SuggestionChip(onClick = {}, label = { Text("已选 $totalCourses 门", style = MaterialTheme.typography.labelMedium) })
@@ -582,7 +681,29 @@ fun ScoreCard(
                     Spacer(Modifier.height(4.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("${scoreItem.coursePoint}学分", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        if (!scoreItem.majorFlag.isNullOrBlank()) {
+                        // 课程分组 badge
+                        val group = scoreItem.courseGroup
+                        if (group != null && group != CourseGroup.OUT_OF_PLAN) {
+                            val groupColor = when (group) {
+                                CourseGroup.CORE -> MaterialTheme.colorScheme.primary
+                                CourseGroup.GEN_CORE -> MaterialTheme.colorScheme.tertiary
+                                CourseGroup.GEN_ELECTIVE -> MaterialTheme.colorScheme.secondary
+                                CourseGroup.MAJOR_ELECTIVE -> MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
+                                CourseGroup.OUT_OF_PLAN -> MaterialTheme.colorScheme.onSurfaceVariant
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = groupColor.copy(alpha = 0.12f)
+                            ) {
+                                Text(
+                                    group.shortLabel,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = groupColor,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                )
+                            }
+                        } else if (!scoreItem.majorFlag.isNullOrBlank()) {
                             val flagColor = when (scoreItem.majorFlag) {
                                 "必修" -> MaterialTheme.colorScheme.primary
                                 "选修" -> MaterialTheme.colorScheme.tertiary
@@ -607,7 +728,7 @@ fun ScoreCard(
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(horizontalAlignment = Alignment.End) {
-                    // 综合判断是否通过（API passFlag 对等级制课程可能错误返回 false）
+                    // 通过判断（passFlag 对等级制可能不准，需 GPA/分数兜底）
                     val localGpa = com.xjtu.toolbox.score.ScoreReportApi.scoreToGpa(scoreItem.score)
                     val reallyPassed = scoreItem.passFlag
                             || (localGpa != null && localGpa > 0.0)
@@ -620,13 +741,7 @@ fun ScoreCard(
                         else -> MaterialTheme.colorScheme.onSurface
                     }
                     Text(scoreItem.score, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = scoreColor)
-                    // 等级制成绩显示对应的数字分数
-                    if (scoreItem.scoreValue == null) {
-                        val equiv = gradeToNumericScore(scoreItem.score)
-                        if (equiv != null) {
-                            Text("≈ %.0f分".format(equiv), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
+                    // 等级制显示精确分数（scoreValue 由 CjcxApi ZCJ 填充）
                     if (!reallyPassed) {
                         Text(scoreItem.specificReason ?: "未通过", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
                     }
@@ -757,7 +872,7 @@ fun GpaMappingDialog(onDismiss: () -> Unit) {
                 Text("二等级制（通过/不通过）不参与 GPA 计算",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("优先使用服务器返回的绩点，否则按上述规则本地映射",
+                Text("优先使用 xscjcx.do 精确成绩（ZCJ/XFJD）",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -765,7 +880,7 @@ fun GpaMappingDialog(onDismiss: () -> Unit) {
     )
 }
 
-/** 将报表成绩转换为 ScoreItem（用于合并展示） */
+/** 报表成绩转 ScoreItem */
 private fun ReportedGrade.toScoreItem(): ScoreItem = ScoreItem(
     id = "report_${term}_${courseName.hashCode()}",
     termCode = term,
@@ -782,3 +897,105 @@ private fun ReportedGrade.toScoreItem(): ScoreItem = ScoreItem(
     gpa = gpa,
     source = ScoreSource.REPORT
 )
+
+/** 分类别 GPA 概览卡片 */
+@Composable
+fun CategoryGpaBreakdown(
+    scores: List<ScoreItem>,
+    calculateGpa: (List<ScoreItem>) -> GpaInfo?,
+    precision: Int = 2
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    // 按 CourseGroup 分组
+    val groupedGpa = remember(scores) {
+        scores.groupBy { it.courseGroup ?: CourseGroup.OUT_OF_PLAN }
+            .mapNotNull { (group, items) ->
+                val gpa = calculateGpa(items)
+                if (gpa != null) Triple(group, gpa, items.size) else null
+            }
+            .sortedBy { it.first.ordinal }
+    }
+
+    if (groupedGpa.isEmpty()) return
+
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+    ) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "分类别绩点",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "${groupedGpa.size} 个类别",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Icon(
+                        if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // 默认收起时显示摘要行
+            if (!expanded) {
+                Spacer(Modifier.height(8.dp))
+                @OptIn(ExperimentalLayoutApi::class)
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    groupedGpa.forEach { (group, gpa, _) ->
+                        Text(
+                            "${group.shortLabel} %.${precision}f".format(gpa.gpa),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
+
+            // 展开时显示详细表格
+            AnimatedVisibility(
+                visible = expanded,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    // 表头
+                    Row(Modifier.fillMaxWidth()) {
+                        Text("类别", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("GPA", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.width(56.dp), textAlign = TextAlign.End, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("均分", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.width(56.dp), textAlign = TextAlign.End, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("学分", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.width(48.dp), textAlign = TextAlign.End, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("门数", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.width(36.dp), textAlign = TextAlign.End, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    groupedGpa.forEach { (group, gpa, count) ->
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(group.label, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                            Text("%.${precision}f".format(gpa.gpa), style = MaterialTheme.typography.bodySmall, modifier = Modifier.width(56.dp), textAlign = TextAlign.End, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            Text(if (gpa.averageScore > 0) "%.${precision}f".format(gpa.averageScore) else "—", style = MaterialTheme.typography.bodySmall, modifier = Modifier.width(56.dp), textAlign = TextAlign.End)
+                            Text("%.1f".format(gpa.totalCredits), style = MaterialTheme.typography.bodySmall, modifier = Modifier.width(48.dp), textAlign = TextAlign.End)
+                            Text("$count", style = MaterialTheme.typography.bodySmall, modifier = Modifier.width(36.dp), textAlign = TextAlign.End)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

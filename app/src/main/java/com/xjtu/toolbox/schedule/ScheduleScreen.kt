@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.auth.JwxtLogin
 import com.xjtu.toolbox.ui.ScheduleGrid
 import com.xjtu.toolbox.ui.WeekSelector
+import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.ErrorState
 import kotlinx.coroutines.Dispatchers
@@ -88,7 +89,7 @@ fun ScheduleScreen(login: JwxtLogin, studentId: String = "", onBack: () -> Unit)
                                 firstTeachWeek != null && rawWeek < firstTeachWeek
                         currentWeek = when {
                             rawWeek <= 0 -> 1
-                            rawWeek > totalWeeks -> totalWeeks
+                            rawWeek > totalWeeks -> { showAllWeeks = true; 1 } // 已结束→总览+第1周
                             notStarted -> firstTeachWeek
                             else -> rawWeek
                         }
@@ -165,7 +166,7 @@ fun ScheduleScreen(login: JwxtLogin, studentId: String = "", onBack: () -> Unit)
                                 firstTeachWeek != null && rawWeek < firstTeachWeek
                         currentWeek = when {
                             rawWeek <= 0 -> 1
-                            rawWeek > totalWeeks -> totalWeeks
+                            rawWeek > totalWeeks -> { showAllWeeks = true; 1 } // 已结束→总览+第1周
                             notStarted -> firstTeachWeek
                             else -> rawWeek
                         }
@@ -215,14 +216,17 @@ fun ScheduleScreen(login: JwxtLogin, studentId: String = "", onBack: () -> Unit)
         }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            TabRow(selectedTabIndex = selectedTab) {
-                Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("课表") }, icon = { Icon(Icons.Default.CalendarMonth, contentDescription = null) })
-                Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("考试安排") }, icon = { Icon(Icons.Default.EditCalendar, contentDescription = null) })
-                Tab(selected = selectedTab == 2, onClick = {
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                SegmentedButton(selected = selectedTab == 0, onClick = { selectedTab = 0 }, shape = SegmentedButtonDefaults.itemShape(0, 3),
+                    icon = { SegmentedButtonDefaults.Icon(selectedTab == 0) { Icon(Icons.Default.CalendarMonth, null, Modifier.size(18.dp)) } }) { Text("课表") }
+                SegmentedButton(selected = selectedTab == 1, onClick = { selectedTab = 1 }, shape = SegmentedButtonDefaults.itemShape(1, 3),
+                    icon = { SegmentedButtonDefaults.Icon(selectedTab == 1) { Icon(Icons.Default.EditCalendar, null, Modifier.size(18.dp)) } }) { Text("考试") }
+                SegmentedButton(selected = selectedTab == 2, onClick = {
                     selectedTab = 2
                     android.util.Log.d("ScheduleUI", "Tab 教材 clicked: loaded=$textbooksLoaded, loading=$textbooksLoading, term=$selectedTermCode")
                     if (!textbooksLoaded && !textbooksLoading && selectedTermCode.isNotEmpty()) loadTextbooks(selectedTermCode)
-                }, text = { Text("教材") }, icon = { Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null) })
+                }, shape = SegmentedButtonDefaults.itemShape(2, 3),
+                    icon = { SegmentedButtonDefaults.Icon(selectedTab == 2) { Icon(Icons.AutoMirrored.Filled.MenuBook, null, Modifier.size(18.dp)) } }) { Text("教材") }
             }
 
             if (isLoading) {
@@ -288,16 +292,16 @@ private fun ScheduleTabContent(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.End
         ) {
-            FilterChip(
+            AppFilterChip(
                 selected = !showAllWeeks,
                 onClick = { if (showAllWeeks) onToggleMode() },
-                label = { Text("每周") }
+                label = "每周"
             )
             Spacer(Modifier.width(8.dp))
-            FilterChip(
+            AppFilterChip(
                 selected = showAllWeeks,
                 onClick = { if (!showAllWeeks) onToggleMode() },
-                label = { Text("总览") }
+                label = "总览"
             )
         }
 

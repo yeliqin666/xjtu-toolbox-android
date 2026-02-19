@@ -158,15 +158,16 @@ fun ScheduleGrid(
                             contentAlignment = Alignment.Center
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(
-                                    "$section", fontSize = 10.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
-                                )
                                 val timeStr = XjtuTime.getClassTime(section, isSummer)?.start
                                     ?.let { "%d:%02d".format(it.hour, it.minute) } ?: ""
                                 Text(
-                                    timeStr, fontSize = 7.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                                    timeStr, fontSize = 8.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                )
+                                Text(
+                                    "$section", fontSize = 9.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
                                 )
                             }
                         }

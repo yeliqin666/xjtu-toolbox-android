@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.auth.AttendanceLogin
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
+import com.xjtu.toolbox.ui.components.AppFilterChip
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
@@ -225,10 +226,10 @@ fun AttendanceScreen(
                             .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        FilterChip(
+                        AppFilterChip(
                             selected = selectedWeek == null,
                             onClick = { selectedWeek = null },
-                            label = { Text("全部周") },
+                            label = "全部周",
                             modifier = Modifier.height(32.dp)
                         )
                         for (w in 1..maxWeek) {
@@ -255,13 +256,15 @@ fun AttendanceScreen(
                 }
 
                 // Tab
-                TabRow(selectedTabIndex = selectedTab) {
-                    Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 },
-                        text = { Text("概览") },
-                        icon = { Icon(Icons.Default.BarChart, null) })
-                    Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 },
-                        text = { Text("流水") },
-                        icon = { Icon(Icons.AutoMirrored.Filled.FormatListBulleted, null) })
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    SegmentedButton(selected = selectedTab == 0, onClick = { selectedTab = 0 },
+                        shape = SegmentedButtonDefaults.itemShape(0, 2),
+                        icon = { SegmentedButtonDefaults.Icon(selectedTab == 0) { Icon(Icons.Default.BarChart, null, Modifier.size(18.dp)) } }
+                    ) { Text("概览") }
+                    SegmentedButton(selected = selectedTab == 1, onClick = { selectedTab = 1 },
+                        shape = SegmentedButtonDefaults.itemShape(1, 2),
+                        icon = { SegmentedButtonDefaults.Icon(selectedTab == 1) { Icon(Icons.AutoMirrored.Filled.FormatListBulleted, null, Modifier.size(18.dp)) } }
+                    ) { Text("流水") }
                 }
 
                 AnimatedContent(
@@ -496,17 +499,17 @@ private fun RecordFlowTab(
         // 状态筛选
         item {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
+                AppFilterChip(
                     selected = selectedStatus == null,
                     onClick = { onStatusChange(null) },
-                    label = { Text("全部 ($totalCount)") },
+                    label = "全部 ($totalCount)",
                     leadingIcon = { Icon(Icons.Default.FilterList, null, Modifier.size(16.dp)) }
                 )
                 WaterType.entries.forEach { type ->
-                    FilterChip(
+                    AppFilterChip(
                         selected = selectedStatus == type,
                         onClick = { onStatusChange(if (selectedStatus == type) null else type) },
-                        label = { Text(type.displayName) }
+                        label = type.displayName
                     )
                 }
             }

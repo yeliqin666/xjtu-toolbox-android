@@ -11,6 +11,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -44,6 +45,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.dialog
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.xjtu.toolbox.auth.*
@@ -91,6 +93,8 @@ object Routes {
     const val LIBRARY = "library"
     const val CAMPUS_CARD = "campus_card"
     const val SCORE_REPORT = "score_report"
+    const val CURRICULUM = "curriculum"
+    const val PAYMENT_CODE = "payment_code"
     const val BROWSER = "browser?url={url}"
 
     fun login(type: LoginType, target: String) = "login/${type.name}/$target"
@@ -145,6 +149,9 @@ class AppLoginState {
     // 一网通办个人信息（登录后自动获取，在"我的"页面展示）
     var ywtbUserInfo by mutableStateOf<com.xjtu.toolbox.ywtb.UserInfo?>(null)
 
+    // 缓存的昵称（从 CredentialStore 恢复，YWTB 加载前即可显示）
+    var cachedNickname by mutableStateOf<String?>(null)
+
     // 保存的凭据（内存中），用于自动登录其他系统
     var savedUsername: String = ""
         private set
@@ -177,6 +184,8 @@ class AppLoginState {
         firstVisitorId = store.loadFpVisitorId()
         // 恢复 RSA 公钥缓存（24h 有效期）
         cachedRsaKey = store.loadRsaPublicKey()
+        // 恢复缓存昵称（欢迎卡片秒显示）
+        cachedNickname = store.loadNickname()
     }
 
     /** 持久化凭据和缓存到 EncryptedSharedPreferences */
@@ -357,9 +366,9 @@ class AppLoginState {
                         .cookieJar(jar)
                         .followRedirects(true)
                         .followSslRedirects(true)
-                        .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-                        .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-                        .writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                        .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                        .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                        .writeTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
                         .build()
                         .also { sharedClient = it }
                 }
@@ -413,9 +422,9 @@ class AppLoginState {
                             .addInterceptor(okhttp3.brotli.BrotliInterceptor)
                             .cookieJar(jar)
                             .followRedirects(true).followSslRedirects(true)
-                            .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-                            .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-                            .writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                            .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                            .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                            .writeTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
                             .build()
                     }
                 }
@@ -522,6 +531,18 @@ fun AppNavigation(onReady: () -> Unit = {}) {
         loginState.persistentCookieJar = persistentCookieJar
     }
 
+    // 当 YWTB 用户信息获取到时，自动缓存昵称（下次启动秒显示）
+    LaunchedEffect(loginState.ywtbUserInfo) {
+        val name = loginState.ywtbUserInfo?.userName
+        if (!name.isNullOrBlank() && name.length >= 2) {
+            val givenName = name.drop(1)
+            val suffix = if (givenName.length >= 2) "宝宝" else "宝"
+            val nick = "$givenName$suffix"
+            loginState.cachedNickname = nick
+            credentialStore.saveNickname(nick)
+        }
+    }
+
     // 恢复凭据并自动初始化（Splash 只做启动，登录在主界面后台进行）
     var isRestoring by remember { mutableStateOf(false) }
     var restoreStep by remember { mutableStateOf("") }
@@ -533,12 +554,11 @@ fun AppNavigation(onReady: () -> Unit = {}) {
 
         if (loginState.hasCredentials && !loginState.isLoggedIn) {
             isRestoring = true
+            // Phase 1: JWXT + 网络检测（阻塞，完成后隐藏 banner）
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 try {
                     val startTime = System.currentTimeMillis()
                     android.util.Log.d("Restore", "开始恢复登录（并行模式）...")
-
-                    // Phase 1: JWXT + 网络检测 并行
                     restoreStep = "正在认证..."
                     kotlinx.coroutines.coroutineScope {
                         val jwxtDeferred = async(kotlinx.coroutines.Dispatchers.IO) {
@@ -551,62 +571,59 @@ fun AppNavigation(onReady: () -> Unit = {}) {
                         loginState.isOnCampus = networkDeferred.await()
                         android.util.Log.d("Restore", "Phase1 ${System.currentTimeMillis() - startTime}ms: JWXT=${jwxt != null}, campus=${loginState.isOnCampus}")
                     }
-
-                    // Phase 2: WebVPN（仅校外）
-                    if (loginState.isOnCampus == false) {
-                        restoreStep = "正在连接 VPN..."
-                        val vpnOk = loginState.loginWebVpn()
-                        android.util.Log.d("Restore", "Phase2 ${System.currentTimeMillis() - startTime}ms: VPN=$vpnOk")
-                    }
-
-                    android.util.Log.d("Restore", "核心恢复完成 ${System.currentTimeMillis() - startTime}ms, isLoggedIn=${loginState.isLoggedIn}")
                 } catch (e: Exception) {
-                    android.util.Log.e("Restore", "恢复登录失败", e)
+                    android.util.Log.e("Restore", "Phase1 恢复失败", e)
                 }
             }
-            isRestoring = false
+            isRestoring = false  // Phase1 完成，立即隐藏 banner
 
-            // Phase 3: 并行贯通所有剩余子系统（不阻塞 UI）
+            // Phase 2+3: VPN + 所有子系统 + JWT 预热（全后台，不阻塞 UI）
             restoreScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
+                    val startTime = System.currentTimeMillis()
                     kotlinx.coroutines.coroutineScope {
+                        // VPN（校外必须先完成才能登录 ATTENDANCE/LIBRARY）
+                        val vpnDeferred = if (loginState.isOnCampus == false) {
+                            async(kotlinx.coroutines.Dispatchers.IO) { loginState.loginWebVpn() }
+                        } else null
+
+                        // 不需要VPN的子系统 + 付款码预热，立即并行启动
                         launch { loginState.autoLogin(LoginType.JWAPP) }
                         launch { loginState.autoLogin(LoginType.YWTB) }
+                        launch {
+                            try {
+                                loginState.getSharedClient()?.let { client ->
+                                    android.util.Log.d("Restore", "预热付款码 JWT...")
+                                    com.xjtu.toolbox.pay.PaymentCodeApi(client).authenticate()
+                                    android.util.Log.d("Restore", "付款码 JWT 预热完成")
+                                }
+                            } catch (e: Exception) {
+                                android.util.Log.w("Restore", "付款码 JWT 预热失败: ${e.message}")
+                            }
+                        }
+
+                        // 等VPN完成后启动需要VPN的子系统
+                        if (vpnDeferred != null) {
+                            val vpnOk = vpnDeferred.await()
+                            android.util.Log.d("Restore", "VPN ${System.currentTimeMillis() - startTime}ms: ok=$vpnOk")
+                        }
                         launch { loginState.autoLogin(LoginType.ATTENDANCE) }
                         launch { loginState.autoLogin(LoginType.LIBRARY) }
                     }
                     android.util.Log.d("Restore", "全部子系统贯通完成: ${loginState.loginCount} 个系统")
-                    // 持久化首次获取的 fpVisitorId 和 RSA 公钥
                     loginState.persistCredentials(credentialStore)
                     if (loginState.ywtbLogin != null && loginState.ywtbUserInfo == null) {
                         val api = com.xjtu.toolbox.ywtb.YwtbApi(loginState.ywtbLogin!!)
                         loginState.ywtbUserInfo = api.getUserInfo()
                     }
                 } catch (e: Exception) {
-                    android.util.Log.e("Restore", "子系统贯通失败", e)
+                    android.util.Log.e("Restore", "后台贯通失败", e)
                 }
             }
         }
     }
 
-    // 恢复中显示加载遮罩
-    if (isRestoring) {
-        androidx.compose.ui.window.Dialog(onDismissRequest = {}) {
-            Card(
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-            ) {
-                Column(
-                    modifier = Modifier.padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    CircularProgressIndicator()
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(restoreStep.ifEmpty { "正在恢复登录..." }, style = MaterialTheme.typography.bodyMedium)
-                }
-            }
-        }
-    }
+    // 非阻塞提示条在 MainScreen 底部显示
 
     NavHost(
         navController = navController,
@@ -620,7 +637,7 @@ fun AppNavigation(onReady: () -> Unit = {}) {
     ) {
 
         composable(Routes.MAIN) {
-            MainScreen(navController = navController, loginState = loginState, credentialStore = credentialStore)
+            MainScreen(navController = navController, loginState = loginState, credentialStore = credentialStore, isRestoring = isRestoring, restoreStep = restoreStep)
         }
 
         composable(
@@ -657,7 +674,19 @@ fun AppNavigation(onReady: () -> Unit = {}) {
         composable(Routes.JUDGE) { loginState.jwxtLogin?.let { JudgeScreen(login = it, username = loginState.activeUsername, onBack = { navController.popBackStack() }) } }
         composable(Routes.LIBRARY) { loginState.libraryLogin?.let { LibraryScreen(login = it, onBack = { navController.popBackStack() }) } }
         composable(Routes.CAMPUS_CARD) { loginState.campusCardLogin?.let { com.xjtu.toolbox.card.CampusCardScreen(login = it, onBack = { navController.popBackStack() }) } }
+        dialog(
+            Routes.PAYMENT_CODE,
+            dialogProperties = androidx.compose.ui.window.DialogProperties(
+                usePlatformDefaultWidth = false,
+                dismissOnClickOutside = false  // 防止加载中误触关闭
+            )
+        ) {
+            loginState.getSharedClient()?.let {
+                com.xjtu.toolbox.pay.PaymentCodeDialog(client = it, onDismiss = { navController.popBackStack() })
+            }
+        }
         composable(Routes.SCORE_REPORT) { loginState.jwxtLogin?.let { ScoreReportScreen(login = it, studentId = loginState.activeUsername, onBack = { navController.popBackStack() }) } }
+        composable(Routes.CURRICULUM) { loginState.jwxtLogin?.let { com.xjtu.toolbox.jwapp.CurriculumScreen(jwxtLogin = it, jwappLogin = loginState.jwappLogin, studentId = loginState.activeUsername, onBack = { navController.popBackStack() }) } }
         composable(
             Routes.BROWSER,
             arguments = listOf(navArgument("url") { type = NavType.StringType; defaultValue = "" })
@@ -676,7 +705,7 @@ fun AppNavigation(onReady: () -> Unit = {}) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MainScreen(navController: NavHostController, loginState: AppLoginState, credentialStore: CredentialStore) {
+private fun MainScreen(navController: NavHostController, loginState: AppLoginState, credentialStore: CredentialStore, isRestoring: Boolean = false, restoreStep: String = "") {
     var selectedTabOrdinal by rememberSaveable { mutableIntStateOf(0) }
     val selectedTab = BottomTab.entries[selectedTabOrdinal.coerceIn(0, BottomTab.entries.size - 1)]
     val scope = rememberCoroutineScope()
@@ -694,6 +723,7 @@ private fun MainScreen(navController: NavHostController, loginState: AppLoginSta
     // 自动登录状态
     var isAutoLogging by remember { mutableStateOf(false) }
     var autoLoginMessage by remember { mutableStateOf("") }
+    var autoLoginJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
     fun navigateWithLogin(target: String, type: LoginType) {
         if (loginState.getCached(type) != null) {
@@ -702,13 +732,16 @@ private fun MainScreen(navController: NavHostController, loginState: AppLoginSta
             // 有保存的凭据，尝试自动登录
             isAutoLogging = true
             autoLoginMessage = "正在自动登录${type.label}..."
-            scope.launch {
-                val result = loginState.autoLogin(type)
+            autoLoginJob = scope.launch {
+                val result = kotlinx.coroutines.withTimeoutOrNull(15_000L) {
+                    loginState.autoLogin(type)
+                }
                 isAutoLogging = false
+                autoLoginJob = null
                 if (result != null) {
                     navController.navigate(target) { launchSingleTop = true }
                 } else {
-                    // 自动登录失败，跳到"我的"页面提示重新登录
+                    // 自动登录失败或超时，跳到"我的"页面提示重新登录
                     selectedTabOrdinal = BottomTab.PROFILE.ordinal
                 }
             }
@@ -769,10 +802,43 @@ private fun MainScreen(navController: NavHostController, loginState: AppLoginSta
                 }
             }
 
-            // 自动登录加载遮罩
+            // 登录恢复非阻塞提示条（底部，不遮挡欢迎卡片）
+            AnimatedVisibility(
+                visible = isRestoring,
+                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+                modifier = Modifier.align(Alignment.BottomCenter)
+            ) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    tonalElevation = 2.dp
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            restoreStep.ifEmpty { "正在恢复登录..." },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+            }
+
+            // 自动登录加载遮罩（可取消，15s超时）
             if (isAutoLogging) {
                 Surface(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().clickable {
+                        // 点击空白区域取消
+                        autoLoginJob?.cancel()
+                        isAutoLogging = false
+                        autoLoginJob = null
+                    },
                     color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.4f)
                 ) {
                     Column(
@@ -783,6 +849,18 @@ private fun MainScreen(navController: NavHostController, loginState: AppLoginSta
                         CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.height(12.dp))
                         Text(autoLoginMessage, color = MaterialTheme.colorScheme.inverseOnSurface, style = MaterialTheme.typography.bodyMedium)
+                        Spacer(Modifier.height(16.dp))
+                        OutlinedButton(
+                            onClick = {
+                                autoLoginJob?.cancel()
+                                isAutoLogging = false
+                                autoLoginJob = null
+                            },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.inverseOnSurface),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.inverseOnSurface.copy(alpha = 0.5f))
+                        ) {
+                            Text("取消")
+                        }
                     }
                 }
             }
@@ -818,9 +896,12 @@ private fun HomeTab(
                 Text(
                     if (loginState.isLoggedIn) {
                         val name = loginState.ywtbUserInfo?.userName
-                        if (!name.isNullOrBlank()) {
-                            val surname = name.first()
-                            "欢迎, ${surname}${surname}宝宝"
+                        if (!name.isNullOrBlank() && name.length >= 2) {
+                            val givenName = name.drop(1)
+                            val suffix = if (givenName.length >= 2) "宝宝" else "宝"
+                            "欢迎, $givenName$suffix"
+                        } else if (!loginState.cachedNickname.isNullOrBlank()) {
+                            "欢迎, ${loginState.cachedNickname}"
                         } else "欢迎, ${loginState.activeUsername}"
                     } else "岱宗盒子",
                     style = MaterialTheme.typography.headlineSmall,
@@ -843,7 +924,7 @@ private fun HomeTab(
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
             QuickEntryItem(Icons.Default.CalendarMonth, "课表", MaterialTheme.colorScheme.primary) { onNavigateWithLogin(Routes.SCHEDULE, LoginType.JWXT) }
-            QuickEntryItem(Icons.Default.Assessment, "成绩", MaterialTheme.colorScheme.tertiary) { onNavigateWithLogin(Routes.JWAPP_SCORE, LoginType.JWAPP) }
+            QuickEntryItem(Icons.Default.QrCode, "付款码", MaterialTheme.colorScheme.tertiary) { onNavigateWithLogin(Routes.PAYMENT_CODE, LoginType.JWXT) }
             QuickEntryItem(Icons.Default.LocationOn, "空教室", MaterialTheme.colorScheme.secondary) { onNavigate(Routes.EMPTY_ROOM) }
             QuickEntryItem(Icons.Default.Notifications, "通知", MaterialTheme.colorScheme.error) { onNavigate(Routes.NOTIFICATION) }
         }
@@ -854,13 +935,16 @@ private fun HomeTab(
         Text("全部服务", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 4.dp, bottom = 12.dp))
 
         val features = listOf(
-            Triple(Icons.Default.LocationOn, "空闲教室", "无需登录") to { onNavigate(Routes.EMPTY_ROOM) },
-            Triple(Icons.Default.Notifications, "通知公告", "无需登录") to { onNavigate(Routes.NOTIFICATION) },
-            Triple(Icons.Default.DateRange, "考勤查询", loginHint(loginState.attendanceLogin)) to { onNavigateWithLogin(Routes.ATTENDANCE, LoginType.ATTENDANCE) },
             Triple(Icons.Default.CalendarMonth, "课表考试", loginHint(loginState.jwxtLogin)) to { onNavigateWithLogin(Routes.SCHEDULE, LoginType.JWXT) },
             Triple(Icons.Default.Assessment, "成绩查询", loginHint(loginState.jwappLogin)) to { onNavigateWithLogin(Routes.JWAPP_SCORE, LoginType.JWAPP) },
+            Triple(Icons.Default.AccountTree, "培养进度", loginHint(loginState.jwxtLogin)) to { onNavigateWithLogin(Routes.CURRICULUM, LoginType.JWXT) },
+            Triple(Icons.Default.DateRange, "考勤查询", loginHint(loginState.attendanceLogin)) to { onNavigateWithLogin(Routes.ATTENDANCE, LoginType.ATTENDANCE) },
             Triple(Icons.Default.RateReview, "本科评教", loginHint(loginState.jwxtLogin)) to { onNavigateWithLogin(Routes.JUDGE, LoginType.JWXT) },
-            Triple(Icons.Default.Chair, "图书馆座位", loginHint(loginState.libraryLogin)) to { onNavigateWithLogin(Routes.LIBRARY, LoginType.LIBRARY) }
+            Triple(Icons.Default.Chair, "图书馆座位", loginHint(loginState.libraryLogin)) to { onNavigateWithLogin(Routes.LIBRARY, LoginType.LIBRARY) },
+            Triple(Icons.Default.CreditCard, "校园卡", loginHint(loginState.campusCardLogin)) to { onNavigateWithLogin(Routes.CAMPUS_CARD, LoginType.CAMPUS_CARD) },
+            Triple(Icons.Default.QrCode, "付款码", loginHint(loginState.getSharedClient())) to { onNavigateWithLogin(Routes.PAYMENT_CODE, LoginType.JWXT) },
+            Triple(Icons.Default.LocationOn, "空闲教室", "无需登录") to { onNavigate(Routes.EMPTY_ROOM) },
+            Triple(Icons.Default.Notifications, "通知公告", "无需登录") to { onNavigate(Routes.NOTIFICATION) }
         )
 
         features.chunked(3).forEach { row ->
@@ -895,12 +979,14 @@ private fun AcademicTab(loginState: AppLoginState, onNavigateWithLogin: (String,
         ServiceCard(Icons.Default.Assessment, "成绩查询", "查看成绩 / GPA / 含报表补充", loginState.jwappLogin != null) { onNavigateWithLogin(Routes.JWAPP_SCORE, LoginType.JWAPP) }
         ServiceCard(Icons.Default.DateRange, "考勤查询", "查看进出校园记录", loginState.attendanceLogin != null) { onNavigateWithLogin(Routes.ATTENDANCE, LoginType.ATTENDANCE) }
         ServiceCard(Icons.Default.RateReview, "本科评教", "一键自动评教", loginState.jwxtLogin != null) { onNavigateWithLogin(Routes.JUDGE, LoginType.JWXT) }
+        ServiceCard(Icons.Default.AccountTree, "培养进度", "培养方案 · 选课进度 · 逾期提醒", loginState.jwxtLogin != null) { onNavigateWithLogin(Routes.CURRICULUM, LoginType.JWXT) }
 
         Spacer(Modifier.height(16.dp))
 
         SectionLabel("校园生活")
         ServiceCard(Icons.Default.Chair, "图书馆座位", "座位查询与一键预约", loginState.libraryLogin != null) { onNavigateWithLogin(Routes.LIBRARY, LoginType.LIBRARY) }
         ServiceCard(Icons.Default.CreditCard, "校园卡", "余额查询 / 消费账单 / 分析", loginState.campusCardLogin != null) { onNavigateWithLogin(Routes.CAMPUS_CARD, LoginType.CAMPUS_CARD) }
+        ServiceCard(Icons.Default.QrCode, "付款码", "校园支付 · 点击即用", loginState.getSharedClient() != null) { onNavigateWithLogin(Routes.PAYMENT_CODE, LoginType.JWXT) }
 
         Spacer(Modifier.height(24.dp))
     }
@@ -1498,33 +1584,59 @@ private fun ProfileTab(loginState: AppLoginState, onNavigateWithLogin: (String, 
                     }
                 }
 
-                // 学期 / 教学周 信息
-                if (loginState.ywtbLogin != null) {
+                // 学期 / 教学周 信息（使用 JWXT，Phase1 即可用，比 YWTB 快 ~3s）
+                if (loginState.jwxtLogin != null) {
                     var currentWeekText by remember { mutableStateOf<String?>(null) }
                     var termText by remember { mutableStateOf<String?>(null) }
-                    LaunchedEffect(loginState.ywtbLogin) {
+                    var schoolYear by remember { mutableStateOf<String?>(null) }
+                    var countdownText by remember { mutableStateOf<String?>(null) }
+                    LaunchedEffect(loginState.jwxtLogin) {
+                        android.util.Log.d("ProfileWeek", "LaunchedEffect fired, jwxtLogin=${loginState.jwxtLogin != null}")
                         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                             try {
-                                val api = com.xjtu.toolbox.ywtb.YwtbApi(loginState.ywtbLogin!!)
-                                val now = java.time.LocalDate.now()
-                                val y = now.year; val m = now.monthValue
-                                val term = if (m in 2..7) "${y - 1}-$y-2" else "$y-${y + 1}-1"
-                                termText = term.replace("-", " ~ ").replaceFirst(" ~ ", "-").let {
-                                    if (term.endsWith("-1")) "第一学期" else "第二学期"
+                                val api = com.xjtu.toolbox.schedule.ScheduleApi(loginState.jwxtLogin!!)
+                                val termCode = api.getCurrentTerm()    // e.g. "2025-2026-2"
+                                android.util.Log.d("ProfileWeek", "termCode=$termCode")
+                                val parts = termCode.split("-")
+                                if (parts.size >= 2) schoolYear = "${parts[0]}-${parts[1]} 学年"
+                                termText = when (parts.getOrNull(2)) {
+                                    "1" -> "第一学期"
+                                    "2" -> "第二学期"
+                                    else -> termCode
                                 }
-                                val startStr = api.getStartOfTerm(term)
-                                val start = java.time.LocalDate.parse(startStr)
-                                val days = java.time.temporal.ChronoUnit.DAYS.between(start, now)
-                                if (days < 0) {
-                                    currentWeekText = "距开学 ${-days} 天"
-                                } else {
-                                    val w = ((days / 7) + 1).toInt()
-                                    if (w in 1..30) currentWeekText = "第${w}周"
+                                try {
+                                    val startDate = api.getStartOfTerm(termCode)
+                                    val today = java.time.LocalDate.now()
+                                    val daysBetween = java.time.temporal.ChronoUnit.DAYS.between(startDate, today)
+                                    val rawWeek = ((daysBetween / 7) + 1).toInt()
+                                    android.util.Log.d("ProfileWeek", "startDate=$startDate, today=$today, rawWeek=$rawWeek")
+                                    val totalWeeks = 20
+                                    when {
+                                        rawWeek in 1..totalWeeks -> currentWeekText = "第${rawWeek}周"
+                                        rawWeek > totalWeeks -> {
+                                            currentWeekText = null
+                                            val m = java.time.LocalDate.now().monthValue
+                                            termText = if (m in 7..8) "暑假" else "假期"
+                                        }
+                                        else -> {
+                                            // 未开学 → 计算倒计时
+                                            currentWeekText = null
+                                            val daysUntil = java.time.temporal.ChronoUnit.DAYS.between(today, startDate)
+                                            countdownText = if (daysUntil > 0) "距开学还有 ${daysUntil} 天" else "即将开学"
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    android.util.Log.w("ProfileWeek", "getStartOfTerm failed: ${e.message}")
                                 }
-                            } catch (_: Exception) { }
+                            } catch (e: Exception) {
+                                android.util.Log.e("ProfileWeek", "JWXT API failed: ${e.javaClass.simpleName}: ${e.message}")
+                                val m = java.time.LocalDate.now().monthValue
+                                termText = if (m in 2..7) "第二学期" else "第一学期"
+                            }
                         }
+                        android.util.Log.d("ProfileWeek", "done: currentWeekText=$currentWeekText, termText=$termText, schoolYear=$schoolYear, countdown=$countdownText")
                     }
-                    if (currentWeekText != null || termText != null) {
+                    if (currentWeekText != null || termText != null || schoolYear != null) {
                         Spacer(Modifier.height(12.dp))
                         Card(
                             modifier = Modifier.fillMaxWidth(),
@@ -1538,8 +1650,13 @@ private fun ProfileTab(loginState: AppLoginState, onNavigateWithLogin: (String, 
                                 Icon(Icons.Default.CalendarMonth, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onTertiaryContainer)
                                 Spacer(Modifier.width(12.dp))
                                 Column(Modifier.weight(1f)) {
-                                    Text("学期信息", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                                    schoolYear?.let {
+                                        Text(it, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                                    }
                                     termText?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                                    countdownText?.let {
+                                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary, fontWeight = FontWeight.Medium)
+                                    }
                                 }
                                 currentWeekText?.let {
                                     Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.12f)) {
@@ -1620,118 +1737,91 @@ private fun ProfileTab(loginState: AppLoginState, onNavigateWithLogin: (String, 
 
         Spacer(Modifier.height(24.dp))
 
-        // ── 关于 ──
+        // ── 关于 (Footer 风格，简洁不割裂) ──
         val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
-        Card(
+        var plansExpanded by remember { mutableStateOf(false) }
+
+        Column(
             Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Column {
-                // 顶部：应用信息（带背景色块）
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .background(
-                            androidx.compose.ui.graphics.Brush.verticalGradient(
-                                listOf(
-                                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
-                                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f)
-                                )
-                            )
-                        )
-                        .padding(20.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(
-                            shape = RoundedCornerShape(14.dp),
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                            modifier = Modifier.size(48.dp)
-                        ) {
-                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.Terrain, null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.primary)
-                            }
-                        }
-                        Spacer(Modifier.width(14.dp))
-                        Column {
-                            Text("岱宗盒子", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            Text("v${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Spacer(Modifier.weight(1f))
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-                        ) {
-                            Text(
-                                "Alpha",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                            )
-                        }
-                    }
+            // 应用名 + 版本 一行搞定
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Terrain, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(6.dp))
+                Text("岱宗盒子", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.width(6.dp))
+                Text("v${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                Spacer(Modifier.width(6.dp))
+                Surface(shape = RoundedCornerShape(4.dp), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)) {
+                    Text("Alpha", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp))
                 }
+            }
 
-                // 作者信息
+            Spacer(Modifier.height(8.dp))
+
+            // 作者 & 致谢 紧凑链接行
+            Row(
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "by Yeliqin666",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.clickable { uriHandler.openUri("https://www.runqinliu666.cn/") }
+                )
+                Text(" · ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
                 Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable { uriHandler.openUri("https://www.runqinliu666.cn/") }
-                        .padding(horizontal = 20.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clickable { uriHandler.openUri("https://github.com/yan-xiaoo/XJTUToolBox") }
                 ) {
-                    Icon(Icons.Default.Person, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.width(10.dp))
-                    Text("Yeliqin666", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                    Text("runqinliu666.cn", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.width(4.dp))
-                    @Suppress("DEPRECATION")
-                    Icon(Icons.Default.OpenInNew, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Default.Favorite, null, Modifier.size(12.dp), tint = MaterialTheme.colorScheme.error)
+                    Spacer(Modifier.width(3.dp))
+                    Text("致谢 XJTUToolBox", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 }
+            }
 
-                HorizontalDivider(Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+            Spacer(Modifier.height(10.dp))
 
-                // 开发计划
-                Column(Modifier.padding(20.dp)) {
-                    Text(
-                        "开发计划",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 10.dp)
-                    )
-                    val plans = listOf(
-                        "图书馆定时抢座",
-                        "空闲区域分析 & 座位推荐",
-                        "智能抢课",
-                        "等级制课程更精准获取",
-                        "通知聚合订阅 & Push",
-                        "电子成绩单获取与签印分析",
-                        "思源学堂解析版"
-                    )
-                    plans.forEachIndexed { idx, plan ->
-                        Row(
-                            Modifier.padding(vertical = 3.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Surface(
-                                shape = CircleShape,
-                                color = MaterialTheme.colorScheme.primaryContainer,
-                                modifier = Modifier.size(22.dp)
-                            ) {
-                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    Text(
-                                        "${idx + 1}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                                    )
+            // 开发计划 - 可展开/收起
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                modifier = Modifier.clickable { plansExpanded = !plansExpanded }
+            ) {
+                Column {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.RocketLaunch, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.width(6.dp))
+                        Text("开发计划", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                        Icon(
+                            if (plansExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            null,
+                            Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    androidx.compose.animation.AnimatedVisibility(visible = plansExpanded) {
+                        Column(Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp)) {
+                            val plans = listOf(
+                                "图书馆定时抢座",
+                                "空闲区域分析 & 座位推荐",
+                                "智能抢课",
+                                "通知聚合订阅 & Push",
+                                "电子成绩单获取与签印分析",
+                                "思源学堂解析版"
+                            )
+                            plans.forEachIndexed { idx, plan ->
+                                Row(Modifier.padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text("${idx + 1}.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline, fontWeight = FontWeight.Bold)
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(plan, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
-                            Spacer(Modifier.width(10.dp))
-                            Text(plan, style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }

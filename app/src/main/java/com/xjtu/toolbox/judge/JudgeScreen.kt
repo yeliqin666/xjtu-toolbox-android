@@ -91,19 +91,23 @@ fun JudgeScreen(
                 .padding(padding)
         ) {
             // 切换Tab: 未评 / 已评
-            TabRow(selectedTabIndex = selectedTab) {
-                Tab(
+            SingleChoiceSegmentedButtonRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                SegmentedButton(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
-                    text = { Text("未评 (${unfinishedList.size})") },
-                    icon = { Icon(Icons.Default.RateReview, contentDescription = null) }
-                )
-                Tab(
+                    shape = SegmentedButtonDefaults.itemShape(0, 2),
+                    icon = { SegmentedButtonDefaults.Icon(selectedTab == 0) { Icon(Icons.Default.RateReview, null, Modifier.size(18.dp)) } }
+                ) { Text("未评 (${unfinishedList.size})") }
+                SegmentedButton(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
-                    text = { Text("已评 (${finishedList.size})") },
-                    icon = { Icon(Icons.Default.CheckCircle, contentDescription = null) }
-                )
+                    shape = SegmentedButtonDefaults.itemShape(1, 2),
+                    icon = { SegmentedButtonDefaults.Icon(selectedTab == 1) { Icon(Icons.Default.CheckCircle, null, Modifier.size(18.dp)) } }
+                ) { Text("已评 (${finishedList.size})") }
             }
 
             // 一键好评按钮 + 进度条

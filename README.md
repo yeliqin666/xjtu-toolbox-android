@@ -109,10 +109,13 @@ git push origin v1.0-alpha
 1. 图书馆定时抢座
 2. 空闲区域分析 & 座位推荐
 3. 智能抢课
-4. 等级制课程更精准获取
-5. 通知聚合订阅 & Push
-6. 电子成绩单获取与签印分析
-7. 思源学堂解析版
+4. 通知聚合订阅 & Push
+5. 电子成绩单获取与签印分析
+6. 思源学堂解析版
+
+## 致谢
+
+- [XJTUToolBox](https://github.com/yan-xiaoo/XJTUToolBox.git) — 本项目的核心算法灵感来源，包括 CAS 登录流程、WebVPN 加解密、FineReport 报表解析、空闲教室 CDN 数据、学期时间计算等均移植或参考自该项目的 Python 实现。感谢 [@yan-xiaoo](https://github.com/yan-xiaoo) 的开源贡献！
 
 ## 作者
 

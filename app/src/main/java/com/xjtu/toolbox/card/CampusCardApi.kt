@@ -223,32 +223,37 @@ class CampusCardApi(private val login: CampusCardLogin) {
     }
 
     /**
-     * 获取所有交易（遍历分页）
-     * @param startDate 开始日期
-     * @param endDate 结束日期
-     * @param maxPages 最大页数限制
+     * 获取所有交易（并行分页）
      */
     fun getAllTransactions(
         startDate: LocalDate = LocalDate.now().minusMonths(3),
         endDate: LocalDate = LocalDate.now(),
         maxPages: Int = 20
     ): List<Transaction> {
-        // 先请求第1页获取总数
         val (total, firstPage) = getTransactions(startDate, endDate, 1, 50)
         if (total <= 50 || firstPage.isEmpty()) return firstPage
 
         val totalPages = minOf((total + 49) / 50, maxPages)
         if (totalPages <= 1) return firstPage
 
-        // 并行请求剩余页（使用 OkHttp Call 并行而不是协程）
-        val remainingPages = (2..totalPages).map { page ->
-            try { getTransactions(startDate, endDate, page, 50).second }
-            catch (e: Exception) {
-                Log.w(TAG, "getAllTransactions: page $page failed: ${e.message}")
-                emptyList()
+        // 真正的并行请求（OkHttp 线程池 + Future）
+        val executor = java.util.concurrent.Executors.newFixedThreadPool(
+            minOf(totalPages - 1, 6)
+        )
+        try {
+            val futures = (2..totalPages).map { page ->
+                executor.submit<List<Transaction>> {
+                    try { getTransactions(startDate, endDate, page, 50).second }
+                    catch (e: Exception) {
+                        Log.w(TAG, "page $page failed: ${e.message}")
+                        emptyList()
+                    }
+                }
             }
+            return firstPage + futures.flatMap { it.get() }
+        } finally {
+            executor.shutdown()
         }
-        return firstPage + remainingPages.flatten()
     }
 
     /**

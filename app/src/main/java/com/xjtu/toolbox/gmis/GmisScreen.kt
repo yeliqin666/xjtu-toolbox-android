@@ -55,9 +55,11 @@ fun GmisScreen(login: GmisLogin, onBack: () -> Unit) {
         }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            TabRow(selectedTabIndex = selectedTab) {
-                Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("课表") }, icon = { Icon(Icons.Default.CalendarMonth, null) })
-                Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("成绩") }, icon = { Icon(Icons.Default.School, null) })
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                SegmentedButton(selected = selectedTab == 0, onClick = { selectedTab = 0 }, shape = SegmentedButtonDefaults.itemShape(0, 2),
+                    icon = { SegmentedButtonDefaults.Icon(selectedTab == 0) { Icon(Icons.Default.CalendarMonth, null, Modifier.size(18.dp)) } }) { Text("课表") }
+                SegmentedButton(selected = selectedTab == 1, onClick = { selectedTab = 1 }, shape = SegmentedButtonDefaults.itemShape(1, 2),
+                    icon = { SegmentedButtonDefaults.Icon(selectedTab == 1) { Icon(Icons.Default.School, null, Modifier.size(18.dp)) } }) { Text("成绩") }
             }
 
             if (isLoading) {

@@ -35,6 +35,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.auth.LibraryLogin
+import com.xjtu.toolbox.ui.components.AppFilterChip
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -172,7 +173,7 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
         val existing = myBooking?.seatId
         if (existing != null) {
             val area = myBooking?.area?.let { " ($it)" } ?: ""
-            confirmDialog = "你已预约座位 $existing$area\n是否换座到 $seatId？\n\n系统将通过官方换座功能直接更换" to {
+            confirmDialog = "你已预约座位 $existing$area\n是否换座到 $seatId？" to {
                 // 直接预约新座位，bookSeat 内部自动检测并确认换座
                 doBookSeat(seatId)
             }
@@ -385,10 +386,10 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 floors.forEach { floor ->
-                    FilterChip(
+                    AppFilterChip(
                         selected = floor == selectedFloor,
                         onClick = { selectedFloor = floor },
-                        label = { Text(floor, style = MaterialTheme.typography.labelSmall) }
+                        label = floor
                     )
                 }
             }
@@ -400,10 +401,10 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 areas.forEach { area ->
-                    FilterChip(
+                    AppFilterChip(
                         selected = area == selectedArea,
                         onClick = { selectedArea = area },
-                        label = { Text(area, style = MaterialTheme.typography.labelSmall, maxLines = 1) }
+                        label = area
                     )
                 }
             }

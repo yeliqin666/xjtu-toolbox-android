@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.auth.CampusCardLogin
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.ErrorState
+import com.xjtu.toolbox.ui.components.AppFilterChip
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
@@ -64,7 +65,7 @@ fun CampusCardScreen(
     // 选项卡: 0=概览 1=流水 2=分析
     var selectedTab by remember { mutableIntStateOf(0) }
     // 时间范围
-    var selectedTimeRange by remember { mutableStateOf(TimeRange.THREE_MONTHS) }
+    var selectedTimeRange by remember { mutableStateOf(TimeRange.ONE_MONTH) }
     // 流水加载
     var isLoadingMore by remember { mutableStateOf(false) }
     var currentPage by remember { mutableIntStateOf(1) }
@@ -79,7 +80,7 @@ fun CampusCardScreen(
                 val startDate = LocalDate.now().minusMonths(range.months.toLong())
                 val endDate = LocalDate.now()
 
-                // 先加载卡信息（backfill cardAccount），再加载交易数据
+                // 先获取卡信息（回填 cardAccount），再并行抓流水
                 cardInfo = withContext(Dispatchers.IO) { api.getCardInfo() }
                 val allTx = withContext(Dispatchers.IO) {
                     api.getAllTransactions(startDate, endDate, maxPages = 50)
@@ -88,7 +89,7 @@ fun CampusCardScreen(
                 totalRecords = allTx.size
                 currentPage = (allTx.size + 49) / 50
 
-                // 并行计算统计（CPU密集型）
+                // 并行计算统计
                 withContext(Dispatchers.Default) {
                     val s1 = async { api.calculateMonthlyStats(allTx) }
                     val s2 = async { api.categorizeSpending(allTx) }
@@ -636,8 +637,8 @@ private fun AnalyticsTab(
 private fun TimeRangeSelector(selected: TimeRange, onChange: (TimeRange) -> Unit) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         TimeRange.entries.forEach { range ->
-            FilterChip(selected = range == selected, onClick = { onChange(range) },
-                label = { Text(range.label) }, modifier = Modifier.weight(1f))
+            AppFilterChip(selected = range == selected, onClick = { onChange(range) },
+                label = range.label, modifier = Modifier.weight(1f))
         }
     }
 }

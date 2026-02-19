@@ -66,11 +66,20 @@ class CredentialStore(context: Context) {
         return prefs.getString(KEY_RSA_PUBLIC_KEY, null)
     }
 
+    // ── 用户昵称缓存（欢迎卡片秒显示）──
+
+    fun saveNickname(name: String) {
+        prefs.edit().putString(KEY_NICKNAME, name).apply()
+    }
+
+    fun loadNickname(): String? = prefs.getString(KEY_NICKNAME, null)
+
     companion object {
         private const val KEY_USERNAME = "username"
         private const val KEY_PASSWORD = "password"
         private const val KEY_FP_VISITOR_ID = "fp_visitor_id"
         private const val KEY_RSA_PUBLIC_KEY = "rsa_public_key"
         private const val KEY_RSA_KEY_TIME = "rsa_key_time"
+        private const val KEY_NICKNAME = "cached_nickname"
     }
 }
