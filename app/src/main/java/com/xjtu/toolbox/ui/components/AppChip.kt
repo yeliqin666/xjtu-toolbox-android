@@ -9,7 +9,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 
 /** 统一风格的 FilterChip — 选中填充主色，圆角药丸形 */
 @Composable
@@ -18,8 +17,7 @@ fun AppFilterChip(
     onClick: () -> Unit,
     label: String,
     modifier: Modifier = Modifier,
-    leadingIcon: @Composable (() -> Unit)? = null,
-    fontSize: Float = 13f
+    leadingIcon: @Composable (() -> Unit)? = null
 ) {
     FilterChip(
         selected = selected,
@@ -27,7 +25,7 @@ fun AppFilterChip(
         label = {
             Text(
                 label,
-                fontSize = fontSize.sp,
+                style = MaterialTheme.typography.labelMedium,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
             )
         },

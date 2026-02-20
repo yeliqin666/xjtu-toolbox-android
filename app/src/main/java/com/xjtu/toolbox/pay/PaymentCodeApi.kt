@@ -1,7 +1,7 @@
 package com.xjtu.toolbox.pay
 
 import android.util.Log
-import com.google.gson.JsonParser
+import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -22,6 +22,12 @@ class PaymentCodeApi(private val client: OkHttpClient) {
         @Volatile private var cachedJwt: String? = null
         @Volatile private var cachedJwtTime: Long = 0
         private const val JWT_TTL_MS = 30 * 60 * 1000L  // 30分钟有效
+
+        /** 清除缓存的 JWT（logout 时调用） */
+        fun clearCachedJwt() {
+            cachedJwt = null
+            cachedJwtTime = 0
+        }
     }
 
     /** JWT 认证令牌（从 CasQrcode 页面提取） */
@@ -57,7 +63,7 @@ class PaymentCodeApi(private val client: OkHttpClient) {
         // 更新全局缓存
         cachedJwt = jwtToken
         cachedJwtTime = System.currentTimeMillis()
-        Log.d(TAG, "authenticate: JWT extracted and cached (${jwtToken!!.take(20)}...)")
+        Log.d(TAG, "authenticate: JWT extracted and cached (len=${jwtToken!!.length})")
     }
 
     /**
@@ -83,7 +89,7 @@ class PaymentCodeApi(private val client: OkHttpClient) {
         val text = resp.body?.string() ?: throw RuntimeException("空响应")
         Log.d(TAG, "getBarCode: code=${resp.code}, body=${text.take(200)}")
 
-        val root = JsonParser.parseString(text).asJsonObject
+        val root = text.safeParseJsonObject()
         if (root.get("IsSucceed")?.asBoolean != true) {
             throw RuntimeException("获取付款码失败: ${root.get("Msg")?.asString ?: text.take(100)}")
         }

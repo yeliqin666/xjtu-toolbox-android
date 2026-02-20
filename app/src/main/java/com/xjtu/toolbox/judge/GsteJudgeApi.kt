@@ -1,7 +1,9 @@
 package com.xjtu.toolbox.judge
 
-import com.google.gson.JsonParser
 import com.xjtu.toolbox.auth.GsteLogin
+import com.xjtu.toolbox.util.safeParseJson
+import com.xjtu.toolbox.util.safeParseJsonArray
+import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -69,7 +71,7 @@ class GsteJudgeApi(private val login: GsteLogin) {
         val body = login.client.newCall(request).execute().use { response ->
             response.body?.string() ?: throw RuntimeException("空响应")
         }
-        val jsonArray = JsonParser.parseString(body).asJsonArray
+        val jsonArray = body.safeParseJsonArray()
 
         return jsonArray.map { el ->
             val obj = el.asJsonObject
@@ -253,7 +255,7 @@ class GsteJudgeApi(private val login: GsteLogin) {
         val body = login.client.newCall(request).execute().use { response ->
             response.body?.string() ?: throw RuntimeException("空响应")
         }
-        val json = JsonParser.parseString(body).asJsonObject
+        val json = body.safeParseJsonObject()
         return json.get("ok")?.asBoolean ?: false
     }
 
@@ -313,7 +315,7 @@ class GsteJudgeApi(private val login: GsteLogin) {
         objText = objText.replace(Regex(""":\s*webix\.rules\.isNotEmpty"""), ": \"isNotEmpty\"")
 
         return try {
-            val parsed = JsonParser.parseString(objText)
+            val parsed = objText.safeParseJson()
             if (parsed.isJsonObject) {
                 jsonObjectToMap(parsed.asJsonObject)
             } else null
@@ -321,7 +323,7 @@ class GsteJudgeApi(private val login: GsteLogin) {
             // 尝试去掉尾逗号
             val cleaned = objText.replace(Regex(""",\s*([}\]])"""), "$1")
             try {
-                val parsed = JsonParser.parseString(cleaned)
+                val parsed = cleaned.safeParseJson()
                 if (parsed.isJsonObject) jsonObjectToMap(parsed.asJsonObject) else null
             } catch (_: Exception) {
                 null

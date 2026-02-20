@@ -5,19 +5,29 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.auth.JwxtLogin
+import com.xjtu.toolbox.ui.components.ErrorState
+import com.xjtu.toolbox.ui.components.LoadingState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -34,12 +44,17 @@ fun ScoreReportScreen(
 ) {
     val api = remember { ScoreReportApi(login) }
     val scope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val dataCache = remember { com.xjtu.toolbox.util.DataCache(context) }
+    val gson = remember { com.google.gson.Gson() }
 
     var isLoading by remember { mutableStateOf(true) }
+    var isRefreshing by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var allGrades by remember { mutableStateOf<List<ReportedGrade>>(emptyList()) }
     var termGroups by remember { mutableStateOf<Map<String, List<ReportedGrade>>>(emptyMap()) }
-    var expandedTerms by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var expandedTerms by rememberSaveable { mutableStateOf<Set<String>>(emptySet()) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
 
     // 统计
     val totalCredits = allGrades.sumOf { it.coursePoint }
@@ -47,22 +62,56 @@ fun ScoreReportScreen(
         allGrades.filter { it.gpa != null }.sumOf { it.gpa!! * it.coursePoint } / allGrades.filter { it.gpa != null }.sumOf { it.coursePoint }
     } else 0.0
 
-    LaunchedEffect(Unit) {
-        try {
-            val grades = withContext(Dispatchers.IO) {
-                api.getReportedGrade(studentId)
+    // 搜索过滤
+    val filteredTermGroups = if (searchQuery.isBlank()) termGroups
+    else termGroups.mapValues { (_, grades) ->
+        grades.filter { it.courseName.contains(searchQuery, ignoreCase = true) }
+    }.filter { it.value.isNotEmpty() }
+
+    fun loadData() {
+        isLoading = true
+        isRefreshing = false
+        errorMessage = null
+        scope.launch {
+            // SWR: 先尝试缓存秒显
+            val cacheKey = "score_report_${studentId}"
+            try {
+                val cached = dataCache.get(cacheKey, com.xjtu.toolbox.util.DataCache.DEFAULT_TTL_MS)
+                if (cached != null) {
+                    val cachedGrades = gson.fromJson(cached, Array<ReportedGrade>::class.java).toList()
+                    if (cachedGrades.isNotEmpty()) {
+                        allGrades = cachedGrades
+                        termGroups = cachedGrades.groupBy { it.term }.toSortedMap(compareByDescending { it })
+                        if (expandedTerms.isEmpty() && termGroups.isNotEmpty()) {
+                            expandedTerms = setOf(termGroups.keys.first())
+                        }
+                        isLoading = false
+                        isRefreshing = true
+                    }
+                }
+            } catch (_: Exception) { /* 缓存读取失败，正常加载 */ }
+
+            try {
+                val grades = withContext(Dispatchers.IO) {
+                    api.getReportedGrade(studentId)
+                }
+                allGrades = grades
+                termGroups = grades.groupBy { it.term }.toSortedMap(compareByDescending { it })
+                if (expandedTerms.isEmpty() && termGroups.isNotEmpty()) {
+                    expandedTerms = setOf(termGroups.keys.first())
+                }
+                // 更新缓存
+                try { dataCache.put(cacheKey, gson.toJson(grades)) } catch (_: Exception) {}
+            } catch (e: Exception) {
+                if (allGrades.isEmpty()) errorMessage = "加载失败: ${e.message}"
+            } finally {
+                isLoading = false
+                isRefreshing = false
             }
-            allGrades = grades
-            termGroups = grades.groupBy { it.term }.toSortedMap(compareByDescending { it })
-            if (termGroups.isNotEmpty()) {
-                expandedTerms = setOf(termGroups.keys.first())
-            }
-        } catch (e: Exception) {
-            errorMessage = "加载失败: ${e.message}"
-        } finally {
-            isLoading = false
         }
     }
+
+    LaunchedEffect(Unit) { loadData() }
 
     Scaffold(
         topBar = {
@@ -72,51 +121,40 @@ fun ScoreReportScreen(
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回")
                     }
+                },
+                actions = {
+                    if (!isLoading) {
+                        IconButton(onClick = { loadData() }) {
+                            Icon(Icons.Default.Refresh, contentDescription = "刷新")
+                        }
+                    }
                 }
             )
         }
     ) { padding ->
-        when {
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            if (isRefreshing) {
+                LinearProgressIndicator(Modifier.fillMaxWidth())
+            }
+            when {
             isLoading -> {
-                Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator()
-                        Spacer(Modifier.height(8.dp))
-                        Text("正在加载成绩报表...", style = MaterialTheme.typography.bodyMedium)
-                        Spacer(Modifier.height(4.dp))
-                        Text("（绕过评教限制）", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
+                LoadingState(
+                    message = "正在加载成绩报表...",
+                    modifier = Modifier.fillMaxSize()
+                )
             }
 
             errorMessage != null -> {
-                Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(errorMessage!!, color = MaterialTheme.colorScheme.error)
-                        Spacer(Modifier.height(16.dp))
-                        OutlinedButton(onClick = {
-                            errorMessage = null
-                            isLoading = true
-                            scope.launch {
-                                try {
-                                    val grades = withContext(Dispatchers.IO) { api.getReportedGrade(studentId) }
-                                    allGrades = grades
-                                    termGroups = grades.groupBy { it.term }.toSortedMap(compareByDescending { it })
-                                    if (termGroups.isNotEmpty()) expandedTerms = setOf(termGroups.keys.first())
-                                } catch (e: Exception) {
-                                    errorMessage = "加载失败: ${e.message}"
-                                } finally {
-                                    isLoading = false
-                                }
-                            }
-                        }) { Text("重试") }
-                    }
-                }
+                ErrorState(
+                    message = errorMessage!!,
+                    onRetry = { loadData() },
+                    modifier = Modifier.fillMaxSize()
+                )
             }
 
             else -> {
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = PaddingValues(vertical = 8.dp)
                 ) {
@@ -164,8 +202,30 @@ fun ScoreReportScreen(
                         }
                     }
 
+                    // 搜索框
+                    item {
+                        val keyboardController = LocalSoftwareKeyboardController.current
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = { Text("搜索课程名称...") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(onSearch = { keyboardController?.hide() }),
+                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "搜索") },
+                            trailingIcon = {
+                                if (searchQuery.isNotEmpty()) {
+                                    IconButton(onClick = { searchQuery = ""; keyboardController?.hide() }) {
+                                        Icon(Icons.Default.Clear, contentDescription = "清除")
+                                    }
+                                }
+                            }
+                        )
+                    }
+
                     // 按学期分组
-                    termGroups.forEach { (term, grades) ->
+                    filteredTermGroups.forEach { (term, grades) ->
                         val isExpanded = term in expandedTerms
                         val termGpa = grades.filter { it.gpa != null }.let { valid ->
                             if (valid.isNotEmpty()) valid.sumOf { it.gpa!! * it.coursePoint } / valid.sumOf { it.coursePoint } else 0.0
@@ -205,6 +265,7 @@ fun ScoreReportScreen(
                 }
             }
         }
+        }
     }
 }
 
@@ -228,7 +289,7 @@ private fun ReportGradeCard(grade: ReportedGrade) {
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "${grade.coursePoint} 学分" + if (grade.gpa != null) " · GPA ${grade.gpa}" else "",
+                    "${grade.coursePoint} 学分" + if (grade.gpa != null) " · GPA ${"%.2f".format(grade.gpa)}" else "",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

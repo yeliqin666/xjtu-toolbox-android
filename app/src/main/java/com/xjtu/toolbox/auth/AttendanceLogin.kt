@@ -79,11 +79,14 @@ class AttendanceLogin(
     }
 
     /**
-     * 重新认证：通过 CAS SSO 重新获取考勤 Token
+     * [D1] 重新认证：先尝试 SSO，失败后 fallback 到 casAuthenticate
      * @return true 表示重新认证成功
      */
-    fun reAuthenticate(): Boolean {
+    private val reAuthLock = Any()
+
+    fun reAuthenticate(): Boolean = synchronized(reAuthLock) {
         try {
+            // 第一步：SSO（TGC 有效时直接成功）
             val loginUrl = if (useWebVpn) ATTENDANCE_WEBVPN_URL else ATTENDANCE_URL
             val request = Request.Builder().url(loginUrl).get().build()
             val response = client.newCall(request).execute()
@@ -94,13 +97,26 @@ class AttendanceLogin(
                 .takeIf { it.isNotEmpty() }
             if (token != null) {
                 authToken = token
-                android.util.Log.d("AttendanceLogin", "reAuthenticate: new token obtained")
+                android.util.Log.d("AttendanceLogin", "reAuthenticate: SSO success, new token obtained")
+                return true
+            }
+
+            // 第二步：SSO 失败（TGC 过期），fallback 到 casAuthenticate
+            android.util.Log.d("AttendanceLogin", "reAuthenticate: SSO failed, trying casAuthenticate")
+            val casResult = casAuthenticate(loginUrl) ?: return false
+            val casToken = casResult.second.substringAfter("token=", "")
+                .substringBefore("&")
+                .substringBefore("#")
+                .takeIf { it.isNotEmpty() }
+            if (casToken != null) {
+                authToken = casToken
+                android.util.Log.d("AttendanceLogin", "reAuthenticate: casAuthenticate success")
                 return true
             }
         } catch (e: Exception) {
             android.util.Log.e("AttendanceLogin", "reAuthenticate failed", e)
         }
-        return false
+        return@synchronized false
     }
 
     /**
@@ -120,14 +136,34 @@ class AttendanceLogin(
 }
 
 /**
- * 教务系统登录（纯 CAS，不需要额外 Token）
+ * 教务系统登录（CAS Cookie-based）
+ * [A1] 增加 reAuthenticate：session 过期时通过 CAS SSO/casAuthenticate 恢复
  */
 class JwxtLogin(
     session: OkHttpClient? = null,
     visitorId: String? = null,
     cachedRsaKey: String? = null
 ) : XJTULogin(JWXT_URL, session, visitorId, cachedRsaKey) {
-    // 教务系统不需要额外的 postLogin 处理
-    // CAS cookies 已经自动管理
+
+    /**
+     * [A1] 重新认证：通过 CAS SSO 刷新教务 session
+     * [D1] SSO 失败时自动 fallback 到 casAuthenticate（用保存的密码重新提交）
+     * @return true 表示重新认证成功
+     */
+    fun reAuthenticate(): Boolean {
+        return try {
+            val result = casAuthenticate(JWXT_URL)
+            if (result != null && !result.second.contains("login.xjtu.edu.cn/cas/login")) {
+                android.util.Log.d("JwxtLogin", "reAuthenticate: success via casAuthenticate")
+                true
+            } else {
+                android.util.Log.w("JwxtLogin", "reAuthenticate: casAuthenticate returned login page")
+                false
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("JwxtLogin", "reAuthenticate failed", e)
+            false
+        }
+    }
 }
 

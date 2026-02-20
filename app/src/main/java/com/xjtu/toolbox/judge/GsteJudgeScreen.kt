@@ -9,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -79,6 +80,11 @@ fun GsteJudgeScreen(
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
+                },
+                actions = {
+                    IconButton(onClick = { loadData() }) {
+                        Icon(Icons.Default.Refresh, contentDescription = "刷新")
+                    }
                 }
             )
         }
@@ -136,19 +142,24 @@ fun GsteJudgeScreen(
 
             // 一键好评按钮
             if (allowList.isNotEmpty()) {
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                ) {
-                    FilledTonalButton(
-                        onClick = {
-                            if (!isAutoJudging) {
+                var showConfirmDialog by remember { mutableStateOf(false) }
+
+                // 确认对话框（研究生评教不可撤销，需更醒目的警告）
+                if (showConfirmDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showConfirmDialog = false },
+                        title = { Text("⚠️ 确认一键好评") },
+                        text = { Text("将为 ${allowList.size} 门课程全部提交好评。\n\n注意：研究生评教提交后不可撤销，请确认后操作。") },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                showConfirmDialog = false
                                 scope.launch {
                                     isAutoJudging = true
                                     autoJudgeTotal = allowList.size
                                     autoJudgeProgress = 0
                                     autoJudgeMessage = "正在评教..."
+                                    var failCount = 0
+                                    var lastError = ""
 
                                     try {
                                         for ((index, q) in allowList.withIndex()) {
@@ -156,23 +167,24 @@ fun GsteJudgeScreen(
                                                 "正在评教: ${q.KCMC} (${index + 1}/$autoJudgeTotal)"
                                             autoJudgeProgress = index
 
-                                            withContext(Dispatchers.IO) {
-                                                // 获取表单 HTML
-                                                val html = api.getQuestionnaireHtml(q)
-                                                // 解析表单
-                                                val (meta, questions) = api.parseFormFromHtml(html)
-                                                // 自动填写 (score=3 即"优")
-                                                val formData =
-                                                    api.autoFill(questions, meta, q, score = 3)
-                                                // 提交
-                                                api.submitQuestionnaire(q, formData)
+                                            try {
+                                                withContext(Dispatchers.IO) {
+                                                    val html = api.getQuestionnaireHtml(q)
+                                                    val (meta, questions) = api.parseFormFromHtml(html)
+                                                    val formData =
+                                                        api.autoFill(questions, meta, q, score = 3)
+                                                    api.submitQuestionnaire(q, formData)
+                                                }
+                                            } catch (e: Exception) {
+                                                failCount++
+                                                lastError = "${q.KCMC}: ${e.message}"
                                             }
 
                                             autoJudgeProgress = index + 1
                                             delay(500) // 间隔避免被限流
                                         }
-                                        autoJudgeMessage = "全部评教完成！"
-                                        // 刷新列表
+                                        autoJudgeMessage = if (failCount == 0) "全部评教完成！"
+                                            else "${autoJudgeTotal - failCount}门成功，${failCount}门失败（$lastError）"
                                         loadData()
                                     } catch (e: Exception) {
                                         autoJudgeMessage = "评教出错: ${e.message}"
@@ -180,8 +192,21 @@ fun GsteJudgeScreen(
                                         isAutoJudging = false
                                     }
                                 }
-                            }
+                            }) { Text("确认提交") }
                         },
+                        dismissButton = {
+                            TextButton(onClick = { showConfirmDialog = false }) { Text("取消") }
+                        }
+                    )
+                }
+
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    FilledTonalButton(
+                        onClick = { if (!isAutoJudging) showConfirmDialog = true },
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !isAutoJudging
                     ) {

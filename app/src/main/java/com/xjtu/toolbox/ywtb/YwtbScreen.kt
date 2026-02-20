@@ -54,6 +54,8 @@ fun YwtbScreen(login: YwtbLogin, onBack: () -> Unit) {
                     }
                 } catch (_: Exception) { }
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             errorMessage = "加载失败: ${e.message}"
         } finally { isLoading = false }
@@ -72,7 +74,7 @@ fun YwtbScreen(login: YwtbLogin, onBack: () -> Unit) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(errorMessage!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyLarge)
                     Spacer(Modifier.height(16.dp))
-                    OutlinedButton(onClick = { errorMessage = null; isLoading = true; scope.launch { try { withContext(Dispatchers.IO) { userInfo = api.getUserInfo() } } catch (e: Exception) { errorMessage = "加载失败: ${e.message}" } finally { isLoading = false } } }) { Text("重试") }
+                    OutlinedButton(onClick = { errorMessage = null; isLoading = true; scope.launch { try { withContext(Dispatchers.IO) { userInfo = api.getUserInfo() } } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { errorMessage = "加载失败: ${e.message}" } finally { isLoading = false } } }) { Text("重试") }
                 }
             }
             else -> Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {

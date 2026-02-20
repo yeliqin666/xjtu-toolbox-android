@@ -1,7 +1,7 @@
 package com.xjtu.toolbox.ywtb
 
-import com.google.gson.JsonParser
 import com.xjtu.toolbox.auth.YwtbLogin
+import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import java.time.LocalDate
@@ -34,7 +34,7 @@ class YwtbApi(private val login: YwtbLogin) {
         val (responseCode, body) = login.executeWithReAuth(request).use { response ->
             response.code to (response.body?.string() ?: throw RuntimeException("空响应"))
         }
-        val json = JsonParser.parseString(body).asJsonObject
+        val json = body.safeParseJsonObject()
 
         if (responseCode != 200) {
             throw RuntimeException(json.get("message")?.asString ?: "服务器错误")
@@ -73,7 +73,7 @@ class YwtbApi(private val login: YwtbLogin) {
             }
         }
         android.util.Log.d("YwtbWeek", "responseBody=${responseBody.take(500)}")
-        val json = JsonParser.parseString(responseBody).asJsonObject
+        val json = responseBody.safeParseJsonObject()
         val dataObj = json.getAsJsonObject("data")?.getAsJsonObject("data")
         if (dataObj == null) {
             android.util.Log.w("YwtbWeek", "data.data is null")
@@ -130,7 +130,7 @@ class YwtbApi(private val login: YwtbLogin) {
         val responseBody = login.executeWithReAuth(request).use { response ->
             response.body?.string() ?: throw RuntimeException("空响应")
         }
-        val json = JsonParser.parseString(responseBody).asJsonObject
+        val json = responseBody.safeParseJsonObject()
         val dataObj = json.getAsJsonObject("data").getAsJsonObject("data")
         val dateArray = dataObj.getAsJsonArray("date")
         val semesterAliList = dataObj.getAsJsonArray("semesterAlilist")

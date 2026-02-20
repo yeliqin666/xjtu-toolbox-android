@@ -10,7 +10,7 @@ import java.security.KeyFactory
 import java.security.spec.X509EncodedKeySpec
 import javax.crypto.Cipher
 import com.google.gson.Gson
-import com.google.gson.JsonParser
+import com.xjtu.toolbox.util.safeParseJsonObject
 import java.net.CookieManager
 import java.net.CookiePolicy
 import java.io.IOException
@@ -67,7 +67,7 @@ class MFAContext(
             .build()
 
         val response = login.client.newCall(request).execute()
-        val json = JsonParser.parseString(response.body?.string()).asJsonObject
+        val json = response.body?.string().safeParseJsonObject()
         if (json.get("code").asInt == 0) {
             val data = json.getAsJsonObject("data")
             gid = data.get("gid").asString
@@ -91,7 +91,7 @@ class MFAContext(
             .build()
 
         val response = login.client.newCall(request).execute()
-        val result = JsonParser.parseString(response.body?.string()).asJsonObject
+        val result = response.body?.string().safeParseJsonObject()
         if (result.get("code").asInt == 0) {
             return phone
         } else {
@@ -113,7 +113,7 @@ class MFAContext(
             .build()
 
         val response = login.client.newCall(request).execute()
-        val result = JsonParser.parseString(response.body?.string()).asJsonObject
+        val result = response.body?.string().safeParseJsonObject()
         if (result.get("code").asInt != 0) {
             throw RuntimeException(result.get("message").asString)
         }
@@ -310,7 +310,7 @@ open class XJTULogin(
             val responseStr = response.body?.string() ?: "{}"
             android.util.Log.d("XJTULogin", "login: MFA detect response code=${response.code}, body=$responseStr")
             val data = try {
-                JsonParser.parseString(responseStr).asJsonObject
+                responseStr.safeParseJsonObject()
                     .getAsJsonObject("data")
             } catch (e: Exception) {
                 android.util.Log.e("XJTULogin", "login: MFA detect parse error", e)
@@ -499,33 +499,114 @@ open class XJTULogin(
     fun getRsaPublicKey(): String? = rsaPublicKey
 
     /**
+     * 从服务器获取 RSA 公钥
+     */
+    private fun fetchRsaPublicKeyFromServer(): String {
+        val request = Request.Builder()
+            .url("https://login.xjtu.edu.cn/cas/jwt/publicKey")
+            .header("Referer", postUrl)
+            .get()
+            .build()
+        val response = client.newCall(request).execute()
+        val body = response.body?.string()
+            ?: throw IOException("RSA 公钥接口返回空响应 (HTTP ${response.code})")
+        // 检测 HTML 错误页面 / 非 PEM 响应
+        if (body.contains("<html", ignoreCase = true) || body.contains("<HTML", ignoreCase = true)) {
+            throw IOException("RSA 公钥接口返回 HTML 错误页面，可能是网络代理拦截")
+        }
+        android.util.Log.d("XJTULogin", "fetchRsaPublicKey: ${body.take(80)}...")
+        return body
+    }
+
+    /**
+     * 将 PEM/原始 Base64 字符串解析为 RSA PublicKey
+     */
+    private fun parseRsaPublicKey(pemStr: String): java.security.PublicKey {
+        // 去除 PEM 头尾和空白
+        val keyStr = pemStr
+            .replace("-----BEGIN PUBLIC KEY-----", "")
+            .replace("-----END PUBLIC KEY-----", "")
+            .replace("-----BEGIN RSA PUBLIC KEY-----", "")
+            .replace("-----END RSA PUBLIC KEY-----", "")
+            .replace("\\s".toRegex(), "")
+
+        if (keyStr.isEmpty()) {
+            throw java.security.spec.InvalidKeySpecException("公钥内容为空")
+        }
+
+        val keyBytes = Base64.decode(keyStr, Base64.DEFAULT)
+        val keyFactory = KeyFactory.getInstance("RSA")
+
+        // 优先尝试 X.509 (PKCS#8) 格式
+        return try {
+            keyFactory.generatePublic(X509EncodedKeySpec(keyBytes))
+        } catch (e: java.security.spec.InvalidKeySpecException) {
+            // 回退：尝试 PKCS#1 格式 → 手动包装为 X.509
+            android.util.Log.w("XJTULogin", "X.509 解析失败，尝试 PKCS#1 包装: ${e.message}")
+            try {
+                val pkcs1Header = byteArrayOf(
+                    0x30.toByte(), 0x82.toByte(), 0x00.toByte(), 0x00.toByte(), // SEQUENCE (placeholder)
+                    0x30.toByte(), 0x0D.toByte(),                               // SEQUENCE
+                    0x06.toByte(), 0x09.toByte(),                               // OID
+                    0x2A.toByte(), 0x86.toByte(), 0x48.toByte(), 0x86.toByte(), // 1.2.840.113549.1.1.1 (rsaEncryption)
+                    0xF7.toByte(), 0x0D.toByte(), 0x01.toByte(), 0x01.toByte(),
+                    0x01.toByte(),
+                    0x05.toByte(), 0x00.toByte(),                               // NULL
+                    0x03.toByte(), 0x82.toByte(), 0x00.toByte(), 0x00.toByte()  // BIT STRING (placeholder)
+                )
+                val bitStringContent = byteArrayOf(0x00.toByte()) + keyBytes // prepend unused-bits byte
+                val bitStringLen = bitStringContent.size
+                // BIT STRING length (2 bytes)
+                pkcs1Header[pkcs1Header.size - 2] = ((bitStringLen shr 8) and 0xFF).toByte()
+                pkcs1Header[pkcs1Header.size - 1] = (bitStringLen and 0xFF).toByte()
+                val inner = pkcs1Header.sliceArray(4 until pkcs1Header.size) + bitStringContent
+                val totalLen = inner.size
+                val x509Bytes = byteArrayOf(
+                    0x30.toByte(), 0x82.toByte(),
+                    ((totalLen shr 8) and 0xFF).toByte(),
+                    (totalLen and 0xFF).toByte()
+                ) + inner
+                keyFactory.generatePublic(X509EncodedKeySpec(x509Bytes))
+            } catch (e2: Exception) {
+                android.util.Log.e("XJTULogin", "PKCS#1 包装也失败: ${e2.message}")
+                throw java.security.spec.InvalidKeySpecException(
+                    "无法解析 RSA 公钥（X.509 和 PKCS#1 均失败）。密钥前 60 字符: ${keyStr.take(60)}", e
+                )
+            }
+        }
+    }
+
+    /**
      * RSA 加密密码
+     * 如果缓存的公钥解析失败，自动清除缓存并重新获取
      */
     fun encryptPassword(password: String, publicKeyStr: String? = null): String {
+        // 1. 确定公钥字符串
         val pubKey = publicKeyStr ?: run {
             if (rsaPublicKey == null) {
-                val request = Request.Builder()
-                    .url("https://login.xjtu.edu.cn/cas/jwt/publicKey")
-                    .header("Referer", postUrl)
-                    .get()
-                    .build()
-                rsaPublicKey = client.newCall(request).execute().body?.string()
+                rsaPublicKey = fetchRsaPublicKeyFromServer()
             }
             rsaPublicKey!!
         }
 
-        // 解析 PEM 公钥
-        val keyStr = pubKey
-            .replace("-----BEGIN PUBLIC KEY-----", "")
-            .replace("-----END PUBLIC KEY-----", "")
-            .replace("\\s".toRegex(), "")
+        // 2. 尝试解析公钥，如果缓存的失败则重新获取
+        val publicKey = try {
+            parseRsaPublicKey(pubKey)
+        } catch (e: Exception) {
+            if (publicKeyStr != null) throw e // 外部传入的 key，不可重试
+            android.util.Log.w("XJTULogin", "缓存的 RSA 公钥解析失败，重新获取: ${e.message}")
+            rsaPublicKey = null // 清除坏缓存
+            val freshKey = fetchRsaPublicKeyFromServer()
+            rsaPublicKey = freshKey
+            try {
+                parseRsaPublicKey(freshKey)
+            } catch (e2: Exception) {
+                android.util.Log.e("XJTULogin", "重新获取的 RSA 公钥仍然解析失败", e2)
+                throw RuntimeException("RSA 公钥解析失败，请检查网络或稍后重试", e2)
+            }
+        }
 
-        val keyBytes = Base64.decode(keyStr, Base64.DEFAULT)
-        val keySpec = X509EncodedKeySpec(keyBytes)
-        val keyFactory = KeyFactory.getInstance("RSA")
-        val publicKey = keyFactory.generatePublic(keySpec)
-
-        // RSA PKCS1 加密
+        // 3. RSA PKCS1 加密
         val cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding")
         cipher.init(Cipher.ENCRYPT_MODE, publicKey)
         val encrypted = cipher.doFinal(password.toByteArray())

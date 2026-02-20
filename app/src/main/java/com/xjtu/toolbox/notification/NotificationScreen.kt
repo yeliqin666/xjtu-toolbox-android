@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -25,9 +26,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.ui.components.AppFilterChip
+import com.xjtu.toolbox.ui.components.EmptyState
+import com.xjtu.toolbox.ui.components.ErrorState
+import com.xjtu.toolbox.ui.components.LoadingState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.LocalDate
+import java.time.temporal.ChronoUnit
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -39,18 +45,18 @@ fun NotificationScreen(
     val scope = rememberCoroutineScope()
 
     // ── 状态 ──
-    var selectedCategory by remember { mutableStateOf<SourceCategory?>(null) } // null = 全部分类
-    var selectedSource by remember { mutableStateOf(NotificationSource.JWC) }
-    var mergeMode by remember { mutableStateOf(false) }
-    var selectedSources by remember { mutableStateOf(setOf(NotificationSource.JWC)) }
+    var selectedCategory by rememberSaveable { mutableStateOf<SourceCategory?>(null) } // null = 全部分类
+    var selectedSource by rememberSaveable { mutableStateOf(NotificationSource.JWC) }
+    var mergeMode by rememberSaveable { mutableStateOf(false) }
+    var selectedSources by rememberSaveable { mutableStateOf(setOf(NotificationSource.JWC)) }
 
     var notifications by remember { mutableStateOf<List<Notification>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var isLoadingMore by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    var searchQuery by remember { mutableStateOf("") }
-    var isSearchActive by remember { mutableStateOf(false) }
-    var currentPage by remember { mutableIntStateOf(1) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var isSearchActive by rememberSaveable { mutableStateOf(false) }
+    var currentPage by rememberSaveable { mutableIntStateOf(1) }
 
     // 缓存
     val cache = remember { mutableMapOf<Any, List<Notification>>() }
@@ -237,13 +243,13 @@ fun NotificationScreen(
                                     selectedSources + source
                                 }
                             },
-                            label = source.displayName, fontSize = 12f
+                            label = source.displayName
                         )
                     } else {
                         AppFilterChip(
                             selected = source == selectedSource,
                             onClick = { selectedSource = source },
-                            label = source.displayName, fontSize = 12f
+                            label = source.displayName
                         )
                     }
                 }
@@ -273,38 +279,24 @@ fun NotificationScreen(
             // ═══ 内容区 ═══
             when {
                 isLoading && notifications.isEmpty() -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            CircularProgressIndicator()
-                            Spacer(Modifier.height(8.dp))
-                            Text("正在加载通知...", style = MaterialTheme.typography.bodyMedium)
-                        }
-                    }
+                    LoadingState(message = "正在加载通知...", modifier = Modifier.fillMaxSize())
                 }
 
                 errorMessage != null && notifications.isEmpty() -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                errorMessage ?: "未知错误",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.error
-                            )
-                            Spacer(Modifier.height(16.dp))
-                            FilledTonalButton(onClick = { loadNotifications() }) { Text("重试") }
-                        }
-                    }
+                    ErrorState(
+                        message = errorMessage ?: "未知错误",
+                        onRetry = { loadNotifications() },
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
 
                 else -> {
                     if (filteredNotifications.isEmpty()) {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text(
-                                if (searchQuery.isNotBlank()) "没有匹配的通知" else "暂无通知",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                        EmptyState(
+                            title = if (searchQuery.isNotBlank()) "没有匹配的通知" else "暂无通知",
+                            subtitle = if (searchQuery.isNotBlank()) "请尝试更改搜索关键词" else "当前暂无新通知",
+                            modifier = Modifier.fillMaxSize()
+                        )
                     } else {
                         LazyColumn(
                             state = listState,
@@ -340,6 +332,28 @@ fun NotificationScreen(
                 }
             }
         }
+    }
+}
+
+// ==================== 日期格式化 ====================
+
+private fun formatRelativeDate(date: LocalDate): String {
+    return try {
+        val today = LocalDate.now()
+        val days = ChronoUnit.DAYS.between(date, today)
+        when {
+            days < -1L  -> "${-days}\u5929\u540e"   // \u672a\u6765\u8d85\u8fc71\u5929
+            days == -1L -> "\u660e\u65e5"
+            days == 0L  -> "\u4eca\u65e5"
+            days == 1L  -> "\u6628\u65e5"
+            days in 2..6 -> "${days}\u5929\u524d"
+            days in 7..13 -> "\u4e0a\u5468"
+            days in 14..30 -> "${days / 7}\u5468\u524d"
+            days in 31..365 -> "${days / 30}\u4e2a\u6708\u524d"
+            else -> date.toString()
+        }
+    } catch (_: Exception) {
+        date.toString()
     }
 }
 
@@ -413,7 +427,7 @@ private fun NotificationCard(
                         )
                     }
                     Text(
-                        text = notification.date.toString(),
+                        text = formatRelativeDate(notification.date),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

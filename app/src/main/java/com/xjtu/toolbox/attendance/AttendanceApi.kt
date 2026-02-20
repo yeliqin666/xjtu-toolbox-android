@@ -1,8 +1,8 @@
 package com.xjtu.toolbox.attendance
 
 import android.util.Log
-import com.google.gson.JsonParser
 import com.xjtu.toolbox.auth.AttendanceLogin
+import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.text.SimpleDateFormat
@@ -130,7 +130,7 @@ class AttendanceApi(private val login: AttendanceLogin) {
      */
     fun getStudentInfo(): Map<String, Any> {
         val result = post("/attendance-student/global/getStuInfo")
-        val json = JsonParser.parseString(result).asJsonObject
+        val json = result.safeParseJsonObject()
         val data = json.getAsJsonObject("data")
         if (data == null) {
             Log.w(TAG, "getStudentInfo: data is null, full response=${result.take(500)}")
@@ -152,7 +152,7 @@ class AttendanceApi(private val login: AttendanceLogin) {
      */
     fun getTermBh(): String {
         val result = post("/attendance-student/global/getNearTerm")
-        val json = JsonParser.parseString(result).asJsonObject
+        val json = result.safeParseJsonObject()
         val data = json.getAsJsonObject("data")
             ?: throw RuntimeException("getNearTerm: data 为空, response=$result")
         return data.get("bh")?.asString
@@ -166,7 +166,7 @@ class AttendanceApi(private val login: AttendanceLogin) {
      */
     fun getTermList(): List<TermInfo> {
         val result = post("/attendance-student/global/getBeforeTodayTerm")
-        val json = JsonParser.parseString(result).asJsonObject
+        val json = result.safeParseJsonObject()
         val data = json.getAsJsonArray("data") ?: return emptyList()
 
         return data.map { item ->
@@ -192,7 +192,7 @@ class AttendanceApi(private val login: AttendanceLogin) {
         val queryDate = date ?: dateFormat.format(Date())
         val jsonBody = """{"startdate":"$queryDate","enddate":"$queryDate","current":1,"pageSize":200,"calendarBh":""}"""
         val result = post("/attendance-student/waterList/page", jsonBody)
-        val json = JsonParser.parseString(result).asJsonObject
+        val json = result.safeParseJsonObject()
         val dataObj = json.getAsJsonObject("data") ?: return emptyList()
         val list = dataObj.getAsJsonArray("list") ?: return emptyList()
 
@@ -214,7 +214,7 @@ class AttendanceApi(private val login: AttendanceLogin) {
     fun getFlowRecordsByRange(startDate: String, endDate: String): List<AttendanceFlow> {
         val jsonBody = """{"startdate":"$startDate","enddate":"$endDate","current":1,"pageSize":200,"calendarBh":""}"""
         val result = post("/attendance-student/waterList/page", jsonBody)
-        val json = JsonParser.parseString(result).asJsonObject
+        val json = result.safeParseJsonObject()
         val dataObj = json.getAsJsonObject("data") ?: return emptyList()
         val list = dataObj.getAsJsonArray("list") ?: return emptyList()
 
@@ -237,7 +237,7 @@ class AttendanceApi(private val login: AttendanceLogin) {
         val bh = termBh ?: getTermBh()
         val jsonBody = """{"startDate":"","endDate":"","current":1,"pageSize":500,"timeCondition":"","subjectBean":{"sCode":""},"classWaterBean":{"status":""},"classBean":{"termNo":"$bh"}}"""
         val result = post("/attendance-student/classWater/getClassWaterPage", jsonBody)
-        val json = JsonParser.parseString(result).asJsonObject
+        val json = result.safeParseJsonObject()
         val dataObj = json.getAsJsonObject("data") ?: return emptyList()
         val list = dataObj.getAsJsonArray("list") ?: return emptyList()
 
@@ -307,7 +307,7 @@ class AttendanceApi(private val login: AttendanceLogin) {
     }
 
     private fun parseKqtjList(result: String): List<CourseAttendanceStat> {
-        val json = JsonParser.parseString(result).asJsonObject
+        val json = result.safeParseJsonObject()
         val data = json.getAsJsonArray("data") ?: return emptyList()
         return data.mapNotNull { item ->
             val obj = item.asJsonObject

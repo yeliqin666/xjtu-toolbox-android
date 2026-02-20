@@ -1,8 +1,8 @@
 package com.xjtu.toolbox.card
 
 import android.util.Log
-import com.google.gson.JsonParser
 import com.xjtu.toolbox.auth.CampusCardLogin
+import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.FormBody
 import okhttp3.Request
 import java.time.LocalDate
@@ -91,7 +91,7 @@ class CampusCardApi(private val login: CampusCardLogin) {
         Log.d(TAG, "getCardInfo: body=${responseBody.take(500)}")
 
         val root = try {
-            JsonParser.parseString(responseBody).asJsonObject
+            responseBody.safeParseJsonObject()
         } catch (e: Exception) {
             throw RuntimeException("校园卡返回了非JSON数据: ${responseBody.take(100)}")
         }
@@ -133,7 +133,7 @@ class CampusCardApi(private val login: CampusCardLogin) {
             throw RuntimeException(errHint)
         }
 
-        val cardData = JsonParser.parseString(msg).asJsonObject
+        val cardData = msg.safeParseJsonObject()
         val queryCard = cardData.getAsJsonObject("query_card")
 
         val retcode = queryCard.get("retcode")?.asString
@@ -204,7 +204,11 @@ class CampusCardApi(private val login: CampusCardLogin) {
         Log.d(TAG, "getTransactions: page=$page, code=${response.code}, bodyLen=${responseBody.length}")
         Log.d(TAG, "getTransactions: account=${account.ifEmpty { "(empty!)" }}, body=${responseBody.take(300)}")
 
-        val root = JsonParser.parseString(responseBody).asJsonObject
+        val root = try {
+            responseBody.safeParseJsonObject()
+        } catch (e: Exception) {
+            throw RuntimeException("交易记录返回了非JSON数据: ${responseBody.take(100)}")
+        }
         val total = root.get("total")?.asInt ?: 0
         val rows = root.getAsJsonArray("rows") ?: return total to emptyList()
 

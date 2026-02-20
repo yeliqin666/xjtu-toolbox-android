@@ -2,12 +2,16 @@ package com.xjtu.toolbox.jwapp
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -27,14 +31,24 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import com.xjtu.toolbox.auth.JwappLogin
 import com.xjtu.toolbox.auth.JwxtLogin
 import com.xjtu.toolbox.score.ScoreReportApi
@@ -50,35 +64,40 @@ import kotlinx.coroutines.withContext
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun JwappScoreScreen(
-    login: JwappLogin,
+    login: JwappLogin?,
     jwxtLogin: JwxtLogin? = null,
     studentId: String = "",
     onBack: () -> Unit
 ) {
-    val api = remember { JwappApi(login) }
+    val api = remember(login) { login?.let { JwappApi(it) } }
     val scope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val dataCache = remember { com.xjtu.toolbox.util.DataCache(context) }
+    val gson = remember { com.google.gson.Gson() }
+    val snackbarHostState = remember { SnackbarHostState() }
 
     var isLoading by remember { mutableStateOf(true) }
+    var isRefreshing by remember { mutableStateOf(false) }  // 缓存已显示，后台刷新中
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var allTermScores by remember { mutableStateOf<List<TermScore>>(emptyList()) }
     var termList by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
-    var selectedTermIndex by remember { mutableIntStateOf(0) }
+    var selectedTermIndex by rememberSaveable { mutableIntStateOf(0) }
     var currentTermName by remember { mutableStateOf("") }
-    var expandedCourseId by remember { mutableStateOf<String?>(null) }
+    var expandedCourseId by rememberSaveable { mutableStateOf<String?>(null) }
     var courseDetails by remember { mutableStateOf<Map<String, ScoreDetail>>(emptyMap()) }
     var detailLoading by remember { mutableStateOf<String?>(null) }
 
     // GPA 选课计算模式
-    var gpaSelectMode by remember { mutableStateOf(false) }
-    var selectedCourseIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var gpaSelectMode by rememberSaveable { mutableStateOf(false) }
+    var selectedCourseIds by rememberSaveable { mutableStateOf<Set<String>>(emptySet()) }
     var showGpaTips by remember { mutableStateOf(false) }
 
     // 搜索 & 过滤
-    var searchQuery by remember { mutableStateOf("") }
-    var selectedGroups by remember { mutableStateOf<Set<CourseGroup>>(emptySet()) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var selectedGroups by rememberSaveable { mutableStateOf<Set<CourseGroup>>(emptySet()) }
 
     // GPA 精度（点击循环 2→3→4→2）
-    var gpaPrecision by remember { mutableIntStateOf(2) }
+    var gpaPrecision by rememberSaveable { mutableIntStateOf(2) }
 
     // 未评教课程名集合
     var unevaluatedCourses by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -87,8 +106,41 @@ fun JwappScoreScreen(
 
     fun loadScoreData() {
         isLoading = true
+        isRefreshing = false
         errorMessage = null
         scope.launch {
+            // 先尝试从缓存秒显（Stale-While-Revalidate）
+            val cacheKey = "score_all_terms"
+            var cachedScoreCount = -1
+            try {
+                // 离线模式使用极长 TTL 以确保能加载缓存
+                val ttl = if (api != null) com.xjtu.toolbox.util.DataCache.DEFAULT_TTL_MS else Long.MAX_VALUE
+                val cached = dataCache.get(cacheKey, ttl)
+                if (cached != null) {
+                    val cachedGrades = gson.fromJson(cached, Array<TermScore>::class.java).toList()
+                    if (cachedGrades.isNotEmpty()) {
+                        allTermScores = cachedGrades
+                        termList = cachedGrades.map { it.termCode to it.termName }
+                        cachedScoreCount = cachedGrades.sumOf { it.scoreList.size }
+                        isLoading = false  // 缓存已可用，主界面立即显示
+                        isRefreshing = api != null  // 仅在线时后台刷新
+                        android.util.Log.d("ScoreUI", "Loaded from cache: $cachedScoreCount scores, offline=${api == null}")
+                    }
+                }
+            } catch (_: Exception) { /* 缓存读取失败，正常加载 */ }
+
+            // 离线模式 → 只读缓存，不发网络请求
+            if (api == null) {
+                isRefreshing = false
+                if (allTermScores.isEmpty()) {
+                    errorMessage = "离线模式下无缓存数据，请联网后查看"
+                } else {
+                    scope.launch { snackbarHostState.showSnackbar("当前无网络，显示缓存成绩", duration = SnackbarDuration.Short) }
+                }
+                isLoading = false
+                return@launch
+            }
+
             try {
                 withContext(Dispatchers.IO) {
                     val basis = api.getTimeTableBasis()
@@ -232,11 +284,40 @@ fun JwappScoreScreen(
 
                     allTermScores = grades
                     termList = grades.map { it.termCode to it.termName }
+
+                    // 写缓存（加工后的完成品）
+                    try { dataCache.put(cacheKey, gson.toJson(grades)) } catch (_: Exception) {}
+
+                    // 检测是否有新成绩
+                    val freshScoreCount = grades.sumOf { it.scoreList.size }
+                    if (cachedScoreCount >= 0 && freshScoreCount > cachedScoreCount) {
+                        val newCount = freshScoreCount - cachedScoreCount
+                        scope.launch {
+                            snackbarHostState.showSnackbar(
+                                "有 $newCount 门新成绩",
+                                duration = SnackbarDuration.Short
+                            )
+                        }
+                    } else if (cachedScoreCount >= 0 && freshScoreCount != cachedScoreCount) {
+                        scope.launch {
+                            snackbarHostState.showSnackbar("成绩数据已更新", duration = SnackbarDuration.Short)
+                        }
+                    }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
-                errorMessage = "加载失败: ${e.message}"
+                // 网络失败但有缓存 → 不报错，提示数据可能不是最新
+                if (allTermScores.isNotEmpty()) {
+                    scope.launch {
+                        snackbarHostState.showSnackbar("网络异常，显示的可能不是最新数据", duration = SnackbarDuration.Long)
+                    }
+                } else {
+                    errorMessage = "加载失败: ${e.message}"
+                }
             } finally {
                 isLoading = false
+                isRefreshing = false
             }
         }
     }
@@ -265,22 +346,21 @@ fun JwappScoreScreen(
         currentTermScores.filter { score ->
             val group = score.courseGroup
             (searchQuery.isBlank() || score.courseName.contains(searchQuery, ignoreCase = true)) &&
-            (if (selectedGroups.isEmpty()) group != CourseGroup.OUT_OF_PLAN
-             else group in selectedGroups)
+            (selectedGroups.isEmpty() || group in selectedGroups)
         }
     }
 
     // 当前筛选范围 GPA
     val displayGpaInfo = remember(filteredScores) {
         if (filteredScores.isNotEmpty()) {
-            api.calculateGpaForCourses(filteredScores)
+            api?.calculateGpaForCourses(filteredScores)
         } else null
     }
 
     val selectedGpaInfo = remember(selectedCourseIds, allTermScores) {
         if (selectedCourseIds.isNotEmpty()) {
             val selected = allTermScores.flatMap { it.scoreList }.filter { it.id in selectedCourseIds }
-            api.calculateGpaForCourses(selected)
+            api?.calculateGpaForCourses(selected)
         } else null
     }
 
@@ -290,6 +370,7 @@ fun JwappScoreScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text(if (gpaSelectMode) "选课算 GPA" else "成绩查询") },
@@ -346,8 +427,16 @@ fun JwappScoreScreen(
             }
 
             else -> {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
+                Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+                    // 后台刷新时的细进度条
+                    AnimatedVisibility(visible = isRefreshing) {
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth().height(2.dp),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = PaddingValues(vertical = 8.dp)
                 ) {
@@ -373,7 +462,7 @@ fun JwappScoreScreen(
                         item {
                             CategoryGpaBreakdown(
                                 scores = filteredScores,
-                                calculateGpa = { api.calculateGpaForCourses(it) },
+                                calculateGpa = { api?.calculateGpaForCourses(it) },
                                 precision = gpaPrecision
                             )
                         }
@@ -519,9 +608,18 @@ fun JwappScoreScreen(
                                                 detailLoading = scoreItem.id
                                                 scope.launch {
                                                     try {
-                                                        val d = withContext(Dispatchers.IO) { api.getDetail(scoreItem.id) }
-                                                        courseDetails = courseDetails + (scoreItem.id to d)
-                                                    } catch (_: Exception) { } finally { detailLoading = null }
+                                                        val d = withContext(Dispatchers.IO) { api?.getDetail(scoreItem.id) }
+                                                        if (d != null) courseDetails = courseDetails + (scoreItem.id to d)
+                                                    } catch (e: kotlinx.coroutines.CancellationException) {
+                                                        throw e
+                                                    } catch (e: Exception) {
+                                                        scope.launch {
+                                                            snackbarHostState.showSnackbar(
+                                                                "加载分项成绩失败，请重试",
+                                                                duration = SnackbarDuration.Short
+                                                            )
+                                                        }
+                                                    } finally { detailLoading = null }
                                                 }
                                             }
                                         }
@@ -533,73 +631,211 @@ fun JwappScoreScreen(
 
                     item { Spacer(Modifier.height(16.dp)) }
                 }
+                }  // Column
             }
         }
     }
 }
 
 @Composable
+private fun AnimatedNumber(value: Double, precision: Int, style: androidx.compose.ui.text.TextStyle, color: androidx.compose.ui.graphics.Color, fontWeight: FontWeight = FontWeight.Bold) {
+    val animatedValue by animateFloatAsState(
+        targetValue = value.toFloat(),
+        animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing),
+        label = "gpaNum"
+    )
+    Text(
+        text = "%.${precision}f".format(animatedValue),
+        style = style,
+        fontWeight = fontWeight,
+        color = color,
+        maxLines = 1
+    )
+}
+
+@Composable
+private fun GpaRingIndicator(gpa: Double, modifier: Modifier = Modifier) {
+    val maxGpa = 4.3
+    val animatedProgress by animateFloatAsState(
+        targetValue = (gpa / maxGpa).toFloat().coerceIn(0f, 1f),
+        animationSpec = tween(durationMillis = 800, easing = FastOutSlowInEasing),
+        label = "gpaRing"
+    )
+    val ringColor = when {
+        gpa >= 4.0 -> androidx.compose.ui.graphics.Color(0xFF4CAF50)
+        gpa >= 3.0 -> androidx.compose.ui.graphics.Color(0xFF2196F3)
+        gpa >= 2.0 -> androidx.compose.ui.graphics.Color(0xFFFF9800)
+        else -> androidx.compose.ui.graphics.Color(0xFFF44336)
+    }
+    val trackColor = androidx.compose.ui.graphics.Color.LightGray.copy(alpha = 0.3f)
+    val gpaFormatted = "%.2f".format(gpa)
+    Canvas(modifier = modifier.semantics { contentDescription = "GPA $gpaFormatted" }) {
+        val stroke = 8.dp.toPx()
+        val inset = stroke / 2
+        val rectSize = Size(size.width - stroke, size.height - stroke)
+        drawArc(
+            color = trackColor, startAngle = -90f, sweepAngle = 360f,
+            useCenter = false, style = Stroke(stroke, cap = StrokeCap.Round),
+            topLeft = Offset(inset, inset), size = rectSize
+        )
+        drawArc(
+            color = ringColor, startAngle = -90f, sweepAngle = 360f * animatedProgress,
+            useCenter = false, style = Stroke(stroke, cap = StrokeCap.Round),
+            topLeft = Offset(inset, inset), size = rectSize
+        )
+    }
+}
+
+@Composable
 fun GpaCard(gpaInfo: GpaInfo?, termName: String, totalCourses: Int, totalCredits: Double, isSelectMode: Boolean, precision: Int = 2, onPrecisionToggle: () -> Unit = {}) {
+    val containerColor by androidx.compose.animation.animateColorAsState(
+        if (isSelectMode) MaterialTheme.colorScheme.tertiaryContainer
+        else MaterialTheme.colorScheme.primaryContainer,
+        label = "gpaCardBg"
+    )
+    val textColor by androidx.compose.animation.animateColorAsState(
+        if (isSelectMode) MaterialTheme.colorScheme.onTertiaryContainer
+        else MaterialTheme.colorScheme.onPrimaryContainer,
+        label = "gpaCardText"
+    )
+    val accentColor = textColor.copy(alpha = 0.12f)
+
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isSelectMode) MaterialTheme.colorScheme.tertiaryContainer
-            else MaterialTheme.colorScheme.primaryContainer
-        )
+        colors = CardDefaults.cardColors(containerColor = containerColor),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Column(Modifier.fillMaxWidth().padding(20.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    if (isSelectMode) "选课均分" else "成绩概览",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = if (isSelectMode) MaterialTheme.colorScheme.onTertiaryContainer
-                    else MaterialTheme.colorScheme.onPrimaryContainer
-                )
-                if (termName.isNotEmpty() && !isSelectMode) {
-                    SuggestionChip(onClick = {}, label = { Text(termName, style = MaterialTheme.typography.labelMedium) })
-                }
-                if (isSelectMode) {
-                    SuggestionChip(onClick = {}, label = { Text("已选 $totalCourses 门", style = MaterialTheme.typography.labelMedium) })
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // ── 左侧：GPA 圆环 ──
+            Box(
+                modifier = Modifier
+                    .size(86.dp)
+                    .clickable { onPrecisionToggle() },
+                contentAlignment = Alignment.Center
+            ) {
+                if (gpaInfo != null) {
+                    GpaRingIndicator(gpaInfo.gpa, modifier = Modifier.fillMaxSize())
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        AnimatedNumber(
+                            gpaInfo.gpa, precision,
+                            MaterialTheme.typography.headlineSmall,
+                            textColor
+                        )
+                        Text(
+                            "GPA",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = textColor.copy(alpha = 0.5f),
+                            letterSpacing = 1.5.sp
+                        )
+                    }
+                } else {
+                    GpaRingIndicator(0.0, modifier = Modifier.fillMaxSize())
+                    Text("—", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold,
+                        color = textColor.copy(alpha = 0.4f))
                 }
             }
-            Spacer(Modifier.height(16.dp))
-            val textColor = if (isSelectMode) MaterialTheme.colorScheme.onTertiaryContainer
-                else MaterialTheme.colorScheme.onPrimaryContainer
-            val numStyle = when {
-                precision >= 4 -> MaterialTheme.typography.titleMedium
-                precision >= 3 -> MaterialTheme.typography.titleLarge
-                else -> MaterialTheme.typography.headlineMedium
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f).clickable { onPrecisionToggle() }) {
-                    if (gpaInfo != null) {
-                        Text("%.${precision}f".format(gpaInfo.gpa), style = numStyle, fontWeight = FontWeight.Bold, color = textColor, maxLines = 1)
-                        Text(if (isSelectMode) "GPA" else "总 GPA", style = MaterialTheme.typography.bodySmall, color = textColor.copy(alpha = 0.7f))
-                    } else {
-                        Text("—", style = numStyle, fontWeight = FontWeight.Bold, color = textColor.copy(alpha = 0.5f))
-                        Text("GPA", style = MaterialTheme.typography.bodySmall, color = textColor.copy(alpha = 0.7f))
+
+            Spacer(Modifier.width(16.dp))
+
+            // ── 右侧：标题 + 数据 ──
+            Column(modifier = Modifier.weight(1f)) {
+                // 标题行
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        if (isSelectMode) "选课均分" else "成绩概览",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = textColor
+                    )
+                    val chipText = when {
+                        isSelectMode -> "已选 $totalCourses 门"
+                        termName.isNotEmpty() -> termName
+                        else -> null
+                    }
+                    if (chipText != null) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = accentColor,
+                            border = BorderStroke(0.5.dp, textColor.copy(alpha = 0.15f))
+                        ) {
+                            Text(
+                                chipText,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = textColor.copy(alpha = 0.7f),
+                                maxLines = 1
+                            )
+                        }
                     }
                 }
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f).clickable { onPrecisionToggle() }) {
-                    if (gpaInfo != null && gpaInfo.averageScore > 0) {
-                        Text("%.${precision}f".format(gpaInfo.averageScore), style = numStyle, fontWeight = FontWeight.Bold, color = textColor, maxLines = 1)
-                        Text("均分", style = MaterialTheme.typography.bodySmall, color = textColor.copy(alpha = 0.7f))
-                    } else {
-                        Text("—", style = numStyle, fontWeight = FontWeight.Bold, color = textColor.copy(alpha = 0.5f))
-                        Text("均分", style = MaterialTheme.typography.bodySmall, color = textColor.copy(alpha = 0.7f))
-                    }
-                }
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
-                    Text("${gpaInfo?.courseCount ?: totalCourses}", style = numStyle, fontWeight = FontWeight.Bold, color = textColor, maxLines = 1)
-                    Text("课程数", style = MaterialTheme.typography.bodySmall, color = textColor.copy(alpha = 0.7f))
-                }
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
-                    Text("%.1f".format(gpaInfo?.totalCredits ?: totalCredits), style = numStyle, fontWeight = FontWeight.Bold, color = textColor, maxLines = 1)
-                    Text("总学分", style = MaterialTheme.typography.bodySmall, color = textColor.copy(alpha = 0.7f))
+
+                Spacer(Modifier.height(12.dp))
+
+                // 3 列数据（带分隔线）
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    GpaStatColumn(
+                        value = if (gpaInfo != null && gpaInfo.averageScore > 0)
+                            "%.${precision}f".format(gpaInfo.averageScore) else "—",
+                        label = "均分",
+                        textColor = textColor,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Box(Modifier.width(1.dp).height(28.dp).background(accentColor))
+                    GpaStatColumn(
+                        value = "${gpaInfo?.courseCount ?: totalCourses}",
+                        label = "课程",
+                        textColor = textColor,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Box(Modifier.width(1.dp).height(28.dp).background(accentColor))
+                    GpaStatColumn(
+                        value = "%.1f".format(gpaInfo?.totalCredits ?: totalCredits),
+                        label = "学分",
+                        textColor = textColor,
+                        modifier = Modifier.weight(1f)
+                    )
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun GpaStatColumn(
+    value: String,
+    label: String,
+    textColor: androidx.compose.ui.graphics.Color,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            value,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = textColor,
+            maxLines = 1
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = textColor.copy(alpha = 0.5f),
+            maxLines = 1,
+            letterSpacing = 0.5.sp
+        )
     }
 }
 

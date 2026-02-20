@@ -1,10 +1,10 @@
 package com.xjtu.toolbox.jwapp
 
 import android.util.Log
-import com.google.gson.JsonParser
 import com.xjtu.toolbox.auth.JwxtLogin
 import com.xjtu.toolbox.util.safeDouble
 import com.xjtu.toolbox.util.safeInt
+import com.xjtu.toolbox.util.safeParseJsonObject
 import com.xjtu.toolbox.util.safeString
 import okhttp3.FormBody
 import okhttp3.Request
@@ -218,7 +218,12 @@ class PyfaApi(private val login: JwxtLogin) {
     private val basePersonal = "https://jwxt.xjtu.edu.cn/jwapp/sys/xsfacx"
     private val basePyfa = "https://jwxt.xjtu.edu.cn/jwapp/sys/jwpubapp"
 
+    @Volatile private var lastSessionTime = 0L
+    private val sessionTtl = 5 * 60 * 1000L // 5分钟内不重复初始化
+
     private fun ensureSession() {
+        val now = System.currentTimeMillis()
+        if (now - lastSessionTime < sessionTtl) return
         try {
             login.client.newCall(
                 Request.Builder().url("$basePersonal/*default/index.do").get().build()
@@ -226,6 +231,7 @@ class PyfaApi(private val login: JwxtLogin) {
             login.client.newCall(
                 Request.Builder().url("$basePyfa/*default/index.do").get().build()
             ).execute().close()
+            lastSessionTime = now
         } catch (e: Exception) {
             Log.w(TAG, "session init: ${e.message}")
         }
@@ -245,7 +251,7 @@ class PyfaApi(private val login: JwxtLogin) {
             if (!resp.isSuccessful) throw RuntimeException("grpyfacx.do HTTP ${resp.code}")
             resp.body?.string() ?: throw RuntimeException("空响应")
         }
-        val obj = JsonParser.parseString(body).asJsonObject
+        val obj = body.safeParseJsonObject()
             .getAsJsonObject("datas").getAsJsonObject("grpyfacx")
             .getAsJsonArray("rows")
             .also { if (it.size() == 0) throw RuntimeException("无培养方案数据") }
@@ -278,7 +284,7 @@ class PyfaApi(private val login: JwxtLogin) {
             if (!resp.isSuccessful) throw RuntimeException("kzcx.do HTTP ${resp.code}")
             resp.body?.string() ?: throw RuntimeException("空响应")
         }
-        val rows = JsonParser.parseString(body).asJsonObject
+        val rows = body.safeParseJsonObject()
             .getAsJsonObject("datas").getAsJsonObject("kzcx").getAsJsonArray("rows")
 
         val flatNodes = rows.map { el ->
@@ -316,7 +322,7 @@ class PyfaApi(private val login: JwxtLogin) {
             if (!resp.isSuccessful) throw RuntimeException("kzkccx.do HTTP ${resp.code}")
             resp.body?.string() ?: throw RuntimeException("空响应")
         }
-        val rows = JsonParser.parseString(body).asJsonObject
+        val rows = body.safeParseJsonObject()
             .getAsJsonObject("datas").getAsJsonObject("kzkccx").getAsJsonArray("rows")
 
         return rows.map { el ->

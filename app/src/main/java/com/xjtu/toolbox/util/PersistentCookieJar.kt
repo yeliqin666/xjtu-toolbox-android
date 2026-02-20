@@ -20,7 +20,7 @@ import java.util.concurrent.ConcurrentHashMap
  * 安全性：使用 AES-256 加密存储，与 CredentialStore 同级别。
  * 线程安全：ConcurrentHashMap + synchronized write。
  */
-class PersistentCookieJar(context: Context) : CookieJar {
+class PersistentCookieJar(context: Context, prefsName: String = PREFS_NAME) : CookieJar {
 
     companion object {
         private const val TAG = "PersistentCookieJar"
@@ -30,14 +30,14 @@ class PersistentCookieJar(context: Context) : CookieJar {
 
     private val prefs: SharedPreferences = try {
         EncryptedSharedPreferences.create(
-            PREFS_NAME,
+            prefsName,
             MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC),
             context,
             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
         )
     } catch (_: Exception) {
-        context.getSharedPreferences("${PREFS_NAME}_fallback", Context.MODE_PRIVATE)
+        context.getSharedPreferences("${prefsName}_fallback", Context.MODE_PRIVATE)
     }
 
     // domain -> list of cookies（内存缓存）
@@ -47,18 +47,42 @@ class PersistentCookieJar(context: Context) : CookieJar {
         loadFromDisk()
     }
 
+    // 防抖写盘：避免 CAS 登录链路中 5-10 次重定向每次都触发加密写入
+    private val saveHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    @Volatile private var savePending = false
+    private val SAVE_DEBOUNCE_MS = 500L
+
+    private fun scheduleSaveToDisk() {
+        if (!savePending) {
+            savePending = true
+            saveHandler.postDelayed({
+                savePending = false
+                saveToDisk()
+            }, SAVE_DEBOUNCE_MS)
+        }
+    }
+
+    /** 立即写盘（用于 clear / 应用退出前） */
+    fun flushToDisk() {
+        saveHandler.removeCallbacksAndMessages(null)
+        savePending = false
+        saveToDisk()
+    }
+
     override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
         for (cookie in cookies) {
             val domain = cookie.domain
             val list = cookieStore.getOrPut(domain) { mutableListOf() }
-            // 移除同名旧 cookie
-            list.removeAll { it.name == cookie.name && it.path == cookie.path }
-            // 只保留未过期的
-            if (cookie.expiresAt > System.currentTimeMillis()) {
-                list.add(cookie)
+            synchronized(list) {
+                // 移除同名旧 cookie
+                list.removeAll { it.name == cookie.name && it.path == cookie.path }
+                // 只保留未过期的
+                if (cookie.expiresAt > System.currentTimeMillis()) {
+                    list.add(cookie)
+                }
             }
         }
-        saveToDisk()
+        scheduleSaveToDisk()
     }
 
     override fun loadForRequest(url: HttpUrl): List<Cookie> {
@@ -66,13 +90,15 @@ class PersistentCookieJar(context: Context) : CookieJar {
         val result = mutableListOf<Cookie>()
         for ((domain, cookies) in cookieStore) {
             if (domainMatch(url.host, domain)) {
-                val iter = cookies.iterator()
-                while (iter.hasNext()) {
-                    val c = iter.next()
-                    if (c.expiresAt <= now) {
-                        iter.remove() // 过期清理
-                    } else if (pathMatch(url.encodedPath, c.path)) {
-                        result.add(c)
+                synchronized(cookies) {
+                    val iter = cookies.iterator()
+                    while (iter.hasNext()) {
+                        val c = iter.next()
+                        if (c.expiresAt <= now) {
+                            iter.remove() // 过期清理
+                        } else if (pathMatch(url.encodedPath, c.path)) {
+                            result.add(c)
+                        }
                     }
                 }
             }
@@ -83,6 +109,8 @@ class PersistentCookieJar(context: Context) : CookieJar {
     /** 清空所有 cookie（登出时使用） */
     fun clear() {
         cookieStore.clear()
+        saveHandler.removeCallbacksAndMessages(null)
+        savePending = false
         prefs.edit().clear().apply()
         Log.d(TAG, "All cookies cleared")
     }

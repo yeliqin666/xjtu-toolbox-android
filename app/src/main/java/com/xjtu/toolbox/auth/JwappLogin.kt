@@ -64,12 +64,15 @@ class JwappLogin(
             .header("Authorization", authToken ?: throw RuntimeException("未登录"))
     }
 
+    private val reAuthLock = Any()
+
     /**
-     * 重新认证：通过 CAS SSO 重新获取教务 Token
+     * [D1] 重新认证：先尝试 SSO，失败后 fallback 到 casAuthenticate（TGC 过期时用保存的密码）
      * @return true 表示重新认证成功
      */
-    fun reAuthenticate(): Boolean {
+    fun reAuthenticate(): Boolean = synchronized(reAuthLock) {
         try {
+            // 第一步：尝试 SSO（CAS TGC 仍有效时直接成功）
             Log.d(TAG, "reAuthenticate: attempting SSO re-login")
             val request = Request.Builder().url(JWAPP_URL).get().build()
             val response = client.newCall(request).execute()
@@ -80,10 +83,25 @@ class JwappLogin(
             if (token != null) {
                 authToken = token
                 tokenObtainedAt = System.currentTimeMillis()
-                Log.d(TAG, "reAuthenticate: new token obtained")
+                Log.d(TAG, "reAuthenticate: SSO success, new token obtained")
                 return true
             }
-            Log.w(TAG, "reAuthenticate: no token in redirect URL: $finalUrl")
+
+            // 第二步：SSO 失败（TGC 过期），fallback 到 casAuthenticate 用保存的密码
+            Log.d(TAG, "reAuthenticate: SSO failed, trying casAuthenticate fallback")
+            val casResult = casAuthenticate(JWAPP_URL)
+            if (casResult != null) {
+                val casToken = casResult.second.substringAfter("token=", "")
+                    .substringBefore("&")
+                    .takeIf { it.isNotEmpty() }
+                if (casToken != null) {
+                    authToken = casToken
+                    tokenObtainedAt = System.currentTimeMillis()
+                    Log.d(TAG, "reAuthenticate: casAuthenticate success, new token obtained")
+                    return true
+                }
+            }
+            Log.w(TAG, "reAuthenticate: all methods failed")
         } catch (e: Exception) {
             Log.e(TAG, "reAuthenticate failed", e)
         }

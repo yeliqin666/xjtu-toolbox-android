@@ -2,7 +2,7 @@ package com.xjtu.toolbox.auth
 
 import android.util.Base64
 import android.util.Log
-import com.google.gson.JsonParser
+import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -60,7 +60,7 @@ class YwtbLogin(
             }
         }
         val payloadJson = String(Base64.decode(payload64, Base64.URL_SAFE or Base64.NO_WRAP))
-        val payload = JsonParser.parseString(payloadJson).asJsonObject
+        val payload = payloadJson.safeParseJsonObject()
         idToken = payload.get("idToken")?.asString
             ?: throw RuntimeException("JWT 中未找到 idToken")
 
@@ -101,18 +101,44 @@ class YwtbLogin(
         return true
     }
 
+    private val reAuthLock = Any()
+
     /**
-     * 重新认证：通过 CAS SSO 重新获取 YWTB idToken
+     * [D1] 重新认证：先尝试 SSO，失败后 fallback 到 casAuthenticate（TGC 过期时用保存的密码）
      * @return true 表示重新认证成功
      */
-    fun reAuthenticate(): Boolean {
+    fun reAuthenticate(): Boolean = synchronized(reAuthLock) {
         try {
+            // 第一步：SSO（TGC 有效时直接成功）
             Log.d(TAG, "reAuthenticate: attempting SSO re-login")
             val request = Request.Builder().url(YWTB_LOGIN_URL).get().build()
             val response = client.newCall(request).execute()
-            extractTokenFromResponse(response)
-            Log.d(TAG, "reAuthenticate: new idToken obtained")
-            return true
+            try {
+                extractTokenFromResponse(response)
+                Log.d(TAG, "reAuthenticate: SSO success, new idToken obtained")
+                return true
+            } catch (_: Exception) {
+                Log.d(TAG, "reAuthenticate: SSO failed (no ticket in redirect), trying casAuthenticate")
+            }
+
+            // 第二步：casAuthenticate fallback（TGC 过期）
+            val serviceUrl = YWTB_LOGIN_URL.substringAfter("service=").let {
+                java.net.URLDecoder.decode(it, "UTF-8")
+            }
+            val casResult = casAuthenticate(serviceUrl)
+            if (casResult != null) {
+                // casAuthenticate 成功后，CAS cookie 已更新
+                // 重新尝试 SSO 访问
+                val retryRequest = Request.Builder().url(YWTB_LOGIN_URL).get().build()
+                val retryResponse = client.newCall(retryRequest).execute()
+                try {
+                    extractTokenFromResponse(retryResponse)
+                    Log.d(TAG, "reAuthenticate: casAuthenticate fallback success")
+                    return true
+                } catch (_: Exception) {
+                    Log.w(TAG, "reAuthenticate: casAuthenticate succeeded but token extraction failed")
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "reAuthenticate failed", e)
         }

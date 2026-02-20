@@ -1,6 +1,8 @@
 package com.xjtu.toolbox.attendance
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -13,6 +15,7 @@ import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -21,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.auth.AttendanceLogin
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
+import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.AppFilterChip
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -41,21 +45,21 @@ fun AttendanceScreen(
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var studentName by remember { mutableStateOf("") }
-    var selectedTab by remember { mutableIntStateOf(0) }
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
 
     // 学期选择
     var termList by remember { mutableStateOf<List<TermInfo>>(emptyList()) }
     var currentTermBh by remember { mutableStateOf("") }
-    var selectedTermBh by remember { mutableStateOf("") }
-    var selectedTermName by remember { mutableStateOf("") }
+    var selectedTermBh by rememberSaveable { mutableStateOf("") }
+    var selectedTermName by rememberSaveable { mutableStateOf("") }
     var termDropdownExpanded by remember { mutableStateOf(false) }
 
     // 周次筛选（null = 全部）
-    var selectedWeek by remember { mutableStateOf<Int?>(null) }
+    var selectedWeek by rememberSaveable { mutableStateOf<Int?>(null) }
     // 状态筛选
-    var selectedStatus by remember { mutableStateOf<WaterType?>(null) }
+    var selectedStatus by rememberSaveable { mutableStateOf<WaterType?>(null) }
     // 课程搜索
-    var searchQuery by remember { mutableStateOf("") }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
 
     fun loadData(termBh: String? = null) {
         isLoading = true
@@ -115,6 +119,8 @@ fun AttendanceScreen(
                         statsFromApi.ifEmpty { api.computeCourseStatsFromRecords(fetchedRecords) }
                     }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 errorMessage = "加载失败: ${e.message}"
             } finally {
@@ -135,7 +141,7 @@ fun AttendanceScreen(
     LaunchedEffect(Unit) { loadData() }
 
     // 派生数据
-    val maxWeek = remember(records) { maxOf(records.maxOfOrNull { it.week } ?: 0, 20) }
+    val maxWeek = remember(records) { records.maxOfOrNull { it.week } ?: 0 }
 
     val filteredRecords = remember(records, selectedWeek, selectedStatus, searchQuery) {
         records.asSequence()
@@ -168,6 +174,11 @@ fun AttendanceScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { loadData(selectedTermBh.ifEmpty { null }) }) {
+                        Icon(Icons.Default.Refresh, contentDescription = "刷新")
                     }
                 }
             )
@@ -406,11 +417,10 @@ private fun OverviewTab(
             }
         } else {
             item {
-                Card(Modifier.fillMaxWidth()) {
-                    Text("暂无课程考勤统计数据", Modifier.padding(16.dp),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+                EmptyState(
+                    title = "暂无课程考勤统计数据",
+                    subtitle = "尝试切换学期或检查网络连接"
+                )
             }
         }
     }
@@ -441,6 +451,25 @@ private fun CourseStatCard(stat: CourseAttendanceStat) {
                         style = MaterialTheme.typography.labelMedium, color = rateColor, fontWeight = FontWeight.Bold)
                 }
             }
+            Spacer(Modifier.height(6.dp))
+            // 出勤率进度条
+            val rateForBar = if (stat.total > 0) stat.actualCount * 100 / stat.total else 100
+            val animatedRate by animateFloatAsState(
+                targetValue = (rateForBar / 100f).coerceIn(0f, 1f),
+                animationSpec = tween(700),
+                label = "attendanceBar"
+            )
+            val barColor = when {
+                rateForBar >= 90 -> MaterialTheme.colorScheme.primary
+                rateForBar >= 70 -> MaterialTheme.colorScheme.tertiary
+                else -> MaterialTheme.colorScheme.error
+            }
+            LinearProgressIndicator(
+                progress = { animatedRate },
+                modifier = Modifier.fillMaxWidth().height(4.dp),
+                color = barColor,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant
+            )
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 StatChip("正常", stat.normalCount, MaterialTheme.colorScheme.primary)
@@ -537,11 +566,10 @@ private fun RecordFlowTab(
 
         if (filteredRecords.isEmpty()) {
             item {
-                Card(Modifier.fillMaxWidth()) {
-                    Text("暂无符合条件的记录", Modifier.padding(16.dp),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+                EmptyState(
+                    title = "暂无符合条件的记录",
+                    subtitle = "请尝试更换周次筛选"
+                )
             }
         }
     }

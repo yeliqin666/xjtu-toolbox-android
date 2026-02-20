@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.card
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -13,6 +14,7 @@ import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -25,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.auth.CampusCardLogin
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.ErrorState
+import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.AppFilterChip
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -51,6 +54,7 @@ fun CampusCardScreen(
 ) {
     val api = remember { CampusCardApi(login) }
     val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -63,14 +67,14 @@ fun CampusCardScreen(
     var totalRecords by remember { mutableIntStateOf(0) }
 
     // 选项卡: 0=概览 1=流水 2=分析
-    var selectedTab by remember { mutableIntStateOf(0) }
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     // 时间范围
-    var selectedTimeRange by remember { mutableStateOf(TimeRange.ONE_MONTH) }
+    var selectedTimeRange by rememberSaveable { mutableStateOf(TimeRange.ONE_MONTH) }
     // 流水加载
     var isLoadingMore by remember { mutableStateOf(false) }
-    var currentPage by remember { mutableIntStateOf(1) }
+    var currentPage by rememberSaveable { mutableIntStateOf(1) }
     // 搜索
-    var searchQuery by remember { mutableStateOf("") }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
 
     fun loadData(range: TimeRange = selectedTimeRange) {
         isLoading = true
@@ -100,6 +104,8 @@ fun CampusCardScreen(
                     mealTimeStats = s3.await()
                     weekdayWeekend = s4.await()
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 errorMessage = "加载失败: ${e.message}"
             } finally {
@@ -129,7 +135,14 @@ fun CampusCardScreen(
                         weekdayWeekend = api.analyzeWeekdayVsWeekend(transactions)
                     }
                 }
-            } catch (_: Exception) { }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w("CampusCardScreen", "loadMore failed: ${e.message}")
+                scope.launch {
+                    snackbarHostState.showSnackbar("加载更多失败，请重试", duration = SnackbarDuration.Short)
+                }
+            }
             finally { isLoadingMore = false }
         }
     }
@@ -137,6 +150,7 @@ fun CampusCardScreen(
     LaunchedEffect(Unit) { loadData() }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("校园卡") },
@@ -624,12 +638,22 @@ private fun AnalyticsTab(
         contentPadding = PaddingValues(vertical = 12.dp)
     ) {
         item { TimeRangeSelector(selectedTimeRange, onTimeRangeChange) }
-        if (categorySpending.isNotEmpty()) { item { CategoryCard(categorySpending) } }
-        if (monthlyStats.isNotEmpty()) { item { MonthlyTrendCard(monthlyStats) } }
-        if (mealTimeStats.isNotEmpty()) { item { MealAnalysisCard(mealTimeStats) } }
-        if (weekdayWeekend != null) { item { WeekdayWeekendCard(weekdayWeekend) } }
-        if (monthlyStats.isNotEmpty()) { item { TopMerchantsCard(monthlyStats) } }
-        item { SpendingInsightsCard(monthlyStats, categorySpending, mealTimeStats, weekdayWeekend) }
+        if (categorySpending.isEmpty() && monthlyStats.isEmpty() && mealTimeStats.isEmpty()) {
+            item {
+                EmptyState(
+                    title = "暂无消费分析数据",
+                    subtitle = "所选时间段内暂无消费记录",
+                    modifier = Modifier.fillParentMaxSize()
+                )
+            }
+        } else {
+            if (categorySpending.isNotEmpty()) { item { CategoryCard(categorySpending) } }
+            if (monthlyStats.isNotEmpty()) { item { MonthlyTrendCard(monthlyStats) } }
+            if (mealTimeStats.isNotEmpty()) { item { MealAnalysisCard(mealTimeStats) } }
+            if (weekdayWeekend != null) { item { WeekdayWeekendCard(weekdayWeekend) } }
+            if (monthlyStats.isNotEmpty()) { item { TopMerchantsCard(monthlyStats) } }
+            item { SpendingInsightsCard(monthlyStats, categorySpending, mealTimeStats, weekdayWeekend) }
+        }
     }
 }
 

@@ -7,17 +7,23 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.RateReview
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.auth.JwxtLogin
+import com.xjtu.toolbox.ui.components.EmptyState
+import com.xjtu.toolbox.ui.components.ErrorState
+import com.xjtu.toolbox.ui.components.LoadingState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -40,7 +46,7 @@ fun JudgeScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     // 0=未评, 1=已评
-    var selectedTab by remember { mutableIntStateOf(0) }
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
 
     var unfinishedList by remember { mutableStateOf<List<Questionnaire>>(emptyList()) }
     var finishedList by remember { mutableStateOf<List<Questionnaire>>(emptyList()) }
@@ -50,6 +56,9 @@ fun JudgeScreen(
     var autoJudgeProgress by remember { mutableIntStateOf(0) }
     var autoJudgeTotal by remember { mutableIntStateOf(0) }
     var autoJudgeMessage by remember { mutableStateOf("") }
+
+    // 确认对话框状态（提升到顶层，避免条件分支内状态丢失）
+    var showConfirmDialog by remember { mutableStateOf(false) }
 
     // 加载问卷列表
     fun loadData() {
@@ -81,6 +90,11 @@ fun JudgeScreen(
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
+                },
+                actions = {
+                    IconButton(onClick = { loadData() }) {
+                        Icon(Icons.Default.Refresh, contentDescription = "刷新")
+                    }
                 }
             )
         }
@@ -110,36 +124,43 @@ fun JudgeScreen(
                 ) { Text("已评 (${finishedList.size})") }
             }
 
-            // 一键好评按钮 + 进度条
-            if (selectedTab == 0 && unfinishedList.isNotEmpty()) {
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
-                ) {
-                    FilledTonalButton(
-                        onClick = {
-                            if (!isAutoJudging) {
+            // 确认对话框（提升至顶层，不受 selectedTab 条件约束）
+            if (showConfirmDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showConfirmDialog = false },
+                        title = { Text("确认一键好评") },
+                        text = { Text("将为 ${unfinishedList.size} 门课程全部提交好评，确定继续？") },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                showConfirmDialog = false
                                 scope.launch {
                                     isAutoJudging = true
                                     autoJudgeTotal = unfinishedList.size
                                     autoJudgeProgress = 0
                                     autoJudgeMessage = "正在评教..."
+                                    var failCount = 0
+                                    var lastError = ""
 
                                     try {
                                         for ((index, q) in unfinishedList.withIndex()) {
                                             autoJudgeMessage = "正在评教: ${q.KCM} (${index + 1}/$autoJudgeTotal)"
                                             autoJudgeProgress = index
 
-                                            withContext(Dispatchers.IO) {
-                                                val filledData = api.autoFillQuestionnaire(q, username)
-                                                api.submitQuestionnaire(q, filledData)
+                                            try {
+                                                withContext(Dispatchers.IO) {
+                                                    val filledData = api.autoFillQuestionnaire(q, username)
+                                                    api.submitQuestionnaire(q, filledData)
+                                                }
+                                            } catch (e: Exception) {
+                                                failCount++
+                                                lastError = "${q.KCM}: ${e.message}"
                                             }
 
                                             autoJudgeProgress = index + 1
                                             delay(300) // 间隔避免被限流
                                         }
-                                        autoJudgeMessage = "全部评教完成！"
+                                        autoJudgeMessage = if (failCount == 0) "全部评教完成！"
+                                            else "${autoJudgeTotal - failCount}门成功，${failCount}门失败（$lastError）"
                                         // 刷新列表
                                         loadData()
                                     } catch (e: Exception) {
@@ -148,8 +169,23 @@ fun JudgeScreen(
                                         isAutoJudging = false
                                     }
                                 }
-                            }
+                            }) { Text("确认") }
                         },
+                        dismissButton = {
+                            TextButton(onClick = { showConfirmDialog = false }) { Text("取消") }
+                        }
+                    )
+            }
+
+            // 一键好评按钮 + 进度条
+            if (selectedTab == 0 && unfinishedList.isNotEmpty()) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                ) {
+                    FilledTonalButton(
+                        onClick = { if (!isAutoJudging) showConfirmDialog = true },
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !isAutoJudging
                     ) {
@@ -158,7 +194,7 @@ fun JudgeScreen(
                         Text(if (isAutoJudging) "评教中..." else "一键全部好评")
                     }
 
-                    // 进度条
+                    // 进度条 + 结果消息
                     if (isAutoJudging || autoJudgeMessage.isNotEmpty()) {
                         Spacer(Modifier.height(8.dp))
                         if (isAutoJudging && autoJudgeTotal > 0) {
@@ -168,12 +204,30 @@ fun JudgeScreen(
                             )
                         }
                         if (autoJudgeMessage.isNotEmpty()) {
-                            Text(
-                                autoJudgeMessage,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(top = 4.dp)
-                            )
+                            Row(
+                                Modifier.fillMaxWidth().padding(top = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    autoJudgeMessage,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                if (!isAutoJudging) {
+                                    IconButton(
+                                        onClick = { autoJudgeMessage = "" },
+                                        modifier = Modifier.size(20.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Close,
+                                            contentDescription = "关闭",
+                                            modifier = Modifier.size(14.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -181,36 +235,15 @@ fun JudgeScreen(
 
             // 内容区域
             when {
-                isLoading -> {
-                    Box(
-                        Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            CircularProgressIndicator()
-                            Spacer(Modifier.height(8.dp))
-                            Text("正在加载评教列表...", style = MaterialTheme.typography.bodyMedium)
-                        }
-                    }
-                }
-                errorMessage != null -> {
-                    Box(
-                        Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                errorMessage!!,
-                                color = MaterialTheme.colorScheme.error,
-                                style = MaterialTheme.typography.bodyLarge
-                            )
-                            Spacer(Modifier.height(16.dp))
-                            FilledTonalButton(onClick = { loadData() }) {
-                                Text("重试")
-                            }
-                        }
-                    }
-                }
+                isLoading -> LoadingState(
+                    message = "正在加载评教列表...",
+                    modifier = Modifier.fillMaxSize()
+                )
+                errorMessage != null -> ErrorState(
+                    message = errorMessage!!,
+                    onRetry = { loadData() },
+                    modifier = Modifier.fillMaxSize()
+                )
                 else -> {
                     AnimatedContent(
                         targetState = selectedTab,
@@ -225,16 +258,11 @@ fun JudgeScreen(
                     ) { tab ->
                         val displayList = if (tab == 0) unfinishedList else finishedList
                         if (displayList.isEmpty()) {
-                            Box(
-                                Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    if (tab == 0) "暂无待评课程" else "暂无已评课程",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                            EmptyState(
+                                title = if (tab == 0) "暂无待评课程" else "暂无已评课程",
+                                subtitle = if (tab == 0) "本学期所有课程均已完成评教" else "尚未完成任何课程评教",
+                                modifier = Modifier.fillMaxSize()
+                            )
                         } else {
                             LazyColumn(
                                 Modifier
@@ -317,16 +345,18 @@ private fun QuestionnaireCard(q: Questionnaire, finished: Boolean, onUndo: (() -
                 )
                 Spacer(Modifier.height(2.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    SuggestionChip(
-                        onClick = {},
-                        label = {
-                            Text(
-                                typeLabel,
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        },
+                    Surface(
+                        shape = MaterialTheme.shapes.small,
+                        color = MaterialTheme.colorScheme.secondaryContainer,
                         modifier = Modifier.height(24.dp)
-                    )
+                    ) {
+                        Text(
+                            typeLabel,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
                     Spacer(Modifier.width(8.dp))
                     Text(
                         if (finished) "✓ 已评" else "待评",

@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.EventSeat
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.ThumbUp
@@ -36,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.auth.LibraryLogin
 import com.xjtu.toolbox.ui.components.AppFilterChip
+import com.xjtu.toolbox.ui.components.LoadingState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -80,6 +82,11 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
 
     // 收藏
     var favorites by remember { mutableStateOf(loadFavorites(context)) }
+
+    // 定时抢座
+    var showGrabDialog by remember { mutableStateOf(false) }
+    var grabScheduled by remember { mutableStateOf(SeatGrabScheduler.isScheduled(context)) }
+    var grabConfig by remember { mutableStateOf(SeatGrabConfigStore.load(context)) }
 
 
     // ── 楼层/区域选择 ──
@@ -218,6 +225,28 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
     val availableCount = seats.count { it.available }
     val totalCount = seats.size
 
+    // ── 定时抢座对话框 ──
+    if (showGrabDialog) {
+        SeatGrabDialog(
+            currentFavorites = favorites,
+            selectedArea = selectedArea,
+            onDismiss = { showGrabDialog = false },
+            onConfirm = { newConfig ->
+                SeatGrabConfigStore.save(context, newConfig)
+                grabConfig = newConfig
+                val ok = SeatGrabScheduler.schedule(context, newConfig)
+                grabScheduled = ok
+                showGrabDialog = false
+                if (ok) {
+                    bookingResult = BookResult(true, "⏰ 定时抢座已设定：${newConfig.triggerTimeStr}\n" +
+                        "目标: ${newConfig.targetSeats.joinToString { it.seatId }}")
+                } else {
+                    bookingResult = BookResult(false, "设定失败：请授予精确闹钟权限后重试")
+                }
+            }
+        )
+    }
+
     // ── 确认对话框 ──
     confirmDialog?.let { (msg, action) ->
         AlertDialog(
@@ -242,6 +271,28 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
                 },
                 actions = {
+                    // 定时抢座入口
+                    IconButton(onClick = {
+                        if (grabScheduled) {
+                            // 已有闹钟 → 弹确认取消
+                            confirmDialog = "已设定 ${grabConfig.triggerTimeStr} 定时抢座\n" +
+                                "目标: ${grabConfig.targetSeats.joinToString { it.seatId }}\n\n取消定时？" to {
+                                SeatGrabScheduler.cancel(context)
+                                SeatGrabConfigStore.save(context, grabConfig.copy(enabled = false))
+                                grabScheduled = false
+                                bookingResult = BookResult(true, "定时抢座已取消")
+                            }
+                        } else {
+                            showGrabDialog = true
+                        }
+                    }) {
+                        Icon(
+                            Icons.Default.Schedule,
+                            "定时抢座",
+                            tint = if (grabScheduled) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     IconButton(onClick = { loadSeats() }) { Icon(Icons.Default.Refresh, "刷新") }
                 }
             )
@@ -249,7 +300,7 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
         bottomBar = {
             Surface(tonalElevation = 3.dp) {
                 Column(
-                    Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp)
+                    Modifier.fillMaxWidth().imePadding().navigationBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {
                     // 预约结果
                     AnimatedVisibility(bookingResult != null) {
@@ -273,14 +324,12 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
                                         if ("刷新" in (bookingResult?.message ?: "")) {
                                             FilledTonalButton(
                                                 onClick = { loadSeats(); bookingResult = null },
-                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                                                modifier = Modifier.height(28.dp)
+                                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
                                             ) { Text("刷新座位", style = MaterialTheme.typography.labelSmall) }
                                         }
                                         TextButton(
                                             onClick = { bookingResult = null },
-                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                            modifier = Modifier.height(28.dp)
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                                         ) { Text("关闭", style = MaterialTheme.typography.labelSmall) }
                                     }
                                 }
@@ -414,13 +463,7 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
             // ── 内容区 ──
             when {
                 isLoading -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            CircularProgressIndicator()
-                            Spacer(Modifier.height(8.dp))
-                            Text("正在查询座位…", style = MaterialTheme.typography.bodyMedium)
-                        }
-                    }
+                    LoadingState(message = "正在查询坐位…", modifier = Modifier.fillMaxSize())
                 }
 
                 errorMessage != null -> {

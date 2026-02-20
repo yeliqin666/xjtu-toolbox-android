@@ -1,19 +1,14 @@
-<?xml version="1.0" encoding="utf-8"?><!--
-   Sample data extraction rules file; uncomment and customize as necessary.
-   See https://developer.android.com/about/versions/12/backup-restore#xml-changes
-   for details.
--->
+<?xml version="1.0" encoding="utf-8"?>
 <data-extraction-rules>
     <cloud-backup>
-        <!-- TODO: Use <include> and <exclude> to control what is backed up.
-        <include .../>
-        <exclude .../>
-        -->
+        <!-- 排除加密凭据和 Cookie 文件，避免备份恢复到新设备后 Keystore 密钥不匹配 -->
+        <exclude domain="sharedpref" path="xjtu_credentials.xml"/>
+        <exclude domain="sharedpref" path="xjtu_credentials_fallback.xml"/>
+        <exclude domain="sharedpref" path="xjtu_cookies.xml"/>
+        <exclude domain="sharedpref" path="xjtu_vpn_cookies.xml"/>
     </cloud-backup>
-    <!--
     <device-transfer>
-        <include .../>
-        <exclude .../>
+        <exclude domain="sharedpref" path="xjtu_credentials.xml"/>
+        <exclude domain="sharedpref" path="xjtu_credentials_fallback.xml"/>
     </device-transfer>
-    -->
 </data-extraction-rules>

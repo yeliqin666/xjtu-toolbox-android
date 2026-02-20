@@ -1,8 +1,8 @@
 package com.xjtu.toolbox.judge
 
 import com.google.gson.Gson
-import com.google.gson.JsonParser
 import com.xjtu.toolbox.auth.JwxtLogin
+import com.xjtu.toolbox.util.safeParseJsonObject
 import com.xjtu.toolbox.util.safeString
 import com.xjtu.toolbox.util.safeStringOrNull
 import com.xjtu.toolbox.util.safeInt
@@ -172,7 +172,7 @@ class JudgeApi(private val login: JwxtLogin) {
         val responseBody = login.client.newCall(request).execute().use { response ->
             response.body?.string() ?: throw RuntimeException("空响应")
         }
-        val root = JsonParser.parseString(responseBody).asJsonObject
+        val root = responseBody.safeParseJsonObject()
         return root.getAsJsonObject("datas")
             .getAsJsonObject("cxxtcs")
             .getAsJsonArray("rows")
@@ -204,7 +204,7 @@ class JudgeApi(private val login: JwxtLogin) {
         val responseBody = login.client.newCall(request).execute().use { response ->
             response.body?.string() ?: throw RuntimeException("空响应")
         }
-        val root = JsonParser.parseString(responseBody).asJsonObject
+        val root = responseBody.safeParseJsonObject()
         val rows = root.getAsJsonObject("datas")
             .getAsJsonObject("cxdwpj")
             .getAsJsonArray("rows")
@@ -274,7 +274,7 @@ class JudgeApi(private val login: JwxtLogin) {
         val responseBody = login.client.newCall(request).execute().use { response ->
             response.body?.string() ?: throw RuntimeException("空响应")
         }
-        val root = JsonParser.parseString(responseBody).asJsonObject
+        val root = responseBody.safeParseJsonObject()
         val rows = root.getAsJsonObject("datas")
             .getAsJsonObject("cxwjzb")
             .getAsJsonArray("rows")
@@ -338,7 +338,7 @@ class JudgeApi(private val login: JwxtLogin) {
         val responseBody = login.client.newCall(request).execute().use { response ->
             response.body?.string() ?: throw RuntimeException("空响应")
         }
-        val root = JsonParser.parseString(responseBody).asJsonObject
+        val root = responseBody.safeParseJsonObject()
         val rows = root.getAsJsonObject("datas")
             .getAsJsonObject("cxxswjzbxq")
             .getAsJsonArray("rows")
@@ -390,7 +390,7 @@ class JudgeApi(private val login: JwxtLogin) {
         val responseBody = login.client.newCall(request).execute().use { response ->
             response.body?.string() ?: throw RuntimeException("空响应")
         }
-        val root = JsonParser.parseString(responseBody).asJsonObject
+        val root = responseBody.safeParseJsonObject()
         val code = root.get("code").safeString("-1")
         val datasObj = root.getAsJsonObject("datas")
         val datasCode = datasObj?.get("code").safeString("-1")
@@ -431,7 +431,7 @@ class JudgeApi(private val login: JwxtLogin) {
         val responseBody = login.client.newCall(request).execute().use { response ->
             response.body?.string() ?: throw RuntimeException("空响应")
         }
-        val root = JsonParser.parseString(responseBody).asJsonObject
+        val root = responseBody.safeParseJsonObject()
         val code = root.get("code").safeString("-1")
         val datasObj = root.getAsJsonObject("datas")
         val datasCode = datasObj?.get("code").safeString("-1")

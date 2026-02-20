@@ -2,6 +2,7 @@ package com.xjtu.toolbox.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -11,11 +12,17 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -58,17 +65,29 @@ interface ScheduleSlot {
 
 @Composable
 fun WeekSelector(currentWeek: Int, totalWeeks: Int, onWeekChange: (Int) -> Unit) {
+    var dragOffsetX by remember { mutableFloatStateOf(0f) }
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .pointerInput(currentWeek, totalWeeks) {
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        when {
+                            dragOffsetX < -80f && currentWeek < totalWeeks -> onWeekChange(currentWeek + 1)
+                            dragOffsetX > 80f && currentWeek > 1 -> onWeekChange(currentWeek - 1)
+                        }
+                        dragOffsetX = 0f
+                    },
+                    onHorizontalDrag = { _, dragAmount -> dragOffsetX += dragAmount }
+                )
+            },
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
         IconButton(
             onClick = { if (currentWeek > 1) onWeekChange(currentWeek - 1) },
-            enabled = currentWeek > 1,
-            modifier = Modifier.size(36.dp)
+            enabled = currentWeek > 1
         ) {
             Icon(
                 Icons.AutoMirrored.Filled.KeyboardArrowLeft,
@@ -86,8 +105,7 @@ fun WeekSelector(currentWeek: Int, totalWeeks: Int, onWeekChange: (Int) -> Unit)
         )
         IconButton(
             onClick = { if (currentWeek < totalWeeks) onWeekChange(currentWeek + 1) },
-            enabled = currentWeek < totalWeeks,
-            modifier = Modifier.size(36.dp)
+            enabled = currentWeek < totalWeeks
         ) {
             Icon(
                 Icons.AutoMirrored.Filled.KeyboardArrowRight,
@@ -106,10 +124,49 @@ fun ScheduleGrid(
     slots: List<ScheduleSlot>,
     allCourseNames: List<String>,
     showWeeks: Boolean = false,
+    isCurrentWeek: Boolean = false,  // 是否显示当前时间线
     onSlotClick: (ScheduleSlot) -> Unit = {}
 ) {
     val scrollState = rememberScrollState()
     val isSummer = remember { XjtuTime.isSummerTime() }
+
+    // 当前时间线位置计算（仅在当前周激活）
+    val timeLineInfo = if (isCurrentWeek) {
+        val now = java.time.LocalTime.now()
+        val todayDow = java.time.LocalDate.now().dayOfWeek.value  // 1=Mon...7=Sun
+        // 计算当前时间在网格中的 Y 比例
+        // 找到当前时间处于哪两节课之间
+        var yFraction: Float? = null
+        for (section in 1..MAX_SECTIONS) {
+            val ct = XjtuTime.getClassTime(section, isSummer) ?: continue
+            if (now < ct.start) {
+                // 在这节课之前
+                if (section == 1) {
+                    yFraction = 0f  // 在第1节之前
+                } else {
+                    val prevEnd = XjtuTime.getClassTime(section - 1, isSummer)?.end ?: ct.start
+                    val gapSeconds = java.time.Duration.between(prevEnd, ct.start).seconds.toFloat()
+                    val elapsed = java.time.Duration.between(prevEnd, now).seconds.toFloat()
+                    yFraction = (section - 1).toFloat() + if (gapSeconds > 0) (elapsed / gapSeconds) * 0f else 0f
+                    // 简化：课间时间线固定在上节课末尾
+                    yFraction = (section - 1).toFloat()
+                }
+                break
+            } else if (now >= ct.start && now <= ct.end) {
+                // 在这节课内
+                val durationSeconds = java.time.Duration.between(ct.start, ct.end).seconds.toFloat()
+                val elapsed = java.time.Duration.between(ct.start, now).seconds.toFloat()
+                yFraction = (section - 1).toFloat() + elapsed / durationSeconds
+                break
+            }
+        }
+        // 如果超过最后一节课
+        if (yFraction == null) {
+            val lastEnd = XjtuTime.getClassTime(MAX_SECTIONS, isSummer)?.end
+            yFraction = if (lastEnd != null && now > lastEnd) MAX_SECTIONS.toFloat() else null
+        }
+        if (yFraction != null) Pair(todayDow, yFraction) else null
+    } else null
     Column(
         Modifier
             .fillMaxSize()
@@ -270,6 +327,37 @@ fun ScheduleGrid(
                         )
                     }
                 }
+            }
+
+            // ── 当前时间线（红色横线 + 圆点）──
+            if (timeLineInfo != null) {
+                val (todayDow, yFrac) = timeLineInfo
+                val sectionHeightPx = with(androidx.compose.ui.platform.LocalDensity.current) { SECTION_HEIGHT.toPx() }
+                val leftColPx = with(androidx.compose.ui.platform.LocalDensity.current) { LEFT_COL_WIDTH.toPx() }
+                val dayWidthPx = with(androidx.compose.ui.platform.LocalDensity.current) { dayWidth.toPx() }
+                val lineColor = Color(0xFFE53935)  // Material Red 600
+                val yPos = sectionHeightPx * yFrac
+                val dayLeft = leftColPx + dayWidthPx * (todayDow - 1)
+
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .drawBehind {
+                            // 红色圆点（在时间列侧）
+                            drawCircle(
+                                color = lineColor,
+                                radius = 4.dp.toPx(),
+                                center = Offset(dayLeft, yPos)
+                            )
+                            // 横线（横跨当天列）
+                            drawLine(
+                                color = lineColor,
+                                start = Offset(dayLeft, yPos),
+                                end = Offset(dayLeft + dayWidthPx, yPos),
+                                strokeWidth = 2.dp.toPx()
+                            )
+                        }
+                )
             }
         }
     }

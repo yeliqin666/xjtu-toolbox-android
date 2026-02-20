@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.gmis
 
 import androidx.compose.animation.*
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -8,9 +9,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -19,7 +22,12 @@ import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.auth.GmisLogin
 import com.xjtu.toolbox.ui.ScheduleGrid
 import com.xjtu.toolbox.ui.WeekSelector
+import com.xjtu.toolbox.ui.components.EmptyState
+import com.xjtu.toolbox.ui.components.ErrorState
+import com.xjtu.toolbox.ui.components.LoadingState
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -30,27 +38,40 @@ fun GmisScreen(login: GmisLogin, onBack: () -> Unit) {
     var scores by remember { mutableStateOf<List<GmisScoreItem>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    var currentWeek by remember { mutableIntStateOf(1) }
+    var currentWeek by rememberSaveable { mutableIntStateOf(1) }
     val totalWeeks = 20
-    var selectedTab by remember { mutableIntStateOf(0) }
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
 
-    LaunchedEffect(Unit) {
-        try {
-            withContext(Dispatchers.IO) {
-                courses = api.getSchedule()
-                scores = api.getScore()
-            }
-        } catch (e: Exception) {
-            errorMessage = "加载失败: ${e.message}"
-        } finally { isLoading = false }
+    fun loadData() {
+        isLoading = true
+        errorMessage = null
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val scheduleDeferred = async { api.getSchedule() }
+                    val scoreDeferred = async { api.getScore() }
+                    courses = scheduleDeferred.await()
+                    scores = scoreDeferred.await()
+                }
+            } catch (e: Exception) {
+                errorMessage = "加载失败: ${e.message}"
+            } finally { isLoading = false }
+        }
     }
+
+    LaunchedEffect(Unit) { loadData() }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("研究生 · 课表/成绩") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回") } }
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回") } },
+                actions = {
+                    IconButton(onClick = { loadData() }) {
+                        Icon(Icons.Default.Refresh, contentDescription = "刷新")
+                    }
+                }
             )
         }
     ) { padding ->
@@ -63,14 +84,9 @@ fun GmisScreen(login: GmisLogin, onBack: () -> Unit) {
             }
 
             if (isLoading) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(); Spacer(Modifier.height(8.dp))
-                        Text("正在加载...", style = MaterialTheme.typography.bodyMedium)
-                    }
-                }
+                LoadingState(message = "正在加载...", modifier = Modifier.fillMaxSize())
             } else if (errorMessage != null) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(errorMessage!!, color = MaterialTheme.colorScheme.error) }
+                ErrorState(message = errorMessage!!, onRetry = { loadData() }, modifier = Modifier.fillMaxSize())
             } else {
                 AnimatedContent(targetState = selectedTab, transitionSpec = {
                     fadeIn() + slideInHorizontally { if (targetState > initialState) it else -it } togetherWith
@@ -95,9 +111,13 @@ private fun GmisScheduleTab(courses: List<GmisScheduleItem>, currentWeek: Int, t
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun GmisScoreTab(scores: List<GmisScoreItem>) {
-    if (scores.isEmpty()) { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("暂无成绩数据", style = MaterialTheme.typography.bodyLarge) }; return }
+    if (scores.isEmpty()) {
+        EmptyState(title = "暂无成绩数据", modifier = Modifier.fillMaxSize())
+        return
+    }
     val grouped = scores.groupBy { it.type }
     val typeOrder = listOf("学位课程", "选修课程", "必修环节")
     val totalCredits = scores.sumOf { it.coursePoint }
@@ -120,8 +140,18 @@ private fun GmisScoreTab(scores: List<GmisScoreItem>) {
         }
         for (type in typeOrder) {
             val items = grouped[type] ?: continue
-            item { Text(type, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp)) }
+            stickyHeader(key = "header_$type") {
+                Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        type,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 0.dp, vertical = 8.dp)
+                    )
+                }
+            }
             items(items) { scoreItem ->
+
                 val scoreColor = when { scoreItem.score >= 90 -> MaterialTheme.colorScheme.primary; scoreItem.score >= 75 -> MaterialTheme.colorScheme.tertiary; scoreItem.score >= 60 -> MaterialTheme.colorScheme.onSurfaceVariant; else -> MaterialTheme.colorScheme.error }
                 Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
                     Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {

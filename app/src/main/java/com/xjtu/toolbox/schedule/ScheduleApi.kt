@@ -1,10 +1,10 @@
 package com.xjtu.toolbox.schedule
 
 import android.util.Log
-import com.google.gson.JsonParser
 import com.xjtu.toolbox.auth.JwxtLogin
 import com.xjtu.toolbox.ui.ScheduleSlot
 import com.xjtu.toolbox.util.safeInt
+import com.xjtu.toolbox.util.safeParseJsonObject
 import com.xjtu.toolbox.util.safeString
 import okhttp3.FormBody
 import okhttp3.Request
@@ -64,39 +64,12 @@ class ScheduleApi(private val login: JwxtLogin) {
     private var cachedTermCode: String? = null
 
     /**
-     * FineReport 专用 client：手动跟随重定向并强制 HTTPS
-     * FineReport 报表可能 302 到 HTTP(port 80)，校外无法直连 → 超时
-     * 解决方案：禁用自动重定向 + 应用级拦截器手动跟随并升级 HTTPS
-     * （不能用 NetworkInterceptor，因为 ConnectInterceptor 在其之前已尝试 TCP 连接）
+     * FineReport 专用 client：加长超时（帆软报表渲染可能需要 30s+）
      */
     private val frClient by lazy {
         login.client.newBuilder()
-            .followRedirects(false)
-            .followSslRedirects(false)
-            .addInterceptor { chain ->
-                var request = chain.request()
-                // 确保初始请求也是 HTTPS
-                if (request.url.scheme == "http") {
-                    request = request.newBuilder()
-                        .url(request.url.newBuilder().scheme("https").port(443).build())
-                        .build()
-                }
-                var response = chain.proceed(request)
-                var count = 0
-                while (response.isRedirect && count < 10) {
-                    val location = response.header("Location") ?: break
-                    response.close()
-                    val nextUrl = request.url.resolve(location) ?: break
-                    val safeUrl = if (nextUrl.scheme == "http" && nextUrl.host.endsWith("xjtu.edu.cn")) {
-                        nextUrl.newBuilder().scheme("https").port(443).build()
-                    } else nextUrl
-                    Log.d(TAG, "FR redirect($count): ${request.url.host}${request.url.encodedPath} → ${safeUrl.scheme}://${safeUrl.host}${safeUrl.encodedPath}")
-                    request = request.newBuilder().url(safeUrl).build()
-                    response = chain.proceed(request)
-                    count++
-                }
-                response
-            }
+            .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+            .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
             .build()
     }
 
@@ -111,7 +84,7 @@ class ScheduleApi(private val login: JwxtLogin) {
         val responseBody = login.client.newCall(request).execute().use { response ->
             response.body?.string() ?: throw RuntimeException("空响应")
         }
-        val json = JsonParser.parseString(responseBody).asJsonObject
+        val json = responseBody.safeParseJsonObject()
         val code = json.getAsJsonObject("datas")
             .getAsJsonObject("dqxnxq")
             .getAsJsonArray("rows")[0].asJsonObject
@@ -131,7 +104,7 @@ class ScheduleApi(private val login: JwxtLogin) {
         val responseBody = login.client.newCall(request).execute().use { response ->
             response.body?.string() ?: throw RuntimeException("空响应")
         }
-        val json = JsonParser.parseString(responseBody).asJsonObject
+        val json = responseBody.safeParseJsonObject()
         val rows = json.getAsJsonObject("datas")
             .getAsJsonObject("xskcb")
             .getAsJsonArray("rows") ?: return emptyList()
@@ -180,7 +153,7 @@ class ScheduleApi(private val login: JwxtLogin) {
         val responseBody = login.client.newCall(request).execute().use { response ->
             response.body?.string() ?: throw RuntimeException("空响应")
         }
-        val json = JsonParser.parseString(responseBody).asJsonObject
+        val json = responseBody.safeParseJsonObject()
         val rows = json.getAsJsonObject("datas")
             .getAsJsonObject("wdksap")
             .getAsJsonArray("rows") ?: return emptyList()
@@ -228,7 +201,7 @@ class ScheduleApi(private val login: JwxtLogin) {
         val responseBody = login.client.newCall(request).execute().use { response ->
             response.body?.string() ?: throw RuntimeException("空响应")
         }
-        val json = JsonParser.parseString(responseBody).asJsonObject
+        val json = responseBody.safeParseJsonObject()
         val dateStr = json.getAsJsonObject("datas")
             .getAsJsonObject("cxjcs")
             .getAsJsonArray("rows")[0].asJsonObject
@@ -248,26 +221,89 @@ class ScheduleApi(private val login: JwxtLogin) {
         val term = termCode ?: getCurrentTerm()
         Log.d(TAG, "getTextbooks: studentId=$studentId, term=$term")
 
-        // Step 1: GET 帆软报表初始页面（与成绩报表同模式，不需要 BBKEY/QUERYID）
-        // BBKEY/QUERYID 是 EMAP 会话令牌，硬编码会触发"报表数据越权"
-        val initUrl = "$baseUrl/jwapp/sys/frReport2/show.do" +
-                "?reportlet=jcgl/wdjc.cpt" +
-                "&xh=$studentId" +
-                "&xnxqdm=$term"
-        val initRequest = Request.Builder().url(initUrl).get().build()
-        val initHtml = frClient.newCall(initRequest).execute().use { it.body?.string() ?: "" }
-        Log.d(TAG, "getTextbooks: init response len=${initHtml.length}, preview=${initHtml.take(500)}")
+        val frUrl = "$baseUrl/jwapp/sys/frReport2/show.do"
 
-        // Step 2: 提取 FR Session ID（与 ScoreReportApi 相同模式）
-        val sessionId = extractFrSessionId(initHtml)
+        // Step 1: POST 初始化 → 服务器返回带 BBKEY 的自动提交表单页
+        val reportletJson = "{'xh':'$studentId','xnxqdm':'$term','reportlet':'jcgl/wdjc.cpt'}"
+        val initBody = FormBody.Builder()
+            .add("reportlets", "[$reportletJson]")
+            .add("__cumulatepagenumber__", "false")
+            .build()
+        val initRequest = Request.Builder()
+            .url(frUrl)
+            .post(initBody)
+            .header("Referer", "$frUrl?__cumulatepagenumber__=false")
+            .build()
+        var html = frClient.newCall(initRequest).execute().use { resp ->
+            Log.d(TAG, "getTextbooks: init code=${resp.code}, url=${resp.request.url}")
+            resp.body?.string() ?: ""
+        }
+        Log.d(TAG, "getTextbooks: init response len=${html.length}, preview=${html.take(500)}")
+
+        // Step 2: 检测 JS 自动提交表单 → 手动提取并重新 POST
+        // 服务器可能返回中间页: <form submitForm> + <script>submit()</script>
+        // OkHttp 不执行 JS，需手动解析并提交
+        if (html.contains("submitForm") && html.contains(".submit()")) {
+            Log.d(TAG, "getTextbooks: detected auto-submit form, extracting and resubmitting")
+            val formDoc = Jsoup.parse(html)
+            val formAction = formDoc.select("form[name=submitForm]").attr("action")
+                .let { if (it.startsWith("http")) it else "$baseUrl$it" }
+            val formBuilder = FormBody.Builder()
+            formDoc.select("form[name=submitForm] input[type=hidden]").forEach { input ->
+                val name = input.attr("name")
+                val value = input.attr("value")
+                if (name.isNotEmpty()) {
+                    formBuilder.add(name, value)
+                    Log.d(TAG, "getTextbooks: form field $name=${value.take(80)}")
+                }
+            }
+            val resubmitRequest = Request.Builder()
+                .url(formAction)
+                .post(formBuilder.build())
+                .header("Referer", "$frUrl?__cumulatepagenumber__=false")
+                .build()
+            html = frClient.newCall(resubmitRequest).execute().use { resp ->
+                Log.d(TAG, "getTextbooks: resubmit code=${resp.code}, url=${resp.request.url}")
+                resp.body?.string() ?: ""
+            }
+            Log.d(TAG, "getTextbooks: resubmit response len=${html.length}, preview=${html.take(500)}")
+        }
+
+        // 检测是否被重定向到登录页
+        if (html.contains("openplatform") || html.contains("login") && !html.contains("SessionMgr")) {
+            throw RuntimeException("教材报表会话已过期，请返回重新进入")
+        }
+
+        // 检测 FineReport 服务端错误页（数据库连接失败等后端问题）
+        if (html.contains("FR-Engine_Error") || html.contains("error_iframe") || html.contains("出错页面")) {
+            val serverError = extractFrErrorMessage(html)
+            Log.w(TAG, "getTextbooks: FineReport server error: $serverError")
+            throw RuntimeException("教务服务器报表异常：$serverError")
+        }
+
+        // Step 3: 先尝试从 HTML 直接解析（部分 FineReport 报表会内联渲染数据）
+        val inlineResult = parseTextbookTable(html)
+        if (inlineResult.isNotEmpty()) {
+            Log.d(TAG, "getTextbooks: parsed ${inlineResult.size} items from HTML (inline)")
+            return inlineResult
+        }
+
+        // Step 4: 提取 FR Session ID → 走 page_content 流程
+        val sessionId = extractFrSessionId(html)
         if (sessionId == null) {
-            Log.w(TAG, "getTextbooks: no sessionID found in init HTML")
-            return emptyList()
+            Log.w(TAG, "getTextbooks: no sessionID found in HTML, response: ${html.take(2000)}")
+            throw RuntimeException("教材报表初始化失败（未获取到会话ID），请重试")
         }
         Log.d(TAG, "getTextbooks: sessionId=$sessionId")
 
-        // Step 3: 获取报表内容页（带 timestamp 和 boxModel）
-        return fetchAndParseContent(sessionId)
+        // Step 5: 获取报表内容页
+        val result = fetchAndParseContent(sessionId)
+
+        // 如果 page_content 返回了 FineReport 错误页，告知用户
+        if (result.isEmpty()) {
+            Log.w(TAG, "getTextbooks: page_content returned 0 items (possibly FR error page)")
+        }
+        return result
     }
 
     private fun extractFrSessionId(html: String): String? {
@@ -286,6 +322,32 @@ class ScheduleApi(private val login: JwxtLogin) {
         return null
     }
 
+    /** 从 FineReport 错误页面提取服务器端错误信息 */
+    private fun extractFrErrorMessage(html: String): String {
+        // FineReport 错误页将错误信息编码为 Unicode 转义 [XXXX] 形式
+        // 例: [9519][8bef][4ee3][7801]:1301 → 错误代码:1301
+        val messagePattern = Regex("""value='((?:\[\w{4}]|[^'])+)'""")
+        val matches = messagePattern.findAll(html).toList()
+        for (m in matches) {
+            val raw = m.groupValues[1]
+            if (raw.contains("[") && raw.length > 10) {
+                // 解码 Unicode 转义
+                val decoded = raw.replace(Regex("""\[([0-9a-fA-F]{4})]""")) { mr ->
+                    mr.groupValues[1].toInt(16).toChar().toString()
+                }
+                // 提取关键信息（错误代码 + 简短描述）
+                val brief = decoded.take(200)
+                    .replace("java.lang.RuntimeException:", "")
+                    .replace("java.sql.SQLException:", "")
+                    .trim()
+                if (brief.isNotBlank()) return brief
+            }
+        }
+        // 回退：从 title 提取
+        if (html.contains("出错页面")) return "服务器报表引擎出错，请稍后重试"
+        return "未知服务器错误"
+    }
+
     private fun extractTotalPages(html: String): Int {
         val pattern = Regex("""FR\._p\.reportTotalPage\s*=\s*(\d+)""")
         return pattern.find(html)?.groupValues?.get(1)?.toIntOrNull() ?: 1
@@ -293,11 +355,22 @@ class ScheduleApi(private val login: JwxtLogin) {
 
     private fun fetchAndParseContent(sessionId: String): List<TextbookItem> {
         val frUrl = "$baseUrl/jwapp/sys/frReport2/show.do"
-        // 获取第一页
+        // 获取第一页（需要 X-Requested-With + Referer 模拟 AJAX 请求，否则 FR 返回错误页）
         val firstPageUrl = "$frUrl?_=${System.currentTimeMillis()}&__boxModel__=true&op=page_content&sessionID=$sessionId&pn=1"
-        val firstPageReq = Request.Builder().url(firstPageUrl).get().build()
+        val firstPageReq = Request.Builder()
+            .url(firstPageUrl)
+            .get()
+            .header("X-Requested-With", "XMLHttpRequest")
+            .header("Referer", frUrl)
+            .build()
         val firstPageHtml = frClient.newCall(firstPageReq).execute().use { it.body?.string() ?: "" }
         Log.d(TAG, "getTextbooks: page 1 len=${firstPageHtml.length}, preview=${firstPageHtml.take(300)}")
+
+        // 检测 FineReport 错误页
+        if (firstPageHtml.contains("FR-Engine_Error") || firstPageHtml.contains("error_iframe")) {
+            Log.w(TAG, "getTextbooks: FineReport returned error page: ${firstPageHtml.take(1000)}")
+            throw RuntimeException("教材报表服务端渲染失败，请稍后重试")
+        }
 
         val totalPages = extractTotalPages(firstPageHtml)
         Log.d(TAG, "getTextbooks: totalPages=$totalPages")
@@ -308,7 +381,12 @@ class ScheduleApi(private val login: JwxtLogin) {
         // 获取后续页
         for (pn in 2..totalPages) {
             val pageUrl = "$frUrl?_=${System.currentTimeMillis()}&__boxModel__=true&op=page_content&sessionID=$sessionId&pn=$pn"
-            val pageReq = Request.Builder().url(pageUrl).get().build()
+            val pageReq = Request.Builder()
+                .url(pageUrl)
+                .get()
+                .header("X-Requested-With", "XMLHttpRequest")
+                .header("Referer", frUrl)
+                .build()
             val pageHtml = frClient.newCall(pageReq).execute().use { it.body?.string() ?: "" }
             Log.d(TAG, "getTextbooks: page $pn len=${pageHtml.length}")
             allItems.addAll(parseTextbookTable(pageHtml))
@@ -319,72 +397,167 @@ class ScheduleApi(private val login: JwxtLogin) {
     private fun parseTextbookTable(html: String): List<TextbookItem> {
         val doc = Jsoup.parse(html)
         val tables = doc.select("table")
-        if (tables.isEmpty()) return emptyList()
+        Log.d(TAG, "parseTextbookTable: found ${tables.size} tables")
 
-        // FineReport 通常用最大的 table 渲染数据
-        val dataTable = tables.maxByOrNull { it.select("tr").size } ?: return emptyList()
-        val rows = dataTable.select("tr")
-        if (rows.size < 2) return emptyList()
+        // ── 策略1: 标准 <table> 解析 ──
+        if (tables.isNotEmpty()) {
+            val dataTable = tables.maxByOrNull { it.select("tr").size } ?: return emptyList()
+            val rows = dataTable.select("tr")
+            Log.d(TAG, "parseTextbookTable: largest table has ${rows.size} rows")
 
-        // FineReport 的表格结构：前几行可能是标题/副标题（带 rowSpan/colSpan），
-        // 真正的列头行是包含多个独立单元格且含有关键词的行。
-        // 扫描所有行，找到真正的列头行
+            if (rows.size >= 2) {
+                val result = parseTableRows(rows)
+                if (result.isNotEmpty()) return result
+            }
+        }
+
+        // ── 策略2: FineReport div 绝对定位解析 ──
+        // FineReport 新版用 <div style="position:absolute;..."> 渲染单元格
+        Log.d(TAG, "parseTextbookTable: trying div-based parsing")
+        val textDivs = doc.select("div[style*=position]")
+            .filter { it.children().isEmpty() || it.select("span").isNotEmpty() }
+            .mapNotNull { div ->
+                val style = div.attr("style")
+                val left = Regex("""left\s*:\s*(\d+(?:\.\d+)?)""").find(style)?.groupValues?.get(1)?.toFloatOrNull()
+                val top = Regex("""top\s*:\s*(\d+(?:\.\d+)?)""").find(style)?.groupValues?.get(1)?.toFloatOrNull()
+                val text = div.text().trim()
+                if (left != null && top != null && text.isNotBlank()) Triple(left, top, text) else null
+            }
+        Log.d(TAG, "parseTextbookTable: found ${textDivs.size} positioned div cells")
+
+        if (textDivs.isNotEmpty()) {
+            val result = parseDivBasedReport(textDivs)
+            if (result.isNotEmpty()) return result
+        }
+
+        // ── 策略3: 全文本暴力提取 ──
+        // 如果以上都失败，从全文中查找所有文本节点
+        val allText = doc.body()?.text() ?: ""
+        Log.d(TAG, "parseTextbookTable: body text len=${allText.length}, preview=${allText.take(500)}")
+        Log.w(TAG, "parseTextbookTable: all strategies failed, html structure: " +
+                "tables=${tables.size}, divs=${textDivs.size}, body_preview=${doc.body()?.html()?.take(1000)}")
+        return emptyList()
+    }
+
+    /** 从 <tr> 行列表中解析教材（原有逻辑） */
+    private fun parseTableRows(rows: org.jsoup.select.Elements): List<TextbookItem> {
         var headerRowIndex = -1
         val colMap = mutableMapOf<String, Int>()
 
         for (ri in rows.indices) {
             val cells = rows[ri].select("td, th").map { it.text().trim() }
-            // 列头行至少有 3 个有效单元格，且包含课程相关关键词
             if (cells.size >= 3 && cells.any { "课程" in it } && cells.any { "书名" in it || "教材" in it || "ISBN" in it.uppercase() }) {
                 headerRowIndex = ri
                 cells.forEachIndexed { index, header ->
-                    when {
-                        header == "课程名" || ("课程" in header && "名" in header && "号" !in header) -> colMap["course"] = index
-                        header == "书名" || "教材名" in header || ("教材" in header && "名" in header) -> colMap["textbook"] = index
-                        "主编" in header || "作者" in header || "编者" in header -> colMap["author"] = index
-                        "出版社" in header || ("出版" in header && "社" in header) -> colMap["publisher"] = index
-                        "ISBN" in header.uppercase() || "书号" in header -> colMap["isbn"] = index
-                        "价" in header || "定价" in header -> colMap["price"] = index
-                        "版次" in header || "版本" in header -> colMap["edition"] = index
-                    }
+                    mapHeaderColumn(header, index, colMap)
                 }
-                Log.d(TAG, "parseTextbookTable: found header at row $ri, cells=$cells, colMap=$colMap")
+                Log.d(TAG, "parseTableRows: found header at row $ri, cells=$cells, colMap=$colMap")
                 break
             }
         }
 
-        // 如果未找到列头行，尝试回退：取单元格数 >= 4 的第一行作为列头
         if (headerRowIndex == -1) {
             for (ri in rows.indices) {
                 val cells = rows[ri].select("td, th").map { it.text().trim() }
                 if (cells.size >= 4 && cells.count { it.isNotBlank() } >= 4) {
                     headerRowIndex = ri
-                    // 按 FineReport 教材报表的标准列序：课程号、课程名、开课单位、书名、ISBN、主编、版次、出版社
                     if (cells.size >= 8) {
-                        colMap["course"] = 1   // 课程名
-                        colMap["textbook"] = 3 // 书名
-                        colMap["isbn"] = 4
-                        colMap["author"] = 5   // 主编
-                        colMap["edition"] = 6  // 版次
-                        colMap["publisher"] = 7 // 出版社
+                        colMap["course"] = 1; colMap["textbook"] = 3; colMap["isbn"] = 4
+                        colMap["author"] = 5; colMap["edition"] = 6; colMap["publisher"] = 7
                     } else {
-                        colMap["course"] = 0
-                        colMap["textbook"] = 1
+                        colMap["course"] = 0; colMap["textbook"] = 1
                         if (cells.size > 2) colMap["author"] = 2
                         if (cells.size > 3) colMap["publisher"] = 3
                         if (cells.size > 4) colMap["isbn"] = 4
                     }
-                    Log.d(TAG, "parseTextbookTable: fallback header at row $ri, cells=$cells")
+                    Log.d(TAG, "parseTableRows: fallback header at row $ri, cells=$cells")
                     break
                 }
             }
         }
 
         if (headerRowIndex == -1) {
-            Log.w(TAG, "parseTextbookTable: no header row found")
+            Log.w(TAG, "parseTableRows: no header row found, dumping first 5 rows:")
+            for (ri in 0..minOf(4, rows.size - 1)) {
+                val cells = rows[ri].select("td, th").map { it.text().trim() }
+                Log.d(TAG, "  row[$ri]: cells=${cells.size}, content=$cells")
+            }
             return emptyList()
         }
 
+        return extractTextbooksFromRows(rows, headerRowIndex, colMap)
+    }
+
+    /** 从 div 绝对定位渲染的单元格中解析教材 */
+    private fun parseDivBasedReport(cells: List<Triple<Float, Float, String>>): List<TextbookItem> {
+        // 按 Y 坐标分组（同一行的 Y 坐标接近）
+        val sortedByY = cells.sortedBy { it.second }
+        val rows = mutableListOf<MutableList<Pair<Float, String>>>() // [(x, text)]
+        var currentRowY = -1f
+        var currentRow = mutableListOf<Pair<Float, String>>()
+
+        for ((x, y, text) in sortedByY) {
+            if (currentRowY < 0 || kotlin.math.abs(y - currentRowY) > 3f) {
+                if (currentRow.isNotEmpty()) rows.add(currentRow)
+                currentRow = mutableListOf()
+                currentRowY = y
+            }
+            currentRow.add(x to text)
+        }
+        if (currentRow.isNotEmpty()) rows.add(currentRow)
+
+        Log.d(TAG, "parseDivBasedReport: ${rows.size} rows detected")
+        if (rows.size < 2) return emptyList()
+
+        // 每行按 X 坐标排序
+        rows.forEach { it.sortBy { cell -> cell.first } }
+
+        // 查找列头行
+        val colMap = mutableMapOf<String, Int>()
+        var headerRowIndex = -1
+        for (ri in rows.indices) {
+            val texts = rows[ri].map { it.second }
+            if (texts.size >= 3 && texts.any { "课程" in it } && texts.any { "书名" in it || "教材" in it || "ISBN" in it.uppercase() }) {
+                headerRowIndex = ri
+                texts.forEachIndexed { index, header -> mapHeaderColumn(header, index, colMap) }
+                Log.d(TAG, "parseDivBasedReport: header at row $ri, texts=$texts, colMap=$colMap")
+                break
+            }
+        }
+
+        if (headerRowIndex == -1) return emptyList()
+
+        val textbooks = mutableListOf<TextbookItem>()
+        for (ri in (headerRowIndex + 1) until rows.size) {
+            val texts = rows[ri].map { it.second }
+            if (texts.isEmpty() || texts.all { it.isBlank() }) continue
+
+            fun col(key: String): String = colMap[key]?.let { texts.getOrNull(it) } ?: ""
+            val courseName = col("course")
+            val textbookName = col("textbook")
+            if (courseName.isBlank() && textbookName.isBlank()) continue
+
+            textbooks.add(TextbookItem(courseName, textbookName, col("author"), col("publisher"), col("isbn"), col("price"), col("edition")))
+        }
+        Log.d(TAG, "parseDivBasedReport: parsed ${textbooks.size} items")
+        return textbooks
+    }
+
+    /** 列头关键词映射 */
+    private fun mapHeaderColumn(header: String, index: Int, colMap: MutableMap<String, Int>) {
+        when {
+            header == "课程名" || ("课程" in header && "名" in header && "号" !in header) -> colMap["course"] = index
+            header == "书名" || "教材名" in header || ("教材" in header && "名" in header) -> colMap["textbook"] = index
+            "主编" in header || "作者" in header || "编者" in header -> colMap["author"] = index
+            "出版社" in header || ("出版" in header && "社" in header) -> colMap["publisher"] = index
+            "ISBN" in header.uppercase() || "书号" in header -> colMap["isbn"] = index
+            "价" in header || "定价" in header -> colMap["price"] = index
+            "版次" in header || "版本" in header -> colMap["edition"] = index
+        }
+    }
+
+    /** 从 table 的行中提取教材条目 */
+    private fun extractTextbooksFromRows(rows: org.jsoup.select.Elements, headerRowIndex: Int, colMap: Map<String, Int>): List<TextbookItem> {
         val textbooks = mutableListOf<TextbookItem>()
         for (i in (headerRowIndex + 1) until rows.size) {
             val cells = rows[i].select("td, th").map { it.text().trim() }
@@ -408,7 +581,7 @@ class ScheduleApi(private val login: JwxtLogin) {
                 )
             )
         }
-        Log.d(TAG, "parseTextbookTable: parsed ${textbooks.size} textbook items")
+        Log.d(TAG, "extractTextbooksFromRows: parsed ${textbooks.size} textbook items")
         return textbooks
     }
 
@@ -428,7 +601,7 @@ class ScheduleApi(private val login: JwxtLogin) {
         }
 
         return try {
-            val json = JsonParser.parseString(responseBody).asJsonObject
+            val json = responseBody.safeParseJsonObject()
             val rows = json.getAsJsonObject("datas")
                 .getAsJsonObject("cxxnxqgl")
                 .getAsJsonArray("rows")

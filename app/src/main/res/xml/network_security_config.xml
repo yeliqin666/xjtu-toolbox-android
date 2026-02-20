@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- 允许校内系统的明文 HTTP 连接 -->
+    <!--
+        允许 *.xjtu.edu.cn 的明文 HTTP 连接。
+        学校多个子系统（jwapp/bkkq/card/rg.lib/gste/gmis/org）不支持 HTTPS，
+        逐一枚举容易遗漏导致回归，使用通配符更稳妥。
+    -->
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">xjtu.edu.cn</domain>
     </domain-config>

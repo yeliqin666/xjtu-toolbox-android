@@ -1,6 +1,6 @@
 package com.xjtu.toolbox.emptyroom
 
-import com.google.gson.JsonParser
+import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.brotli.BrotliInterceptor
@@ -86,7 +86,7 @@ class EmptyRoomApi {
         val body = response.body?.string()
             ?: throw RuntimeException("响应为空")
 
-        val json = JsonParser.parseString(body).asJsonObject
+        val json = body.safeParseJsonObject()
         cachedDate = date
         cachedData = json
         return json

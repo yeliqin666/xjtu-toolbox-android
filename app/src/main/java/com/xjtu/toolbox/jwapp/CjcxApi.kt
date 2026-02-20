@@ -1,9 +1,9 @@
 package com.xjtu.toolbox.jwapp
 
 import android.util.Log
-import com.google.gson.JsonParser
 import com.xjtu.toolbox.auth.JwxtLogin
 import com.xjtu.toolbox.util.safeDouble
+import com.xjtu.toolbox.util.safeParseJsonObject
 import com.xjtu.toolbox.util.safeString
 import com.xjtu.toolbox.util.safeStringOrNull
 import okhttp3.FormBody
@@ -18,6 +18,9 @@ private const val TAG = "CjcxApi"
 class CjcxApi(private val login: JwxtLogin) {
 
     private val baseUrl = "https://jwxt.xjtu.edu.cn/jwapp/sys/cjcx"
+
+    @Volatile private var lastSessionTime = 0L
+    private val sessionTtl = 5 * 60 * 1000L // 5分钟内不重复初始化
 
     data class CjcxScore(
         val courseName: String,
@@ -39,10 +42,13 @@ class CjcxApi(private val login: JwxtLogin) {
     )
 
     private fun ensureSession() {
+        val now = System.currentTimeMillis()
+        if (now - lastSessionTime < sessionTtl) return
         try {
             login.client.newCall(
                 Request.Builder().url("$baseUrl/*default/index.do").get().build()
             ).execute().close()
+            lastSessionTime = now
         } catch (e: Exception) {
             Log.w(TAG, "session init: ${e.message}")
         }
@@ -72,7 +78,7 @@ class CjcxApi(private val login: JwxtLogin) {
                 if (!resp.isSuccessful) throw RuntimeException("xscjcx.do HTTP ${resp.code}")
                 resp.body?.string() ?: throw RuntimeException("空响应")
             }
-            val root = JsonParser.parseString(body).asJsonObject
+            val root = body.safeParseJsonObject()
             if (root.get("code")?.asString != "0") {
                 throw RuntimeException("xscjcx.do 业务错误: ${root.get("code")}")
             }

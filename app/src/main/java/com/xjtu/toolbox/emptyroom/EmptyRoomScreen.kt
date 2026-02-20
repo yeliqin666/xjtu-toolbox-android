@@ -1,8 +1,10 @@
 package com.xjtu.toolbox.emptyroom
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -14,11 +16,15 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -111,21 +117,21 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     val campusNames = CAMPUS_BUILDINGS.keys.toList()
-    var selectedCampus by remember { mutableStateOf(campusNames.firstOrNull() ?: "") }
+    var selectedCampus by rememberSaveable { mutableStateOf(campusNames.firstOrNull() ?: "") }
 
     val buildings = remember(selectedCampus) { CAMPUS_BUILDINGS[selectedCampus] ?: emptyList() }
     // 切换校区时自动选第一个教学楼，消除 LaunchedEffect 竞态
-    var selectedBuilding by remember(selectedCampus) { mutableStateOf(buildings.firstOrNull() ?: "") }
+    var selectedBuilding by rememberSaveable(selectedCampus) { mutableStateOf(buildings.firstOrNull() ?: "") }
 
     val availableDates = remember { api.getAvailableDates() }
-    var selectedDate by remember { mutableStateOf(availableDates.firstOrNull() ?: "") }
+    var selectedDate by rememberSaveable { mutableStateOf(availableDates.firstOrNull() ?: "") }
 
     // 智能筛选
-    var smartFilter by remember { mutableStateOf("现在空闲") }
+    var smartFilter by rememberSaveable { mutableStateOf("现在空闲") }
 
     // 用户自选节数区间（1-based）
-    var startPeriod by remember { mutableIntStateOf(1) }
-    var endPeriod by remember { mutableIntStateOf(11) }
+    var startPeriod by rememberSaveable { mutableIntStateOf(1) }
+    var endPeriod by rememberSaveable { mutableIntStateOf(11) }
 
     val scope = rememberCoroutineScope()
 
@@ -219,8 +225,7 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
                             AppFilterChip(
                                 selected = selectedCampus == campus,
                                 onClick = { selectedCampus = campus },
-                                label = campus.removeSuffix("校区"),
-                                fontSize = 13f
+                                label = campus.removeSuffix("校区")
                             )
                         }
                     }
@@ -234,8 +239,7 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
                             AppFilterChip(
                                 selected = selectedBuilding == building,
                                 onClick = { selectedBuilding = building },
-                                label = building,
-                                fontSize = 12f
+                                label = building
                             )
                         }
                     }
@@ -304,8 +308,7 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
                             AppFilterChip(
                                 selected = true,
                                 onClick = { startExpanded = true },
-                                label = "第${startPeriod}节起",
-                                fontSize = 12f
+                                label = "第${startPeriod}节起"
                             )
                             DropdownMenu(expanded = startExpanded, onDismissRequest = { startExpanded = false }) {
                                 (1..11).forEach { p ->
@@ -327,8 +330,7 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
                             AppFilterChip(
                                 selected = true,
                                 onClick = { endExpanded = true },
-                                label = "第${endPeriod}节止",
-                                fontSize = 12f
+                                label = "第${endPeriod}节止"
                             )
                             DropdownMenu(expanded = endExpanded, onDismissRequest = { endExpanded = false }) {
                                 (startPeriod..11).forEach { p ->
@@ -356,8 +358,7 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
                             AppFilterChip(
                                 selected = smartFilter == filter,
                                 onClick = { smartFilter = filter },
-                                label = filter,
-                                fontSize = 11f
+                                label = filter
                             )
                         }
                     }
@@ -488,15 +489,26 @@ private fun PeriodHeader(currentPeriod: Int) {
 
 // ══════ 智能教室卡片 ══════
 
+@Suppress("DEPRECATION")
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SmartRoomCard(room: RoomInfo, currentPeriod: Int) {
     val tags = getSmartTags(room, currentPeriod)
     val isNowFree = currentPeriod >= 0 && room.status.getOrNull(currentPeriod) == 0
+    val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .animateContentSize(),
+            .animateContentSize()
+            .combinedClickable(
+                onClick = {},
+                onLongClick = {
+                    clipboardManager.setText(AnnotatedString(room.name))
+                    android.widget.Toast.makeText(context, "已复制：${room.name}", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            ),
         colors = CardDefaults.cardColors(
             containerColor = if (isNowFree)
                 MaterialTheme.colorScheme.surfaceContainerLow

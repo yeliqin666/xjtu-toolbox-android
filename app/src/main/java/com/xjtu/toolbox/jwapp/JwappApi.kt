@@ -2,7 +2,6 @@ package com.xjtu.toolbox.jwapp
 
 import android.util.Log
 import com.google.gson.Gson
-import com.google.gson.JsonParser
 import com.xjtu.toolbox.auth.JwappLogin
 import com.xjtu.toolbox.util.safeString
 import com.xjtu.toolbox.util.safeStringOrNull
@@ -10,6 +9,7 @@ import com.xjtu.toolbox.util.safeDouble
 import com.xjtu.toolbox.util.safeDoubleOrNull
 import com.xjtu.toolbox.util.safeInt
 import com.xjtu.toolbox.util.safeBoolean
+import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 
@@ -111,6 +111,12 @@ class JwappApi(private val login: JwappLogin) {
     private val baseUrl = "http://jwapp.xjtu.edu.cn"
     private val gson = Gson()
 
+    // [J1] TimeTableBasis 内存缓存（学期内不变，避免重复网络请求）
+    // TTL 1小时：防止 App 长时间运行跨学期后返回旧数据
+    private var cachedBasis: TimeTableBasis? = null
+    private var cachedBasisTime: Long = 0L
+    private val BASIS_TTL_MS = 60L * 60 * 1000L  // 1 小时
+
     fun getGrade(termCode: String? = null): List<TermScore> {
         val code = termCode ?: "*"
         val json = gson.toJson(mapOf("termCode" to code))
@@ -122,7 +128,7 @@ class JwappApi(private val login: JwappLogin) {
         val responseBody = login.executeWithReAuth(request).use { response ->
             response.body?.string() ?: throw RuntimeException("空响应")
         }
-        val root = JsonParser.parseString(responseBody).asJsonObject
+        val root = responseBody.safeParseJsonObject()
 
         val resultCode = root.get("code").asInt
         if (resultCode != 200) {
@@ -182,7 +188,7 @@ class JwappApi(private val login: JwappLogin) {
         val responseBody = login.executeWithReAuth(request).use { response ->
             response.body?.string() ?: throw RuntimeException("空响应")
         }
-        val root = JsonParser.parseString(responseBody).asJsonObject
+        val root = responseBody.safeParseJsonObject()
 
         val resultCode = root.get("code").asInt
         if (resultCode != 200) {
@@ -236,7 +242,7 @@ class JwappApi(private val login: JwappLogin) {
         val responseBody = login.executeWithReAuth(request).use { response ->
             response.body?.string() ?: throw RuntimeException("空响应")
         }
-        val root = JsonParser.parseString(responseBody).asJsonObject
+        val root = responseBody.safeParseJsonObject()
 
         val resultCode = root.get("code").asInt
         if (resultCode != 200) {
@@ -263,13 +269,19 @@ class JwappApi(private val login: JwappLogin) {
     }
 
     fun getTimeTableBasis(): TimeTableBasis {
+        // [J1] 优先返回缓存（1h TTL，防跨学期过期）
+        cachedBasis?.let {
+            if (System.currentTimeMillis() - cachedBasisTime < BASIS_TTL_MS) return it
+            cachedBasis = null  // 已过期，清除
+        }
+
         val request = login.authenticatedRequest("https://jwapp.xjtu.edu.cn/api/biz/v410/common/school/time")
             .get()
 
         val body = login.executeWithReAuth(request).use { response ->
             response.body?.string() ?: throw RuntimeException("空响应")
         }
-        val root = JsonParser.parseString(body).asJsonObject
+        val root = body.safeParseJsonObject()
 
         val resultCode = root.get("code").asInt
         if (resultCode != 200) {
@@ -290,7 +302,7 @@ class JwappApi(private val login: JwappLogin) {
             maxSection = obj.get("maxSection").safeInt(),
             todayWeekDay = obj.get("todayWeekDay").safeInt(),
             todayWeekNum = obj.get("todayWeekNum").safeInt()
-        )
+        ).also { cachedBasis = it; cachedBasisTime = System.currentTimeMillis() }
     }
 
     fun getCurrentTerm(): String = getTimeTableBasis().termCode

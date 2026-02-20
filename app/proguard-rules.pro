@@ -55,3 +55,9 @@
 -keepclassmembers class com.xjtu.toolbox.library.** { *; }
 -keepclassmembers class com.xjtu.toolbox.notification.** { *; }
 -keepclassmembers class com.xjtu.toolbox.gmis.** { *; }
+
+# ── Release 版移除 debug/verbose 日志（安全：避免泄露 token/cookie 信息）──
+-assumenosideeffects class android.util.Log {
+    public static int d(...);
+    public static int v(...);
+}

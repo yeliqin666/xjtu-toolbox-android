@@ -41,10 +41,16 @@ private const val FETCH_TIMEOUT_MS = 10_000L
 // ── 条形码/二维码生成 ──────────────────
 
 private fun BitMatrix.toBitmap(foreground: Int, background: Int): Bitmap {
-    val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-    for (x in 0 until width) for (y in 0 until height)
-        bmp.setPixel(x, y, if (get(x, y)) foreground else background)
-    return bmp
+    val pixels = IntArray(width * height)
+    for (y in 0 until height) {
+        val offset = y * width
+        for (x in 0 until width) {
+            pixels[offset + x] = if (get(x, y)) foreground else background
+        }
+    }
+    return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).apply {
+        setPixels(pixels, 0, width, 0, 0, width, height)
+    }
 }
 
 private fun generateQrCode(text: String, size: Int = 600): Bitmap {
@@ -104,10 +110,21 @@ fun PaymentCodeDialog(
         errorMessage = null
         loadingStage = "正在连接校园认证…"
 
-        // 带超时的认证
-        val authOk = withTimeoutOrNull(AUTH_TIMEOUT_MS) {
-            withContext(Dispatchers.IO) { api.authenticate() }
-            true
+        // 带超时的认证（同时捕获网络异常，防止 IOException 逃逸导致崩溃）
+        val authOk = try {
+            withTimeoutOrNull(AUTH_TIMEOUT_MS) {
+                withContext(Dispatchers.IO) { api.authenticate() }
+                true
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e // 不吞掉取消异常
+        } catch (e: Exception) {
+            errorMessage = when (e) {
+                is java.io.IOException -> "网络连接失败，请检查网络"
+                else -> "认证失败: ${e.message?.take(50)}"
+            }
+            isLoading = false
+            return@LaunchedEffect
         }
         if (authOk == null) {
             errorMessage = "认证超时，请检查网络"
@@ -124,7 +141,10 @@ fun PaymentCodeDialog(
                     withContext(Dispatchers.IO) { api.getBarCode() }
                 } ?: throw RuntimeException("获取超时")
                 barCodeNumber = code
+                // 回收旧 Bitmap 释放 native 内存（每 12 秒刷新，避免 ~2MB/次的垃圾堆积）
+                qrBitmap?.recycle()
                 qrBitmap = generateQrCode(code)
+                barBitmap?.recycle()
                 barBitmap = generateBarcode(code)
                 isLoading = false
                 errorMessage = null
@@ -150,7 +170,7 @@ fun PaymentCodeDialog(
             .fillMaxWidth(0.92f)
             .wrapContentHeight(),
         shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
     ) {
         when {
@@ -163,7 +183,7 @@ fun PaymentCodeDialog(
                 ) {
                     CircularProgressIndicator(strokeWidth = 3.dp)
                     Spacer(Modifier.height(12.dp))
-                    Text(loadingStage, fontSize = 13.sp, color = Color.Gray)
+                    Text(loadingStage, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
 
@@ -202,13 +222,13 @@ fun PaymentCodeDialog(
                         "付款码",
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 16.sp,
-                        color = Color(0xFF333333)
+                        color = MaterialTheme.colorScheme.onSurface
                     )
 
                     Text(
                         "向商家出示此码 · 点击刷新",
                         fontSize = 12.sp,
-                        color = Color.Gray,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 2.dp)
                     )
 
@@ -245,7 +265,7 @@ fun PaymentCodeDialog(
                         barCodeNumber,
                         fontFamily = FontFamily.Monospace,
                         fontSize = 12.sp,
-                        color = Color.LightGray,
+                        color = MaterialTheme.colorScheme.outlineVariant,
                         letterSpacing = 1.5.sp
                     )
 
@@ -255,7 +275,7 @@ fun PaymentCodeDialog(
                     Text(
                         "${countdown}s",
                         fontSize = 11.sp,
-                        color = Color(0xFFCCCCCC)
+                        color = MaterialTheme.colorScheme.outlineVariant
                     )
                 }
             }

@@ -1,12 +1,11 @@
 package com.xjtu.toolbox.notification
 
 import android.util.Log
-import com.google.gson.JsonParser
+import com.xjtu.toolbox.util.safeParseJsonObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.runBlocking
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -103,7 +102,7 @@ private const val TAG = "NotificationApi"
 private const val USER_AGENT =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
-private val domainCookies = mutableMapOf<String, String>()
+private val domainCookies = java.util.concurrent.ConcurrentHashMap<String, String>()
 
 /** 域名级别失败缓存：记录 DNS/连接超时失败的域名及失败时间戳，避免重复尝试 */
 private val failedDomains = ConcurrentHashMap<String, Long>()
@@ -174,7 +173,7 @@ private fun fetchDocumentWithChallenge(client: OkHttpClient, url: String): Docum
     val challengeBody = challengeResp.body?.string() ?: return Jsoup.parse(html, url)
 
     val result = try {
-        JsonParser.parseString(challengeBody).asJsonObject
+        challengeBody.safeParseJsonObject()
     } catch (_: Exception) {
         return Jsoup.parse(html, url)
     }
@@ -603,19 +602,17 @@ class NotificationApi(
         return crawler.fetch(page)
     }
 
-    fun getMergedNotifications(sources: List<NotificationSource>, page: Int = 1): List<Notification> {
-        return runBlocking {
-            coroutineScope {
-                sources.map { source ->
-                    async(Dispatchers.IO) {
-                        runCatching { getNotifications(source, page) }.getOrDefault(emptyList())
-                    }
-                }.awaitAll().flatten()
-            }
+    suspend fun getMergedNotifications(sources: List<NotificationSource>, page: Int = 1): List<Notification> {
+        return coroutineScope {
+            sources.map { source ->
+                async(Dispatchers.IO) {
+                    runCatching { getNotifications(source, page) }.getOrDefault(emptyList())
+                }
+            }.awaitAll().flatten()
         }.sortedByDescending { it.date }
     }
 
-    fun getAllNotifications(page: Int = 1): List<Notification> {
+    suspend fun getAllNotifications(page: Int = 1): List<Notification> {
         return getMergedNotifications(NotificationSource.entries, page)
     }
 
