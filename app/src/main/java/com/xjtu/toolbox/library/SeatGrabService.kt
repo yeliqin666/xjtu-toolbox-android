@@ -42,8 +42,8 @@ class SeatGrabService : Service() {
         const val CHANNEL_NAME = "图书馆抢座"
         private const val NOTIFICATION_ID_FOREGROUND = 5001
         private const val NOTIFICATION_ID_RESULT = 5002
-        /** 服务总超时 5 分钟，防止长时间占用前台 */
-        private const val TOTAL_TIMEOUT_MS = 5 * 60 * 1000L
+        /** 服务总超时 3 分钟（shortService 限制）*/
+        private const val TOTAL_TIMEOUT_MS = 3 * 60 * 1000L
     }
 
     // 每次 onCreate 新建 scope，避免 cancel 后复用问题
@@ -74,7 +74,7 @@ class SeatGrabService : Service() {
         val foregroundNotification = buildProgressNotification("正在准备抢座...")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(NOTIFICATION_ID_FOREGROUND, foregroundNotification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SHORT_SERVICE)
         } else {
             startForeground(NOTIFICATION_ID_FOREGROUND, foregroundNotification)
         }
@@ -255,8 +255,8 @@ class SeatGrabService : Service() {
         // 计算最近的目标 epoch millis（如果今天已过则取明天）
         var targetDateTime = LocalDate.now().atTime(targetLocalTime)
         val targetEpochMs = targetDateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-        val finalTargetMs = if (targetEpochMs < System.currentTimeMillis() - 120_000L) {
-            // 已过了 2 分钟以上 → 算明天的
+        val finalTargetMs = if (targetEpochMs < System.currentTimeMillis() - 600_000L) {
+            // 已过了 10 分钟以上 → 算明天的（放宽阈值以兼容 Doze/OEM 延迟）
             targetDateTime.plusDays(1).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
         } else {
             targetEpochMs

@@ -1,9 +1,13 @@
 package com.xjtu.toolbox.library
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import androidx.core.app.NotificationCompat
+import com.xjtu.toolbox.R
 
 /**
  * 抢座闹钟广播接收器
@@ -49,6 +53,26 @@ class SeatGrabReceiver : BroadcastReceiver() {
             context.startForegroundService(serviceIntent)
         } catch (e: Exception) {
             Log.e(TAG, "启动 SeatGrabService 失败", e)
+            // 发送通知告知用户服务启动失败
+            try {
+                val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                val channelId = SeatGrabService.CHANNEL_ID
+                if (nm.getNotificationChannel(channelId) == null) {
+                    nm.createNotificationChannel(
+                        NotificationChannel(channelId, SeatGrabService.CHANNEL_NAME, NotificationManager.IMPORTANCE_HIGH)
+                    )
+                }
+                val notification = NotificationCompat.Builder(context, channelId)
+                    .setSmallIcon(R.drawable.ic_notification_seat)
+                    .setContentTitle("抢座服务启动失败")
+                    .setContentText("可能被系统限制，请检查自启动权限和电池优化设置")
+                    .setStyle(NotificationCompat.BigTextStyle().bigText(
+                        "抢座服务无法启动: ${e.message}\n请前往系统设置允许应用自启动，并关闭电池优化。"
+                    ))
+                    .setAutoCancel(true)
+                    .build()
+                nm.notify(5099, notification)
+            } catch (_: Exception) { /* 通知也失败了，无能为力 */ }
         }
     }
 }

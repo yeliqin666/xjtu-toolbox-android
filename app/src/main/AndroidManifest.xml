@@ -10,7 +10,7 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SHORT_SERVICE" />
 
     <application
         android:allowBackup="true"
@@ -38,7 +38,7 @@
         <!-- 定时抢座前台服务 -->
         <service
             android:name=".library.SeatGrabService"
-            android:foregroundServiceType="dataSync"
+            android:foregroundServiceType="shortService"
             android:exported="false" />
 
         <!-- 抢座闹钟接收器（exported 以接收 BOOT_COMPLETED，alarm 走显式 Intent 不需要 filter） -->
