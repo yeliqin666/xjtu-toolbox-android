@@ -18,7 +18,6 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.automirrored.filled.MenuBook
-import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Image
@@ -32,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.auth.JwxtLogin
 import androidx.compose.foundation.text.selection.SelectionContainer
 import com.xjtu.toolbox.ui.ScheduleGrid
@@ -329,7 +329,11 @@ fun ScheduleScreen(login: JwxtLogin? = null, studentId: String = "", onBack: () 
         scope.launch {
             try {
                 withContext(Dispatchers.IO) {
-                    textbooks = api.getTextbooks(studentId, termCode)
+                    val raw = api.getTextbooks(studentId, termCode)
+                    // 排序：有教材的在前，无教材的在后
+                    textbooks = raw.sortedBy { item ->
+                        if (item.hasSubstantiveTextbook) 0 else 1
+                    }
                 }
                 android.util.Log.d("ScheduleUI", "loadTextbooks done: ${textbooks.size} items")
                 textbooksLoaded = true
@@ -521,9 +525,11 @@ fun ScheduleScreen(login: JwxtLogin? = null, studentId: String = "", onBack: () 
                 },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回") } },
                 actions = {
-                    // 添加自定义课程
-                    IconButton(onClick = { showAddCourseDialog = true }, enabled = selectedTermCode.isNotEmpty()) {
-                        Icon(Icons.Default.Add, contentDescription = "添加课程")
+                    // 添加自定义课程（仅课表 tab 显示）
+                    if (selectedTab == 0) {
+                        IconButton(onClick = { showAddCourseDialog = true }, enabled = selectedTermCode.isNotEmpty()) {
+                            Icon(Icons.Default.Add, contentDescription = "添加课程")
+                        }
                     }
                     // 导出菜单
                     Box {
@@ -969,90 +975,128 @@ private fun TextbookTabContent(
 
 @Composable
 private fun TextbookCard(item: TextbookItem) {
-    Card(
-        Modifier.fillMaxWidth(),
+    val hasTextbook = item.hasSubstantiveTextbook
+    val scheme = MaterialTheme.colorScheme
+
+    // 清洗占位符数据
+    val author = item.author.trim().takeIf { it.length >= 2 } ?: ""
+    val isbn = item.isbn.trim().takeIf { !it.startsWith("978000000000") } ?: ""
+    val bookName = item.textbookName.trim().takeIf { it.length >= 2 } ?: ""
+    val pubParts = buildList {
+        if (item.publisher.isNotBlank()) add(item.publisher)
+        if (item.edition.isNotBlank()) add(item.edition)
+    }
+
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.elevatedCardElevation(
+            defaultElevation = if (hasTextbook) 2.dp else 0.dp
+        ),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = if (hasTextbook) scheme.surface else scheme.surfaceContainerLow
+        )
     ) {
-        Row(Modifier.fillMaxWidth()) {
-            // 左侧书本图标区域
-            Surface(
-                modifier = Modifier.width(56.dp).heightIn(min = 80.dp),
-                shape = RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp),
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            // ── 课程名行 ──
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(Modifier.fillMaxSize().padding(8.dp), contentAlignment = Alignment.BottomCenter) {
-                    Icon(
-                        Icons.Default.Book, null,
-                        Modifier.size(28.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
+                // 小书本图标
+                Icon(
+                    Icons.AutoMirrored.Filled.MenuBook,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                    tint = if (hasTextbook) scheme.primary else scheme.outlineVariant
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    item.courseName.ifEmpty { "未知课程" },
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (hasTextbook) scheme.onSurface else scheme.onSurface.copy(alpha = 0.55f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                if (item.price.isNotBlank()) {
+                    Spacer(Modifier.width(10.dp))
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = scheme.tertiaryContainer,
+                        tonalElevation = 2.dp
+                    ) {
+                        Text(
+                            "¥${item.price}",
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = scheme.onTertiaryContainer
+                        )
+                    }
                 }
             }
 
-            Column(
-                Modifier.weight(1f).padding(horizontal = 14.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                // 课程名
+            if (!hasTextbook) {
+                Spacer(Modifier.height(6.dp))
                 Text(
-                    item.courseName.ifEmpty { "未知课程" },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    "暂无教材信息",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = scheme.outline.copy(alpha = 0.6f),
+                    modifier = Modifier.padding(start = 30.dp)
                 )
-                // 教材名
-                Text(
-                    item.textbookName.ifEmpty { "教材名称未录入" },
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-                // 作者 + 出版社
-                val meta = buildList {
-                    if (item.author.isNotBlank()) add(item.author)
-                    if (item.publisher.isNotBlank()) add(item.publisher)
-                    if (item.edition.isNotBlank()) add(item.edition)
-                }.joinToString(" · ")
-                if (meta.isNotEmpty()) {
-                    Text(
-                        meta,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                // ISBN + 价格
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (item.isbn.isNotBlank()) {
+            } else {
+                // ── 教材详情（左对齐，缩进与图标对齐） ──
+                Column(Modifier.padding(start = 30.dp, top = 10.dp)) {
+                    // 书名
+                    if (bookName.isNotEmpty()) {
+                        SelectionContainer {
+                            Text(
+                                "《${bookName}》",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                color = scheme.onSurface
+                            )
+                        }
+                    }
+
+                    // 作者
+                    if (author.isNotEmpty()) {
+                        Spacer(Modifier.height(4.dp))
                         Text(
-                            "ISBN: ${item.isbn}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.outline,
-                            maxLines = 1,
-                            modifier = Modifier.weight(1f, fill = false)
+                            "$author 著",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = scheme.onSurfaceVariant
                         )
                     }
-                    if (item.price.isNotBlank()) {
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.6f)
-                        ) {
-                            Text(
-                                "¥${item.price}",
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.tertiary
-                            )
+
+                    // 出版社 + 版次
+                    if (pubParts.isNotEmpty()) {
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            pubParts.joinToString(" · "),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = scheme.outline
+                        )
+                    }
+
+                    // ISBN
+                    if (isbn.isNotEmpty()) {
+                        Spacer(Modifier.height(6.dp))
+                        SelectionContainer {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = scheme.surfaceContainerHighest.copy(alpha = 0.6f)
+                            ) {
+                                Text(
+                                    "ISBN $isbn",
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = scheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                    letterSpacing = 0.4.sp
+                                )
+                            }
                         }
                     }
                 }

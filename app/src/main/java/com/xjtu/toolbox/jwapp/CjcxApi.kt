@@ -111,6 +111,7 @@ class CjcxApi(private val login: JwxtLogin) {
 
             if (all.size >= totalSize || rows.size() < pageSize) break
             page++
+            if (page > 50) break // 安全上限，防止服务端异常导致无限分页
         }
 
         Log.d(TAG, "获取 ${all.size} 门精确成绩")

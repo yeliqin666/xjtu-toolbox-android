@@ -294,6 +294,8 @@ fun ScheduleGrid(
                     val slotHeight = if (totalCols <= 1) cellHeight else cellHeight / totalCols
                     val slotTopOffset = topOffset + slotHeight * colIndex
 
+
+
                     Box(
                         Modifier
                             .offset(x = leftOffset, y = slotTopOffset)
@@ -329,32 +331,57 @@ fun ScheduleGrid(
                 }
             }
 
-            // ── 当前时间线（红色横线 + 圆点）──
+            // ── 当前时间线（横跨整行 + "现在"标签）──
             if (timeLineInfo != null) {
                 val (todayDow, yFrac) = timeLineInfo
-                val sectionHeightPx = with(androidx.compose.ui.platform.LocalDensity.current) { SECTION_HEIGHT.toPx() }
-                val leftColPx = with(androidx.compose.ui.platform.LocalDensity.current) { LEFT_COL_WIDTH.toPx() }
-                val dayWidthPx = with(androidx.compose.ui.platform.LocalDensity.current) { dayWidth.toPx() }
+                val density = androidx.compose.ui.platform.LocalDensity.current
+                val sectionHeightPx = with(density) { SECTION_HEIGHT.toPx() }
+                val leftColPx = with(density) { LEFT_COL_WIDTH.toPx() }
+                val dayWidthPx = with(density) { dayWidth.toPx() }
                 val lineColor = Color(0xFFE53935)  // Material Red 600
                 val yPos = sectionHeightPx * yFrac
-                val dayLeft = leftColPx + dayWidthPx * (todayDow - 1)
+                val timelineY = with(density) { (yPos / density.density).dp }
 
+                // "现在" 标签
+                Text(
+                    "现在",
+                    modifier = Modifier
+                        .offset(x = 0.dp, y = timelineY - 14.dp)
+                        .width(LEFT_COL_WIDTH),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = lineColor
+                )
+
+                // 时间线（虚线 + 实线 + 圆点）
                 Box(
                     Modifier
                         .fillMaxSize()
                         .drawBehind {
-                            // 红色圆点（在时间列侧）
-                            drawCircle(
-                                color = lineColor,
-                                radius = 4.dp.toPx(),
-                                center = Offset(dayLeft, yPos)
+                            // 虚线横跨整行（淡色）
+                            drawLine(
+                                color = lineColor.copy(alpha = 0.4f),
+                                start = Offset(leftColPx, yPos),
+                                end = Offset(size.width, yPos),
+                                strokeWidth = 1.dp.toPx(),
+                                pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
+                                    floatArrayOf(6.dp.toPx(), 3.dp.toPx())
+                                )
                             )
-                            // 横线（横跨当天列）
+                            // 今日列：加粗实线
+                            val dayLeft = leftColPx + dayWidthPx * (todayDow - 1)
                             drawLine(
                                 color = lineColor,
                                 start = Offset(dayLeft, yPos),
                                 end = Offset(dayLeft + dayWidthPx, yPos),
                                 strokeWidth = 2.dp.toPx()
+                            )
+                            // 左侧圆点
+                            drawCircle(
+                                color = lineColor,
+                                radius = 4.dp.toPx(),
+                                center = Offset(dayLeft, yPos)
                             )
                         }
                 )

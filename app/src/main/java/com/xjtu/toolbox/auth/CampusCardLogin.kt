@@ -217,7 +217,8 @@ class CampusCardLogin(
      * 1. 先尝试直接访问校园卡页面（如果 cookie 未过期）
      * 2. 再通过旧 CAS (cas.xjtu.edu.cn) 重新认证
      */
-    fun reAuthenticate(): Boolean {
+    private val reAuthLock = Any()
+    fun reAuthenticate(): Boolean = synchronized(reAuthLock) {
         Log.d(TAG, "reAuthenticate: refreshing hallticket...")
         hallticket = null
         systemReady = false

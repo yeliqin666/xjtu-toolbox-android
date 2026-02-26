@@ -36,8 +36,10 @@ class LibraryLogin(
     var diagnosticInfo: String = ""
         private set
 
+    private val reAuthLock = Any()
+
     /** 重新尝试访问座位系统 */
-    fun reAuthenticate(): Boolean {
+    fun reAuthenticate(): Boolean = synchronized(reAuthLock) {
         try {
             val seatRequest = Request.Builder()
                 .url("$SEAT_BASE_URL/seat/")

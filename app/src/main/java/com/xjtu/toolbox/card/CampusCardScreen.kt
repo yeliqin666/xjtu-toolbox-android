@@ -279,7 +279,9 @@ private fun BalanceCard(info: CardInfo) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 InfoPill(info.name, MaterialTheme.colorScheme.onPrimaryContainer)
                 InfoPill(info.cardType, MaterialTheme.colorScheme.onPrimaryContainer)
-                InfoPill(info.studentNo, MaterialTheme.colorScheme.onPrimaryContainer)
+                if (info.account.isNotBlank()) {
+                    InfoPill("一卡通号: ${info.account}", MaterialTheme.colorScheme.onPrimaryContainer)
+                }
             }
         }
     }

@@ -23,7 +23,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
@@ -34,178 +33,6 @@ import com.xjtu.toolbox.auth.XJTULogin
 import java.net.URI
 
 private const val TAG = "BrowserScreen"
-
-/**
- * 判断 URL 是否是 XJTU 通知详情页（包括 WebVPN 代理后的 URL）
- * 匹配: dean.xjtu.edu.cn/info/xxx, gs.xjtu.edu.cn/info/xxx, phy.xjtu.edu.cn/info/xxx, se.xjtu.edu.cn/info/xxx
- * 以及 webvpn.xjtu.edu.cn/.../info/xxx
- */
-private fun isXjtuNotificationDetail(url: String): Boolean {
-    val lower = url.lowercase()
-    // 直连 URL
-    if (lower.matches(Regex("""https?://(dean|gs|phy|se)\.xjtu\.edu\.cn/info/\d+/\d+\.htm.*"""))) return true
-    // WebVPN 代理 URL（URL 中包含 /info/ 且在 webvpn.xjtu.edu.cn 下）
-    if (lower.contains("webvpn.xjtu.edu.cn") && lower.contains("/info/")) return true
-    return false
-}
-
-/**
- * 在页面开始加载时立即注入的 JS — 隐藏 body 避免闪烁
- * 配合 READER_MODE_JS 在 onPageFinished 中恢复显示
- */
-private const val HIDE_BODY_JS = """
-(function(){
-  var s = document.createElement('style');
-  s.id = '__reader_hide';
-  s.textContent = 'html,body{visibility:hidden!important;overflow:hidden!important;}';
-  (document.head || document.documentElement).appendChild(s);
-})();
-"""
-
-/**
- * Reader Mode JavaScript — 提取 XJTU 通知页面的正文区域，隐藏导航/侧边栏/页脚
- * 兼容教务处 / 研究生院 / 物理学院等所有使用 VSB CMS 的站点
- * 包含：标题 + 日期元信息 + 正文 + 附件下载区
- */
-private const val READER_MODE_JS = """
-(function(){
-  // 1. 尝试提取正文
-  var content = document.getElementById('vsb_content')
-              || document.querySelector('.v_news_content')
-              || document.querySelector('.art-body')
-              || document.querySelector('.list_rnr')
-              || document.querySelector('.wp_articlecontent')
-              || document.querySelector('.entry-content')
-              || document.querySelector('.news_content');
-  if(!content) {
-    var h = document.getElementById('__reader_hide');
-    if(h) h.remove();
-    document.body.style.visibility = 'visible';
-    document.body.style.overflow = '';
-    return;
-  }
-
-  // 2. 尝试提取标题
-  var titleEl = document.querySelector('.art-title h4')
-             || document.querySelector('.art-title h1')
-             || document.querySelector('.art-title')
-             || document.querySelector('.art-head h1')
-             || document.querySelector('.list_rdh h1')
-             || document.querySelector('.arti_title')
-             || document.querySelector('.wp_articlecontent h1')
-             || document.querySelector('h1')
-             || document.querySelector('title');
-  var title = '';
-  if(titleEl) {
-    title = titleEl.tagName === 'TITLE' ? titleEl.textContent : (titleEl.querySelector('h4,h1,h2') || titleEl).textContent;
-  }
-  title = title.replace(/^\s+|\s+$/g, '');
-
-  // 3. 提取作者/日期信息
-  var metaEl = document.querySelector('.art-metas')
-            || document.querySelector('.arti_metas')
-            || document.querySelector('.art-title p.arti_update')
-            || document.querySelector('.art-title p')
-            || document.querySelector('.art-date')
-            || document.querySelector('.list_rdh p');
-  var meta = metaEl ? metaEl.textContent.replace(/^\s+|\s+$/g, '') : '';
-
-  // 4. 提取附件 — 多策略
-  var attachItems = [];
-  var seen = {};
-
-  // 4a: 专用附件容器
-  var attachEls = document.querySelectorAll('.v_news_attach, .art-attach, .attach, .fujian, [class*=attach], [class*=fujian], .fileList, .file-list');
-  for(var i=0; i<attachEls.length; i++) {
-    var links = attachEls[i].querySelectorAll('a[href]');
-    for(var j=0; j<links.length; j++) {
-      var h2 = links[j].href || '';
-      var t = (links[j].textContent || '').replace(/^\s+|\s+$/g, '');
-      if(h2 && t && !seen[h2]) { seen[h2]=1; attachItems.push({url:h2, name:t}); }
-    }
-  }
-
-  // 4b: 正文中指向文档的链接
-  var docExts = /\.(pdf|doc|docx|xls|xlsx|ppt|pptx|zip|rar|7z|tar|gz|txt|csv|png|jpg|jpeg)(\?.*)?$/i;
-  var contentLinks = content.querySelectorAll('a[href]');
-  for(var k=0; k<contentLinks.length; k++) {
-    var lh = contentLinks[k].href || '';
-    var lt = (contentLinks[k].textContent || '').replace(/^\s+|\s+$/g, '');
-    if(docExts.test(lh) && !seen[lh]) { seen[lh]=1; attachItems.push({url:lh, name:lt||lh.split('/').pop()}); }
-  }
-
-  // 4c: 全页面兜底搜索文档链接
-  if(attachItems.length === 0) {
-    var allAs = document.querySelectorAll('a[href]');
-    for(var m=0; m<allAs.length; m++) {
-      var ah = allAs[m].href || '';
-      var at = (allAs[m].textContent || '').replace(/^\s+|\s+$/g, '');
-      if(docExts.test(ah) && !seen[ah]) { seen[ah]=1; attachItems.push({url:ah, name:at||ah.split('/').pop()}); }
-    }
-  }
-
-  // 构建附件 HTML
-  var attachHtml = '';
-  if(attachItems.length > 0) {
-    attachHtml = '<div class="reader-attach"><div class="reader-attach-title">\u0001\u2193 附件下载 (' + attachItems.length + ')</div>';
-    for(var n=0; n<attachItems.length; n++) {
-      var ext = (attachItems[n].url.match(/\.(\w{2,5})(\?.*)?$/)||[])[1]||'file';
-      attachHtml += '<a class="reader-attach-item" href="' + attachItems[n].url + '" download>'
-        + '<span class="reader-file-type">' + ext.toUpperCase() + '</span>'
-        + '<span class="reader-file-name">' + attachItems[n].name + '</span></a>';
-    }
-    attachHtml += '</div>';
-  }
-
-  // 5. 替换 body 为干净阅读视图
-  document.body.innerHTML = '<div id="reader-root">'
-    + (title ? '<h1 class="reader-title">' + title + '</h1>' : '')
-    + (meta  ? '<div class="reader-meta">' + meta + '</div>' : '')
-    + '<div class="reader-body">' + content.innerHTML + '</div>'
-    + attachHtml
-    + '</div>';
-
-  // 6. 注入干净样式
-  var s = document.createElement('style');
-  s.textContent = [
-    'html,body{margin:0;padding:0;background:#FAFAFA;font-family:-apple-system,system-ui,"Segoe UI",Roboto,sans-serif;}',
-    'body{visibility:visible!important;overflow:auto!important;padding:20px 16px 40px;}',
-    '#reader-root{max-width:720px;margin:0 auto;color:#1a1a1a;line-height:1.85;}',
-    '.reader-title{font-size:21px;font-weight:700;line-height:1.4;margin:0 0 8px;color:#1a1a1a;}',
-    '.reader-meta{color:#666;font-size:13px;margin-bottom:20px;padding-bottom:12px;border-bottom:1px solid #e0e0e0;}',
-    '.reader-body{font-size:16px;}',
-    '.reader-body img{max-width:100%!important;height:auto!important;border-radius:6px;margin:8px 0;}',
-    '.reader-body table{width:100%!important;border-collapse:collapse;margin:12px 0;font-size:14px;}',
-    '.reader-body td,.reader-body th{border:1px solid #ddd;padding:8px 10px;}',
-    '.reader-body th{background:#f5f5f5;font-weight:600;}',
-    '.reader-body p{margin:0.7em 0;}',
-    '.reader-body a{color:#005BAA;text-decoration:none;border-bottom:1px solid rgba(0,91,170,0.3);}',
-    '.reader-body a:hover{border-bottom-color:#005BAA;}',
-    '.reader-attach{margin-top:24px;padding:16px;background:#f0f7ff;border-radius:12px;border:1px solid #d0e4f7;}',
-    '.reader-attach-title{font-size:15px;font-weight:600;color:#005BAA;margin-bottom:12px;}',
-    '.reader-attach-item{display:flex;align-items:center;padding:10px 12px;margin-bottom:6px;background:#fff;border-radius:8px;text-decoration:none!important;border:none!important;color:#333;box-shadow:0 1px 3px rgba(0,0,0,0.08);}',
-    '.reader-attach-item:hover{background:#e8f2ff;}',
-    '.reader-file-type{display:inline-block;min-width:36px;padding:2px 6px;text-align:center;font-size:11px;font-weight:700;color:#fff;background:#005BAA;border-radius:4px;margin-right:10px;}',
-    '.reader-file-name{font-size:14px;flex:1;word-break:break-all;}',
-    '@media(prefers-color-scheme:dark){',
-    '  html,body{background:#121212;}',
-    '  #reader-root{color:#e0e0e0;}',
-    '  .reader-title{color:#e0e0e0;}',
-    '  .reader-meta{color:#999;border-bottom-color:#333;}',
-    '  .reader-body a{color:#64B5F6;border-bottom-color:rgba(100,181,246,0.3);}',
-    '  .reader-body th{background:#222;}',
-    '  .reader-body td,.reader-body th{border-color:#444;}',
-    '  .reader-attach{background:#1a2a3a;border-color:#2a4a6a;}',
-    '  .reader-attach-item{background:#222;color:#e0e0e0;box-shadow:0 1px 3px rgba(0,0,0,0.3);}',
-    '}'
-  ].join('');
-  document.head.appendChild(s);
-
-  // 7. 移除隐藏样式
-  var h = document.getElementById('__reader_hide');
-  if(h) h.remove();
-})();
-"""
 
 /**
  * 将 OkHttp CookieJar 中的 cookies 同步到 Android WebView CookieManager
@@ -285,8 +112,6 @@ fun BrowserScreen(
     var canGoBack by remember { mutableStateOf(false) }
     var canGoForward by remember { mutableStateOf(false) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
-    var isReaderPage by remember { mutableStateOf(false) } // 通知详情页 → Hide WebView until reader mode applied
-    var readerReady by remember { mutableStateOf(false) } // reader mode JS applied
 
     // 同步 cookies（仅一次）
     LaunchedEffect(login) {
@@ -397,15 +222,6 @@ fun BrowserScreen(
                                 currentUrl = it
                                 editingUrl = it
                             }
-                            // 对 XJTU 通知详情页：隐藏 WebView + 注入 CSS 避免原始页面闪烁
-                            if (url != null && isXjtuNotificationDetail(url)) {
-                                isReaderPage = true
-                                readerReady = false
-                                view?.evaluateJavascript(HIDE_BODY_JS, null)
-                            } else {
-                                isReaderPage = false
-                                readerReady = true
-                            }
                         }
 
                         override fun onPageFinished(view: WebView?, url: String?) {
@@ -416,12 +232,6 @@ fun BrowserScreen(
                             url?.let {
                                 currentUrl = it
                                 editingUrl = it
-                            }
-                            // 对 XJTU 通知详情页注入 Reader Mode，完成后显示
-                            if (url != null && isXjtuNotificationDetail(url)) {
-                                view?.evaluateJavascript(READER_MODE_JS) {
-                                    readerReady = true
-                                }
                             }
                         }
 
@@ -496,11 +306,6 @@ fun BrowserScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .then(
-                    if (isReaderPage && !readerReady)
-                        Modifier.alpha(0f)  // 隐藏直到 reader mode 生效
-                    else Modifier
-                )
         )
     }
 }

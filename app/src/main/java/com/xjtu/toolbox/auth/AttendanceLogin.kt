@@ -145,12 +145,14 @@ class JwxtLogin(
     cachedRsaKey: String? = null
 ) : XJTULogin(JWXT_URL, session, visitorId, cachedRsaKey) {
 
+    private val reAuthLock = Any()
+
     /**
      * [A1] 重新认证：通过 CAS SSO 刷新教务 session
      * [D1] SSO 失败时自动 fallback 到 casAuthenticate（用保存的密码重新提交）
      * @return true 表示重新认证成功
      */
-    fun reAuthenticate(): Boolean {
+    fun reAuthenticate(): Boolean = synchronized(reAuthLock) {
         return try {
             val result = casAuthenticate(JWXT_URL)
             if (result != null && !result.second.contains("login.xjtu.edu.cn/cas/login")) {

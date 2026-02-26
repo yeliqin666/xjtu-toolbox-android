@@ -3,12 +3,14 @@ package com.xjtu.toolbox.notification
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
@@ -20,6 +22,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -57,6 +60,7 @@ fun NotificationScreen(
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var isSearchActive by rememberSaveable { mutableStateOf(false) }
     var currentPage by rememberSaveable { mutableIntStateOf(1) }
+    var hasMorePages by remember { mutableStateOf(true) }
 
     // 缓存
     val cache = remember { mutableMapOf<Any, List<Notification>>() }
@@ -77,37 +81,41 @@ fun NotificationScreen(
     // 缓存 key
     val cacheKey: Any = if (mergeMode) selectedSources.toSortedSet().joinToString(",") else selectedSource
 
-    // ── 加载通知 ──
-    fun loadNotifications(page: Int = 1, append: Boolean = false) {
-        scope.launch {
-            if (!append && cache[cacheKey] == null) isLoading = true
-            errorMessage = null
-            try {
-                val result = withContext(Dispatchers.IO) {
-                    if (mergeMode) {
-                        api.getMergedNotifications(selectedSources.toList(), page)
-                    } else {
-                        api.getNotifications(selectedSource, page)
-                    }
+    // ── 加载通知（suspend 版，由 LaunchedEffect / scope.launch 调用） ──
+    suspend fun loadNotifications(page: Int = 1, append: Boolean = false) {
+        if (!append && cache[cacheKey] == null) isLoading = true
+        errorMessage = null
+        try {
+            val result = withContext(Dispatchers.IO) {
+                if (mergeMode) {
+                    api.getMergedNotifications(selectedSources.toList(), page)
+                } else {
+                    api.getNotifications(selectedSource, page)
                 }
-                val newList = if (append) notifications + result else result
-                notifications = newList
-                cache[cacheKey] = newList
-                currentPage = page
-            } catch (e: Exception) {
-                if (!append) errorMessage = "加载失败: ${e.message}"
-            } finally {
-                isLoading = false
-                isLoadingMore = false
             }
+            if (append && result.isEmpty()) hasMorePages = false
+            val newList = if (append) notifications + result else result
+            notifications = newList
+            cache[cacheKey] = newList
+            currentPage = page
+        } catch (e: Exception) {
+            if (!append) errorMessage = "加载失败: ${e.message}"
+        } finally {
+            isLoading = false
+            isLoadingMore = false
         }
     }
 
-    // 来源/模式切换 → 加载
+    // 来源/模式切换 → 加载 + 滚动归顶
     LaunchedEffect(selectedSource, mergeMode, selectedSources.size) {
         currentPage = 1
+        hasMorePages = true
         cache[cacheKey]?.let { notifications = it }
         loadNotifications()
+        // scrollToItem 必须在 loadNotifications 之后：
+        // 首次加载时 LazyColumn 不存在（显示 LoadingState），
+        // 如果先 scroll 会无限挂起导致 loadNotifications 永不执行
+        try { listState.scrollToItem(0) } catch (_: Exception) {}
     }
 
     // 滑动到底自动翻页
@@ -120,7 +128,7 @@ fun NotificationScreen(
     }
 
     LaunchedEffect(shouldLoadMore) {
-        if (shouldLoadMore && !isLoading && !isLoadingMore && filteredNotifications.isNotEmpty()) {
+        if (shouldLoadMore && hasMorePages && !isLoading && !isLoadingMore && filteredNotifications.isNotEmpty()) {
             isLoadingMore = true
             loadNotifications(page = currentPage + 1, append = true)
         }
@@ -136,27 +144,46 @@ fun NotificationScreen(
                         }
                     },
                     title = {
-                        TextField(
-                            value = searchQuery,
-                            onValueChange = { searchQuery = it },
-                            placeholder = { Text("搜索通知标题...") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = TextFieldDefaults.colors(
-                                focusedContainerColor = Color.Transparent,
-                                unfocusedContainerColor = Color.Transparent,
-                                focusedIndicatorColor = Color.Transparent,
-                                unfocusedIndicatorColor = Color.Transparent,
-                                cursorColor = MaterialTheme.colorScheme.primary
-                            ),
-                            trailingIcon = {
-                                if (searchQuery.isNotEmpty()) {
-                                    IconButton(onClick = { searchQuery = "" }) {
-                                        Icon(Icons.Default.Close, contentDescription = "清除")
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(end = 8.dp)
+                                .clip(RoundedCornerShape(24.dp))
+                                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                        ) {
+                            TextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                placeholder = {
+                                    Text(
+                                        "搜索通知标题...",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                    )
+                                },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                                textStyle = MaterialTheme.typography.bodyMedium,
+                                colors = TextFieldDefaults.colors(
+                                    focusedContainerColor = Color.Transparent,
+                                    unfocusedContainerColor = Color.Transparent,
+                                    focusedIndicatorColor = Color.Transparent,
+                                    unfocusedIndicatorColor = Color.Transparent,
+                                    cursorColor = MaterialTheme.colorScheme.primary
+                                ),
+                                trailingIcon = {
+                                    if (searchQuery.isNotEmpty()) {
+                                        IconButton(onClick = { searchQuery = "" }) {
+                                            Icon(
+                                                Icons.Default.Close,
+                                                contentDescription = "清除",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
                                     }
                                 }
-                            }
-                        )
+                            )
+                        }
                     }
                 )
             } else {
@@ -187,7 +214,7 @@ fun NotificationScreen(
                         }
                         IconButton(onClick = {
                             currentPage = 1
-                            loadNotifications()
+                            scope.launch { loadNotifications() }
                         }) {
                             Icon(Icons.Default.Refresh, contentDescription = "刷新")
                         }
@@ -201,36 +228,62 @@ fun NotificationScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // ═══ 分类选择（横向滚动 Chips） ═══
+            // ═══ 分类选择（文本 Tab 样式，轻量级层级感） ═══
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    .padding(horizontal = 16.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                // "全部" chip
-                AppFilterChip(
-                    selected = selectedCategory == null,
-                    onClick = { selectedCategory = null },
-                    label = "全部"
-                )
-                SourceCategory.entries.forEach { cat ->
-                    AppFilterChip(
-                        selected = selectedCategory == cat,
-                        onClick = { selectedCategory = cat },
-                        label = cat.displayName
-                    )
+                val allCats = listOf<SourceCategory?>(null) + SourceCategory.entries
+                allCats.forEach { cat ->
+                    val isSelected = selectedCategory == cat
+                    val label = cat?.displayName ?: "全部"
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { selectedCategory = cat }
+                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            label,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isSelected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Box(
+                            Modifier
+                                .width(if (isSelected) 20.dp else 0.dp)
+                                .height(3.dp)
+                                .background(
+                                    if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                    RoundedCornerShape(1.5.dp)
+                                )
+                        )
+                    }
                 }
             }
 
-            // ═══ 来源选择（横向滚动 Chips） ═══
+            // ─── 分割线 ───
+            HorizontalDivider(
+                modifier = Modifier.padding(horizontal = 16.dp),
+                thickness = 0.5.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+            )
+
+            // ═══ 来源选择（Chip 样式） ═══
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 12.dp, vertical = 2.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    .padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 sourcesInCategory.forEach { source ->
                     if (mergeMode) {
@@ -257,16 +310,23 @@ fun NotificationScreen(
 
             // 合并模式提示
             if (mergeMode) {
-                Surface(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    shape = MaterialTheme.shapes.small
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
+                    Icon(
+                        Icons.Default.Merge,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
                     Text(
-                        "合并模式：已选 ${selectedSources.size} 个来源，通知按时间排列",
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        "已选 ${selectedSources.size} 个来源 · 按时间排列",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                        color = MaterialTheme.colorScheme.primary
                     )
                 }
             }
@@ -285,7 +345,7 @@ fun NotificationScreen(
                 errorMessage != null && notifications.isEmpty() -> {
                     ErrorState(
                         message = errorMessage ?: "未知错误",
-                        onRetry = { loadNotifications() },
+                        onRetry = { scope.launch { loadNotifications() } },
                         modifier = Modifier.fillMaxSize()
                     )
                 }

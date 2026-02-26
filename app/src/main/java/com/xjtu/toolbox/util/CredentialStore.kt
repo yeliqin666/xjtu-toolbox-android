@@ -11,6 +11,8 @@ import androidx.security.crypto.MasterKeys
  */
 class CredentialStore(context: Context) {
 
+    private val appContext = context.applicationContext
+
     private val prefs: SharedPreferences = try {
         EncryptedSharedPreferences.create(
             "xjtu_credentials",
@@ -90,6 +92,59 @@ class CredentialStore(context: Context) {
 
     fun loadNickname(): String? = prefs.getString(KEY_NICKNAME, null)
 
+    // ── NSA 个人信息持久化（首次登录全量加载，后续冷启动复用） ──
+
+    /** 保存 NSA 个人信息 JSON（NsaStudentProfile.toJson()） */
+    fun saveNsaProfile(json: String) {
+        prefs.edit().putString(KEY_NSA_PROFILE, json).apply()
+    }
+
+    /** 加载缓存的 NSA 个人信息 JSON */
+    fun loadNsaProfile(): String? = prefs.getString(KEY_NSA_PROFILE, null)
+
+    /** 保存 NSA 学生证照片到内部文件 */
+    fun saveNsaPhoto(bytes: ByteArray) {
+        try {
+            appContext.openFileOutput(NSA_PHOTO_FILE, Context.MODE_PRIVATE).use { it.write(bytes) }
+        } catch (e: Exception) {
+            android.util.Log.w("CredentialStore", "saveNsaPhoto failed", e)
+        }
+    }
+
+    /** 加载缓存的 NSA 学生证照片 */
+    fun loadNsaPhoto(): ByteArray? = try {
+        appContext.openFileInput(NSA_PHOTO_FILE).use { it.readBytes() }
+    } catch (_: Exception) { null }
+
+    /** 清除 NSA 缓存（退出登录时调用） */
+    fun clearNsaCache() {
+        prefs.edit().remove(KEY_NSA_PROFILE).apply()
+        try { appContext.deleteFile(NSA_PHOTO_FILE) } catch (_: Exception) {}
+    }
+
+    // ── 用户协议 & 公告（非敏感，使用普通 SharedPreferences） ──
+
+    private val appPrefs: SharedPreferences =
+        appContext.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
+
+    /** 用户是否已同意当前版本的用户协议 */
+    fun isEulaAccepted(): Boolean =
+        appPrefs.getInt(KEY_EULA_VERSION, 0) >= CURRENT_EULA_VERSION
+
+    /** 标记用户已同意用户协议 */
+    fun acceptEula() {
+        appPrefs.edit().putInt(KEY_EULA_VERSION, CURRENT_EULA_VERSION).apply()
+    }
+
+    /** 用户是否已看过指定版本的更新公告 */
+    fun isUpdateNoticeSeen(versionName: String): Boolean =
+        appPrefs.getBoolean("update_notice_$versionName", false)
+
+    /** 标记用户已看过更新公告 */
+    fun markUpdateNoticeSeen(versionName: String) {
+        appPrefs.edit().putBoolean("update_notice_$versionName", true).apply()
+    }
+
     companion object {
         private const val KEY_USERNAME = "username"
         private const val KEY_PASSWORD = "password"
@@ -97,6 +152,11 @@ class CredentialStore(context: Context) {
         private const val KEY_RSA_PUBLIC_KEY = "rsa_public_key"
         private const val KEY_RSA_KEY_TIME = "rsa_key_time"
         private const val KEY_NICKNAME = "cached_nickname"
+        private const val KEY_NSA_PROFILE = "nsa_profile_json"
+        private const val NSA_PHOTO_FILE = "nsa_photo.jpg"
+        private const val KEY_EULA_VERSION = "eula_accepted_version"
+        /** 用户协议版本号，更新协议内容时递增 */
+        const val CURRENT_EULA_VERSION = 1
     }
 }
 

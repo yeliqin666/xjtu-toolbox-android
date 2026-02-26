@@ -56,7 +56,17 @@ data class TextbookItem(
     val isbn: String = "",
     val price: String = "",
     val edition: String = ""
-)
+) {
+    /**
+     * 是否有实质性教材信息
+     * 服务端对无教材课程返回书名="无教材"
+     */
+    val hasSubstantiveTextbook: Boolean
+        get() = textbookName.trim() != "无教材"
+                && (textbookName.trim().length >= 2
+                    || isbn.any { it.isDigit() }
+                    || author.trim().length >= 2)
+}
 
 class ScheduleApi(private val login: JwxtLogin) {
 

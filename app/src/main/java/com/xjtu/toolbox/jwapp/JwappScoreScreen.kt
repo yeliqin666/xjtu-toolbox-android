@@ -29,6 +29,8 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -103,6 +105,9 @@ fun JwappScoreScreen(
     var unevaluatedCourses by remember { mutableStateOf<Set<String>>(emptySet()) }
     // 报表补充提示
     var reportHint by remember { mutableStateOf<String?>(null) }
+    // 培养方案匹配状态
+    var planHint by remember { mutableStateOf<String?>(null) }
+    var planHintIsError by remember { mutableStateOf(false) }
 
     fun loadScoreData() {
         isLoading = true
@@ -211,8 +216,14 @@ fun JwappScoreScreen(
                                 offset += ts.scoreList.size
                             }
                             android.util.Log.d("Score", "分类完成: ${planCourseNames.size}门方案课, ${openGroupNodes.size}个开放组")
+                            // 设置培养方案匹配成功提示
+                            planHint = "已匹配「${summary.pyfamc}」"
+                            planHintIsError = false
                         } catch (e: Exception) {
                             android.util.Log.w("Score", "分类失败: ${e.message}")
+                            // 设置培养方案匹配失败提示
+                            planHint = "培养方案匹配失败: ${e.message ?: "未知错误"}"
+                            planHintIsError = true
                         }
                     }
 
@@ -455,6 +466,47 @@ fun JwappScoreScreen(
                             precision = gpaPrecision,
                             onPrecisionToggle = { gpaPrecision = if (gpaPrecision >= 4) 2 else gpaPrecision + 1 }
                         )
+                    }
+
+                    // 培养方案匹配提示条（显示在成绩概览下方、分类绩点上方）
+                    if (planHint != null) {
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (planHintIsError)
+                                        MaterialTheme.colorScheme.errorContainer
+                                    else
+                                        MaterialTheme.colorScheme.secondaryContainer
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(
+                                        if (planHintIsError) Icons.Default.Warning else Icons.Default.CheckCircle,
+                                        contentDescription = null,
+                                        tint = if (planHintIsError)
+                                            MaterialTheme.colorScheme.onErrorContainer
+                                        else
+                                            MaterialTheme.colorScheme.onSecondaryContainer,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Text(
+                                        planHint!!,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (planHintIsError)
+                                            MaterialTheme.colorScheme.onErrorContainer
+                                        else
+                                            MaterialTheme.colorScheme.onSecondaryContainer,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
                     }
 
                     // 分类别 GPA 概览（非选课模式下显示）
@@ -705,106 +757,79 @@ fun GpaCard(gpaInfo: GpaInfo?, termName: String, totalCourses: Int, totalCredits
         colors = CardDefaults.cardColors(containerColor = containerColor),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // ── 左侧：GPA 圆环 ──
-            Box(
-                modifier = Modifier
-                    .size(86.dp)
-                    .clickable { onPrecisionToggle() },
-                contentAlignment = Alignment.Center
+        Column(Modifier.fillMaxWidth().padding(20.dp)) {
+            // 标题行
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                if (gpaInfo != null) {
-                    GpaRingIndicator(gpaInfo.gpa, modifier = Modifier.fillMaxSize())
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        AnimatedNumber(
-                            gpaInfo.gpa, precision,
-                            MaterialTheme.typography.headlineSmall,
-                            textColor
-                        )
+                Text(
+                    if (isSelectMode) "选课均分" else "成绩概览",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = textColor
+                )
+                val chipText = when {
+                    isSelectMode -> "已选 $totalCourses 门"
+                    termName.isNotEmpty() -> termName
+                    else -> null
+                }
+                if (chipText != null) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = accentColor,
+                        border = BorderStroke(0.5.dp, textColor.copy(alpha = 0.15f))
+                    ) {
                         Text(
-                            "GPA",
+                            chipText,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
                             style = MaterialTheme.typography.labelSmall,
-                            color = textColor.copy(alpha = 0.5f),
-                            letterSpacing = 1.5.sp
+                            color = textColor.copy(alpha = 0.7f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
-                } else {
-                    GpaRingIndicator(0.0, modifier = Modifier.fillMaxSize())
-                    Text("—", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold,
-                        color = textColor.copy(alpha = 0.4f))
                 }
             }
 
-            Spacer(Modifier.width(16.dp))
+            Spacer(Modifier.height(16.dp))
 
-            // ── 右侧：标题 + 数据 ──
-            Column(modifier = Modifier.weight(1f)) {
-                // 标题行
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        if (isSelectMode) "选课均分" else "成绩概览",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = textColor
-                    )
-                    val chipText = when {
-                        isSelectMode -> "已选 $totalCourses 门"
-                        termName.isNotEmpty() -> termName
-                        else -> null
-                    }
-                    if (chipText != null) {
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = accentColor,
-                            border = BorderStroke(0.5.dp, textColor.copy(alpha = 0.15f))
-                        ) {
-                            Text(
-                                chipText,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = textColor.copy(alpha = 0.7f),
-                                maxLines = 1
-                            )
-                        }
-                    }
-                }
-
-                Spacer(Modifier.height(12.dp))
-
-                // 3 列数据（带分隔线）
-                Row(
-                    Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    GpaStatColumn(
-                        value = if (gpaInfo != null && gpaInfo.averageScore > 0)
-                            "%.${precision}f".format(gpaInfo.averageScore) else "—",
-                        label = "均分",
-                        textColor = textColor,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Box(Modifier.width(1.dp).height(28.dp).background(accentColor))
-                    GpaStatColumn(
-                        value = "${gpaInfo?.courseCount ?: totalCourses}",
-                        label = "课程",
-                        textColor = textColor,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Box(Modifier.width(1.dp).height(28.dp).background(accentColor))
-                    GpaStatColumn(
-                        value = "%.1f".format(gpaInfo?.totalCredits ?: totalCredits),
-                        label = "学分",
-                        textColor = textColor,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
+            // 4 列数据（GPA + 均分 + 课程 + 学分）
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { onPrecisionToggle() },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                GpaStatColumn(
+                    value = if (gpaInfo != null) "%.${precision}f".format(gpaInfo.gpa) else "—",
+                    label = "GPA",
+                    textColor = textColor,
+                    modifier = Modifier.weight(1f)
+                )
+                Box(Modifier.width(1.dp).height(28.dp).background(accentColor))
+                GpaStatColumn(
+                    value = if (gpaInfo != null && gpaInfo.averageScore > 0)
+                        "%.${precision}f".format(gpaInfo.averageScore) else "—",
+                    label = "均分",
+                    textColor = textColor,
+                    modifier = Modifier.weight(1f)
+                )
+                Box(Modifier.width(1.dp).height(28.dp).background(accentColor))
+                GpaStatColumn(
+                    value = "${gpaInfo?.courseCount ?: totalCourses}",
+                    label = "课程",
+                    textColor = textColor,
+                    modifier = Modifier.weight(1f)
+                )
+                Box(Modifier.width(1.dp).height(28.dp).background(accentColor))
+                GpaStatColumn(
+                    value = "%.1f".format(gpaInfo?.totalCredits ?: totalCredits),
+                    label = "学分",
+                    textColor = textColor,
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
     }

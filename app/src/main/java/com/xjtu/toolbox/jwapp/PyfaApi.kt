@@ -219,27 +219,62 @@ class PyfaApi(private val login: JwxtLogin) {
     private val basePyfa = "https://jwxt.xjtu.edu.cn/jwapp/sys/jwpubapp"
 
     @Volatile private var lastSessionTime = 0L
-    private val sessionTtl = 5 * 60 * 1000L // 5分钟内不重复初始化
+    private val sessionTtl = 3 * 60 * 1000L // 3分钟内不重复初始化（缩短以减少过期风险）
 
-    private fun ensureSession() {
+    /** 初始化 EMAP 会话（必须在 API 调用前触发） */
+    private fun ensureSession(force: Boolean = false) {
         val now = System.currentTimeMillis()
-        if (now - lastSessionTime < sessionTtl) return
-        try {
-            login.client.newCall(
-                Request.Builder().url("$basePersonal/*default/index.do").get().build()
-            ).execute().close()
-            login.client.newCall(
-                Request.Builder().url("$basePyfa/*default/index.do").get().build()
-            ).execute().close()
-            lastSessionTime = now
+        if (!force && now - lastSessionTime < sessionTtl) return
+        // 使用与网页端一致的参数初始化会话
+        login.client.newCall(
+            Request.Builder()
+                .url("$basePersonal/*default/index.do?EMAP_LANG=zh&forceApp=xsfacx")
+                .get().build()
+        ).execute().close()
+        login.client.newCall(
+            Request.Builder()
+                .url("$basePyfa/*default/index.do?EMAP_LANG=zh&forceApp=jwpubapp")
+                .get().build()
+        ).execute().close()
+        lastSessionTime = now
+        Log.d(TAG, "session init OK")
+    }
+
+    /** 检测响应是否为会话失效（EMAP 返回 code!=0 或 rows 异常） */
+    private fun isSessionExpired(body: String): Boolean {
+        return try {
+            val obj = body.safeParseJsonObject()
+            val code = obj.get("code")?.asString
+            // code!="0" 通常表示会话失效或权限不足
+            code != null && code != "0"
+        } catch (_: Exception) {
+            // 响应不是合法 JSON → 可能是登录页重定向
+            !body.trimStart().startsWith("{")
+        }
+    }
+
+    /**
+     * 带自动重试的 API 调用：
+     * 第一次失败时强制刷新 session 再重试一次
+     */
+    private fun <T> callWithRetry(label: String, block: () -> T): T {
+        return try {
+            ensureSession()
+            block()
         } catch (e: Exception) {
-            Log.w(TAG, "session init: ${e.message}")
+            Log.w(TAG, "$label 首次失败(${e.message})，强制刷新 session 重试")
+            try {
+                ensureSession(force = true)
+                block()
+            } catch (retry: Exception) {
+                Log.e(TAG, "$label 重试仍失败: ${retry.message}")
+                throw retry
+            }
         }
     }
 
     /** 个人培养方案概要 (grpyfacx.do) */
-    fun getPersonalPlan(): PyfaSummary {
-        ensureSession()
+    fun getPersonalPlan(): PyfaSummary = callWithRetry("grpyfacx") {
         val request = Request.Builder()
             .url("$basePersonal/modules/pyfacxepg/grpyfacx.do")
             .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
@@ -251,13 +286,15 @@ class PyfaApi(private val login: JwxtLogin) {
             if (!resp.isSuccessful) throw RuntimeException("grpyfacx.do HTTP ${resp.code}")
             resp.body?.string() ?: throw RuntimeException("空响应")
         }
+        if (isSessionExpired(body)) throw RuntimeException("会话失效")
+
         val obj = body.safeParseJsonObject()
             .getAsJsonObject("datas").getAsJsonObject("grpyfacx")
             .getAsJsonArray("rows")
             .also { if (it.size() == 0) throw RuntimeException("无培养方案数据") }
             .first().asJsonObject
 
-        return PyfaSummary(
+        PyfaSummary(
             pyfadm = obj.get("PYFADM").safeString(),
             pyfamc = obj.get("PYFAMC").safeString(),
             totalRequired = obj.get("ZSYQXF").safeDouble(),
@@ -272,7 +309,7 @@ class PyfaApi(private val login: JwxtLogin) {
     }
 
     /** 培养方案课组树 (kzcx.do) */
-    fun getCourseGroups(pyfadm: String): List<CourseGroupNode> {
+    fun getCourseGroups(pyfadm: String): List<CourseGroupNode> = callWithRetry("kzcx") {
         val request = Request.Builder()
             .url("$basePyfa/modules/pyfa/kzcx.do")
             .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
@@ -284,6 +321,8 @@ class PyfaApi(private val login: JwxtLogin) {
             if (!resp.isSuccessful) throw RuntimeException("kzcx.do HTTP ${resp.code}")
             resp.body?.string() ?: throw RuntimeException("空响应")
         }
+        if (isSessionExpired(body)) throw RuntimeException("会话失效")
+
         val rows = body.safeParseJsonObject()
             .getAsJsonObject("datas").getAsJsonObject("kzcx").getAsJsonArray("rows")
 
@@ -306,11 +345,11 @@ class PyfaApi(private val login: JwxtLogin) {
             else nodeMap[node.parentKzh]?.children?.add(node)
         }
         Log.d(TAG, "课组树: ${roots.size} 根, ${flatNodes.size} 节点")
-        return roots
+        roots
     }
 
     /** 方案内课程列表 (kzkccx.do) */
-    fun getPlanCourses(pyfadm: String): List<PlanCourse> {
+    fun getPlanCourses(pyfadm: String): List<PlanCourse> = callWithRetry("kzkccx") {
         val request = Request.Builder()
             .url("$basePyfa/modules/pyfa/kzkccx.do")
             .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
@@ -322,10 +361,12 @@ class PyfaApi(private val login: JwxtLogin) {
             if (!resp.isSuccessful) throw RuntimeException("kzkccx.do HTTP ${resp.code}")
             resp.body?.string() ?: throw RuntimeException("空响应")
         }
+        if (isSessionExpired(body)) throw RuntimeException("会话失效")
+
         val rows = body.safeParseJsonObject()
             .getAsJsonObject("datas").getAsJsonObject("kzkccx").getAsJsonArray("rows")
 
-        return rows.map { el ->
+        rows.map { el ->
             val o = el.asJsonObject
             PlanCourse(
                 kch = o.get("KCH").safeString(),

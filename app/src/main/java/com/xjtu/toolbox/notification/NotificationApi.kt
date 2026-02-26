@@ -34,12 +34,10 @@ data class Notification(
 // ==================== 来源分类 ====================
 
 enum class SourceCategory(val displayName: String) {
-    TEACHING("教学管理"),
+    GENERAL("综合"),
     ENGINEERING("工学"),
     SCIENCE("理学"),
-    INFO("信息"),
-    HUMANITIES("人文经管"),
-    OTHER("综合");
+    HUMANITIES("人文经管");
 }
 
 // ==================== 通知来源 ====================
@@ -49,9 +47,12 @@ enum class NotificationSource(
     val baseUrl: String,
     val category: SourceCategory
 ) {
-    // ── 教学管理 ──
-    JWC("教务处", "https://dean.xjtu.edu.cn/jxxx/jxtz2.htm", SourceCategory.TEACHING),
-    GS("研究生院", "https://gs.xjtu.edu.cn/tzgg.htm", SourceCategory.TEACHING),
+    // ── 综合（校级部门） ──
+    JWC("教务处", "https://dean.xjtu.edu.cn/jxxx/jxtz2.htm", SourceCategory.GENERAL),
+    GS("研究生院", "https://gs.xjtu.edu.cn/tzgg.htm", SourceCategory.GENERAL),
+    QXS("钱学森书院", "https://bjb.xjtu.edu.cn/xydt/tzgg.htm", SourceCategory.GENERAL),
+    FTI("未来技术学院", "https://wljsxy.xjtu.edu.cn/xwgg/tzgg.htm", SourceCategory.GENERAL),
+    XSC("学生处", "https://xsc.xjtu.edu.cn/xgdt/tzgg.htm", SourceCategory.GENERAL),
 
     // ── 工学 ──
     ME("机械学院", "https://mec.xjtu.edu.cn/index/tzgg/bks.htm", SourceCategory.ENGINEERING),
@@ -61,14 +62,13 @@ enum class NotificationSource(
     MSE("材料学院", "https://mse.xjtu.edu.cn/xwgg/tzgg1.htm", SourceCategory.ENGINEERING),
     CLET("化工学院", "https://clet.xjtu.edu.cn/xwgg/tzgg.htm", SourceCategory.ENGINEERING),
     HSCE("人居学院", "https://hsce.xjtu.edu.cn/xwgg/tzgg1.htm", SourceCategory.ENGINEERING),
+    SE("软件学院", "https://se.xjtu.edu.cn/xwgg/tzgg.htm", SourceCategory.ENGINEERING),
 
     // ── 理学 ──
     MATH("数学学院", "https://math.xjtu.edu.cn/index/jxjw1.htm", SourceCategory.SCIENCE),
     PHY("物理学院", "https://phy.xjtu.edu.cn/glfw/tzgg.htm", SourceCategory.SCIENCE),
     CHEM("化学学院", "https://chem.xjtu.edu.cn/tzgg.htm", SourceCategory.SCIENCE),
-
-    // ── 信息 ──
-    SE("软件学院", "https://se.xjtu.edu.cn/xwgg/tzgg.htm", SourceCategory.INFO),
+    SLST("生命学院", "https://slst.xjtu.edu.cn/ggl/tzgg.htm", SourceCategory.SCIENCE),
 
     // ── 人文经管 ──
     SOM("管理学院", "https://som.xjtu.edu.cn/xwgg/tzgg.htm", SourceCategory.HUMANITIES),
@@ -78,13 +78,7 @@ enum class NotificationSource(
     SEF("经金学院", "https://sef.xjtu.edu.cn/rcpy/bks/jxtz1.htm", SourceCategory.HUMANITIES),
     SPPA("公管学院", "https://sppa.xjtu.edu.cn/xwxx/bksjw.htm", SourceCategory.HUMANITIES),
     MARX("马克思主义学院", "https://marx.xjtu.edu.cn/xwgg1/tzgg.htm", SourceCategory.HUMANITIES),
-    XMTXY("新媒体学院", "https://xmtxy.xjtu.edu.cn/xwgg/tzgg.htm", SourceCategory.HUMANITIES),
-
-    // ── 综合 ──
-    SLST("生命学院", "https://slst.xjtu.edu.cn/ggl/tzgg.htm", SourceCategory.OTHER),
-    QXS("钱学森书院", "https://bjb.xjtu.edu.cn/xydt/tzgg.htm", SourceCategory.OTHER),
-    FTI("未来技术学院", "https://wljsxy.xjtu.edu.cn/xwgg/tzgg.htm", SourceCategory.OTHER),
-    XSC("学生处", "https://xsc.xjtu.edu.cn/xgdt/tzgg.htm", SourceCategory.OTHER);
+    XMTXY("新媒体学院", "https://xmtxy.xjtu.edu.cn/xwgg/tzgg.htm", SourceCategory.HUMANITIES);
 
     companion object {
         fun fromDisplayName(name: String): NotificationSource? =
@@ -208,85 +202,6 @@ private interface NotificationCrawler {
 
 // ==================== 教务处爬虫 ====================
 
-private class JwcCrawler(private val client: OkHttpClient) : NotificationCrawler {
-
-    override fun fetch(page: Int): List<Notification> {
-        val allNotifications = mutableListOf<Notification>()
-        var url = NotificationSource.JWC.baseUrl
-
-        for (i in 0 until page) {
-            val doc = fetchDocumentWithChallenge(client, url)
-            val list = doc.select("#ny-main ul.list > li")
-            for (li in list) {
-                val aTag = li.selectFirst("a") ?: continue
-                val title = aTag.text()
-                val href = aTag.attr("href")
-                val link = resolveUrl(url, href)
-                val dateStr = li.selectFirst("span")?.text() ?: ""
-                val date = parseDateSafe(dateStr)
-                val tagText = aTag.selectFirst("i")?.text()?.trim('[', ']') ?: ""
-                val tags = if (tagText.isNotEmpty()) listOf(tagText) else emptyList()
-                allNotifications.add(
-                    Notification(title = title, link = link, source = NotificationSource.JWC, date = date, tags = tags)
-                )
-            }
-            val nextHref = doc.selectFirst("span.p_next a")?.attr("href") ?: break
-            if (nextHref.isEmpty()) break
-            url = resolveUrl(url, nextHref)
-        }
-        return allNotifications.distinctBy { Triple(it.title, it.link, it.source) }
-    }
-}
-
-// ==================== 研究生院爬虫 ====================
-
-private class GsCrawler(private val client: OkHttpClient) : NotificationCrawler {
-
-    private data class SubColumn(val url: String, val tag: String)
-
-    private val subColumns = listOf(
-        SubColumn("https://gs.xjtu.edu.cn/tzgg/zsgz.htm", "招生工作"),
-        SubColumn("https://gs.xjtu.edu.cn/tzgg/pygz.htm", "培养工作"),
-        SubColumn("https://gs.xjtu.edu.cn/tzgg/gjjl.htm", "国际交流"),
-        SubColumn("https://gs.xjtu.edu.cn/tzgg/xwgz.htm", "学位工作"),
-        SubColumn("https://gs.xjtu.edu.cn/tzgg/yggz.htm", "研工工作"),
-        SubColumn("https://gs.xjtu.edu.cn/tzgg/zhgz.htm", "综合工作")
-    )
-
-    override fun fetch(page: Int): List<Notification> {
-        val allNotifications = mutableListOf<Notification>()
-        for (col in subColumns) {
-            allNotifications.addAll(fetchSubColumn(col.url, col.tag, page))
-        }
-        return allNotifications.distinctBy { Triple(it.title, it.link, it.source) }
-    }
-
-    private fun fetchSubColumn(startUrl: String, tagName: String, pages: Int): List<Notification> {
-        val notifications = mutableListOf<Notification>()
-        var url = startUrl
-
-        for (i in 0 until pages) {
-            val doc = fetchDocumentWithChallenge(client, url)
-            val list = doc.select("div.list_right_con > ul > li")
-            for (li in list) {
-                val aTag = li.selectFirst("a") ?: continue
-                val title = aTag.text()
-                val href = aTag.attr("href")
-                val link = resolveUrl(url, href)
-                val dateStr = li.selectFirst("span.time")?.text() ?: ""
-                val date = parseDateSafe(dateStr)
-                notifications.add(
-                    Notification(title = title, link = link, source = NotificationSource.GS, date = date, tags = listOf(tagName))
-                )
-            }
-            val nextHref = doc.selectFirst("a:containsOwn(下页)")?.attr("href") ?: break
-            if (nextHref.isEmpty()) break
-            url = resolveUrl(url, nextHref)
-        }
-        return notifications
-    }
-}
-
 // ==================== 通用 XJTU 学院爬虫 ====================
 
 private class GenericXjtuCrawler(
@@ -298,6 +213,7 @@ private class GenericXjtuCrawler(
         val LIST_SELECTORS = listOf(
             // 常见 XJTU 模板
             "div.list_rnr > ul > li",
+            "div.list_rlb > ul > li",       // XSC / CLET / MARX 模板
             "#ny-main ul.list > li",
             "div.list_right_con > ul > li",
             "main ul.news_list > li",
@@ -311,6 +227,9 @@ private class GenericXjtuCrawler(
             "ul.wp_article_list > li",
             "div.right-list ul > li",
             ".list_box ul > li",
+            "div.tzgg > ul > li",           // SOM / SAE 模板
+            "ul.txtList > li",              // MEC 模板
+            "div.nyrCon ul > li",           // MEC 备选
             // WisdPower CMS / 博达 / ZZNode 系列
             "div.list ul > li",
             "div.list > ul > li",
@@ -367,6 +286,14 @@ private class GenericXjtuCrawler(
             "/notice.htm",
             "/jxxx/jxtz2.htm",
         )
+
+        // ── 预编译正则（避免每次调用重新编译） ──
+        private val FULL_DATE_RE = Regex("""\d{4}[-./]\d{1,2}[-./]\d{1,2}""")
+        private val YEAR_MONTH_RE = Regex("""(\d{4})[-./](\d{1,2})""")
+        private val MONTH_DAY_RE = Regex("""(\d{1,2})[-./](\d{1,2})""")
+        private val YEAR_ONLY_RE = Regex("""\b(\d{4})\b""")
+        private val SMALL_NUM_RE = Regex("""\b(\d{1,2})\b""")
+        private val DIGITS_RE = Regex("""\d+""")
     }
 
     override fun fetch(page: Int): List<Notification> {
@@ -499,7 +426,7 @@ private class GenericXjtuCrawler(
         for (selector in LIST_SELECTORS) {
             val items = doc.select(selector)
             if (items.size < 3) continue
-            val dateCount = items.count { Regex("""\d{4}[-./]\d{1,2}[-./]\d{1,2}""").containsMatchIn(it.text()) }
+            val dateCount = items.count { FULL_DATE_RE.containsMatchIn(it.text()) }
             if (dateCount.toDouble() / items.size >= 0.5 && dateCount >= 3) {
                 Log.d(TAG, "GenericCrawler[${source.displayName}] extractItems: date density fallback matched ${items.size} items")
                 return items
@@ -521,6 +448,106 @@ private class GenericXjtuCrawler(
         return candidates.mapNotNull { parseListItem(it, baseUrl) }
     }
 
+    /**
+     * 从 li 元素中提取日期，支持 XJTU CMS 各学院模板：
+     * - 完整日期：`<span>2025-11-28</span>`（EE / MARX 等）
+     * - 拆分容器：`div.date`（SOM: span=DD + p=YYYY-MM）
+     *             `time.times`（MEC: span=DD + ownText=YYYY.MM）
+     *             `div.tz-date`（SAE: span=YYYY + b=MM-DD）
+     *             CLET: `<span><b>MM/DD</b>YYYY</span>`
+     *             XSC: `<span><b>DD</b><i>YYYY/MM</i></span>`
+     */
+
+    /** 从包含拆分日期片段的文本中重建完整日期 */
+    private fun parseSplitDate(text: String): LocalDate? {
+        if (text.isEmpty()) return null
+
+        // 完整日期
+        FULL_DATE_RE.find(text)?.let {
+            val d = parseDateSafe(it.value); if (d != LocalDate.now()) return d
+        }
+
+        // YYYY-MM + DD（SOM/MEC/XSC 模式）
+        val ymMatch = YEAR_MONTH_RE.find(text)
+        if (ymMatch != null) {
+            val y = ymMatch.groupValues[1].toIntOrNull() ?: return null
+            val m = ymMatch.groupValues[2].toIntOrNull() ?: return null
+            val rest = text.removeRange(ymMatch.range).trim()
+            val d = SMALL_NUM_RE.find(rest)?.groupValues?.get(1)?.toIntOrNull()
+            if (d != null && y in 2000..2099 && m in 1..12 && d in 1..31)
+                return try { LocalDate.of(y, m, d) } catch (_: Exception) { null }
+        }
+
+        // MM/DD + YYYY（CLET 模式）
+        val mdMatch = MONTH_DAY_RE.find(text)
+        if (mdMatch != null && ymMatch == null) {
+            val a = mdMatch.groupValues[1].toIntOrNull() ?: return null
+            val b = mdMatch.groupValues[2].toIntOrNull() ?: return null
+            val rest = text.removeRange(mdMatch.range).trim()
+            val yStr = YEAR_ONLY_RE.find(rest)?.groupValues?.get(1)
+            val y = yStr?.toIntOrNull()
+            if (y != null && y in 2000..2099 && a in 1..12 && b in 1..31)
+                return try { LocalDate.of(y, a, b) } catch (_: Exception) { null }
+        }
+
+        // YYYY + MM-DD（SAE 模式）
+        val yOnly = YEAR_ONLY_RE.find(text)
+        if (yOnly != null && ymMatch == null && mdMatch == null) {
+            val y = yOnly.groupValues[1].toIntOrNull() ?: return null
+            val mdAfter = MONTH_DAY_RE.find(text.removeRange(yOnly.range).trim())
+            if (mdAfter != null) {
+                val m = mdAfter.groupValues[1].toIntOrNull() ?: return null
+                val d = mdAfter.groupValues[2].toIntOrNull() ?: return null
+                if (y in 2000..2099 && m in 1..12 && d in 1..31)
+                    return try { LocalDate.of(y, m, d) } catch (_: Exception) { null }
+            }
+        }
+
+        return null
+    }
+
+    /**
+     * Jsoup .text() 不在内联子元素间插空格，导致 <b>24</b><i>2025/12</i> 变 "242025/12"
+     * 本函数把所有子节点（Element + TextNode）用空格拼接，保证数字片段可分离
+     */
+    private fun textWithSpaces(el: org.jsoup.nodes.Element): String {
+        if (el.childNodeSize() <= 1) return el.text()
+        return el.childNodes().joinToString(" ") { node ->
+            when (node) {
+                is org.jsoup.nodes.TextNode -> node.text().trim()
+                is org.jsoup.nodes.Element -> node.text()
+                else -> ""
+            }
+        }.replace(Regex("\\s+"), " ").trim()
+    }
+
+    private fun extractDateFromLi(el: org.jsoup.nodes.Element): LocalDate {
+        // ── 1. 特定 CSS 选择器（含完整日期的元素） ──
+        for (sel in listOf("span.time", "span.date", "em")) {
+            val t = el.selectFirst(sel)?.text() ?: continue
+            if (FULL_DATE_RE.containsMatchIn(t)) return parseDateSafe(t)
+        }
+
+        // ── 2. 任意 span：先找完整日期，再尝试拆分拼接 ──
+        for (span in el.select("span")) {
+            val t = textWithSpaces(span)
+            if (FULL_DATE_RE.containsMatchIn(t)) return parseDateSafe(t)
+            // 仅含 ≥3 个数字片段时尝试拆分（CLET/XSC 模板）
+            if (DIGITS_RE.findAll(t).count() >= 3) {
+                parseSplitDate(t)?.let { return it }
+            }
+        }
+
+        // ── 3. 日期容器拆分拼接（class 含 date/time 或 <time> 标签） ──
+        for (container in el.select("[class*=date], [class*=time], time")) {
+            parseSplitDate(textWithSpaces(container))?.let { return it }
+        }
+
+        // ── 4. 兜底：li 全文正则 ──
+        FULL_DATE_RE.find(el.text())?.let { return parseDateSafe(it.value) }
+        return LocalDate.now()
+    }
+
     private fun parseListItem(el: org.jsoup.nodes.Element, baseUrl: String): Notification? {
         val aTag = el.selectFirst("a[href]") ?: return null
         val href = aTag.attr("href")
@@ -534,14 +561,7 @@ private class GenericXjtuCrawler(
         if (title.isBlank() || title.length < 4) return null
 
         val link = resolveUrl(baseUrl, href)
-        val dateStr = el.selectFirst("span.time")?.text()
-            ?: el.selectFirst("span.date")?.text()
-            ?: el.selectFirst("span:last-child")?.text()
-            ?: aTag.selectFirst("p:first-child span")?.text()
-            ?: el.selectFirst("em")?.text()
-            ?: el.selectFirst("i:not(:has(*))")?.text()
-            ?: ""
-        val date = parseDateSafe(dateStr)
+        val date = extractDateFromLi(el)
 
         val tagText = aTag.selectFirst("i")?.text()?.trim('[', ']', '【', '】') ?: ""
         val tags = if (tagText.isNotEmpty()) listOf(tagText) else emptyList()
@@ -560,10 +580,12 @@ private fun resolveUrl(baseUrl: String, relative: String): String {
     }
 }
 
+private val DATE_YMD_RE = Regex("""(\d{4})-(\d{1,2})-(\d{1,2})""")
+
 private fun parseDateSafe(dateStr: String): LocalDate {
     return try {
         val cleaned = dateStr.trim().replace('/', '-').replace('.', '-')
-        val match = Regex("""(\d{4})-(\d{1,2})-(\d{1,2})""").find(cleaned)
+        val match = DATE_YMD_RE.find(cleaned)
         if (match != null) {
             val (y, m, d) = match.destructured
             LocalDate.of(y.toInt(), m.toInt(), d.toInt())
@@ -587,12 +609,8 @@ class NotificationApi(
         .build()
 ) {
     private val crawlers: Map<NotificationSource, NotificationCrawler> = buildMap {
-        put(NotificationSource.JWC, JwcCrawler(client))
-        put(NotificationSource.GS, GsCrawler(client))
         NotificationSource.entries.forEach { source ->
-            if (source !in this) {
-                put(source, GenericXjtuCrawler(client, source))
-            }
+            put(source, GenericXjtuCrawler(client, source))
         }
     }
 

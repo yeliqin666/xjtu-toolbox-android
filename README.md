@@ -3,7 +3,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Android-green?logo=android" />
   <img src="https://img.shields.io/badge/minSdk-31_(Android_12)-blue" />
-  <img src="https://img.shields.io/badge/version-1.0--alpha-orange" />
+  <img src="https://img.shields.io/badge/version-2.0.0-orange" />
   <img src="https://img.shields.io/badge/license-MIT-lightgrey" />
 </p>
 
@@ -15,16 +15,18 @@
 |------|------|------|
 | 🔐 统一认证 | CAS 登录 | RSA 加密 + MFA 手机验证码 + 本科/研究生账户 |
 | 🌐 网络适配 | WebVPN | 自动检测校内/校外，校外走 webvpn.xjtu.edu.cn |
+| � 个人信息 | NSA OAuth2 | 性别、民族、政治面貌、血型、籍贯、身高、体重、书院、校区、寝室号等 16 项 |
 | 📅 课表 | 周视图 | 按周筛选 + 考试安排 + 教材信息 |
 | 📊 成绩 | GPA 计算 | JWAPP 正式成绩 + FineReport 报表（绕过评教限制） |
 | ✅ 考勤 | 流水查询 | 全 20 周视图 + 正常/迟到/缺勤统计 |
 | 🏫 空闲教室 | 节次筛选 | CDN 数据，无需登录和校园网 |
-| 💳 校园卡 | 消费分析 | 余额 + 账单流水 + 月度消费图表 |
+| 💳 校园卡 | 消费分析 | 余额 + 一卡通号 + 账单流水 + 月度消费图表 |
 | 📚 图书馆 | 座位管理 | 在座/预约状态 + 续座/签退 |
 | 📢 通知公告 | 多源聚合 | 一网通办 + 各学院通知爬虫 |
 | 🌐 浏览器 | Cookie 注入 | WebView 自动登录 + WebVPN 支持 |
 | 📝 评教 | 一键评教 | GSTE 评教 + 常规评教 |
 | 🎓 研究生 | GMIS | 研究生管理信息系统 |
+| 📜 用户协议 | 首次启动 | EULA 弹窗，需阅读完整协议并同意后方可使用 |
 
 ## 技术栈
 
@@ -61,6 +63,7 @@ app/src/main/java/com/xjtu/toolbox/
 ├── card/                        # 校园卡
 ├── library/                     # 图书馆座位
 ├── notification/                # 通知公告爬虫
+├── nsa/                         # NSA 个人信息（OAuth2 + 动态表单解析）
 ├── judge/                       # 评教
 ├── browser/                     # 应用内浏览器
 ├── ywtb/                        # 一网通办
@@ -103,6 +106,21 @@ git push origin v1.0-alpha
 - 校园卡 `card.xjtu.edu.cn` 是公网服务，不走 WebVPN
 - 空闲教室数据来自 CDN，不需要登录和校园网
 - `network_security_config.xml` 允许 XJTU 域名 cleartext HTTP
+
+## 更新日志
+
+### v2.0.0 (2025-07)
+
+- **NSA 个人信息**：通过 OAuth2 对接 NSA 动态表单 API，获取性别、民族、政治面貌、血型、籍贯、身高、体重、年级、书院、校区、入学时间、学制、寝室号、学籍状态等 16 项详细信息，首次加载后本地缓存
+- **用户协议 (EULA)**：首次启动弹出用户协议，需完整阅读并同意后方可使用，支持协议版本升级重新确认
+- **版本更新公告**：每个版本首次启动展示新功能介绍与已知问题
+- **校园卡一卡通号**：校园卡页面显示一卡通号
+- **首页快捷入口**：新增空闲教室、校园卡快捷方格
+- **GitHub 开源**：我的页面底部增加项目 GitHub 地址
+
+### v1.2.1
+
+- 初始公开版本，覆盖课表、成绩、考勤、空闲教室、校园卡、图书馆、通知公告、评教、研究生等模块
 
 ## 开发计划
 
