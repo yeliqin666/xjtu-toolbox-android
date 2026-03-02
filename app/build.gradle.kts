@@ -22,6 +22,27 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            val keystoreFile = System.getenv("KEYSTORE_PATH")
+            if (keystoreFile != null) {
+                storeFile = file(keystoreFile)
+                storePassword = System.getenv("STORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            } else {
+                // 本地开发：从项目根目录读取 release.jks
+                val localKeystore = rootProject.file("release.jks")
+                if (localKeystore.exists()) {
+                    storeFile = localKeystore
+                    storePassword = "XjtuToolbox2026!"
+                    keyAlias = "xjtu-toolbox"
+                    keyPassword = "XjtuToolbox2026!"
+                }
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -30,8 +51,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // 使用 debug 签名以便直接安装测试
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {

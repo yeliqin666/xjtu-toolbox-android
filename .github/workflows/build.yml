@@ -39,7 +39,16 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "tag=v$VERSION" >> $GITHUB_OUTPUT
 
+      - name: Decode Keystore
+        run: |
+          echo "${{ secrets.SIGNING_KEYSTORE }}" | base64 -d > ${{ runner.temp }}/release.jks
+
       - name: Build Release APK
+        env:
+          KEYSTORE_PATH: ${{ runner.temp }}/release.jks
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: ./gradlew assembleRelease
 
       - name: Upload Release APK

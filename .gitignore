@@ -10,4 +10,7 @@
 local.properties
 /.vscode/
 /.github/copilot-instructions.md
+# Signing
+release.jks
+release.jks.b64
 .kotlin/
