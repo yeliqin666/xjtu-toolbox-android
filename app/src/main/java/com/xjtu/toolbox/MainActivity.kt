@@ -1,4 +1,4 @@
-package com.xjtu.toolbox
+﻿package com.xjtu.toolbox
 
 import android.content.Intent
 import android.os.Bundle
@@ -3610,6 +3610,17 @@ private val CHANGELOGS: Map<String, VersionChangelog> = mapOf(
             "🎬" to "课堂回放：支持多机位视频下载",
             "📎" to "课件附件：一键下载课程资料",
             "👍" to "UI 优化与多处细节改进"
+        )
+    ),
+    "2.7.1" to VersionChangelog(
+        items = listOf(
+            "🧩" to "新增课表桌面小组件（2×2 / 4×2 两种规格，支持当日课程一览）",
+            "🐛" to "修复课表小组件布局与数据加载问题",
+            "🔏" to "APK 签名由 v2 升级为 v2+v3，增强安全性与支持未来密钥轮换"
+        ),
+        issues = listOf(
+            "图书馆换座功能暂无效果",
+            "入馆后可能错误显示「取消预约」按钮"
         )
     ),
     "2.7.0" to VersionChangelog(

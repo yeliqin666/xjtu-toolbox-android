@@ -1,173 +1,149 @@
-# 岱宗盒子 (DaiZong Box)
+# 岱宗盒子
 
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Android-green?logo=android" />
   <img src="https://img.shields.io/badge/minSdk-31_(Android_12)-blue" />
-  <img src="https://img.shields.io/badge/version-2.0.0-orange" />
+  <img src="https://img.shields.io/badge/version-2.7.1-orange" />
   <img src="https://img.shields.io/badge/license-MIT-lightgrey" />
 </p>
 
-西安交通大学一站式校园工具箱，纯 Kotlin + Jetpack Compose 构建，覆盖教务、成绩、考勤、图书馆、校园卡、通知公告等核心校园服务。
+西安交通大学校园工具箱。Kotlin + Jetpack Compose 原生实现，直接调用教务系统、图书馆、校园卡等官方接口，不依赖任何三方服务器。
 
-## 功能一览
+---
 
-| 模块 | 功能 | 说明 |
-|------|------|------|
-| 🔐 统一认证 | CAS 登录 | RSA 加密 + MFA 手机验证码 + 本科/研究生账户 |
-| 🌐 网络适配 | WebVPN | 自动检测校内/校外，校外走 webvpn.xjtu.edu.cn |
-| � 个人信息 | NSA OAuth2 | 性别、民族、政治面貌、血型、籍贯、身高、体重、书院、校区、寝室号等 16 项 |
-| 📅 课表 | 周视图 | 按周筛选 + 考试安排 + 教材信息 |
-| 📊 成绩 | GPA 计算 | JWAPP 正式成绩 + FineReport 报表（绕过评教限制） |
-| ✅ 考勤 | 流水查询 | 全 20 周视图 + 正常/迟到/缺勤统计 |
-| 🏫 空闲教室 | 节次筛选 | CDN 数据，无需登录和校园网 |
-| 💳 校园卡 | 消费分析 | 余额 + 一卡通号 + 账单流水 + 月度消费图表 |
-| 📚 图书馆 | 座位管理 | 在座/预约状态 + 续座/签退 |
-| 📢 通知公告 | 多源聚合 | 一网通办 + 各学院通知爬虫 |
-| 🌐 浏览器 | Cookie 注入 | WebView 自动登录 + WebVPN 支持 |
-| 📝 评教 | 一键评教 | GSTE 评教 + 常规评教 |
-| 🎓 研究生 | GMIS | 研究生管理信息系统 |
-| 📜 用户协议 | 首次启动 | EULA 弹窗，需阅读完整协议并同意后方可使用 |
+## 功能
+
+| 模块 | 功能 |
+|------|------|
+| 🔐 统一认证 | CAS 登录（RSA + MFA 手机验证码）+ WebVPN 自动切换 |
+| 📅 课表 | 周视图 + 考试安排 + 教材信息 + 桌面小组件（2×2 / 4×2）|
+| 📊 成绩 | JWAPP 正式成绩 + FineReport 报表绕过评教限制 + GPA 计算 |
+| ✅ 考勤 | 全 20 周出勤流水，正常/迟到/缺勤统计 |
+| 🏫 空闲教室 | 节次筛选，CDN 公开数据，无需登录和校园网 |
+| 💳 校园卡 | 余额 + 账单流水 + 月度消费图表 |
+| 📚 图书馆 | 在座/预约状态 + 续座/签退 |
+| 🔍 全校课表 | 按课程名、教师、院系、校区、节次等多维度检索全校开课信息 |
+| 📢 通知公告 | 一网通办 + 各学院通知多源聚合 |
+| 🎓 课程回放 | TronClass 多机位视频播放 + 课件下载 |
+| 📖 思源学堂 | 活动详情、作业与评分、课件、直播流 |
+| 👤 个人信息 | NSA OAuth2，包含 16 项详细信息 |
+| ✏️ 评教 | GSTE + 常规评教一键完成 |
+| 🌐 内置浏览器 | WebView 自动注入 Cookie + WebVPN 透明代理 |
+
+---
 
 ## 技术栈
 
-| 项目 | 选型 |
-|------|------|
-| 语言 | Kotlin 2.0 |
-| UI | Jetpack Compose + Material 3 (Material You) |
-| 网络 | OkHttp 4.12 + Brotli 压缩 |
-| HTML 解析 | Jsoup 1.18 |
-| 构建 | AGP 9.0 + Gradle 9.2 + R8 优化 |
-| 最低版本 | Android 12 (API 31) |
-| 目标版本 | Android 16 (API 36) |
-| 启动 | SplashScreen API |
-| Release 体积 | ~4.4 MB |
+纯 Kotlin 2.0 编写，UI 层使用 Jetpack Compose + MIUIX（HyperOS 设计语言），网络层是 OkHttp 4.12，全程启用 Brotli 解压（服务端支持 `Content-Encoding: br` 时生效，降低接口流量而非 APK 体积）。HTML 解析用 Jsoup，本地数据持久化走 Room。构建工具链 AGP 9.0 + Gradle 9.2，Release 包经 R8 全量混淆后约 **10 MB**，其中 ~9 MB 为 `classes.dex`（Compose runtime + Media3 + MIUIX 等库的编译产物，无冗余资源）。APK 签名为 v2+v3 双方案。
+
+最低支持 Android 12（API 31），目标 Android 16（API 36.1）。
+
+---
 
 ## 项目结构
 
 ```
 app/src/main/java/com/xjtu/toolbox/
-├── MainActivity.kt              # 入口、导航、登录状态、首页、关于
-├── auth/                        # 认证模块
-│   ├── XJTULogin.kt             # CAS 统一身份认证（RSA + MFA + SSO）
-│   ├── JwappLogin.kt            # 教务新系统
-│   ├── YwtbLogin.kt             # 一网通办
-│   ├── AttendanceLogin.kt       # 考勤（Bearer Token）
-│   ├── CampusCardLogin.kt       # 校园卡（hallticket）
-│   ├── LibraryLogin.kt          # 图书馆座位系统
-│   ├── GmisLogin.kt / GsteLogin.kt  # 研究生/教评
-│   └── LoginScreen.kt           # 登录界面
-├── schedule/                    # 课表 + 考试 + 教材
-├── score/                       # 成绩报表 + GPA
-├── attendance/                  # 考勤查询
+├── MainActivity.kt              # 入口、导航、登录状态、首页
+├── auth/                        # CAS 统一认证、WebVPN、各系统 Token
+├── schedule/                    # 课表、考试、教材、桌面小组件
+├── score/                       # 成绩报表、GPA 计算
+├── attendance/                  # 出勤记录
 ├── emptyroom/                   # 空闲教室
 ├── card/                        # 校园卡
 ├── library/                     # 图书馆座位
 ├── notification/                # 通知公告爬虫
-├── nsa/                         # NSA 个人信息（OAuth2 + 动态表单解析）
+├── nsa/                         # 个人信息（OAuth2 + 动态表单）
 ├── judge/                       # 评教
 ├── browser/                     # 应用内浏览器
 ├── ywtb/                        # 一网通办
 ├── gmis/                        # 研究生系统
-├── util/                        # Cookie 持久化、WebVPN、凭据存储
-└── ui/                          # 主题 + 通用组件
+├── lms/                         # 思源学堂 + 课程回放
+└── util/                        # Cookie 持久化、WebVPN 工具、凭据管理
 ```
 
-## 快速开始
+---
 
-### 构建
+## 构建与发版
 
 ```bash
-# Debug
+# Debug 包
 ./gradlew assembleDebug
 
-# Release (R8 压缩，~4.4MB)
+# Release 包（R8 压缩混淆）
 ./gradlew assembleRelease
 ```
 
-APK 输出位置：`app/build/outputs/apk/release/app-release.apk`
+项目配置了 GitHub Actions：push/PR 到 `main` 自动编译 Debug，推送 `v*` tag 自动打包 Release 并发布到 GitHub Releases。
 
-### 自动构建
-
-项目配置了 GitHub Actions：
-- **Push/PR 到 main** → 自动构建 Debug APK
-- **推送 Tag `v*`** → 自动构建 Release APK 并创建 GitHub Release
-
-发版流程：
 ```bash
-git tag v1.0-alpha
-git push origin v1.0-alpha
-# → GitHub Actions 自动构建并发布 Release
+git tag v2.7.1
+git push origin v2.7.1
+# Actions 自动构建并发布
 ```
+
+---
 
 ## 注意事项
 
-- AGP 9.0 内置 Kotlin 支持，**不要**添加 `org.jetbrains.kotlin.android` 插件
-- 考勤/图书馆为校内服务，校外自动通过 WebVPN 访问
-- 校园卡 `card.xjtu.edu.cn` 是公网服务，不走 WebVPN
-- 空闲教室数据来自 CDN，不需要登录和校园网
-- `network_security_config.xml` 允许 XJTU 域名 cleartext HTTP
+- 考勤、图书馆等服务仅限校内网络，应用会自动识别并切换到 WebVPN
+- 校园卡（`card.xjtu.edu.cn`）是公网服务，不走 WebVPN
+- 空闲教室数据来自公开 CDN，不需要登录
+- AGP 9.0 已内置 Kotlin 支持，**不要**额外添加 `org.jetbrains.kotlin.android` 插件
+- `network_security_config.xml` 允许 XJTU 子域名的 cleartext HTTP
+
+---
 
 ## 更新日志
 
-### v2.7.0 (2025-03)
+### v2.7.1
 
-- **全校课表查询**：新增按课程名、课号、教师、院系、校区、节次等多维度检索全校开课信息
-- **Tab 布局优化**：教务/工具页功能重新分区，教务聚焦学业+课程学习，工具新增校园服务入口
-- **"我的"页重构**：全新三卡片关于区域（应用标识、开源社区、开发计划），新增 GitHub Issues 反馈入口
-- **成绩免责提示**：成绩查询页 GPA 卡片上方新增数据仅供预览声明
-- **出勤记录修正**：主页/教务页考勤文案由"进出记录"改为"出勤记录"
-- **视频播放修复**：修复思源学堂/课程回放视频播放时横屏切换导致 Activity 反复重建、ExoPlayer 无法初始化的问题
-- **全校课表防崩**：getDepartments/getTermList/getCurrentTerm 添加 null-safe 解析，未登录时返回空列表而非崩溃
-- **LMS 列表防崩**：修复 LazyColumn 中重复 key（live_replay_0）导致闪退
+- 新增课表桌面小组件，2×2 和 4×2 两种规格，支持当日课程一览
+- 修复小组件布局与数据加载问题
+- APK 签名由 v2 升级为 v2+v3
+- **已知问题**：图书馆换座功能暂时无效；入馆后可能错误显示「取消预约」按钮
 
-### v2.6.0 (2025-02)
+### v2.7.0
 
-- **思源学堂（LMS）**：新增思源学堂功能，支持课程列表、活动详情、作业提交记录与评分、课件下载
-- **课堂回放**：支持多机位（教师/屏幕）视频播放、双画面模式、倍速播放、视频下载
-- **LMS 直播**：支持 HLS 直播流播放，自动解析多机位流地址
+- 新增全校课表查询，支持按课程名、课号、教师、院系、校区、节次等多维度筛选
+- 首页 / 教务 / 工具 Tab 重新分区
+- "我的"页全面重构，新增关于区域、GitHub Issues 反馈入口
+- 成绩查询页 GPA 卡片上方增加数据仅供参考声明
+- 修复思源学堂视频横屏切换时 Activity 反复重建导致 ExoPlayer 无法初始化的问题
+- 修复全校课表 API null-safe 解析异常
 
-### v2.5.1 (2025-01)
+### v2.6.0
 
-- **返回键修复**：修复所有界面按返回直接回桌面的严重 Bug
-- **依赖清理**：移除多余的 NavigationEvent 依赖
+- 新增思源学堂（LMS），支持课程活动、作业评分、课件下载
+- 新增课程回放，支持多机位视频与双画面模式、倍速、下载
 
-### v2.5.0 (2025-01)
+### v2.5.x
 
-- **课程回放**：新增教学平台 TronClass 课程回放功能
-- **体育场馆预订**：新增校内体育场馆查询与预约
-- **视频播放器**：修复播放器相关问题
-- **图书馆优化**：座位状态展示优化
-- **定时抢座移除**：移除定时抢座功能，避免风险
+- 新增 TronClass 课程回放和体育场馆预订
+- 修复返回键直接回桌面的严重 Bug
+- 移除存在风险的定时抢座功能
 
-### v2.0.0 (2025-07)
+### v2.0.0
 
-- **NSA 个人信息**：通过 OAuth2 对接 NSA 动态表单 API，获取性别、民族、政治面貌、血型、籍贯、身高、体重、年级、书院、校区、入学时间、学制、寝室号、学籍状态等 16 项详细信息，首次加载后本地缓存
-- **用户协议 (EULA)**：首次启动弹出用户协议，需完整阅读并同意后方可使用，支持协议版本升级重新确认
-- **版本更新公告**：每个版本首次启动展示新功能介绍与已知问题
-- **校园卡一卡通号**：校园卡页面显示一卡通号
-- **首页快捷入口**：新增空闲教室、校园卡快捷方格
-- **GitHub 开源**：我的页面底部增加项目 GitHub 地址
+- NSA OAuth2 接入，获取 16 项个人信息，本地缓存
+- EULA 首次启动弹窗，版本升级重新确认
+- 版本更新公告弹窗
 
-### v1.2.1
-
-- 初始公开版本，覆盖课表、成绩、考勤、空闲教室、校园卡、图书馆、通知公告、评教、研究生等模块
+---
 
 ## 开发计划
 
-1. 图书馆座位推荐（智能推荐空闲座位）
-2. 餐券领取 & 付款码优化
-3. 智能选课助手
-4. 通知聚合订阅 & Push
-5. 电子教材在线阅读
+- 图书馆座位智能推荐
+- 通知订阅 & Push
+- 智能选课助手
+- 电子教材在线阅读
+
+---
 
 ## 致谢
 
-- [XJTUToolBox](https://github.com/yan-xiaoo/XJTUToolBox.git) — 本项目的核心算法灵感来源，包括 CAS 登录流程、WebVPN 加解密、FineReport 报表解析、空闲教室 CDN 数据、学期时间计算等均移植或参考自该项目的 Python 实现。感谢 [@yan-xiaoo](https://github.com/yan-xiaoo) 的开源贡献！
+部分核心算法来自 [XJTUToolBox](https://github.com/yan-xiaoo/XJTUToolBox.git)，CAS 登录流程、WebVPN 加解密、FineReport 报表解析、空闲教室 CDN 数据、学期时间计算等均参考或移植自该项目的 Python 实现。感谢 [@yan-xiaoo](https://github.com/yan-xiaoo) 的开源贡献。
 
-## 作者
-
-**Yeliqin666** — [runqinliu666.cn](https://www.runqinliu666.cn/)
-
-## License
-
-MIT
+---
+ 
+**License**：MIT
