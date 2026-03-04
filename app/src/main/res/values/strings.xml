@@ -1,3 +1,6 @@
 <resources>
     <string name="app_name">岱宗盒子</string>
+    <string name="schedule_widget_2x2_name">课表（2x2）</string>
+    <string name="schedule_widget_4x2_name">课表（4x2）</string>
+    <string name="schedule_widget_desc">显示今日课程与下一节安排</string>
 </resources>

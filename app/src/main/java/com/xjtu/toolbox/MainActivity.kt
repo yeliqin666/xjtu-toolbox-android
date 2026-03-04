@@ -1,5 +1,6 @@
 package com.xjtu.toolbox
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.ui.graphics.asImageBitmap
@@ -118,19 +119,35 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+    companion object {
+        const val EXTRA_LAUNCH_ROUTE = "extra_launch_route"
+    }
+
     /** 标记应用是否准备好（登录恢复完成后为 true），供 SplashScreen 决定何时消失 */
     var isAppReady = false
+    private val launchRouteState = mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splash = installSplashScreen()
         splash.setKeepOnScreenCondition { !isAppReady }
         super.onCreate(savedInstanceState)
+        launchRouteState.value = intent?.getStringExtra(EXTRA_LAUNCH_ROUTE)
         enableEdgeToEdge()
         setContent {
             XJTUToolBoxTheme {
-                AppNavigation(onReady = { isAppReady = true })
+                AppNavigation(
+                    initialRoute = launchRouteState.value,
+                    onInitialRouteConsumed = { launchRouteState.value = null },
+                    onReady = { isAppReady = true }
+                )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        launchRouteState.value = intent.getStringExtra(EXTRA_LAUNCH_ROUTE)
     }
 }
 
@@ -774,13 +791,51 @@ class AppLoginStateViewModel(application: android.app.Application) : androidx.li
 // ── 主导航 ────────────────────────────────
 
 @Composable
-fun AppNavigation(onReady: () -> Unit = {}) {
+fun AppNavigation(
+    initialRoute: String? = null,
+    onInitialRouteConsumed: () -> Unit = {},
+    onReady: () -> Unit = {}
+) {
     val navController = rememberNavController()
     // [VM] ViewModel 保证状态跨 Configuration Change 存活
     val viewModel: AppLoginStateViewModel = viewModel()
     val loginState = viewModel.loginState
     val credentialStore = viewModel.credentialStore
     val context = LocalContext.current
+
+    LaunchedEffect(initialRoute) {
+        val route = initialRoute
+        if (route.isNullOrBlank() || route == Routes.MAIN) return@LaunchedEffect
+
+        if (route == Routes.SCHEDULE) {
+            val cm = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+            val isOnline = cm?.activeNetwork != null &&
+                    cm.getNetworkCapabilities(cm.activeNetwork)
+                        ?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+
+            if (loginState.jwxtLogin != null) {
+                navController.navigate(route) { launchSingleTop = true }
+            } else if (!isOnline) {
+                navController.navigate(route) { launchSingleTop = true }
+            } else if (loginState.hasCredentials) {
+                val loginResult = kotlinx.coroutines.withTimeoutOrNull(15_000L) {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        loginState.autoLogin(LoginType.JWXT)
+                    }
+                }
+                if (loginResult != null || loginState.jwxtLogin != null) {
+                    navController.navigate(route) { launchSingleTop = true }
+                } else {
+                    navController.navigate(Routes.login(LoginType.JWXT, route)) { launchSingleTop = true }
+                }
+            } else {
+                navController.navigate(Routes.login(LoginType.JWXT, route)) { launchSingleTop = true }
+            }
+        } else {
+            navController.navigate(route) { launchSingleTop = true }
+        }
+        onInitialRouteConsumed()
+    }
 
     // 当 YWTB 用户信息获取到时，缓存全名（下次启动秒显示，作为 nsaProfile?.name 的 fallback）
     LaunchedEffect(loginState.ywtbUserInfo) {

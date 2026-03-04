@@ -65,6 +65,7 @@ import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.ErrorState
+import com.xjtu.toolbox.widget.ScheduleWidgetUpdater
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -142,6 +143,9 @@ fun ScheduleScreen(login: JwxtLogin? = null, studentId: String = "", onBack: () 
                         val termCode = cachedTerms.firstOrNull() ?: ""
                         selectedTermCode = termCode
                         currentTermCode = termCode
+                        if (termCode.isNotEmpty()) {
+                            try { dataCache.put("schedule_last_term", gson.toJson(termCode)) } catch (_: Exception) {}
+                        }
 
                         if (termCode.isNotEmpty()) {
                             val cached = dataCache.get("schedule_$termCode", Long.MAX_VALUE)  // 离线不限 TTL
@@ -194,6 +198,7 @@ fun ScheduleScreen(login: JwxtLogin? = null, studentId: String = "", onBack: () 
                     }
                     selectedTermCode = termCode
                     currentTermCode = termCode
+                    try { dataCache.put("schedule_last_term", gson.toJson(termCode)) } catch (_: Exception) {}
 
                     val cachedCourses = dataCache.get("schedule_$termCode")
                     var cachedCoursesSize = -1
@@ -339,7 +344,10 @@ fun ScheduleScreen(login: JwxtLogin? = null, studentId: String = "", onBack: () 
                 throw e
             } catch (e: Exception) {
                 errorMessage = "加载失败: ${e.message}"
-            } finally { isLoading = false }
+            } finally {
+                isLoading = false
+                ScheduleWidgetUpdater.requestUpdate(context)
+            }
         }
     }
 
@@ -392,6 +400,7 @@ fun ScheduleScreen(login: JwxtLogin? = null, studentId: String = "", onBack: () 
         scope.launch {
             if (entity.id == 0L) customCourseDao.insert(entity) else customCourseDao.update(entity)
             customCourses = customCourseDao.getByTerm(selectedTermCode)
+            ScheduleWidgetUpdater.requestUpdate(context)
             snackbarHostState.showSnackbar(if (entity.id == 0L) "已添加自定义课程" else "已更新课程", duration = SnackbarDuration.Short)
         }
     }
@@ -399,6 +408,7 @@ fun ScheduleScreen(login: JwxtLogin? = null, studentId: String = "", onBack: () 
         scope.launch {
             customCourseDao.delete(entity)
             customCourses = customCourseDao.getByTerm(selectedTermCode)
+            ScheduleWidgetUpdater.requestUpdate(context)
             snackbarHostState.showSnackbar("已删除「${entity.courseName}」", duration = SnackbarDuration.Short)
         }
     }
@@ -438,6 +448,7 @@ fun ScheduleScreen(login: JwxtLogin? = null, studentId: String = "", onBack: () 
     fun switchTerm(newTermCode: String) {
         if (newTermCode == selectedTermCode) return
         selectedTermCode = newTermCode
+        try { dataCache.put("schedule_last_term", gson.toJson(newTermCode)) } catch (_: Exception) {}
         textbooksLoaded = false
         textbooks = emptyList()
         showingStaleData = false
@@ -520,7 +531,10 @@ fun ScheduleScreen(login: JwxtLogin? = null, studentId: String = "", onBack: () 
                 throw e
             } catch (e: Exception) {
                 errorMessage = "加载失败: ${e.message}"
-            } finally { isSwitching = false }
+            } finally {
+                isSwitching = false
+                ScheduleWidgetUpdater.requestUpdate(context)
+            }
         }
     }
 

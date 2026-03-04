@@ -33,6 +33,28 @@
             </intent-filter>
         </activity>
 
+        <receiver
+            android:name=".widget.ScheduleWidget2x2Provider"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/schedule_widget_2x2_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.ScheduleWidget4x2Provider"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/schedule_widget_4x2_info" />
+        </receiver>
+
         <!-- 导出文件分享 FileProvider -->
         <provider
             android:name="androidx.core.content.FileProvider"
