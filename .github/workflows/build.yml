@@ -128,7 +128,7 @@ jobs:
 
           # 上传 APK
           echo "APK file size: $(wc -c < ${APK_PATH}) bytes"
-          HTTP_CODE=$(curl --max-time 120 --progress-bar -w "%{http_code}" \
+          HTTP_CODE=$(curl --max-time 900 --progress-bar -w "%{http_code}" \
             -X POST "https://gitee.com/api/v5/repos/${OWNER}/${REPO}/releases/${RELEASE_ID}/attach_files" \
             -F "access_token=${GITEE_TOKEN}" \
             -F "file=@${APK_PATH};type=application/vnd.android.package-archive")
