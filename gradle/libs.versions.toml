@@ -1,7 +1,7 @@
 [versions]
-agp = "9.0.1"
-kotlin = "2.0.21"
-ksp = "2.0.21-1.0.28"
+agp = "9.1.0"
+kotlin = "2.2.10"
+ksp = "2.3.2"
 room = "2.7.1"
 coreKtx = "1.15.0"
 coreSplashscreen = "1.0.1"

@@ -1,11 +1,16 @@
 package com.xjtu.toolbox.venue
 
 import android.content.Context
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -14,10 +19,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -49,7 +57,17 @@ fun VenueScreen(login: VenueLogin, onBack: () -> Unit) {
     val api = remember { VenueApi(login) }
     val context = LocalContext.current
 
-    // 首次使用提醒
+    val favoritesManager = remember { VenueFavorites(context) }
+    val favoriteIds by favoritesManager.favoriteIds.collectAsState()
+
+    val showFavoriteToast = remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(showFavoriteToast.value) {
+        showFavoriteToast.value?.let { message ->
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            showFavoriteToast.value = null
+        }
+    }
+
     val prefs = remember { context.getSharedPreferences("feature_hints", Context.MODE_PRIVATE) }
     val showHint = remember { mutableStateOf(!prefs.getBoolean("venue_hint_shown", false)) }
     if (showHint.value) {
@@ -283,6 +301,11 @@ fun VenueScreen(login: VenueLogin, onBack: () -> Unit) {
                         currentPage = VenuePage.SlotSelection
                         loadSlots()
                     },
+                    favoriteIds = favoriteIds,
+                    onToggleFavorite = { venue ->
+                        val isFavorite = favoritesManager.toggleFavorite(venue.id)
+                        showFavoriteToast.value = if (isFavorite) "已收藏 ${venue.name}" else "已取消收藏 ${venue.name}"
+                    },
                     modifier = Modifier.padding(padding),
                     scrollBehavior = scrollBehavior
                 )
@@ -447,9 +470,15 @@ private fun VenueListContent(
     error: String?,
     onRetry: () -> Unit,
     onVenueSelected: (VenueApi.Venue) -> Unit,
+    favoriteIds: Set<Int>,
+    onToggleFavorite: (VenueApi.Venue) -> Unit,
     modifier: Modifier = Modifier,
     scrollBehavior: ScrollBehavior
 ) {
+    val sortedVenues = remember(venues, favoriteIds) {
+        venues.sortedByDescending { it.id in favoriteIds }
+    }
+
     when {
         isLoading -> LoadingState(
             message = "加载场馆列表...",
@@ -460,7 +489,7 @@ private fun VenueListContent(
             onRetry = onRetry,
             modifier = modifier.fillMaxSize()
         )
-        venues.isEmpty() -> EmptyState(
+        sortedVenues.isEmpty() -> EmptyState(
             title = "暂无可预订场馆",
             modifier = modifier.fillMaxSize()
         )
@@ -471,19 +500,53 @@ private fun VenueListContent(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(venues, key = { it.id }) { venue ->
-                VenueCard(venue = venue, onClick = { onVenueSelected(venue) })
+            items(sortedVenues, key = { it.id }) { venue ->
+                VenueCard(
+                    venue = venue,
+                    isFavorite = venue.id in favoriteIds,
+                    onClick = { onVenueSelected(venue) },
+                    onDoubleClick = { onToggleFavorite(venue) }
+                )
             }
         }
     }
 }
 
 @Composable
-private fun VenueCard(venue: VenueApi.Venue, onClick: () -> Unit) {
+private fun VenueCard(
+    venue: VenueApi.Venue,
+    isFavorite: Boolean,
+    onClick: () -> Unit,
+    onDoubleClick: () -> Unit
+) {
+    var showFavoriteAnimation by remember { mutableStateOf(false) }
+    
+    LaunchedEffect(isFavorite) {
+        if (isFavorite) {
+            showFavoriteAnimation = true
+        }
+    }
+
+    val favoriteScale by animateFloatAsState(
+        targetValue = if (showFavoriteAnimation) 1.3f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        finishedListener = { showFavoriteAnimation = false }
+    )
+
     Card(
-        onClick = onClick,
-        pressFeedbackType = PressFeedbackType.Sink,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+                onDoubleClick = {
+                    onDoubleClick()
+                }
+            ),
         colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
     ) {
         Row(
@@ -510,6 +573,20 @@ private fun VenueCard(venue: VenueApi.Venue, onClick: () -> Unit) {
                         color = MiuixTheme.colorScheme.onSurfaceVariantActions
                     )
                 }
+            }
+            AnimatedVisibility(
+                visible = isFavorite,
+                enter = scaleIn(animationSpec = spring(stiffness = Spring.StiffnessLow)) + fadeIn(),
+                exit = scaleOut() + fadeOut()
+            ) {
+                Icon(
+                    Icons.Filled.Favorite,
+                    contentDescription = "已收藏",
+                    modifier = Modifier
+                        .size(24.dp)
+                        .scale(favoriteScale),
+                    tint = Color(0xFFE91E63)
+                )
             }
         }
     }
