@@ -13,12 +13,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
-          java-version: '21'
-          distribution: 'temurin'
+          java-version: "21"
+          distribution: "temurin"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -35,7 +37,7 @@ jobs:
       - name: Extract version name
         id: version
         run: |
-          VERSION=$(grep 'versionName' app/build.gradle.kts | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          VERSION=$(grep "versionName" app/build.gradle.kts | head -1 | sed "s/.*\"\(.*\)\".*/\1/")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "tag=v$VERSION" >> $GITHUB_OUTPUT
 
@@ -58,7 +60,7 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: ./gradlew assembleRelease
 
-      - name: Upload Release APK
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-release
@@ -79,7 +81,7 @@ jobs:
           make_latest: true
           prerelease: ${{ contains(steps.version.outputs.version, 'alpha') || contains(steps.version.outputs.version, 'beta') }}
 
-      - name: Sync Release to Gitee
+      - name: Sync to Gitee (code + tag + release)
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_ACCESS_TOKEN }}
         run: |
@@ -88,19 +90,28 @@ jobs:
           REPO="xjtu-toolbox-android"
           APK_PATH="app/build/outputs/apk/release/app-release.apk"
 
-          # 推送 tag 到 Gitee（确保 tag 存在）
-          git remote add gitee "https://yeliqin666:${GITEE_TOKEN}@gitee.com/${OWNER}/${REPO}.git" 2>/dev/null || true
-          git push gitee "${TAG}" --force || echo "Tag push may have already existed"
+          # 配置 Gitee remote
+          git remote add gitee "https://yeliqin666:${GITEE_TOKEN}@gitee.com/${OWNER}/${REPO}.git" 2>/dev/null || \
+            git remote set-url gitee "https://yeliqin666:${GITEE_TOKEN}@gitee.com/${OWNER}/${REPO}.git"
 
-          # 删除已有的同名 release
-          OLD_ID=$(curl -sf "https://gitee.com/api/v5/repos/${OWNER}/${REPO}/releases/tags/${TAG}?access_token=${GITEE_TOKEN}" \
+          # 同步 main 分支
+          git push gitee main:main --force
+          echo "Code synced to Gitee"
+
+          # 拉取 tag（release action 在 remote 创建了 tag，本地可能没有）
+          git fetch origin --tags --force
+          git push gitee "${TAG}" --force
+          echo "Tag ${TAG} synced to Gitee"
+
+          # 删除已有的同名 Gitee release
+          OLD_ID=$(curl -s "https://gitee.com/api/v5/repos/${OWNER}/${REPO}/releases/tags/${TAG}?access_token=${GITEE_TOKEN}" \
             | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null || echo "")
           if [ -n "$OLD_ID" ] && [ "$OLD_ID" != "None" ] && [ "$OLD_ID" != "" ]; then
             curl -s -X DELETE "https://gitee.com/api/v5/repos/${OWNER}/${REPO}/releases/${OLD_ID}?access_token=${GITEE_TOKEN}" || true
             echo "Deleted old Gitee release $OLD_ID"
           fi
 
-          # 创建新 release
+          # 创建 Gitee release（target_commitish 必填）
           RELEASE=$(curl -s -X POST "https://gitee.com/api/v5/repos/${OWNER}/${REPO}/releases" \
             -H "Content-Type: application/json" \
             -d "{
@@ -108,6 +119,7 @@ jobs:
               \"tag_name\": \"${TAG}\",
               \"name\": \"${TAG}\",
               \"body\": \"同步自 GitHub Release ${TAG}\",
+              \"target_commitish\": \"main\",
               \"prerelease\": false
             }")
           echo "Create response: $RELEASE"
@@ -117,5 +129,5 @@ jobs:
           # 上传 APK
           curl -s -X POST "https://gitee.com/api/v5/repos/${OWNER}/${REPO}/releases/${RELEASE_ID}/attach_files" \
             -F "access_token=${GITEE_TOKEN}" \
-            -F "file=@${APK_PATH}" \
-            && echo "APK uploaded to Gitee release"
+            -F "file=@${APK_PATH}"
+          echo "APK uploaded to Gitee release"
