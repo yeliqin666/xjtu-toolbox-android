@@ -3707,6 +3707,15 @@ private val CHANGELOGS: Map<String, VersionChangelog> = mapOf(
             "🐛" to "修复全校课表 API 解析异常导致的闪退",
             "👍" to "出勤记录文案修正、多处 UI 细节优化"
         )
+    ),
+    "2.8.1" to VersionChangelog(
+        items = listOf(
+            "🏟️" to "新增场馆收藏功能，支持收藏常用场馆",
+            "✨" to "支持双击场馆卡片快速收藏/取消收藏",
+            "🎬" to "新增收藏动画与提示反馈，交互更顺滑",
+            "📌" to "场馆列表支持按收藏状态优先排序",
+            "📝" to "补充版本号与更新日志，完善发版信息"
+        )
     )
 )
 
