@@ -1,5 +1,5 @@
 # 岱宗盒子
-
+> 作者最近忙炸，App不在近期计划内...上等的PR会接受！
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Android-green?logo=android" />
   <img src="https://img.shields.io/badge/minSdk-31_(Android_12)-blue" />
