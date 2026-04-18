@@ -217,7 +217,7 @@ enum class BottomTab(
     val unselectedIcon: ImageVector
 ) {
     HOME("首页", Icons.Filled.Home, Icons.Outlined.Home),
-    COURSES("课程", Icons.Filled.CalendarMonth, Icons.Outlined.CalendarMonth),
+    COURSES("日程", Icons.Filled.CalendarMonth, Icons.Outlined.CalendarMonth),
     TOOLS("工具", Icons.Filled.Build, Icons.Outlined.Build),
     PROFILE("我的", Icons.Filled.Person, Icons.Outlined.Person)
 }
@@ -1565,13 +1565,13 @@ private fun MainScreen(
             TopAppBar(
                 title = when (selectedTab) {
                     BottomTab.HOME -> "岱宗盒子"
-                    BottomTab.COURSES -> "课程"
+                    BottomTab.COURSES -> "日程"
                     BottomTab.TOOLS -> "实用工具"
                     BottomTab.PROFILE -> "我的"
                 },
                 largeTitle = when (selectedTab) {
                     BottomTab.HOME -> homeGreeting
-                    BottomTab.COURSES -> "我的课程"
+                    BottomTab.COURSES -> "我的日程"
                     BottomTab.TOOLS -> "实用工具"
                     BottomTab.PROFILE -> "我的"
                 },
@@ -1819,7 +1819,7 @@ private fun HomeTab(
                 HomeQuickAction(Icons.Default.CreditCard, "校园卡", colorGreen) {
                     onNavigateWithLogin(Routes.CAMPUS_CARD, LoginType.CAMPUS_CARD)
                 }
-                HomeQuickAction(Icons.Default.CalendarMonth, "课表", colorIndigo) {
+                HomeQuickAction(Icons.Default.CalendarMonth, "日程", colorIndigo) {
                     onNavigate(Routes.MAIN)
                     onNavigateToCourses()
                 }
@@ -1838,8 +1838,9 @@ private fun HomeTab(
         run {
             val context = LocalContext.current
             val isSummer = com.xjtu.toolbox.util.XjtuTime.isSummerTime()
-            // 今日课表数据（从 DataCache 离线读取）
-            var todayCoursesState by remember { mutableStateOf<List<CourseCardInfo>?>(null) }
+            // 日程提醒数据（合并教务课程与自定义日程）
+            var scheduleReminderState by remember { mutableStateOf<ScheduleReminderInfo?>(null) }
+            var isScheduleReminderLoaded by remember { mutableStateOf(false) }
             // 缓存余额数据（从 SharedPreferences 读取）
             val cardPrefs = remember { context.getSharedPreferences("campus_card", 0) }
             var cachedBalance by remember { mutableStateOf(cardPrefs.getFloat("card_balance_cache", -1f)) }
@@ -1854,7 +1855,7 @@ private fun HomeTab(
             var isRefreshingCard by remember { mutableStateOf(false) }
 
             LaunchedEffect(Unit) {
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val loadedReminder = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     try {
                         val dataCache = com.xjtu.toolbox.util.DataCache(context)
                         val gson = com.google.gson.Gson()
@@ -1863,7 +1864,7 @@ private fun HomeTab(
                         val termList = if (termListJson != null) {
                             gson.fromJson(termListJson, Array<String>::class.java)?.toList() ?: emptyList()
                         } else emptyList<String>()
-                        val termCode = termList.firstOrNull() ?: return@withContext
+                        val termCode = termList.firstOrNull() ?: return@withContext null
                         // 获取 API 课程
                         val coursesJson = dataCache.get("schedule_$termCode", Long.MAX_VALUE)
                         val apiCourses = if (coursesJson != null) {
@@ -1875,146 +1876,155 @@ private fun HomeTab(
                                 .customCourseDao().getByTerm(termCode)
                                 .map { it.toCourseItem() }
                         } catch (_: Exception) { emptyList() }
-                        val courses = apiCourses + customCourses
+                        val allSchedules = apiCourses + customCourses
                         // 获取学期开始日期
                         val startDateJson = dataCache.get("start_date_$termCode", Long.MAX_VALUE)
                         val startDateStr = if (startDateJson != null) gson.fromJson(startDateJson, String::class.java) else null
                         val startDate = if (!startDateStr.isNullOrBlank()) runCatching { java.time.LocalDate.parse(startDateStr) }.getOrNull() else null
                         if (startDate == null) {
-                            // 即使没有开始日期，也不能直接 return — 自定义课程可能也需要展示
-                            todayCoursesState = emptyList()
-                            return@withContext
+                            return@withContext null
                         }
+
                         val today = java.time.LocalDate.now()
-                        val daysBetween = java.time.temporal.ChronoUnit.DAYS.between(startDate, today)
-                        val currentWeek = ((daysBetween / 7) + 1).toInt()
-                        val todayDow = today.dayOfWeek.value  // 1=Mon ... 7=Sun
-                        val todayCourses = courses
-                            .filter { it.dayOfWeek == todayDow && it.isInWeek(currentWeek) }
-                            .sortedBy { it.startSection }
-                            .map { CourseCardInfo(it.courseName, it.location, it.startSection, it.endSection) }
-                        todayCoursesState = todayCourses
-                    } catch (_: Exception) { todayCoursesState = emptyList() }
+                        val nowDateTime = java.time.LocalDateTime.now()
+                        for (offset in 0..14) {
+                            val targetDate = today.plusDays(offset.toLong())
+                            val targetWeek = ((java.time.temporal.ChronoUnit.DAYS.between(startDate, targetDate) / 7) + 1).toInt()
+                            if (targetWeek <= 0) continue
+                            val daySchedules = allSchedules
+                                .filter { it.dayOfWeek == targetDate.dayOfWeek.value && it.isInWeek(targetWeek) }
+                                .map {
+                                    ScheduleReminderCourseInfo(
+                                        name = it.courseName,
+                                        location = it.location,
+                                        startSection = it.startSection,
+                                        endSection = it.endSection,
+                                        startMinuteOfDay = it.startMinuteOfDay,
+                                        endMinuteOfDay = it.endMinuteOfDay
+                                    )
+                                }
+                                .sortedBy { it.resolveStartMinute(isSummer) ?: Int.MAX_VALUE }
+                            for (schedule in daySchedules) {
+                                val startMinute = schedule.resolveStartMinute(isSummer) ?: continue
+                                val safeStartMinute = startMinute.coerceIn(0, (24 * 60) - 1)
+                                val startAt = targetDate.atTime(safeStartMinute / 60, safeStartMinute % 60)
+                                if (!startAt.isAfter(nowDateTime)) continue
+
+                                val endMinute = schedule.resolveEndMinute(isSummer)
+                                val endAt = endMinute?.let { minuteOfDay ->
+                                    when {
+                                        minuteOfDay >= 24 * 60 -> targetDate.plusDays(1).atStartOfDay()
+                                        minuteOfDay >= 0 -> targetDate.atTime(minuteOfDay / 60, minuteOfDay % 60)
+                                        else -> null
+                                    }
+                                }
+                                return@withContext ScheduleReminderInfo(
+                                    name = schedule.name,
+                                    location = schedule.location,
+                                    startAt = startAt,
+                                    endAt = endAt
+                                )
+                            }
+                        }
+                        null
+                    } catch (_: Exception) {
+                        null
+                    }
                 }
+                scheduleReminderState = loadedReminder
+                isScheduleReminderLoaded = true
             }
 
             Column(Modifier.padding(horizontal = 16.dp)) {
-                // ═══ 今日课表智能卡片 ═══
-                val todayCourses = todayCoursesState
-                if (todayCourses != null) {
-                    val now = java.time.LocalTime.now()
-                    // 判断课程状态
-                    val currentCourse = todayCourses.firstOrNull { course ->
-                        val startTime = com.xjtu.toolbox.util.XjtuTime.getClassTime(course.startSection, isSummer)?.start
-                        val endTime = com.xjtu.toolbox.util.XjtuTime.getClassTime(course.endSection, isSummer)?.end
-                        startTime != null && endTime != null && now >= startTime && now <= endTime
-                    }
-                    val nextCourse = todayCourses.firstOrNull { course ->
-                        val startTime = com.xjtu.toolbox.util.XjtuTime.getClassTime(course.startSection, isSummer)?.start
-                        startTime != null && now < startTime
-                    }
-                    val allDone = todayCourses.isNotEmpty() && currentCourse == null && nextCourse == null
+                // ═══ 日程提醒智能卡片 ═══
+                Card(
+                    onClick = {
+                        onNavigate(Routes.MAIN)
+                        onNavigateToCourses()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    cornerRadius = 20.dp,
+                    colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
+                    pressFeedbackType = PressFeedbackType.Sink
+                ) {
+                    val scheduleReminder = scheduleReminderState
+                    val currentDateTime = java.time.LocalDateTime.now()
+                    Column(Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.NotificationsActive, null, Modifier.size(16.dp), tint = androidx.compose.ui.graphics.Color(0xFFE65100))
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                "日程提醒",
+                                style = MiuixTheme.textStyles.footnote1,
+                                fontWeight = FontWeight.Bold,
+                                color = androidx.compose.ui.graphics.Color(0xFFE65100),
+                                modifier = Modifier.weight(1f)
+                            )
+                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(16.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f))
+                        }
 
-                    // 智能标题 + 颜色
-                    val (cardTitle, statusHint, accentColor) = when {
-                        todayCourses.isEmpty() -> Triple("今日课程", "今天没有课，好好休息 🎉", MiuixTheme.colorScheme.primary)
-                        currentCourse != null -> {
-                            val endTime = com.xjtu.toolbox.util.XjtuTime.getClassTime(currentCourse.endSection, isSummer)?.end
-                            val endStr = endTime?.toString() ?: ""
-                            Triple("正在上课", "${currentCourse.name}  $endStr 下课", MiuixTheme.colorScheme.primary)
-                        }
-                        nextCourse != null -> {
-                            val startTime = com.xjtu.toolbox.util.XjtuTime.getClassTime(nextCourse.startSection, isSummer)?.start
-                            val minutesToNext = if (startTime != null) java.time.Duration.between(now, startTime).toMinutes() else -1
-                            val timeHint = if (minutesToNext in 1..60) "${minutesToNext}分钟后" else startTime?.toString() ?: ""
-                            Triple("下节课", "$timeHint · ${nextCourse.name}", androidx.compose.ui.graphics.Color(0xFF2E7D32))
-                        }
-                        allDone -> Triple("今日课程", "今天的课已全部结束", MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                        else -> Triple("今日课程", "", MiuixTheme.colorScheme.primary)
-                    }
+                        when {
+                            !isScheduleReminderLoaded -> {
+                                Spacer(Modifier.height(8.dp))
+                                Text(
+                                    "正在读取日程...",
+                                    style = MiuixTheme.textStyles.body2,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                                )
+                            }
 
-                    Card(
-                        onClick = {
-                            onNavigate(Routes.MAIN)
-                            onNavigateToCourses()
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        cornerRadius = 20.dp,
-                        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
-                        pressFeedbackType = PressFeedbackType.Sink
-                    ) {
-                        Column(Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.CalendarMonth, null, Modifier.size(16.dp), tint = MiuixTheme.colorScheme.primary)
-                                Spacer(Modifier.width(6.dp))
-                                Text(cardTitle, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Bold, color = MiuixTheme.colorScheme.primary, modifier = Modifier.weight(1f))
-                                if (todayCourses.isNotEmpty()) {
-                                    Text("${todayCourses.size} 节", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                                    Spacer(Modifier.width(4.dp))
+                            scheduleReminder != null -> {
+                                val minutesUntil = java.time.Duration.between(currentDateTime, scheduleReminder.startAt)
+                                    .toMinutes()
+                                    .coerceAtLeast(0)
+                                val dayLabel = formatScheduleReminderDateLabel(
+                                    scheduleReminder.startAt.toLocalDate(),
+                                    currentDateTime.toLocalDate()
+                                )
+                                val startMinuteOfDay = scheduleReminder.startAt.hour * 60 + scheduleReminder.startAt.minute
+                                val startLabel = formatMinuteClock(startMinuteOfDay)
+                                val endLabel = scheduleReminder.endAt?.let { formatMinuteClock(it.hour * 60 + it.minute) }
+                                val timeLabel = if (endLabel != null) "$startLabel-$endLabel" else startLabel
+
+                                Spacer(Modifier.height(8.dp))
+                                Text(
+                                    formatScheduleReminderEta(minutesUntil),
+                                    style = MiuixTheme.textStyles.body1,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MiuixTheme.colorScheme.onSurface
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "$dayLabel $timeLabel · ${scheduleReminder.name}",
+                                    style = MiuixTheme.textStyles.body2,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                if (scheduleReminder.location.isNotBlank()) {
+                                    Spacer(Modifier.height(2.dp))
+                                    Text(
+                                        scheduleReminder.location,
+                                        style = MiuixTheme.textStyles.footnote1,
+                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
                                 }
-                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(16.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f))
                             }
-                            if (statusHint.isNotBlank()) {
-                                Spacer(Modifier.height(6.dp))
-                                Text(statusHint, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                            }
-                            if (todayCourses.isNotEmpty() && !allDone) {
-                                Spacer(Modifier.height(10.dp))
-                                // 显示剩余未上的课程（当前在上的高亮）
-                                val remainingCourses = todayCourses.filter { course ->
-                                    val endTime = com.xjtu.toolbox.util.XjtuTime.getClassTime(course.endSection, isSummer)?.end
-                                    endTime == null || now <= endTime
-                                }
-                                remainingCourses.take(3).forEachIndexed { idx, course ->
-                                    if (idx > 0) Spacer(Modifier.height(6.dp))
-                                    val isCurrent = course == currentCourse
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        // 时间标签
-                                        val timeRange = com.xjtu.toolbox.util.XjtuTime.getTimeRangeStr(course.startSection, course.endSection, isSummer)
-                                        Surface(
-                                            shape = RoundedCornerShape(6.dp),
-                                            color = if (isCurrent) accentColor.copy(alpha = 0.15f) else MiuixTheme.colorScheme.secondaryContainer,
-                                            modifier = Modifier.widthIn(min = 56.dp)
-                                        ) {
-                                            Text(
-                                                timeRange.split("-").first(),
-                                                Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
-                                                style = MiuixTheme.textStyles.footnote1,
-                                                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
-                                                color = if (isCurrent) accentColor else MiuixTheme.colorScheme.onSecondaryContainer,
-                                                textAlign = TextAlign.Center
-                                            )
-                                        }
-                                        Spacer(Modifier.width(10.dp))
-                                        Column(Modifier.weight(1f)) {
-                                            Text(
-                                                course.name,
-                                                style = MiuixTheme.textStyles.body2,
-                                                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
-                                                color = if (isCurrent) MiuixTheme.colorScheme.onSurface else MiuixTheme.colorScheme.onSurface,
-                                                maxLines = 1, overflow = TextOverflow.Ellipsis
-                                            )
-                                            if (course.location.isNotBlank()) {
-                                                Text(course.location, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                            }
-                                        }
-                                        if (isCurrent) {
-                                            Surface(shape = RoundedCornerShape(4.dp), color = accentColor) {
-                                                Text("进行中", Modifier.padding(horizontal = 6.dp, vertical = 2.dp), style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onPrimary, fontSize = 10.sp)
-                                            }
-                                        }
-                                    }
-                                }
-                                val hiddenCount = remainingCourses.size - 3
-                                if (hiddenCount > 0) {
-                                    Spacer(Modifier.height(4.dp))
-                                    Text("+$hiddenCount 门课…", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                                }
+
+                            else -> {
+                                Spacer(Modifier.height(8.dp))
+                                Text(
+                                    "未来两周没有新的日程安排",
+                                    style = MiuixTheme.textStyles.body2,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                                )
                             }
                         }
                     }
-                    Spacer(Modifier.height(12.dp))
                 }
+                Spacer(Modifier.height(12.dp))
 
                 // ═══ 校园卡智能卡片 ═══
                 if (cachedBalance >= 0f || loginState.campusCardLogin != null) {
@@ -2145,7 +2155,7 @@ private fun HomeTab(
             val svcDeepPurple = androidx.compose.ui.graphics.Color(0xFF512DA8)
             svcRow(
                 { m -> HomeServiceCard(Icons.Default.CreditCard, "校园卡", "账单 · 洞察", svcGreen, m) { onNavigateWithLogin(Routes.CAMPUS_CARD, LoginType.CAMPUS_CARD) } },
-                { m -> HomeServiceCard(Icons.Default.CalendarMonth, "课表考试", "课表 · 考试", svcIndigo, m) {
+                { m -> HomeServiceCard(Icons.Default.CalendarMonth, "日程", "我的日程", svcIndigo, m) {
                     onNavigate(Routes.MAIN)
                     onNavigateToCourses()
                 } }
@@ -2172,7 +2182,7 @@ private fun HomeTab(
             )
             svcRow(
                 { m -> HomeServiceCard(Icons.Default.School, "思源学堂", "课件 · 作业", svcIndigo, m) { onNavigateWithLogin(Routes.LMS, LoginType.LMS) } },
-                { m -> HomeServiceCard(Icons.Default.TravelExplore, "课表查询", "全校课程", svcCyan, m) { onNavigateWithLogin(Routes.SCHOOL_COURSE, LoginType.JWXT) } }
+                { m -> HomeServiceCard(Icons.Default.TravelExplore, "课程查询", "全校课程", svcCyan, m) { onNavigateWithLogin(Routes.SCHOOL_COURSE, LoginType.JWXT) } }
             )
             svcRow(
                 { m -> HomeServiceCard(Icons.Default.EventNote, "校历", "学期 · 假期 · 周次", svcTeal, m) { onNavigate(Routes.SCHOOL_CALENDAR) } }
@@ -2184,7 +2194,7 @@ private fun HomeTab(
 }
 
 // ══════════════════════════════════════════
-//  Tab 2 — 课程
+//  Tab 2 — 日程
 // ══════════════════════════════════════════
 
 @Composable
@@ -3579,8 +3589,76 @@ private fun StatusListItem(title: String, subtitle: String, isActive: Boolean) {
 //  通用组件
 // ══════════════════════════════════════════
 
-/** HomeTab 今日课表卡片用的轻量数据类 */
-private data class CourseCardInfo(val name: String, val location: String, val startSection: Int, val endSection: Int)
+/** HomeTab 日程提醒卡片用的轻量数据类 */
+private data class ScheduleReminderCourseInfo(
+    val name: String,
+    val location: String,
+    val startSection: Int,
+    val endSection: Int,
+    val startMinuteOfDay: Int = -1,
+    val endMinuteOfDay: Int = -1
+)
+
+private data class ScheduleReminderInfo(
+    val name: String,
+    val location: String,
+    val startAt: java.time.LocalDateTime,
+    val endAt: java.time.LocalDateTime?
+)
+
+private fun ScheduleReminderCourseInfo.resolveStartMinute(isSummer: Boolean): Int? {
+    if (startMinuteOfDay in 0 until (24 * 60)) return startMinuteOfDay
+    val startTime = com.xjtu.toolbox.util.XjtuTime.getClassTime(startSection, isSummer)?.start ?: return null
+    return startTime.hour * 60 + startTime.minute
+}
+
+private fun ScheduleReminderCourseInfo.resolveEndMinute(isSummer: Boolean): Int? {
+    if (endMinuteOfDay in 1..(24 * 60)) return endMinuteOfDay
+    val endTime = com.xjtu.toolbox.util.XjtuTime.getClassTime(endSection, isSummer)?.end ?: return null
+    return endTime.hour * 60 + endTime.minute
+}
+
+private fun formatMinuteClock(minuteOfDay: Int): String {
+    return when {
+        minuteOfDay >= 24 * 60 -> "24:00"
+        minuteOfDay < 0 -> "00:00"
+        else -> "%02d:%02d".format(minuteOfDay / 60, minuteOfDay % 60)
+    }
+}
+
+private fun formatScheduleReminderEta(minutesUntil: Long): String {
+    if (minutesUntil <= 0) return "即将开始"
+    if (minutesUntil < 60) return "${minutesUntil}分钟后"
+
+    val hours = minutesUntil / 60
+    val remainMinutes = minutesUntil % 60
+    if (hours < 24) {
+        return if (remainMinutes == 0L) "${hours}小时后" else "${hours}小时${remainMinutes}分钟后"
+    }
+
+    val days = hours / 24
+    val remainHours = hours % 24
+    return if (remainHours == 0L) "${days}天后" else "${days}天${remainHours}小时后"
+}
+
+private fun formatScheduleReminderDateLabel(targetDate: java.time.LocalDate, today: java.time.LocalDate): String {
+    val delta = java.time.temporal.ChronoUnit.DAYS.between(today, targetDate).toInt()
+    return when (delta) {
+        0 -> "今天"
+        1 -> "明天"
+        2 -> "后天"
+        in 3..6 -> when (targetDate.dayOfWeek.value) {
+            1 -> "周一"
+            2 -> "周二"
+            3 -> "周三"
+            4 -> "周四"
+            5 -> "周五"
+            6 -> "周六"
+            else -> "周日"
+        }
+        else -> "${targetDate.monthValue}月${targetDate.dayOfMonth}日"
+    }
+}
 
 @Composable
 private fun HomeQuickAction(icon: ImageVector, label: String, color: androidx.compose.ui.graphics.Color, onClick: () -> Unit) {
@@ -3879,8 +3957,8 @@ private val CHANGELOGS: Map<String, VersionChangelog> = mapOf(
     ),
     "2.7.1" to VersionChangelog(
         items = listOf(
-            "🧩" to "新增课表桌面小组件（2×2 / 4×2 两种规格，支持当日课程一览）",
-            "🐛" to "修复课表小组件布局与数据加载问题",
+            "🧩" to "新增日程桌面小组件（2×2 / 4×2 两种规格，支持当日安排一览）",
+            "🐛" to "修复日程小组件布局与数据加载问题",
             "🔏" to "APK 签名由 v2 升级为 v2+v3，增强安全性与支持未来密钥轮换"
         ),
         issues = listOf(
@@ -3889,12 +3967,12 @@ private val CHANGELOGS: Map<String, VersionChangelog> = mapOf(
     ),
     "2.7.0" to VersionChangelog(
         items = listOf(
-            "🔍" to "新增全校课表查询：按课程名、教师、院系等多维度检索",
+            "🔍" to "新增全校课程查询：按课程名、教师、院系等多维度检索",
             "🏠" to "首页/教务/工具 Tab 重新分区，更加合理",
             "👤" to "\"我的\" 页大幅重构：全新关于区域、开源社区入口、开发计划",
             "🎬" to "修复思源学堂视频播放闪退（横屏 Activity 重建问题）",
             "📊" to "成绩查询页新增免责声明提示",
-            "🐛" to "修复全校课表 API 解析异常导致的闪退",
+            "🐛" to "修复全校课程 API 解析异常导致的闪退",
             "👍" to "出勤记录文案修正、多处 UI 细节优化"
         )
     ),
@@ -3914,15 +3992,15 @@ private val CHANGELOGS: Map<String, VersionChangelog> = mapOf(
     ),
     "3.0" to VersionChangelog(
         items = listOf(
-            "🧭" to "导航结构升级：教务 Tab 重构为课程 Tab，首页/小组件统一直达\"我的课程\"",
-            "🗓️" to "课程页重构：支持嵌入式无边界头部，学期/Tab 交互与刷新状态提示优化",
-            "🧩" to "小组件体系稳定化：课表与校园卡回退 RemoteViews 链路，兼容更多 OEM 桌面",
+            "🧭" to "导航结构升级：教务 Tab 重构为日程 Tab，首页/小组件统一直达\"我的日程\"",
+            "🗓️" to "日程页重构：支持嵌入式无边界头部，学期/Tab 交互与刷新状态提示优化",
+            "🧩" to "小组件体系稳定化：日程与校园卡回退 RemoteViews 链路，兼容更多 OEM 桌面",
             "💳" to "校园卡小组件 2×2 紧凑重排，金额显示与三餐布局优化，减少溢出与加载异常",
-            "✅" to "课表链路修复：从小组件进入后登录恢复可自动在线刷新，不再长期停留离线缓存",
+            "✅" to "日程链路修复：从小组件进入后登录恢复可自动在线刷新，不再长期停留离线缓存",
             "🛠️" to "评教、成绩、场馆、主题与多处页面细节修复，整体体验与稳定性提升"
         ),
         issues = listOf(
-            "少数桌面宿主对旧小组件实例缓存较重，升级后建议删除并重新添加校园卡/课表小组件"
+            "少数桌面宿主对旧小组件实例缓存较重，升级后建议删除并重新添加校园卡/日程小组件"
         )
     )
 )

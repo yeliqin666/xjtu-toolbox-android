@@ -166,7 +166,7 @@ fun SchoolCourseScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = "全校课表查询",
+                title = "全校课程查询",
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {

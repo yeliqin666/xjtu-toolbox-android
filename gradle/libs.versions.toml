@@ -1,5 +1,5 @@
 [versions]
-agp = "9.1.0"
+agp = "9.1.1"
 kotlin = "2.2.10"
 ksp = "2.3.2"
 room = "2.7.1"

@@ -36,7 +36,7 @@ import okhttp3.OkHttpClient
  */
 enum class LoginType(val label: String, val description: String) {
     ATTENDANCE("考勤系统", "本科生考勤查询"),
-    JWXT("教务系统", "课表/考试/评教"),
+    JWXT("教务系统", "日程/考试/评教"),
     JWAPP("移动教务", "成绩查询"),
     YWTB("一网通办", "个人信息/学期"),
     LIBRARY("图书馆", "座位预约"),

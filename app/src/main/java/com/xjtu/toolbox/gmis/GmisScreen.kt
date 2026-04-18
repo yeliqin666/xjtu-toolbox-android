@@ -81,9 +81,9 @@ fun GmisScreen(login: GmisLogin, onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = "研究生 · 课表/成绩",
+                title = "研究生 · 日程/成绩",
                 color = MiuixTheme.colorScheme.surfaceVariant,
-                largeTitle = "研究生 · 课表/成绩",
+                largeTitle = "研究生 · 日程/成绩",
                 scrollBehavior = scrollBehavior,
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回") } },
                 actions = {
@@ -97,7 +97,7 @@ fun GmisScreen(login: GmisLogin, onBack: () -> Unit) {
         Column(Modifier.fillMaxSize().padding(padding).nestedScroll(scrollBehavior.nestedScrollConnection)) {
             Surface(modifier = Modifier.fillMaxWidth(), color = MiuixTheme.colorScheme.surfaceVariant) {
                 TabRowWithContour(
-                    tabs = listOf("课表", "成绩"),
+                    tabs = listOf("日程", "成绩"),
                     selectedTabIndex = selectedTab,
                     onTabSelected = { selectedTab = it },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)

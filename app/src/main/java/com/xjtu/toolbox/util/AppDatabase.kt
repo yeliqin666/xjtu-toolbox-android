@@ -13,7 +13,7 @@ import com.xjtu.toolbox.schedule.CustomCourseEntity
 
 @Database(
     entities = [CustomCourseEntity::class, DownloadTaskEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -60,6 +60,22 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // Migration 3→4: custom_courses 增加分钟级时间列
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                try {
+                    database.execSQL("ALTER TABLE custom_courses ADD COLUMN startMinuteOfDay INTEGER NOT NULL DEFAULT -1")
+                } catch (e: Exception) {
+                    // 列已存在，忽略
+                }
+                try {
+                    database.execSQL("ALTER TABLE custom_courses ADD COLUMN endMinuteOfDay INTEGER NOT NULL DEFAULT -1")
+                } catch (e: Exception) {
+                    // 列已存在，忽略
+                }
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -67,7 +83,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "xjtu_toolbox.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build()
                     .also { INSTANCE = it }
             }

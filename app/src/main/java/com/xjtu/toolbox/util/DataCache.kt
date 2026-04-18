@@ -9,7 +9,7 @@ private const val TAG = "DataCache"
 
 /**
  * [RC] 轻量级 JSON 文件缓存（线程安全 + 原子写入）
- * 用于缓存课表、成绩等学期内稳定的数据，二次打开 0ms
+ * 用于缓存日程、成绩等学期内稳定的数据，二次打开 0ms
  *
  * 缓存目录: `context.cacheDir/data_cache/`
  * 文件名: `{key}.json`
@@ -25,7 +25,7 @@ class DataCache(context: Context) {
     private val locks = ConcurrentHashMap<String, Any>()
 
     companion object {
-        /** 默认 TTL: 7 天（课表/成绩在学期内基本稳定） */
+        /** 默认 TTL: 7 天（日程/成绩在学期内基本稳定） */
         const val DEFAULT_TTL_MS = 7L * 24 * 60 * 60 * 1000L
         /** 短 TTL: 30 分钟（座位等实时数据） */
         const val SHORT_TTL_MS = 30L * 60 * 1000L

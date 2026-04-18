@@ -21,7 +21,7 @@ object XjtuTime {
     fun isSummerTime(month: Int = java.time.LocalDate.now().monthValue): Boolean =
         month in 5..9
 
-    /** 冬季课表（10月-4月），每节50分钟 */
+    /** 冬季时间表（10月-4月），每节50分钟 */
     private val WINTER_SCHEDULE = mapOf(
         1 to ClassTime(LocalTime.of(8, 0), LocalTime.of(8, 50), LocalTime.of(7, 20), LocalTime.of(8, 5)),
         2 to ClassTime(LocalTime.of(9, 0), LocalTime.of(9, 50), LocalTime.of(8, 20), LocalTime.of(9, 5)),
@@ -36,7 +36,7 @@ object XjtuTime {
         11 to ClassTime(LocalTime.of(21, 10), LocalTime.of(22, 0), LocalTime.of(20, 35), LocalTime.of(21, 15))
     )
 
-    /** 夏季课表（5月-9月）：1-4节与冬季相同，5-11节各推迟30分钟 */
+    /** 夏季时间表（5月-9月）：1-4节与冬季相同，5-11节各推迟30分钟 */
     private val SUMMER_SCHEDULE = mapOf(
         1 to ClassTime(LocalTime.of(8, 0), LocalTime.of(8, 50), LocalTime.of(7, 20), LocalTime.of(8, 5)),
         2 to ClassTime(LocalTime.of(9, 0), LocalTime.of(9, 50), LocalTime.of(8, 20), LocalTime.of(9, 5)),

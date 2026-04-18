@@ -63,6 +63,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.auth.JwxtLogin
 import androidx.compose.foundation.text.selection.SelectionContainer
+import com.xjtu.toolbox.ui.DAY_START_HOUR
 import com.xjtu.toolbox.ui.ScheduleGrid
 import com.xjtu.toolbox.ui.WeekSelector
 import com.xjtu.toolbox.ui.components.AppFilterChip
@@ -98,6 +99,7 @@ fun ScheduleScreen(
     var customCourses by remember { mutableStateOf<List<CustomCourseEntity>>(emptyList()) }
     var showAddCourseDialog by remember { mutableStateOf(false) }
     var editingCourse by remember { mutableStateOf<CustomCourseEntity?>(null) }
+    var addScheduleDraft by remember { mutableStateOf(CustomCourseDraft()) }
 
     var courses by remember { mutableStateOf<List<CourseItem>>(emptyList()) }
     var exams by remember { mutableStateOf<List<ExamItem>>(emptyList()) }
@@ -106,7 +108,7 @@ fun ScheduleScreen(
     var textbooksError by remember { mutableStateOf<String?>(null) }
     var textbooksLoaded by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(true) }
-    var isSwitching by remember { mutableStateOf(false) }  // 学期切换中（保留旧课表显示）
+    var isSwitching by remember { mutableStateOf(false) }  // 学期切换中（保留旧日程显示）
     var isRefreshingFromNetwork by remember { mutableStateOf(false) } // 缓存已显示，后台刷新中
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var currentWeek by rememberSaveable { mutableIntStateOf(1) }
@@ -190,7 +192,7 @@ fun ScheduleScreen(
                         }
                         showingStaleData = true
                     }
-                    scope.launch { snackbarHostState.showSnackbar("离线模式 · 显示缓存课表", duration = SnackbarDuration.Long) }
+                    scope.launch { snackbarHostState.showSnackbar("离线模式 · 显示缓存日程", duration = SnackbarDuration.Long) }
                     return@launch
                 }
 
@@ -272,7 +274,7 @@ fun ScheduleScreen(
                             }
 
                             if (contentChanged) {
-                                scope.launch { snackbarHostState.showSnackbar("课表有更新", duration = SnackbarDuration.Short) }
+                                scope.launch { snackbarHostState.showSnackbar("日程有更新", duration = SnackbarDuration.Short) }
                             }
 
                             if (startDate != null) {
@@ -353,7 +355,7 @@ fun ScheduleScreen(
                             if (courses.isNotEmpty()) {
                                 showingStaleData = true
                                 isRefreshingFromNetwork = false
-                                scope.launch { snackbarHostState.showSnackbar("网络异常 · 显示缓存课表", duration = SnackbarDuration.Long) }
+                                scope.launch { snackbarHostState.showSnackbar("网络异常 · 显示缓存日程", duration = SnackbarDuration.Long) }
                             } else {
                                 throw RuntimeException("网络不可用且无缓存数据，请连网后重试")
                             }
@@ -404,7 +406,7 @@ fun ScheduleScreen(
         loadInitialData()
     }
 
-    // 小组件/首页进入课程页时，可能先以离线缓存态渲染；
+    // 小组件/首页进入日程页时，可能先以离线缓存态渲染；
     // 当 JWXT 登录稍后恢复成功后，自动切换为在线刷新，避免长期停留离线视图。
     LaunchedEffect(login) {
         if (login == null) return@LaunchedEffect
@@ -433,7 +435,7 @@ fun ScheduleScreen(
             if (entity.id == 0L) customCourseDao.insert(entity) else customCourseDao.update(entity)
             customCourses = customCourseDao.getByTerm(selectedTermCode)
             ScheduleWidgetUpdater.requestUpdate(context)
-            snackbarHostState.showSnackbar(if (entity.id == 0L) "已添加自定义课程" else "已更新课程", duration = SnackbarDuration.Short)
+            snackbarHostState.showSnackbar(if (entity.id == 0L) "已添加日程" else "已更新日程", duration = SnackbarDuration.Short)
         }
     }
     fun deleteCustomCourse(entity: CustomCourseEntity) {
@@ -452,7 +454,12 @@ fun ScheduleScreen(
         CustomCourseDialog(
             show = showAddCourseState,
             termCode = selectedTermCode,
-            onSave = ::saveCustomCourse,
+            draft = addScheduleDraft,
+            onAutoSave = { addScheduleDraft = it },
+            onSave = {
+                saveCustomCourse(it)
+                addScheduleDraft = CustomCourseDraft()
+            },
             onDismiss = { showAddCourseDialog = false }
         )
     }
@@ -586,7 +593,7 @@ fun ScheduleScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    if (selectedTermCode.isNotEmpty()) selectedTermCode else "课表 · 考试",
+                                    if (selectedTermCode.isNotEmpty()) selectedTermCode else "日程",
                                     style = MiuixTheme.textStyles.subtitle,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -607,10 +614,10 @@ fun ScheduleScreen(
                     },
                     navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回") } },
                     actions = {
-                        // 添加自定义课程（仅课表 tab 显示）
+                        // 添加日程（仅日程 tab 显示）
                         if (selectedTab == 0) {
                             IconButton(onClick = { showAddCourseDialog = true }, enabled = selectedTermCode.isNotEmpty()) {
-                                Icon(Icons.Default.Add, contentDescription = "添加课程")
+                                Icon(Icons.Default.Add, contentDescription = "添加日程")
                             }
                         }
                         // 导出菜单
@@ -630,7 +637,7 @@ fun ScheduleScreen(
                                             return@AppDropdownMenuItem
                                         }
                                         val ics = ScheduleExport.generateIcs(mergedCourses, st, selectedTermCode)
-                                        ScheduleExport.shareTextFile(context, ics, "${selectedTermCode}_课表.ics", "text/calendar")
+                                        ScheduleExport.shareTextFile(context, ics, "${selectedTermCode}_日程.ics", "text/calendar")
                                     }
                                 )
                                 AppDropdownMenuItem(
@@ -639,7 +646,7 @@ fun ScheduleScreen(
                                     onClick = {
                                         showExportMenu = false
                                         val csv = ScheduleExport.generateCsv(mergedCourses)
-                                        ScheduleExport.shareTextFile(context, csv, "${selectedTermCode}_课表.csv", "text/csv")
+                                        ScheduleExport.shareTextFile(context, csv, "${selectedTermCode}_日程.csv", "text/csv")
                                     }
                                 )
                                 AppDropdownMenuItem(
@@ -652,7 +659,7 @@ fun ScheduleScreen(
                                                 val bitmap = ScheduleExport.renderScheduleBitmap(
                                                     mergedCourses, currentWeek, selectedTermCode, showAllWeeks
                                                 )
-                                                ScheduleExport.shareBitmap(context, bitmap, "${selectedTermCode}_第${currentWeek}周课表.png")
+                                                ScheduleExport.shareBitmap(context, bitmap, "${selectedTermCode}_第${currentWeek}周日程.png")
                                             } catch (e: kotlinx.coroutines.CancellationException) {
                                                 throw e
                                             } catch (e: Exception) {
@@ -709,7 +716,7 @@ fun ScheduleScreen(
                             color = MiuixTheme.colorScheme.dividerLine.copy(alpha = 0.55f)
                         )
                         TabRowWithContour(
-                            tabs = listOf("课表", "考试", "教材"),
+                            tabs = listOf("日程", "考试", "教材"),
                             selectedTabIndex = selectedTab,
                             onTabSelected = { tab ->
                                 selectedTab = tab
@@ -742,7 +749,7 @@ fun ScheduleScreen(
                     colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surface)
                 ) {
                     TabRowWithContour(
-                        tabs = listOf("课表", "考试", "教材"),
+                        tabs = listOf("日程", "考试", "教材"),
                         selectedTabIndex = selectedTab,
                         onTabSelected = { tab ->
                             selectedTab = tab
@@ -757,7 +764,7 @@ fun ScheduleScreen(
             }
 
             if (isLoading) {
-                LoadingState(message = "\u52a0\u8f7d\u8bfe\u8868...", modifier = Modifier.fillMaxSize())
+                LoadingState(message = "\u52a0\u8f7d\u65e5\u7a0b...", modifier = Modifier.fillMaxSize())
             } else if (errorMessage != null) {
                 ErrorState(
                     message = errorMessage!!,
@@ -779,7 +786,21 @@ fun ScheduleScreen(
                     }, label = "tabSwitch"
                 ) { tab ->
                     when (tab) {
-                        0 -> ScheduleTabContent(mergedCourses, currentWeek, totalWeeks, showAllWeeks, weekNote, realCurrentWeek = realCurrentWeek, selectedTermCode = selectedTermCode, currentTermCode = currentTermCode, onWeekChange = { currentWeek = it }, onToggleMode = { showAllWeeks = !showAllWeeks }, customCourses = customCourses, onEditCustomCourse = { editingCourse = it })
+                        0 -> ScheduleTabContent(
+                            courses = mergedCourses,
+                            currentWeek = currentWeek,
+                            totalWeeks = totalWeeks,
+                            showAllWeeks = showAllWeeks,
+                            weekNote = weekNote,
+                            realCurrentWeek = realCurrentWeek,
+                            selectedTermCode = selectedTermCode,
+                            currentTermCode = currentTermCode,
+                            onWeekChange = { currentWeek = it },
+                            onToggleMode = { showAllWeeks = !showAllWeeks },
+                            onAddSchedule = { if (selectedTermCode.isNotEmpty()) showAddCourseDialog = true },
+                            customCourses = customCourses,
+                            onEditCustomCourse = { editingCourse = it }
+                        )
                         1 -> ExamTabContent(exams)
                         2 -> TextbookTabContent(
                             textbooks = textbooks,
@@ -799,7 +820,7 @@ private fun ScheduleTabContent(
     courses: List<CourseItem>, currentWeek: Int, totalWeeks: Int,
     showAllWeeks: Boolean, weekNote: String? = null,
     realCurrentWeek: Int = 0, selectedTermCode: String = "", currentTermCode: String = "",
-    onWeekChange: (Int) -> Unit, onToggleMode: () -> Unit,
+    onWeekChange: (Int) -> Unit, onToggleMode: () -> Unit, onAddSchedule: () -> Unit = {},
     customCourses: List<CustomCourseEntity> = emptyList(),
     onEditCustomCourse: (CustomCourseEntity) -> Unit = {}
 ) {
@@ -823,11 +844,52 @@ private fun ScheduleTabContent(
             }
         }
 
-        // 模式切换: 每周 / 总览
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.End
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
+            Surface(
+                modifier = Modifier
+                    .heightIn(min = 34.dp)
+                    .clickable(enabled = selectedTermCode.isNotEmpty()) { onAddSchedule() },
+                shape = RoundedCornerShape(16.dp),
+                color = if (selectedTermCode.isNotEmpty()) {
+                    MiuixTheme.colorScheme.primaryContainer
+                } else {
+                    MiuixTheme.colorScheme.surfaceVariant
+                }
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = if (selectedTermCode.isNotEmpty()) {
+                            MiuixTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MiuixTheme.colorScheme.onSurfaceVariantSummary
+                        }
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        "添加",
+                        style = MiuixTheme.textStyles.footnote1,
+                        fontWeight = FontWeight.Medium,
+                        color = if (selectedTermCode.isNotEmpty()) {
+                            MiuixTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MiuixTheme.colorScheme.onSurfaceVariantSummary
+                        }
+                    )
+                }
+            }
+
+            Spacer(Modifier.weight(1f))
+
             AppFilterChip(
                 selected = !showAllWeeks,
                 onClick = { if (showAllWeeks) onToggleMode() },
@@ -846,8 +908,8 @@ private fun ScheduleTabContent(
             val weekCourses = remember(courses, currentWeek) { courses.filter { it.isInWeek(currentWeek) } }
             if (weekCourses.isEmpty() && courses.isNotEmpty()) {
                 EmptyState(
-                    title = "本周无课",
-                    subtitle = "第${currentWeek}周没有排课，去其他周看看吧",
+                    title = "本周无日程",
+                    subtitle = "第${currentWeek}周还没有安排，点左上角添加",
                     modifier = Modifier.fillMaxSize()
                 )
             } else {
@@ -882,6 +944,7 @@ private fun ScheduleTabContent(
 @Composable
 private fun CourseDetailDialog(show: MutableState<Boolean>, course: CourseItem, onDismiss: () -> Unit) {
     BackHandler(enabled = show.value) { show.value = false; onDismiss() }
+    val isAgenda = course.courseType == "日程"
     SuperBottomSheet(
         show = show,
         title = course.courseName,
@@ -903,7 +966,7 @@ private fun CourseDetailDialog(show: MutableState<Boolean>, course: CourseItem, 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Person, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.primary)
                     Spacer(Modifier.width(8.dp))
-                    Text("教师: ${course.teacher}", style = MiuixTheme.textStyles.body2)
+                    Text(if (isAgenda) "参与人: ${course.teacher}" else "教师: ${course.teacher}", style = MiuixTheme.textStyles.body2)
                 }
             }
             if (course.location.isNotEmpty()) {
@@ -911,7 +974,7 @@ private fun CourseDetailDialog(show: MutableState<Boolean>, course: CourseItem, 
                     Icon(Icons.Default.Place, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.secondary)
                     Spacer(Modifier.width(8.dp))
                     SelectionContainer {
-                        Text("教室: ${course.location}", style = MiuixTheme.textStyles.body2)
+                        Text(if (isAgenda) "地点: ${course.location}" else "教室: ${course.location}", style = MiuixTheme.textStyles.body2)
                     }
                     if (seatCount != null) {
                         Spacer(Modifier.width(8.dp))
@@ -936,7 +999,31 @@ private fun CourseDetailDialog(show: MutableState<Boolean>, course: CourseItem, 
                     1 -> "一"; 2 -> "二"; 3 -> "三"; 4 -> "四"
                     5 -> "五"; 6 -> "六"; 7 -> "日"; else -> "?"
                 }
-                Text("星期$dayName  第${course.startSection}-${course.endSection}节", style = MiuixTheme.textStyles.body2)
+                if (isAgenda) {
+                    val startMinutes = if (course.startMinuteOfDay >= DAY_START_HOUR * 60) {
+                        course.startMinuteOfDay
+                    } else {
+                        (DAY_START_HOUR + course.startSection - 1) * 60
+                    }
+                    val endMinutes = if (course.endMinuteOfDay > startMinutes) {
+                        course.endMinuteOfDay
+                    } else {
+                        (DAY_START_HOUR + course.endSection) * 60
+                    }
+                    val startHour = (startMinutes / 60).coerceIn(0, 23)
+                    val startMinute = (startMinutes % 60).coerceIn(0, 59)
+                    val endHourRaw = endMinutes / 60
+                    val endMinuteRaw = endMinutes % 60
+                    val endHour = if (endHourRaw >= 24) 0 else endHourRaw
+                    val endMinute = if (endHourRaw >= 24) 0 else endMinuteRaw
+                    val endLabel = if (endHourRaw >= 24) "次日00:00" else "%02d:%02d".format(endHour, endMinute)
+                    Text(
+                        "星期$dayName  %02d:%02d-$endLabel".format(startHour, startMinute),
+                        style = MiuixTheme.textStyles.body2
+                    )
+                } else {
+                    Text("星期$dayName  第${course.startSection}-${course.endSection}节", style = MiuixTheme.textStyles.body2)
+                }
             }
             val weeks = course.getWeeks()
             if (weeks.isNotEmpty()) {

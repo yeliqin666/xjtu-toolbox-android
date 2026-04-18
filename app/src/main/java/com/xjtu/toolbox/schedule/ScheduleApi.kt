@@ -23,7 +23,11 @@ data class CourseItem(
     val startSection: Int,
     val endSection: Int,
     val courseCode: String,
-    val courseType: String
+    val courseType: String,
+    /** 分钟级开始时间，单位：距 00:00 的分钟；-1 表示未提供 */
+    val startMinuteOfDay: Int = -1,
+    /** 分钟级结束时间，单位：距 00:00 的分钟；-1 表示未提供 */
+    val endMinuteOfDay: Int = -1
 ) : ScheduleSlot {
     override val slotName get() = courseName
     override val slotLocation get() = location

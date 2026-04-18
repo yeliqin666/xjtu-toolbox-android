@@ -38,7 +38,7 @@ object ScheduleExport {
         sb.appendLine("VERSION:2.0")
         sb.appendLine("PRODID:-//XJTUToolBox//Schedule//CN")
         sb.appendLine("CALSCALE:GREGORIAN")
-        sb.appendLine("X-WR-CALNAME:$termName 课表")
+        sb.appendLine("X-WR-CALNAME:$termName 日程")
         sb.appendLine("X-WR-TIMEZONE:Asia/Shanghai")
 
         // 嵌入时区定义
@@ -192,7 +192,7 @@ object ScheduleExport {
                 putExtra(Intent.EXTRA_STREAM, uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            context.startActivity(Intent.createChooser(intent, "分享课表图片"))
+            context.startActivity(Intent.createChooser(intent, "分享日程图片"))
             Log.d(TAG, "Shared image: $fileName")
         } catch (e: OutOfMemoryError) {
             Log.e(TAG, "Share image OOM", e)
@@ -204,7 +204,7 @@ object ScheduleExport {
     }
 
     // ════════════════════════════════════════════
-    //  课表图片渲染
+    //  日程图片渲染
     // ════════════════════════════════════════════
 
     // 柔和的课程卡片颜色
@@ -215,7 +215,7 @@ object ScheduleExport {
     )
 
     /**
-     * 将课表渲染为 Bitmap 图片
+    * 将日程渲染为 Bitmap 图片
      * @param courses 课程列表（已合并自定义课程）
      * @param week 当前周次（showAll=false 时筛选）
      * @param termName 学期名称（显示在标题）
@@ -275,7 +275,7 @@ object ScheduleExport {
         val cardPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
         // ── 标题栏 ──
-        val titleText = if (showAll) "$termName 课表（总览）" else "$termName · 第${week}周"
+        val titleText = if (showAll) "$termName 日程（总览）" else "$termName · 第${week}周日程"
         canvas.drawText(titleText, totalW / 2f, headerH * 0.6f, titlePaint)
         canvas.drawLine(0f, headerH, totalW.toFloat(), headerH, linePaint)
 

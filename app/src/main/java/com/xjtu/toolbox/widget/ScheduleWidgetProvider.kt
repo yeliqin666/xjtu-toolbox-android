@@ -179,7 +179,7 @@ object ScheduleWidgetUpdater {
         layoutRes: Int
     ): RemoteViews {
         val views = RemoteViews(context.packageName, layoutRes)
-        views.setTextViewText(R.id.widget_title, "课表")
+        views.setTextViewText(R.id.widget_title, "日程")
         views.setTextViewText(R.id.widget_week, data.weekText)
         views.setTextViewText(R.id.widget_day_text, data.dayText)
         views.setTextViewText(R.id.widget_status, data.statusText)
@@ -213,13 +213,13 @@ object ScheduleWidgetUpdater {
 
         if (!data.hasCache) {
             views.setViewVisibility(R.id.widget_empty, View.VISIBLE)
-            views.setTextViewText(R.id.widget_empty, "暂无课表缓存\n请先打开课表页同步")
+            views.setTextViewText(R.id.widget_empty, "暂无日程缓存\n请先打开日程页同步")
             return views
         }
 
         if (data.courses.isEmpty()) {
             views.setViewVisibility(R.id.widget_empty, View.VISIBLE)
-            views.setTextViewText(R.id.widget_empty, "所选日期无课程")
+            views.setTextViewText(R.id.widget_empty, "所选日期无日程")
             return views
         }
 
@@ -268,7 +268,7 @@ object ScheduleWidgetUpdater {
             ?: return WidgetScheduleData(
                 weekText = "未同步",
                 dayText = "日期未同步",
-                statusText = "请先进入课表页",
+                statusText = "请先进入日程页",
                 updateText = updateText,
                 courses = emptyList(),
                 hasCache = false
@@ -382,13 +382,13 @@ object ScheduleWidgetUpdater {
         }
 
         val status = when {
-            todayCourses.isEmpty() -> "周${weekdayLabel(selectedDayOfWeek)}没有课程"
+            todayCourses.isEmpty() -> "周${weekdayLabel(selectedDayOfWeek)}没有日程"
             notStartedYet -> "尚未开课，已显示第${effectiveWeek}周"
-            !isSelectedToday -> "所选日共 ${todayCourses.size} 节课"
-            weekAdjusted -> "本周今日共 ${todayCourses.size} 节课"
-            currentCourse != null -> "正在上课：${currentCourse.name}"
-            nextCourse != null -> "下一节：${XjtuTime.getClassStartStr(nextCourse.startSection)} ${nextCourse.name}"
-            else -> "今日课程已结束"
+            !isSelectedToday -> "所选日共 ${todayCourses.size} 项安排"
+            weekAdjusted -> "本周今日共 ${todayCourses.size} 项安排"
+            currentCourse != null -> "正在进行：${currentCourse.name}"
+            nextCourse != null -> "下一项：${XjtuTime.getClassStartStr(nextCourse.startSection)} ${nextCourse.name}"
+            else -> "今日日程已结束"
         }
 
         val weekText = if (baseWeek != null) {
