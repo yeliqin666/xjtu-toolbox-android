@@ -3985,6 +3985,11 @@ private val CHANGELOGS: Map<String, VersionChangelog> = mapOf(
             "📝" to "补充版本号与更新日志，完善发版信息"
         )
     ),
+    "3.0.2" to VersionChangelog(
+        items = listOf(
+            "🗓️" to "添加了日程功能"
+        )
+    ),
     "3.0.1" to VersionChangelog(
         items = listOf(
             "🎬" to "新增课程回放下载功能"
