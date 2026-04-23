@@ -31,6 +31,17 @@
 
 ---
 
+## 开发计划
+
+- 校园卡功能修复
+- 钱院拔尖计划NeoSchool集成
+- 图书馆座位智能推荐
+- 个人/教务通知订阅 & Push
+- 方案管理
+- 电子教材
+
+---
+
 ## 技术栈
 
 纯 Kotlin 2.0 编写，UI 层使用 Jetpack Compose + MIUIX（HyperOS 设计语言），网络层是 OkHttp 4.12，全程启用 Brotli 解压（服务端支持 `Content-Encoding: br` 时生效，降低接口流量而非 APK 体积）。HTML 解析用 Jsoup，本地数据持久化走 Room。构建工具链 AGP 9.0 + Gradle 9.2，Release 包经 R8 全量混淆后约 **10 MB**，其中 ~9 MB 为 `classes.dex`（Compose runtime + Media3 + MIUIX 等库的编译产物，无冗余资源）。APK 签名为 v2+v3 双方案。
@@ -88,15 +99,6 @@ git push origin v3.0
 - 考勤、图书馆等服务仅限校内网络，应用会自动识别并切换到 WebVPN
 - 空闲教室数据来自公开 CDN，不需要登录
 - `network_security_config.xml` 允许 XJTU 子域名的 cleartext HTTP
-
----
-
-## 开发计划
-
-- 图书馆座位智能推荐
-- 个人/教务通知订阅 & Push
-- 选课助手/方案管理
-- 电子教材
 
 ---
 
