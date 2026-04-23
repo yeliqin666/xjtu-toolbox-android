@@ -3275,6 +3275,7 @@ private fun ProfileTab(
                     // 检查更新行
                     var updateCheckState by remember { mutableStateOf<String?>(null) }
                     var latestDownloadUrl by remember { mutableStateOf<String?>(null) }
+                    var releasePageUrl by remember { mutableStateOf<String?>(null) }
                     var isDownloading by remember { mutableStateOf(false) }
                     var downloadProgress by remember { mutableFloatStateOf(0f) }
                     val updateScope = rememberCoroutineScope()
@@ -3287,6 +3288,7 @@ private fun ProfileTab(
                             ) {
                                 updateCheckState = "checking"
                                 latestDownloadUrl = null
+                                releasePageUrl = null
                                 updateScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                                     try {
                                         val client = okhttp3.OkHttpClient.Builder()
@@ -3314,9 +3316,12 @@ private fun ProfileTab(
                                             // 本地版本 < 远程版本
                                             updateCheckState = latestVersion
                                             val assets = json.getAsJsonArray("assets")
-                                            latestDownloadUrl = if (assets != null && assets.size() > 0)
-                                                assets[0].asJsonObject.get("browser_download_url")?.asString
-                                            else json.get("html_url")?.asString
+                                            if (assets != null && assets.size() > 0) {
+                                                latestDownloadUrl = assets[0].asJsonObject.get("browser_download_url")?.asString
+                                            } else {
+                                                latestDownloadUrl = null
+                                                releasePageUrl = json.get("html_url")?.asString
+                                            }
                                         }
                                     } catch (e: Exception) { updateCheckState = "error:${e.message?.take(50)}" }
                                 }
@@ -3360,7 +3365,8 @@ private fun ProfileTab(
                                 }
                             )
                         }
-                        if (latestDownloadUrl != null && updateCheckState != null && !updateCheckState!!.startsWith("error:") && updateCheckState != "latest" && updateCheckState != "checking" && updateCheckState != "ahead") {
+                        val hasNewVersion = updateCheckState != null && !updateCheckState!!.startsWith("error:") && updateCheckState != "latest" && updateCheckState != "checking" && updateCheckState != "ahead"
+                        if (latestDownloadUrl != null && hasNewVersion) {
                             if (isDownloading) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     CircularProgressIndicator(
@@ -3447,6 +3453,18 @@ private fun ProfileTab(
                                     Spacer(Modifier.width(4.dp))
                                     Text("下载更新", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onPrimary)
                                 }
+                            }
+                        } else if (releasePageUrl != null && hasNewVersion) {
+                            val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+                            Button(
+                                onClick = { uriHandler.openUri(releasePageUrl!!) },
+                                modifier = Modifier,
+                                insideMargin = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                colors = ButtonDefaults.buttonColors(color = MiuixTheme.colorScheme.secondaryContainer)
+                            ) {
+                                Icon(Icons.Default.OpenInBrowser, null, Modifier.size(14.dp), tint = MiuixTheme.colorScheme.onSecondaryContainer)
+                                Spacer(Modifier.width(4.dp))
+                                Text("查看", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSecondaryContainer)
                             }
                         } else if (updateCheckState != "checking" && updateCheckState != "ahead") {
                             Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f))
