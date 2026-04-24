@@ -82,6 +82,7 @@ jobs:
           prerelease: ${{ contains(steps.version.outputs.version, 'alpha') || contains(steps.version.outputs.version, 'beta') }}
 
       - name: Sync to Gitee (code + tag + release)
+        continue-on-error: true
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_ACCESS_TOKEN }}
         run: |
@@ -123,7 +124,11 @@ jobs:
               \"prerelease\": false
             }")
           echo "Create response: $RELEASE"
-          RELEASE_ID=$(echo "$RELEASE" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+          RELEASE_ID=$(echo "$RELEASE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null || echo "")
+          if [ -z "$RELEASE_ID" ] || [ "$RELEASE_ID" = "None" ]; then
+            echo "Failed to get release ID, skipping APK upload. Response: $RELEASE"
+            exit 0
+          fi
           echo "Created Gitee release $RELEASE_ID"
 
           # 上传 APK
@@ -131,7 +136,7 @@ jobs:
           HTTP_CODE=$(curl --max-time 1200 --progress-bar -w "%{http_code}" \
             -X POST "https://gitee.com/api/v5/repos/${OWNER}/${REPO}/releases/${RELEASE_ID}/attach_files" \
             -F "access_token=${GITEE_TOKEN}" \
-            -F "file=@${APK_PATH};type=application/vnd.android.package-archive")
+            -F "file=@${APK_PATH};type=application/vnd.android.package-archive") || HTTP_CODE="000"
           echo "Upload HTTP code: $HTTP_CODE"
           if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
             echo "APK uploaded to Gitee release"
