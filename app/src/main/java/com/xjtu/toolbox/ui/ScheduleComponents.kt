@@ -223,6 +223,8 @@ fun ScheduleGrid(
     allCourseNames: List<String>,
     showWeeks: Boolean = false,
     isCurrentWeek: Boolean = false,  // 是否显示当前时间线
+    weekDates: List<java.time.LocalDate>? = null,
+    holidayNames: Map<java.time.LocalDate, String> = emptyMap(),
     onSlotClick: (ScheduleSlot) -> Unit = {}
 ) {
     val scrollState = rememberScrollState()
@@ -259,11 +261,14 @@ fun ScheduleGrid(
             DAY_HEADERS.forEachIndexed { idx, day ->
                 val todayDow = java.time.LocalDate.now().dayOfWeek.value
                 val isToday = isCurrentWeek && (idx + 1) == todayDow
-                Box(
+                val date = weekDates?.getOrNull(idx)
+                val holidayName = if (date != null) holidayNames[date] else null
+
+                Column(
                     Modifier
                         .weight(1f)
-                        .padding(vertical = 5.dp),
-                    contentAlignment = Alignment.Center
+                        .padding(vertical = 2.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
                         day, fontSize = 12.sp,
@@ -271,6 +276,16 @@ fun ScheduleGrid(
                         color = if (isToday) MiuixTheme.colorScheme.primary
                                else MiuixTheme.colorScheme.onSurface
                     )
+                    if (holidayName != null) {
+                        Text(
+                            holidayName, fontSize = 8.sp,
+                            color = MiuixTheme.colorScheme.error,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                    } else if (weekDates != null) {
+                        Text(" ", fontSize = 8.sp)
+                    }
                 }
             }
         }

@@ -1,4 +1,4 @@
-package com.xjtu.toolbox.schedule
+﻿package com.xjtu.toolbox.schedule
 
 import androidx.activity.compose.BackHandler
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -131,6 +131,9 @@ fun ScheduleScreen(
 
     // 开学日期（导出 ICS 用）
     var startOfTerm by remember { mutableStateOf<LocalDate?>(null) }
+    
+    // 法定节假日
+    var holidayDates by remember { mutableStateOf<Map<LocalDate, String>>(emptyMap()) }
 
     // 导出菜单
     var showExportMenu by remember { mutableStateOf(false) }
@@ -402,8 +405,11 @@ fun ScheduleScreen(
     }
 
     LaunchedEffect(Unit) {
-        android.util.Log.d("ScheduleUI", "ScheduleScreen entered: studentId='$studentId', online=${api != null}")
+        android.util.Log.d("ScheduleUI", "ScheduleScreen entered: studentId='\$studentId', online=\${api != null}")
         loadInitialData()
+        launch {
+            try { holidayDates = HolidayApi.getHolidayDates() } catch (_: Exception) {}
+        }
     }
 
     // 小组件/首页进入日程页时，可能先以离线缓存态渲染；
@@ -429,9 +435,47 @@ fun ScheduleScreen(
         courses + customCourses.map { it.toCourseItem() }
     }
 
+    // 剔除命中法定节假日的周次
+    val filteredMergedCourses = remember(mergedCourses, startOfTerm, holidayDates) {
+        if (startOfTerm == null || holidayDates.isEmpty()) mergedCourses
+        else {
+            mergedCourses.mapNotNull { course ->
+                var changed = false
+                val newBits = StringBuilder(course.weekBits)
+                for (i in newBits.indices) {
+                    if (newBits[i] == '1') {
+                        val courseDate = startOfTerm!!.plusWeeks(i.toLong()).plusDays((course.dayOfWeek - 1).toLong())
+                        if (holidayDates.containsKey(courseDate)) {
+                            newBits.setCharAt(i, '0')
+                            changed = true
+                        }
+                    }
+                }
+                if (changed) {
+                    if (newBits.contains('1')) course.copy(weekBits = newBits.toString()) else null
+                } else {
+                    course
+                }
+            }
+        }
+    }
+
     // 自定义课程操作
     fun saveCustomCourse(entity: CustomCourseEntity) {
         scope.launch {
+            // ★ 修改前排查冲突排查
+            val conflicts = customCourseDao.getConflicts(entity.termCode, entity.dayOfWeek, entity.startSection, entity.endSection)
+            val realConflicts = conflicts.filter { it.id != entity.id } // 排除自己自身
+            if (realConflicts.isNotEmpty()) {
+                val conflictNames = realConflicts.joinToString("、") { it.courseName }
+                // 为了简单展示，我们这里直接先将碰撞的旧课程删除
+                android.util.Log.d("ScheduleUI", "Deleting conflicts: \$conflictNames")
+                realConflicts.forEach {
+                    customCourseDao.delete(it)
+                }
+                snackbarHostState.showSnackbar("已自动清除时间冲突的课程(\$conflictNames)", duration = SnackbarDuration.Short)
+            }
+            
             if (entity.id == 0L) customCourseDao.insert(entity) else customCourseDao.update(entity)
             customCourses = customCourseDao.getByTerm(selectedTermCode)
             ScheduleWidgetUpdater.requestUpdate(context)
@@ -616,13 +660,11 @@ fun ScheduleScreen(
                     actions = {
                         // 添加日程（仅日程 tab 显示）
                         if (selectedTab == 0) {
-                            IconButton(onClick = { showAddCourseDialog = true }, enabled = selectedTermCode.isNotEmpty()) {
-                                Icon(Icons.Default.Add, contentDescription = "添加日程")
-                            }
+                            
                         }
                         // 导出菜单
                         Box {
-                            IconButton(onClick = { showExportMenu = true }, enabled = mergedCourses.isNotEmpty()) {
+                            IconButton(onClick = { showExportMenu = true }, enabled = filteredMergedCourses.isNotEmpty()) {
                                 Icon(Icons.Default.MoreVert, contentDescription = "更多")
                             }
                             AppDropdownMenu(expanded = showExportMenu, onDismissRequest = { showExportMenu = false }) {
@@ -636,7 +678,7 @@ fun ScheduleScreen(
                                             scope.launch { snackbarHostState.showSnackbar("无法获取开学日期，ICS 导出不可用") }
                                             return@AppDropdownMenuItem
                                         }
-                                        val ics = ScheduleExport.generateIcs(mergedCourses, st, selectedTermCode)
+                                        val ics = ScheduleExport.generateIcs(filteredMergedCourses, st, selectedTermCode)
                                         ScheduleExport.shareTextFile(context, ics, "${selectedTermCode}_日程.ics", "text/calendar")
                                     }
                                 )
@@ -645,7 +687,7 @@ fun ScheduleScreen(
                                     leadingIcon = { Icon(Icons.Default.TableChart, null, Modifier.size(20.dp)) },
                                     onClick = {
                                         showExportMenu = false
-                                        val csv = ScheduleExport.generateCsv(mergedCourses)
+                                        val csv = ScheduleExport.generateCsv(filteredMergedCourses)
                                         ScheduleExport.shareTextFile(context, csv, "${selectedTermCode}_日程.csv", "text/csv")
                                     }
                                 )
@@ -657,7 +699,7 @@ fun ScheduleScreen(
                                         scope.launch {
                                             try {
                                                 val bitmap = ScheduleExport.renderScheduleBitmap(
-                                                    mergedCourses, currentWeek, selectedTermCode, showAllWeeks
+                                                    filteredMergedCourses, currentWeek, selectedTermCode, showAllWeeks
                                                 )
                                                 ScheduleExport.shareBitmap(context, bitmap, "${selectedTermCode}_第${currentWeek}周日程.png")
                                             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -696,19 +738,100 @@ fun ScheduleScreen(
                         Row(
                             Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 6.dp)
-                                .clickable { if (termList.isNotEmpty()) termDropdownExpanded = true },
+                                .padding(horizontal = 14.dp, vertical = 0.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                if (selectedTermCode.isNotEmpty()) selectedTermCode else "选择学期",
-                                style = MiuixTheme.textStyles.body1,
-                                fontWeight = FontWeight.Medium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Icon(Icons.Default.ArrowDropDown, null, Modifier.size(18.dp))
+                            Row(
+                                modifier = Modifier
+                                    .clickable { if (termList.isNotEmpty()) termDropdownExpanded = true }
+                                    .padding(vertical = 6.dp, horizontal = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    if (selectedTermCode.isNotEmpty()) selectedTermCode else "选择学期",
+                                    style = MiuixTheme.textStyles.body1,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Icon(Icons.Default.ArrowDropDown, null, Modifier.size(18.dp))
+                            }
+                            
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (selectedTab == 0) {
+                                    IconButton(
+                                        onClick = { showAddCourseDialog = true },
+                                        enabled = selectedTermCode.isNotEmpty()
+                                    ) {
+                                        Icon(Icons.Default.Add, contentDescription = "添加日程")
+                                    }
+                                }
+                                Box {
+                                    IconButton(
+                                        onClick = { showExportMenu = true },
+                                        enabled = filteredMergedCourses.isNotEmpty()
+                                    ) {
+                                        Icon(Icons.Default.MoreVert, contentDescription = "更多")
+                                    }
+                                    AppDropdownMenu(expanded = showExportMenu, onDismissRequest = { showExportMenu = false }) {
+                                        AppDropdownMenuItem(
+                                            text = { Text("导出日历 (ICS)") },
+                                            leadingIcon = { Icon(Icons.Default.Event, null, Modifier.size(20.dp)) },
+                                            onClick = {
+                                                showExportMenu = false
+                                                val st = startOfTerm
+                                                if (st == null) {
+                                                    scope.launch { snackbarHostState.showSnackbar("无法获取开学日期，ICS 导出不可用") }
+                                                    return@AppDropdownMenuItem
+                                                }
+                                                // 获取节假日并导出
+                                                scope.launch {
+                                                    snackbarHostState.showSnackbar("正在获取法定节假日信息并导出...", duration = SnackbarDuration.Short)
+                                                    try {
+                                                        val holidays = HolidayApi.getHolidayDates().keys
+                                                        val ics = ScheduleExport.generateIcs(filteredMergedCourses, st, selectedTermCode, holidays)
+                                                        ScheduleExport.shareTextFile(context, ics, "${selectedTermCode}_日程.ics", "text/calendar")
+                                                    } catch (e: Exception) {
+                                                        snackbarHostState.showSnackbar("节假日获取失败，退回普通导出: ${e.message}", duration = SnackbarDuration.Short)
+                                                        val ics = ScheduleExport.generateIcs(filteredMergedCourses, st, selectedTermCode, emptySet())
+                                                        ScheduleExport.shareTextFile(context, ics, "${selectedTermCode}_日程.ics", "text/calendar")
+                                                    }
+                                                }
+                                            }
+                                        )
+                                        AppDropdownMenuItem(
+                                            text = { Text("导出表格 (CSV)") },
+                                            leadingIcon = { Icon(Icons.Default.TableChart, null, Modifier.size(20.dp)) },
+                                            onClick = {
+                                                showExportMenu = false
+                                                val csv = ScheduleExport.generateCsv(filteredMergedCourses)
+                                                ScheduleExport.shareTextFile(context, csv, "${selectedTermCode}_日程.csv", "text/csv")
+                                            }
+                                        )
+                                        AppDropdownMenuItem(
+                                            text = { Text("导出图片") },
+                                            leadingIcon = { Icon(Icons.Default.Image, null, Modifier.size(20.dp)) },
+                                            onClick = {
+                                                showExportMenu = false
+                                                scope.launch {
+                                                    try {
+                                                        val bitmap = ScheduleExport.renderScheduleBitmap(
+                                                            filteredMergedCourses, currentWeek, selectedTermCode, showAllWeeks
+                                                        )
+                                                        ScheduleExport.shareBitmap(context, bitmap, "${selectedTermCode}_第${currentWeek}周日程.png")
+                                                    } catch (e: kotlinx.coroutines.CancellationException) {
+                                                        throw e
+                                                    } catch (e: Exception) {
+                                                        snackbarHostState.showSnackbar("图片导出失败: ${e.message}")
+                                                    }
+                                                }
+                                            }
+                                        )
+                                    }
+                                }
+                            }
                         }
                         HorizontalDivider(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
@@ -787,17 +910,18 @@ fun ScheduleScreen(
                 ) { tab ->
                     when (tab) {
                         0 -> ScheduleTabContent(
-                            courses = mergedCourses,
+                            courses = filteredMergedCourses,
                             currentWeek = currentWeek,
                             totalWeeks = totalWeeks,
                             showAllWeeks = showAllWeeks,
                             weekNote = weekNote,
                             realCurrentWeek = realCurrentWeek,
                             selectedTermCode = selectedTermCode,
+                            startOfTerm = startOfTerm,
                             currentTermCode = currentTermCode,
                             onWeekChange = { currentWeek = it },
                             onToggleMode = { showAllWeeks = !showAllWeeks },
-                            onAddSchedule = { if (selectedTermCode.isNotEmpty()) showAddCourseDialog = true },
+                            holidayDates = holidayDates,
                             customCourses = customCourses,
                             onEditCustomCourse = { editingCourse = it }
                         )
@@ -819,9 +943,10 @@ fun ScheduleScreen(
 private fun ScheduleTabContent(
     courses: List<CourseItem>, currentWeek: Int, totalWeeks: Int,
     showAllWeeks: Boolean, weekNote: String? = null,
-    realCurrentWeek: Int = 0, selectedTermCode: String = "", currentTermCode: String = "",
+    realCurrentWeek: Int = 0, selectedTermCode: String = "", startOfTerm: java.time.LocalDate? = null, currentTermCode: String = "",
     onWeekChange: (Int) -> Unit, onToggleMode: () -> Unit, onAddSchedule: () -> Unit = {},
     customCourses: List<CustomCourseEntity> = emptyList(),
+    holidayDates: Map<java.time.LocalDate, String> = emptyMap(),
     onEditCustomCourse: (CustomCourseEntity) -> Unit = {}
 ) {
     val allNames = remember(courses) { courses.map { it.courseName }.distinct().sorted() }
@@ -840,6 +965,45 @@ private fun ScheduleTabContent(
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                     style = MiuixTheme.textStyles.body2,
                     color = MiuixTheme.colorScheme.onTertiaryContainer
+                )
+            }
+            // 底部导出按钮（显眼，便于用户发现）
+            Spacer(Modifier.weight(1f))
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            val exportEnabled = courses.isNotEmpty() && startOfTerm != null
+            val disabledReason = when {
+                courses.isEmpty() -> "无课程可导出"
+                startOfTerm == null -> "缺少开学日期，无法导出"
+                else -> ""
+            }
+            Button(
+                onClick = {
+                    if (startOfTerm == null) {
+                        android.widget.Toast.makeText(ctx, "无法获取开学日期，ICS 导出不可用", android.widget.Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+                    try {
+                        val ics = ScheduleExport.generateIcs(courses, startOfTerm, if (selectedTermCode.isNotEmpty()) selectedTermCode else "日程")
+                        ScheduleExport.shareTextFile(ctx, ics, "${selectedTermCode}_日程.ics", "text/calendar")
+                    } catch (e: Exception) {
+                        android.widget.Toast.makeText(ctx, "导出失败: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                enabled = exportEnabled
+            ) {
+                Icon(Icons.Default.Event, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("导出日历 (ICS)")
+            }
+            if (!exportEnabled && disabledReason.isNotEmpty()) {
+                Text(
+                    disabledReason,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                 )
             }
         }
@@ -906,16 +1070,24 @@ private fun ScheduleTabContent(
         if (!showAllWeeks) {
             WeekSelector(currentWeek, totalWeeks, onWeekChange)
             val weekCourses = remember(courses, currentWeek) { courses.filter { it.isInWeek(currentWeek) } }
+            val weekDates = remember(startOfTerm, currentWeek) {
+                if (startOfTerm != null && currentWeek > 0) {
+                    val monday = startOfTerm!!.plusWeeks((currentWeek - 1).toLong())
+                    (0..6).map { monday.plusDays(it.toLong()) }
+                } else null
+            }
             if (weekCourses.isEmpty() && courses.isNotEmpty()) {
                 EmptyState(
                     title = "本周无日程",
-                    subtitle = "第${currentWeek}周还没有安排，点左上角添加",
+                    subtitle = "第${currentWeek}周还没有安排",
                     modifier = Modifier.fillMaxSize()
                 )
             } else {
                 ScheduleGrid(
                     weekCourses, allNames,
                     isCurrentWeek = (currentWeek == realCurrentWeek && selectedTermCode == currentTermCode),
+                    weekDates = weekDates,
+                    holidayNames = holidayDates,
                     onSlotClick = { selectedCourse = it as? CourseItem }
                 )
             }

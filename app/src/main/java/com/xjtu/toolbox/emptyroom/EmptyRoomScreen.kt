@@ -140,18 +140,31 @@ private fun getSmartTags(room: RoomInfo, currentPeriod: Int): List<Pair<String, 
 @Composable
 fun EmptyRoomScreen(onBack: () -> Unit) {
     val api = remember { EmptyRoomApi() }
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("empty_room", 0) }
     var rooms by remember { mutableStateOf<List<RoomInfo>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     val campusNames = CAMPUS_BUILDINGS.keys.toList()
-    var selectedCampusIndex by rememberSaveable { mutableIntStateOf(0) }
+    fun savedCampusIndex(): Int {
+        val savedCampus = prefs.getString("empty_room_last_campus", null) ?: return 0
+        return campusNames.indexOf(savedCampus).takeIf { it >= 0 } ?: 0
+    }
+    var selectedCampusIndex by rememberSaveable { mutableIntStateOf(savedCampusIndex()) }
     val selectedCampus = campusNames.getOrElse(selectedCampusIndex) { campusNames.firstOrNull() ?: "" }
 
     val buildings = remember(selectedCampus) { CAMPUS_BUILDINGS[selectedCampus] ?: emptyList() }
     // 教学楼多选
     var selectedBuildings by rememberSaveable(selectedCampus) {
-        mutableStateOf(setOf(buildings.firstOrNull() ?: ""))
+        val saved = prefs.getString("empty_room_last_buildings_$selectedCampus", null)
+            ?.split("|")
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() }
+            ?.toSet()
+            ?.filterTo(mutableSetOf()) { it in buildings }
+            ?.takeIf { it.isNotEmpty() }
+        mutableStateOf(saved ?: setOf(buildings.firstOrNull().orEmpty()))
     }
 
     val availableDates = remember { api.getAvailableDates() }
@@ -165,6 +178,17 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
     var endPeriod by rememberSaveable { mutableIntStateOf(11) }
 
     val scope = rememberCoroutineScope()
+
+    fun persistBuildingSelection() {
+        prefs.edit()
+            .putString("empty_room_last_campus", selectedCampus)
+            .putString("empty_room_last_buildings_$selectedCampus", selectedBuildings.filter { it.isNotBlank() }.joinToString("|"))
+            .apply()
+    }
+
+    LaunchedEffect(selectedCampusIndex, selectedBuildings) {
+        persistBuildingSelection()
+    }
 
     // 当前节次
     val currentPeriod = remember { getCurrentPeriod() }
@@ -258,7 +282,10 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
                     TabRowWithContour(
                         tabs = campusNames.map { it.removeSuffix("校区") },
                         selectedTabIndex = selectedCampusIndex,
-                        onTabSelected = { selectedCampusIndex = it },
+                        onTabSelected = {
+                            selectedCampusIndex = it
+                            prefs.edit().putString("empty_room_last_campus", campusNames.getOrElse(it) { selectedCampus }).apply()
+                        },
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
                     )
 
@@ -440,6 +467,7 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
                                 indication = SinkFeedback()
                             ) {
                                 selectedBuildings = if (allSelected) setOf(buildings.firstOrNull() ?: "") else buildings.toSet()
+                                persistBuildingSelection()
                             }
                             .padding(horizontal = 4.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -448,6 +476,7 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
                             checked = allSelected,
                             onCheckedChange = {
                                 selectedBuildings = if (it) buildings.toSet() else setOf(buildings.firstOrNull() ?: "")
+                                persistBuildingSelection()
                             }
                         )
                         Spacer(Modifier.width(12.dp))
@@ -467,6 +496,7 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
                                         val newSet = selectedBuildings - building
                                         if (newSet.isEmpty()) selectedBuildings else newSet
                                     } else selectedBuildings + building
+                                    persistBuildingSelection()
                                 }
                                 .padding(horizontal = 4.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -479,6 +509,7 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
                                         val newSet = selectedBuildings - building
                                         if (newSet.isEmpty()) selectedBuildings else newSet
                                     }
+                                    persistBuildingSelection()
                                 }
                             )
                             Spacer(Modifier.width(12.dp))

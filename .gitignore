@@ -10,12 +10,18 @@
 local.properties
 /.vscode/
 /.github/copilot-instructions.md
+# Agent customization files added in this task
+/AGENTS.md
+/.github/AGENTS.md
+/.github/agents/
+/.github/instructions/*.md
 # Signing
 release.jks
 release.jks.b64
 .kotlin/
 # Gradle
 .gradle/
+/.gradle-user-home/
 build/
 
 # APK

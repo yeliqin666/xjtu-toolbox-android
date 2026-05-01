@@ -31,14 +31,20 @@ object ScheduleExport {
      * @param courses 课程列表
      * @param startOfTerm 学期第一周的周一日期
      * @param termName 学期名称（用于日历名）
+     * @param holidayDates 忽略的节假日（若不忽略则传空或过滤为 null）
      */
-    fun generateIcs(courses: List<CourseItem>, startOfTerm: LocalDate, termName: String): String {
+    fun generateIcs(
+        courses: List<CourseItem>, 
+        startOfTerm: LocalDate, 
+        termName: String,
+        holidayDates: Set<LocalDate> = emptySet()
+    ): String {
         val sb = StringBuilder()
         sb.appendLine("BEGIN:VCALENDAR")
         sb.appendLine("VERSION:2.0")
         sb.appendLine("PRODID:-//XJTUToolBox//Schedule//CN")
         sb.appendLine("CALSCALE:GREGORIAN")
-        sb.appendLine("X-WR-CALNAME:$termName 日程")
+        sb.appendLine("X-WR-CALNA ME:$termName 日程")
         sb.appendLine("X-WR-TIMEZONE:Asia/Shanghai")
 
         // 嵌入时区定义
@@ -62,6 +68,12 @@ object ScheduleExport {
                 val weekStartMonday = startOfTerm.plusWeeks((week - 1).toLong())
                 val courseDate = weekStartMonday.plusDays((course.dayOfWeek - 1).toLong())
 
+                // ★ 节假日过滤
+                if (holidayDates.contains(courseDate)) {
+                    Log.d(TAG, "ICS Export: Skipped course '\${course.courseName}' on holiday \$courseDate")
+                    continue
+                }
+
                 val startTime = sectionToTime(course.startSection, isStart = true, courseDate)
                 val endTime = sectionToTime(course.endSection, isStart = false, courseDate)
 
@@ -80,7 +92,13 @@ object ScheduleExport {
                     append("\\n节次: 第${course.startSection}-${course.endSection}节")
                     append("\\n周次: 第${week}周")
                 }
-                sb.appendLine("DESCRIPTION:$desc")
+                sb.appendLine("DESCRIPTION:$desc")                
+                // ★ 添加上课前 15 分钟提醒
+                sb.appendLine("BEGIN:VALARM")
+                sb.appendLine("ACTION:DISPLAY")
+                sb.appendLine("DESCRIPTION:\${escapeIcs(course.courseName)} 即将上课")
+                sb.appendLine("TRIGGER:-PT15M")
+                sb.appendLine("END:VALARM")
                 sb.appendLine("END:VEVENT")
             }
         }

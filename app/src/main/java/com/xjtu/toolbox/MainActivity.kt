@@ -274,6 +274,9 @@ class AppLoginState {
     // 一网通办个人信息（登录后自动获取，在"我的"页面展示）
     var ywtbUserInfo by mutableStateOf<com.xjtu.toolbox.ywtb.UserInfo?>(null)
 
+    // 校园卡缓存刷新版本：余额/最近消费落盘后递增，驱动首页智能卡片重读缓存。
+    var campusCardCacheVersion by mutableIntStateOf(0)
+
     // 缓存的昵称（从 CredentialStore 恢复，YWTB 加载前即可显示）
     var cachedNickname by mutableStateOf<String?>(null)
 
@@ -822,6 +825,45 @@ class AppLoginStateViewModel(application: android.app.Application) : androidx.li
     }
 }
 
+private suspend fun refreshCampusCardCache(
+    context: android.content.Context,
+    login: CampusCardLogin
+): Boolean = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+    val appContext = context.applicationContext
+    val api = com.xjtu.toolbox.card.CampusCardApi(login)
+    val info = api.getCardInfo()
+    val (_, recentTx) = api.getTransactions(page = 1, pageSize = 50)
+    val todayStr = java.time.LocalDate.now().toString()
+    val todaySpend = recentTx
+        .filter { tx -> tx.time.startsWith(todayStr) && tx.amount < 0 }
+        .sumOf { tx -> -tx.amount }
+    val todayBreakfast = recentTx.filter { tx ->
+        tx.time.startsWith(todayStr) && tx.amount < 0 &&
+            tx.time.substringAfter(" ").substringBefore(":").toIntOrNull()?.let { h -> h in 5..10 } == true
+    }.sumOf { tx -> -tx.amount }
+    val todayLunch = recentTx.filter { tx ->
+        tx.time.startsWith(todayStr) && tx.amount < 0 &&
+            tx.time.substringAfter(" ").substringBefore(":").toIntOrNull()?.let { h -> h in 11..14 } == true
+    }.sumOf { tx -> -tx.amount }
+    val todayDinner = recentTx.filter { tx ->
+        tx.time.startsWith(todayStr) && tx.amount < 0 &&
+            tx.time.substringAfter(" ").substringBefore(":").toIntOrNull()?.let { h -> h in 17..21 } == true
+    }.sumOf { tx -> -tx.amount }
+
+    appContext.getSharedPreferences("campus_card", 0).edit()
+        .putFloat("card_balance_cache", info.balance.toFloat())
+        .putString("card_name_cache", info.name)
+        .putLong("card_cache_time", System.currentTimeMillis())
+        .putString("card_recent_tx_cache", com.google.gson.Gson().toJson(recentTx.take(5)))
+        .putFloat("card_today_spend_cache", todaySpend.toFloat())
+        .putFloat("card_today_breakfast_cache", todayBreakfast.toFloat())
+        .putFloat("card_today_lunch_cache", todayLunch.toFloat())
+        .putFloat("card_today_dinner_cache", todayDinner.toFloat())
+        .apply()
+    CampusCardWidgetUpdater.requestUpdate(appContext)
+    true
+}
+
 // ── 主导航 ────────────────────────────────
 
 @Composable
@@ -838,6 +880,21 @@ fun AppNavigation(
     val loginState = viewModel.loginState
     val credentialStore = viewModel.credentialStore
     val context = LocalContext.current
+    var pendingMainTab by remember { mutableStateOf(initialTab) }
+
+    fun navigateToMainTab(tab: BottomTab) {
+        pendingMainTab = tab.name
+        navController.navigate(Routes.MAIN) {
+            launchSingleTop = true
+            popUpTo(Routes.MAIN) { inclusive = false }
+        }
+    }
+
+    LaunchedEffect(initialTab) {
+        if (!initialTab.isNullOrBlank()) {
+            pendingMainTab = initialTab
+        }
+    }
 
     LaunchedEffect(initialRoute) {
         val route = initialRoute
@@ -847,7 +904,7 @@ fun AppNavigation(
         }
 
         if (route == Routes.SCHEDULE) {
-            navController.navigate(Routes.MAIN) { launchSingleTop = true }
+            navigateToMainTab(BottomTab.COURSES)
         } else {
             navController.navigate(route) { launchSingleTop = true }
         }
@@ -884,33 +941,104 @@ fun AppNavigation(
     val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
     val lifecycleScope = rememberCoroutineScope()
     val lastResumeRefresh = remember { mutableLongStateOf(0L) }
+    val lastCampusCardResumeRefresh = remember { mutableLongStateOf(0L) }
+    val lastLoginWarmupAt = remember { mutableLongStateOf(0L) }
+
+    fun startBackgroundLoginWarmup(
+        scope: kotlinx.coroutines.CoroutineScope,
+        force: Boolean = false
+    ) {
+        val now = System.currentTimeMillis()
+        if (!force && now - lastLoginWarmupAt.longValue < 60_000L) return
+        lastLoginWarmupAt.longValue = now
+
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                kotlinx.coroutines.supervisorScope {
+                    val externalLogins = listOf(
+                        LoginType.CAMPUS_CARD,
+                        LoginType.DZPZ,
+                        LoginType.VENUE,
+                        LoginType.CLASS,
+                        LoginType.LMS,
+                        LoginType.JIAOCAI
+                    )
+
+                    externalLogins.forEachIndexed { index, type ->
+                        launch {
+                            if (index > 0) kotlinx.coroutines.delay(index * 180L)
+                            loginState.autoLogin(type)
+                        }
+                    }
+
+                    val vpnDeferred = if (loginState.isOnCampus == false) {
+                        async { loginState.loginWebVpn() }
+                    } else null
+
+                    launch {
+                        vpnDeferred?.await()
+                        if (loginState.isOnCampus == false) {
+                            launch { loginState.autoLogin(LoginType.ATTENDANCE) }
+                            launch { loginState.autoLogin(LoginType.LIBRARY) }
+                        }
+                    }
+
+                    launch {
+                        kotlinx.coroutines.delay(1200L)
+                        loginState.getSharedClient()?.let { client ->
+                            runCatching { com.xjtu.toolbox.pay.PaymentCodeApi(client).authenticate() }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("Lifecycle", "background login warmup failed: ${e.message}")
+            }
+        }
+    }
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME && loginState.isLoggedIn) {
                 val now = System.currentTimeMillis()
-                if (now - lastResumeRefresh.longValue < 30_000L) return@LifecycleEventObserver // 30s 节流
-                lastResumeRefresh.longValue = now
+                val shouldRefreshSessions = now - lastResumeRefresh.longValue >= 30_000L
+                val shouldRefreshCampusCard = now - lastCampusCardResumeRefresh.longValue >= 5_000L
+                if (shouldRefreshSessions) lastResumeRefresh.longValue = now
+                if (shouldRefreshCampusCard) lastCampusCardResumeRefresh.longValue = now
+                if (!shouldRefreshSessions && !shouldRefreshCampusCard) return@LifecycleEventObserver
                 lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                     try {
-                        // JWAPP: proactive token 刷新
-                        loginState.jwappLogin?.let { jwapp ->
-                            if (!jwapp.isTokenValid()) {
-                                android.util.Log.d("Lifecycle", "ON_RESUME: JWAPP token expired, refreshing...")
-                                jwapp.reAuthenticate()
+                        if (shouldRefreshSessions) {
+                            // JWAPP: proactive token 刷新
+                            loginState.jwappLogin?.let { jwapp ->
+                                if (!jwapp.isTokenValid()) {
+                                    android.util.Log.d("Lifecycle", "ON_RESUME: JWAPP token expired, refreshing...")
+                                    jwapp.reAuthenticate()
+                                }
+                            }
+                            // YWTB: proactive token 刷新
+                            loginState.ywtbLogin?.let { ywtb ->
+                                if (!ywtb.isTokenValid()) {
+                                    android.util.Log.d("Lifecycle", "ON_RESUME: YWTB token expired, refreshing...")
+                                    ywtb.reAuthenticate()
+                                }
+                            }
+                            // JWXT: proactive session 心跳（cookie-based，轻量重认证）
+                            loginState.jwxtLogin?.let { jwxt ->
+                                android.util.Log.d("Lifecycle", "ON_RESUME: JWXT session heartbeat")
+                                jwxt.reAuthenticate()
                             }
                         }
-                        // YWTB: proactive token 刷新
-                        loginState.ywtbLogin?.let { ywtb ->
-                            if (!ywtb.isTokenValid()) {
-                                android.util.Log.d("Lifecycle", "ON_RESUME: YWTB token expired, refreshing...")
-                                ywtb.reAuthenticate()
+                        if (shouldRefreshCampusCard) {
+                            val campusCardLogin = loginState.campusCardLogin
+                                ?: if (loginState.hasCredentials) loginState.autoLogin(LoginType.CAMPUS_CARD) as? CampusCardLogin else null
+                            campusCardLogin?.let { cardLogin ->
+                                android.util.Log.d("Lifecycle", "ON_RESUME: refreshing campus card cache")
+                                refreshCampusCardCache(context, cardLogin)
+                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                    loginState.campusCardCacheVersion++
+                                }
                             }
                         }
-                        // JWXT: proactive session 心跳（cookie-based，轻量重认证）
-                        loginState.jwxtLogin?.let { jwxt ->
-                            android.util.Log.d("Lifecycle", "ON_RESUME: JWXT session heartbeat")
-                            jwxt.reAuthenticate()
-                        }
+                        startBackgroundLoginWarmup(lifecycleScope)
                     } catch (e: Exception) {
                         android.util.Log.w("Lifecycle", "ON_RESUME: token refresh failed: ${e.message}")
                     }
@@ -1028,6 +1156,19 @@ fun AppNavigation(
                         // 不需要VPN的子系统 + 付款码预热，立即并行启动
                         launch { loginState.autoLogin(LoginType.JWAPP) }
                         launch { loginState.autoLogin(LoginType.YWTB) }
+                        launch {
+                            try {
+                                val cardLogin = loginState.autoLogin(LoginType.CAMPUS_CARD) as? CampusCardLogin
+                                if (cardLogin != null) {
+                                    refreshCampusCardCache(context, cardLogin)
+                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                        loginState.campusCardCacheVersion++
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                android.util.Log.w("Restore", "校园卡刷新失败: ${e.message}")
+                            }
+                        }
                         // NSA 学工系统（使用 OAuth2，趁 TGC 新鲜立即登录）
                         // 已从缓存恢复时跳过网络请求（个人信息不变，无需每次重新获取）
                         launch {
@@ -1087,6 +1228,7 @@ fun AppNavigation(
                         }
                         launch { loginState.autoLogin(LoginType.ATTENDANCE) }
                         launch { loginState.autoLogin(LoginType.LIBRARY) }
+                        launch { startBackgroundLoginWarmup(this@launch, force = true) }
                     }
                     android.util.Log.d("Restore", "全部子系统贯通完成: ${loginState.loginCount} 个系统")
                     loginState.persistCredentials(credentialStore)
@@ -1212,8 +1354,11 @@ fun AppNavigation(
                 credentialStore = credentialStore,
                 isRestoring = isRestoring,
                 restoreStep = restoreStep,
-                pendingTab = initialTab,
-                onPendingTabConsumed = onInitialTabConsumed
+                pendingTab = pendingMainTab,
+                onPendingTabConsumed = {
+                    pendingMainTab = null
+                    onInitialTabConsumed()
+                }
             )
         }
 
@@ -1237,7 +1382,11 @@ fun AppNavigation(
                     loginState.persistCredentials(credentialStore)
                     loginState.cache(login, username)
                     navController.popBackStack()
-                    navController.navigate(target) { launchSingleTop = true }
+                    if (target == Routes.SCHEDULE) {
+                        navigateToMainTab(BottomTab.COURSES)
+                    } else {
+                        navController.navigate(target) { launchSingleTop = true }
+                    }
                 },
                 onBack = { navController.popBackStack() }
             )
@@ -1247,20 +1396,24 @@ fun AppNavigation(
             EmptyRoomScreen(onBack = { navController.popBackStack() })
         }
         composable(Routes.NOTIFICATION) {
-            NotificationScreen(onBack = { navController.popBackStack() }, onNavigate = { navController.navigate(it) { launchSingleTop = true } })
+            NotificationScreen(
+                onBack = { navController.popBackStack() },
+                onNavigate = {
+                    if (it == Routes.SCHEDULE) {
+                        navigateToMainTab(BottomTab.COURSES)
+                    } else {
+                        navController.navigate(it) { launchSingleTop = true }
+                    }
+                }
+            )
         }
         composable(Routes.ATTENDANCE) {
             loginState.attendanceLogin?.let { AttendanceScreen(login = it, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
         composable(Routes.SCHEDULE) {
-            MainScreen(
-                navController = navController,
-                loginState = loginState,
-                credentialStore = credentialStore,
-                isRestoring = isRestoring,
-                restoreStep = restoreStep,
-                pendingTab = BottomTab.COURSES.name
-            )
+            LaunchedEffect(Unit) {
+                navigateToMainTab(BottomTab.COURSES)
+            }
         }
         composable(Routes.JWAPP_SCORE) {
             JwappScoreScreen(login = loginState.jwappLogin, jwxtLogin = loginState.jwxtLogin, studentId = loginState.activeUsername, onBack = { navController.popBackStack() })
@@ -1481,6 +1634,18 @@ private fun MainScreen(
     // [H1] Snackbar 状态（登录失败分类提示）
     val snackbarHostState = remember { SnackbarHostState() }
 
+    fun switchToTab(tab: BottomTab) {
+        selectedTabOrdinal = tab.ordinal
+    }
+
+    fun navigateToTarget(target: String) {
+        if (target == Routes.SCHEDULE) {
+            switchToTab(BottomTab.COURSES)
+        } else {
+            navController.navigate(target) { launchSingleTop = true }
+        }
+    }
+
     fun navigateWithLogin(target: String, type: LoginType) {
         // [OFF-2] 快速网络检测（ConnectivityManager，瞬时，不阻塞）
         val cm = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
@@ -1492,7 +1657,7 @@ private fun MainScreen(
         // ── 断网处理（优先于所有登录检查）──
         if (!isOnline) {
             if (target in offlineCapableRoutes) {
-                navController.navigate(target) { launchSingleTop = true }
+                navigateToTarget(target)
                 scope.launch { snackbarHostState.showSnackbar("当前无网络，进入离线模式", duration = SnackbarDuration.Short) }
             } else {
                 scope.launch { snackbarHostState.showSnackbar("该功能需要联网使用，请检查网络连接", duration = SnackbarDuration.Short) }
@@ -1502,7 +1667,7 @@ private fun MainScreen(
 
         // ── 在线：有缓存 login → 直接进入 ──
         if (loginState.getCached(type) != null) {
-            navController.navigate(target) { launchSingleTop = true }
+            navigateToTarget(target)
         } else if (loginState.hasCredentials) {
             // 有保存的凭据，尝试自动登录
             showAutoLoginSheet.value = true
@@ -1516,11 +1681,11 @@ private fun MainScreen(
                     showAutoLoginSheet.value = false
                     autoLoginJob = null
                     if (result != null) {
-                        navController.navigate(target) { launchSingleTop = true }
+                        navigateToTarget(target)
                     } else {
                         // 登录超时 → 离线可用路由降级，其余提示
                         if (target in offlineCapableRoutes) {
-                            navController.navigate(target) { launchSingleTop = true }
+                            navigateToTarget(target)
                             scope.launch { snackbarHostState.showSnackbar("登录超时，进入离线模式", duration = SnackbarDuration.Short) }
                         } else {
                             scope.launch {
@@ -1537,7 +1702,7 @@ private fun MainScreen(
                     autoLoginJob = null
                     // 离线可用路由降级
                     if (target in offlineCapableRoutes) {
-                        navController.navigate(target) { launchSingleTop = true }
+                        navigateToTarget(target)
                         val msg = "网络不佳，进入离线模式"
                         scope.launch { snackbarHostState.showSnackbar(msg, duration = SnackbarDuration.Short) }
                     } else {
@@ -1588,7 +1753,7 @@ private fun MainScreen(
                 },
                 largeTitle = when (selectedTab) {
                     BottomTab.HOME -> homeGreeting
-                    BottomTab.COURSES -> "我的日程"
+                    BottomTab.COURSES -> null
                     BottomTab.TOOLS -> "实用工具"
                     BottomTab.PROFILE -> "我的"
                 },
@@ -1623,7 +1788,9 @@ private fun MainScreen(
             // 需要联网的无登录路由（空闲教室、通知公告等纯网络功能）
             val networkRequiredRoutes = setOf(Routes.EMPTY_ROOM, Routes.NOTIFICATION)
             val onNavigateWithNetCheck: (String) -> Unit = { route ->
-                if (route in networkRequiredRoutes) {
+                if (route == Routes.SCHEDULE) {
+                    switchToTab(BottomTab.COURSES)
+                } else if (route in networkRequiredRoutes) {
                     val cm2 = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
                     val online = cm2?.activeNetwork != null && cm2.getNetworkCapabilities(cm2.activeNetwork)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
                     if (online) {
@@ -1637,6 +1804,17 @@ private fun MainScreen(
             }
             var composedTabs by remember { mutableStateOf(setOf(selectedTab)) }
             LaunchedEffect(selectedTab) { composedTabs = composedTabs + selectedTab }
+            var previousTabOrdinal by rememberSaveable { mutableIntStateOf(selectedTabOrdinal) }
+            val tabSwitchDirection = when {
+                selectedTabOrdinal > previousTabOrdinal -> 1
+                selectedTabOrdinal < previousTabOrdinal -> -1
+                else -> 0
+            }
+            LaunchedEffect(selectedTabOrdinal) {
+                kotlinx.coroutines.delay(280)
+                previousTabOrdinal = selectedTabOrdinal
+            }
+            val tabSlideDistance = with(androidx.compose.ui.platform.LocalDensity.current) { 28.dp.toPx() }
             Box(Modifier.fillMaxSize()) {
                 BottomTab.entries.forEach { tab ->
                     key(tab) {
@@ -1644,13 +1822,33 @@ private fun MainScreen(
                             val isActive = selectedTab == tab
                             val tabAlpha by animateFloatAsState(
                                 targetValue = if (isActive) 1f else 0f,
-                                animationSpec = tween(if (isActive) 220 else 150),
+                                animationSpec = tween(if (isActive) 240 else 180),
                                 label = "tabAlpha"
+                            )
+                            val tabOffset by animateFloatAsState(
+                                targetValue = when {
+                                    isActive -> 0f
+                                    tabSwitchDirection == 0 -> 0f
+                                    tab.ordinal < selectedTabOrdinal -> -tabSlideDistance
+                                    else -> tabSlideDistance
+                                },
+                                animationSpec = tween(260),
+                                label = "tabOffset"
+                            )
+                            val tabScale by animateFloatAsState(
+                                targetValue = if (isActive) 1f else 0.985f,
+                                animationSpec = tween(260),
+                                label = "tabScale"
                             )
                             Box(
                                 Modifier.fillMaxSize()
                                     .zIndex(if (isActive) 1f else 0f)
-                                    .graphicsLayer { alpha = tabAlpha }
+                                    .graphicsLayer {
+                                        alpha = tabAlpha
+                                        translationX = tabOffset
+                                        scaleX = tabScale
+                                        scaleY = tabScale
+                                    }
                                     .pointerInput(isActive) {
                                         if (!isActive) {
                                             awaitPointerEventScope {
@@ -1837,7 +2035,6 @@ private fun HomeTab(
                     onNavigateWithLogin(Routes.CAMPUS_CARD, LoginType.CAMPUS_CARD)
                 }
                 HomeQuickAction(Icons.Default.CalendarMonth, "日程", colorIndigo) {
-                    onNavigate(Routes.MAIN)
                     onNavigateToCourses()
                 }
                 HomeQuickAction(Icons.Default.QrCode, "付款码", colorTeal) {
@@ -1861,15 +2058,27 @@ private fun HomeTab(
             // 缓存余额数据（从 SharedPreferences 读取）
             val cardPrefs = remember { context.getSharedPreferences("campus_card", 0) }
             var cachedBalance by remember { mutableStateOf(cardPrefs.getFloat("card_balance_cache", -1f)) }
-            val cachedName = remember { cardPrefs.getString("card_name_cache", "") ?: "" }
-            val cachedRecentTx = remember {
+            var cachedName by remember { mutableStateOf(cardPrefs.getString("card_name_cache", "") ?: "") }
+            var cachedRecentTx by remember {
                 val json = cardPrefs.getString("card_recent_tx_cache", null)
-                if (json != null) runCatching {
+                mutableStateOf(if (json != null) runCatching {
                     com.google.gson.Gson().fromJson(json, Array<com.xjtu.toolbox.card.Transaction>::class.java)?.toList()
-                }.getOrNull() ?: emptyList()
-                else emptyList()
+                }.getOrNull() ?: emptyList() else emptyList())
             }
             var isRefreshingCard by remember { mutableStateOf(false) }
+
+            fun reloadCampusCardCache() {
+                cachedBalance = cardPrefs.getFloat("card_balance_cache", -1f)
+                cachedName = cardPrefs.getString("card_name_cache", "") ?: ""
+                val json = cardPrefs.getString("card_recent_tx_cache", null)
+                cachedRecentTx = if (json != null) runCatching {
+                    com.google.gson.Gson().fromJson(json, Array<com.xjtu.toolbox.card.Transaction>::class.java)?.toList()
+                }.getOrNull() ?: emptyList() else emptyList()
+            }
+
+            LaunchedEffect(loginState.campusCardCacheVersion) {
+                reloadCampusCardCache()
+            }
 
             LaunchedEffect(Unit) {
                 val loadedReminder = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -1956,7 +2165,6 @@ private fun HomeTab(
                 // ═══ 日程提醒智能卡片 ═══
                 Card(
                     onClick = {
-                        onNavigate(Routes.MAIN)
                         onNavigateToCourses()
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -2073,21 +2281,9 @@ private fun HomeTab(
                                         isRefreshingCard = true
                                         scope.launch {
                                             try {
-                                                val api = com.xjtu.toolbox.card.CampusCardApi(login)
-                                                val info = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { api.getCardInfo() }
-                                                cachedBalance = info.balance.toFloat()
-                                                context.getSharedPreferences("campus_card", 0).edit()
-                                                    .putFloat("card_balance_cache", info.balance.toFloat())
-                                                    .putString("card_name_cache", info.name)
-                                                    .putLong("card_cache_time", System.currentTimeMillis())
-                                                    .apply()
-                                                // 最近消费也刷新（只取最近5笔，快速）
-                                                val (_, recentTx) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { api.getTransactions(page = 1, pageSize = 5) }
-                                                val recentJson = com.google.gson.Gson().toJson(recentTx)
-                                                context.getSharedPreferences("campus_card", 0).edit()
-                                                    .putString("card_recent_tx_cache", recentJson)
-                                                    .apply()
-                                                com.xjtu.toolbox.widget.CampusCardWidgetUpdater.requestUpdate(context)
+                                                refreshCampusCardCache(context, login)
+                                                loginState.campusCardCacheVersion++
+                                                reloadCampusCardCache()
                                             } catch (_: Exception) {}
                                             isRefreshingCard = false
                                         }
@@ -2173,7 +2369,6 @@ private fun HomeTab(
             svcRow(
                 { m -> HomeServiceCard(Icons.Default.CreditCard, "校园卡", "账单 · 洞察", svcGreen, m) { onNavigateWithLogin(Routes.CAMPUS_CARD, LoginType.CAMPUS_CARD) } },
                 { m -> HomeServiceCard(Icons.Default.CalendarMonth, "日程", "我的日程", svcIndigo, m) {
-                    onNavigate(Routes.MAIN)
                     onNavigateToCourses()
                 } }
             )
