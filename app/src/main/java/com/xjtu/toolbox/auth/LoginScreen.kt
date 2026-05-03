@@ -13,6 +13,8 @@ import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
+import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.extra.SuperBottomSheet
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
@@ -88,6 +90,12 @@ fun LoginScreen(
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var statusMessage by remember { mutableStateOf("") }
+    // MFA 验证码状态
+    var mfaLogin by remember { mutableStateOf<XJTULogin?>(null) }
+    var showMfaSheet by remember { mutableStateOf(false) }
+    var mfaPhone by remember { mutableStateOf("") }
+    var mfaCode by remember { mutableStateOf("") }
+    var mfaError by remember { mutableStateOf<String?>(null) }
 
     val scope = rememberCoroutineScope()
 
@@ -221,8 +229,26 @@ fun LoginScreen(
                                     statusMessage = ""
                                 }
                                 LoginState.REQUIRE_MFA -> {
-                                    errorMessage = "需要手机验证码（MFA），暂不支持"
-                                    statusMessage = ""
+                                    val mfa = loginResult.mfaContext
+                                    if (mfa == null) {
+                                        errorMessage = "MFA 上下文缺失"
+                                        statusMessage = ""
+                                    } else {
+                                        mfaLogin = login
+                                        statusMessage = "正在获取手机号..."
+                                        try {
+                                            val phone = withContext(Dispatchers.IO) { mfa.getPhoneNumber() }
+                                            withContext(Dispatchers.IO) { mfa.sendVerifyCode() }
+                                            mfaPhone = phone
+                                            mfaCode = ""
+                                            mfaError = null
+                                            showMfaSheet = true
+                                            statusMessage = ""
+                                        } catch (e: Exception) {
+                                            errorMessage = "发送验证码失败: ${e.message}"
+                                            statusMessage = ""
+                                        }
+                                    }
                                 }
                                 LoginState.REQUIRE_CAPTCHA -> {
                                     errorMessage = "需要验证码，暂不支持"
@@ -282,6 +308,137 @@ fun LoginScreen(
                 style = MiuixTheme.textStyles.footnote1,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary
             )
+        }
+
+        // MFA 验证码 BottomSheet
+        if (showMfaSheet) {
+            SuperBottomSheet(
+                show = showMfaSheet,
+                title = "手机验证",
+                onDismissRequest = {
+                    showMfaSheet = false
+                    isLoading = false
+                }
+            ) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 24.dp, vertical = 16.dp)
+                ) {
+                    Text(
+                        text = "验证码已发送至 $mfaPhone",
+                        style = MiuixTheme.textStyles.body1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    TextField(
+                        value = mfaCode,
+                        onValueChange = { mfaCode = it.take(6) },
+                        label = "6位验证码",
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    )
+                    mfaError?.let {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = it,
+                            color = MiuixTheme.colorScheme.error,
+                            style = MiuixTheme.textStyles.footnote1
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(
+                        onClick = {
+                            if (mfaCode.length != 6) {
+                                mfaError = "请输入6位验证码"
+                                return@Button
+                            }
+                            val login = mfaLogin ?: return@Button
+                            val mfa = login.mfaContext ?: return@Button
+                            isLoading = true
+                            mfaError = null
+                            statusMessage = "验证中..."
+                            scope.launch {
+                                try {
+                                    withContext(Dispatchers.IO) { mfa.verifyCode(mfaCode) }
+                                    statusMessage = "验证通过，完成登录..."
+                                    val finalResult = withContext(Dispatchers.IO) {
+                                        login.login(username, password)
+                                    }
+                                    when (finalResult.state) {
+                                        LoginState.SUCCESS -> {
+                                            showMfaSheet = false
+                                            isLoading = false
+                                            statusMessage = "登录成功！"
+                                            onLoginSuccess(login, username, password)
+                                        }
+                                        LoginState.REQUIRE_MFA -> {
+                                            val newMfa = finalResult.mfaContext
+                                            if (newMfa != null) {
+                                                val phone = withContext(Dispatchers.IO) { newMfa.getPhoneNumber() }
+                                                withContext(Dispatchers.IO) { newMfa.sendVerifyCode() }
+                                                mfaPhone = phone
+                                                mfaCode = ""
+                                                mfaError = null
+                                            } else {
+                                                mfaError = "MFA 上下文丢失"
+                                            }
+                                            isLoading = false
+                                            statusMessage = ""
+                                        }
+                                        else -> {
+                                            mfaError = finalResult.message
+                                            isLoading = false
+                                            statusMessage = ""
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    mfaError = "验证失败: ${e.message}"
+                                    mfaCode = ""
+                                    isLoading = false
+                                    statusMessage = ""
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp),
+                        enabled = mfaCode.length == 6 && !isLoading
+                    ) {
+                        if (isLoading) {
+                            CircularProgressIndicator(
+                                size = 20.dp,
+                                colors = ProgressIndicatorDefaults.progressIndicatorColors(foregroundColor = MiuixTheme.colorScheme.onPrimary),
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("验证中...")
+                        } else {
+                            Text("验证")
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    TextButton(
+                        onClick = {
+                            val mfaCtx = mfaLogin?.mfaContext ?: return@TextButton
+                            mfaError = null
+                            mfaCode = ""
+                            scope.launch {
+                                try {
+                                    withContext(Dispatchers.IO) { mfaCtx.sendVerifyCode() }
+                                    statusMessage = "验证码已重新发送"
+                                } catch (e: Exception) {
+                                    mfaError = "重新发送失败: ${e.message}"
+                                }
+                            }
+                        }
+                    ) {
+                        Text("重新发送验证码")
+                    }
+                }
+            }
         }
     }
 }

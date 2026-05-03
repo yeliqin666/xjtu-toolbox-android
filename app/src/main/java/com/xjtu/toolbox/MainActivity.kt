@@ -116,6 +116,7 @@ import com.xjtu.toolbox.library.LibraryScreen
 import com.xjtu.toolbox.judge.JudgeScreen
 import com.xjtu.toolbox.score.ScoreReportScreen
 import com.xjtu.toolbox.ui.theme.XJTUToolBoxTheme
+import com.xjtu.toolbox.ui.settings.SettingsScreen
 import com.xjtu.toolbox.util.CredentialStore
 import com.xjtu.toolbox.widget.CampusCardWidgetUpdater
 import com.xjtu.toolbox.widget.ScheduleWidgetUpdater
@@ -145,6 +146,7 @@ class MainActivity : ComponentActivity() {
     var isAppReady = false
     private val launchRouteState = mutableStateOf<String?>(null)
     private val launchTabState = mutableStateOf<String?>(null)
+    private val darkModeOverrideState = mutableStateOf("system")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splash = installSplashScreen()
@@ -155,14 +157,20 @@ class MainActivity : ComponentActivity() {
         launchRouteState.value = launchRoute
         launchTabState.value = launchTab ?: if (launchRoute == Routes.SCHEDULE) BottomTab.COURSES.name else null
         enableEdgeToEdge()
+        val prefs = getSharedPreferences("app_settings", MODE_PRIVATE)
+        darkModeOverrideState.value = prefs.getString("dark_mode", "system") ?: "system"
         setContent {
-            XJTUToolBoxTheme {
+            XJTUToolBoxTheme(darkModeOverride = darkModeOverrideState.value) {
                 AppNavigation(
                     initialRoute = launchRouteState.value,
                     onInitialRouteConsumed = { launchRouteState.value = null },
                     initialTab = launchTabState.value,
                     onInitialTabConsumed = { launchTabState.value = null },
-                    onReady = { isAppReady = true }
+                    onReady = { isAppReady = true },
+                    onDarkModeChanged = { mode ->
+                        darkModeOverrideState.value = mode
+                        prefs.edit().putString("dark_mode", mode).apply()
+                    }
                 )
             }
         }
@@ -205,6 +213,7 @@ object Routes {
     const val VIDEO_PLAYER = "video_player/{activityId}"
     const val DOWNLOAD_MANAGER = "download_manager"
     const val BROWSER = "browser?url={url}"
+    const val SETTINGS = "settings"
 
     fun login(type: LoginType, target: String) = "login/${type.name}/$target"
     fun browser(url: String = "") = "browser?url=${java.net.URLEncoder.encode(url, "UTF-8")}"
@@ -457,9 +466,10 @@ class AppLoginState {
 
     /**
      * WebVPN 登录（校外自动：认证 WebVPN 自身，获取代理 cookie）
-     * 与 Python 版 webvpn_login 保持一致：使用全新 client（不复用 sharedClient）
-     * Python 版在登录前 cookies.clear()，这里通过创建新 client 实现等价效果
-     * 成功后创建 vpnClient（基于新 client + WebVPN 拦截器）
+     *
+     * 优先走 TGC SSO 免登（复用 sharedClient 的 CAS cookie），
+     * 绕开新版 CAS 的 MFA 手机验证码。
+     * 降级时回退到完整表单登录。
      */
     suspend fun loginWebVpn(): Boolean {
         if (!hasCredentials) { android.util.Log.w("WebVPN", "No credentials"); return false }
@@ -467,8 +477,41 @@ class AppLoginState {
         android.util.Log.d("WebVPN", "Starting WebVPN login, firstVisitorId=$firstVisitorId")
         return try {
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                // [B2] 使用持久化 vpnCookieJar，校外冷启动可复用 VPN session
-                // 如果 vpnCookieJar 有有效 session，CAS SSO 会直接跳过登录
+                // ── 方案1: TGC SSO 免登（优先） ──
+                // sharedClient 已有 JWXT 登录后的 CAS TGC cookie，
+                // 直接 GET WebVPN 登录入口，CAS 看到 TGC 会 302 带回 ST ticket，
+                // WebVPN 验证 ticket 后下发 session cookie，全程无表单 → 绕开 MFA
+                val ssoClient = getSharedClient()
+                if (ssoClient != null) {
+                    try {
+                        android.util.Log.d("WebVPN", "Attempting TGC SSO via sharedClient...")
+                        val ssoRequest = okhttp3.Request.Builder()
+                            .url(com.xjtu.toolbox.util.WebVpnUtil.WEBVPN_LOGIN_URL)
+                            .header("User-Agent", "Mozilla/5.0")
+                            .build()
+                        val ssoResponse = ssoClient.newCall(ssoRequest).execute()
+                        val finalUrl = ssoResponse.request.url.toString()
+                        val bodySnippet = ssoResponse.body?.string()?.take(500) ?: ""
+                        android.util.Log.d("WebVPN", "SSO final URL: $finalUrl")
+                        // 判断成功：最终 URL 在 webvpn 域且不含 cas_login，且未回退到 CAS 表单
+                        val ssoSuccess = finalUrl.contains("webvpn.xjtu.edu.cn") &&
+                            !finalUrl.contains("cas_login") &&
+                            !bodySnippet.contains("id=\"execution\"")
+                        if (ssoSuccess) {
+                            android.util.Log.d("WebVPN", "TGC SSO SUCCESS — bypassed CAS form and MFA")
+                            vpnClient = ssoClient.newBuilder()
+                                .addInterceptor(com.xjtu.toolbox.util.WebVpnInterceptor())
+                                .build()
+                            webVpnLoggedIn = true
+                            return@withContext true
+                        }
+                        android.util.Log.d("WebVPN", "TGC SSO failed (ended on CAS login page), falling back to full login")
+                    } catch (e: Exception) {
+                        android.util.Log.w("WebVPN", "TGC SSO attempt failed: ${e.message}, falling back")
+                    }
+                }
+
+                // ── 方案2: 完整表单登录（降级） ──
                 android.util.Log.d("WebVPN", "Creating XJTULogin for WebVPN URL")
                 val login = XJTULogin(
                     com.xjtu.toolbox.util.WebVpnUtil.WEBVPN_LOGIN_URL,
@@ -503,6 +546,11 @@ class AppLoginState {
                         webVpnLoggedIn = true
                         true
                     } else false
+                } else if (result.state == LoginState.REQUIRE_MFA) {
+                    // MFA 被触发 —— 后台 WebVPN 登录无法交互 UI，静默失败
+                    android.util.Log.e("WebVPN", "WebVPN hit MFA — TGC SSO should have bypassed this. " +
+                        "CAS may have changed behavior.")
+                    false
                 } else {
                     android.util.Log.w("WebVPN", "WebVPN login returned non-SUCCESS state: ${result.state}")
                     false
@@ -872,7 +920,8 @@ fun AppNavigation(
     onInitialRouteConsumed: () -> Unit = {},
     initialTab: String? = null,
     onInitialTabConsumed: () -> Unit = {},
-    onReady: () -> Unit = {}
+    onReady: () -> Unit = {},
+    onDarkModeChanged: (String) -> Unit = {}
 ) {
     val navController = rememberNavController()
     // [VM] ViewModel 保证状态跨 Configuration Change 存活
@@ -1323,6 +1372,85 @@ fun AppNavigation(
         })
     }
 
+    // ── 启动时自动检查更新（根据用户设置） ──
+    val autoUpdateCheckDone = remember { mutableStateOf(false) }
+    // 自动更新弹窗状态
+    var autoUpdateVersion by remember { mutableStateOf("") }
+    var autoUpdateBody by remember { mutableStateOf("") }
+    var autoUpdateDownloadUrl by remember { mutableStateOf("") }
+    var autoUpdateReleaseUrl by remember { mutableStateOf("") }
+    val showAutoUpdateDialog = remember { mutableStateOf(false) }
+
+    LaunchedEffect(credentialStore.autoCheckUpdate) {
+        if (autoUpdateCheckDone.value) return@LaunchedEffect
+        if (!credentialStore.autoCheckUpdate) return@LaunchedEffect
+        autoUpdateCheckDone.value = true
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val client = okhttp3.OkHttpClient.Builder()
+                    .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                    .build()
+                val releasesUrl = if (credentialStore.updateChannel == "beta") {
+                    "https://gitee.com/api/v5/repos/yeliqin666/xjtu-toolbox-android/releases?per_page=5"
+                } else {
+                    "https://gitee.com/api/v5/repos/yeliqin666/xjtu-toolbox-android/releases/latest"
+                }
+                val req = okhttp3.Request.Builder()
+                    .url(releasesUrl)
+                    .header("Accept", "application/json")
+                    .build()
+                val resp = client.newCall(req).execute()
+                if (!resp.isSuccessful) return@withContext
+                val body = resp.body?.string() ?: return@withContext
+                val json = com.google.gson.JsonParser.parseString(body)
+
+                val latestObj = if (credentialStore.updateChannel == "beta") {
+                    val arr = json.asJsonArray
+                    if (arr.size() > 0) arr[0].asJsonObject else return@withContext
+                } else {
+                    json.asJsonObject
+                }
+                val tagName = latestObj.get("tag_name")?.asString ?: return@withContext
+                val latestVersion = tagName.removePrefix("v")
+                val versionComparison = MainActivity.compareVersionStrings(BuildConfig.VERSION_NAME, latestVersion)
+                if (versionComparison >= 0) return@withContext
+
+                val releaseBody = latestObj.get("body")?.asString ?: ""
+                val htmlUrl = latestObj.get("html_url")?.asString ?: ""
+                var downloadUrl = ""
+                val assets = latestObj.getAsJsonArray("assets")
+                if (assets != null && assets.size() > 0) {
+                    downloadUrl = assets[0].asJsonObject.get("browser_download_url")?.asString ?: ""
+                }
+
+                if (credentialStore.isUpdateNoticeSeen("auto_$latestVersion")) return@withContext
+
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    autoUpdateVersion = latestVersion
+                    autoUpdateBody = releaseBody
+                    autoUpdateDownloadUrl = downloadUrl
+                    autoUpdateReleaseUrl = htmlUrl
+                    showAutoUpdateDialog.value = true
+                }
+            } catch (_: Exception) { }
+        }
+    }
+
+    // ── 自动更新弹窗 ──
+    if (showAutoUpdateDialog.value) {
+        AutoUpdateDialog(
+            version = autoUpdateVersion,
+            body = autoUpdateBody,
+            downloadUrl = autoUpdateDownloadUrl,
+            releaseUrl = autoUpdateReleaseUrl,
+            onDismiss = {
+                credentialStore.markUpdateNoticeSeen("auto_${autoUpdateVersion}")
+                showAutoUpdateDialog.value = false
+            }
+        )
+    }
+
     NavHost(
         navController = navController,
         startDestination = Routes.MAIN,
@@ -1570,8 +1698,7 @@ fun AppNavigation(
                 )
             } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
-        composable(
-            Routes.BROWSER,
+        composable(Routes.BROWSER,
             arguments = listOf(navArgument("url") { type = NavType.StringType; defaultValue = "" })
         ) { backStackEntry ->
             val url = try { java.net.URLDecoder.decode(backStackEntry.arguments?.getString("url") ?: "", "UTF-8") } catch (_: Exception) { "" }
@@ -1579,6 +1706,17 @@ fun AppNavigation(
                 initialUrl = url,
                 login = loginState.jwxtLogin,
                 onBack = { navController.popBackStack() }
+            )
+        }
+
+        // ── 设置页 ──
+        composable(Routes.SETTINGS) {
+            SettingsScreen(
+                credentialStore = credentialStore,
+                onBack = { navController.popBackStack() },
+                onNavBarStyleChanged = { /* NavBar 风格变化通过 MainScreen 内部状态处理 */ },
+                onDarkModeChanged = onDarkModeChanged,
+                onDefaultTabChanged = { /* 下次启动生效 */ }
             )
         }
     }
@@ -1596,8 +1734,16 @@ private fun MainScreen(
     pendingTab: String? = null,
     onPendingTabConsumed: () -> Unit = {}
 ) {
-    var selectedTabOrdinal by rememberSaveable { mutableIntStateOf(0) }
+    // 读取设置的默认 Tab
+    val defaultTabOrdinal = remember {
+        val saved = credentialStore.defaultTab
+        BottomTab.entries.indexOfFirst { it.name == saved }.coerceAtLeast(0)
+    }
+    var selectedTabOrdinal by rememberSaveable { mutableIntStateOf(defaultTabOrdinal) }
     val selectedTab = BottomTab.entries[selectedTabOrdinal.coerceIn(0, BottomTab.entries.size - 1)]
+
+    // 底栏风格
+    var navBarStyle by remember { mutableStateOf(credentialStore.navBarStyle) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var lastBackPressTime by remember { mutableLongStateOf(0L) }
@@ -1765,23 +1911,46 @@ private fun MainScreen(
                 }
             )
         },
-        bottomBar = {},
-        floatingToolbar = {
-            @OptIn(ExperimentalHazeMaterialsApi::class)
-            FloatingNavigationBar(
-                color = androidx.compose.ui.graphics.Color.Transparent,
-                modifier = Modifier.hazeEffect(state = hazeState, style = hazeStyle),
-                mode = NavigationDisplayMode.IconOnly
-            ) {
-                BottomTab.entries.forEach { tab ->
-                    FloatingNavigationBarItem(
-                        selected = selectedTab == tab,
-                        onClick = { selectedTabOrdinal = tab.ordinal },
-                        icon = if (selectedTab == tab) tab.selectedIcon else tab.unselectedIcon,
-                        label = tab.label
-                    )
+        bottomBar = if (navBarStyle == "classic") {
+            {
+                @OptIn(ExperimentalHazeMaterialsApi::class)
+                NavigationBar(
+                    modifier = Modifier.hazeEffect(state = hazeState, style = hazeStyle),
+                    mode = NavigationDisplayMode.IconOnly
+                ) {
+                    BottomTab.entries.forEach { tab ->
+                        NavigationBarItem(
+                            selected = selectedTab == tab,
+                            onClick = { selectedTabOrdinal = tab.ordinal },
+                            icon = if (selectedTab == tab) tab.selectedIcon else tab.unselectedIcon,
+                            label = tab.label
+                        )
+                    }
                 }
             }
+        } else {
+            {}
+        },
+        floatingToolbar = if (navBarStyle == "floating") {
+            {
+                @OptIn(ExperimentalHazeMaterialsApi::class)
+                FloatingNavigationBar(
+                    color = androidx.compose.ui.graphics.Color.Transparent,
+                    modifier = Modifier.hazeEffect(state = hazeState, style = hazeStyle),
+                    mode = NavigationDisplayMode.IconOnly
+                ) {
+                    BottomTab.entries.forEach { tab ->
+                        FloatingNavigationBarItem(
+                            selected = selectedTab == tab,
+                            onClick = { selectedTabOrdinal = tab.ordinal },
+                            icon = if (selectedTab == tab) tab.selectedIcon else tab.unselectedIcon,
+                            label = tab.label
+                        )
+                    }
+                }
+            }
+        } else {
+            {}
         }
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding).hazeSource(state = hazeState)) {
@@ -1877,7 +2046,8 @@ private fun MainScreen(
                                         ::navigateWithLogin,
                                         credentialStore,
                                         scrollBehavior = profileScrollBehavior,
-                                        onNavigateToDownloads = { navController.navigate(Routes.DOWNLOAD_MANAGER) }
+                                        onNavigateToDownloads = { navController.navigate(Routes.DOWNLOAD_MANAGER) },
+                                        onNavigateToSettings = { navController.navigate(Routes.SETTINGS) { launchSingleTop = true } }
                                     )
                                 }
                             }
@@ -2562,7 +2732,8 @@ private fun ProfileTab(
     onNavigateWithLogin: (String, LoginType) -> Unit,
     credentialStore: CredentialStore,
     scrollBehavior: ScrollBehavior? = null,
-    onNavigateToDownloads: () -> Unit = {}
+    onNavigateToDownloads: () -> Unit = {},
+    onNavigateToSettings: () -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
 
@@ -3337,36 +3508,29 @@ private fun ProfileTab(
 
                 Spacer(Modifier.height(16.dp))
 
-                // ━━ 设置区块（网络模式 + 退出登录） ━━
+                // ━━ 设置入口 + 退出登录 ━━
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     cornerRadius = 20.dp,
                     colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
                 ) {
                     Column {
-                        // 网络模式行
-                        val (networkIcon, networkText, networkColor) = when (loginState.isOnCampus) {
-                            true -> Triple(Icons.Default.Wifi, "校内直连", MiuixTheme.colorScheme.primary)
-                            false -> Triple(Icons.Default.VpnKey, "WebVPN 代理", MiuixTheme.colorScheme.primaryVariant)
-                            null -> Triple(Icons.Default.WifiFind, "检测中...", MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                        }
+                        // 设置入口行
                         Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
+                            Modifier
+                                .fillMaxWidth()
+                                .pressOverlay { onNavigateToSettings() }
+                                .padding(horizontal = 20.dp, vertical = 14.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Surface(shape = CircleShape, color = networkColor.copy(alpha = 0.1f), modifier = Modifier.size(36.dp)) {
+                            Surface(shape = CircleShape, color = MiuixTheme.colorScheme.primary.copy(alpha = 0.1f), modifier = Modifier.size(36.dp)) {
                                 Box(contentAlignment = Alignment.Center) {
-                                    Icon(networkIcon, null, Modifier.size(18.dp), tint = networkColor)
+                                    Icon(Icons.Default.Settings, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.primary)
                                 }
                             }
                             Spacer(Modifier.width(14.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text("网络模式", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium)
-                                Text("用到时会自动登录", style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                            }
-                            Surface(shape = RoundedCornerShape(6.dp), color = networkColor.copy(alpha = 0.12f)) {
-                                Text(networkText, Modifier.padding(horizontal = 8.dp, vertical = 3.dp), style = MiuixTheme.textStyles.footnote1, color = networkColor)
-                            }
+                            Text("设置", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f))
                         }
 
                         HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MiuixTheme.colorScheme.outline.copy(alpha = 0.3f))
@@ -3414,361 +3578,6 @@ private fun ProfileTab(
                                         },
                                         modifier = Modifier.weight(1f)
                                     ) { Text("退出登录") }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        Spacer(Modifier.height(24.dp))
-
-        // ── 关于区域 ──
-        val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
-        var plansExpanded by remember { mutableStateOf(false) }
-
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // ━━ 应用标识卡片 ━━
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                cornerRadius = 20.dp,
-                colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
-            ) {
-                Column {
-                    // 应用信息行
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .pressOverlay { uriHandler.openUri("https://github.com/yeliqin666/xjtu-toolbox-android") }
-                            .padding(horizontal = 20.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Surface(shape = CircleShape, color = androidx.compose.ui.graphics.Color(0xFF2E7D32).copy(alpha = 0.15f), modifier = Modifier.size(36.dp)) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.Terrain, null, Modifier.size(18.dp), tint = androidx.compose.ui.graphics.Color(0xFF2E7D32))
-                            }
-                        }
-                        Spacer(Modifier.width(14.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text("岱宗盒子", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold)
-                            Text("源代码仓库 · GitHub", style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.primary.copy(alpha = 0.7f))
-                        }
-                        Surface(shape = RoundedCornerShape(6.dp), color = MiuixTheme.colorScheme.secondaryContainer) {
-                            Text("v${BuildConfig.VERSION_NAME}", Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                                style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSecondaryContainer)
-                        }
-                    }
-
-                    HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MiuixTheme.colorScheme.outline.copy(alpha = 0.3f))
-
-                    // 检查更新行
-                    var updateCheckState by remember { mutableStateOf<String?>(null) }
-                    var latestDownloadUrl by remember { mutableStateOf<String?>(null) }
-                    var releasePageUrl by remember { mutableStateOf<String?>(null) }
-                    var isDownloading by remember { mutableStateOf(false) }
-                    var downloadProgress by remember { mutableFloatStateOf(0f) }
-                    val updateScope = rememberCoroutineScope()
-                    val updateContext = androidx.compose.ui.platform.LocalContext.current
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .pressOverlay(
-                                enabled = updateCheckState != "checking" && !isDownloading
-                            ) {
-                                updateCheckState = "checking"
-                                latestDownloadUrl = null
-                                releasePageUrl = null
-                                updateScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                                    try {
-                                        val client = okhttp3.OkHttpClient.Builder()
-                                            .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-                                            .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-                                            .build()
-                                        val req = okhttp3.Request.Builder()
-                                            .url("https://gitee.com/api/v5/repos/yeliqin666/xjtu-toolbox-android/releases/latest")
-                                            .header("Accept", "application/json")
-                                            .build()
-                                        val resp = client.newCall(req).execute()
-                                        if (!resp.isSuccessful) { updateCheckState = "error:HTTP ${resp.code}"; return@launch }
-                                        val body = resp.body?.string() ?: ""
-                                        val json = com.google.gson.JsonParser.parseString(body).asJsonObject
-                                        val tagName = json.get("tag_name")?.asString ?: ""
-                                        val latestVersion = tagName.removePrefix("v")
-                                        val versionComparison = MainActivity.compareVersionStrings(BuildConfig.VERSION_NAME, latestVersion)
-                                        if (versionComparison > 0) {
-                                            // 本地版本 > 远程版本（抢先预览版）
-                                            updateCheckState = "ahead"
-                                        } else if (versionComparison == 0) {
-                                            // 本地版本 == 远程版本
-                                            updateCheckState = "latest"
-                                        } else {
-                                            // 本地版本 < 远程版本
-                                            updateCheckState = latestVersion
-                                            val assets = json.getAsJsonArray("assets")
-                                            if (assets != null && assets.size() > 0) {
-                                                latestDownloadUrl = assets[0].asJsonObject.get("browser_download_url")?.asString
-                                            } else {
-                                                latestDownloadUrl = null
-                                                releasePageUrl = json.get("html_url")?.asString
-                                            }
-                                        }
-                                    } catch (e: Exception) { updateCheckState = "error:${e.message?.take(50)}" }
-                                }
-                            }
-                            .padding(horizontal = 20.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        val (updIcon, updColor) = when {
-                            updateCheckState == "checking" -> Icons.Default.Refresh to MiuixTheme.colorScheme.onSurfaceVariantSummary
-                            updateCheckState == "latest" -> Icons.Default.CheckCircle to MiuixTheme.colorScheme.primary
-                            updateCheckState == "ahead" -> Icons.Default.AutoAwesome to MiuixTheme.colorScheme.primary
-                            updateCheckState?.startsWith("error:") == true -> Icons.Default.ErrorOutline to MiuixTheme.colorScheme.error
-                            updateCheckState != null -> Icons.Default.NewReleases to MiuixTheme.colorScheme.primaryVariant
-                            else -> Icons.Default.SystemUpdate to MiuixTheme.colorScheme.onSurfaceVariantSummary
-                        }
-                        Surface(shape = CircleShape, color = updColor.copy(alpha = 0.1f), modifier = Modifier.size(36.dp)) {
-                            Box(contentAlignment = Alignment.Center) {
-                                if (updateCheckState == "checking")
-                                    CircularProgressIndicator(size = 18.dp, strokeWidth = 2.dp, colors = ProgressIndicatorDefaults.progressIndicatorColors(foregroundColor = updColor))
-                                else Icon(updIcon, null, Modifier.size(18.dp), tint = updColor)
-                            }
-                        }
-                        Spacer(Modifier.width(14.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text("检查更新", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium)
-                            Text(
-                                when {
-                                    updateCheckState == "checking" -> "检查中…"
-                                    updateCheckState == "latest" -> "当前已是最新版本"
-                                    updateCheckState == "ahead" -> "已是抢先预览版本"
-                                    updateCheckState?.startsWith("error:") == true -> "检查失败，点击重试"
-                                    updateCheckState != null -> "发现新版本 v$updateCheckState"
-                                    else -> "当前版本 v${BuildConfig.VERSION_NAME}"
-                                },
-                                style = MiuixTheme.textStyles.body2,
-                                color = when {
-                                    updateCheckState == "latest" || updateCheckState == "ahead" -> MiuixTheme.colorScheme.primary
-                                    updateCheckState?.startsWith("error:") == true -> MiuixTheme.colorScheme.error
-                                    updateCheckState != null && !updateCheckState!!.startsWith("error:") && updateCheckState != "latest" && updateCheckState != "checking" && updateCheckState != "ahead" -> MiuixTheme.colorScheme.primaryVariant
-                                    else -> MiuixTheme.colorScheme.onSurfaceVariantSummary
-                                }
-                            )
-                        }
-                        val hasNewVersion = updateCheckState != null && !updateCheckState!!.startsWith("error:") && updateCheckState != "latest" && updateCheckState != "checking" && updateCheckState != "ahead"
-                        if (latestDownloadUrl != null && hasNewVersion) {
-                            if (isDownloading) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    CircularProgressIndicator(
-                                        progress = downloadProgress,
-                                        size = 20.dp,
-                                        strokeWidth = 2.dp,
-                                        colors = ProgressIndicatorDefaults.progressIndicatorColors(foregroundColor = MiuixTheme.colorScheme.primary)
-                                    )
-                                    Spacer(Modifier.width(6.dp))
-                                    Text(
-                                        "${(downloadProgress * 100).toInt()}%",
-                                        style = MiuixTheme.textStyles.footnote1,
-                                        color = MiuixTheme.colorScheme.primary
-                                    )
-                                }
-                            } else {
-                                Button(
-                                    onClick = {
-                                        val pm = updateContext.packageManager
-                                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O
-                                            && !pm.canRequestPackageInstalls()
-                                        ) {
-                                            val intent = android.content.Intent(
-                                                android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                                                android.net.Uri.parse("package:${updateContext.packageName}")
-                                            ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                                            updateContext.startActivity(intent)
-                                        } else {
-                                            isDownloading = true
-                                            downloadProgress = 0f
-                                            updateScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                                                try {
-                                                    val dlClient = okhttp3.OkHttpClient.Builder()
-                                                        .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-                                                        .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
-                                                        .build()
-                                                    val dlReq = okhttp3.Request.Builder().url(latestDownloadUrl!!).build()
-                                                    val dlResp = dlClient.newCall(dlReq).execute()
-                                                    val dlBody = dlResp.body ?: throw Exception("空响应")
-                                                    val contentLength = dlBody.contentLength()
-                                                    val apkFile = java.io.File(updateContext.cacheDir, "update.apk")
-                                                    dlBody.byteStream().use { input ->
-                                                        apkFile.outputStream().use { output ->
-                                                            val buffer = ByteArray(8192)
-                                                            var downloaded = 0L
-                                                            var count: Int
-                                                            while (input.read(buffer).also { count = it } != -1) {
-                                                                output.write(buffer, 0, count)
-                                                                downloaded += count
-                                                                if (contentLength > 0) {
-                                                                    downloadProgress = downloaded.toFloat() / contentLength.toFloat()
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                                        isDownloading = false
-                                                        val apkUri = androidx.core.content.FileProvider.getUriForFile(
-                                                            updateContext,
-                                                            "${updateContext.packageName}.fileprovider",
-                                                            apkFile
-                                                        )
-                                                        val installIntent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
-                                                            setDataAndType(apkUri, "application/vnd.android.package-archive")
-                                                            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                                            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                                                        }
-                                                        updateContext.startActivity(installIntent)
-                                                    }
-                                                } catch (e: Exception) {
-                                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                                        isDownloading = false
-                                                        updateCheckState = "error:下载失败"
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    },
-                                    modifier = Modifier,
-                                    insideMargin = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                    colors = ButtonDefaults.buttonColors(color = MiuixTheme.colorScheme.primary)
-                                ) {
-                                    Icon(Icons.Default.Download, null, Modifier.size(14.dp), tint = MiuixTheme.colorScheme.onPrimary)
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("下载更新", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onPrimary)
-                                }
-                            }
-                        } else if (releasePageUrl != null && hasNewVersion) {
-                            val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
-                            Button(
-                                onClick = { uriHandler.openUri(releasePageUrl!!) },
-                                modifier = Modifier,
-                                insideMargin = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                colors = ButtonDefaults.buttonColors(color = MiuixTheme.colorScheme.secondaryContainer)
-                            ) {
-                                Icon(Icons.Default.OpenInBrowser, null, Modifier.size(14.dp), tint = MiuixTheme.colorScheme.onSecondaryContainer)
-                                Spacer(Modifier.width(4.dp))
-                                Text("查看", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSecondaryContainer)
-                            }
-                        } else if (updateCheckState != "checking" && updateCheckState != "ahead") {
-                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f))
-                        }
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            // ━━ 开源社区卡片 ━━
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                cornerRadius = 20.dp,
-                colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
-            ) {
-                Column {
-                    // 反馈建议 — 引导提 Issue
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .pressOverlay { uriHandler.openUri("https://github.com/yeliqin666/xjtu-toolbox-android/issues") }
-                            .padding(horizontal = 20.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Surface(shape = CircleShape, color = MiuixTheme.colorScheme.primary.copy(alpha = 0.12f), modifier = Modifier.size(36.dp)) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.Feedback, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.primary)
-                            }
-                        }
-                        Spacer(Modifier.width(14.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text("反馈 · 建议 · 想法", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium)
-                            Text("发现 Bug？有新点子？来 Issue 告诉我", style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                        }
-                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f))
-                    }
-
-                    HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MiuixTheme.colorScheme.outline.copy(alpha = 0.3f))
-
-                    // 致谢行
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .pressOverlay { uriHandler.openUri("https://github.com/yan-xiaoo/XJTUToolBox") }
-                            .padding(horizontal = 20.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Surface(shape = CircleShape, color = MiuixTheme.colorScheme.error.copy(alpha = 0.12f), modifier = Modifier.size(36.dp)) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.Favorite, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.error)
-                            }
-                        }
-                        Spacer(Modifier.width(14.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text("致谢", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium)
-                            Text("XJTUToolBox by yan-xiaoo", style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                        }
-                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f))
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            // ━━ 开发计划卡片 ━━
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                cornerRadius = 20.dp,
-                colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
-            ) {
-                Column {
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .pressOverlay { plansExpanded = !plansExpanded }
-                            .padding(horizontal = 20.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Surface(shape = CircleShape, color = MiuixTheme.colorScheme.primaryVariant.copy(alpha = 0.12f), modifier = Modifier.size(36.dp)) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.RocketLaunch, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.primaryVariant)
-                            }
-                        }
-                        Spacer(Modifier.width(14.dp))
-                        Text("开发计划", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-                        Icon(
-                            if (plansExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                            null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f)
-                        )
-                    }
-                    androidx.compose.animation.AnimatedVisibility(visible = plansExpanded) {
-                        Column(Modifier.padding(start = 20.dp, end = 20.dp, bottom = 14.dp)) {
-                            val plans = listOf(
-                                "图书馆座位推荐",
-                                "餐券领取 & 付款码优化",
-                                "智能选课助手",
-                                "通知聚合订阅 & Push",
-                                "电子教材在线阅读"
-                            )
-                            plans.forEachIndexed { idx, plan ->
-                                Row(Modifier.padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Surface(shape = CircleShape, color = MiuixTheme.colorScheme.primaryVariant.copy(alpha = 0.10f), modifier = Modifier.size(20.dp)) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Text("${idx + 1}", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.primaryVariant, fontWeight = FontWeight.Bold)
-                                        }
-                                    }
-                                    Spacer(Modifier.width(10.dp))
-                                    Text(plan, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                                 }
                             }
                         }
@@ -4310,5 +4119,181 @@ private fun UpdateNoticeDialog(show: MutableState<Boolean>, onDismiss: () -> Uni
         }
         Spacer(Modifier.height(16.dp))
         Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+    }
+}
+
+// ══════════════════════════════════════════
+//  自动更新弹窗（启动时后台检查到新版本时弹出）
+// ══════════════════════════════════════════
+
+@Composable
+private fun AutoUpdateDialog(
+    version: String,
+    body: String,
+    downloadUrl: String,
+    releaseUrl: String,
+    onDismiss: () -> Unit
+) {
+    val show = remember { mutableStateOf(true) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var isDownloading by remember { mutableStateOf(false) }
+    var downloadProgress by remember { mutableFloatStateOf(0f) }
+
+    BackHandler(enabled = show.value) {
+        show.value = false
+        onDismiss()
+    }
+
+    SuperBottomSheet(
+        show = show,
+        title = "发现新版本 v$version",
+        onDismissRequest = {
+            show.value = false
+            onDismiss()
+        }
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+        ) {
+            // Release body（changelog）
+            if (body.isNotBlank()) {
+                val lines = body.split("\n").filter { it.isNotBlank() }
+                lines.forEach { line ->
+                    val trimmed = line.trim()
+                    if (trimmed.startsWith("##")) {
+                        Text(
+                            trimmed.removePrefix("##").trim(),
+                            style = MiuixTheme.textStyles.subtitle,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    } else if (trimmed.startsWith("-") || trimmed.startsWith("*")) {
+                        Row(Modifier.padding(vertical = 2.dp)) {
+                            Text("•", style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.outline)
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                trimmed.removePrefix("-").removePrefix("*").trim(),
+                                style = MiuixTheme.textStyles.body2,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    } else if (trimmed.isNotEmpty()) {
+                        Text(trimmed, style = MiuixTheme.textStyles.body2)
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            // 下载按钮
+            if (downloadUrl.isNotEmpty()) {
+                if (isDownloading) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        CircularProgressIndicator(
+                            progress = downloadProgress,
+                            size = 20.dp,
+                            strokeWidth = 2.dp,
+                            colors = ProgressIndicatorDefaults.progressIndicatorColors(foregroundColor = MiuixTheme.colorScheme.primary)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "${(downloadProgress * 100).toInt()}%",
+                            style = MiuixTheme.textStyles.body1,
+                            color = MiuixTheme.colorScheme.primary
+                        )
+                    }
+                } else {
+                    Button(
+                        onClick = {
+                            isDownloading = true
+                            downloadProgress = 0f
+                            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                try {
+                                    val dlClient = okhttp3.OkHttpClient.Builder()
+                                        .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                                        .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
+                                        .build()
+                                    val dlReq = okhttp3.Request.Builder().url(downloadUrl).build()
+                                    val dlResp = dlClient.newCall(dlReq).execute()
+                                    val dlBody = dlResp.body ?: throw Exception("空响应")
+                                    val contentLength = dlBody.contentLength()
+                                    val apkFile = java.io.File(context.cacheDir, "update.apk")
+                                    dlBody.byteStream().use { input ->
+                                        apkFile.outputStream().use { output ->
+                                            val buffer = ByteArray(8192)
+                                            var downloaded = 0L
+                                            var count: Int
+                                            while (input.read(buffer).also { count = it } != -1) {
+                                                output.write(buffer, 0, count)
+                                                downloaded += count
+                                                if (contentLength > 0) {
+                                                    downloadProgress = downloaded.toFloat() / contentLength.toFloat()
+                                                }
+                                            }
+                                        }
+                                    }
+                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                        isDownloading = false
+                                        show.value = false
+                                        onDismiss()
+                                        val apkUri = androidx.core.content.FileProvider.getUriForFile(
+                                            context,
+                                            "${context.packageName}.fileprovider",
+                                            apkFile
+                                        )
+                                        val installIntent = Intent(Intent.ACTION_VIEW).apply {
+                                            setDataAndType(apkUri, "application/vnd.android.package-archive")
+                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        }
+                                        context.startActivity(installIntent)
+                                    }
+                                } catch (e: Exception) {
+                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                        isDownloading = false
+                                        android.widget.Toast.makeText(context, "下载失败: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Download, null, Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("下载更新")
+                    }
+                }
+            }
+
+            // 查看 Release 页面按钮
+            if (releaseUrl.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+                TextButton(
+                    text = "在浏览器中查看",
+                    onClick = { uriHandler.openUri(releaseUrl) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
+            TextButton(
+                text = "稍后提醒",
+                onClick = {
+                    show.value = false
+                    onDismiss()
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+        }
     }
 }

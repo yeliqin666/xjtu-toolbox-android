@@ -147,6 +147,35 @@ class CredentialStore(context: Context) {
         appPrefs.edit().putBoolean("update_notice_$versionName", true).apply()
     }
 
+    // ── 设置页持久化（普通 SharedPreferences，非敏感） ──
+
+    /** 获取 app_settings SharedPreferences，供 Compose 端直接读取/写入 */
+    fun getAppPrefs(): SharedPreferences = appPrefs
+
+    var navBarStyle: String
+        get() = appPrefs.getString(KEY_NAV_BAR_STYLE, NAV_STYLE_FLOATING) ?: NAV_STYLE_FLOATING
+        set(value) { appPrefs.edit().putString(KEY_NAV_BAR_STYLE, value).apply() }
+
+    var darkMode: String
+        get() = appPrefs.getString(KEY_DARK_MODE, DARK_MODE_SYSTEM) ?: DARK_MODE_SYSTEM
+        set(value) { appPrefs.edit().putString(KEY_DARK_MODE, value).apply() }
+
+    var defaultTab: String
+        get() = appPrefs.getString(KEY_DEFAULT_TAB, TAB_HOME) ?: TAB_HOME
+        set(value) { appPrefs.edit().putString(KEY_DEFAULT_TAB, value).apply() }
+
+    var networkMode: String
+        get() = appPrefs.getString(KEY_NETWORK_MODE, NETWORK_AUTO) ?: NETWORK_AUTO
+        set(value) { appPrefs.edit().putString(KEY_NETWORK_MODE, value).apply() }
+
+    var autoCheckUpdate: Boolean
+        get() = appPrefs.getBoolean(KEY_AUTO_CHECK_UPDATE, true)
+        set(value) { appPrefs.edit().putBoolean(KEY_AUTO_CHECK_UPDATE, value).apply() }
+
+    var updateChannel: String
+        get() = appPrefs.getString(KEY_UPDATE_CHANNEL, CHANNEL_STABLE) ?: CHANNEL_STABLE
+        set(value) { appPrefs.edit().putString(KEY_UPDATE_CHANNEL, value).apply() }
+
     companion object {
         private const val KEY_USERNAME = "username"
         private const val KEY_PASSWORD = "password"
@@ -159,6 +188,30 @@ class CredentialStore(context: Context) {
         private const val KEY_EULA_VERSION = "eula_accepted_version"
         /** 用户协议版本号，更新协议内容时递增 */
         const val CURRENT_EULA_VERSION = 2
+
+        // ── 设置页键 ──
+        private const val KEY_NAV_BAR_STYLE = "nav_bar_style"
+        private const val KEY_DARK_MODE = "dark_mode"
+        private const val KEY_DEFAULT_TAB = "default_tab"
+        private const val KEY_NETWORK_MODE = "network_mode"
+        private const val KEY_AUTO_CHECK_UPDATE = "auto_check_update"
+        private const val KEY_UPDATE_CHANNEL = "update_channel"
+
+        // ── 设置值常量 ──
+        const val NAV_STYLE_FLOATING = "floating"
+        const val NAV_STYLE_CLASSIC = "classic"
+        const val DARK_MODE_SYSTEM = "system"
+        const val DARK_MODE_LIGHT = "light"
+        const val DARK_MODE_DARK = "dark"
+        const val TAB_HOME = "HOME"
+        const val TAB_COURSES = "COURSES"
+        const val TAB_TOOLS = "TOOLS"
+        const val TAB_PROFILE = "PROFILE"
+        const val NETWORK_AUTO = "auto"
+        const val NETWORK_DIRECT = "direct"
+        const val NETWORK_VPN = "vpn"
+        const val CHANNEL_STABLE = "stable"
+        const val CHANNEL_BETA = "beta"
     }
 }
 

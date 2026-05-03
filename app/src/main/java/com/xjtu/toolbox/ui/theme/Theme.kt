@@ -11,12 +11,26 @@ import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeController
 
+/**
+ * @param darkModeOverride "system" | "light" | "dark" — 手动覆盖系统深色模式
+ */
 @Composable
 fun XJTUToolBoxTheme(
+    darkModeOverride: String = "system",
     content: @Composable () -> Unit
 ) {
-    val controller = remember { ThemeController(ColorSchemeMode.System) }
-    val darkTheme = isSystemInDarkTheme()
+    val mode = when (darkModeOverride) {
+        "light" -> ColorSchemeMode.Light
+        "dark" -> ColorSchemeMode.Dark
+        else -> ColorSchemeMode.System
+    }
+    val controller = remember(darkModeOverride) { ThemeController(mode) }
+    val systemDark = isSystemInDarkTheme()
+    val darkTheme = when (darkModeOverride) {
+        "light" -> false
+        "dark" -> true
+        else -> systemDark
+    }
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {

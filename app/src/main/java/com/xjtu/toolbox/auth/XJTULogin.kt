@@ -54,15 +54,22 @@ class MFAContext(
 ) {
     var gid: String? = null
     private var phoneNumber: String? = null
+    /** MFA 页面中提取的 secState（验证完成后用于免密提交） */
+    var secState: String? = null
+    /** MFA 页面中的新 execution（与登录页的 execution 不同） */
+    var mfaExecution: String? = null
 
     /**
      * 获取绑定的手机号（中间四位屏蔽）
+     * 新版 CAS 路径为 /cas/sec/initByType/securephone
      */
     fun getPhoneNumber(): String {
         phoneNumber?.let { return it }
 
+        // 优先用 secState（MFA 页面提取的），否则用 detect 返回的 state
+        val queryState = secState ?: state
         val request = Request.Builder()
-            .url("https://login.xjtu.edu.cn/cas/mfa/initByType/securephone?state=$state")
+            .url("https://login.xjtu.edu.cn/cas/sec/initByType/securephone?state=$queryState")
             .get()
             .build()
 
@@ -74,7 +81,7 @@ class MFAContext(
             phoneNumber = data.get("securePhone").asString
             return phoneNumber!!
         } else {
-            throw RuntimeException("获取手机号失败")
+            throw RuntimeException("获取手机号失败: ${json.get("message")?.asString ?: "未知错误"}")
         }
     }
 
@@ -117,6 +124,29 @@ class MFAContext(
         if (result.get("code").asInt != 0) {
             throw RuntimeException(result.get("message").asString)
         }
+
+        // --- 验证码成功后，必须将 secState 提交回 CAS 以获取最终的 TGC ---
+        val secStateVal = secState ?: return
+        val mfaExec = mfaExecution ?: return
+        
+        // 关键点1：必须带有原请求的 service 参数
+        val encodedService = java.net.URLEncoder.encode(login.serviceUrl.ifEmpty { "https://webvpn.xjtu.edu.cn" }, "UTF-8")
+        val finalUrl = "https://login.xjtu.edu.cn/cas/login?service=$encodedService"
+
+        val formBody = FormBody.Builder()
+            .add("secState", secStateVal)
+            .add("execution", mfaExec)
+            .add("_eventId", "submit") // 关键点2：必须带 _eventId (通过 Python 测试得出的结论)
+            .build()
+
+        val secRequest = Request.Builder()
+            .url(finalUrl)
+            .header("Referer", finalUrl)
+            .post(formBody)
+            .build()
+
+        val secResponse = login.client.newCall(secRequest).execute()
+        android.util.Log.d("XJTULogin", "secState submit code: ${secResponse.code}")
     }
 }
 
@@ -151,6 +181,9 @@ open class XJTULogin(
 
     // 登录提交的 URL
     private var postUrl: String
+
+    // CAS 认证的目标 Service URL（MFA 完成后获取 TGC 所需）
+    private var serviceUrl: String = ""
 
     // CAS execution 字段（防 CSRF）
     private var executionInput: String
@@ -207,6 +240,12 @@ open class XJTULogin(
         val response = client.newCall(request).execute()
         val responseBody = response.body?.string() ?: ""
         postUrl = response.request.url.toString()
+        serviceUrl = try {
+            java.net.URLDecoder.decode(
+                java.net.URI(loginUrl).query?.split("&")?.find { it.startsWith("service=") }?.substringAfter("service=") ?: "",
+                "UTF-8"
+            )
+        } catch (_: Exception) { "" }
 
         android.util.Log.d(TAG, "init: responseCode=${response.code}, postUrl=$postUrl")
         android.util.Log.d(TAG, "init: responseBodyLen=${responseBody.length}")
@@ -376,6 +415,24 @@ open class XJTULogin(
             return LoginResult(LoginState.FAIL, "登录失败: $alertMessage")
         }
 
+        // ── 检测 MFA 页面：POST 返回 200 HTML 且含 secState 隐藏域 ──
+        // 新版 CAS 在表单提交后可能直接返回「安全认证」页面（而非 302 重定向），
+        // 页面中含 <input name="secState" value="..."/> 和新的 execution
+        if (loginResponse.code == 200 && loginBody.contains("name=\"secState\"")) {
+            android.util.Log.d("XJTULogin", "login: MFA page detected, extracting secState...")
+            val secStateValue = extractHiddenInput(loginBody, "secState")
+            val mfaExecValue = extractHiddenInput(loginBody, "execution")
+            if (secStateValue.isNotEmpty()) {
+                // 创建/更新 MFAContext，携带 secState 和新 execution
+                mfaContext = MFAContext(this, secStateValue, required = true).also {
+                    it.secState = secStateValue
+                    it.mfaExecution = mfaExecValue
+                }
+                hasLogin = false
+                return LoginResult(LoginState.REQUIRE_MFA, mfaContext = mfaContext)
+            }
+        }
+
         failCount = 0
         hasLogin = true
 
@@ -492,6 +549,12 @@ open class XJTULogin(
         val loginBody = loginResp.body?.string() ?: ""
         val loginFinalUrl = loginResp.request.url.toString()
         android.util.Log.d("XJTULogin", "casAuthenticate: POST → code=${loginResp.code}, finalUrl=$loginFinalUrl")
+        // 检测 MFA 页面：若返回含 secState 则说明 TGC 过期后重新登录触发了 MFA，
+        // 静默重认证无法处理 MFA，返回 null 让调用方回退到完整登录流程
+        if (loginBody.contains("name=\"secState\"")) {
+            android.util.Log.w("XJTULogin", "casAuthenticate: MFA triggered during re-auth, cannot proceed silently")
+            return null
+        }
         return Pair(loginBody, loginFinalUrl)
     }
 
@@ -630,6 +693,12 @@ open class XJTULogin(
     private fun extractExecutionValue(html: String): String {
         val doc = Jsoup.parse(html)
         val input = doc.select("input[name=execution]").first()
+        return input?.attr("value") ?: ""
+    }
+
+    private fun extractHiddenInput(html: String, name: String): String {
+        val doc = Jsoup.parse(html)
+        val input = doc.select("input[name=$name]").first()
         return input?.attr("value") ?: ""
     }
 
