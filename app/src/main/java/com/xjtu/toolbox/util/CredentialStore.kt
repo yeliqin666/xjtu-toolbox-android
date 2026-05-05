@@ -200,6 +200,7 @@ class CredentialStore(context: Context) {
         // ── 设置值常量 ──
         const val NAV_STYLE_FLOATING = "floating"
         const val NAV_STYLE_CLASSIC = "classic"
+        const val NAV_STYLE_LIQUID = "liquid"
         const val DARK_MODE_SYSTEM = "system"
         const val DARK_MODE_LIGHT = "light"
         const val DARK_MODE_DARK = "dark"

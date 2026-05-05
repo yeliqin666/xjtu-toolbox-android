@@ -66,6 +66,8 @@ import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.rememberHazeState
 import dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi
 import dev.chrisbanes.haze.materials.HazeMaterials
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
@@ -115,6 +117,8 @@ import com.xjtu.toolbox.notification.NotificationScreen
 import com.xjtu.toolbox.library.LibraryScreen
 import com.xjtu.toolbox.judge.JudgeScreen
 import com.xjtu.toolbox.score.ScoreReportScreen
+import com.xjtu.toolbox.ui.liquid_glass_theme.LiquidGlassNavItem
+import com.xjtu.toolbox.ui.liquid_glass_theme.LiquidGlassNavigationBar
 import com.xjtu.toolbox.ui.theme.XJTUToolBoxTheme
 import com.xjtu.toolbox.ui.settings.SettingsScreen
 import com.xjtu.toolbox.util.CredentialStore
@@ -1762,6 +1766,14 @@ private fun MainScreen(
 
     // 底栏风格
     var navBarStyle by remember { mutableStateOf(credentialStore.navBarStyle) }
+    DisposableEffect(credentialStore) {
+        val appPrefs = credentialStore.getAppPrefs()
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+            navBarStyle = credentialStore.navBarStyle
+        }
+        appPrefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { appPrefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var lastBackPressTime by remember { mutableLongStateOf(0L) }
@@ -1899,6 +1911,16 @@ private fun MainScreen(
     val hazeState = rememberHazeState()
     @OptIn(ExperimentalHazeMaterialsApi::class)
     val hazeStyle = HazeMaterials.regular(MiuixTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+    val liquidBackdrop = rememberLayerBackdrop()
+    val liquidNavItems = remember {
+        BottomTab.entries.map { tab ->
+            LiquidGlassNavItem(
+                label = tab.label,
+                selectedIcon = tab.selectedIcon,
+                unselectedIcon = tab.unselectedIcon
+            )
+        }
+    }
 
     // HOME 大标题
     val homeGreeting = if (loginState.isLoggedIn) {
@@ -1930,7 +1952,7 @@ private fun MainScreen(
                 }
             )
         },
-        bottomBar = if (navBarStyle == "classic") {
+        bottomBar = if (navBarStyle == CredentialStore.NAV_STYLE_CLASSIC) {
             {
                 @OptIn(ExperimentalHazeMaterialsApi::class)
                 NavigationBar(
@@ -1950,29 +1972,58 @@ private fun MainScreen(
         } else {
             {}
         },
-        floatingToolbar = if (navBarStyle == "floating") {
-            {
-                @OptIn(ExperimentalHazeMaterialsApi::class)
-                FloatingNavigationBar(
-                    color = androidx.compose.ui.graphics.Color.Transparent,
-                    modifier = Modifier.hazeEffect(state = hazeState, style = hazeStyle),
-                    mode = NavigationDisplayMode.IconOnly
-                ) {
-                    BottomTab.entries.forEach { tab ->
-                        FloatingNavigationBarItem(
-                            selected = selectedTab == tab,
-                            onClick = { selectedTabOrdinal = tab.ordinal },
-                            icon = if (selectedTab == tab) tab.selectedIcon else tab.unselectedIcon,
-                            label = tab.label
-                        )
+        floatingToolbar = when (navBarStyle) {
+            CredentialStore.NAV_STYLE_FLOATING -> {
+                {
+                    @OptIn(ExperimentalHazeMaterialsApi::class)
+                    FloatingNavigationBar(
+                        color = androidx.compose.ui.graphics.Color.Transparent,
+                        modifier = Modifier.hazeEffect(state = hazeState, style = hazeStyle),
+                        mode = NavigationDisplayMode.IconOnly
+                    ) {
+                        BottomTab.entries.forEach { tab ->
+                            FloatingNavigationBarItem(
+                                selected = selectedTab == tab,
+                                onClick = { selectedTabOrdinal = tab.ordinal },
+                                icon = if (selectedTab == tab) tab.selectedIcon else tab.unselectedIcon,
+                                label = tab.label
+                            )
+                        }
                     }
                 }
             }
-        } else {
-            {}
+            CredentialStore.NAV_STYLE_LIQUID -> {
+                {
+                    LiquidGlassNavigationBar(
+                        items = liquidNavItems,
+                        selectedIndex = selectedTab.ordinal,
+                        onItemSelected = { selectedTabOrdinal = it },
+                        backdrop = liquidBackdrop,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 18.dp)
+                            .navigationBarsPadding()
+                    )
+                }
+            }
+            else -> {
+                {}
+            }
         }
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding).hazeSource(state = hazeState)) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .then(
+                    if (navBarStyle == CredentialStore.NAV_STYLE_LIQUID) {
+                        Modifier.layerBackdrop(liquidBackdrop)
+                    } else {
+                        Modifier
+                    }
+                )
+                .padding(padding)
+                .hazeSource(state = hazeState)
+        ) {
             // 需要联网的无登录路由（空闲教室、通知公告等纯网络功能）
             val networkRequiredRoutes = setOf(Routes.EMPTY_ROOM, Routes.NOTIFICATION)
             val onNavigateWithNetCheck: (String) -> Unit = { route ->

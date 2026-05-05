@@ -166,10 +166,15 @@ fun SettingsScreen(
                     icon = Icons.Default.SpaceBar,
                     iconColor = MiuixTheme.colorScheme.primaryVariant,
                     title = "底栏风格",
-                    subtitle = if (navBarStyle == CredentialStore.NAV_STYLE_FLOATING) "悬浮胶囊" else "经典底栏",
+                    subtitle = when (navBarStyle) {
+                        CredentialStore.NAV_STYLE_FLOATING -> "悬浮胶囊"
+                        CredentialStore.NAV_STYLE_LIQUID -> "液态玻璃"
+                        else -> "经典底栏"
+                    },
                     options = listOf(
                         "悬浮胶囊" to CredentialStore.NAV_STYLE_FLOATING,
-                        "经典底栏" to CredentialStore.NAV_STYLE_CLASSIC
+                        "经典底栏" to CredentialStore.NAV_STYLE_CLASSIC,
+                        "液态玻璃" to CredentialStore.NAV_STYLE_LIQUID
                     ),
                     selected = navBarStyle,
                     onSelect = {
