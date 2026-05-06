@@ -9,5 +9,7 @@
         <domain includeSubdomains="true">xjtu.edu.cn</domain>
         <!-- 体育场馆预订服务器（纯 IP，无域名，HTTP only） -->
         <domain includeSubdomains="false">202.117.17.144</domain>
+        <!-- Srun 校园网认证网关（XJTU_STU），通过 HTTP 直连即可 -->
+        <domain includeSubdomains="false">10.6.18.2</domain>
     </domain-config>
 </network-security-config>

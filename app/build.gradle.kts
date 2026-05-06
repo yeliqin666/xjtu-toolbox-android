@@ -7,8 +7,7 @@ plugins {
 android {
     namespace = "com.xjtu.toolbox"
     compileSdk {
-        version = release(36) {
-            minorApiLevel = 1
+        version = release(37) {
         }
     }
 
@@ -16,8 +15,8 @@ android {
         applicationId = "com.xjtu.toolbox"
         minSdk = 31
         targetSdk = 36
-        versionCode = 19
-        versionName = "3.3.0"
+        versionCode = 36
+        versionName = "4.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -91,10 +90,9 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
-    implementation("top.yukonga.miuix.kmp:miuix-android:0.8.5")
-    implementation("top.yukonga.miuix.kmp:miuix-icons-android:0.8.5")
-    implementation("dev.chrisbanes.haze:haze-android:1.7.2")
-    implementation("dev.chrisbanes.haze:haze-materials-android:1.7.2")
+    implementation("top.yukonga.miuix.kmp:miuix-ui-android:0.9.2")
+    implementation("top.yukonga.miuix.kmp:miuix-preference-android:0.9.2")
+    implementation("top.yukonga.miuix.kmp:miuix-icons-android:0.9.2")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

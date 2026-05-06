@@ -1,34 +1,46 @@
 package com.xjtu.toolbox.ui.settings
 
-import android.os.Environment
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.DeleteSweep
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Feedback
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.OpenInBrowser
-import androidx.compose.material.icons.filled.SettingsSuggest
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SpaceBar
-import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Tab
-import androidx.compose.material.icons.filled.Wifi
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Back
+import top.yukonga.miuix.kmp.icon.extended.Theme
+import top.yukonga.miuix.kmp.icon.extended.Carrier
+import top.yukonga.miuix.kmp.icon.extended.CloudFill
+import top.yukonga.miuix.kmp.icon.extended.Delete
+import top.yukonga.miuix.kmp.icon.extended.Folder
+import top.yukonga.miuix.kmp.icon.extended.Update
+import top.yukonga.miuix.kmp.icon.extended.Settings
+import top.yukonga.miuix.kmp.icon.extended.Recent
+import top.yukonga.miuix.kmp.icon.extended.Forward
+import top.yukonga.miuix.kmp.icon.extended.Report
+import top.yukonga.miuix.kmp.icon.extended.File
+import top.yukonga.miuix.kmp.icon.extended.Info
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
@@ -45,32 +57,38 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.BuildConfig
+import com.xjtu.toolbox.AutoUpdateDialog
+import com.xjtu.toolbox.auth.AccountType
+import com.xjtu.toolbox.util.AppUpdateInfo
+import com.xjtu.toolbox.util.AppUpdater
 import com.xjtu.toolbox.util.CredentialStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
-import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Surface
-import top.yukonga.miuix.kmp.basic.Switch
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
-import top.yukonga.miuix.kmp.extra.SuperBottomSheet
-import top.yukonga.miuix.kmp.extra.SuperDialog
+import top.yukonga.miuix.kmp.preference.ArrowPreference
+import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
+import top.yukonga.miuix.kmp.overlay.OverlayDialog
+import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
+import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
-import java.io.File
 
 @Composable
 fun SettingsScreen(
@@ -78,7 +96,8 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onNavBarStyleChanged: (String) -> Unit = {},
     onDarkModeChanged: (String) -> Unit = {},
-    onDefaultTabChanged: (String) -> Unit = {}
+    onDefaultTabChanged: (String) -> Unit = {},
+    onOpenDownloads: () -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -90,10 +109,12 @@ fun SettingsScreen(
     var networkMode by remember { mutableStateOf(credentialStore.networkMode) }
     var autoCheckUpdate by remember { mutableStateOf(credentialStore.autoCheckUpdate) }
     var updateChannel by remember { mutableStateOf(credentialStore.updateChannel) }
+    var accountType by remember { mutableStateOf(credentialStore.accountType) }
     var cacheSizeText by remember { mutableStateOf("计算中...") }
     var showChangelog by remember { mutableStateOf(false) }
     var showEula by remember { mutableStateOf(false) }
     var showClearCacheDialog by remember { mutableStateOf(false) }
+    var pendingUpdate by remember { mutableStateOf<AppUpdateInfo?>(null) }
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
 
     LaunchedEffect(Unit) {
@@ -104,27 +125,61 @@ fun SettingsScreen(
         }
     }
 
+    // 设置页低饱和多彩调色板
+    val cPurple = Color(0xFF7E57C2)
+    val cBlue = Color(0xFF42A5F5)
+    val cTeal = Color(0xFF26A69A)
+    val cIndigo = Color(0xFF5C6BC0)
+    val cBlueGray = Color(0xFF78909C)
+    val cRed = Color(0xFFEF5350)
+    val cBrown = Color(0xFFA1887F)
+    val cOrange = Color(0xFFFFA726)
+    val cDeepOrange = Color(0xFFFF7043)
+    val cGreen = Color(0xFF66BB6A)
+    val cPink = Color(0xFFEC407A)
+    val cLime = Color(0xFF9CCC65)
+
     val versionText = "v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
-    val lmsDownloadDir = remember {
-        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).absolutePath
-    }
-    val replayDownloadDir = remember {
-        File(
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-            "ClassReplay"
-        ).absolutePath
-    }
+    // ── 选项数据 ──
+    val darkModeOptions = listOf("跟随系统", "始终浅色", "始终深色")
+    val darkModeValues = listOf(
+        CredentialStore.DARK_MODE_SYSTEM,
+        CredentialStore.DARK_MODE_LIGHT,
+        CredentialStore.DARK_MODE_DARK
+    )
+    val navStyleOptions = listOf("悬浮胶囊", "经典底栏")
+    val navStyleValues = listOf(
+        CredentialStore.NAV_STYLE_FLOATING,
+        CredentialStore.NAV_STYLE_CLASSIC
+    )
+    val tabOptions = listOf("首页", "日程", "学辅", "我的")
+    val tabValues = listOf(
+        CredentialStore.TAB_HOME,
+        CredentialStore.TAB_COURSES,
+        CredentialStore.TAB_TOOLS,
+        CredentialStore.TAB_PROFILE
+    )
+    val networkOptions = listOf("自动检测", "强制直连", "强制 WebVPN")
+    val networkValues = listOf(
+        CredentialStore.NETWORK_AUTO,
+        CredentialStore.NETWORK_DIRECT,
+        CredentialStore.NETWORK_VPN
+    )
+    val channelOptions = AppUpdater.channelLabels
+    val channelValues = AppUpdater.channelKeys
+    val accountTypeOptions = AccountType.entries.map { it.displayName }
+    val accountTypeValues = AccountType.entries.toList()
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = "设置",
                 largeTitle = "设置",
-                color = MiuixTheme.colorScheme.surfaceVariant,
+                color = MiuixTheme.colorScheme.background,
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(MiuixIcons.Back, contentDescription = "返回")
                     }
                 }
             )
@@ -139,265 +194,382 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(padding)
         ) {
-            SettingsGroupHeader("外观")
+            // ── 外观 ──
+            SmallTitle("外观")
             SettingsCard {
-                SettingsRadioRow(
-                    icon = Icons.Default.DarkMode,
-                    iconColor = MiuixTheme.colorScheme.primary,
+                OverlayDropdownPreference(
                     title = "深色模式",
-                    subtitle = when (darkMode) {
-                        CredentialStore.DARK_MODE_LIGHT -> "始终浅色"
-                        CredentialStore.DARK_MODE_DARK -> "始终深色"
-                        else -> "跟随系统"
-                    },
-                    options = listOf(
-                        "跟随系统" to CredentialStore.DARK_MODE_SYSTEM,
-                        "始终浅色" to CredentialStore.DARK_MODE_LIGHT,
-                        "始终深色" to CredentialStore.DARK_MODE_DARK
-                    ),
-                    selected = darkMode,
-                    onSelect = {
-                        darkMode = it
-                        credentialStore.darkMode = it
-                        onDarkModeChanged(it)
+                    items = darkModeOptions,
+                    selectedIndex = darkModeValues.indexOf(darkMode).coerceAtLeast(0),
+                    startAction = { SettingsIcon(MiuixIcons.Theme, cPurple) },
+                    onSelectedIndexChange = { idx ->
+                        val v = darkModeValues[idx]
+                        darkMode = v
+                        credentialStore.darkMode = v
+                        onDarkModeChanged(v)
                     }
                 )
-                SettingsRadioRow(
-                    icon = Icons.Default.SpaceBar,
-                    iconColor = MiuixTheme.colorScheme.primaryVariant,
+                OverlayDropdownPreference(
                     title = "底栏风格",
-                    subtitle = if (navBarStyle == CredentialStore.NAV_STYLE_FLOATING) "悬浮胶囊" else "经典底栏",
-                    options = listOf(
-                        "悬浮胶囊" to CredentialStore.NAV_STYLE_FLOATING,
-                        "经典底栏" to CredentialStore.NAV_STYLE_CLASSIC
-                    ),
-                    selected = navBarStyle,
-                    onSelect = {
-                        navBarStyle = it
-                        credentialStore.navBarStyle = it
-                        onNavBarStyleChanged(it)
+                    items = navStyleOptions,
+                    selectedIndex = navStyleValues.indexOf(navBarStyle).coerceAtLeast(0),
+                    startAction = { SettingsIcon(MiuixIcons.Carrier, cBlue) },
+                    onSelectedIndexChange = { idx ->
+                        val v = navStyleValues[idx]
+                        navBarStyle = v
+                        credentialStore.navBarStyle = v
+                        onNavBarStyleChanged(v)
                     }
                 )
-                SettingsRadioRow(
-                    icon = Icons.Default.Tab,
-                    iconColor = MiuixTheme.colorScheme.secondary,
+                OverlayDropdownPreference(
                     title = "默认启动 Tab",
-                    subtitle = tabLabel(defaultTab),
-                    options = listOf(
-                        "首页" to CredentialStore.TAB_HOME,
-                        "日程" to CredentialStore.TAB_COURSES,
-                        "工具" to CredentialStore.TAB_TOOLS,
-                        "我的" to CredentialStore.TAB_PROFILE
-                    ),
-                    selected = defaultTab,
-                    onSelect = {
-                        defaultTab = it
-                        credentialStore.defaultTab = it
-                        onDefaultTabChanged(it)
+                    items = tabOptions,
+                    selectedIndex = tabValues.indexOf(defaultTab).coerceAtLeast(0),
+                    startAction = { SettingsIcon(Icons.Default.Tab, cTeal) },
+                    onSelectedIndexChange = { idx ->
+                        val v = tabValues[idx]
+                        defaultTab = v
+                        credentialStore.defaultTab = v
+                        onDefaultTabChanged(v)
                     }
                 )
             }
 
-            SettingsGroupHeader("网络")
+            // ── 网络 ──
+            SmallTitle("网络")
             SettingsCard {
-                SettingsRadioRow(
-                    icon = Icons.Default.Wifi,
-                    iconColor = MiuixTheme.colorScheme.primary,
+                OverlayDropdownPreference(
                     title = "连接模式",
-                    subtitle = when (networkMode) {
-                        CredentialStore.NETWORK_DIRECT -> "强制直连"
-                        CredentialStore.NETWORK_VPN -> "强制 WebVPN"
-                        else -> "自动检测"
-                    },
-                    options = listOf(
-                        "自动检测" to CredentialStore.NETWORK_AUTO,
-                        "强制直连" to CredentialStore.NETWORK_DIRECT,
-                        "强制 WebVPN" to CredentialStore.NETWORK_VPN
-                    ),
-                    selected = networkMode,
-                    onSelect = {
-                        networkMode = it
-                        credentialStore.networkMode = it
+                    items = networkOptions,
+                    selectedIndex = networkValues.indexOf(networkMode).coerceAtLeast(0),
+                    startAction = { SettingsIcon(MiuixIcons.Carrier, cIndigo) },
+                    onSelectedIndexChange = { idx ->
+                        val v = networkValues[idx]
+                        networkMode = v
+                        credentialStore.networkMode = v
                     }
                 )
+                OverlayDropdownPreference(
+                    title = "账号类型",
+                    items = accountTypeOptions,
+                    selectedIndex = accountTypeValues.indexOf(accountType).coerceAtLeast(0),
+                    summary = "影响登录身份选择与空闲教室默认查询方式",
+                    startAction = { SettingsIcon(MiuixIcons.Info, cBlue) },
+                    onSelectedIndexChange = { idx ->
+                        val v = accountTypeValues[idx]
+                        accountType = v
+                        credentialStore.accountType = v
+                    }
+                )
+                // ── 校园网（XJTU_STU）自动登录 ──
+                var srunEnabled by remember { mutableStateOf(credentialStore.srunAutoLoginEnabled) }
+                val srunCreds = remember { mutableStateOf(credentialStore.loadSrunCredentials()) }
+                val showSrunEdit = remember { mutableStateOf(false) }
+                var srunTesting by remember { mutableStateOf(false) }
+                var srunTestResult by remember { mutableStateOf<String?>(null) }
+                SwitchPreference(
+                    title = "校园网自动登录",
+                    summary = if (srunEnabled) {
+                        if (srunCreds.value != null)
+                            "连接到 XJTU_STU 时自动登录（账号: ${srunCreds.value!!.first}）"
+                        else
+                            "已开启，请配置账号"
+                    } else "已关闭",
+                    checked = srunEnabled,
+                    startAction = { SettingsIcon(MiuixIcons.Carrier, cBlue) },
+                    onCheckedChange = {
+                        srunEnabled = it
+                        credentialStore.srunAutoLoginEnabled = it
+                    }
+                )
+                ArrowPreference(
+                    title = "校园网账号与密码",
+                    summary = srunCreds.value?.let { "${it.first} · 已保存" } ?: "未保存",
+                    startAction = { SettingsIcon(MiuixIcons.Info, cBlue) },
+                    onClick = { showSrunEdit.value = true }
+                )
+                ArrowPreference(
+                    title = "立即测试登录",
+                    summary = srunTestResult ?: (if (srunTesting) "正在测试..." else "手动触发一次校园网登录"),
+                    startAction = { SettingsIcon(Icons.Default.Refresh, cBlue) },
+                    onClick = {
+                        if (srunTesting) return@ArrowPreference
+                        srunTesting = true
+                        srunTestResult = null
+                        scope.launch(Dispatchers.IO) {
+                            try {
+                                val creds = credentialStore.loadSrunCredentials()
+                                if (creds == null) {
+                                    srunTestResult = "请先填写账号密码"
+                                    srunTesting = false
+                                    return@launch
+                                }
+                                val srun = com.xjtu.toolbox.srun.SrunLogin()
+                                srunTestResult = when (val st = srun.queryStatus()) {
+                                    is com.xjtu.toolbox.srun.SrunStatus.Online ->
+                                        "已在线（${st.username}）"
+                                    com.xjtu.toolbox.srun.SrunStatus.NotLoggedIn -> {
+                                        val r = srun.login(creds.first, creds.second)
+                                        if (r.success) "登录成功" else "登录失败：${r.message}"
+                                    }
+                                    com.xjtu.toolbox.srun.SrunStatus.Unreachable ->
+                                        "网关不可达（不在 Srun 网段）"
+                                    com.xjtu.toolbox.srun.SrunStatus.UNKNOWN ->
+                                        "状态未知"
+                                }
+                            } finally {
+                                srunTesting = false
+                            }
+                        }
+                    }
+                )
+                if (showSrunEdit.value) {
+                    var u by remember { mutableStateOf(srunCreds.value?.first ?: "") }
+                    var p by remember { mutableStateOf(srunCreds.value?.second ?: "") }
+                    OverlayBottomSheet(
+                        show = showSrunEdit.value,
+                        title = "校园网账号",
+                        onDismissRequest = { showSrunEdit.value = false }
+                    ) {
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(
+                                "连接 XJTU_STU 时使用，账号需包含 @stu 或 @xjtu 后缀。",
+                                style = MiuixTheme.textStyles.body2,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                            )
+                            top.yukonga.miuix.kmp.basic.TextField(
+                                value = u, onValueChange = { u = it },
+                                label = "账号（含 @stu/@xjtu）",
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            top.yukonga.miuix.kmp.basic.TextField(
+                                value = p, onValueChange = { p = it },
+                                label = "密码",
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Password
+                                )
+                            )
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Button(
+                                    onClick = {
+                                        credentialStore.clearSrunCredentials()
+                                        srunCreds.value = null
+                                        showSrunEdit.value = false
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(
+                                        color = MiuixTheme.colorScheme.secondaryContainer
+                                    )
+                                ) {
+                                    Text("清除", color = MiuixTheme.colorScheme.onSecondaryContainer)
+                                }
+                                Button(
+                                    onClick = {
+                                        if (u.isNotBlank() && p.isNotBlank()) {
+                                            credentialStore.saveSrunCredentials(u.trim(), p)
+                                            srunCreds.value = u.trim() to p
+                                            showSrunEdit.value = false
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                ) { Text("保存") }
+                            }
+                        }
+                    }
+                }
             }
 
-            SettingsGroupHeader("数据")
+            // ── 数据 ──
+            SmallTitle("数据")
             SettingsCard {
-                SettingsInfoRow(
-                    icon = Icons.Default.Storage,
-                    iconColor = MiuixTheme.colorScheme.primaryVariant,
+                BasicComponent(
                     title = "缓存大小",
-                    subtitle = cacheSizeText
+                    summary = cacheSizeText,
+                    startAction = { SettingsIcon(MiuixIcons.CloudFill, cBlueGray) }
                 )
-                SettingsClickRow(
-                    icon = Icons.Default.DeleteSweep,
-                    iconColor = MiuixTheme.colorScheme.error,
+                ArrowPreference(
                     title = "清除缓存",
-                    subtitle = "清除临时文件和图片缓存，不影响登录状态与下载文件",
+                    summary = "清除临时文件和图片缓存，不影响登录与下载文件",
+                    startAction = { SettingsIcon(MiuixIcons.Delete, cRed) },
                     onClick = { showClearCacheDialog = true }
                 )
-                SettingsPathRow(
-                    icon = Icons.Default.Folder,
-                    iconColor = MiuixTheme.colorScheme.primaryVariant,
-                    title = "LMS 下载位置",
-                    path = lmsDownloadDir
-                )
-                SettingsPathRow(
-                    icon = Icons.Default.Folder,
-                    iconColor = MiuixTheme.colorScheme.secondary,
-                    title = "课堂回放下载位置",
-                    path = replayDownloadDir
+                ArrowPreference(
+                    title = "下载管理",
+                    summary = "查看思源课件和课堂回放，管理已下载文件",
+                    startAction = { SettingsIcon(MiuixIcons.Folder, cBrown) },
+                    onClick = onOpenDownloads
                 )
             }
 
-            SettingsGroupHeader("更新")
+            // ── 更新 ──
+            SmallTitle("更新")
             SettingsCard {
-                SettingsSwitchRow(
-                    icon = Icons.Default.SystemUpdate,
-                    iconColor = MiuixTheme.colorScheme.primaryVariant,
+                SwitchPreference(
                     title = "启动时检查更新",
-                    subtitle = "打开 App 时自动检查新版本",
+                    summary = "打开 App 时自动检查新版本",
                     checked = autoCheckUpdate,
                     onCheckedChange = {
                         autoCheckUpdate = it
                         credentialStore.autoCheckUpdate = it
+                    },
+                    startAction = { SettingsIcon(MiuixIcons.Update, cOrange) }
+                )
+                OverlayDropdownPreference(
+                    title = "更新渠道",
+                    items = channelOptions,
+                    selectedIndex = channelValues.indexOf(updateChannel).coerceAtLeast(0),
+                    summary = "当前：${AppUpdater.channelLabel(updateChannel)}",
+                    startAction = { SettingsIcon(MiuixIcons.Settings, cDeepOrange) },
+                    onSelectedIndexChange = { idx ->
+                        val v = channelValues[idx]
+                        updateChannel = v
+                        credentialStore.updateChannel = v
                     }
                 )
-                SettingsRadioRow(
-                    icon = Icons.Default.SettingsSuggest,
-                    iconColor = MiuixTheme.colorScheme.secondary,
-                    title = "更新渠道",
-                    subtitle = if (updateChannel == CredentialStore.CHANNEL_BETA) "测试版" else "稳定版",
-                    options = listOf(
-                        "稳定版" to CredentialStore.CHANNEL_STABLE,
-                        "测试版" to CredentialStore.CHANNEL_BETA
-                    ),
-                    selected = updateChannel,
-                    onSelect = {
-                        updateChannel = it
-                        credentialStore.updateChannel = it
+                var checkingUpdate by remember { mutableStateOf(false) }
+                ArrowPreference(
+                    title = "立即检查更新",
+                    summary = if (checkingUpdate) "正在检查..." else "手动从 ${AppUpdater.channelLabel(updateChannel)} 拉取最新版本",
+                    startAction = { SettingsIcon(Icons.Default.Refresh, cTeal) },
+                    onClick = {
+                        if (checkingUpdate) return@ArrowPreference
+                        checkingUpdate = true
+                        scope.launch {
+                            val result = runCatching { AppUpdater.check(updateChannel) }
+                            checkingUpdate = false
+                            result.fold(
+                                onSuccess = { update ->
+                                    if (update != null) {
+                                        pendingUpdate = update
+                                    } else {
+                                        Toast.makeText(
+                                            context,
+                                            "已是最新版本 v${BuildConfig.VERSION_NAME}",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                },
+                                onFailure = {
+                                    Toast.makeText(context, "检查失败：${it.message}", Toast.LENGTH_SHORT).show()
+                                }
+                            )
+                        }
                     }
                 )
             }
 
-            SettingsGroupHeader("关于")
+            // ── 关于 ──
+            SmallTitle("关于")
             SettingsCard {
-                SettingsInfoRow(
-                    icon = Icons.Default.Info,
-                    iconColor = MiuixTheme.colorScheme.primary,
+                BasicComponent(
                     title = "版本号",
-                    subtitle = versionText
+                    summary = versionText,
+                    startAction = { SettingsIcon(MiuixIcons.Info, cGreen) }
                 )
-                SettingsClickRow(
-                    icon = Icons.Default.History,
-                    iconColor = MiuixTheme.colorScheme.primaryVariant,
+                ArrowPreference(
                     title = "更新日志",
-                    subtitle = "查看历史版本变化",
+                    summary = "查看历史版本变化",
+                    startAction = { SettingsIcon(MiuixIcons.Recent, cTeal) },
                     onClick = { showChangelog = true }
                 )
-                SettingsClickRow(
-                    icon = Icons.Default.OpenInBrowser,
-                    iconColor = MiuixTheme.colorScheme.secondary,
+                ArrowPreference(
                     title = "项目主页",
-                    subtitle = "GitHub · yeliqin666/xjtu-toolbox-android",
+                    summary = "GitHub · yeliqin666/xjtu-toolbox-android",
+                    startAction = { SettingsIcon(MiuixIcons.Forward, cBlue) },
                     onClick = { uriHandler.openUri("https://github.com/yeliqin666/xjtu-toolbox-android") }
                 )
-                SettingsClickRow(
-                    icon = Icons.Default.Feedback,
-                    iconColor = MiuixTheme.colorScheme.primaryVariant,
+                ArrowPreference(
                     title = "反馈建议",
-                    subtitle = "提交 GitHub Issue",
+                    summary = "提交 GitHub Issue",
+                    startAction = { SettingsIcon(MiuixIcons.Report, cPink) },
                     onClick = { uriHandler.openUri("https://github.com/yeliqin666/xjtu-toolbox-android/issues") }
                 )
-                SettingsClickRow(
-                    icon = Icons.Default.Description,
-                    iconColor = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                ArrowPreference(
                     title = "用户协议与隐私政策",
-                    subtitle = "",
+                    startAction = { SettingsIcon(MiuixIcons.File, cPurple) },
                     onClick = { showEula = true }
                 )
             }
 
-            SettingsGroupHeader("致谢")
+            // ── 致谢 ──
+            SmallTitle("致谢")
             SettingsCard {
-                SettingsClickRow(
-                    icon = Icons.Default.Info,
-                    iconColor = MiuixTheme.colorScheme.primary,
+                ArrowPreference(
                     title = "XJTUToolBox by yan-xiaoo",
-                    subtitle = "初代工具箱项目",
+                    summary = "开源社区项目",
+                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
                     onClick = { uriHandler.openUri("https://github.com/yan-xiaoo/XJTUToolBox") }
                 )
             }
 
-            Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.height(16.dp))
             Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
         }
-    }
 
-    if (showClearCacheDialog) {
-        SuperDialog(
-            show = remember { mutableStateOf(true) }.also { it.value = showClearCacheDialog },
-            title = "清除缓存",
-            summary = "将清除约 $cacheSizeText 的临时缓存，不会影响登录状态和下载文件。",
-            onDismissRequest = { showClearCacheDialog = false }
-        ) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                TextButton(
-                    text = "取消",
-                    onClick = { showClearCacheDialog = false },
-                    modifier = Modifier.weight(1f)
-                )
-                Button(
-                    onClick = {
-                        showClearCacheDialog = false
-                        scope.launch(Dispatchers.IO) {
-                            val cleared = runCatching {
-                                context.cacheDir.deleteRecursively()
-                                context.cacheDir.mkdirs()
-                            }.isSuccess
-                            withContext(Dispatchers.Main) {
-                                if (cleared) {
-                                    cacheSizeText = "0 B"
-                                    Toast.makeText(context, "缓存已清除", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    Toast.makeText(context, "清除失败", Toast.LENGTH_SHORT).show()
+        // ── Sheets / Dialogs（必须在 Scaffold 内，MIUIX MiuixPopupHost 才能渲染）──
+        if (showClearCacheDialog) {
+            OverlayDialog(
+                show = showClearCacheDialog,
+                title = "清除缓存",
+                summary = "将清除约 $cacheSizeText 的临时缓存，不会影响登录状态和下载文件。",
+                onDismissRequest = { showClearCacheDialog = false }
+            ) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TextButton(
+                        text = "取消",
+                        onClick = { showClearCacheDialog = false },
+                        modifier = Modifier.weight(1f)
+                    )
+                    Button(
+                        onClick = {
+                            showClearCacheDialog = false
+                            scope.launch(Dispatchers.IO) {
+                                val cleared = runCatching {
+                                    context.cacheDir.deleteRecursively()
+                                    context.cacheDir.mkdirs()
+                                }.isSuccess
+                                // 重新计算实际缓存大小，刷新 UI
+                                val newSize = runCatching {
+                                    context.cacheDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+                                }.map(::formatFileSize).getOrDefault("0 B")
+                                withContext(Dispatchers.Main) {
+                                    cacheSizeText = newSize
+                                    Toast.makeText(
+                                        context,
+                                        if (cleared) "缓存已清除" else "清除失败",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
                                 }
                             }
-                        }
-                    },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("确认清除")
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("确认清除")
+                    }
                 }
             }
         }
+        pendingUpdate?.let { update ->
+            AutoUpdateDialog(
+                version = update.version,
+                body = update.notes,
+                downloadUrl = update.downloadUrl,
+                releaseUrl = update.releaseUrl,
+                channelLabel = update.channelLabel,
+                onDismiss = { pendingUpdate = null }
+            )
+        }
+        ChangelogSheet(show = showChangelog, onDismiss = { showChangelog = false })
+        EulaSheet(show = showEula, onDismiss = { showEula = false })
     }
-
-    if (showChangelog) {
-        ChangelogSheet(
-            show = remember { mutableStateOf(true) }.also { it.value = showChangelog },
-            onDismiss = { showChangelog = false }
-        )
-    }
-
-    if (showEula) {
-        EulaSheet(
-            show = remember { mutableStateOf(true) }.also { it.value = showEula },
-            onDismiss = { showEula = false }
-        )
-    }
-}
-
-@Composable
-private fun SettingsGroupHeader(title: String) {
-    Text(
-        text = title,
-        style = MiuixTheme.textStyles.footnote1,
-        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        fontWeight = FontWeight.Medium,
-        modifier = Modifier.padding(start = 36.dp, top = 20.dp, bottom = 6.dp)
-    )
 }
 
 @Composable
@@ -405,255 +577,32 @@ private fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp),
-        cornerRadius = 20.dp,
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        cornerRadius = 16.dp,
+        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surface)
     ) {
-        Column(modifier = Modifier.padding(vertical = 4.dp), content = content)
+        Column(content = content)
     }
 }
 
 @Composable
-private fun SettingsRadioRow(
-    icon: ImageVector,
-    iconColor: Color,
-    title: String,
-    subtitle: String,
-    options: List<Pair<String, String>>,
-    selected: String,
-    onSelect: (String) -> Unit
-) {
-    var expanded by remember { mutableStateOf(false) }
-    Column {
-        SettingsBaseRow(
-            icon = icon,
-            iconColor = iconColor,
-            title = title,
-            subtitle = subtitle,
-            onClick = { expanded = !expanded },
-            trailing = {
-                Icon(
-                    if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.55f)
-                )
-            }
-        )
-        AnimatedVisibility(visible = expanded) {
-            Column(Modifier.padding(start = 70.dp, end = 20.dp, bottom = 8.dp)) {
-                options.forEach { (label, value) ->
-                    val isSelected = selected == value
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                onSelect(value)
-                                expanded = false
-                            }
-                            .padding(horizontal = 12.dp, vertical = 9.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            modifier = Modifier.size(20.dp),
-                            color = if (isSelected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.outline.copy(alpha = 0.28f)
-                        ) {
-                            if (isSelected) {
-                                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                                    Surface(
-                                        shape = CircleShape,
-                                        modifier = Modifier.size(10.dp),
-                                        color = MiuixTheme.colorScheme.onPrimary
-                                    ) {}
-                                }
-                            }
-                        }
-                        Spacer(Modifier.width(12.dp))
-                        Text(
-                            text = label,
-                            style = MiuixTheme.textStyles.body2,
-                            color = if (isSelected) MiuixTheme.colorScheme.onSurface else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal
-                        )
-                    }
-                }
-            }
-        }
-        SettingsDivider()
-    }
-}
-
-@Composable
-private fun SettingsSwitchRow(
-    icon: ImageVector,
-    iconColor: Color,
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
-) {
-    SettingsBaseRow(
-        icon = icon,
-        iconColor = iconColor,
-        title = title,
-        subtitle = subtitle,
-        trailing = {
-            Switch(checked = checked, onCheckedChange = onCheckedChange)
-        }
-    )
-    SettingsDivider()
-}
-
-@Composable
-private fun SettingsClickRow(
-    icon: ImageVector,
-    iconColor: Color,
-    title: String,
-    subtitle: String,
-    onClick: () -> Unit
-) {
-    SettingsBaseRow(
-        icon = icon,
-        iconColor = iconColor,
-        title = title,
-        subtitle = subtitle,
-        onClick = onClick,
-        trailing = {
-            Icon(
-                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.55f)
-            )
-        }
-    )
-    SettingsDivider()
-}
-
-@Composable
-private fun SettingsInfoRow(
-    icon: ImageVector,
-    iconColor: Color,
-    title: String,
-    subtitle: String,
-    allowLongSubtitle: Boolean = false
-) {
-    SettingsBaseRow(
-        icon = icon,
-        iconColor = iconColor,
-        title = title,
-        subtitle = subtitle,
-        allowLongSubtitle = allowLongSubtitle
-    )
-    SettingsDivider()
-}
-
-@Composable
-private fun SettingsPathRow(
-    icon: ImageVector,
-    iconColor: Color,
-    title: String,
-    path: String
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.Top
+private fun SettingsIcon(icon: ImageVector, color: Color) {
+    Surface(
+        shape = CircleShape,
+        color = color.copy(alpha = 0.12f),
+        modifier = Modifier.size(32.dp)
     ) {
-        Surface(shape = CircleShape, color = iconColor.copy(alpha = 0.1f), modifier = Modifier.size(36.dp)) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = iconColor)
-            }
-        }
-        Spacer(Modifier.width(14.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MiuixTheme.textStyles.body1,
-                color = MiuixTheme.colorScheme.onSurface,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = path,
-                style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                maxLines = 4,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.fillMaxWidth()
-            )
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = color)
         }
     }
-    SettingsDivider()
+    Spacer(Modifier.width(12.dp))
 }
 
 @Composable
-private fun SettingsBaseRow(
-    icon: ImageVector,
-    iconColor: Color,
-    title: String,
-    subtitle: String,
-    allowLongSubtitle: Boolean = false,
-    onClick: (() -> Unit)? = null,
-    trailing: (@Composable () -> Unit)? = null
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(horizontal = 20.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Surface(shape = CircleShape, color = iconColor.copy(alpha = 0.1f), modifier = Modifier.size(36.dp)) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = iconColor)
-            }
-        }
-        Spacer(Modifier.width(14.dp))
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(end = if (trailing == null) 0.dp else 12.dp)
-        ) {
-            Text(
-                text = title,
-                style = MiuixTheme.textStyles.body1,
-                color = MiuixTheme.colorScheme.onSurface,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            if (subtitle.isNotBlank()) {
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    text = subtitle,
-                    style = MiuixTheme.textStyles.body2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    maxLines = if (allowLongSubtitle) 3 else 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-        trailing?.invoke()
-    }
-}
-
-@Composable
-private fun SettingsDivider() {
-    HorizontalDivider(
-        modifier = Modifier.padding(horizontal = 16.dp),
-        color = MiuixTheme.colorScheme.outline.copy(alpha = 0.3f)
-    )
-}
-
-@Composable
-private fun ChangelogSheet(show: MutableState<Boolean>, onDismiss: () -> Unit) {
-    BackHandler(enabled = show.value) { onDismiss() }
-    SuperBottomSheet(
+private fun ChangelogSheet(show: Boolean, onDismiss: () -> Unit) {
+    BackHandler(enabled = show) { onDismiss() }
+    OverlayBottomSheet(
         show = show,
         title = "更新日志",
         onDismissRequest = onDismiss
@@ -672,14 +621,14 @@ private fun ChangelogSheet(show: MutableState<Boolean>, onDismiss: () -> Unit) {
                 )
                 entry.items.forEach { item ->
                     Text(
-                        text = item,
+                        text = "· $item",
                         style = MiuixTheme.textStyles.body2,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         modifier = Modifier.padding(vertical = 2.dp)
                     )
                 }
-                SettingsDivider()
             }
+            Spacer(Modifier.height(12.dp))
             Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
                 Text("知道了")
             }
@@ -690,9 +639,9 @@ private fun ChangelogSheet(show: MutableState<Boolean>, onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun EulaSheet(show: MutableState<Boolean>, onDismiss: () -> Unit) {
-    BackHandler(enabled = show.value) { onDismiss() }
-    SuperBottomSheet(
+private fun EulaSheet(show: Boolean, onDismiss: () -> Unit) {
+    BackHandler(enabled = show) { onDismiss() }
+    OverlayBottomSheet(
         show = show,
         title = "用户协议与隐私政策",
         onDismissRequest = onDismiss
@@ -705,7 +654,7 @@ private fun EulaSheet(show: MutableState<Boolean>, onDismiss: () -> Unit) {
             Text("用户协议", style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
             Text(
-                "本应用仅用于个人学习和校园信息查询。请遵守西安交通大学信息系统使用规定，不要使用本应用进行任何违规操作。",
+                "本应用是非官方校园工具，仅用于个人学习、生活与校园信息查询。请遵守西安交通大学各信息系统使用规定，不要进行恶意请求、批量爬取、接口滥用或任何违规操作。",
                 style = MiuixTheme.textStyles.body2,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary
             )
@@ -713,7 +662,7 @@ private fun EulaSheet(show: MutableState<Boolean>, onDismiss: () -> Unit) {
             Text("隐私政策", style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
             Text(
-                "登录凭据仅在本地加密存储。应用直接访问学校官方系统，不会向第三方服务器上传密码或个人数据。",
+                "登录凭据仅在本地加密存储。校园系统请求由本机直接发起，不会向开发者服务器上传密码。使用屁岱等 AI 功能时，对话、上下文、工具结果或附件摘要可能会发送给您选择的模型服务商；请妥善保管 API Key，并选择可信来源。下载到公共 Download/XJTUToolBox 目录的文件可能被其他文件管理或备份工具读取，请自行管理敏感文件。",
                 style = MiuixTheme.textStyles.body2,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary
             )
@@ -725,13 +674,6 @@ private fun EulaSheet(show: MutableState<Boolean>, onDismiss: () -> Unit) {
             Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
         }
     }
-}
-
-private fun tabLabel(value: String): String = when (value) {
-    CredentialStore.TAB_COURSES -> "日程"
-    CredentialStore.TAB_TOOLS -> "工具"
-    CredentialStore.TAB_PROFILE -> "我的"
-    else -> "首页"
 }
 
 private fun formatFileSize(bytes: Long): String = when {
@@ -746,28 +688,15 @@ private data class ChangelogEntry(
     val items: List<String>
 )
 
-private fun changelogItems(): List<ChangelogEntry> = listOf(
-    ChangelogEntry(
-        version = "v${BuildConfig.VERSION_NAME}",
-        items = listOf(
-            "新增电子加餐券查询与自动登录",
-            "首页和工具页新增加餐券入口",
-            "修复设置页文案显示和长路径布局问题",
-            "改进课表缓存读取、节假日过滤与小组件稳定性"
+/**
+ * 从 [com.xjtu.toolbox.util.AppChangelog] 派生：
+ * 设置页 → 关于 → 更新日志 与启动弹窗共享同一份数据，无需重复维护。
+ */
+private fun changelogItems(): List<ChangelogEntry> =
+    com.xjtu.toolbox.util.AppChangelog.ENTRIES.map { (version, log) ->
+        ChangelogEntry(
+            version = "v$version",
+            items = log.items.map { (emoji, text) -> "$emoji $text" } +
+                log.issues.map { "⚠️ 已知问题：$it" }
         )
-    ),
-    ChangelogEntry(
-        version = "v3.2.0",
-        items = listOf(
-            "新增假期日历与日程体验优化",
-            "完善登录和 WebVPN 相关流程"
-        )
-    ),
-    ChangelogEntry(
-        version = "v3.1.0",
-        items = listOf(
-            "新增电子教材中心、NeoSchool 和校园卡新平台支持",
-            "优化课程、资源与下载相关体验"
-        )
-    )
-)
+    }

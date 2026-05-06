@@ -6,6 +6,7 @@ import java.time.LocalDate
 
 object ScheduleCache {
     fun optimizedScheduleKey(termCode: String): String = "schedule_optimized_$termCode"
+    fun textbookKey(termCode: String): String = "schedule_textbooks_$termCode"
 
     fun readOptimizedCourses(
         cache: DataCache,
@@ -28,6 +29,29 @@ object ScheduleCache {
     ) {
         if (termCode.isBlank()) return
         cache.put(optimizedScheduleKey(termCode), gson.toJson(courses))
+    }
+
+    fun readTextbooks(
+        cache: DataCache,
+        gson: Gson,
+        termCode: String,
+        ttlMs: Long = Long.MAX_VALUE
+    ): List<TextbookItem>? {
+        if (termCode.isBlank()) return null
+        val json = cache.get(textbookKey(termCode), ttlMs) ?: return null
+        return runCatching {
+            gson.fromJson(json, Array<TextbookItem>::class.java)?.toList().orEmpty()
+        }.getOrNull()
+    }
+
+    fun writeTextbooks(
+        cache: DataCache,
+        gson: Gson,
+        termCode: String,
+        textbooks: List<TextbookItem>
+    ) {
+        if (termCode.isBlank()) return
+        cache.put(textbookKey(termCode), gson.toJson(textbooks))
     }
 
     fun readRawCourses(

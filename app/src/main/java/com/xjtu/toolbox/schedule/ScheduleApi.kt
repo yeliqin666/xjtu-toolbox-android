@@ -1,7 +1,8 @@
 package com.xjtu.toolbox.schedule
 
 import android.util.Log
-import com.xjtu.toolbox.auth.JwxtLogin
+import com.xjtu.toolbox.auth.SiteSession
+import kotlinx.coroutines.runBlocking
 import com.xjtu.toolbox.ui.ScheduleSlot
 import com.xjtu.toolbox.util.safeInt
 import com.xjtu.toolbox.util.safeParseJsonObject
@@ -72,20 +73,15 @@ data class TextbookItem(
                     || author.trim().length >= 2)
 }
 
-class ScheduleApi(private val login: JwxtLogin) {
+class ScheduleApi(private val site: SiteSession) {
 
     private val baseUrl = "https://jwxt.xjtu.edu.cn"
     private var cachedTermCode: String? = null
 
-    /**
-     * FineReport 专用 client：加长超时（帆软报表渲染可能需要 30s+）
-     */
-    private val frClient by lazy {
-        login.client.newBuilder()
-            .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
-            .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-            .build()
-    }
+    private fun execute(request: Request): String =
+        runBlocking { site.executeWithReAuth(request) }.use { response ->
+            response.body?.string() ?: throw RuntimeException("空响应")
+        }
 
     fun getCurrentTerm(): String {
         cachedTermCode?.let { return it }
@@ -95,8 +91,13 @@ class ScheduleApi(private val login: JwxtLogin) {
             .header("Accept", "application/json, text/javascript, */*; q=0.01")
             .build()
 
-        val responseBody = login.client.newCall(request).execute().use { response ->
-            response.body?.string() ?: throw RuntimeException("空响应")
+        val responseBody = execute(request)
+        // 服务端登录态失效时返回 HTML 跳转页（CAS / Safety Verify），需提前拦截
+        // 否则下游 safeParseJsonObject 会抛出无意义的 MalformedJsonException
+        val trimmed = responseBody.trimStart()
+        if (trimmed.startsWith("<") ||
+            com.xjtu.toolbox.auth.XJTULogin.isAuthFailureResponse(responseBody)) {
+            throw com.xjtu.toolbox.auth.AuthExpiredException("教务系统")
         }
         val json = responseBody.safeParseJsonObject()
         val code = json.getAsJsonObject("datas")
@@ -115,9 +116,7 @@ class ScheduleApi(private val login: JwxtLogin) {
             .post(formBody)
             .build()
 
-        val responseBody = login.client.newCall(request).execute().use { response ->
-            response.body?.string() ?: throw RuntimeException("空响应")
-        }
+        val responseBody = execute(request)
         val json = responseBody.safeParseJsonObject()
         val rows = json.getAsJsonObject("datas")
             .getAsJsonObject("xskcb")
@@ -164,9 +163,7 @@ class ScheduleApi(private val login: JwxtLogin) {
             .post(formBody)
             .build()
 
-        val responseBody = login.client.newCall(request).execute().use { response ->
-            response.body?.string() ?: throw RuntimeException("空响应")
-        }
+        val responseBody = execute(request)
         val json = responseBody.safeParseJsonObject()
         val rows = json.getAsJsonObject("datas")
             .getAsJsonObject("wdksap")
@@ -212,9 +209,7 @@ class ScheduleApi(private val login: JwxtLogin) {
             .post(formBody)
             .build()
 
-        val responseBody = login.client.newCall(request).execute().use { response ->
-            response.body?.string() ?: throw RuntimeException("空响应")
-        }
+        val responseBody = execute(request)
         val json = responseBody.safeParseJsonObject()
         val dateStr = json.getAsJsonObject("datas")
             .getAsJsonObject("cxjcs")
@@ -248,7 +243,7 @@ class ScheduleApi(private val login: JwxtLogin) {
             .post(initBody)
             .header("Referer", "$frUrl?__cumulatepagenumber__=false")
             .build()
-        var html = frClient.newCall(initRequest).execute().use { resp ->
+        var html = runBlocking { site.executeWithReAuth(initRequest) }.use { resp ->
             Log.d(TAG, "getTextbooks: init code=${resp.code}, url=${resp.request.url}")
             resp.body?.string() ?: ""
         }
@@ -276,7 +271,7 @@ class ScheduleApi(private val login: JwxtLogin) {
                 .post(formBuilder.build())
                 .header("Referer", "$frUrl?__cumulatepagenumber__=false")
                 .build()
-            html = frClient.newCall(resubmitRequest).execute().use { resp ->
+            html = runBlocking { site.executeWithReAuth(resubmitRequest) }.use { resp ->
                 Log.d(TAG, "getTextbooks: resubmit code=${resp.code}, url=${resp.request.url}")
                 resp.body?.string() ?: ""
             }
@@ -285,7 +280,7 @@ class ScheduleApi(private val login: JwxtLogin) {
 
         // 检测是否被重定向到登录页
         if (html.contains("openplatform") || html.contains("login") && !html.contains("SessionMgr")) {
-            throw RuntimeException("教材报表会话已过期，请返回重新进入")
+            throw com.xjtu.toolbox.auth.AuthExpiredException("教材报表")
         }
 
         // 检测 FineReport 服务端错误页（数据库连接失败等后端问题）
@@ -377,7 +372,7 @@ class ScheduleApi(private val login: JwxtLogin) {
             .header("X-Requested-With", "XMLHttpRequest")
             .header("Referer", frUrl)
             .build()
-        val firstPageHtml = frClient.newCall(firstPageReq).execute().use { it.body?.string() ?: "" }
+        val firstPageHtml = runBlocking { site.executeWithReAuth(firstPageReq) }.use { it.body?.string() ?: "" }
         Log.d(TAG, "getTextbooks: page 1 len=${firstPageHtml.length}, preview=${firstPageHtml.take(300)}")
 
         // 检测 FineReport 错误页
@@ -401,7 +396,7 @@ class ScheduleApi(private val login: JwxtLogin) {
                 .header("X-Requested-With", "XMLHttpRequest")
                 .header("Referer", frUrl)
                 .build()
-            val pageHtml = frClient.newCall(pageReq).execute().use { it.body?.string() ?: "" }
+            val pageHtml = runBlocking { site.executeWithReAuth(pageReq) }.use { it.body?.string() ?: "" }
             Log.d(TAG, "getTextbooks: page $pn len=${pageHtml.length}")
             allItems.addAll(parseTextbookTable(pageHtml))
         }
@@ -604,41 +599,45 @@ class ScheduleApi(private val login: JwxtLogin) {
      * @return 学期代码列表，如 ["2024-2025-2", "2024-2025-1", "2023-2024-2", ...]
      */
     fun getTermList(): List<String> {
-        val request = Request.Builder()
-            .url("$baseUrl/jwapp/sys/wdkb/modules/jshkcb/cxxnxqgl.do")
-            .post(FormBody.Builder().build())
-            .header("Accept", "application/json, text/javascript, */*; q=0.01")
-            .build()
-
-        val responseBody = login.client.newCall(request).execute().use { response ->
-            response.body?.string() ?: throw RuntimeException("空响应")
-        }
-
+        // 注意：execute 也要包进 try——它抛异常时必须回退生成学期，否则上层拿到空列表，学期切换永远不显示
         return try {
+            val request = Request.Builder()
+                .url("$baseUrl/jwapp/sys/wdkb/modules/jshkcb/cxxnxqgl.do")
+                .post(FormBody.Builder().build())
+                .header("Accept", "application/json, text/javascript, */*; q=0.01")
+                .build()
+            val responseBody = execute(request)
             val json = responseBody.safeParseJsonObject()
             val rows = json.getAsJsonObject("datas")
                 .getAsJsonObject("cxxnxqgl")
                 .getAsJsonArray("rows")
-            rows.map { it.asJsonObject.get("DM").asString }
-        } catch (_: Exception) {
-            // 如果接口不可用，基于当前学期生成最近 6 个学期
+            val list = rows.map { it.asJsonObject.get("DM").asString }
+            list.ifEmpty { generateRecentTerms() }
+        } catch (e: Exception) {
+            android.util.Log.w("ScheduleApi", "getTermList failed, fallback generated: ${e.message}")
             generateRecentTerms()
         }
     }
 
+    /** 基于当前学期生成最近 8 个学期；网络拿不到当前学期时按本地日期推算，保证永不为空。 */
     private fun generateRecentTerms(): List<String> {
-        val current = getCurrentTerm()
+        val current = runCatching { getCurrentTerm() }.getOrNull()
+            ?.takeIf { it.split("-").size == 3 && it.split("-").all { p -> p.toIntOrNull() != null } }
+            ?: currentTermFromDate()
         val parts = current.split("-")
-        val year1 = parts[0].toInt()
-        val year2 = parts[1].toInt()
-        val sem = parts[2].toInt()
-
+        var y1 = parts[0].toInt(); var y2 = parts[1].toInt(); var s = parts[2].toInt()
         val terms = mutableListOf<String>()
-        var y1 = year1; var y2 = year2; var s = sem
-        repeat(6) {
+        repeat(8) {
             terms.add("$y1-$y2-$s")
             if (s == 1) { y1--; y2--; s = 2 } else { s = 1 }
         }
         return terms
+    }
+
+    /** 仅凭本地日期推算当前学期代码（无网络）。9月起为秋季学期(-1)，否则为春季学期(-2)。 */
+    private fun currentTermFromDate(): String {
+        val now = java.time.LocalDate.now()
+        val y = now.year
+        return if (now.monthValue >= 9) "$y-${y + 1}-1" else "${y - 1}-$y-2"
     }
 }

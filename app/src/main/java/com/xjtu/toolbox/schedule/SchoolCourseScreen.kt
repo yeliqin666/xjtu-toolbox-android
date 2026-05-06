@@ -19,6 +19,11 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import com.xjtu.toolbox.LocalAppLoginState
+import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.AuthExpiredException
+import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -29,7 +34,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.xjtu.toolbox.auth.JwxtLogin
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
@@ -38,8 +43,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.*
-import top.yukonga.miuix.kmp.extra.SuperBottomSheet
-import top.yukonga.miuix.kmp.extra.SuperSpinner
+import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
+import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.SinkFeedback
 import top.yukonga.miuix.kmp.utils.overScrollVertical
@@ -51,16 +56,17 @@ private const val TAG = "SchoolCourseScreen"
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SchoolCourseScreen(
-    login: JwxtLogin?,
+    site: SiteSession?,
     onBack: () -> Unit
 ) {
-    if (login == null) {
+    val appLoginState = LocalAppLoginState.current
+    if (site == null) {
         LaunchedEffect(Unit) { onBack() }
         return
     }
 
     val scope = rememberCoroutineScope()
-    val api = remember { SchoolCourseApi(login) }
+    val api = remember(site) { SchoolCourseApi(site) }
 
     // ── 状态 ──
     var isInitializing by remember { mutableStateOf(true) }
@@ -116,6 +122,8 @@ fun SchoolCourseScreen(
                 selectedTermCode = currentTermCode
             }
             initError = null
+        } catch (e: AuthExpiredException) {
+            appLoginState.handleAuthExpired(LoginType.JWXT, Routes.SCHOOL_COURSE, onBack)
         } catch (e: Exception) {
             Log.e(TAG, "init failed", e)
             initError = "初始化失败: ${e.message}"
@@ -151,6 +159,8 @@ fun SchoolCourseScreen(
                     )
                 }
                 result = r
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.JWXT, Routes.SCHOOL_COURSE, onBack)
             } catch (e: Exception) {
                 Log.e(TAG, "search failed", e)
                 searchError = "查询失败: ${e.message}"
@@ -218,12 +228,12 @@ fun SchoolCourseScreen(
         ) {
             // ── 学期选择 ──
             item(key = "term_selector") {
-                val termEntries = termList.map { SpinnerEntry(title = it.name) }
+                val termEntries = termList.map { DropdownItem(title = it.name) }
                 val selectedIdx = termList.indexOfFirst { it.code == selectedTermCode }.coerceAtLeast(0)
 
                 Card(Modifier.fillMaxWidth(), cornerRadius = 16.dp) {
                     if (termEntries.isNotEmpty()) {
-                        SuperSpinner(
+                        OverlaySpinnerPreference(
                             items = termEntries,
                             selectedIndex = selectedIdx,
                             title = "学期",
@@ -322,13 +332,13 @@ fun SchoolCourseScreen(
 
                                 // 开课单位
                                 val deptEntries = buildList {
-                                    add(SpinnerEntry(title = "不限"))
-                                    departmentList.forEach { add(SpinnerEntry(title = it.name)) }
+                                    add(DropdownItem(title = "不限"))
+                                    departmentList.forEach { add(DropdownItem(title = it.name)) }
                                 }
                                 val deptIdx = if (selectedDeptCode.isBlank()) 0
                                     else (departmentList.indexOfFirst { it.code == selectedDeptCode } + 1).coerceAtLeast(0)
                                 Card(Modifier.fillMaxWidth(), cornerRadius = 12.dp) {
-                                    SuperSpinner(
+                                    OverlaySpinnerPreference(
                                         items = deptEntries,
                                         selectedIndex = deptIdx,
                                         title = "开课单位",
@@ -389,11 +399,11 @@ fun SchoolCourseScreen(
                                 Spacer(Modifier.height(6.dp))
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     val sectionEntries = buildList {
-                                        add(SpinnerEntry(title = "不限"))
-                                        for (i in 1..14) add(SpinnerEntry(title = "第${i}节"))
+                                        add(DropdownItem(title = "不限"))
+                                        for (i in 1..14) add(DropdownItem(title = "第${i}节"))
                                     }
                                     Card(Modifier.weight(1f), cornerRadius = 12.dp) {
-                                        SuperSpinner(
+                                        OverlaySpinnerPreference(
                                             items = sectionEntries,
                                             selectedIndex = selectedStartSection,
                                             title = "开始",
@@ -406,7 +416,7 @@ fun SchoolCourseScreen(
                                     }
                                     Text(" ~ ", Modifier.padding(horizontal = 8.dp), color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                                     Card(Modifier.weight(1f), cornerRadius = 12.dp) {
-                                        SuperSpinner(
+                                        OverlaySpinnerPreference(
                                             items = sectionEntries,
                                             selectedIndex = selectedEndSection,
                                             title = "结束",
@@ -861,8 +871,8 @@ private fun CourseDetailSheet(
 
     val showSheet = remember { mutableStateOf(true) }
 
-    SuperBottomSheet(
-        show = showSheet,
+    OverlayBottomSheet(
+        show = showSheet.value,
         onDismissRequest = { showSheet.value = false; onDismiss() }
     ) {
         Column(

@@ -3,7 +3,8 @@ package com.xjtu.toolbox.calendar
 import android.util.Log
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
-import com.xjtu.toolbox.auth.XJTULogin
+import com.xjtu.toolbox.auth.SiteSession
+import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -71,8 +72,8 @@ data class SchoolTerm(
     }
 }
 
-class SchoolCalendarApi(private val login: XJTULogin? = null) {
-    private val client: OkHttpClient = login?.client ?: OkHttpClient()
+class SchoolCalendarApi(private val site: SiteSession? = null) {
+    private val client: OkHttpClient = site?.client ?: OkHttpClient()
 
     /**
      * 获取全部学期校历列表
@@ -86,7 +87,7 @@ class SchoolCalendarApi(private val login: XJTULogin? = null) {
             .get()
             .build()
         try {
-            client.newCall(initReq).execute().use { resp ->
+            execute(initReq).use { resp ->
                 Log.d(TAG, "init page: ${resp.code} -> ${resp.request.url}")
             }
         } catch (e: Exception) {
@@ -101,7 +102,7 @@ class SchoolCalendarApi(private val login: XJTULogin? = null) {
             .header("Referer", "$BASE_URL/EIP/edu/education/schoolcalendar/showCalendar.htm")
             .build()
 
-        val body = client.newCall(request).execute().use { resp ->
+        val body = execute(request).use { resp ->
             resp.body?.string() ?: throw RuntimeException("校历接口无响应")
         }
         Log.d(TAG, "terms response (${body.length}): ${body.take(200)}")
@@ -114,6 +115,10 @@ class SchoolCalendarApi(private val login: XJTULogin? = null) {
             .map { parseTerm(it.asJsonObject) }
             .sortedBy { it.startDate }
     }
+
+    private fun execute(request: Request) =
+        site?.let { runBlocking { it.executeWithReAuth(request) } }
+            ?: client.newCall(request).execute()
 
     private fun parseTerm(obj: JsonObject): SchoolTerm {
         val events = obj.getAsJsonArray("holidays")

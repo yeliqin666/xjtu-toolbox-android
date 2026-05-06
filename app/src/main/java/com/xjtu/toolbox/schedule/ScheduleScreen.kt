@@ -1,4 +1,4 @@
-﻿package com.xjtu.toolbox.schedule
+package com.xjtu.toolbox.schedule
 
 import androidx.activity.compose.BackHandler
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -14,10 +14,26 @@ import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.SmallTopAppBar
+import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
+import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TabRowWithContour
-import top.yukonga.miuix.kmp.extra.SuperBottomSheet
+import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
+import top.yukonga.miuix.kmp.overlay.OverlayListPopup
+import top.yukonga.miuix.kmp.basic.ListPopupColumn
+import top.yukonga.miuix.kmp.basic.DropdownImpl
+import top.yukonga.miuix.kmp.basic.PopupPositionProvider
 import top.yukonga.miuix.kmp.utils.overScrollVertical
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.key
+import androidx.compose.runtime.DisposableEffect
+import kotlinx.coroutines.flow.drop
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
@@ -43,6 +59,7 @@ import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Business
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.filled.Event
@@ -54,6 +71,11 @@ import top.yukonga.miuix.kmp.basic.SnackbarHost
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import com.xjtu.toolbox.LocalAppLoginState
+import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.AuthExpiredException
+import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -61,7 +83,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.xjtu.toolbox.auth.JwxtLogin
+import com.xjtu.toolbox.auth.SiteSession
+import com.xjtu.toolbox.auth.ensureSite
 import androidx.compose.foundation.text.selection.SelectionContainer
 import com.xjtu.toolbox.ui.DAY_START_HOUR
 import com.xjtu.toolbox.ui.ScheduleGrid
@@ -81,12 +104,19 @@ import java.time.temporal.ChronoUnit
 
 @Composable
 fun ScheduleScreen(
-    login: JwxtLogin? = null,
+    site: SiteSession? = null,
     studentId: String = "",
-    onBack: () -> Unit = {},
-    showTopBar: Boolean = true
+    onBack: () -> Unit = {},  // 用于 catch AuthExpired 时退出
+    showTopBar: Boolean = true,
+    showBackButton: Boolean = true,
+    onSubtitleChange: (String) -> Unit = {},
+    onActionsChange: ((@Composable androidx.compose.foundation.layout.RowScope.() -> Unit)?) -> Unit = {},
+    onBottomContentChange: ((@Composable () -> Unit)?) -> Unit = {},
+    contentBottomPadding: androidx.compose.ui.unit.Dp = 0.dp
 ) {
-    val api = remember(login) { login?.let { ScheduleApi(it) } }
+    val appLoginState = LocalAppLoginState.current
+    var activeSite by remember(site) { mutableStateOf(site) }
+    val api = remember(activeSite) { activeSite?.let { ScheduleApi(it) } }
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
     val dataCache = remember { com.xjtu.toolbox.util.DataCache(context) }
@@ -111,8 +141,21 @@ fun ScheduleScreen(
     var isSwitching by remember { mutableStateOf(false) }  // 学期切换中（保留旧日程显示）
     var isRefreshingFromNetwork by remember { mutableStateOf(false) } // 缓存已显示，后台刷新中
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    var currentWeek by rememberSaveable { mutableIntStateOf(1) }
-    var realCurrentWeek by remember { mutableIntStateOf(0) }  // 实际当前周（0=未知），用于时间线显示判断
+    // 立即从缓存计算当前周（避免打开闪第一周）
+    val initialWeek = remember {
+        try {
+            val cachedTerm = dataCache.get("schedule_last_term", Long.MAX_VALUE)?.trim('"').orEmpty()
+            if (cachedTerm.isEmpty()) return@remember 0
+            val cachedStart = dataCache.get("start_date_$cachedTerm", Long.MAX_VALUE)?.trim('"').orEmpty()
+            if (cachedStart.isEmpty()) return@remember 0
+            val startDate = LocalDate.parse(cachedStart)
+            val daysBetween = ChronoUnit.DAYS.between(startDate, LocalDate.now())
+            val w = ((daysBetween / 7) + 1).toInt()
+            if (w in 1..20) w else 0
+        } catch (_: Exception) { 0 }
+    }
+    var currentWeek by rememberSaveable { mutableIntStateOf(if (initialWeek > 0) initialWeek else 1) }
+    var realCurrentWeek by remember { mutableIntStateOf(initialWeek) }  // 实际当前周（0=未知），用于时间线显示判断
     val totalWeeks = 20
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var weekNote by remember { mutableStateOf<String?>(null) } // "距开学X周" / "学期已结束"
@@ -123,8 +166,8 @@ fun ScheduleScreen(
     var currentTermCode by remember { mutableStateOf("") }  // 当前学期，用于判断是否缓存考试
     var termDropdownExpanded by remember { mutableStateOf(false) }
 
-    // 周视图 vs 总览
-    var showAllWeeks by rememberSaveable { mutableStateOf(false) }
+    // 周视图 vs 总览（每次启动默认周视图，不保存状态）
+    var showAllWeeks by remember { mutableStateOf(false) }
 
     // 是否正在显示缓存数据（网络失败时提示）
     var showingStaleData by remember { mutableStateOf(false) }
@@ -138,6 +181,18 @@ fun ScheduleScreen(
     // 导出菜单
     var showExportMenu by remember { mutableStateOf(false) }
 
+    // 通知外层（MainScreen TopAppBar）当前学期 / 周次（不含日期范围）
+    LaunchedEffect(selectedTab, selectedTermCode, currentWeek, showAllWeeks, weekNote) {
+        val subtitle = when {
+            selectedTab != 0 -> selectedTermCode
+            weekNote != null -> selectedTermCode
+            showAllWeeks -> selectedTermCode.takeIf { it.isNotEmpty() }?.let { "$it · 全学期" } ?: "全学期"
+            selectedTermCode.isNotEmpty() -> "$selectedTermCode · 第 $currentWeek 周"
+            else -> "第 $currentWeek 周"
+        }
+        onSubtitleChange(subtitle)
+    }
+
     // 初始加载
     fun loadInitialData() {
         isLoading = true
@@ -146,7 +201,7 @@ fun ScheduleScreen(
         showingStaleData = false
         scope.launch {
             try {
-                // ── 离线模式：无 login 时仅从缓存加载 ──
+                // 未登录态：仅展示缓存，不打断流程
                 if (api == null) {
                     withContext(Dispatchers.IO) {
                         // 尝试从缓存中找到最近一个学期的数据
@@ -202,11 +257,11 @@ fun ScheduleScreen(
                         }
 
                         if (courses.isEmpty()) {
-                            throw RuntimeException("离线模式下无缓存数据，请连网后重试")
+                            // 无缓存：抛出空状态，由 UI 决定如何提示
+                            throw RuntimeException("暂无缓存日程")
                         }
                         showingStaleData = true
                     }
-                    scope.launch { snackbarHostState.showSnackbar("离线模式 · 显示缓存日程", duration = SnackbarDuration.Long) }
                     return@launch
                 }
 
@@ -407,6 +462,8 @@ fun ScheduleScreen(
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.JWXT, Routes.SCHEDULE, onBack)
             } catch (e: Exception) {
                 errorMessage = "加载失败: ${e.message}"
             } finally {
@@ -419,7 +476,7 @@ fun ScheduleScreen(
 
     // 懒加载教材（切换到教材 tab 时才加载）
     fun loadTextbooks(termCode: String) {
-        if (api == null) { textbooksError = "离线模式不支持教材查询"; return }
+        if (api == null) { textbooksError = "尚未登录教务系统"; return }
         android.util.Log.d("ScheduleUI", "loadTextbooks called: studentId='$studentId', termCode='$termCode'")
         if (studentId.isBlank()) { textbooksError = "未获取到学号"; return }
         textbooksLoading = true
@@ -427,16 +484,23 @@ fun ScheduleScreen(
         scope.launch {
             try {
                 withContext(Dispatchers.IO) {
+                    ScheduleCache.readTextbooks(dataCache, gson, termCode, Long.MAX_VALUE)?.let { cached ->
+                        textbooks = cached.sortedBy { item -> if (item.hasSubstantiveTextbook) 0 else 1 }
+                        textbooksLoaded = true
+                    }
                     val raw = api.getTextbooks(studentId, termCode)
                     // 排序：有教材的在前，无教材的在后
                     textbooks = raw.sortedBy { item ->
                         if (item.hasSubstantiveTextbook) 0 else 1
                     }
+                    ScheduleCache.writeTextbooks(dataCache, gson, termCode, textbooks)
                 }
                 android.util.Log.d("ScheduleUI", "loadTextbooks done: ${textbooks.size} items")
                 textbooksLoaded = true
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.JWXT, Routes.SCHEDULE, onBack)
             } catch (e: Exception) {
                 android.util.Log.e("ScheduleUI", "loadTextbooks failed", e)
                 textbooksError = "教材查询失败: ${e.message}"
@@ -454,13 +518,31 @@ fun ScheduleScreen(
 
     // 小组件/首页进入日程页时，可能先以离线缓存态渲染；
     // 当 JWXT 登录稍后恢复成功后，自动切换为在线刷新，避免长期停留离线视图。
-    LaunchedEffect(login) {
-        if (login == null) return@LaunchedEffect
+    LaunchedEffect(activeSite) {
+        if (activeSite == null) return@LaunchedEffect
         if (isLoading || isSwitching) return@LaunchedEffect
         if (!showingStaleData && errorMessage == null && courses.isNotEmpty()) return@LaunchedEffect
 
         android.util.Log.d("ScheduleUI", "Login became available, refreshing schedule online")
         loadInitialData()
+    }
+
+    var attemptingAutoLogin by remember { mutableStateOf(false) }
+    LaunchedEffect(activeSite, appLoginState.hasCredentials) {
+        if (activeSite != null) return@LaunchedEffect
+        if (!appLoginState.hasCredentials) return@LaunchedEffect
+        if (attemptingAutoLogin) return@LaunchedEffect
+        // 网络检查
+        val cm = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+        val online = cm?.activeNetwork != null &&
+            cm.getNetworkCapabilities(cm.activeNetwork)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+        if (!online) return@LaunchedEffect
+        attemptingAutoLogin = true
+        try {
+            android.util.Log.d("ScheduleUI", "site==null + online + has credentials -> background ensureSite(JWXT)")
+            activeSite = withContext(Dispatchers.IO) { appLoginState.sessionManager?.ensureSite(LoginType.JWXT) }
+        } catch (_: Exception) {}
+        attemptingAutoLogin = false
     }
 
     // 加载自定义课程（学期变更时刷新）
@@ -518,6 +600,7 @@ fun ScheduleScreen(
         CustomCourseDialog(
             show = showAddCourseState,
             termCode = selectedTermCode,
+            totalWeeks = totalWeeks,
             draft = addScheduleDraft,
             onAutoSave = { addScheduleDraft = it },
             onSave = {
@@ -533,6 +616,7 @@ fun ScheduleScreen(
             show = showEditCourseState,
             existing = entity,
             termCode = selectedTermCode,
+            totalWeeks = totalWeeks,
             onSave = ::saveCustomCourse,
             onDelete = ::deleteCustomCourse,
             onDismiss = { editingCourse = null }
@@ -540,9 +624,16 @@ fun ScheduleScreen(
     }
 
     // 安全触发: 当 Tab 已在教材且数据未加载时自动加载
-    LaunchedEffect(selectedTab, selectedTermCode, textbooksLoaded) {
-        if (selectedTab == 2 && !textbooksLoaded && !textbooksLoading && selectedTermCode.isNotEmpty()) {
-            android.util.Log.d("ScheduleUI", "LaunchedEffect auto-loading textbooks: term=$selectedTermCode")
+    // 关键修复：把 api 也加入 key。
+    // 之前只用 selectedTab/selectedTermCode/textbooksLoaded —— 当用户首次切到「教材」tab 时
+    // jwxtLogin == null → api == null → loadTextbooks 立即报错；之后即使 jwxtLogin 异步登好
+    // 让 api 从 null 变 non-null，LaunchedEffect 因 key 没变也不会重启 → 教材永远不刷新。
+    // 只有关闭 App 重开（jwxtLogin 启动时已就绪）才能首次成功——这就是「关掉重开就好」的根因。
+    LaunchedEffect(selectedTab, selectedTermCode, textbooksLoaded, api) {
+        if (selectedTab == 2 && api != null && !textbooksLoaded && !textbooksLoading && selectedTermCode.isNotEmpty()) {
+            android.util.Log.d("ScheduleUI", "LaunchedEffect auto-loading textbooks: term=$selectedTermCode (api just became ready)")
+            // api 刚变非空时之前可能设了「尚未登录」错误，要清掉再加载
+            textbooksError = null
             loadTextbooks(selectedTermCode)
         }
     }
@@ -650,6 +741,8 @@ fun ScheduleScreen(
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.JWXT, Routes.SCHEDULE, onBack)
             } catch (e: Exception) {
                 errorMessage = "加载失败: ${e.message}"
             } finally {
@@ -659,46 +752,188 @@ fun ScheduleScreen(
         }
     }
 
+    // 注入 TopAppBar actions：[+] [⋮] 两个独立按钮
+    val headerActionsContent: (@Composable androidx.compose.foundation.layout.RowScope.() -> Unit) = {
+        // 添加日程（独立按钮）
+        if (selectedTab == 0) {
+            IconButton(
+                onClick = { showAddCourseDialog = true },
+                enabled = selectedTermCode.isNotEmpty()
+            ) {
+                Icon(Icons.Default.Add, contentDescription = "添加日程")
+            }
+        }
+        Box {
+            IconButton(onClick = { showExportMenu = true }) {
+                Icon(Icons.Default.MoreVert, contentDescription = "更多")
+            }
+            // 主菜单
+            OverlayListPopup(
+                show = showExportMenu,
+                alignment = PopupPositionProvider.Align.End,
+                onDismissRequest = { showExportMenu = false }
+            ) {
+                ListPopupColumn {
+                    if (selectedTab == 0) {
+                        ScheduleMenuRow(
+                            icon = if (showAllWeeks) Icons.Default.DateRange else Icons.Default.CalendarMonth,
+                            text = if (showAllWeeks) "切到每周视图" else "切到全学期总览",
+                            onClick = { showExportMenu = false; showAllWeeks = !showAllWeeks }
+                        )
+                    }
+                    if (termList.isNotEmpty()) {
+                        ScheduleMenuRow(
+                            icon = Icons.Default.SwapHoriz,
+                            text = "切换学期",
+                            onClick = { showExportMenu = false; termDropdownExpanded = true }
+                        )
+                    }
+                    ScheduleMenuRow(
+                        icon = Icons.Default.Event,
+                        text = "导出日历 (ICS)",
+                        onClick = {
+                            showExportMenu = false
+                            val st = startOfTerm
+                            if (st == null) {
+                                scope.launch { snackbarHostState.showSnackbar("无法获取开学日期，ICS 导出不可用") }
+                                return@ScheduleMenuRow
+                            }
+                            scope.launch {
+                                snackbarHostState.showSnackbar("正在获取法定节假日信息并导出...", duration = SnackbarDuration.Short)
+                                try {
+                                    val holidays = HolidayApi.getHolidayDates(context).keys
+                                    val ics = ScheduleExport.generateIcs(filteredMergedCourses, st, selectedTermCode, holidays)
+                                    ScheduleExport.shareTextFile(context, ics, "${selectedTermCode}_日程.ics", "text/calendar")
+                                } catch (e: Exception) {
+                                    snackbarHostState.showSnackbar("节假日获取失败，退回普通导出: ${e.message}", duration = SnackbarDuration.Short)
+                                    val ics = ScheduleExport.generateIcs(filteredMergedCourses, st, selectedTermCode, emptySet())
+                                    ScheduleExport.shareTextFile(context, ics, "${selectedTermCode}_日程.ics", "text/calendar")
+                                }
+                            }
+                        }
+                    )
+                }
+            }
+            // 学期切换 popup（独立，由"切换学期"菜单项触发）
+            val termSelectedIdxTb = termList.indexOf(selectedTermCode).coerceAtLeast(0)
+            OverlayListPopup(
+                show = termDropdownExpanded,
+                alignment = PopupPositionProvider.Align.End,
+                onDismissRequest = { termDropdownExpanded = false }
+            ) {
+                ListPopupColumn {
+                    termList.forEachIndexed { idx, term ->
+                        DropdownImpl(
+                            text = term,
+                            optionSize = termList.size,
+                            isSelected = idx == termSelectedIdxTb,
+                            onSelectedIndexChange = {
+                                termDropdownExpanded = false
+                                switchTerm(term)
+                            },
+                            index = idx
+                        )
+                    }
+                }
+            }
+        }
+    }
+    val headerBottomContent: (@Composable () -> Unit) = {
+        Surface(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            shape = RoundedCornerShape(14.dp),
+            color = MiuixTheme.colorScheme.surfaceContainer
+        ) {
+            TabRowWithContour(
+                tabs = listOf("日程", "考试", "教材"),
+                selectedTabIndex = selectedTab,
+                onTabSelected = { tab ->
+                    selectedTab = tab
+                    if (tab == 2) {
+                        if (!textbooksLoaded && !textbooksLoading && selectedTermCode.isNotEmpty()) loadTextbooks(selectedTermCode)
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)
+            )
+        }
+    }
+    DisposableEffect(showTopBar) {
+        if (!showTopBar) {
+            onActionsChange(headerActionsContent)
+            onBottomContentChange(headerBottomContent)
+        }
+        onDispose {
+            onActionsChange(null)
+            onBottomContentChange(null)
+        }
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             if (showTopBar) {
-                AppTopBar(
-                    color = MiuixTheme.colorScheme.surfaceVariant,
-                    title = {
-                        // 学期选择下拉
-                        Box {
-                            Row(
-                                modifier = Modifier
-                                    .clickable { if (termList.isNotEmpty()) termDropdownExpanded = true }
-                                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    if (selectedTermCode.isNotEmpty()) selectedTermCode else "日程",
-                                    style = MiuixTheme.textStyles.subtitle,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                if (termList.isNotEmpty()) {
-                                    Icon(Icons.Default.ArrowDropDown, null, Modifier.size(20.dp))
+                val weekDateLabel = remember(startOfTerm, currentWeek) {
+                    val st = startOfTerm
+                    if (st != null && currentWeek > 0 && !showAllWeeks) {
+                        val monday = st.plusWeeks((currentWeek - 1).toLong())
+                        val sunday = monday.plusDays(6)
+                        "${monday.monthValue}/${monday.dayOfMonth}-${sunday.monthValue}/${sunday.dayOfMonth}"
+                    } else null
+                }
+                val computedSubtitle = when {
+                    selectedTab != 0 -> selectedTermCode.takeIf { it.isNotEmpty() } ?: ""
+                    weekNote != null -> selectedTermCode.takeIf { it.isNotEmpty() } ?: ""
+                    showAllWeeks -> "${selectedTermCode} · 全学期"
+                    weekDateLabel != null -> "${selectedTermCode} · 第 $currentWeek 周 · $weekDateLabel"
+                    selectedTermCode.isNotEmpty() -> "${selectedTermCode} · 第 $currentWeek 周"
+                    else -> "第 $currentWeek 周"
+                }
+                SmallTopAppBar(
+                    title = "日程",
+                    subtitle = computedSubtitle,
+                    navigationIcon = {
+                        if (showBackButton) {
+                            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回") }
+                        }
+                    },
+                    actions = {
+                        // 学期切换（仅多个学期时显示）
+                        if (termList.size > 1) {
+                            Box {
+                                IconButton(onClick = { termDropdownExpanded = true }) {
+                                    Icon(Icons.Default.CalendarMonth, contentDescription = "切换学期")
                                 }
-                            }
-                            AppDropdownMenu(expanded = termDropdownExpanded, onDismissRequest = { termDropdownExpanded = false }, alignment = Alignment.TopStart) {
-                                termList.forEach { term ->
-                                    AppDropdownMenuItem(
-                                        text = { Text(term, fontWeight = if (term == selectedTermCode) FontWeight.Bold else FontWeight.Normal) },
-                                        onClick = { termDropdownExpanded = false; switchTerm(term) },
-                                        leadingIcon = if (term == selectedTermCode) {{ Icon(Icons.Default.CalendarMonth, null, Modifier.size(18.dp)) }} else null
-                                    )
+                                val termSelectedIdx = termList.indexOf(selectedTermCode).coerceAtLeast(0)
+                                OverlayListPopup(
+                                    show = termDropdownExpanded,
+                                    alignment = PopupPositionProvider.Align.End,
+                                    onDismissRequest = { termDropdownExpanded = false }
+                                ) {
+                                    ListPopupColumn {
+                                        termList.forEachIndexed { idx, term ->
+                                            DropdownImpl(
+                                                text = term,
+                                                optionSize = termList.size,
+                                                isSelected = idx == termSelectedIdx,
+                                                onSelectedIndexChange = {
+                                                    termDropdownExpanded = false
+                                                    switchTerm(term)
+                                                },
+                                                index = idx
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
-                    },
-                    navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回") } },
-                    actions = {
-                        // 添加日程（仅日程 tab 显示）
+                        // 模式切换（仅日程 tab）
                         if (selectedTab == 0) {
-                            
+                            IconButton(onClick = { showAllWeeks = !showAllWeeks }) {
+                                Icon(
+                                    if (showAllWeeks) Icons.Default.DateRange else Icons.Default.CalendarMonth,
+                                    contentDescription = if (showAllWeeks) "切到每周" else "切到总览"
+                                )
+                            }
                         }
                         // 导出菜单
                         Box {
@@ -706,6 +941,16 @@ fun ScheduleScreen(
                                 Icon(Icons.Default.MoreVert, contentDescription = "更多")
                             }
                             AppDropdownMenu(expanded = showExportMenu, onDismissRequest = { showExportMenu = false }) {
+                                if (termList.size > 1) {
+                                    AppDropdownMenuItem(
+                                        text = { Text("切换学期") },
+                                        leadingIcon = { Icon(Icons.Default.SwapHoriz, null, Modifier.size(20.dp)) },
+                                        onClick = {
+                                            showExportMenu = false
+                                            termDropdownExpanded = true
+                                        }
+                                    )
+                                }
                                 AppDropdownMenuItem(
                                     text = { Text("导出日历 (ICS)") },
                                     leadingIcon = { Icon(Icons.Default.Event, null, Modifier.size(20.dp)) },
@@ -760,176 +1005,47 @@ fun ScheduleScreen(
             Modifier
                 .fillMaxSize()
                 .padding(contentPadding)
-                .padding(bottom = if (showTopBar) 0.dp else 104.dp)
-                .background(MiuixTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f))
+                .background(MiuixTheme.colorScheme.surface)
         ) {
-            if (!showTopBar) {
-                Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
-                    val headerShape = RoundedCornerShape(14.dp)
-                    val headerBgColor = MiuixTheme.colorScheme.secondaryContainer.copy(alpha = 0.58f)
-                    Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .background(headerBgColor, headerShape)
-                            .padding(top = 8.dp, bottom = 8.dp)
-                    ) {
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 0.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .clickable { if (termList.isNotEmpty()) termDropdownExpanded = true }
-                                    .padding(vertical = 6.dp, horizontal = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    if (selectedTermCode.isNotEmpty()) selectedTermCode else "选择学期",
-                                    style = MiuixTheme.textStyles.body1,
-                                    fontWeight = FontWeight.Medium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Spacer(Modifier.width(4.dp))
-                                Icon(Icons.Default.ArrowDropDown, null, Modifier.size(18.dp))
-                            }
-                            
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                if (selectedTab == 0) {
-                                    IconButton(
-                                        onClick = { showAddCourseDialog = true },
-                                        enabled = selectedTermCode.isNotEmpty()
-                                    ) {
-                                        Icon(Icons.Default.Add, contentDescription = "添加日程")
-                                    }
-                                }
-                                Box {
-                                    IconButton(
-                                        onClick = { showExportMenu = true },
-                                        enabled = filteredMergedCourses.isNotEmpty()
-                                    ) {
-                                        Icon(Icons.Default.MoreVert, contentDescription = "更多")
-                                    }
-                                    AppDropdownMenu(expanded = showExportMenu, onDismissRequest = { showExportMenu = false }) {
-                                        AppDropdownMenuItem(
-                                            text = { Text("导出日历 (ICS)") },
-                                            leadingIcon = { Icon(Icons.Default.Event, null, Modifier.size(20.dp)) },
-                                            onClick = {
-                                                showExportMenu = false
-                                                val st = startOfTerm
-                                                if (st == null) {
-                                                    scope.launch { snackbarHostState.showSnackbar("无法获取开学日期，ICS 导出不可用") }
-                                                    return@AppDropdownMenuItem
-                                                }
-                                                // 获取节假日并导出
-                                                scope.launch {
-                                                    snackbarHostState.showSnackbar("正在获取法定节假日信息并导出...", duration = SnackbarDuration.Short)
-                                                    try {
-                                                        val holidays = HolidayApi.getHolidayDates(context).keys
-                                                        val ics = ScheduleExport.generateIcs(filteredMergedCourses, st, selectedTermCode, holidays)
-                                                        ScheduleExport.shareTextFile(context, ics, "${selectedTermCode}_日程.ics", "text/calendar")
-                                                    } catch (e: Exception) {
-                                                        snackbarHostState.showSnackbar("节假日获取失败，退回普通导出: ${e.message}", duration = SnackbarDuration.Short)
-                                                        val ics = ScheduleExport.generateIcs(filteredMergedCourses, st, selectedTermCode, emptySet())
-                                                        ScheduleExport.shareTextFile(context, ics, "${selectedTermCode}_日程.ics", "text/calendar")
-                                                    }
-                                                }
-                                            }
-                                        )
-                                        AppDropdownMenuItem(
-                                            text = { Text("导出表格 (CSV)") },
-                                            leadingIcon = { Icon(Icons.Default.TableChart, null, Modifier.size(20.dp)) },
-                                            onClick = {
-                                                showExportMenu = false
-                                                val csv = ScheduleExport.generateCsv(filteredMergedCourses)
-                                                ScheduleExport.shareTextFile(context, csv, "${selectedTermCode}_日程.csv", "text/csv")
-                                            }
-                                        )
-                                        AppDropdownMenuItem(
-                                            text = { Text("导出图片") },
-                                            leadingIcon = { Icon(Icons.Default.Image, null, Modifier.size(20.dp)) },
-                                            onClick = {
-                                                showExportMenu = false
-                                                scope.launch {
-                                                    try {
-                                                        val bitmap = ScheduleExport.renderScheduleBitmap(
-                                                            filteredMergedCourses, currentWeek, selectedTermCode, showAllWeeks
-                                                        )
-                                                        ScheduleExport.shareBitmap(context, bitmap, "${selectedTermCode}_第${currentWeek}周日程.png")
-                                                    } catch (e: kotlinx.coroutines.CancellationException) {
-                                                        throw e
-                                                    } catch (e: Exception) {
-                                                        snackbarHostState.showSnackbar("图片导出失败: ${e.message}")
-                                                    }
-                                                }
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                        HorizontalDivider(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                            thickness = 0.5.dp,
-                            color = MiuixTheme.colorScheme.dividerLine.copy(alpha = 0.55f)
-                        )
-                        TabRowWithContour(
-                            tabs = listOf("日程", "考试", "教材"),
-                            selectedTabIndex = selectedTab,
-                            onTabSelected = { tab ->
-                                selectedTab = tab
-                                if (tab == 2) {
-                                    android.util.Log.d("ScheduleUI", "Tab 教材 clicked: loaded=$textbooksLoaded, loading=$textbooksLoading, term=$selectedTermCode")
-                                    if (!textbooksLoaded && !textbooksLoading && selectedTermCode.isNotEmpty()) loadTextbooks(selectedTermCode)
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)
-                        )
-                    }
-
-                    AppDropdownMenu(
-                        expanded = termDropdownExpanded,
-                        onDismissRequest = { termDropdownExpanded = false }
-                    ) {
-                        termList.forEach { term ->
-                            AppDropdownMenuItem(
-                                text = { Text(term, fontWeight = if (term == selectedTermCode) FontWeight.Bold else FontWeight.Normal) },
-                                onClick = { termDropdownExpanded = false; switchTerm(term) },
-                                leadingIcon = if (term == selectedTermCode) {{ Icon(Icons.Default.CalendarMonth, null, Modifier.size(16.dp)) }} else null
-                            )
-                        }
-                    }
-                }
-            } else {
-                top.yukonga.miuix.kmp.basic.Card(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                    cornerRadius = 14.dp,
-                    colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surface)
-                ) {
-                    TabRowWithContour(
-                        tabs = listOf("日程", "考试", "教材"),
-                        selectedTabIndex = selectedTab,
-                        onTabSelected = { tab ->
-                            selectedTab = tab
-                            if (tab == 2) {
-                                android.util.Log.d("ScheduleUI", "Tab 教材 clicked: loaded=$textbooksLoaded, loading=$textbooksLoading, term=$selectedTermCode")
-                                if (!textbooksLoaded && !textbooksLoading && selectedTermCode.isNotEmpty()) loadTextbooks(selectedTermCode)
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)
-                    )
-                }
-            }
+            // 嵌入式 header 已迁移到 MainScreen TopAppBar.actions / bottomContent slot
 
             if (isLoading) {
                 LoadingState(message = "\u52a0\u8f7d\u65e5\u7a0b...", modifier = Modifier.fillMaxSize())
             } else if (errorMessage != null) {
                 ErrorState(
                     message = errorMessage!!,
-                    onRetry = { loadInitialData() },
+                    onRetry = {
+                        // 用户主动重试：interactive=true 让 MFA 弹窗能正常工作（不被背景策略跳过）
+                        if (activeSite == null && appLoginState.hasCredentials) {
+                            scope.launch {
+                                attemptingAutoLogin = true
+                                errorMessage = null
+                                isLoading = true
+                                try {
+                                    withContext(Dispatchers.IO) {
+                                        activeSite = appLoginState.sessionManager?.ensureSite(LoginType.JWXT)
+                                    }
+                                } catch (_: Exception) {}
+                                attemptingAutoLogin = false
+                                if (activeSite == null) loadInitialData()
+                            }
+                        } else if (activeSite != null) {
+                            scope.launch {
+                                errorMessage = null
+                                isLoading = true
+                                try {
+                                    withContext(Dispatchers.IO) {
+                                        appLoginState.sessionManager?.credentials?.let { creds ->
+                                            activeSite?.ensureLogin(creds.first, creds.second, force = true)
+                                        }
+                                    }
+                                } catch (_: Exception) {}
+                                loadInitialData()
+                            }
+                        } else {
+                            loadInitialData()
+                        }
+                    },
                     modifier = Modifier.fillMaxSize()
                 )
             } else {
@@ -963,12 +1079,31 @@ fun ScheduleScreen(
                             customCourses = customCourses,
                             onEditCustomCourse = { editingCourse = it }
                         )
-                        1 -> ExamTabContent(exams)
+                        1 -> ExamTabContent(exams, contentBottomPadding)
                         2 -> TextbookTabContent(
                             textbooks = textbooks,
                             isLoading = textbooksLoading,
                             error = textbooksError,
-                            onRetry = { if (selectedTermCode.isNotEmpty()) loadTextbooks(selectedTermCode) }
+                            onRetry = {
+                                if (api == null && appLoginState.hasCredentials) {
+                                    scope.launch {
+                                        textbooksError = null
+                                        attemptingAutoLogin = true
+                                        try {
+                                            withContext(Dispatchers.IO) {
+                                                activeSite = appLoginState.sessionManager?.ensureSite(LoginType.JWXT)
+                                            }
+                                        } catch (_: Exception) {}
+                                        attemptingAutoLogin = false
+                                        if (selectedTermCode.isNotEmpty() && activeSite != null) {
+                                            loadTextbooks(selectedTermCode)
+                                        }
+                                    }
+                                } else if (selectedTermCode.isNotEmpty()) {
+                                    loadTextbooks(selectedTermCode)
+                                }
+                            },
+                            bottomPadding = contentBottomPadding
                         )
                     }
                 }
@@ -1005,149 +1140,101 @@ private fun ScheduleTabContent(
                     color = MiuixTheme.colorScheme.onTertiaryContainer
                 )
             }
-            // 底部导出按钮（显眼，便于用户发现）
-            Spacer(Modifier.weight(1f))
-            val ctx = androidx.compose.ui.platform.LocalContext.current
-            val exportEnabled = courses.isNotEmpty() && startOfTerm != null
-            val disabledReason = when {
-                courses.isEmpty() -> "无课程可导出"
-                startOfTerm == null -> "缺少开学日期，无法导出"
-                else -> ""
-            }
-            Button(
-                onClick = {
-                    if (startOfTerm == null) {
-                        android.widget.Toast.makeText(ctx, "无法获取开学日期，ICS 导出不可用", android.widget.Toast.LENGTH_SHORT).show()
-                        return@Button
-                    }
-                    try {
-                        val ics = ScheduleExport.generateIcs(courses, startOfTerm, if (selectedTermCode.isNotEmpty()) selectedTermCode else "日程")
-                        ScheduleExport.shareTextFile(ctx, ics, "${selectedTermCode}_日程.ics", "text/calendar")
-                    } catch (e: Exception) {
-                        android.widget.Toast.makeText(ctx, "导出失败: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
-                    }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                enabled = exportEnabled
-            ) {
-                Icon(Icons.Default.Event, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("导出日历 (ICS)")
-            }
-            if (!exportEnabled && disabledReason.isNotEmpty()) {
-                Text(
-                    disabledReason,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                )
-            }
         }
 
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Surface(
-                modifier = Modifier
-                    .heightIn(min = 34.dp)
-                    .clickable(enabled = selectedTermCode.isNotEmpty()) { onAddSchedule() },
-                shape = RoundedCornerShape(16.dp),
-                color = if (selectedTermCode.isNotEmpty()) {
-                    MiuixTheme.colorScheme.primaryContainer
-                } else {
-                    MiuixTheme.colorScheme.surfaceVariant
-                }
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Default.Add,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                        tint = if (selectedTermCode.isNotEmpty()) {
-                            MiuixTheme.colorScheme.onPrimaryContainer
-                        } else {
-                            MiuixTheme.colorScheme.onSurfaceVariantSummary
-                        }
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        "添加",
-                        style = MiuixTheme.textStyles.footnote1,
-                        fontWeight = FontWeight.Medium,
-                        color = if (selectedTermCode.isNotEmpty()) {
-                            MiuixTheme.colorScheme.onPrimaryContainer
-                        } else {
-                            MiuixTheme.colorScheme.onSurfaceVariantSummary
-                        }
-                    )
-                }
-            }
-
-            Spacer(Modifier.weight(1f))
-
-            AppFilterChip(
-                selected = !showAllWeeks,
-                onClick = { if (showAllWeeks) onToggleMode() },
-                label = "每周"
-            )
-            Spacer(Modifier.width(8.dp))
-            AppFilterChip(
-                selected = showAllWeeks,
-                onClick = { if (!showAllWeeks) onToggleMode() },
-                label = "总览"
-            )
-        }
-
+        // 主体：每周用 Pager 横滑切周；总览单页
         if (!showAllWeeks) {
-            WeekSelector(currentWeek, totalWeeks, onWeekChange)
-            val weekCourses = remember(courses, currentWeek) { courses.filter { it.isInWeek(currentWeek) } }
-            val weekDates = remember(startOfTerm, currentWeek) {
-                if (startOfTerm != null && currentWeek > 0) {
-                    val monday = startOfTerm!!.plusWeeks((currentWeek - 1).toLong())
-                    (0..6).map { monday.plusDays(it.toLong()) }
-                } else null
+            // realCurrentWeek 加载完后重建 Pager，让 initialPage 正确停在当前周
+            key(realCurrentWeek) {
+            val pagerState = rememberPagerState(initialPage = (currentWeek - 1).coerceAtLeast(0), pageCount = { totalWeeks })
+            // currentWeek -> pager（仅在用户没正在拖拽时同步）
+            LaunchedEffect(currentWeek) {
+                val target = (currentWeek - 1).coerceIn(0, totalWeeks - 1)
+                if (pagerState.currentPage != target && !pagerState.isScrollInProgress) {
+                    pagerState.scrollToPage(target)
+                }
             }
-            if (weekCourses.isEmpty() && courses.isNotEmpty()) {
-                EmptyState(
-                    title = "本周无日程",
-                    subtitle = "第${currentWeek}周还没有安排",
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                ScheduleGrid(
-                    weekCourses, allNames,
-                    isCurrentWeek = (currentWeek == realCurrentWeek && selectedTermCode == currentTermCode),
-                    weekDates = weekDates,
-                    holidayNames = holidayDates,
-                    onSlotClick = { selectedCourse = it as? CourseItem }
-                )
+            // pager -> currentWeek（仅在用户拖拽稳定后触发，避免初始化 emit 覆盖）
+            LaunchedEffect(pagerState) {
+                snapshotFlow { pagerState.settledPage }
+                    .drop(1)
+                    .collect { page ->
+                        val w = page + 1
+                        if (w != currentWeek) onWeekChange(w)
+                    }
             }
+            HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
+                val weekN = page + 1
+                val weekCourses = remember(courses, weekN) { courses.filter { it.isInWeek(weekN) } }
+                val weekDates = remember(startOfTerm, weekN) {
+                    if (startOfTerm != null && weekN > 0) {
+                        val monday = startOfTerm.plusWeeks((weekN - 1).toLong())
+                        (0..6).map { monday.plusDays(it.toLong()) }
+                    } else null
+                }
+                if (weekCourses.isEmpty() && courses.isNotEmpty()) {
+                    EmptyState(
+                        title = "本周无日程",
+                        subtitle = "第${weekN}周还没有安排",
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    ScheduleGrid(
+                        weekCourses, allNames,
+                        isCurrentWeek = (weekN == realCurrentWeek && selectedTermCode == currentTermCode),
+                        weekDates = weekDates,
+                        holidayNames = holidayDates,
+                        enableCompression = true,
+                        weekKey = weekN,
+                        onSlotClick = { item ->
+                            val course = item as? CourseItem ?: return@ScheduleGrid
+                            val customEntity = customCourses.find { it.toCourseItem().courseCode == course.courseCode }
+                            if (customEntity != null) onEditCustomCourse(customEntity)
+                            else selectedCourse = course
+                        }
+                    )
+                }
+            }
+            } // close key(realCurrentWeek)
         } else {
             ScheduleGrid(
                 courses, allNames,
                 showWeeks = true,
-                onSlotClick = { selectedCourse = it as? CourseItem }
+                enableCompression = true,
+                onSlotClick = { item ->
+                    val course = item as? CourseItem ?: return@ScheduleGrid
+                    val customEntity = customCourses.find { it.toCourseItem().courseCode == course.courseCode }
+                    if (customEntity != null) onEditCustomCourse(customEntity)
+                    else selectedCourse = course
+                }
             )
         }
+
     }
 
-    // 课程详情弹窗（区分自定义课程 → 编辑弹窗）
+    // 课程详情弹窗（仅普通课程；自定义课程已在点击时分流到编辑弹窗）
     selectedCourse?.let { course ->
-        val customEntity = customCourses.find { it.toCourseItem().courseCode == course.courseCode }
-        if (customEntity != null) {
-            selectedCourse = null
-            onEditCustomCourse(customEntity)
-        } else {
-            val showCourseDetail = remember { mutableStateOf(true) }
-            CourseDetailDialog(show = showCourseDetail, course = course, onDismiss = { selectedCourse = null })
-        }
+        val showCourseDetail = remember(course) { mutableStateOf(true) }
+        CourseDetailDialog(show = showCourseDetail, course = course, onDismiss = { selectedCourse = null })
+    }
+}
+
+@Composable
+private fun ScheduleMenuRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    text: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, null, Modifier.size(20.dp), tint = MiuixTheme.colorScheme.onSurfaceContainer)
+        Spacer(Modifier.width(12.dp))
+        Text(text, style = MiuixTheme.textStyles.body1, color = MiuixTheme.colorScheme.onSurfaceContainer)
     }
 }
 
@@ -1155,8 +1242,8 @@ private fun ScheduleTabContent(
 private fun CourseDetailDialog(show: MutableState<Boolean>, course: CourseItem, onDismiss: () -> Unit) {
     BackHandler(enabled = show.value) { show.value = false; onDismiss() }
     val isAgenda = course.courseType == "日程"
-    SuperBottomSheet(
-        show = show,
+    OverlayBottomSheet(
+        show = show.value,
         onDismissRequest = { show.value = false; onDismiss() }
     ) {
         // 异步获取教室座位数
@@ -1286,7 +1373,7 @@ private fun formatWeeks(weeks: List<Int>): String {
 }
 
 @Composable
-private fun ExamTabContent(exams: List<ExamItem>) {
+private fun ExamTabContent(exams: List<ExamItem>, bottomPadding: androidx.compose.ui.unit.Dp = 0.dp) {
     // 去重（同一门课+同一天只显示一次）
     val uniqueExams = exams.distinctBy { "${it.courseName}_${it.examDate}" }
     if (uniqueExams.isEmpty()) {
@@ -1295,7 +1382,7 @@ private fun ExamTabContent(exams: List<ExamItem>) {
         }
         return
     }
-    LazyColumn(Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
+    LazyColumn(Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(top = 12.dp, bottom = 12.dp + bottomPadding)) {
         items(uniqueExams) { exam -> ExamCard(exam) }
     }
 }
@@ -1436,7 +1523,8 @@ private fun TextbookTabContent(
     textbooks: List<TextbookItem>,
     isLoading: Boolean,
     error: String?,
-    onRetry: () -> Unit
+    onRetry: () -> Unit,
+    bottomPadding: androidx.compose.ui.unit.Dp = 0.dp
 ) {
     when {
         isLoading -> LoadingState(message = "查询教材信息...", modifier = Modifier.fillMaxSize())
@@ -1456,7 +1544,7 @@ private fun TextbookTabContent(
             LazyColumn(
                 Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
-                contentPadding = PaddingValues(vertical = 12.dp)
+                contentPadding = PaddingValues(top = 12.dp, bottom = 12.dp + bottomPadding)
             ) {
                 items(textbooks) { item -> TextbookCard(item) }
             }

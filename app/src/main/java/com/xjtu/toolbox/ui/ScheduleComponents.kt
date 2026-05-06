@@ -22,9 +22,14 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -56,10 +61,10 @@ val COURSE_COLORS = listOf(
 )
 
 val DAY_HEADERS = listOf("一", "二", "三", "四", "五", "六", "日")
-const val DAY_START_HOUR = 6
-const val DAY_END_HOUR = 24
+const val DAY_START_HOUR = 8
+const val DAY_END_HOUR = 22
 const val MAX_SECTIONS = DAY_END_HOUR - DAY_START_HOUR
-private val SECTION_HEIGHT: Dp = 48.dp
+private val SECTION_HEIGHT: Dp = 50.dp
 private val LEFT_COL_WIDTH: Dp = 38.dp
 
 fun courseColor(courseName: String, allNames: List<String>): Color {
@@ -119,15 +124,12 @@ private fun toDisplayScheduleSlot(slot: ScheduleSlot, isSummer: Boolean): Displa
             val startTime = XjtuTime.getClassTime(slot.slotStartSection, isSummer)?.start
             val endTime = XjtuTime.getClassTime(slot.slotEndSection, isSummer)?.end
             if (startTime != null && endTime != null) {
-                val startHour = startTime.hour.coerceAtLeast(DAY_START_HOUR)
-                val endHourExclusive = ceil(endTime.hour + endTime.minute / 60f)
-                    .toInt()
-                    .coerceAtLeast(startHour + 1)
-                    .coerceAtMost(DAY_END_HOUR)
-
-                val mappedStart = (startHour - DAY_START_HOUR + 1).coerceIn(1, MAX_SECTIONS)
-                val mappedEnd = (endHourExclusive - DAY_START_HOUR).coerceIn(mappedStart, MAX_SECTIONS)
-                (mappedStart - 1).toFloat() to mappedEnd.toFloat()
+                // 按分钟精确定位，不再向整点取整（修复 14:30-16:20 被显示为 14:00-17:00）
+                val startMinutes = startTime.hour * 60 + startTime.minute
+                val endMinutes = endTime.hour * 60 + endTime.minute
+                val startFrac = (startMinutes - DAY_START_HOUR * 60) / 60f
+                val endFrac = (endMinutes - DAY_START_HOUR * 60) / 60f
+                startFrac to endFrac
             } else {
                 val fallbackStart = slot.slotStartSection.coerceIn(1, MAX_SECTIONS)
                 val fallbackEnd = slot.slotEndSection.coerceIn(fallbackStart, MAX_SECTIONS)
@@ -225,12 +227,56 @@ fun ScheduleGrid(
     isCurrentWeek: Boolean = false,  // 是否显示当前时间线
     weekDates: List<java.time.LocalDate>? = null,
     holidayNames: Map<java.time.LocalDate, String> = emptyMap(),
+    enableCompression: Boolean = false,  // 空时段是否纵向压缩（学期视图禁用）
+    weekKey: Any? = null,  // 切换周时触发"先恢复均匀"动画
     onSlotClick: (ScheduleSlot) -> Unit = {}
 ) {
     val scrollState = rememberScrollState()
-    val isSummer = remember { XjtuTime.isSummerTime() }
-    val displaySlots = remember(slots, isSummer) {
-        slots.mapNotNull { toDisplayScheduleSlot(it, isSummer) }
+    val displaySlots = remember(slots, weekDates) {
+        slots.mapNotNull { slot ->
+            val slotDate = weekDates?.getOrNull(slot.slotDayOfWeek - 1)
+            val isSummer = slotDate?.let { XjtuTime.isSummerTime(it.monthValue) }
+                ?: XjtuTime.isSummerTime()
+            toDisplayScheduleSlot(slot, isSummer)
+        }
+    }
+
+    // ── 时段压缩：每个 section 的目标缩放（无事=0.5，有事=1.0）──
+    val targetScales = remember(displaySlots, enableCompression) {
+        if (!enableCompression) FloatArray(MAX_SECTIONS) { 1f }
+        else {
+            val used = BooleanArray(MAX_SECTIONS)
+            displaySlots.forEach { s ->
+                val a = floor(s.startFraction).toInt().coerceIn(0, MAX_SECTIONS - 1)
+                val b = ceil(s.endFraction).toInt().coerceIn(a + 1, MAX_SECTIONS)
+                for (k in a until b) used[k] = true
+            }
+            FloatArray(MAX_SECTIONS) { if (used[it]) 1f else 0.5f }
+        }
+    }
+    // 两阶段动画：切周后先恢复全 1.0，250ms 后再压缩为 targetScales
+    var stagedScales by remember { mutableStateOf(FloatArray(MAX_SECTIONS) { 1f }) }
+    LaunchedEffect(weekKey, targetScales) {
+        stagedScales = FloatArray(MAX_SECTIONS) { 1f }
+        delay(250)
+        stagedScales = targetScales
+    }
+    val animatedScales = (0 until MAX_SECTIONS).map { i ->
+        animateFloatAsState(
+            targetValue = stagedScales[i],
+            animationSpec = tween(durationMillis = 380),
+            label = "sectionScale$i"
+        ).value
+    }
+    // 累计偏移：cumulative[k] = sum(scales[0..k-1])
+    val cumulative = FloatArray(MAX_SECTIONS + 1).also {
+        for (i in 0 until MAX_SECTIONS) it[i + 1] = it[i] + animatedScales[i]
+    }
+    val totalScaleSum = cumulative[MAX_SECTIONS]
+    fun yOf(frac: Float): Dp {
+        val sec = floor(frac).toInt().coerceIn(0, MAX_SECTIONS - 1)
+        val rest = (frac - sec).coerceIn(0f, 1f)
+        return SECTION_HEIGHT * (cumulative[sec] + animatedScales[sec] * rest)
     }
 
     // 当前时间线位置计算（仅在当前周激活）
@@ -283,8 +329,15 @@ fun ScheduleGrid(
                             maxLines = 1,
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
-                    } else if (weekDates != null) {
-                        Text(" ", fontSize = 8.sp)
+                    } else if (date != null) {
+                        Text(
+                            "${date.monthValue}月${date.dayOfMonth}日",
+                            fontSize = 8.sp,
+                            color = if (isToday) MiuixTheme.colorScheme.primary
+                            else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
                     }
                 }
             }
@@ -294,18 +347,19 @@ fun ScheduleGrid(
         BoxWithConstraints(
             Modifier
                 .fillMaxWidth()
-                .height(SECTION_HEIGHT * MAX_SECTIONS)
+                .height(SECTION_HEIGHT * totalScaleSum)
         ) {
             val dayWidth = (maxWidth - LEFT_COL_WIDTH) / 7
 
-            // 背景层：小时轴 + 细线网格
+            // 背景层：小时轴 + 细线网格（每行高度 = SECTION_HEIGHT * scale[section]）
             val gridLineColor = MiuixTheme.colorScheme.outline.copy(alpha = 0.12f)
             Column(Modifier.fillMaxSize()) {
                 for (section in 1..MAX_SECTIONS) {
+                    val rowHeight = SECTION_HEIGHT * animatedScales[section - 1]
                     Row(
                         Modifier
                             .fillMaxWidth()
-                            .height(SECTION_HEIGHT),
+                            .height(rowHeight),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(
@@ -316,19 +370,18 @@ fun ScheduleGrid(
                                 "%02d:00".format(DAY_START_HOUR + section - 1),
                                 fontSize = 8.sp,
                                 fontWeight = FontWeight.Medium,
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.45f)
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(
+                                    alpha = if (animatedScales[section - 1] < 0.95f) 0.30f else 0.45f
+                                )
                             )
                         }
-                        // 网格单元格用细边框代替棋盘色块
                         for (day in 1..7) {
                             Box(
                                 Modifier
                                     .width(dayWidth)
                                     .fillMaxHeight()
                                     .drawBehind {
-                                        // 底部水平线
                                         drawLine(gridLineColor, Offset(0f, size.height), Offset(size.width, size.height), 0.5f.dp.toPx())
-                                        // 右侧垂直线
                                         drawLine(gridLineColor, Offset(size.width, 0f), Offset(size.width, size.height), 0.5f.dp.toPx())
                                     }
                             )
@@ -341,8 +394,8 @@ fun ScheduleGrid(
             val conflictGroups = remember(displaySlots) { buildConflictGroups(displaySlots) }
 
             conflictGroups.forEach { group ->
-                val topOffset = SECTION_HEIGHT * group.startFraction
-                val cellHeight = SECTION_HEIGHT * (group.endFraction - group.startFraction)
+                val topOffset = yOf(group.startFraction)
+                val cellHeight = yOf(group.endFraction) - topOffset
                 val dayLeft = LEFT_COL_WIDTH + dayWidth * (group.dayOfWeek - 1)
 
                 Box(
@@ -354,13 +407,15 @@ fun ScheduleGrid(
                 ) {
                     if (group.slots.size == 1) {
                         val slot = group.slots[0]
+                        val slotTop = yOf(slot.startFraction) - topOffset
+                        val slotH = (yOf(slot.endFraction) - yOf(slot.startFraction))
+                            .coerceAtLeast(SECTION_HEIGHT * (5f / 60f))
                         val slotDuration = (slot.endFraction - slot.startFraction).coerceAtLeast(5f / 60f)
-                        val slotTopOffset = SECTION_HEIGHT * (slot.startFraction - group.startFraction)
                         Box(
                             Modifier
                                 .fillMaxWidth()
-                                .height(SECTION_HEIGHT * slotDuration)
-                                .offset(y = slotTopOffset)
+                                .height(slotH)
+                                .offset(y = slotTop)
                         ) {
                             CourseCell(
                                 name = slot.slotName,
@@ -375,6 +430,7 @@ fun ScheduleGrid(
                         FlippableCourseCell(
                             slots = group.slots,
                             groupStartFraction = group.startFraction,
+                            yOf = ::yOf,
                             allCourseNames = allCourseNames,
                             showWeeks = showWeeks,
                             onSlotClick = onSlotClick
@@ -387,12 +443,11 @@ fun ScheduleGrid(
             if (timeLineInfo != null) {
                 val (todayDow, yFrac) = timeLineInfo
                 val density = androidx.compose.ui.platform.LocalDensity.current
-                val sectionHeightPx = with(density) { SECTION_HEIGHT.toPx() }
                 val leftColPx = with(density) { LEFT_COL_WIDTH.toPx() }
                 val dayWidthPx = with(density) { dayWidth.toPx() }
                 val lineColor = Color(0xFFE53935)  // Material Red 600
-                val yPos = sectionHeightPx * yFrac
-                val timelineY = with(density) { (yPos / density.density).dp }
+                val timelineY = yOf(yFrac)
+                val yPos = with(density) { timelineY.toPx() }
 
                 // "现在" 标签
                 Text(
@@ -512,11 +567,13 @@ private fun formatWeekInfo(slot: ScheduleSlot, showWeeks: Boolean): String {
 private fun FlippableCourseCell(
     slots: List<DisplayScheduleSlot>,
     groupStartFraction: Float,
+    yOf: (Float) -> Dp,
     allCourseNames: List<String>,
     showWeeks: Boolean,
     onSlotClick: (ScheduleSlot) -> Unit
 ) {
     val pagerState = rememberPagerState(pageCount = { slots.size })
+    val groupY = yOf(groupStartFraction)
 
     Box(Modifier.fillMaxSize()) {
         HorizontalPager(
@@ -525,14 +582,16 @@ private fun FlippableCourseCell(
         ) { page ->
             val slot = slots[page]
             val slotDuration = (slot.endFraction - slot.startFraction).coerceAtLeast(5f / 60f)
-            val relativeOffset = slot.startFraction - groupStartFraction
+            val slotTop = yOf(slot.startFraction) - groupY
+            val slotH = (yOf(slot.endFraction) - yOf(slot.startFraction))
+                .coerceAtLeast(SECTION_HEIGHT * (5f / 60f))
 
             Box(Modifier.fillMaxSize()) {
                 Box(
                     Modifier
                         .fillMaxWidth()
-                        .height(SECTION_HEIGHT * slotDuration)
-                        .offset(y = SECTION_HEIGHT * relativeOffset)
+                        .height(slotH)
+                        .offset(y = slotTop)
                 ) {
                     CourseCell(
                         name = slot.slotName,

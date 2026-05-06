@@ -25,7 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.xjtu.toolbox.auth.XJTULogin
+import com.xjtu.toolbox.auth.SiteSession
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.*
@@ -34,8 +34,8 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
 @Composable
-fun SchoolCalendarScreen(login: XJTULogin?, onBack: () -> Unit) {
-    val api = remember(login) { SchoolCalendarApi(login) }
+fun SchoolCalendarScreen(site: SiteSession?, onBack: () -> Unit) {
+    val api = remember(site) { SchoolCalendarApi(site) }
 
     var terms by remember { mutableStateOf<List<SchoolTerm>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
@@ -103,7 +103,7 @@ fun SchoolCalendarScreen(login: XJTULogin?, onBack: () -> Unit) {
                             style = MiuixTheme.textStyles.body1,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                         )
-                        if (login == null) {
+                        if (site == null) {
                             Spacer(Modifier.height(8.dp))
                             Text(
                                 "提示：登录教务系统后可通过 SSO 自动访问校历",

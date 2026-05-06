@@ -59,7 +59,7 @@ data class CustomCourseEntity(
 
 /**
  * 将诸如 "第1-4，6-16周"、"1,2,4-10" 等不规则字符串解析为周次列表
- * 参考桌面版 schedule_service.py 设计
+ * 自建课程落库模型。
  */
 fun parseWeeksString(weeksStr: String): List<Int> {
     if (weeksStr.isBlank()) return emptyList()

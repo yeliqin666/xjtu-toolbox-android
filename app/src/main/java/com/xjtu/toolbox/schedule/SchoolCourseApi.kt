@@ -3,13 +3,14 @@ package com.xjtu.toolbox.schedule
 import android.util.Log
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
-import com.xjtu.toolbox.auth.JwxtLogin
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
 import com.xjtu.toolbox.util.safeString
 import com.xjtu.toolbox.util.safeInt
 import com.xjtu.toolbox.util.safeDouble
 import okhttp3.FormBody
 import okhttp3.Request
+import kotlinx.coroutines.runBlocking
 
 private const val TAG = "SchoolCourseApi"
 private const val BASE_URL = "https://jwxt.xjtu.edu.cn"
@@ -84,7 +85,7 @@ data class SchoolCourseResult(
 
 // ── API ─────────────────────────────────────────────
 
-class SchoolCourseApi(private val login: JwxtLogin) {
+class SchoolCourseApi(private val site: SiteSession) {
 
     /** kcbcx 应用的基础 URL（与 wdkb 不同，是独立的应用） */
     private val appBase = "$BASE_URL/jwapp/sys/kcbcx"
@@ -103,7 +104,7 @@ class SchoolCourseApi(private val login: JwxtLogin) {
                 .url("$appBase/*default/index.do")
                 .header("Accept", "text/html")
                 .build()
-            login.client.newCall(req).execute().close()
+            runBlocking { site.executeWithReAuth(req) }.close()
             appInitialized = true
         } catch (e: Exception) {
             Log.w(TAG, "ensureAppInitialized failed", e)
@@ -121,7 +122,7 @@ class SchoolCourseApi(private val login: JwxtLogin) {
             .header("Accept", "application/json")
             .build()
 
-        val body = login.client.newCall(request).execute().use { it.body?.string() }
+        val body = execute(request)
         val json = body.safeParseJsonObject()
         return json.getAsJsonObject("datas")
             ?.getAsJsonObject("dqxnxq")
@@ -138,7 +139,7 @@ class SchoolCourseApi(private val login: JwxtLogin) {
             .header("Accept", "application/json")
             .build()
 
-        val body = login.client.newCall(request).execute().use { it.body?.string() }
+        val body = execute(request)
         val json = body.safeParseJsonObject()
         val rows = json.getAsJsonObject("datas")
             ?.getAsJsonObject("xnxqcx")
@@ -163,7 +164,7 @@ class SchoolCourseApi(private val login: JwxtLogin) {
             .header("Accept", "application/json")
             .build()
 
-        val body = login.client.newCall(request).execute().use { it.body?.string() }
+        val body = execute(request)
         val json = body.safeParseJsonObject()
         val rows = json.getAsJsonObject("datas")
             ?.getAsJsonObject("code")
@@ -299,7 +300,7 @@ class SchoolCourseApi(private val login: JwxtLogin) {
             .header("Accept", "application/json")
             .build()
 
-        val body = login.client.newCall(request).execute().use { it.body?.string() }
+        val body = execute(request)
         val json = body.safeParseJsonObject()
 
         val datas = json.getAsJsonObject("datas")
@@ -387,4 +388,7 @@ class SchoolCourseApi(private val login: JwxtLogin) {
         addProperty("linkOpt", "AND")
         addProperty("builder", "m_value_equal")
     }
+
+    private fun execute(request: Request): String =
+        runBlocking { site.executeWithReAuth(request) }.use { it.body?.string().orEmpty() }
 }
