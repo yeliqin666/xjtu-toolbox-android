@@ -766,7 +766,7 @@ open class XJTULogin(
     companion object {
         // 常用登录地址
         /** 考勤系统 OAuth 登录（直连模式，经 org.xjtu.edu.cn 中转） */
-        const val ATTENDANCE_URL = "http://org.xjtu.edu.cn/openplatform/oauth/authorize?appId=1372&redirectUri=http://bkkq.xjtu.edu.cn/berserker-auth/auth/attendance-pc/casReturn&responseType=code&scope=user_info&state=1234"
+        const val ATTENDANCE_URL = "https://org.xjtu.edu.cn/openplatform/oauth/authorize?appId=1372&redirectUri=https://bkkq.xjtu.edu.cn/berserker-auth/auth/attendance-pc/casReturn&responseType=code&scope=user_info&state=1234"
         /** 考勤系统直连登录（WebVPN 模式，直接访问 bkkq，更短的 CAS 链）*/
         const val ATTENDANCE_WEBVPN_URL = "http://bkkq.xjtu.edu.cn"
         const val JWXT_URL = "https://jwxt.xjtu.edu.cn/jwapp/sys/homeapp/index.do"

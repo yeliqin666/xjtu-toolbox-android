@@ -105,7 +105,8 @@ fun ScheduleScreen(
     showBackButton: Boolean = true,
     onSubtitleChange: (String) -> Unit = {},
     onActionsChange: ((@Composable androidx.compose.foundation.layout.RowScope.() -> Unit)?) -> Unit = {},
-    onBottomContentChange: ((@Composable () -> Unit)?) -> Unit = {}
+    onBottomContentChange: ((@Composable () -> Unit)?) -> Unit = {},
+    contentBottomPadding: androidx.compose.ui.unit.Dp = 0.dp
 ) {
     val api = remember(login) { login?.let { ScheduleApi(it) } }
     val scope = rememberCoroutineScope()
@@ -993,12 +994,13 @@ fun ScheduleScreen(
                             customCourses = customCourses,
                             onEditCustomCourse = { editingCourse = it }
                         )
-                        1 -> ExamTabContent(exams)
+                        1 -> ExamTabContent(exams, contentBottomPadding)
                         2 -> TextbookTabContent(
                             textbooks = textbooks,
                             isLoading = textbooksLoading,
                             error = textbooksError,
-                            onRetry = { if (selectedTermCode.isNotEmpty()) loadTextbooks(selectedTermCode) }
+                            onRetry = { if (selectedTermCode.isNotEmpty()) loadTextbooks(selectedTermCode) },
+                            bottomPadding = contentBottomPadding
                         )
                     }
                 }
@@ -1268,7 +1270,7 @@ private fun formatWeeks(weeks: List<Int>): String {
 }
 
 @Composable
-private fun ExamTabContent(exams: List<ExamItem>) {
+private fun ExamTabContent(exams: List<ExamItem>, bottomPadding: androidx.compose.ui.unit.Dp = 0.dp) {
     // 去重（同一门课+同一天只显示一次）
     val uniqueExams = exams.distinctBy { "${it.courseName}_${it.examDate}" }
     if (uniqueExams.isEmpty()) {
@@ -1277,7 +1279,7 @@ private fun ExamTabContent(exams: List<ExamItem>) {
         }
         return
     }
-    LazyColumn(Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
+    LazyColumn(Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(top = 12.dp, bottom = 12.dp + bottomPadding)) {
         items(uniqueExams) { exam -> ExamCard(exam) }
     }
 }
@@ -1418,7 +1420,8 @@ private fun TextbookTabContent(
     textbooks: List<TextbookItem>,
     isLoading: Boolean,
     error: String?,
-    onRetry: () -> Unit
+    onRetry: () -> Unit,
+    bottomPadding: androidx.compose.ui.unit.Dp = 0.dp
 ) {
     when {
         isLoading -> LoadingState(message = "查询教材信息...", modifier = Modifier.fillMaxSize())
@@ -1438,7 +1441,7 @@ private fun TextbookTabContent(
             LazyColumn(
                 Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
-                contentPadding = PaddingValues(vertical = 12.dp)
+                contentPadding = PaddingValues(top = 12.dp, bottom = 12.dp + bottomPadding)
             ) {
                 items(textbooks) { item -> TextbookCard(item) }
             }

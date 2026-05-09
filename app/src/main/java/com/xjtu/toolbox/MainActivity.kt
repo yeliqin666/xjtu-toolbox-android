@@ -1444,6 +1444,9 @@ fun AppNavigation(
                 if (assets != null && assets.size() > 0) {
                     downloadUrl = assets[0].asJsonObject.get("browser_download_url")?.asString ?: ""
                 }
+                if (downloadUrl.isEmpty()) {
+                    downloadUrl = "https://gitee.com/yeliqin666/xjtu-toolbox-android/releases/download/v${latestVersion}/app-release.apk"
+                }
 
                 if (credentialStore.isUpdateNoticeSeen("auto_$latestVersion")) return@withContext
 
@@ -2712,12 +2715,10 @@ private fun CoursesTab(
     onActionsChange: ((@Composable androidx.compose.foundation.layout.RowScope.() -> Unit)?) -> Unit = {},
     onBottomContentChange: ((@Composable () -> Unit)?) -> Unit = {}
 ) {
-    // floating 模式 dock 浮在 content 上，需要给底部留空间避免 dock 遮挡内容
     val bottomReserve = if (navBarStyle == "floating") 96.dp else 0.dp
     Box(
         Modifier
             .fillMaxSize()
-            .padding(bottom = bottomReserve)
             .then(if (scrollBehavior != null) Modifier.nestedScroll(scrollBehavior.nestedScrollConnection) else Modifier)
     ) {
         ScheduleScreen(
@@ -2727,7 +2728,8 @@ private fun CoursesTab(
             showTopBar = false,
             onSubtitleChange = onSubtitleChange,
             onActionsChange = onActionsChange,
-            onBottomContentChange = onBottomContentChange
+            onBottomContentChange = onBottomContentChange,
+            contentBottomPadding = bottomReserve
         )
     }
 }
@@ -4335,18 +4337,7 @@ private fun AutoUpdateDialog(
                 }
             }
 
-            // 查看 Release 页面按钮
-            if (releaseUrl.isNotEmpty()) {
-                Spacer(Modifier.height(8.dp))
-                val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
-                TextButton(
-                    text = "在浏览器中查看",
-                    onClick = { uriHandler.openUri(releaseUrl) },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(8.dp))
             TextButton(
                 text = "稍后提醒",
                 onClick = {

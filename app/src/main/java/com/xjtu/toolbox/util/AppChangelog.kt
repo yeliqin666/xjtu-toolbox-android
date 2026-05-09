@@ -25,6 +25,13 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "3.4.1" to VersionChangelog(
+            items = listOf(
+                "🔑" to "【考勤】修复登录 URL 协议错误（http → https），解决考勤无法登录的问题",
+                "⬆️" to "【更新】应用内下载始终可用：Gitee Release 附件缺失时自动 fallback 到直链，移除跳转浏览器按钮",
+                "🗓️" to "【课表】修复浮动胶囊 dock 下三个 Tab 底部出现固定空白的问题，现在与其他页面一致自然延伸"
+            )
+        ),
         "3.4.0" to VersionChangelog(
             items = listOf(
                 "🗓️" to "【课表】时间轴空时段自动纵向压缩，切周时先恢复均匀再平滑压缩，左侧时间标签同步收缩",
