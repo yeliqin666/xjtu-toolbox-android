@@ -1,5 +1,11 @@
 # 岱宗盒子
-> 作者最近忙炸，App不在近期计划内...上等的PR会接受！
+
+> [!NOTE]
+> 学校WebVPN及各系统登录策略频繁调整，暂时不会跟进更新，待稳定后会修复相关功能！
+> 推荐大家使用[XJTUToolBox](https://github.com/yan-xiaoo/XJTUToolBox.git)，更新修复更快，实现也更稳健；
+> 作者最近忙炸，开发暂缓...欢迎大家PR！
+> 
+
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Android-green?logo=android" />
   <img src="https://img.shields.io/badge/minSdk-31_(Android_12)-blue" />
