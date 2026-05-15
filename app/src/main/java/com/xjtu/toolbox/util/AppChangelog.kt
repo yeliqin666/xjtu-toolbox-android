@@ -25,6 +25,15 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "3.5.0" to VersionChangelog(
+            items = listOf(
+                "🔐" to "【MFA】自动登录遇到两步验证时弹出验证码对话框，即时完成验证继续使用功能",
+                "🌐" to "【网络】教务/思源学堂/场馆/教材中心在校外自动启用 WebVPN 通道",
+                "💳" to "【校园卡】修复付款码消费被错误标注为收入的问题",
+                "📚" to "【教材中心】精简为搜索与书目查看，移除阅览和下载",
+                "⬆️" to "【UI】miuix 升级至 0.9.1，修复登录态过期时的错误提示"
+            )
+        ),
         "3.4.1" to VersionChangelog(
             items = listOf(
                 "🔑" to "【考勤】修复登录 URL 协议错误（http → https），解决考勤无法登录的问题",

@@ -86,6 +86,19 @@ class CouponLogin(
             .header("Authorization", authToken ?: "")
     }
 
+    override fun validateLogin(): Boolean {
+        return isTokenValid()
+    }
+
+    override fun keepAlive(): KeepAliveStatus {
+        return try {
+            if (isTokenValid()) return KeepAliveStatus.VALID
+            if (reAuthenticate()) KeepAliveStatus.REAUTH_OK
+            else KeepAliveStatus.AUTH_INVALID
+        } catch (_: java.io.IOException) { KeepAliveStatus.NETWORK_ERROR }
+        catch (_: Exception) { KeepAliveStatus.ERROR }
+    }
+
     private val reAuthLock = Any()
 
     fun reAuthenticate(): Boolean = synchronized(reAuthLock) {
@@ -107,11 +120,22 @@ class CouponLogin(
 
     fun executeWithReAuth(requestBuilder: Request.Builder): Response {
         val response = client.newCall(requestBuilder.build()).execute()
-        if (response.code in listOf(401, 403)) {
+        val needReAuth = when {
+            response.code in listOf(401, 403) -> true
+            response.code == 200 -> {
+                val ct = response.header("Content-Type") ?: ""
+                if ("html" in ct || "text" in ct) {
+                    XJTULogin.isAuthFailureResponse(response.peekBody(8192).string())
+                } else false
+            }
+            else -> false
+        }
+        if (needReAuth) {
             response.close()
             if (reAuthenticate()) {
                 return client.newCall(requestBuilder.header("Authorization", authToken ?: "").build()).execute()
             }
+            throw AuthExpiredException("加餐券")
         }
         return response
     }

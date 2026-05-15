@@ -43,6 +43,9 @@ XJTUTOOLBOX_CMP/
 # miuix reference source (read-only, not part of this repo)
 miuix-ref/
 
+# Upstream Python reference (local only)
+.upstream-ref/
+
 # Misc local artifacts
 build_output.txt
 tools/

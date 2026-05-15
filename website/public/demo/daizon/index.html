@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=360, initial-scale=1, viewport-fit=cover">
+    <title>岱宗盒子 Demo</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+            font-family: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+            overflow: hidden;
+            background: transparent;
+        }
+        #ComposeTarget {
+            display: block;
+            width: 360px;
+            height: 720px;
+        }
+    </style>
+</head>
+<body>
+    <div id="ComposeTarget"></div>
+    <script>
+      // Wait for fonts before starting Compose to avoid CJK garbled text
+      (function () {
+        var load = function () {
+          var s = document.createElement('script');
+          s.src = 'daizon.js';
+          s.type = 'application/javascript';
+          document.body.appendChild(s);
+        };
+        if (document.fonts && document.fonts.ready) {
+          document.fonts.load("16px 'Noto Sans SC'").finally(function () {
+            document.fonts.ready.then(load).catch(load);
+          });
+        } else {
+          load();
+        }
+      })();
+    </script>
+</body>
+</html>

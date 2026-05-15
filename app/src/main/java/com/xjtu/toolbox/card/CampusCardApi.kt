@@ -156,15 +156,18 @@ class CampusCardApi(private val login: CampusCardLogin) {
 
         val transactions = records.map { it.asJsonObject }.map { rec ->
             val tranAmt = rec.get("tranamt")?.asLong ?: 0L
-            val isExpense = rec.get("icon")?.asString == "consume"
+            val icon = rec.get("icon")?.asString ?: ""
+            val turnoverType = rec.get("turnoverType")?.asString?.trim() ?: ""
+            // 只有充值/圈存类是收入，其余（consume、qrcode、空等）都是支出
+            val isIncome = icon == "recharge" || turnoverType.contains("充值") || turnoverType.contains("圈存")
             val merchant = rec.get("toMerchant")?.asString?.trim()
                 ?: rec.get("resume")?.asString?.substringBefore("-")?.trim() ?: ""
             Transaction(
                 time = rec.get("jndatetimeStr")?.asString ?: "",
                 merchant = merchant,
-                amount = if (isExpense) -tranAmt / 100.0 else tranAmt / 100.0,
+                amount = if (isIncome) tranAmt / 100.0 else -tranAmt / 100.0,
                 balance = (rec.get("cardBalance")?.asLong ?: 0L) / 100.0,
-                type = rec.get("turnoverType")?.asString?.trim() ?: "",
+                type = turnoverType,
                 description = rec.get("resume")?.asString?.trim() ?: ""
             )
         }

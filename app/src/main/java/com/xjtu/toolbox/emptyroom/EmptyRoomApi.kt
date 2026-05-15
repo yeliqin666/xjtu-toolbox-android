@@ -205,3 +205,244 @@ class EmptyRoomApi {
  * 无数据异常（CDN 上没有该天的数据）
  */
 class NoDataException(message: String) : Exception(message)
+
+// =====================================================================================
+// 直连查询：不依赖 CDN，通过教务系统接口实时查询空闲教室
+// 与上游 jwxt/empty_room.py 的 EmptyRoom 类对齐；上游 70f1291b 后默认使用 WebVPN 登录
+// =====================================================================================
+
+/**
+ * 教务系统返回的原始空闲教室数据。
+ */
+data class DirectRoomRow(
+    val name: String,
+    val buildingName: String,
+    val type: String?,
+    val capacity: Int,
+    val examCapacity: Int,
+    val campusName: String
+)
+
+/**
+ * 不依赖 CDN 的空闲教室直连查询。
+ *
+ * 使用教务系统 jwxt.xjtu.edu.cn 的真实接口（与上游 jwxt/empty_room.py 对齐）。
+ * 必须先将账户角色切换到「学生」（移动应用学生身份下接口不可用），构造时自动完成。
+ *
+ * @param httpClient 已通过 JWXT 认证的 OkHttpClient（共享自 sharedClient 或 vpnClient）
+ */
+class EmptyRoomDirectQuery(private val httpClient: OkHttpClient) {
+
+    companion object {
+        private const val TAG = "EmptyRoomDirect"
+        private const val JWXT_BASE = "https://jwxt.xjtu.edu.cn"
+        private const val REFERER = "$JWXT_BASE/jwapp/sys/kxjas/*default/index.do"
+        private const val FORM_CT = "application/x-www-form-urlencoded; charset=UTF-8"
+        // 上游 jwxt/empty_room.py 的 UUID（不可变）
+        private const val CAMPUS_CODE_API = "$JWXT_BASE/jwapp/code/83a986fc-e677-400e-99a4-c7bb39c2ca35.do"
+        private const val BUILDING_CODE_API = "$JWXT_BASE/jwapp/code/551fbcc3-cf07-4566-af1e-fc7ce272ddc1.do"
+        private const val QUERY_API = "$JWXT_BASE/jwapp/sys/kxjas/modules/kxjscx/cxkxjs.do"
+        // 角色相关
+        private const val USER_INFO_API = "$JWXT_BASE/jwapp/sys/homeapp/api/home/currentUser.do"
+        private const val CHANGE_ROLE_API = "$JWXT_BASE/jwapp/sys/homeapp/api/home/changeAppRole.do"
+
+        /** 进程内缓存：校区/教学楼代码 7 天有效（命名编号几乎不变） */
+        private const val CODE_CACHE_TTL_MS = 7L * 24 * 60 * 60 * 1000
+        @Volatile private var cachedCampusCodes: Pair<Map<String, String>, Long>? = null
+        @Volatile private var cachedBuildingCodes: Pair<Map<String, String>, Long>? = null
+    }
+
+    @Volatile private var roleEnsuredStudent: Boolean = false
+
+    /**
+     * 切换到「学生」身份（仅当前不是时）。仅在第一次调用查询接口前执行一次。
+     */
+    fun ensureRoleStudent() {
+        if (roleEnsuredStudent) return
+        try {
+            val resp = httpClient.newCall(
+                Request.Builder()
+                    .url(USER_INFO_API)
+                    .header("Referer", "$JWXT_BASE/jwapp/sys/homeapp/home/index.html?av=&contextPath=/jwapp")
+                    .get()
+                    .build()
+            ).execute()
+            val body = resp.body?.string() ?: return
+            val json = body.safeParseJsonObject()
+            val datas = json.getAsJsonObject("datas") ?: return
+            val groups = datas.getAsJsonArray("userGroups") ?: return
+            var currentRoleName: String? = null
+            var studentRoleId: String? = null
+            groups.forEach { el ->
+                val o = el.asJsonObject
+                val roleName = o.get("roleName")?.asString
+                val roleId = o.get("roleId")?.asString
+                val isCurrent = o.get("currentRole")?.asBoolean == true
+                if (isCurrent) currentRoleName = roleName
+                if (roleName == "学生") studentRoleId = roleId
+            }
+            if (currentRoleName != "学生" && studentRoleId != null) {
+                android.util.Log.d(TAG, "switching role $currentRoleName → 学生 ($studentRoleId)")
+                val form = okhttp3.FormBody.Builder().add("appRole", studentRoleId!!).build()
+                httpClient.newCall(
+                    Request.Builder().url(CHANGE_ROLE_API).post(form).build()
+                ).execute().close()
+            }
+            roleEnsuredStudent = true
+        } catch (e: Exception) {
+            android.util.Log.w(TAG, "ensureRoleStudent failed (will continue anyway)", e)
+        }
+    }
+
+    /** 获取校区名→code 映射（带 7 天缓存） */
+    fun getCampusCodes(): Map<String, String> {
+        cachedCampusCodes?.let { (data, ts) ->
+            if (System.currentTimeMillis() - ts < CODE_CACHE_TTL_MS) return data
+        }
+        ensureRoleStudent()
+        val resp = httpClient.newCall(
+            Request.Builder()
+                .url(CAMPUS_CODE_API)
+                .header("Content-Type", FORM_CT)
+                .header("Referer", REFERER)
+                .post(okhttp3.FormBody.Builder().build())
+                .build()
+        ).execute()
+        val map = parseCodeMap(resp.body?.string().orEmpty())
+        cachedCampusCodes = map to System.currentTimeMillis()
+        return map
+    }
+
+    /** 获取教学楼名→code 映射（带 7 天缓存） */
+    fun getBuildingCodes(): Map<String, String> {
+        cachedBuildingCodes?.let { (data, ts) ->
+            if (System.currentTimeMillis() - ts < CODE_CACHE_TTL_MS) return data
+        }
+        ensureRoleStudent()
+        val resp = httpClient.newCall(
+            Request.Builder()
+                .url(BUILDING_CODE_API)
+                .header("Content-Type", FORM_CT)
+                .header("Referer", REFERER)
+                .post(okhttp3.FormBody.Builder().build())
+                .build()
+        ).execute()
+        val map = parseCodeMap(resp.body?.string().orEmpty())
+        cachedBuildingCodes = map to System.currentTimeMillis()
+        return map
+    }
+
+    private fun parseCodeMap(body: String): Map<String, String> {
+        val out = LinkedHashMap<String, String>()
+        try {
+            val rows = body.safeParseJsonObject()
+                .getAsJsonObject("datas")
+                ?.getAsJsonObject("code")
+                ?.getAsJsonArray("rows") ?: return emptyMap()
+            for (el in rows) {
+                val o = el.asJsonObject
+                val name = o.get("name")?.asString ?: continue
+                val id = o.get("id")?.asString ?: continue
+                out[name] = id
+            }
+        } catch (e: Exception) {
+            android.util.Log.w(TAG, "parseCodeMap failed", e)
+        }
+        return out
+    }
+
+    /**
+     * 单次查询：某校区某栋楼某天 [start,end] 节次的空闲教室。
+     * - startTime/endTime 为 0 表示「无过滤」，返回全楼所有教室（用于得到完整教室列表）。
+     */
+    fun queryRooms(
+        campusCode: String,
+        buildingCode: String,
+        date: String,
+        startTime: Int,
+        endTime: Int
+    ): List<DirectRoomRow> {
+        ensureRoleStudent()
+        val form = okhttp3.FormBody.Builder()
+            .add("XXXQDM", campusCode)
+            .add("JXLDM", buildingCode)
+            .add("KXRQ", date)
+            .add("KSJC", startTime.toString())
+            .add("JSJC", endTime.toString())
+            .add("pageSize", "500")
+            .add("pageNumber", "1")
+            .build()
+        val resp = httpClient.newCall(
+            Request.Builder().url(QUERY_API)
+                .header("Content-Type", FORM_CT)
+                .header("Referer", REFERER)
+                .post(form)
+                .build()
+        ).execute()
+        val body = resp.body?.string().orEmpty()
+        val rows = body.safeParseJsonObject()
+            .getAsJsonObject("datas")
+            ?.getAsJsonObject("cxkxjs")
+            ?.getAsJsonArray("rows") ?: return emptyList()
+        val out = ArrayList<DirectRoomRow>()
+        for (el in rows) {
+            val o = el.asJsonObject
+            // 上游过滤：JASLXDM null（接口幻觉教室）/ JASMC 含「测试专用」
+            if (o.get("JASLXDM")?.isJsonNull == true) continue
+            val name = o.get("JASMC")?.asString ?: continue
+            if ("测试专用" in name) continue
+            out.add(
+                DirectRoomRow(
+                    name = name,
+                    buildingName = o.get("JXLDM_DISPLAY")?.asString ?: "",
+                    type = o.get("JASLXDM_DISPLAY")?.asString,
+                    capacity = o.get("SKZWS")?.takeIf { !it.isJsonNull }?.asInt ?: 0,
+                    examCapacity = o.get("KSZWS")?.takeIf { !it.isJsonNull }?.asInt ?: 0,
+                    campusName = o.get("XXXQDM_DISPLAY")?.asString ?: ""
+                )
+            )
+        }
+        return out
+    }
+
+    /**
+     * 全天查询：返回 [Map<roomName, RoomInfo>]，与现有 [RoomInfo] 数据结构兼容，
+     * 便于直接喂给已有的 UI（11 节课的 status 数组：0=空闲，1=占用）。
+     *
+     * 流程：先用 startTime=0/endTime=0 拿全楼所有教室（默认占用），再对 1..11 节
+     * 各查询一次，命中即把该节标记为空闲。
+     */
+    fun queryDay(
+        campusName: String,
+        buildingName: String,
+        date: String,
+        progress: ((Int, Int) -> Unit)? = null
+    ): List<RoomInfo> {
+        val campusCode = getCampusCodes()[campusName]
+            ?: throw NoDataException("未知校区: $campusName")
+        val buildingCode = getBuildingCodes()[buildingName]
+            ?: throw NoDataException("未知教学楼: $buildingName")
+
+        val all = queryRooms(campusCode, buildingCode, date, 0, 0)
+        val result = LinkedHashMap<String, RoomInfo>()
+        all.forEach { row ->
+            result[row.name] = RoomInfo(
+                name = row.name,
+                size = row.capacity,
+                status = MutableList(11) { 1 } // 默认全部占用
+            )
+        }
+        for (period in 1..11) {
+            progress?.invoke(period, 11)
+            val freeNow = queryRooms(campusCode, buildingCode, date, period, period)
+            freeNow.forEach { row ->
+                result[row.name]?.let { info ->
+                    val mut = info.status.toMutableList()
+                    mut[period - 1] = 0
+                    result[row.name] = info.copy(status = mut)
+                }
+            }
+        }
+        return result.values.sortedBy { it.name }
+    }
+}

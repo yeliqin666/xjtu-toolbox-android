@@ -138,13 +138,24 @@ private fun getSmartTags(room: RoomInfo, currentPeriod: Int): List<Pair<String, 
 }
 
 @Composable
-fun EmptyRoomScreen(onBack: () -> Unit) {
+fun EmptyRoomScreen(
+    onBack: () -> Unit,
+    /**
+     * 可选：已通过 JWXT 认证的 OkHttpClient（一般取自 jwxtLogin.client，或校外 vpnClient）。
+     * 不为 null 时 UI 会显示「数据源：CDN / 直查教务」切换；为 null 时维持原 CDN 模式。
+     */
+    directClient: okhttp3.OkHttpClient? = null,
+) {
     val api = remember { EmptyRoomApi() }
+    val directApi = remember(directClient) { directClient?.let { EmptyRoomDirectQuery(it) } }
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("empty_room", 0) }
     var rooms by remember { mutableStateOf<List<RoomInfo>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    /** 数据源：false=CDN（每日预生成）, true=直连教务系统接口（实时） */
+    var useDirectQuery by rememberSaveable { mutableStateOf(false) }
+    var directProgress by remember { mutableStateOf<Pair<Int, Int>?>(null) }
 
     val campusNames = CAMPUS_BUILDINGS.keys.toList()
     fun savedCampusIndex(): Int {
@@ -195,15 +206,37 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
     val isToday = selectedDate == LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
     val effectivePeriod = if (isToday) currentPeriod else -1
 
-    // 自动查询（选择改变即触发）
-    LaunchedEffect(selectedCampus, selectedBuildings, selectedDate) {
+    // 自动查询（选择改变 / 数据源切换即触发）
+    LaunchedEffect(selectedCampus, selectedBuildings, selectedDate, useDirectQuery) {
         val active = selectedBuildings.filter { it.isNotEmpty() }.toSet()
         if (active.isNotEmpty()) {
             isLoading = true
             errorMessage = null
+            directProgress = null
             try {
                 val result = withContext(Dispatchers.IO) {
-                    api.getEmptyRoomsMulti(selectedCampus, active, selectedDate)
+                    val direct = directApi
+                    if (useDirectQuery && direct != null) {
+                        // 直连教务系统：每栋楼独立查询（11 节 × N 楼，耗时较长，逐步推进进度）
+                        val merged = mutableListOf<RoomInfo>()
+                        val totalBuildings = active.size
+                        active.toList().forEachIndexed { idx, building ->
+                            try {
+                                val rows = direct.queryDay(selectedCampus, building, selectedDate) { period, total ->
+                                    val globalDone = idx * total + period
+                                    val globalTotal = totalBuildings * total
+                                    directProgress = globalDone to globalTotal
+                                }
+                                merged.addAll(rows)
+                            } catch (e: NoDataException) {
+                                // 单栋楼无数据 → 跳过
+                                android.util.Log.w("EmptyRoomScreen", "direct skip $building: ${e.message}")
+                            }
+                        }
+                        merged.sortedBy { it.name }
+                    } else {
+                        api.getEmptyRoomsMulti(selectedCampus, active, selectedDate)
+                    }
                 }
                 rooms = result
             } catch (e: kotlin.coroutines.cancellation.CancellationException) {
@@ -218,6 +251,7 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
                 errorMessage = "查询失败: ${e.message}"
             } finally {
                 isLoading = false
+                directProgress = null
             }
         }
     }
@@ -343,6 +377,19 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
                                 selected = selectedDate == date,
                                 onClick = { selectedDate = date },
                                 label = "$label ${date.substring(5)}"
+                            )
+                        }
+                        // 数据源切换：CDN（默认快速）/ 直连教务（实时但慢）
+                        if (directApi != null) {
+                            AppFilterChip(
+                                selected = !useDirectQuery,
+                                onClick = { useDirectQuery = false },
+                                label = "CDN"
+                            )
+                            AppFilterChip(
+                                selected = useDirectQuery,
+                                onClick = { useDirectQuery = true },
+                                label = "直查"
                             )
                         }
                         Spacer(Modifier.weight(1f))
@@ -529,7 +576,11 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             CircularProgressIndicator()
                             Spacer(Modifier.height(8.dp))
-                            Text("正在查询...", style = MiuixTheme.textStyles.body2)
+                            val pg = directProgress
+                            Text(
+                                if (pg != null) "直查教务 ${pg.first}/${pg.second}…" else "正在查询...",
+                                style = MiuixTheme.textStyles.body2
+                            )
                         }
                     }
                 }
@@ -544,7 +595,18 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
                                 scope.launch {
                                     try {
                                         rooms = withContext(Dispatchers.IO) {
-                                            api.getEmptyRoomsMulti(selectedCampus, selectedBuildings, selectedDate)
+                                            val direct = directApi
+                                            if (useDirectQuery && direct != null) {
+                                                val merged = mutableListOf<RoomInfo>()
+                                                selectedBuildings.filter { it.isNotEmpty() }.forEach { building ->
+                                                    try {
+                                                        merged.addAll(direct.queryDay(selectedCampus, building, selectedDate))
+                                                    } catch (_: NoDataException) {}
+                                                }
+                                                merged.sortedBy { it.name }
+                                            } else {
+                                                api.getEmptyRoomsMulti(selectedCampus, selectedBuildings, selectedDate)
+                                            }
                                         }
                                     } catch (e: kotlin.coroutines.cancellation.CancellationException) {
                                         throw e

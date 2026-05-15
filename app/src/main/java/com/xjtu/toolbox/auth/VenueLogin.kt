@@ -94,6 +94,28 @@ class VenueLogin(
             .header("Referer", "$BASE_URL/product/index.html")
     }
 
+    override fun validateLogin(): Boolean {
+        return try {
+            val request = Request.Builder().url("$BASE_URL/product/index.html").get().build()
+            val response = client.newCall(request).execute()
+            val finalUrl = response.request.url.toString()
+            val body = response.peekBody(4096).string()
+            response.close()
+            finalUrl.contains("202.117.17.144") &&
+                !finalUrl.contains("login.xjtu.edu.cn") &&
+                !isAuthFailureResponse(body)
+        } catch (_: Exception) { false }
+    }
+
+    override fun keepAlive(): KeepAliveStatus {
+        return try {
+            if (validateLogin()) return KeepAliveStatus.VALID
+            if (reAuthenticate()) KeepAliveStatus.REAUTH_OK
+            else KeepAliveStatus.AUTH_INVALID
+        } catch (_: java.io.IOException) { KeepAliveStatus.NETWORK_ERROR }
+        catch (_: Exception) { KeepAliveStatus.ERROR }
+    }
+
     private val reAuthLock = Any()
 
     /**
@@ -151,16 +173,29 @@ class VenueLogin(
 
     /**
      * 执行带自动重认证的请求
+     * 如果请求返回 302 到 CAS、401/403 或被 Safety Verify 拦截，自动重认证并重试
      */
     fun executeWithReAuth(request: Request.Builder): Response {
         val response = client.newCall(request.build()).execute()
         val finalUrl = response.request.url.toString()
 
-        if (finalUrl.contains("login.xjtu.edu.cn") || response.code in listOf(401, 403)) {
+        val needReAuth = when {
+            finalUrl.contains("login.xjtu.edu.cn") -> true
+            response.code in listOf(401, 403) -> true
+            response.code == 200 -> {
+                val ct = response.header("Content-Type") ?: ""
+                if ("html" in ct || "text" in ct) {
+                    XJTULogin.isAuthFailureResponse(response.peekBody(8192).string())
+                } else false
+            }
+            else -> false
+        }
+        if (needReAuth) {
             response.close()
             if (reAuthenticate()) {
                 return client.newCall(request.build()).execute()
             }
+            throw AuthExpiredException("体育场馆")
         }
         return response
     }

@@ -64,6 +64,36 @@ class JwappLogin(
             .header("Authorization", authToken ?: throw RuntimeException("未登录"))
     }
 
+    /**
+     * 验证移动教务登录态是否仍然有效。
+     * 先检查本地 token TTL，再通过 API 轻量调用验证。
+     */
+    override fun validateLogin(): Boolean {
+        if (!isTokenValid()) return false
+        return try {
+            val request = Request.Builder()
+                .url("https://jwapp.xjtu.edu.cn/api/student/info")
+                .header("Authorization", authToken ?: "")
+                .get().build()
+            val response = client.newCall(request).execute()
+            val code = response.code
+            response.close()
+            code == 200
+        } catch (_: Exception) { false }
+    }
+
+    override fun keepAlive(): KeepAliveStatus {
+        return try {
+            if (validateLogin()) return KeepAliveStatus.VALID
+            if (reAuthenticate()) KeepAliveStatus.REAUTH_OK
+            else KeepAliveStatus.AUTH_INVALID
+        } catch (_: java.io.IOException) {
+            KeepAliveStatus.NETWORK_ERROR
+        } catch (_: Exception) {
+            KeepAliveStatus.ERROR
+        }
+    }
+
     private val reAuthLock = Any()
 
     /**
@@ -110,20 +140,31 @@ class JwappLogin(
 
     /**
      * 执行带自动重认证的请求
-     * 如果请求返回 401/403，自动 reAuthenticate 并重试一次
+     * 如果请求返回 401/403 或被 CAS Safety Verify / 登录页拦截，自动 reAuthenticate 并重试一次
      */
     fun executeWithReAuth(requestBuilder: Request.Builder): Response {
         val response = client.newCall(
             requestBuilder.header("Authorization", authToken ?: "").build()
         ).execute()
-        if (response.code in listOf(401, 403)) {
-            Log.d(TAG, "executeWithReAuth: got ${response.code}, attempting reAuth")
+        val needReAuth = when {
+            response.code in listOf(401, 403) -> true
+            response.code == 200 -> {
+                val ct = response.header("Content-Type") ?: ""
+                if ("html" in ct || "text" in ct) {
+                    XJTULogin.isAuthFailureResponse(response.peekBody(8192).string())
+                } else false
+            }
+            else -> false
+        }
+        if (needReAuth) {
+            Log.d(TAG, "executeWithReAuth: auth failure (code=${response.code}), attempting reAuth")
             response.close()
             if (reAuthenticate()) {
                 return client.newCall(
                     requestBuilder.header("Authorization", authToken ?: "").build()
                 ).execute()
             }
+            throw AuthExpiredException("移动教务")
         }
         return response
     }

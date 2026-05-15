@@ -13,10 +13,10 @@ android {
 
     defaultConfig {
         applicationId = "com.xjtu.toolbox"
-        minSdk = 31
+        minSdk = 32
         targetSdk = 36
-        versionCode = 21
-        versionName = "3.4.1"
+        versionCode = 22
+        versionName = "3.5.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -90,10 +90,10 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
-    implementation("top.yukonga.miuix.kmp:miuix-ui-android:0.9.0")
-    implementation("top.yukonga.miuix.kmp:miuix-preference-android:0.9.0")
-    implementation("top.yukonga.miuix.kmp:miuix-icons-android:0.9.0")
-    implementation("top.yukonga.miuix.kmp:miuix-blur-android:0.9.0")
+    implementation("top.yukonga.miuix.kmp:miuix-ui-android:0.9.1")
+    implementation("top.yukonga.miuix.kmp:miuix-preference-android:0.9.1")
+    implementation("top.yukonga.miuix.kmp:miuix-icons-android:0.9.1")
+    implementation("top.yukonga.miuix.kmp:miuix-blur-android:0.9.1")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

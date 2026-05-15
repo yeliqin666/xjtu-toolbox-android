@@ -31,7 +31,6 @@ class JiaocaiLogin(
     companion object {
         private const val TAG = "JiaocaiLogin"
         const val BASE_URL = "https://jiaocai.lib.xjtu.edu.cn"
-        const val READER_HOST = "http://jiaocai1.lib.xjtu.edu.cn:9088"
         const val FID = "17071"
         const val WEBSITE_ID = "12950"
         const val PAGE_ID = "13858"

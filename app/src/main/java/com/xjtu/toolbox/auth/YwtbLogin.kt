@@ -101,6 +101,35 @@ class YwtbLogin(
         return true
     }
 
+    /**
+     * 验证一网通办登录态（JWT 是否仍有效 + 远程验证）。
+     */
+    override fun validateLogin(): Boolean {
+        if (!isTokenValid()) return false
+        return try {
+            val request = Request.Builder()
+                .url("https://ywtb.xjtu.edu.cn/tp_up/up/subgroup/getSubGroupInfo")
+                .header("x-id-token", idToken ?: "")
+                .get().build()
+            val response = client.newCall(request).execute()
+            val code = response.code
+            response.close()
+            code == 200
+        } catch (_: Exception) { false }
+    }
+
+    override fun keepAlive(): KeepAliveStatus {
+        return try {
+            if (validateLogin()) return KeepAliveStatus.VALID
+            if (reAuthenticate()) KeepAliveStatus.REAUTH_OK
+            else KeepAliveStatus.AUTH_INVALID
+        } catch (_: java.io.IOException) {
+            KeepAliveStatus.NETWORK_ERROR
+        } catch (_: Exception) {
+            KeepAliveStatus.ERROR
+        }
+    }
+
     private val reAuthLock = Any()
 
     /**
@@ -163,8 +192,18 @@ class YwtbLogin(
                 .build()
         ).execute()
 
-        if (response.code in listOf(401, 403)) {
-            Log.d(TAG, "executeWithReAuth: got ${response.code}, reactive reAuth")
+        val needReAuth = when {
+            response.code in listOf(401, 403) -> true
+            response.code == 200 -> {
+                val ct = response.header("Content-Type") ?: ""
+                if ("html" in ct || "text" in ct) {
+                    XJTULogin.isAuthFailureResponse(response.peekBody(8192).string())
+                } else false
+            }
+            else -> false
+        }
+        if (needReAuth) {
+            Log.d(TAG, "executeWithReAuth: auth failure (code=${response.code}), reactive reAuth")
             response.close()
             if (reAuthenticate()) {
                 return client.newCall(
@@ -173,6 +212,7 @@ class YwtbLogin(
                         .build()
                 ).execute()
             }
+            throw AuthExpiredException("一网通办")
         }
         return response
     }

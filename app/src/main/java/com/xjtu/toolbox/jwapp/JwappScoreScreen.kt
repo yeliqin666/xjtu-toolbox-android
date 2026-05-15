@@ -56,7 +56,7 @@ import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.CheckCircle
 import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
-import top.yukonga.miuix.kmp.basic.SpinnerEntry
+import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.basic.SnackbarDuration
 import top.yukonga.miuix.kmp.basic.SnackbarHost
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
@@ -857,7 +857,7 @@ private fun GpaStatColumn(
 
 @Composable
 fun TermSelector(termList: List<Pair<String, String>>, selectedIndex: Int, onSelect: (Int) -> Unit) {
-    val items = remember(termList) { termList.map { (_, name) -> SpinnerEntry(title = name) } }
+    val items = remember(termList) { termList.map { (_, name) -> DropdownItem(title = name) } }
     top.yukonga.miuix.kmp.basic.Card(
         modifier = Modifier.fillMaxWidth(),
         cornerRadius = 16.dp

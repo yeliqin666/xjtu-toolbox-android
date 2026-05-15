@@ -115,7 +115,7 @@ class AttendanceApi(private val login: AttendanceLogin) {
         private const val TAG = "AttendanceApi"
     }
 
-    private val baseUrl = "http://bkkq.xjtu.edu.cn"
+    private val baseUrl: String get() = "https://${login.attendanceDomain}"
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA)
     private val jsonType = "application/json".toMediaType()
 

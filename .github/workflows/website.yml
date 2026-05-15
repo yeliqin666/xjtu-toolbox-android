@@ -26,6 +26,24 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build Compose JS demo
+        run: ./gradlew :daizon:jsBrowserDistribution
+        working-directory: demo
+
+      - name: Copy demo output to VitePress public
+        run: |
+          mkdir -p website/public/demo
+          cp -r demo/daizon/build/dist/js/productionExecutable/. website/public/demo/
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:

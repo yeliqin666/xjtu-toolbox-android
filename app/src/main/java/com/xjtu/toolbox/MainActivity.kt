@@ -58,7 +58,6 @@ import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.NavigationBar
 import top.yukonga.miuix.kmp.basic.NavigationBarItem
 import top.yukonga.miuix.kmp.basic.NavigationBarDisplayMode
-import top.yukonga.miuix.kmp.basic.FloatingNavigationBarDisplayMode
 import top.yukonga.miuix.kmp.basic.FloatingNavigationBar
 import top.yukonga.miuix.kmp.basic.FloatingNavigationBarItem
 import top.yukonga.miuix.kmp.basic.Scaffold
@@ -158,6 +157,22 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         val prefs = getSharedPreferences("app_settings", MODE_PRIVATE)
         darkModeOverrideState.value = prefs.getString("dark_mode", "system") ?: "system"
+
+        // ── 后台 Session 保活：只设置一次 provider，循环本身根据用户开关在登录后启动 ──
+        com.xjtu.toolbox.auth.SessionKeepAlive.setProvider {
+            val vm = androidx.lifecycle.ViewModelProvider(this)[AppLoginStateViewModel::class.java]
+            val s = vm.loginState
+            val logins = listOfNotNull(
+                s.jwxtLogin, s.jwappLogin, s.ywtbLogin, s.attendanceLogin, s.postgraduateAttendanceLogin,
+                s.dzpzLogin, s.venueLogin, s.classLogin, s.lmsLogin, s.couponLogin
+            )
+            com.xjtu.toolbox.auth.SessionKeepAlive.KeepAliveSnapshot(
+                logins = logins,
+                vpnClient = s.webVpnClientOrNull
+            )
+        }
+        // 启动循环（内部会读 KeepAlivePrefs.isEnabled，未开启则直接跳过）
+        com.xjtu.toolbox.auth.SessionKeepAlive.start(this)
         setContent {
             XJTUToolBoxTheme(darkModeOverride = darkModeOverrideState.value) {
                 AppNavigation(
@@ -193,6 +208,7 @@ object Routes {
     const val EMPTY_ROOM = "empty_room"
     const val NOTIFICATION = "notification"
     const val ATTENDANCE = "attendance"
+    const val POSTGRADUATE_ATTENDANCE = "postgraduate_attendance"
     const val SCHEDULE = "schedule"
     const val JUDGE = "judge"
     const val JWAPP_SCORE = "jwapp_score"
@@ -238,6 +254,7 @@ enum class BottomTab(
 class AppLoginState {
     var activeUsername by mutableStateOf("")
     var attendanceLogin by mutableStateOf<AttendanceLogin?>(null)
+    var postgraduateAttendanceLogin by mutableStateOf<AttendanceLogin?>(null)
     var jwxtLogin by mutableStateOf<JwxtLogin?>(null)
     var jwappLogin by mutableStateOf<JwappLogin?>(null)
     var ywtbLogin by mutableStateOf<YwtbLogin?>(null)
@@ -268,6 +285,8 @@ class AppLoginState {
     // WebVPN: 校外自动模式
     // vpnClient = sharedClient + WebVpnInterceptor（仅用于内部服务）
     @Volatile private var vpnClient: okhttp3.OkHttpClient? = null
+    /** 只读访问 vpnClient（供后台保活/外部健康检查使用） */
+    internal val webVpnClientOrNull: okhttp3.OkHttpClient? get() = vpnClient
     var isOnCampus by mutableStateOf<Boolean?>(null)   // null=未检测, true=校内, false=校外
     @Volatile private var webVpnLoggedIn = false
 
@@ -309,12 +328,19 @@ class AppLoginState {
 
     val loginCount: Int
         get() = listOfNotNull(
-            attendanceLogin, jwxtLogin, jwappLogin, ywtbLogin, libraryLogin, campusCardLogin, dzpzLogin, venueLogin, classLogin, lmsLogin, jiaocaiLogin, couponLogin
+            attendanceLogin, postgraduateAttendanceLogin, jwxtLogin, jwappLogin, ywtbLogin, libraryLogin, campusCardLogin, dzpzLogin, venueLogin, classLogin, lmsLogin, jiaocaiLogin, couponLogin
         ).size
 
+    // ── autoLogin 期间触发 MFA 时的挂起信号（由 UI 层观察并弹出验证对话框）──
+    var pendingMfaLogin by mutableStateOf<XJTULogin?>(null)
+    var pendingMfaTarget by mutableStateOf<String?>(null)
+    var pendingMfaType by mutableStateOf<LoginType?>(null)
+
     /** 是否为需要校内网络（WebVPN）的服务 */
-    private fun isInternalService(type: LoginType): Boolean =
-        type == LoginType.ATTENDANCE || type == LoginType.LIBRARY
+    private fun isInternalService(type: LoginType): Boolean = type in setOf(
+        LoginType.ATTENDANCE, LoginType.POSTGRADUATE_ATTENDANCE, LoginType.LIBRARY,
+        LoginType.JWXT, LoginType.JWAPP, LoginType.LMS, LoginType.VENUE, LoginType.JIAOCAI
+    )
 
     fun saveCredentials(username: String, password: String) {
         savedUsername = username
@@ -366,6 +392,7 @@ class AppLoginState {
     fun getCached(type: LoginType): XJTULogin? {
         val login = when (type) {
             LoginType.ATTENDANCE -> attendanceLogin
+            LoginType.POSTGRADUATE_ATTENDANCE -> postgraduateAttendanceLogin
             LoginType.JWXT -> jwxtLogin
             LoginType.JWAPP -> jwappLogin
             LoginType.YWTB -> ywtbLogin
@@ -418,7 +445,10 @@ class AppLoginState {
         if (firstVisitorId == null) firstVisitorId = login.fpVisitorId
         if (cachedRsaKey == null) cachedRsaKey = login.getRsaPublicKey()
         when (login) {
-            is AttendanceLogin -> attendanceLogin = login
+            is AttendanceLogin -> {
+                if (login.isPostgraduate) postgraduateAttendanceLogin = login
+                else attendanceLogin = login
+            }
             is JwxtLogin -> jwxtLogin = login
             is JwappLogin -> jwappLogin = login
             is YwtbLogin -> ywtbLogin = login
@@ -587,6 +617,7 @@ class AppLoginState {
             LoginType.JWAPP -> jwappLogin
             LoginType.YWTB -> ywtbLogin
             LoginType.ATTENDANCE -> attendanceLogin
+            LoginType.POSTGRADUATE_ATTENDANCE -> postgraduateAttendanceLogin
             LoginType.JWXT -> jwxtLogin
             LoginType.DZPZ -> dzpzLogin
             LoginType.VENUE -> venueLogin
@@ -625,6 +656,7 @@ class AppLoginState {
                 LoginType.JWAPP -> jwappLogin = null
                 LoginType.YWTB -> ywtbLogin = null
                 LoginType.ATTENDANCE -> attendanceLogin = null
+                LoginType.POSTGRADUATE_ATTENDANCE -> postgraduateAttendanceLogin = null
                 LoginType.JWXT -> jwxtLogin = null
                 LoginType.DZPZ -> dzpzLogin = null
                 LoginType.VENUE -> venueLogin = null
@@ -679,7 +711,9 @@ class AppLoginState {
                         cache(login, savedUsername)
                         return@withContext login
                     } else if (result.state == LoginState.REQUIRE_ACCOUNT_CHOICE) {
-                        val finalResult = login.login(accountType = XJTULogin.AccountType.UNDERGRADUATE)
+                        val accountType = if (type == LoginType.POSTGRADUATE_ATTENDANCE)
+                            XJTULogin.AccountType.POSTGRADUATE else XJTULogin.AccountType.UNDERGRADUATE
+                        val finalResult = login.login(accountType = accountType)
                         if (finalResult.state == LoginState.SUCCESS) {
                             if (sharedClient == null) sharedClient = login.client
                             if (firstVisitorId == null) firstVisitorId = login.fpVisitorId
@@ -687,6 +721,13 @@ class AppLoginState {
                             cache(login, savedUsername)
                             return@withContext login
                         }
+                    }
+                    // MFA 触发：设置挂起信号，让 UI 弹出验证对话框
+                    if (result.state == LoginState.REQUIRE_MFA) {
+                        android.util.Log.w("AppLoginState", "autoLogin($type): REQUIRE_MFA, setting pending signal")
+                        pendingMfaLogin = login
+                        pendingMfaType = type
+                        return@withContext null
                     }
                     // 认证失败（密码错误等）：不可重试
                     android.util.Log.w("AppLoginState", "autoLogin($type): auth failed state=${result.state} msg=${result.message}")
@@ -846,9 +887,11 @@ class AppLoginState {
     }
 
     fun logout(store: CredentialStore? = null) {
+        // 停止后台保活循环
+        com.xjtu.toolbox.auth.SessionKeepAlive.stop()
         activeUsername = ""
         savedUsername = ""; savedPassword = ""
-        attendanceLogin = null; jwxtLogin = null; jwappLogin = null
+        attendanceLogin = null; postgraduateAttendanceLogin = null; jwxtLogin = null; jwappLogin = null
         ywtbLogin = null; libraryLogin = null; campusCardLogin = null; jiaocaiLogin = null; couponLogin = null
         sharedClient = null
         vpnClient = null
@@ -1545,7 +1588,14 @@ fun AppNavigation(
         }
 
         composable(Routes.EMPTY_ROOM) {
-            EmptyRoomScreen(onBack = { navController.popBackStack() })
+            // 直查需要一个已通过 JWXT 认证的 OkHttpClient：
+            // 校外优先用 vpnClient（已含 WebVpnInterceptor），校内用 jwxtLogin.client
+            val direct = if (loginState.isOnCampus == false) loginState.webVpnClientOrNull
+                else loginState.jwxtLogin?.client
+            EmptyRoomScreen(
+                onBack = { navController.popBackStack() },
+                directClient = direct,
+            )
         }
         composable(Routes.NOTIFICATION) {
             NotificationScreen(
@@ -1561,6 +1611,9 @@ fun AppNavigation(
         }
         composable(Routes.ATTENDANCE) {
             loginState.attendanceLogin?.let { AttendanceScreen(login = it, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
+        }
+        composable(Routes.POSTGRADUATE_ATTENDANCE) {
+            loginState.postgraduateAttendanceLogin?.let { AttendanceScreen(login = it, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
         composable(Routes.SCHEDULE) {
             LaunchedEffect(Unit) {
@@ -1856,6 +1909,9 @@ private fun MainScreen(
                     autoLoginJob = null
                     if (result != null) {
                         navigateToTarget(target)
+                    } else if (loginState.pendingMfaLogin != null) {
+                        // autoLogin 触发了 MFA → 记录导航目标，UI 层会自动弹出 MFA 对话框
+                        loginState.pendingMfaTarget = target
                     } else {
                         // 登录超时 → 离线可用路由降级，其余提示
                         if (target in offlineCapableRoutes) {
@@ -1881,6 +1937,7 @@ private fun MainScreen(
                         scope.launch { snackbarHostState.showSnackbar(msg, duration = SnackbarDuration.Short) }
                     } else {
                         val msg = when (e) {
+                            is AuthExpiredException -> e.message ?: "${type.label}登录态已失效"
                             is java.io.IOException -> "网络不佳，请检查网络连接"
                             else -> "${type.label}登录失败，请稍后重试"
                         }
@@ -1982,9 +2039,8 @@ private fun MainScreen(
                     modifier = Modifier.textureBlur(
                         backdrop = backdrop,
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(50),
-                        blurRadius = with(androidx.compose.ui.platform.LocalDensity.current) { 36.dp.toPx() }
+                        blurRadius = 36f
                     ),
-                    mode = FloatingNavigationBarDisplayMode.IconOnly
                 ) {
                     BottomTab.entries.forEach { tab ->
                         FloatingNavigationBarItem(
@@ -2189,6 +2245,164 @@ private fun MainScreen(
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) { Text("取消") }
+                }
+            }
+
+            // ── 全局 MFA 两步验证对话框（autoLogin 触发）──
+            val globalMfaLogin = loginState.pendingMfaLogin
+            val showGlobalMfa = remember { mutableStateOf(false) }
+            var globalMfaPhone by remember { mutableStateOf("") }
+            var globalMfaCode by remember { mutableStateOf("") }
+            var globalMfaSending by remember { mutableStateOf(false) }
+            var globalMfaVerifying by remember { mutableStateOf(false) }
+            var globalMfaError by remember { mutableStateOf<String?>(null) }
+            var globalMfaCodeSent by remember { mutableStateOf(false) }
+
+            LaunchedEffect(globalMfaLogin) {
+                if (globalMfaLogin != null) {
+                    // 自动获取手机号并弹出对话框
+                    try {
+                        val phone = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            globalMfaLogin.mfaContext!!.getPhoneNumber()
+                        }
+                        globalMfaPhone = phone
+                        globalMfaCode = ""
+                        globalMfaCodeSent = false
+                        globalMfaError = null
+                        showGlobalMfa.value = true
+                    } catch (e: Exception) {
+                        snackbarHostState.showSnackbar("获取验证手机号失败: ${e.message}", duration = SnackbarDuration.Short)
+                        loginState.pendingMfaLogin = null
+                        loginState.pendingMfaTarget = null
+                        loginState.pendingMfaType = null
+                    }
+                } else {
+                    showGlobalMfa.value = false
+                }
+            }
+
+            if (globalMfaLogin != null) {
+                BackHandler(enabled = showGlobalMfa.value) {
+                    showGlobalMfa.value = false
+                    loginState.pendingMfaLogin = null
+                    loginState.pendingMfaTarget = null
+                    loginState.pendingMfaType = null
+                }
+                OverlayBottomSheet(
+                    show = showGlobalMfa.value,
+                    title = "两步验证",
+                    onDismissRequest = {
+                        showGlobalMfa.value = false
+                        loginState.pendingMfaLogin = null
+                        loginState.pendingMfaTarget = null
+                        loginState.pendingMfaType = null
+                    }
+                ) {
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .navigationBarsPadding()
+                            .padding(horizontal = 24.dp, vertical = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            "该功能需要两步验证，验证码将发送至 $globalMfaPhone",
+                            style = MiuixTheme.textStyles.body1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                        )
+                        // 发送验证码按钮
+                        if (!globalMfaCodeSent) {
+                            Button(
+                                onClick = {
+                                    globalMfaSending = true
+                                    globalMfaError = null
+                                    scope.launch {
+                                        try {
+                                            val ctx = globalMfaLogin.mfaContext ?: run { globalMfaError = "MFA 上下文丢失"; return@launch }
+                                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                                ctx.sendVerifyCode()
+                                            }
+                                            globalMfaCodeSent = true
+                                        } catch (e: Exception) {
+                                            globalMfaError = "发送失败: ${e.message}"
+                                        }
+                                        globalMfaSending = false
+                                    }
+                                },
+                                enabled = !globalMfaSending,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                if (globalMfaSending) {
+                                    CircularProgressIndicator(size = 18.dp, strokeWidth = 2.dp)
+                                    Spacer(Modifier.width(8.dp))
+                                }
+                                Text(if (globalMfaSending) "发送中..." else "发送验证码")
+                            }
+                        }
+                        // 验证码输入
+                        if (globalMfaCodeSent) {
+                            TextField(
+                                value = globalMfaCode,
+                                onValueChange = { globalMfaCode = it.take(6); globalMfaError = null },
+                                label = "6位验证码",
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                            )
+                        }
+                        globalMfaError?.let {
+                            Text(it, color = MiuixTheme.colorScheme.error, style = MiuixTheme.textStyles.footnote1)
+                        }
+                        // 验证并登录
+                        if (globalMfaCodeSent) {
+                            Button(
+                                onClick = {
+                                    if (globalMfaCode.length != 6) {
+                                        globalMfaError = "请输入6位验证码"
+                                        return@Button
+                                    }
+                                    globalMfaVerifying = true
+                                    globalMfaError = null
+                                    scope.launch {
+                                        try {
+                                            val login = globalMfaLogin
+                                            val mfa = login.mfaContext ?: run { globalMfaError = "MFA 上下文丢失"; globalMfaVerifying = false; return@launch }
+                                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                                mfa.verifyCode(globalMfaCode)
+                                            }
+                                            // MFA 验证通过，完成登录
+                                            val user = loginState.activeUsername
+                                            val error = loginState.finishLoginAfterMfa(login, user)
+                                            if (error != null) {
+                                                globalMfaError = error
+                                                globalMfaVerifying = false
+                                                return@launch
+                                            }
+                                            // 成功：关闭对话框，导航到目标
+                                            globalMfaVerifying = false
+                                            showGlobalMfa.value = false
+                                            val target = loginState.pendingMfaTarget
+                                            loginState.pendingMfaLogin = null
+                                            loginState.pendingMfaTarget = null
+                                            loginState.pendingMfaType = null
+                                            if (target != null) navigateToTarget(target)
+                                        } catch (e: Exception) {
+                                            globalMfaError = e.message ?: "验证失败"
+                                            globalMfaVerifying = false
+                                        }
+                                    }
+                                },
+                                enabled = !globalMfaVerifying,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                if (globalMfaVerifying) {
+                                    CircularProgressIndicator(size = 18.dp, strokeWidth = 2.dp)
+                                    Spacer(Modifier.width(8.dp))
+                                }
+                                Text(if (globalMfaVerifying) "验证中..." else "验证并登录")
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -2648,6 +2862,7 @@ private fun HomeTab(
                 Svc(Routes.PAYMENT_CODE, Icons.Default.QrCode, "付款码", "校园支付", svcTeal, "快速刷新") { onNavigateWithLogin(Routes.PAYMENT_CODE, LoginType.JWXT) },
                 Svc(Routes.COUPON, Icons.Default.Restaurant, "加餐券", "电子券", svcLime, "餐券领取与管理") { onNavigateWithLogin(Routes.COUPON, LoginType.COUPON) },
                 Svc(Routes.ATTENDANCE, Icons.Default.DateRange, "考勤查询", "出勤记录", svcBrown, "出勤情况分析") { onNavigateWithLogin(Routes.ATTENDANCE, LoginType.ATTENDANCE) },
+                Svc(Routes.POSTGRADUATE_ATTENDANCE, Icons.Default.DateRange, "研究生考勤", "研究生出勤", svcBrown, "研究生考勤查询") { onNavigateWithLogin(Routes.POSTGRADUATE_ATTENDANCE, LoginType.POSTGRADUATE_ATTENDANCE) },
                 Svc(Routes.TRANSCRIPT, Icons.Default.Description, "电子成绩单", "下载 · 签章", svcIndigo, "下载签章成绩单") { onNavigateWithLogin(Routes.TRANSCRIPT, LoginType.DZPZ) },
                 Svc(Routes.JUDGE, Icons.Default.RateReview, "本科评教", "评教系统", svcPink, "支持一键评教") { onNavigateWithLogin(Routes.JUDGE, LoginType.JWXT) },
                 Svc(Routes.LIBRARY, Icons.Default.Chair, "图书馆", "座位预约", svcOrange, "智能座位推荐") { onNavigateWithLogin(Routes.LIBRARY, LoginType.LIBRARY) },

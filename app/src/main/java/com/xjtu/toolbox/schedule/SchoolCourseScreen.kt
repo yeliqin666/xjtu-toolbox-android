@@ -218,7 +218,7 @@ fun SchoolCourseScreen(
         ) {
             // ── 学期选择 ──
             item(key = "term_selector") {
-                val termEntries = termList.map { SpinnerEntry(title = it.name) }
+                val termEntries = termList.map { DropdownItem(title = it.name) }
                 val selectedIdx = termList.indexOfFirst { it.code == selectedTermCode }.coerceAtLeast(0)
 
                 Card(Modifier.fillMaxWidth(), cornerRadius = 16.dp) {
@@ -322,8 +322,8 @@ fun SchoolCourseScreen(
 
                                 // 开课单位
                                 val deptEntries = buildList {
-                                    add(SpinnerEntry(title = "不限"))
-                                    departmentList.forEach { add(SpinnerEntry(title = it.name)) }
+                                    add(DropdownItem(title = "不限"))
+                                    departmentList.forEach { add(DropdownItem(title = it.name)) }
                                 }
                                 val deptIdx = if (selectedDeptCode.isBlank()) 0
                                     else (departmentList.indexOfFirst { it.code == selectedDeptCode } + 1).coerceAtLeast(0)
@@ -389,8 +389,8 @@ fun SchoolCourseScreen(
                                 Spacer(Modifier.height(6.dp))
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     val sectionEntries = buildList {
-                                        add(SpinnerEntry(title = "不限"))
-                                        for (i in 1..14) add(SpinnerEntry(title = "第${i}节"))
+                                        add(DropdownItem(title = "不限"))
+                                        for (i in 1..14) add(DropdownItem(title = "第${i}节"))
                                     }
                                     Card(Modifier.weight(1f), cornerRadius = 12.dp) {
                                         OverlaySpinnerPreference(

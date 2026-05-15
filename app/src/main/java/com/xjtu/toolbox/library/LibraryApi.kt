@@ -168,7 +168,8 @@ class LibraryApi(private val login: LibraryLogin) {
 
     private fun isRedirectedToLogin(body: String, finalUrl: String): Boolean =
         body.contains("id=\"loginForm\"") || body.contains("name=\"execution\"") ||
-        body.contains("cas/login") || finalUrl.contains("login.xjtu.edu.cn")
+        body.contains("cas/login") || finalUrl.contains("login.xjtu.edu.cn") ||
+        com.xjtu.toolbox.auth.XJTULogin.isAuthFailureResponse(body)
 
     /**
      * 执行请求，如果被重定向到 CAS 登录页则自动 reAuthenticate 并重试
@@ -184,6 +185,7 @@ class LibraryApi(private val login: LibraryLogin) {
                 val retryBody = retryResponse.body?.string() ?: ""
                 return retryResponse to retryBody
             }
+            throw com.xjtu.toolbox.auth.AuthExpiredException("图书馆")
         }
         return response to body
     }
