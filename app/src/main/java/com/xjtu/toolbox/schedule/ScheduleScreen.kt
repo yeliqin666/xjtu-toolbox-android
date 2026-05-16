@@ -255,11 +255,23 @@ fun ScheduleScreen(
                         }
 
                         if (courses.isEmpty()) {
-                            throw RuntimeException("离线模式下无缓存数据，请连网后重试")
+                            // 区分真离线和未登录：让重试按钮的 onRetry 能决定是触发登录还是读缓存
+                            val cm = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+                            val isOnline = cm?.activeNetwork != null &&
+                                cm.getNetworkCapabilities(cm.activeNetwork)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+                            throw RuntimeException(
+                                if (isOnline) "尚未登录教务系统，请重试" else "当前离线且无缓存，请连网后重试"
+                            )
                         }
                         showingStaleData = true
                     }
-                    scope.launch { snackbarHostState.showSnackbar("离线模式 · 显示缓存日程", duration = SnackbarDuration.Long) }
+                    // 仅当真离线时显示"离线模式"提示；网络好但未登录时不打扰用户（背景 autoLogin 在跑）
+                    val cm = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+                    val isOnline = cm?.activeNetwork != null &&
+                        cm.getNetworkCapabilities(cm.activeNetwork)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+                    if (!isOnline) {
+                        scope.launch { snackbarHostState.showSnackbar("离线模式 · 显示缓存日程", duration = SnackbarDuration.Long) }
+                    }
                     return@launch
                 }
 
@@ -518,6 +530,27 @@ fun ScheduleScreen(
 
         android.util.Log.d("ScheduleUI", "Login became available, refreshing schedule online")
         loadInitialData()
+    }
+
+    // login==null + 有凭据 + 在线 → 自动触发 JWXT 登录（背景，不显示登录 sheet）
+    // 成功后 loginState.jwxtLogin 写入，外层重组传新 login → 上面的 LaunchedEffect(login) 触发刷新。
+    // 这样用户切到日程 tab 不会长期看到"离线模式"。
+    var attemptingAutoLogin by remember { mutableStateOf(false) }
+    LaunchedEffect(login, appLoginState.hasCredentials) {
+        if (login != null) return@LaunchedEffect
+        if (!appLoginState.hasCredentials) return@LaunchedEffect
+        if (attemptingAutoLogin) return@LaunchedEffect
+        // 网络检查
+        val cm = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+        val online = cm?.activeNetwork != null &&
+            cm.getNetworkCapabilities(cm.activeNetwork)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+        if (!online) return@LaunchedEffect
+        attemptingAutoLogin = true
+        try {
+            android.util.Log.d("ScheduleUI", "login==null + online + has credentials → background autoLogin(JWXT)")
+            withContext(Dispatchers.IO) { appLoginState.autoLogin(LoginType.JWXT) }
+        } catch (_: Exception) {}
+        attemptingAutoLogin = false
     }
 
     // 加载自定义课程（学期变更时刷新）
@@ -972,7 +1005,24 @@ fun ScheduleScreen(
             } else if (errorMessage != null) {
                 ErrorState(
                     message = errorMessage!!,
-                    onRetry = { loadInitialData() },
+                    onRetry = {
+                        // 智能重试：login==null + 在线 → 触发 autoLogin（成功后 LaunchedEffect(login) 会自动刷新）
+                        if (login == null && appLoginState.hasCredentials) {
+                            scope.launch {
+                                attemptingAutoLogin = true
+                                errorMessage = null
+                                isLoading = true
+                                try {
+                                    withContext(Dispatchers.IO) { appLoginState.autoLogin(LoginType.JWXT, force = true) }
+                                } catch (_: Exception) {}
+                                attemptingAutoLogin = false
+                                // 若仍未拿到 login，回退到读缓存
+                                if (appLoginState.jwxtLogin == null) loadInitialData()
+                            }
+                        } else {
+                            loadInitialData()
+                        }
+                    },
                     modifier = Modifier.fillMaxSize()
                 )
             } else {

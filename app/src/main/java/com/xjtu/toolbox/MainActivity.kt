@@ -295,8 +295,9 @@ class AppLoginState {
         get() = !ssoEstablished && System.currentTimeMillis() - mfaCancelledAt < MFA_COOLDOWN_MS
 
     companion object {
-        /** 用户取消 MFA 后的冷却期：此期间不再自动触发任何可能弹 MFA 的登录。 */
-        const val MFA_COOLDOWN_MS = 5 * 60_000L  // 5 分钟
+        /** 用户取消 MFA 后的冷却期：仅阻止后台 warmup 反复触发 MFA。
+         *  用户主动点击功能（navigateWithLogin / loginWebVpn 主动调用）会传 `force=true` 无视此冷却。 */
+        const val MFA_COOLDOWN_MS = 60_000L  // 60 秒
     }
 
     // [CP] 全局共享连接池：所有子系统复用 TLS 连接，避免重复握手（~800ms→~50ms）
@@ -849,13 +850,13 @@ class AppLoginState {
      * [CP] 使用全局共享 ConnectionPool
      * @return 登录成功的 XJTULogin 实例，失败返回 null
      */
-    suspend fun autoLogin(type: LoginType): XJTULogin? {
+    suspend fun autoLogin(type: LoginType, force: Boolean = false): XJTULogin? {
         if (!hasCredentials) return null
         getCached(type)?.let { return it }
-        // 用户最近 5 分钟内取消过 MFA + 还没有任何登录成功：暂时不要再触发新登录
+        // 用户取消 MFA 后短暂冷却（仅对 background warmup 起效，用户主动点击 force=true 跳过）。
         // 已经有 TGC（ssoEstablished）的话即便取消过 MFA 也能继续——后续登录走 SSO 不会再 MFA。
-        if (!ssoEstablished && System.currentTimeMillis() - mfaCancelledAt < MFA_COOLDOWN_MS) {
-            android.util.Log.d("AppLoginState", "autoLogin($type): skipped due to recent MFA cancel (no SSO yet)")
+        if (!force && !ssoEstablished && System.currentTimeMillis() - mfaCancelledAt < MFA_COOLDOWN_MS) {
+            android.util.Log.d("AppLoginState", "autoLogin($type): skipped due to recent MFA cancel (no SSO yet, no force)")
             return null
         }
 
@@ -870,8 +871,8 @@ class AppLoginState {
                 // 拿到锁后必须重新检查，否则前一个 MFA 取消的状态对后续等锁者无效，
                 // 会导致连续触发新 MFA 弹窗（实测 bug）。
                 getCached(type)?.let { return@withLock it }
-                if (!ssoEstablished && System.currentTimeMillis() - mfaCancelledAt < MFA_COOLDOWN_MS) {
-                    android.util.Log.d("AppLoginState", "autoLogin($type): skipped in lock (recent MFA cancel)")
+                if (!force && !ssoEstablished && System.currentTimeMillis() - mfaCancelledAt < MFA_COOLDOWN_MS) {
+                    android.util.Log.d("AppLoginState", "autoLogin($type): skipped in lock (recent MFA cancel, no force)")
                     return@withLock null
                 }
                 var result = autoLoginInner(type)
@@ -1010,6 +1011,14 @@ class AppLoginState {
                     }
                     // MFA 触发：设置挂起信号，让 UI 弹出验证对话框
                     if (result.state == LoginState.REQUIRE_MFA) {
+                        // 关键：已建立 SSO 后再触发 MFA，说明 sharedClient 的 TGC 没被 CAS 识别（cookie 域问题/失效）。
+                        // 此时不能再弹 MFA（用户已经在主动登录的子系统弹过一次），否则会出现"一串 MFA 弹窗"叠出 bug。
+                        // 直接视为本次 SSO 失败 → 跳出重试，下面 fallback 也会跳过，最终返回 null 让上层报错或走自然 retry。
+                        if (ssoEstablished) {
+                            android.util.Log.w("AppLoginState", "autoLogin($type): REQUIRE_MFA after SSO established, treating as SSO failure (NOT showing MFA dialog)")
+                            lastException = RuntimeException("SSO 已建立但子系统仍要 MFA，跳过避免连环弹窗")
+                            break@attemptsLoop
+                        }
                         android.util.Log.w("AppLoginState", "autoLogin($type): REQUIRE_MFA, setting pending signal")
                         pendingMfaLogin = login
                         pendingMfaType = type
@@ -1081,9 +1090,13 @@ class AppLoginState {
                             android.util.Log.d("AppLoginState", "autoLogin($type): WebVPN fallback SUCCESS")
                             return@withContext login
                         } else if (finalResult.state == LoginState.REQUIRE_MFA) {
-                            android.util.Log.w("AppLoginState", "autoLogin($type): WebVPN fallback MFA, signaling UI")
-                            pendingMfaLogin = login
-                            pendingMfaType = type
+                            if (ssoEstablished) {
+                                android.util.Log.w("AppLoginState", "autoLogin($type): WebVPN fallback REQUIRE_MFA after SSO, skipping (avoid stacked MFA dialogs)")
+                            } else {
+                                android.util.Log.w("AppLoginState", "autoLogin($type): WebVPN fallback MFA, signaling UI")
+                                pendingMfaLogin = login
+                                pendingMfaType = type
+                            }
                         }
                     } catch (e: Exception) {
                         android.util.Log.w("AppLoginState", "autoLogin($type): WebVPN fallback also failed: ${e.message}")
@@ -1408,6 +1421,19 @@ fun AppNavigation(
     val lastCampusCardResumeRefresh = remember { mutableLongStateOf(0L) }
     val lastLoginWarmupAt = remember { mutableLongStateOf(0L) }
 
+    /**
+     * 后台并行登录所有子系统（"循环互相往复"策略）。
+     *
+     * 设计原则：
+     * 1. **校外先建 vpnClient**：vpnClient 建立后所有子系统通过 webvpn 反向代理走，
+     *    cookies 全在 webvpn 域，跨域问题最小，SSO 命中率最高。
+     * 2. **JWXT 永远第一**：入口最简（直 CAS service），TGC 命中率最高。
+     *    JWXT 一旦成功 → sharedClient 持有 TGC → ssoEstablished=true →
+     *    所有后续子系统并行 autoLogin 全部走 SSO（不再进 mfaSerialMutex）。
+     * 3. **校园卡最后**：链路 5 跳最长（ncard → openplatform → CAS → ticket → plat），
+     *    没有 TGC 时必然 MFA。让它在 JWXT 建立 SSO 之后才尝试，从而最大概率走 SSO。
+     * 4. **错峰并行**：Phase 2 内子系统 150ms 错峰，避免 RSA 公钥同时请求拥塞。
+     */
     fun startBackgroundLoginWarmup(
         scope: kotlinx.coroutines.CoroutineScope,
         force: Boolean = false
@@ -1418,36 +1444,56 @@ fun AppNavigation(
 
         scope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
+                // [Phase 0] 校外优先建立 vpnClient
+                // vpnClient 持久 cookies（PersistentCookieJar 复用）→ 后续子系统全部走 webvpn 反向代理，
+                // cookies 共享在同一 jar，SSO 链路稳定。
+                if (loginState.isOnCampus == false && loginState.webVpnClientOrNull == null) {
+                    android.util.Log.d("Warmup", "Phase 0: building vpnClient (off-campus)")
+                    runCatching { loginState.loginWebVpn() }
+                }
+
+                // [Phase 1] JWXT 第一个登录（建立 SSO 锚点）
+                // 入口直 CAS service，单跳即拿 TGC，是最稳的"开荒"子系统。
+                // 成功后 ssoEstablished=true → 后续子系统都走 SSO 无 MFA。
+                android.util.Log.d("Warmup", "Phase 1: autoLogin(JWXT) to establish SSO")
+                val jwxtLogin = loginState.autoLogin(LoginType.JWXT)
+                if (jwxtLogin == null && !loginState.ssoEstablished) {
+                    // JWXT 失败且无其他登录 → 整体没希望，放弃（避免空转）
+                    android.util.Log.w("Warmup", "Phase 1 JWXT failed and no other SSO, abort warmup")
+                    return@launch
+                }
+
+                // [Phase 2] 其他子系统并行（ssoEstablished 后基本都走 SSO 无 MFA）
+                // 顺序按"用户高频使用 + 链路稳健度"排：
+                // - YWTB/JWAPP：高频，入口简单
+                // - LMS/CLASS：常用，OAuth + CAS
+                // - LIBRARY/ATTENDANCE：CAS service
+                // - DZPZ/VENUE/JIAOCAI/COUPON：OAuth
+                // - CAMPUS_CARD：放最后（链路最长，万一 SSO 失败也不影响其他）
+                android.util.Log.d("Warmup", "Phase 2: parallel autoLogin for remaining subsystems")
                 kotlinx.coroutines.supervisorScope {
-                    val externalLogins = listOf(
-                        LoginType.CAMPUS_CARD,
+                    val others = listOf(
+                        LoginType.YWTB,
+                        LoginType.JWAPP,
+                        LoginType.LMS,
+                        LoginType.CLASS,
+                        LoginType.LIBRARY,
+                        LoginType.ATTENDANCE,
                         LoginType.DZPZ,
                         LoginType.VENUE,
-                        LoginType.CLASS,
-                        LoginType.LMS,
                         LoginType.JIAOCAI,
-                        LoginType.COUPON
+                        LoginType.COUPON,
+                        LoginType.CAMPUS_CARD  // 链路最长，放最后
                     )
-
-                    externalLogins.forEachIndexed { index, type ->
+                    others.forEachIndexed { index, type ->
                         launch {
-                            if (index > 0) kotlinx.coroutines.delay(index * 180L)
-                            loginState.autoLogin(type)
+                            // 错峰 150ms：避免 RSA 公钥/login.xjtu 端同时高并发
+                            if (index > 0) kotlinx.coroutines.delay(index * 150L)
+                            runCatching { loginState.autoLogin(type) }
                         }
                     }
 
-                    val vpnDeferred = if (loginState.isOnCampus == false) {
-                        async { loginState.loginWebVpn() }
-                    } else null
-
-                    launch {
-                        vpnDeferred?.await()
-                        if (loginState.isOnCampus == false) {
-                            launch { loginState.autoLogin(LoginType.ATTENDANCE) }
-                            launch { loginState.autoLogin(LoginType.LIBRARY) }
-                        }
-                    }
-
+                    // 付款码预热
                     launch {
                         kotlinx.coroutines.delay(1200L)
                         loginState.getActiveClient()?.let { client ->
@@ -1455,8 +1501,9 @@ fun AppNavigation(
                         }
                     }
                 }
+                android.util.Log.d("Warmup", "Warmup done: ${loginState.loginCount} subsystems online")
             } catch (e: Exception) {
-                android.util.Log.w("Lifecycle", "background login warmup failed: ${e.message}")
+                android.util.Log.w("Warmup", "background login warmup failed: ${e.message}")
             }
         }
     }
@@ -1666,31 +1713,26 @@ fun AppNavigation(
             }
             isRestoring = false  // Phase1 完成，立即隐藏 banner
 
-            // Phase 2+3: VPN + 所有子系统 + JWT 预热（全后台，不阻塞 UI）
+            // Phase 2+3: 后台 warmup（统一调度，JWXT-first 已在 Phase 1 完成）+ NSA/付款码预热
             restoreScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
                     val startTime = System.currentTimeMillis()
                     kotlinx.coroutines.coroutineScope {
-                        // VPN（校外必须先完成才能登录 ATTENDANCE/LIBRARY）
-                        val vpnDeferred = if (loginState.isOnCampus == false) {
-                            async(kotlinx.coroutines.Dispatchers.IO) { loginState.loginWebVpn() }
-                        } else null
+                        // 委托 warmup 统一调度其余所有子系统（含校园卡，链路最后）。
+                        // force=true 跳过 60s 节流；内部已保证 JWXT-first + ssoEstablished 后并行 SSO。
+                        launch { startBackgroundLoginWarmup(this@launch, force = true) }
 
-                        // 不需要VPN的子系统 + 付款码预热，立即并行启动
-                        launch { loginState.autoLogin(LoginType.JWAPP) }
-                        launch { loginState.autoLogin(LoginType.YWTB) }
-                        launch { loginState.autoLogin(LoginType.COUPON) }
+                        // 校园卡缓存刷新（warmup 内 autoLogin(CAMPUS_CARD) 成功后异步刷）
                         launch {
+                            kotlinx.coroutines.delay(2000L)  // 等 warmup 进展
+                            val cardLogin = loginState.campusCardLogin ?: return@launch
                             try {
-                                val cardLogin = loginState.autoLogin(LoginType.CAMPUS_CARD) as? CampusCardLogin
-                                if (cardLogin != null) {
-                                    refreshCampusCardCache(context, cardLogin)
-                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                        loginState.campusCardCacheVersion++
-                                    }
+                                refreshCampusCardCache(context, cardLogin)
+                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                    loginState.campusCardCacheVersion++
                                 }
                             } catch (e: Exception) {
-                                android.util.Log.w("Restore", "校园卡刷新失败: ${e.message}")
+                                android.util.Log.w("Restore", "校园卡缓存刷新失败: ${e.message}")
                             }
                         }
                         // NSA 学工系统（使用 OAuth2，趁 TGC 新鲜立即登录）
@@ -1745,14 +1787,6 @@ fun AppNavigation(
                             }
                         }
 
-                        // 等VPN完成后启动需要VPN的子系统
-                        if (vpnDeferred != null) {
-                            val vpnOk = vpnDeferred.await()
-                            android.util.Log.d("Restore", "VPN ${System.currentTimeMillis() - startTime}ms: ok=$vpnOk")
-                        }
-                        launch { loginState.autoLogin(LoginType.ATTENDANCE) }
-                        launch { loginState.autoLogin(LoginType.LIBRARY) }
-                        launch { startBackgroundLoginWarmup(this@launch, force = true) }
                     }
                     android.util.Log.d("Restore", "全部子系统贯通完成: ${loginState.loginCount} 个系统")
                     loginState.persistCredentials(credentialStore)
@@ -1962,6 +1996,7 @@ fun AppNavigation(
     ) {
 
         composable(Routes.MAIN) {
+            val mainScope = rememberCoroutineScope()
             MainScreen(
                 navController = navController,
                 loginState = loginState,
@@ -1972,7 +2007,8 @@ fun AppNavigation(
                 onPendingTabConsumed = {
                     pendingMainTab = null
                     onInitialTabConsumed()
-                }
+                },
+                onWarmupRequest = { startBackgroundLoginWarmup(mainScope, force = true) }
             )
         }
 
@@ -2250,7 +2286,8 @@ private fun MainScreen(
     isRestoring: Boolean = false,
     restoreStep: String = "",
     pendingTab: String? = null,
-    onPendingTabConsumed: () -> Unit = {}
+    onPendingTabConsumed: () -> Unit = {},
+    onWarmupRequest: () -> Unit = {}
 ) {
     // 读取设置的默认 Tab
     val defaultTabOrdinal = remember {
@@ -2333,17 +2370,8 @@ private fun MainScreen(
         if (loginState.getCached(type) != null) {
             navigateToTarget(target)
         } else if (loginState.hasCredentials) {
-            // MFA 冷却期 + 还没有任何登录：直接告知用户，不再静默触发 autoLogin
-            if (loginState.isInMfaCooldown) {
-                val remainSec = ((AppLoginState.MFA_COOLDOWN_MS - (System.currentTimeMillis() - loginState.mfaCancelledAt)) / 1000).coerceAtLeast(1)
-                scope.launch {
-                    snackbarHostState.showSnackbar(
-                        "已取消两步验证，请等待 ${remainSec / 60} 分 ${remainSec % 60} 秒后再试，或进入「我的」重新登录",
-                        duration = SnackbarDuration.Long
-                    )
-                }
-                return
-            }
+            // 用户主动点击：永远允许立即登录（即使刚才取消过 MFA），由用户自己决定再次取消还是验证。
+            // 冷却仅作用于后台 warmup（autoLogin 默认 force=false）。
             // 有保存的凭据，尝试自动登录
             showAutoLoginSheet.value = true
             autoLoginMessage = when (loginState.pendingRetryReason) {
@@ -2357,7 +2385,7 @@ private fun MainScreen(
             autoLoginJob = scope.launch {
                 try {
                     val result = kotlinx.coroutines.withTimeoutOrNull(autoLoginTimeoutMs) {
-                        loginState.autoLogin(type)
+                        loginState.autoLogin(type, force = true)
                     }
                     showAutoLoginSheet.value = false
                     autoLoginJob = null
@@ -2663,7 +2691,8 @@ private fun MainScreen(
                                         scrollBehavior = profileScrollBehavior,
                                         onNavigateToDownloads = { navController.navigate(Routes.DOWNLOAD_MANAGER) },
                                         onNavigateToSettings = { navController.navigate(Routes.SETTINGS) { launchSingleTop = true } },
-                                        navBarStyle = navBarStyle
+                                        navBarStyle = navBarStyle,
+                                        onWarmupRequest = onWarmupRequest
                                     )
                                 }
                             }
@@ -3644,7 +3673,8 @@ private fun ProfileTab(
     scrollBehavior: ScrollBehavior? = null,
     onNavigateToDownloads: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
-    navBarStyle: String = "floating"
+    navBarStyle: String = "floating",
+    onWarmupRequest: () -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
 
@@ -3695,18 +3725,14 @@ private fun ProfileTab(
                 mfaLogin = null  // 关闭 MFA 对话框
                 mfaCode = ""
 
-                // WebVPN + 后台并行贯通所有子系统
+                // WebVPN + 后台并行贯通所有子系统（委托 warmup 统一调度，覆盖所有 LoginType）
                 if (loginState.isOnCampus == false) loginState.loginWebVpn()
                 loginState.persistCredentials(credentialStore)
+                onWarmupRequest()
                 scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                     try {
-                        kotlinx.coroutines.coroutineScope {
-                            launch { loginState.autoLogin(LoginType.JWAPP) }
-                            launch { loginState.autoLogin(LoginType.YWTB) }
-                            launch { loginState.autoLogin(LoginType.ATTENDANCE) }
-                            launch { loginState.autoLogin(LoginType.LIBRARY) }
-                            launch { loginState.autoLogin(LoginType.COUPON) }
-                        }
+                        // YWTB 个人信息（warmup 内 autoLogin(YWTB) 完成后异步取）
+                        kotlinx.coroutines.delay(1500L)
                         if (loginState.ywtbLogin != null && loginState.ywtbUserInfo == null) {
                             val api = com.xjtu.toolbox.ywtb.YwtbApi(loginState.ywtbLogin!!)
                             loginState.ywtbUserInfo = api.getUserInfo()
@@ -3804,16 +3830,11 @@ private fun ProfileTab(
                 srunSetupUsername = if (user.contains("@")) user else "$user@stu"
             }
 
-            // ── 后台: 并行贯通所有子系统（不阻塞 UI）──
+            // ── 后台: 并行贯通所有子系统（委托 warmup 统一调度，含校园卡/LMS/CLASS/DZPZ/VENUE/JIAOCAI）──
+            onWarmupRequest()
             scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
-                    kotlinx.coroutines.coroutineScope {
-                        launch { loginState.autoLogin(LoginType.JWAPP) }
-                        launch { loginState.autoLogin(LoginType.YWTB) }
-                        launch { loginState.autoLogin(LoginType.ATTENDANCE) }
-                        launch { loginState.autoLogin(LoginType.LIBRARY) }
-                        launch { loginState.autoLogin(LoginType.COUPON) }
-                    }
+                    kotlinx.coroutines.delay(1500L)  // 等 warmup 内 autoLogin(YWTB) 进展
                     if (loginState.ywtbLogin != null && loginState.ywtbUserInfo == null) {
                         val api = com.xjtu.toolbox.ywtb.YwtbApi(loginState.ywtbLogin!!)
                         loginState.ywtbUserInfo = api.getUserInfo()

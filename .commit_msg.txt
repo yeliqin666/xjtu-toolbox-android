@@ -1,0 +1,33 @@
+refactor(login): 登录调度大重构 — JWXT-first / 校园卡延后 / WebVPN 优先
+
+核心理念
+- 不再压制 MFA：用户主动点击的功能就该自然走 MFA（不等冷却）
+- 后台 warmup 用最稳的入口建 SSO，再带着 TGC 让其他子系统全部 SSO 通过
+- 校园卡链路 5 跳最长，TGC 命中率最低，**绝不让它首发**
+
+startBackgroundLoginWarmup 重构（"循环互相往复"策略）
+- Phase 0：校外先建 vpnClient（持久 cookies → 后续子系统全走 webvpn 反向代理，跨域问题最小）
+- Phase 1：JWXT 永远第一（入口直 CAS service，TGC 命中率最高，建立 SSO 锚点）
+- Phase 2：所有其他子系统并行 autoLogin（ssoEstablished=true 后跳过 mfaSerialMutex 走 SSO 无 MFA）
+  顺序：YWTB → JWAPP → LMS → CLASS → LIBRARY → ATTENDANCE → DZPZ → VENUE → JIAOCAI → COUPON → CAMPUS_CARD（最后）
+- 错峰 150ms：避免 RSA 公钥 / login.xjtu 端高并发拥塞
+
+调度路径全部统一委托 warmup
+- restoreCredentials Phase2：删除手写 JWAPP/YWTB/COUPON/CAMPUS_CARD 并行 + 末尾 ATTENDANCE/LIBRARY，
+  统一调用 startBackgroundLoginWarmup(force=true)
+- ProfileTab.finishMfaAndLogin / loginAllSystems：同样委托 warmup（覆盖所有 LoginType，
+  不再漏 LMS/CLASS/DZPZ/VENUE/JIAOCAI 这些"被遗忘的"子系统）
+- MainScreen / ProfileTab 加 onWarmupRequest 回调通道，AppNavigation 内 startBackgroundLoginWarmup
+  通过 mainScope 注入
+
+效果（理论）
+- 用户进 app → JWXT 必先登（一次 MFA 拿 TGC）→ ssoEstablished
+- 之后 11 个子系统并行 SSO，全部 cookies 共享同一 PersistentCookieJar，命中率接近 100%
+- 校园卡放最后，即便它链路特殊导致再 MFA，也已禁止 stacked dialog（前一个 commit 已修）
+
+附带优化（前一轮已改，此 commit 一起带上）
+- MFA 冷却 5min → 60s，仅作用于后台 warmup；用户主动 navigateWithLogin → autoLogin(force=true) 无视冷却
+- ssoEstablished 后 REQUIRE_MFA = SSO 失败，不弹 stacked dialog
+- 校园卡 SSO 拿不到 ticket → 抛异常让 autoLogin fallback，避免 cache 半成品 login 导致黑屏
+- ScheduleScreen login==null + 在线 + 有凭据 → 自动背景 autoLogin(JWXT)，重试按钮智能化
+- 区分真离线 vs 未登录："尚未登录教务系统，请重试" / "当前离线且无缓存"

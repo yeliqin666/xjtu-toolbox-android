@@ -63,7 +63,11 @@ class CampusCardLogin(
         val finalUrl = response.request.url.toString()
         Log.d(TAG, "postLogin: finalUrl=$finalUrl")
         if (!tryExtractTicketAndGetToken(finalUrl)) {
-            Log.w(TAG, "postLogin: no ticket found in URL, auth may be incomplete")
+            // 关键：没拿到 ticket → accessToken 仍为 null，整个登录是"半成品"。
+            // 必须抛异常让 autoLogin 视为失败，否则会 cache 一个 systemReady=false 的 broken login，
+            // Screen 进入后 API 401 → reAuth 也失败 → 死循环 popBack/重进 → 黑屏。
+            Log.w(TAG, "postLogin: no ticket in finalUrl=$finalUrl, throwing to trigger fallback")
+            throw RuntimeException("校园卡 SSO 未拿到 ticket，需要重新登录")
         }
     }
 
