@@ -73,7 +73,7 @@ class CouponLogin(
 
     fun authenticatedRequest(url: String, jsonBody: String): Request.Builder {
         if (!isTokenValid() && !reAuthenticate()) {
-            throw RuntimeException("加餐券登录已过期，请重新登录")
+            throw com.xjtu.toolbox.auth.AuthExpiredException("加餐券")
         }
         return Request.Builder()
             .url(url)

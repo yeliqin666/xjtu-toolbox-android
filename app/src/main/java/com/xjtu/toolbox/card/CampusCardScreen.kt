@@ -39,6 +39,11 @@ import top.yukonga.miuix.kmp.basic.SnackbarHost
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import com.xjtu.toolbox.LocalAppLoginState
+import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.AuthExpiredException
+import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -82,6 +87,7 @@ fun CampusCardScreen(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
+    val appLoginState = LocalAppLoginState.current
 
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -177,6 +183,9 @@ fun CampusCardScreen(
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
+            } catch (e: AuthExpiredException) {
+                // 会话失效 → 静默触发重新登录（nav 监听 pendingRetry）
+                appLoginState.handleAuthExpired(LoginType.CAMPUS_CARD, Routes.CAMPUS_CARD, onBack)
             } catch (e: Exception) {
                 errorMessage = "加载失败: ${e.message}"
             } finally {
@@ -211,6 +220,8 @@ fun CampusCardScreen(
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.CAMPUS_CARD, Routes.CAMPUS_CARD, onBack)
             } catch (e: Exception) {
                 Log.w("CampusCardScreen", "loadMore failed: ${e.message}")
                 scope.launch {

@@ -18,12 +18,14 @@ import java.util.UUID
 import java.security.MessageDigest
 
 /**
- * 业务请求因认证失效且重认证失败时抛出（对齐上游 ServerError(102, "登录态已失效")）。
- * 调用方应捕获此异常并提示用户重新登录。
+ * 业务请求因认证失效且重认证失败时抛出。
+ *
+ * 调用方需捕获此异常，调用 `AppLoginState.handleAuthExpired(...)` 静默触发
+ * 重新登录（含 MFA）；不要直接将 message 展示给用户。
  */
 class AuthExpiredException(
     val siteName: String = "",
-    message: String = "${siteName}登录态已失效，请重新登录"
+    message: String = if (siteName.isEmpty()) "登录态已失效" else "${siteName}登录态已失效"
 ) : IOException(message)
 
 /**
@@ -840,7 +842,7 @@ open class XJTULogin(
     }
 
     /**
-     * 保活状态（对齐上游 KeepAliveStatus）。
+     * 保活状态。
      */
     enum class KeepAliveStatus {
         VALID,           // 登录态仍然有效
@@ -851,13 +853,13 @@ open class XJTULogin(
     }
 
     /**
-     * 验证当前子系统登录态是否仍然可信（对齐上游 common_session.validate_login）。
+     * 验证当前子系统登录态是否仍然可信。
      * 基类默认返回 false（保守策略），子类应覆写。
      */
     open fun validateLogin(): Boolean = false
 
     /**
-     * 保活一次：先 validate，失效则 reAuth（对齐上游 common_session.keep_alive）。
+     * 保活一次：先 validate，失效则 reAuth。
      * 返回 KeepAliveStatus 供 SessionKeepAlive 汇总报告。
      */
     open fun keepAlive(): KeepAliveStatus {
@@ -879,8 +881,8 @@ open class XJTULogin(
     companion object {
         /**
          * 判断 HTML 是否为统一认证返回的「Safety Verify」二次认证页面。
-         * 与上游 Python `is_safety_verify_page` 同语义：fm1 表单含 secState/execution/_eventId 三个字段，
-         * 且文档标题含 "Safety Verify" 或文档体含 "/cas/sec/initByType"、"选择安全认证"、"二次认证"。
+         * 检测条件：fm1 表单含 secState/execution/_eventId 三个字段，
+         * 且文档标题含 "Safety Verify" 或文档体含 "/cas/sec/initByType"、「选择安全认证」、「二次认证」。
          */
         @JvmStatic
         fun isSafetyVerifyPage(html: String): Boolean {
@@ -903,8 +905,8 @@ open class XJTULogin(
 
         /**
          * 判断响应 HTML 是否表明当前业务站点的登录态已失效。
-         * 与上游 Python `common_session.is_auth_failure_response` 对齐：
-         * 检测 Safety Verify 页面和统一身份认证登录页。
+         *
+         * 检测两种场景：Safety Verify 页面和统一身份认证登录页。
          *
          * 用法：在各子系统的 executeWithReAuth 中，对响应 body 调用此方法，
          *       若返回 true 则 reAuthenticate + 重放请求。

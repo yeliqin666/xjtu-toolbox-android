@@ -207,9 +207,9 @@ class EmptyRoomApi {
 class NoDataException(message: String) : Exception(message)
 
 // =====================================================================================
-// 直连查询：不依赖 CDN，通过教务系统接口实时查询空闲教室
-// 与上游 jwxt/empty_room.py 的 EmptyRoom 类对齐；上游 70f1291b 后默认使用 WebVPN 登录
+// 直连查询：通过教务系统接口实时查询空闲教室。
 // =====================================================================================
+
 
 /**
  * 教务系统返回的原始空闲教室数据。
@@ -226,7 +226,7 @@ data class DirectRoomRow(
 /**
  * 不依赖 CDN 的空闲教室直连查询。
  *
- * 使用教务系统 jwxt.xjtu.edu.cn 的真实接口（与上游 jwxt/empty_room.py 对齐）。
+ * 使用教务系统 jwxt.xjtu.edu.cn 的真实接口。
  * 必须先将账户角色切换到「学生」（移动应用学生身份下接口不可用），构造时自动完成。
  *
  * @param httpClient 已通过 JWXT 认证的 OkHttpClient（共享自 sharedClient 或 vpnClient）

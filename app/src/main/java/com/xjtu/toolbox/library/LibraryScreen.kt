@@ -50,6 +50,11 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.runtime.*
+import com.xjtu.toolbox.LocalAppLoginState
+import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.AuthExpiredException
+import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -84,6 +89,7 @@ private fun saveFavorites(ctx: Context, favs: Set<String>) =
 
 @Composable
 fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
+    val appLoginState = LocalAppLoginState.current
     val scope = rememberCoroutineScope()
     val api = remember { LibraryApi(login) }
     val context = LocalContext.current
@@ -211,6 +217,9 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
                     is SeatResult.Error -> { seats = emptyList(); errorMessage = result.message }
                 }
             } catch (e: CancellationException) { throw e }
+            catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.LIBRARY, Routes.LIBRARY, onBack)
+            }
             catch (e: Exception) { seats = emptyList(); errorMessage = "加载失败: ${e.message}" }
             isLoading = false
         }

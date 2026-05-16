@@ -21,6 +21,11 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.runtime.*
+import com.xjtu.toolbox.LocalAppLoginState
+import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.AuthExpiredException
+import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -53,6 +58,7 @@ import java.time.format.DateTimeFormatter
  */
 @Composable
 fun VenueScreen(login: VenueLogin, onBack: () -> Unit) {
+    val appLoginState = LocalAppLoginState.current
     val scope = rememberCoroutineScope()
     val api = remember { VenueApi(login) }
     val context = LocalContext.current
@@ -136,6 +142,8 @@ fun VenueScreen(login: VenueLogin, onBack: () -> Unit) {
             try {
                 val result = withContext(Dispatchers.IO) { api.fetchVenueList() }
                 venues = result
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.VENUE, Routes.VENUE, onBack)
             } catch (e: Exception) {
                 venueError = e.message ?: "加载场馆列表失败"
             } finally { venueLoading = false }
@@ -155,6 +163,8 @@ fun VenueScreen(login: VenueLogin, onBack: () -> Unit) {
                 }
                 availableSlots = ok
                 lockedSlots = locked
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.VENUE, Routes.VENUE, onBack)
             } catch (e: Exception) {
                 slotsError = e.message ?: "加载时段失败"
             } finally { slotsLoading = false }

@@ -70,6 +70,39 @@ class CredentialStore(context: Context) {
 
     fun loadFpVisitorId(): String? = prefs.getString(KEY_FP_VISITOR_ID, null)
 
+    // ── Srun 校园网（XJTU_STU）凭据 + 自动登录开关 ──
+
+    fun saveSrunCredentials(username: String, password: String) {
+        prefs.edit()
+            .putString(KEY_SRUN_USERNAME, username)
+            .putString(KEY_SRUN_PASSWORD, password)
+            .apply()
+    }
+
+    fun loadSrunCredentials(): Pair<String, String>? {
+        val u = prefs.getString(KEY_SRUN_USERNAME, null) ?: return null
+        val p = prefs.getString(KEY_SRUN_PASSWORD, null) ?: return null
+        if (u.isBlank() || p.isBlank()) return null
+        return u to p
+    }
+
+    fun clearSrunCredentials() {
+        prefs.edit()
+            .remove(KEY_SRUN_USERNAME)
+            .remove(KEY_SRUN_PASSWORD)
+            .apply()
+    }
+
+    /** Srun 自动登录开关，默认开启。 */
+    var srunAutoLoginEnabled: Boolean
+        get() = prefs.getBoolean(KEY_SRUN_AUTO_ENABLED, true)
+        set(value) { prefs.edit().putBoolean(KEY_SRUN_AUTO_ENABLED, value).apply() }
+
+    /** 是否已询问过用户启用 Srun（首次登录后弹窗用，仅询问一次）。 */
+    var srunSetupAsked: Boolean
+        get() = prefs.getBoolean(KEY_SRUN_SETUP_ASKED, false)
+        set(value) { prefs.edit().putBoolean(KEY_SRUN_SETUP_ASKED, value).apply() }
+
     // ── RSA 公钥缓存（减少一次网络请求）──
 
     fun saveRsaPublicKey(key: String) {
@@ -190,6 +223,10 @@ class CredentialStore(context: Context) {
         private const val KEY_USERNAME = "username"
         private const val KEY_PASSWORD = "password"
         private const val KEY_FP_VISITOR_ID = "fp_visitor_id"
+        private const val KEY_SRUN_USERNAME = "srun_username"
+        private const val KEY_SRUN_PASSWORD = "srun_password"
+        private const val KEY_SRUN_AUTO_ENABLED = "srun_auto_enabled"
+        private const val KEY_SRUN_SETUP_ASKED = "srun_setup_asked"
         private const val KEY_RSA_PUBLIC_KEY = "rsa_public_key"
         private const val KEY_RSA_KEY_TIME = "rsa_key_time"
         private const val KEY_NICKNAME = "cached_nickname"

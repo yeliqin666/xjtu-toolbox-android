@@ -91,7 +91,7 @@ class AttendanceLogin(
     }
 
     /**
-     * 验证考勤系统登录态是否仍然有效（对齐上游 attendance_session.validate_login）。
+     * 验证考勤系统登录态是否仍然有效。
      * 通过 POST /attendance-student/global/getStuInfo 检测。
      */
     override fun validateLogin(): Boolean {

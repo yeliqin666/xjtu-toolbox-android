@@ -42,6 +42,11 @@ import com.xjtu.toolbox.ui.components.AppDropdownMenu
 import com.xjtu.toolbox.ui.components.AppDropdownMenuItem
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import com.xjtu.toolbox.LocalAppLoginState
+import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.AuthExpiredException
+import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -63,6 +68,7 @@ fun AttendanceScreen(
     login: AttendanceLogin,
     onBack: () -> Unit
 ) {
+    val appLoginState = LocalAppLoginState.current
     val api = remember { AttendanceApi(login) }
     val scope = rememberCoroutineScope()
 
@@ -150,6 +156,8 @@ fun AttendanceScreen(
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.ATTENDANCE, Routes.ATTENDANCE, onBack)
             } catch (e: Exception) {
                 errorMessage = "加载失败: ${e.message}"
             } finally {

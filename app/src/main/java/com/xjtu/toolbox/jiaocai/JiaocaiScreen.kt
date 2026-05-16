@@ -12,6 +12,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
+import com.xjtu.toolbox.LocalAppLoginState
+import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.AuthExpiredException
+import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -50,6 +55,7 @@ private fun JiaocaiSearchScreen(
     onBookClick: (JiaocaiBook) -> Unit,
     onBack: () -> Unit
 ) {
+    val appLoginState = LocalAppLoginState.current
     val scope = rememberCoroutineScope()
     var keyword by remember { mutableStateOf("") }
     var books by remember { mutableStateOf<List<JiaocaiBook>>(emptyList()) }
@@ -64,6 +70,8 @@ private fun JiaocaiSearchScreen(
             try {
                 books = withContext(Dispatchers.IO) { JiaocaiApi(login).search(keyword) }
                 hasSearched = true
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.JIAOCAI, Routes.JIAOCAI, onBack)
             } catch (e: Exception) {
                 errorMsg = "搜索失败: ${e.message}"
             } finally {

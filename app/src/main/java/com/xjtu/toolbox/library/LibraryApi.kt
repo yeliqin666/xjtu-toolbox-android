@@ -213,7 +213,7 @@ class LibraryApi(private val login: LibraryLogin) {
         Log.d(TAG, "qseat: code=${response.code}, url=$finalUrl, len=${body.length}")
 
         if (isRedirectedToLogin(body, finalUrl))
-            return SeatResult.AuthError("认证失败：请返回重试或检查网络")
+            return SeatResult.AuthError("认证已失效")
         if (body.length < 10)
             return SeatResult.Error("服务器返回异常")
 
@@ -333,7 +333,7 @@ class LibraryApi(private val login: LibraryLogin) {
             "已有预约" in bodyText || "已预约" in bodyText -> "您已有其他座位预约\n‣ 如需更换，请先取消当前预约"
             "不在预约时间" in bodyText || "未开放" in bodyText -> "当前不在预约开放时间\n‣ 预约通常在 22:00 开放次日抢座"
             "维护" in bodyText -> "系统维护中，请稍后再试"
-            isRedirectedToLogin(html, "") -> "登录状态过期，请返回重新登录"
+            isRedirectedToLogin(html, "") -> "登录状态已失效"
             else -> "预约失败（未知原因）"
         }
     }

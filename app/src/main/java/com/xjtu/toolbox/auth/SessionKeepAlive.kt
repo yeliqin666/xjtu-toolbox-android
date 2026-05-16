@@ -19,7 +19,6 @@ import okhttp3.Request
 /**
  * 后台 Session 保活。
  *
- * 与上游 XJTUToolBox 的 SessionKeepAliveThread + session_manager.keep_alive_logged_in_sessions 对齐：
  * 每隔 [intervalMs] 自动对各「已登录」子系统发起一次轻量 GET（依赖 reAuthenticate / SSO），
  * 让服务端不会因为长时间空闲而吊销 session。
  *
@@ -33,7 +32,7 @@ object SessionKeepAlive {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var loopJob: Job? = null
 
-    /** 默认 10 分钟（与上游一致） */
+    /** 默认 10 分钟 */
     const val DEFAULT_INTERVAL_MIN = 10L
 
     /** 提供者：把 AppLoginState 转换成可保活的 login 列表，避免直接依赖 MainActivity 的类。 */

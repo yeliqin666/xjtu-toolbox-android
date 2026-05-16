@@ -153,8 +153,8 @@ fun EmptyRoomScreen(
     var rooms by remember { mutableStateOf<List<RoomInfo>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    /** 数据源：false=CDN（每日预生成）, true=直连教务系统接口（实时） */
-    var useDirectQuery by rememberSaveable { mutableStateOf(false) }
+    /** 数据源：固定为直连教务系统接口（实时） */
+    val useDirectQuery = true
     var directProgress by remember { mutableStateOf<Pair<Int, Int>?>(null) }
 
     val campusNames = CAMPUS_BUILDINGS.keys.toList()
@@ -207,6 +207,10 @@ fun EmptyRoomScreen(
     val effectivePeriod = if (isToday) currentPeriod else -1
 
     // 自动查询（选择改变 / 数据源切换即触发）
+    // [取消语义] LaunchedEffect 在 keys 变化时自动 cancel 旧 coroutine。
+    // OkHttp 阻塞调用本身不响应 cancel，但我们在每个 building / period 循环开头主动
+    // ensureActive()：cancel 后立即抛 CancellationException → 不再发起新请求 → UI 不会被
+    // 旧结果污染。正在飞的单次 HTTP 调用最多多跑完一次后丢弃，整体行为符合「杀死旧的、开新的」。
     LaunchedEffect(selectedCampus, selectedBuildings, selectedDate, useDirectQuery) {
         val active = selectedBuildings.filter { it.isNotEmpty() }.toSet()
         if (active.isNotEmpty()) {
@@ -217,19 +221,18 @@ fun EmptyRoomScreen(
                 val result = withContext(Dispatchers.IO) {
                     val direct = directApi
                     if (useDirectQuery && direct != null) {
-                        // 直连教务系统：每栋楼独立查询（11 节 × N 楼，耗时较长，逐步推进进度）
                         val merged = mutableListOf<RoomInfo>()
                         val totalBuildings = active.size
                         active.toList().forEachIndexed { idx, building ->
+                            if (!kotlin.coroutines.coroutineContext[kotlinx.coroutines.Job]!!.isActive) {
+                                throw kotlinx.coroutines.CancellationException("user cancelled empty-room query")
+                            }
                             try {
                                 val rows = direct.queryDay(selectedCampus, building, selectedDate) { period, total ->
-                                    val globalDone = idx * total + period
-                                    val globalTotal = totalBuildings * total
-                                    directProgress = globalDone to globalTotal
+                                    directProgress = (idx * total + period) to (totalBuildings * total)
                                 }
                                 merged.addAll(rows)
                             } catch (e: NoDataException) {
-                                // 单栋楼无数据 → 跳过
                                 android.util.Log.w("EmptyRoomScreen", "direct skip $building: ${e.message}")
                             }
                         }
@@ -240,7 +243,7 @@ fun EmptyRoomScreen(
                 }
                 rooms = result
             } catch (e: kotlin.coroutines.cancellation.CancellationException) {
-                throw e // 绝不吞掉取消
+                throw e
             } catch (e: NoDataException) {
                 errorMessage = e.message; rooms = emptyList()
             } catch (e: java.net.ConnectException) {
@@ -377,19 +380,6 @@ fun EmptyRoomScreen(
                                 selected = selectedDate == date,
                                 onClick = { selectedDate = date },
                                 label = "$label ${date.substring(5)}"
-                            )
-                        }
-                        // 数据源切换：CDN（默认快速）/ 直连教务（实时但慢）
-                        if (directApi != null) {
-                            AppFilterChip(
-                                selected = !useDirectQuery,
-                                onClick = { useDirectQuery = false },
-                                label = "CDN"
-                            )
-                            AppFilterChip(
-                                selected = useDirectQuery,
-                                onClick = { useDirectQuery = true },
-                                label = "直查"
                             )
                         }
                         Spacer(Modifier.weight(1f))

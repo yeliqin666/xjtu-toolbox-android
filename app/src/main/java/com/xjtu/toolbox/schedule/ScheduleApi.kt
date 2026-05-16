@@ -285,7 +285,7 @@ class ScheduleApi(private val login: JwxtLogin) {
 
         // 检测是否被重定向到登录页
         if (html.contains("openplatform") || html.contains("login") && !html.contains("SessionMgr")) {
-            throw RuntimeException("教材报表会话已过期，请返回重新进入")
+            throw com.xjtu.toolbox.auth.AuthExpiredException("教材报表")
         }
 
         // 检测 FineReport 服务端错误页（数据库连接失败等后端问题）

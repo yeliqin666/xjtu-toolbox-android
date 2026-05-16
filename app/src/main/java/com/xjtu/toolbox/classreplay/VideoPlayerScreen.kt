@@ -20,6 +20,11 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import com.xjtu.toolbox.LocalAppLoginState
+import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.AuthExpiredException
+import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -76,6 +81,7 @@ fun VideoPlayerScreen(
     activityId: Int,
     onBack: () -> Unit
 ) {
+    val appLoginState = LocalAppLoginState.current
     val context = LocalContext.current
     val activity = context as? Activity
 
@@ -133,6 +139,8 @@ fun VideoPlayerScreen(
                 if (instructorUrl == null && encoderUrl == null) {
                     errorMsg = "无法获取视频播放地址"
                 }
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.CLASS, Routes.CLASS_REPLAY, onBack)
             } catch (e: Exception) {
                 Log.e(TAG, "load replay error", e)
                 errorMsg = "加载失败: ${e.message}"

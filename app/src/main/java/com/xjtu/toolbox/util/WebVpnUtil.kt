@@ -180,10 +180,9 @@ class WebVpnInterceptor : Interceptor {
             return chain.proceed(request)
         }
 
-        // CAS 认证服务器是公开的，不走 WebVPN（直接访问才能正确携带 TGC cookie 实现 SSO）
-        if (host == "login.xjtu.edu.cn") {
-            return chain.proceed(request)
-        }
+        // 注意：login.xjtu.edu.cn 也必须走 webvpn 代理！
+        // 校外环境下 login.xjtu.edu.cn DNS 解析到内网 IP（202.117.x.x）不可达。
+        // 通过 webvpn 反向代理是校外访问 CAS 的唯一通路。
 
         val vpnUrl = WebVpnUtil.getVpnUrl(url)
         val newRequest = request.newBuilder().url(vpnUrl).build()

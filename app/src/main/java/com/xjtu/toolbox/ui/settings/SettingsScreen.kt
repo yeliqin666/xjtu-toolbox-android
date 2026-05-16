@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -254,6 +255,119 @@ fun SettingsScreen(
                         credentialStore.networkMode = v
                     }
                 )
+                // ── 校园网（XJTU_STU）自动登录 ──
+                var srunEnabled by remember { mutableStateOf(credentialStore.srunAutoLoginEnabled) }
+                val srunCreds = remember { mutableStateOf(credentialStore.loadSrunCredentials()) }
+                val showSrunEdit = remember { mutableStateOf(false) }
+                var srunTesting by remember { mutableStateOf(false) }
+                var srunTestResult by remember { mutableStateOf<String?>(null) }
+                SwitchPreference(
+                    title = "校园网自动登录",
+                    summary = if (srunEnabled) {
+                        if (srunCreds.value != null)
+                            "连接到 XJTU_STU 时自动登录（账号: ${srunCreds.value!!.first}）"
+                        else
+                            "已开启，请配置账号"
+                    } else "已关闭",
+                    checked = srunEnabled,
+                    onCheckedChange = {
+                        srunEnabled = it
+                        credentialStore.srunAutoLoginEnabled = it
+                    }
+                )
+                ArrowPreference(
+                    title = "校园网账号与密码",
+                    summary = srunCreds.value?.let { "${it.first} · 已保存" } ?: "未保存",
+                    onClick = { showSrunEdit.value = true }
+                )
+                ArrowPreference(
+                    title = "立即测试登录",
+                    summary = srunTestResult ?: (if (srunTesting) "正在测试..." else "手动触发一次校园网登录"),
+                    onClick = {
+                        if (srunTesting) return@ArrowPreference
+                        srunTesting = true
+                        srunTestResult = null
+                        scope.launch(Dispatchers.IO) {
+                            try {
+                                val creds = credentialStore.loadSrunCredentials()
+                                if (creds == null) {
+                                    srunTestResult = "请先填写账号密码"
+                                    srunTesting = false
+                                    return@launch
+                                }
+                                val srun = com.xjtu.toolbox.srun.SrunLogin()
+                                srunTestResult = when (val st = srun.queryStatus()) {
+                                    is com.xjtu.toolbox.srun.SrunStatus.Online ->
+                                        "已在线（${st.username}）"
+                                    com.xjtu.toolbox.srun.SrunStatus.NotLoggedIn -> {
+                                        val r = srun.login(creds.first, creds.second)
+                                        if (r.success) "登录成功" else "登录失败：${r.message}"
+                                    }
+                                    com.xjtu.toolbox.srun.SrunStatus.Unreachable ->
+                                        "网关不可达（不在 Srun 网段）"
+                                    com.xjtu.toolbox.srun.SrunStatus.UNKNOWN ->
+                                        "状态未知"
+                                }
+                            } finally {
+                                srunTesting = false
+                            }
+                        }
+                    }
+                )
+                if (showSrunEdit.value) {
+                    var u by remember { mutableStateOf(srunCreds.value?.first ?: "") }
+                    var p by remember { mutableStateOf(srunCreds.value?.second ?: "") }
+                    OverlayBottomSheet(
+                        show = showSrunEdit.value,
+                        title = "校园网账号",
+                        onDismissRequest = { showSrunEdit.value = false }
+                    ) {
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .imePadding()
+                                .padding(horizontal = 24.dp, vertical = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            top.yukonga.miuix.kmp.basic.TextField(
+                                value = u, onValueChange = { u = it },
+                                label = "账号（含 @stu/@xjtu）",
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            top.yukonga.miuix.kmp.basic.TextField(
+                                value = p, onValueChange = { p = it },
+                                label = "密码",
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Password
+                                )
+                            )
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                TextButton(
+                                    text = "清除",
+                                    onClick = {
+                                        credentialStore.clearSrunCredentials()
+                                        srunCreds.value = null
+                                        showSrunEdit.value = false
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Button(
+                                    onClick = {
+                                        if (u.isNotBlank() && p.isNotBlank()) {
+                                            credentialStore.saveSrunCredentials(u.trim(), p)
+                                            srunCreds.value = u.trim() to p
+                                            showSrunEdit.value = false
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                ) { Text("保存") }
+                            }
+                        }
+                    }
+                }
             }
 
             // ── 数据 ──

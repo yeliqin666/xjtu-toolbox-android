@@ -17,6 +17,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
+import com.xjtu.toolbox.LocalAppLoginState
+import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.AuthExpiredException
+import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,6 +53,7 @@ fun TranscriptScreen(
     login: DzpzLogin,
     onBack: () -> Unit
 ) {
+    val appLoginState = LocalAppLoginState.current
     val api = remember { TranscriptApi(login) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -79,6 +85,8 @@ fun TranscriptScreen(
                     api.loadCreateForm(workflowId)
                 }
                 formContext = ctx
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.DZPZ, Routes.TRANSCRIPT, onBack)
             } catch (e: Exception) {
                 errorMessage = "加载失败: ${e.message}"
             } finally {
@@ -124,6 +132,8 @@ fun TranscriptScreen(
                 }
                 workflowState = WorkflowState.SUCCESS
                 workflowProgress = "成绩单已生成"
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.DZPZ, Routes.TRANSCRIPT, onBack)
             } catch (e: Exception) {
                 workflowState = WorkflowState.ERROR
                 workflowProgress = "申请失败: ${e.message}"

@@ -34,6 +34,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import com.xjtu.toolbox.LocalAppLoginState
+import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.AuthExpiredException
+import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -73,6 +78,7 @@ fun CouponScreen(
     login: CouponLogin,
     onBack: () -> Unit
 ) {
+    val appLoginState = LocalAppLoginState.current
     val api = remember(login) { CouponApi(login) }
     val scope = rememberCoroutineScope()
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
@@ -104,6 +110,8 @@ fun CouponScreen(
                 records = if (append) records + pageData.records else pageData.records
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.COUPON, Routes.COUPON, onBack)
             } catch (e: Exception) {
                 errorMessage = e.message ?: "加载失败"
             } finally {

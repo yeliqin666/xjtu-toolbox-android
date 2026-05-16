@@ -34,6 +34,11 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import com.xjtu.toolbox.LocalAppLoginState
+import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.AuthExpiredException
+import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -57,6 +62,7 @@ fun ScoreReportScreen(
     studentId: String,
     onBack: () -> Unit
 ) {
+    val appLoginState = LocalAppLoginState.current
     val api = remember { ScoreReportApi(login) }
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -117,6 +123,8 @@ fun ScoreReportScreen(
                 }
                 // 更新缓存
                 try { dataCache.put(cacheKey, gson.toJson(grades)) } catch (_: Exception) {}
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.JWXT, Routes.SCORE_REPORT, onBack)
             } catch (e: Exception) {
                 if (allGrades.isEmpty()) errorMessage = "加载失败: ${e.message}"
             } finally {

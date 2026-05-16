@@ -71,6 +71,11 @@ import top.yukonga.miuix.kmp.basic.SnackbarHost
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import com.xjtu.toolbox.LocalAppLoginState
+import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.AuthExpiredException
+import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -100,7 +105,7 @@ import java.time.temporal.ChronoUnit
 fun ScheduleScreen(
     login: JwxtLogin? = null,
     studentId: String = "",
-    onBack: () -> Unit = {},
+    onBack: () -> Unit = {},  // 用于 catch AuthExpired 时退出
     showTopBar: Boolean = true,
     showBackButton: Boolean = true,
     onSubtitleChange: (String) -> Unit = {},
@@ -108,6 +113,7 @@ fun ScheduleScreen(
     onBottomContentChange: ((@Composable () -> Unit)?) -> Unit = {},
     contentBottomPadding: androidx.compose.ui.unit.Dp = 0.dp
 ) {
+    val appLoginState = LocalAppLoginState.current
     val api = remember(login) { login?.let { ScheduleApi(it) } }
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -454,6 +460,8 @@ fun ScheduleScreen(
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.JWXT, Routes.SCHEDULE, onBack)
             } catch (e: Exception) {
                 errorMessage = "加载失败: ${e.message}"
             } finally {
@@ -484,6 +492,8 @@ fun ScheduleScreen(
                 textbooksLoaded = true
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.JWXT, Routes.SCHEDULE, onBack)
             } catch (e: Exception) {
                 android.util.Log.e("ScheduleUI", "loadTextbooks failed", e)
                 textbooksError = "教材查询失败: ${e.message}"
@@ -699,6 +709,8 @@ fun ScheduleScreen(
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.JWXT, Routes.SCHEDULE, onBack)
             } catch (e: Exception) {
                 errorMessage = "加载失败: ${e.message}"
             } finally {

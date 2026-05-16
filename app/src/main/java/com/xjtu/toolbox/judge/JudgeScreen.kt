@@ -34,6 +34,11 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import com.xjtu.toolbox.LocalAppLoginState
+import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.AuthExpiredException
+import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -57,6 +62,7 @@ fun JudgeScreen(
     username: String,
     onBack: () -> Unit
 ) {
+    val appLoginState = LocalAppLoginState.current
     val api = remember { JudgeApi(login) }
     val scope = rememberCoroutineScope()
 
@@ -89,6 +95,8 @@ fun JudgeScreen(
                     unfinishedList = api.unfinishedQuestionnaires()
                     finishedList = api.finishedQuestionnaires()
                 }
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.JWXT, Routes.JUDGE, onBack)
             } catch (e: Exception) {
                 errorMessage = "加载失败: ${e.message}"
             } finally {

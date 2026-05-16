@@ -19,6 +19,11 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import com.xjtu.toolbox.LocalAppLoginState
+import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.AuthExpiredException
+import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,6 +59,7 @@ fun SchoolCourseScreen(
     login: JwxtLogin?,
     onBack: () -> Unit
 ) {
+    val appLoginState = LocalAppLoginState.current
     if (login == null) {
         LaunchedEffect(Unit) { onBack() }
         return
@@ -116,6 +122,8 @@ fun SchoolCourseScreen(
                 selectedTermCode = currentTermCode
             }
             initError = null
+        } catch (e: AuthExpiredException) {
+            appLoginState.handleAuthExpired(LoginType.JWXT, Routes.SCHOOL_COURSE, onBack)
         } catch (e: Exception) {
             Log.e(TAG, "init failed", e)
             initError = "初始化失败: ${e.message}"
@@ -151,6 +159,8 @@ fun SchoolCourseScreen(
                     )
                 }
                 result = r
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.JWXT, Routes.SCHOOL_COURSE, onBack)
             } catch (e: Exception) {
                 Log.e(TAG, "search failed", e)
                 searchError = "查询失败: ${e.message}"

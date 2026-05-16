@@ -88,7 +88,7 @@ class CampusCardApi(private val login: CampusCardLogin) {
                 Log.d(TAG, "getCardInfo: 401, reAuthenticate success, retrying...")
                 return getCardInfoInternal(allowRetry = false)
             }
-            throw RuntimeException("校园卡会话已过期，请返回重新登录")
+            throw com.xjtu.toolbox.auth.AuthExpiredException("校园卡")
         }
         if (code != 200) {
             throw RuntimeException("获取卡信息失败: ${root.get("message")?.asString ?: "未知错误"}")
@@ -129,6 +129,14 @@ class CampusCardApi(private val login: CampusCardLogin) {
         endDate: LocalDate = LocalDate.now(),
         page: Int = 1,
         pageSize: Int = 30
+    ): Pair<Int, List<Transaction>> = getTransactionsInternal(startDate, endDate, page, pageSize, allowRetry = true)
+
+    private fun getTransactionsInternal(
+        startDate: LocalDate,
+        endDate: LocalDate,
+        page: Int,
+        pageSize: Int,
+        allowRetry: Boolean
     ): Pair<Int, List<Transaction>> {
         val url = "$baseUrl/berserker-search/search/personal/turnover" +
             "?size=$pageSize&current=$page" +
@@ -147,7 +155,13 @@ class CampusCardApi(private val login: CampusCardLogin) {
         }
 
         val code = root.get("code")?.asInt ?: 0
-        if (code == 401) throw RuntimeException("校园卡会话已过期，请返回重新登录")
+        if (code == 401) {
+            if (allowRetry && login.reAuthenticate()) {
+                Log.d(TAG, "getTransactions: 401, reAuthenticate success, retrying...")
+                return getTransactionsInternal(startDate, endDate, page, pageSize, allowRetry = false)
+            }
+            throw com.xjtu.toolbox.auth.AuthExpiredException("校园卡")
+        }
         if (code != 200) throw RuntimeException("获取流水失败: ${root.get("message")?.asString ?: "未知错误"}")
 
         val data = root.getAsJsonObject("data") ?: return 0 to emptyList()

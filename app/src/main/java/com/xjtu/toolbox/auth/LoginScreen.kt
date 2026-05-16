@@ -14,7 +14,7 @@ import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
+import top.yukonga.miuix.kmp.overlay.OverlayDialog
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
@@ -314,11 +314,12 @@ fun LoginScreen(
             )
         }
 
-        // MFA 验证码 BottomSheet
+        // MFA 验证码弹窗（OverlayDialog 形式，配合 imePadding 抗键盘弹飞）
         if (showMfaSheet.value) {
-            OverlayBottomSheet(
+            OverlayDialog(
                 show = showMfaSheet.value,
                 title = "手机验证",
+                summary = "验证码已发送至 $mfaPhone",
                 onDismissRequest = {
                     showMfaSheet.value = false
                     isLoading = false
@@ -327,15 +328,8 @@ fun LoginScreen(
                 Column(
                     Modifier
                         .fillMaxWidth()
-                        .navigationBarsPadding()
-                        .padding(horizontal = 24.dp, vertical = 16.dp)
+                        .imePadding()
                 ) {
-                    Text(
-                        text = "验证码已发送至 $mfaPhone",
-                        style = MiuixTheme.textStyles.body1,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
                     TextField(
                         value = mfaCode,
                         onValueChange = { mfaCode = it.take(6) },

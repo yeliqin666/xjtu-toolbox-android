@@ -55,7 +55,7 @@ class CouponApi(private val login: CouponLogin) {
                 login.reAuthenticate()
                 return executeVoucherJson(url, jsonBody, allowRetry = false)
             }
-            throw RuntimeException("加餐券会话已过期，请重新登录")
+            throw com.xjtu.toolbox.auth.AuthExpiredException("加餐券")
         }
 
         val root = try {

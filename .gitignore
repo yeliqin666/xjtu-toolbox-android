@@ -49,3 +49,6 @@ miuix-ref/
 # Misc local artifacts
 build_output.txt
 tools/
+
+# Reference clone of upstream
+.upstream-ref/yan-xiaoo/

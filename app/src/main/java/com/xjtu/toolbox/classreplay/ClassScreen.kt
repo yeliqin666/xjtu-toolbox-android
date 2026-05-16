@@ -24,6 +24,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
+import com.xjtu.toolbox.LocalAppLoginState
+import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.AuthExpiredException
+import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -140,6 +145,7 @@ private fun CourseListPage(
     onBack: () -> Unit,
     onCourseSelected: (Course) -> Unit
 ) {
+    val appLoginState = LocalAppLoginState.current
     var allCourses by remember { mutableStateOf<List<Course>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
@@ -163,6 +169,8 @@ private fun CourseListPage(
                     page++
                 }
                 allCourses = result
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.CLASS, Routes.CLASS_REPLAY, onBack)
             } catch (e: Exception) {
                 Log.e(TAG, "loadCourses error", e)
                 errorMsg = "加载课程失败: ${e.message}"
@@ -376,6 +384,7 @@ private fun ReplayListPage(
     onPlayReplay: (login: ClassLogin, activityId: Int) -> Unit,
     onDownloadReplay: (login: ClassLogin, activityIds: List<Int>) -> Unit
 ) {
+    val appLoginState = LocalAppLoginState.current
     var activities by remember { mutableStateOf<List<LiveActivity>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
@@ -406,6 +415,8 @@ private fun ReplayListPage(
                     page++
                 }
                 activities = result
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.CLASS, Routes.CLASS_REPLAY, onBack)
             } catch (e: Exception) {
                 Log.e(TAG, "loadActivities error", e)
                 errorMsg = "加载回放列表失败: ${e.message}"

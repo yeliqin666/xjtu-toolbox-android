@@ -27,6 +27,11 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
+import com.xjtu.toolbox.LocalAppLoginState
+import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.AuthExpiredException
+import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -77,6 +82,7 @@ private sealed class LmsPage {
 
 @Composable
 fun LmsScreen(login: LmsLogin, onBack: () -> Unit) {
+    val appLoginState = LocalAppLoginState.current
     val context = LocalContext.current
     val api = remember { LmsApi(login) }
 
@@ -206,6 +212,7 @@ private fun CourseListPage(
     onBack: () -> Unit,
     onCourseSelected: (LmsCourseSummary) -> Unit
 ) {
+    val appLoginState = LocalAppLoginState.current
     var courses by remember { mutableStateOf<List<LmsCourseSummary>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
@@ -218,6 +225,8 @@ private fun CourseListPage(
             errorMsg = null
             try {
                 courses = withContext(Dispatchers.IO) { api.getMyCourses() }
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.LMS, Routes.LMS, onBack)
             } catch (e: Exception) {
                 Log.e(TAG, "loadCourses error", e)
                 errorMsg = "加载课程失败: ${e.message}"
@@ -353,6 +362,7 @@ private fun ActivityListPage(
     onBack: () -> Unit,
     onActivitySelected: (LmsActivity) -> Unit
 ) {
+    val appLoginState = LocalAppLoginState.current
     var activities by remember { mutableStateOf<List<LmsActivity>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
@@ -365,6 +375,8 @@ private fun ActivityListPage(
             errorMsg = null
             try {
                 activities = withContext(Dispatchers.IO) { api.getCourseActivities(course.id) }
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.LMS, Routes.LMS, onBack)
             } catch (e: Exception) {
                 Log.e(TAG, "loadActivities error", e)
                 errorMsg = "加载活动失败: ${e.message}"
@@ -500,6 +512,7 @@ private fun ActivityDetailPage(
     onPlayVideo: (title: String, instructorUrl: String?, encoderUrl: String?, isLive: Boolean, headers: Map<String, String>) -> Unit
 ) {
     val context = LocalContext.current
+    val appLoginState = LocalAppLoginState.current
     var detail by remember { mutableStateOf<LmsActivity?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
@@ -511,6 +524,8 @@ private fun ActivityDetailPage(
             errorMsg = null
             try {
                 detail = withContext(Dispatchers.IO) { api.getActivityDetail(activity.id) }
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.LMS, Routes.LMS, onBack)
             } catch (e: Exception) {
                 Log.e(TAG, "loadDetail error", e)
                 errorMsg = "加载详情失败: ${e.message}"
