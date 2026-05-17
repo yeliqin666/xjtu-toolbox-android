@@ -33,15 +33,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.auth.YwtbLogin
+import com.xjtu.toolbox.auth.SiteSession
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 
 @Composable
-fun YwtbScreen(login: YwtbLogin, onBack: () -> Unit) {
-    val api = remember { YwtbApi(login) }
+fun YwtbScreen(site: SiteSession, onBack: () -> Unit) {
+    val api = remember(site) { YwtbApi(site) }
     var userInfo by remember { mutableStateOf<UserInfo?>(null) }
     var currentTerm by remember { mutableStateOf<String?>(null) }
     var currentWeek by remember { mutableStateOf<Int?>(null) }

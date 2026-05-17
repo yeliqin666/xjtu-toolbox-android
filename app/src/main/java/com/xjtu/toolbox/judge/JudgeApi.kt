@@ -1,11 +1,12 @@
 package com.xjtu.toolbox.judge
 
 import com.google.gson.Gson
-import com.xjtu.toolbox.auth.JwxtLogin
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
 import com.xjtu.toolbox.util.safeString
 import com.xjtu.toolbox.util.safeStringOrNull
 import com.xjtu.toolbox.util.safeInt
+import kotlinx.coroutines.runBlocking
 import okhttp3.FormBody
 import okhttp3.Request
 
@@ -146,10 +147,36 @@ data class QuestionnaireOptionData(
  * 教务评教 API
  * 封装了教务系统评教相关的所有请求接口
  */
-class JudgeApi(private val login: JwxtLogin) {
+class JudgeApi(private val site: SiteSession) {
 
     private val gson = Gson()
     private var cachedTerm: String? = null
+    private var appInitialized = false
+
+    private fun execute(request: Request): String =
+        runBlocking { site.executeWithReAuth(request) }.use { response ->
+            response.body?.string() ?: ""
+        }
+
+    /**
+     * jwapp 框架要求每个 app 模块先 GET 入口让服务端注册 module session，
+     * 否则后续业务 API 返回 `{"code":"404"}`。参见 SchoolCourseApi / CjcxApi 同款预热。
+     */
+    private fun ensureAppInitialized() {
+        if (appInitialized) return
+        try {
+            val req = Request.Builder()
+                .url("https://jwxt.xjtu.edu.cn/jwapp/sys/wspjyyapp/modules/xspj/index.do")
+                .header("Accept", "text/html")
+                .get()
+                .build()
+            runBlocking { site.executeWithReAuth(req) }.close()
+            appInitialized = true
+        } catch (_: Exception) {
+            // 预热失败不阻塞业务，下游接口会自行报错
+            appInitialized = true
+        }
+    }
 
     private fun normalizeQuestionKey(value: String): String {
         val ignoredChars = setOf('：', ':', '（', '）', '(', ')', '。', '，', ',', '、', '“', '”', '"')
@@ -162,6 +189,7 @@ class JudgeApi(private val login: JwxtLogin) {
      * 获取当前学期的字符串表示，如 "2024-2025-1"
      */
     fun getCurrentTerm(): String {
+        ensureAppInitialized()
         val formBody = FormBody.Builder()
             .add(
                 "setting",
@@ -173,18 +201,25 @@ class JudgeApi(private val login: JwxtLogin) {
         val request = Request.Builder()
             .url("https://jwxt.xjtu.edu.cn/jwapp/sys/wspjyyapp/modules/xspj/cxxtcs.do")
             .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+            .header("X-Requested-With", "XMLHttpRequest")
+            .header("Referer", "https://jwxt.xjtu.edu.cn/jwapp/sys/wspjyyapp/modules/xspj/index.do")
             .post(formBody)
             .build()
 
-        val responseBody = login.client.newCall(request).execute().use { response ->
-            response.body?.string() ?: throw RuntimeException("空响应")
+        val responseBody = execute(request)
+        if (responseBody.isEmpty()) throw RuntimeException("空响应")
+        // CAS 把请求拦回登录页，body 不是 JSON
+        if (!responseBody.trimStart().startsWith("{")) {
+            throw com.xjtu.toolbox.auth.AuthExpiredException("教务评教（会话过期）")
         }
         val root = responseBody.safeParseJsonObject()
         return root.getAsJsonObject("datas")
-            .getAsJsonObject("cxxtcs")
-            .getAsJsonArray("rows")
-            .get(0).asJsonObject
-            .get("CSZA").safeString()
+            ?.getAsJsonObject("cxxtcs")
+            ?.getAsJsonArray("rows")
+            ?.takeIf { it.size() > 0 }
+            ?.get(0)?.asJsonObject
+            ?.get("CSZA")?.safeString()
+            ?: throw RuntimeException("评教学期数据为空（学期未开放评教？）")
     }
 
     /**
@@ -194,6 +229,7 @@ class JudgeApi(private val login: JwxtLogin) {
      * @param finished true=已评, false=未评
      */
     fun getQuestionnaires(type: String, term: String, finished: Boolean): List<Questionnaire> {
+        ensureAppInitialized()
         val formBody = FormBody.Builder()
             .add("PGLXDM", type)
             .add("SFPG", if (finished) "1" else "0")
@@ -205,12 +241,12 @@ class JudgeApi(private val login: JwxtLogin) {
         val request = Request.Builder()
             .url("https://jwxt.xjtu.edu.cn/jwapp/sys/wspjyyapp/modules/xspj/cxdwpj.do")
             .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+            .header("X-Requested-With", "XMLHttpRequest")
+            .header("Referer", "https://jwxt.xjtu.edu.cn/jwapp/sys/wspjyyapp/modules/xspj/index.do")
             .post(formBody)
             .build()
 
-        val responseBody = login.client.newCall(request).execute().use { response ->
-            response.body?.string() ?: throw RuntimeException("空响应")
-        }
+        val responseBody = execute(request).ifEmpty { throw RuntimeException("空响应") }
         val root = responseBody.safeParseJsonObject()
         val rows = root.getAsJsonObject("datas")
             .getAsJsonObject("cxdwpj")
@@ -267,6 +303,7 @@ class JudgeApi(private val login: JwxtLogin) {
      * 获取某问卷的题目信息
      */
     fun getQuestionnaireData(q: Questionnaire, username: String): List<QuestionnaireData> {
+        ensureAppInitialized()
         val formBody = FormBody.Builder()
             .add("WJDM", q.WJDM)
             .add("JXBID", q.JXBID)
@@ -275,12 +312,12 @@ class JudgeApi(private val login: JwxtLogin) {
         val request = Request.Builder()
             .url("https://jwxt.xjtu.edu.cn/jwapp/sys/wspjyyapp/modules/wj/cxwjzb.do")
             .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+            .header("X-Requested-With", "XMLHttpRequest")
+            .header("Referer", "https://jwxt.xjtu.edu.cn/jwapp/sys/wspjyyapp/modules/xspj/index.do")
             .post(formBody)
             .build()
 
-        val responseBody = login.client.newCall(request).execute().use { response ->
-            response.body?.string() ?: throw RuntimeException("空响应")
-        }
+        val responseBody = execute(request).ifEmpty { throw RuntimeException("空响应") }
         val root = responseBody.safeParseJsonObject()
         val rows = root.getAsJsonObject("datas")
             .getAsJsonObject("cxwjzb")
@@ -315,6 +352,7 @@ class JudgeApi(private val login: JwxtLogin) {
         username: String,
         finished: Boolean = false
     ): Map<String, List<QuestionnaireOptionData>> {
+        ensureAppInitialized()
         val querySetting = gson.toJson(
             listOf(
                 mapOf("name" to "BPR", "value" to q.BPR, "linkOpt" to "AND", "builder" to "equal"),
@@ -339,12 +377,12 @@ class JudgeApi(private val login: JwxtLogin) {
         val request = Request.Builder()
             .url("https://jwxt.xjtu.edu.cn/jwapp/sys/wspjyyapp/modules/wj/cxxswjzbxq.do")
             .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+            .header("X-Requested-With", "XMLHttpRequest")
+            .header("Referer", "https://jwxt.xjtu.edu.cn/jwapp/sys/wspjyyapp/modules/xspj/index.do")
             .post(formBody)
             .build()
 
-        val responseBody = login.client.newCall(request).execute().use { response ->
-            response.body?.string() ?: throw RuntimeException("空响应")
-        }
+        val responseBody = execute(request).ifEmpty { throw RuntimeException("空响应") }
         val root = responseBody.safeParseJsonObject()
         val rows = root.getAsJsonObject("datas")
             .getAsJsonObject("cxxswjzbxq")
@@ -373,6 +411,7 @@ class JudgeApi(private val login: JwxtLogin) {
      * @return Pair<是否成功, 服务器消息>
      */
     fun submitQuestionnaire(q: Questionnaire, data: List<QuestionnaireData>): Pair<Boolean, String> {
+        ensureAppInitialized()
         val wjysjgJson = gson.toJson(data.map { it.toJsonMap() })
         val requestParamStr = gson.toJson(
             mapOf(
@@ -391,12 +430,12 @@ class JudgeApi(private val login: JwxtLogin) {
         val request = Request.Builder()
             .url("https://jwxt.xjtu.edu.cn/jwapp/sys/wspjyyapp/WspjwjController/addXsPgysjg.do")
             .header("Content-Type", "application/x-www-form-urlencoded;charset=UTF-8")
+            .header("X-Requested-With", "XMLHttpRequest")
+            .header("Referer", "https://jwxt.xjtu.edu.cn/jwapp/sys/wspjyyapp/modules/xspj/index.do")
             .post(formBody)
             .build()
 
-        val responseBody = login.client.newCall(request).execute().use { response ->
-            response.body?.string() ?: throw RuntimeException("空响应")
-        }
+        val responseBody = execute(request).ifEmpty { throw RuntimeException("空响应") }
         val root = responseBody.safeParseJsonObject()
         val code = root.get("code").safeString("-1")
         val datasObj = root.getAsJsonObject("datas")
@@ -413,6 +452,7 @@ class JudgeApi(private val login: JwxtLogin) {
      * @return Pair<是否成功, 服务器消息>
      */
     fun editQuestionnaire(q: Questionnaire, username: String): Pair<Boolean, String> {
+        ensureAppInitialized()
         val endpointCandidates = listOf(
             "https://jwxt.xjtu.edu.cn/jwapp/sys/wspjyyapp/WspjwjController/updateCprZt.do",
             "https://jwxt.xjtu.edu.cn/jwapp/sys/wspjyyapp/WspjwjController/updateXsPgysjg.do"
@@ -460,12 +500,12 @@ class JudgeApi(private val login: JwxtLogin) {
                     val request = Request.Builder()
                         .url(endpoint)
                         .header("Content-Type", "application/x-www-form-urlencoded;charset=UTF-8")
+                        .header("X-Requested-With", "XMLHttpRequest")
+                        .header("Referer", "https://jwxt.xjtu.edu.cn/jwapp/sys/wspjyyapp/modules/xspj/index.do")
                         .post(formBody)
                         .build()
 
-                    val responseBody = login.client.newCall(request).execute().use { response ->
-                        response.body?.string() ?: throw RuntimeException("空响应")
-                    }
+                    val responseBody = execute(request).ifEmpty { throw RuntimeException("空响应") }
                     val root = responseBody.safeParseJsonObject()
                     val code = root.get("code").safeString("-1")
                     val datasObj = root.getAsJsonObject("datas")

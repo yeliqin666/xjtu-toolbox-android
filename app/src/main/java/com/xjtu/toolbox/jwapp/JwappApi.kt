@@ -2,7 +2,8 @@ package com.xjtu.toolbox.jwapp
 
 import android.util.Log
 import com.google.gson.Gson
-import com.xjtu.toolbox.auth.JwappLogin
+import com.xjtu.toolbox.auth.SiteSession
+import kotlinx.coroutines.runBlocking
 import com.xjtu.toolbox.util.safeString
 import com.xjtu.toolbox.util.safeStringOrNull
 import com.xjtu.toolbox.util.safeDouble
@@ -103,10 +104,24 @@ data class GpaInfo(
 
 // ── API ──────────────────────────────
 
-class JwappApi(private val login: JwappLogin) {
+class JwappApi(private val site: SiteSession) {
 
-    private val baseUrl = "http://jwapp.xjtu.edu.cn"
+    // [关键] 必须 https。OkHttp 在 http→https 跨协议重定向时**自动剥离 Authorization header**（防 token leak），
+    // 校园网直连模式下 jwapp 把 http 请求 302 到 https → token 丢失 → 服务端返 401 "Authentication error"。
+    // WebVPN 模式下因为请求经 webvpn.xjtu.edu.cn（https 一跳到位）而能正常工作。
+    private val baseUrl = "https://jwapp.xjtu.edu.cn"
     private val gson = Gson()
+    private val browserUa = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
+
+    private fun authenticatedRequest(url: String): okhttp3.Request.Builder =
+        okhttp3.Request.Builder()
+            .url(url)
+            .header("User-Agent", browserUa)
+
+    private fun execute(request: okhttp3.Request.Builder): String =
+        runBlocking { site.executeWithReAuth(request.build()) }.use { response ->
+            response.body?.string() ?: throw RuntimeException("空响应")
+        }
 
     // [J1] TimeTableBasis 内存缓存（学期内不变，避免重复网络请求）
     // TTL 1小时：防止 App 长时间运行跨学期后返回旧数据
@@ -119,12 +134,10 @@ class JwappApi(private val login: JwappLogin) {
         val json = gson.toJson(mapOf("termCode" to code))
         val body = json.toRequestBody("application/json".toMediaType())
 
-        val request = login.authenticatedRequest("$baseUrl/api/biz/v410/score/termScore")
+        val request = authenticatedRequest("$baseUrl/api/biz/v410/score/termScore")
             .post(body)
 
-        val responseBody = login.executeWithReAuth(request).use { response ->
-            response.body?.string() ?: throw RuntimeException("空响应")
-        }
+        val responseBody = execute(request)
         val root = responseBody.safeParseJsonObject()
 
         val resultCode = root.get("code").asInt
@@ -179,12 +192,10 @@ class JwappApi(private val login: JwappLogin) {
         val json = gson.toJson(mapOf("id" to courseId))
         val body = json.toRequestBody("application/json".toMediaType())
 
-        val request = login.authenticatedRequest("$baseUrl/api/biz/v410/score/scoreDetail")
+        val request = authenticatedRequest("$baseUrl/api/biz/v410/score/scoreDetail")
             .post(body)
 
-        val responseBody = login.executeWithReAuth(request).use { response ->
-            response.body?.string() ?: throw RuntimeException("空响应")
-        }
+        val responseBody = execute(request)
         val root = responseBody.safeParseJsonObject()
 
         val resultCode = root.get("code").asInt
@@ -233,12 +244,10 @@ class JwappApi(private val login: JwappLogin) {
         val json = gson.toJson(mapOf("id" to courseId))
         val body = json.toRequestBody("application/json".toMediaType())
 
-        val request = login.authenticatedRequest("$baseUrl/api/biz/v410/score/scoreAnalyze")
+        val request = authenticatedRequest("$baseUrl/api/biz/v410/score/scoreAnalyze")
             .post(body)
 
-        val responseBody = login.executeWithReAuth(request).use { response ->
-            response.body?.string() ?: throw RuntimeException("空响应")
-        }
+        val responseBody = execute(request)
         val root = responseBody.safeParseJsonObject()
 
         val resultCode = root.get("code").asInt
@@ -272,12 +281,10 @@ class JwappApi(private val login: JwappLogin) {
             cachedBasis = null  // 已过期，清除
         }
 
-        val request = login.authenticatedRequest("https://jwapp.xjtu.edu.cn/api/biz/v410/common/school/time")
+        val request = authenticatedRequest("https://jwapp.xjtu.edu.cn/api/biz/v410/common/school/time")
             .get()
 
-        val body = login.executeWithReAuth(request).use { response ->
-            response.body?.string() ?: throw RuntimeException("空响应")
-        }
+        val body = execute(request)
         val root = body.safeParseJsonObject()
 
         val resultCode = root.get("code").asInt

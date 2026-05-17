@@ -1,9 +1,10 @@
 package com.xjtu.toolbox.judge
 
-import com.xjtu.toolbox.auth.GsteLogin
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJson
 import com.xjtu.toolbox.util.safeParseJsonArray
 import com.xjtu.toolbox.util.safeParseJsonObject
+import kotlinx.coroutines.runBlocking
 import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -57,7 +58,12 @@ data class FormOption(
  * 研究生评教 API
  * 封装了研究生评教系统 (gste.xjtu.edu.cn) 的所有请求接口
  */
-class GsteJudgeApi(private val login: GsteLogin) {
+class GsteJudgeApi(private val site: SiteSession) {
+
+    private fun execute(request: Request): String =
+        runBlocking { site.executeWithReAuth(request) }.use { response ->
+            response.body?.string() ?: throw RuntimeException("空响应")
+        }
 
     /**
      * 获取当前学期的评教问卷列表
@@ -68,9 +74,7 @@ class GsteJudgeApi(private val login: GsteLogin) {
             .get()
             .build()
 
-        val body = login.client.newCall(request).execute().use { response ->
-            response.body?.string() ?: throw RuntimeException("空响应")
-        }
+        val body = execute(request)
         val jsonArray = body.safeParseJsonArray()
 
         return jsonArray.map { el ->
@@ -124,9 +128,7 @@ class GsteJudgeApi(private val login: GsteLogin) {
             .get()
             .build()
 
-        return login.client.newCall(request).execute().use { response ->
-            response.body?.string() ?: throw RuntimeException("空响应")
-        }
+        return execute(request)
     }
 
     /**
@@ -252,9 +254,7 @@ class GsteJudgeApi(private val login: GsteLogin) {
             .post(bodyBuilder.build())
             .build()
 
-        val body = login.client.newCall(request).execute().use { response ->
-            response.body?.string() ?: throw RuntimeException("空响应")
-        }
+        val body = execute(request)
         val json = body.safeParseJsonObject()
         return json.get("ok")?.asBoolean ?: false
     }

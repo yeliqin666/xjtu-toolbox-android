@@ -88,6 +88,33 @@ class DataCache(context: Context) {
     }
 
     /**
+     * 返回指定 key 缓存的年龄（毫秒），即「距上次写入过去了多久」。
+     * 未缓存返回 null。不受 TTL 限制——即使已过 TTL，只要文件还在就返回真实年龄，
+     * 供调用方（如 Agent）在联网失败回退缓存时如实告知数据新鲜度。
+     */
+    fun ageMs(key: String): Long? {
+        synchronized(lockFor(key)) {
+            val file = File(cacheDir, "${key.sanitize()}.json")
+            if (!file.exists()) return null
+            return System.currentTimeMillis() - file.lastModified()
+        }
+    }
+
+    /** 读取缓存内容，忽略 TTL（只要文件存在就返回）。用于联网失败时的兜底回退。 */
+    fun getStale(key: String): String? {
+        synchronized(lockFor(key)) {
+            val file = File(cacheDir, "${key.sanitize()}.json")
+            if (!file.exists()) return null
+            return try {
+                file.readText()
+            } catch (e: Exception) {
+                Log.w(TAG, "getStale($key): read error", e)
+                null
+            }
+        }
+    }
+
+    /**
      * 使指定缓存失效
      */
     fun invalidate(key: String) {

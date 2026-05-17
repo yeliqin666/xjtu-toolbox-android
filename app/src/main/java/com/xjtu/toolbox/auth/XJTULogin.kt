@@ -18,6 +18,35 @@ import java.util.UUID
 import java.security.MessageDigest
 
 /**
+ * 业务请求因认证失效且重认证失败时抛出。
+ *
+ * 调用方需捕获此异常，调用 `AppLoginState.handleAuthExpired(...)` 静默触发
+ * 重新登录（含 MFA）；不要直接将 message 展示给用户。
+ */
+class AuthExpiredException(
+    val siteName: String = "",
+    message: String = if (siteName.isEmpty()) "登录态已失效" else "${siteName}登录态已失效"
+) : IOException(message)
+
+/**
+ * postLogin/SSO 路径上遇到 CAS 「Safety Verify」二次安全验证页面时抛出。
+ *
+ * 触发场景：
+ * - JWXT (`client_id=1675`) OAuth2 授权链路被 CAS 强制二次手机验证（probe 实证：
+ *   webvpn session 已建立、TGC 已下发，访问 jwxt 仍触发此页）。
+ * - 其他高敏感 OAuth client 也可能命中（如 `org.xjtu` 部分 appId）。
+ *
+ * 调用方约定：`XJTULogin` 状态机会在 `init` SSO 与 `processLoginResponse → postLogin`
+ * 调用上 try-catch 该异常，转 `LoginState.REQUIRE_MFA` 让 UI 弹出验证码对话框，
+ * 用户输入后 `MFAContext.verifyCode()` 自动 POST 隐藏表单回 `response.request.url`，
+ * 完成 CAS 二次校验。**业务子类禁止吞掉此异常。**
+ */
+class SafetyVerifyRequiredException(
+    val response: okhttp3.Response,
+    val responseBody: String,
+) : RuntimeException("CAS Safety Verify required")
+
+/**
  * 登录状态枚举
  */
 enum class LoginState {
@@ -26,6 +55,17 @@ enum class LoginState {
     SUCCESS,                // 登录成功
     FAIL,                   // 登录失败
     REQUIRE_ACCOUNT_CHOICE  // 需要选择账户（本科/研究生）
+}
+
+/**
+ * 两步验证流程类型
+ * - MFA_DETECT：旧式，登录前主动检测（POST /cas/mfa/detect → state），手机号/验证码接口路径用 /cas/mfa/...
+ * - SAFETY_VERIFY：2026-05 新版「Safety Verify」二次认证页面（任意请求都可能返回），手机号/验证码接口路径用 /cas/sec/...，
+ *   验证完成后需把 secState/execution/_eventId/geolocation/fpVisitorId/submit 提交回触发该页面的原始 URL
+ */
+enum class MFAFlow(val pathSegment: String) {
+    MFA_DETECT("mfa"),
+    SAFETY_VERIFY("sec")
 }
 
 /**
@@ -45,33 +85,47 @@ data class AccountChoice(
 )
 
 /**
- * MFA 两步验证上下文
+ * MFA 两步验证上下文。
+ *
+ * 上游 XJTUToolBox（Python）于 2026-05 新增 SAFETY_VERIFY 流程：任意业务请求都可能被 CAS
+ * 拦截到「Safety Verify」二次认证页面，页面中含 `secState/execution/_eventId/submit` 隐藏字段；
+ * 验证完成后，必须把这些字段 POST 回触发该页面的「原 URL」（即 safety_response.url），
+ * 而不是构造一个 cas/login?service= 链接（旧实现的错误来源）。
+ *
+ * @param flow 区分 MFA_DETECT（登录前主动 detect）与 SAFETY_VERIFY（任意页面拦截）
+ * @param state 用于 initByType/securephone 查询的 state（detect 返回 / Safety 页面 secState）
+ * @param safetyTriggerUrl 触发 Safety Verify 页面的原始 URL（仅 SAFETY_VERIFY 流程需要）
  */
 class MFAContext(
     private val login: XJTULogin,
     val state: String,
-    val required: Boolean = true
+    val required: Boolean = true,
+    val flow: MFAFlow = MFAFlow.MFA_DETECT
 ) {
     var gid: String? = null
     private var phoneNumber: String? = null
-    /** MFA 页面中提取的 secState（验证完成后用于免密提交） */
+
+    /** Safety Verify 页面中提取的 secState（最终免密提交用） */
     var secState: String? = null
-    /** MFA 页面中的新 execution（与登录页的 execution 不同） */
+    /** Safety Verify 页面中的 execution */
     var mfaExecution: String? = null
+    /** Safety Verify 页面中的 _eventId，默认 submit */
+    var safetyEventId: String = "submit"
+    /** Safety Verify 页面中的 submit value，默认 Login1 */
+    var safetySubmitValue: String = "Login1"
+    /** 触发 Safety Verify 页面的原始请求 URL（POST 完成提交回该 URL） */
+    var safetyTriggerUrl: String? = null
 
     /**
-     * 获取绑定的手机号（中间四位屏蔽）
-     * 新版 CAS 路径为 /cas/sec/initByType/securephone
+     * 获取绑定的手机号（中间四位屏蔽）。
+     * 路径按 flow 切换：MFA_DETECT → /cas/mfa/...，SAFETY_VERIFY → /cas/sec/...
      */
     fun getPhoneNumber(): String {
         phoneNumber?.let { return it }
 
-        // 优先用 secState（MFA 页面提取的），否则用 detect 返回的 state
         val queryState = secState ?: state
-        val request = Request.Builder()
-            .url("https://login.xjtu.edu.cn/cas/sec/initByType/securephone?state=$queryState")
-            .get()
-            .build()
+        val url = "https://login.xjtu.edu.cn/cas/${flow.pathSegment}/initByType/securephone?state=$queryState"
+        val request = Request.Builder().url(url).get().build()
 
         val response = login.client.newCall(request).execute()
         val json = response.body?.string().safeParseJsonObject()
@@ -85,9 +139,7 @@ class MFAContext(
         }
     }
 
-    /**
-     * 发送验证码到手机
-     */
+    /** 发送验证码到手机 */
     fun sendVerifyCode(): String {
         val phone = getPhoneNumber()
         val json = Gson().toJson(mapOf("gid" to gid))
@@ -107,7 +159,9 @@ class MFAContext(
     }
 
     /**
-     * 验证手机验证码
+     * 验证手机验证码。
+     * - MFA_DETECT：仅校验 code，登录主流程会继续 POST 登录表单。
+     * - SAFETY_VERIFY：校验 code 通过后，立即把 Safety 表单 POST 回触发该页的原 URL，让 CAS 完成跳转/下发 TGC。
      */
     fun verifyCode(code: String) {
         if (gid == null) throw RuntimeException("必须先发送验证码")
@@ -124,36 +178,52 @@ class MFAContext(
         if (result.get("code").asInt != 0) {
             throw RuntimeException(result.get("message").asString)
         }
+        // status 字段进一步确认
+        result.getAsJsonObject("data")?.get("status")?.asString?.let { status ->
+            if (status != "2") {
+                throw RuntimeException(result.get("message")?.asString ?: "验证码验证失败")
+            }
+        }
 
-        // --- 验证码成功后，必须将 secState 提交回 CAS 以获取最终的 TGC ---
-        val secStateVal = secState ?: return
-        val mfaExec = mfaExecution ?: return
-        
-        // 关键点1：必须带有原请求的 service 参数
-        val encodedService = java.net.URLEncoder.encode(login.serviceUrl.ifEmpty { "https://webvpn.xjtu.edu.cn" }, "UTF-8")
-        val finalUrl = "https://login.xjtu.edu.cn/cas/login?service=$encodedService"
+        // SAFETY_VERIFY 流程：完成 secState 表单回提，让 CAS 跳转到原业务 URL 并下发 TGC
+        if (flow == MFAFlow.SAFETY_VERIFY) {
+            val secStateVal = secState ?: return
+            val mfaExec = mfaExecution ?: return
+            val triggerUrl = safetyTriggerUrl
+                ?: run {
+                    // 兜底（不应走到这里）：构造 cas/login?service=...
+                    val encodedService = java.net.URLEncoder.encode(
+                        login.serviceUrl.ifEmpty { "https://webvpn.xjtu.edu.cn" }, "UTF-8"
+                    )
+                    "https://login.xjtu.edu.cn/cas/login?service=$encodedService"
+                }
 
-        val formBody = FormBody.Builder()
-            .add("secState", secStateVal)
-            .add("execution", mfaExec)
-            .add("_eventId", "submit") // 关键点2：必须带 _eventId (通过 Python 测试得出的结论)
-            .build()
+            val formBody = FormBody.Builder()
+                .add("secState", secStateVal)
+                .add("execution", mfaExec)
+                .add("_eventId", safetyEventId)
+                .add("geolocation", "")
+                .add("fpVisitorId", login.fpVisitorId)
+                .add("submit", safetySubmitValue)
+                .build()
 
-        val secRequest = Request.Builder()
-            .url(finalUrl)
-            .header("Referer", finalUrl)
-            .post(formBody)
-            .build()
+            val secRequest = Request.Builder()
+                .url(triggerUrl)
+                .header("Referer", triggerUrl)
+                .post(formBody)
+                .build()
 
-        val secResponse = login.client.newCall(secRequest).execute()
-        android.util.Log.d("XJTULogin", "secState submit code: ${secResponse.code}")
+            val secResponse = login.client.newCall(secRequest).execute()
+            android.util.Log.d("XJTULogin", "Safety verify final submit → ${secResponse.code} ${secResponse.request.url}")
+            // 缓存最终响应，供 XJTULogin.consumeSafetyVerifyFinalResponse() 读取
+            login.lastSafetyVerifyResponse = secResponse
+        }
     }
 }
 
 /**
  * 西安交通大学统一身份认证登录
  * 适用于 2025 年 7 月 17 日后的新认证系统 (login.xjtu.edu.cn)
- * 从 XJTUToolBox 的 Python 实现翻译而来
  */
 open class XJTULogin(
     loginUrl: String,
@@ -181,6 +251,9 @@ open class XJTULogin(
 
     // 登录提交的 URL
     private var postUrl: String
+
+    val finalUrl: String
+        get() = postUrl
 
     // CAS 认证的目标 Service URL（MFA 完成后获取 TGC 所需）
     internal var serviceUrl: String = ""
@@ -227,6 +300,12 @@ open class XJTULogin(
     /** 最近一次 postLogin 调用前的 response body（供子类在 postLogin 中使用） */
     protected var lastResponseBody: String = ""
 
+    /**
+     * SAFETY_VERIFY 流程在 verifyCode() 提交 secState 表单后缓存的最终响应。
+     * 下一次 login() 调用会消费该响应代替 loginResponse 走后续验证/账户选择/成功判定。
+     */
+    internal var lastSafetyVerifyResponse: okhttp3.Response? = null
+
     init {
         val TAG = "XJTULogin"
         android.util.Log.d(TAG, "init: loginUrl=$loginUrl, hasExistingClient=${existingClient != null}")
@@ -253,9 +332,20 @@ open class XJTULogin(
         // 提取 execution value（如果页面是登录表单）
         executionInput = extractExecutionValue(responseBody)
 
-        android.util.Log.d(TAG, "init: executionInput.isEmpty=${executionInput.isEmpty()}, existingClient=${existingClient != null}")
+        // 关键：Safety Verify 页面**也**含 `<input name="execution">`，仅靠 executionInput 判断不出来。
+        // 必须用 title + secState 字段联合判定（与 upstream `is_safety_verify_page` 一致）。
+        val initialSafetyVerify = isSafetyVerifyPage(responseBody)
 
-        if (executionInput.isEmpty() && existingClient != null) {
+        android.util.Log.d(TAG, "init: executionInput.isEmpty=${executionInput.isEmpty()}, initialSafetyVerify=$initialSafetyVerify, existingClient=${existingClient != null}")
+
+        if (initialSafetyVerify) {
+            // 入口页面直接就是 Safety Verify（webvpn session 已建立，CAS 跳转 OAuth2 1675 时强制二次认证）。
+            // 跳过"正常登录"流程：标记 mfaContext，由主 login() 返回 REQUIRE_MFA，弹 MFA dialog。
+            android.util.Log.w(TAG, "init: initial response is SAFETY_VERIFY page (bodyLen=${responseBody.length}), capturing context")
+            hasLogin = false
+            mfaEnabled = false
+            captureSafetyVerify(response, responseBody)
+        } else if (executionInput.isEmpty() && existingClient != null) {
             // SSO: 共享的 CookieManager 携带 TGC，CAS 自动完成认证并跳转到目标服务
             hasLogin = true
             mfaEnabled = false
@@ -263,6 +353,11 @@ open class XJTULogin(
                 lastResponseBody = responseBody
                 postLogin(response)
                 android.util.Log.d(TAG, "init: SSO postLogin success")
+            } catch (e: SafetyVerifyRequiredException) {
+                // SSO 路径上撞 Safety Verify：把页面字段写入 mfaContext，由后续 login() 触发 REQUIRE_MFA
+                android.util.Log.w(TAG, "init: SSO postLogin hit SAFETY_VERIFY, capturing context")
+                hasLogin = false
+                captureSafetyVerify(e.response, e.responseBody)
             } catch (e: Exception) {
                 hasLogin = false
                 android.util.Log.e(TAG, "init: SSO postLogin failed", e)
@@ -317,6 +412,18 @@ open class XJTULogin(
             this.jcaptcha = jcaptcha
         }
 
+        // ── 挂起的 SAFETY_VERIFY：init SSO 阶段 postLogin 撞到 Safety Verify 时已把
+        //    mfaContext 写好但 hasLogin=false。此时 lastSafetyVerifyResponse 还未填，
+        //    需要返回 REQUIRE_MFA 让 UI 弹验证码、verifyCode() 提交表单后再次进入主流程。
+        val pendingSafety = mfaContext
+        if (!hasLogin && pendingSafety != null
+            && pendingSafety.flow == MFAFlow.SAFETY_VERIFY
+            && pendingSafety.safetyTriggerUrl != null
+            && lastSafetyVerifyResponse == null) {
+            android.util.Log.d("XJTULogin", "login: pending SAFETY_VERIFY context, requesting MFA")
+            return LoginResult(LoginState.REQUIRE_MFA, mfaContext = pendingSafety)
+        }
+
         if (hasLogin) {
             return LoginResult(LoginState.SUCCESS, "SSO 自动认证成功", session = client)
         }
@@ -328,6 +435,16 @@ open class XJTULogin(
         // 验证码检查
         if (isShowCaptcha() && jcaptcha.isEmpty() && this.jcaptcha.isEmpty()) {
             return LoginResult(LoginState.REQUIRE_CAPTCHA)
+        }
+
+        // ── 消费 SAFETY_VERIFY 最终提交响应（如果有）──
+        // 调用者（UI/AppLoginState）在 mfa.verifyCode() 后会再调 login() 推进状态机；
+        // 此时如果是 Safety Verify 流程，verifyCode 已提交表单到原 URL，响应被缓存于 lastSafetyVerifyResponse，
+        // 这里直接拿这份响应走成功/账户选择/错误处理流程，避免重复 POST 登录。
+        lastSafetyVerifyResponse?.let { safetyResp ->
+            lastSafetyVerifyResponse = null
+            val body = try { safetyResp.body?.string() ?: "" } catch (_: Exception) { "" }
+            return processLoginResponse(safetyResp, body)
         }
 
         // MFA 检测
@@ -345,7 +462,8 @@ open class XJTULogin(
                 .post(formBody)
                 .build()
 
-            val response = client.newCall(request).execute()
+            // mfa/detect 携带密码，同样计入风控闸门
+            val response = CasGate.withCredentialPost { client.newCall(request).execute() }
             val responseStr = response.body?.string() ?: "{}"
             android.util.Log.d("XJTULogin", "login: MFA detect response code=${response.code}, body=$responseStr")
             val data = try {
@@ -397,43 +515,42 @@ open class XJTULogin(
             .post(formBody)
             .build()
 
-        // 使用原始 client（自动重定向）
+        // 使用原始 client（自动重定向）。凭据 POST 经 CasGate 全局串行 + 限频，防风控。
         android.util.Log.d("XJTULogin", "login: POST to $postUrl")
-        val loginResponse = client.newCall(request).execute()
+        val loginResponse = CasGate.withCredentialPost { client.newCall(request).execute() }
         val loginBody = loginResponse.body?.string() ?: ""
         android.util.Log.d("XJTULogin", "login: POST response code=${loginResponse.code}, finalUrl=${loginResponse.request.url}, bodyLen=${loginBody.length}")
 
+        return processLoginResponse(loginResponse, loginBody)
+    }
+
+    /**
+     * 处理登录返回响应（无论来自初始表单提交，还是 Safety Verify 提交）。
+     * 根据响应 HTML/HTTP code 识别错误提示、Safety Verify 页面、账户选择页面与成功。
+     */
+    private fun processLoginResponse(
+        loginResponse: Response,
+        loginBody: String,
+    ): LoginResult {
         if (loginResponse.code == 401) {
             failCount++
+            CasGate.recordFailure()
             return LoginResult(LoginState.FAIL, "用户名或密码错误")
         }
 
-        // 检查错误消息
         val alertMessage = extractAlertMessage(loginBody)
         if (alertMessage != null) {
             failCount++
+            CasGate.recordFailure()
             return LoginResult(LoginState.FAIL, "登录失败: $alertMessage")
         }
 
-        // ── 检测 MFA 页面：POST 返回 200 HTML 且含 secState 隐藏域 ──
-        // 新版 CAS 在表单提交后可能直接返回「安全认证」页面（而非 302 重定向），
-        // 页面中含 <input name="secState" value="..."/> 和新的 execution
-        if (loginResponse.code == 200 && loginBody.contains("name=\"secState\"")) {
-            android.util.Log.d("XJTULogin", "login: MFA page detected, extracting secState...")
-            val secStateValue = extractHiddenInput(loginBody, "secState")
-            val mfaExecValue = extractHiddenInput(loginBody, "execution")
-            if (secStateValue.isNotEmpty()) {
-                // 创建/更新 MFAContext，携带 secState 和新 execution
-                mfaContext = MFAContext(this, secStateValue, required = true).also {
-                    it.secState = secStateValue
-                    it.mfaExecution = mfaExecValue
-                }
-                hasLogin = false
-                return LoginResult(LoginState.REQUIRE_MFA, mfaContext = mfaContext)
-            }
-        }
+        // ── 检测 Safety Verify / MFA 二验页面 ──
+        // 页面中含 <input name="secState" value="..."/> 与新 execution；SAFETY_VERIFY 流程走 /cas/sec/...。
+        captureSafetyVerify(loginResponse, loginBody)?.let { return it }
 
         failCount = 0
+        CasGate.recordSuccess()
         hasLogin = true
 
         // 检查是否需要选择账户
@@ -448,8 +565,47 @@ open class XJTULogin(
         }
 
         lastResponseBody = loginBody
-        postLogin(loginResponse)
+        // postLogin 可能在 SSO 回访目标域时再次撞上 Safety Verify（JWXT 高敏感 OAuth client 已实证）。
+        // 子类抛 SafetyVerifyRequiredException，状态机在此捕获后转 REQUIRE_MFA。
+        try {
+            postLogin(loginResponse)
+        } catch (e: SafetyVerifyRequiredException) {
+            android.util.Log.d("XJTULogin", "processLoginResponse: postLogin triggered SAFETY_VERIFY")
+            captureSafetyVerify(e.response, e.responseBody)?.let { return it }
+            // 解析失败兜底（不应该发生）：退化为 FAIL，避免误报 SUCCESS
+            hasLogin = false
+            return LoginResult(LoginState.FAIL, "二次认证页面解析失败")
+        }
         return LoginResult(LoginState.SUCCESS, session = client)
+    }
+
+    /**
+     * 把响应识别为 CAS Safety Verify 页时，构造 mfaContext 并返回 REQUIRE_MFA。
+     * 若响应不是 Safety Verify 页或字段缺失则返回 null（调用方继续走原路径）。
+     *
+     * 副作用：mfaContext 写入 SAFETY_VERIFY 上下文；hasLogin 置 false。
+     */
+    private fun captureSafetyVerify(response: Response, body: String): LoginResult? {
+        if (response.code != 200 || !isSafetyVerifyPage(body)) return null
+        val secStateValue = extractHiddenInput(body, "secState")
+        val mfaExecValue = extractHiddenInput(body, "execution")
+        if (secStateValue.isEmpty() || mfaExecValue.isEmpty()) {
+            android.util.Log.w("XJTULogin", "captureSafetyVerify: 页面缺 secState/execution，跳过")
+            return null
+        }
+        val triggerUrl = response.request.url.toString()
+        val eventIdValue = extractHiddenInput(body, "_eventId").ifEmpty { "submit" }
+        val submitValue = extractHiddenInput(body, "submit").ifEmpty { "Login1" }
+        android.util.Log.d("XJTULogin", "captureSafetyVerify: SAFETY_VERIFY captured, triggerUrl=$triggerUrl")
+        mfaContext = MFAContext(this, secStateValue, required = true, flow = MFAFlow.SAFETY_VERIFY).also {
+            it.secState = secStateValue
+            it.mfaExecution = mfaExecValue
+            it.safetyTriggerUrl = triggerUrl
+            it.safetyEventId = eventIdValue
+            it.safetySubmitValue = submitValue
+        }
+        hasLogin = false
+        return LoginResult(LoginState.REQUIRE_MFA, mfaContext = mfaContext)
     }
 
     /**
@@ -529,7 +685,8 @@ open class XJTULogin(
             return Pair(casBody, casFinalUrl)
         }
 
-        // CAS 显示了登录页（TGC 过期），用存储凭据重新认证
+        // CAS 显示了登录页（TGC 过期），用存储凭据重新认证。
+        // 经 CasGate：密码熔断中 / 退避期内直接拒绝，避免后台保活反复撞认证接口。
         android.util.Log.d("XJTULogin", "casAuthenticate: TGC expired, re-posting credentials")
         val formBody = FormBody.Builder()
             .add("username", username!!)
@@ -543,9 +700,16 @@ open class XJTULogin(
             .add("mfaState", "")
             .add("geolocation", "")
             .build()
-        val loginResp = client.newCall(
-            Request.Builder().url(casResp.request.url.toString()).post(formBody).build()
-        ).execute()
+        val loginResp = try {
+            CasGate.withCredentialPost {
+                client.newCall(
+                    Request.Builder().url(casResp.request.url.toString()).post(formBody).build()
+                ).execute()
+            }
+        } catch (e: CasGate.ThrottledException) {
+            android.util.Log.w("XJTULogin", "casAuthenticate: throttled by CasGate: ${e.message}")
+            return null
+        }
         val loginBody = loginResp.body?.string() ?: ""
         val loginFinalUrl = loginResp.request.url.toString()
         android.util.Log.d("XJTULogin", "casAuthenticate: POST → code=${loginResp.code}, finalUrl=$loginFinalUrl")
@@ -554,6 +718,12 @@ open class XJTULogin(
         if (loginBody.contains("name=\"secState\"")) {
             android.util.Log.w("XJTULogin", "casAuthenticate: MFA triggered during re-auth, cannot proceed silently")
             return null
+        }
+        // 仍停留在 CAS 登录页 → 凭据被拒，计入失败退避；否则视为成功
+        if (extractExecutionValue(loginBody).isNotEmpty() && loginFinalUrl.contains("login.xjtu.edu.cn")) {
+            CasGate.recordFailure()
+        } else {
+            CasGate.recordSuccess()
         }
         return Pair(loginBody, loginFinalUrl)
     }
@@ -702,6 +872,7 @@ open class XJTULogin(
         return input?.attr("value") ?: ""
     }
 
+
     private fun extractMfaEnabled(html: String): Boolean {
         // 方式1: 从 globalConfig 中提取 mfaEnabled（支持 eval 和直接赋值格式）
         // 不尝试解析整个 JSON（可能含有难以转义的嵌套内容），直接用正则提取字段
@@ -758,17 +929,97 @@ open class XJTULogin(
         return choices
     }
 
+    /**
+     * 保活状态。
+     */
+    enum class KeepAliveStatus {
+        VALID,           // 登录态仍然有效
+        AUTH_INVALID,    // 登录态已失效
+        NETWORK_ERROR,   // 网络异常（无法判断）
+        REAUTH_OK,       // 原态失效但已成功重认证
+        ERROR            // 其他错误
+    }
+
+    /**
+     * 验证当前子系统登录态是否仍然可信。
+     * 基类默认返回 false（保守策略），子类应覆写。
+     */
+    open fun validateLogin(): Boolean = false
+
+    /**
+     * 保活一次：先 validate，失效则 reAuth。
+     * 返回 KeepAliveStatus 供 SessionKeepAlive 汇总报告。
+     */
+    open fun keepAlive(): KeepAliveStatus {
+        return try {
+            if (validateLogin()) KeepAliveStatus.VALID
+            else KeepAliveStatus.AUTH_INVALID
+        } catch (_: java.io.IOException) {
+            KeepAliveStatus.NETWORK_ERROR
+        } catch (_: Exception) {
+            KeepAliveStatus.ERROR
+        }
+    }
+
     enum class AccountType {
         UNDERGRADUATE,
         POSTGRADUATE
     }
 
     companion object {
+        /**
+         * 判断 HTML 是否为统一认证返回的「Safety Verify」二次认证页面。
+         * 检测条件：fm1 表单含 secState/execution/_eventId 三个字段，
+         * 且文档标题含 "Safety Verify" 或文档体含 "/cas/sec/initByType"、「选择安全认证」、「二次认证」。
+         */
+        @JvmStatic
+        fun isSafetyVerifyPage(html: String): Boolean {
+            if (html.isBlank()) return false
+            return try {
+                val doc = Jsoup.parse(html)
+                val form = doc.selectFirst("#fm1") ?: return false
+                val hasVerifyForm = form.selectFirst("input[name=secState]")?.attr("value")?.isNotEmpty() == true
+                val hasExecution = form.selectFirst("input[name=execution]")?.attr("value")?.isNotEmpty() == true
+                val hasSubmitEvent = form.selectFirst("input[name=_eventId]")?.attr("value")?.isNotEmpty() == true
+                val title = doc.selectFirst("title")?.text() ?: ""
+                val hasSafetyTitle = "Safety Verify" in title
+                val hasSecInitApi = "/cas/sec/initByType" in html || "\\/cas\\/sec\\/initByType" in html
+                val hasSafetyText = "选择安全认证" in html || "二次认证" in html
+                hasVerifyForm && hasExecution && hasSubmitEvent && (hasSafetyTitle || hasSecInitApi || hasSafetyText)
+            } catch (_: Exception) {
+                html.contains("name=\"secState\"") && html.contains("name=\"execution\"")
+            }
+        }
+
+        /**
+         * 判断响应 HTML 是否表明当前业务站点的登录态已失效。
+         *
+         * 检测两种场景：Safety Verify 页面和统一身份认证登录页。
+         *
+         * 用法：在各子系统的 executeWithReAuth 中，对响应 body 调用此方法，
+         *       若返回 true 则 reAuthenticate + 重放请求。
+         */
+        @JvmStatic
+        fun isAuthFailureResponse(html: String): Boolean {
+            if (html.isBlank()) return false
+            if (isSafetyVerifyPage(html)) return true
+            // 统一身份认证登录页（fm1 表单 + CAS 标识）
+            val hasLoginForm = "id=\"fm1\"" in html && "name=\"execution\"" in html
+            val hasLoginMarker = "login.xjtu.edu.cn" in html ||
+                    "cas/login" in html ||
+                    "统一身份认证" in html
+            return hasLoginForm && hasLoginMarker
+        }
+
         // 常用登录地址
-        /** 考勤系统 OAuth 登录（直连模式，经 org.xjtu.edu.cn 中转） */
-        const val ATTENDANCE_URL = "http://org.xjtu.edu.cn/openplatform/oauth/authorize?appId=1372&redirectUri=http://bkkq.xjtu.edu.cn/berserker-auth/auth/attendance-pc/casReturn&responseType=code&scope=user_info&state=1234"
-        /** 考勤系统直连登录（WebVPN 模式，直接访问 bkkq，更短的 CAS 链）*/
+        /** 本科生考勤系统 OAuth 登录（直连模式，经 org.xjtu.edu.cn 中转） */
+        const val ATTENDANCE_URL = "https://org.xjtu.edu.cn/openplatform/oauth/authorize?appId=1372&redirectUri=https://bkkq.xjtu.edu.cn/berserker-auth/auth/attendance-pc/casReturn&responseType=code&scope=user_info&state=1234"
+        /** 本科生考勤系统直连登录（WebVPN 模式，直接访问 bkkq，更短的 CAS 链） */
         const val ATTENDANCE_WEBVPN_URL = "http://bkkq.xjtu.edu.cn"
+        /** 研究生考勤系统 OAuth 登录（appId=1245，redirect 到 yjskq；上游 4757a093 已切 https） */
+        const val POSTGRADUATE_ATTENDANCE_URL = "https://org.xjtu.edu.cn/openplatform/oauth/authorize?appId=1245&redirectUri=https://yjskq.xjtu.edu.cn/berserker-auth/auth/attendance-pc/casReturn&responseType=code&scope=user_info&state=1234"
+        /** 研究生考勤系统直连登录（WebVPN 模式） */
+        const val POSTGRADUATE_ATTENDANCE_WEBVPN_URL = "http://yjskq.xjtu.edu.cn"
         const val JWXT_URL = "https://jwxt.xjtu.edu.cn/jwapp/sys/homeapp/index.do"
     }
 }

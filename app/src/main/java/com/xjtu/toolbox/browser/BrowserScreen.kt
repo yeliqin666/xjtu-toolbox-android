@@ -42,7 +42,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import com.xjtu.toolbox.auth.XJTULogin
+import com.xjtu.toolbox.auth.SiteSession
+import okhttp3.OkHttpClient
 import java.net.URI
 
 private const val TAG = "BrowserScreen"
@@ -51,21 +52,31 @@ private const val TAG = "BrowserScreen"
  * 将 OkHttp CookieJar 中的 cookies 同步到 Android WebView CookieManager
  * 兼容 PersistentCookieJar 和 java.net.CookieManager
  */
-private fun syncCookiesToWebView(login: XJTULogin?) {
-    if (login == null) return
+internal fun syncCookiesToWebView(
+    site: SiteSession?,
+    extraDomains: List<String> = emptyList()
+) {
+    syncCookiesToWebView(site?.client, extraDomains)
+}
+
+internal fun syncCookiesToWebView(
+    client: OkHttpClient?,
+    extraDomains: List<String> = emptyList()
+) {
+    if (client == null) return
     val webCookieManager = android.webkit.CookieManager.getInstance()
     webCookieManager.setAcceptCookie(true)
 
     try {
-        val jar = login.client.cookieJar
+        val jar = client.cookieJar
         if (jar is com.xjtu.toolbox.util.PersistentCookieJar) {
             // 使用 PersistentCookieJar：向常见域名查询 cookies
-            val domains = listOf(
+            val domains = (listOf(
                 "login.xjtu.edu.cn", "cas.xjtu.edu.cn", "org.xjtu.edu.cn",
                 "jwxt.xjtu.edu.cn", "ywtb.xjtu.edu.cn", "bkkq.xjtu.edu.cn",
                 "ncard.xjtu.edu.cn", "rg.lib.xjtu.edu.cn", "jwapp.xjtu.edu.cn",
                 "webvpn.xjtu.edu.cn"
-            )
+            ) + extraDomains).distinct()
             var count = 0
             for (domain in domains) {
                 val url = okhttp3.HttpUrl.Builder()
@@ -77,32 +88,16 @@ private fun syncCookiesToWebView(login: XJTULogin?) {
                         append("; Domain=${cookie.domain}")
                         append("; Path=${cookie.path}")
                         if (cookie.secure) append("; Secure")
-                        if (cookie.httpOnly) append("; HttpOnly")
                     }
                     webCookieManager.setCookie("https://$domain/", cookieStr)
+                    if (!cookie.secure) webCookieManager.setCookie("http://$domain/", cookieStr)
                     count++
                 }
             }
             webCookieManager.flush()
             Log.d(TAG, "Cookie sync (PersistentCookieJar) complete, total: $count")
         } else {
-            // 兼容旧版 java.net.CookieManager
-            val store = login.cookieManager.cookieStore
-            val cookies = store.cookies
-            for (cookie in cookies) {
-                val uri = store.urIs.firstOrNull { store.get(it).contains(cookie) }
-                val domain = cookie.domain ?: uri?.host ?: continue
-                val cookieStr = buildString {
-                    append("${cookie.name}=${cookie.value}")
-                    append("; Domain=$domain")
-                    append("; Path=${cookie.path ?: "/"}")
-                    if (cookie.secure) append("; Secure")
-                }
-                val url = "https://$domain/"
-                webCookieManager.setCookie(url, cookieStr)
-            }
-            webCookieManager.flush()
-            Log.d(TAG, "Cookie sync (CookieManager) complete, total: ${cookies.size}")
+            Log.d(TAG, "Cookie sync skipped: unsupported jar ${jar.javaClass.name}")
         }
     } catch (e: Exception) {
         Log.e(TAG, "Cookie sync failed", e)
@@ -113,7 +108,9 @@ private fun syncCookiesToWebView(login: XJTULogin?) {
 @Composable
 fun BrowserScreen(
     initialUrl: String = "",
-    login: XJTULogin? = null,
+    site: SiteSession? = null,
+    cookieClient: OkHttpClient? = null,
+    extraCookieDomains: List<String> = emptyList(),
     onBack: () -> Unit
 ) {
     var currentUrl by remember { mutableStateOf(initialUrl) }
@@ -125,9 +122,14 @@ fun BrowserScreen(
     var canGoForward by remember { mutableStateOf(false) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
 
-    // 同步 cookies（仅一次）
-    LaunchedEffect(login) {
-        syncCookiesToWebView(login)
+    val initialHost = remember(initialUrl) { hostOf(initialUrl) }
+    val cookieDomains = remember(initialHost, extraCookieDomains) {
+        (extraCookieDomains + listOfNotNull(initialHost)).distinct()
+    }
+
+    LaunchedEffect(site, cookieClient, cookieDomains) {
+        syncCookiesToWebView(site, cookieDomains)
+        syncCookiesToWebView(cookieClient, cookieDomains)
     }
 
     Scaffold(
@@ -176,6 +178,7 @@ fun BrowserScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .navigationBarsPadding()
+                        .imePadding()
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -224,6 +227,9 @@ fun BrowserScreen(
                             super.onPageStarted(view, url, favicon)
                             isLoading = true
                             url?.let {
+                                val host = hostOf(it)
+                                syncCookiesToWebView(site, listOfNotNull(host))
+                                syncCookiesToWebView(cookieClient, listOfNotNull(host))
                                 currentUrl = it
                                 editingUrl = it
                             }
@@ -285,7 +291,10 @@ fun BrowserScreen(
                                 setTitle(fileName)
                                 setDescription("正在下载…")
                                 setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                                setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+                                setDestinationInExternalPublicDir(
+                                    Environment.DIRECTORY_DOWNLOADS,
+                                    "XJTUToolBox/$fileName"
+                                )
                             }
                             val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
                             dm.enqueue(request)
@@ -304,7 +313,9 @@ fun BrowserScreen(
 
                     // 加载 URL
                     if (initialUrl.isNotBlank()) {
-                        loadUrl(normalizeUrl(initialUrl))
+                        val normalizedInitialUrl = normalizeUrl(initialUrl)
+                        Log.d(TAG, "load initialUrl=$normalizedInitialUrl")
+                        loadUrl(normalizedInitialUrl)
                     }
                 }
             },
@@ -321,3 +332,8 @@ private fun normalizeUrl(input: String): String {
     if (trimmed.contains(".") && !trimmed.contains(" ")) return "https://$trimmed"
     return "https://www.bing.com/search?q=${java.net.URLEncoder.encode(trimmed, "UTF-8")}"
 }
+
+private fun hostOf(url: String): String? =
+    runCatching { URI(normalizeUrl(url)).host?.lowercase() }
+        .getOrNull()
+        ?.takeIf { it.isNotBlank() }

@@ -17,7 +17,7 @@ import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
-import top.yukonga.miuix.kmp.extra.SuperBottomSheet
+import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -39,7 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.auth.GsteLogin
+import com.xjtu.toolbox.auth.SiteSession
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -50,10 +50,10 @@ import kotlinx.coroutines.withContext
  */
 @Composable
 fun GsteJudgeScreen(
-    login: GsteLogin,
+    site: SiteSession,
     onBack: () -> Unit
 ) {
-    val api = remember { GsteJudgeApi(login) }
+    val api = remember(site) { GsteJudgeApi(site) }
     val scope = rememberCoroutineScope()
 
     var isLoading by remember { mutableStateOf(true) }
@@ -170,8 +170,8 @@ fun GsteJudgeScreen(
 
                 // 确认对话框（研究生评教不可撤销，需更醒目的警告）
                 BackHandler(enabled = showConfirmDialog.value) { showConfirmDialog.value = false }
-                SuperBottomSheet(
-                    show = showConfirmDialog,
+                OverlayBottomSheet(
+                    show = showConfirmDialog.value,
                     title = "⚠️ 确认一键好评",
                     onDismissRequest = { showConfirmDialog.value = false }
                 ) {

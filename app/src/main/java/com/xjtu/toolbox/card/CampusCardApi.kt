@@ -1,8 +1,9 @@
 package com.xjtu.toolbox.card
 
 import android.util.Log
-import com.xjtu.toolbox.auth.CampusCardLogin
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
+import kotlinx.coroutines.runBlocking
 import okhttp3.Request
 import java.time.LocalDate
 import java.time.YearMonth
@@ -57,10 +58,15 @@ data class MerchantStat(
 
 // ==================== API 类 ====================
 
-class CampusCardApi(private val login: CampusCardLogin) {
+class CampusCardApi(private val site: SiteSession) {
 
-    private val baseUrl = CampusCardLogin.BASE_URL
+    private val baseUrl = "https://ncard.xjtu.edu.cn"
     private val dateFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+
+    private fun execute(request: Request): String =
+        runBlocking { site.executeWithReAuth(request) }.use { response ->
+            response.body?.string() ?: throw RuntimeException("空响应")
+        }
 
     /**
      * 获取校园卡信息（余额、状态等）
@@ -71,10 +77,9 @@ class CampusCardApi(private val login: CampusCardLogin) {
 
     private fun getCardInfoInternal(allowRetry: Boolean): CardInfo {
         val url = "$baseUrl/berserker-app/ykt/tsm/queryCard?synAccessSource=h5"
-        val response = login.client.newCall(login.makeAuthRequest(url)).execute()
-        val responseBody = response.body?.string() ?: throw RuntimeException("空响应")
+        val responseBody = execute(Request.Builder().url(url).get().build())
 
-        Log.d(TAG, "getCardInfo: code=${response.code}, bodyLen=${responseBody.length}")
+        Log.d(TAG, "getCardInfo: bodyLen=${responseBody.length}")
 
         val root = try {
             responseBody.safeParseJsonObject()
@@ -84,11 +89,7 @@ class CampusCardApi(private val login: CampusCardLogin) {
 
         val code = root.get("code")?.asInt ?: 0
         if (code == 401) {
-            if (allowRetry && login.reAuthenticate()) {
-                Log.d(TAG, "getCardInfo: 401, reAuthenticate success, retrying...")
-                return getCardInfoInternal(allowRetry = false)
-            }
-            throw RuntimeException("校园卡会话已过期，请返回重新登录")
+            throw com.xjtu.toolbox.auth.AuthExpiredException("校园卡")
         }
         if (code != 200) {
             throw RuntimeException("获取卡信息失败: ${root.get("message")?.asString ?: "未知错误"}")
@@ -104,9 +105,9 @@ class CampusCardApi(private val login: CampusCardLogin) {
         val unsettled = card.get("unsettle_amount")?.asLong ?: 0L
 
         return CardInfo(
-            account = login.cardAccount ?: "",
-            name = login.userName,
-            studentNo = login.studentNo,
+            account = site.localToken["card_account"].orEmpty(),
+            name = site.localToken["user_name"].orEmpty(),
+            studentNo = site.localToken["student_no"].orEmpty(),
             balance = elecAmt / 100.0,
             pendingAmount = unsettled / 100.0,
             lostFlag = card.get("barflag")?.asInt == 1,
@@ -129,16 +130,23 @@ class CampusCardApi(private val login: CampusCardLogin) {
         endDate: LocalDate = LocalDate.now(),
         page: Int = 1,
         pageSize: Int = 30
+    ): Pair<Int, List<Transaction>> = getTransactionsInternal(startDate, endDate, page, pageSize, allowRetry = true)
+
+    private fun getTransactionsInternal(
+        startDate: LocalDate,
+        endDate: LocalDate,
+        page: Int,
+        pageSize: Int,
+        allowRetry: Boolean
     ): Pair<Int, List<Transaction>> {
         val url = "$baseUrl/berserker-search/search/personal/turnover" +
             "?size=$pageSize&current=$page" +
             "&timeFrom=${startDate.format(dateFormat)}&timeTo=${endDate.format(dateFormat)}" +
             "&synAccessSource=h5"
 
-        val response = login.client.newCall(login.makeAuthRequest(url)).execute()
-        val responseBody = response.body?.string() ?: throw RuntimeException("空响应")
+        val responseBody = execute(Request.Builder().url(url).get().build())
 
-        Log.d(TAG, "getTransactions: page=$page, code=${response.code}, bodyLen=${responseBody.length}")
+        Log.d(TAG, "getTransactions: page=$page, bodyLen=${responseBody.length}")
 
         val root = try {
             responseBody.safeParseJsonObject()
@@ -147,7 +155,9 @@ class CampusCardApi(private val login: CampusCardLogin) {
         }
 
         val code = root.get("code")?.asInt ?: 0
-        if (code == 401) throw RuntimeException("校园卡会话已过期，请返回重新登录")
+        if (code == 401) {
+            throw com.xjtu.toolbox.auth.AuthExpiredException("校园卡")
+        }
         if (code != 200) throw RuntimeException("获取流水失败: ${root.get("message")?.asString ?: "未知错误"}")
 
         val data = root.getAsJsonObject("data") ?: return 0 to emptyList()
@@ -156,15 +166,18 @@ class CampusCardApi(private val login: CampusCardLogin) {
 
         val transactions = records.map { it.asJsonObject }.map { rec ->
             val tranAmt = rec.get("tranamt")?.asLong ?: 0L
-            val isExpense = rec.get("icon")?.asString == "consume"
+            val icon = rec.get("icon")?.asString ?: ""
+            val turnoverType = rec.get("turnoverType")?.asString?.trim() ?: ""
+            // 只有充值/圈存类是收入，其余（consume、qrcode、空等）都是支出
+            val isIncome = icon == "recharge" || turnoverType.contains("充值") || turnoverType.contains("圈存")
             val merchant = rec.get("toMerchant")?.asString?.trim()
                 ?: rec.get("resume")?.asString?.substringBefore("-")?.trim() ?: ""
             Transaction(
                 time = rec.get("jndatetimeStr")?.asString ?: "",
                 merchant = merchant,
-                amount = if (isExpense) -tranAmt / 100.0 else tranAmt / 100.0,
+                amount = if (isIncome) tranAmt / 100.0 else -tranAmt / 100.0,
                 balance = (rec.get("cardBalance")?.asLong ?: 0L) / 100.0,
-                type = rec.get("turnoverType")?.asString?.trim() ?: "",
+                type = turnoverType,
                 description = rec.get("resume")?.asString?.trim() ?: ""
             )
         }
@@ -188,16 +201,12 @@ class CampusCardApi(private val login: CampusCardLogin) {
 
         // 真正的并行请求（OkHttp 线程池 + Future）
         val executor = java.util.concurrent.Executors.newFixedThreadPool(
-            minOf(totalPages - 1, 6)
+            minOf(totalPages - 1, 3)
         )
         try {
             val futures = (2..totalPages).map { page ->
                 executor.submit<List<Transaction>> {
-                    try { getTransactions(startDate, endDate, page, 50).second }
-                    catch (e: Exception) {
-                        Log.w(TAG, "page $page failed: ${e.message}")
-                        emptyList()
-                    }
+                    getTransactions(startDate, endDate, page, 50).second
                 }
             }
             return firstPage + futures.flatMap { it.get() }

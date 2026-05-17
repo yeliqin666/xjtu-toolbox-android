@@ -39,16 +39,22 @@ import top.yukonga.miuix.kmp.basic.SnackbarHost
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import com.xjtu.toolbox.LocalAppLoginState
+import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.AuthExpiredException
+import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.auth.CampusCardLogin
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.EmptyState
@@ -75,13 +81,14 @@ private enum class TimeRange(val label: String, val months: Int) {
 
 @Composable
 fun CampusCardScreen(
-    login: CampusCardLogin,
+    site: SiteSession,
     onBack: () -> Unit
 ) {
-    val api = remember { CampusCardApi(login) }
+    val api = remember(site) { CampusCardApi(site) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
+    val appLoginState = LocalAppLoginState.current
 
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -101,11 +108,50 @@ fun CampusCardScreen(
     // 流水加载
     var isLoadingMore by remember { mutableStateOf(false) }
     var currentPage by rememberSaveable { mutableIntStateOf(1) }
+    // 切换时间范围用：不阻塞整页，只在 Tab 顶部细进度条提示
+    var isReloadingRange by remember { mutableStateOf(false) }
     // 搜索
     var searchQuery by rememberSaveable { mutableStateOf("") }
 
-    fun loadData(range: TimeRange = selectedTimeRange) {
-        isLoading = true
+    fun applyTransactions(allTx: List<Transaction>) {
+        transactions = allTx
+        totalRecords = allTx.size
+        currentPage = (allTx.size + 49) / 50
+        val recentJson = com.google.gson.Gson().toJson(allTx.take(5))
+        val todayStr = LocalDate.now().toString()
+        val todaySpend = allTx.filter { it.time.startsWith(todayStr) && it.amount < 0 }.sumOf { -it.amount }
+        val todayBreakfast = allTx.filter { tx ->
+            tx.time.startsWith(todayStr) && tx.amount < 0 &&
+                tx.time.substringAfter(" ").substringBefore(":").toIntOrNull()?.let { it in 5..10 } == true
+        }.sumOf { -it.amount }
+        val todayLunch = allTx.filter { tx ->
+            tx.time.startsWith(todayStr) && tx.amount < 0 &&
+                tx.time.substringAfter(" ").substringBefore(":").toIntOrNull()?.let { it in 11..14 } == true
+        }.sumOf { -it.amount }
+        val todayDinner = allTx.filter { tx ->
+            tx.time.startsWith(todayStr) && tx.amount < 0 &&
+                tx.time.substringAfter(" ").substringBefore(":").toIntOrNull()?.let { it in 17..21 } == true
+        }.sumOf { -it.amount }
+        context.getSharedPreferences("campus_card", 0).edit()
+            .putString("card_recent_tx_cache", recentJson)
+            .putFloat("card_today_spend_cache", todaySpend.toFloat())
+            .putFloat("card_today_breakfast_cache", todayBreakfast.toFloat())
+            .putFloat("card_today_lunch_cache", todayLunch.toFloat())
+            .putFloat("card_today_dinner_cache", todayDinner.toFloat())
+            .apply()
+        com.xjtu.toolbox.widget.CampusCardWidgetUpdater.requestUpdate(context)
+
+        val stats = api.calculateMonthlyStats(allTx)
+        monthlyStats = stats
+        categorySpending = api.categorizeSpending(allTx)
+        val (meals, campusDays) = api.analyzeMealTimes(allTx)
+        mealTimeStats = meals
+        activeCampusDays = campusDays
+        weekdayWeekend = api.analyzeWeekdayVsWeekend(allTx)
+    }
+
+    fun loadData(range: TimeRange = selectedTimeRange, silent: Boolean = false) {
+        if (silent || transactions.isNotEmpty()) isReloadingRange = true else isLoading = true
         errorMessage = null
         scope.launch {
             try {
@@ -123,61 +169,35 @@ fun CampusCardScreen(
                         .apply()
                 }
                 val allTx = withContext(Dispatchers.IO) {
-                    api.getAllTransactions(startDate, endDate, maxPages = 50)
+                    val cached = CampusCardCache.load(context)
+                    val cachedStart = cached?.rangeStart?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+                    if (cached != null && cachedStart != null && !cachedStart.isAfter(startDate)) {
+                        val refreshStart = endDate.minusDays(7).coerceAtLeast(startDate)
+                        val fresh = api.getAllTransactions(refreshStart, endDate, maxPages = 20)
+                        (fresh + cached.transactions.filter {
+                            val date = runCatching { LocalDate.parse(it.time.substringBefore(" ")) }.getOrNull()
+                            date != null && date in startDate..endDate
+                        }).distinctBy { "${it.time}|${it.merchant}|${it.amount}|${it.balance}|${it.description}" }
+                            .sortedByDescending { it.time }
+                    } else {
+                        api.getAllTransactions(startDate, endDate, maxPages = 50)
+                    }
                 }
-                transactions = allTx
-                totalRecords = allTx.size
-                currentPage = (allTx.size + 49) / 50
-                // 缓存最近 5 笔消费供首页智能卡片使用；同时缓存今日消费给校园卡小组件
-                run {
-                    val recentJson = com.google.gson.Gson().toJson(allTx.take(5))
-                    val todayStr = LocalDate.now().toString()
-                    val todaySpend = allTx
-                        .filter { tx -> tx.time.startsWith(todayStr) && tx.amount < 0 }
-                        .sumOf { tx -> -tx.amount }
-                    // 今日三餐消费
-                    val todayBreakfast = allTx.filter { tx ->
-                        tx.time.startsWith(todayStr) && tx.amount < 0 &&
-                            tx.time.substringAfter(" ").substringBefore(":").toIntOrNull()?.let { h -> h in 5..10 } == true
-                    }.sumOf { tx -> -tx.amount }
-                    val todayLunch = allTx.filter { tx ->
-                        tx.time.startsWith(todayStr) && tx.amount < 0 &&
-                            tx.time.substringAfter(" ").substringBefore(":").toIntOrNull()?.let { h -> h in 11..14 } == true
-                    }.sumOf { tx -> -tx.amount }
-                    val todayDinner = allTx.filter { tx ->
-                        tx.time.startsWith(todayStr) && tx.amount < 0 &&
-                            tx.time.substringAfter(" ").substringBefore(":").toIntOrNull()?.let { h -> h in 17..21 } == true
-                    }.sumOf { tx -> -tx.amount }
-                    context.getSharedPreferences("campus_card", 0).edit()
-                        .putString("card_recent_tx_cache", recentJson)
-                        .putFloat("card_today_spend_cache", todaySpend.toFloat())
-                        .putFloat("card_today_breakfast_cache", todayBreakfast.toFloat())
-                        .putFloat("card_today_lunch_cache", todayLunch.toFloat())
-                        .putFloat("card_today_dinner_cache", todayDinner.toFloat())
-                        .apply()
-                    // 通知校园卡小组件刷新
-                    com.xjtu.toolbox.widget.CampusCardWidgetUpdater.requestUpdate(context)
-                }
-
-                // 并行计算统计
-                withContext(Dispatchers.Default) {
-                    val s1 = async { api.calculateMonthlyStats(allTx) }
-                    val s2 = async { api.categorizeSpending(allTx) }
-                    val s3 = async { api.analyzeMealTimes(allTx) }
-                    val s4 = async { api.analyzeWeekdayVsWeekend(allTx) }
-                    monthlyStats = s1.await()
-                    categorySpending = s2.await()
-                    val (mealStats3, campusDays3) = s3.await()
-                    mealTimeStats = mealStats3
-                    activeCampusDays = campusDays3
-                    weekdayWeekend = s4.await()
-                }
+                applyTransactions(allTx)
+                cardInfo?.let { CampusCardCache.save(context, it, allTx, startDate, endDate) }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
+            } catch (e: AuthExpiredException) {
+                // 会话失效 → 静默触发重新登录（nav 监听 pendingRetry）
+                appLoginState.handleAuthExpired(LoginType.CAMPUS_CARD, Routes.CAMPUS_CARD, onBack)
             } catch (e: Exception) {
                 errorMessage = "加载失败: ${e.message}"
+                if (transactions.isNotEmpty()) {
+                    snackbarHostState.showSnackbar("更新失败，当前显示上次缓存的数据", duration = SnackbarDuration.Long)
+                }
             } finally {
                 isLoading = false
+                isReloadingRange = false
             }
         }
     }
@@ -207,6 +227,8 @@ fun CampusCardScreen(
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.CAMPUS_CARD, Routes.CAMPUS_CARD, onBack)
             } catch (e: Exception) {
                 Log.w("CampusCardScreen", "loadMore failed: ${e.message}")
                 scope.launch {
@@ -217,7 +239,14 @@ fun CampusCardScreen(
         }
     }
 
-    LaunchedEffect(Unit) { loadData() }
+    LaunchedEffect(Unit) {
+        CampusCardCache.load(context)?.let { cached ->
+            cardInfo = cached.cardInfo
+            applyTransactions(cached.transactions)
+            isLoading = false
+        }
+        loadData(silent = transactions.isNotEmpty())
+    }
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     Scaffold(
@@ -225,7 +254,6 @@ fun CampusCardScreen(
         topBar = {
             TopAppBar(
                 title = "校园卡",
-                color = MiuixTheme.colorScheme.surfaceVariant,
                 largeTitle = "校园卡",
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
@@ -234,29 +262,40 @@ fun CampusCardScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { loadData() }) {
-                        Icon(Icons.Default.Refresh, "刷新")
-                    }
                 }
             )
         }
     ) { padding ->
         when {
             isLoading -> LoadingState("正在加载校园卡数据...", Modifier.fillMaxSize().padding(padding))
-            errorMessage != null -> ErrorState(errorMessage!!, { loadData() }, Modifier.fillMaxSize().padding(padding))
+            errorMessage != null && transactions.isEmpty() ->
+                ErrorState(errorMessage!!, { loadData() }, Modifier.fillMaxSize().padding(padding))
             else -> {
                 Column(Modifier.fillMaxSize().padding(padding).nestedScroll(scrollBehavior.nestedScrollConnection)) {
                     Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        color = MiuixTheme.colorScheme.surfaceVariant
+                        color = MiuixTheme.colorScheme.secondaryContainer.copy(alpha = 0.72f),
+                        shape = RoundedCornerShape(18.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
                     ) {
                         TabRowWithContour(
                             tabs = listOf("概览", "流水", "分析"),
                             selectedTabIndex = selectedTab,
                             onTabSelected = { selectedTab = it },
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+                            modifier = Modifier.fillMaxWidth().padding(4.dp)
                         )
                     }
+                    var isPullRefreshing by remember { mutableStateOf(false) }
+                    LaunchedEffect(isLoading, isReloadingRange) {
+                        if (!isLoading && !isReloadingRange) isPullRefreshing = false
+                    }
+                    top.yukonga.miuix.kmp.basic.PullToRefresh(
+                        isRefreshing = isPullRefreshing,
+                        onRefresh = {
+                            isPullRefreshing = true
+                            loadData(silent = true)
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    ) {
                     AnimatedContent(
                         targetState = selectedTab,
                         transitionSpec = {
@@ -274,13 +313,16 @@ fun CampusCardScreen(
                             1 -> TransactionTab(transactions, totalRecords, isLoadingMore, searchQuery,
                                 onSearchChange = { searchQuery = it }, onLoadMore = ::loadMore,
                                 selectedTimeRange = selectedTimeRange,
-                                onTimeRangeChange = { selectedTimeRange = it; loadData(it) })
+                                onTimeRangeChange = { selectedTimeRange = it; loadData(it, silent = true) },
+                                isReloading = isReloadingRange)
                             2 -> AnalyticsTab(
                                 monthlyStats, categorySpending, mealTimeStats, weekdayWeekend,
                                 activeCampusDays, selectedTimeRange,
-                                onTimeRangeChange = { selectedTimeRange = it; loadData(it) }
+                                onTimeRangeChange = { selectedTimeRange = it; loadData(it, silent = true) },
+                                isReloading = isReloadingRange
                             )
                         }
+                    }
                     }
                 }
             }
@@ -308,7 +350,7 @@ private fun OverviewTab(
             val lastMonth = monthlyStats.find { it.month == YearMonth.now().minusMonths(1) }
             ThisMonthCard(thisMonth, lastMonth)
         }
-        item { cardInfo?.let { CardStatusRow(it) } }
+        item { cardInfo?.let { CardStatusPanel(it) } }
         if (mealTimeStats.isNotEmpty()) {
             item { MealQuickView(mealTimeStats) }
         }
@@ -324,50 +366,62 @@ private fun OverviewTab(
 
 @Composable
 private fun BalanceCard(info: CardInfo) {
+    // 固定交大蓝品牌渐变（不随深浅色翻转），白字始终高对比，类似实体银行卡
+    val brandStart = Color(0xFF0A4D94)
+    val brandEnd = Color(0xFF1E78C8)
+    val onBrand = Color.White
     top.yukonga.miuix.kmp.basic.Card(
         modifier = Modifier.fillMaxWidth(),
         cornerRadius = 24.dp,
-        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
+        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = Color.Transparent)
     ) {
-        Column(Modifier.fillMaxWidth().padding(24.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically) {
-                Column {
-                    Text("校园卡余额", style = MiuixTheme.textStyles.body2,
-                        color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.7f))
-                    Spacer(Modifier.height(4.dp))
-                    Row(verticalAlignment = Alignment.Bottom) {
-                        Text("¥", style = MiuixTheme.textStyles.headline1,
-                            fontWeight = FontWeight.Light,
-                            color = MiuixTheme.colorScheme.onSurface)
-                        Text("%.2f".format(info.balance),
-                            style = MiuixTheme.textStyles.title3,
-                            fontWeight = FontWeight.Bold,
-                            color = MiuixTheme.colorScheme.onSurface)
+        Box(
+            Modifier.fillMaxWidth().background(
+                Brush.linearGradient(listOf(brandStart, brandEnd))
+            )
+        ) {
+            Column(Modifier.fillMaxWidth().padding(24.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Column {
+                        Text("校园卡余额", style = MiuixTheme.textStyles.body2,
+                            color = onBrand.copy(alpha = 0.85f))
+                        Spacer(Modifier.height(6.dp))
+                        Row(verticalAlignment = Alignment.Bottom) {
+                            Text("¥", style = MiuixTheme.textStyles.title4,
+                                fontWeight = FontWeight.Medium,
+                                color = onBrand.copy(alpha = 0.9f),
+                                modifier = Modifier.padding(bottom = 4.dp))
+                            Spacer(Modifier.width(2.dp))
+                            Text("%.2f".format(info.balance),
+                                style = MiuixTheme.textStyles.title1,
+                                fontWeight = FontWeight.Bold,
+                                color = onBrand)
+                        }
+                    }
+                    Surface(shape = CircleShape,
+                        color = onBrand.copy(alpha = 0.18f),
+                        modifier = Modifier.size(56.dp)) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(Icons.Default.CreditCard, null,
+                                tint = onBrand,
+                                modifier = Modifier.size(28.dp))
+                        }
                     }
                 }
-                Surface(shape = CircleShape,
-                    color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f),
-                    modifier = Modifier.size(56.dp)) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.CreditCard, null,
-                            tint = MiuixTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(28.dp))
-                    }
+                if (info.pendingAmount > 0) {
+                    Spacer(Modifier.height(8.dp))
+                    Text("待入账: ¥%.2f".format(info.pendingAmount),
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = onBrand.copy(alpha = 0.75f))
                 }
-            }
-            if (info.pendingAmount > 0) {
-                Spacer(Modifier.height(8.dp))
-                Text("待入账: ¥%.2f".format(info.pendingAmount),
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-            }
-            Spacer(Modifier.height(12.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                InfoPill(info.name, MiuixTheme.colorScheme.onSurface)
-                InfoPill(info.cardType, MiuixTheme.colorScheme.onSurface)
-                if (info.account.isNotBlank()) {
-                    InfoPill("一卡通号: ${info.account}", MiuixTheme.colorScheme.onSurface)
+                Spacer(Modifier.height(16.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    InfoPill(info.name, onBrand)
+                    InfoPill(info.cardType, onBrand)
+                    if (info.account.isNotBlank()) {
+                        InfoPill("一卡通号: ${info.account}", onBrand)
+                    }
                 }
             }
         }
@@ -377,9 +431,10 @@ private fun BalanceCard(info: CardInfo) {
 @Composable
 private fun InfoPill(text: String, color: Color) {
     if (text.isBlank()) return
-    Surface(shape = RoundedCornerShape(8.dp), color = color.copy(alpha = 0.1f)) {
-        Text(text, Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-            style = MiuixTheme.textStyles.footnote1, color = color.copy(alpha = 0.8f))
+    Surface(shape = RoundedCornerShape(8.dp), color = color.copy(alpha = 0.16f)) {
+        Text(text, Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+            style = MiuixTheme.textStyles.footnote1, color = color.copy(alpha = 0.95f),
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -522,36 +577,55 @@ private fun StatColumn(label: String, value: String, color: Color) {
 }
 
 @Composable
-private fun CardStatusRow(info: CardInfo) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        StatusChip(
-            icon = if (info.lostFlag) Icons.Default.Warning else Icons.Default.CheckCircle,
-            text = if (info.lostFlag) "已挂失" else "正常",
-            isWarning = info.lostFlag, modifier = Modifier.weight(1f))
-        StatusChip(
-            icon = if (info.frozenFlag) Icons.Default.Lock else Icons.Default.LockOpen,
-            text = if (info.frozenFlag) "已冻结" else "未冻结",
-            isWarning = info.frozenFlag, modifier = Modifier.weight(1f))
+private fun CardStatusPanel(info: CardInfo) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        cornerRadius = 20.dp,
+        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
+    ) {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            Text(
+                "卡片状态",
+                style = MiuixTheme.textStyles.subtitle,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                StatusChip(
+                    icon = if (info.lostFlag) Icons.Default.Warning else Icons.Default.CheckCircle,
+                    text = if (info.lostFlag) "已挂失" else "使用正常",
+                    isWarning = info.lostFlag, modifier = Modifier.weight(1f))
+                StatusChip(
+                    icon = if (info.frozenFlag) Icons.Default.Lock else Icons.Default.LockOpen,
+                    text = if (info.frozenFlag) "已冻结" else "账户可用",
+                    isWarning = info.frozenFlag, modifier = Modifier.weight(1f))
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                if (info.lostFlag || info.frozenFlag) "部分校园卡功能可能暂不可用"
+                else "消费、充值与付款码均可正常使用",
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+            )
+        }
     }
 }
 
 @Composable
 private fun StatusChip(icon: ImageVector, text: String, isWarning: Boolean, modifier: Modifier = Modifier) {
+    val okColor = Color(0xFF2E9E5B)
+    val accent = if (isWarning) MiuixTheme.colorScheme.error else okColor
     Surface(
         modifier = modifier, shape = RoundedCornerShape(12.dp),
-        color = if (isWarning) MiuixTheme.colorScheme.errorContainer
-        else MiuixTheme.colorScheme.surfaceVariant
+        color = accent.copy(alpha = 0.10f)
     ) {
-        Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+        Row(Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center) {
-            Icon(icon, null, modifier = Modifier.size(14.dp),
-                tint = if (isWarning) MiuixTheme.colorScheme.error
-                else MiuixTheme.colorScheme.onSurfaceVariantSummary)
-            Spacer(Modifier.width(4.dp))
+            Icon(icon, null, modifier = Modifier.size(15.dp), tint = accent)
+            Spacer(Modifier.width(5.dp))
             Text(text, style = MiuixTheme.textStyles.footnote1,
-                color = if (isWarning) MiuixTheme.colorScheme.error
-                else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                fontWeight = FontWeight.Medium, color = accent,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
@@ -568,7 +642,8 @@ private fun TransactionTab(
     onSearchChange: (String) -> Unit,
     onLoadMore: () -> Unit,
     selectedTimeRange: TimeRange,
-    onTimeRangeChange: (TimeRange) -> Unit
+    onTimeRangeChange: (TimeRange) -> Unit,
+    isReloading: Boolean = false
 ) {
     val filtered = remember(transactions, searchQuery) {
         if (searchQuery.isBlank()) transactions
@@ -590,23 +665,17 @@ private fun TransactionTab(
     ) {
         // 时间范围选择器
         item { TimeRangeSelector(selectedTimeRange, onTimeRangeChange) }
+        if (isReloading) {
+            item { LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), height = 2.dp) }
+        }
 
-        // 搜索栏
+        // 搜索是流水页的一部分，不再由顶栏按钮控制。
         item {
-            top.yukonga.miuix.kmp.basic.TextField(
-                value = searchQuery,
-                onValueChange = onSearchChange,
-                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                label = "搜索商户/交易类型",
-                leadingIcon = { Icon(Icons.Default.Search, null, Modifier.padding(start = 4.dp).size(20.dp)) },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { onSearchChange("") }) {
-                            Icon(Icons.Default.Clear, "清除", Modifier.size(20.dp))
-                        }
-                    }
-                },
-                singleLine = true
+            com.xjtu.toolbox.ui.components.AppSearchBar(
+                query = searchQuery,
+                onQueryChange = onSearchChange,
+                label = "搜索商户或交易类型",
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
             )
         }
         item {
@@ -716,7 +785,8 @@ private fun AnalyticsTab(
     weekdayWeekend: Pair<DayTypeStats, DayTypeStats>?,
     activeCampusDays: Int,
     selectedTimeRange: TimeRange,
-    onTimeRangeChange: (TimeRange) -> Unit
+    onTimeRangeChange: (TimeRange) -> Unit,
+    isReloading: Boolean = false
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
@@ -724,6 +794,9 @@ private fun AnalyticsTab(
         contentPadding = PaddingValues(vertical = 12.dp)
     ) {
         item { TimeRangeSelector(selectedTimeRange, onTimeRangeChange) }
+        if (isReloading) {
+            item { LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), height = 2.dp) }
+        }
         if (categorySpending.isEmpty() && monthlyStats.isEmpty() && mealTimeStats.isEmpty()) {
             item {
                 EmptyState(

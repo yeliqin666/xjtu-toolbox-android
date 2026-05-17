@@ -47,7 +47,7 @@ class LibraryLogin(
                 .build()
             val seatResponse = client.newCall(seatRequest).execute()
             val seatBody = seatResponse.body?.use { it.string() } ?: ""
-            if (seatBody.contains("btn-group") || seatBody.contains("tab-select") || seatBody.contains("seat")) {
+            if (looksLikeSeatPage(seatBody)) {
                 seatSystemReady = true
                 diagnosticInfo = "座位系统已就绪"
                 return true
@@ -64,10 +64,12 @@ class LibraryLogin(
         val body = lastResponseBody  // body 已在 XJTULogin 中读取并存储
         Log.d(TAG, "postLogin: finalUrl=$finalUrl, bodyLen=${body.length}")
 
-        // 因为 loginUrl 就是座位系统，init 成功后 response 已经是座位页面
-        if (finalUrl.contains("rg.lib.xjtu.edu.cn") && !finalUrl.contains("login.xjtu.edu.cn")) {
+        // 因为 loginUrl 就是座位系统，init 成功后 response 已经是座位页面。
+        // WebVPN 模式下 finalUrl 是 webvpn.xjtu.edu.cn/http-8086/... 包装域名，
+        // 需还原为原始 URL 再判断是否已抵达座位系统（否则直连判断永远 false）。
+        if (isAtSeatSystem(finalUrl)) {
             // 检查是否拿到了座位页面内容
-            if (body.contains("btn-group") || body.contains("tab-select") || body.contains("seat")) {
+            if (looksLikeSeatPage(body)) {
                 seatSystemReady = true
                 diagnosticInfo = "座位系统已就绪"
                 Log.d(TAG, "postLogin: Seat system ready (direct CAS auth succeeded)")
@@ -89,7 +91,7 @@ class LibraryLogin(
 
             Log.d(TAG, "postLogin retry: code=${seatResponse.code}, finalUrl=$seatFinalUrl, bodyLen=${seatBody.length}")
 
-            if (seatBody.contains("btn-group") || seatBody.contains("tab-select") || seatBody.contains("seat")) {
+            if (looksLikeSeatPage(seatBody)) {
                 seatSystemReady = true
                 diagnosticInfo = "座位系统已就绪"
             } else if (seatFinalUrl.contains("login.xjtu.edu.cn")) {
@@ -102,6 +104,21 @@ class LibraryLogin(
             diagnosticInfo = "座位系统访问失败: ${e.message}"
         }
     }
+
+    /** 判断最终 URL 是否已抵达座位系统（兼容直连与 WebVPN 包装域名），且不在 CAS 登录页。 */
+    private fun isAtSeatSystem(finalUrl: String): Boolean {
+        if (finalUrl.contains("login.xjtu.edu.cn")) return false
+        if (finalUrl.contains("rg.lib.xjtu.edu.cn")) return true
+        // WebVPN 模式：还原 webvpn 包装 URL 后再判断
+        val original = com.xjtu.toolbox.util.WebVpnUtil.getOriginalUrl(finalUrl)
+        return original?.contains("rg.lib.xjtu.edu.cn") == true
+    }
+
+    /** 座位页内容嗅探（放宽信号，兼容壳页面/改版）。 */
+    private fun looksLikeSeatPage(body: String): Boolean =
+        body.contains("btn-group") || body.contains("tab-select") ||
+        body.contains("seat") || body.contains("qseat") ||
+        body.contains("座位") || body.contains("scount")
 
     private fun extractTitle(html: String): String {
         val match = Regex("<title>(.*?)</title>", RegexOption.IGNORE_CASE).find(html)

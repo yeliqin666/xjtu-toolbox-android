@@ -30,12 +30,17 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.School
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import com.xjtu.toolbox.LocalAppLoginState
+import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.AuthExpiredException
+import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.SiteSession
+import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.auth.GmisLogin
 import com.xjtu.toolbox.ui.ScheduleGrid
 import com.xjtu.toolbox.ui.WeekSelector
 import com.xjtu.toolbox.ui.components.EmptyState
@@ -47,8 +52,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-fun GmisScreen(login: GmisLogin, onBack: () -> Unit) {
-    val api = remember { GmisApi(login) }
+fun GmisScreen(site: SiteSession, onBack: () -> Unit) {
+    val appLoginState = LocalAppLoginState.current
+    val api = remember(site) { GmisApi(site) }
     var courses by remember { mutableStateOf<List<GmisScheduleItem>>(emptyList()) }
     var scores by remember { mutableStateOf<List<GmisScoreItem>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
@@ -69,6 +75,8 @@ fun GmisScreen(login: GmisLogin, onBack: () -> Unit) {
                     courses = scheduleDeferred.await()
                     scores = scoreDeferred.await()
                 }
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.POSTGRADUATE_ATTENDANCE, Routes.POSTGRADUATE_ATTENDANCE, onBack)
             } catch (e: Exception) {
                 errorMessage = "加载失败: ${e.message}"
             } finally { isLoading = false }

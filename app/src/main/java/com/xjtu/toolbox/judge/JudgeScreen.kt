@@ -16,7 +16,7 @@ import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import top.yukonga.miuix.kmp.basic.TabRowWithContour
-import top.yukonga.miuix.kmp.extra.SuperBottomSheet
+import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -34,12 +34,17 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import com.xjtu.toolbox.LocalAppLoginState
+import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.AuthExpiredException
+import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.auth.JwxtLogin
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
@@ -53,11 +58,12 @@ import kotlinx.coroutines.withContext
  */
 @Composable
 fun JudgeScreen(
-    login: JwxtLogin,
+    site: SiteSession,
     username: String,
     onBack: () -> Unit
 ) {
-    val api = remember { JudgeApi(login) }
+    val appLoginState = LocalAppLoginState.current
+    val api = remember(site) { JudgeApi(site) }
     val scope = rememberCoroutineScope()
 
     var isLoading by remember { mutableStateOf(true) }
@@ -89,6 +95,8 @@ fun JudgeScreen(
                     unfinishedList = api.unfinishedQuestionnaires()
                     finishedList = api.finishedQuestionnaires()
                 }
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.JWXT, Routes.JUDGE, onBack)
             } catch (e: Exception) {
                 errorMessage = "加载失败: ${e.message}"
             } finally {
@@ -140,8 +148,8 @@ fun JudgeScreen(
 
             // 确认对话框（提升至顶层，不受 selectedTab 条件约束）
             BackHandler(enabled = showConfirmDialog.value) { showConfirmDialog.value = false }
-            SuperBottomSheet(
-                    show = showConfirmDialog,
+            OverlayBottomSheet(
+                    show = showConfirmDialog.value,
                     title = "确认一键好评",
                     onDismissRequest = { showConfirmDialog.value = false }
                 ) {
@@ -410,7 +418,7 @@ private fun QuestionnaireCard(
                 Button(
                     onClick = onUndo,
                     enabled = !undoing,
-                    modifier = Modifier.height(34.dp),
+                    insideMargin = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                     colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColors(
                         color = MiuixTheme.colorScheme.secondaryContainer
                     )

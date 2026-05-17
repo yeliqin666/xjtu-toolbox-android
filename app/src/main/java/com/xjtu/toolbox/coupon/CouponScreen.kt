@@ -23,7 +23,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ConfirmationNumber
 import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.outlined.ConfirmationNumber
 import androidx.compose.runtime.Composable
@@ -35,6 +34,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import com.xjtu.toolbox.LocalAppLoginState
+import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.AuthExpiredException
+import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -47,7 +51,7 @@ import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
-import com.xjtu.toolbox.auth.CouponLogin
+import com.xjtu.toolbox.auth.SiteSession
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -64,15 +68,18 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
+import top.yukonga.miuix.kmp.basic.PullToRefresh
+import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 @Composable
 fun CouponScreen(
-    login: CouponLogin,
+    site: SiteSession,
     onBack: () -> Unit
 ) {
-    val api = remember(login) { CouponApi(login) }
+    val appLoginState = LocalAppLoginState.current
+    val api = remember(site) { CouponApi(site) }
     val scope = rememberCoroutineScope()
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
 
@@ -82,10 +89,16 @@ fun CouponScreen(
     var currentPage by rememberSaveable { mutableIntStateOf(1) }
     var isLoading by remember { mutableStateOf(true) }
     var isLoadingMore by remember { mutableStateOf(false) }
+    var isRefreshing by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    val pullToRefreshState = rememberPullToRefreshState()
 
-    fun loadPage(filter: CouponFilter = selectedFilter, page: Int = 1, append: Boolean = false) {
-        if (append) isLoadingMore = true else isLoading = true
+    fun loadPage(filter: CouponFilter = selectedFilter, page: Int = 1, append: Boolean = false, silent: Boolean = false) {
+        when {
+            append -> isLoadingMore = true
+            silent -> {}  // silent: 由外部 isRefreshing 控制下拉指示器，保留当前列表
+            else -> isLoading = true
+        }
         errorMessage = null
         scope.launch {
             try {
@@ -97,11 +110,14 @@ fun CouponScreen(
                 records = if (append) records + pageData.records else pageData.records
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.COUPON, Routes.COUPON, onBack)
             } catch (e: Exception) {
                 errorMessage = e.message ?: "加载失败"
             } finally {
                 isLoading = false
                 isLoadingMore = false
+                isRefreshing = false
             }
         }
     }
@@ -123,11 +139,6 @@ fun CouponScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { loadPage(selectedFilter) }) {
-                        Icon(Icons.Default.Refresh, "刷新")
                     }
                 }
             )
@@ -152,27 +163,49 @@ fun CouponScreen(
                 )
             }
 
-            when {
-                isLoading -> LoadingState("正在加载加餐券...", Modifier.fillMaxSize())
-                errorMessage != null -> ErrorState(
-                    message = errorMessage ?: "加载失败",
-                    onRetry = { loadPage(selectedFilter) },
-                    modifier = Modifier.fillMaxSize(),
-                    icon = Icons.Default.ErrorOutline
-                )
-                records.isEmpty() -> EmptyState(
-                    title = selectedFilter.emptyTitle,
-                    subtitle = "可点击右上角刷新重试",
-                    icon = Icons.Outlined.ConfirmationNumber,
-                    modifier = Modifier.fillMaxSize()
-                )
-                else -> CouponList(
-                    login = login,
-                    records = records,
-                    total = total,
-                    isLoadingMore = isLoadingMore,
-                    onLoadMore = { loadPage(selectedFilter, currentPage + 1, append = true) }
-                )
+            PullToRefresh(
+                isRefreshing = isRefreshing,
+                onRefresh = {
+                    isRefreshing = true
+                    loadPage(selectedFilter, page = 1, append = false, silent = true)
+                },
+                pullToRefreshState = pullToRefreshState,
+                topAppBarScrollBehavior = scrollBehavior,
+                modifier = Modifier.fillMaxSize()
+            ) {
+                when {
+                    isLoading -> LazyColumn(Modifier.fillMaxSize()) {
+                        item { Box(Modifier.fillParentMaxSize()) { LoadingState("正在加载加餐券...", Modifier.fillMaxSize()) } }
+                    }
+                    errorMessage != null -> LazyColumn(Modifier.fillMaxSize()) {
+                        item { Box(Modifier.fillParentMaxSize()) {
+                            ErrorState(
+                                message = errorMessage ?: "加载失败",
+                                onRetry = { loadPage(selectedFilter) },
+                                modifier = Modifier.fillMaxSize(),
+                                icon = Icons.Default.ErrorOutline
+                            )
+                        } }
+                    }
+                    records.isEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
+                        item { Box(Modifier.fillParentMaxSize()) {
+                            EmptyState(
+                                title = selectedFilter.emptyTitle,
+                                subtitle = "下拉可刷新重试",
+                                icon = Icons.Outlined.ConfirmationNumber,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } }
+                    }
+                    else -> CouponList(
+                        site = site,
+                        records = records,
+                        total = total,
+                        filter = selectedFilter,
+                        isLoadingMore = isLoadingMore,
+                        onLoadMore = { loadPage(selectedFilter, currentPage + 1, append = true) }
+                    )
+                }
             }
         }
     }
@@ -180,13 +213,13 @@ fun CouponScreen(
 
 @Composable
 private fun CouponList(
-    login: CouponLogin,
+    site: SiteSession,
     records: List<CouponRecord>,
     total: Int,
     isLoadingMore: Boolean,
-    onLoadMore: () -> Unit
+    onLoadMore: () -> Unit,
+    filter: CouponFilter
 ) {
-    val usableCount = records.count { it.leftAmountFen > 0 || it.leftCount > 0 }
     val leftAmount = records.sumOf { it.leftAmountFen }
     LazyColumn(
         modifier = Modifier
@@ -200,12 +233,12 @@ private fun CouponList(
             CouponSummaryCard(
                 visibleCount = records.size,
                 total = total,
-                usableCount = usableCount,
+                filter = filter,
                 leftAmountFen = leftAmount
             )
         }
         items(records, key = { it.showCardId.ifBlank { it.sendId } }) { coupon ->
-            CouponRecordCard(login = login, coupon = coupon)
+            CouponRecordCard(site = site, coupon = coupon, filter = filter)
         }
         if (records.size < total) {
             item {
@@ -229,9 +262,15 @@ private fun CouponList(
 private fun CouponSummaryCard(
     visibleCount: Int,
     total: Int,
-    usableCount: Int,
+    filter: CouponFilter,
     leftAmountFen: Long
 ) {
+    val countLabel = when (filter) {
+        CouponFilter.AVAILABLE -> "可领取 $total 张"
+        CouponFilter.USABLE -> "可使用 $total 张"
+        CouponFilter.USED_UP -> "已用完 $total 张"
+        CouponFilter.EXPIRED -> "已过期 $total 张"
+    }
     Card(
         modifier = Modifier.fillMaxWidth(),
         cornerRadius = 20.dp
@@ -267,7 +306,7 @@ private fun CouponSummaryCard(
                 )
             }
             Column(horizontalAlignment = Alignment.End) {
-                Text("可用 $usableCount 张", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                Text(countLabel, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 Text(
                     "¥%.2f".format(leftAmountFen / 100.0),
                     style = MiuixTheme.textStyles.subtitle,
@@ -281,8 +320,9 @@ private fun CouponSummaryCard(
 
 @Composable
 private fun CouponRecordCard(
-    login: CouponLogin,
-    coupon: CouponRecord
+    site: SiteSession,
+    coupon: CouponRecord,
+    filter: CouponFilter
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -294,7 +334,7 @@ private fun CouponRecordCard(
                 .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            CouponImage(login = login, url = coupon.imageUrl)
+            CouponImage(site = site, url = coupon.imageUrl)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -307,7 +347,7 @@ private fun CouponRecordCard(
                         modifier = Modifier.weight(1f)
                     )
                     Spacer(Modifier.width(8.dp))
-                    CouponStatusPill(coupon)
+                    CouponStatusPill(coupon, filter)
                 }
                 Spacer(Modifier.height(5.dp))
                 Text(
@@ -344,14 +384,14 @@ private fun CouponRecordCard(
 }
 
 @Composable
-private fun CouponImage(login: CouponLogin, url: String) {
+private fun CouponImage(site: SiteSession, url: String) {
     var imageBytes by remember(url) { mutableStateOf<ByteArray?>(null) }
     LaunchedEffect(url) {
         imageBytes = null
         if (url.isBlank()) return@LaunchedEffect
         imageBytes = withContext(Dispatchers.IO) {
             runCatching {
-                login.client.newCall(Request.Builder().url(url).get().build()).execute().use { response ->
+                site.client.newCall(Request.Builder().url(url).get().build()).execute().use { response ->
                     if (!response.isSuccessful) null else response.body?.bytes()
                 }
             }.getOrNull()
@@ -387,10 +427,13 @@ private fun CouponImage(login: CouponLogin, url: String) {
 }
 
 @Composable
-private fun CouponStatusPill(coupon: CouponRecord) {
-    val (text, color) = when {
-        coupon.leftAmountFen > 0 || coupon.leftCount > 0 -> "可用" to MiuixTheme.colorScheme.primary
-        else -> "已用完" to Color(0xFF7A7F87)
+private fun CouponStatusPill(coupon: CouponRecord, filter: CouponFilter) {
+    val gray = Color(0xFF7A7F87)
+    val (text, color) = when (filter) {
+        CouponFilter.AVAILABLE -> "可领取" to MiuixTheme.colorScheme.primary
+        CouponFilter.USABLE -> "可使用" to MiuixTheme.colorScheme.primary
+        CouponFilter.USED_UP -> "已用完" to gray
+        CouponFilter.EXPIRED -> "已过期" to gray
     }
     Surface(
         shape = RoundedCornerShape(8.dp),

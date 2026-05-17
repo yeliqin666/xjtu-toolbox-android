@@ -20,7 +20,7 @@ import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.extra.SuperBottomSheet
+import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.utils.SinkFeedback
 
@@ -45,6 +45,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
@@ -55,13 +56,18 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.CheckCircle
-import top.yukonga.miuix.kmp.extra.SuperSpinner
-import top.yukonga.miuix.kmp.basic.SpinnerEntry
+import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
+import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.basic.SnackbarDuration
 import top.yukonga.miuix.kmp.basic.SnackbarHost
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import com.xjtu.toolbox.LocalAppLoginState
+import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.AuthExpiredException
+import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
@@ -80,8 +86,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
-import com.xjtu.toolbox.auth.JwappLogin
-import com.xjtu.toolbox.auth.JwxtLogin
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.score.ScoreReportApi
 import com.xjtu.toolbox.score.ReportedGrade
 import com.xjtu.toolbox.judge.JudgeApi
@@ -94,12 +99,14 @@ import kotlinx.coroutines.withContext
 
 @Composable
 fun JwappScoreScreen(
-    login: JwappLogin?,
-    jwxtLogin: JwxtLogin? = null,
+    site: SiteSession?,
+    jwxtSite: SiteSession? = null,
     studentId: String = "",
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onOpenReport: () -> Unit = {}
 ) {
-    val api = remember(login) { login?.let { JwappApi(it) } }
+    val appLoginState = LocalAppLoginState.current
+    val api = remember(site) { site?.let { JwappApi(it) } }
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
     val dataCache = remember { com.xjtu.toolbox.util.DataCache(context) }
@@ -143,7 +150,7 @@ fun JwappScoreScreen(
             val cacheKey = "score_all_terms"
             var cachedScoreCount = -1
             try {
-                // 离线模式使用极长 TTL 以确保能加载缓存
+                // 未登录态使用极长 TTL 以确保能加载缓存
                 val ttl = if (api != null) com.xjtu.toolbox.util.DataCache.DEFAULT_TTL_MS else Long.MAX_VALUE
                 val cached = dataCache.get(cacheKey, ttl)
                 if (cached != null) {
@@ -153,19 +160,17 @@ fun JwappScoreScreen(
                         termList = cachedGrades.map { it.termCode to it.termName }
                         cachedScoreCount = cachedGrades.sumOf { it.scoreList.size }
                         isLoading = false  // 缓存已可用，主界面立即显示
-                        isRefreshing = api != null  // 仅在线时后台刷新
-                        android.util.Log.d("ScoreUI", "Loaded from cache: $cachedScoreCount scores, offline=${api == null}")
+                        isRefreshing = api != null  // 仅登录后才后台刷新
+                        android.util.Log.d("ScoreUI", "Loaded from cache: $cachedScoreCount scores, hasApi=${api != null}")
                     }
                 }
             } catch (_: Exception) { /* 缓存读取失败，正常加载 */ }
 
-            // 离线模式 → 只读缓存，不发网络请求
+            // 未登录态 → 仅展示缓存
             if (api == null) {
                 isRefreshing = false
                 if (allTermScores.isEmpty()) {
-                    errorMessage = "离线模式下无缓存数据，请联网后查看"
-                } else {
-                    scope.launch { snackbarHostState.showSnackbar("当前无网络，显示缓存成绩", duration = SnackbarDuration.Short) }
+                    errorMessage = "暂无成绩缓存"
                 }
                 isLoading = false
                 return@launch
@@ -178,9 +183,9 @@ fun JwappScoreScreen(
                     val grades = api.getGrade(null).toMutableList()
 
                     // CjcxApi 精确化：ZCJ/XFJD 替换 JWAPP 数据
-                    if (jwxtLogin != null) {
+                    if (jwxtSite != null) {
                         try {
-                            val cjcxApi = CjcxApi(jwxtLogin)
+                            val cjcxApi = CjcxApi(jwxtSite)
                             val preciseScores = cjcxApi.getAllScores()
                             val lookup = cjcxApi.buildLookup(preciseScores)
                             val preciseByKch = preciseScores.associateBy { it.kch }
@@ -249,10 +254,10 @@ fun JwappScoreScreen(
                     }.toMutableSet()
 
                     // 报表补充未评教课程
-                    if (jwxtLogin != null && studentId.isNotEmpty()) {
+                    if (jwxtSite != null && studentId.isNotEmpty()) {
                         var unevalSet = emptySet<String>()
                         try {
-                            val judgeApi = JudgeApi(jwxtLogin)
+                            val judgeApi = JudgeApi(jwxtSite)
                             val unfinished = judgeApi.unfinishedQuestionnaires()
                             unevalSet = unfinished.map { it.KCM }.toSet()
                             unevaluatedCourses = unevalSet
@@ -262,7 +267,7 @@ fun JwappScoreScreen(
 
                         if (unevalSet.isNotEmpty()) {
                             try {
-                                val reportGrades = ScoreReportApi(jwxtLogin).getReportedGrade(studentId)
+                                val reportGrades = ScoreReportApi(jwxtSite).getReportedGrade(studentId)
                                 val supplementByTerm = mutableMapOf<String, MutableList<ScoreItem>>()
                                 for (rg in reportGrades) {
                                     if (rg.courseName !in unevalSet) continue
@@ -319,6 +324,18 @@ fun JwappScoreScreen(
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
+            } catch (e: AuthExpiredException) {
+                // [policy] JWAPP token 服务端拒绝时（reAuth 后重试也失败），
+                // 不再立即 popBackStack 弹回主页（之前会和 markStaleAndRetry 形成"进-退-进"死循环）。
+                // 改为停留当前页，展示缓存（若有）+ snackbar/errorMessage 引导用户。
+                // 注意：login 缓存已被 reAuth 流程清掉，下次主动重试会走 full login 拿新 token。
+                if (allTermScores.isNotEmpty()) {
+                    scope.launch {
+                        snackbarHostState.showSnackbar("成绩同步暂不可用，显示缓存数据。下拉刷新可重试", duration = SnackbarDuration.Long)
+                    }
+                } else {
+                    errorMessage = "成绩查询服务暂不可用：${e.message ?: "请稍后重试"}"
+                }
             } catch (e: Exception) {
                 // 网络失败但有缓存 → 不报错，提示数据可能不是最新
                 if (allTermScores.isNotEmpty()) {
@@ -335,7 +352,8 @@ fun JwappScoreScreen(
         }
     }
 
-    LaunchedEffect(Unit) { loadScoreData() }
+    // [修复] 监听 site 变化：重登后 SiteSession token 会刷新，触发本 effect 重新加载。
+    LaunchedEffect(site) { loadScoreData() }
 
     val currentTermScores = if (selectedTermIndex == 0 && allTermScores.isNotEmpty()) {
         // "所有学期" 选项
@@ -397,6 +415,10 @@ fun JwappScoreScreen(
                     }
                 },
                 actions = {
+                    // 成绩报表（FR 报表，含加权 GPA）——此前无入口，补回右上角
+                    IconButton(onClick = onOpenReport) {
+                        Icon(Icons.Default.Assessment, contentDescription = "成绩报表")
+                    }
                     // GPA 映射表
                     IconButton(onClick = { showGpaTips.value = true }) {
                         Icon(Icons.Default.Info, contentDescription = "GPA 映射")
@@ -435,7 +457,20 @@ fun JwappScoreScreen(
             errorMessage != null -> {
                 ErrorState(
                     message = errorMessage!!,
-                    onRetry = { loadScoreData() },
+                    onRetry = {
+                        scope.launch {
+                            isLoading = true
+                            errorMessage = null
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    appLoginState.sessionManager?.credentials?.let { creds ->
+                                        site?.ensureLogin(creds.first, creds.second, force = true)
+                                    }
+                                }
+                            } catch (_: Exception) {}
+                            loadScoreData()
+                        }
+                    },
                     modifier = Modifier.fillMaxSize().padding(padding)
                 )
             }
@@ -857,12 +892,12 @@ private fun GpaStatColumn(
 
 @Composable
 fun TermSelector(termList: List<Pair<String, String>>, selectedIndex: Int, onSelect: (Int) -> Unit) {
-    val items = remember(termList) { termList.map { (_, name) -> SpinnerEntry(title = name) } }
+    val items = remember(termList) { termList.map { (_, name) -> DropdownItem(title = name) } }
     top.yukonga.miuix.kmp.basic.Card(
         modifier = Modifier.fillMaxWidth(),
         cornerRadius = 16.dp
     ) {
-        SuperSpinner(
+        OverlaySpinnerPreference(
             items = items,
             selectedIndex = selectedIndex,
             title = "学期",
@@ -1076,8 +1111,8 @@ fun DetailChip(label: String, value: String) {
 @Composable
 fun GpaMappingDialog(show: MutableState<Boolean>) {
     BackHandler(enabled = show.value) { show.value = false }
-    SuperBottomSheet(
-        show = show,
+    OverlayBottomSheet(
+        show = show.value,
         title = "GPA 映射规则",
         onDismissRequest = { show.value = false }
     ) {

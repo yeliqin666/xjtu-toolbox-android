@@ -1,11 +1,12 @@
 package com.xjtu.toolbox.jwapp
 
 import android.util.Log
-import com.xjtu.toolbox.auth.JwxtLogin
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeDouble
 import com.xjtu.toolbox.util.safeParseJsonObject
 import com.xjtu.toolbox.util.safeString
 import com.xjtu.toolbox.util.safeStringOrNull
+import kotlinx.coroutines.runBlocking
 import okhttp3.FormBody
 import okhttp3.Request
 
@@ -15,12 +16,18 @@ private const val TAG = "CjcxApi"
  * JWXT 精确成绩查询 (xscjcx.do)
  * ZCJ/XFJD 对所有课程（含等级制）均有精确数值，优于 JWAPP termScore
  */
-class CjcxApi(private val login: JwxtLogin) {
+class CjcxApi(private val site: SiteSession) {
 
     private val baseUrl = "https://jwxt.xjtu.edu.cn/jwapp/sys/cjcx"
 
     @Volatile private var lastSessionTime = 0L
     private val sessionTtl = 5 * 60 * 1000L // 5分钟内不重复初始化
+
+    private fun execute(request: Request): String =
+        runBlocking { site.executeWithReAuth(request) }.use { response ->
+            if (!response.isSuccessful) throw RuntimeException("xscjcx.do HTTP ${response.code}")
+            response.body?.string() ?: throw RuntimeException("空响应")
+        }
 
     data class CjcxScore(
         val courseName: String,
@@ -45,9 +52,7 @@ class CjcxApi(private val login: JwxtLogin) {
         val now = System.currentTimeMillis()
         if (now - lastSessionTime < sessionTtl) return
         try {
-            login.client.newCall(
-                Request.Builder().url("$baseUrl/*default/index.do").get().build()
-            ).execute().close()
+            runBlocking { site.executeWithReAuth(Request.Builder().url("$baseUrl/*default/index.do").get().build()) }.close()
             lastSessionTime = now
         } catch (e: Exception) {
             Log.w(TAG, "session init: ${e.message}")
@@ -74,10 +79,7 @@ class CjcxApi(private val login: JwxtLogin) {
                     .build())
                 .build()
 
-            val body = login.client.newCall(request).execute().use { resp ->
-                if (!resp.isSuccessful) throw RuntimeException("xscjcx.do HTTP ${resp.code}")
-                resp.body?.string() ?: throw RuntimeException("空响应")
-            }
+            val body = execute(request)
             val root = body.safeParseJsonObject()
             if (root.get("code")?.asString != "0") {
                 throw RuntimeException("xscjcx.do 业务错误: ${root.get("code")}")

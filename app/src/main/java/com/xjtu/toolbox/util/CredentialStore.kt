@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKeys
+import com.xjtu.toolbox.auth.AccountType
 
 /**
  * 凭据安全存储（使用 EncryptedSharedPreferences）
@@ -70,6 +71,39 @@ class CredentialStore(context: Context) {
 
     fun loadFpVisitorId(): String? = prefs.getString(KEY_FP_VISITOR_ID, null)
 
+    // ── Srun 校园网（XJTU_STU）凭据 + 自动登录开关 ──
+
+    fun saveSrunCredentials(username: String, password: String) {
+        prefs.edit()
+            .putString(KEY_SRUN_USERNAME, username)
+            .putString(KEY_SRUN_PASSWORD, password)
+            .apply()
+    }
+
+    fun loadSrunCredentials(): Pair<String, String>? {
+        val u = prefs.getString(KEY_SRUN_USERNAME, null) ?: return null
+        val p = prefs.getString(KEY_SRUN_PASSWORD, null) ?: return null
+        if (u.isBlank() || p.isBlank()) return null
+        return u to p
+    }
+
+    fun clearSrunCredentials() {
+        prefs.edit()
+            .remove(KEY_SRUN_USERNAME)
+            .remove(KEY_SRUN_PASSWORD)
+            .apply()
+    }
+
+    /** Srun 自动登录开关，默认开启。 */
+    var srunAutoLoginEnabled: Boolean
+        get() = prefs.getBoolean(KEY_SRUN_AUTO_ENABLED, true)
+        set(value) { prefs.edit().putBoolean(KEY_SRUN_AUTO_ENABLED, value).apply() }
+
+    /** 是否已询问过用户启用 Srun（首次登录后弹窗用，仅询问一次）。 */
+    var srunSetupAsked: Boolean
+        get() = prefs.getBoolean(KEY_SRUN_SETUP_ASKED, false)
+        set(value) { prefs.edit().putBoolean(KEY_SRUN_SETUP_ASKED, value).apply() }
+
     // ── RSA 公钥缓存（减少一次网络请求）──
 
     fun saveRsaPublicKey(key: String) {
@@ -94,36 +128,6 @@ class CredentialStore(context: Context) {
 
     fun loadNickname(): String? = prefs.getString(KEY_NICKNAME, null)
 
-    // ── NSA 个人信息持久化（首次登录全量加载，后续冷启动复用） ──
-
-    /** 保存 NSA 个人信息 JSON（NsaStudentProfile.toJson()） */
-    fun saveNsaProfile(json: String) {
-        prefs.edit().putString(KEY_NSA_PROFILE, json).apply()
-    }
-
-    /** 加载缓存的 NSA 个人信息 JSON */
-    fun loadNsaProfile(): String? = prefs.getString(KEY_NSA_PROFILE, null)
-
-    /** 保存 NSA 学生证照片到内部文件 */
-    fun saveNsaPhoto(bytes: ByteArray) {
-        try {
-            appContext.openFileOutput(NSA_PHOTO_FILE, Context.MODE_PRIVATE).use { it.write(bytes) }
-        } catch (e: Exception) {
-            android.util.Log.w("CredentialStore", "saveNsaPhoto failed", e)
-        }
-    }
-
-    /** 加载缓存的 NSA 学生证照片 */
-    fun loadNsaPhoto(): ByteArray? = try {
-        appContext.openFileInput(NSA_PHOTO_FILE).use { it.readBytes() }
-    } catch (_: Exception) { null }
-
-    /** 清除 NSA 缓存（退出登录时调用） */
-    fun clearNsaCache() {
-        prefs.edit().remove(KEY_NSA_PROFILE).apply()
-        try { appContext.deleteFile(NSA_PHOTO_FILE) } catch (_: Exception) {}
-    }
-
     // ── 用户协议 & 公告（非敏感，使用普通 SharedPreferences） ──
 
     private val appPrefs: SharedPreferences =
@@ -138,14 +142,38 @@ class CredentialStore(context: Context) {
         appPrefs.edit().putInt(KEY_EULA_VERSION, CURRENT_EULA_VERSION).apply()
     }
 
-    /** 用户是否已看过指定版本的更新公告 */
+    /** 用户是否已看过指定版本的更新公告（旧 API，仅 AutoUpdate 弹窗仍在用） */
     fun isUpdateNoticeSeen(versionName: String): Boolean =
         appPrefs.getBoolean("update_notice_$versionName", false)
 
-    /** 标记用户已看过更新公告 */
+    /** 标记用户已看过更新公告（旧 API） */
     fun markUpdateNoticeSeen(versionName: String) {
         appPrefs.edit().putBoolean("update_notice_$versionName", true).apply()
     }
+
+    /**
+     * 用户已见过的最高 What's New 版本号。
+     * 用于堆叠展示「上次已见 → 当前」之间所有版本的 changelog。
+     */
+    var lastSeenChangelogVersion: String?
+        get() = appPrefs.getString("last_seen_changelog_version", null)
+        set(value) {
+            appPrefs.edit().putString("last_seen_changelog_version", value).apply()
+        }
+
+    /** 上一次启动时记录的 app 版本，用于判断是否刚完成升级。 */
+    var lastRunVersion: String?
+        get() = appPrefs.getString(KEY_LAST_RUN_VERSION, null)
+        set(value) {
+            appPrefs.edit().putString(KEY_LAST_RUN_VERSION, value).apply()
+        }
+
+    /** 最近一次自动检查更新时间；手动检查不受这个冷却限制。 */
+    var lastAutoUpdateCheckAt: Long
+        get() = appPrefs.getLong(KEY_LAST_AUTO_UPDATE_CHECK_AT, 0L)
+        set(value) {
+            appPrefs.edit().putLong(KEY_LAST_AUTO_UPDATE_CHECK_AT, value).apply()
+        }
 
     // ── 设置页持久化（普通 SharedPreferences，非敏感） ──
 
@@ -153,15 +181,17 @@ class CredentialStore(context: Context) {
     fun getAppPrefs(): SharedPreferences = appPrefs
 
     var navBarStyle: String
-        get() = appPrefs.getString(KEY_NAV_BAR_STYLE, NAV_STYLE_FLOATING) ?: NAV_STYLE_FLOATING
+        get() = appPrefs.getString(KEY_NAV_BAR_STYLE, NAV_STYLE_CLASSIC) ?: NAV_STYLE_CLASSIC
         set(value) { appPrefs.edit().putString(KEY_NAV_BAR_STYLE, value).apply() }
 
     var darkMode: String
         get() = appPrefs.getString(KEY_DARK_MODE, DARK_MODE_SYSTEM) ?: DARK_MODE_SYSTEM
         set(value) { appPrefs.edit().putString(KEY_DARK_MODE, value).apply() }
 
+    // 默认启动 tab 改为日程（COURSES）：课表是用户最常用的核心功能，
+    // 直接进日程减少一次点击。设置页可改回首页或其他。
     var defaultTab: String
-        get() = appPrefs.getString(KEY_DEFAULT_TAB, TAB_HOME) ?: TAB_HOME
+        get() = appPrefs.getString(KEY_DEFAULT_TAB, TAB_COURSES) ?: TAB_COURSES
         set(value) { appPrefs.edit().putString(KEY_DEFAULT_TAB, value).apply() }
 
     var networkMode: String
@@ -173,21 +203,31 @@ class CredentialStore(context: Context) {
         set(value) { appPrefs.edit().putBoolean(KEY_AUTO_CHECK_UPDATE, value).apply() }
 
     var updateChannel: String
-        get() = appPrefs.getString(KEY_UPDATE_CHANNEL, CHANNEL_STABLE) ?: CHANNEL_STABLE
-        set(value) { appPrefs.edit().putString(KEY_UPDATE_CHANNEL, value).apply() }
+        get() = AppUpdater.normalizeChannel(appPrefs.getString(KEY_UPDATE_CHANNEL, CHANNEL_GITEE_STABLE))
+        set(value) { appPrefs.edit().putString(KEY_UPDATE_CHANNEL, AppUpdater.normalizeChannel(value)).apply() }
+
+    var accountType: AccountType
+        get() = AccountType.fromKey(appPrefs.getString(KEY_ACCOUNT_TYPE, AccountType.UNDERGRADUATE.key))
+        set(value) { appPrefs.edit().putString(KEY_ACCOUNT_TYPE, value.key).apply() }
+
+    var hasReadEmptyRoomCdnTip: Boolean
+        get() = appPrefs.getBoolean(KEY_EMPTY_ROOM_CDN_TIP, false)
+        set(value) { appPrefs.edit().putBoolean(KEY_EMPTY_ROOM_CDN_TIP, value).apply() }
 
     companion object {
         private const val KEY_USERNAME = "username"
         private const val KEY_PASSWORD = "password"
         private const val KEY_FP_VISITOR_ID = "fp_visitor_id"
+        private const val KEY_SRUN_USERNAME = "srun_username"
+        private const val KEY_SRUN_PASSWORD = "srun_password"
+        private const val KEY_SRUN_AUTO_ENABLED = "srun_auto_enabled"
+        private const val KEY_SRUN_SETUP_ASKED = "srun_setup_asked"
         private const val KEY_RSA_PUBLIC_KEY = "rsa_public_key"
         private const val KEY_RSA_KEY_TIME = "rsa_key_time"
         private const val KEY_NICKNAME = "cached_nickname"
-        private const val KEY_NSA_PROFILE = "nsa_profile_json"
-        private const val NSA_PHOTO_FILE = "nsa_photo.jpg"
         private const val KEY_EULA_VERSION = "eula_accepted_version"
         /** 用户协议版本号，更新协议内容时递增 */
-        const val CURRENT_EULA_VERSION = 2
+        const val CURRENT_EULA_VERSION = 3
 
         // ── 设置页键 ──
         private const val KEY_NAV_BAR_STYLE = "nav_bar_style"
@@ -196,6 +236,10 @@ class CredentialStore(context: Context) {
         private const val KEY_NETWORK_MODE = "network_mode"
         private const val KEY_AUTO_CHECK_UPDATE = "auto_check_update"
         private const val KEY_UPDATE_CHANNEL = "update_channel"
+        private const val KEY_LAST_RUN_VERSION = "last_run_version"
+        private const val KEY_LAST_AUTO_UPDATE_CHECK_AT = "last_auto_update_check_at"
+        private const val KEY_ACCOUNT_TYPE = "account_type"
+        private const val KEY_EMPTY_ROOM_CDN_TIP = "empty_room_cdn_tip"
 
         // ── 设置值常量 ──
         const val NAV_STYLE_FLOATING = "floating"
@@ -210,8 +254,12 @@ class CredentialStore(context: Context) {
         const val NETWORK_AUTO = "auto"
         const val NETWORK_DIRECT = "direct"
         const val NETWORK_VPN = "vpn"
-        const val CHANNEL_STABLE = "stable"
-        const val CHANNEL_BETA = "beta"
+        const val CHANNEL_GITEE_STABLE = AppUpdater.CHANNEL_GITEE_STABLE
+        const val CHANNEL_GITEE_LATEST = AppUpdater.CHANNEL_GITEE_LATEST
+        const val CHANNEL_GITHUB_STABLE = AppUpdater.CHANNEL_GITHUB_STABLE
+        const val CHANNEL_GITHUB_LATEST = AppUpdater.CHANNEL_GITHUB_LATEST
+        const val CHANNEL_STABLE = CHANNEL_GITEE_STABLE
+        const val CHANNEL_BETA = CHANNEL_GITEE_LATEST
     }
 }
 

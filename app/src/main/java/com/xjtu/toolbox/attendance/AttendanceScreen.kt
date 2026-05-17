@@ -3,9 +3,9 @@ package com.xjtu.toolbox.attendance
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
-import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.DropdownItem
+import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
@@ -16,6 +16,10 @@ import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import top.yukonga.miuix.kmp.basic.TabRowWithContour
 import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
+import top.yukonga.miuix.kmp.basic.SnackbarDuration
+import top.yukonga.miuix.kmp.basic.SnackbarHost
+import top.yukonga.miuix.kmp.basic.SnackbarHostState
+import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -23,48 +27,53 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.*
-import com.xjtu.toolbox.ui.components.AppDropdownMenu
-import com.xjtu.toolbox.ui.components.AppDropdownMenuItem
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import com.xjtu.toolbox.LocalAppLoginState
+import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.AuthExpiredException
+import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.auth.AttendanceLogin
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.AppFilterChip
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AttendanceScreen(
-    login: AttendanceLogin,
+    site: SiteSession,
     onBack: () -> Unit
 ) {
-    val api = remember { AttendanceApi(login) }
+    val isPostgraduate = site.siteKey == "pg_attendance"
+    val appLoginState = LocalAppLoginState.current
+    val api = remember(site) { AttendanceApi(site) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
 
     var records by remember { mutableStateOf<List<AttendanceWaterRecord>>(emptyList()) }
     var courseStats by remember { mutableStateOf<List<CourseAttendanceStat>>(emptyList()) }
@@ -77,8 +86,8 @@ fun AttendanceScreen(
     var termList by remember { mutableStateOf<List<TermInfo>>(emptyList()) }
     var currentTermBh by remember { mutableStateOf("") }
     var selectedTermBh by rememberSaveable { mutableStateOf("") }
-    var selectedTermName by rememberSaveable { mutableStateOf("") }
-    var termDropdownExpanded by remember { mutableStateOf(false) }
+    var loadJob by remember { mutableStateOf<Job?>(null) }
+    var loadGeneration by remember { mutableIntStateOf(0) }
 
     // 周次筛选（null = 全部）
     var selectedWeek by rememberSaveable { mutableStateOf<Int?>(null) }
@@ -88,47 +97,79 @@ fun AttendanceScreen(
     var searchQuery by rememberSaveable { mutableStateOf("") }
 
     fun loadData(termBh: String? = null) {
-        isLoading = true
+        loadJob?.cancel()
+        val myGeneration = ++loadGeneration
+        fun ensureLatest() {
+            if (myGeneration != loadGeneration) {
+                throw kotlinx.coroutines.CancellationException("superseded by newer attendance load")
+            }
+        }
+        isLoading = records.isEmpty()
         errorMessage = null
-        scope.launch {
+        loadJob = scope.launch {
             try {
                 withContext(Dispatchers.IO) {
-                    // 并行加载学生信息和学期列表
-                    val infoDeferred = async { api.getStudentInfo() }
-                    val termListDeferred = async {
-                        try { api.getTermList() } catch (_: Exception) { emptyList() }
-                    }
-                    // 只在首次加载时获取当前学期编号
-                    val currentTermDeferred = if (currentTermBh.isEmpty()) async {
-                        try { api.getTermBh() } catch (_: Exception) { "" }
-                    } else null
-
-                    val info = infoDeferred.await()
+                    // 学校端较脆弱，元数据按顺序取，避免进入页面时瞬间打出三路请求。
+                    val info = api.getStudentInfo()
+                    ensureLatest()
                     studentName = info["name"] as? String ?: ""
-                    termList = termListDeferred.await()
-                    currentTermDeferred?.await()?.let { currentTermBh = it }
+
+                    val fetchedTerms = api.getTermList()
+                    ensureLatest()
+                    termList = fetchedTerms
+
+                    if (currentTermBh.isEmpty()) {
+                        try {
+                            val fetchedCurrentTerm = api.getTermBh()
+                            ensureLatest()
+                            currentTermBh = fetchedCurrentTerm
+                        }
+                        catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                        catch (e: AuthExpiredException) { throw e }
+                        catch (_: Exception) { currentTermBh = "" }
+                    }
 
                     // 确定要查询的学期
                     val bh = termBh ?: currentTermBh
                     if (bh.isNotEmpty()) {
                         selectedTermBh = bh
-                        selectedTermName = termList.firstOrNull { it.bh == bh }?.name ?: "当前学期"
                     }
 
                     // 加载考勤记录（历史学期需要日期范围）
                     val isCurrentTerm = termBh == null || bh == currentTermBh
                     val termInfo = termList.firstOrNull { it.bh == bh }
-                    val fetchedRecords = if (!isCurrentTerm && termInfo != null && termInfo.startDate.isNotEmpty()) {
+                    val cachedSnapshot = AttendanceCache.load(context, isPostgraduate)
+                    val canAppendCurrent = isCurrentTerm &&
+                        cachedSnapshot?.selectedTermBh == bh &&
+                        cachedSnapshot.records.isNotEmpty()
+                    val fetchedRecords = if (canAppendCurrent) {
+                        val cachedRecords = cachedSnapshot?.records.orEmpty()
+                        val latestCachedDate = cachedRecords
+                            .mapNotNull { runCatching { java.time.LocalDate.parse(it.date) }.getOrNull() }
+                            .maxOrNull()
+                        val refreshStart = latestCachedDate?.minusDays(2)?.toString().orEmpty()
+                        val fresh = api.getWaterRecords(
+                            bh.ifEmpty { null },
+                            startDate = refreshStart,
+                            endDate = java.time.LocalDate.now().toString()
+                        )
+                        (fresh + cachedRecords)
+                            .distinctBy { "${it.sbh}|${it.date}|${it.courseName}|${it.startTime}|${it.location}" }
+                            .sortedByDescending { it.date }
+                    } else if (!isCurrentTerm && termInfo != null && termInfo.startDate.isNotEmpty()) {
                         api.getWaterRecords(bh, startDate = termInfo.startDate, endDate = termInfo.endDate)
                     } else {
                         api.getWaterRecords(bh.ifEmpty { null })
                     }
+                    ensureLatest()
                     records = fetchedRecords
 
                     // 课程统计：当前学期用 getKqtjCurrentWeek，历史学期用 getKqtjByTime + 回退
-                    courseStats = if (isCurrentTerm) {
+                    val fetchedStats = if (isCurrentTerm) {
                         try {
                             api.getKqtjCurrentWeek()
+                        } catch (e: AuthExpiredException) {
+                            throw e
                         } catch (_: Exception) {
                             api.computeCourseStatsFromRecords(fetchedRecords)
                         }
@@ -143,31 +184,68 @@ fun AttendanceScreen(
                             } else {
                                 emptyList()
                             }
+                        } catch (e: AuthExpiredException) {
+                            throw e
                         } catch (_: Exception) { emptyList() }
                         // 3) API 为空则从 records 直接聚合
                         statsFromApi.ifEmpty { api.computeCourseStatsFromRecords(fetchedRecords) }
                     }
+                    ensureLatest()
+                    courseStats = fetchedStats
+                    AttendanceCache.save(
+                        context,
+                        isPostgraduate,
+                        AttendanceSnapshot(
+                            studentName = studentName,
+                            termList = termList,
+                            currentTermBh = currentTermBh,
+                            selectedTermBh = selectedTermBh,
+                            records = fetchedRecords,
+                            courseStats = fetchedStats,
+                            savedAt = System.currentTimeMillis()
+                        )
+                    )
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.ATTENDANCE, Routes.ATTENDANCE, onBack)
             } catch (e: Exception) {
                 errorMessage = "加载失败: ${e.message}"
+                if (records.isNotEmpty()) {
+                    snackbarHostState.showSnackbar(
+                        "考勤更新失败，当前显示上次缓存的数据",
+                        duration = SnackbarDuration.Long
+                    )
+                }
             } finally {
-                isLoading = false
+                if (myGeneration == loadGeneration) {
+                    isLoading = false
+                }
             }
         }
     }
 
-    fun switchTerm(bh: String, name: String) {
+    fun switchTerm(bh: String) {
         if (bh == selectedTermBh) return
         selectedTermBh = bh
-        selectedTermName = name
         selectedWeek = null
         selectedStatus = null
         loadData(bh)
     }
 
-    LaunchedEffect(Unit) { loadData() }
+    LaunchedEffect(Unit) {
+        AttendanceCache.load(context, isPostgraduate)?.let { cached ->
+            studentName = cached.studentName
+            termList = cached.termList
+            currentTermBh = cached.currentTermBh
+            selectedTermBh = cached.selectedTermBh
+            records = cached.records
+            courseStats = cached.courseStats
+            isLoading = false
+        }
+        loadData(selectedTermBh.ifEmpty { null })
+    }
 
     // 派生数据
     val maxWeek = remember(records) { records.maxOfOrNull { it.week } ?: 0 }
@@ -195,9 +273,17 @@ fun AttendanceScreen(
     val totalLeave = displayRecords.count { it.status == WaterType.LEAVE }
     val attendanceRate = if (displayRecords.isNotEmpty())
         (totalNormal + totalLeave) * 100 / displayRecords.size else 100
+    val termItems = remember(termList) { termList.map { DropdownItem(text = it.name) } }
+    val selectedTermIndex = termList.indexOfFirst { it.bh == selectedTermBh }.coerceAtLeast(0)
+    val weekItems = remember(maxWeek) {
+        listOf(DropdownItem(text = "全部周次")) +
+                (1..maxWeek).map { DropdownItem(text = "第${it}周") }
+    }
+    val selectedWeekIndex = if (maxWeek > 0) selectedWeek?.coerceIn(1, maxWeek) ?: 0 else 0
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = "考勤查询",
@@ -219,7 +305,7 @@ fun AttendanceScreen(
     ) { padding ->
         if (isLoading) {
             LoadingState(message = "加载考勤数据...", modifier = Modifier.fillMaxSize().padding(padding))
-        } else if (errorMessage != null) {
+        } else if (errorMessage != null && records.isEmpty()) {
             ErrorState(
                 message = errorMessage!!,
                 onRetry = { loadData() },
@@ -230,92 +316,50 @@ fun AttendanceScreen(
                 Modifier
                     .fillMaxSize()
                     .padding(padding)
-                    .background(MiuixTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+                    .background(MiuixTheme.colorScheme.surface)
                     .nestedScroll(scrollBehavior.nestedScrollConnection)
             ) {
-                // 学期选择器
-                Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = top.yukonga.miuix.kmp.utils.SinkFeedback()
-                            ) { termDropdownExpanded = true },
-                        shape = RoundedCornerShape(12.dp),
-                        color = MiuixTheme.colorScheme.surface
-                    ) {
-                        Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(selectedTermName.ifEmpty { "选择学期" },
-                                style = MiuixTheme.textStyles.body1)
-                            Icon(Icons.Default.ArrowDropDown, null)
-                        }
-                    }
-                    AppDropdownMenu(
-                        expanded = termDropdownExpanded,
-                        onDismissRequest = { termDropdownExpanded = false }
-                    ) {
-                        termList.forEach { term ->
-                            AppDropdownMenuItem(
-                                text = { Text(term.name) },
-                                onClick = {
-                                    switchTerm(term.bh, term.name)
-                                    termDropdownExpanded = false
-                                },
-                                trailingIcon = {
-                                    if (term.bh == selectedTermBh)
-                                        Icon(Icons.Default.Check, null, tint = MiuixTheme.colorScheme.primary)
-                                }
-                            )
-                        }
-                    }
-                }
-
-                // 周次快速筛选
-                if (maxWeek > 0) {
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 12.dp)
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        AppFilterChip(
-                            selected = selectedWeek == null,
-                            onClick = { selectedWeek = null },
-                            label = "全部周",
-                            modifier = Modifier.height(32.dp)
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    colors = CardDefaults.defaultColors(
+                        color = MiuixTheme.colorScheme.secondaryContainer
+                    )
+                ) {
+                    if (termItems.isNotEmpty()) {
+                        OverlaySpinnerPreference(
+                            title = "学期",
+                            summary = "选择要查询的学期",
+                            items = termItems,
+                            selectedIndex = selectedTermIndex,
+                            onSelectedIndexChange = { index ->
+                                termList.getOrNull(index)?.let { switchTerm(it.bh) }
+                            }
                         )
-                        for (w in 1..maxWeek) {
-                            val weekRecordCount = records.count { it.week == w }
-                            val hasIssue = records.any { it.week == w &&
-                                    (it.status == WaterType.ABSENCE || it.status == WaterType.LATE) }
-                            AppFilterChip(
-                                selected = selectedWeek == w,
-                                onClick = { selectedWeek = if (selectedWeek == w) null else w },
-                                label = "$w",
-                                modifier = Modifier.height(32.dp),
-                                unselectedContainerColor = when {
-                                    hasIssue -> MiuixTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
-                                    weekRecordCount == 0 -> MiuixTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                                    else -> Color.Transparent
-                                }
-                            )
-                        }
+                    }
+                    if (maxWeek > 0) {
+                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                        OverlaySpinnerPreference(
+                            title = "周次",
+                            summary = if (selectedWeek == null) {
+                                "查看整个学期"
+                            } else {
+                                "${displayRecords.size} 条记录"
+                            },
+                            items = weekItems,
+                            selectedIndex = selectedWeekIndex,
+                            onSelectedIndexChange = { index ->
+                                selectedWeek = index.takeIf { it > 0 }
+                            }
+                        )
                     }
                 }
 
-                // Tab
-                Surface(modifier = Modifier.fillMaxWidth(), color = MiuixTheme.colorScheme.surface) {
                 TabRowWithContour(
                     tabs = listOf("概览", "流水"),
                     selectedTabIndex = selectedTab,
                     onTabSelected = { selectedTab = it },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
                 )
-                }
 
                 AnimatedContent(
                     targetState = selectedTab,
@@ -396,25 +440,66 @@ private fun OverviewTab(
                         }
                     }
                     if (totalAbsence > 0) {
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            "⚠ 有 $totalAbsence 次缺勤记录" +
-                                    if (totalLate > 0) "，$totalLate 次迟到" else "",
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.error
-                        )
+                        Spacer(Modifier.height(10.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.WarningAmber, null,
+                                modifier = Modifier.size(15.dp),
+                                tint = MiuixTheme.colorScheme.error
+                            )
+                            Spacer(Modifier.width(5.dp))
+                            Text(
+                                "有 $totalAbsence 次缺勤记录" +
+                                        if (totalLate > 0) "，$totalLate 次迟到" else "",
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.error
+                            )
+                        }
                     }
+                    Spacer(Modifier.height(12.dp))
+                    val overviewBarColor = when {
+                        attendanceRate >= 90 -> MiuixTheme.colorScheme.primary
+                        attendanceRate >= 70 -> MiuixTheme.colorScheme.primaryVariant
+                        else -> MiuixTheme.colorScheme.error
+                    }
+                    val animatedOverview by animateFloatAsState(
+                        targetValue = (attendanceRate / 100f).coerceIn(0f, 1f),
+                        animationSpec = spring(dampingRatio = 0.85f, stiffness = 500f),
+                        label = "overviewBar"
+                    )
+                    LinearProgressIndicator(
+                        progress = animatedOverview,
+                        modifier = Modifier.fillMaxWidth(),
+                        height = 6.dp,
+                        colors = ProgressIndicatorDefaults.progressIndicatorColors(
+                            foregroundColor = overviewBarColor,
+                            backgroundColor = overviewBarColor.copy(alpha = 0.12f)
+                        )
+                    )
                 }
             }
         }
 
-        // 四格统计
+        // 统计信息收进同一张卡，避免仪表盘式的碎片布局。
         item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatCard("正常", totalNormal.toString(), MiuixTheme.colorScheme.primary, Modifier.weight(1f))
-                StatCard("迟到", totalLate.toString(), MiuixTheme.colorScheme.primaryVariant, Modifier.weight(1f))
-                StatCard("缺勤", totalAbsence.toString(), MiuixTheme.colorScheme.error, Modifier.weight(1f))
-                StatCard("请假", totalLeave.toString(), MiuixTheme.colorScheme.onSurfaceVariantSummary, Modifier.weight(1f))
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 14.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    StatValue("正常", totalNormal, MiuixTheme.colorScheme.primary, Modifier.weight(1f))
+                    StatValue("迟到", totalLate, MiuixTheme.colorScheme.primaryVariant, Modifier.weight(1f))
+                    StatValue("缺勤", totalAbsence, MiuixTheme.colorScheme.error, Modifier.weight(1f))
+                    StatValue(
+                        "请假",
+                        totalLeave,
+                        MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        Modifier.weight(1f)
+                    )
+                }
             }
         }
 
@@ -427,19 +512,11 @@ private fun OverviewTab(
 
             // 搜索
             item {
-                TextField(
-                    value = searchQuery,
-                    onValueChange = onSearchChange,
+                com.xjtu.toolbox.ui.components.AppSearchBar(
+                    query = searchQuery,
+                    onQueryChange = onSearchChange,
                     label = "搜索课程...",
-                    useLabelAsPlaceholder = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    leadingIcon = { Icon(Icons.Default.Search, null, Modifier.padding(start = 4.dp).size(20.dp)) },
-                    trailingIcon = {
-                        if (searchQuery.isNotEmpty()) IconButton(onClick = { onSearchChange("") }) {
-                            Icon(Icons.Default.Clear, null)
-                        }
-                    }
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
 
@@ -452,10 +529,25 @@ private fun OverviewTab(
             if (filtered.all { it.abnormalCount == 0 }) {
                 item {
                     top.yukonga.miuix.kmp.basic.Card(
-                        Modifier.fillMaxWidth()
+                        Modifier.fillMaxWidth(),
+                        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(
+                            color = MiuixTheme.colorScheme.primary.copy(alpha = 0.08f)
+                        )
                     ) {
-                        Text("✓ 所有课程出勤良好", Modifier.padding(16.dp),
-                            style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Bold)
+                        Row(
+                            Modifier.fillMaxWidth().padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.CheckCircle, null,
+                                modifier = Modifier.size(18.dp),
+                                tint = MiuixTheme.colorScheme.primary
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("所有课程出勤良好", style = MiuixTheme.textStyles.body2,
+                                fontWeight = FontWeight.Medium,
+                                color = MiuixTheme.colorScheme.primary)
+                        }
                     }
                 }
             }
@@ -553,37 +645,38 @@ private fun RecordFlowTab(
     ) {
         // 搜索框
         item {
-            TextField(
-                value = searchQuery,
-                onValueChange = onSearchChange,
+            com.xjtu.toolbox.ui.components.AppSearchBar(
+                query = searchQuery,
+                onQueryChange = onSearchChange,
                 label = "搜索课程、教室、教师...",
-                useLabelAsPlaceholder = true,
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                leadingIcon = { Icon(Icons.Default.Search, null, Modifier.padding(start = 4.dp).size(20.dp)) },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) IconButton(onClick = { onSearchChange("") }) {
-                        Icon(Icons.Default.Clear, null)
-                    }
-                }
+                modifier = Modifier.fillMaxWidth()
             )
         }
 
         // 状态筛选
         item {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AppFilterChip(
-                    selected = selectedStatus == null,
-                    onClick = { onStatusChange(null) },
-                    label = "全部 ($totalCount)",
-                    leadingIcon = { Icon(Icons.Default.FilterList, null, Modifier.size(16.dp)) }
-                )
-                WaterType.entries.forEach { type ->
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)
+            ) {
+                FlowRow(
+                    modifier = Modifier.padding(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     AppFilterChip(
-                        selected = selectedStatus == type,
-                        onClick = { onStatusChange(if (selectedStatus == type) null else type) },
-                        label = type.displayName
+                        selected = selectedStatus == null,
+                        onClick = { onStatusChange(null) },
+                        label = "全部 ($totalCount)",
+                        leadingIcon = { Icon(Icons.Default.FilterList, null, Modifier.size(16.dp)) }
                     )
+                    WaterType.entries.forEach { type ->
+                        AppFilterChip(
+                            selected = selectedStatus == type,
+                            onClick = { onStatusChange(if (selectedStatus == type) null else type) },
+                            label = type.displayName
+                        )
+                    }
                 }
             }
         }
@@ -620,16 +713,28 @@ private fun RecordFlowTab(
 }
 
 @Composable
-private fun StatCard(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
-    top.yukonga.miuix.kmp.basic.Card(
+private fun StatValue(
+    label: String,
+    value: Int,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    Column(
         modifier = modifier,
-        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surface)
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Column(Modifier.fillMaxWidth().padding(vertical = 10.dp, horizontal = 6.dp),
-            horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(value, style = MiuixTheme.textStyles.title4, color = color, fontWeight = FontWeight.Bold)
-            Text(label, style = MiuixTheme.textStyles.footnote1)
-        }
+        Text(
+            value.toString(),
+            style = MiuixTheme.textStyles.title3,
+            color = if (value == 0) MiuixTheme.colorScheme.onSurfaceVariantSummary else color,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(Modifier.height(3.dp))
+        Text(
+            label,
+            style = MiuixTheme.textStyles.footnote1,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+        )
     }
 }
 
@@ -645,29 +750,38 @@ private fun AttendanceRecordCard(record: AttendanceWaterRecord) {
         modifier = Modifier.fillMaxWidth(),
         colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surface)
     ) {
-        Row(Modifier.fillMaxWidth().padding(12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min),
             verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(record.courseName.ifEmpty { record.location },
-                    style = MiuixTheme.textStyles.body1)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (record.courseName.isNotEmpty()) {
-                        Text(record.location, style = MiuixTheme.textStyles.footnote1,
+            Box(
+                Modifier.width(3.dp).fillMaxHeight()
+                    .padding(vertical = 10.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(statusColor)
+            )
+            Row(Modifier.weight(1f).padding(start = 11.dp, top = 12.dp, bottom = 12.dp, end = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(record.courseName.ifEmpty { record.location },
+                        style = MiuixTheme.textStyles.body1)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (record.courseName.isNotEmpty()) {
+                            Text(record.location, style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                        }
+                        Text("第${record.week}周 · 第${record.startTime}-${record.endTime}节",
+                            style = MiuixTheme.textStyles.footnote1,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
-                    Text("第${record.week}周 · 第${record.startTime}-${record.endTime}节",
-                        style = MiuixTheme.textStyles.footnote1,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                    if (record.teacher.isNotEmpty()) {
+                        Text(record.teacher, style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                    }
                 }
-                if (record.teacher.isNotEmpty()) {
-                    Text(record.teacher, style = MiuixTheme.textStyles.footnote1,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                Surface(shape = RoundedCornerShape(8.dp), color = statusColor.copy(alpha = 0.12f)) {
+                    Text(record.status.displayName, Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                        style = MiuixTheme.textStyles.footnote1, color = statusColor, fontWeight = FontWeight.Bold)
                 }
-            }
-            Surface(shape = RoundedCornerShape(6.dp), color = statusColor.copy(alpha = 0.12f)) {
-                Text(record.status.displayName, Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                    style = MiuixTheme.textStyles.footnote1, color = statusColor, fontWeight = FontWeight.Bold)
             }
         }
     }

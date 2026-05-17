@@ -2,6 +2,7 @@ package com.xjtu.toolbox.util
 
 import okhttp3.Interceptor
 import okhttp3.Response
+import java.net.URI
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
@@ -61,6 +62,26 @@ object WebVpnUtil {
      * 例: http://bkkq.xjtu.edu.cn/path → https://webvpn.xjtu.edu.cn/http/77726476706e697374686562657374218b8559...ef/path
      */
     fun getVpnUrl(url: String): String {
+        val trimmed = url.trim()
+        if (isWebVpnUrl(trimmed)) return trimmed
+
+        return try {
+            val uri = URI(trimmed)
+            val protocol = uri.scheme ?: return trimmed
+            val domain = uri.host ?: return legacyGetVpnUrl(trimmed)
+            val port = if (uri.port >= 0) "-${uri.port}" else ""
+            val path = uri.rawPath.orEmpty().removePrefix("/")
+            val query = uri.rawQuery?.let { "?$it" }.orEmpty()
+            val fragment = uri.rawFragment?.let { "#$it" }.orEmpty()
+            val suffix = "$path$query$fragment"
+            val encryptedDomain = encryptHostname(domain)
+            "https://$INSTITUTION/$protocol$port/$IV_HEX$encryptedDomain/$suffix"
+        } catch (_: Exception) {
+            legacyGetVpnUrl(trimmed)
+        }
+    }
+
+    private fun legacyGetVpnUrl(url: String): String {
         val parts = url.split("://", limit = 2)
         if (parts.size < 2) return url
 
@@ -68,7 +89,7 @@ object WebVpnUtil {
         val rest = parts[1]
 
         val segments = rest.split("/", limit = 2)
-        val hostPort = segments[0]
+        val hostPort = segments[0].substringBefore("?").substringBefore("#")
         val path = if (segments.size > 1) segments[1] else ""
 
         val domain = hostPort.split(":")[0]
@@ -84,6 +105,27 @@ object WebVpnUtil {
      */
     fun isWebVpnUrl(url: String): Boolean =
         url.startsWith("https://$INSTITUTION") || url.startsWith("http://$INSTITUTION")
+
+    /**
+     * 判断 [finalUrl] 是否表示已成功登录目标站点（[targetHost] 不带 scheme，如 "lms.xjtu.edu.cn"），
+     * 兼容直连 / WebVPN 两种模式。
+     *
+     * 规则：
+     * 1. 必须不在 CAS 登录页（`login.xjtu.edu.cn/cas/login`）
+     * 2. 直连模式：finalUrl 包含 targetHost
+     * 3. WebVPN 模式：解出原始 URL 后包含 targetHost
+     */
+    fun isAtTargetSite(finalUrl: String, targetHost: String): Boolean {
+        if (finalUrl.contains("login.xjtu.edu.cn/cas/login", ignoreCase = true)) return false
+        if (finalUrl.contains(targetHost, ignoreCase = true) &&
+            !finalUrl.contains("login.xjtu.edu.cn", ignoreCase = true)) return true
+        if (isWebVpnUrl(finalUrl)) {
+            val original = getOriginalUrl(finalUrl) ?: return false
+            return original.contains(targetHost, ignoreCase = true) &&
+                !original.contains("login.xjtu.edu.cn", ignoreCase = true)
+        }
+        return false
+    }
 
     /**
      * AES-128-CFB 解密（与加密对称）
@@ -180,10 +222,9 @@ class WebVpnInterceptor : Interceptor {
             return chain.proceed(request)
         }
 
-        // CAS 认证服务器是公开的，不走 WebVPN（直接访问才能正确携带 TGC cookie 实现 SSO）
-        if (host == "login.xjtu.edu.cn") {
-            return chain.proceed(request)
-        }
+        // 注意：login.xjtu.edu.cn 也必须走 webvpn 代理！
+        // 校外环境下 login.xjtu.edu.cn DNS 解析到内网 IP（202.117.x.x）不可达。
+        // 通过 webvpn 反向代理是校外访问 CAS 的唯一通路。
 
         val vpnUrl = WebVpnUtil.getVpnUrl(url)
         val newRequest = request.newBuilder().url(vpnUrl).build()
