@@ -48,7 +48,7 @@ enum class LoginType(val label: String, val description: String) {
     VENUE("体育场馆", "运动场地预订"),
     CLASS("课程平台", "课程回放 · TronClass"),
     LMS("思源学堂", "课程 · 作业 · 回放"),
-    JIAOCAI("教材中心", "在线阅览 · PDF 下载"),
+    JIAOCAI("教材中心", "教材查询"),
     COUPON("加餐券", "电子券 · 余额与有效期");
 
     /**

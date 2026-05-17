@@ -216,6 +216,12 @@ fun EmptyRoomScreen(
     // 仅 cache miss 的建筑才进网络。日期/校区变化时缓存自然失效（不参与命中的 key 不同）。
     val buildingCache = remember { mutableStateMapOf<String, List<RoomInfo>>() }
 
+    // [并发计数] 每次 LaunchedEffect 启动 +1，用 generation 标记当前查询。
+    // 旧 coroutine 在新 LaunchedEffect 启动后 myGen != queryGenCount，禁止更新 UI。
+    // 这比 coroutineContext[Job].isActive 更可靠：Compose Coroutines 在 withContext 后
+    // 父 Job 状态判断有时不及时，导致旧 coroutine 误判 active 继续写 UI。
+    val queryGenCount = remember { mutableIntStateOf(0) }
+
     LaunchedEffect(selectedCampus, selectedBuildings, selectedDate, useDirectQuery) {
         // [debounce] 用户在 BottomSheet 里连续勾选多个教学楼时，selectedBuildings 短时间变化多次。
         // 350ms 防抖：连续操作只触发最后一次。这一步本身 suspend，coroutine cancel 会立即跳过。
@@ -223,12 +229,8 @@ fun EmptyRoomScreen(
         val active = selectedBuildings.filter { it.isNotEmpty() }.toSet()
         if (active.isEmpty()) return@LaunchedEffect
 
-        // [关键] 持有当前 coroutine 的 Job 引用：
-        // OkHttp 同步阻塞 IO 不响应 Kotlin Job cancel，旧 coroutine 在 LaunchedEffect 重启时被 cancel
-        // 但 in-flight HTTP 调用仍跑完。必须用 jobRef.isActive 在每个边界检查，**禁止**已 cancel 的 coroutine
-        // 更新 UI state（rooms / isLoading / directProgress），避免新旧并行写入造成进度条交替闪烁。
-        val jobRef = kotlin.coroutines.coroutineContext[kotlinx.coroutines.Job]!!
-        fun activeCheck(): Boolean = jobRef.isActive
+        val myGen = ++queryGenCount.intValue
+        fun isLatest(): Boolean = myGen == queryGenCount.intValue
 
         // 拆分 cache hit vs miss
         val cachedRows = mutableListOf<RoomInfo>()
@@ -240,13 +242,11 @@ fun EmptyRoomScreen(
         }
         // 全部命中 cache → 不发任何请求
         if (toFetch.isEmpty()) {
-            if (activeCheck()) {
-                android.util.Log.d("EmptyRoomScreen", "all ${active.size} buildings cache hit, no network")
-                rooms = cachedRows.sortedBy { it.name }
-                errorMessage = null
-                isLoading = false
-                directProgress = null
-            }
+            android.util.Log.d("EmptyRoomScreen", "gen=$myGen all ${active.size} buildings cache hit")
+            rooms = cachedRows.sortedBy { it.name }
+            errorMessage = null
+            isLoading = false
+            directProgress = null
             return@LaunchedEffect
         }
 
@@ -261,21 +261,17 @@ fun EmptyRoomScreen(
                     val merged = mutableListOf<RoomInfo>().also { it.addAll(cachedRows) }
                     val totalBuildings = toFetch.size
                     toFetch.forEachIndexed { idx, building ->
-                        if (!activeCheck()) {
-                            throw kotlinx.coroutines.CancellationException("user cancelled empty-room query")
+                        if (!isLatest()) {
+                            throw kotlinx.coroutines.CancellationException("superseded by newer query")
                         }
                         try {
                             val rows = direct.queryDay(selectedCampus, building, selectedDate) { period, total ->
-                                // 进度回调可能在 OkHttp 完成后回到本 coroutine 调用 —— 只有 active 才更新 UI
-                                if (activeCheck()) {
+                                if (isLatest()) {
                                     directProgress = (idx * total + period) to (totalBuildings * total)
                                 }
                             }
-                            // 落 cache + 累加 only when still active
-                            if (activeCheck()) {
-                                buildingCache["$selectedCampus|$building|$selectedDate"] = rows
-                                merged.addAll(rows)
-                            }
+                            buildingCache["$selectedCampus|$building|$selectedDate"] = rows
+                            merged.addAll(rows)
                         } catch (e: NoDataException) {
                             android.util.Log.w("EmptyRoomScreen", "direct skip $building: ${e.message}")
                         }
@@ -285,20 +281,21 @@ fun EmptyRoomScreen(
                     api.getEmptyRoomsMulti(selectedCampus, active, selectedDate)
                 }
             }
-            if (activeCheck()) rooms = result
+            if (isLatest()) rooms = result
         } catch (e: kotlin.coroutines.cancellation.CancellationException) {
-            throw e
+            // 旧查询被新查询取代，不更新 UI；不再 rethrow（rethrow 会让 LaunchedEffect 抛异常）
+            android.util.Log.d("EmptyRoomScreen", "gen=$myGen cancelled (newer gen ${queryGenCount.intValue})")
         } catch (e: NoDataException) {
-            if (activeCheck()) { errorMessage = e.message; rooms = emptyList() }
+            if (isLatest()) { errorMessage = e.message; rooms = emptyList() }
         } catch (e: java.net.ConnectException) {
-            if (activeCheck()) errorMessage = "网络不可用，请检查连接"
+            if (isLatest()) errorMessage = "网络不可用，请检查连接"
         } catch (e: java.net.SocketTimeoutException) {
-            if (activeCheck()) errorMessage = "网络不可用，请检查连接"
+            if (isLatest()) errorMessage = "网络不可用，请检查连接"
         } catch (e: Exception) {
-            if (activeCheck()) errorMessage = "查询失败：${e.message ?: "未知错误"}"
+            if (isLatest()) errorMessage = "查询失败：${e.message ?: "未知错误"}"
         } finally {
-            // [关键] 旧 coroutine cancel 后的 finally 不能覆盖新 coroutine 已设置的 isLoading=true
-            if (activeCheck()) {
+            // 只有最新一代查询才能更新 isLoading=false，避免旧 coroutine 覆盖新 coroutine 的 isLoading=true
+            if (isLatest()) {
                 isLoading = false
                 directProgress = null
             }
