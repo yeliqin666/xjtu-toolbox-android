@@ -105,7 +105,10 @@ data class GpaInfo(
 
 class JwappApi(private val login: JwappLogin) {
 
-    private val baseUrl = "http://jwapp.xjtu.edu.cn"
+    // [关键] 必须 https。OkHttp 在 http→https 跨协议重定向时**自动剥离 Authorization header**（防 token leak），
+    // 校园网直连模式下 jwapp 把 http 请求 302 到 https → token 丢失 → 服务端返 401 "Authentication error"。
+    // WebVPN 模式下因为请求经 webvpn.xjtu.edu.cn（https 一跳到位）而能正常工作。
+    private val baseUrl = "https://jwapp.xjtu.edu.cn"
     private val gson = Gson()
 
     // [J1] TimeTableBasis 内存缓存（学期内不变，避免重复网络请求）

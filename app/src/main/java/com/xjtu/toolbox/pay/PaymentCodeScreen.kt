@@ -37,12 +37,12 @@ import com.google.zxing.EncodeHintType
 import com.google.zxing.common.BitMatrix
 import com.google.zxing.oned.Code128Writer
 import com.google.zxing.qrcode.QRCodeWriter
+import com.xjtu.toolbox.auth.CampusCardLogin
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import okhttp3.OkHttpClient
 
 private const val REFRESH_SECONDS = 12
 private const val AUTH_TIMEOUT_MS = 20_000L
@@ -74,10 +74,10 @@ private fun generateBarcode(text: String, width: Int = 800, height: Int = 200): 
 
 @Composable
 fun PaymentCodeDialog(
-    client: OkHttpClient,
+    login: CampusCardLogin,
     onDismiss: () -> Unit
 ) {
-    val api = remember { PaymentCodeApi(client) }
+    val api = remember(login) { PaymentCodeApi(login) }
     val context = LocalContext.current
 
     var isLoading by remember { mutableStateOf(true) }

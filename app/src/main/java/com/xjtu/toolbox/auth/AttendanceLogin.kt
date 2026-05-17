@@ -211,6 +211,40 @@ class JwxtLogin(
     cachedRsaKey: String? = null
 ) : XJTULogin(JWXT_URL, session, visitorId, cachedRsaKey) {
 
+    override fun postLogin(response: okhttp3.Response) {
+        val finalUrl = response.request.url.toString()
+        // OAuth client_id=1675 → callbackAuthorize → openplatform → jwxt 三跳。
+        // CAS 服务端常返回 200 + form auto-submit，OkHttp 不会自动提交 form，
+        // finalUrl 卡在 cas/login?service=callbackAuthorize 阶段。
+        // 此时 TGC 已建立——重访 JWXT_URL，CAS 看到 TGC 直接 302 把整条链走完。
+        if (com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(finalUrl, "jwxt.xjtu.edu.cn")) return
+        android.util.Log.w("JwxtLogin", "postLogin: finalUrl not at jwxt ($finalUrl), retry LOGIN_URL with TGC")
+        val retryResp: okhttp3.Response
+        val retryBody: String
+        try {
+            retryResp = client.newCall(
+                okhttp3.Request.Builder().url(JWXT_URL).get().build()
+            ).execute()
+            retryBody = retryResp.body?.string() ?: ""
+        } catch (e: Exception) {
+            android.util.Log.e("JwxtLogin", "postLogin: retry failed", e)
+            throw RuntimeException("教务系统 SSO 未完成跳转，需要重新登录")
+        }
+        val retryUrl = retryResp.request.url.toString()
+        // CAS Safety Verify 二次认证拦截：必须由主 login() 状态机接管转 REQUIRE_MFA。
+        // probe 实证 JWXT (client_id=1675) 即使在 webvpn session 已建立时也会触发。
+        if (XJTULogin.isSafetyVerifyPage(retryBody)) {
+            android.util.Log.w("JwxtLogin", "postLogin: retry hit SAFETY_VERIFY, escalating")
+            throw SafetyVerifyRequiredException(retryResp, retryBody)
+        }
+        if (com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(retryUrl, "jwxt.xjtu.edu.cn")) {
+            android.util.Log.d("JwxtLogin", "postLogin: retry succeeded, finalUrl=$retryUrl")
+            return
+        }
+        android.util.Log.w("JwxtLogin", "postLogin: retry still not at jwxt, finalUrl=$retryUrl")
+        throw RuntimeException("教务系统 SSO 未完成跳转，需要重新登录")
+    }
+
     override fun validateLogin(): Boolean {
         return try {
             val request = okhttp3.Request.Builder()
@@ -220,7 +254,7 @@ class JwxtLogin(
             val finalUrl = response.request.url.toString()
             val code = response.code
             response.close()
-            code == 200 && !finalUrl.contains("login.xjtu.edu.cn")
+            code == 200 && !finalUrl.contains("login.xjtu.edu.cn/cas/login", ignoreCase = true)
         } catch (_: Exception) { false }
     }
 

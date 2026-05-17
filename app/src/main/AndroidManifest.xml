@@ -10,9 +10,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SHORT_SERVICE" />
 
-    <!-- 校园网（XJTU_STU）自动登录：读取当前 SSID 判断是否处于校园 WiFi -->
+    <!-- 校园网（XJTU_STU）自动登录：读取当前 SSID 判断是否处于校园 WiFi。
+         仅需 ACCESS_WIFI_STATE 读取连接信息 + 定位权限取得 SSID（Android 10+ 必须）。
+         不申请 CHANGE_WIFI_STATE：本应用不修改 WiFi 状态，避免高版本 Android 沙盒拒装。 -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
-    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 

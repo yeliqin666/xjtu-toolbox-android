@@ -127,36 +127,6 @@ class CredentialStore(context: Context) {
 
     fun loadNickname(): String? = prefs.getString(KEY_NICKNAME, null)
 
-    // ── NSA 个人信息持久化（首次登录全量加载，后续冷启动复用） ──
-
-    /** 保存 NSA 个人信息 JSON（NsaStudentProfile.toJson()） */
-    fun saveNsaProfile(json: String) {
-        prefs.edit().putString(KEY_NSA_PROFILE, json).apply()
-    }
-
-    /** 加载缓存的 NSA 个人信息 JSON */
-    fun loadNsaProfile(): String? = prefs.getString(KEY_NSA_PROFILE, null)
-
-    /** 保存 NSA 学生证照片到内部文件 */
-    fun saveNsaPhoto(bytes: ByteArray) {
-        try {
-            appContext.openFileOutput(NSA_PHOTO_FILE, Context.MODE_PRIVATE).use { it.write(bytes) }
-        } catch (e: Exception) {
-            android.util.Log.w("CredentialStore", "saveNsaPhoto failed", e)
-        }
-    }
-
-    /** 加载缓存的 NSA 学生证照片 */
-    fun loadNsaPhoto(): ByteArray? = try {
-        appContext.openFileInput(NSA_PHOTO_FILE).use { it.readBytes() }
-    } catch (_: Exception) { null }
-
-    /** 清除 NSA 缓存（退出登录时调用） */
-    fun clearNsaCache() {
-        prefs.edit().remove(KEY_NSA_PROFILE).apply()
-        try { appContext.deleteFile(NSA_PHOTO_FILE) } catch (_: Exception) {}
-    }
-
     // ── 用户协议 & 公告（非敏感，使用普通 SharedPreferences） ──
 
     private val appPrefs: SharedPreferences =
@@ -196,15 +166,17 @@ class CredentialStore(context: Context) {
     fun getAppPrefs(): SharedPreferences = appPrefs
 
     var navBarStyle: String
-        get() = appPrefs.getString(KEY_NAV_BAR_STYLE, NAV_STYLE_FLOATING) ?: NAV_STYLE_FLOATING
+        get() = appPrefs.getString(KEY_NAV_BAR_STYLE, NAV_STYLE_CLASSIC) ?: NAV_STYLE_CLASSIC
         set(value) { appPrefs.edit().putString(KEY_NAV_BAR_STYLE, value).apply() }
 
     var darkMode: String
         get() = appPrefs.getString(KEY_DARK_MODE, DARK_MODE_SYSTEM) ?: DARK_MODE_SYSTEM
         set(value) { appPrefs.edit().putString(KEY_DARK_MODE, value).apply() }
 
+    // 默认启动 tab 改为日程（COURSES）：课表是用户最常用的核心功能，
+    // 直接进日程减少一次点击。设置页可改回首页或其他。
     var defaultTab: String
-        get() = appPrefs.getString(KEY_DEFAULT_TAB, TAB_HOME) ?: TAB_HOME
+        get() = appPrefs.getString(KEY_DEFAULT_TAB, TAB_COURSES) ?: TAB_COURSES
         set(value) { appPrefs.edit().putString(KEY_DEFAULT_TAB, value).apply() }
 
     var networkMode: String
@@ -230,8 +202,6 @@ class CredentialStore(context: Context) {
         private const val KEY_RSA_PUBLIC_KEY = "rsa_public_key"
         private const val KEY_RSA_KEY_TIME = "rsa_key_time"
         private const val KEY_NICKNAME = "cached_nickname"
-        private const val KEY_NSA_PROFILE = "nsa_profile_json"
-        private const val NSA_PHOTO_FILE = "nsa_photo.jpg"
         private const val KEY_EULA_VERSION = "eula_accepted_version"
         /** 用户协议版本号，更新协议内容时递增 */
         const val CURRENT_EULA_VERSION = 2

@@ -199,7 +199,7 @@ fun ScheduleScreen(
         showingStaleData = false
         scope.launch {
             try {
-                // ── 离线模式：无 login 时仅从缓存加载 ──
+                // 未登录态：仅展示缓存，不打断流程
                 if (api == null) {
                     withContext(Dispatchers.IO) {
                         // 尝试从缓存中找到最近一个学期的数据
@@ -255,22 +255,10 @@ fun ScheduleScreen(
                         }
 
                         if (courses.isEmpty()) {
-                            // 区分真离线和未登录：让重试按钮的 onRetry 能决定是触发登录还是读缓存
-                            val cm = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
-                            val isOnline = cm?.activeNetwork != null &&
-                                cm.getNetworkCapabilities(cm.activeNetwork)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
-                            throw RuntimeException(
-                                if (isOnline) "尚未登录教务系统，请重试" else "当前离线且无缓存，请连网后重试"
-                            )
+                            // 无缓存：抛出空状态，由 UI 决定如何提示
+                            throw RuntimeException("暂无缓存日程")
                         }
                         showingStaleData = true
-                    }
-                    // 仅当真离线时显示"离线模式"提示；网络好但未登录时不打扰用户（背景 autoLogin 在跑）
-                    val cm = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
-                    val isOnline = cm?.activeNetwork != null &&
-                        cm.getNetworkCapabilities(cm.activeNetwork)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
-                    if (!isOnline) {
-                        scope.launch { snackbarHostState.showSnackbar("离线模式 · 显示缓存日程", duration = SnackbarDuration.Long) }
                     }
                     return@launch
                 }
@@ -486,7 +474,7 @@ fun ScheduleScreen(
 
     // 懒加载教材（切换到教材 tab 时才加载）
     fun loadTextbooks(termCode: String) {
-        if (api == null) { textbooksError = "离线模式不支持教材查询"; return }
+        if (api == null) { textbooksError = "尚未登录教务系统"; return }
         android.util.Log.d("ScheduleUI", "loadTextbooks called: studentId='$studentId', termCode='$termCode'")
         if (studentId.isBlank()) { textbooksError = "未获取到学号"; return }
         textbooksLoading = true
@@ -534,7 +522,6 @@ fun ScheduleScreen(
 
     // login==null + 有凭据 + 在线 → 自动触发 JWXT 登录（背景，不显示登录 sheet）
     // 成功后 loginState.jwxtLogin 写入，外层重组传新 login → 上面的 LaunchedEffect(login) 触发刷新。
-    // 这样用户切到日程 tab 不会长期看到"离线模式"。
     var attemptingAutoLogin by remember { mutableStateOf(false) }
     LaunchedEffect(login, appLoginState.hasCredentials) {
         if (login != null) return@LaunchedEffect
@@ -632,9 +619,16 @@ fun ScheduleScreen(
     }
 
     // 安全触发: 当 Tab 已在教材且数据未加载时自动加载
-    LaunchedEffect(selectedTab, selectedTermCode, textbooksLoaded) {
-        if (selectedTab == 2 && !textbooksLoaded && !textbooksLoading && selectedTermCode.isNotEmpty()) {
-            android.util.Log.d("ScheduleUI", "LaunchedEffect auto-loading textbooks: term=$selectedTermCode")
+    // 关键修复：把 api 也加入 key。
+    // 之前只用 selectedTab/selectedTermCode/textbooksLoaded —— 当用户首次切到「教材」tab 时
+    // jwxtLogin == null → api == null → loadTextbooks 立即报错；之后即使 jwxtLogin 异步登好
+    // 让 api 从 null 变 non-null，LaunchedEffect 因 key 没变也不会重启 → 教材永远不刷新。
+    // 只有关闭 App 重开（jwxtLogin 启动时已就绪）才能首次成功——这就是「关掉重开就好」的根因。
+    LaunchedEffect(selectedTab, selectedTermCode, textbooksLoaded, api) {
+        if (selectedTab == 2 && api != null && !textbooksLoaded && !textbooksLoading && selectedTermCode.isNotEmpty()) {
+            android.util.Log.d("ScheduleUI", "LaunchedEffect auto-loading textbooks: term=$selectedTermCode (api just became ready)")
+            // api 刚变非空时之前可能设了「尚未登录」错误，要清掉再加载
+            textbooksError = null
             loadTextbooks(selectedTermCode)
         }
     }
@@ -1006,18 +1000,32 @@ fun ScheduleScreen(
                 ErrorState(
                     message = errorMessage!!,
                     onRetry = {
-                        // 智能重试：login==null + 在线 → 触发 autoLogin（成功后 LaunchedEffect(login) 会自动刷新）
+                        // 用户主动重试：interactive=true 让 MFA 弹窗能正常工作（不被背景策略跳过）
                         if (login == null && appLoginState.hasCredentials) {
                             scope.launch {
                                 attemptingAutoLogin = true
                                 errorMessage = null
                                 isLoading = true
                                 try {
-                                    withContext(Dispatchers.IO) { appLoginState.autoLogin(LoginType.JWXT, force = true) }
+                                    withContext(Dispatchers.IO) {
+                                        appLoginState.autoLogin(LoginType.JWXT, force = true, interactive = true)
+                                    }
                                 } catch (_: Exception) {}
                                 attemptingAutoLogin = false
                                 // 若仍未拿到 login，回退到读缓存
                                 if (appLoginState.jwxtLogin == null) loadInitialData()
+                            }
+                        } else if (login != null) {
+                            // 已有 login 但请求出错（token 过期 / 网络抖动）→ 强制重新登录刷新 cookies
+                            scope.launch {
+                                errorMessage = null
+                                isLoading = true
+                                try {
+                                    withContext(Dispatchers.IO) {
+                                        appLoginState.autoLogin(LoginType.JWXT, force = true, interactive = true)
+                                    }
+                                } catch (_: Exception) {}
+                                loadInitialData()
                             }
                         } else {
                             loadInitialData()
@@ -1061,7 +1069,27 @@ fun ScheduleScreen(
                             textbooks = textbooks,
                             isLoading = textbooksLoading,
                             error = textbooksError,
-                            onRetry = { if (selectedTermCode.isNotEmpty()) loadTextbooks(selectedTermCode) },
+                            onRetry = {
+                                // 当 api==null（jwxtLogin 尚未登录），仅 retry loadTextbooks 会立即返回错误。
+                                // 必须先触发 interactive autoLogin(JWXT) 让 MFA dialog 弹出。
+                                if (api == null && appLoginState.hasCredentials) {
+                                    scope.launch {
+                                        textbooksError = null
+                                        attemptingAutoLogin = true
+                                        try {
+                                            withContext(Dispatchers.IO) {
+                                                appLoginState.autoLogin(LoginType.JWXT, force = true, interactive = true)
+                                            }
+                                        } catch (_: Exception) {}
+                                        attemptingAutoLogin = false
+                                        if (selectedTermCode.isNotEmpty() && appLoginState.jwxtLogin != null) {
+                                            loadTextbooks(selectedTermCode)
+                                        }
+                                    }
+                                } else if (selectedTermCode.isNotEmpty()) {
+                                    loadTextbooks(selectedTermCode)
+                                }
+                            },
                             bottomPadding = contentBottomPadding
                         )
                     }

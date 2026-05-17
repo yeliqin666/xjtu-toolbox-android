@@ -128,12 +128,47 @@ class PersistentCookieJar(context: Context, prefsName: String = PREFS_NAME) : Co
         saveHandler.removeCallbacksAndMessages(null)
         savePending = false
         prefs.edit().clear().apply()
-        Log.d(TAG, "All cookies cleared")
     }
 
     /** 获取指定域名下的所有 cookie */
     fun getCookiesForDomain(domain: String): List<Cookie> {
         return cookieStore[domain]?.toList() ?: emptyList()
+    }
+
+    /**
+     * 清掉某个域（精确 + 前导点变体）下的所有 cookie。
+     *
+     * 用途：JWAPP 业务 401 时，旧的 `sk` session cookie 会导致 OAuth 重定向链上 server 返回
+     * 同一个过期 token（probe 实证 prefix changed=false）。必须先清掉 jwapp 域 cookie，
+     * 让服务端重建 session 才能拿到新 token。
+     */
+    fun clearForDomain(domain: String) {
+        ensureLoaded()
+        val variants = listOf(domain, ".$domain")
+        var removed = 0
+        for (d in variants) {
+            cookieStore.remove(d)?.let { removed += it.size }
+        }
+        if (removed > 0) {
+            Log.d(TAG, "clearForDomain($domain): removed $removed cookies")
+            scheduleSaveToDisk()
+        }
+    }
+
+    /**
+     * 跨所有 domain 查找指定名称的 cookie。
+     * WebVPN 模式下子站点 cookie 实际存在 webvpn.xjtu.edu.cn 域，
+     * 直接 loadForRequest(子站点 URL) 拿不到，需要用此方法兜底。
+     */
+    fun findCookieByName(name: String): Cookie? {
+        ensureLoaded()
+        val now = System.currentTimeMillis()
+        for ((_, cookies) in cookieStore) {
+            synchronized(cookies) {
+                cookies.find { it.name == name && it.expiresAt > now }?.let { return it }
+            }
+        }
+        return null
     }
 
     // ── 序列化/反序列化 ──

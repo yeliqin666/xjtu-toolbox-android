@@ -25,6 +25,19 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "3.5.1" to VersionChangelog(
+            items = listOf(
+                "💯" to "【成绩查询】修复校园网直连模式下 401 Authentication error（http→https 重定向丢 token），现在走 https 单跳一次拿回",
+                "🔐" to "【认证】新版 CAS Safety Verify 二次安全验证全面接入：JWXT/JWAPP 等敏感系统访问时弹 MFA dialog，App 内完成短信验证不再跳浏览器",
+                "🚀" to "【启动】仅保留 JWXT 探针自动登录（课表核心），其余子系统按需懒加载，冷启动不再批量触发 MFA",
+                "🏫" to "【空闲教室】按教学楼粒度缓存查询结果，重复勾选不重查；新查询自动取消旧查询，进度条不再交替闪烁",
+                "📚" to "【教材】修复首次切换到「教材」tab 卡在「尚未登录」需要重启 App 才能加载的问题",
+                "🌐" to "【WebVPN 转换】打开链接前自动检测 WebVPN session 有效性，失效在 App 内重新登录，不再跳到网页内输账号密码",
+                "📱" to "【UI】默认改为经典底栏 + 默认进入「日程」Tab，可在设置里改回",
+                "🛡️" to "【稳定性】网络抖动/切换不再触发后台自动重登所有子系统；JWAPP 业务级 token 失效自动重新认证；修复进-退-进死循环",
+                "🔒" to "【权限精简】移除冗余的 CHANGE_WIFI_STATE 声明（应用从不修改 WiFi 状态），规避部分严格安卓沙盒环境拒装"
+            )
+        ),
         "3.5.0" to VersionChangelog(
             items = listOf(
                 "🔐" to "【MFA】自动登录遇到两步验证时弹出验证码对话框，即时完成验证继续使用功能",
