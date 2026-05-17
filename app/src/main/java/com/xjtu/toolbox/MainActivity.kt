@@ -3496,7 +3496,7 @@ private fun HomeTab(
                 Svc(Routes.SCHOOL_COURSE, Icons.Default.TravelExplore, "课程查询", "全校课程", svcCyan, "选课先踩点") { onNavigateWithLogin(Routes.SCHOOL_COURSE, LoginType.JWXT) },
                 Svc(Routes.SCHOOL_CALENDAR, Icons.Default.EventNote, "校历", "学期 · 周次", svcTeal, "看看多少假期") { onNavigate(Routes.SCHOOL_CALENDAR) },
                 Svc(Routes.NEO_COURSE, Icons.Default.Star, "拔尖课程", "NeoSchool", svcPurple, "钱院线上课程") { onNavigate(Routes.NEO_COURSE) },
-                Svc(Routes.JIAOCAI, Icons.Default.MenuBook, "教材中心", "在线阅览", svcTeal, "查询与阅读") { onNavigateWithLogin(Routes.JIAOCAI, LoginType.JIAOCAI) },
+                Svc(Routes.JIAOCAI, Icons.Default.MenuBook, "教材中心", "教材查询", svcTeal, "搜索教材书目") { onNavigateWithLogin(Routes.JIAOCAI, LoginType.JIAOCAI) },
                 Svc(Routes.WEBVPN_CONVERTER, Icons.Default.VpnKey, "WebVPN 转换", "校外访问", svcBrown, "网址互转 + 一键访问") { onNavigate(Routes.WEBVPN_CONVERTER) }
             )
             // 按使用习惯+随机决定哪些卡显示 hint（首次使用兜底默认集合）
@@ -3765,21 +3765,28 @@ private fun ProfileTab(
             loginProgress = 0.5f
 
             // ── MFA 需要：弹出两步验证对话框 ──
+            // [关键] dialog summary 文案"短信验证码已发送至 ..."必须与实际状态一致：
+            // 弹出前**立即**调 sendVerifyCode() 并设 mfaCodeSent=true，让 dialog 直接进入
+            // 「输入验证码」模式，避免出现「显示已发送但其实没发送、要再点按钮才发送」的迷惑 UX。
             if (needsMfa && jwxtLogin != null) {
                 isLoggingIn = false
                 loginStage = ""
-                // 获取手机号
                 try {
+                    val mfa = jwxtLogin!!.mfaContext!!
                     val phone = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        jwxtLogin!!.mfaContext!!.getPhoneNumber()
+                        mfa.getPhoneNumber()
+                    }
+                    // 自动发送验证码（与 summary "已发送" 文案匹配）
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        mfa.sendVerifyCode()
                     }
                     mfaLogin = jwxtLogin
                     mfaPhone = phone
                     mfaCode = ""
-                    mfaCodeSent = false
+                    mfaCodeSent = true
                     mfaError = null
                 } catch (e: Exception) {
-                    loginError = "获取 MFA 手机号失败: ${e.message}"
+                    loginError = "发送验证码失败: ${e.message}"
                 }
                 return@launch
             }
