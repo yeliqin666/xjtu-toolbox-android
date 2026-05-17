@@ -62,17 +62,33 @@ class CampusCardLogin(
     override fun postLogin(response: Response) {
         val finalUrl = response.request.url.toString()
         Log.d(TAG, "postLogin: finalUrl=$finalUrl")
-        if (!tryExtractTicketAndGetToken(finalUrl)) {
-            // 关键：没拿到 ticket → accessToken 仍为 null，整个登录是"半成品"。
-            // 必须抛异常让 autoLogin 视为失败，否则会 cache 一个 systemReady=false 的 broken login，
-            // Screen 进入后 API 401 → reAuth 也失败 → 死循环 popBack/重进 → 黑屏。
-            Log.w(TAG, "postLogin: no ticket in finalUrl=$finalUrl, throwing to trigger fallback")
-            throw RuntimeException("校园卡 SSO 未拿到 ticket，需要重新登录")
+        if (tryExtractTicketAndGetToken(finalUrl)) return
+
+        // CAS POST 后 finalUrl 经常停在中转页（org.xjtu / cas/login?service=callbackAuthorize），
+        // OkHttp 不会自动提交 form 跳转。WebVPN 模式下还会再被代理改写一层。
+        // 此时 TGC 已经建立——重新 GET LOGIN_URL，CAS 看到 TGC 直接 302 把整条跳转链走完，
+        // 落地到 ncard 带 ticket 的 URL。这是 ncard 平台的标准回退路径。
+        Log.w(TAG, "postLogin: ticket missing in finalUrl, retry LOGIN_URL with TGC")
+        try {
+            val retryResp = client.newCall(Request.Builder().url(LOGIN_URL).get().build()).execute()
+            retryResp.body?.use { it.string() }
+            val retryUrl = retryResp.request.url.toString()
+            Log.d(TAG, "postLogin: retry finalUrl=$retryUrl")
+            if (tryExtractTicketAndGetToken(retryUrl)) return
+        } catch (e: Exception) {
+            Log.e(TAG, "postLogin: retry failed", e)
         }
+        throw RuntimeException("校园卡 SSO 未拿到 ticket，需要重新登录")
     }
 
     private fun tryExtractTicketAndGetToken(url: String): Boolean {
-        if ("ncard.xjtu.edu.cn" !in url || "ticket=" !in url) return false
+        if ("ticket=" !in url) return false
+        // 直连模式：URL 必含 ncard.xjtu.edu.cn；
+        // WebVPN 模式：URL 是 webvpn.xjtu.edu.cn/<encoded>/... 解码后含 ncard.xjtu.edu.cn。
+        val isNcard = "ncard.xjtu.edu.cn" in url ||
+            (com.xjtu.toolbox.util.WebVpnUtil.isWebVpnUrl(url) &&
+             com.xjtu.toolbox.util.WebVpnUtil.getOriginalUrl(url)?.contains("ncard.xjtu.edu.cn") == true)
+        if (!isNcard) return false
 
         val queryStr = url.substringAfter("?", "")
         val params = queryStr.split("&").associate { param ->

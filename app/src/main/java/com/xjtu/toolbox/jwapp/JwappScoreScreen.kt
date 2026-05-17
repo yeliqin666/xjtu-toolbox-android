@@ -149,7 +149,7 @@ fun JwappScoreScreen(
             val cacheKey = "score_all_terms"
             var cachedScoreCount = -1
             try {
-                // 离线模式使用极长 TTL 以确保能加载缓存
+                // 未登录态使用极长 TTL 以确保能加载缓存
                 val ttl = if (api != null) com.xjtu.toolbox.util.DataCache.DEFAULT_TTL_MS else Long.MAX_VALUE
                 val cached = dataCache.get(cacheKey, ttl)
                 if (cached != null) {
@@ -159,19 +159,17 @@ fun JwappScoreScreen(
                         termList = cachedGrades.map { it.termCode to it.termName }
                         cachedScoreCount = cachedGrades.sumOf { it.scoreList.size }
                         isLoading = false  // 缓存已可用，主界面立即显示
-                        isRefreshing = api != null  // 仅在线时后台刷新
-                        android.util.Log.d("ScoreUI", "Loaded from cache: $cachedScoreCount scores, offline=${api == null}")
+                        isRefreshing = api != null  // 仅登录后才后台刷新
+                        android.util.Log.d("ScoreUI", "Loaded from cache: $cachedScoreCount scores, hasApi=${api != null}")
                     }
                 }
             } catch (_: Exception) { /* 缓存读取失败，正常加载 */ }
 
-            // 离线模式 → 只读缓存，不发网络请求
+            // 未登录态 → 仅展示缓存
             if (api == null) {
                 isRefreshing = false
                 if (allTermScores.isEmpty()) {
-                    errorMessage = "离线模式下无缓存数据，请联网后查看"
-                } else {
-                    scope.launch { snackbarHostState.showSnackbar("当前无网络，显示缓存成绩", duration = SnackbarDuration.Short) }
+                    errorMessage = "暂无成绩缓存"
                 }
                 isLoading = false
                 return@launch
@@ -326,7 +324,17 @@ fun JwappScoreScreen(
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(LoginType.JWAPP, Routes.JWAPP_SCORE, onBack)
+                // [policy] JWAPP token 服务端拒绝时（reAuth 后重试也失败），
+                // 不再立即 popBackStack 弹回主页（之前会和 markStaleAndRetry 形成"进-退-进"死循环）。
+                // 改为停留当前页，展示缓存（若有）+ snackbar/errorMessage 引导用户。
+                // 注意：login 缓存已被 reAuth 流程清掉，下次主动重试会走 full login 拿新 token。
+                if (allTermScores.isNotEmpty()) {
+                    scope.launch {
+                        snackbarHostState.showSnackbar("成绩同步暂不可用，显示缓存数据。下拉刷新可重试", duration = SnackbarDuration.Long)
+                    }
+                } else {
+                    errorMessage = "成绩查询服务暂不可用：${e.message ?: "请稍后重试"}"
+                }
             } catch (e: Exception) {
                 // 网络失败但有缓存 → 不报错，提示数据可能不是最新
                 if (allTermScores.isNotEmpty()) {
@@ -343,7 +351,9 @@ fun JwappScoreScreen(
         }
     }
 
-    LaunchedEffect(Unit) { loadScoreData() }
+    // [修复] 监听 login 变化：onRetry 中 clearLogin+autoLogin(JWAPP) 重建 JwappLogin 后，
+    // login 引用会变更，触发本 effect 用新 token 重新加载（避免 lambda 内 stale closure 问题）。
+    LaunchedEffect(login) { loadScoreData() }
 
     val currentTermScores = if (selectedTermIndex == 0 && allTermScores.isNotEmpty()) {
         // "所有学期" 选项
@@ -443,7 +453,27 @@ fun JwappScoreScreen(
             errorMessage != null -> {
                 ErrorState(
                     message = errorMessage!!,
-                    onRetry = { loadScoreData() },
+                    onRetry = {
+                        // [关键修复] 之前 onRetry 直接 loadScoreData，但 jwappLogin.authToken
+                        // 已被上一次 reAuth-失败清空，loadScoreData → authenticatedRequest 立即抛
+                        // RuntimeException("未登录") → 用户看到"加载失败: 未登录"，再点重试同样无效。
+                        // 现在改为：先 clearLogin(JWAPP) + force autoLogin(JWAPP, interactive=true)
+                        // 让状态机重建 JwappLogin（含必要的 MFA dialog），拿新 token 后再 loadScoreData。
+                        scope.launch {
+                            isLoading = true
+                            errorMessage = null
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    appLoginState.clearLogin(LoginType.JWAPP)
+                                    appLoginState.autoLogin(LoginType.JWAPP, force = true, interactive = true)
+                                }
+                            } catch (_: Exception) {}
+                            // 不管 autoLogin 是否成功都 loadScoreData：
+                            //   - 成功 → 拿新 token 重试业务请求
+                            //   - 失败 → loadScoreData 内 catch 会显示更准确的错误（含缓存兜底）
+                            loadScoreData()
+                        }
+                    },
                     modifier = Modifier.fillMaxSize().padding(padding)
                 )
             }

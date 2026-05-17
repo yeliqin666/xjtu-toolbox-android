@@ -48,6 +48,12 @@ miuix-ref/
 
 # Misc local artifacts
 build_output.txt
+
+# Refactoring / planning docs (local only, not part of repo)
+REFACTORING_PLAN.md
+PROGRESS*.md
+NOTES*.md
+TODO*.md
 tools/
 
 # Reference clone of upstream

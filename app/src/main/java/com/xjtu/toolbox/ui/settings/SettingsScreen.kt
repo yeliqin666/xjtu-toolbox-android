@@ -157,7 +157,7 @@ fun SettingsScreen(
         CredentialStore.NAV_STYLE_FLOATING,
         CredentialStore.NAV_STYLE_CLASSIC
     )
-    val tabOptions = listOf("首页", "日程", "工具", "我的")
+    val tabOptions = listOf("首页", "日程", "学辅", "我的")
     val tabValues = listOf(
         CredentialStore.TAB_HOME,
         CredentialStore.TAB_COURSES,

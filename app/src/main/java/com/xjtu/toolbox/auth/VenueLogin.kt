@@ -56,13 +56,13 @@ class VenueLogin(
         val finalUrl = response.request.url.toString()
         Log.d(TAG, "postLogin: finalUrl=$finalUrl")
 
-        if (finalUrl.contains("202.117.17.144")) {
+        if (com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(finalUrl, "202.117.17.144")) {
             sessionValid = true
             Log.d(TAG, "postLogin: session established via redirect chain")
             return
         }
 
-        // 如果最终 URL 不在 202.117.17.144，尝试手动访问首页触发 session
+        // 最终 URL 不在 venue 站点（直连或 WebVPN），手动访问首页触发 session
         Log.d(TAG, "postLogin: not at venue site, manually accessing index")
         try {
             val indexReq = Request.Builder()
@@ -73,8 +73,7 @@ class VenueLogin(
             val indexFinalUrl = indexResp.request.url.toString()
             indexResp.close()
 
-            sessionValid = indexFinalUrl.contains("202.117.17.144") &&
-                !indexFinalUrl.contains("login.xjtu.edu.cn")
+            sessionValid = com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(indexFinalUrl, "202.117.17.144")
             Log.d(TAG, "postLogin: manual access finalUrl=$indexFinalUrl, valid=$sessionValid")
         } catch (e: Exception) {
             Log.e(TAG, "postLogin: manual access failed", e)
@@ -101,8 +100,7 @@ class VenueLogin(
             val finalUrl = response.request.url.toString()
             val body = response.peekBody(4096).string()
             response.close()
-            finalUrl.contains("202.117.17.144") &&
-                !finalUrl.contains("login.xjtu.edu.cn") &&
+            com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(finalUrl, "202.117.17.144") &&
                 !isAuthFailureResponse(body)
         } catch (_: Exception) { false }
     }
@@ -133,8 +131,7 @@ class VenueLogin(
             val body = checkResp.body?.string() ?: ""
             checkResp.close()
 
-            if (finalUrl.contains("202.117.17.144") &&
-                !finalUrl.contains("login.xjtu.edu.cn") &&
+            if (com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(finalUrl, "202.117.17.144") &&
                 body.contains("product/show.html")) {
                 Log.d(TAG, "reAuthenticate: session still valid")
                 sessionValid = true
@@ -148,8 +145,7 @@ class VenueLogin(
             val ssoFinalUrl = ssoResp.request.url.toString()
             ssoResp.close()
 
-            if (ssoFinalUrl.contains("202.117.17.144") &&
-                !ssoFinalUrl.contains("login.xjtu.edu.cn")) {
+            if (com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(ssoFinalUrl, "202.117.17.144")) {
                 sessionValid = true
                 Log.d(TAG, "reAuthenticate: SSO success")
                 return true
@@ -158,8 +154,7 @@ class VenueLogin(
             // fallback: casAuthenticate
             Log.d(TAG, "reAuthenticate: SSO failed, trying casAuthenticate")
             val casResult = casAuthenticate(VENUE_OAUTH_URL) ?: return false
-            if (casResult.second.contains("202.117.17.144") &&
-                !casResult.second.contains("login.xjtu.edu.cn")) {
+            if (com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(casResult.second, "202.117.17.144")) {
                 sessionValid = true
                 Log.d(TAG, "reAuthenticate: casAuthenticate success")
                 return true
@@ -180,7 +175,7 @@ class VenueLogin(
         val finalUrl = response.request.url.toString()
 
         val needReAuth = when {
-            finalUrl.contains("login.xjtu.edu.cn") -> true
+            finalUrl.contains("login.xjtu.edu.cn/cas/login", ignoreCase = true) -> true
             response.code in listOf(401, 403) -> true
             response.code == 200 -> {
                 val ct = response.header("Content-Type") ?: ""

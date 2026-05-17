@@ -98,6 +98,13 @@ class ScheduleApi(private val login: JwxtLogin) {
         val responseBody = login.client.newCall(request).execute().use { response ->
             response.body?.string() ?: throw RuntimeException("空响应")
         }
+        // 服务端登录态失效时返回 HTML 跳转页（CAS / Safety Verify），需提前拦截
+        // 否则下游 safeParseJsonObject 会抛出无意义的 MalformedJsonException
+        val trimmed = responseBody.trimStart()
+        if (trimmed.startsWith("<") ||
+            com.xjtu.toolbox.auth.XJTULogin.isAuthFailureResponse(responseBody)) {
+            throw com.xjtu.toolbox.auth.AuthExpiredException("教务系统")
+        }
         val json = responseBody.safeParseJsonObject()
         val code = json.getAsJsonObject("datas")
             .getAsJsonObject("dqxnxq")

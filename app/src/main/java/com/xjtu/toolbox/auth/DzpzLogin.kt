@@ -48,31 +48,41 @@ class DzpzLogin(
         private set
 
     override fun postLogin(response: Response) {
-        // 从 cookie jar 中提取 loginidweaver
-        val cookies = client.cookieJar.loadForRequest(BASE_URL.toHttpUrl())
-        userId = cookies.find { it.name == "loginidweaver" }?.value
-
+        // 从 cookie jar 中提取 loginidweaver。WebVPN 模式下 cookie 存在 webvpn.xjtu.edu.cn 域，
+        // loadForRequest(dzpz 明文 URL) 拿不到，必须跨域搜。
+        userId = findLoginIdWeaver()
         if (userId != null) {
             Log.d(TAG, "postLogin: userId=$userId")
             return
         }
 
+        // 诊断日志：dzpz Login.jsp 拿到 OAuth code 后没继续到 wui/index.html，可能用 meta-refresh / JS
+        // 跳转 OkHttp 不跟随。打印 finalUrl + body 头便于分析。
+        val finalUrl = response.request.url.toString()
+        val bodyHead = try { response.peekBody(800).string() } catch (_: Exception) { "<peekBody failed>" }
+        Log.w(TAG, "postLogin: loginidweaver not found")
+        Log.w(TAG, "postLogin: finalUrl=$finalUrl")
+        Log.w(TAG, "postLogin: bodyHead=${bodyHead.replace("\n", " ").take(600)}")
+        // dump 现有 cookie 名（不暴露 value）便于排查
+        try {
+            val jar = client.cookieJar
+            if (jar is com.xjtu.toolbox.util.PersistentCookieJar) {
+                val all = jar.getCookiesForDomain("webvpn.xjtu.edu.cn") + jar.getCookiesForDomain(".webvpn.xjtu.edu.cn")
+                Log.w(TAG, "postLogin: webvpn-cookies(names)=${all.map { it.name }}")
+            }
+        } catch (_: Exception) {}
+
         // Cookie 可能还没写入 jar，尝试重新访问以触发 session 初始化
-        Log.d(TAG, "postLogin: loginidweaver not found, re-accessing home page")
+        Log.d(TAG, "postLogin: re-accessing home page")
         try {
             val homeReq = Request.Builder().url("$BASE_URL/wui/index.html").get().build()
             val homeResp = client.newCall(homeReq).execute()
+            val homeFinal = homeResp.request.url.toString()
+            val homeBodyHead = try { homeResp.peekBody(400).string() } catch (_: Exception) { "" }
             homeResp.close()
-
-            val retryUrl = "$BASE_URL/api/ecode/sync".toHttpUrl()
-            val retryCookies = client.cookieJar.loadForRequest(retryUrl)
-            userId = retryCookies.find { it.name == "loginidweaver" }?.value
-
-            if (userId == null) {
-                // 最后尝试从基础域名获取
-                val baseCookies = client.cookieJar.loadForRequest(BASE_URL.toHttpUrl())
-                userId = baseCookies.find { it.name == "loginidweaver" }?.value
-            }
+            Log.d(TAG, "postLogin: home retry finalUrl=$homeFinal")
+            Log.d(TAG, "postLogin: home retry bodyHead=${homeBodyHead.take(300)}")
+            userId = findLoginIdWeaver()
         } catch (e: Exception) {
             Log.e(TAG, "postLogin: retry failed", e)
         }
@@ -81,6 +91,19 @@ class DzpzLogin(
             throw RuntimeException("登录失败：无法获取用户 OA ID (loginidweaver)")
         }
         Log.d(TAG, "postLogin: userId=$userId (from retry)")
+    }
+
+    /**
+     * 跨域查找 loginidweaver cookie。
+     * 优先使用 PersistentCookieJar 的跨域接口，退化时在 dzpz 域上查。
+     */
+    private fun findLoginIdWeaver(): String? {
+        val jar = client.cookieJar
+        if (jar is com.xjtu.toolbox.util.PersistentCookieJar) {
+            jar.findCookieByName("loginidweaver")?.value?.let { return it }
+        }
+        return jar.loadForRequest(BASE_URL.toHttpUrl())
+            .find { it.name == "loginidweaver" }?.value
     }
 
     /**
@@ -99,7 +122,7 @@ class DzpzLogin(
             val finalUrl = response.request.url.toString()
             val body = response.peekBody(4096).string()
             response.close()
-            !finalUrl.contains("login.xjtu.edu.cn") && !isAuthFailureResponse(body)
+            !finalUrl.contains("login.xjtu.edu.cn/cas/login", ignoreCase = true) && !isAuthFailureResponse(body)
         } catch (_: Exception) { false }
     }
 
@@ -129,7 +152,7 @@ class DzpzLogin(
             checkResp.close()
 
             // 如果没有被重定向到 CAS，说明 session 仍有效
-            if (!finalUrl.contains("login.xjtu.edu.cn")) {
+            if (!finalUrl.contains("login.xjtu.edu.cn/cas/login", ignoreCase = true)) {
                 Log.d(TAG, "reAuthenticate: session still valid")
                 return true
             }
@@ -138,22 +161,19 @@ class DzpzLogin(
             Log.d(TAG, "reAuthenticate: session expired, trying SSO via OAuth URL")
             val ssoReq = Request.Builder().url(DZPZ_OAUTH_URL).get().build()
             val ssoResp = client.newCall(ssoReq).execute()
-            val ssoBody = ssoResp.body?.string() ?: ""
+            ssoResp.body?.string()
             val ssoFinalUrl = ssoResp.request.url.toString()
 
-            if (ssoFinalUrl.contains("dzpz.xjtu.edu.cn") && !ssoFinalUrl.contains("login.xjtu.edu.cn")) {
-                // SSO 成功，重新提取 userId
-                val cookies = client.cookieJar.loadForRequest(BASE_URL.toHttpUrl())
-                userId = cookies.find { it.name == "loginidweaver" }?.value
+            if (com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(ssoFinalUrl, "dzpz.xjtu.edu.cn")) {
+                userId = findLoginIdWeaver()
                 Log.d(TAG, "reAuthenticate: SSO success, userId=$userId")
                 return userId != null
             }
 
             // SSO 失败，尝试 casAuthenticate
             Log.d(TAG, "reAuthenticate: SSO failed, trying casAuthenticate")
-            val casResult = casAuthenticate(DZPZ_OAUTH_URL) ?: return false
-            val cookies = client.cookieJar.loadForRequest(BASE_URL.toHttpUrl())
-            userId = cookies.find { it.name == "loginidweaver" }?.value
+            casAuthenticate(DZPZ_OAUTH_URL) ?: return false
+            userId = findLoginIdWeaver()
             if (userId != null) {
                 Log.d(TAG, "reAuthenticate: casAuthenticate success, userId=$userId")
                 return true
@@ -173,7 +193,7 @@ class DzpzLogin(
         val finalUrl = response.request.url.toString()
 
         val needReAuth = when {
-            finalUrl.contains("login.xjtu.edu.cn") -> true
+            finalUrl.contains("login.xjtu.edu.cn/cas/login", ignoreCase = true) -> true
             response.code in listOf(401, 403) -> true
             response.code == 200 -> {
                 val ct = response.header("Content-Type") ?: ""

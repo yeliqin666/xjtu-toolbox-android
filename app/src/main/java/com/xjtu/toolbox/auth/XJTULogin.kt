@@ -29,6 +29,24 @@ class AuthExpiredException(
 ) : IOException(message)
 
 /**
+ * postLogin/SSO 路径上遇到 CAS 「Safety Verify」二次安全验证页面时抛出。
+ *
+ * 触发场景：
+ * - JWXT (`client_id=1675`) OAuth2 授权链路被 CAS 强制二次手机验证（probe 实证：
+ *   webvpn session 已建立、TGC 已下发，访问 jwxt 仍触发此页）。
+ * - 其他高敏感 OAuth client 也可能命中（如 `org.xjtu` 部分 appId）。
+ *
+ * 调用方约定：`XJTULogin` 状态机会在 `init` SSO 与 `processLoginResponse → postLogin`
+ * 调用上 try-catch 该异常，转 `LoginState.REQUIRE_MFA` 让 UI 弹出验证码对话框，
+ * 用户输入后 `MFAContext.verifyCode()` 自动 POST 隐藏表单回 `response.request.url`，
+ * 完成 CAS 二次校验。**业务子类禁止吞掉此异常。**
+ */
+class SafetyVerifyRequiredException(
+    val response: okhttp3.Response,
+    val responseBody: String,
+) : RuntimeException("CAS Safety Verify required")
+
+/**
  * 登录状态枚举
  */
 enum class LoginState {
@@ -311,9 +329,20 @@ open class XJTULogin(
         // 提取 execution value（如果页面是登录表单）
         executionInput = extractExecutionValue(responseBody)
 
-        android.util.Log.d(TAG, "init: executionInput.isEmpty=${executionInput.isEmpty()}, existingClient=${existingClient != null}")
+        // 关键：Safety Verify 页面**也**含 `<input name="execution">`，仅靠 executionInput 判断不出来。
+        // 必须用 title + secState 字段联合判定（与 upstream `is_safety_verify_page` 一致）。
+        val initialSafetyVerify = isSafetyVerifyPage(responseBody)
 
-        if (executionInput.isEmpty() && existingClient != null) {
+        android.util.Log.d(TAG, "init: executionInput.isEmpty=${executionInput.isEmpty()}, initialSafetyVerify=$initialSafetyVerify, existingClient=${existingClient != null}")
+
+        if (initialSafetyVerify) {
+            // 入口页面直接就是 Safety Verify（webvpn session 已建立，CAS 跳转 OAuth2 1675 时强制二次认证）。
+            // 跳过"正常登录"流程：标记 mfaContext，由主 login() 返回 REQUIRE_MFA，弹 MFA dialog。
+            android.util.Log.w(TAG, "init: initial response is SAFETY_VERIFY page (bodyLen=${responseBody.length}), capturing context")
+            hasLogin = false
+            mfaEnabled = false
+            captureSafetyVerify(response, responseBody)
+        } else if (executionInput.isEmpty() && existingClient != null) {
             // SSO: 共享的 CookieManager 携带 TGC，CAS 自动完成认证并跳转到目标服务
             hasLogin = true
             mfaEnabled = false
@@ -321,6 +350,11 @@ open class XJTULogin(
                 lastResponseBody = responseBody
                 postLogin(response)
                 android.util.Log.d(TAG, "init: SSO postLogin success")
+            } catch (e: SafetyVerifyRequiredException) {
+                // SSO 路径上撞 Safety Verify：把页面字段写入 mfaContext，由后续 login() 触发 REQUIRE_MFA
+                android.util.Log.w(TAG, "init: SSO postLogin hit SAFETY_VERIFY, capturing context")
+                hasLogin = false
+                captureSafetyVerify(e.response, e.responseBody)
             } catch (e: Exception) {
                 hasLogin = false
                 android.util.Log.e(TAG, "init: SSO postLogin failed", e)
@@ -373,6 +407,18 @@ open class XJTULogin(
             this.encryptedPassword = encryptPassword(password)
             this.rawPassword = password
             this.jcaptcha = jcaptcha
+        }
+
+        // ── 挂起的 SAFETY_VERIFY：init SSO 阶段 postLogin 撞到 Safety Verify 时已把
+        //    mfaContext 写好但 hasLogin=false。此时 lastSafetyVerifyResponse 还未填，
+        //    需要返回 REQUIRE_MFA 让 UI 弹验证码、verifyCode() 提交表单后再次进入主流程。
+        val pendingSafety = mfaContext
+        if (!hasLogin && pendingSafety != null
+            && pendingSafety.flow == MFAFlow.SAFETY_VERIFY
+            && pendingSafety.safetyTriggerUrl != null
+            && lastSafetyVerifyResponse == null) {
+            android.util.Log.d("XJTULogin", "login: pending SAFETY_VERIFY context, requesting MFA")
+            return LoginResult(LoginState.REQUIRE_MFA, mfaContext = pendingSafety)
         }
 
         if (hasLogin) {
@@ -495,25 +541,7 @@ open class XJTULogin(
 
         // ── 检测 Safety Verify / MFA 二验页面 ──
         // 页面中含 <input name="secState" value="..."/> 与新 execution；SAFETY_VERIFY 流程走 /cas/sec/...。
-        if (loginResponse.code == 200 && isSafetyVerifyPage(loginBody)) {
-            val secStateValue = extractHiddenInput(loginBody, "secState")
-            val mfaExecValue = extractHiddenInput(loginBody, "execution")
-            if (secStateValue.isNotEmpty()) {
-                val triggerUrl = loginResponse.request.url.toString()
-                val eventIdValue = extractHiddenInput(loginBody, "_eventId").ifEmpty { "submit" }
-                val submitValue = extractHiddenInput(loginBody, "submit").ifEmpty { "Login1" }
-                android.util.Log.d("XJTULogin", "processLoginResponse: SAFETY_VERIFY detected, triggerUrl=$triggerUrl")
-                mfaContext = MFAContext(this, secStateValue, required = true, flow = MFAFlow.SAFETY_VERIFY).also {
-                    it.secState = secStateValue
-                    it.mfaExecution = mfaExecValue
-                    it.safetyTriggerUrl = triggerUrl
-                    it.safetyEventId = eventIdValue
-                    it.safetySubmitValue = submitValue
-                }
-                hasLogin = false
-                return LoginResult(LoginState.REQUIRE_MFA, mfaContext = mfaContext)
-            }
-        }
+        captureSafetyVerify(loginResponse, loginBody)?.let { return it }
 
         failCount = 0
         hasLogin = true
@@ -530,8 +558,47 @@ open class XJTULogin(
         }
 
         lastResponseBody = loginBody
-        postLogin(loginResponse)
+        // postLogin 可能在 SSO 回访目标域时再次撞上 Safety Verify（JWXT 高敏感 OAuth client 已实证）。
+        // 子类抛 SafetyVerifyRequiredException，状态机在此捕获后转 REQUIRE_MFA。
+        try {
+            postLogin(loginResponse)
+        } catch (e: SafetyVerifyRequiredException) {
+            android.util.Log.d("XJTULogin", "processLoginResponse: postLogin triggered SAFETY_VERIFY")
+            captureSafetyVerify(e.response, e.responseBody)?.let { return it }
+            // 解析失败兜底（不应该发生）：退化为 FAIL，避免误报 SUCCESS
+            hasLogin = false
+            return LoginResult(LoginState.FAIL, "二次认证页面解析失败")
+        }
         return LoginResult(LoginState.SUCCESS, session = client)
+    }
+
+    /**
+     * 把响应识别为 CAS Safety Verify 页时，构造 mfaContext 并返回 REQUIRE_MFA。
+     * 若响应不是 Safety Verify 页或字段缺失则返回 null（调用方继续走原路径）。
+     *
+     * 副作用：mfaContext 写入 SAFETY_VERIFY 上下文；hasLogin 置 false。
+     */
+    private fun captureSafetyVerify(response: Response, body: String): LoginResult? {
+        if (response.code != 200 || !isSafetyVerifyPage(body)) return null
+        val secStateValue = extractHiddenInput(body, "secState")
+        val mfaExecValue = extractHiddenInput(body, "execution")
+        if (secStateValue.isEmpty() || mfaExecValue.isEmpty()) {
+            android.util.Log.w("XJTULogin", "captureSafetyVerify: 页面缺 secState/execution，跳过")
+            return null
+        }
+        val triggerUrl = response.request.url.toString()
+        val eventIdValue = extractHiddenInput(body, "_eventId").ifEmpty { "submit" }
+        val submitValue = extractHiddenInput(body, "submit").ifEmpty { "Login1" }
+        android.util.Log.d("XJTULogin", "captureSafetyVerify: SAFETY_VERIFY captured, triggerUrl=$triggerUrl")
+        mfaContext = MFAContext(this, secStateValue, required = true, flow = MFAFlow.SAFETY_VERIFY).also {
+            it.secState = secStateValue
+            it.mfaExecution = mfaExecValue
+            it.safetyTriggerUrl = triggerUrl
+            it.safetyEventId = eventIdValue
+            it.safetySubmitValue = submitValue
+        }
+        hasLogin = false
+        return LoginResult(LoginState.REQUIRE_MFA, mfaContext = mfaContext)
     }
 
     /**

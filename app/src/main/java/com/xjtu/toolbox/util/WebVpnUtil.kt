@@ -86,6 +86,27 @@ object WebVpnUtil {
         url.startsWith("https://$INSTITUTION") || url.startsWith("http://$INSTITUTION")
 
     /**
+     * 判断 [finalUrl] 是否表示已成功登录目标站点（[targetHost] 不带 scheme，如 "lms.xjtu.edu.cn"），
+     * 兼容直连 / WebVPN 两种模式。
+     *
+     * 规则：
+     * 1. 必须不在 CAS 登录页（`login.xjtu.edu.cn/cas/login`）
+     * 2. 直连模式：finalUrl 包含 targetHost
+     * 3. WebVPN 模式：解出原始 URL 后包含 targetHost
+     */
+    fun isAtTargetSite(finalUrl: String, targetHost: String): Boolean {
+        if (finalUrl.contains("login.xjtu.edu.cn/cas/login", ignoreCase = true)) return false
+        if (finalUrl.contains(targetHost, ignoreCase = true) &&
+            !finalUrl.contains("login.xjtu.edu.cn", ignoreCase = true)) return true
+        if (isWebVpnUrl(finalUrl)) {
+            val original = getOriginalUrl(finalUrl) ?: return false
+            return original.contains(targetHost, ignoreCase = true) &&
+                !original.contains("login.xjtu.edu.cn", ignoreCase = true)
+        }
+        return false
+    }
+
+    /**
      * AES-128-CFB 解密（与加密对称）
      */
     private fun cfb128Decrypt(ciphertext: ByteArray): ByteArray {

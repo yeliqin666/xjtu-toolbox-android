@@ -211,48 +211,94 @@ fun EmptyRoomScreen(
     // OkHttp 阻塞调用本身不响应 cancel，但我们在每个 building / period 循环开头主动
     // ensureActive()：cancel 后立即抛 CancellationException → 不再发起新请求 → UI 不会被
     // 旧结果污染。正在飞的单次 HTTP 调用最多多跑完一次后丢弃，整体行为符合「杀死旧的、开新的」。
+    // [优化] 单楼缓存：key = "campus|building|date"，value = 该楼当天教室列表。
+    // 用户重复勾选同一建筑（A→AB→A）时，命中缓存的不会重新发请求；
+    // 仅 cache miss 的建筑才进网络。日期/校区变化时缓存自然失效（不参与命中的 key 不同）。
+    val buildingCache = remember { mutableStateMapOf<String, List<RoomInfo>>() }
+
     LaunchedEffect(selectedCampus, selectedBuildings, selectedDate, useDirectQuery) {
+        // [debounce] 用户在 BottomSheet 里连续勾选多个教学楼时，selectedBuildings 短时间变化多次。
+        // 350ms 防抖：连续操作只触发最后一次。这一步本身 suspend，coroutine cancel 会立即跳过。
+        kotlinx.coroutines.delay(350L)
         val active = selectedBuildings.filter { it.isNotEmpty() }.toSet()
-        if (active.isNotEmpty()) {
-            isLoading = true
-            errorMessage = null
-            directProgress = null
-            try {
-                val result = withContext(Dispatchers.IO) {
-                    val direct = directApi
-                    if (useDirectQuery && direct != null) {
-                        val merged = mutableListOf<RoomInfo>()
-                        val totalBuildings = active.size
-                        active.toList().forEachIndexed { idx, building ->
-                            if (!kotlin.coroutines.coroutineContext[kotlinx.coroutines.Job]!!.isActive) {
-                                throw kotlinx.coroutines.CancellationException("user cancelled empty-room query")
-                            }
-                            try {
-                                val rows = direct.queryDay(selectedCampus, building, selectedDate) { period, total ->
+        if (active.isEmpty()) return@LaunchedEffect
+
+        // [关键] 持有当前 coroutine 的 Job 引用：
+        // OkHttp 同步阻塞 IO 不响应 Kotlin Job cancel，旧 coroutine 在 LaunchedEffect 重启时被 cancel
+        // 但 in-flight HTTP 调用仍跑完。必须用 jobRef.isActive 在每个边界检查，**禁止**已 cancel 的 coroutine
+        // 更新 UI state（rooms / isLoading / directProgress），避免新旧并行写入造成进度条交替闪烁。
+        val jobRef = kotlin.coroutines.coroutineContext[kotlinx.coroutines.Job]!!
+        fun activeCheck(): Boolean = jobRef.isActive
+
+        // 拆分 cache hit vs miss
+        val cachedRows = mutableListOf<RoomInfo>()
+        val toFetch = mutableListOf<String>()
+        for (b in active) {
+            val key = "$selectedCampus|$b|$selectedDate"
+            val hit = buildingCache[key]
+            if (hit != null) cachedRows.addAll(hit) else toFetch.add(b)
+        }
+        // 全部命中 cache → 不发任何请求
+        if (toFetch.isEmpty()) {
+            if (activeCheck()) {
+                android.util.Log.d("EmptyRoomScreen", "all ${active.size} buildings cache hit, no network")
+                rooms = cachedRows.sortedBy { it.name }
+                errorMessage = null
+                isLoading = false
+                directProgress = null
+            }
+            return@LaunchedEffect
+        }
+
+        // 部分需要网络
+        isLoading = true
+        errorMessage = null
+        directProgress = null
+        try {
+            val result = withContext(Dispatchers.IO) {
+                val direct = directApi
+                if (useDirectQuery && direct != null) {
+                    val merged = mutableListOf<RoomInfo>().also { it.addAll(cachedRows) }
+                    val totalBuildings = toFetch.size
+                    toFetch.forEachIndexed { idx, building ->
+                        if (!activeCheck()) {
+                            throw kotlinx.coroutines.CancellationException("user cancelled empty-room query")
+                        }
+                        try {
+                            val rows = direct.queryDay(selectedCampus, building, selectedDate) { period, total ->
+                                // 进度回调可能在 OkHttp 完成后回到本 coroutine 调用 —— 只有 active 才更新 UI
+                                if (activeCheck()) {
                                     directProgress = (idx * total + period) to (totalBuildings * total)
                                 }
-                                merged.addAll(rows)
-                            } catch (e: NoDataException) {
-                                android.util.Log.w("EmptyRoomScreen", "direct skip $building: ${e.message}")
                             }
+                            // 落 cache + 累加 only when still active
+                            if (activeCheck()) {
+                                buildingCache["$selectedCampus|$building|$selectedDate"] = rows
+                                merged.addAll(rows)
+                            }
+                        } catch (e: NoDataException) {
+                            android.util.Log.w("EmptyRoomScreen", "direct skip $building: ${e.message}")
                         }
-                        merged.sortedBy { it.name }
-                    } else {
-                        api.getEmptyRoomsMulti(selectedCampus, active, selectedDate)
                     }
+                    merged.sortedBy { it.name }
+                } else {
+                    api.getEmptyRoomsMulti(selectedCampus, active, selectedDate)
                 }
-                rooms = result
-            } catch (e: kotlin.coroutines.cancellation.CancellationException) {
-                throw e
-            } catch (e: NoDataException) {
-                errorMessage = e.message; rooms = emptyList()
-            } catch (e: java.net.ConnectException) {
-                errorMessage = "无法连接服务器，请检查网络"
-            } catch (e: java.net.SocketTimeoutException) {
-                errorMessage = "连接超时，请稍后再试"
-            } catch (e: Exception) {
-                errorMessage = "查询失败: ${e.message}"
-            } finally {
+            }
+            if (activeCheck()) rooms = result
+        } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+            throw e
+        } catch (e: NoDataException) {
+            if (activeCheck()) { errorMessage = e.message; rooms = emptyList() }
+        } catch (e: java.net.ConnectException) {
+            if (activeCheck()) errorMessage = "网络不可用，请检查连接"
+        } catch (e: java.net.SocketTimeoutException) {
+            if (activeCheck()) errorMessage = "网络不可用，请检查连接"
+        } catch (e: Exception) {
+            if (activeCheck()) errorMessage = "查询失败：${e.message ?: "未知错误"}"
+        } finally {
+            // [关键] 旧 coroutine cancel 后的 finally 不能覆盖新 coroutine 已设置的 isLoading=true
+            if (activeCheck()) {
                 isLoading = false
                 directProgress = null
             }
