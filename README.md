@@ -1,8 +1,9 @@
 # 岱宗盒子
 
 > [!NOTE]
-> 学校WebVPN及各系统登录策略频繁调整，暂时不会跟进更新，待稳定后会修复相关功能！
+> 
 > 推荐大家使用[XJTUToolBox](https://github.com/yan-xiaoo/XJTUToolBox.git)，更新修复更快，实现也更稳健；
+> 
 > 作者最近忙炸，开发暂缓...欢迎大家PR！
 > 
 
@@ -25,7 +26,7 @@
 | 📅 课表 | 周视图 + 考试安排 + 教材信息 + 桌面小组件（2×2 / 4×2）|
 | 📊 成绩 | JWAPP 正式成绩 + FineReport 报表 + GPA 计算 |
 | ✅ 考勤 | 全 20 周出勤流水，正常/迟到/缺勤统计 |
-| 🏫 空闲教室 | 节次筛选，CDN 公开数据，无需登录和校园网 |
+| 🏫 空闲教室 | 节次筛选 |
 | 💳 校园卡 | 余额 + 账单流水 + 智能洞察 |
 | 🎫 加餐券 | 电子加餐券余额、有效期、状态筛选与自动登录 |
 | 📚 图书馆 | 在座/预约状态 + 空闲座位推荐/签退 |
@@ -33,16 +34,14 @@
 | 📢 通知公告 | 一网通办 + 各学院通知多源聚合 |
 | 🎓 课程回放 | TronClass 多机位视频播放 + 课件下载 |
 | 📖 思源学堂 | 活动详情、作业与评分、课件、直播流 |
-| 👤 个人信息 | NSA OAuth2，包含 16 项详细信息 |
 | ✏️ 评教 | GSTE + 常规评教一键完成 |
-| � 电子教材 | 教材中心搜索 + 在线阅览 + PDF 下载 |
+| � 电子教材 | 教材中心搜索 |
 | ⭐ NeoSchool | 拔尖计划课程、章节、课件与资源下载 |
 
 ---
 
 ## 开发计划
 
-- 图书馆座位智能推荐
 - 个人/教务通知订阅 & Push
 - 方案管理
 
@@ -53,33 +52,6 @@
 纯 Kotlin 2.0 编写，UI 层使用 Jetpack Compose + MIUIX（HyperOS 设计语言），网络层是 OkHttp 4.12，全程启用 Brotli 解压（服务端支持 `Content-Encoding: br` 时生效，降低接口流量而非 APK 体积）。HTML 解析用 Jsoup，本地数据持久化走 Room。构建工具链 AGP 9.0 + Gradle 9.3.1，Release 包经 R8 全量混淆后约 **10 MB**，其中 ~9 MB 为 `classes.dex`（Compose runtime + Media3 + MIUIX 等库的编译产物，无冗余资源）。APK 签名为 v2+v3 双方案。
 
 最低支持 Android 12（API 31），目标 Android 16（API 36.1）。
-
----
-
-## 项目结构
-
-```
-app/src/main/java/com/xjtu/toolbox/
-├── MainActivity.kt              # 入口、导航、登录状态、首页
-├── auth/                        # CAS 统一认证、WebVPN、各系统 Token
-├── schedule/                    # 课表、考试、教材、桌面小组件
-├── score/                       # 成绩报表、GPA 计算
-├── attendance/                  # 出勤记录
-├── emptyroom/                   # 空闲教室
-├── card/                        # 校园卡
-├── coupon/                      # 电子加餐券
-├── library/                     # 图书馆座位
-├── notification/                # 通知公告爬虫
-├── nsa/                         # 个人信息（OAuth2 + 动态表单）
-├── judge/                       # 评教
-├── browser/                     # 应用内浏览器
-├── ywtb/                        # 一网通办
-├── gmis/                        # 研究生系统
-├── lms/                         # 思源学堂 + 课程回放
-├── jiaocai/                     # 电子教材中心
-├── neo/                         # NeoSchool 拔尖计划
-└── util/                        # Cookie 持久化、WebVPN 工具、凭据管理
-```
 
 ---
 
@@ -106,8 +78,6 @@ git push origin v3.3.0
 ## 注意事项
 
 - 考勤、图书馆等服务仅限校内网络，应用会自动识别并切换到 WebVPN
-- 空闲教室数据来自公开 CDN，不需要登录
-- `network_security_config.xml` 允许 XJTU 子域名的 cleartext HTTP
 
 ---
 
