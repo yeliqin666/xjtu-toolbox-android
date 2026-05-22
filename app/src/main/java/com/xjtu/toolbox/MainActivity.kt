@@ -61,9 +61,6 @@ import top.yukonga.miuix.kmp.basic.NavigationBarDisplayMode
 import top.yukonga.miuix.kmp.basic.FloatingNavigationBar
 import top.yukonga.miuix.kmp.basic.FloatingNavigationBarItem
 import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
-import top.yukonga.miuix.kmp.blur.layerBackdrop
-import top.yukonga.miuix.kmp.blur.textureBlur
 import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
@@ -2347,11 +2344,8 @@ private fun MainScreen(
     val toolsScrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     val profileScrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
 
-    // 液态玻璃 backdrop（miuix-blur）
-    val backdrop = rememberLayerBackdrop()
-
     // 大屏适配：宽度 ≥ 840dp（Material expanded breakpoint，平板/桌面）启用侧边 NavigationRail
-    // 手机横屏/折叠屏内屏（600-839dp）继续用底栏，保留液态玻璃观感
+    // 手机横屏/折叠屏内屏（600-839dp）继续用底栏
     val isWideScreen = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 840
 
     // HOME 大标题
@@ -2421,12 +2415,8 @@ private fun MainScreen(
         floatingToolbar = if (!isWideScreen && navBarStyle == "floating") {
             {
                 FloatingNavigationBar(
-                    color = androidx.compose.ui.graphics.Color.Transparent,
-                    modifier = Modifier.textureBlur(
-                        backdrop = backdrop,
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(50),
-                        blurRadius = 36f
-                    ),
+                    color = MiuixTheme.colorScheme.surfaceContainerHigh,
+                    modifier = Modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(50)),
                 ) {
                     BottomTab.entries.forEach { tab ->
                         FloatingNavigationBarItem(
@@ -2445,7 +2435,6 @@ private fun MainScreen(
         Box(
             Modifier
                 .fillMaxSize()
-                .layerBackdrop(backdrop)
         ) {
         androidx.compose.foundation.layout.Row(Modifier.fillMaxSize().padding(padding)) {
         if (isWideScreen) {

@@ -41,6 +41,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import com.xjtu.toolbox.ui.components.AppDropdownMenu
 import com.xjtu.toolbox.ui.components.AppDropdownMenuItem
@@ -60,7 +61,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.LocalTime
@@ -188,8 +188,6 @@ fun EmptyRoomScreen(
     var startPeriod by rememberSaveable { mutableIntStateOf(1) }
     var endPeriod by rememberSaveable { mutableIntStateOf(11) }
 
-    val scope = rememberCoroutineScope()
-
     fun persistBuildingSelection() {
         prefs.edit()
             .putString("empty_room_last_campus", selectedCampus)
@@ -214,31 +212,49 @@ fun EmptyRoomScreen(
     // [优化] 单楼缓存：key = "campus|building|date"，value = 该楼当天教室列表。
     // 用户重复勾选同一建筑（A→AB→A）时，命中缓存的不会重新发请求；
     // 仅 cache miss 的建筑才进网络。日期/校区变化时缓存自然失效（不参与命中的 key 不同）。
-    val buildingCache = remember { mutableStateMapOf<String, List<RoomInfo>>() }
+    val buildingCache = remember { mutableStateMapOf<String, Pair<String, List<RoomInfo>>>() }
 
     // [并发计数] 每次 LaunchedEffect 启动 +1，用 generation 标记当前查询。
     // 旧 coroutine 在新 LaunchedEffect 启动后 myGen != queryGenCount，禁止更新 UI。
     // 这比 coroutineContext[Job].isActive 更可靠：Compose Coroutines 在 withContext 后
     // 父 Job 状态判断有时不及时，导致旧 coroutine 误判 active 继续写 UI。
-    val queryGenCount = remember { mutableIntStateOf(0) }
+    val queryGeneration = remember { java.util.concurrent.atomic.AtomicInteger(0) }
+    val refreshNonce = remember { mutableIntStateOf(0) }
+    val handledRefreshNonce = remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(selectedCampus, selectedBuildings, selectedDate, useDirectQuery) {
+    LaunchedEffect(selectedCampus, selectedBuildings, selectedDate, useDirectQuery, refreshNonce.intValue) {
+        val myGen = queryGeneration.incrementAndGet()
+        fun isLatest(): Boolean = myGen == queryGeneration.get()
+        val forceRefresh = refreshNonce.intValue != handledRefreshNonce.intValue
+        handledRefreshNonce.intValue = refreshNonce.intValue
+
         // [debounce] 用户在 BottomSheet 里连续勾选多个教学楼时，selectedBuildings 短时间变化多次。
         // 350ms 防抖：连续操作只触发最后一次。这一步本身 suspend，coroutine cancel 会立即跳过。
         kotlinx.coroutines.delay(350L)
-        val active = selectedBuildings.filter { it.isNotEmpty() }.toSet()
-        if (active.isEmpty()) return@LaunchedEffect
+        if (!isLatest()) return@LaunchedEffect
 
-        val myGen = ++queryGenCount.intValue
-        fun isLatest(): Boolean = myGen == queryGenCount.intValue
+        val active = selectedBuildings.filter { it.isNotEmpty() }.toSet()
+        if (active.isEmpty()) {
+            rooms = emptyList()
+            isLoading = false
+            directProgress = null
+            return@LaunchedEffect
+        }
 
         // 拆分 cache hit vs miss
+        val cacheDay = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
+        buildingCache.entries.removeAll { it.value.first != cacheDay || it.value.second.isEmpty() }
         val cachedRows = mutableListOf<RoomInfo>()
         val toFetch = mutableListOf<String>()
         for (b in active) {
             val key = "$selectedCampus|$b|$selectedDate"
             val hit = buildingCache[key]
-            if (hit != null) cachedRows.addAll(hit) else toFetch.add(b)
+            if (!forceRefresh && hit != null && hit.first == cacheDay && hit.second.isNotEmpty()) {
+                cachedRows.addAll(hit.second)
+            } else {
+                buildingCache.remove(key)
+                toFetch.add(b)
+            }
         }
         // 全部命中 cache → 不发任何请求
         if (toFetch.isEmpty()) {
@@ -255,10 +271,11 @@ fun EmptyRoomScreen(
         errorMessage = null
         directProgress = null
         try {
-            val result = withContext(Dispatchers.IO) {
+            val queryResult: Pair<List<RoomInfo>, List<Pair<String, List<RoomInfo>>>> = withContext(Dispatchers.IO) {
                 val direct = directApi
                 if (useDirectQuery && direct != null) {
                     val merged = mutableListOf<RoomInfo>().also { it.addAll(cachedRows) }
+                    val fetched = mutableListOf<Pair<String, List<RoomInfo>>>()
                     val totalBuildings = toFetch.size
                     toFetch.forEachIndexed { idx, building ->
                         if (!isLatest()) {
@@ -270,21 +287,29 @@ fun EmptyRoomScreen(
                                     directProgress = (idx * total + period) to (totalBuildings * total)
                                 }
                             }
-                            buildingCache["$selectedCampus|$building|$selectedDate"] = rows
+                            fetched.add(building to rows)
                             merged.addAll(rows)
                         } catch (e: NoDataException) {
                             android.util.Log.w("EmptyRoomScreen", "direct skip $building: ${e.message}")
                         }
                     }
-                    merged.sortedBy { it.name }
+                    merged.sortedBy { it.name } to fetched
                 } else {
-                    api.getEmptyRoomsMulti(selectedCampus, active, selectedDate)
+                    api.getEmptyRoomsMulti(selectedCampus, active, selectedDate) to emptyList<Pair<String, List<RoomInfo>>>()
                 }
             }
-            if (isLatest()) rooms = result
+            val (result, fetchedRows) = queryResult
+            if (isLatest()) {
+                fetchedRows.forEach { (building, rowsForBuilding) ->
+                    if (rowsForBuilding.isNotEmpty()) {
+                        buildingCache["$selectedCampus|$building|$selectedDate"] = cacheDay to rowsForBuilding
+                    }
+                }
+                rooms = result
+            }
         } catch (e: kotlin.coroutines.cancellation.CancellationException) {
             // 旧查询被新查询取代，不更新 UI；不再 rethrow（rethrow 会让 LaunchedEffect 抛异常）
-            android.util.Log.d("EmptyRoomScreen", "gen=$myGen cancelled (newer gen ${queryGenCount.intValue})")
+            android.util.Log.d("EmptyRoomScreen", "gen=$myGen cancelled (newer gen ${queryGeneration.get()})")
         } catch (e: NoDataException) {
             if (isLatest()) { errorMessage = e.message; rooms = emptyList() }
         } catch (e: java.net.ConnectException) {
@@ -336,6 +361,11 @@ fun EmptyRoomScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { refreshNonce.intValue++ }) {
+                        Icon(Icons.Default.Refresh, contentDescription = "刷新")
                     }
                 }
             )
@@ -623,31 +653,7 @@ fun EmptyRoomScreen(
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(errorMessage!!, color = MiuixTheme.colorScheme.error, textAlign = TextAlign.Center)
                             Spacer(Modifier.height(12.dp))
-                            Button(onClick = {
-                                isLoading = true; errorMessage = null
-                                scope.launch {
-                                    try {
-                                        rooms = withContext(Dispatchers.IO) {
-                                            val direct = directApi
-                                            if (useDirectQuery && direct != null) {
-                                                val merged = mutableListOf<RoomInfo>()
-                                                selectedBuildings.filter { it.isNotEmpty() }.forEach { building ->
-                                                    try {
-                                                        merged.addAll(direct.queryDay(selectedCampus, building, selectedDate))
-                                                    } catch (_: NoDataException) {}
-                                                }
-                                                merged.sortedBy { it.name }
-                                            } else {
-                                                api.getEmptyRoomsMulti(selectedCampus, selectedBuildings, selectedDate)
-                                            }
-                                        }
-                                    } catch (e: kotlin.coroutines.cancellation.CancellationException) {
-                                        throw e
-                                    } catch (e: Exception) {
-                                        errorMessage = e.message
-                                    } finally { isLoading = false }
-                                }
-                            }) { Text("重试") }
+                            Button(onClick = { refreshNonce.intValue++ }) { Text("重试") }
                         }
                     }
                 }

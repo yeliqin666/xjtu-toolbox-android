@@ -25,6 +25,16 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "3.6.0" to VersionChangelog(
+            items = listOf(
+                "🏫" to "【空闲教室】修复跨天/空结果缓存误判导致不再查询的问题，仅当天有效数据才会命中缓存",
+                "🔄" to "【空闲教室】新增手动刷新，重试会强制绕过缓存重新直查教务系统",
+                "🛡️" to "【空闲教室】优化并发查询保护，旧查询不会再覆盖新结果或污染缓存",
+                "📱" to "【兼容性】最低系统版本回到 Android 12 / API 31，恢复对 HarmonyOS 兼容环境的支持",
+                "✨" to "【UI】移除需要 API 32 的模糊玻璃依赖，浮动导航栏改用兼容背景样式",
+                "🚧" to "【本科评教】教务后端维护期间暂时关闭入口，避免进入后反复报错"
+            )
+        ),
         "3.5.1" to VersionChangelog(
             items = listOf(
                 "💯" to "【成绩查询】修复校园网直连模式下 401 Authentication error（http→https 重定向丢 token），现在走 https 单跳一次拿回",
