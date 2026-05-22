@@ -241,6 +241,7 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient) {
         private const val JWXT_BASE = "https://jwxt.xjtu.edu.cn"
         private const val REFERER = "$JWXT_BASE/jwapp/sys/kxjas/*default/index.do"
         private const val FORM_CT = "application/x-www-form-urlencoded; charset=UTF-8"
+        private const val BROWSER_UA = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
         // 上游 jwxt/empty_room.py 的 UUID（不可变）
         private const val CAMPUS_CODE_API = "$JWXT_BASE/jwapp/code/83a986fc-e677-400e-99a4-c7bb39c2ca35.do"
         private const val BUILDING_CODE_API = "$JWXT_BASE/jwapp/code/551fbcc3-cf07-4566-af1e-fc7ce272ddc1.do"
@@ -266,7 +267,9 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient) {
             val resp = httpClient.newCall(
                 Request.Builder()
                     .url(USER_INFO_API)
+                    .header("Accept", "application/json, text/javascript, */*; q=0.01")
                     .header("Referer", "$JWXT_BASE/jwapp/sys/homeapp/home/index.html?av=&contextPath=/jwapp")
+                    .header("User-Agent", BROWSER_UA)
                     .get()
                     .build()
             ).execute()
@@ -280,7 +283,7 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient) {
                 val o = el.asJsonObject
                 val roleName = o.get("roleName")?.asString
                 val roleId = o.get("roleId")?.asString
-                val isCurrent = o.get("currentRole")?.asBoolean == true
+                val isCurrent = o.get("currentRole")?.takeIf { !it.isJsonNull }?.asBoolean == true
                 if (isCurrent) currentRoleName = roleName
                 if (roleName == "学生") studentRoleId = roleId
             }
@@ -306,8 +309,11 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient) {
         val resp = httpClient.newCall(
             Request.Builder()
                 .url(CAMPUS_CODE_API)
+                .header("Accept", "application/json, text/javascript, */*; q=0.01")
                 .header("Content-Type", FORM_CT)
+                .header("X-Requested-With", "XMLHttpRequest")
                 .header("Referer", REFERER)
+                .header("User-Agent", BROWSER_UA)
                 .post(okhttp3.FormBody.Builder().build())
                 .build()
         ).execute()
@@ -327,8 +333,11 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient) {
         val resp = httpClient.newCall(
             Request.Builder()
                 .url(BUILDING_CODE_API)
+                .header("Accept", "application/json, text/javascript, */*; q=0.01")
                 .header("Content-Type", FORM_CT)
+                .header("X-Requested-With", "XMLHttpRequest")
                 .header("Referer", REFERER)
+                .header("User-Agent", BROWSER_UA)
                 .post(okhttp3.FormBody.Builder().build())
                 .build()
         ).execute()
@@ -381,13 +390,17 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient) {
             .build()
         val resp = httpClient.newCall(
             Request.Builder().url(QUERY_API)
+                .header("Accept", "application/json, text/javascript, */*; q=0.01")
                 .header("Content-Type", FORM_CT)
+                .header("X-Requested-With", "XMLHttpRequest")
                 .header("Referer", REFERER)
+                .header("User-Agent", BROWSER_UA)
                 .post(form)
                 .build()
         ).execute()
         if (!resp.isSuccessful) throw RuntimeException("空闲教室查询失败: HTTP ${resp.code}")
         val body = resp.body?.string().orEmpty()
+        android.util.Log.d(TAG, "queryRooms date=$date start=$startTime end=$endTime http=${resp.code} bodyPrefix=${body.take(120)}")
         if (!body.trimStart().startsWith("{")) {
             throw RuntimeException("空闲教室查询响应异常")
         }

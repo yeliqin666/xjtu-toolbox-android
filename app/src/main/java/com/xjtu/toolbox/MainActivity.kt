@@ -1912,9 +1912,8 @@ fun AppNavigation(
 
         composable(Routes.EMPTY_ROOM) {
             // 直查需要一个已通过 JWXT 认证的 OkHttpClient：
-            // 校外优先用 vpnClient（已含 WebVpnInterceptor），校内用 jwxtLogin.client
-            val direct = if (loginState.isOnCampus == false) loginState.webVpnClientOrNull
-                else loginState.jwxtLogin?.client
+            // 校外优先用 vpnClient（已含 WebVpnInterceptor），校内用 sharedClient / jwxtLogin.client
+            val direct = loginState.getActiveClient() ?: loginState.jwxtLogin?.client
             EmptyRoomScreen(
                 onBack = { navController.popBackStack() },
                 directClient = direct,
@@ -3103,7 +3102,7 @@ private fun HomeTab(
             data class Quick(val key: String, val icon: ImageVector, val label: String, val color: androidx.compose.ui.graphics.Color, val onClick: () -> Unit)
             val quickPool = listOf(
                 Quick(Routes.CAMPUS_CARD, Icons.Default.CreditCard, "校园卡", colorGreen) { onNavigateWithLogin(Routes.CAMPUS_CARD, LoginType.CAMPUS_CARD) },
-                Quick(Routes.EMPTY_ROOM, Icons.Default.LocationOn, "空闲教室", colorIndigo) { onNavigate(Routes.EMPTY_ROOM) },
+                Quick(Routes.EMPTY_ROOM, Icons.Default.LocationOn, "空闲教室", colorIndigo) { onNavigateWithLogin(Routes.EMPTY_ROOM, LoginType.JWXT) },
                 Quick(Routes.PAYMENT_CODE, Icons.Default.QrCode, "付款码", colorTeal) { onNavigateWithLogin(Routes.PAYMENT_CODE, LoginType.CAMPUS_CARD) },
                 Quick(Routes.NOTIFICATION, Icons.Default.Notifications, "通知", colorOrange) { onNavigate(Routes.NOTIFICATION) },
                 Quick(Routes.JWAPP_SCORE, Icons.Default.Assessment, "成绩", colorPurple) { onNavigateWithLogin(Routes.JWAPP_SCORE, LoginType.JWAPP) },
@@ -3477,7 +3476,7 @@ private fun HomeTab(
                 Svc(Routes.TRANSCRIPT, Icons.Default.Description, "电子成绩单", "下载 · 签章", svcIndigo, "下载签章成绩单") { onNavigateWithLogin(Routes.TRANSCRIPT, LoginType.DZPZ) },
                 Svc(Routes.JUDGE, Icons.Default.RateReview, "本科评教", "评教系统", svcPink, "支持一键评教") { onNavigateWithLogin(Routes.JUDGE, LoginType.JWXT) },
                 Svc(Routes.LIBRARY, Icons.Default.Chair, "图书馆", "座位预约", svcOrange, "智能座位推荐") { onNavigateWithLogin(Routes.LIBRARY, LoginType.LIBRARY) },
-                Svc(Routes.EMPTY_ROOM, Icons.Default.LocationOn, "空闲教室", "教室查询", svcPurple, "智能洞察空教室") { onNavigate(Routes.EMPTY_ROOM) },
+                Svc(Routes.EMPTY_ROOM, Icons.Default.LocationOn, "空闲教室", "教室查询", svcPurple, "智能洞察空教室") { onNavigateWithLogin(Routes.EMPTY_ROOM, LoginType.JWXT) },
                 Svc(Routes.NOTIFICATION, Icons.Default.Notifications, "通知公告", "校园通知", MiuixTheme.colorScheme.error, "聚合多源通知") { onNavigate(Routes.NOTIFICATION) },
                 Svc(Routes.VENUE, Icons.Default.Place, "场馆预订", "运动场地", svcCyan, "预约快人一步") { onNavigateWithLogin(Routes.VENUE, LoginType.VENUE) },
                 Svc(Routes.CLASS_REPLAY, Icons.Default.OndemandVideo, "课程回放", "Class 录播", svcDeepPurple, "备用回放入口") { onNavigateWithLogin(Routes.CLASS_REPLAY, LoginType.CLASS) },

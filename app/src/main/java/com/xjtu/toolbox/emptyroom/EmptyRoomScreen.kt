@@ -273,7 +273,10 @@ fun EmptyRoomScreen(
         try {
             val queryResult: Pair<List<RoomInfo>, List<Pair<String, List<RoomInfo>>>> = withContext(Dispatchers.IO) {
                 val direct = directApi
-                if (useDirectQuery && direct != null) {
+                if (useDirectQuery) {
+                    if (direct == null) {
+                        throw RuntimeException("未完成教务登录，请返回后重新进入空闲教室")
+                    }
                     val merged = mutableListOf<RoomInfo>().also { it.addAll(cachedRows) }
                     val fetched = mutableListOf<Pair<String, List<RoomInfo>>>()
                     val totalBuildings = toFetch.size
