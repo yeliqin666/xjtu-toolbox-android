@@ -13,10 +13,10 @@ android {
 
     defaultConfig {
         applicationId = "com.xjtu.toolbox"
-        minSdk = 32
+        minSdk = 31
         targetSdk = 36
-        versionCode = 23
-        versionName = "3.5.1"
+        versionCode = 24
+        versionName = "3.6.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -93,7 +93,6 @@ dependencies {
     implementation("top.yukonga.miuix.kmp:miuix-ui-android:0.9.1")
     implementation("top.yukonga.miuix.kmp:miuix-preference-android:0.9.1")
     implementation("top.yukonga.miuix.kmp:miuix-icons-android:0.9.1")
-    implementation("top.yukonga.miuix.kmp:miuix-blur-android:0.9.1")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

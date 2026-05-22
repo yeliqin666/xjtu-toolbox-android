@@ -56,6 +56,7 @@ class EmptyRoomApi {
 
     // 缓存：日期 → 完整 JSON 数据
     private var cachedDate: String? = null
+    private var cachedFetchedDay: String? = null
     private var cachedData: com.google.gson.JsonObject? = null
 
     /**
@@ -64,7 +65,8 @@ class EmptyRoomApi {
      */
     private fun fetchDayData(date: String): com.google.gson.JsonObject {
         // 命中缓存
-        if (date == cachedDate && cachedData != null) {
+        val today = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
+        if (date == cachedDate && cachedFetchedDay == today && cachedData != null) {
             return cachedData!!
         }
 
@@ -88,6 +90,7 @@ class EmptyRoomApi {
 
         val json = body.safeParseJsonObject()
         cachedDate = date
+        cachedFetchedDay = today
         cachedData = json
         return json
     }
@@ -308,7 +311,9 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient) {
                 .post(okhttp3.FormBody.Builder().build())
                 .build()
         ).execute()
+        if (!resp.isSuccessful) throw RuntimeException("校区代码请求失败: HTTP ${resp.code}")
         val map = parseCodeMap(resp.body?.string().orEmpty())
+        if (map.isEmpty()) throw RuntimeException("校区代码为空")
         cachedCampusCodes = map to System.currentTimeMillis()
         return map
     }
@@ -327,7 +332,9 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient) {
                 .post(okhttp3.FormBody.Builder().build())
                 .build()
         ).execute()
+        if (!resp.isSuccessful) throw RuntimeException("教学楼代码请求失败: HTTP ${resp.code}")
         val map = parseCodeMap(resp.body?.string().orEmpty())
+        if (map.isEmpty()) throw RuntimeException("教学楼代码为空")
         cachedBuildingCodes = map to System.currentTimeMillis()
         return map
     }
@@ -379,11 +386,17 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient) {
                 .post(form)
                 .build()
         ).execute()
+        if (!resp.isSuccessful) throw RuntimeException("空闲教室查询失败: HTTP ${resp.code}")
         val body = resp.body?.string().orEmpty()
-        val rows = body.safeParseJsonObject()
-            .getAsJsonObject("datas")
-            ?.getAsJsonObject("cxkxjs")
-            ?.getAsJsonArray("rows") ?: return emptyList()
+        if (!body.trimStart().startsWith("{")) {
+            throw RuntimeException("空闲教室查询响应异常")
+        }
+        val root = body.safeParseJsonObject()
+        val datas = root.getAsJsonObject("datas")
+            ?: throw RuntimeException("空闲教室查询响应缺少 datas")
+        val rows = datas.getAsJsonObject("cxkxjs")
+            ?.getAsJsonArray("rows")
+            ?: throw RuntimeException("空闲教室查询响应缺少 rows")
         val out = ArrayList<DirectRoomRow>()
         for (el in rows) {
             val o = el.asJsonObject
