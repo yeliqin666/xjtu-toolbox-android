@@ -25,6 +25,15 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "3.6.1" to VersionChangelog(
+            items = listOf(
+                "🌐" to "【网络】教务、移动教务、思源学堂与课程回放改为公网直连服务，不再强制触发校园网探测或 WebVPN 登录",
+                "🏫" to "【空闲教室】恢复 CDN / 直查双模式，支持落盘缓存、手动刷新绕过缓存与首次 CDN 查询说明",
+                "🎓" to "【账号类型】设置页新增本科生 / 研究生账号类型选择，研究生默认使用 CDN 查询空闲教室",
+                "🔐" to "【认证】优化 WebVPN 会话有效性校验与多身份账号选择流程，降低误判登录态的概率",
+                "📤" to "【空闲教室】新增当前筛选结果文本分享"
+            )
+        ),
         "3.6.0" to VersionChangelog(
             items = listOf(
                 "🏫" to "【空闲教室】修复跨天/空结果缓存误判导致不再查询的问题，仅当天有效数据才会命中缓存",
