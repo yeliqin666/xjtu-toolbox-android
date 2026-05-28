@@ -318,7 +318,9 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient) {
                 .build()
         ).execute()
         if (!resp.isSuccessful) throw RuntimeException("校区代码请求失败: HTTP ${resp.code}")
-        val map = parseCodeMap(resp.body?.string().orEmpty())
+        val body = resp.body?.string().orEmpty()
+        val map = parseCodeMap(body)
+        android.util.Log.d(TAG, "campus code count=${map.size}, bodyPrefix=${body.take(160)}")
         if (map.isEmpty()) throw RuntimeException("校区代码为空")
         cachedCampusCodes = map to System.currentTimeMillis()
         return map
@@ -342,7 +344,9 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient) {
                 .build()
         ).execute()
         if (!resp.isSuccessful) throw RuntimeException("教学楼代码请求失败: HTTP ${resp.code}")
-        val map = parseCodeMap(resp.body?.string().orEmpty())
+        val body = resp.body?.string().orEmpty()
+        val map = parseCodeMap(body)
+        android.util.Log.d(TAG, "building code count=${map.size}, bodyPrefix=${body.take(160)}")
         if (map.isEmpty()) throw RuntimeException("教学楼代码为空")
         cachedBuildingCodes = map to System.currentTimeMillis()
         return map
@@ -357,8 +361,8 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient) {
                 ?.getAsJsonArray("rows") ?: return emptyMap()
             for (el in rows) {
                 val o = el.asJsonObject
-                val name = o.get("name")?.asString ?: continue
-                val id = o.get("id")?.asString ?: continue
+                val name = firstString(o, "name", "NAME", "text", "label", "MC", "DM_DISPLAY") ?: continue
+                val id = firstString(o, "id", "ID", "value", "code", "DM") ?: continue
                 out[name] = id
             }
         } catch (e: Exception) {
@@ -367,6 +371,16 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient) {
         return out
     }
 
+    private fun firstString(obj: com.google.gson.JsonObject, vararg keys: String): String? {
+        for (key in keys) {
+            val el = obj.get(key)
+            if (el != null && !el.isJsonNull) {
+                val value = el.asString
+                if (value.isNotBlank()) return value
+            }
+        }
+        return null
+    }
     /**
      * 单次查询：某校区某栋楼某天 [start,end] 节次的空闲教室。
      * - startTime/endTime 为 0 表示「无过滤」，返回全楼所有教室（用于得到完整教室列表）。
@@ -472,3 +486,4 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient) {
         return result.values.sortedBy { it.name }
     }
 }
+

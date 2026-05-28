@@ -66,9 +66,8 @@ class SessionManager(context: Context) {
         if (old == newMode) return
         Log.i(TAG, "AccessMode changed: ${old.key} -> ${newMode.key}")
         _currentAccessMode.value = newMode
-        val newBackend = backends.getValue(newMode)
         sites.values.forEach {
-            it.backend = newBackend
+            it.backend = backendFor(it)
             // 切换 access mode 后 cookies 域不同，原 hasLogin 应失效以触发 validate
             it.invalidateLogin()
         }
@@ -77,10 +76,15 @@ class SessionManager(context: Context) {
     private val sites: MutableMap<String, SiteSession> = ConcurrentHashMap()
 
     fun register(site: SiteSession): SiteSession {
-        site.backend = backends.getValue(_currentAccessMode.value)
+        site.backend = backendFor(site)
         site.manager = this
         sites[site.siteKey] = site
         return site
+    }
+
+    private fun backendFor(site: SiteSession): SessionBackend {
+        val mode = if (!site.supportsWebVpn) AccessMode.NORMAL else _currentAccessMode.value
+        return backends.getValue(mode)
     }
 
     fun getSite(siteKey: String): SiteSession =
