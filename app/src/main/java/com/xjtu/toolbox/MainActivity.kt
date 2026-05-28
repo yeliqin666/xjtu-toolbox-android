@@ -343,16 +343,22 @@ class AppLoginState {
         try {
             val req = okhttp3.Request.Builder()
                 .url(com.xjtu.toolbox.util.WebVpnUtil.WEBVPN_LOGIN_URL)
-                .head()
+                .get()
                 .build()
             // 不跟随重定向，看 Location header
             val noRedirect = client.newBuilder()
                 .followRedirects(false).followSslRedirects(false).build()
             noRedirect.newCall(req).execute().use { r ->
                 val loc = r.header("Location") ?: ""
-                val alive = r.code in 200..299 || (r.code in 300..399 && "cas_login" !in loc && "/cas/login" !in loc)
+                val bodyPreview = runCatching { r.peekBody(8192).string() }.getOrDefault("")
+                val redirectedToCas = "cas_login" in loc || "/cas/login" in loc || "login.xjtu.edu.cn" in loc
+                val authPage = com.xjtu.toolbox.auth.XJTULogin.isAuthFailureResponse(bodyPreview)
+                val resourcePage = "西安交通大学WebVPN" in bodyPreview || "资源站点" in bodyPreview
+                val alive = (r.code in 200..299 && !authPage) ||
+                    (r.code in 300..399 && !redirectedToCas) ||
+                    resourcePage
                 if (!alive) {
-                    android.util.Log.w("WebVPN", "checkWebVpnSessionAlive: session stale (code=${r.code}, loc=$loc), clearing vpnClient")
+                    android.util.Log.w("WebVPN", "checkWebVpnSessionAlive: session stale (code=${r.code}, loc=$loc, authPage=$authPage), clearing vpnClient")
                     clearVpnClient()
                 }
                 alive
@@ -442,9 +448,20 @@ class AppLoginState {
         private set
     var savedPassword: String = ""
         private set
+    var accountType: com.xjtu.toolbox.auth.AccountType = com.xjtu.toolbox.auth.AccountType.UNDERGRADUATE
+        private set
 
     val hasCredentials: Boolean get() = savedUsername.isNotEmpty() && savedPassword.isNotEmpty()
     val isLoggedIn: Boolean get() = activeUsername.isNotEmpty()
+
+    private fun selectedCasAccountType(): XJTULogin.AccountType {
+        val currentAccountType = credentialStoreRef?.accountType ?: accountType
+        return if (currentAccountType == com.xjtu.toolbox.auth.AccountType.POSTGRADUATE) {
+            XJTULogin.AccountType.POSTGRADUATE
+        } else {
+            XJTULogin.AccountType.UNDERGRADUATE
+        }
+    }
 
     val loginCount: Int
         get() = listOfNotNull(
@@ -510,6 +527,7 @@ class AppLoginState {
         cachedRsaKey = store.loadRsaPublicKey()
         // 恢复缓存昵称（欢迎卡片秒显示）
         cachedNickname = store.loadNickname()
+        accountType = store.accountType
         // 同步至新会话架构
         sessionManager?.let {
             it.setCredentials(savedUsername, savedPassword)
@@ -802,8 +820,8 @@ class AppLoginState {
                     true
                 } else if (result.state == LoginState.REQUIRE_ACCOUNT_CHOICE) {
                     // 处理多身份账号选择
-                    android.util.Log.d("WebVPN", "Account choice required, selecting UNDERGRADUATE")
-                    val finalResult = login.login(accountType = XJTULogin.AccountType.UNDERGRADUATE)
+                    android.util.Log.d("WebVPN", "Account choice required, selecting configured account type")
+                    val finalResult = login.login(accountType = selectedCasAccountType())
                     android.util.Log.d("WebVPN", "Account choice result: state=${finalResult.state}")
                     if (finalResult.state == LoginState.SUCCESS) {
                         vpnClient = login.client
@@ -830,7 +848,7 @@ class AppLoginState {
                                 android.util.Log.d("WebVPN", "WebVPN login SUCCESS via MFA (sharedClient aliased)")
                                 null
                             } else if (r.state == LoginState.REQUIRE_ACCOUNT_CHOICE) {
-                                val r2 = mfaLogin.login(accountType = XJTULogin.AccountType.UNDERGRADUATE)
+                                val r2 = mfaLogin.login(accountType = selectedCasAccountType())
                                 if (r2.state == LoginState.SUCCESS) {
                                     vpnClient = mfaLogin.client
                                     webVpnLoggedIn = true
@@ -1161,7 +1179,7 @@ class AppLoginState {
                         Triple(login, null, false)
                     }
                     LoginState.REQUIRE_ACCOUNT_CHOICE -> {
-                        val finalResult = login.login(accountType = XJTULogin.AccountType.UNDERGRADUATE)
+                        val finalResult = login.login(accountType = selectedCasAccountType())
                         if (finalResult.state == LoginState.SUCCESS) {
                             if (sharedClient == null) sharedClient = login.client
                             if (firstVisitorId == null) firstVisitorId = login.fpVisitorId
@@ -1200,7 +1218,7 @@ class AppLoginState {
                     cache(login, user)
                     null // 成功
                 } else if (result.state == LoginState.REQUIRE_ACCOUNT_CHOICE) {
-                    val finalResult = login.login(accountType = XJTULogin.AccountType.UNDERGRADUATE)
+                    val finalResult = login.login(accountType = selectedCasAccountType())
                     if (finalResult.state == LoginState.SUCCESS) {
                         if (sharedClient == null) sharedClient = login.client
                         if (firstVisitorId == null) firstVisitorId = login.fpVisitorId

@@ -61,6 +61,7 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.BuildConfig
+import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.util.CredentialStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -106,6 +107,7 @@ fun SettingsScreen(
     var networkMode by remember { mutableStateOf(credentialStore.networkMode) }
     var autoCheckUpdate by remember { mutableStateOf(credentialStore.autoCheckUpdate) }
     var updateChannel by remember { mutableStateOf(credentialStore.updateChannel) }
+    var accountType by remember { mutableStateOf(credentialStore.accountType) }
     var cacheSizeText by remember { mutableStateOf("计算中...") }
     var showChangelog by remember { mutableStateOf(false) }
     var showEula by remember { mutableStateOf(false) }
@@ -175,6 +177,8 @@ fun SettingsScreen(
         CredentialStore.CHANNEL_STABLE,
         CredentialStore.CHANNEL_BETA
     )
+    val accountTypeOptions = AccountType.entries.map { it.displayName }
+    val accountTypeValues = AccountType.entries.toList()
 
     Scaffold(
         topBar = {
@@ -253,6 +257,18 @@ fun SettingsScreen(
                         val v = networkValues[idx]
                         networkMode = v
                         credentialStore.networkMode = v
+                    }
+                )
+                OverlayDropdownPreference(
+                    title = "账号类型",
+                    items = accountTypeOptions,
+                    selectedIndex = accountTypeValues.indexOf(accountType).coerceAtLeast(0),
+                    summary = "影响登录身份选择与空闲教室默认查询方式",
+                    startAction = { SettingsIcon(MiuixIcons.Info, cBlue) },
+                    onSelectedIndexChange = { idx ->
+                        val v = accountTypeValues[idx]
+                        accountType = v
+                        credentialStore.accountType = v
                     }
                 )
                 // ── 校园网（XJTU_STU）自动登录 ──

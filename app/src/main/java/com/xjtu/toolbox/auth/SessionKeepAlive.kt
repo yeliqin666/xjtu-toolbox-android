@@ -13,6 +13,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
@@ -31,6 +33,8 @@ object SessionKeepAlive {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var loopJob: Job? = null
+    private val _lastReport = MutableStateFlow<KeepAliveReport?>(null)
+    val lastReport: StateFlow<KeepAliveReport?> = _lastReport
 
     /** 默认 10 分钟 */
     const val DEFAULT_INTERVAL_MIN = 10L
@@ -53,6 +57,23 @@ object SessionKeepAlive {
         val logins: List<XJTULogin> = emptyList(),
         val vpnClient: OkHttpClient? = null,
         val vpnPingUrl: String = "https://webvpn.xjtu.edu.cn/"
+    )
+
+    enum class WebVpnKeepAliveStatus {
+        NOT_CONFIGURED,
+        VALID,
+        NETWORK_ERROR
+    }
+
+    data class KeepAliveSiteResult(
+        val siteName: String,
+        val status: XJTULogin.KeepAliveStatus
+    )
+
+    data class KeepAliveReport(
+        val checkedAt: Long,
+        val webVpnStatus: WebVpnKeepAliveStatus,
+        val siteResults: List<KeepAliveSiteResult>
     )
 
     @Volatile private var provider: LoginProvider? = null
@@ -104,22 +125,27 @@ object SessionKeepAlive {
         val snap = provider?.snapshot() ?: return
         Log.d(TAG, "tick: ${snap.logins.size} logins, vpn=${snap.vpnClient != null}")
 
+        var webVpnStatus = WebVpnKeepAliveStatus.NOT_CONFIGURED
         // VPN ping：让 webvpn cookie 不被回收
         snap.vpnClient?.let { client ->
             try {
                 val req = Request.Builder().url(snap.vpnPingUrl).get().build()
                 client.newCall(req).execute().use { /* drain */ it.body?.bytes() }
                 Log.d(TAG, "vpn ping ok")
+                webVpnStatus = WebVpnKeepAliveStatus.VALID
             } catch (e: Exception) {
                 Log.w(TAG, "vpn ping failed: ${e.message}")
+                webVpnStatus = WebVpnKeepAliveStatus.NETWORK_ERROR
             }
         }
 
         // 各子系统 keepAlive：validate → 失效则 reAuth → 结构化状态
+        val siteResults = mutableListOf<KeepAliveSiteResult>()
         for (login in snap.logins) {
             try {
                 val status = withContext(Dispatchers.IO) { login.keepAlive() }
                 val name = login.javaClass.simpleName
+                siteResults += KeepAliveSiteResult(name, status)
                 when (status) {
                     XJTULogin.KeepAliveStatus.VALID -> Log.d(TAG, "$name: VALID")
                     XJTULogin.KeepAliveStatus.REAUTH_OK -> Log.d(TAG, "$name: REAUTH_OK")
@@ -129,8 +155,14 @@ object SessionKeepAlive {
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "keep alive ${login.javaClass.simpleName} exception: ${e.message}")
+                siteResults += KeepAliveSiteResult(login.javaClass.simpleName, XJTULogin.KeepAliveStatus.ERROR)
             }
         }
+        _lastReport.value = KeepAliveReport(
+            checkedAt = System.currentTimeMillis(),
+            webVpnStatus = webVpnStatus,
+            siteResults = siteResults
+        )
     }
 }
 
