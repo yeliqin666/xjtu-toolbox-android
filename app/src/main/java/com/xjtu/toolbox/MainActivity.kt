@@ -237,8 +237,6 @@ object Routes {
 // ── 维护中（学校系统）服务清单 ────────────────────────────
 // 命中 → 入口处直接提示，不触发任何登录或界面跳转，保护账号免遭批量 401。
 val maintenanceRoutes: Set<String> = setOf(
-    Routes.LIBRARY,
-    Routes.JUDGE,
 )
 val maintenanceLabels: Map<String, String> = mapOf(
     Routes.LIBRARY to "图书馆座位预约",
@@ -1946,12 +1944,10 @@ fun AppNavigation(
             JwappScoreScreen(login = loginState.jwappLogin, jwxtLogin = loginState.jwxtLogin, studentId = loginState.activeUsername, onBack = { navController.popBackStack() })
         }
         composable(Routes.JUDGE) {
-            // 学校系统维护中：理论上 navigateWithLogin 已拦截，此处兜底立即返回
-            LaunchedEffect(Unit) { navController.popBackStack() }
+            loginState.jwxtLogin?.let { JudgeScreen(login = it, username = loginState.activeUsername, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
         composable(Routes.LIBRARY) {
-            // 学校系统维护中：理论上 navigateWithLogin 已拦截，此处兜底立即返回
-            LaunchedEffect(Unit) { navController.popBackStack() }
+            loginState.libraryLogin?.let { LibraryScreen(login = it, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
         composable(Routes.CAMPUS_CARD) {
             loginState.campusCardLogin?.let { com.xjtu.toolbox.card.CampusCardScreen(login = it, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
