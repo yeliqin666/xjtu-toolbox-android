@@ -22,7 +22,7 @@ import java.net.URLDecoder
 
 // ── JWXT 教务系统 ─────────────────────────────────────────────────────
 
-class JwxtSession : CasSiteSession("jwxt", "教务系统", supportsWebVpn = true) {
+class JwxtSession : CasSiteSession("jwxt", "教务系统", supportsWebVpn = false) {
     override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
         JwxtLogin(session = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
 
@@ -43,7 +43,7 @@ class JwxtSession : CasSiteSession("jwxt", "教务系统", supportsWebVpn = true
 
 // ── JWAPP 移动教务系统 ───────────────────────────────────────────────
 
-class JwappSession : CasSiteSession("jwapp", "移动教务", supportsWebVpn = true) {
+class JwappSession : CasSiteSession("jwapp", "移动教务", supportsWebVpn = false) {
     override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
         JwappLogin(session = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
 
@@ -109,14 +109,14 @@ class LibrarySession : CasSiteSession("library", "图书馆", supportsWebVpn = t
 
 // ── LMS 思源学堂 ─────────────────────────────────────────────────────
 
-class LmsSession : CasSiteSession("lms", "思源学堂", supportsWebVpn = true) {
+class LmsSession : CasSiteSession("lms", "思源学堂", supportsWebVpn = false) {
     override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
         com.xjtu.toolbox.lms.LmsLogin(session = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
 }
 
 // ── CLASS 课程回放 ────────────────────────────────────────────────────
 
-class ClassSession : CasSiteSession("class", "课程回放", supportsWebVpn = true) {
+class ClassSession : CasSiteSession("class", "课程回放", supportsWebVpn = false) {
     override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
         com.xjtu.toolbox.classreplay.ClassLogin(session = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
 }

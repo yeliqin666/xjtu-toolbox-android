@@ -464,15 +464,22 @@ class AppLoginState {
      */
     @Volatile var pendingMfaContinuation: (suspend (XJTULogin) -> String?)? = null
 
+    private fun isDirectPublicService(type: LoginType): Boolean = type in setOf(
+        LoginType.JWXT,
+        LoginType.JWAPP,
+        LoginType.LMS,
+        LoginType.CLASS,
+    )
+
     /** 登录阶段 URL 在校内的服务（需经 WebVPN 才能认证）。 */
     private fun isInternalService(type: LoginType): Boolean = type in setOf(
         LoginType.ATTENDANCE, LoginType.POSTGRADUATE_ATTENDANCE,
-        LoginType.LIBRARY, LoginType.JWXT
+        LoginType.LIBRARY
     )
 
     /** API 调用阶段需要校内网络的服务（CAS 认证阶段公网可达）。 */
     fun isApiNeedsCampus(type: LoginType): Boolean = type in setOf(
-        LoginType.JWAPP, LoginType.VENUE
+        LoginType.VENUE
     )
 
     fun saveCredentials(username: String, password: String) {
@@ -573,13 +580,16 @@ class AppLoginState {
 
     /**
      * 业务 API 调用应优先使用此方法获取 client。
-     * - 校外（isOnCampus == false）：返回 vpnClient（已带 WebVpnInterceptor），所有 .xjtu.edu.cn 域名经 webvpn 代理访问
-     * - 校内或网络未知：返回 sharedClient（直连）
+     * - 公网已开放的教务相关服务优先使用 sharedClient（直连）
+     * - 其他校外服务（isOnCampus == false）：返回 vpnClient（已带 WebVpnInterceptor）
+     * - 校内或网络未知：返回 sharedClient
      * - 校外但 vpnClient 还未建立时降级到 sharedClient（虽然多半不可达，但避免 NPE）
      */
     fun getActiveClient(): okhttp3.OkHttpClient? {
         return if (isOnCampus == false) (vpnClient ?: sharedClient) else sharedClient
     }
+
+    fun getDirectClient(): okhttp3.OkHttpClient? = sharedClient
 
     fun cache(login: XJTULogin, username: String) {
         activeUsername = username
@@ -945,11 +955,11 @@ class AppLoginState {
             android.util.Log.d("AppLoginState", "autoLogin($type): reAuth failed, full login (cache preserved)")
         }
 
-        // 统一 access mode：校外走 vpnClient，校内走 sharedClient，cookies 同域避免隔离问题
-        if (isOnCampus == null) isOnCampus = detectCampusNetwork()
-        if (isOnCampus == false && vpnClient == null) doLoginWebVpn()
+        val forceDirect = isDirectPublicService(type)
+        if (!forceDirect && isOnCampus == null) isOnCampus = detectCampusNetwork()
+        if (!forceDirect && isOnCampus == false && vpnClient == null) doLoginWebVpn()
 
-        val useWebVpn = isOnCampus == false
+        val useWebVpn = !forceDirect && isOnCampus == false
         val clientForLogin = if (useWebVpn) {
             vpnClient ?: return null  // WebVPN 未就绪（MFA 进行中），让 wrapper 处理
         } else {
@@ -1056,7 +1066,7 @@ class AppLoginState {
             android.util.Log.w("AppLoginState", "autoLogin($type): all 3 attempts failed: ${lastException?.message}")
             // WebVPN 兜底：仅在校外（或网络未知）触发。校园网下直连失败说明子系统本身故障，
             // 走 WebVPN 也不会更通；明确认证失败（RuntimeException）跳过；密码熔断后跳过。
-            val shouldFallback = !useWebVpn && hasCredentials &&
+            val shouldFallback = !forceDirect && !useWebVpn && hasCredentials &&
                 isOnCampus != true &&
                 lastException !is RuntimeException &&
                 !passwordInvalidatedLatch
@@ -1137,30 +1147,8 @@ class AppLoginState {
                             .build()
                     }
                 }
-                // JWXT loginUrl 在校内（jwxt.xjtu.edu.cn），校外必须先建 WebVPN
                 saveCredentials(user, pwd)  // 让 loginWebVpn 能读取凭据
-                if (isOnCampus == null) {
-                    isOnCampus = detectCampusNetwork()
-                }
-                val clientForLogin = if (isOnCampus == false) {
-                    if (vpnClient == null) doLoginWebVpn()  // 无锁版
-                    if (vpnClient == null) {
-                        // WebVPN 未就绪：可能在等 MFA，也可能真失败
-                        // 通过 pendingMfaLogin 区分
-                        if (pendingMfaLogin != null) {
-                            // WebVPN 触发了 MFA，UI 会弹窗，这里返回让用户先验证
-                            return@withContext Triple<XJTULogin?, String?, Boolean>(
-                                null, "校外环境需先完成 WebVPN 两步验证，已为你弹出验证码窗口", false
-                            )
-                        }
-                        return@withContext Triple<XJTULogin?, String?, Boolean>(
-                            null, "无法建立 WebVPN 连接，请检查网络后重试", false
-                        )
-                    }
-                    vpnClient
-                } else {
-                    sharedClient
-                }
+                val clientForLogin = sharedClient
                 val login = LoginType.JWXT.createLogin(clientForLogin, firstVisitorId, false, cachedRsaKey)
                 val result = login.login(user, pwd)
                 android.util.Log.d("Login", "JWXT login result: state=${result.state}, msg=${result.message}")
@@ -1474,8 +1462,7 @@ fun AppNavigation(
      * 策略变更（2026-05）：之前一股脑登 11 个子系统，触发 11 次 mfa/detect，
      * 服务端会风控（即便 trustAgent="true" 也常被反复 MFA）。
      * 现改为：
-     * - 校外：建 vpnClient（webvpn 自身登录）
-     * - JWXT：建立 CAS TGC 共享 cookie，让用户进入首页即可看到日程
+     * - JWXT：直连建立 CAS TGC 共享 cookie，让用户进入首页即可看到日程
      * - 其余子系统（JWAPP/YWTB/LMS/...）改为用户进入对应 Screen 时由
      *   navigateWithLogin 按需触发，省去启动时的 11 次同时登录冲击。
      */
@@ -1489,12 +1476,7 @@ fun AppNavigation(
 
         scope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
-                if (loginState.isOnCampus == false && loginState.webVpnClientOrNull == null) {
-                    android.util.Log.d("Warmup", "Phase 0: building vpnClient (off-campus)")
-                    runCatching { loginState.loginWebVpn() }
-                }
-
-                android.util.Log.d("Warmup", "Phase 1: autoLogin(JWXT) to establish SSO")
+                android.util.Log.d("Warmup", "autoLogin(JWXT) direct to establish SSO")
                 runCatching { loginState.autoLogin(LoginType.JWXT) }
 
                 // Phase 2 全部移除：剩余 10 个子系统由 navigateWithLogin 按需触发，
@@ -1690,21 +1672,11 @@ fun AppNavigation(
         // 注意：isLoggedIn 可能仅因 username 已设而为 true，但实际登录实例为 0
         if (loginState.hasCredentials && loginState.loginCount == 0) {
             isRestoring = true
-            // Phase 1: 先网络检测 → 校外则建 VPN → 再登 JWXT（串行，避免竞争）
+            // Phase 1: 直连恢复 JWXT（串行，避免竞争）
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 try {
                     val startTime = System.currentTimeMillis()
                     android.util.Log.d("Restore", "Phase1 开始...")
-                    restoreStep = "检测网络..."
-                    loginState.isOnCampus = loginState.detectCampusNetwork()
-                    android.util.Log.d("Restore", "Phase1 网络: campus=${loginState.isOnCampus} (${System.currentTimeMillis() - startTime}ms)")
-
-                    // 校外时先建 VPN（ATTENDANCE/LIBRARY 等 login 阶段需要）
-                    if (loginState.isOnCampus == false) {
-                        restoreStep = "连接 VPN..."
-                        loginState.loginWebVpn()
-                        android.util.Log.d("Restore", "Phase1 VPN: ok=${loginState.webVpnClientOrNull != null} (${System.currentTimeMillis() - startTime}ms)")
-                    }
 
                     // [policy] 启动期只做 JWXT 一道探针（课表是用户最常用的核心功能）。
                     // 一旦 JWXT 通过 Safety Verify，CAS server-side session 标记可信，
@@ -1910,8 +1882,8 @@ fun AppNavigation(
 
         composable(Routes.EMPTY_ROOM) {
             // 直查需要一个已通过 JWXT 认证的 OkHttpClient：
-            // 校外优先用 vpnClient（已含 WebVpnInterceptor），校内用 sharedClient / jwxtLogin.client
-            val direct = loginState.getActiveClient() ?: loginState.jwxtLogin?.client
+            // JWXT 已支持公网直连，优先使用 sharedClient / jwxtLogin.client，避免误走 WebVPN。
+            val direct = loginState.getDirectClient() ?: loginState.jwxtLogin?.client
             EmptyRoomScreen(
                 onBack = { navController.popBackStack() },
                 directClient = direct,
@@ -3689,8 +3661,6 @@ private fun ProfileTab(
                 mfaLogin = null  // 关闭 MFA 对话框
                 mfaCode = ""
 
-                // WebVPN + 后台并行贯通所有子系统（委托 warmup 统一调度，覆盖所有 LoginType）
-                if (loginState.isOnCampus == false) loginState.loginWebVpn()
                 loginState.persistCredentials(credentialStore)
                 onWarmupRequest()
                 scope.launch(kotlinx.coroutines.Dispatchers.IO) {
@@ -3720,28 +3690,20 @@ private fun ProfileTab(
         scope.launch {
             val startMs = System.currentTimeMillis()
 
-            // ── Phase 1: JWXT 直接登录 + 网络检测 并行 ──
+            // ── Phase 1: JWXT 直连登录 ──
             loginStage = "认证中..."
             loginProgress = 0.1f
             var jwxtLogin: XJTULogin? = null
             var jwxtError: String? = null
             var needsMfa = false
             try {
-                kotlinx.coroutines.coroutineScope {
-                    val jwxtDeferred = async(kotlinx.coroutines.Dispatchers.IO) {
-                        loginState.loginJwxtWithDetails(user, pwd)
-                    }
-                    val networkDeferred = async(kotlinx.coroutines.Dispatchers.IO) {
-                        loginState.detectCampusNetwork()
-                    }
-                    val (login, error, mfa) = jwxtDeferred.await()
-                    jwxtLogin = login
-                    jwxtError = error
-                    needsMfa = mfa
-                    loginState.isOnCampus = networkDeferred.await()
+                val (login, error, mfa) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    loginState.loginJwxtWithDetails(user, pwd)
                 }
+                jwxtLogin = login
+                jwxtError = error
+                needsMfa = mfa
             } catch (e: Exception) {
-                // coroutineScope 内部异常（如网络检测失败），不应终止整个登录
                 if (jwxtLogin == null && jwxtError == null) {
                     jwxtError = "登录异常: ${e.message}"
                 }
@@ -3782,11 +3744,6 @@ private fun ProfileTab(
                 return@launch
             }
 
-            // ── Phase 2: WebVPN（校外时连接）──
-            if (loginState.isOnCampus == false) {
-                loginStage = "连接 VPN..."
-                loginState.loginWebVpn()
-            }
             loginProgress = 0.8f
 
             // ── 完成核心登录 ──
@@ -3801,7 +3758,7 @@ private fun ProfileTab(
                 srunSetupUsername = if (user.contains("@")) user else "$user@stu"
             }
 
-            // ── 后台: 并行贯通所有子系统（委托 warmup 统一调度，含校园卡/LMS/CLASS/DZPZ/VENUE/JIAOCAI）──
+            // ── 后台: 仅预热必要 SSO，其余子系统由用户进入时按需登录 ──
             onWarmupRequest()
             scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {

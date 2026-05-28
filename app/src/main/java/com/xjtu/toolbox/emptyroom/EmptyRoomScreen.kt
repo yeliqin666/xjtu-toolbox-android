@@ -153,8 +153,9 @@ fun EmptyRoomScreen(
     var rooms by remember { mutableStateOf<List<RoomInfo>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    /** 数据源：固定为直连教务系统接口（实时） */
-    val useDirectQuery = true
+    var useDirectQuery by rememberSaveable {
+        mutableStateOf(prefs.getBoolean("empty_room_use_direct_query", false))
+    }
     var directProgress by remember { mutableStateOf<Pair<Int, Int>?>(null) }
 
     val campusNames = CAMPUS_BUILDINGS.keys.toList()
@@ -197,6 +198,10 @@ fun EmptyRoomScreen(
 
     LaunchedEffect(selectedCampusIndex, selectedBuildings) {
         persistBuildingSelection()
+    }
+
+    LaunchedEffect(useDirectQuery) {
+        prefs.edit().putBoolean("empty_room_use_direct_query", useDirectQuery).apply()
     }
 
     // 当前节次
@@ -247,7 +252,8 @@ fun EmptyRoomScreen(
         val cachedRows = mutableListOf<RoomInfo>()
         val toFetch = mutableListOf<String>()
         for (b in active) {
-            val key = "$selectedCampus|$b|$selectedDate"
+            val sourceKey = if (useDirectQuery) "direct" else "cdn"
+            val key = "$sourceKey|$selectedCampus|$b|$selectedDate"
             val hit = buildingCache[key]
             if (!forceRefresh && hit != null && hit.first == cacheDay && hit.second.isNotEmpty()) {
                 cachedRows.addAll(hit.second)
@@ -305,7 +311,7 @@ fun EmptyRoomScreen(
             if (isLatest()) {
                 fetchedRows.forEach { (building, rowsForBuilding) ->
                     if (rowsForBuilding.isNotEmpty()) {
-                        buildingCache["$selectedCampus|$building|$selectedDate"] = cacheDay to rowsForBuilding
+                        buildingCache["direct|$selectedCampus|$building|$selectedDate"] = cacheDay to rowsForBuilding
                     }
                 }
                 rooms = result
@@ -367,6 +373,13 @@ fun EmptyRoomScreen(
                     }
                 },
                 actions = {
+                    TextButton(
+                        text = if (useDirectQuery) "直查" else "CDN",
+                        onClick = {
+                            useDirectQuery = !useDirectQuery
+                            refreshNonce.intValue++
+                        }
+                    )
                     IconButton(onClick = { refreshNonce.intValue++ }) {
                         Icon(Icons.Default.Refresh, contentDescription = "刷新")
                     }
@@ -864,3 +877,5 @@ private fun SmartRoomCard(room: RoomInfo, currentPeriod: Int) {
         }
     }
 }
+
+
