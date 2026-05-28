@@ -2,7 +2,6 @@ package com.xjtu.toolbox.dzpz
 
 import android.content.ContentValues
 import android.content.Context
-import android.os.Environment
 import android.provider.MediaStore
 import android.widget.Toast
 import androidx.compose.animation.*
@@ -17,6 +16,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
+import com.xjtu.toolbox.LocalAppLoginState
+import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.AuthExpiredException
+import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -28,7 +32,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.xjtu.toolbox.auth.DzpzLogin
+import com.xjtu.toolbox.auth.SiteSession
+import com.xjtu.toolbox.lms.LmsDownloadRecord
+import com.xjtu.toolbox.lms.LmsDownloadStore
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
 import kotlinx.coroutines.Dispatchers
@@ -45,10 +51,11 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  */
 @Composable
 fun TranscriptScreen(
-    login: DzpzLogin,
+    site: SiteSession,
     onBack: () -> Unit
 ) {
-    val api = remember { TranscriptApi(login) }
+    val appLoginState = LocalAppLoginState.current
+    val api = remember(site) { TranscriptApi(site) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
@@ -79,6 +86,8 @@ fun TranscriptScreen(
                     api.loadCreateForm(workflowId)
                 }
                 formContext = ctx
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.DZPZ, Routes.TRANSCRIPT, onBack)
             } catch (e: Exception) {
                 errorMessage = "加载失败: ${e.message}"
             } finally {
@@ -124,6 +133,8 @@ fun TranscriptScreen(
                 }
                 workflowState = WorkflowState.SUCCESS
                 workflowProgress = "成绩单已生成"
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.DZPZ, Routes.TRANSCRIPT, onBack)
             } catch (e: Exception) {
                 workflowState = WorkflowState.ERROR
                 workflowProgress = "申请失败: ${e.message}"
@@ -551,16 +562,11 @@ private fun DownloadSuccessCard(
                 Box(
                     modifier = Modifier
                         .size(48.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color(0xFFE53935).copy(alpha = 0.1f)),
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color(0xFFE53935).copy(alpha = 0.12f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        "PDF",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFFE53935)
-                    )
+                    Icon(Icons.Default.PictureAsPdf, contentDescription = null, tint = Color(0xFFE53935))
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
@@ -574,7 +580,7 @@ private fun DownloadSuccessCard(
                     if (info.filesize.isNotEmpty()) {
                         Spacer(Modifier.height(2.dp))
                         Text(
-                            info.filesize,
+                            "${info.filesize} · 将保存到 ${LmsDownloadStore.publicDisplayPath()}",
                             fontSize = 12.sp,
                             color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                         )
@@ -597,6 +603,12 @@ private fun DownloadSuccessCard(
                 Spacer(Modifier.width(6.dp))
                 Text("保存到下载")
             }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "保存后会出现在「设置 - 下载管理」里，可由系统文件管理器或 PDF 阅读器打开。",
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+            )
         }
     }
 }
@@ -610,13 +622,27 @@ private fun savePdfToDownloads(context: Context, filename: String, bytes: ByteAr
         val contentValues = ContentValues().apply {
             put(MediaStore.Downloads.DISPLAY_NAME, filename)
             put(MediaStore.Downloads.MIME_TYPE, "application/pdf")
-            put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+            put(MediaStore.Downloads.RELATIVE_PATH, LmsDownloadStore.RELATIVE_PATH)
+            put(MediaStore.Downloads.IS_PENDING, 1)
         }
         val resolver = context.contentResolver
         val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
         if (uri != null) {
             resolver.openOutputStream(uri)?.use { it.write(bytes) }
-            Toast.makeText(context, "已保存到下载文件夹", Toast.LENGTH_SHORT).show()
+            contentValues.clear()
+            contentValues.put(MediaStore.Downloads.IS_PENDING, 0)
+            resolver.update(uri, contentValues, null, null)
+            LmsDownloadStore.add(
+                context,
+                LmsDownloadRecord(
+                    name = filename,
+                    mimeType = "application/pdf",
+                    uri = uri.toString(),
+                    savedAt = System.currentTimeMillis(),
+                    category = LmsDownloadStore.CATEGORY_TRANSCRIPT
+                )
+            )
+            Toast.makeText(context, "已保存到下载管理", Toast.LENGTH_SHORT).show()
         } else {
             Toast.makeText(context, "保存失败", Toast.LENGTH_SHORT).show()
         }

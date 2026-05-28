@@ -32,14 +32,16 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
 import kotlinx.coroutines.*
 import top.yukonga.miuix.kmp.basic.*
-import top.yukonga.miuix.kmp.extra.SuperBottomSheet
-import top.yukonga.miuix.kmp.extra.SuperDialog
+import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
+import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
+import com.xjtu.toolbox.lms.LmsDownloadRecord
+import com.xjtu.toolbox.lms.LmsDownloadStore
 
 private const val TAG = "DownloadManagerScreen"
 
@@ -55,6 +57,7 @@ fun DownloadManagerScreen(
     val scope = rememberCoroutineScope()
 
     var allTasks by remember { mutableStateOf<List<DownloadTaskEntity>>(emptyList()) }
+    var lmsDownloads by remember { mutableStateOf<List<LmsDownloadRecord>>(emptyList()) }
     var stats by remember { mutableStateOf<DownloadManager.DownloadStats?>(null) }
 
     // 多选清理模式
@@ -73,6 +76,7 @@ fun DownloadManagerScreen(
             stats = withContext(Dispatchers.IO) {
                 downloadManager.getDownloadStats()
             }
+            lmsDownloads = LmsDownloadStore.getAll(context)
         }
     }
 
@@ -172,8 +176,8 @@ fun DownloadManagerScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Checkbox(
-                                checked = deleteFiles,
-                                onCheckedChange = { deleteFiles = it },
+                                state = if (deleteFiles) androidx.compose.ui.state.ToggleableState.On else androidx.compose.ui.state.ToggleableState.Off,
+                                onClick = { deleteFiles = !deleteFiles },
                                 modifier = Modifier.size(20.dp)
                             )
                             Spacer(Modifier.width(4.dp))
@@ -203,7 +207,7 @@ fun DownloadManagerScreen(
         }
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
-            if (allTasks.isEmpty()) {
+            if (allTasks.isEmpty() && lmsDownloads.isEmpty()) {
                 // 空状态
                 Column(
                     Modifier.align(Alignment.Center).padding(32.dp),
@@ -223,7 +227,7 @@ fun DownloadManagerScreen(
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "在课程回放页面选择视频进行下载",
+                        "思源课件和课堂回放会统一显示在这里",
                         fontSize = 12.sp,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                     )
@@ -233,6 +237,49 @@ fun DownloadManagerScreen(
                     Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 16.dp)
                 ) {
+                    if (lmsDownloads.isNotEmpty() && !isCleanupMode) {
+                        val groupedDownloads = lmsDownloads.groupBy { it.category }
+                        val orderedGroups = listOf(
+                            LmsDownloadStore.CATEGORY_TRANSCRIPT to "电子成绩单",
+                            LmsDownloadStore.CATEGORY_LMS to "思源文件",
+                            LmsDownloadStore.CATEGORY_OTHER to "其他文件"
+                        )
+                        orderedGroups.forEach { (category, title) ->
+                            val records = groupedDownloads[category].orEmpty()
+                            if (records.isNotEmpty()) {
+                                item(key = "${category}_title") {
+                                    DownloadSectionHeader(title, records.size)
+                                }
+                                items(records, key = { "${category}_${it.uri}" }) { record ->
+                                    LmsDownloadCard(
+                                        record = record,
+                                        onOpen = {
+                                            runCatching {
+                                                val intent = Intent(Intent.ACTION_VIEW).apply {
+                                                    setDataAndType(android.net.Uri.parse(record.uri), record.mimeType)
+                                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                                }
+                                                context.startActivity(Intent.createChooser(intent, "打开文件"))
+                                            }.onFailure {
+                                                android.widget.Toast.makeText(context, "文件已被移动或删除", android.widget.Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                        onDelete = {
+                                            runCatching { context.contentResolver.delete(android.net.Uri.parse(record.uri), null, null) }
+                                            LmsDownloadStore.remove(context, record.uri)
+                                            loadTasks()
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                        if (allTasks.isNotEmpty()) {
+                            item(key = "replay_title") {
+                                DownloadSectionHeader("课堂回放", allTasks.size)
+                            }
+                        }
+                    }
+
                     // 全局控制栏
                     if (stats != null && stats!!.activeCount > 0 && !isCleanupMode) {
                         item(key = "global_controls") {
@@ -335,6 +382,86 @@ fun DownloadManagerScreen(
     
     // 下载目录信息弹窗
     DownloadDirInfoDialog(show = showDirInfo)
+}
+
+@Composable
+private fun DownloadSectionHeader(title: String, count: Int) {
+    Row(
+        Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            title,
+            style = MiuixTheme.textStyles.subtitle,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.weight(1f)
+        )
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = MiuixTheme.colorScheme.secondaryContainer.copy(alpha = 0.65f)
+        ) {
+            Text(
+                "$count",
+                modifier = Modifier.padding(horizontal = 9.dp, vertical = 2.dp),
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSecondaryContainer
+            )
+        }
+    }
+}
+
+@Composable
+private fun LmsDownloadCard(
+    record: LmsDownloadRecord,
+    onOpen: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Card(
+        onClick = onOpen,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MiuixTheme.colorScheme.secondaryContainer,
+                modifier = Modifier.size(42.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        when (record.category) {
+                            LmsDownloadStore.CATEGORY_TRANSCRIPT -> Icons.Default.PictureAsPdf
+                            else -> Icons.Default.Description
+                        },
+                        null,
+                        Modifier.size(22.dp),
+                        tint = if (record.category == LmsDownloadStore.CATEGORY_TRANSCRIPT) Color(0xFFE53935)
+                        else MiuixTheme.colorScheme.primary
+                    )
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(record.name, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(
+                    "${record.categoryLabel()} · ${formatTimestamp(record.savedAt)}",
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                )
+            }
+            IconButton(onClick = onDelete) {
+                Icon(Icons.Default.DeleteOutline, contentDescription = "删除文件")
+            }
+        }
+    }
+}
+
+private fun LmsDownloadRecord.categoryLabel(): String = when (category) {
+    LmsDownloadStore.CATEGORY_TRANSCRIPT -> "成绩单"
+    LmsDownloadStore.CATEGORY_LMS -> "思源文件"
+    else -> "已下载"
 }
 
 /**
@@ -674,8 +801,8 @@ private fun formatTimestamp(timestamp: Long): String {
 @Composable
 private fun DownloadDirInfoDialog(show: MutableState<Boolean>) {
     BackHandler(enabled = show.value) { show.value = false }
-    SuperBottomSheet(
-        show = show,
+    OverlayBottomSheet(
+        show = show.value,
         title = "下载目录信息",
         onDismissRequest = { show.value = false }
     ) {
@@ -689,7 +816,7 @@ private fun DownloadDirInfoDialog(show: MutableState<Boolean>) {
                 fontWeight = FontWeight.Bold
             )
             Text(
-                "Downloads/ClassReplay/",
+                "${LmsDownloadStore.publicDisplayPath()}\nDownloads/ClassReplay/",
                 style = MiuixTheme.textStyles.body2,
                 color = MiuixTheme.colorScheme.primary,
                 fontWeight = FontWeight.Medium
@@ -701,12 +828,12 @@ private fun DownloadDirInfoDialog(show: MutableState<Boolean>) {
                 fontWeight = FontWeight.Bold
             )
             Text(
-                "• 使用系统文件管理器或第三方播放器查看视频",
+                "• 成绩单、思源课件和作业附件统一保存到 ${LmsDownloadStore.publicDisplayPath()}",
                 style = MiuixTheme.textStyles.body2,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary
             )
             Text(
-                "• 支持外部播放器播放已下载的视频",
+                "• 课堂回放仍保存在 Downloads/ClassReplay/，支持外部播放器播放",
                 style = MiuixTheme.textStyles.body2,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary
             )

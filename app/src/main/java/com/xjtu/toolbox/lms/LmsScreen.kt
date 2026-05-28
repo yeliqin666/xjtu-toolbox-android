@@ -2,9 +2,7 @@ package com.xjtu.toolbox.lms
 
 import android.content.ContentValues
 import android.content.Context
-import android.content.Intent
 import android.graphics.BitmapFactory
-import android.net.Uri
 import android.provider.MediaStore
 import android.util.Log
 import android.widget.Toast
@@ -22,11 +20,18 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
+import com.xjtu.toolbox.LocalAppLoginState
+import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.AuthExpiredException
+import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.SiteSession
+import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -46,7 +51,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jsoup.Jsoup
 import top.yukonga.miuix.kmp.basic.*
-import top.yukonga.miuix.kmp.extra.SuperBottomSheet
+import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 
@@ -76,9 +81,10 @@ private sealed class LmsPage {
 // ════════════════════════════════════════
 
 @Composable
-fun LmsScreen(login: LmsLogin, onBack: () -> Unit) {
+fun LmsScreen(site: SiteSession, onBack: () -> Unit) {
+    val appLoginState = LocalAppLoginState.current
     val context = LocalContext.current
-    val api = remember { LmsApi(login) }
+    val api = remember(site) { LmsApi(site) }
 
     var currentPage by remember { mutableStateOf<LmsPage>(LmsPage.CourseList) }
 
@@ -88,8 +94,8 @@ fun LmsScreen(login: LmsLogin, onBack: () -> Unit) {
 
     if (showHint.value) {
         BackHandler { showHint.value = false; prefs.edit().putBoolean("lms_hint_shown", true).apply() }
-        SuperBottomSheet(
-            show = showHint,
+        OverlayBottomSheet(
+            show = showHint.value,
             title = "功能说明",
             onDismissRequest = {
                 showHint.value = false
@@ -103,8 +109,7 @@ fun LmsScreen(login: LmsLogin, onBack: () -> Unit) {
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "支持查看课程列表、作业提交记录、课件附件以及课堂回放视频。\n" +
-                        "课堂回放下载链接可在浏览器中打开下载。",
+                    "支持查看课程、作业、课件和课堂回放。课件会在应用内下载，并统一显示在下载管理中。",
                     style = MiuixTheme.textStyles.body2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                 )
@@ -206,6 +211,7 @@ private fun CourseListPage(
     onBack: () -> Unit,
     onCourseSelected: (LmsCourseSummary) -> Unit
 ) {
+    val appLoginState = LocalAppLoginState.current
     var courses by remember { mutableStateOf<List<LmsCourseSummary>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
@@ -218,6 +224,8 @@ private fun CourseListPage(
             errorMsg = null
             try {
                 courses = withContext(Dispatchers.IO) { api.getMyCourses() }
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.LMS, Routes.LMS, onBack)
             } catch (e: Exception) {
                 Log.e(TAG, "loadCourses error", e)
                 errorMsg = "加载课程失败: ${e.message}"
@@ -242,7 +250,7 @@ private fun CourseListPage(
         topBar = {
             SmallTopAppBar(
                 title = "思源学堂",
-                color = MiuixTheme.colorScheme.surfaceVariant,
+                color = MiuixTheme.colorScheme.background,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -263,14 +271,36 @@ private fun CourseListPage(
                     ) {
                         if (semesters.size > 1) {
                             item(key = "semester_filter") {
-                                Row(
-                                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                Card(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                                    cornerRadius = 22.dp,
+                                    colors = CardDefaults.defaultColors(
+                                        color = MiuixTheme.colorScheme.surfaceVariant
+                                    )
                                 ) {
-                                    AppFilterChip(selected = selectedSemester == null, onClick = { selectedSemester = null }, label = "全部")
-                                    semesters.forEach { sem ->
-                                        AppFilterChip(selected = selectedSemester == sem, onClick = { selectedSemester = sem }, label = sem)
+                                    Column(Modifier.fillMaxWidth().padding(vertical = 14.dp)) {
+                                        Text(
+                                            "选择学期",
+                                            style = MiuixTheme.textStyles.subtitle,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 16.dp)
+                                        )
+                                        Text(
+                                            selectedSemester ?: "显示所有学期",
+                                            style = MiuixTheme.textStyles.footnote1,
+                                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 3.dp)
+                                        )
+                                        Row(
+                                            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                                                .padding(horizontal = 12.dp, vertical = 7.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            AppFilterChip(selected = selectedSemester == null, onClick = { selectedSemester = null }, label = "全部")
+                                            semesters.forEach { sem ->
+                                                AppFilterChip(selected = selectedSemester == sem, onClick = { selectedSemester = sem }, label = sem)
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -295,12 +325,33 @@ private fun CourseListPage(
 
 @Composable
 private fun LmsCourseCard(course: LmsCourseSummary, onClick: () -> Unit) {
+    val accent = listOf(
+        Color(0xFF5B6FD8), Color(0xFF2D9B86), Color(0xFFD07A45), Color(0xFF8B63C7)
+    )[(course.id.hashCode() and Int.MAX_VALUE) % 4]
     Card(
         onClick = onClick,
         pressFeedbackType = PressFeedbackType.Sink,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 3.dp),
+        colors = CardDefaults.defaultColors(
+            color = MiuixTheme.colorScheme.surfaceVariant
+        )
     ) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Surface(
+                shape = RoundedCornerShape(15.dp),
+                color = accent.copy(alpha = 0.13f),
+                modifier = Modifier.size(48.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        course.name.take(1),
+                        style = MiuixTheme.textStyles.title4,
+                        fontWeight = FontWeight.Bold,
+                        color = accent
+                    )
+                }
+            }
+            Spacer(Modifier.width(13.dp))
             Column(Modifier.weight(1f)) {
                 Text(
                     course.name,
@@ -353,6 +404,7 @@ private fun ActivityListPage(
     onBack: () -> Unit,
     onActivitySelected: (LmsActivity) -> Unit
 ) {
+    val appLoginState = LocalAppLoginState.current
     var activities by remember { mutableStateOf<List<LmsActivity>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
@@ -365,6 +417,8 @@ private fun ActivityListPage(
             errorMsg = null
             try {
                 activities = withContext(Dispatchers.IO) { api.getCourseActivities(course.id) }
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.LMS, Routes.LMS, onBack)
             } catch (e: Exception) {
                 Log.e(TAG, "loadActivities error", e)
                 errorMsg = "加载活动失败: ${e.message}"
@@ -389,7 +443,7 @@ private fun ActivityListPage(
         topBar = {
             SmallTopAppBar(
                 title = course.name,
-                color = MiuixTheme.colorScheme.surfaceVariant,
+                color = MiuixTheme.colorScheme.background,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -410,18 +464,38 @@ private fun ActivityListPage(
                     ) {
                         if (types.size > 1) {
                             item(key = "type_filter") {
-                                Row(
-                                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                Card(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                                    cornerRadius = 22.dp,
+                                    colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
                                 ) {
-                                    AppFilterChip(selected = selectedType == null, onClick = { selectedType = null }, label = "全部")
-                                    types.forEach { type ->
-                                        AppFilterChip(
-                                            selected = selectedType == type,
-                                            onClick = { selectedType = type },
-                                            label = type.displayName()
+                                    Column(Modifier.fillMaxWidth().padding(vertical = 14.dp)) {
+                                        Text(
+                                            "课程内容",
+                                            style = MiuixTheme.textStyles.subtitle,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 16.dp)
                                         )
+                                        Text(
+                                            selectedType?.displayName() ?: "全部内容",
+                                            style = MiuixTheme.textStyles.footnote1,
+                                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 3.dp)
+                                        )
+                                        Row(
+                                            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                                                .padding(horizontal = 12.dp, vertical = 7.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            AppFilterChip(selected = selectedType == null, onClick = { selectedType = null }, label = "全部")
+                                            types.forEach { type ->
+                                                AppFilterChip(
+                                                    selected = selectedType == type,
+                                                    onClick = { selectedType = type },
+                                                    label = type.displayName()
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -450,13 +524,24 @@ private fun LmsActivityCard(activity: LmsActivity, onClick: () -> Unit) {
     Card(
         onClick = onClick,
         pressFeedbackType = PressFeedbackType.Sink,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 3.dp),
+        colors = CardDefaults.defaultColors(
+            color = MiuixTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+        )
     ) {
         Row(
             Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(icon, null, tint = color, modifier = Modifier.size(32.dp))
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = color.copy(alpha = 0.12f),
+                modifier = Modifier.size(46.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(icon, null, tint = color, modifier = Modifier.size(25.dp))
+                }
+            }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
@@ -500,6 +585,7 @@ private fun ActivityDetailPage(
     onPlayVideo: (title: String, instructorUrl: String?, encoderUrl: String?, isLive: Boolean, headers: Map<String, String>) -> Unit
 ) {
     val context = LocalContext.current
+    val appLoginState = LocalAppLoginState.current
     var detail by remember { mutableStateOf<LmsActivity?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
@@ -511,6 +597,8 @@ private fun ActivityDetailPage(
             errorMsg = null
             try {
                 detail = withContext(Dispatchers.IO) { api.getActivityDetail(activity.id) }
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.LMS, Routes.LMS, onBack)
             } catch (e: Exception) {
                 Log.e(TAG, "loadDetail error", e)
                 errorMsg = "加载详情失败: ${e.message}"
@@ -526,7 +614,7 @@ private fun ActivityDetailPage(
         topBar = {
             SmallTopAppBar(
                 title = activity.title,
-                color = MiuixTheme.colorScheme.surfaceVariant,
+                color = MiuixTheme.colorScheme.background,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -583,7 +671,7 @@ private fun ActivityDetailPage(
                             if (submissions.list.isNotEmpty()) {
                                 item(key = "sub_header") { SectionHeader("提交记录 (${submissions.list.size})") }
                                 items(submissions.list, key = { "sub_${it.id}" }) { sub ->
-                                    SubmissionCard(sub, context)
+                                    SubmissionCard(sub, context, api)
                                 }
                             }
                         }
@@ -902,7 +990,8 @@ private fun UploadCard(upload: LmsUpload, context: Context, api: LmsApi? = null)
 }
 
 @Composable
-private fun SubmissionCard(sub: LmsSubmissionItem, context: Context) {
+private fun SubmissionCard(sub: LmsSubmissionItem, context: Context, api: LmsApi) {
+    val scope = rememberCoroutineScope()
     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
         Column(Modifier.padding(16.dp)) {
             Row(
@@ -951,7 +1040,7 @@ private fun SubmissionCard(sub: LmsSubmissionItem, context: Context) {
                 Spacer(Modifier.height(8.dp))
                 Text("批改附件", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 correctUploads.forEach { upload ->
-                    UploadCard(upload, context)
+                    UploadCard(upload, context, api)
                 }
             }
 
@@ -960,21 +1049,30 @@ private fun SubmissionCard(sub: LmsSubmissionItem, context: Context) {
                 Spacer(Modifier.height(8.dp))
                 Text("提交附件", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 sub.uploads.forEach { upload ->
-                    UploadCard(upload, context)
+                    UploadCard(upload, context, api)
                     if (upload.attachmentUrl.isNotEmpty()) {
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(upload.attachmentUrl))) } catch (_: Exception) {}
+                        var downloadingMarked by remember { mutableStateOf(false) }
+                        TextButton(
+                            text = if (downloadingMarked) "正在下载批改版…" else "下载批改版",
+                            enabled = !downloadingMarked,
+                            onClick = {
+                                downloadingMarked = true
+                                scope.launch {
+                                    val markedName = upload.name.substringBeforeLast('.', upload.name) +
+                                        "_批改版." + upload.name.substringAfterLast('.', "bin")
+                                    val ok = withContext(Dispatchers.IO) {
+                                        saveToDownloads(context, markedName, upload.type, upload.attachmentUrl, api)
+                                    }
+                                    downloadingMarked = false
+                                    Toast.makeText(
+                                        context,
+                                        if (ok) "批改版已保存到下载管理" else "批改版下载失败",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
                                 }
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.Edit, null, Modifier.size(14.dp), tint = Color(0xFFFF9800))
-                            Spacer(Modifier.width(6.dp))
-                            Text("查看批改版", fontSize = 12.sp, color = Color(0xFFFF9800))
-                        }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
                 }
             }
@@ -1174,6 +1272,7 @@ private fun saveToDownloads(context: Context, name: String, mimeType: String, ur
     val cv = ContentValues().apply {
         put(MediaStore.Downloads.DISPLAY_NAME, name)
         put(MediaStore.Downloads.MIME_TYPE, mime)
+        put(MediaStore.Downloads.RELATIVE_PATH, LmsDownloadStore.RELATIVE_PATH)
         put(MediaStore.Downloads.IS_PENDING, 1)
     }
     val resolver = context.contentResolver
@@ -1184,6 +1283,20 @@ private fun saveToDownloads(context: Context, name: String, mimeType: String, ur
         cv.clear()
         cv.put(MediaStore.Downloads.IS_PENDING, 0)
         resolver.update(uri, cv, null, null)
+        if (ok) {
+            LmsDownloadStore.add(
+                context,
+                LmsDownloadRecord(
+                    name = name,
+                    mimeType = mime,
+                    uri = uri.toString(),
+                    savedAt = System.currentTimeMillis(),
+                    category = LmsDownloadStore.CATEGORY_LMS
+                )
+            )
+        } else {
+            resolver.delete(uri, null, null)
+        }
         ok
     } catch (e: Exception) {
         resolver.delete(uri, null, null)

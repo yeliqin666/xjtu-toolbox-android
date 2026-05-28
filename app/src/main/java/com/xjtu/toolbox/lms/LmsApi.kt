@@ -4,7 +4,9 @@ import android.util.Log
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
+import kotlinx.coroutines.runBlocking
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -35,10 +37,10 @@ private fun JsonElement?.safeObject(): JsonObject? =
 //  LmsApi — 思源学堂 API 封装
 // ════════════════════════════════════════
 
-class LmsApi(private val login: LmsLogin) {
+class LmsApi(private val site: SiteSession) {
 
-    private val baseUrl = LmsLogin.BASE_URL
-    private val rmsBaseUrl = LmsLogin.RMS_BASE_URL
+    private val baseUrl = "https://lms.xjtu.edu.cn"
+    private val rmsBaseUrl = "https://rms-v5.xjtu.edu.cn"
 
     // 缓存
     private var cachedUserInfo: LmsUserInfo? = null
@@ -188,7 +190,7 @@ class LmsApi(private val login: LmsLogin) {
     /** 流式下载到 OutputStream（带认证），用于大文件保存到本地 */
     fun downloadToStream(url: String, outputStream: java.io.OutputStream): Boolean {
         return try {
-            val resp = login.executeWithReAuth(login.authenticatedRequest(url).get())
+            val resp = runBlocking { site.executeWithReAuth(authenticatedRequest(url).get().build()) }
             resp.body?.byteStream()?.use { input ->
                 outputStream.use { out -> input.copyTo(out) }
             }
@@ -202,7 +204,7 @@ class LmsApi(private val login: LmsLogin) {
     /** 下载任意 URL 的字节数组（带认证），用于附件预览 */
     fun downloadBytes(url: String): ByteArray? {
         return try {
-            val resp = login.executeWithReAuth(login.authenticatedRequest(url).get())
+            val resp = runBlocking { site.executeWithReAuth(authenticatedRequest(url).get().build()) }
             resp.body?.use { it.bytes() }
         } catch (e: Exception) {
             Log.e(TAG, "downloadBytes failed: $url", e)
@@ -211,15 +213,15 @@ class LmsApi(private val login: LmsLogin) {
     }
 
     private fun getIndexPage(): String {
-        val req = login.authenticatedRequest("$baseUrl/user/index").get()
-        val resp = login.executeWithReAuth(req)
+        val req = authenticatedRequest("$baseUrl/user/index").get().build()
+        val resp = runBlocking { site.executeWithReAuth(req) }
         return resp.body?.use { it.string() } ?: ""
     }
 
     private fun getJson(url: String, headers: Map<String, String>? = null): JsonObject? {
-        val builder = login.authenticatedRequest(url).get()
+        val builder = authenticatedRequest(url).get()
         headers?.forEach { (k, v) -> builder.header(k, v) }
-        val resp = login.executeWithReAuth(builder)
+        val resp = runBlocking { site.executeWithReAuth(builder.build()) }
         val body = resp.body?.use { it.string() } ?: return null
         return try {
             body.safeParseJsonObject()
@@ -231,9 +233,10 @@ class LmsApi(private val login: LmsLogin) {
 
     private fun postJson(url: String): JsonObject? {
         val emptyBody = "".toRequestBody("application/json".toMediaType())
-        val req = login.authenticatedRequest(url)
+        val req = authenticatedRequest(url)
             .post(emptyBody)
-        val resp = login.executeWithReAuth(req)
+            .build()
+        val resp = runBlocking { site.executeWithReAuth(req) }
         val body = resp.body?.use { it.string() } ?: return null
         return try {
             body.safeParseJsonObject()
@@ -242,6 +245,12 @@ class LmsApi(private val login: LmsLogin) {
             null
         }
     }
+
+    private fun authenticatedRequest(url: String): Request.Builder =
+        Request.Builder()
+            .url(url)
+            .header("Referer", "$baseUrl/user/courses")
+            .header("Accept", "application/json, text/plain, */*")
 
     // ── 作业提交列表 ──────────────────────
 

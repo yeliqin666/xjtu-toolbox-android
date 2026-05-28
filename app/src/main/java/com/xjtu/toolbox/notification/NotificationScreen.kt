@@ -34,8 +34,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Merge
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
 import com.xjtu.toolbox.ui.components.AppTopBar
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -77,7 +75,6 @@ fun NotificationScreen(
     var isLoadingMore by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
-    var isSearchActive by rememberSaveable { mutableStateOf(false) }
     var currentPage by rememberSaveable { mutableIntStateOf(1) }
     var hasMorePages by remember { mutableStateOf(true) }
 
@@ -156,79 +153,31 @@ fun NotificationScreen(
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     Scaffold(
         topBar = {
-            if (isSearchActive) {
-                AppTopBar(
-                    navigationIcon = {
-                        IconButton(onClick = { isSearchActive = false; searchQuery = "" }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                        }
-                    },
-                    title = {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(end = 8.dp, top = 4.dp, bottom = 4.dp)
-                        ) {
-                            TextField(
-                                value = searchQuery,
-                                onValueChange = { searchQuery = it },
-                                label = "搜索通知标题...",
-                                useLabelAsPlaceholder = true,
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
-                                textStyle = MiuixTheme.textStyles.body2,
-                                trailingIcon = {
-                                    if (searchQuery.isNotEmpty()) {
-                                        IconButton(onClick = { searchQuery = "" }) {
-                                            Icon(
-                                                Icons.Default.Close,
-                                                contentDescription = "清除",
-                                                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                                            )
-                                        }
-                                    }
-                                }
-                            )
-                        }
+            TopAppBar(
+                title = "通知公告",
+                largeTitle = "通知公告",
+                scrollBehavior = scrollBehavior,
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
-                )
-            } else {
-                TopAppBar(
-                    title = "通知公告",
-                    largeTitle = "通知公告",
-                    scrollBehavior = scrollBehavior,
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                },
+                actions = {
+                    IconButton(onClick = {
+                        mergeMode = !mergeMode
+                        if (mergeMode && selectedSources.isEmpty()) {
+                            selectedSources = setOf(selectedSource)
                         }
-                    },
-                    actions = {
-                        // 合并模式切换
-                        IconButton(onClick = {
-                            mergeMode = !mergeMode
-                            if (mergeMode && selectedSources.isEmpty()) {
-                                selectedSources = setOf(selectedSource)
-                            }
-                        }) {
-                            Icon(
-                                Icons.Default.Merge,
-                                contentDescription = if (mergeMode) "取消合并" else "合并模式",
-                                tint = if (mergeMode) MiuixTheme.colorScheme.primary
-                                else MiuixTheme.colorScheme.onSurfaceVariantSummary
-                            )
-                        }
-                        IconButton(onClick = { isSearchActive = true }) {
-                            Icon(Icons.Default.Search, contentDescription = "搜索")
-                        }
-                        IconButton(onClick = {
-                            currentPage = 1
-                            scope.launch { loadNotifications() }
-                        }) {
-                            Icon(Icons.Default.Refresh, contentDescription = "刷新")
-                        }
+                    }) {
+                        Icon(
+                            Icons.Default.Merge,
+                            contentDescription = if (mergeMode) "取消合并" else "合并模式",
+                            tint = if (mergeMode) MiuixTheme.colorScheme.primary
+                            else MiuixTheme.colorScheme.onSurfaceVariantSummary
+                        )
                     }
-                )
-            }
+                }
+            )
         }
     ) { padding ->
         Column(
@@ -340,6 +289,13 @@ fun NotificationScreen(
                 }
             }
 
+            com.xjtu.toolbox.ui.components.AppSearchBar(
+                query = searchQuery,
+                onQueryChange = { searchQuery = it },
+                label = "搜索通知标题",
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+
             // ═══ 加载条 ═══
             AnimatedVisibility(isLoading && notifications.isNotEmpty(), enter = fadeIn(), exit = fadeOut()) {
                 LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -367,6 +323,19 @@ fun NotificationScreen(
                             modifier = Modifier.fillMaxSize()
                         )
                     } else {
+                        var isPullRefreshing by remember { mutableStateOf(false) }
+                        top.yukonga.miuix.kmp.basic.PullToRefresh(
+                            isRefreshing = isPullRefreshing,
+                            onRefresh = {
+                                isPullRefreshing = true
+                                scope.launch {
+                                    currentPage = 1
+                                    loadNotifications()
+                                    isPullRefreshing = false
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        ) {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize().overScrollVertical(),
                             state = listState,
@@ -397,6 +366,7 @@ fun NotificationScreen(
                                     }
                                 }
                             }
+                        }
                         }
                     }
                 }

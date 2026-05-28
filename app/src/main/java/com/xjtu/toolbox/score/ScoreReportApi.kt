@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.score
 
-import com.xjtu.toolbox.auth.JwxtLogin
+import com.xjtu.toolbox.auth.SiteSession
+import kotlinx.coroutines.runBlocking
 import okhttp3.Request
 import org.jsoup.Jsoup
 
@@ -22,7 +23,7 @@ data class ReportedGrade(
  *
  * 原理：通过帆软报表 (FineReport) 接口获取成绩单 HTML，解析表格
  */
-class ScoreReportApi(private val login: JwxtLogin) {
+class ScoreReportApi(private val site: SiteSession) {
 
     companion object {
         private const val FR_REPORT_URL = "https://jwxt.xjtu.edu.cn/jwapp/sys/frReport2/show.do"
@@ -179,7 +180,7 @@ class ScoreReportApi(private val login: JwxtLogin) {
         // 第1步：获取帆软报表初始页面
         val initUrl = "$FR_REPORT_URL?reportlet=bkdsglxjtu/XAJTDX_BDS_CJ.cpt&xh=$studentId"
         val initRequest = Request.Builder().url(initUrl).get().build()
-        val initHtml = login.client.newCall(initRequest).execute().use { it.body?.string() ?: "" }
+        val initHtml = runBlocking { site.executeWithReAuth(initRequest) }.use { it.body?.string() ?: "" }
 
         // 第2步：提取 FR Session ID
         val sessionId = extractFrSessionId(initHtml)
@@ -187,7 +188,7 @@ class ScoreReportApi(private val login: JwxtLogin) {
         // 第3步：获取第一页内容
         val firstPageUrl = "$FR_REPORT_URL?_=${System.currentTimeMillis()}&__boxModel__=true&op=page_content&sessionID=$sessionId&pn=1"
         val firstPageRequest = Request.Builder().url(firstPageUrl).get().build()
-        val firstPageHtml = login.client.newCall(firstPageRequest).execute().use { it.body?.string() ?: "" }
+        val firstPageHtml = runBlocking { site.executeWithReAuth(firstPageRequest) }.use { it.body?.string() ?: "" }
 
         val totalPages = extractTotalPages(firstPageHtml)
 
@@ -198,7 +199,7 @@ class ScoreReportApi(private val login: JwxtLogin) {
         for (pn in 2..totalPages) {
             val pageUrl = "$FR_REPORT_URL?_=${System.currentTimeMillis()}&__boxModel__=true&op=page_content&sessionID=$sessionId&pn=$pn"
             val pageRequest = Request.Builder().url(pageUrl).get().build()
-            val pageHtml = login.client.newCall(pageRequest).execute().use { it.body?.string() ?: "" }
+            val pageHtml = runBlocking { site.executeWithReAuth(pageRequest) }.use { it.body?.string() ?: "" }
             allCourses.addAll(parseCoursesFromHtml(pageHtml))
         }
 

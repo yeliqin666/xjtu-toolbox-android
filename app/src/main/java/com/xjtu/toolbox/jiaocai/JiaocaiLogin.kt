@@ -31,7 +31,6 @@ class JiaocaiLogin(
     companion object {
         private const val TAG = "JiaocaiLogin"
         const val BASE_URL = "https://jiaocai.lib.xjtu.edu.cn"
-        const val READER_HOST = "http://jiaocai1.lib.xjtu.edu.cn:9088"
         const val FID = "17071"
         const val WEBSITE_ID = "12950"
         const val PAGE_ID = "13858"
@@ -66,8 +65,9 @@ class JiaocaiLogin(
             val json = text.safeParseJsonObject()
             val data = json.getAsJsonObject("data")
             if (data != null) {
-                uid = data.get("uid")?.asString ?: ""
-                enc = data.get("enc")?.asString ?: ""
+                // data.uid 可能为 JsonNull（首次访问 / session 未完全建立），需 null-safe
+                uid = data.get("uid")?.takeIf { !it.isJsonNull }?.asString ?: ""
+                enc = data.get("enc")?.takeIf { !it.isJsonNull }?.asString ?: ""
                 if (uid.isNotBlank()) {
                     isReady = true
                     Log.d(TAG, "jiaocai ready: uid=$uid")

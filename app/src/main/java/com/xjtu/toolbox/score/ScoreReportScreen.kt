@@ -34,6 +34,11 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import com.xjtu.toolbox.LocalAppLoginState
+import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.AuthExpiredException
+import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -41,7 +46,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.auth.JwxtLogin
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
 import kotlinx.coroutines.Dispatchers
@@ -53,11 +58,12 @@ import kotlinx.coroutines.withContext
  */
 @Composable
 fun ScoreReportScreen(
-    login: JwxtLogin,
+    site: SiteSession,
     studentId: String,
     onBack: () -> Unit
 ) {
-    val api = remember { ScoreReportApi(login) }
+    val appLoginState = LocalAppLoginState.current
+    val api = remember(site) { ScoreReportApi(site) }
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
     val dataCache = remember { com.xjtu.toolbox.util.DataCache(context) }
@@ -117,6 +123,8 @@ fun ScoreReportScreen(
                 }
                 // 更新缓存
                 try { dataCache.put(cacheKey, gson.toJson(grades)) } catch (_: Exception) {}
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.JWXT, Routes.SCORE_REPORT, onBack)
             } catch (e: Exception) {
                 if (allGrades.isEmpty()) errorMessage = "加载失败: ${e.message}"
             } finally {
@@ -223,24 +231,11 @@ fun ScoreReportScreen(
 
                     // 搜索框
                     item {
-                        val keyboardController = LocalSoftwareKeyboardController.current
-                        TextField(
-                            value = searchQuery,
-                            onValueChange = { searchQuery = it },
+                        com.xjtu.toolbox.ui.components.AppSearchBar(
+                            query = searchQuery,
+                            onQueryChange = { searchQuery = it },
                             label = "搜索课程名称...",
-                            useLabelAsPlaceholder = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                            keyboardActions = KeyboardActions(onSearch = { keyboardController?.hide() }),
-                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "搜索") },
-                            trailingIcon = {
-                                if (searchQuery.isNotEmpty()) {
-                                    IconButton(onClick = { searchQuery = ""; keyboardController?.hide() }) {
-                                        Icon(Icons.Default.Clear, contentDescription = "清除")
-                                    }
-                                }
-                            }
+                            modifier = Modifier.fillMaxWidth()
                         )
                     }
 

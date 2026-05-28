@@ -20,6 +20,12 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import com.xjtu.toolbox.LocalAppLoginState
+import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.AuthExpiredException
+import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.SiteSession
+import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -72,10 +78,11 @@ enum class AudioSource(val label: String) {
 @OptIn(UnstableApi::class)
 @Composable
 fun VideoPlayerScreen(
-    login: ClassLogin,
+    site: SiteSession,
     activityId: Int,
     onBack: () -> Unit
 ) {
+    val appLoginState = LocalAppLoginState.current
     val context = LocalContext.current
     val activity = context as? Activity
 
@@ -111,7 +118,7 @@ fun VideoPlayerScreen(
             errorMsg = null
             try {
                 val detail = withContext(Dispatchers.IO) {
-                    fetchReplayDetail(login, activityId)
+                    fetchReplayDetail(site, activityId)
                 }
                 if (detail == null || detail.replayVideos.isEmpty()) {
                     errorMsg = "未找到回放视频"
@@ -124,8 +131,8 @@ fun VideoPlayerScreen(
                     val instrVid = detail.replayVideos.find { it.cameraType == "instructor" }
                     val encVid = detail.replayVideos.find { it.cameraType == "encoder" }
 
-                    val dInstr = async { instrVid?.let { resolveVideoUrl(login, it.url) } }
-                    val dEnc = async { encVid?.let { resolveVideoUrl(login, it.url) } }
+                    val dInstr = async { instrVid?.let { resolveVideoUrl(site, it.url) } }
+                    val dEnc = async { encVid?.let { resolveVideoUrl(site, it.url) } }
                     instructorUrl = dInstr.await()
                     encoderUrl = dEnc.await()
                 }
@@ -133,6 +140,8 @@ fun VideoPlayerScreen(
                 if (instructorUrl == null && encoderUrl == null) {
                     errorMsg = "无法获取视频播放地址"
                 }
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.CLASS, Routes.CLASS_REPLAY, onBack)
             } catch (e: Exception) {
                 Log.e(TAG, "load replay error", e)
                 errorMsg = "加载失败: ${e.message}"

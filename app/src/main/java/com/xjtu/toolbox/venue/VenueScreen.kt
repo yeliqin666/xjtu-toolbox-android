@@ -21,6 +21,12 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.runtime.*
+import com.xjtu.toolbox.LocalAppLoginState
+import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.AuthExpiredException
+import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.SiteSession
+import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,7 +37,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.auth.VenueLogin
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
@@ -39,8 +44,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.*
-import top.yukonga.miuix.kmp.extra.SuperBottomSheet
-import top.yukonga.miuix.kmp.extra.SuperDialog
+import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
+import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import java.time.LocalDate
@@ -52,9 +57,10 @@ import java.time.format.DateTimeFormatter
  * 流程：场馆列表 → 选择场馆 → 日期选择 + 时段网格 → 确认 → 滑动验证码 → 预订结果
  */
 @Composable
-fun VenueScreen(login: VenueLogin, onBack: () -> Unit) {
+fun VenueScreen(site: SiteSession, onBack: () -> Unit) {
+    val appLoginState = LocalAppLoginState.current
     val scope = rememberCoroutineScope()
-    val api = remember { VenueApi(login) }
+    val api = remember(site) { VenueApi(site) }
     val context = LocalContext.current
 
     val favoritesManager = remember { VenueFavorites(context) }
@@ -72,8 +78,8 @@ fun VenueScreen(login: VenueLogin, onBack: () -> Unit) {
     val showHint = remember { mutableStateOf(!prefs.getBoolean("venue_hint_shown", false)) }
     if (showHint.value) {
         BackHandler { showHint.value = false; prefs.edit().putBoolean("venue_hint_shown", true).apply() }
-        SuperBottomSheet(
-            show = showHint,
+        OverlayBottomSheet(
+            show = showHint.value,
             title = "功能说明",
             onDismissRequest = {
                 showHint.value = false
@@ -136,6 +142,8 @@ fun VenueScreen(login: VenueLogin, onBack: () -> Unit) {
             try {
                 val result = withContext(Dispatchers.IO) { api.fetchVenueList() }
                 venues = result
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.VENUE, Routes.VENUE, onBack)
             } catch (e: Exception) {
                 venueError = e.message ?: "加载场馆列表失败"
             } finally { venueLoading = false }
@@ -155,6 +163,8 @@ fun VenueScreen(login: VenueLogin, onBack: () -> Unit) {
                 }
                 availableSlots = ok
                 lockedSlots = locked
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.VENUE, Routes.VENUE, onBack)
             } catch (e: Exception) {
                 slotsError = e.message ?: "加载时段失败"
             } finally { slotsLoading = false }
@@ -337,9 +347,9 @@ fun VenueScreen(login: VenueLogin, onBack: () -> Unit) {
     // ─── 验证码弹窗 ───
     if (showCaptchaDialog.value) {
         BackHandler { showCaptchaDialog.value = false }
-        SuperDialog(
+        OverlayDialog(
             title = "滑动验证",
-            show = showCaptchaDialog,
+            show = showCaptchaDialog.value,
             onDismissRequest = {
                 showCaptchaDialog.value = false
             }
@@ -392,9 +402,9 @@ fun VenueScreen(login: VenueLogin, onBack: () -> Unit) {
             showResultDialog.value = false
             if (bookingResult!!.success) { selectedSlots = emptySet(); loadSlots() }
         }
-        SuperDialog(
+        OverlayDialog(
             title = if (bookingResult!!.success) "预订成功" else "预订失败",
-            show = showResultDialog,
+            show = showResultDialog.value,
             onDismissRequest = {
                 showResultDialog.value = false
                 if (bookingResult!!.success) {

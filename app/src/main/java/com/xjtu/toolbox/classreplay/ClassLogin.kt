@@ -47,13 +47,13 @@ class ClassLogin(
         val finalUrl = response.request.url.toString()
         Log.d(TAG, "postLogin: finalUrl=$finalUrl")
 
-        if (finalUrl.contains("class.xjtu.edu.cn") && !finalUrl.contains("login.xjtu.edu.cn")) {
+        if (com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(finalUrl, "class.xjtu.edu.cn")) {
             sessionValid = true
             Log.d(TAG, "postLogin: session established via redirect chain")
             return
         }
 
-        // 如果最终 URL 不在 class.xjtu.edu.cn，手动访问触发 session
+        // 最终 URL 不在 class 站点（直连或 WebVPN），手动访问触发 session
         Log.d(TAG, "postLogin: not at class site, manually accessing user/index")
         try {
             val indexReq = Request.Builder()
@@ -64,8 +64,7 @@ class ClassLogin(
             val indexFinalUrl = indexResp.request.url.toString()
             indexResp.close()
 
-            sessionValid = indexFinalUrl.contains("class.xjtu.edu.cn") &&
-                !indexFinalUrl.contains("login.xjtu.edu.cn")
+            sessionValid = com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(indexFinalUrl, "class.xjtu.edu.cn")
             Log.d(TAG, "postLogin: manual access finalUrl=$indexFinalUrl, valid=$sessionValid")
         } catch (e: Exception) {
             Log.e(TAG, "postLogin: manual access failed", e)
@@ -86,6 +85,29 @@ class ClassLogin(
             .header("Accept", "application/json, text/plain, */*")
     }
 
+    override fun validateLogin(): Boolean {
+        return try {
+            val request = okhttp3.Request.Builder()
+                .url("$BASE_URL/api/user/recently-visited-courses")
+                .header("Accept", "application/json")
+                .get().build()
+            val response = client.newCall(request).execute()
+            val finalUrl = response.request.url.toString()
+            val code = response.code
+            response.close()
+            code == 200 && com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(finalUrl, "class.xjtu.edu.cn")
+        } catch (_: Exception) { false }
+    }
+
+    override fun keepAlive(): KeepAliveStatus {
+        return try {
+            if (validateLogin()) return KeepAliveStatus.VALID
+            if (reAuthenticate()) KeepAliveStatus.REAUTH_OK
+            else KeepAliveStatus.AUTH_INVALID
+        } catch (_: java.io.IOException) { KeepAliveStatus.NETWORK_ERROR }
+        catch (_: Exception) { KeepAliveStatus.ERROR }
+    }
+
     private val reAuthLock = Any()
 
     /**
@@ -104,8 +126,7 @@ class ClassLogin(
             val code = checkResp.code
             checkResp.close()
 
-            if (code == 200 && finalUrl.contains("class.xjtu.edu.cn") &&
-                !finalUrl.contains("login.xjtu.edu.cn")) {
+            if (code == 200 && com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(finalUrl, "class.xjtu.edu.cn")) {
                 Log.d(TAG, "reAuthenticate: session still valid")
                 sessionValid = true
                 return true
@@ -118,8 +139,7 @@ class ClassLogin(
             val ssoFinalUrl = ssoResp.request.url.toString()
             ssoResp.close()
 
-            if (ssoFinalUrl.contains("class.xjtu.edu.cn") &&
-                !ssoFinalUrl.contains("login.xjtu.edu.cn")) {
+            if (com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(ssoFinalUrl, "class.xjtu.edu.cn")) {
                 sessionValid = true
                 Log.d(TAG, "reAuthenticate: SSO success")
                 return true
@@ -128,8 +148,7 @@ class ClassLogin(
             // fallback: casAuthenticate
             Log.d(TAG, "reAuthenticate: SSO failed, trying casAuthenticate")
             val casResult = casAuthenticate(CLASS_LOGIN_URL) ?: return false
-            if (casResult.second.contains("class.xjtu.edu.cn") &&
-                !casResult.second.contains("login.xjtu.edu.cn")) {
+            if (com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(casResult.second, "class.xjtu.edu.cn")) {
                 sessionValid = true
                 Log.d(TAG, "reAuthenticate: casAuthenticate success")
                 return true
@@ -143,16 +162,29 @@ class ClassLogin(
 
     /**
      * 执行带自动重认证的请求
+     * 如果请求返回 302 到 CAS、401/403 或被 Safety Verify 拦截，自动重认证并重试
      */
     fun executeWithReAuth(request: Request.Builder): Response {
         val response = client.newCall(request.build()).execute()
         val finalUrl = response.request.url.toString()
 
-        if (finalUrl.contains("login.xjtu.edu.cn") || response.code in listOf(401, 403)) {
+        val needReAuth = when {
+            finalUrl.contains("login.xjtu.edu.cn/cas/login", ignoreCase = true) -> true
+            response.code in listOf(401, 403) -> true
+            response.code == 200 -> {
+                val ct = response.header("Content-Type") ?: ""
+                if ("html" in ct || "text" in ct) {
+                    com.xjtu.toolbox.auth.XJTULogin.isAuthFailureResponse(response.peekBody(8192).string())
+                } else false
+            }
+            else -> false
+        }
+        if (needReAuth) {
             response.close()
             if (reAuthenticate()) {
                 return client.newCall(request.build()).execute()
             }
+            throw com.xjtu.toolbox.auth.AuthExpiredException("课程回放")
         }
         return response
     }
