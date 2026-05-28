@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.emptyroom
 
+import android.content.Intent
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -19,6 +20,7 @@ import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.TabRowWithContour
 import top.yukonga.miuix.kmp.basic.Checkbox
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
+import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.utils.SinkFeedback
 import top.yukonga.miuix.kmp.utils.overScrollVertical
@@ -66,6 +68,8 @@ import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import com.xjtu.toolbox.ui.components.AppFilterChip
+import com.xjtu.toolbox.auth.AccountType
+import com.xjtu.toolbox.util.CredentialStore
 
 /** 每节课对应的时间段 (1-11) */
 private val PERIOD_TIMES = listOf(
@@ -146,16 +150,22 @@ fun EmptyRoomScreen(
      */
     directClient: okhttp3.OkHttpClient? = null,
 ) {
-    val api = remember { EmptyRoomApi() }
-    val directApi = remember(directClient) { directClient?.let { EmptyRoomDirectQuery(it) } }
     val context = LocalContext.current
+    val credentialStore = remember(context) { CredentialStore(context) }
+    val accountType = remember { credentialStore.accountType }
+    val api = remember(context) { EmptyRoomApi(context) }
+    val uncachedApi = remember { EmptyRoomApi() }
+    val emptyRoomCache = remember(context) { EmptyRoomCache(context) }
+    val directApi = remember(directClient, emptyRoomCache) { directClient?.let { EmptyRoomDirectQuery(it, emptyRoomCache) } }
+    val uncachedDirectApi = remember(directClient) { directClient?.let { EmptyRoomDirectQuery(it) } }
     val prefs = remember { context.getSharedPreferences("empty_room", 0) }
     var rooms by remember { mutableStateOf<List<RoomInfo>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var useDirectQuery by rememberSaveable {
-        mutableStateOf(prefs.getBoolean("empty_room_use_direct_query", false))
+        mutableStateOf(accountType != AccountType.POSTGRADUATE && prefs.getBoolean("empty_room_use_direct_query", false))
     }
+    var showCdnTip by remember { mutableStateOf(!credentialStore.hasReadEmptyRoomCdnTip && !useDirectQuery) }
     var directProgress by remember { mutableStateOf<Pair<Int, Int>?>(null) }
 
     val campusNames = CAMPUS_BUILDINGS.keys.toList()
@@ -201,7 +211,11 @@ fun EmptyRoomScreen(
     }
 
     LaunchedEffect(useDirectQuery) {
-        prefs.edit().putBoolean("empty_room_use_direct_query", useDirectQuery).apply()
+        if (accountType == AccountType.POSTGRADUATE && useDirectQuery) {
+            useDirectQuery = false
+        } else {
+            prefs.edit().putBoolean("empty_room_use_direct_query", useDirectQuery).apply()
+        }
     }
 
     // 当前节次
@@ -278,7 +292,7 @@ fun EmptyRoomScreen(
         directProgress = null
         try {
             val queryResult: Pair<List<RoomInfo>, List<Pair<String, List<RoomInfo>>>> = withContext(Dispatchers.IO) {
-                val direct = directApi
+                val direct = if (forceRefresh) uncachedDirectApi else directApi
                 if (useDirectQuery) {
                     if (direct == null) {
                         throw RuntimeException("未完成教务登录，请返回后重新进入空闲教室")
@@ -304,7 +318,8 @@ fun EmptyRoomScreen(
                     }
                     merged.sortedBy { it.name } to fetched
                 } else {
-                    api.getEmptyRoomsMulti(selectedCampus, active, selectedDate) to emptyList<Pair<String, List<RoomInfo>>>()
+                    val cdnApi = if (forceRefresh) uncachedApi else api
+                    cdnApi.getEmptyRoomsMulti(selectedCampus, active, selectedDate) to emptyList<Pair<String, List<RoomInfo>>>()
                 }
             }
             val (result, fetchedRows) = queryResult
@@ -360,6 +375,23 @@ fun EmptyRoomScreen(
         }
     }
 
+    fun shareCurrentRooms() {
+        val text = buildString {
+            appendLine("空闲教室")
+            appendLine("$selectedCampus · ${selectedBuildings.joinToString("、")} · $selectedDate")
+            appendLine("节次：第${startPeriod}节 - 第${endPeriod}节")
+            appendLine()
+            displayRooms.forEach { room ->
+                appendLine("${room.name} · ${room.size}座")
+            }
+        }
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+        }
+        context.startActivity(Intent.createChooser(intent, "分享空闲教室"))
+    }
+
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     Scaffold(
         topBar = {
@@ -376,9 +408,18 @@ fun EmptyRoomScreen(
                     TextButton(
                         text = if (useDirectQuery) "直查" else "CDN",
                         onClick = {
-                            useDirectQuery = !useDirectQuery
-                            refreshNonce.intValue++
+                            if (accountType != AccountType.POSTGRADUATE) {
+                                useDirectQuery = !useDirectQuery
+                                if (!useDirectQuery && !credentialStore.hasReadEmptyRoomCdnTip) {
+                                    showCdnTip = true
+                                }
+                                refreshNonce.intValue++
+                            }
                         }
+                    )
+                    TextButton(
+                        text = "分享",
+                        onClick = { shareCurrentRooms() }
                     )
                     IconButton(onClick = { refreshNonce.intValue++ }) {
                         Icon(Icons.Default.Refresh, contentDescription = "刷新")
@@ -387,6 +428,27 @@ fun EmptyRoomScreen(
             )
         }
     ) { padding ->
+        if (showCdnTip) {
+            OverlayDialog(
+                show = true,
+                title = "Cloudflare CDN 查询说明",
+                summary = "CDN 查询无需登录教务系统，也不会发送账号相关信息；数据由后台定时生成，可能不是实时结果。如果查询失败或需要最新数据，可切换为直查教务。",
+                onDismissRequest = {
+                    credentialStore.hasReadEmptyRoomCdnTip = true
+                    showCdnTip = false
+                }
+            ) {
+                Button(
+                    onClick = {
+                        credentialStore.hasReadEmptyRoomCdnTip = true
+                        showCdnTip = false
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("知道了")
+                }
+            }
+        }
         Column(
             modifier = Modifier
                 .fillMaxSize()

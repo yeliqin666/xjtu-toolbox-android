@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKeys
+import com.xjtu.toolbox.auth.AccountType
 
 /**
  * 凭据安全存储（使用 EncryptedSharedPreferences）
@@ -191,6 +192,14 @@ class CredentialStore(context: Context) {
         get() = appPrefs.getString(KEY_UPDATE_CHANNEL, CHANNEL_STABLE) ?: CHANNEL_STABLE
         set(value) { appPrefs.edit().putString(KEY_UPDATE_CHANNEL, value).apply() }
 
+    var accountType: AccountType
+        get() = AccountType.fromKey(appPrefs.getString(KEY_ACCOUNT_TYPE, AccountType.UNDERGRADUATE.key))
+        set(value) { appPrefs.edit().putString(KEY_ACCOUNT_TYPE, value.key).apply() }
+
+    var hasReadEmptyRoomCdnTip: Boolean
+        get() = appPrefs.getBoolean(KEY_EMPTY_ROOM_CDN_TIP, false)
+        set(value) { appPrefs.edit().putBoolean(KEY_EMPTY_ROOM_CDN_TIP, value).apply() }
+
     companion object {
         private const val KEY_USERNAME = "username"
         private const val KEY_PASSWORD = "password"
@@ -213,6 +222,8 @@ class CredentialStore(context: Context) {
         private const val KEY_NETWORK_MODE = "network_mode"
         private const val KEY_AUTO_CHECK_UPDATE = "auto_check_update"
         private const val KEY_UPDATE_CHANNEL = "update_channel"
+        private const val KEY_ACCOUNT_TYPE = "account_type"
+        private const val KEY_EMPTY_ROOM_CDN_TIP = "empty_room_cdn_tip"
 
         // ── 设置值常量 ──
         const val NAV_STYLE_FLOATING = "floating"
