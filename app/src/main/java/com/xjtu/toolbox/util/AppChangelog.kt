@@ -25,6 +25,16 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "3.7.0" to VersionChangelog(
+            items = listOf(
+                "✨" to "首页焕新：加入兴庆校区主楼视觉，快捷入口和服务区更有层次、更好看",
+                "🏫" to "空闲教室重新设计筛选和结果展示，找教室更直观",
+                "📅" to "考勤页面优化学期、周次和统计布局，操作更顺手",
+                "💺" to "图书馆约座页面焕新，推荐座位、区域余量和地图入口更清晰",
+                "⬆️" to "修复更新日志异常，并支持在设置中直接下载和安装新版本",
+                "🛡️" to "优化登录和请求节奏，减少频繁请求带来的账号风险"
+            )
+        ),
         "3.6.1" to VersionChangelog(
             items = listOf(
                 "🌐" to "【网络】教务、移动教务、思源学堂与课程回放改为公网直连服务，不再强制触发校园网探测或 WebVPN 登录",
@@ -227,6 +237,9 @@ object AppChangelog {
     fun since(lastSeen: String?): List<Pair<String, VersionChangelog>> {
         val current = BuildConfig.VERSION_NAME
         if (lastSeen == current) return emptyList()
+        if (lastSeen == null) {
+            return ENTRIES.firstOrNull { it.first == current }?.let(::listOf).orEmpty()
+        }
         // ENTRIES 已按版本号倒序，截取从最前到 lastSeen（不含）的部分
         val result = mutableListOf<Pair<String, VersionChangelog>>()
         for ((ver, log) in ENTRIES) {

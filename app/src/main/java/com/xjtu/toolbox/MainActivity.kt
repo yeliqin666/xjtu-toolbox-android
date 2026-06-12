@@ -1785,58 +1785,16 @@ fun AppNavigation(
         if (autoUpdateCheckDone.value) return@LaunchedEffect
         if (!credentialStore.autoCheckUpdate) return@LaunchedEffect
         autoUpdateCheckDone.value = true
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            try {
-                val client = okhttp3.OkHttpClient.Builder()
-                    .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-                    .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-                    .build()
-                val releasesUrl = if (credentialStore.updateChannel == "beta") {
-                    "https://gitee.com/api/v5/repos/yeliqin666/xjtu-toolbox-android/releases?per_page=5"
-                } else {
-                    "https://gitee.com/api/v5/repos/yeliqin666/xjtu-toolbox-android/releases/latest"
-                }
-                val req = okhttp3.Request.Builder()
-                    .url(releasesUrl)
-                    .header("Accept", "application/json")
-                    .build()
-                val resp = client.newCall(req).execute()
-                if (!resp.isSuccessful) return@withContext
-                val body = resp.body?.string() ?: return@withContext
-                val json = com.google.gson.JsonParser.parseString(body)
-
-                val latestObj = if (credentialStore.updateChannel == "beta") {
-                    val arr = json.asJsonArray
-                    if (arr.size() > 0) arr[0].asJsonObject else return@withContext
-                } else {
-                    json.asJsonObject
-                }
-                val tagName = latestObj.get("tag_name")?.asString ?: return@withContext
-                val latestVersion = tagName.removePrefix("v")
-                val versionComparison = MainActivity.compareVersionStrings(BuildConfig.VERSION_NAME, latestVersion)
-                if (versionComparison >= 0) return@withContext
-
-                val releaseBody = latestObj.get("body")?.asString ?: ""
-                val htmlUrl = latestObj.get("html_url")?.asString ?: ""
-                var downloadUrl = ""
-                val assets = latestObj.getAsJsonArray("assets")
-                if (assets != null && assets.size() > 0) {
-                    downloadUrl = assets[0].asJsonObject.get("browser_download_url")?.asString ?: ""
-                }
-                if (downloadUrl.isEmpty()) {
-                    downloadUrl = "https://gitee.com/yeliqin666/xjtu-toolbox-android/releases/download/v${latestVersion}/app-release.apk"
-                }
-
-                if (credentialStore.isUpdateNoticeSeen("auto_$latestVersion")) return@withContext
-
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                    autoUpdateVersion = latestVersion
-                    autoUpdateBody = releaseBody
-                    autoUpdateDownloadUrl = downloadUrl
-                    autoUpdateReleaseUrl = htmlUrl
-                    showAutoUpdateDialog.value = true
-                }
-            } catch (_: Exception) { }
+        try {
+            val update = com.xjtu.toolbox.util.AppUpdater.check(credentialStore.updateChannel)
+                ?: return@LaunchedEffect
+            if (credentialStore.isUpdateNoticeSeen("auto_${update.version}")) return@LaunchedEffect
+            autoUpdateVersion = update.version
+            autoUpdateBody = update.notes
+            autoUpdateDownloadUrl = update.downloadUrl
+            autoUpdateReleaseUrl = update.releaseUrl
+            showAutoUpdateDialog.value = true
+        } catch (_: Exception) {
         }
     }
 
@@ -4954,7 +4912,7 @@ private fun UpdateNoticeDialog(
 // ══════════════════════════════════════════
 
 @Composable
-private fun AutoUpdateDialog(
+fun AutoUpdateDialog(
     version: String,
     body: String,
     downloadUrl: String,
@@ -4966,6 +4924,7 @@ private fun AutoUpdateDialog(
     val scope = rememberCoroutineScope()
     var isDownloading by remember { mutableStateOf(false) }
     var downloadProgress by remember { mutableFloatStateOf(0f) }
+    var downloadedApk by remember { mutableStateOf<java.io.File?>(null) }
 
     BackHandler(enabled = show.value) {
         show.value = false
@@ -5039,54 +4998,58 @@ private fun AutoUpdateDialog(
                 } else {
                     Button(
                         onClick = {
+                            val readyApk = downloadedApk
+                            if (readyApk != null && readyApk.exists()) {
+                                if (com.xjtu.toolbox.util.AppUpdater.canInstallPackages(context)) {
+                                    com.xjtu.toolbox.util.AppUpdater.install(context, readyApk)
+                                    show.value = false
+                                    onDismiss()
+                                } else {
+                                    com.xjtu.toolbox.util.AppUpdater.requestInstallPermission(context)
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "允许安装后，返回并点击“继续安装”",
+                                        android.widget.Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                                return@Button
+                            }
                             isDownloading = true
                             downloadProgress = 0f
-                            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                            scope.launch {
                                 try {
-                                    val dlClient = okhttp3.OkHttpClient.Builder()
-                                        .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-                                        .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
-                                        .build()
-                                    val dlReq = okhttp3.Request.Builder().url(downloadUrl).build()
-                                    val dlResp = dlClient.newCall(dlReq).execute()
-                                    val dlBody = dlResp.body ?: throw Exception("空响应")
-                                    val contentLength = dlBody.contentLength()
-                                    val apkFile = java.io.File(context.cacheDir, "update.apk")
-                                    dlBody.byteStream().use { input ->
-                                        apkFile.outputStream().use { output ->
-                                            val buffer = ByteArray(8192)
-                                            var downloaded = 0L
-                                            var count: Int
-                                            while (input.read(buffer).also { count = it } != -1) {
-                                                output.write(buffer, 0, count)
-                                                downloaded += count
-                                                if (contentLength > 0) {
-                                                    downloadProgress = downloaded.toFloat() / contentLength.toFloat()
-                                                }
-                                            }
-                                        }
+                                    val apkFile = com.xjtu.toolbox.util.AppUpdater.download(
+                                        context,
+                                        com.xjtu.toolbox.util.AppUpdateInfo(
+                                            version = version,
+                                            notes = body,
+                                            downloadUrl = downloadUrl,
+                                            releaseUrl = releaseUrl
+                                        )
+                                    ) { progress ->
+                                        scope.launch { downloadProgress = progress }
                                     }
-                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                        isDownloading = false
+                                    downloadedApk = apkFile
+                                    isDownloading = false
+                                    if (com.xjtu.toolbox.util.AppUpdater.canInstallPackages(context)) {
+                                        com.xjtu.toolbox.util.AppUpdater.install(context, apkFile)
                                         show.value = false
                                         onDismiss()
-                                        val apkUri = androidx.core.content.FileProvider.getUriForFile(
+                                    } else {
+                                        com.xjtu.toolbox.util.AppUpdater.requestInstallPermission(context)
+                                        android.widget.Toast.makeText(
                                             context,
-                                            "${context.packageName}.fileprovider",
-                                            apkFile
-                                        )
-                                        val installIntent = Intent(Intent.ACTION_VIEW).apply {
-                                            setDataAndType(apkUri, "application/vnd.android.package-archive")
-                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                        }
-                                        context.startActivity(installIntent)
+                                            "允许安装后，返回并点击“继续安装”",
+                                            android.widget.Toast.LENGTH_LONG
+                                        ).show()
                                     }
                                 } catch (e: Exception) {
-                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                        isDownloading = false
-                                        android.widget.Toast.makeText(context, "下载失败: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
-                                    }
+                                    isDownloading = false
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "更新失败：${e.message}",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
                                 }
                             }
                         },
@@ -5094,7 +5057,7 @@ private fun AutoUpdateDialog(
                     ) {
                         Icon(Icons.Default.Download, null, Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("下载更新")
+                        Text(if (downloadedApk != null) "继续安装" else "下载并安装")
                     }
                 }
             }

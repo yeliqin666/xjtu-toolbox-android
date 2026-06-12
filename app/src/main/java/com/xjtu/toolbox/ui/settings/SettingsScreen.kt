@@ -61,7 +61,10 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.BuildConfig
+import com.xjtu.toolbox.AutoUpdateDialog
 import com.xjtu.toolbox.auth.AccountType
+import com.xjtu.toolbox.util.AppUpdateInfo
+import com.xjtu.toolbox.util.AppUpdater
 import com.xjtu.toolbox.util.CredentialStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -112,6 +115,7 @@ fun SettingsScreen(
     var showChangelog by remember { mutableStateOf(false) }
     var showEula by remember { mutableStateOf(false) }
     var showClearCacheDialog by remember { mutableStateOf(false) }
+    var pendingUpdate by remember { mutableStateOf<AppUpdateInfo?>(null) }
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
 
     LaunchedEffect(Unit) {
@@ -445,36 +449,22 @@ fun SettingsScreen(
                         if (checkingUpdate) return@ArrowPreference
                         checkingUpdate = true
                         scope.launch {
-                            val result = withContext(Dispatchers.IO) {
-                                runCatching {
-                                    val client = okhttp3.OkHttpClient.Builder()
-                                        .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-                                        .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS).build()
-                                    val url = if (updateChannel == "beta")
-                                        "https://gitee.com/api/v5/repos/yeliqin666/xjtu-toolbox-android/releases?per_page=5"
-                                    else
-                                        "https://gitee.com/api/v5/repos/yeliqin666/xjtu-toolbox-android/releases/latest"
-                                    val resp = client.newCall(okhttp3.Request.Builder().url(url).build()).execute()
-                                    val body = resp.body?.string() ?: error("空响应")
-                                    val json = com.google.gson.JsonParser.parseString(body)
-                                    val obj = if (updateChannel == "beta") json.asJsonArray.firstOrNull()?.asJsonObject ?: error("无 release") else json.asJsonObject
-                                    val tag = obj.get("tag_name").asString.removePrefix("v")
-                                    val htmlUrl = obj.get("html_url")?.asString ?: ""
-                                    Triple(tag, htmlUrl, com.xjtu.toolbox.MainActivity.compareVersionStrings(BuildConfig.VERSION_NAME, tag))
-                                }
-                            }
+                            val result = runCatching { AppUpdater.check(updateChannel) }
                             checkingUpdate = false
                             result.fold(
-                                onSuccess = { (latest, htmlUrl, cmp) ->
-                                    if (cmp < 0) {
-                                        android.widget.Toast.makeText(context, "发现新版本 v$latest，正在打开...", android.widget.Toast.LENGTH_SHORT).show()
-                                        if (htmlUrl.isNotBlank()) uriHandler.openUri(htmlUrl)
+                                onSuccess = { update ->
+                                    if (update != null) {
+                                        pendingUpdate = update
                                     } else {
-                                        android.widget.Toast.makeText(context, "已是最新版本 v${BuildConfig.VERSION_NAME}", android.widget.Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(
+                                            context,
+                                            "已是最新版本 v${BuildConfig.VERSION_NAME}",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
                                     }
                                 },
                                 onFailure = {
-                                    android.widget.Toast.makeText(context, "检查失败：${it.message}", android.widget.Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "检查失败：${it.message}", Toast.LENGTH_SHORT).show()
                                 }
                             )
                         }
@@ -572,6 +562,15 @@ fun SettingsScreen(
                     }
                 }
             }
+        }
+        pendingUpdate?.let { update ->
+            AutoUpdateDialog(
+                version = update.version,
+                body = update.notes,
+                downloadUrl = update.downloadUrl,
+                releaseUrl = update.releaseUrl,
+                onDismiss = { pendingUpdate = null }
+            )
         }
         ChangelogSheet(show = showChangelog, onDismiss = { showChangelog = false })
         EulaSheet(show = showEula, onDismiss = { showEula = false })
