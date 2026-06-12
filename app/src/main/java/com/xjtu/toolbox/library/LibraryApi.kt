@@ -155,6 +155,16 @@ class LibraryApi(private val login: LibraryLogin) {
     var cachedAreaStats: Map<String, AreaStats> = emptyMap()
         private set
 
+    /**
+     * 带有界超时的派生 client：复用底层 cookieJar / interceptor（含 WebVPN），
+     * 仅追加 callTimeout，避免座位请求在弱网下长时间卡转圈（默认 client 是 25-30s）。
+     */
+    private val timedClient: okhttp3.OkHttpClient by lazy {
+        login.client.newBuilder()
+            .callTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+    }
+
     private fun buildRequest(url: String, ajax: Boolean = false): Request {
         val b = Request.Builder().url(url)
             .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36")
@@ -175,13 +185,13 @@ class LibraryApi(private val login: LibraryLogin) {
      * 执行请求，如果被重定向到 CAS 登录页则自动 reAuthenticate 并重试
      */
     private fun executeWithReAuth(request: Request): Pair<okhttp3.Response, String> {
-        val response = login.client.newCall(request).execute()
+        val response = timedClient.newCall(request).execute()
         val body = response.body?.string() ?: ""
         if (isRedirectedToLogin(body, response.request.url.toString())) {
             Log.d(TAG, "executeWithReAuth: redirected to login, trying reAuthenticate...")
             response.close()
             if (login.reAuthenticate()) {
-                val retryResponse = login.client.newCall(request).execute()
+                val retryResponse = timedClient.newCall(request).execute()
                 val retryBody = retryResponse.body?.string() ?: ""
                 return retryResponse to retryBody
             }
@@ -193,17 +203,19 @@ class LibraryApi(private val login: LibraryLogin) {
     // ── 座位查询 ──
 
     fun getSeats(areaCode: String): SeatResult {
-        if (!login.seatSystemReady && login.diagnosticInfo.isNotEmpty()) {
-            return SeatResult.AuthError(
-                "座位系统认证未完成\n${login.diagnosticInfo}\n\n请确认：\n1. 已连接校园网或 VPN\n2. 图书馆系统在服务时间内"
-            )
-        }
-
         val response: okhttp3.Response
         val body: String
         try {
-            response = login.client.newCall(buildRequest("$BASE_URL/qseat?sp=$areaCode", ajax = true)).execute()
-            body = response.body?.use { it.string() } ?: ""
+            // 走 executeWithReAuth：命中登录页会自动 reAuthenticate，
+            // 仍失败则抛 AuthExpiredException（由 LibraryScreen 捕获触发静默重登）。
+            val (resp, respBody) = executeWithReAuth(
+                buildRequest("$BASE_URL/qseat?sp=$areaCode", ajax = true)
+            )
+            response = resp
+            body = respBody
+            response.close()
+        } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
+            throw e   // 透传给 UI 层做静默重登，不要降级成普通错误
         } catch (e: Exception) {
             Log.e(TAG, "getSeats network error", e)
             return SeatResult.Error("网络请求失败: ${e.message}")
@@ -275,8 +287,13 @@ class LibraryApi(private val login: LibraryLogin) {
         val response: okhttp3.Response
         val html: String
         try {
-            response = login.client.newCall(buildRequest(url)).execute()
-            html = response.body?.use { it.string() } ?: ""
+            // 走 executeWithReAuth：命中登录页自动静默重登后重放，避免"预约失败：登录已失效"
+            val (resp, respBody) = executeWithReAuth(buildRequest(url))
+            response = resp
+            html = respBody
+            response.close()
+        } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
+            return BookResult(false, "登录状态已失效，请退出图书馆页面后重新进入")
         } catch (e: Exception) {
             return BookResult(false, "网络异常: ${e.message}")
         }
@@ -310,14 +327,16 @@ class LibraryApi(private val login: LibraryLogin) {
         val url = "$BASE_URL/updateseat/?kid=$seatId&sp=$areaCode"
         Log.d(TAG, "swapSeat: $url")
         return try {
-            val resp = login.client.newCall(buildRequest(url)).execute()
-            val html = resp.body?.use { it.string() } ?: ""
+            val (resp, html) = executeWithReAuth(buildRequest(url))
+            resp.close()
             val finalUrl = resp.request.url.toString()
             val success = "/my/" in finalUrl || "成功换座" in html || "成功" in html
             if (success) BookResult(true, "✓ 已换座到 $seatId！", finalUrl)
             else BookResult(false, "换座失败: ${parseBookingFailure(html)}", finalUrl)
         } catch (e: Exception) {
-            BookResult(false, "换座请求失败: ${e.message}")
+            if (e is com.xjtu.toolbox.auth.AuthExpiredException)
+                BookResult(false, "登录状态已失效，请退出图书馆页面后重新进入")
+            else BookResult(false, "换座请求失败: ${e.message}")
         }
     }
 
@@ -346,8 +365,10 @@ class LibraryApi(private val login: LibraryLogin) {
         val mainHtml: String
         val mainResponse: okhttp3.Response
         try {
-            mainResponse = login.client.newCall(buildRequest(mainUrl)).execute()
-            mainHtml = mainResponse.body?.use { it.string() } ?: return null
+            val (resp, respBody) = executeWithReAuth(buildRequest(mainUrl))
+            mainResponse = resp
+            mainResponse.close()
+            mainHtml = respBody.ifEmpty { return null }
         } catch (e: Exception) {
             Log.e(TAG, "getMyBooking: failed to load seat main page", e)
             return null
@@ -656,8 +677,8 @@ class LibraryApi(private val login: LibraryLogin) {
         // 兜底：相对路径补全 scheme + host
         val normalizedUrl = if (actionUrl.startsWith("/")) "$BASE_URL$actionUrl" else actionUrl
         try {
-            val response = login.client.newCall(buildRequest(normalizedUrl)).execute()
-            val html = response.body?.use { it.string() } ?: ""
+            val (response, html) = executeWithReAuth(buildRequest(normalizedUrl))
+            response.close()
             val finalUrl = response.request.url.toString()
             Log.d(TAG, "action: url=$actionUrl, finalUrl=$finalUrl, len=${html.length}")
 
@@ -667,6 +688,8 @@ class LibraryApi(private val login: LibraryLogin) {
             val success = listOf("成功", "success", "已取消", "取消成功").any { it in bodyText.lowercase() }
                     || "/my/" in finalUrl
             return BookResult(success, msg.ifBlank { if (success) "操作成功" else "操作可能未生效" }, finalUrl)
+        } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
+            return BookResult(false, "登录状态已失效，请退出图书馆页面后重新进入")
         } catch (e: Exception) {
             return BookResult(false, "操作失败: ${e.message}")
         }

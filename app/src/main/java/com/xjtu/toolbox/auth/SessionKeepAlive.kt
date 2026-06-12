@@ -139,9 +139,11 @@ object SessionKeepAlive {
             }
         }
 
-        // 各子系统 keepAlive：validate → 失效则 reAuth → 结构化状态
+        // 各子系统 keepAlive：validate → 失效则 reAuth → 结构化状态。
+        // 站点间加间隔，避免一轮保活内对统一认证形成并发/突发请求（风控敏感）。
         val siteResults = mutableListOf<KeepAliveSiteResult>()
-        for (login in snap.logins) {
+        for ((index, login) in snap.logins.withIndex()) {
+            if (index > 0) delay(2_000L)
             try {
                 val status = withContext(Dispatchers.IO) { login.keepAlive() }
                 val name = login.javaClass.simpleName

@@ -288,6 +288,18 @@ class AppLoginState {
     // CAS TGC 未建立前所有 autoLogin 排队，避免多个并行登录各自弹 MFA
     private val mfaSerialMutex = kotlinx.coroutines.sync.Mutex()
 
+    // 同一子系统的 autoLogin 单飞：并发触发（页面进入 + 保活 + 网络切换）只跑一次真实登录
+    private val typeLoginMutexes =
+        java.util.concurrent.ConcurrentHashMap<LoginType, kotlinx.coroutines.sync.Mutex>()
+
+    init {
+        // 密码失效熔断接入 CAS 闸门：熔断中 XJTULogin/casAuthenticate 一律拒绝提交凭据
+        val weakSelf = java.lang.ref.WeakReference(this)
+        com.xjtu.toolbox.auth.CasGate.passwordLatch = {
+            weakSelf.get()?.passwordInvalidatedLatch == true
+        }
+    }
+
     /** 是否已有任意子系统登录成功（sharedClient 持有 CAS TGC，可以 SSO） */
     val ssoEstablished: Boolean get() = loginCount > 0
 
@@ -929,6 +941,12 @@ class AppLoginState {
     }
 
     private suspend fun autoLoginInner(type: LoginType, interactive: Boolean = false): XJTULogin? {
+        // 单飞：同一子系统并发 autoLogin 串行化，后到者直接复用先到者写入的缓存
+        val typeMutex = typeLoginMutexes.getOrPut(type) { kotlinx.coroutines.sync.Mutex() }
+        return typeMutex.withLock { autoLoginInnerLocked(type, interactive) }
+    }
+
+    private suspend fun autoLoginInnerLocked(type: LoginType, interactive: Boolean = false): XJTULogin? {
         getCached(type)?.let { return it }
 
         // Token 过期的系统：先尝试轻量 reAuth（SSO/casAuthenticate），失败再进入 full login
@@ -1051,6 +1069,11 @@ class AppLoginState {
                         return@withContext null
                     }
                     lastException = RuntimeException("auth failed: ${result.message}")
+                    break@attemptsLoop
+                } catch (e: com.xjtu.toolbox.auth.CasGate.ThrottledException) {
+                    // CAS 闸门拒绝（熔断/退避期）：重试只会再次被拒，直接放弃
+                    android.util.Log.w("AppLoginState", "autoLogin($type): throttled by CasGate: ${e.message}")
+                    lastException = RuntimeException(e.message, e)
                     break@attemptsLoop
                 } catch (e: java.io.IOException) {
                     lastException = e
@@ -3247,90 +3270,103 @@ private fun HomeTab(
 
             Column(Modifier.padding(horizontal = 16.dp)) {
                 // ═══ 日程提醒智能卡片 ═══
+                val reminderAccent = androidx.compose.ui.graphics.Color(0xFFE65100)
                 Card(
                     onClick = {
                         onNavigateToCourses()
                     },
                     modifier = Modifier.fillMaxWidth(),
                     cornerRadius = 20.dp,
-                    colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
+                    colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surface),
                     pressFeedbackType = PressFeedbackType.Sink
                 ) {
                     val scheduleReminder = scheduleReminderState
                     val currentDateTime = java.time.LocalDateTime.now()
-                    Column(Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.NotificationsActive, null, Modifier.size(16.dp), tint = androidx.compose.ui.graphics.Color(0xFFE65100))
-                            Spacer(Modifier.width(6.dp))
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // 圆形图标徽章
+                        Box(
+                            Modifier.size(44.dp).clip(CircleShape)
+                                .background(reminderAccent.copy(alpha = 0.12f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.NotificationsActive, null,
+                                Modifier.size(22.dp), tint = reminderAccent)
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
                             Text(
                                 "日程提醒",
                                 style = MiuixTheme.textStyles.footnote1,
                                 fontWeight = FontWeight.Bold,
-                                color = androidx.compose.ui.graphics.Color(0xFFE65100),
-                                modifier = Modifier.weight(1f)
+                                color = reminderAccent
                             )
-                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(16.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f))
-                        }
-
-                        when {
-                            !isScheduleReminderLoaded -> {
-                                Spacer(Modifier.height(8.dp))
-                                Text(
-                                    "正在读取日程...",
-                                    style = MiuixTheme.textStyles.body2,
-                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                                )
-                            }
-
-                            scheduleReminder != null -> {
-                                val minutesUntil = java.time.Duration.between(currentDateTime, scheduleReminder.startAt)
-                                    .toMinutes()
-                                    .coerceAtLeast(0)
-                                val dayLabel = formatScheduleReminderDateLabel(
-                                    scheduleReminder.startAt.toLocalDate(),
-                                    currentDateTime.toLocalDate()
-                                )
-                                val startMinuteOfDay = scheduleReminder.startAt.hour * 60 + scheduleReminder.startAt.minute
-                                val startLabel = formatMinuteClock(startMinuteOfDay)
-                                val endLabel = scheduleReminder.endAt?.let { formatMinuteClock(it.hour * 60 + it.minute) }
-                                val timeLabel = if (endLabel != null) "$startLabel-$endLabel" else startLabel
-
-                                Spacer(Modifier.height(8.dp))
-                                Text(
-                                    formatScheduleReminderEta(minutesUntil),
-                                    style = MiuixTheme.textStyles.body1,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MiuixTheme.colorScheme.onSurface
-                                )
-                                Spacer(Modifier.height(4.dp))
-                                Text(
-                                    "$dayLabel $timeLabel · ${scheduleReminder.name}",
-                                    style = MiuixTheme.textStyles.body2,
-                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                if (scheduleReminder.location.isNotBlank()) {
-                                    Spacer(Modifier.height(2.dp))
+                            when {
+                                !isScheduleReminderLoaded -> {
+                                    Spacer(Modifier.height(4.dp))
                                     Text(
-                                        scheduleReminder.location,
-                                        style = MiuixTheme.textStyles.footnote1,
+                                        "正在读取日程...",
+                                        style = MiuixTheme.textStyles.body2,
+                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                                    )
+                                }
+
+                                scheduleReminder != null -> {
+                                    val minutesUntil = java.time.Duration.between(currentDateTime, scheduleReminder.startAt)
+                                        .toMinutes()
+                                        .coerceAtLeast(0)
+                                    val dayLabel = formatScheduleReminderDateLabel(
+                                        scheduleReminder.startAt.toLocalDate(),
+                                        currentDateTime.toLocalDate()
+                                    )
+                                    val startMinuteOfDay = scheduleReminder.startAt.hour * 60 + scheduleReminder.startAt.minute
+                                    val startLabel = formatMinuteClock(startMinuteOfDay)
+                                    val endLabel = scheduleReminder.endAt?.let { formatMinuteClock(it.hour * 60 + it.minute) }
+                                    val timeLabel = if (endLabel != null) "$startLabel-$endLabel" else startLabel
+
+                                    Spacer(Modifier.height(3.dp))
+                                    Text(
+                                        formatScheduleReminderEta(minutesUntil),
+                                        style = MiuixTheme.textStyles.body1,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MiuixTheme.colorScheme.onSurface
+                                    )
+                                    Spacer(Modifier.height(3.dp))
+                                    Text(
+                                        "$dayLabel $timeLabel · ${scheduleReminder.name}",
+                                        style = MiuixTheme.textStyles.body2,
                                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
+                                    if (scheduleReminder.location.isNotBlank()) {
+                                        Spacer(Modifier.height(2.dp))
+                                        Text(
+                                            scheduleReminder.location,
+                                            style = MiuixTheme.textStyles.footnote1,
+                                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+
+                                else -> {
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        "未来两周没有新的日程安排",
+                                        style = MiuixTheme.textStyles.body2,
+                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                                    )
                                 }
                             }
-
-                            else -> {
-                                Spacer(Modifier.height(8.dp))
-                                Text(
-                                    "未来两周没有新的日程安排",
-                                    style = MiuixTheme.textStyles.body2,
-                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                                )
-                            }
                         }
+                        Spacer(Modifier.width(8.dp))
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null,
+                            Modifier.size(18.dp),
+                            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f))
                     }
                 }
                 Spacer(Modifier.height(12.dp))
@@ -3339,22 +3375,27 @@ private fun HomeTab(
                 if (cachedBalance >= 0f || loginState.campusCardLogin != null) {
                     val scope = rememberCoroutineScope()
                     val isLowBalance = cachedBalance in 0f..30f
+                    // 固定交大蓝品牌渐变，与校园卡详情页 hero 卡一致
+                    val brandStart = androidx.compose.ui.graphics.Color(0xFF0A4D94)
+                    val brandEnd = androidx.compose.ui.graphics.Color(0xFF1E78C8)
+                    val onBrand = androidx.compose.ui.graphics.Color.White
                     Card(
                         onClick = { onNavigateWithLogin(Routes.CAMPUS_CARD, LoginType.CAMPUS_CARD) },
                         modifier = Modifier.fillMaxWidth(),
                         cornerRadius = 20.dp,
-                        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
+                        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = androidx.compose.ui.graphics.Color.Transparent),
                         pressFeedbackType = PressFeedbackType.Sink
                     ) {
+                      Box(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(brandStart, brandEnd)))) {
                         Column(Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
                             // 头部：标题 + 刷新
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.CreditCard, null, Modifier.size(16.dp), tint = if (isLowBalance) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.primary)
+                                Icon(Icons.Default.CreditCard, null, Modifier.size(16.dp), tint = onBrand)
                                 Spacer(Modifier.width(6.dp))
-                                Text("校园卡", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Bold, color = if (isLowBalance) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.primary, modifier = Modifier.weight(1f))
+                                Text("校园卡", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Bold, color = onBrand, modifier = Modifier.weight(1f))
                                 if (isLowBalance) {
-                                    Surface(shape = RoundedCornerShape(4.dp), color = MiuixTheme.colorScheme.errorContainer) {
-                                        Text("余额不足", Modifier.padding(horizontal = 6.dp, vertical = 2.dp), style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.error, fontSize = 10.sp)
+                                    Surface(shape = RoundedCornerShape(6.dp), color = onBrand.copy(alpha = 0.2f)) {
+                                        Text("余额不足", Modifier.padding(horizontal = 7.dp, vertical = 3.dp), style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Bold, color = onBrand)
                                     }
                                     Spacer(Modifier.width(8.dp))
                                 }
@@ -3373,48 +3414,51 @@ private fun HomeTab(
                                         }
                                     },
                                     enabled = !isRefreshingCard && loginState.campusCardLogin != null,
-                                    modifier = Modifier.size(28.dp)
+                                    modifier = Modifier.size(36.dp),
+                                    backgroundColor = onBrand.copy(alpha = 0.15f)
                                 ) {
-                                    if (isRefreshingCard) CircularProgressIndicator(size = 14.dp, strokeWidth = 2.dp)
-                                    else Icon(Icons.Default.Refresh, "刷新", Modifier.size(16.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                                    if (isRefreshingCard) CircularProgressIndicator(size = 16.dp, strokeWidth = 2.dp, colors = ProgressIndicatorDefaults.progressIndicatorColors(foregroundColor = onBrand))
+                                    else Icon(Icons.Default.Refresh, "刷新", Modifier.size(18.dp), tint = onBrand)
                                 }
-                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(16.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f))
+                                Spacer(Modifier.width(4.dp))
+                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(18.dp), tint = onBrand.copy(alpha = 0.7f))
                             }
                             // 余额显示
                             if (cachedBalance >= 0f) {
                                 Spacer(Modifier.height(8.dp))
                                 Row(verticalAlignment = Alignment.Bottom) {
-                                    Text("¥", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold, color = if (isLowBalance) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.onSurface)
+                                    Text("¥", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold, color = onBrand)
                                     Spacer(Modifier.width(2.dp))
                                     Text(
                                         "%.2f".format(cachedBalance),
                                         style = MiuixTheme.textStyles.title1,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (isLowBalance) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.onSurface
+                                        color = onBrand
                                     )
                                     if (cachedName.isNotBlank()) {
                                         Spacer(Modifier.weight(1f))
-                                        Text(cachedName, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                                        Text(cachedName, style = MiuixTheme.textStyles.footnote1, color = onBrand.copy(alpha = 0.8f))
                                     }
                                 }
                             }
                             // 最近消费
                             if (cachedRecentTx.isNotEmpty()) {
                                 Spacer(Modifier.height(10.dp))
-                                HorizontalDivider(color = MiuixTheme.colorScheme.outline.copy(alpha = 0.1f))
+                                HorizontalDivider(color = onBrand.copy(alpha = 0.2f))
                                 Spacer(Modifier.height(8.dp))
                                 cachedRecentTx.take(3).forEach { tx ->
                                     Row(
                                         Modifier.fillMaxWidth().padding(vertical = 2.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text(tx.merchant.ifBlank { tx.type }, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurface, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text(tx.merchant.ifBlank { tx.type }, style = MiuixTheme.textStyles.footnote1, color = onBrand.copy(alpha = 0.9f), modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         val amtStr = if (tx.amount < 0) "-¥${"%.2f".format(-tx.amount)}" else "+¥${"%.2f".format(tx.amount)}"
-                                        Text(amtStr, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium, color = if (tx.amount < 0) MiuixTheme.colorScheme.onSurface else androidx.compose.ui.graphics.Color(0xFF2E7D32))
+                                        Text(amtStr, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Bold, color = onBrand)
                                     }
                                 }
                             }
                         }
+                      }
                     }
                     Spacer(Modifier.height(12.dp))
                 }
@@ -3473,30 +3517,19 @@ private fun HomeTab(
                 Svc(Routes.JIAOCAI, Icons.Default.MenuBook, "教材中心", "教材查询", svcTeal, "搜索教材书目") { onNavigateWithLogin(Routes.JIAOCAI, LoginType.JIAOCAI) },
                 Svc(Routes.WEBVPN_CONVERTER, Icons.Default.VpnKey, "WebVPN 转换", "校外访问", svcBrown, "网址互转 + 一键访问") { onNavigate(Routes.WEBVPN_CONVERTER) }
             )
-            // 按使用习惯+随机决定哪些卡显示 hint（首次使用兜底默认集合）
-            val highlightSet = remember(services) {
+            // hint 高亮：确定性 top-5（不随机），key 稳定避免每次重组重算
+            val serviceKeys = remember { services.map { it.key } }
+            val highlightSet = remember(serviceKeys) {
                 com.xjtu.toolbox.util.ServiceUsageTracker.highlightSet(
                     ctx,
-                    services.map { it.key },
+                    serviceKeys,
                     topN = 5,
-                    randomCount = 2,
                     defaultHighlights = setOf(Routes.CAMPUS_CARD, Routes.SCHEDULE, Routes.JWAPP_SCORE, Routes.LMS, Routes.LIBRARY)
                 )
             }
-            // 重排：高卡(含 hint)与普通卡交错入序，确保左右两列高度均匀错落
-            val orderedServices = remember(services, highlightSet) {
-                val (high, low) = services.partition { it.key in highlightSet }
-                buildList {
-                    val maxLen = maxOf(high.size, low.size)
-                    for (i in 0 until maxLen) {
-                        if (i < high.size) add(high[i])
-                        if (i < low.size) add(low[i])
-                    }
-                }
-            }
-            // 真瀑布流：贪心放最短列；交错排序后两列高度自然均衡
+            // 固定定义顺序渲染，不再随机交错，保证每次进入首页布局稳定
             StaggeredFlow(columns = 2, spacing = 10.dp, modifier = Modifier.fillMaxWidth()) {
-                orderedServices.forEach { svc ->
+                services.forEach { svc ->
                     HomeServiceCard(
                         svc.icon, svc.title, svc.subtitle, svc.color,
                         hint = if (svc.key in highlightSet) svc.hint else null

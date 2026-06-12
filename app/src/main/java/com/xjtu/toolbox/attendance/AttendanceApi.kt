@@ -121,17 +121,35 @@ class AttendanceApi(private val login: AttendanceLogin) {
 
     /**
      * 发送 POST 请求（与 Python _post 方法一致）
-     * 自动处理 token 过期并重新认证
+     * 自动处理 token 过期并重新认证。
+     * 考勤后端不稳定（瞬时 5xx / 超时 / 空响应常见），对可重试错误做有界重试。
      */
     private fun post(path: String, jsonBody: String? = null): String {
         val url = "$baseUrl$path"
-        val body = jsonBody?.toRequestBody(jsonType) ?: "".toRequestBody(null)
-        val request = login.authenticatedRequest(url).post(body)
-        return login.executeWithReAuth(request).use { response ->
-            val result = response.body?.string() ?: ""
-            Log.d(TAG, "POST $path → ${response.code}, len=${result.length}")
-            result
+        var lastError: Exception? = null
+        for (attempt in 0..2) {
+            if (attempt > 0) Thread.sleep(if (attempt == 1) 800L else 2_000L)
+            try {
+                val body = jsonBody?.toRequestBody(jsonType) ?: "".toRequestBody(null)
+                val request = login.authenticatedRequest(url).post(body)
+                val (code, result) = login.executeWithReAuth(request).use { response ->
+                    response.code to (response.body?.string() ?: "")
+                }
+                Log.d(TAG, "POST $path → $code, len=${result.length} (attempt ${attempt + 1})")
+                // 5xx / 空 body：学校网关瞬时故障，重试
+                if (code in 500..599 || result.isBlank()) {
+                    lastError = RuntimeException("考勤系统响应异常 (HTTP $code)")
+                    continue
+                }
+                return result
+            } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
+                throw e // 认证失效：透传给 UI 层触发静默重登，重试无意义
+            } catch (e: java.io.IOException) {
+                Log.w(TAG, "POST $path attempt ${attempt + 1} failed: ${e.message}")
+                lastError = e
+            }
         }
+        throw lastError ?: RuntimeException("考勤系统请求失败")
     }
 
     /**

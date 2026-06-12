@@ -459,7 +459,8 @@ open class XJTULogin(
                 .post(formBody)
                 .build()
 
-            val response = client.newCall(request).execute()
+            // mfa/detect 携带密码，同样计入风控闸门
+            val response = CasGate.withCredentialPost { client.newCall(request).execute() }
             val responseStr = response.body?.string() ?: "{}"
             android.util.Log.d("XJTULogin", "login: MFA detect response code=${response.code}, body=$responseStr")
             val data = try {
@@ -511,9 +512,9 @@ open class XJTULogin(
             .post(formBody)
             .build()
 
-        // 使用原始 client（自动重定向）
+        // 使用原始 client（自动重定向）。凭据 POST 经 CasGate 全局串行 + 限频，防风控。
         android.util.Log.d("XJTULogin", "login: POST to $postUrl")
-        val loginResponse = client.newCall(request).execute()
+        val loginResponse = CasGate.withCredentialPost { client.newCall(request).execute() }
         val loginBody = loginResponse.body?.string() ?: ""
         android.util.Log.d("XJTULogin", "login: POST response code=${loginResponse.code}, finalUrl=${loginResponse.request.url}, bodyLen=${loginBody.length}")
 
@@ -530,12 +531,14 @@ open class XJTULogin(
     ): LoginResult {
         if (loginResponse.code == 401) {
             failCount++
+            CasGate.recordFailure()
             return LoginResult(LoginState.FAIL, "用户名或密码错误")
         }
 
         val alertMessage = extractAlertMessage(loginBody)
         if (alertMessage != null) {
             failCount++
+            CasGate.recordFailure()
             return LoginResult(LoginState.FAIL, "登录失败: $alertMessage")
         }
 
@@ -544,6 +547,7 @@ open class XJTULogin(
         captureSafetyVerify(loginResponse, loginBody)?.let { return it }
 
         failCount = 0
+        CasGate.recordSuccess()
         hasLogin = true
 
         // 检查是否需要选择账户
@@ -678,7 +682,8 @@ open class XJTULogin(
             return Pair(casBody, casFinalUrl)
         }
 
-        // CAS 显示了登录页（TGC 过期），用存储凭据重新认证
+        // CAS 显示了登录页（TGC 过期），用存储凭据重新认证。
+        // 经 CasGate：密码熔断中 / 退避期内直接拒绝，避免后台保活反复撞认证接口。
         android.util.Log.d("XJTULogin", "casAuthenticate: TGC expired, re-posting credentials")
         val formBody = FormBody.Builder()
             .add("username", username!!)
@@ -692,9 +697,16 @@ open class XJTULogin(
             .add("mfaState", "")
             .add("geolocation", "")
             .build()
-        val loginResp = client.newCall(
-            Request.Builder().url(casResp.request.url.toString()).post(formBody).build()
-        ).execute()
+        val loginResp = try {
+            CasGate.withCredentialPost {
+                client.newCall(
+                    Request.Builder().url(casResp.request.url.toString()).post(formBody).build()
+                ).execute()
+            }
+        } catch (e: CasGate.ThrottledException) {
+            android.util.Log.w("XJTULogin", "casAuthenticate: throttled by CasGate: ${e.message}")
+            return null
+        }
         val loginBody = loginResp.body?.string() ?: ""
         val loginFinalUrl = loginResp.request.url.toString()
         android.util.Log.d("XJTULogin", "casAuthenticate: POST → code=${loginResp.code}, finalUrl=$loginFinalUrl")
@@ -703,6 +715,12 @@ open class XJTULogin(
         if (loginBody.contains("name=\"secState\"")) {
             android.util.Log.w("XJTULogin", "casAuthenticate: MFA triggered during re-auth, cannot proceed silently")
             return null
+        }
+        // 仍停留在 CAS 登录页 → 凭据被拒，计入失败退避；否则视为成功
+        if (extractExecutionValue(loginBody).isNotEmpty() && loginFinalUrl.contains("login.xjtu.edu.cn")) {
+            CasGate.recordFailure()
+        } else {
+            CasGate.recordSuccess()
         }
         return Pair(loginBody, loginFinalUrl)
     }

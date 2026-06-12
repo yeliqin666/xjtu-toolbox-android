@@ -25,31 +25,24 @@ object ServiceUsageTracker {
     }
 
     /**
-     * 选出"亮点"key 集合：
-     * - 取使用次数前 [topN]（仅 count > 0）
-     * - 再随机插入 [randomCount] 个未在 top 中的 key（增加发现新功能的机会）
+     * 选出"亮点"key 集合（确定性，不随机）：
+     * - 取使用次数前 [topN]（仅 count > 0），按频率降序
      * - 若总点击量太低（<3），则使用 [defaultHighlights] 作为兜底
      */
     fun highlightSet(
         context: Context,
         keys: List<String>,
         topN: Int = 5,
-        randomCount: Int = 2,
         defaultHighlights: Set<String> = emptySet()
     ): Set<String> {
         val cnt = counts(context, keys)
         val totalClicks = cnt.values.sum()
         if (totalClicks < 3) return defaultHighlights.intersect(keys.toSet())
-        val ranked = keys
+        return keys
             .filter { (cnt[it] ?: 0) > 0 }
             .sortedByDescending { cnt[it] ?: 0 }
             .take(topN)
-            .toMutableSet()
-        if (randomCount > 0) {
-            val rest = keys.filter { it !in ranked }.shuffled()
-            ranked.addAll(rest.take(randomCount))
-        }
-        return ranked
+            .toSet()
     }
 
     /** 取使用频率前 [n] 的 key，不足用 [fallback] 顺序补齐 */

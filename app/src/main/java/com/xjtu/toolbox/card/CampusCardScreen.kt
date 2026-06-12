@@ -48,6 +48,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -362,50 +363,62 @@ private fun OverviewTab(
 
 @Composable
 private fun BalanceCard(info: CardInfo) {
+    // 固定交大蓝品牌渐变（不随深浅色翻转），白字始终高对比，类似实体银行卡
+    val brandStart = Color(0xFF0A4D94)
+    val brandEnd = Color(0xFF1E78C8)
+    val onBrand = Color.White
     top.yukonga.miuix.kmp.basic.Card(
         modifier = Modifier.fillMaxWidth(),
         cornerRadius = 24.dp,
-        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
+        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = Color.Transparent)
     ) {
-        Column(Modifier.fillMaxWidth().padding(24.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically) {
-                Column {
-                    Text("校园卡余额", style = MiuixTheme.textStyles.body2,
-                        color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.7f))
-                    Spacer(Modifier.height(4.dp))
-                    Row(verticalAlignment = Alignment.Bottom) {
-                        Text("¥", style = MiuixTheme.textStyles.headline1,
-                            fontWeight = FontWeight.Light,
-                            color = MiuixTheme.colorScheme.onSurface)
-                        Text("%.2f".format(info.balance),
-                            style = MiuixTheme.textStyles.title3,
-                            fontWeight = FontWeight.Bold,
-                            color = MiuixTheme.colorScheme.onSurface)
+        Box(
+            Modifier.fillMaxWidth().background(
+                Brush.linearGradient(listOf(brandStart, brandEnd))
+            )
+        ) {
+            Column(Modifier.fillMaxWidth().padding(24.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Column {
+                        Text("校园卡余额", style = MiuixTheme.textStyles.body2,
+                            color = onBrand.copy(alpha = 0.85f))
+                        Spacer(Modifier.height(6.dp))
+                        Row(verticalAlignment = Alignment.Bottom) {
+                            Text("¥", style = MiuixTheme.textStyles.title4,
+                                fontWeight = FontWeight.Medium,
+                                color = onBrand.copy(alpha = 0.9f),
+                                modifier = Modifier.padding(bottom = 4.dp))
+                            Spacer(Modifier.width(2.dp))
+                            Text("%.2f".format(info.balance),
+                                style = MiuixTheme.textStyles.title1,
+                                fontWeight = FontWeight.Bold,
+                                color = onBrand)
+                        }
+                    }
+                    Surface(shape = CircleShape,
+                        color = onBrand.copy(alpha = 0.18f),
+                        modifier = Modifier.size(56.dp)) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(Icons.Default.CreditCard, null,
+                                tint = onBrand,
+                                modifier = Modifier.size(28.dp))
+                        }
                     }
                 }
-                Surface(shape = CircleShape,
-                    color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f),
-                    modifier = Modifier.size(56.dp)) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.CreditCard, null,
-                            tint = MiuixTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(28.dp))
-                    }
+                if (info.pendingAmount > 0) {
+                    Spacer(Modifier.height(8.dp))
+                    Text("待入账: ¥%.2f".format(info.pendingAmount),
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = onBrand.copy(alpha = 0.75f))
                 }
-            }
-            if (info.pendingAmount > 0) {
-                Spacer(Modifier.height(8.dp))
-                Text("待入账: ¥%.2f".format(info.pendingAmount),
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-            }
-            Spacer(Modifier.height(12.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                InfoPill(info.name, MiuixTheme.colorScheme.onSurface)
-                InfoPill(info.cardType, MiuixTheme.colorScheme.onSurface)
-                if (info.account.isNotBlank()) {
-                    InfoPill("一卡通号: ${info.account}", MiuixTheme.colorScheme.onSurface)
+                Spacer(Modifier.height(16.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    InfoPill(info.name, onBrand)
+                    InfoPill(info.cardType, onBrand)
+                    if (info.account.isNotBlank()) {
+                        InfoPill("一卡通号: ${info.account}", onBrand)
+                    }
                 }
             }
         }
@@ -415,9 +428,10 @@ private fun BalanceCard(info: CardInfo) {
 @Composable
 private fun InfoPill(text: String, color: Color) {
     if (text.isBlank()) return
-    Surface(shape = RoundedCornerShape(8.dp), color = color.copy(alpha = 0.1f)) {
-        Text(text, Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-            style = MiuixTheme.textStyles.footnote1, color = color.copy(alpha = 0.8f))
+    Surface(shape = RoundedCornerShape(8.dp), color = color.copy(alpha = 0.16f)) {
+        Text(text, Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+            style = MiuixTheme.textStyles.footnote1, color = color.copy(alpha = 0.95f),
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -575,21 +589,19 @@ private fun CardStatusRow(info: CardInfo) {
 
 @Composable
 private fun StatusChip(icon: ImageVector, text: String, isWarning: Boolean, modifier: Modifier = Modifier) {
+    val okColor = Color(0xFF2E9E5B)
+    val accent = if (isWarning) MiuixTheme.colorScheme.error else okColor
     Surface(
         modifier = modifier, shape = RoundedCornerShape(12.dp),
-        color = if (isWarning) MiuixTheme.colorScheme.errorContainer
-        else MiuixTheme.colorScheme.surfaceVariant
+        color = accent.copy(alpha = 0.10f)
     ) {
-        Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+        Row(Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center) {
-            Icon(icon, null, modifier = Modifier.size(14.dp),
-                tint = if (isWarning) MiuixTheme.colorScheme.error
-                else MiuixTheme.colorScheme.onSurfaceVariantSummary)
-            Spacer(Modifier.width(4.dp))
+            Icon(icon, null, modifier = Modifier.size(15.dp), tint = accent)
+            Spacer(Modifier.width(5.dp))
             Text(text, style = MiuixTheme.textStyles.footnote1,
-                color = if (isWarning) MiuixTheme.colorScheme.error
-                else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                fontWeight = FontWeight.Medium, color = accent,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }

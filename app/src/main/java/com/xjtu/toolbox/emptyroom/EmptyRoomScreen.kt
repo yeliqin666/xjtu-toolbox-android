@@ -43,8 +43,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Share
 import com.xjtu.toolbox.ui.components.AppDropdownMenu
 import com.xjtu.toolbox.ui.components.AppDropdownMenuItem
 import androidx.compose.runtime.*
@@ -393,6 +396,7 @@ fun EmptyRoomScreen(
     }
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    var showActionsMenu by remember { mutableStateOf(false) }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -405,24 +409,96 @@ fun EmptyRoomScreen(
                     }
                 },
                 actions = {
-                    TextButton(
-                        text = if (useDirectQuery) "直查" else "CDN",
-                        onClick = {
-                            if (accountType != AccountType.POSTGRADUATE) {
-                                useDirectQuery = !useDirectQuery
-                                if (!useDirectQuery && !credentialStore.hasReadEmptyRoomCdnTip) {
-                                    showCdnTip = true
-                                }
-                                refreshNonce.intValue++
-                            }
-                        }
-                    )
-                    TextButton(
-                        text = "分享",
-                        onClick = { shareCurrentRooms() }
-                    )
                     IconButton(onClick = { refreshNonce.intValue++ }) {
                         Icon(Icons.Default.Refresh, contentDescription = "刷新")
+                    }
+                    Box {
+                        IconButton(onClick = { showActionsMenu = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "更多")
+                        }
+                        AppDropdownMenu(
+                            expanded = showActionsMenu,
+                            onDismissRequest = { showActionsMenu = false }
+                        ) {
+                            Text(
+                                "数据源",
+                                modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                            )
+                            AppDropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text(
+                                            "CDN 缓存",
+                                            style = MiuixTheme.textStyles.body2,
+                                            fontWeight = if (!useDirectQuery) FontWeight.Bold else FontWeight.Normal
+                                        )
+                                        Text(
+                                            "免登录，定时生成",
+                                            style = MiuixTheme.textStyles.footnote1,
+                                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                                        )
+                                    }
+                                },
+                                onClick = {
+                                    showActionsMenu = false
+                                    if (useDirectQuery) {
+                                        useDirectQuery = false
+                                        if (!credentialStore.hasReadEmptyRoomCdnTip) {
+                                            showCdnTip = true
+                                        }
+                                        refreshNonce.intValue++
+                                    }
+                                },
+                                trailingIcon = {
+                                    if (!useDirectQuery) {
+                                        Icon(Icons.Default.Check, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.primary)
+                                    }
+                                }
+                            )
+                            AppDropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text(
+                                            "直查教务",
+                                            style = MiuixTheme.textStyles.body2,
+                                            fontWeight = if (useDirectQuery) FontWeight.Bold else FontWeight.Normal
+                                        )
+                                        Text(
+                                            if (accountType == AccountType.POSTGRADUATE) "研究生账号默认使用 CDN" else "登录后实时查询",
+                                            style = MiuixTheme.textStyles.footnote1,
+                                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                                        )
+                                    }
+                                },
+                                onClick = {
+                                    showActionsMenu = false
+                                    if (!useDirectQuery) {
+                                        useDirectQuery = true
+                                        refreshNonce.intValue++
+                                    }
+                                },
+                                enabled = accountType != AccountType.POSTGRADUATE,
+                                trailingIcon = {
+                                    if (useDirectQuery) {
+                                        Icon(Icons.Default.Check, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.primary)
+                                    }
+                                }
+                            )
+                            HorizontalDivider(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                                color = MiuixTheme.colorScheme.outline.copy(alpha = 0.08f)
+                            )
+                            AppDropdownMenuItem(
+                                text = { Text("分享当前结果") },
+                                leadingIcon = { Icon(Icons.Default.Share, null, Modifier.size(20.dp)) },
+                                onClick = {
+                                    showActionsMenu = false
+                                    shareCurrentRooms()
+                                }
+                            )
+                        }
                     }
                 }
             )

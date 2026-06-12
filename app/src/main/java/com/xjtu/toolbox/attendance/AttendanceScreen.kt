@@ -32,6 +32,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
@@ -101,12 +102,17 @@ fun AttendanceScreen(
                 withContext(Dispatchers.IO) {
                     // 并行加载学生信息和学期列表
                     val infoDeferred = async { api.getStudentInfo() }
+                    // 注意：局部 catch 必须放行 AuthExpiredException，否则登录失效会被吞成空数据
                     val termListDeferred = async {
-                        try { api.getTermList() } catch (_: Exception) { emptyList() }
+                        try { api.getTermList() }
+                        catch (e: AuthExpiredException) { throw e }
+                        catch (_: Exception) { emptyList() }
                     }
                     // 只在首次加载时获取当前学期编号
                     val currentTermDeferred = if (currentTermBh.isEmpty()) async {
-                        try { api.getTermBh() } catch (_: Exception) { "" }
+                        try { api.getTermBh() }
+                        catch (e: AuthExpiredException) { throw e }
+                        catch (_: Exception) { "" }
                     } else null
 
                     val info = infoDeferred.await()
@@ -135,6 +141,8 @@ fun AttendanceScreen(
                     courseStats = if (isCurrentTerm) {
                         try {
                             api.getKqtjCurrentWeek()
+                        } catch (e: AuthExpiredException) {
+                            throw e
                         } catch (_: Exception) {
                             api.computeCourseStatsFromRecords(fetchedRecords)
                         }
@@ -149,6 +157,8 @@ fun AttendanceScreen(
                             } else {
                                 emptyList()
                             }
+                        } catch (e: AuthExpiredException) {
+                            throw e
                         } catch (_: Exception) { emptyList() }
                         // 3) API 为空则从 records 直接聚合
                         statsFromApi.ifEmpty { api.computeCourseStatsFromRecords(fetchedRecords) }
@@ -286,9 +296,9 @@ fun AttendanceScreen(
                 // 周次快速筛选
                 if (maxWeek > 0) {
                     Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 12.dp)
+                        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)
                             .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         AppFilterChip(
                             selected = selectedWeek == null,
@@ -304,7 +314,7 @@ fun AttendanceScreen(
                                 selected = selectedWeek == w,
                                 onClick = { selectedWeek = if (selectedWeek == w) null else w },
                                 label = "$w",
-                                modifier = Modifier.height(32.dp),
+                                modifier = Modifier.height(32.dp).widthIn(min = 40.dp),
                                 unselectedContainerColor = when {
                                     hasIssue -> MiuixTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
                                     weekRecordCount == 0 -> MiuixTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
@@ -404,14 +414,42 @@ private fun OverviewTab(
                         }
                     }
                     if (totalAbsence > 0) {
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            "⚠ 有 $totalAbsence 次缺勤记录" +
-                                    if (totalLate > 0) "，$totalLate 次迟到" else "",
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.error
-                        )
+                        Spacer(Modifier.height(10.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.WarningAmber, null,
+                                modifier = Modifier.size(15.dp),
+                                tint = MiuixTheme.colorScheme.error
+                            )
+                            Spacer(Modifier.width(5.dp))
+                            Text(
+                                "有 $totalAbsence 次缺勤记录" +
+                                        if (totalLate > 0) "，$totalLate 次迟到" else "",
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.error
+                            )
+                        }
                     }
+                    Spacer(Modifier.height(12.dp))
+                    val overviewBarColor = when {
+                        attendanceRate >= 90 -> MiuixTheme.colorScheme.primary
+                        attendanceRate >= 70 -> MiuixTheme.colorScheme.primaryVariant
+                        else -> MiuixTheme.colorScheme.error
+                    }
+                    val animatedOverview by animateFloatAsState(
+                        targetValue = (attendanceRate / 100f).coerceIn(0f, 1f),
+                        animationSpec = spring(dampingRatio = 0.85f, stiffness = 500f),
+                        label = "overviewBar"
+                    )
+                    LinearProgressIndicator(
+                        progress = animatedOverview,
+                        modifier = Modifier.fillMaxWidth(),
+                        height = 6.dp,
+                        colors = ProgressIndicatorDefaults.progressIndicatorColors(
+                            foregroundColor = overviewBarColor,
+                            backgroundColor = overviewBarColor.copy(alpha = 0.12f)
+                        )
+                    )
                 }
             }
         }
@@ -452,10 +490,25 @@ private fun OverviewTab(
             if (filtered.all { it.abnormalCount == 0 }) {
                 item {
                     top.yukonga.miuix.kmp.basic.Card(
-                        Modifier.fillMaxWidth()
+                        Modifier.fillMaxWidth(),
+                        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(
+                            color = MiuixTheme.colorScheme.primary.copy(alpha = 0.08f)
+                        )
                     ) {
-                        Text("✓ 所有课程出勤良好", Modifier.padding(16.dp),
-                            style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Bold)
+                        Row(
+                            Modifier.fillMaxWidth().padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.CheckCircle, null,
+                                modifier = Modifier.size(18.dp),
+                                tint = MiuixTheme.colorScheme.primary
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("所有课程出勤良好", style = MiuixTheme.textStyles.body2,
+                                fontWeight = FontWeight.Medium,
+                                color = MiuixTheme.colorScheme.primary)
+                        }
                     }
                 }
             }
@@ -613,14 +666,24 @@ private fun RecordFlowTab(
 
 @Composable
 private fun StatCard(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
+    val isZero = value == "0"
     top.yukonga.miuix.kmp.basic.Card(
         modifier = modifier,
         colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surface)
     ) {
-        Column(Modifier.fillMaxWidth().padding(vertical = 10.dp, horizontal = 6.dp),
+        Column(Modifier.fillMaxWidth().padding(vertical = 12.dp, horizontal = 6.dp),
             horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(value, style = MiuixTheme.textStyles.title4, color = color, fontWeight = FontWeight.Bold)
-            Text(label, style = MiuixTheme.textStyles.footnote1)
+            Text(value, style = MiuixTheme.textStyles.title3,
+                color = if (isZero) MiuixTheme.colorScheme.onSurfaceVariantSummary else color,
+                fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(3.dp))
+            Row(verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Box(Modifier.size(6.dp).clip(CircleShape)
+                    .background(if (isZero) MiuixTheme.colorScheme.outline.copy(alpha = 0.4f) else color))
+                Text(label, style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            }
         }
     }
 }
@@ -637,29 +700,38 @@ private fun AttendanceRecordCard(record: AttendanceWaterRecord) {
         modifier = Modifier.fillMaxWidth(),
         colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surface)
     ) {
-        Row(Modifier.fillMaxWidth().padding(12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min),
             verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(record.courseName.ifEmpty { record.location },
-                    style = MiuixTheme.textStyles.body1)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (record.courseName.isNotEmpty()) {
-                        Text(record.location, style = MiuixTheme.textStyles.footnote1,
+            Box(
+                Modifier.width(3.dp).fillMaxHeight()
+                    .padding(vertical = 10.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(statusColor)
+            )
+            Row(Modifier.weight(1f).padding(start = 11.dp, top = 12.dp, bottom = 12.dp, end = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(record.courseName.ifEmpty { record.location },
+                        style = MiuixTheme.textStyles.body1)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (record.courseName.isNotEmpty()) {
+                            Text(record.location, style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                        }
+                        Text("第${record.week}周 · 第${record.startTime}-${record.endTime}节",
+                            style = MiuixTheme.textStyles.footnote1,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
-                    Text("第${record.week}周 · 第${record.startTime}-${record.endTime}节",
-                        style = MiuixTheme.textStyles.footnote1,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                    if (record.teacher.isNotEmpty()) {
+                        Text(record.teacher, style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                    }
                 }
-                if (record.teacher.isNotEmpty()) {
-                    Text(record.teacher, style = MiuixTheme.textStyles.footnote1,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                Surface(shape = RoundedCornerShape(8.dp), color = statusColor.copy(alpha = 0.12f)) {
+                    Text(record.status.displayName, Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                        style = MiuixTheme.textStyles.footnote1, color = statusColor, fontWeight = FontWeight.Bold)
                 }
-            }
-            Surface(shape = RoundedCornerShape(6.dp), color = statusColor.copy(alpha = 0.12f)) {
-                Text(record.status.displayName, Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                    style = MiuixTheme.textStyles.footnote1, color = statusColor, fontWeight = FontWeight.Bold)
             }
         }
     }
