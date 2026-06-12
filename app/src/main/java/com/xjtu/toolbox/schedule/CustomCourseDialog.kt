@@ -11,6 +11,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.basic.TextFieldDefaults
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Card
@@ -217,7 +218,13 @@ fun CustomCourseDialog(
                     value = courseName,
                     onValueChange = { courseName = it },
                     label = "活动名称 *",
-                    borderColor = if (courseName.isNotEmpty() && courseName.isBlank()) MiuixTheme.colorScheme.error else Color.Unspecified,
+                    colors = TextFieldDefaults.textFieldColors(
+                        borderColor = if (courseName.isNotEmpty() && courseName.isBlank()) {
+                            MiuixTheme.colorScheme.error
+                        } else {
+                            MiuixTheme.colorScheme.primary
+                        }
+                    ),
                     singleLine = true,
                     modifier = Modifier.weight(1f)
                 )

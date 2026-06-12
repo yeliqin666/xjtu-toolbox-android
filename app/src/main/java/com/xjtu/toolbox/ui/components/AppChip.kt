@@ -3,17 +3,15 @@ package com.xjtu.toolbox.ui.components
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.squircle.squircleSurface
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.SinkFeedback
 
@@ -27,19 +25,16 @@ fun AppFilterChip(
     leadingIcon: @Composable (() -> Unit)? = null,
     unselectedContainerColor: Color = MiuixTheme.colorScheme.surfaceVariant
 ) {
-    val chipShape = RoundedCornerShape(20.dp)
     val bgColor = if (selected) MiuixTheme.colorScheme.primary.copy(alpha = 0.15f) else unselectedContainerColor
     val textColor = if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary
 
-    Surface(
+    Box(
         modifier = modifier
-            .clip(chipShape)
+            .squircleSurface(color = bgColor, cornerRadius = 20.dp)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = SinkFeedback()
             ) { onClick() },
-        shape = chipShape,
-        color = bgColor
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
@@ -69,16 +64,16 @@ fun AppSuggestionChip(
     labelContent: @Composable (() -> Unit)? = null,
     icon: @Composable (() -> Unit)? = null,
 ) {
-    val chipShape = RoundedCornerShape(16.dp)
-    Surface(
+    Box(
         modifier = modifier
-            .clip(chipShape)
+            .squircleSurface(
+                color = MiuixTheme.colorScheme.surfaceVariant,
+                cornerRadius = 16.dp
+            )
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = SinkFeedback()
             ) { onClick() },
-        shape = chipShape,
-        color = MiuixTheme.colorScheme.surfaceVariant
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
