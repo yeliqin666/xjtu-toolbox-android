@@ -25,6 +25,7 @@ import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -86,6 +87,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -112,6 +114,9 @@ import com.xjtu.toolbox.judge.JudgeScreen
 import com.xjtu.toolbox.score.ScoreReportScreen
 import com.xjtu.toolbox.ui.theme.XJTUToolBoxTheme
 import com.xjtu.toolbox.ui.settings.SettingsScreen
+import com.xjtu.toolbox.ui.components.AmbientGlow
+import com.xjtu.toolbox.ui.components.ExpressiveIcon
+import com.xjtu.toolbox.ui.components.ExpressivePanel
 import com.xjtu.toolbox.util.CredentialStore
 import com.xjtu.toolbox.widget.CampusCardWidgetUpdater
 import com.xjtu.toolbox.widget.ScheduleWidgetUpdater
@@ -2927,6 +2932,87 @@ private fun MainScreen(
 // ══════════════════════════════════════════
 
 @Composable
+private fun HomeCampusHero(
+    greetingName: String,
+    dateLabel: String,
+    onClick: () -> Unit,
+) {
+    val hour = java.time.LocalTime.now().hour
+    val greeting = when (hour) {
+        in 5..10 -> "早上好"
+        in 11..13 -> "中午好"
+        in 14..17 -> "下午好"
+        else -> "晚上好"
+    }
+    val blue = androidx.compose.ui.graphics.Color(0xFF315FD4)
+    val violet = androidx.compose.ui.graphics.Color(0xFF7357D8)
+
+    ExpressivePanel(
+        modifier = Modifier.fillMaxWidth().height(196.dp),
+        accent = blue,
+        cornerRadius = 28.dp,
+        onClick = onClick,
+    ) {
+        Box(
+            Modifier
+                .matchParentSize()
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            blue.copy(alpha = 0.16f),
+                            violet.copy(alpha = 0.08f),
+                            MiuixTheme.colorScheme.surface.copy(alpha = 0.05f),
+                        ),
+                    ),
+                ),
+        )
+        AmbientGlow(
+            color = androidx.compose.ui.graphics.Color(0xFF40B8FF),
+            modifier = Modifier.align(Alignment.TopEnd).offset(x = 36.dp, y = (-40).dp),
+            size = 190.dp,
+        )
+        AmbientGlow(
+            color = androidx.compose.ui.graphics.Color(0xFFFFA06A),
+            modifier = Modifier.align(Alignment.BottomStart).offset(x = (-70).dp, y = 70.dp),
+            size = 150.dp,
+        )
+        Column(
+            modifier = Modifier.align(Alignment.CenterStart).padding(start = 20.dp, end = 150.dp),
+        ) {
+            Text(
+                dateLabel,
+                style = MiuixTheme.textStyles.footnote1,
+                color = blue,
+                fontWeight = FontWeight.Bold,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                if (greetingName.isBlank()) greeting else "$greeting，$greetingName",
+                style = MiuixTheme.textStyles.title2,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "兴庆校园，今天也从容一点",
+                style = MiuixTheme.textStyles.body2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+        }
+        Image(
+            painter = painterResource(R.drawable.home_campus_hero),
+            contentDescription = "兴庆校区主楼",
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .size(168.dp)
+                .offset(x = 6.dp, y = 8.dp),
+            contentScale = ContentScale.Fit,
+        )
+    }
+}
+
+@Composable
 private fun HomeTab(
     loginState: AppLoginState,
     isRestoring: Boolean = false,
@@ -2948,18 +3034,19 @@ private fun HomeTab(
         Column(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp)
+                .padding(horizontal = 16.dp)
                 .padding(top = 8.dp)
         ) {
-            // 日期行
             val today = java.time.LocalDate.now()
             val weekDay = today.dayOfWeek.getDisplayName(
                 java.time.format.TextStyle.FULL, java.util.Locale.CHINESE
             )
-            Text(
-                "${today.monthValue}月${today.dayOfMonth}日  $weekDay",
-                style = MiuixTheme.textStyles.body1,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+            HomeCampusHero(
+                greetingName = loginState.cachedNickname.orEmpty()
+                    .ifBlank { loginState.ywtbUserInfo?.userName.orEmpty() }
+                    .ifBlank { loginState.activeUsername },
+                dateLabel = "${today.monthValue}月${today.dayOfMonth}日 · $weekDay",
+                onClick = onNavigateToProfile
             )
             // 状态 or 登录提示
             if (!loginState.isLoggedIn) {
@@ -2970,7 +3057,7 @@ private fun HomeTab(
                     Text("登录以使用全部功能")
                 }
             } else {
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(10.dp))
                 // 网络环境徽标 + 会话数
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     val (netLabel, netColor) = when (loginState.isOnCampus) {
@@ -3128,16 +3215,14 @@ private fun HomeTab(
                 )
             }
             val quickShown = quickKeys.mapNotNull { k -> quickPool.find { it.key == k } }
-            Card(Modifier.fillMaxWidth(), cornerRadius = 18.dp) {
-                Row(
-                    Modifier.fillMaxWidth().padding(vertical = 14.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly
-                ) {
-                    quickShown.forEach { q ->
-                        HomeQuickAction(q.icon, q.label, q.color) {
-                            com.xjtu.toolbox.util.ServiceUsageTracker.record(ctxQuick, q.key)
-                            q.onClick()
-                        }
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                quickShown.forEach { q ->
+                    HomeQuickAction(q.icon, q.label, q.color) {
+                        com.xjtu.toolbox.util.ServiceUsageTracker.record(ctxQuick, q.key)
+                        q.onClick()
                     }
                 }
             }
@@ -3517,25 +3602,36 @@ private fun HomeTab(
                 Svc(Routes.JIAOCAI, Icons.Default.MenuBook, "教材中心", "教材查询", svcTeal, "搜索教材书目") { onNavigateWithLogin(Routes.JIAOCAI, LoginType.JIAOCAI) },
                 Svc(Routes.WEBVPN_CONVERTER, Icons.Default.VpnKey, "WebVPN 转换", "校外访问", svcBrown, "网址互转 + 一键访问") { onNavigate(Routes.WEBVPN_CONVERTER) }
             )
-            // hint 高亮：确定性 top-5（不随机），key 稳定避免每次重组重算
-            val serviceKeys = remember { services.map { it.key } }
-            val highlightSet = remember(serviceKeys) {
-                com.xjtu.toolbox.util.ServiceUsageTracker.highlightSet(
-                    ctx,
-                    serviceKeys,
-                    topN = 5,
-                    defaultHighlights = setOf(Routes.CAMPUS_CARD, Routes.SCHEDULE, Routes.JWAPP_SCORE, Routes.LMS, Routes.LIBRARY)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(
+                    color = MiuixTheme.colorScheme.surfaceVariant
                 )
-            }
-            // 固定定义顺序渲染，不再随机交错，保证每次进入首页布局稳定
-            StaggeredFlow(columns = 2, spacing = 10.dp, modifier = Modifier.fillMaxWidth()) {
-                services.forEach { svc ->
-                    HomeServiceCard(
-                        svc.icon, svc.title, svc.subtitle, svc.color,
-                        hint = if (svc.key in highlightSet) svc.hint else null
-                    ) {
-                        com.xjtu.toolbox.util.ServiceUsageTracker.record(ctx, svc.key)
-                        svc.onClick()
+            ) {
+                val serviceRows = services.chunked(2)
+                Column(
+                    Modifier.fillMaxWidth().padding(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    serviceRows.forEach { rowServices ->
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            rowServices.forEach { svc ->
+                                HomeServiceTile(
+                                    icon = svc.icon,
+                                    title = svc.title,
+                                    subtitle = svc.subtitle,
+                                    iconColor = svc.color,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    com.xjtu.toolbox.util.ServiceUsageTracker.record(ctx, svc.key)
+                                    svc.onClick()
+                                }
+                            }
+                            if (rowServices.size == 1) Spacer(Modifier.weight(1f))
+                        }
                     }
                 }
             }
@@ -4554,85 +4650,52 @@ private fun HomeQuickAction(icon: ImageVector, label: String, color: androidx.co
             )
             .padding(8.dp)
     ) {
-        Surface(
-            modifier = Modifier.size(56.dp),
-            shape = RoundedCornerShape(16.dp),
-            color = color.copy(alpha = 0.18f)
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(icon, null, tint = color, modifier = Modifier.size(28.dp))
-            }
-        }
+        ExpressiveIcon(icon = icon, color = color)
         Spacer(Modifier.height(8.dp))
         Text(label, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium)
     }
 }
 
 @Composable
-private fun HomeServiceCard(
+private fun HomeServiceTile(
     icon: ImageVector, title: String, subtitle: String,
     iconColor: androidx.compose.ui.graphics.Color, modifier: Modifier = Modifier,
-    hint: String? = null,
     onClick: () -> Unit
 ) {
-    Card(
-        onClick = onClick,
-        modifier = modifier,
-        cornerRadius = 16.dp,
-        pressFeedbackType = PressFeedbackType.Sink,
-        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(iconColor.copy(alpha = 0.075f))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = SinkFeedback(),
+                onClick = onClick
+            )
+            .padding(horizontal = 12.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(Modifier.fillMaxWidth().padding(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(iconColor.copy(alpha = 0.18f)), contentAlignment = Alignment.Center) {
-                    Icon(icon, null, tint = iconColor, modifier = Modifier.size(22.dp))
-                }
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(title, style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(subtitle, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-            }
-            if (hint != null) {
-                Spacer(Modifier.height(10.dp))
-                Box(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
-                        .background(iconColor.copy(alpha = 0.10f))
-                        .padding(horizontal = 10.dp, vertical = 6.dp)
-                ) {
-                    Text(hint, style = MiuixTheme.textStyles.footnote1, color = iconColor, maxLines = 2)
-                }
-            }
-        }
-    }
-}
-
-/** 真瀑布流布局 — 可嵌入 verticalScroll，依内容高度自动错落到最短列 */
-@Composable
-private fun StaggeredFlow(
-    columns: Int = 2,
-    spacing: androidx.compose.ui.unit.Dp = 10.dp,
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit
-) {
-    androidx.compose.ui.layout.Layout(content = content, modifier = modifier) { measurables, constraints ->
-        val spacingPx = spacing.roundToPx()
-        val colWidth = ((constraints.maxWidth - spacingPx * (columns - 1)) / columns).coerceAtLeast(0)
-        val itemConstraints = constraints.copy(minWidth = colWidth, maxWidth = colWidth)
-        val colHeights = IntArray(columns)
-        data class Pos(val p: androidx.compose.ui.layout.Placeable, val x: Int, val y: Int)
-        val placements = measurables.map { m ->
-            var target = 0
-            for (i in 1 until columns) if (colHeights[i] < colHeights[target]) target = i
-            val p = m.measure(itemConstraints)
-            val x = target * (colWidth + spacingPx)
-            val y = colHeights[target]
-            colHeights[target] += p.height + spacingPx
-            Pos(p, x, y)
-        }
-        val total = (colHeights.maxOrNull() ?: 0).coerceAtLeast(0)
-        layout(constraints.maxWidth, total) {
-            placements.forEach { it.p.place(it.x, it.y) }
+        ExpressiveIcon(
+            icon = icon,
+            color = iconColor,
+            size = 42.dp,
+            iconSize = 22.dp,
+        )
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                style = MiuixTheme.textStyles.body1,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                subtitle,
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
