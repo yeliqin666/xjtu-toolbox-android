@@ -34,8 +34,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Merge
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
 import com.xjtu.toolbox.ui.components.AppTopBar
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -77,7 +75,6 @@ fun NotificationScreen(
     var isLoadingMore by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
-    var isSearchActive by rememberSaveable { mutableStateOf(false) }
     var currentPage by rememberSaveable { mutableIntStateOf(1) }
     var hasMorePages by remember { mutableStateOf(true) }
 
@@ -179,20 +176,6 @@ fun NotificationScreen(
                             else MiuixTheme.colorScheme.onSurfaceVariantSummary
                         )
                     }
-                    IconButton(onClick = { isSearchActive = !isSearchActive; if (!isSearchActive) searchQuery = "" }) {
-                        Icon(
-                            Icons.Default.Search,
-                            contentDescription = "搜索",
-                            tint = if (isSearchActive) MiuixTheme.colorScheme.primary
-                            else MiuixTheme.colorScheme.onSurfaceVariantSummary
-                        )
-                    }
-                    IconButton(onClick = {
-                        currentPage = 1
-                        scope.launch { loadNotifications() }
-                    }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "刷新")
-                    }
                 }
             )
         }
@@ -203,16 +186,6 @@ fun NotificationScreen(
                 .padding(padding)
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
         ) {
-            // 内嵌搜索栏（点击搜索图标滑入/滑出）
-            androidx.compose.animation.AnimatedVisibility(visible = isSearchActive) {
-                com.xjtu.toolbox.ui.components.AppSearchBar(
-                    query = searchQuery,
-                    onQueryChange = { searchQuery = it },
-                    label = "搜索通知标题...",
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-            }
-
             // ═══ 分类选择（文本 Tab 样式，轻量级层级感） ═══
             Row(
                 modifier = Modifier
@@ -315,6 +288,13 @@ fun NotificationScreen(
                     )
                 }
             }
+
+            com.xjtu.toolbox.ui.components.AppSearchBar(
+                query = searchQuery,
+                onQueryChange = { searchQuery = it },
+                label = "搜索通知标题",
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+            )
 
             // ═══ 加载条 ═══
             AnimatedVisibility(isLoading && notifications.isNotEmpty(), enter = fadeIn(), exit = fadeOut()) {

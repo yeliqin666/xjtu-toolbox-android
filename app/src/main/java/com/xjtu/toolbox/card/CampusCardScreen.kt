@@ -112,7 +112,6 @@ fun CampusCardScreen(
     var isReloadingRange by remember { mutableStateOf(false) }
     // 搜索
     var searchQuery by rememberSaveable { mutableStateOf("") }
-    var isSearchActive by rememberSaveable { mutableStateOf(false) }
 
     fun loadData(range: TimeRange = selectedTimeRange, silent: Boolean = false) {
         if (silent) isReloadingRange = true else isLoading = true
@@ -249,22 +248,6 @@ fun CampusCardScreen(
                     }
                 },
                 actions = {
-                    if (selectedTab == 1) {
-                        IconButton(onClick = {
-                            isSearchActive = !isSearchActive
-                            if (!isSearchActive) searchQuery = ""
-                        }) {
-                            Icon(
-                                Icons.Default.Search,
-                                "搜索",
-                                tint = if (isSearchActive) MiuixTheme.colorScheme.primary
-                                else MiuixTheme.colorScheme.onSurfaceVariantSummary
-                            )
-                        }
-                    }
-                    IconButton(onClick = { loadData() }) {
-                        Icon(Icons.Default.Refresh, "刷新")
-                    }
                 }
             )
         }
@@ -274,12 +257,18 @@ fun CampusCardScreen(
             errorMessage != null -> ErrorState(errorMessage!!, { loadData() }, Modifier.fillMaxSize().padding(padding))
             else -> {
                 Column(Modifier.fillMaxSize().padding(padding).nestedScroll(scrollBehavior.nestedScrollConnection)) {
-                    TabRowWithContour(
-                        tabs = listOf("概览", "流水", "分析"),
-                        selectedTabIndex = selectedTab,
-                        onTabSelected = { selectedTab = it },
+                    Surface(
+                        color = MiuixTheme.colorScheme.secondaryContainer.copy(alpha = 0.72f),
+                        shape = RoundedCornerShape(18.dp),
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
-                    )
+                    ) {
+                        TabRowWithContour(
+                            tabs = listOf("概览", "流水", "分析"),
+                            selectedTabIndex = selectedTab,
+                            onTabSelected = { selectedTab = it },
+                            modifier = Modifier.fillMaxWidth().padding(4.dp)
+                        )
+                    }
                     var isPullRefreshing by remember { mutableStateOf(false) }
                     LaunchedEffect(isLoading, isReloadingRange) {
                         if (!isLoading && !isReloadingRange) isPullRefreshing = false
@@ -310,8 +299,7 @@ fun CampusCardScreen(
                                 onSearchChange = { searchQuery = it }, onLoadMore = ::loadMore,
                                 selectedTimeRange = selectedTimeRange,
                                 onTimeRangeChange = { selectedTimeRange = it; loadData(it, silent = true) },
-                                isReloading = isReloadingRange,
-                                isSearchActive = isSearchActive)
+                                isReloading = isReloadingRange)
                             2 -> AnalyticsTab(
                                 monthlyStats, categorySpending, mealTimeStats, weekdayWeekend,
                                 activeCampusDays, selectedTimeRange,
@@ -619,8 +607,7 @@ private fun TransactionTab(
     onLoadMore: () -> Unit,
     selectedTimeRange: TimeRange,
     onTimeRangeChange: (TimeRange) -> Unit,
-    isReloading: Boolean = false,
-    isSearchActive: Boolean = false
+    isReloading: Boolean = false
 ) {
     val filtered = remember(transactions, searchQuery) {
         if (searchQuery.isBlank()) transactions
@@ -646,16 +633,14 @@ private fun TransactionTab(
             item { LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), height = 2.dp) }
         }
 
-        // 搜索栏（右上角按钮控制展开）
+        // 搜索是流水页的一部分，不再由顶栏按钮控制。
         item {
-            androidx.compose.animation.AnimatedVisibility(visible = isSearchActive) {
-                com.xjtu.toolbox.ui.components.AppSearchBar(
-                    query = searchQuery,
-                    onQueryChange = onSearchChange,
-                    label = "搜索商户/交易类型",
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
-                )
-            }
+            com.xjtu.toolbox.ui.components.AppSearchBar(
+                query = searchQuery,
+                onQueryChange = onSearchChange,
+                label = "搜索商户或交易类型",
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+            )
         }
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

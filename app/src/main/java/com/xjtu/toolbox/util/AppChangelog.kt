@@ -25,6 +25,16 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "3.8.0" to VersionChangelog(
+            items = listOf(
+                "✨" to "首页、思源学堂、校园卡和设置页统一焕新，界面更清爽、更有校园特色",
+                "🔄" to "图书馆、通知和校园卡改进下拉刷新，减少重复按钮和界面干扰",
+                "🏫" to "空闲教室支持搜索教学楼，直查进度和筛选信息更清楚",
+                "📥" to "思源课件改为应用内下载，并与课堂回放统一管理",
+                "🧭" to "未登录或功能暂不可用时不再自动跳转页面",
+                "🎨" to "更换全新应用图标，并修复评教按钮、搜索栏等显示问题"
+            )
+        ),
         "3.7.0" to VersionChangelog(
             items = listOf(
                 "✨" to "首页焕新：加入兴庆校区主楼视觉，快捷入口和服务区更有层次、更好看",

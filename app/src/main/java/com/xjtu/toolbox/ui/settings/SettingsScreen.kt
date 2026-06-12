@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.ui.settings
 
-import android.os.Environment
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -16,7 +15,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -90,7 +88,6 @@ import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
-import java.io.File
 
 @Composable
 fun SettingsScreen(
@@ -98,7 +95,8 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onNavBarStyleChanged: (String) -> Unit = {},
     onDarkModeChanged: (String) -> Unit = {},
-    onDefaultTabChanged: (String) -> Unit = {}
+    onDefaultTabChanged: (String) -> Unit = {},
+    onOpenDownloads: () -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -141,16 +139,6 @@ fun SettingsScreen(
     val cLime = Color(0xFF9CCC65)
 
     val versionText = "v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
-    val lmsDownloadDir = remember {
-        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).absolutePath
-    }
-    val replayDownloadDir = remember {
-        File(
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-            "ClassReplay"
-        ).absolutePath
-    }
-
     // ── 选项数据 ──
     val darkModeOptions = listOf("跟随系统", "始终浅色", "始终深色")
     val darkModeValues = listOf(
@@ -290,6 +278,7 @@ fun SettingsScreen(
                             "已开启，请配置账号"
                     } else "已关闭",
                     checked = srunEnabled,
+                    startAction = { SettingsIcon(MiuixIcons.Carrier, cBlue) },
                     onCheckedChange = {
                         srunEnabled = it
                         credentialStore.srunAutoLoginEnabled = it
@@ -298,11 +287,13 @@ fun SettingsScreen(
                 ArrowPreference(
                     title = "校园网账号与密码",
                     summary = srunCreds.value?.let { "${it.first} · 已保存" } ?: "未保存",
+                    startAction = { SettingsIcon(MiuixIcons.Info, cBlue) },
                     onClick = { showSrunEdit.value = true }
                 )
                 ArrowPreference(
                     title = "立即测试登录",
                     summary = srunTestResult ?: (if (srunTesting) "正在测试..." else "手动触发一次校园网登录"),
+                    startAction = { SettingsIcon(Icons.Default.Refresh, cBlue) },
                     onClick = {
                         if (srunTesting) return@ArrowPreference
                         srunTesting = true
@@ -345,10 +336,14 @@ fun SettingsScreen(
                         Column(
                             Modifier
                                 .fillMaxWidth()
-                                .imePadding()
-                                .padding(horizontal = 24.dp, vertical = 16.dp),
+                                .padding(bottom = 12.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
+                            Text(
+                                "连接 XJTU_STU 时使用，账号需包含 @stu 或 @xjtu 后缀。",
+                                style = MiuixTheme.textStyles.body2,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                            )
                             top.yukonga.miuix.kmp.basic.TextField(
                                 value = u, onValueChange = { u = it },
                                 label = "账号（含 @stu/@xjtu）",
@@ -404,15 +399,11 @@ fun SettingsScreen(
                     startAction = { SettingsIcon(MiuixIcons.Delete, cRed) },
                     onClick = { showClearCacheDialog = true }
                 )
-                BasicComponent(
-                    title = "LMS 下载位置",
-                    summary = lmsDownloadDir,
-                    startAction = { SettingsIcon(MiuixIcons.Folder, cBrown) }
-                )
-                BasicComponent(
-                    title = "课堂回放下载位置",
-                    summary = replayDownloadDir,
-                    startAction = { SettingsIcon(MiuixIcons.Folder, cBrown) }
+                ArrowPreference(
+                    title = "下载管理",
+                    summary = "查看思源课件和课堂回放，管理已下载文件",
+                    startAction = { SettingsIcon(MiuixIcons.Folder, cBrown) },
+                    onClick = onOpenDownloads
                 )
             }
 
@@ -592,13 +583,14 @@ private fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
 
 @Composable
 private fun SettingsIcon(icon: ImageVector, color: Color) {
+    val accent = MiuixTheme.colorScheme.primary
     Surface(
         shape = CircleShape,
-        color = color.copy(alpha = 0.12f),
+        color = accent.copy(alpha = 0.10f),
         modifier = Modifier.size(32.dp)
     ) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = color)
+            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = accent)
         }
     }
     Spacer(Modifier.width(12.dp))

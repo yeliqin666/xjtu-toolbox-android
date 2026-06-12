@@ -224,7 +224,6 @@ object Routes {
     const val VENUE = "venue"
     const val CLASS_REPLAY = "class_replay"
     const val LMS = "lms"
-    const val NEO_COURSE = "neo_course"
     const val JIAOCAI = "jiaocai"
     const val SCHOOL_COURSE = "school_course"
     const val SCHOOL_CALENDAR = "school_calendar"
@@ -2035,13 +2034,6 @@ fun AppNavigation(
                 )
             } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
-        composable(Routes.NEO_COURSE) {
-            val neoSession = remember { com.xjtu.toolbox.neo.NeoSession(context) }
-            com.xjtu.toolbox.neo.NeoScreen(
-                session = neoSession,
-                onBack = { navController.popBackStack() }
-            )
-        }
         composable(Routes.JIAOCAI) {
             loginState.jiaocaiLogin?.let {
                 com.xjtu.toolbox.jiaocai.JiaocaiScreen(login = it, onBack = { navController.popBackStack() })
@@ -2090,7 +2082,8 @@ fun AppNavigation(
                 onBack = { navController.popBackStack() },
                 onNavBarStyleChanged = { /* NavBar 风格变化通过 MainScreen 内部状态处理 */ },
                 onDarkModeChanged = onDarkModeChanged,
-                onDefaultTabChanged = { /* 下次启动生效 */ }
+                onDefaultTabChanged = { /* 下次启动生效 */ },
+                onOpenDownloads = { navController.navigate(Routes.DOWNLOAD_MANAGER) }
             )
         }
 
@@ -2284,13 +2277,10 @@ private fun MainScreen(
                             else -> "${type.label}暂未就绪"
                         }
                         scope.launch { snackbarHostState.showSnackbar(msg, duration = SnackbarDuration.Short) }
-                        selectedTabOrdinal = BottomTab.PROFILE.ordinal
                     }
                 }
             }
         } else {
-            // 没有凭据，切换到"我的"标签页让用户登录
-            selectedTabOrdinal = BottomTab.PROFILE.ordinal
             scope.launch {
                 snackbarHostState.showSnackbar("请先登录后使用${type.label}", duration = SnackbarDuration.Short)
             }
@@ -3173,14 +3163,20 @@ private fun HomeTab(
                 )
             }
             val quickShown = quickKeys.mapNotNull { k -> quickPool.find { it.key == k } }
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly
+            ExpressivePanel(
+                modifier = Modifier.fillMaxWidth(),
+                accent = MiuixTheme.colorScheme.primary,
+                cornerRadius = 22.dp
             ) {
-                quickShown.forEach { q ->
-                    HomeQuickAction(q.icon, q.label, q.color) {
-                        com.xjtu.toolbox.util.ServiceUsageTracker.record(ctxQuick, q.key)
-                        q.onClick()
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    quickShown.forEach { q ->
+                        HomeQuickAction(q.icon, q.label, MiuixTheme.colorScheme.primary) {
+                            com.xjtu.toolbox.util.ServiceUsageTracker.record(ctxQuick, q.key)
+                            q.onClick()
+                        }
                     }
                 }
             }
@@ -3313,14 +3309,16 @@ private fun HomeTab(
 
             Column(Modifier.padding(horizontal = 16.dp)) {
                 // ═══ 日程提醒智能卡片 ═══
-                val reminderAccent = androidx.compose.ui.graphics.Color(0xFFE65100)
+                val reminderAccent = MiuixTheme.colorScheme.primary
                 Card(
                     onClick = {
                         onNavigateToCourses()
                     },
                     modifier = Modifier.fillMaxWidth(),
                     cornerRadius = 20.dp,
-                    colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surface),
+                    colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(
+                        color = MiuixTheme.colorScheme.secondaryContainer.copy(alpha = 0.64f)
+                    ),
                     pressFeedbackType = PressFeedbackType.Sink
                 ) {
                     val scheduleReminder = scheduleReminderState
@@ -3418,10 +3416,9 @@ private fun HomeTab(
                 if (cachedBalance >= 0f || loginState.campusCardLogin != null) {
                     val scope = rememberCoroutineScope()
                     val isLowBalance = cachedBalance in 0f..30f
-                    // 固定交大蓝品牌渐变，与校园卡详情页 hero 卡一致
-                    val brandStart = androidx.compose.ui.graphics.Color(0xFF0A4D94)
-                    val brandEnd = androidx.compose.ui.graphics.Color(0xFF1E78C8)
-                    val onBrand = androidx.compose.ui.graphics.Color.White
+                    val brandStart = MiuixTheme.colorScheme.secondaryContainer
+                    val brandEnd = MiuixTheme.colorScheme.secondaryContainer
+                    val onBrand = MiuixTheme.colorScheme.onSecondaryContainer
                     Card(
                         onClick = { onNavigateWithLogin(Routes.CAMPUS_CARD, LoginType.CAMPUS_CARD) },
                         modifier = Modifier.fillMaxWidth(),
@@ -3442,28 +3439,6 @@ private fun HomeTab(
                                     }
                                     Spacer(Modifier.width(8.dp))
                                 }
-                                // 刷新按钮
-                                IconButton(
-                                    onClick = {
-                                        val login = loginState.campusCardLogin ?: return@IconButton
-                                        isRefreshingCard = true
-                                        scope.launch {
-                                            try {
-                                                refreshCampusCardCache(context, login)
-                                                loginState.campusCardCacheVersion++
-                                                reloadCampusCardCache()
-                                            } catch (_: Exception) {}
-                                            isRefreshingCard = false
-                                        }
-                                    },
-                                    enabled = !isRefreshingCard && loginState.campusCardLogin != null,
-                                    modifier = Modifier.size(36.dp),
-                                    backgroundColor = onBrand.copy(alpha = 0.15f)
-                                ) {
-                                    if (isRefreshingCard) CircularProgressIndicator(size = 16.dp, strokeWidth = 2.dp, colors = ProgressIndicatorDefaults.progressIndicatorColors(foregroundColor = onBrand))
-                                    else Icon(Icons.Default.Refresh, "刷新", Modifier.size(18.dp), tint = onBrand)
-                                }
-                                Spacer(Modifier.width(4.dp))
                                 Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(18.dp), tint = onBrand.copy(alpha = 0.7f))
                             }
                             // 余额显示
@@ -3556,14 +3531,13 @@ private fun HomeTab(
                 Svc(Routes.LMS, Icons.Default.School, "思源学堂", "课件 · 作业", svcIndigo, "回放课件与作业") { onNavigateWithLogin(Routes.LMS, LoginType.LMS) },
                 Svc(Routes.SCHOOL_COURSE, Icons.Default.TravelExplore, "课程查询", "全校课程", svcCyan, "选课先踩点") { onNavigateWithLogin(Routes.SCHOOL_COURSE, LoginType.JWXT) },
                 Svc(Routes.SCHOOL_CALENDAR, Icons.Default.EventNote, "校历", "学期 · 周次", svcTeal, "看看多少假期") { onNavigate(Routes.SCHOOL_CALENDAR) },
-                Svc(Routes.NEO_COURSE, Icons.Default.Star, "拔尖课程", "NeoSchool", svcPurple, "钱院线上课程") { onNavigate(Routes.NEO_COURSE) },
                 Svc(Routes.JIAOCAI, Icons.Default.MenuBook, "教材中心", "教材查询", svcTeal, "搜索教材书目") { onNavigateWithLogin(Routes.JIAOCAI, LoginType.JIAOCAI) },
                 Svc(Routes.WEBVPN_CONVERTER, Icons.Default.VpnKey, "WebVPN 转换", "校外访问", svcBrown, "网址互转 + 一键访问") { onNavigate(Routes.WEBVPN_CONVERTER) }
             )
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(
-                    color = MiuixTheme.colorScheme.surfaceVariant
+                    color = MiuixTheme.colorScheme.surface
                 )
             ) {
                 val serviceRows = services.chunked(2)
@@ -3581,7 +3555,7 @@ private fun HomeTab(
                                     icon = svc.icon,
                                     title = svc.title,
                                     subtitle = svc.subtitle,
-                                    iconColor = svc.color,
+                                    iconColor = MiuixTheme.colorScheme.primary,
                                     modifier = Modifier.weight(1f)
                                 ) {
                                     com.xjtu.toolbox.util.ServiceUsageTracker.record(ctx, svc.key)
@@ -4606,7 +4580,7 @@ private fun HomeQuickAction(icon: ImageVector, label: String, color: androidx.co
                 indication = SinkFeedback(),
                 onClick = onClick
             )
-            .padding(8.dp)
+            .padding(horizontal = 8.dp, vertical = 6.dp)
     ) {
         ExpressiveIcon(icon = icon, color = color)
         Spacer(Modifier.height(8.dp))
@@ -4622,8 +4596,8 @@ private fun HomeServiceTile(
 ) {
     Row(
         modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(iconColor.copy(alpha = 0.075f))
+            .clip(RoundedCornerShape(16.dp))
+            .background(MiuixTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = SinkFeedback(),

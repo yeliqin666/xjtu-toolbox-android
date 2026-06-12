@@ -2,9 +2,7 @@ package com.xjtu.toolbox.lms
 
 import android.content.ContentValues
 import android.content.Context
-import android.content.Intent
 import android.graphics.BitmapFactory
-import android.net.Uri
 import android.provider.MediaStore
 import android.util.Log
 import android.widget.Toast
@@ -109,8 +107,7 @@ fun LmsScreen(login: LmsLogin, onBack: () -> Unit) {
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "支持查看课程列表、作业提交记录、课件附件以及课堂回放视频。\n" +
-                        "课堂回放下载链接可在浏览器中打开下载。",
+                    "支持查看课程、作业、课件和课堂回放。课件会在应用内下载，并统一显示在下载管理中。",
                     style = MiuixTheme.textStyles.body2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                 )
@@ -251,7 +248,7 @@ private fun CourseListPage(
         topBar = {
             SmallTopAppBar(
                 title = "思源学堂",
-                color = MiuixTheme.colorScheme.surfaceVariant,
+                color = MiuixTheme.colorScheme.background,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -307,7 +304,10 @@ private fun LmsCourseCard(course: LmsCourseSummary, onClick: () -> Unit) {
     Card(
         onClick = onClick,
         pressFeedbackType = PressFeedbackType.Sink,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 3.dp),
+        colors = CardDefaults.defaultColors(
+            color = MiuixTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+        )
     ) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -401,7 +401,7 @@ private fun ActivityListPage(
         topBar = {
             SmallTopAppBar(
                 title = course.name,
-                color = MiuixTheme.colorScheme.surfaceVariant,
+                color = MiuixTheme.colorScheme.background,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -462,7 +462,10 @@ private fun LmsActivityCard(activity: LmsActivity, onClick: () -> Unit) {
     Card(
         onClick = onClick,
         pressFeedbackType = PressFeedbackType.Sink,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 3.dp),
+        colors = CardDefaults.defaultColors(
+            color = MiuixTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+        )
     ) {
         Row(
             Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
@@ -541,7 +544,7 @@ private fun ActivityDetailPage(
         topBar = {
             SmallTopAppBar(
                 title = activity.title,
-                color = MiuixTheme.colorScheme.surfaceVariant,
+                color = MiuixTheme.colorScheme.background,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -598,7 +601,7 @@ private fun ActivityDetailPage(
                             if (submissions.list.isNotEmpty()) {
                                 item(key = "sub_header") { SectionHeader("提交记录 (${submissions.list.size})") }
                                 items(submissions.list, key = { "sub_${it.id}" }) { sub ->
-                                    SubmissionCard(sub, context)
+                                    SubmissionCard(sub, context, api)
                                 }
                             }
                         }
@@ -917,7 +920,8 @@ private fun UploadCard(upload: LmsUpload, context: Context, api: LmsApi? = null)
 }
 
 @Composable
-private fun SubmissionCard(sub: LmsSubmissionItem, context: Context) {
+private fun SubmissionCard(sub: LmsSubmissionItem, context: Context, api: LmsApi) {
+    val scope = rememberCoroutineScope()
     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
         Column(Modifier.padding(16.dp)) {
             Row(
@@ -966,7 +970,7 @@ private fun SubmissionCard(sub: LmsSubmissionItem, context: Context) {
                 Spacer(Modifier.height(8.dp))
                 Text("批改附件", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 correctUploads.forEach { upload ->
-                    UploadCard(upload, context)
+                    UploadCard(upload, context, api)
                 }
             }
 
@@ -975,21 +979,30 @@ private fun SubmissionCard(sub: LmsSubmissionItem, context: Context) {
                 Spacer(Modifier.height(8.dp))
                 Text("提交附件", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 sub.uploads.forEach { upload ->
-                    UploadCard(upload, context)
+                    UploadCard(upload, context, api)
                     if (upload.attachmentUrl.isNotEmpty()) {
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(upload.attachmentUrl))) } catch (_: Exception) {}
+                        var downloadingMarked by remember { mutableStateOf(false) }
+                        TextButton(
+                            text = if (downloadingMarked) "正在下载批改版…" else "下载批改版",
+                            enabled = !downloadingMarked,
+                            onClick = {
+                                downloadingMarked = true
+                                scope.launch {
+                                    val markedName = upload.name.substringBeforeLast('.', upload.name) +
+                                        "_批改版." + upload.name.substringAfterLast('.', "bin")
+                                    val ok = withContext(Dispatchers.IO) {
+                                        saveToDownloads(context, markedName, upload.type, upload.attachmentUrl, api)
+                                    }
+                                    downloadingMarked = false
+                                    Toast.makeText(
+                                        context,
+                                        if (ok) "批改版已保存到下载管理" else "批改版下载失败",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
                                 }
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.Edit, null, Modifier.size(14.dp), tint = Color(0xFFFF9800))
-                            Spacer(Modifier.width(6.dp))
-                            Text("查看批改版", fontSize = 12.sp, color = Color(0xFFFF9800))
-                        }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
                 }
             }
@@ -1189,6 +1202,7 @@ private fun saveToDownloads(context: Context, name: String, mimeType: String, ur
     val cv = ContentValues().apply {
         put(MediaStore.Downloads.DISPLAY_NAME, name)
         put(MediaStore.Downloads.MIME_TYPE, mime)
+        put(MediaStore.Downloads.RELATIVE_PATH, "Download/岱宗盒子")
         put(MediaStore.Downloads.IS_PENDING, 1)
     }
     val resolver = context.contentResolver
@@ -1199,6 +1213,14 @@ private fun saveToDownloads(context: Context, name: String, mimeType: String, ur
         cv.clear()
         cv.put(MediaStore.Downloads.IS_PENDING, 0)
         resolver.update(uri, cv, null, null)
+        if (ok) {
+            LmsDownloadStore.add(
+                context,
+                LmsDownloadRecord(name, mime, uri.toString(), System.currentTimeMillis())
+            )
+        } else {
+            resolver.delete(uri, null, null)
+        }
         ok
     } catch (e: Exception) {
         resolver.delete(uri, null, null)

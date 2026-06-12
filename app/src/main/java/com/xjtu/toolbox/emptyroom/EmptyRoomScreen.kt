@@ -72,6 +72,7 @@ import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import kotlin.math.roundToInt
 import com.xjtu.toolbox.ui.components.AppFilterChip
+import com.xjtu.toolbox.ui.components.AppSearchBar
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.util.CredentialStore
 
@@ -533,6 +534,7 @@ fun EmptyRoomScreen(
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
         ) {
             val showFilterSheet = remember { mutableStateOf(false) }
+            var buildingQuery by rememberSaveable { mutableStateOf("") }
             BackHandler(enabled = showFilterSheet.value) {
                 showFilterSheet.value = false
             }
@@ -567,6 +569,15 @@ fun EmptyRoomScreen(
                             style = MiuixTheme.textStyles.footnote1,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                         )
+                        if (isLoading && rooms.isNotEmpty()) {
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                directProgress?.let { "直查教务 ${it.first}/${it.second}，正在更新结果" }
+                                    ?: "正在更新结果",
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.primary
+                            )
+                        }
                     }
                     if (isToday && currentPeriod >= 0) {
                         Surface(
@@ -621,6 +632,12 @@ fun EmptyRoomScreen(
                         style = MiuixTheme.textStyles.subtitle,
                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp)
                     )
+                    AppSearchBar(
+                        query = buildingQuery,
+                        onQueryChange = { buildingQuery = it },
+                        label = "搜索教学楼",
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+                    )
                     // 全选/取消全选
                     val allSelected = selectedBuildings.size == buildings.size
                     Row(
@@ -648,7 +665,10 @@ fun EmptyRoomScreen(
                         Text("全选", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium)
                     }
                     HorizontalDivider(Modifier.padding(vertical = 4.dp))
-                    buildings.forEach { building ->
+                    val visibleBuildings = buildings
+                        .filter { buildingQuery.isBlank() || it.contains(buildingQuery, ignoreCase = true) }
+                        .sortedByDescending { it in selectedBuildings }
+                    visibleBuildings.forEach { building ->
                         val isSelected = building in selectedBuildings
                         Row(
                             Modifier.fillMaxWidth()
@@ -743,20 +763,6 @@ fun EmptyRoomScreen(
             Spacer(Modifier.height(4.dp))
 
             // ── 内容区 ──
-            if (isLoading && rooms.isNotEmpty()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        "正在更新结果…",
-                        style = MiuixTheme.textStyles.footnote1,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                    )
-                }
-            }
             when {
                 isLoading && rooms.isEmpty() -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

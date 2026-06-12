@@ -48,7 +48,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.EventSeat
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.ViewModule
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
@@ -430,12 +429,20 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
                     IconButton(onClick = { showManualBooking.value = true }) {
                         Icon(Icons.Default.Dialpad, "输入座位号")
                     }
-                    IconButton(onClick = { loadSeats() }) { Icon(Icons.Default.Refresh, "刷新") }
                 }
             )
         }
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).nestedScroll(scrollBehavior.nestedScrollConnection)) {
+        top.yukonga.miuix.kmp.basic.PullToRefresh(
+            isRefreshing = isLoading || isLoadingBooking,
+            onRefresh = {
+                loadSeats()
+                refreshMyBooking()
+                bookingResult = null
+            },
+            modifier = Modifier.fillMaxSize().padding(padding)
+        ) {
+        Column(Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection)) {
             AnimatedVisibility(bookingResult != null) {
                 Card(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
@@ -456,9 +463,6 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
                             style = MiuixTheme.textStyles.body2,
                             modifier = Modifier.weight(1f)
                         )
-                        if (bookingResult?.success == false && "刷新" in (bookingResult?.message ?: "")) {
-                            TextButton(text = "刷新", onClick = { loadSeats(); bookingResult = null })
-                        }
                     }
                 }
             }
@@ -504,15 +508,6 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
                                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                                 )
                             }
-                        }
-                        // 刷新预约按钮
-                        IconButton(
-                            onClick = { refreshMyBooking() },
-                            enabled = !isLoadingBooking,
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            if (isLoadingBooking) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                            else Icon(Icons.Default.Refresh, "刷新预约", Modifier.size(18.dp))
                         }
                     }
                     val expiredStatuses = setOf("已取消", "已完成", "已过期", "已失效", "已违约", "超时取消", "超时未入馆", "超时", "已离馆")
@@ -798,6 +793,7 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
                     } // end else (list view)
                 }
             }
+        }
         }
     }
 }

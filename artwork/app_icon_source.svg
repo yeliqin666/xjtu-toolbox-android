@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FF7A86"/>
+      <stop offset="1" stop-color="#B95FE8"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#76E2FF"/>
+      <stop offset="1" stop-color="#4B63F4"/>
+    </linearGradient>
+    <linearGradient id="mountain" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#54D8C1"/>
+      <stop offset="1" stop-color="#3189D8"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="40" y="40" width="944" height="944" rx="228" fill="url(#bg)"/>
+
+  <!-- 泰山：作为建筑背后的稳定基座，不遮挡钱图入口 -->
+  <path d="M92 794 330 628l120 76 150-150 332 240v112H92Z"
+        fill="url(#mountain)"/>
+  <path d="m330 628 120 76 150-150 78 56-74-17-151 151-124-72-105 70Z"
+        fill="#EEFFFB" opacity=".92"/>
+
+  <!-- 钱学森图书馆：宽扁、多级退台、中央玻璃面 -->
+  <path d="M142 736V606h92V522h92V438h94V356h184v82h94v84h92v84h92v130Z"
+        fill="#FFD8D0"/>
+  <path d="M420 356h184v310H420Z" fill="url(#glass)"/>
+  <path d="M386 644h252v92H386Z" fill="#3D57C8"/>
+
+  <!-- 钱图顶部方钟 -->
+  <rect x="472" y="292" width="80" height="80" rx="16" fill="#FFE8E2"/>
+  <circle cx="512" cy="332" r="24" fill="#FFF8F3"/>
+  <path d="M512 315v18l13 9" fill="none" stroke="#6C5CE7" stroke-width="7"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

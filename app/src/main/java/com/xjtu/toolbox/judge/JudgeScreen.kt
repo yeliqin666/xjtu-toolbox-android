@@ -418,7 +418,7 @@ private fun QuestionnaireCard(
                 Button(
                     onClick = onUndo,
                     enabled = !undoing,
-                    modifier = Modifier.height(34.dp),
+                    insideMargin = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                     colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColors(
                         color = MiuixTheme.colorScheme.secondaryContainer
                     )
