@@ -113,8 +113,45 @@ fun CampusCardScreen(
     // 搜索
     var searchQuery by rememberSaveable { mutableStateOf("") }
 
+    fun applyTransactions(allTx: List<Transaction>) {
+        transactions = allTx
+        totalRecords = allTx.size
+        currentPage = (allTx.size + 49) / 50
+        val recentJson = com.google.gson.Gson().toJson(allTx.take(5))
+        val todayStr = LocalDate.now().toString()
+        val todaySpend = allTx.filter { it.time.startsWith(todayStr) && it.amount < 0 }.sumOf { -it.amount }
+        val todayBreakfast = allTx.filter { tx ->
+            tx.time.startsWith(todayStr) && tx.amount < 0 &&
+                tx.time.substringAfter(" ").substringBefore(":").toIntOrNull()?.let { it in 5..10 } == true
+        }.sumOf { -it.amount }
+        val todayLunch = allTx.filter { tx ->
+            tx.time.startsWith(todayStr) && tx.amount < 0 &&
+                tx.time.substringAfter(" ").substringBefore(":").toIntOrNull()?.let { it in 11..14 } == true
+        }.sumOf { -it.amount }
+        val todayDinner = allTx.filter { tx ->
+            tx.time.startsWith(todayStr) && tx.amount < 0 &&
+                tx.time.substringAfter(" ").substringBefore(":").toIntOrNull()?.let { it in 17..21 } == true
+        }.sumOf { -it.amount }
+        context.getSharedPreferences("campus_card", 0).edit()
+            .putString("card_recent_tx_cache", recentJson)
+            .putFloat("card_today_spend_cache", todaySpend.toFloat())
+            .putFloat("card_today_breakfast_cache", todayBreakfast.toFloat())
+            .putFloat("card_today_lunch_cache", todayLunch.toFloat())
+            .putFloat("card_today_dinner_cache", todayDinner.toFloat())
+            .apply()
+        com.xjtu.toolbox.widget.CampusCardWidgetUpdater.requestUpdate(context)
+
+        val stats = api.calculateMonthlyStats(allTx)
+        monthlyStats = stats
+        categorySpending = api.categorizeSpending(allTx)
+        val (meals, campusDays) = api.analyzeMealTimes(allTx)
+        mealTimeStats = meals
+        activeCampusDays = campusDays
+        weekdayWeekend = api.analyzeWeekdayVsWeekend(allTx)
+    }
+
     fun loadData(range: TimeRange = selectedTimeRange, silent: Boolean = false) {
-        if (silent) isReloadingRange = true else isLoading = true
+        if (silent || transactions.isNotEmpty()) isReloadingRange = true else isLoading = true
         errorMessage = null
         scope.launch {
             try {
@@ -132,55 +169,22 @@ fun CampusCardScreen(
                         .apply()
                 }
                 val allTx = withContext(Dispatchers.IO) {
-                    api.getAllTransactions(startDate, endDate, maxPages = 50)
+                    val cached = CampusCardCache.load(context)
+                    val cachedStart = cached?.rangeStart?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+                    if (cached != null && cachedStart != null && !cachedStart.isAfter(startDate)) {
+                        val refreshStart = endDate.minusDays(7).coerceAtLeast(startDate)
+                        val fresh = api.getAllTransactions(refreshStart, endDate, maxPages = 20)
+                        (fresh + cached.transactions.filter {
+                            val date = runCatching { LocalDate.parse(it.time.substringBefore(" ")) }.getOrNull()
+                            date != null && date in startDate..endDate
+                        }).distinctBy { "${it.time}|${it.merchant}|${it.amount}|${it.balance}|${it.description}" }
+                            .sortedByDescending { it.time }
+                    } else {
+                        api.getAllTransactions(startDate, endDate, maxPages = 50)
+                    }
                 }
-                transactions = allTx
-                totalRecords = allTx.size
-                currentPage = (allTx.size + 49) / 50
-                // 缓存最近 5 笔消费供首页智能卡片使用；同时缓存今日消费给校园卡小组件
-                run {
-                    val recentJson = com.google.gson.Gson().toJson(allTx.take(5))
-                    val todayStr = LocalDate.now().toString()
-                    val todaySpend = allTx
-                        .filter { tx -> tx.time.startsWith(todayStr) && tx.amount < 0 }
-                        .sumOf { tx -> -tx.amount }
-                    // 今日三餐消费
-                    val todayBreakfast = allTx.filter { tx ->
-                        tx.time.startsWith(todayStr) && tx.amount < 0 &&
-                            tx.time.substringAfter(" ").substringBefore(":").toIntOrNull()?.let { h -> h in 5..10 } == true
-                    }.sumOf { tx -> -tx.amount }
-                    val todayLunch = allTx.filter { tx ->
-                        tx.time.startsWith(todayStr) && tx.amount < 0 &&
-                            tx.time.substringAfter(" ").substringBefore(":").toIntOrNull()?.let { h -> h in 11..14 } == true
-                    }.sumOf { tx -> -tx.amount }
-                    val todayDinner = allTx.filter { tx ->
-                        tx.time.startsWith(todayStr) && tx.amount < 0 &&
-                            tx.time.substringAfter(" ").substringBefore(":").toIntOrNull()?.let { h -> h in 17..21 } == true
-                    }.sumOf { tx -> -tx.amount }
-                    context.getSharedPreferences("campus_card", 0).edit()
-                        .putString("card_recent_tx_cache", recentJson)
-                        .putFloat("card_today_spend_cache", todaySpend.toFloat())
-                        .putFloat("card_today_breakfast_cache", todayBreakfast.toFloat())
-                        .putFloat("card_today_lunch_cache", todayLunch.toFloat())
-                        .putFloat("card_today_dinner_cache", todayDinner.toFloat())
-                        .apply()
-                    // 通知校园卡小组件刷新
-                    com.xjtu.toolbox.widget.CampusCardWidgetUpdater.requestUpdate(context)
-                }
-
-                // 并行计算统计
-                withContext(Dispatchers.Default) {
-                    val s1 = async { api.calculateMonthlyStats(allTx) }
-                    val s2 = async { api.categorizeSpending(allTx) }
-                    val s3 = async { api.analyzeMealTimes(allTx) }
-                    val s4 = async { api.analyzeWeekdayVsWeekend(allTx) }
-                    monthlyStats = s1.await()
-                    categorySpending = s2.await()
-                    val (mealStats3, campusDays3) = s3.await()
-                    mealTimeStats = mealStats3
-                    activeCampusDays = campusDays3
-                    weekdayWeekend = s4.await()
-                }
+                applyTransactions(allTx)
+                cardInfo?.let { CampusCardCache.save(context, it, allTx, startDate, endDate) }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: AuthExpiredException) {
@@ -188,6 +192,9 @@ fun CampusCardScreen(
                 appLoginState.handleAuthExpired(LoginType.CAMPUS_CARD, Routes.CAMPUS_CARD, onBack)
             } catch (e: Exception) {
                 errorMessage = "加载失败: ${e.message}"
+                if (transactions.isNotEmpty()) {
+                    snackbarHostState.showSnackbar("更新失败，当前显示上次缓存的数据", duration = SnackbarDuration.Long)
+                }
             } finally {
                 isLoading = false
                 isReloadingRange = false
@@ -232,7 +239,14 @@ fun CampusCardScreen(
         }
     }
 
-    LaunchedEffect(Unit) { loadData() }
+    LaunchedEffect(Unit) {
+        CampusCardCache.load(context)?.let { cached ->
+            cardInfo = cached.cardInfo
+            applyTransactions(cached.transactions)
+            isLoading = false
+        }
+        loadData(silent = transactions.isNotEmpty())
+    }
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     Scaffold(
@@ -254,7 +268,8 @@ fun CampusCardScreen(
     ) { padding ->
         when {
             isLoading -> LoadingState("正在加载校园卡数据...", Modifier.fillMaxSize().padding(padding))
-            errorMessage != null -> ErrorState(errorMessage!!, { loadData() }, Modifier.fillMaxSize().padding(padding))
+            errorMessage != null && transactions.isEmpty() ->
+                ErrorState(errorMessage!!, { loadData() }, Modifier.fillMaxSize().padding(padding))
             else -> {
                 Column(Modifier.fillMaxSize().padding(padding).nestedScroll(scrollBehavior.nestedScrollConnection)) {
                     Surface(

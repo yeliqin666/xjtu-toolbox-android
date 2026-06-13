@@ -1,6 +1,8 @@
 package com.xjtu.toolbox.lms
 
 import android.content.Context
+import android.content.ContentUris
+import android.provider.MediaStore
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -18,7 +20,7 @@ object LmsDownloadStore {
     fun getAll(context: Context): List<LmsDownloadRecord> {
         val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString(KEY_RECORDS, "[]") ?: "[]"
-        return runCatching {
+        val stored = runCatching {
             val array = JSONArray(raw)
             buildList {
                 for (index in 0 until array.length()) {
@@ -34,6 +36,15 @@ object LmsDownloadStore {
                 }
             }.sortedByDescending { it.savedAt }
         }.getOrDefault(emptyList())
+        val discovered = discoverDownloads(context)
+        val merged = (stored + discovered)
+            .distinctBy { it.uri }
+            .sortedByDescending { it.savedAt }
+            .take(100)
+        if (merged.size != stored.size || merged.any { record -> stored.none { it.uri == record.uri } }) {
+            save(context, merged)
+        }
+        return merged
     }
 
     fun add(context: Context, record: LmsDownloadRecord) {
@@ -61,4 +72,42 @@ object LmsDownloadStore {
             .putString(KEY_RECORDS, array.toString())
             .apply()
     }
+
+    private fun discoverDownloads(context: Context): List<LmsDownloadRecord> = runCatching {
+        val projection = arrayOf(
+            MediaStore.Downloads._ID,
+            MediaStore.Downloads.DISPLAY_NAME,
+            MediaStore.Downloads.MIME_TYPE,
+            MediaStore.Downloads.DATE_ADDED
+        )
+        context.contentResolver.query(
+            MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+            projection,
+            "${MediaStore.Downloads.RELATIVE_PATH}=?",
+            arrayOf("Download/岱宗盒子/"),
+            "${MediaStore.Downloads.DATE_ADDED} DESC"
+        )?.use { cursor ->
+            buildList {
+                val idIndex = cursor.getColumnIndexOrThrow(MediaStore.Downloads._ID)
+                val nameIndex = cursor.getColumnIndexOrThrow(MediaStore.Downloads.DISPLAY_NAME)
+                val mimeIndex = cursor.getColumnIndexOrThrow(MediaStore.Downloads.MIME_TYPE)
+                val dateIndex = cursor.getColumnIndexOrThrow(MediaStore.Downloads.DATE_ADDED)
+                while (cursor.moveToNext()) {
+                    val uri = ContentUris.withAppendedId(
+                        MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                        cursor.getLong(idIndex)
+                    )
+                    add(
+                        LmsDownloadRecord(
+                            name = cursor.getString(nameIndex).orEmpty(),
+                            mimeType = cursor.getString(mimeIndex).orEmpty()
+                                .ifBlank { "application/octet-stream" },
+                            uri = uri.toString(),
+                            savedAt = cursor.getLong(dateIndex) * 1000L
+                        )
+                    )
+                }
+            }
+        }.orEmpty()
+    }.getOrDefault(emptyList())
 }

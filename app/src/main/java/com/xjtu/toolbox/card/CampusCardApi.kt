@@ -205,16 +205,12 @@ class CampusCardApi(private val login: CampusCardLogin) {
 
         // 真正的并行请求（OkHttp 线程池 + Future）
         val executor = java.util.concurrent.Executors.newFixedThreadPool(
-            minOf(totalPages - 1, 6)
+            minOf(totalPages - 1, 3)
         )
         try {
             val futures = (2..totalPages).map { page ->
                 executor.submit<List<Transaction>> {
-                    try { getTransactions(startDate, endDate, page, 50).second }
-                    catch (e: Exception) {
-                        Log.w(TAG, "page $page failed: ${e.message}")
-                        emptyList()
-                    }
+                    getTransactions(startDate, endDate, page, 50).second
                 }
             }
             return firstPage + futures.flatMap { it.get() }

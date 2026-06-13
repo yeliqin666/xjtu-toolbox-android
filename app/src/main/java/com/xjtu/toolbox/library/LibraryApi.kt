@@ -116,6 +116,21 @@ class LibraryApi(private val login: LibraryLogin) {
             "四楼" to listOf("北楼四层西侧", "北楼四层中间", "北楼四层东侧", "北楼四层西南侧", "北楼四层东南侧")
         )
 
+        private val FLOOR_CODES = mapOf(
+            "二楼" to "xingqing2floor",
+            "三楼" to "xingqing3floor",
+            "四楼" to "xingqing4floor"
+        )
+
+        private val AREA_FLOOR_CODES = buildMap {
+            FLOORS.forEach { (floor, areas) ->
+                val floorCode = FLOOR_CODES[floor] ?: return@forEach
+                areas.forEach { area ->
+                    AREA_MAP[area]?.let { put(it, floorCode) }
+                }
+            }
+        }
+
         /** 从 scount 原始数据中只保留和 AREA_MAP value 匹配的独立区域 code */
         private val VALID_AREA_CODES = AREA_MAP.values.toSet()
 
@@ -165,10 +180,10 @@ class LibraryApi(private val login: LibraryLogin) {
             .build()
     }
 
-    private fun buildRequest(url: String, ajax: Boolean = false): Request {
+    private fun buildRequest(url: String, ajax: Boolean = false, referer: String = "$BASE_URL/seat/"): Request {
         val b = Request.Builder().url(url)
             .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36")
-            .header("Referer", "$BASE_URL/seat/")
+            .header("Referer", referer)
         if (ajax) {
             b.header("X-Requested-With", "XMLHttpRequest")
             b.header("Accept", "application/json, text/javascript, */*; q=0.01")
@@ -202,14 +217,51 @@ class LibraryApi(private val login: LibraryLogin) {
 
     // ── 座位查询 ──
 
+    private fun loadFloorContext(areaCode: String): Map<String, AreaStats> {
+        val floorCode = AREA_FLOOR_CODES[areaCode] ?: return emptyMap()
+        val qspaceUrl = "$BASE_URL/qspace?lang=zh&floor=$floorCode"
+        val (response, body) = executeWithReAuth(
+            buildRequest(qspaceUrl, ajax = true, referer = "$BASE_URL/seat/")
+        )
+        response.close()
+        if (!response.isSuccessful) {
+            throw RuntimeException("楼层信息加载失败: HTTP ${response.code}")
+        }
+        val json = org.json.JSONObject(body)
+        val stats = parseAreaStats(json.optJSONObject("scount"))
+        cachedAreaStats = filterScount(stats)
+        return cachedAreaStats
+    }
+
+    private fun parseAreaStats(scountObj: org.json.JSONObject?): Map<String, AreaStats> {
+        if (scountObj == null) return emptyMap()
+        val result = mutableMapOf<String, AreaStats>()
+        val keys = scountObj.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            if (key.isBlank()) continue
+            val arr = scountObj.optJSONArray(key) ?: continue
+            if (arr.length() >= 2) {
+                result[key] = AreaStats(available = arr.optInt(1), total = arr.optInt(0))
+            }
+        }
+        return result
+    }
+
     fun getSeats(areaCode: String): SeatResult {
         val response: okhttp3.Response
         val body: String
         try {
+            // The site stores the selected floor in session state. Mirror the browser's
+            // HAR sequence: qspace(floor) -> qseat(area).
+            loadFloorContext(areaCode)
+            val floorCode = AREA_FLOOR_CODES[areaCode]
+            val referer = if (floorCode != null) "$BASE_URL/qspace?lang=zh&floor=$floorCode"
+                else "$BASE_URL/seat/"
             // 走 executeWithReAuth：命中登录页会自动 reAuthenticate，
             // 仍失败则抛 AuthExpiredException（由 LibraryScreen 捕获触发静默重登）。
             val (resp, respBody) = executeWithReAuth(
-                buildRequest("$BASE_URL/qseat?sp=$areaCode", ajax = true)
+                buildRequest("$BASE_URL/qseat?sp=$areaCode", ajax = true, referer = referer)
             )
             response = resp
             body = respBody
@@ -233,24 +285,8 @@ class LibraryApi(private val login: LibraryLogin) {
             val json = org.json.JSONObject(body)
 
             // 解析 scount（全局区域统计）
-            val statsMap = mutableMapOf<String, AreaStats>()
-            val scountObj = json.optJSONObject("scount")
-            if (scountObj != null) {
-                val keys = scountObj.keys()
-                while (keys.hasNext()) {
-                    val key = keys.next()
-                    if (key.isBlank()) continue
-                    val arr = scountObj.optJSONArray(key)
-                    if (arr != null && arr.length() >= 2) {
-                        // HAR 2026-06-13: scount is [total, available], not [available, total].
-                        statsMap[key] = AreaStats(
-                            available = arr.getInt(1),
-                            total = arr.getInt(0)
-                        )
-                    }
-                }
-            }
-            cachedAreaStats = filterScount(statsMap)
+            val statsMap = parseAreaStats(json.optJSONObject("scount"))
+            cachedAreaStats = filterScount(statsMap).ifEmpty { cachedAreaStats }
             Log.d(TAG, "scount: ${cachedAreaStats.size} areas open")
 
             // 解析 seat 对象
@@ -364,31 +400,8 @@ class LibraryApi(private val login: LibraryLogin) {
     // ── 我的预约 ──
 
     fun getMyBooking(): MyBookingInfo? {
-        // 策略：先从 /seat/ 主页提取"我预约的座位"链接，再跟踪
-        val mainUrl = "$BASE_URL/seat/"
-        val mainHtml: String
-        val mainResponse: okhttp3.Response
-        try {
-            val (resp, respBody) = executeWithReAuth(buildRequest(mainUrl))
-            mainResponse = resp
-            mainResponse.close()
-            mainHtml = respBody.ifEmpty { return null }
-        } catch (e: Exception) {
-            Log.e(TAG, "getMyBooking: failed to load seat main page", e)
-            return null
-        }
-
-        val mainFinalUrl = mainResponse.request.url.toString()
-        if (mainHtml.length < 50 || isRedirectedToLogin(mainHtml, mainFinalUrl)) return null
-
-        val mainDoc = Jsoup.parse(mainHtml, mainFinalUrl)
-        val myBookingLink = mainDoc.select("a").firstOrNull { el ->
-            val text = el.text().trim()
-            "预约的座" in text || "我的预约" in text || "mybooking" in el.attr("href").lowercase()
-        }?.attr("abs:href")?.ifBlank { null }
-
+        // HAR 2026-06-13 shows /my/ is the canonical booking page.
         val candidateUrls = buildList {
-            myBookingLink?.let { add(it) }
             add("$BASE_URL/my/")
             add("$BASE_URL/seat/my/")
             add("$BASE_URL/seat/my")
@@ -396,9 +409,11 @@ class LibraryApi(private val login: LibraryLogin) {
 
         for (url in candidateUrls) {
             try {
-                val response = login.client.newCall(buildRequest(url)).execute()
-                val html = response.body?.use { it.string() } ?: continue
+                val (response, html) = executeWithReAuth(
+                    buildRequest(url, referer = "$BASE_URL/seat/")
+                )
                 val finalUrl = response.request.url.toString()
+                response.close()
 
                 if (html.length < 50 || isRedirectedToLogin(html, finalUrl)) continue
 

@@ -145,6 +145,7 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
     var areaStatsMap by remember { mutableStateOf<Map<String, AreaStats>>(emptyMap()) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    val seatLoadGeneration = remember { java.util.concurrent.atomic.AtomicInteger(0) }
 
     // 预约
     var bookingResult by remember { mutableStateOf<BookResult?>(null) }
@@ -212,10 +213,12 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
 
     // ── 加载座位（统一入口） ──
     fun loadSeatsFor(areaCode: String) {
+        val generation = seatLoadGeneration.incrementAndGet()
         isLoading = true; errorMessage = null
         scope.launch {
             try {
                 val result = withContext(Dispatchers.IO) { api.getSeats(areaCode) }
+                if (generation != seatLoadGeneration.get()) return@launch
                 when (result) {
                     is SeatResult.Success -> { seats = result.seats; areaStatsMap = result.areaStatsMap; errorMessage = null }
                     is SeatResult.AuthError -> { seats = emptyList(); errorMessage = result.message }
@@ -225,8 +228,13 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
             catch (e: AuthExpiredException) {
                 appLoginState.handleAuthExpired(LoginType.LIBRARY, Routes.LIBRARY, onBack)
             }
-            catch (e: Exception) { seats = emptyList(); errorMessage = "加载失败: ${e.message}" }
-            isLoading = false
+            catch (e: Exception) {
+                if (generation == seatLoadGeneration.get()) {
+                    seats = emptyList()
+                    errorMessage = "加载失败: ${e.message}"
+                }
+            }
+            if (generation == seatLoadGeneration.get()) isLoading = false
         }
     }
 

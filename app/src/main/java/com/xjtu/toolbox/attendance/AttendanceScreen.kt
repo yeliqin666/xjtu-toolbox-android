@@ -16,6 +16,9 @@ import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import top.yukonga.miuix.kmp.basic.TabRowWithContour
 import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
+import top.yukonga.miuix.kmp.basic.SnackbarDuration
+import top.yukonga.miuix.kmp.basic.SnackbarHost
+import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
@@ -46,6 +49,7 @@ import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.auth.AttendanceLogin
@@ -67,6 +71,8 @@ fun AttendanceScreen(
     val appLoginState = LocalAppLoginState.current
     val api = remember { AttendanceApi(login) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
 
     var records by remember { mutableStateOf<List<AttendanceWaterRecord>>(emptyList()) }
     var courseStats by remember { mutableStateOf<List<CourseAttendanceStat>>(emptyList()) }
@@ -97,7 +103,7 @@ fun AttendanceScreen(
                 throw kotlinx.coroutines.CancellationException("superseded by newer attendance load")
             }
         }
-        isLoading = true
+        isLoading = records.isEmpty()
         errorMessage = null
         loadJob = scope.launch {
             try {
@@ -107,13 +113,7 @@ fun AttendanceScreen(
                     ensureLatest()
                     studentName = info["name"] as? String ?: ""
 
-                    val fetchedTerms = try {
-                        api.getTermList()
-                    } catch (e: AuthExpiredException) {
-                        throw e
-                    } catch (_: Exception) {
-                        emptyList()
-                    }
+                    val fetchedTerms = api.getTermList()
                     ensureLatest()
                     termList = fetchedTerms
 
@@ -137,7 +137,25 @@ fun AttendanceScreen(
                     // 加载考勤记录（历史学期需要日期范围）
                     val isCurrentTerm = termBh == null || bh == currentTermBh
                     val termInfo = termList.firstOrNull { it.bh == bh }
-                    val fetchedRecords = if (!isCurrentTerm && termInfo != null && termInfo.startDate.isNotEmpty()) {
+                    val cachedSnapshot = AttendanceCache.load(context, login.isPostgraduate)
+                    val canAppendCurrent = isCurrentTerm &&
+                        cachedSnapshot?.selectedTermBh == bh &&
+                        cachedSnapshot.records.isNotEmpty()
+                    val fetchedRecords = if (canAppendCurrent) {
+                        val cachedRecords = cachedSnapshot?.records.orEmpty()
+                        val latestCachedDate = cachedRecords
+                            .mapNotNull { runCatching { java.time.LocalDate.parse(it.date) }.getOrNull() }
+                            .maxOrNull()
+                        val refreshStart = latestCachedDate?.minusDays(2)?.toString().orEmpty()
+                        val fresh = api.getWaterRecords(
+                            bh.ifEmpty { null },
+                            startDate = refreshStart,
+                            endDate = java.time.LocalDate.now().toString()
+                        )
+                        (fresh + cachedRecords)
+                            .distinctBy { "${it.sbh}|${it.date}|${it.courseName}|${it.startTime}|${it.location}" }
+                            .sortedByDescending { it.date }
+                    } else if (!isCurrentTerm && termInfo != null && termInfo.startDate.isNotEmpty()) {
                         api.getWaterRecords(bh, startDate = termInfo.startDate, endDate = termInfo.endDate)
                     } else {
                         api.getWaterRecords(bh.ifEmpty { null })
@@ -173,6 +191,19 @@ fun AttendanceScreen(
                     }
                     ensureLatest()
                     courseStats = fetchedStats
+                    AttendanceCache.save(
+                        context,
+                        login.isPostgraduate,
+                        AttendanceSnapshot(
+                            studentName = studentName,
+                            termList = termList,
+                            currentTermBh = currentTermBh,
+                            selectedTermBh = selectedTermBh,
+                            records = fetchedRecords,
+                            courseStats = fetchedStats,
+                            savedAt = System.currentTimeMillis()
+                        )
+                    )
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -180,6 +211,12 @@ fun AttendanceScreen(
                 appLoginState.handleAuthExpired(LoginType.ATTENDANCE, Routes.ATTENDANCE, onBack)
             } catch (e: Exception) {
                 errorMessage = "加载失败: ${e.message}"
+                if (records.isNotEmpty()) {
+                    snackbarHostState.showSnackbar(
+                        "考勤更新失败，当前显示上次缓存的数据",
+                        duration = SnackbarDuration.Long
+                    )
+                }
             } finally {
                 if (myGeneration == loadGeneration) {
                     isLoading = false
@@ -196,7 +233,18 @@ fun AttendanceScreen(
         loadData(bh)
     }
 
-    LaunchedEffect(Unit) { loadData() }
+    LaunchedEffect(Unit) {
+        AttendanceCache.load(context, login.isPostgraduate)?.let { cached ->
+            studentName = cached.studentName
+            termList = cached.termList
+            currentTermBh = cached.currentTermBh
+            selectedTermBh = cached.selectedTermBh
+            records = cached.records
+            courseStats = cached.courseStats
+            isLoading = false
+        }
+        loadData(selectedTermBh.ifEmpty { null })
+    }
 
     // 派生数据
     val maxWeek = remember(records) { records.maxOfOrNull { it.week } ?: 0 }
@@ -234,6 +282,7 @@ fun AttendanceScreen(
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = "考勤查询",
@@ -255,7 +304,7 @@ fun AttendanceScreen(
     ) { padding ->
         if (isLoading) {
             LoadingState(message = "加载考勤数据...", modifier = Modifier.fillMaxSize().padding(padding))
-        } else if (errorMessage != null) {
+        } else if (errorMessage != null && records.isEmpty()) {
             ErrorState(
                 message = errorMessage!!,
                 onRetry = { loadData() },

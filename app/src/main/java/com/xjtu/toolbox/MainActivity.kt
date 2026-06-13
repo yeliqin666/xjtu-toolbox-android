@@ -3061,12 +3061,7 @@ private fun HeroFocusLine(
     accent: androidx.compose.ui.graphics.Color,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(
-            Modifier.size(36.dp).clip(CircleShape).background(accent.copy(alpha = 0.14f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(icon, null, Modifier.size(19.dp), tint = accent)
-        }
+        ExpressiveIcon(icon = icon, color = accent, size = 36.dp, iconSize = 18.dp)
         Spacer(Modifier.width(10.dp))
         Column {
             Text(
@@ -3111,7 +3106,6 @@ private fun HomeTab(
         cachedBalance = cardPrefs.getFloat("card_balance_cache", -1f)
     }
     LaunchedEffect(Unit) {
-        val isSummer = com.xjtu.toolbox.util.XjtuTime.isSummerTime()
         val loadedReminder = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 val dataCache = com.xjtu.toolbox.util.DataCache(heroContext)
@@ -3164,14 +3158,19 @@ private fun HomeTab(
                                 endMinuteOfDay = it.endMinuteOfDay
                             )
                         }
-                        .sortedBy { it.resolveStartMinute(isSummer) ?: Int.MAX_VALUE }
+                        .sortedBy {
+                            it.resolveStartMinute(
+                                com.xjtu.toolbox.util.XjtuTime.isSummerTime(targetDate.monthValue)
+                            ) ?: Int.MAX_VALUE
+                        }
                     for (schedule in daySchedules) {
-                        val startMinute = schedule.resolveStartMinute(isSummer) ?: continue
+                        val targetIsSummer = com.xjtu.toolbox.util.XjtuTime.isSummerTime(targetDate.monthValue)
+                        val startMinute = schedule.resolveStartMinute(targetIsSummer) ?: continue
                         val safeStartMinute = startMinute.coerceIn(0, (24 * 60) - 1)
                         val startAt = targetDate.atTime(safeStartMinute / 60, safeStartMinute % 60)
                         if (!startAt.isAfter(nowDateTime)) continue
 
-                        val endMinute = schedule.resolveEndMinute(isSummer)
+                        val endMinute = schedule.resolveEndMinute(targetIsSummer)
                         val endAt = endMinute?.let { minuteOfDay ->
                             when {
                                 minuteOfDay >= 24 * 60 -> targetDate.plusDays(1).atStartOfDay()
@@ -3425,7 +3424,7 @@ private fun HomeTab(
             ) {
                 HomeSceneCard(
                     title = "上课",
-                    subtitle = "去哪儿上课、去哪儿自习",
+                    subtitle = "课表、自习与课程内容",
                     icon = Icons.Default.School,
                     accent = androidx.compose.ui.graphics.Color(0xFF315FD4),
                     entries = listOf(
@@ -3436,7 +3435,7 @@ private fun HomeTab(
                 )
                 HomeSceneCard(
                     title = "校园生活",
-                    subtitle = "吃饭花钱，一卡在手",
+                    subtitle = "校园支付与生活服务",
                     icon = Icons.Default.Restaurant,
                     accent = androidx.compose.ui.graphics.Color(0xFF2E7D32),
                     entries = listOf(
@@ -3447,7 +3446,7 @@ private fun HomeTab(
                 )
                 HomeSceneCard(
                     title = "学业",
-                    subtitle = "成绩、评教与教材",
+                    subtitle = "成绩、评教和教材",
                     icon = Icons.Default.Assessment,
                     accent = androidx.compose.ui.graphics.Color(0xFF7B1FA2),
                     entries = listOf(
@@ -3933,15 +3932,19 @@ private fun ProfileTab(
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                 )
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    TextButton(
-                        text = "暂不开启",
+                    Button(
                         onClick = {
                             credentialStore.srunSetupAsked = true
                             credentialStore.srunAutoLoginEnabled = false
                             showSrunSetupSheet.value = false
                         },
-                        modifier = Modifier.weight(1f)
-                    )
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(
+                            color = MiuixTheme.colorScheme.secondaryContainer
+                        )
+                    ) {
+                        Text("暂不开启", color = MiuixTheme.colorScheme.onSecondaryContainer)
+                    }
                     Button(
                         onClick = {
                             if (srunSetupUsername.isBlank() || srunSetupPassword.isBlank()) {
@@ -4269,10 +4272,12 @@ private fun ProfileTab(
 
                 // ━━ 下载记录入口卡片 ━━
                 var downloadStats by remember { mutableStateOf<com.xjtu.toolbox.classreplay.DownloadManager.DownloadStats?>(null) }
+                var lmsDownloadCount by remember { mutableIntStateOf(0) }
                 LaunchedEffect(Unit) {
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                         val downloadManager = com.xjtu.toolbox.classreplay.DownloadManager.getInstance(context)
                         downloadStats = downloadManager.getDownloadStats()
+                        lmsDownloadCount = com.xjtu.toolbox.lms.LmsDownloadStore.getAll(context).size
                     }
                 }
                 Card(
@@ -4297,6 +4302,10 @@ private fun ProfileTab(
                                     if (stats.completedCount > 0) {
                                         if (isNotEmpty()) append(" · ")
                                         append("${stats.completedCount}个已完成")
+                                    }
+                                    if (lmsDownloadCount > 0) {
+                                        if (isNotEmpty()) append(" · ")
+                                        append("${lmsDownloadCount}个课件")
                                     }
                                     if (isEmpty()) append("暂无下载")
                                 }
@@ -4946,32 +4955,9 @@ fun AutoUpdateDialog(
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
         ) {
-            // Release body（changelog）
+            // Release body（Markdown changelog）
             if (body.isNotBlank()) {
-                val lines = body.split("\n").filter { it.isNotBlank() }
-                lines.forEach { line ->
-                    val trimmed = line.trim()
-                    if (trimmed.startsWith("##")) {
-                        Text(
-                            trimmed.removePrefix("##").trim(),
-                            style = MiuixTheme.textStyles.subtitle,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(top = 8.dp)
-                        )
-                    } else if (trimmed.startsWith("-") || trimmed.startsWith("*")) {
-                        Row(Modifier.padding(vertical = 2.dp)) {
-                            Text("•", style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.outline)
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                trimmed.removePrefix("-").removePrefix("*").trim(),
-                                style = MiuixTheme.textStyles.body2,
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                    } else if (trimmed.isNotEmpty()) {
-                        Text(trimmed, style = MiuixTheme.textStyles.body2)
-                    }
-                }
+                MarkdownReleaseNotes(body)
             }
 
             Spacer(Modifier.height(16.dp))
@@ -5075,6 +5061,57 @@ fun AutoUpdateDialog(
             )
             Spacer(Modifier.height(16.dp))
             Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+        }
+    }
+}
+
+@Composable
+private fun MarkdownReleaseNotes(markdown: String) {
+    markdown.lineSequence().forEach { rawLine ->
+        val line = rawLine.trim()
+        if (line.isEmpty() || line == "---") return@forEach
+        val headingLevel = line.takeWhile { it == '#' }.length
+        val bullet = line.startsWith("- ") || line.startsWith("* ") || line.startsWith("+ ")
+        val quote = line.startsWith("> ")
+        val cleaned = line
+            .removePrefix("#".repeat(headingLevel)).trim()
+            .removePrefix("- ").removePrefix("* ").removePrefix("+ ")
+            .removePrefix("> ")
+            .replace(Regex("""!\[([^\]]*)]\([^)]+\)"""), "$1")
+            .replace(Regex("""\[([^\]]+)]\([^)]+\)"""), "$1")
+            .replace("**", "")
+            .replace("__", "")
+            .replace("`", "")
+
+        when {
+            headingLevel > 0 -> Text(
+                cleaned,
+                style = if (headingLevel <= 2) MiuixTheme.textStyles.subtitle else MiuixTheme.textStyles.body1,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 10.dp, bottom = 3.dp)
+            )
+            bullet -> Row(Modifier.padding(vertical = 3.dp)) {
+                Text("•", color = MiuixTheme.colorScheme.primary)
+                Spacer(Modifier.width(7.dp))
+                Text(cleaned, style = MiuixTheme.textStyles.body2, modifier = Modifier.weight(1f))
+            }
+            quote -> Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = MiuixTheme.colorScheme.surfaceVariant,
+                modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
+            ) {
+                Text(
+                    cleaned,
+                    style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)
+                )
+            }
+            else -> Text(
+                cleaned,
+                style = MiuixTheme.textStyles.body2,
+                modifier = Modifier.padding(vertical = 2.dp)
+            )
         }
     }
 }

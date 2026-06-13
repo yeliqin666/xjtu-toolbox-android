@@ -232,9 +232,13 @@ fun ScheduleGrid(
     onSlotClick: (ScheduleSlot) -> Unit = {}
 ) {
     val scrollState = rememberScrollState()
-    val isSummer = remember { XjtuTime.isSummerTime() }
-    val displaySlots = remember(slots, isSummer) {
-        slots.mapNotNull { toDisplayScheduleSlot(it, isSummer) }
+    val displaySlots = remember(slots, weekDates) {
+        slots.mapNotNull { slot ->
+            val slotDate = weekDates?.getOrNull(slot.slotDayOfWeek - 1)
+            val isSummer = slotDate?.let { XjtuTime.isSummerTime(it.monthValue) }
+                ?: XjtuTime.isSummerTime()
+            toDisplayScheduleSlot(slot, isSummer)
+        }
     }
 
     // ── 时段压缩：每个 section 的目标缩放（无事=0.5，有事=1.0）──

@@ -25,6 +25,15 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "3.8.2" to VersionChangelog(
+            items = listOf(
+                "📚" to "修复图书馆座位查询和预约状态读取，区域余量与换座流程更可靠",
+                "📅" to "日程会按课程日期自动使用夏季或冬季作息时间",
+                "⚡" to "校园卡和考勤支持快速显示缓存，并在后台更新最新记录",
+                "📥" to "修复下载记录遗漏思源课件的问题，已有文件也能重新识别",
+                "✨" to "优化首页图标、场景文案、校园网设置弹窗和更新日志显示"
+            )
+        ),
         "3.8.1" to VersionChangelog(
             items = listOf(
                 "🏠" to "首页重构为校园仪表盘：一张卡看下一节课和余额，常用功能、场景入口、更多服务三层分明",

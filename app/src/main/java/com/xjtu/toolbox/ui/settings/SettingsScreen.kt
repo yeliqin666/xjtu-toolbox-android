@@ -69,6 +69,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Icon
@@ -360,15 +361,19 @@ fun SettingsScreen(
                                 )
                             )
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                TextButton(
-                                    text = "清除",
+                                Button(
                                     onClick = {
                                         credentialStore.clearSrunCredentials()
                                         srunCreds.value = null
                                         showSrunEdit.value = false
                                     },
-                                    modifier = Modifier.weight(1f)
-                                )
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(
+                                        color = MiuixTheme.colorScheme.secondaryContainer
+                                    )
+                                ) {
+                                    Text("清除", color = MiuixTheme.colorScheme.onSecondaryContainer)
+                                }
                                 Button(
                                     onClick = {
                                         if (u.isNotBlank() && p.isNotBlank()) {
