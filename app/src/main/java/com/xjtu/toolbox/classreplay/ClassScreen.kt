@@ -235,41 +235,57 @@ private fun CourseListPage(
                         Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(bottom = 16.dp)
                     ) {
-                        // 学期筛选条
+                        // 学期筛选卡（与 LMS 课程页同构）
                         if (semesters.size > 1) {
                             item(key = "semester_filter") {
-                                Row(
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .horizontalScroll(rememberScrollState())
-                                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                Card(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                                    cornerRadius = 22.dp,
+                                    colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
                                 ) {
-                                    AppFilterChip(
-                                        selected = selectedSemester == null,
-                                        onClick = { selectedSemester = null },
-                                        label = "全部"
-                                    )
-                                    semesters.forEach { sem ->
-                                        AppFilterChip(
-                                            selected = selectedSemester == sem,
-                                            onClick = { selectedSemester = sem },
-                                            label = sem
+                                    Column(Modifier.fillMaxWidth().padding(vertical = 14.dp)) {
+                                        Text(
+                                            "选择学期",
+                                            style = MiuixTheme.textStyles.subtitle,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 16.dp)
                                         )
+                                        Text(
+                                            (selectedSemester ?: "显示所有学期") + " · ${filteredCourses.size} 门课程",
+                                            style = MiuixTheme.textStyles.footnote1,
+                                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 3.dp)
+                                        )
+                                        Row(
+                                            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                                                .padding(horizontal = 12.dp, vertical = 7.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            AppFilterChip(
+                                                selected = selectedSemester == null,
+                                                onClick = { selectedSemester = null },
+                                                label = "全部"
+                                            )
+                                            semesters.forEach { sem ->
+                                                AppFilterChip(
+                                                    selected = selectedSemester == sem,
+                                                    onClick = { selectedSemester = sem },
+                                                    label = sem
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
-                        }
-
-                        // 课程数量提示
-                        item(key = "count_hint") {
-                            Text(
-                                "共 ${filteredCourses.size} 门课程" +
-                                    if (selectedSemester != null) " ($selectedSemester)" else "",
-                                fontSize = 12.sp,
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
-                            )
+                        } else {
+                            item(key = "count_hint") {
+                                Text(
+                                    "共 ${filteredCourses.size} 门课程",
+                                    style = MiuixTheme.textStyles.footnote1,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
+                                )
+                            }
                         }
 
                         items(filteredCourses, key = { it.id }) { course ->
@@ -284,72 +300,65 @@ private fun CourseListPage(
 
 @Composable
 private fun CourseCard(course: Course, onClick: () -> Unit) {
+    // 与 LMS 课程卡同构：按课程 id 哈希取稳定 accent，首字作头像块
+    val accent = listOf(
+        Color(0xFF5B6FD8), Color(0xFF2D9B86), Color(0xFFD07A45), Color(0xFF8B63C7)
+    )[(course.id.hashCode() and Int.MAX_VALUE) % 4]
     Card(
         onClick = onClick,
         pressFeedbackType = PressFeedbackType.Sink,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .padding(horizontal = 16.dp, vertical = 3.dp),
+        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
     ) {
         Row(
             Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            Surface(
+                shape = RoundedCornerShape(15.dp),
+                color = accent.copy(alpha = 0.13f),
+                modifier = Modifier.size(48.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        course.displayName.take(1),
+                        style = MiuixTheme.textStyles.title4,
+                        fontWeight = FontWeight.Bold,
+                        color = accent
+                    )
+                }
+            }
+            Spacer(Modifier.width(13.dp))
             Column(Modifier.weight(1f)) {
                 Text(
                     course.displayName,
-                    fontSize = 16.sp,
+                    style = MiuixTheme.textStyles.body1,
                     fontWeight = FontWeight.Medium,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
-                Spacer(Modifier.height(4.dp))
-
-                // 教师
-                if (course.instructors.isNotEmpty()) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Default.Person,
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp),
-                            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            course.instructors.joinToString(", "),
-                            fontSize = 13.sp,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-
-                // 学院 + 日期
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    if (course.department.isNotEmpty()) {
-                        Text(
-                            course.department,
-                            fontSize = 12.sp,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                        )
-                    }
-                    if (course.startDate != null) {
-                        Text(
-                            formatDateRange(course.startDate, course.endDate),
-                            fontSize = 12.sp,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                        )
-                    }
+                Spacer(Modifier.height(3.dp))
+                val metaLine = buildList {
+                    if (course.instructors.isNotEmpty()) add(course.instructors.joinToString("、"))
+                    if (course.department.isNotEmpty()) add(course.department)
+                    if (course.startDate != null) add(formatDateRange(course.startDate, course.endDate))
+                }.joinToString(" · ")
+                if (metaLine.isNotEmpty()) {
+                    Text(
+                        metaLine,
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
 
             Spacer(Modifier.width(8.dp))
 
-            // 状态标签
+            // 状态胶囊
             val statusText = when {
                 course.isClosed -> "已结课"
                 course.isStarted -> "进行中"
@@ -357,17 +366,18 @@ private fun CourseCard(course: Course, onClick: () -> Unit) {
             }
             val statusColor = when {
                 course.isClosed -> MiuixTheme.colorScheme.onSurfaceVariantSummary
-                course.isStarted -> Color(0xFF4CAF50)
+                course.isStarted -> Color(0xFF2E9E5B)
                 else -> MiuixTheme.colorScheme.onSurfaceVariantSummary
             }
-            Text(statusText, fontSize = 11.sp, color = statusColor)
-
-            Icon(
-                Icons.Default.ChevronRight,
-                contentDescription = null,
-                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.size(20.dp)
-            )
+            Surface(shape = RoundedCornerShape(8.dp), color = statusColor.copy(alpha = 0.12f)) {
+                Text(
+                    statusText,
+                    Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = statusColor,
+                    fontWeight = FontWeight.Medium
+                )
+            }
         }
     }
 }
@@ -646,17 +656,27 @@ private fun ActivityCard(
                 Spacer(Modifier.width(8.dp))
             }
 
-            Icon(
-                Icons.Default.PlayCircle,
-                contentDescription = null,
-                tint = if (isSelectionMode && isSelected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.size(36.dp)
-            )
+            val accent = if (isSelectionMode && isSelected) MiuixTheme.colorScheme.primary
+                else Color(0xFF5B6FD8)
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = accent.copy(alpha = 0.12f),
+                modifier = Modifier.size(46.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        tint = accent,
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
+            }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
                     activity.title,
-                    fontSize = 15.sp,
+                    style = MiuixTheme.textStyles.body1,
                     fontWeight = FontWeight.Medium,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
@@ -664,15 +684,10 @@ private fun ActivityCard(
                 Spacer(Modifier.height(2.dp))
                 Text(
                     formatActivityTime(activity.startTime, activity.endTime),
-                    fontSize = 12.sp,
+                    style = MiuixTheme.textStyles.footnote1,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                 )
             }
-            Icon(
-                Icons.Default.ChevronRight,
-                contentDescription = null,
-                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary
-            )
         }
     }
 }

@@ -2,6 +2,7 @@ package com.xjtu.toolbox.jiaocai
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -19,6 +20,8 @@ import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -84,7 +87,7 @@ private fun JiaocaiSearchScreen(
         topBar = {
             SmallTopAppBar(
                 title = "教材中心",
-                color = MiuixTheme.colorScheme.surfaceVariant,
+                color = MiuixTheme.colorScheme.background,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -97,29 +100,64 @@ private fun JiaocaiSearchScreen(
             Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = 16.dp)
+                .background(MiuixTheme.colorScheme.background)
         ) {
-            Spacer(Modifier.height(12.dp))
-
-            // 搜索框
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                com.xjtu.toolbox.ui.components.AppSearchBar(
-                    query = keyword,
-                    onQueryChange = { keyword = it },
-                    label = "搜索教材（书名/作者/课程）",
-                    onSearch = { doSearch() },
-                    modifier = Modifier.weight(1f)
-                )
-                Spacer(Modifier.width(8.dp))
-                Button(
-                    onClick = { doSearch() },
-                    enabled = !isLoading && keyword.isNotBlank()
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                cornerRadius = 26.dp,
+                colors = CardDefaults.defaultColors(color = Color.Transparent)
+            ) {
+                Column(
+                    Modifier.fillMaxWidth().background(
+                        Brush.linearGradient(
+                            listOf(Color(0xFF4E68D8).copy(alpha = 0.18f), Color(0xFF36A58D).copy(alpha = 0.10f))
+                        )
+                    ).padding(20.dp)
                 ) {
-                    Text(if (isLoading) "…" else "搜索")
+                    Icon(
+                        Icons.Default.AutoStories,
+                        contentDescription = null,
+                        modifier = Modifier.size(32.dp),
+                        tint = Color(0xFF4E68D8)
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text("找到这学期真正要用的书", style = MiuixTheme.textStyles.title4, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "按书名、作者或课程搜索，结果会整理成易读的书目卡片。",
+                        style = MiuixTheme.textStyles.body2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    com.xjtu.toolbox.ui.components.AppSearchBar(
+                        query = keyword,
+                        onQueryChange = { keyword = it },
+                        label = "书名、作者或课程",
+                        onSearch = { doSearch() },
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
 
-            Spacer(Modifier.height(12.dp))
+            when {
+                !hasSearched && !isLoading -> {
+                    Column(Modifier.padding(horizontal = 20.dp, vertical = 10.dp)) {
+                        Text("搜索建议", style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            listOf("高等数学", "大学物理", "程序设计").forEach { suggestion ->
+                                com.xjtu.toolbox.ui.components.AppSuggestionChip(
+                                    label = suggestion,
+                                    onClick = { keyword = suggestion; doSearch() }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
 
             when {
                 isLoading -> Box(Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
@@ -137,7 +175,19 @@ private fun JiaocaiSearchScreen(
                         }
                     }
                 }
-                else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                else -> LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    item {
+                        Text(
+                            "找到 ${books.size} 本教材",
+                            style = MiuixTheme.textStyles.subtitle,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
+                        )
+                    }
                     items(books) { book ->
                         BookCard(book = book, onClick = { onBookClick(book) })
                     }
@@ -152,19 +202,18 @@ private fun JiaocaiSearchScreen(
 private fun BookCard(book: JiaocaiBook, onClick: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-        cornerRadius = 12.dp,
+        cornerRadius = 20.dp,
         colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
     ) {
-        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.Top) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.Top) {
             Box(
-                Modifier.size(44.dp).background(
-                    MiuixTheme.colorScheme.primary.copy(alpha = 0.12f),
-                    RoundedCornerShape(8.dp)
+                Modifier.width(52.dp).height(68.dp).background(
+                    Brush.verticalGradient(listOf(Color(0xFF5168CC), Color(0xFF344B9E))),
+                    RoundedCornerShape(12.dp)
                 ),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Default.MenuBook, null, Modifier.size(24.dp),
-                    tint = MiuixTheme.colorScheme.primary)
+                Icon(Icons.Default.MenuBook, null, Modifier.size(25.dp), tint = Color.White)
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
@@ -180,14 +229,14 @@ private fun BookCard(book: JiaocaiBook, onClick: () -> Unit) {
                     Spacer(Modifier.height(4.dp))
                     Text(book.summary, style = MiuixTheme.textStyles.footnote2,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        maxLines = 3, overflow = TextOverflow.Ellipsis)
+                        maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
                 if (book.hasFullText) {
                     Spacer(Modifier.height(6.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.background(
                             MiuixTheme.colorScheme.primary.copy(alpha = 0.15f),
-                            RoundedCornerShape(4.dp)
+                            RoundedCornerShape(8.dp)
                         ).padding(horizontal = 6.dp, vertical = 2.dp)) {
                             Text("本地全文", style = MiuixTheme.textStyles.footnote2,
                                 color = MiuixTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
@@ -210,7 +259,7 @@ private fun JiaocaiDetailScreen(
         topBar = {
             SmallTopAppBar(
                 title = book.title,
-                color = MiuixTheme.colorScheme.surfaceVariant,
+                color = MiuixTheme.colorScheme.background,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -227,30 +276,46 @@ private fun JiaocaiDetailScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
-            // 封面占位
-            Box(
-                Modifier.fillMaxWidth().height(180.dp).background(
-                    MiuixTheme.colorScheme.surfaceVariant,
-                    RoundedCornerShape(12.dp)
-                ),
-                contentAlignment = Alignment.Center
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                cornerRadius = 26.dp,
+                colors = CardDefaults.defaultColors(color = Color.Transparent)
             ) {
-                Icon(Icons.Default.MenuBook, null, Modifier.size(64.dp),
-                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                Row(
+                    Modifier.fillMaxWidth().background(
+                        Brush.linearGradient(listOf(Color(0xFF4D66CB), Color(0xFF2C887B)))
+                    ).padding(22.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        Modifier.width(74.dp).height(98.dp).background(
+                            Color.White.copy(alpha = 0.16f), RoundedCornerShape(16.dp)
+                        ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.MenuBook, null, Modifier.size(38.dp), tint = Color.White)
+                    }
+                    Spacer(Modifier.width(18.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(book.title, style = MiuixTheme.textStyles.title4, fontWeight = FontWeight.Bold, color = Color.White)
+                        if (book.author.isNotBlank()) {
+                            Spacer(Modifier.height(6.dp))
+                            Text(book.author, style = MiuixTheme.textStyles.body2, color = Color.White.copy(alpha = 0.82f))
+                        }
+                    }
+                }
             }
 
             Spacer(Modifier.height(16.dp))
-
-            Text(book.title, style = MiuixTheme.textStyles.title4, fontWeight = FontWeight.Bold)
-            if (book.author.isNotBlank()) {
-                Spacer(Modifier.height(4.dp))
-                Text(book.author, style = MiuixTheme.textStyles.body2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-            }
             if (book.summary.isNotBlank()) {
-                Spacer(Modifier.height(12.dp))
-                Text(book.summary, style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
+                    Column(Modifier.padding(18.dp)) {
+                        Text("书目信息", style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(8.dp))
+                        Text(book.summary, style = MiuixTheme.textStyles.body2,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                    }
+                }
             }
 
             if (book.hasFullText) {

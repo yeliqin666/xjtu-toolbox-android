@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Assignment
@@ -269,14 +270,36 @@ private fun CourseListPage(
                     ) {
                         if (semesters.size > 1) {
                             item(key = "semester_filter") {
-                                Row(
-                                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                Card(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                                    cornerRadius = 22.dp,
+                                    colors = CardDefaults.defaultColors(
+                                        color = MiuixTheme.colorScheme.surfaceVariant
+                                    )
                                 ) {
-                                    AppFilterChip(selected = selectedSemester == null, onClick = { selectedSemester = null }, label = "全部")
-                                    semesters.forEach { sem ->
-                                        AppFilterChip(selected = selectedSemester == sem, onClick = { selectedSemester = sem }, label = sem)
+                                    Column(Modifier.fillMaxWidth().padding(vertical = 14.dp)) {
+                                        Text(
+                                            "选择学期",
+                                            style = MiuixTheme.textStyles.subtitle,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 16.dp)
+                                        )
+                                        Text(
+                                            selectedSemester ?: "显示所有学期",
+                                            style = MiuixTheme.textStyles.footnote1,
+                                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 3.dp)
+                                        )
+                                        Row(
+                                            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                                                .padding(horizontal = 12.dp, vertical = 7.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            AppFilterChip(selected = selectedSemester == null, onClick = { selectedSemester = null }, label = "全部")
+                                            semesters.forEach { sem ->
+                                                AppFilterChip(selected = selectedSemester == sem, onClick = { selectedSemester = sem }, label = sem)
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -301,15 +324,33 @@ private fun CourseListPage(
 
 @Composable
 private fun LmsCourseCard(course: LmsCourseSummary, onClick: () -> Unit) {
+    val accent = listOf(
+        Color(0xFF5B6FD8), Color(0xFF2D9B86), Color(0xFFD07A45), Color(0xFF8B63C7)
+    )[(course.id.hashCode() and Int.MAX_VALUE) % 4]
     Card(
         onClick = onClick,
         pressFeedbackType = PressFeedbackType.Sink,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 3.dp),
         colors = CardDefaults.defaultColors(
-            color = MiuixTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+            color = MiuixTheme.colorScheme.surfaceVariant
         )
     ) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Surface(
+                shape = RoundedCornerShape(15.dp),
+                color = accent.copy(alpha = 0.13f),
+                modifier = Modifier.size(48.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        course.name.take(1),
+                        style = MiuixTheme.textStyles.title4,
+                        fontWeight = FontWeight.Bold,
+                        color = accent
+                    )
+                }
+            }
+            Spacer(Modifier.width(13.dp))
             Column(Modifier.weight(1f)) {
                 Text(
                     course.name,
@@ -422,18 +463,38 @@ private fun ActivityListPage(
                     ) {
                         if (types.size > 1) {
                             item(key = "type_filter") {
-                                Row(
-                                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                Card(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                                    cornerRadius = 22.dp,
+                                    colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
                                 ) {
-                                    AppFilterChip(selected = selectedType == null, onClick = { selectedType = null }, label = "全部")
-                                    types.forEach { type ->
-                                        AppFilterChip(
-                                            selected = selectedType == type,
-                                            onClick = { selectedType = type },
-                                            label = type.displayName()
+                                    Column(Modifier.fillMaxWidth().padding(vertical = 14.dp)) {
+                                        Text(
+                                            "课程内容",
+                                            style = MiuixTheme.textStyles.subtitle,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 16.dp)
                                         )
+                                        Text(
+                                            selectedType?.displayName() ?: "全部内容",
+                                            style = MiuixTheme.textStyles.footnote1,
+                                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 3.dp)
+                                        )
+                                        Row(
+                                            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                                                .padding(horizontal = 12.dp, vertical = 7.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            AppFilterChip(selected = selectedType == null, onClick = { selectedType = null }, label = "全部")
+                                            types.forEach { type ->
+                                                AppFilterChip(
+                                                    selected = selectedType == type,
+                                                    onClick = { selectedType = type },
+                                                    label = type.displayName()
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -471,7 +532,15 @@ private fun LmsActivityCard(activity: LmsActivity, onClick: () -> Unit) {
             Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(icon, null, tint = color, modifier = Modifier.size(32.dp))
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = color.copy(alpha = 0.12f),
+                modifier = Modifier.size(46.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(icon, null, tint = color, modifier = Modifier.size(25.dp))
+                }
+            }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(

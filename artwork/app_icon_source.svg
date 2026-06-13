@@ -1,36 +1,57 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#FF7A86"/>
-      <stop offset="1" stop-color="#B95FE8"/>
+    <linearGradient id="background" x1="128" y1="96" x2="896" y2="928" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F5F3F4"/>
+      <stop offset="1" stop-color="#E7EAF1"/>
     </linearGradient>
-    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#76E2FF"/>
-      <stop offset="1" stop-color="#4B63F4"/>
+    <linearGradient id="facade" x1="274" y1="350" x2="744" y2="760" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#E4C9C4"/>
+      <stop offset="1" stop-color="#CDAAA8"/>
     </linearGradient>
-    <linearGradient id="mountain" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#54D8C1"/>
-      <stop offset="1" stop-color="#3189D8"/>
+    <linearGradient id="glass" x1="512" y1="386" x2="512" y2="720" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8DB2C8"/>
+      <stop offset="1" stop-color="#536F91"/>
     </linearGradient>
+    <linearGradient id="mountain" x1="168" y1="528" x2="858" y2="754" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#AFC4BF"/>
+      <stop offset="1" stop-color="#809F9C"/>
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="24" stdDeviation="24" flood-color="#59606E" flood-opacity=".18"/>
+    </filter>
+    <filter id="blur">
+      <feGaussianBlur stdDeviation="42"/>
+    </filter>
   </defs>
 
-  <rect x="40" y="40" width="944" height="944" rx="228" fill="url(#bg)"/>
+  <rect x="40" y="40" width="944" height="944" rx="228" fill="url(#background)"/>
+  <circle cx="790" cy="244" r="158" fill="#D8D2E5" opacity=".38" filter="url(#blur)"/>
+  <circle cx="210" cy="760" r="170" fill="#CADDD8" opacity=".34" filter="url(#blur)"/>
 
-  <!-- 泰山：作为建筑背后的稳定基座，不遮挡钱图入口 -->
-  <path d="M92 794 330 628l120 76 150-150 332 240v112H92Z"
-        fill="url(#mountain)"/>
-  <path d="m330 628 120 76 150-150 78 56-74-17-151 151-124-72-105 70Z"
-        fill="#EEFFFB" opacity=".92"/>
+  <!-- 泰山仅作为建筑后的柔和浮雕 -->
+  <path d="M112 760C190 706 259 637 326 574C359 611 391 642 430 667C484 611 534 555 596 497C667 563 730 625 794 672C835 702 874 731 912 760V844H112Z"
+        fill="url(#mountain)" opacity=".9"/>
+  <path d="M326 574C359 611 391 642 430 667C484 611 534 555 596 497C620 519 642 541 664 562"
+        fill="none" stroke="#E9F0ED" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" opacity=".82"/>
 
-  <!-- 钱学森图书馆：宽扁、多级退台、中央玻璃面 -->
-  <path d="M142 736V606h92V522h92V438h94V356h184v82h94v84h92v84h92v130Z"
-        fill="#FFD8D0"/>
-  <path d="M420 356h184v310H420Z" fill="url(#glass)"/>
-  <path d="M386 644h252v92H386Z" fill="#3D57C8"/>
+  <!-- 钱学森图书馆：低宽比例、圆润连续退台 -->
+  <g filter="url(#softShadow)">
+    <path d="M164 760V648Q164 626 186 626H250V560Q250 538 272 538H338V478Q338 456 360 456H424V400Q424 378 446 378H578Q600 378 600 400V456H664Q686 456 686 478V538H752Q774 538 774 560V626H838Q860 626 860 648V760Z"
+          fill="url(#facade)"/>
 
-  <!-- 钱图顶部方钟 -->
-  <rect x="472" y="292" width="80" height="80" rx="16" fill="#FFE8E2"/>
-  <circle cx="512" cy="332" r="24" fill="#FFF8F3"/>
-  <path d="M512 315v18l13 9" fill="none" stroke="#6C5CE7" stroke-width="7"
-        stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- 中央玻璃面与入口 -->
+    <rect x="428" y="398" width="168" height="290" rx="28" fill="url(#glass)"/>
+    <path d="M400 650Q400 626 424 626H600Q624 626 624 650V760H400Z" fill="#566A86"/>
+    <path d="M448 418H576" stroke="#D7E4EA" stroke-width="10" stroke-linecap="round" opacity=".58"/>
+
+    <!-- 顶部方钟 -->
+    <rect x="468" y="314" width="88" height="88" rx="24" fill="#E9D6D2"/>
+    <circle cx="512" cy="358" r="27" fill="#F8F4F2"/>
+    <path d="M512 340V358L526 367" fill="none" stroke="#667B9A" stroke-width="7"
+          stroke-linecap="round" stroke-linejoin="round"/>
+
+    <!-- 陶瓷表面的两条克制高光 -->
+    <path d="M270 558H338M686 558H754" stroke="#F2DEDA" stroke-width="10"
+          stroke-linecap="round" opacity=".72"/>
+  </g>
 </svg>

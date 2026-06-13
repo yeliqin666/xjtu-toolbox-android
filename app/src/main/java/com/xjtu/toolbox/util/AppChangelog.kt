@@ -25,6 +25,16 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "3.8.1" to VersionChangelog(
+            items = listOf(
+                "🏠" to "首页重构为校园仪表盘：一张卡看下一节课和余额，常用功能、场景入口、更多服务三层分明",
+                "🛡️" to "登录全面限速防风控：凭据提交全局排队限频，失败自动退避，保护账号安全",
+                "✅" to "考勤查询更稳定：瞬时故障自动重试，登录过期静默恢复",
+                "📚" to "图书馆修复区域余量显示，预约、换座和签到失败后会自动重新登录",
+                "🎬" to "课程回放界面焕新，与思源学堂风格统一",
+                "⬆️" to "升级 MIUIX 0.9.2，空闲教室用上节次区间滑条"
+            )
+        ),
         "3.8.0" to VersionChangelog(
             items = listOf(
                 "✨" to "首页、思源学堂、校园卡和设置页统一焕新，界面更清爽、更有校园特色",

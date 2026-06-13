@@ -30,6 +30,7 @@ import android.content.Context
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -338,11 +339,19 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
 
     // 地图/列表视图切换
     var showMapView by remember { mutableStateOf(false) }
+    var seatScope by rememberSaveable { mutableStateOf("可用") }
     val currentAreaCode = LibraryApi.AREA_MAP[selectedArea] ?: ""
     val mapAvailable = currentAreaCode in MAP_SUPPORTED_AREAS
 
     val availableCount = seats.count { it.available }
     val totalCount = seats.size
+    val visibleSeats = remember(seats, seatScope, favorites) {
+        when (seatScope) {
+            "收藏" -> seats.filter { it.seatId in favorites }
+            "全部" -> seats
+            else -> seats.filter { it.available }
+        }
+    }
 
     // ── 确认对话框 ──
     val showConfirmDialog = remember { mutableStateOf(false) }
@@ -630,6 +639,33 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
                 }
             }
 
+            if (seats.isNotEmpty()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                    cornerRadius = 20.dp,
+                    colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        listOf(
+                            "可用" to availableCount,
+                            "收藏" to seats.count { it.seatId in favorites },
+                            "全部" to totalCount
+                        ).forEach { (label, count) ->
+                            com.xjtu.toolbox.ui.components.AppFilterChip(
+                                selected = seatScope == label,
+                                onClick = { seatScope = label },
+                                label = "$label $count",
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+            }
+
             Spacer(Modifier.height(4.dp))
 
             // ── 内容区 ──
@@ -780,7 +816,7 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
                         }
 
                         // 全部座位
-                        items(seats, key = { it.seatId }) { seat ->
+                        items(visibleSeats, key = { it.seatId }) { seat ->
                             SeatChip(
                                 seat = seat,
                                 isBooking = isBooking,

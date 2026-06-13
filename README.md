@@ -10,7 +10,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Android-green?logo=android" />
   <img src="https://img.shields.io/badge/minSdk-31_(Android_12)-blue" />
-  <img src="https://img.shields.io/badge/version-3.3.0-orange" />
+  <img src="https://img.shields.io/badge/version-3.8.1-orange" />
   <img src="https://img.shields.io/badge/license-MIT-lightgrey" />
 </p>
 
@@ -22,11 +22,11 @@
 
 | 模块 | 功能 |
 |------|------|
-| 🔐 统一认证 | CAS 登录（RSA + MFA 手机验证码）+ WebVPN 自动切换 |
+| 🔐 统一认证 | CAS 登录（RSA + MFA 手机验证码）+ WebVPN 自动切换 + 全局限频防风控 |
 | 📅 课表 | 周视图 + 考试安排 + 教材信息 + 桌面小组件（2×2 / 4×2）|
 | 📊 成绩 | JWAPP 正式成绩 + FineReport 报表 + GPA 计算 |
 | ✅ 考勤 | 全 20 周出勤流水，正常/迟到/缺勤统计 |
-| 🏫 空闲教室 | 节次筛选 |
+| 🏫 空闲教室 | CDN/直查双模式 + 节次区间滑选 + 按楼栋分组 |
 | 💳 校园卡 | 余额 + 账单流水 + 智能洞察 |
 | 🎫 加餐券 | 电子加餐券余额、有效期、状态筛选与自动登录 |
 | 📚 图书馆 | 在座/预约状态 + 空闲座位推荐/签退 |
@@ -35,7 +35,7 @@
 | 🎓 课程回放 | TronClass 多机位视频播放 + 课件下载 |
 | 📖 思源学堂 | 活动详情、作业与评分、课件、直播流 |
 | ✏️ 评教 | GSTE + 常规评教一键完成 |
-| � 电子教材 | 教材中心搜索 |
+| 📖 电子教材 | 教材中心搜索 |
 | ⭐ NeoSchool | 拔尖计划课程、章节、课件与资源下载 |
 
 ---
@@ -68,8 +68,8 @@
 项目配置了 GitHub Actions：push/PR 到 `main` 自动编译 Debug，推送 `v*` tag 自动打包 Release 并发布到 GitHub Releases。
 
 ```bash
-git tag v3.3.0
-git push origin v3.3.0
+git tag v3.8.1
+git push origin v3.8.1
 # Actions 自动构建并发布
 ```
 

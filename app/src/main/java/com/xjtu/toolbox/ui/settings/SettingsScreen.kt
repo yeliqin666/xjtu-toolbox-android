@@ -583,14 +583,13 @@ private fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
 
 @Composable
 private fun SettingsIcon(icon: ImageVector, color: Color) {
-    val accent = MiuixTheme.colorScheme.primary
     Surface(
         shape = CircleShape,
-        color = accent.copy(alpha = 0.10f),
+        color = color.copy(alpha = 0.12f),
         modifier = Modifier.size(32.dp)
     ) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = accent)
+            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = color)
         }
     }
     Spacer(Modifier.width(12.dp))

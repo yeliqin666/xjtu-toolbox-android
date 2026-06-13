@@ -28,6 +28,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.imePadding
@@ -2880,10 +2881,16 @@ private fun MainScreen(
 // ══════════════════════════════════════════
 
 @Composable
-private fun HomeCampusHero(
+private fun HomeHero(
     greetingName: String,
     dateLabel: String,
-    onClick: () -> Unit,
+    isLoggedIn: Boolean,
+    isFocusLoaded: Boolean,
+    reminder: ScheduleReminderInfo?,
+    balance: Float,
+    onOpenCourses: () -> Unit,
+    onOpenCard: () -> Unit,
+    onOpenProfile: () -> Unit,
 ) {
     val hour = java.time.LocalTime.now().hour
     val greeting = when (hour) {
@@ -2895,11 +2902,19 @@ private fun HomeCampusHero(
     val blue = androidx.compose.ui.graphics.Color(0xFF315FD4)
     val violet = androidx.compose.ui.graphics.Color(0xFF7357D8)
 
+    // 重点信息决定整卡点击去向：有课→日程；无课有余额→校园卡；否则→个人页
+    val heroClick = when {
+        !isLoggedIn -> onOpenProfile
+        reminder != null -> onOpenCourses
+        balance >= 0f -> onOpenCard
+        else -> onOpenProfile
+    }
+
     ExpressivePanel(
-        modifier = Modifier.fillMaxWidth().height(196.dp),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 168.dp),
         accent = blue,
         cornerRadius = 28.dp,
-        onClick = onClick,
+        onClick = heroClick,
     ) {
         Box(
             Modifier
@@ -2919,13 +2934,19 @@ private fun HomeCampusHero(
             modifier = Modifier.align(Alignment.TopEnd).offset(x = 36.dp, y = (-40).dp),
             size = 190.dp,
         )
-        AmbientGlow(
-            color = androidx.compose.ui.graphics.Color(0xFFFFA06A),
-            modifier = Modifier.align(Alignment.BottomStart).offset(x = (-70).dp, y = 70.dp),
-            size = 150.dp,
+        Image(
+            painter = painterResource(R.drawable.home_campus_hero),
+            contentDescription = "兴庆校区主楼",
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .size(132.dp)
+                .offset(x = 8.dp, y = 8.dp),
+            contentScale = ContentScale.Fit,
         )
         Column(
-            modifier = Modifier.align(Alignment.CenterStart).padding(start = 20.dp, end = 150.dp),
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .padding(start = 20.dp, top = 18.dp, bottom = 18.dp, end = 116.dp),
         ) {
             Text(
                 dateLabel,
@@ -2933,30 +2954,139 @@ private fun HomeCampusHero(
                 color = blue,
                 fontWeight = FontWeight.Bold,
             )
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(6.dp))
             Text(
                 if (greetingName.isBlank()) greeting else "$greeting，$greetingName",
-                style = MiuixTheme.textStyles.title2,
+                style = MiuixTheme.textStyles.title3,
                 fontWeight = FontWeight.Bold,
-                maxLines = 2,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "兴庆校园，今天也从容一点",
-                style = MiuixTheme.textStyles.body2,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            )
+            Spacer(Modifier.height(12.dp))
+            // ── 重点信息区：下一节课 > 余额 > 引导文案，全部单行防换行 ──
+            when {
+                !isLoggedIn -> {
+                    HeroFocusLine(
+                        icon = Icons.Default.AccountCircle,
+                        primary = "登录以使用全部功能",
+                        secondary = "课表、余额和通知会显示在这里",
+                        accent = blue,
+                    )
+                }
+                !isFocusLoaded -> {
+                    HeroFocusLine(
+                        icon = Icons.Default.Schedule,
+                        primary = "正在读取今日安排…",
+                        secondary = null,
+                        accent = blue,
+                    )
+                }
+                reminder != null -> {
+                    val now = java.time.LocalDateTime.now()
+                    val minutesUntil = java.time.Duration.between(now, reminder.startAt)
+                        .toMinutes().coerceAtLeast(0)
+                    val dayLabel = formatScheduleReminderDateLabel(
+                        reminder.startAt.toLocalDate(), now.toLocalDate()
+                    )
+                    val startLabel = formatMinuteClock(reminder.startAt.hour * 60 + reminder.startAt.minute)
+                    val detail = buildString {
+                        append("$dayLabel $startLabel · ${reminder.name}")
+                        if (reminder.location.isNotBlank()) append(" · ${reminder.location}")
+                    }
+                    HeroFocusLine(
+                        icon = Icons.Default.Schedule,
+                        primary = formatScheduleReminderEta(minutesUntil),
+                        secondary = detail,
+                        accent = blue,
+                    )
+                }
+                balance >= 0f -> {
+                    HeroFocusLine(
+                        icon = Icons.Default.CreditCard,
+                        primary = "校园卡余额 ¥${"%.2f".format(balance)}",
+                        secondary = "未来两周暂无日程",
+                        accent = blue,
+                    )
+                }
+                else -> {
+                    HeroFocusLine(
+                        icon = Icons.Default.EventNote,
+                        primary = "未来两周暂无日程",
+                        secondary = "点击查看个人主页",
+                        accent = blue,
+                    )
+                }
+            }
+            // 有课时余额退居次要位置：重点信息行下方的小胶囊，独立点击进校园卡
+            if (isLoggedIn && reminder != null && balance >= 0f) {
+                Spacer(Modifier.height(10.dp))
+                val isLowBalance = balance <= 30f
+                val pillColor = if (isLowBalance) MiuixTheme.colorScheme.error else blue
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = pillColor.copy(alpha = 0.10f),
+                    modifier = Modifier.clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = SinkFeedback(),
+                        onClick = onOpenCard
+                    )
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.CreditCard, null, Modifier.size(13.dp), tint = pillColor)
+                        Spacer(Modifier.width(5.dp))
+                        Text(
+                            if (isLowBalance) "余额 ¥${"%.2f".format(balance)} · 该充值了"
+                            else "余额 ¥${"%.2f".format(balance)}",
+                            style = MiuixTheme.textStyles.footnote2,
+                            color = pillColor,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
         }
-        Image(
-            painter = painterResource(R.drawable.home_campus_hero),
-            contentDescription = "兴庆校区主楼",
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .size(168.dp)
-                .offset(x = 6.dp, y = 8.dp),
-            contentScale = ContentScale.Fit,
-        )
+    }
+}
+
+/** Hero 卡内的重点信息行：图标徽章 + 主行（粗体单行）+ 可选次行（单行省略）。 */
+@Composable
+private fun HeroFocusLine(
+    icon: ImageVector,
+    primary: String,
+    secondary: String?,
+    accent: androidx.compose.ui.graphics.Color,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            Modifier.size(36.dp).clip(CircleShape).background(accent.copy(alpha = 0.14f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, null, Modifier.size(19.dp), tint = accent)
+        }
+        Spacer(Modifier.width(10.dp))
+        Column {
+            Text(
+                primary,
+                style = MiuixTheme.textStyles.body1,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (secondary != null) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    secondary,
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
     }
 }
 
@@ -2971,6 +3101,101 @@ private fun HomeTab(
     scrollBehavior: ScrollBehavior? = null,
     navBarStyle: String = "floating"
 ) {
+    // ── 仪表盘数据：下一节日程 + 校园卡余额缓存（供 Hero 重点信息区使用）──
+    val heroContext = LocalContext.current
+    var scheduleReminderState by remember { mutableStateOf<ScheduleReminderInfo?>(null) }
+    var isScheduleReminderLoaded by remember { mutableStateOf(false) }
+    val cardPrefs = remember { heroContext.getSharedPreferences("campus_card", 0) }
+    var cachedBalance by remember { mutableStateOf(cardPrefs.getFloat("card_balance_cache", -1f)) }
+    LaunchedEffect(loginState.campusCardCacheVersion) {
+        cachedBalance = cardPrefs.getFloat("card_balance_cache", -1f)
+    }
+    LaunchedEffect(Unit) {
+        val isSummer = com.xjtu.toolbox.util.XjtuTime.isSummerTime()
+        val loadedReminder = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val dataCache = com.xjtu.toolbox.util.DataCache(heroContext)
+                val gson = com.google.gson.Gson()
+                val termListJson = dataCache.get("schedule_term_list", Long.MAX_VALUE)
+                val termList = if (termListJson != null) {
+                    gson.fromJson(termListJson, Array<String>::class.java)?.toList() ?: emptyList()
+                } else emptyList<String>()
+                val termCode = termList.firstOrNull() ?: return@withContext null
+                val apiCourses = com.xjtu.toolbox.schedule.ScheduleCache
+                    .readOptimizedCourses(dataCache, gson, termCode, Long.MAX_VALUE)
+                    ?: com.xjtu.toolbox.schedule.ScheduleCache
+                        .readRawCourses(dataCache, gson, termCode, Long.MAX_VALUE)
+                    ?: emptyList()
+                val customCourses = try {
+                    com.xjtu.toolbox.util.AppDatabase.getInstance(heroContext)
+                        .customCourseDao().getByTerm(termCode)
+                        .map { it.toCourseItem() }
+                } catch (_: Exception) { emptyList() }
+                val allSchedules = apiCourses + customCourses
+                val startDateJson = dataCache.get("start_date_$termCode", Long.MAX_VALUE)
+                val startDateStr = if (startDateJson != null) gson.fromJson(startDateJson, String::class.java) else null
+                val startDate = if (!startDateStr.isNullOrBlank()) runCatching { java.time.LocalDate.parse(startDateStr) }.getOrNull() else null
+                if (startDate == null) {
+                    return@withContext null
+                }
+                val holidayDates = try {
+                    com.xjtu.toolbox.schedule.HolidayApi.getHolidayDates(heroContext)
+                } catch (_: Exception) {
+                    emptyMap()
+                }
+
+                val today = java.time.LocalDate.now()
+                val nowDateTime = java.time.LocalDateTime.now()
+                for (offset in 0..14) {
+                    val targetDate = today.plusDays(offset.toLong())
+                    if (holidayDates.containsKey(targetDate)) continue
+
+                    val targetWeek = ((java.time.temporal.ChronoUnit.DAYS.between(startDate, targetDate) / 7) + 1).toInt()
+                    if (targetWeek <= 0) continue
+                    val daySchedules = allSchedules
+                        .filter { it.dayOfWeek == targetDate.dayOfWeek.value && it.isInWeek(targetWeek) }
+                        .map {
+                            ScheduleReminderCourseInfo(
+                                name = it.courseName,
+                                location = it.location,
+                                startSection = it.startSection,
+                                endSection = it.endSection,
+                                startMinuteOfDay = it.startMinuteOfDay,
+                                endMinuteOfDay = it.endMinuteOfDay
+                            )
+                        }
+                        .sortedBy { it.resolveStartMinute(isSummer) ?: Int.MAX_VALUE }
+                    for (schedule in daySchedules) {
+                        val startMinute = schedule.resolveStartMinute(isSummer) ?: continue
+                        val safeStartMinute = startMinute.coerceIn(0, (24 * 60) - 1)
+                        val startAt = targetDate.atTime(safeStartMinute / 60, safeStartMinute % 60)
+                        if (!startAt.isAfter(nowDateTime)) continue
+
+                        val endMinute = schedule.resolveEndMinute(isSummer)
+                        val endAt = endMinute?.let { minuteOfDay ->
+                            when {
+                                minuteOfDay >= 24 * 60 -> targetDate.plusDays(1).atStartOfDay()
+                                minuteOfDay >= 0 -> targetDate.atTime(minuteOfDay / 60, minuteOfDay % 60)
+                                else -> null
+                            }
+                        }
+                        return@withContext ScheduleReminderInfo(
+                            name = schedule.name,
+                            location = schedule.location,
+                            startAt = startAt,
+                            endAt = endAt
+                        )
+                    }
+                }
+                null
+            } catch (_: Exception) {
+                null
+            }
+        }
+        scheduleReminderState = loadedReminder
+        isScheduleReminderLoaded = true
+    }
+
     Column(
         Modifier
             .fillMaxSize()
@@ -2989,22 +3214,20 @@ private fun HomeTab(
             val weekDay = today.dayOfWeek.getDisplayName(
                 java.time.format.TextStyle.FULL, java.util.Locale.CHINESE
             )
-            HomeCampusHero(
+            HomeHero(
                 greetingName = loginState.cachedNickname.orEmpty()
                     .ifBlank { loginState.ywtbUserInfo?.userName.orEmpty() }
                     .ifBlank { loginState.activeUsername },
                 dateLabel = "${today.monthValue}月${today.dayOfMonth}日 · $weekDay",
-                onClick = onNavigateToProfile
+                isLoggedIn = loginState.isLoggedIn,
+                isFocusLoaded = isScheduleReminderLoaded,
+                reminder = scheduleReminderState,
+                balance = cachedBalance,
+                onOpenCourses = onNavigateToCourses,
+                onOpenCard = { onNavigateWithLogin(Routes.CAMPUS_CARD, LoginType.CAMPUS_CARD) },
+                onOpenProfile = onNavigateToProfile,
             )
-            // 状态 or 登录提示
-            if (!loginState.isLoggedIn) {
-                Spacer(Modifier.height(12.dp))
-                Button(onClick = onNavigateToProfile) {
-                    Icon(Icons.Default.AccountCircle, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("登录以使用全部功能")
-                }
-            } else {
+            if (loginState.isLoggedIn) {
                 Spacer(Modifier.height(10.dp))
                 // 网络环境徽标 + 会话数
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -3127,10 +3350,10 @@ private fun HomeTab(
 
         Spacer(Modifier.height(24.dp))
 
-        // ── Zone B: Quick Actions ──
+        // ── Zone B: 常用功能（按频率自适应的 4 个大图标，无卡片背景）──
         Column(Modifier.padding(horizontal = 16.dp)) {
             Text(
-                "快捷入口",
+                "常用功能",
                 style = MiuixTheme.textStyles.headline1,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(start = 4.dp, bottom = 12.dp)
@@ -3163,20 +3386,14 @@ private fun HomeTab(
                 )
             }
             val quickShown = quickKeys.mapNotNull { k -> quickPool.find { it.key == k } }
-            ExpressivePanel(
-                modifier = Modifier.fillMaxWidth(),
-                accent = MiuixTheme.colorScheme.primary,
-                cornerRadius = 22.dp
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly
-                ) {
-                    quickShown.forEach { q ->
-                        HomeQuickAction(q.icon, q.label, MiuixTheme.colorScheme.primary) {
-                            com.xjtu.toolbox.util.ServiceUsageTracker.record(ctxQuick, q.key)
-                            q.onClick()
-                        }
+                quickShown.forEach { q ->
+                    HomeQuickAction(q.icon, q.label, q.color) {
+                        com.xjtu.toolbox.util.ServiceUsageTracker.record(ctxQuick, q.key)
+                        q.onClick()
                     }
                 }
             }
@@ -3184,387 +3401,108 @@ private fun HomeTab(
 
         Spacer(Modifier.height(24.dp))
 
-        // ── Zone B+: 智能卡片 ──
-        run {
-            val context = LocalContext.current
-            val isSummer = com.xjtu.toolbox.util.XjtuTime.isSummerTime()
-            // 日程提醒数据（合并教务课程与自定义日程）
-            var scheduleReminderState by remember { mutableStateOf<ScheduleReminderInfo?>(null) }
-            var isScheduleReminderLoaded by remember { mutableStateOf(false) }
-            // 缓存余额数据（从 SharedPreferences 读取）
-            val cardPrefs = remember { context.getSharedPreferences("campus_card", 0) }
-            var cachedBalance by remember { mutableStateOf(cardPrefs.getFloat("card_balance_cache", -1f)) }
-            var cachedName by remember { mutableStateOf(cardPrefs.getString("card_name_cache", "") ?: "") }
-            var cachedRecentTx by remember {
-                val json = cardPrefs.getString("card_recent_tx_cache", null)
-                mutableStateOf(if (json != null) runCatching {
-                    com.google.gson.Gson().fromJson(json, Array<com.xjtu.toolbox.card.Transaction>::class.java)?.toList()
-                }.getOrNull() ?: emptyList() else emptyList())
-            }
-            var isRefreshingCard by remember { mutableStateOf(false) }
-
-            fun reloadCampusCardCache() {
-                cachedBalance = cardPrefs.getFloat("card_balance_cache", -1f)
-                cachedName = cardPrefs.getString("card_name_cache", "") ?: ""
-                val json = cardPrefs.getString("card_recent_tx_cache", null)
-                cachedRecentTx = if (json != null) runCatching {
-                    com.google.gson.Gson().fromJson(json, Array<com.xjtu.toolbox.card.Transaction>::class.java)?.toList()
-                }.getOrNull() ?: emptyList() else emptyList()
-            }
-
-            LaunchedEffect(loginState.campusCardCacheVersion) {
-                reloadCampusCardCache()
-            }
-
-            LaunchedEffect(Unit) {
-                val loadedReminder = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    try {
-                        val dataCache = com.xjtu.toolbox.util.DataCache(context)
-                        val gson = com.google.gson.Gson()
-                        // 获取学期列表（按最新的来）
-                        val termListJson = dataCache.get("schedule_term_list", Long.MAX_VALUE)
-                        val termList = if (termListJson != null) {
-                            gson.fromJson(termListJson, Array<String>::class.java)?.toList() ?: emptyList()
-                        } else emptyList<String>()
-                        val termCode = termList.firstOrNull() ?: return@withContext null
-                        // 获取 API 课程
-                        val apiCourses = com.xjtu.toolbox.schedule.ScheduleCache
-                            .readOptimizedCourses(dataCache, gson, termCode, Long.MAX_VALUE)
-                            ?: com.xjtu.toolbox.schedule.ScheduleCache
-                                .readRawCourses(dataCache, gson, termCode, Long.MAX_VALUE)
-                            ?: emptyList()
-                        // 获取自定义课程（Room DB）
-                        val customCourses = try {
-                            com.xjtu.toolbox.util.AppDatabase.getInstance(context)
-                                .customCourseDao().getByTerm(termCode)
-                                .map { it.toCourseItem() }
-                        } catch (_: Exception) { emptyList() }
-                        val allSchedules = apiCourses + customCourses
-                        // 获取学期开始日期
-                        val startDateJson = dataCache.get("start_date_$termCode", Long.MAX_VALUE)
-                        val startDateStr = if (startDateJson != null) gson.fromJson(startDateJson, String::class.java) else null
-                        val startDate = if (!startDateStr.isNullOrBlank()) runCatching { java.time.LocalDate.parse(startDateStr) }.getOrNull() else null
-                        if (startDate == null) {
-                            return@withContext null
-                        }
-
-                        // 获取节假日信息
-                        val holidayDates = try {
-                            com.xjtu.toolbox.schedule.HolidayApi.getHolidayDates(context)
-                        } catch (_: Exception) {
-                            emptyMap()
-                        }
-
-                        val today = java.time.LocalDate.now()
-                        val nowDateTime = java.time.LocalDateTime.now()
-                        for (offset in 0..14) {
-                            val targetDate = today.plusDays(offset.toLong())
-                            if (holidayDates.containsKey(targetDate)) continue // 如果是节假日，直接跳过当天日程
-
-                            val targetWeek = ((java.time.temporal.ChronoUnit.DAYS.between(startDate, targetDate) / 7) + 1).toInt()
-                            if (targetWeek <= 0) continue
-                            val daySchedules = allSchedules
-                                .filter { it.dayOfWeek == targetDate.dayOfWeek.value && it.isInWeek(targetWeek) }
-                                .map {
-                                    ScheduleReminderCourseInfo(
-                                        name = it.courseName,
-                                        location = it.location,
-                                        startSection = it.startSection,
-                                        endSection = it.endSection,
-                                        startMinuteOfDay = it.startMinuteOfDay,
-                                        endMinuteOfDay = it.endMinuteOfDay
-                                    )
-                                }
-                                .sortedBy { it.resolveStartMinute(isSummer) ?: Int.MAX_VALUE }
-                            for (schedule in daySchedules) {
-                                val startMinute = schedule.resolveStartMinute(isSummer) ?: continue
-                                val safeStartMinute = startMinute.coerceIn(0, (24 * 60) - 1)
-                                val startAt = targetDate.atTime(safeStartMinute / 60, safeStartMinute % 60)
-                                if (!startAt.isAfter(nowDateTime)) continue
-
-                                val endMinute = schedule.resolveEndMinute(isSummer)
-                                val endAt = endMinute?.let { minuteOfDay ->
-                                    when {
-                                        minuteOfDay >= 24 * 60 -> targetDate.plusDays(1).atStartOfDay()
-                                        minuteOfDay >= 0 -> targetDate.atTime(minuteOfDay / 60, minuteOfDay % 60)
-                                        else -> null
-                                    }
-                                }
-                                return@withContext ScheduleReminderInfo(
-                                    name = schedule.name,
-                                    location = schedule.location,
-                                    startAt = startAt,
-                                    endAt = endAt
-                                )
-                            }
-                        }
-                        null
-                    } catch (_: Exception) {
-                        null
-                    }
-                }
-                scheduleReminderState = loadedReminder
-                isScheduleReminderLoaded = true
-            }
-
-            Column(Modifier.padding(horizontal = 16.dp)) {
-                // ═══ 日程提醒智能卡片 ═══
-                val reminderAccent = MiuixTheme.colorScheme.primary
-                Card(
-                    onClick = {
-                        onNavigateToCourses()
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    cornerRadius = 20.dp,
-                    colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(
-                        color = MiuixTheme.colorScheme.secondaryContainer.copy(alpha = 0.64f)
-                    ),
-                    pressFeedbackType = PressFeedbackType.Sink
-                ) {
-                    val scheduleReminder = scheduleReminderState
-                    val currentDateTime = java.time.LocalDateTime.now()
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // 圆形图标徽章
-                        Box(
-                            Modifier.size(44.dp).clip(CircleShape)
-                                .background(reminderAccent.copy(alpha = 0.12f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Default.NotificationsActive, null,
-                                Modifier.size(22.dp), tint = reminderAccent)
-                        }
-                        Spacer(Modifier.width(14.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                "日程提醒",
-                                style = MiuixTheme.textStyles.footnote1,
-                                fontWeight = FontWeight.Bold,
-                                color = reminderAccent
-                            )
-                            when {
-                                !isScheduleReminderLoaded -> {
-                                    Spacer(Modifier.height(4.dp))
-                                    Text(
-                                        "正在读取日程...",
-                                        style = MiuixTheme.textStyles.body2,
-                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                                    )
-                                }
-
-                                scheduleReminder != null -> {
-                                    val minutesUntil = java.time.Duration.between(currentDateTime, scheduleReminder.startAt)
-                                        .toMinutes()
-                                        .coerceAtLeast(0)
-                                    val dayLabel = formatScheduleReminderDateLabel(
-                                        scheduleReminder.startAt.toLocalDate(),
-                                        currentDateTime.toLocalDate()
-                                    )
-                                    val startMinuteOfDay = scheduleReminder.startAt.hour * 60 + scheduleReminder.startAt.minute
-                                    val startLabel = formatMinuteClock(startMinuteOfDay)
-                                    val endLabel = scheduleReminder.endAt?.let { formatMinuteClock(it.hour * 60 + it.minute) }
-                                    val timeLabel = if (endLabel != null) "$startLabel-$endLabel" else startLabel
-
-                                    Spacer(Modifier.height(3.dp))
-                                    Text(
-                                        formatScheduleReminderEta(minutesUntil),
-                                        style = MiuixTheme.textStyles.body1,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MiuixTheme.colorScheme.onSurface
-                                    )
-                                    Spacer(Modifier.height(3.dp))
-                                    Text(
-                                        "$dayLabel $timeLabel · ${scheduleReminder.name}",
-                                        style = MiuixTheme.textStyles.body2,
-                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    if (scheduleReminder.location.isNotBlank()) {
-                                        Spacer(Modifier.height(2.dp))
-                                        Text(
-                                            scheduleReminder.location,
-                                            style = MiuixTheme.textStyles.footnote1,
-                                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-                                }
-
-                                else -> {
-                                    Spacer(Modifier.height(4.dp))
-                                    Text(
-                                        "未来两周没有新的日程安排",
-                                        style = MiuixTheme.textStyles.body2,
-                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                                    )
-                                }
-                            }
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null,
-                            Modifier.size(18.dp),
-                            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f))
-                    }
-                }
-                Spacer(Modifier.height(12.dp))
-
-                // ═══ 校园卡智能卡片 ═══
-                if (cachedBalance >= 0f || loginState.campusCardLogin != null) {
-                    val scope = rememberCoroutineScope()
-                    val isLowBalance = cachedBalance in 0f..30f
-                    val brandStart = MiuixTheme.colorScheme.secondaryContainer
-                    val brandEnd = MiuixTheme.colorScheme.secondaryContainer
-                    val onBrand = MiuixTheme.colorScheme.onSecondaryContainer
-                    Card(
-                        onClick = { onNavigateWithLogin(Routes.CAMPUS_CARD, LoginType.CAMPUS_CARD) },
-                        modifier = Modifier.fillMaxWidth(),
-                        cornerRadius = 20.dp,
-                        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = androidx.compose.ui.graphics.Color.Transparent),
-                        pressFeedbackType = PressFeedbackType.Sink
-                    ) {
-                      Box(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(brandStart, brandEnd)))) {
-                        Column(Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
-                            // 头部：标题 + 刷新
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.CreditCard, null, Modifier.size(16.dp), tint = onBrand)
-                                Spacer(Modifier.width(6.dp))
-                                Text("校园卡", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Bold, color = onBrand, modifier = Modifier.weight(1f))
-                                if (isLowBalance) {
-                                    Surface(shape = RoundedCornerShape(6.dp), color = onBrand.copy(alpha = 0.2f)) {
-                                        Text("余额不足", Modifier.padding(horizontal = 7.dp, vertical = 3.dp), style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Bold, color = onBrand)
-                                    }
-                                    Spacer(Modifier.width(8.dp))
-                                }
-                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(18.dp), tint = onBrand.copy(alpha = 0.7f))
-                            }
-                            // 余额显示
-                            if (cachedBalance >= 0f) {
-                                Spacer(Modifier.height(8.dp))
-                                Row(verticalAlignment = Alignment.Bottom) {
-                                    Text("¥", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold, color = onBrand)
-                                    Spacer(Modifier.width(2.dp))
-                                    Text(
-                                        "%.2f".format(cachedBalance),
-                                        style = MiuixTheme.textStyles.title1,
-                                        fontWeight = FontWeight.Bold,
-                                        color = onBrand
-                                    )
-                                    if (cachedName.isNotBlank()) {
-                                        Spacer(Modifier.weight(1f))
-                                        Text(cachedName, style = MiuixTheme.textStyles.footnote1, color = onBrand.copy(alpha = 0.8f))
-                                    }
-                                }
-                            }
-                            // 最近消费
-                            if (cachedRecentTx.isNotEmpty()) {
-                                Spacer(Modifier.height(10.dp))
-                                HorizontalDivider(color = onBrand.copy(alpha = 0.2f))
-                                Spacer(Modifier.height(8.dp))
-                                cachedRecentTx.take(3).forEach { tx ->
-                                    Row(
-                                        Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(tx.merchant.ifBlank { tx.type }, style = MiuixTheme.textStyles.footnote1, color = onBrand.copy(alpha = 0.9f), modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        val amtStr = if (tx.amount < 0) "-¥${"%.2f".format(-tx.amount)}" else "+¥${"%.2f".format(tx.amount)}"
-                                        Text(amtStr, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Bold, color = onBrand)
-                                    }
-                                }
-                            }
-                        }
-                      }
-                    }
-                    Spacer(Modifier.height(12.dp))
-                }
-            }
-        }
-
-        Spacer(Modifier.height(8.dp))
+        // ── Zone C: 场景入口（3 张横向特色卡：上课 / 校园生活 / 学业）──
         Column(Modifier.padding(horizontal = 16.dp)) {
             Text(
-                "全部服务",
+                "场景入口",
                 style = MiuixTheme.textStyles.headline1,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(start = 4.dp, bottom = 12.dp)
             )
+        }
+        run {
+            val ctxScene = LocalContext.current
+            fun go(key: String, action: () -> Unit): () -> Unit = {
+                com.xjtu.toolbox.util.ServiceUsageTracker.record(ctxScene, key)
+                action()
+            }
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                HomeSceneCard(
+                    title = "上课",
+                    subtitle = "去哪儿上课、去哪儿自习",
+                    icon = Icons.Default.School,
+                    accent = androidx.compose.ui.graphics.Color(0xFF315FD4),
+                    entries = listOf(
+                        "日程" to go(Routes.SCHEDULE) { onNavigateToCourses() },
+                        "空闲教室" to go(Routes.EMPTY_ROOM) { onNavigateWithLogin(Routes.EMPTY_ROOM, LoginType.JWXT) },
+                        "思源" to go(Routes.LMS) { onNavigateWithLogin(Routes.LMS, LoginType.LMS) },
+                    )
+                )
+                HomeSceneCard(
+                    title = "校园生活",
+                    subtitle = "吃饭花钱，一卡在手",
+                    icon = Icons.Default.Restaurant,
+                    accent = androidx.compose.ui.graphics.Color(0xFF2E7D32),
+                    entries = listOf(
+                        "校园卡" to go(Routes.CAMPUS_CARD) { onNavigateWithLogin(Routes.CAMPUS_CARD, LoginType.CAMPUS_CARD) },
+                        "付款码" to go(Routes.PAYMENT_CODE) { onNavigateWithLogin(Routes.PAYMENT_CODE, LoginType.CAMPUS_CARD) },
+                        "加餐券" to go(Routes.COUPON) { onNavigateWithLogin(Routes.COUPON, LoginType.COUPON) },
+                    )
+                )
+                HomeSceneCard(
+                    title = "学业",
+                    subtitle = "成绩、评教与教材",
+                    icon = Icons.Default.Assessment,
+                    accent = androidx.compose.ui.graphics.Color(0xFF7B1FA2),
+                    entries = listOf(
+                        "成绩" to go(Routes.JWAPP_SCORE) { onNavigateWithLogin(Routes.JWAPP_SCORE, LoginType.JWAPP) },
+                        "评教" to go(Routes.JUDGE) { onNavigateWithLogin(Routes.JUDGE, LoginType.JWXT) },
+                        "教材" to go(Routes.JIAOCAI) { onNavigateWithLogin(Routes.JIAOCAI, LoginType.JIAOCAI) },
+                    )
+                )
+            }
+        }
 
-            val svcGreen = androidx.compose.ui.graphics.Color(0xFF2E7D32)
-            val svcOrange = androidx.compose.ui.graphics.Color(0xFFE65100)
-            val svcPurple = androidx.compose.ui.graphics.Color(0xFF7B1FA2)
-            val svcTeal = androidx.compose.ui.graphics.Color(0xFF00796B)
-            val svcIndigo = androidx.compose.ui.graphics.Color(0xFF283593)
-            val svcBrown = androidx.compose.ui.graphics.Color(0xFF4E342E)
-            val svcCyan = androidx.compose.ui.graphics.Color(0xFF00838F)
-            val svcPink = androidx.compose.ui.graphics.Color(0xFFC2185B)
-            val svcDeepPurple = androidx.compose.ui.graphics.Color(0xFF512DA8)
-            val svcLime = androidx.compose.ui.graphics.Color(0xFF5D8C2A)
+        Spacer(Modifier.height(24.dp))
+
+        // ── Zone D: 更多服务（纯图标宫格：无副标题、无卡片背景，低频工具集中于此）──
+        Column(Modifier.padding(horizontal = 16.dp)) {
+            Text(
+                "更多服务",
+                style = MiuixTheme.textStyles.headline1,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
+            )
             val ctx = LocalContext.current
-            // 全部服务定义（key, icon, title, subtitle, color, hint, onClick）
-            data class Svc(
+            data class MoreSvc(
                 val key: String,
                 val icon: ImageVector,
                 val title: String,
-                val subtitle: String,
                 val color: androidx.compose.ui.graphics.Color,
-                val hint: String,
                 val onClick: () -> Unit
             )
-            val services = listOf(
-                Svc(Routes.CAMPUS_CARD, Icons.Default.CreditCard, "校园卡", "账单 · 洞察", svcGreen, "消费智能分析") { onNavigateWithLogin(Routes.CAMPUS_CARD, LoginType.CAMPUS_CARD) },
-                Svc(Routes.SCHEDULE, Icons.Default.CalendarMonth, "日程", "我的日程", svcIndigo, "课表教材与课程") { onNavigateToCourses() },
-                Svc(Routes.JWAPP_SCORE, Icons.Default.Assessment, "成绩查询", "成绩 · GPA", svcPurple, "未评教也可查") { onNavigateWithLogin(Routes.JWAPP_SCORE, LoginType.JWAPP) },
-                Svc(Routes.PAYMENT_CODE, Icons.Default.QrCode, "付款码", "校园支付", svcTeal, "快速刷新") { onNavigateWithLogin(Routes.PAYMENT_CODE, LoginType.CAMPUS_CARD) },
-                Svc(Routes.COUPON, Icons.Default.Restaurant, "加餐券", "电子券", svcLime, "餐券领取与管理") { onNavigateWithLogin(Routes.COUPON, LoginType.COUPON) },
-                Svc(Routes.ATTENDANCE, Icons.Default.DateRange, "考勤查询", "出勤记录", svcBrown, "出勤情况分析") { onNavigateWithLogin(Routes.ATTENDANCE, LoginType.ATTENDANCE) },
-                Svc(Routes.POSTGRADUATE_ATTENDANCE, Icons.Default.DateRange, "研究生考勤", "研究生出勤", svcBrown, "研究生考勤查询") { onNavigateWithLogin(Routes.POSTGRADUATE_ATTENDANCE, LoginType.POSTGRADUATE_ATTENDANCE) },
-                Svc(Routes.TRANSCRIPT, Icons.Default.Description, "电子成绩单", "下载 · 签章", svcIndigo, "下载签章成绩单") { onNavigateWithLogin(Routes.TRANSCRIPT, LoginType.DZPZ) },
-                Svc(Routes.JUDGE, Icons.Default.RateReview, "本科评教", "评教系统", svcPink, "支持一键评教") { onNavigateWithLogin(Routes.JUDGE, LoginType.JWXT) },
-                Svc(Routes.LIBRARY, Icons.Default.Chair, "图书馆", "座位预约", svcOrange, "智能座位推荐") { onNavigateWithLogin(Routes.LIBRARY, LoginType.LIBRARY) },
-                Svc(Routes.EMPTY_ROOM, Icons.Default.LocationOn, "空闲教室", "教室查询", svcPurple, "智能洞察空教室") { onNavigateWithLogin(Routes.EMPTY_ROOM, LoginType.JWXT) },
-                Svc(Routes.NOTIFICATION, Icons.Default.Notifications, "通知公告", "校园通知", MiuixTheme.colorScheme.error, "聚合多源通知") { onNavigate(Routes.NOTIFICATION) },
-                Svc(Routes.VENUE, Icons.Default.Place, "场馆预订", "运动场地", svcCyan, "预约快人一步") { onNavigateWithLogin(Routes.VENUE, LoginType.VENUE) },
-                Svc(Routes.CLASS_REPLAY, Icons.Default.OndemandVideo, "课程回放", "Class 录播", svcDeepPurple, "备用回放入口") { onNavigateWithLogin(Routes.CLASS_REPLAY, LoginType.CLASS) },
-                Svc(Routes.LMS, Icons.Default.School, "思源学堂", "课件 · 作业", svcIndigo, "回放课件与作业") { onNavigateWithLogin(Routes.LMS, LoginType.LMS) },
-                Svc(Routes.SCHOOL_COURSE, Icons.Default.TravelExplore, "课程查询", "全校课程", svcCyan, "选课先踩点") { onNavigateWithLogin(Routes.SCHOOL_COURSE, LoginType.JWXT) },
-                Svc(Routes.SCHOOL_CALENDAR, Icons.Default.EventNote, "校历", "学期 · 周次", svcTeal, "看看多少假期") { onNavigate(Routes.SCHOOL_CALENDAR) },
-                Svc(Routes.JIAOCAI, Icons.Default.MenuBook, "教材中心", "教材查询", svcTeal, "搜索教材书目") { onNavigateWithLogin(Routes.JIAOCAI, LoginType.JIAOCAI) },
-                Svc(Routes.WEBVPN_CONVERTER, Icons.Default.VpnKey, "WebVPN 转换", "校外访问", svcBrown, "网址互转 + 一键访问") { onNavigate(Routes.WEBVPN_CONVERTER) }
+            val moreServices = listOf(
+                MoreSvc(Routes.LIBRARY, Icons.Default.Chair, "图书馆", androidx.compose.ui.graphics.Color(0xFFE65100)) { onNavigateWithLogin(Routes.LIBRARY, LoginType.LIBRARY) },
+                MoreSvc(Routes.NOTIFICATION, Icons.Default.Notifications, "通知公告", MiuixTheme.colorScheme.error) { onNavigate(Routes.NOTIFICATION) },
+                MoreSvc(Routes.ATTENDANCE, Icons.Default.DateRange, "考勤", androidx.compose.ui.graphics.Color(0xFF4E342E)) { onNavigateWithLogin(Routes.ATTENDANCE, LoginType.ATTENDANCE) },
+                MoreSvc(Routes.POSTGRADUATE_ATTENDANCE, Icons.Default.DateRange, "研考勤", androidx.compose.ui.graphics.Color(0xFF4E342E)) { onNavigateWithLogin(Routes.POSTGRADUATE_ATTENDANCE, LoginType.POSTGRADUATE_ATTENDANCE) },
+                MoreSvc(Routes.TRANSCRIPT, Icons.Default.Description, "成绩单", androidx.compose.ui.graphics.Color(0xFF283593)) { onNavigateWithLogin(Routes.TRANSCRIPT, LoginType.DZPZ) },
+                MoreSvc(Routes.VENUE, Icons.Default.Place, "场馆预订", androidx.compose.ui.graphics.Color(0xFF00838F)) { onNavigateWithLogin(Routes.VENUE, LoginType.VENUE) },
+                MoreSvc(Routes.CLASS_REPLAY, Icons.Default.OndemandVideo, "课程回放", androidx.compose.ui.graphics.Color(0xFF512DA8)) { onNavigateWithLogin(Routes.CLASS_REPLAY, LoginType.CLASS) },
+                MoreSvc(Routes.SCHOOL_COURSE, Icons.Default.TravelExplore, "课程查询", androidx.compose.ui.graphics.Color(0xFF00838F)) { onNavigateWithLogin(Routes.SCHOOL_COURSE, LoginType.JWXT) },
+                MoreSvc(Routes.SCHOOL_CALENDAR, Icons.Default.EventNote, "校历", androidx.compose.ui.graphics.Color(0xFF00796B)) { onNavigate(Routes.SCHOOL_CALENDAR) },
+                MoreSvc(Routes.WEBVPN_CONVERTER, Icons.Default.VpnKey, "WebVPN", androidx.compose.ui.graphics.Color(0xFF4E342E)) { onNavigate(Routes.WEBVPN_CONVERTER) }
             )
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(
-                    color = MiuixTheme.colorScheme.surface
-                )
-            ) {
-                val serviceRows = services.chunked(2)
-                Column(
-                    Modifier.fillMaxWidth().padding(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    serviceRows.forEach { rowServices ->
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            moreServices.chunked(4).forEach { rowItems ->
+                Row(Modifier.fillMaxWidth()) {
+                    rowItems.forEach { svc ->
+                        HomeGridItem(
+                            icon = svc.icon,
+                            label = svc.title,
+                            color = svc.color,
+                            modifier = Modifier.weight(1f)
                         ) {
-                            rowServices.forEach { svc ->
-                                HomeServiceTile(
-                                    icon = svc.icon,
-                                    title = svc.title,
-                                    subtitle = svc.subtitle,
-                                    iconColor = MiuixTheme.colorScheme.primary,
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    com.xjtu.toolbox.util.ServiceUsageTracker.record(ctx, svc.key)
-                                    svc.onClick()
-                                }
-                            }
-                            if (rowServices.size == 1) Spacer(Modifier.weight(1f))
+                            com.xjtu.toolbox.util.ServiceUsageTracker.record(ctx, svc.key)
+                            svc.onClick()
                         }
                     }
+                    repeat(4 - rowItems.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
         }
@@ -4585,6 +4523,96 @@ private fun HomeQuickAction(icon: ImageVector, label: String, color: androidx.co
         ExpressiveIcon(icon = icon, color = color)
         Spacer(Modifier.height(8.dp))
         Text(label, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium)
+    }
+}
+
+/**
+ * 场景入口特色卡：标题 + 一句话场景描述 + 最多 3 个子入口胶囊。
+ * 整卡点击进入第一个入口，胶囊各自可点。
+ */
+@Composable
+private fun HomeSceneCard(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    accent: androidx.compose.ui.graphics.Color,
+    entries: List<Pair<String, () -> Unit>>,
+) {
+    ExpressivePanel(
+        modifier = Modifier.width(236.dp),
+        accent = accent,
+        cornerRadius = 24.dp,
+        onClick = entries.firstOrNull()?.second,
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                ExpressiveIcon(icon = icon, color = accent, size = 38.dp, iconSize = 20.dp)
+                Spacer(Modifier.width(10.dp))
+                Column {
+                    Text(title, style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold)
+                    Text(
+                        subtitle,
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                entries.forEach { (label, action) ->
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = accent.copy(alpha = 0.10f),
+                        modifier = Modifier.clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = SinkFeedback(),
+                            onClick = action
+                        )
+                    ) {
+                        Text(
+                            label,
+                            Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = accent,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 更多服务宫格项：纯图标 + 标签，无背景无副标题。 */
+@Composable
+private fun HomeGridItem(
+    icon: ImageVector,
+    label: String,
+    color: androidx.compose.ui.graphics.Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = SinkFeedback(),
+                onClick = onClick
+            )
+            .padding(vertical = 10.dp)
+    ) {
+        ExpressiveIcon(icon = icon, color = color, size = 46.dp, iconSize = 23.dp)
+        Spacer(Modifier.height(6.dp))
+        Text(
+            label,
+            style = MiuixTheme.textStyles.footnote1,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 

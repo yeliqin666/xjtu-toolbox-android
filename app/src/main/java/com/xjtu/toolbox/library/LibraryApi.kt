@@ -242,7 +242,11 @@ class LibraryApi(private val login: LibraryLogin) {
                     if (key.isBlank()) continue
                     val arr = scountObj.optJSONArray(key)
                     if (arr != null && arr.length() >= 2) {
-                        statsMap[key] = AreaStats(arr.getInt(0), arr.getInt(1))
+                        // HAR 2026-06-13: scount is [total, available], not [available, total].
+                        statsMap[key] = AreaStats(
+                            available = arr.getInt(1),
+                            total = arr.getInt(0)
+                        )
                     }
                 }
             }

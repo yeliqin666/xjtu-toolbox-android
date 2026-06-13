@@ -335,7 +335,7 @@ private fun OverviewTab(
             val lastMonth = monthlyStats.find { it.month == YearMonth.now().minusMonths(1) }
             ThisMonthCard(thisMonth, lastMonth)
         }
-        item { cardInfo?.let { CardStatusRow(it) } }
+        item { cardInfo?.let { CardStatusPanel(it) } }
         if (mealTimeStats.isNotEmpty()) {
             item { MealQuickView(mealTimeStats) }
         }
@@ -562,16 +562,37 @@ private fun StatColumn(label: String, value: String, color: Color) {
 }
 
 @Composable
-private fun CardStatusRow(info: CardInfo) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        StatusChip(
-            icon = if (info.lostFlag) Icons.Default.Warning else Icons.Default.CheckCircle,
-            text = if (info.lostFlag) "已挂失" else "正常",
-            isWarning = info.lostFlag, modifier = Modifier.weight(1f))
-        StatusChip(
-            icon = if (info.frozenFlag) Icons.Default.Lock else Icons.Default.LockOpen,
-            text = if (info.frozenFlag) "已冻结" else "未冻结",
-            isWarning = info.frozenFlag, modifier = Modifier.weight(1f))
+private fun CardStatusPanel(info: CardInfo) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        cornerRadius = 20.dp,
+        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
+    ) {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            Text(
+                "卡片状态",
+                style = MiuixTheme.textStyles.subtitle,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                StatusChip(
+                    icon = if (info.lostFlag) Icons.Default.Warning else Icons.Default.CheckCircle,
+                    text = if (info.lostFlag) "已挂失" else "使用正常",
+                    isWarning = info.lostFlag, modifier = Modifier.weight(1f))
+                StatusChip(
+                    icon = if (info.frozenFlag) Icons.Default.Lock else Icons.Default.LockOpen,
+                    text = if (info.frozenFlag) "已冻结" else "账户可用",
+                    isWarning = info.frozenFlag, modifier = Modifier.weight(1f))
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                if (info.lostFlag || info.frozenFlag) "部分校园卡功能可能暂不可用"
+                else "消费、充值与付款码均可正常使用",
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+            )
+        }
     }
 }
 
