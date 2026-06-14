@@ -1,5 +1,10 @@
 package com.xjtu.toolbox.agent
 
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -23,7 +28,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -131,7 +135,9 @@ private fun ChatPanel(
     Column(
         Modifier
             .fillMaxSize()
-            .padding(padding)
+            // 只吃顶部（TopAppBar 高度）；底部由输入栏自己的 navigationBarsPadding + imePadding 处理，
+            // 否则会和输入栏的 inset 双重叠加，键盘弹出时把输入框顶飞。
+            .padding(top = padding.calculateTopPadding())
             .background(MiuixTheme.colorScheme.surface)
     ) {
         LazyColumn(
@@ -156,14 +162,14 @@ private fun ChatPanel(
                 }
             }
             items(vm.messages) { msg ->
-                MessageBubble(msg, onNavigate)
+                Box(Modifier.fillMaxWidth().animateItem()) {
+                    MessageBubble(msg, onNavigate)
+                }
             }
             if (vm.isLoading && (vm.messages.isEmpty() || vm.messages.last().role != "tool_event")) {
                 item {
                     Box(Modifier.fillMaxWidth().padding(8.dp), contentAlignment = Alignment.CenterStart) {
-                        Text("思考中…", style = MiuixTheme.textStyles.body2,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            fontStyle = FontStyle.Italic)
+                        ThinkingDots()
                     }
                 }
             }
@@ -203,6 +209,36 @@ private fun ChatPanel(
                     )
                 }
             }
+        }
+    }
+}
+
+/** 三个依次明灭的小圆点，替代静态"思考中…"，让等待更有生气。 */
+@Composable
+private fun ThinkingDots() {
+    val transition = rememberInfiniteTransition(label = "thinking")
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        repeat(3) { i ->
+            val alpha by transition.animateFloat(
+                initialValue = 0.25f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(600, delayMillis = i * 180),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "dot$i"
+            )
+            Box(
+                Modifier
+                    .size(7.dp)
+                    .background(
+                        MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = alpha),
+                        RoundedCornerShape(50)
+                    )
+            )
         }
     }
 }

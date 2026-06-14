@@ -111,7 +111,7 @@ class AgentToolRegistry(
     "type":"function",
     "function":{
       "name":"get_empty_rooms",
-      "description":"查询空闲教室。从CDN获取数据，无需登录。campus可选：兴庆校区/雁塔校区/曲江校区/创新港校区；building为楼名如"主楼A"；section为节次1-11；date为yyyy-MM-dd。",
+      "description":"查询空闲教室。从CDN获取数据，无需登录。campus可选：兴庆校区/雁塔校区/曲江校区/创新港校区；building为楼名如主楼A；section为节次1-11；date为yyyy-MM-dd。",
       "parameters":{
         "type":"object",
         "properties":{
@@ -142,7 +142,7 @@ class AgentToolRegistry(
     "type":"function",
     "function":{
       "name":"get_grades",
-      "description":"查询本人课程成绩与加权平均学分绩点（GPA）。需要教务系统登录。term可选，传形如"2024-2025-1"只看该学期，不传返回全部成绩。",
+      "description":"查询本人课程成绩与加权平均学分绩点（GPA）。需要教务系统登录。term可选，传形如 2024-2025-1 只看该学期，不传返回全部成绩。",
       "parameters":{
         "type":"object",
         "properties":{
