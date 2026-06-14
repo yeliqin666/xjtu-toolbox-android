@@ -2,6 +2,8 @@ package com.xjtu.toolbox.agent
 
 import android.content.Context
 import com.google.gson.Gson
+import com.google.gson.JsonArray
+import com.google.gson.JsonObject
 import com.xjtu.toolbox.AppLoginState
 import com.xjtu.toolbox.attendance.AttendanceApi
 import com.xjtu.toolbox.auth.LoginType
@@ -75,92 +77,68 @@ class AgentToolRegistry(
         }
     }
 
-    // OpenAI function calling 格式的工具描述
-    val toolDefinitions: String = """[
-  {
-    "type":"function",
-    "function":{
-      "name":"get_current_time",
-      "description":"获取当前日期、时间、星期、学期周数、当前/下一节次。无需登录。",
-      "parameters":{"type":"object","properties":{},"required":[]}
+    // OpenAI function calling 格式的工具描述。
+    // 用 Gson 构建（自动转义），避免手写 JSON 在 description 里出现引号导致整串被截断。
+    // 新增/修改工具：只需在 buildToolDefinitions() 里加一行 tool(...)。
+    val toolDefinitions: String = buildToolDefinitions()
+
+    private fun buildToolDefinitions(): String {
+        val arr = JsonArray()
+        arr.add(tool("get_current_time",
+            "获取当前日期、时间、星期、学期周数、当前/下一节次。无需登录。"))
+        arr.add(tool("get_schedule",
+            "查询课表。date填yyyy-MM-dd查当天，不填返回本周全部课程。需要本地缓存（用户曾打开过课表页面）。",
+            params("date" to strProp("查询日期，格式yyyy-MM-dd，不填则返回本周。"))))
+        arr.add(tool("get_exam_schedule",
+            "查询考试安排，含日期、时间、地点、座位号。需要教务系统登录。"))
+        arr.add(tool("get_empty_rooms",
+            "查询空闲教室。从CDN获取数据，无需登录。campus可选：兴庆校区/雁塔校区/曲江校区/创新港校区；building为楼名如「主楼A」；section为节次1-11；date为yyyy-MM-dd。",
+            params(
+                "campus"   to strProp("校区名称，不填则默认兴庆校区。"),
+                "building" to strProp("教学楼名称，不填则查该校区所有楼。"),
+                "section"  to intProp("节次1-11，不填则查全天空教室。"),
+                "date"     to strProp("日期yyyy-MM-dd，不填则查今天。")
+            )))
+        arr.add(tool("get_attendance",
+            "查询最近考勤记录（正常/迟到/缺勤）。需要考勤系统登录。",
+            params("limit" to intProp("返回条数，默认10，最多30。"))))
+        arr.add(tool("get_grades",
+            "查询本人课程成绩与加权平均学分绩点（GPA）。需要教务系统登录。term可选，传形如「2024-2025-1」只看该学期，不传返回全部成绩。",
+            params("term" to strProp("学期代码，如2024-2025-1，不填返回全部。"))))
+        arr.add(tool("get_card_balance",
+            "查询校园卡（一卡通）电子钱包余额与状态（挂失/冻结）。需要校园卡系统登录。"))
+        return arr.toString()
     }
-  },
-  {
-    "type":"function",
-    "function":{
-      "name":"get_schedule",
-      "description":"查询课表。date填yyyy-MM-dd查当天，不填返回本周全部课程。需要本地缓存（用户曾打开过课表页面）。",
-      "parameters":{
-        "type":"object",
-        "properties":{
-          "date":{"type":"string","description":"查询日期，格式yyyy-MM-dd，不填则返回本周。"}
-        },
-        "required":[]
-      }
+
+    /** 构造单个 function-calling 工具对象。params 省略时为无参。 */
+    private fun tool(name: String, description: String, params: JsonObject = emptyParams()): JsonObject =
+        JsonObject().apply {
+            addProperty("type", "function")
+            add("function", JsonObject().apply {
+                addProperty("name", name)
+                addProperty("description", description)
+                add("parameters", params)
+            })
+        }
+
+    private fun emptyParams(): JsonObject = JsonObject().apply {
+        addProperty("type", "object")
+        add("properties", JsonObject())
+        add("required", JsonArray())
     }
-  },
-  {
-    "type":"function",
-    "function":{
-      "name":"get_exam_schedule",
-      "description":"查询考试安排，含日期、时间、地点、座位号。需要教务系统登录。",
-      "parameters":{"type":"object","properties":{},"required":[]}
+
+    private fun params(vararg props: Pair<String, JsonObject>): JsonObject = JsonObject().apply {
+        addProperty("type", "object")
+        add("properties", JsonObject().apply { props.forEach { (k, v) -> add(k, v) } })
+        add("required", JsonArray())
     }
-  },
-  {
-    "type":"function",
-    "function":{
-      "name":"get_empty_rooms",
-      "description":"查询空闲教室。从CDN获取数据，无需登录。campus可选：兴庆校区/雁塔校区/曲江校区/创新港校区；building为楼名如主楼A；section为节次1-11；date为yyyy-MM-dd。",
-      "parameters":{
-        "type":"object",
-        "properties":{
-          "campus":{"type":"string","description":"校区名称，不填则默认兴庆校区。"},
-          "building":{"type":"string","description":"教学楼名称，不填则查该校区所有楼。"},
-          "section":{"type":"integer","description":"节次1-11，不填则查全天空教室。"},
-          "date":{"type":"string","description":"日期yyyy-MM-dd，不填则查今天。"}
-        },
-        "required":[]
-      }
+
+    private fun strProp(description: String): JsonObject = propOf("string", description)
+    private fun intProp(description: String): JsonObject = propOf("integer", description)
+    private fun propOf(type: String, description: String): JsonObject = JsonObject().apply {
+        addProperty("type", type)
+        addProperty("description", description)
     }
-  },
-  {
-    "type":"function",
-    "function":{
-      "name":"get_attendance",
-      "description":"查询最近考勤记录（正常/迟到/缺勤）。需要考勤系统登录。",
-      "parameters":{
-        "type":"object",
-        "properties":{
-          "limit":{"type":"integer","description":"返回条数，默认10，最多30。"}
-        },
-        "required":[]
-      }
-    }
-  },
-  {
-    "type":"function",
-    "function":{
-      "name":"get_grades",
-      "description":"查询本人课程成绩与加权平均学分绩点（GPA）。需要教务系统登录。term可选，传形如 2024-2025-1 只看该学期，不传返回全部成绩。",
-      "parameters":{
-        "type":"object",
-        "properties":{
-          "term":{"type":"string","description":"学期代码，如2024-2025-1，不填返回全部。"}
-        },
-        "required":[]
-      }
-    }
-  },
-  {
-    "type":"function",
-    "function":{
-      "name":"get_card_balance",
-      "description":"查询校园卡（一卡通）电子钱包余额与状态（挂失/冻结）。需要校园卡系统登录。",
-      "parameters":{"type":"object","properties":{},"required":[]}
-    }
-  }
-]"""
 
     suspend fun execute(name: String, argsJson: String): String = withContext(Dispatchers.IO) {
         val args = runCatching {

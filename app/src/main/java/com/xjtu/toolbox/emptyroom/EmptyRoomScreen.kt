@@ -762,54 +762,8 @@ fun EmptyRoomScreen(
                         }
                     }
 
-                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                    Text(
-                        "日期",
-                        style = MiuixTheme.textStyles.subtitle,
-                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp)
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        availableDates.forEachIndexed { index, date ->
-                            AppFilterChip(
-                                selected = selectedDate == date,
-                                onClick = { selectedDate = date },
-                                label = "${if (index == 0) "今天" else "明天"} ${date.substring(5)}"
-                            )
-                        }
-                    }
-
-                    RangeSliderPreference(
-                        value = startPeriod.toFloat()..endPeriod.toFloat(),
-                        onValueChange = { range ->
-                            startPeriod = range.start.roundToInt().coerceIn(1, 11)
-                            endPeriod = range.endInclusive.roundToInt().coerceIn(startPeriod, 11)
-                        },
-                        title = "空闲节次",
-                        summary = "${PERIOD_TIMES[startPeriod - 1].first} - ${PERIOD_TIMES[endPeriod - 1].second}",
-                        valueText = "第${startPeriod}-${endPeriod}节",
-                        valueRange = 1f..11f,
-                        steps = 9,
-                        showKeyPoints = true,
-                        insideMargin = PaddingValues(horizontal = 4.dp, vertical = 12.dp)
-                    )
-
-                    Text(
-                        "快捷筛选",
-                        style = MiuixTheme.textStyles.subtitle,
-                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp)
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        listOf("全部", "现在空闲", "刚解放", "大教室").forEach { filter ->
-                            AppFilterChip(
-                                selected = smartFilter == filter,
-                                onClick = { smartFilter = filter },
-                                label = filter
-                            )
-                        }
-                    }
+                    // 日期 / 空闲节次 / 快捷筛选已在主页面卡片提供，弹窗内不再重复（避免与页面控件重叠）。
+                    // 本弹窗只负责「选校区 + 选教学楼」。
                     Spacer(Modifier.height(12.dp))
                     Button(
                         onClick = { showFilterSheet.value = false },

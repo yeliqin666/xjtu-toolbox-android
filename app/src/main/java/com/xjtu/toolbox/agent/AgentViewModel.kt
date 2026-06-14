@@ -125,8 +125,12 @@ class AgentViewModel : ViewModel() {
             } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
                 messages.add(ChatMessage("assistant", "登录已失效，请返回并重新进入对应功能页面完成认证后再试。"))
             } catch (e: Exception) {
-                errorMessage = e.message ?: "未知错误"
-                messages.add(ChatMessage("assistant", "出错了：${e.message}"))
+                // 兜底文案：异常 message 可能为 null（如某些 IO/解析异常），避免直接显示「出错了：null」
+                val detail = e.message?.takeIf { it.isNotBlank() }
+                    ?: e::class.simpleName?.let { "请求异常（$it）" }
+                    ?: "未知错误"
+                errorMessage = detail
+                messages.add(ChatMessage("assistant", "出错了：$detail"))
             } finally {
                 isLoading = false
             }

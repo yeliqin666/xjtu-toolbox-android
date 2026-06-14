@@ -678,8 +678,13 @@ class AppLoginState {
     }
 
     /**
-     * 单次探测校园网（仅向 jwxt 域发一个 HEAD，3 秒超时）。
+     * 单次探测校园网（向本科考勤系统 bkkq 发一个 HEAD，3 秒超时）。
      * 不更新缓存、不读缓存，纯函数式。
+     *
+     * 探测点选考勤系统而非教务：护网结束后教务（jwxt）已公网直连，校外也能访问，
+     * 探测恒为 true 无法区分内外网；考勤系统 bkkq 仍仅校内可直连，校外需 WebVPN，
+     * 因此用它判定「是否可直连校内系统」。返回任意 <500 响应即视为可达。
+     * 对齐上游 XJTUToolBox：改用考勤系统作为校内外检测网址。
      */
     private suspend fun probeCampusOnce(): Boolean = try {
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -689,10 +694,10 @@ class AppLoginState {
                 .followRedirects(false)
                 .build()
             val request = okhttp3.Request.Builder()
-                .url("https://jwxt.xjtu.edu.cn/")
+                .url("http://bkkq.xjtu.edu.cn")
                 .head()
                 .build()
-            testClient.newCall(request).execute().use { true }
+            testClient.newCall(request).execute().use { it.code < 500 }
         }
     } catch (_: Exception) { false }
 
@@ -725,7 +730,7 @@ class AppLoginState {
         } else {
             first
         }
-        android.util.Log.d("Campus", "detectCampus: final result=$result (jwxt reachable=$first)")
+        android.util.Log.d("Campus", "detectCampus: final result=$result (bkkq reachable=$first)")
         campusDetectTime = System.currentTimeMillis()
         return result
     }
