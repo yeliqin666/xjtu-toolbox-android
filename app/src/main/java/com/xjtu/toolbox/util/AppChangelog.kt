@@ -25,6 +25,13 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "3.8.3" to VersionChangelog(
+            items = listOf(
+                "🤖" to "校园助手「屁岱」上线：可直接在对话里查课表、成绩GPA、空闲教室、考勤、考试和校园卡",
+                "🪧" to "助手回复附带课表、成绩、教室等卡片，关键信息一眼可见",
+                "🔑" to "助手配置支持一键拉取模型列表，选择填入无需手敲"
+            )
+        ),
         "3.8.2" to VersionChangelog(
             items = listOf(
                 "📚" to "修复图书馆座位查询和预约状态读取，区域余量与换座流程更可靠",

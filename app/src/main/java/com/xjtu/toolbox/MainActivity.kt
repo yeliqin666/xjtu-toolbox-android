@@ -233,6 +233,7 @@ object Routes {
     const val BROWSER = "browser?url={url}"
     const val SETTINGS = "settings"
     const val WEBVPN_CONVERTER = "webvpn_converter"
+    const val AGENT = "agent"
 
     fun login(type: LoginType, target: String) = "login/${type.name}/$target"
     fun browser(url: String = "") = "browser?url=${java.net.URLEncoder.encode(url, "UTF-8")}"
@@ -2104,6 +2105,12 @@ fun AppNavigation(
                 }
             )
         }
+        composable(Routes.AGENT) {
+            com.xjtu.toolbox.agent.AgentScreen(
+                onBack = { navController.popBackStack() },
+                onNavigate = { route -> navController.navigate(route) { launchSingleTop = true } }
+            )
+        }
     }
     }  // CompositionLocalProvider
 }
@@ -2416,7 +2423,7 @@ private fun MainScreen(
         }
         Box(Modifier.fillMaxSize()) {
             // 需要联网的无登录路由（空闲教室、通知公告等纯网络功能）
-            val networkRequiredRoutes = setOf(Routes.EMPTY_ROOM, Routes.NOTIFICATION)
+            val networkRequiredRoutes = setOf(Routes.EMPTY_ROOM, Routes.NOTIFICATION, Routes.AGENT)
             val onNavigateWithNetCheck: (String) -> Unit = { route ->
                 if (route == Routes.SCHEDULE) {
                     switchToTab(BottomTab.COURSES)
@@ -3486,7 +3493,8 @@ private fun HomeTab(
                 MoreSvc(Routes.CLASS_REPLAY, Icons.Default.OndemandVideo, "课程回放", androidx.compose.ui.graphics.Color(0xFF512DA8)) { onNavigateWithLogin(Routes.CLASS_REPLAY, LoginType.CLASS) },
                 MoreSvc(Routes.SCHOOL_COURSE, Icons.Default.TravelExplore, "课程查询", androidx.compose.ui.graphics.Color(0xFF00838F)) { onNavigateWithLogin(Routes.SCHOOL_COURSE, LoginType.JWXT) },
                 MoreSvc(Routes.SCHOOL_CALENDAR, Icons.Default.EventNote, "校历", androidx.compose.ui.graphics.Color(0xFF00796B)) { onNavigate(Routes.SCHOOL_CALENDAR) },
-                MoreSvc(Routes.WEBVPN_CONVERTER, Icons.Default.VpnKey, "WebVPN", androidx.compose.ui.graphics.Color(0xFF4E342E)) { onNavigate(Routes.WEBVPN_CONVERTER) }
+                MoreSvc(Routes.WEBVPN_CONVERTER, Icons.Default.VpnKey, "WebVPN", androidx.compose.ui.graphics.Color(0xFF4E342E)) { onNavigate(Routes.WEBVPN_CONVERTER) },
+                MoreSvc(Routes.AGENT, Icons.Default.SmartToy, "屁岱", androidx.compose.ui.graphics.Color(0xFF00695C)) { onNavigate(Routes.AGENT) }
             )
             moreServices.chunked(4).forEach { rowItems ->
                 Row(Modifier.fillMaxWidth()) {
