@@ -10,8 +10,11 @@ data class AgentConfig(
     val apiKey: String = "",
     val model: String = "",
     val baseUrl: String = "",
-    val maxToolCalls: Int = 4
+    val maxToolCalls: Int = 4,
+    val assistantName: String = DEFAULT_ASSISTANT_NAME
 ) {
+    val effectiveName: String get() = assistantName.trim().ifBlank { DEFAULT_ASSISTANT_NAME }
+
     val effectiveBaseUrl: String
         get() = when {
             provider == PROVIDER_CUSTOM && baseUrl.isNotBlank() -> baseUrl.trimEnd('/')
@@ -30,6 +33,7 @@ data class AgentConfig(
     val isConfigured: Boolean get() = apiKey.isNotBlank()
 
     companion object {
+        const val DEFAULT_ASSISTANT_NAME = "屁岱"
         const val PROVIDER_DEEPSEEK = "deepseek"
         const val PROVIDER_OPENAI = "openai"
         const val PROVIDER_CUSTOM = "custom"
@@ -71,7 +75,9 @@ class AgentConfigStore(context: Context) {
         apiKey = securePrefs.getString("api_key", "") ?: "",
         model = prefs.getString("model", "") ?: "",
         baseUrl = prefs.getString("base_url", "") ?: "",
-        maxToolCalls = prefs.getInt("max_tool_calls", 4)
+        maxToolCalls = prefs.getInt("max_tool_calls", 4),
+        assistantName = prefs.getString("assistant_name", AgentConfig.DEFAULT_ASSISTANT_NAME)
+            ?: AgentConfig.DEFAULT_ASSISTANT_NAME
     )
 
     fun save(config: AgentConfig) {
@@ -80,6 +86,7 @@ class AgentConfigStore(context: Context) {
             .putString("model", config.model)
             .putString("base_url", config.baseUrl)
             .putInt("max_tool_calls", config.maxToolCalls)
+            .putString("assistant_name", config.assistantName)
             .apply()
         securePrefs.edit()
             .putString("api_key", config.apiKey)

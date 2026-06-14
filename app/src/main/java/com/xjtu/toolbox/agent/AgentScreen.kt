@@ -73,8 +73,8 @@ fun AgentScreen(onBack: () -> Unit, onNavigate: (String) -> Unit = {}) {
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = "屁岱",
-                    largeTitle = if (showConfig) "配置" else "屁岱",
+                    title = config.effectiveName,
+                    largeTitle = if (showConfig) "配置" else config.effectiveName,
                     color = MiuixTheme.colorScheme.surface,
                     scrollBehavior = scrollBehavior,
                     navigationIcon = {
@@ -519,6 +519,7 @@ private fun ConfigPanel(
     var model by remember { mutableStateOf(config.model) }
     var baseUrl by remember { mutableStateOf(config.baseUrl) }
     var maxToolCalls by remember { mutableIntStateOf(config.maxToolCalls) }
+    var assistantName by remember { mutableStateOf(config.assistantName) }
 
     // 模型一键拉取
     var availableModels by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -550,6 +551,13 @@ private fun ConfigPanel(
         item {
             Card(colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TextField(
+                        value = assistantName,
+                        onValueChange = { assistantName = it },
+                        label = "助手名字（默认 屁岱）",
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                     TextField(
                         value = apiKey,
                         onValueChange = { apiKey = it },
@@ -642,7 +650,8 @@ private fun ConfigPanel(
                         apiKey = apiKey.trim(),
                         model = model.trim(),
                         baseUrl = baseUrl.trim(),
-                        maxToolCalls = maxToolCalls
+                        maxToolCalls = maxToolCalls,
+                        assistantName = assistantName.trim()
                     ))
                 },
                 enabled = apiKey.isNotBlank(),

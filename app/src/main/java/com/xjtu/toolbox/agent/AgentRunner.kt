@@ -51,11 +51,15 @@ class AgentRunner(private val tools: AgentToolRegistry) {
         var toolCallCount = 0
 
         while (true) {
+            // 预算用尽后这一轮不再带 tools：模型无工具可用，只能用已有信息直接作答（而非罢工）
+            val allowTools = toolCallCount < config.maxToolCalls
             val reqBody = JsonObject().apply {
                 addProperty("model", config.effectiveModel)
                 add("messages", messages)
-                add("tools", toolDefs)
-                addProperty("tool_choice", "auto")
+                if (allowTools) {
+                    add("tools", toolDefs)
+                    addProperty("tool_choice", "auto")
+                }
             }
 
             // 同步网络请求必须在 IO 线程执行：调用方（ViewModel）运行于 Main，
@@ -91,15 +95,10 @@ class AgentRunner(private val tools: AgentToolRegistry) {
             if (finishReason == "length") return "回复被截断（超出模型上下文限制）。请新开对话或缩短问题。"
             if (finishReason == "content_filter") return "回复被内容过滤拦截。"
 
-            // 正常结束（stop 或模型未返回 tool_calls）：将最终 assistant 消息写入历史
-            if (finishReason == "stop" || !hasToolCalls) {
+            // 正常结束，或本轮未带 tools（预算用尽），或模型未请求工具：写入最终 assistant 消息并返回
+            if (!allowTools || finishReason == "stop" || !hasToolCalls) {
                 messages.add(message)
                 return message.get("content")?.asString ?: "（无回复）"
-            }
-
-            // 工具调用上限保护
-            if (toolCallCount >= config.maxToolCalls) {
-                return "已达到工具调用上限（${config.maxToolCalls}次）。请拆分问题或直接前往对应页面查看。"
             }
 
             // 将 assistant 消息追加到历史（含 tool_calls 字段）

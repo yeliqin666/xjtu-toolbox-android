@@ -13,7 +13,9 @@ data class AgentSession(
     val id: String,
     val title: String,
     val createdAt: Long,
-    val updatedAt: Long
+    val updatedAt: Long,
+    /** true=标题已由用户改名或 AI 总结锁定，不再被首条消息自动覆盖。 */
+    val locked: Boolean = false
 )
 
 /** 持久化用的精简消息——不含 widgets：富控件是每轮即时派生的展示物，不入库。 */
@@ -56,9 +58,12 @@ class AgentSessionStore(context: Context) {
         return session
     }
 
-    fun rename(id: String, title: String) {
+    /** @param lock 是否锁定标题（用户改名或 AI 总结时为 true）。 */
+    fun rename(id: String, title: String, lock: Boolean = true) {
         val now = System.currentTimeMillis()
-        writeIndex(readIndex().map { if (it.id == id) it.copy(title = title, updatedAt = now) else it })
+        writeIndex(readIndex().map {
+            if (it.id == id) it.copy(title = title, updatedAt = now, locked = lock) else it
+        })
     }
 
     fun delete(id: String) {
@@ -72,7 +77,7 @@ class AgentSessionStore(context: Context) {
         return runCatching { gson.fromJson(f.readText(), StoredConversation::class.java) }.getOrNull()
     }
 
-    /** 保存会话内容，并把 title/updatedAt 同步进 index（不存在则补登记）。 */
+    /** 保存会话内容，并把 title/updatedAt 同步进 index（不存在则补登记）。保留已有 locked 标志。 */
     fun save(id: String, convo: StoredConversation, title: String) {
         writeConvo(id, convo)
         val now = System.currentTimeMillis()
@@ -83,6 +88,9 @@ class AgentSessionStore(context: Context) {
             idx + AgentSession(id, title, now, now)
         writeIndex(newIdx)
     }
+
+    /** 当前标题是否已锁定（用于 ViewModel 决定是否自动改标题）。 */
+    fun isLocked(id: String): Boolean = readIndex().firstOrNull { it.id == id }?.locked == true
 
     // ── 内部 ──────────────────────────────────────────────────────────────
 

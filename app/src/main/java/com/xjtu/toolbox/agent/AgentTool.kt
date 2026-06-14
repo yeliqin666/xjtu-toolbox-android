@@ -52,18 +52,65 @@ class AgentToolRegistry(
     /** 取走并清空本轮收集的控件。 */
     fun drainWidgets(): List<AgentWidget> = pendingWidgets.toList().also { pendingWidgets.clear() }
 
+    // 学号省码（GB/T 2260 前两位）→ 省份
+    private val provinceMap = mapOf(
+        "11" to "北京", "12" to "天津", "13" to "河北", "14" to "山西", "15" to "内蒙古",
+        "21" to "辽宁", "22" to "吉林", "23" to "黑龙江", "31" to "上海", "32" to "江苏",
+        "33" to "浙江", "34" to "安徽", "35" to "福建", "36" to "江西", "37" to "山东",
+        "41" to "河南", "42" to "湖北", "43" to "湖南", "44" to "广东", "45" to "广西",
+        "46" to "海南", "50" to "重庆", "51" to "四川", "52" to "贵州", "53" to "云南",
+        "54" to "西藏", "61" to "陕西", "62" to "甘肃", "63" to "青海", "64" to "宁夏",
+        "65" to "新疆", "71" to "台湾", "81" to "香港", "82" to "澳门"
+    )
+
     /**
-     * 从缓存读取用户身份（姓名 / 学号 / 院系），注入 system prompt，让 Agent 知道「我」是谁。
-     * 姓名与院系取自校园卡快照缓存（用户打开过校园卡即有）；学号兜底用当前登录账号。
+     * 组装用户画像，注入首条 system prompt：姓名、学号（解析入学年/年级·学期、生源地）、学院。
+     * 姓名/学院优先读缓存（昵称、校园卡），缺失则在线拉一网通办个人信息并缓存。
      */
-    fun userIdentity(): String {
-        val card = runCatching { com.xjtu.toolbox.card.CampusCardCache.load(context)?.cardInfo }.getOrNull()
-        val parts = mutableListOf<String>()
-        card?.name?.takeIf { it.isNotBlank() }?.let { parts.add("姓名$it") }
-        (card?.studentNo?.takeIf { it.isNotBlank() } ?: loginState.activeUsername.takeIf { it.isNotBlank() })
-            ?.let { parts.add("学号$it") }
-        card?.department?.takeIf { it.isNotBlank() }?.let { parts.add("院系$it") }
-        return parts.joinToString("，")
+    suspend fun userContext(): String = withContext(Dispatchers.IO) {
+        dataCache.get("agent_user_context", Long.MAX_VALUE)?.let { return@withContext it }
+
+        val sid = loginState.activeUsername
+        var name = runCatching { com.xjtu.toolbox.util.CredentialStore(context).loadNickname() }
+            .getOrNull()?.takeIf { it.isNotBlank() }
+        var college: String? = null
+        runCatching { com.xjtu.toolbox.card.CampusCardCache.load(context)?.cardInfo }.getOrNull()?.let { ci ->
+            if (name.isNullOrBlank()) name = ci.name.takeIf { it.isNotBlank() }
+            college = ci.department.takeIf { it.isNotBlank() }
+        }
+        // 仍缺姓名或学院 → 在线拉一网通办
+        if (name.isNullOrBlank() || college.isNullOrBlank()) {
+            if (loginState.ywtbLogin != null || tryAutoLogin(LoginType.YWTB)) {
+                runCatching { com.xjtu.toolbox.ywtb.YwtbApi(loginState.ywtbLogin!!).getUserInfo() }.getOrNull()?.let { ui ->
+                    if (name.isNullOrBlank()) name = ui.userName.takeIf { it.isNotBlank() }
+                    if (college.isNullOrBlank()) college = ui.organizationName.takeIf { it.isNotBlank() }
+                }
+            }
+        }
+
+        val lines = mutableListOf<String>()
+        name?.let { lines.add("- 姓名：$it") }
+        if (sid.isNotBlank()) {
+            val enrollYear = sid.getOrNull(1)?.let { a -> sid.getOrNull(2)?.let { b -> "20$a$b" } }
+            val provCode = if (sid.length >= 5) sid.substring(3, 5) else null
+            val province = provCode?.let { provinceMap[it] }
+            lines.add(buildString {
+                append("- 学号：$sid")
+                enrollYear?.let { append("（${it}级，即 $it 年秋季入学；$it 秋为大一上学期，请据当前日期推算其当前年级与学期）") }
+            })
+            province?.let { lines.add("- 生源地：${it}省（学号省码$provCode）") }
+        }
+        college?.let { lines.add("- 学院：$it") }
+
+        if (lines.isEmpty()) return@withContext ""
+        // 山东彩蛋
+        val isShandong = sid.length >= 5 && sid.substring(3, 5) == "37"
+        if (isShandong) lines.add("（注：该用户是山东人——交流中记得调侃一句\"沙东人太狠了\"😎）")
+
+        val result = lines.joinToString("\n")
+        // 只在姓名+学院都拿到时缓存（避免把"半成品"长期固化）
+        if (name != null && college != null) dataCache.put("agent_user_context", result)
+        result
     }
 
     /** 把毫秒年龄转成人话，供回退缓存时如实标注新鲜度。 */
@@ -181,6 +228,9 @@ class AgentToolRegistry(
                 "key" to strProp("设置键：dark_mode / default_tab / network_mode / auto_check_update / update_channel。"),
                 "value" to strProp("取值，可先用 get_app_settings 查看每项的可选值。")
             )))
+        arr.add(tool("calculate",
+            "计算数学表达式（四则运算、括号、幂 ^）。算 GPA、排除课程后重算均分、累加金额等务必用它，别心算以免出错。",
+            params("expression" to strProp("表达式，如 (3.7*4+4.0*3)/(4+3) 或 92*0.4+88*0.6。"))))
         return arr.toString()
     }
 
@@ -248,6 +298,7 @@ class AgentToolRegistry(
             "get_lms_assignments" -> getLmsAssignments()
             "get_app_settings" -> getAppSettings()
             "set_app_setting" -> setAppSetting(args["key"] as? String ?: "", args["value"] as? String ?: "")
+            "calculate" -> calculate(args["expression"] as? String ?: "")
             else -> "未知工具：$name"
         }
     }
@@ -522,12 +573,12 @@ class AgentToolRegistry(
                 append("成绩（${grades.size}门")
                 gpa?.let { append("，加权GPA %.2f".format(it)) }
                 append("）：\n")
-                grades.take(30).forEach { g ->
+                // 不截断：用户可能要求排除某些课程重算 GPA，需要完整成绩列表
+                grades.forEach { g ->
                     append("• ${g.courseName}：${g.score}，${g.coursePoint}学分")
                     g.gpa?.let { append("，绩点%.2f".format(it)) }
                     append("\n")
                 }
-                if (grades.size > 30) append("…还有${grades.size - 30}门\n")
             }
             dataCache.put("agent_grades_${term ?: "all"}", text)
             text
@@ -873,6 +924,68 @@ class AgentToolRegistry(
             }
             "update_channel" -> { cs.updateChannel = value.trim(); "已将更新通道设为 ${value.trim()}。" }
             else -> "不支持修改「$key」。仅允许：dark_mode / default_tab / network_mode / auto_check_update / update_channel；账号密码等敏感项不可改。"
+        }
+    }
+
+    private fun calculate(expr: String): String {
+        if (expr.isBlank()) return "请提供要计算的表达式。"
+        return try {
+            val v = ExprEval(expr).parse()
+            val s = if (v.isFinite() && v == Math.floor(v) && Math.abs(v) < 1e15)
+                v.toLong().toString()
+            else "%.4f".format(v).trimEnd('0').trimEnd('.')
+            "$expr = $s"
+        } catch (e: Exception) {
+            "无法计算「$expr」：${e.message ?: "表达式有误"}"
+        }
+    }
+
+    /** 极简安全表达式求值：四则、括号、幂(^)、一元正负。不依赖任何脚本引擎。 */
+    private class ExprEval(private val s: String) {
+        private var pos = 0
+        fun parse(): Double {
+            val v = expr(); skipWs()
+            if (pos < s.length) throw IllegalArgumentException("多余字符")
+            return v
+        }
+        private fun skipWs() { while (pos < s.length && s[pos].isWhitespace()) pos++ }
+        private fun peek(): Char { skipWs(); return if (pos < s.length) s[pos] else ' ' }
+        private fun expr(): Double {
+            var v = term()
+            while (true) when (peek()) {
+                '+' -> { pos++; v += term() }
+                '-' -> { pos++; v -= term() }
+                else -> return v
+            }
+        }
+        private fun term(): Double {
+            var v = power()
+            while (true) when (peek()) {
+                '*' -> { pos++; v *= power() }
+                '/' -> { pos++; v /= power() }
+                else -> return v
+            }
+        }
+        private fun power(): Double {
+            val b = unary()
+            return if (peek() == '^') { pos++; Math.pow(b, power()) } else b
+        }
+        private fun unary(): Double = when (peek()) {
+            '-' -> { pos++; -unary() }
+            '+' -> { pos++; unary() }
+            else -> atom()
+        }
+        private fun atom(): Double {
+            if (peek() == '(') {
+                pos++; val v = expr()
+                if (peek() != ')') throw IllegalArgumentException("缺少 )")
+                pos++; return v
+            }
+            skipWs()
+            val start = pos
+            while (pos < s.length && (s[pos].isDigit() || s[pos] == '.')) pos++
+            if (pos == start) throw IllegalArgumentException("非法字符")
+            return s.substring(start, pos).toDouble()
         }
     }
 

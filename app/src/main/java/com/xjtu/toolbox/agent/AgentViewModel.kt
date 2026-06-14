@@ -110,15 +110,44 @@ class AgentViewModel : ViewModel() {
         sessions.clear(); sessions.addAll(store.list())
     }
 
-    /** 把当前会话写盘（过滤掉临时的 tool_event 进度气泡）。 */
+    /** 把当前会话写盘。保留 tool_event 工具调用记录（下次进入不丢）；标题已锁定时不自动覆盖。 */
     private fun persist() {
         val store = store ?: return
         val id = currentSessionId ?: return
-        val stored = messages
-            .filter { it.role != "tool_event" }
-            .map { StoredMessage(it.role, it.content, it.navSuggestions.map { p -> listOf(p.first, p.second) }) }
-        store.save(id, StoredConversation(stored, llmHistory.toString()), deriveTitle())
+        val stored = messages.map {
+            StoredMessage(it.role, it.content, it.navSuggestions.map { p -> listOf(p.first, p.second) })
+        }
+        val title = if (store.isLocked(id))
+            sessions.firstOrNull { it.id == id }?.title ?: deriveTitle()
+        else deriveTitle()
+        store.save(id, StoredConversation(stored, llmHistory.toString()), title)
         refreshSessions()
+    }
+
+    /** 实时时间标签，注入每条 user 消息开头。 */
+    private fun nowTag(): String {
+        val now = java.time.LocalDateTime.now()
+        val days = listOf("", "周一", "周二", "周三", "周四", "周五", "周六", "周日")
+        val w = days.getOrElse(now.dayOfWeek.value) { "" }
+        return "[现在：${now.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))} $w]"
+    }
+
+    /** 首轮结束后用 AI 把对话总结成简短标题（仿 opencode）；用户已改名则不动。 */
+    private fun maybeAutoTitle(config: AgentConfig) {
+        val store = store ?: return
+        val id = currentSessionId ?: return
+        if (store.isLocked(id)) return
+        if (messages.count { it.role == "user" } != 1) return
+        val firstUser = messages.firstOrNull { it.role == "user" }?.content ?: return
+        val firstAssistant = messages.lastOrNull { it.role == "assistant" }?.content ?: return
+        viewModelScope.launch {
+            val title = AgentTitleGen.generate(config, firstUser, firstAssistant)?.takeIf { it.isNotBlank() }
+                ?: return@launch
+            if (!store.isLocked(id)) {           // 期间用户可能已手动改名
+                store.rename(id, title, lock = true)
+                refreshSessions()
+            }
+        }
     }
 
     /** 标题取首条用户消息（截断 18 字），无则默认。 */
@@ -156,14 +185,20 @@ class AgentViewModel : ViewModel() {
                 if (!systemPromptAdded) {
                     llmHistory.add(JsonObject().apply {
                         addProperty("role", "system")
-                        addProperty("content", AgentPrompt.build(LocalDate.now(), registry.userIdentity()))
+                        addProperty("content", AgentPrompt.build(
+                            today = LocalDate.now(),
+                            assistantName = config.effectiveName,
+                            userContext = registry.userContext(),
+                            maxToolCalls = config.maxToolCalls
+                        ))
                     })
                     systemPromptAdded = true
                 }
 
+                // 每条 user 消息携带实时时间，杜绝"今天/明天"按会话起始日的陈旧判断
                 llmHistory.add(JsonObject().apply {
                     addProperty("role", "user")
-                    addProperty("content", userText)
+                    addProperty("content", "${nowTag()}\n$userText")
                 })
 
                 var toolBubbleIndex = -1
@@ -234,6 +269,7 @@ class AgentViewModel : ViewModel() {
 
                 val widgets = registry.drainWidgets()
                 messages.add(ChatMessage("assistant", reply, navSuggestions = navSuggestions, widgets = widgets))
+                maybeAutoTitle(config)   // 首轮结束后用 AI 总结一个会话标题（仿 opencode）
             } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
                 messages.add(ChatMessage("assistant", "登录已失效，请返回并重新进入对应功能页面完成认证后再试。"))
             } catch (e: Exception) {
