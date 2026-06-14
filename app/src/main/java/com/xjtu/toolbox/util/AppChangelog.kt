@@ -25,6 +25,14 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "4.0-beta" to VersionChangelog(
+            items = listOf(
+                "🔎" to "校园助手「屁岱」开放联网搜索与网页阅读，校内之外的问题也能答",
+                "📣" to "新增查询：通知公告、校园卡一周流水、图书馆座位与我的预约",
+                "📚" to "修复图书馆换座 / 取消预约不生效（动作请求缺少正确来源页 Referer，校内外均受影响）",
+                "✨" to "助手系统提示词重写，回答更聚焦贴心；本版为 4.0 Beta，欢迎反馈"
+            )
+        ),
         "3.8.5" to VersionChangelog(
             items = listOf(
                 "📝" to "助手回复支持 Markdown 渲染（标题、加粗、列表、代码等）",

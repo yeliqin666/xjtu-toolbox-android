@@ -360,14 +360,36 @@ class LibraryApi(private val login: LibraryLogin) {
     }
 
     /**
+     * 动作前的页面预取。HAR(2026-06-14) 实证浏览器在换座/取消前的真实流程：
+     *   1) 先 GET 动作所在页面（/updateseat/ 或 /my/）——动作请求的 Referer 必须是该页面，
+     *      否则服务端拒绝（这是换座/取消「无效」的根因，**直连/校外都会发生**）；
+     *   2) WebVPN 模式下再 GET `wengine-vpn/cookie?...&path=<page>` 拿 path 级代理 cookie（仅校外需要）。
+     */
+    private fun preflight(pagePath: String) {
+        runCatching {
+            val resp = timedClient.newCall(buildRequest("$BASE_URL$pagePath")).execute()
+            val finalUrl = resp.request.url.toString()
+            resp.close()
+            if (com.xjtu.toolbox.util.WebVpnUtil.isWebVpnUrl(finalUrl)) {
+                val cookieUrl = "https://webvpn.xjtu.edu.cn/wengine-vpn/cookie" +
+                    "?method=get&host=rg.lib.xjtu.edu.cn&scheme=http&path=$pagePath" +
+                    "&vpn_timestamp=${System.currentTimeMillis()}"
+                timedClient.newCall(buildRequest(cookieUrl)).execute().use { it.body?.string() }
+            }
+            Log.d(TAG, "preflight ok for $pagePath (webvpn=${com.xjtu.toolbox.util.WebVpnUtil.isWebVpnUrl(finalUrl)})")
+        }
+    }
+
+    /**
      * 直接使用 /updateseat/ 端点换座。
-     * 实际流程：GET /updateseat/?kid=<seatId>&sp=<areaCode> → 302 → /my/ (成功)
+     * 实际流程：GET /updateseat/(页面) → GET /updateseat/?kid=<seatId>&sp=<areaCode>(Referer=/updateseat/) → 302 → /my/。
      */
     fun swapSeat(seatId: String, areaCode: String): BookResult {
         val url = "$BASE_URL/updateseat/?kid=$seatId&sp=$areaCode"
         Log.d(TAG, "swapSeat: $url")
+        preflight("/updateseat/")
         return try {
-            val (resp, html) = executeWithReAuth(buildRequest(url))
+            val (resp, html) = executeWithReAuth(buildRequest(url, referer = "$BASE_URL/updateseat/"))
             resp.close()
             val finalUrl = resp.request.url.toString()
             val success = "/my/" in finalUrl || "成功换座" in html || "成功" in html
@@ -695,8 +717,11 @@ class LibraryApi(private val login: LibraryLogin) {
     fun executeAction(actionUrl: String): BookResult {
         // 兜底：相对路径补全 scheme + host
         val normalizedUrl = if (actionUrl.startsWith("/")) "$BASE_URL$actionUrl" else actionUrl
+        // 取消/入馆/离馆等动作的页面与 Referer 均为 /my/（path 取 ? 之前部分）
+        val pagePath = normalizedUrl.substringAfter(BASE_URL, "/my/").substringBefore("?")
+        preflight(pagePath)
         try {
-            val (response, html) = executeWithReAuth(buildRequest(normalizedUrl))
+            val (response, html) = executeWithReAuth(buildRequest(normalizedUrl, referer = "$BASE_URL$pagePath"))
             response.close()
             val finalUrl = response.request.url.toString()
             Log.d(TAG, "action: url=$actionUrl, finalUrl=$finalUrl, len=${html.length}")

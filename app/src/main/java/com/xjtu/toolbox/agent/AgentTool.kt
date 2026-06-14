@@ -141,6 +141,26 @@ class AgentToolRegistry(
             params("term" to strProp("学期代码，如2024-2025-1，不填返回全部。"))))
         arr.add(tool("get_card_balance",
             "查询校园卡（一卡通）电子钱包余额与状态（挂失/冻结）。需要校园卡系统登录。"))
+        arr.add(tool("get_card_transactions",
+            "查询校园卡最近若干天的消费流水（商户、金额、余额）。需要校园卡系统登录。",
+            params("days" to intProp("最近几天，默认7，最多30。"))))
+        arr.add(tool("get_notifications",
+            "查询校内最新通知公告（教务处/研究生院/各学院等官网通知），含标题、来源、日期、链接。无需登录。",
+            params("limit" to intProp("返回条数，默认10，最多20。"))))
+        arr.add(tool("web_search",
+            "联网搜索互联网。用于校历、政策、报名通知、通用知识等本地工具无法回答的问题。返回标题、链接、摘要。",
+            params(
+                "query" to strProp("搜索关键词。"),
+                "limit" to intProp("返回条数，默认5，最多8。")
+            )))
+        arr.add(tool("web_fetch",
+            "抓取并阅读一个网页的正文文本，常配合 web_search 或 get_notifications 返回的链接使用，以了解详情。",
+            params("url" to strProp("网页 URL，必须以 http/https 开头。"))))
+        arr.add(tool("get_library_booking",
+            "查询我当前的图书馆座位预约（座位号、区域、状态）。需要图书馆系统登录。"))
+        arr.add(tool("get_library_seats",
+            "查询图书馆某区域的空闲座位数。需要图书馆系统登录。area 传区域名（模糊匹配，如「北楼二层外文库」），不填则列出所有可选区域名称。",
+            params("area" to strProp("区域名称，不填返回区域列表。"))))
         return arr.toString()
     }
 
@@ -195,6 +215,12 @@ class AgentToolRegistry(
             )
             "get_grades" -> getGrades(args["term"] as? String)
             "get_card_balance" -> getCardBalance()
+            "get_card_transactions" -> getCardTransactions((args["days"] as? Double)?.toInt() ?: 7)
+            "get_notifications" -> getNotifications((args["limit"] as? Double)?.toInt() ?: 10)
+            "web_search" -> webSearch(args["query"] as? String ?: "", (args["limit"] as? Double)?.toInt() ?: 5)
+            "web_fetch" -> webFetch(args["url"] as? String ?: "")
+            "get_library_booking" -> getLibraryBooking()
+            "get_library_seats" -> getLibrarySeats(args["area"] as? String)
             else -> "未知工具：$name"
         }
     }
@@ -240,19 +266,59 @@ class AgentToolRegistry(
         }
     }
 
-    private fun getSchedule(dateStr: String?): String {
-        val termCode = runCatching {
-            gson.fromJson(dataCache.get("schedule_term_list", Long.MAX_VALUE), Array<String>::class.java)?.firstOrNull()
-        }.getOrNull() ?: return "课表未加载，请先打开课表页面同步数据。"
+    private fun cachedTermCode(): String? = runCatching {
+        gson.fromJson(dataCache.get("schedule_term_list", Long.MAX_VALUE), Array<String>::class.java)?.firstOrNull()
+    }.getOrNull()
+
+    private fun cachedStartDate(term: String): String? = runCatching {
+        gson.fromJson(dataCache.get("start_date_$term", Long.MAX_VALUE), String::class.java)
+    }.getOrNull()
+
+    /**
+     * 确保课表（学期 / 课程 / 起始日）就绪：缓存缺失时**直接在线拉取并写缓存**，
+     * 而不是让用户「先去打开课表页同步」。需教务系统登录。返回 null 表示就绪，否则为错误提示。
+     */
+    private suspend fun ensureScheduleLoaded(): String? {
+        val term0 = cachedTermCode()
+        val coursesCached = term0 != null && (
+            ScheduleCache.readOptimizedCourses(dataCache, gson, term0, Long.MAX_VALUE)
+                ?: ScheduleCache.readRawCourses(dataCache, gson, term0, Long.MAX_VALUE)) != null
+        if (coursesCached && term0 != null && cachedStartDate(term0) != null) return null
+
+        if (loginState.jwxtLogin == null && !tryAutoLogin(LoginType.JWXT))
+            return "课表未缓存，且当前无法登录教务系统（可能在校外或网络异常）。请联网后重试。"
+        val login = loginState.jwxtLogin ?: return "登录未就绪，请稍后再试。"
+        return try {
+            val api = ScheduleApi(login)
+            val term = term0 ?: api.getCurrentTerm()
+            if (term0 == null) dataCache.put("schedule_term_list", gson.toJson(listOf(term)))
+            if ((ScheduleCache.readOptimizedCourses(dataCache, gson, term, Long.MAX_VALUE)
+                    ?: ScheduleCache.readRawCourses(dataCache, gson, term, Long.MAX_VALUE)) == null) {
+                ScheduleCache.writeOptimizedCourses(dataCache, gson, term, api.getSchedule(term))
+            }
+            if (cachedStartDate(term) == null) {
+                dataCache.put("start_date_$term", gson.toJson(api.getStartOfTerm(term).toString()))
+            }
+            null
+        } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
+            throw e
+        } catch (e: Exception) {
+            "在线获取课表失败：${e.message ?: "网络异常"}"
+        }
+    }
+
+    private suspend fun getSchedule(dateStr: String?): String {
+        ensureScheduleLoaded()?.let { return it }
+
+        val termCode = cachedTermCode() ?: return "课表数据异常，请稍后重试。"
 
         val courses = ScheduleCache.readOptimizedCourses(dataCache, gson, termCode, Long.MAX_VALUE)
             ?: ScheduleCache.readRawCourses(dataCache, gson, termCode, Long.MAX_VALUE)
-            ?: return "课表未加载，请先打开课表页面同步数据。"
+            ?: return "课表数据异常，请稍后重试。"
 
         val startDate = runCatching {
-            gson.fromJson(dataCache.get("start_date_$termCode", Long.MAX_VALUE), String::class.java)
-                ?.let { LocalDate.parse(it) }
-        }.getOrNull() ?: return "学期起始日期未知，请先打开课表页面。"
+            cachedStartDate(termCode)?.let { LocalDate.parse(it) }
+        }.getOrNull() ?: return "学期起始日期未知，请稍后重试。"
 
         val dayNames = listOf("", "周一", "周二", "周三", "周四", "周五", "周六", "周日")
 
@@ -464,6 +530,172 @@ class AgentToolRegistry(
             throw e
         } catch (e: Exception) {
             staleOr("agent_card", "获取校园卡余额失败：${e.message ?: "网络异常"}")
+        }
+    }
+
+    private suspend fun getCardTransactions(days: Int): String {
+        if (loginState.campusCardLogin == null && !tryAutoLogin(LoginType.CAMPUS_CARD))
+            return "需要校园卡系统登录，请先打开校园卡功能完成认证。"
+        val login = loginState.campusCardLogin ?: return "登录未就绪，请稍后再试。"
+        val d = days.coerceIn(1, 30)
+        return try {
+            val (_, txs) = CampusCardApi(login).getTransactions(
+                startDate = LocalDate.now().minusDays(d.toLong()),
+                endDate = LocalDate.now()
+            )
+            if (txs.isEmpty()) return "最近${d}天无校园卡消费记录。"
+            val text = buildString {
+                append("校园卡最近${d}天流水（${txs.size}笔）：\n")
+                txs.take(25).forEach { t ->
+                    append("• ${t.time} ${t.merchant} ${"%+.2f".format(t.amount)}元，余额${"%.2f".format(t.balance)}\n")
+                }
+                if (txs.size > 25) append("…还有${txs.size - 25}笔\n")
+            }
+            dataCache.put("agent_card_tx", text)
+            text
+        } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
+            throw e
+        } catch (e: Exception) {
+            staleOr("agent_card_tx", "获取校园卡流水失败：${e.message ?: "网络异常"}")
+        }
+    }
+
+    private suspend fun getNotifications(limit: Int): String {
+        return try {
+            val list = com.xjtu.toolbox.notification.NotificationApi()
+                .getAllNotifications(1)
+                .sortedByDescending { it.date }
+                .take(limit.coerceIn(1, 20))
+            if (list.isEmpty()) return "暂无通知。"
+            val text = buildString {
+                append("校内最新通知（${list.size}条）：\n")
+                list.forEach { n ->
+                    append("• [${n.source.displayName}] ${n.title}（${n.date}）\n${n.link}\n")
+                }
+            }
+            dataCache.put("agent_notifications", text)
+            text
+        } catch (e: Exception) {
+            staleOr("agent_notifications", "获取通知失败：${e.message ?: "网络异常"}")
+        }
+    }
+
+    // ── 联网搜索/网页阅读（无需登录） ─────────────────────────────────────
+
+    private val webClient by lazy {
+        okhttp3.OkHttpClient.Builder()
+            .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .followRedirects(true)
+            .build()
+    }
+    private val webUa =
+        "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
+
+    private fun decodeDdgLink(href: String): String {
+        Regex("uddg=([^&]+)").find(href)?.let {
+            return runCatching { java.net.URLDecoder.decode(it.groupValues[1], "UTF-8") }.getOrDefault(href)
+        }
+        return if (href.startsWith("//")) "https:$href" else href
+    }
+
+    private fun webSearch(query: String, limit: Int): String {
+        if (query.isBlank()) return "搜索词为空。"
+        return try {
+            val url = "https://html.duckduckgo.com/html/?q=" +
+                java.net.URLEncoder.encode(query, "UTF-8")
+            val resp = webClient.newCall(
+                okhttp3.Request.Builder().url(url).header("User-Agent", webUa).get().build()
+            ).execute()
+            val body = resp.body?.string() ?: return "搜索失败：空响应。"
+            val doc = org.jsoup.Jsoup.parse(body)
+            val results = doc.select("div.result").asSequence()
+                .mapNotNull { el ->
+                    val a = el.selectFirst("a.result__a") ?: return@mapNotNull null
+                    val title = a.text().ifBlank { return@mapNotNull null }
+                    val link = decodeDdgLink(a.attr("href"))
+                    val snippet = el.selectFirst(".result__snippet")?.text().orEmpty()
+                    Triple(title, link, snippet)
+                }
+                .take(limit.coerceIn(1, 8))
+                .toList()
+            if (results.isEmpty()) return "未搜到「$query」的结果。"
+            buildString {
+                append("搜索「$query」结果：\n")
+                results.forEachIndexed { i, (t, l, s) ->
+                    append("${i + 1}. $t\n$l\n")
+                    if (s.isNotBlank()) append("${s.take(140)}\n")
+                }
+                append("\n如需详情可用 web_fetch 抓取对应链接。")
+            }
+        } catch (e: Exception) {
+            "搜索失败：${e.message ?: "网络异常"}"
+        }
+    }
+
+    private suspend fun getLibraryBooking(): String {
+        if (loginState.libraryLogin == null && !tryAutoLogin(LoginType.LIBRARY))
+            return "需要图书馆系统登录，请先打开图书馆功能完成认证。"
+        val login = loginState.libraryLogin ?: return "登录未就绪，请稍后再试。"
+        return try {
+            val b = com.xjtu.toolbox.library.LibraryApi(login).getMyBooking()
+                ?: return "你当前没有图书馆座位预约。"
+            buildString {
+                append("当前图书馆预约：座位 ${b.seatId ?: "?"}")
+                b.area?.let { append("，$it") }
+                b.statusText?.let { append("，状态：$it") }
+            }
+        } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
+            throw e
+        } catch (e: Exception) {
+            "获取图书馆预约失败：${e.message ?: "网络异常"}"
+        }
+    }
+
+    private suspend fun getLibrarySeats(area: String?): String {
+        if (loginState.libraryLogin == null && !tryAutoLogin(LoginType.LIBRARY))
+            return "需要图书馆系统登录，请先打开图书馆功能完成认证。"
+        val login = loginState.libraryLogin ?: return "登录未就绪，请稍后再试。"
+        val areaMap = com.xjtu.toolbox.library.LibraryApi.AREA_MAP
+        if (area.isNullOrBlank()) {
+            return "可查询的图书馆区域：\n" + areaMap.keys.joinToString("、")
+        }
+        val entry = areaMap.entries.firstOrNull {
+            it.key == area || it.key.contains(area) || area.contains(it.key)
+        } ?: return "未找到区域「$area」。可选：${areaMap.keys.joinToString("、")}"
+        return try {
+            when (val r = com.xjtu.toolbox.library.LibraryApi(login).getSeats(entry.value)) {
+                is com.xjtu.toolbox.library.SeatResult.Success -> {
+                    val free = r.seats.count { it.available }
+                    "${entry.key}：空闲 $free / 共 ${r.seats.size} 座"
+                }
+                is com.xjtu.toolbox.library.SeatResult.AuthError ->
+                    "图书馆登录失效，请重新进入图书馆页面。"
+                is com.xjtu.toolbox.library.SeatResult.Error -> "查询失败：${r.message}"
+            }
+        } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
+            throw e
+        } catch (e: Exception) {
+            "查询图书馆座位失败：${e.message ?: "网络异常"}"
+        }
+    }
+
+    private fun webFetch(url: String): String {
+        if (!url.startsWith("http")) return "URL 无效，需以 http/https 开头。"
+        return try {
+            val resp = webClient.newCall(
+                okhttp3.Request.Builder().url(url).header("User-Agent", webUa).get().build()
+            ).execute()
+            if (!resp.isSuccessful) return "抓取失败：HTTP ${resp.code}"
+            val html = resp.body?.string() ?: return "抓取失败：空响应。"
+            val doc = org.jsoup.Jsoup.parse(html)
+            doc.select("script, style, nav, header, footer, noscript, form").remove()
+            val title = doc.title()
+            val text = (doc.selectFirst("article") ?: doc.body() ?: doc).text()
+            val trimmed = if (text.length > 3000) text.take(3000) + "…（正文过长已截断）" else text
+            if (trimmed.isBlank()) "页面无可提取正文。" else "【$title】\n$trimmed"
+        } catch (e: Exception) {
+            "抓取失败：${e.message ?: "网络异常"}"
         }
     }
 }

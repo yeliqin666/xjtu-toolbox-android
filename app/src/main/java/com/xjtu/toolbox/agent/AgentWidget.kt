@@ -1,8 +1,10 @@
 package com.xjtu.toolbox.agent
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -68,29 +70,40 @@ fun AgentWidgetView(widget: AgentWidget, modifier: Modifier = Modifier) {
 @Composable
 private fun WidgetCard(
     title: String,
+    accent: Color,
     subtitle: String? = null,
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
 ) {
     Card(
         modifier = modifier.fillMaxWidth(),
-        cornerRadius = 14.dp,
+        cornerRadius = 16.dp,
         colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
     ) {
-        Column(Modifier.fillMaxWidth().padding(14.dp)) {
+        Column(Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.size(width = 4.dp, height = 15.dp)
+                        .background(accent, RoundedCornerShape(2.dp))
+                )
+                Spacer(Modifier.width(8.dp))
                 Text(
                     title,
-                    style = MiuixTheme.textStyles.body2,
+                    style = MiuixTheme.textStyles.body1,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f)
                 )
                 subtitle?.let {
-                    Text(it, style = MiuixTheme.textStyles.footnote1,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                    Surface(shape = RoundedCornerShape(8.dp), color = accent.copy(alpha = 0.12f)) {
+                        Text(it, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            style = MiuixTheme.textStyles.footnote1, color = accent,
+                            fontWeight = FontWeight.Medium)
+                    }
                 }
             }
             Spacer(Modifier.height(8.dp))
+            HorizontalDivider(color = MiuixTheme.colorScheme.outline.copy(alpha = 0.10f))
+            Spacer(Modifier.height(6.dp))
             content()
         }
     }
@@ -126,7 +139,7 @@ private fun WidgetRow(primary: String, secondary: String?, trailing: String? = n
 private fun ScheduleWidgetView(w: ScheduleWidget, modifier: Modifier) {
     val byDay = w.courses.sortedWith(compareBy({ it.dayOfWeek }, { it.startSection }))
         .groupBy { it.dayOfWeek }
-    WidgetCard(title = w.title, subtitle = "${w.courses.size} 节", modifier = modifier) {
+    WidgetCard(title = w.title, accent = MiuixTheme.colorScheme.primary, subtitle = "${w.courses.size} 节", modifier = modifier) {
         if (w.courses.isEmpty()) {
             Text("没有课", style = MiuixTheme.textStyles.body2,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
@@ -156,7 +169,7 @@ private fun ScheduleWidgetView(w: ScheduleWidget, modifier: Modifier) {
 
 @Composable
 private fun ExamWidgetView(w: ExamWidget, modifier: Modifier) {
-    WidgetCard(title = "考试安排", subtitle = "${w.exams.size} 场", modifier = modifier) {
+    WidgetCard(title = "考试安排", accent = MiuixTheme.colorScheme.primaryVariant, subtitle = "${w.exams.size} 场", modifier = modifier) {
         w.exams.take(12).forEach { e ->
             WidgetRow(
                 primary = e.courseName,
@@ -170,7 +183,7 @@ private fun ExamWidgetView(w: ExamWidget, modifier: Modifier) {
 @Composable
 private fun RoomWidgetView(w: RoomWidget, modifier: Modifier) {
     val shown = w.rooms.take(12)
-    WidgetCard(title = "空闲教室", subtitle = w.condition, modifier = modifier) {
+    WidgetCard(title = "空闲教室", accent = MiuixTheme.colorScheme.secondary, subtitle = w.condition, modifier = modifier) {
         shown.forEach { r ->
             val freeSlots = r.status.mapIndexedNotNull { i, s -> if (s == 0) i + 1 else null }
             val nowFree = w.currentPeriod in r.status.indices && r.status[w.currentPeriod] == 0
@@ -197,7 +210,7 @@ private fun RoomWidgetView(w: RoomWidget, modifier: Modifier) {
 
 @Composable
 private fun AttendanceWidgetView(w: AttendanceWidget, modifier: Modifier) {
-    WidgetCard(title = "考勤记录", subtitle = "${w.records.size} 条", modifier = modifier) {
+    WidgetCard(title = "考勤记录", accent = MiuixTheme.colorScheme.primary, subtitle = "${w.records.size} 条", modifier = modifier) {
         w.records.forEach { r ->
             val color = when (r.status) {
                 WaterType.NORMAL -> MiuixTheme.colorScheme.primary
@@ -226,6 +239,7 @@ private fun AttendanceWidgetView(w: AttendanceWidget, modifier: Modifier) {
 private fun GradeWidgetView(w: GradeWidget, modifier: Modifier) {
     WidgetCard(
         title = "成绩",
+        accent = MiuixTheme.colorScheme.primaryVariant,
         subtitle = w.gpa?.let { "GPA %.2f".format(it) },
         modifier = modifier
     ) {
@@ -265,7 +279,7 @@ private fun GradeWidgetView(w: GradeWidget, modifier: Modifier) {
 @Composable
 private fun CardWidgetView(w: CardWidget, modifier: Modifier) {
     val info = w.info
-    WidgetCard(title = "校园卡", subtitle = info.cardType.ifBlank { null }, modifier = modifier) {
+    WidgetCard(title = "校园卡", accent = MiuixTheme.colorScheme.primary, subtitle = info.cardType.ifBlank { null }, modifier = modifier) {
         Row(verticalAlignment = Alignment.Bottom) {
             Text("¥%.2f".format(info.balance), style = MiuixTheme.textStyles.headline1,
                 fontWeight = FontWeight.Bold, color = MiuixTheme.colorScheme.primary)

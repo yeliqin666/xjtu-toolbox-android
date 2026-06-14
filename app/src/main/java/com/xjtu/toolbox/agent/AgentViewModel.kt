@@ -175,12 +175,20 @@ class AgentViewModel : ViewModel() {
                     onToolCall = { name ->
                         calledTools.add(name)
                         val label = when (name) {
-                            "get_current_time"   -> "获取当前时间…"
-                            "get_schedule"       -> "查询课表…"
-                            "get_exam_schedule"  -> "查询考试安排…"
-                            "get_empty_rooms"    -> "查询空教室…"
-                            "get_attendance"     -> "查询考勤记录…"
-                            else                 -> "调用工具 $name…"
+                            "get_current_time"      -> "获取当前时间…"
+                            "get_schedule"          -> "查询课表…"
+                            "get_exam_schedule"     -> "查询考试安排…"
+                            "get_empty_rooms"       -> "查询空教室…"
+                            "get_attendance"        -> "查询考勤记录…"
+                            "get_grades"            -> "查询成绩…"
+                            "get_card_balance"      -> "查询校园卡余额…"
+                            "get_card_transactions" -> "查询校园卡流水…"
+                            "get_notifications"     -> "查询通知公告…"
+                            "web_search"            -> "联网搜索…"
+                            "web_fetch"             -> "阅读网页…"
+                            "get_library_booking"   -> "查询图书馆预约…"
+                            "get_library_seats"     -> "查询图书馆座位…"
+                            else                    -> "调用工具 $name…"
                         }
                         if (toolBubbleIndex < 0) {
                             messages.add(ChatMessage("tool_event", label, isToolCall = true))
@@ -206,7 +214,9 @@ class AgentViewModel : ViewModel() {
                         "get_empty_rooms"                   -> "空闲教室"   to "empty_room"
                         "get_attendance"                    -> "查看考勤"   to attendanceRoute
                         "get_grades"                        -> "成绩查询"   to "jwapp_score"
-                        "get_card_balance"                  -> "校园卡"     to "campus_card"
+                        "get_card_balance", "get_card_transactions" -> "校园卡" to "campus_card"
+                        "get_notifications"                 -> "通知公告"   to "notification"
+                        "get_library_booking", "get_library_seats" -> "图书馆" to "library"
                         else                                -> null
                     }
                 }.distinctBy { it.second }

@@ -18,42 +18,74 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
- * 轻量 Markdown 渲染——覆盖 LLM 回复里最常见的语法，无需引入第三方库：
- * 标题(#~######)、无序/有序列表、代码块(```)、行内 **粗体** / *斜体* / `代码` / [文字](链接)。
- * 不追求 CommonMark 完整性；复杂排版降级为普通文本即可。
+ * 轻量 Markdown 渲染器（无第三方依赖，按主流实现自写）。覆盖 LLM 回复常见语法：
+ * 标题 #~######、**粗** *斜* ***粗斜*** ~~删除~~ `行内码` [链接](url)、
+ * 代码块 ```、引用 >、有序/无序列表（含缩进嵌套）、分隔线 ---。
  */
 @Composable
 fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier) {
     val blocks = remember(text) { parseBlocks(text) }
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+    val linkColor = MiuixTheme.colorScheme.primary
+    val codeBg = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+    val quoteColor = MiuixTheme.colorScheme.onSurfaceVariantSummary
+
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         blocks.forEach { block ->
             when (block) {
                 is MdBlock.Heading -> Text(
-                    parseInline(block.text),
+                    inline(block.text, linkColor, codeBg),
                     color = color,
                     fontWeight = FontWeight.Bold,
                     style = when (block.level) {
                         1 -> MiuixTheme.textStyles.title2
-                        2 -> MiuixTheme.textStyles.subtitle
+                        2 -> MiuixTheme.textStyles.title3
+                        3 -> MiuixTheme.textStyles.subtitle
                         else -> MiuixTheme.textStyles.body1
                     }
                 )
-                is MdBlock.Bullet -> Row {
-                    Text("•  ", color = color, style = MiuixTheme.textStyles.body1)
-                    Text(parseInline(block.text), color = color, style = MiuixTheme.textStyles.body1,
-                        modifier = Modifier.weight(1f))
+                is MdBlock.Bullet -> ListRow(block.indent, "•") {
+                    Text(inline(block.text, linkColor, codeBg), color = color,
+                        style = MiuixTheme.textStyles.body1, modifier = Modifier.weight(1f))
                 }
-                is MdBlock.Numbered -> Row {
-                    Text("${block.num}. ", color = color, style = MiuixTheme.textStyles.body1)
-                    Text(parseInline(block.text), color = color, style = MiuixTheme.textStyles.body1,
-                        modifier = Modifier.weight(1f))
+                is MdBlock.Task -> ListRow(block.indent, if (block.checked) "☑" else "☐") {
+                    Text(
+                        inline(block.text, linkColor, codeBg),
+                        color = if (block.checked) MiuixTheme.colorScheme.onSurfaceVariantSummary else color,
+                        style = MiuixTheme.textStyles.body1,
+                        textDecoration = if (block.checked) TextDecoration.LineThrough else null,
+                        modifier = Modifier.weight(1f)
+                    )
                 }
-                is MdBlock.Code -> Surface_CodeBlock(block.text)
-                is MdBlock.Para -> Text(parseInline(block.text), color = color,
+                is MdBlock.Numbered -> ListRow(block.indent, "${block.num}.") {
+                    Text(inline(block.text, linkColor, codeBg), color = color,
+                        style = MiuixTheme.textStyles.body1, modifier = Modifier.weight(1f))
+                }
+                is MdBlock.Quote -> Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+                    Box(Modifier.width(3.dp).fillMaxHeight()
+                        .background(quoteColor.copy(alpha = 0.5f), RoundedCornerShape(2.dp)))
+                    Spacer(Modifier.width(8.dp))
+                    Text(inline(block.text, linkColor, codeBg), color = quoteColor,
+                        style = MiuixTheme.textStyles.body2)
+                }
+                is MdBlock.Code -> Box(
+                    Modifier.fillMaxWidth()
+                        .background(codeBg, RoundedCornerShape(8.dp))
+                        .horizontalScroll(rememberScrollState())
+                        .padding(10.dp)
+                ) {
+                    Text(block.text, color = color, style = MiuixTheme.textStyles.footnote1,
+                        fontFamily = FontFamily.Monospace)
+                }
+                MdBlock.Rule -> HorizontalDivider(
+                    Modifier.padding(vertical = 4.dp),
+                    color = quoteColor.copy(alpha = 0.25f)
+                )
+                is MdBlock.Para -> Text(inline(block.text, linkColor, codeBg), color = color,
                     style = MiuixTheme.textStyles.body1)
             }
         }
@@ -61,30 +93,30 @@ fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun Surface_CodeBlock(code: String) {
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .background(MiuixTheme.colorScheme.surface, RoundedCornerShape(8.dp))
-            .horizontalScroll(rememberScrollState())
-            .padding(10.dp)
-    ) {
-        Text(code, color = MiuixTheme.colorScheme.onSurface,
-            style = MiuixTheme.textStyles.footnote1, fontFamily = FontFamily.Monospace)
+private fun ListRow(indent: Int, marker: String, content: @Composable RowScope.() -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(start = (indent.coerceIn(0, 4) * 16).dp)) {
+        Text("$marker ", style = MiuixTheme.textStyles.body1,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        content()
     }
 }
 
 private sealed interface MdBlock {
     data class Heading(val level: Int, val text: String) : MdBlock
-    data class Bullet(val text: String) : MdBlock
-    data class Numbered(val num: Int, val text: String) : MdBlock
+    data class Bullet(val text: String, val indent: Int) : MdBlock
+    data class Task(val checked: Boolean, val text: String, val indent: Int) : MdBlock
+    data class Numbered(val num: Int, val text: String, val indent: Int) : MdBlock
+    data class Quote(val text: String) : MdBlock
     data class Code(val text: String) : MdBlock
+    data object Rule : MdBlock
     data class Para(val text: String) : MdBlock
 }
 
 private val headingRe = Regex("""^(#{1,6})\s+(.*)""")
 private val bulletRe = Regex("""^[-*+]\s+(.*)""")
-private val numberedRe = Regex("""^(\d+)\.\s+(.*)""")
+private val numberedRe = Regex("""^(\d+)[.)]\s+(.*)""")
+private val ruleRe = Regex("""^(-{3,}|\*{3,}|_{3,})$""")
+private val taskRe = Regex("""^\[([ xX])]\s+(.*)""")
 
 private fun parseBlocks(text: String): List<MdBlock> {
     val out = ArrayList<MdBlock>()
@@ -93,6 +125,7 @@ private fun parseBlocks(text: String): List<MdBlock> {
     while (i < lines.size) {
         val raw = lines[i]
         val line = raw.trimStart()
+        val indent = (raw.length - line.length) / 2
         when {
             line.startsWith("```") -> {
                 val sb = StringBuilder()
@@ -102,40 +135,59 @@ private fun parseBlocks(text: String): List<MdBlock> {
                 }
                 out.add(MdBlock.Code(sb.toString().trimEnd('\n')))
             }
+            ruleRe.matches(line) -> out.add(MdBlock.Rule)
             headingRe.matches(line) -> {
                 val m = headingRe.find(line)!!
                 out.add(MdBlock.Heading(m.groupValues[1].length, m.groupValues[2]))
             }
-            bulletRe.matches(line) -> out.add(MdBlock.Bullet(bulletRe.find(line)!!.groupValues[1]))
+            line.startsWith(">") -> out.add(MdBlock.Quote(line.removePrefix(">").trim()))
+            bulletRe.matches(line) -> {
+                val t = bulletRe.find(line)!!.groupValues[1]
+                val task = taskRe.find(t)
+                if (task != null)
+                    out.add(MdBlock.Task(task.groupValues[1].equals("x", true), task.groupValues[2], indent))
+                else out.add(MdBlock.Bullet(t, indent))
+            }
             numberedRe.matches(line) -> {
                 val m = numberedRe.find(line)!!
-                out.add(MdBlock.Numbered(m.groupValues[1].toIntOrNull() ?: 1, m.groupValues[2]))
+                out.add(MdBlock.Numbered(m.groupValues[1].toIntOrNull() ?: 1, m.groupValues[2], indent))
             }
-            line.isBlank() -> { /* 段间空行，由 spacedBy 体现 */ }
-            else -> out.add(MdBlock.Para(raw))
+            line.isBlank() -> { /* 段间空行由 spacedBy 体现 */ }
+            else -> out.add(MdBlock.Para(raw.trim()))
         }
         i++
     }
     return out
 }
 
-// **粗体** | `代码` | *斜体* | [文字](链接)，非嵌套；足够覆盖 LLM 输出。
-private val inlineRe = Regex("""\*\*([^*]+)\*\*|`([^`]+)`|\*([^*]+)\*|\[([^\]]+)]\(([^)]+)\)""")
+// 顺序即优先级：图片 | ***粗斜*** | **粗** | ~~删除~~ | `码` | *斜* | _斜_ | [文字](链接)
+private val inlineRe = Regex(
+    """!\[([^\]]*)]\(([^)]+)\)""" +          // 1 img-alt, 2 img-url
+        """|\*\*\*(.+?)\*\*\*""" +           // 3 bold-italic
+        """|\*\*(.+?)\*\*""" +               // 4 bold
+        """|~~(.+?)~~""" +                   // 5 strike
+        """|`([^`]+)`""" +                   // 6 code
+        """|\*(.+?)\*""" +                   // 7 italic
+        """|_(.+?)_""" +                     // 8 italic
+        """|\[([^\]]+)]\(([^)]+)\)"""        // 9 link-text, 10 link-url
+)
 
-private fun parseInline(s: String): AnnotatedString = buildAnnotatedString {
+private fun inline(s: String, linkColor: Color, codeBg: Color): AnnotatedString = buildAnnotatedString {
     var last = 0
     for (m in inlineRe.findAll(s)) {
         if (m.range.first > last) append(s.substring(last, m.range.first))
-        val (bold, code, italic, linkText) = listOf(
-            m.groupValues[1], m.groupValues[2], m.groupValues[3], m.groupValues[4]
-        )
+        val g = m.groupValues
         when {
-            bold.isNotEmpty() -> withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(bold) }
-            code.isNotEmpty() -> withStyle(SpanStyle(fontFamily = FontFamily.Monospace)) { append(code) }
-            italic.isNotEmpty() -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(italic) }
-            linkText.isNotEmpty() -> withStyle(
-                SpanStyle(textDecoration = TextDecoration.Underline)
-            ) { append(linkText) }
+            g[2].isNotEmpty() -> withStyle(SpanStyle(color = linkColor)) {
+                append("🖼 ${g[1].ifBlank { "图片" }}")
+            }
+            g[3].isNotEmpty() -> withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic)) { append(g[3]) }
+            g[4].isNotEmpty() -> withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(g[4]) }
+            g[5].isNotEmpty() -> withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) { append(g[5]) }
+            g[6].isNotEmpty() -> withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = codeBg)) { append(" ${g[6]} ") }
+            g[7].isNotEmpty() -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(g[7]) }
+            g[8].isNotEmpty() -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(g[8]) }
+            g[9].isNotEmpty() -> withStyle(SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline)) { append(g[9]) }
         }
         last = m.range.last + 1
     }
