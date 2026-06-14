@@ -45,6 +45,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
@@ -102,7 +103,8 @@ fun JwappScoreScreen(
     login: JwappLogin?,
     jwxtLogin: JwxtLogin? = null,
     studentId: String = "",
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onOpenReport: () -> Unit = {}
 ) {
     val appLoginState = LocalAppLoginState.current
     val api = remember(login) { login?.let { JwappApi(it) } }
@@ -415,6 +417,10 @@ fun JwappScoreScreen(
                     }
                 },
                 actions = {
+                    // 成绩报表（FR 报表，含加权 GPA）——此前无入口，补回右上角
+                    IconButton(onClick = onOpenReport) {
+                        Icon(Icons.Default.Assessment, contentDescription = "成绩报表")
+                    }
                     // GPA 映射表
                     IconButton(onClick = { showGpaTips.value = true }) {
                         Icon(Icons.Default.Info, contentDescription = "GPA 映射")

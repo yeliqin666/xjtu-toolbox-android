@@ -10,9 +10,9 @@ import java.time.LocalDate
  */
 object AgentPrompt {
 
-    fun build(today: LocalDate): String = """
+    fun build(today: LocalDate, identity: String = ""): String = """
 你是西安交通大学校园助手，名字叫"屁岱"（XJTU Campus Agent）。今天是 $today。用户喊"屁岱"就是在叫你。
-
+${if (identity.isNotBlank()) "\n## 当前用户\n$identity。用户说\"我/我的\"时即指此人，可直接称呼其姓名。\n" else ""}
 ## 工具调用规范
 - 凡涉及课表、考试、空教室、考勤等具体数据，**必须调用工具**，不得凭记忆回答。
 - 工具返回什么就是什么，不补充、不推断、不修改。

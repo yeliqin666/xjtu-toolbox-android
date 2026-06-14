@@ -25,6 +25,13 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "3.8.5" to VersionChangelog(
+            items = listOf(
+                "📝" to "助手回复支持 Markdown 渲染（标题、加粗、列表、代码等）",
+                "⌨️" to "修复聊天输入框弹出键盘时被顶飞，改为贴合键盘",
+                "📊" to "成绩页右上角补回「成绩报表」入口；助手也知道你的姓名与院系",
+            )
+        ),
         "3.8.4" to VersionChangelog(
             items = listOf(
                 "💬" to "校园助手「屁岱」支持多会话：左侧抽屉管理历史对话，可新建、切换、改名、删除，自动保存",

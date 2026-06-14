@@ -52,6 +52,20 @@ class AgentToolRegistry(
     /** 取走并清空本轮收集的控件。 */
     fun drainWidgets(): List<AgentWidget> = pendingWidgets.toList().also { pendingWidgets.clear() }
 
+    /**
+     * 从缓存读取用户身份（姓名 / 学号 / 院系），注入 system prompt，让 Agent 知道「我」是谁。
+     * 姓名与院系取自校园卡快照缓存（用户打开过校园卡即有）；学号兜底用当前登录账号。
+     */
+    fun userIdentity(): String {
+        val card = runCatching { com.xjtu.toolbox.card.CampusCardCache.load(context)?.cardInfo }.getOrNull()
+        val parts = mutableListOf<String>()
+        card?.name?.takeIf { it.isNotBlank() }?.let { parts.add("姓名$it") }
+        (card?.studentNo?.takeIf { it.isNotBlank() } ?: loginState.activeUsername.takeIf { it.isNotBlank() })
+            ?.let { parts.add("学号$it") }
+        card?.department?.takeIf { it.isNotBlank() }?.let { parts.add("院系$it") }
+        return parts.joinToString("，")
+    }
+
     /** 把毫秒年龄转成人话，供回退缓存时如实标注新鲜度。 */
     private fun humanAge(ms: Long): String = when {
         ms < 60_000L      -> "刚刚"

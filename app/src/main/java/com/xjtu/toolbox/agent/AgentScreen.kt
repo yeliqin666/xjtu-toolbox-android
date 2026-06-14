@@ -454,10 +454,10 @@ private fun MessageBubble(msg: ChatMessage, onNavigate: (String) -> Unit) {
                     cornerRadius = 4.dp,
                     colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)
                 ) {
-                    Text(
-                        msg.content,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                        style = MiuixTheme.textStyles.body1
+                    MarkdownText(
+                        text = msg.content,
+                        color = MiuixTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
                     )
                 }
                 // 富控件（课表卡 / 成绩卡 / 空教室卡…），由工具结果直接渲染

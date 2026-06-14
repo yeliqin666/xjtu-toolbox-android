@@ -1923,7 +1923,17 @@ fun AppNavigation(
             }
         }
         composable(Routes.JWAPP_SCORE) {
-            JwappScoreScreen(login = loginState.jwappLogin, jwxtLogin = loginState.jwxtLogin, studentId = loginState.activeUsername, onBack = { navController.popBackStack() })
+            JwappScoreScreen(
+                login = loginState.jwappLogin,
+                jwxtLogin = loginState.jwxtLogin,
+                studentId = loginState.activeUsername,
+                onBack = { navController.popBackStack() },
+                onOpenReport = {
+                    // 成绩报表需 JWXT 登录：已登录直接进，否则走 JWXT 登录后再跳报表
+                    if (loginState.jwxtLogin != null) navController.navigate(Routes.SCORE_REPORT)
+                    else navController.navigate(Routes.login(LoginType.JWXT, Routes.SCORE_REPORT))
+                }
+            )
         }
         composable(Routes.JUDGE) {
             loginState.jwxtLogin?.let { JudgeScreen(login = it, username = loginState.activeUsername, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }

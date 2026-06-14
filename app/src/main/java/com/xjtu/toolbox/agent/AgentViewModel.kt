@@ -156,7 +156,7 @@ class AgentViewModel : ViewModel() {
                 if (!systemPromptAdded) {
                     llmHistory.add(JsonObject().apply {
                         addProperty("role", "system")
-                        addProperty("content", AgentPrompt.build(LocalDate.now()))
+                        addProperty("content", AgentPrompt.build(LocalDate.now(), registry.userIdentity()))
                     })
                     systemPromptAdded = true
                 }
@@ -205,7 +205,7 @@ class AgentViewModel : ViewModel() {
                         "get_schedule", "get_exam_schedule" -> "查看课表"   to "schedule"
                         "get_empty_rooms"                   -> "空闲教室"   to "empty_room"
                         "get_attendance"                    -> "查看考勤"   to attendanceRoute
-                        "get_grades"                        -> "成绩单"     to "score_report"
+                        "get_grades"                        -> "成绩查询"   to "jwapp_score"
                         "get_card_balance"                  -> "校园卡"     to "campus_card"
                         else                                -> null
                     }
