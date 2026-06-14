@@ -176,6 +176,10 @@ class MainActivity : ComponentActivity() {
         }
         // 启动循环（内部会读 KeepAlivePrefs.isEnabled，未开启则直接跳过）
         com.xjtu.toolbox.auth.SessionKeepAlive.start(this)
+        // Agent 改深色模式时即时刷新主题（CredentialStore 写 pref 不会触发重组）
+        com.xjtu.toolbox.agent.AgentRuntimeHooks.applyDarkMode = { mode ->
+            darkModeOverrideState.value = mode
+        }
         setContent {
             XJTUToolBoxTheme(darkModeOverride = darkModeOverrideState.value) {
                 AppNavigation(

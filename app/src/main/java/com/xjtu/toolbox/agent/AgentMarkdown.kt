@@ -10,8 +10,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -28,7 +31,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * 代码块 ```、引用 >、有序/无序列表（含缩进嵌套）、分隔线 ---。
  */
 @Composable
-fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier) {
+fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier, onLink: (String) -> Unit = {}) {
     val blocks = remember(text) { parseBlocks(text) }
     val linkColor = MiuixTheme.colorScheme.primary
     val codeBg = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f)
@@ -38,7 +41,7 @@ fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier) {
         blocks.forEach { block ->
             when (block) {
                 is MdBlock.Heading -> Text(
-                    inline(block.text, linkColor, codeBg),
+                    inline(block.text, linkColor, codeBg, onLink),
                     color = color,
                     fontWeight = FontWeight.Bold,
                     style = when (block.level) {
@@ -49,12 +52,12 @@ fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier) {
                     }
                 )
                 is MdBlock.Bullet -> ListRow(block.indent, "•") {
-                    Text(inline(block.text, linkColor, codeBg), color = color,
+                    Text(inline(block.text, linkColor, codeBg, onLink), color = color,
                         style = MiuixTheme.textStyles.body1, modifier = Modifier.weight(1f))
                 }
                 is MdBlock.Task -> ListRow(block.indent, if (block.checked) "☑" else "☐") {
                     Text(
-                        inline(block.text, linkColor, codeBg),
+                        inline(block.text, linkColor, codeBg, onLink),
                         color = if (block.checked) MiuixTheme.colorScheme.onSurfaceVariantSummary else color,
                         style = MiuixTheme.textStyles.body1,
                         textDecoration = if (block.checked) TextDecoration.LineThrough else null,
@@ -62,14 +65,14 @@ fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier) {
                     )
                 }
                 is MdBlock.Numbered -> ListRow(block.indent, "${block.num}.") {
-                    Text(inline(block.text, linkColor, codeBg), color = color,
+                    Text(inline(block.text, linkColor, codeBg, onLink), color = color,
                         style = MiuixTheme.textStyles.body1, modifier = Modifier.weight(1f))
                 }
                 is MdBlock.Quote -> Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
                     Box(Modifier.width(3.dp).fillMaxHeight()
                         .background(quoteColor.copy(alpha = 0.5f), RoundedCornerShape(2.dp)))
                     Spacer(Modifier.width(8.dp))
-                    Text(inline(block.text, linkColor, codeBg), color = quoteColor,
+                    Text(inline(block.text, linkColor, codeBg, onLink), color = quoteColor,
                         style = MiuixTheme.textStyles.body2)
                 }
                 is MdBlock.Code -> Box(
@@ -93,7 +96,7 @@ fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier) {
                     val cols = block.headers.size.coerceAtLeast(1)
                     Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 5.dp)) {
                         block.headers.forEach { h ->
-                            Text(inline(h, linkColor, codeBg), color = color, fontWeight = FontWeight.Bold,
+                            Text(inline(h, linkColor, codeBg, onLink), color = color, fontWeight = FontWeight.Bold,
                                 style = MiuixTheme.textStyles.footnote1,
                                 modifier = Modifier.weight(1f).padding(horizontal = 4.dp))
                         }
@@ -102,14 +105,14 @@ fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier) {
                     block.rows.forEach { row ->
                         Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp)) {
                             for (ci in 0 until cols) {
-                                Text(inline(row.getOrElse(ci) { "" }, linkColor, codeBg), color = color,
+                                Text(inline(row.getOrElse(ci) { "" }, linkColor, codeBg, onLink), color = color,
                                     style = MiuixTheme.textStyles.footnote1,
                                     modifier = Modifier.weight(1f).padding(horizontal = 4.dp))
                             }
                         }
                     }
                 }
-                is MdBlock.Para -> Text(inline(block.text, linkColor, codeBg), color = color,
+                is MdBlock.Para -> Text(inline(block.text, linkColor, codeBg, onLink), color = color,
                     style = MiuixTheme.textStyles.body1)
             }
         }
@@ -217,7 +220,7 @@ private val inlineRe = Regex(
         """|\[([^\]]+)]\(([^)]+)\)"""        // 9 link-text, 10 link-url
 )
 
-private fun inline(s: String, linkColor: Color, codeBg: Color): AnnotatedString = buildAnnotatedString {
+private fun inline(s: String, linkColor: Color, codeBg: Color, onLink: (String) -> Unit): AnnotatedString = buildAnnotatedString {
     var last = 0
     for (m in inlineRe.findAll(s)) {
         if (m.range.first > last) append(s.substring(last, m.range.first))
@@ -232,7 +235,14 @@ private fun inline(s: String, linkColor: Color, codeBg: Color): AnnotatedString 
             g[6].isNotEmpty() -> withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = codeBg)) { append(" ${g[6]} ") }
             g[7].isNotEmpty() -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(g[7]) }
             g[8].isNotEmpty() -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(g[8]) }
-            g[9].isNotEmpty() -> withStyle(SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline)) { append(g[9]) }
+            g[9].isNotEmpty() -> {
+                val url = g[10]
+                withLink(LinkAnnotation.Clickable(
+                    tag = url,
+                    styles = TextLinkStyles(SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline)),
+                    linkInteractionListener = { onLink(url) }
+                )) { append(g[9]) }
+            }
         }
         last = m.range.last + 1
     }

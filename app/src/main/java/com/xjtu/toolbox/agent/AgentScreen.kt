@@ -23,8 +23,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Menu
@@ -85,12 +87,10 @@ fun AgentScreen(onBack: () -> Unit, onNavigate: (String) -> Unit = {}) {
                         }
                     },
                     actions = {
+                        // 顶栏只留两个按钮：会话列表（含新建/改名/删除）与设置
                         if (!showConfig) {
                             IconButton(onClick = { drawerOpen = true }) {
-                                Icon(Icons.Default.Menu, contentDescription = "会话列表")
-                            }
-                            IconButton(onClick = { vm.clearMessages() }) {
-                                Icon(Icons.Default.Delete, contentDescription = "清空当前对话")
+                                Icon(Icons.AutoMirrored.Filled.List, contentDescription = "会话列表")
                             }
                         }
                         IconButton(onClick = { showConfig = !showConfig }) {
@@ -419,13 +419,33 @@ private fun ThinkingDots() {
 private fun MessageBubble(msg: ChatMessage, onNavigate: (String) -> Unit) {
     when (msg.role) {
         "tool_event" -> {
-            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text(
-                    msg.content,
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.padding(vertical = 2.dp)
-                )
+            Box(Modifier.fillMaxWidth().padding(vertical = 2.dp), contentAlignment = Alignment.Center) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MiuixTheme.colorScheme.surfaceVariant
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        if (msg.isToolCall) {
+                            CircularProgressIndicator(size = 13.dp, strokeWidth = 2.dp)
+                        } else {
+                            Icon(
+                                Icons.Default.Bolt,
+                                contentDescription = null,
+                                modifier = Modifier.size(13.dp),
+                                tint = MiuixTheme.colorScheme.primary
+                            )
+                        }
+                        Text(
+                            msg.content,
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                        )
+                    }
+                }
             }
         }
         "user" -> {
@@ -457,7 +477,10 @@ private fun MessageBubble(msg: ChatMessage, onNavigate: (String) -> Unit) {
                     MarkdownText(
                         text = msg.content,
                         color = MiuixTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        onLink = { url ->
+                            onNavigate("browser?url=" + java.net.URLEncoder.encode(url, "UTF-8"))
+                        }
                     )
                 }
                 // 富控件（课表卡 / 成绩卡 / 空教室卡…），由工具结果直接渲染

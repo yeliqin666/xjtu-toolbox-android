@@ -365,24 +365,34 @@ class LibraryApi(private val login: LibraryLogin) {
      *      否则服务端拒绝（这是换座/取消「无效」的根因，**直连/校外都会发生**）；
      *   2) WebVPN 模式下再 GET `wengine-vpn/cookie?...&path=<page>` 拿 path 级代理 cookie（仅校外需要）。
      */
-    private fun preflight(pagePath: String) {
-        runCatching {
-            val resp = timedClient.newCall(buildRequest("$BASE_URL$pagePath")).execute()
-            val finalUrl = resp.request.url.toString()
-            resp.close()
-            if (com.xjtu.toolbox.util.WebVpnUtil.isWebVpnUrl(finalUrl)) {
-                val cookieUrl = "https://webvpn.xjtu.edu.cn/wengine-vpn/cookie" +
-                    "?method=get&host=rg.lib.xjtu.edu.cn&scheme=http&path=$pagePath" +
-                    "&vpn_timestamp=${System.currentTimeMillis()}"
-                timedClient.newCall(buildRequest(cookieUrl)).execute().use { it.body?.string() }
-            }
-            Log.d(TAG, "preflight ok for $pagePath (webvpn=${com.xjtu.toolbox.util.WebVpnUtil.isWebVpnUrl(finalUrl)})")
+    /** GET 一个页面，并在 WebVPN 模式下补取该 path 的 wengine cookie。 */
+    private fun loadPageWithVpnCookie(path: String) {
+        val resp = timedClient.newCall(buildRequest("$BASE_URL$path")).execute()
+        val finalUrl = resp.request.url.toString()
+        resp.close()
+        if (com.xjtu.toolbox.util.WebVpnUtil.isWebVpnUrl(finalUrl)) {
+            val cookieUrl = "https://webvpn.xjtu.edu.cn/wengine-vpn/cookie" +
+                "?method=get&host=rg.lib.xjtu.edu.cn&scheme=http&path=$path" +
+                "&vpn_timestamp=${System.currentTimeMillis()}"
+            timedClient.newCall(buildRequest(cookieUrl)).execute().use { it.body?.string() }
         }
     }
 
     /**
-     * 直接使用 /updateseat/ 端点换座。
-     * 实际流程：GET /updateseat/(页面) → GET /updateseat/?kid=<seatId>&sp=<areaCode>(Referer=/updateseat/) → 302 → /my/。
+     * 动作前完整复刻浏览器流程（HAR 2026-06-14 实证）：先看 /my/，再进入动作页面 [pagePath]。
+     * 动作请求的 Referer 必须是该页面，否则服务端拒绝——这是换座/取消「无效」的根因，**直连/校外都会发生**。
+     */
+    private fun preflight(pagePath: String) {
+        runCatching {
+            loadPageWithVpnCookie("/my/")
+            if (pagePath != "/my/") loadPageWithVpnCookie(pagePath)
+            Log.d(TAG, "preflight ok for $pagePath")
+        }
+    }
+
+    /**
+     * 换座：复刻浏览器流程 GET /my/ → GET /updateseat/ → GET /updateseat/?kid=&sp=（Referer=/updateseat/）。
+     * **以换座后的实际预约状态判定成功**，不再靠重定向/文案猜测。
      */
     fun swapSeat(seatId: String, areaCode: String): BookResult {
         val url = "$BASE_URL/updateseat/?kid=$seatId&sp=$areaCode"
@@ -392,9 +402,15 @@ class LibraryApi(private val login: LibraryLogin) {
             val (resp, html) = executeWithReAuth(buildRequest(url, referer = "$BASE_URL/updateseat/"))
             resp.close()
             val finalUrl = resp.request.url.toString()
-            val success = "/my/" in finalUrl || "成功换座" in html || "成功" in html
-            if (success) BookResult(true, "✓ 已换座到 $seatId！", finalUrl)
-            else BookResult(false, "换座失败: ${parseBookingFailure(html)}", finalUrl)
+            // 实测：换座后查询「我的预约」，座位号变成目标即真成功
+            val after = runCatching { getMyBooking() }.getOrNull()
+            val booked = after?.seatId
+            val ok = booked != null && (booked.equals(seatId, true) ||
+                booked.contains(seatId, true) || seatId.contains(booked, true))
+            if (ok) BookResult(true, "✓ 已换座到 ${booked}！", finalUrl)
+            else if ("/my/" in finalUrl && booked != null)
+                BookResult(true, "✓ 换座请求已提交，当前预约：$booked", finalUrl)
+            else BookResult(false, "换座未生效${booked?.let { "（当前仍为 $it）" } ?: ""}：${parseBookingFailure(html)}", finalUrl)
         } catch (e: Exception) {
             if (e is com.xjtu.toolbox.auth.AuthExpiredException)
                 BookResult(false, "登录状态已失效，请退出图书馆页面后重新进入")
@@ -729,6 +745,14 @@ class LibraryApi(private val login: LibraryLogin) {
             val doc = Jsoup.parse(html)
             val bodyText = doc.body()?.text() ?: ""
             val msg = doc.select(".alert, .msg, .message, .success, .error").text()
+
+            // 取消预约：以「我的预约是否已消失」为准判定，最可靠
+            if ("cancel" in actionUrl.lowercase()) {
+                val stillBooked = runCatching { getMyBooking() }.getOrNull()?.seatId != null
+                return if (!stillBooked) BookResult(true, msg.ifBlank { "✓ 已取消预约" }, finalUrl)
+                else BookResult(false, "取消未生效：当前仍有预约。${msg}", finalUrl)
+            }
+
             val success = listOf("成功", "success", "已取消", "取消成功").any { it in bodyText.lowercase() }
                     || "/my/" in finalUrl
             return BookResult(success, msg.ifBlank { if (success) "操作成功" else "操作可能未生效" }, finalUrl)

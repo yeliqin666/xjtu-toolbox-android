@@ -230,6 +230,8 @@ class AgentViewModel : ViewModel() {
                             "get_lms_assignments"   -> "汇总作业…"
                             "get_app_settings"      -> "读取设置…"
                             "set_app_setting"       -> "修改设置…"
+                            "calculate"             -> "计算…"
+                            "check_update"          -> "检查更新…"
                             else                    -> "调用工具 $name…"
                         }
                         if (toolBubbleIndex < 0) {

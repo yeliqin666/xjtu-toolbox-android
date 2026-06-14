@@ -189,11 +189,15 @@ class AgentToolRegistry(
         arr.add(tool("get_card_balance",
             "查询校园卡（一卡通）电子钱包余额与状态（挂失/冻结）。需要校园卡系统登录。"))
         arr.add(tool("get_card_transactions",
-            "查询校园卡最近若干天的消费流水（商户、金额、余额）。需要校园卡系统登录。",
-            params("days" to intProp("最近几天，默认7，最多30。"))))
+            "查询校园卡最近若干天的消费流水（商户、金额、余额），并给出支出/收入汇总。需要校园卡系统登录。" +
+                "整月填 days=30；整学期：先用 get_current_time 拿\"开学至今 N 天\"再把 N 填进来，别硬编死天数（学期可能刚开始）。",
+            params("days" to intProp("最近几天，默认7，最多180。"))))
         arr.add(tool("get_notifications",
-            "查询校内最新通知公告（教务处/研究生院/各学院等官网通知），含标题、来源、日期、链接。无需登录。",
-            params("limit" to intProp("返回条数，默认10，最多20。"))))
+            "查询校内最新通知公告，含标题、来源、日期、链接。无需登录。可指定来源（某学院/部门）；不指定则看核心来源（教务处+研究生院+学生处）。",
+            params(
+                "source" to strProp("来源名称，如 教务处/研究生院/机械学院/电气学院/数学学院 等；不填看核心来源。"),
+                "limit" to intProp("返回条数，默认10，最多20。")
+            )))
         arr.add(tool("web_search",
             "联网搜索互联网。用于校历、政策、报名通知、通用知识等本地工具无法回答的问题。返回标题、链接、摘要。",
             params(
@@ -231,6 +235,8 @@ class AgentToolRegistry(
         arr.add(tool("calculate",
             "计算数学表达式（四则运算、括号、幂 ^）。算 GPA、排除课程后重算均分、累加金额等务必用它，别心算以免出错。",
             params("expression" to strProp("表达式，如 (3.7*4+4.0*3)/(4+3) 或 92*0.4+88*0.6。"))))
+        arr.add(tool("check_update",
+            "检查 App 是否有新版本（对比当前版本与发布渠道的最新版）。无需登录。"))
         return arr.toString()
     }
 
@@ -286,7 +292,7 @@ class AgentToolRegistry(
             "get_grades" -> getGrades(args["term"] as? String)
             "get_card_balance" -> getCardBalance()
             "get_card_transactions" -> getCardTransactions((args["days"] as? Double)?.toInt() ?: 7)
-            "get_notifications" -> getNotifications((args["limit"] as? Double)?.toInt() ?: 10)
+            "get_notifications" -> getNotifications(args["source"] as? String, (args["limit"] as? Double)?.toInt() ?: 10)
             "web_search" -> webSearch(args["query"] as? String ?: "", (args["limit"] as? Double)?.toInt() ?: 5)
             "web_fetch" -> webFetch(args["url"] as? String ?: "")
             "get_library_booking" -> getLibraryBooking()
@@ -299,6 +305,7 @@ class AgentToolRegistry(
             "get_app_settings" -> getAppSettings()
             "set_app_setting" -> setAppSetting(args["key"] as? String ?: "", args["value"] as? String ?: "")
             "calculate" -> calculate(args["expression"] as? String ?: "")
+            "check_update" -> checkUpdate()
             else -> "未知工具：$name"
         }
     }
@@ -328,8 +335,10 @@ class AgentToolRegistry(
             val startStr = runCatching { gson.fromJson(dataCache.get("start_date_$it", Long.MAX_VALUE), String::class.java) }.getOrNull()
             val startDate = startStr?.let { s -> runCatching { LocalDate.parse(s) }.getOrNull() }
             startDate?.let { sd ->
-                val w = ((java.time.temporal.ChronoUnit.DAYS.between(sd, today) / 7) + 1).toInt()
-                if (w in 1..20) "第${w}周" else null
+                val daysSince = java.time.temporal.ChronoUnit.DAYS.between(sd, today).toInt()
+                val w = (daysSince / 7) + 1
+                // 含起始日与已过天数，便于推算"整学期"区间（如校园卡整学期账单天数）
+                if (w in 1..25) "第${w}周（起始 $startStr，开学至今 $daysSince 天）" else null
             }
         }
 
@@ -615,19 +624,21 @@ class AgentToolRegistry(
         if (loginState.campusCardLogin == null && !tryAutoLogin(LoginType.CAMPUS_CARD))
             return "需要校园卡系统登录，请先打开校园卡功能完成认证。"
         val login = loginState.campusCardLogin ?: return "登录未就绪，请稍后再试。"
-        val d = days.coerceIn(1, 30)
+        val d = days.coerceIn(1, 180)   // 放宽：用户可能要看整月/整学期账单
         return try {
             val (_, txs) = CampusCardApi(login).getTransactions(
                 startDate = LocalDate.now().minusDays(d.toLong()),
                 endDate = LocalDate.now()
             )
             if (txs.isEmpty()) return "最近${d}天无校园卡消费记录。"
+            // 全量给模型：它可能要按整月统计、分类汇总、找最大笔等，需要完整流水
+            val spend = txs.filter { it.amount < 0 }.sumOf { -it.amount }
+            val income = txs.filter { it.amount > 0 }.sumOf { it.amount }
             val text = buildString {
-                append("校园卡最近${d}天流水（${txs.size}笔）：\n")
-                txs.take(25).forEach { t ->
+                append("校园卡最近${d}天流水（共${txs.size}笔，支出¥${"%.2f".format(spend)}，充值/收入¥${"%.2f".format(income)}）：\n")
+                txs.forEach { t ->
                     append("• ${t.time} ${t.merchant} ${"%+.2f".format(t.amount)}元，余额${"%.2f".format(t.balance)}\n")
                 }
-                if (txs.size > 25) append("…还有${txs.size - 25}笔\n")
             }
             dataCache.put("agent_card_tx", text)
             text
@@ -638,10 +649,24 @@ class AgentToolRegistry(
         }
     }
 
-    private suspend fun getNotifications(limit: Int): String {
+    private suspend fun getNotifications(source: String?, limit: Int): String {
         return try {
+            val all = com.xjtu.toolbox.notification.NotificationSource.entries
+            val sources = if (source.isNullOrBlank()) {
+                // 默认核心来源，避免并发爬几十个学院官网又慢又常失败
+                listOf(
+                    com.xjtu.toolbox.notification.NotificationSource.JWC,
+                    com.xjtu.toolbox.notification.NotificationSource.GS,
+                    com.xjtu.toolbox.notification.NotificationSource.XSC
+                )
+            } else {
+                all.filter { it.displayName.contains(source) || source.contains(it.displayName) }
+                    .ifEmpty {
+                        return "未找到来源「$source」。可选来源示例：${all.take(12).joinToString("、") { it.displayName }} 等；不指定来源则看核心通知。"
+                    }
+            }
             val list = com.xjtu.toolbox.notification.NotificationApi()
-                .getAllNotifications(1)
+                .getMergedNotifications(sources, 1)
                 .sortedByDescending { it.date }
                 .take(limit.coerceIn(1, 20))
             if (list.isEmpty()) return "暂无通知。"
@@ -910,7 +935,11 @@ class AgentToolRegistry(
             "dark_mode" -> {
                 val v = value.trim().lowercase()
                 if (v !in listOf("system", "light", "dark")) "dark_mode 只能是 system/light/dark。"
-                else { cs.darkMode = v; "已将主题设为 $v。" }
+                else {
+                    cs.darkMode = v
+                    AgentRuntimeHooks.applyDarkMode?.invoke(v)   // 即时刷新主题，而非只写 pref
+                    "已将主题设为 $v（已即时生效）。"
+                }
             }
             "default_tab" -> {
                 val v = value.trim().uppercase()
@@ -924,6 +953,21 @@ class AgentToolRegistry(
             }
             "update_channel" -> { cs.updateChannel = value.trim(); "已将更新通道设为 ${value.trim()}。" }
             else -> "不支持修改「$key」。仅允许：dark_mode / default_tab / network_mode / auto_check_update / update_channel；账号密码等敏感项不可改。"
+        }
+    }
+
+    private suspend fun checkUpdate(): String {
+        val cur = com.xjtu.toolbox.BuildConfig.VERSION_NAME
+        val channel = runCatching { com.xjtu.toolbox.util.CredentialStore(context).updateChannel }
+            .getOrDefault("stable")
+        return try {
+            val info = com.xjtu.toolbox.util.AppUpdater.check(channel)
+                ?: return "当前版本 v$cur；暂时没查到更新信息。"
+            if (info.version.isNotBlank() && info.version != cur)
+                "发现新版本 v${info.version}（你当前 v$cur）。可在「我的 → 检查更新」里下载更新。"
+            else "当前已是最新版本 v$cur。"
+        } catch (e: Exception) {
+            "检查更新失败：${e.message ?: "网络异常"}"
         }
     }
 
