@@ -9,6 +9,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import com.xjtu.toolbox.AppLoginState
 import com.xjtu.toolbox.util.DataCache
 import kotlinx.coroutines.launch
@@ -33,6 +34,12 @@ class AgentViewModel : ViewModel() {
     var isLoading by mutableStateOf(false)
     var errorMessage by mutableStateOf<String?>(null)
 
+    // ── 多会话状态 ──────────────────────────────────────────────────────
+    val sessions = mutableStateListOf<AgentSession>()
+    var currentSessionId by mutableStateOf<String?>(null)
+        private set
+    private var store: AgentSessionStore? = null
+
     // LLM 多轮历史（含 system prompt + 所有轮次），与 messages（UI 专用）独立维护。
     // 保持历史稳定以利用 provider 端 prefix cache：system prompt 只在首轮写入一次。
     private var llmHistory = JsonArray()
@@ -41,6 +48,89 @@ class AgentViewModel : ViewModel() {
     // AgentToolRegistry 保持在 ViewModel 级别，使 loginFailedAt 冷却状态跨消息保留
     private var tools: AgentToolRegistry? = null
 
+    // ── 会话管理 ────────────────────────────────────────────────────────
+
+    /** 绑定持久化存储并加载会话列表（仅一次）。空则自动建首个会话。 */
+    fun bind(store: AgentSessionStore) {
+        if (this.store != null) return
+        this.store = store
+        sessions.addAll(store.list())
+        val first = sessions.firstOrNull()
+        if (first != null) switchSession(first.id) else newSession()
+    }
+
+    fun newSession() {
+        val store = store ?: return
+        if (isLoading) return
+        val s = store.create()
+        currentSessionId = s.id
+        messages.clear(); llmHistory = JsonArray(); systemPromptAdded = false; tools = null; errorMessage = null
+        refreshSessions()
+    }
+
+    fun switchSession(id: String) {
+        val store = store ?: return
+        if (isLoading || id == currentSessionId && messages.isNotEmpty()) {
+            currentSessionId = id; return
+        }
+        val convo = store.load(id) ?: return
+        currentSessionId = id
+        messages.clear()
+        convo.messages.forEach { m ->
+            messages.add(ChatMessage(
+                role = m.role,
+                content = m.content,
+                navSuggestions = m.nav.mapNotNull { if (it.size >= 2) it[0] to it[1] else null }
+            ))
+        }
+        llmHistory = runCatching { JsonParser.parseString(convo.llmHistory).asJsonArray }.getOrDefault(JsonArray())
+        systemPromptAdded = llmHistory.any {
+            runCatching { it.asJsonObject.get("role")?.asString == "system" }.getOrDefault(false)
+        }
+        tools = null; errorMessage = null
+    }
+
+    fun renameSession(id: String, title: String) {
+        store?.rename(id, title.trim().ifBlank { AgentSessionStore.DEFAULT_TITLE })
+        refreshSessions()
+    }
+
+    fun deleteSession(id: String) {
+        val store = store ?: return
+        store.delete(id)
+        refreshSessions()
+        if (currentSessionId == id) {
+            val next = sessions.firstOrNull()
+            if (next != null) switchSession(next.id) else newSession()
+        }
+    }
+
+    private fun refreshSessions() {
+        val store = store ?: return
+        sessions.clear(); sessions.addAll(store.list())
+    }
+
+    /** 把当前会话写盘（过滤掉临时的 tool_event 进度气泡）。 */
+    private fun persist() {
+        val store = store ?: return
+        val id = currentSessionId ?: return
+        val stored = messages
+            .filter { it.role != "tool_event" }
+            .map { StoredMessage(it.role, it.content, it.navSuggestions.map { p -> listOf(p.first, p.second) }) }
+        store.save(id, StoredConversation(stored, llmHistory.toString()), deriveTitle())
+        refreshSessions()
+    }
+
+    /** 标题取首条用户消息（截断 18 字），无则默认。 */
+    private fun deriveTitle(): String {
+        val firstUser = messages.firstOrNull { it.role == "user" }?.content?.trim().orEmpty()
+        return when {
+            firstUser.isBlank() -> AgentSessionStore.DEFAULT_TITLE
+            firstUser.length <= 18 -> firstUser
+            else -> firstUser.take(18) + "…"
+        }
+    }
+
     fun sendMessage(
         userText: String,
         config: AgentConfig,
@@ -48,6 +138,7 @@ class AgentViewModel : ViewModel() {
         context: Context
     ) {
         if (userText.isBlank() || isLoading) return
+        if (currentSessionId == null) newSession()
         errorMessage = null
         messages.add(ChatMessage("user", userText))
         isLoading = true
@@ -133,15 +224,18 @@ class AgentViewModel : ViewModel() {
                 messages.add(ChatMessage("assistant", "出错了：$detail"))
             } finally {
                 isLoading = false
+                persist()   // 落盘当前会话（用户提问 + 回复/错误都已在 messages 中）
             }
         }
     }
 
+    /** 清空当前会话内容，但保留会话条目本身。 */
     fun clearMessages() {
         messages.clear()
         llmHistory = JsonArray()
         systemPromptAdded = false
         errorMessage = null
         // tools 保留（loginFailedAt 冷却状态有价值），不在 clearMessages 时重置
+        persist()
     }
 }

@@ -25,6 +25,14 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "3.8.4" to VersionChangelog(
+            items = listOf(
+                "💬" to "校园助手「屁岱」支持多会话：左侧抽屉管理历史对话，可新建、切换、改名、删除，自动保存",
+                "🐛" to "修复助手发消息必报错（网络请求误在主线程）及「出错了：null」",
+                "🗂️" to "考试/成绩/考勤/校园卡联网失败时回退缓存并标注数据时间；空闲教室复用页面的CDN/直连选择",
+                "🌐" to "内外网探测改用考勤系统，教务公网直连后判定更准"
+            )
+        ),
         "3.8.3" to VersionChangelog(
             items = listOf(
                 "🤖" to "校园助手「屁岱」上线：可直接在对话里查课表、成绩GPA、空闲教室、考勤、考试和校园卡",

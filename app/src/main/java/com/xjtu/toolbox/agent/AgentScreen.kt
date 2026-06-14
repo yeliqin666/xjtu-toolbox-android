@@ -1,12 +1,18 @@
 package com.xjtu.toolbox.agent
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -18,9 +24,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.*
+import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -38,6 +48,7 @@ import com.xjtu.toolbox.LocalAppLoginState
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
@@ -51,59 +62,220 @@ fun AgentScreen(onBack: () -> Unit, onNavigate: (String) -> Unit = {}) {
     var showConfig by rememberSaveable { mutableStateOf(!config.isConfigured) }
     val vm: AgentViewModel = viewModel()
 
+    // 多会话持久化：绑定一次，加载会话列表并恢复最近会话
+    val sessionStore = remember { AgentSessionStore(context) }
+    LaunchedEffect(Unit) { vm.bind(sessionStore) }
+    var drawerOpen by rememberSaveable { mutableStateOf(false) }
+
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = "屁岱",
-                largeTitle = if (showConfig) "配置" else "屁岱",
-                color = MiuixTheme.colorScheme.surface,
-                scrollBehavior = scrollBehavior,
-                navigationIcon = {
-                    IconButton(onClick = {
-                        if (showConfig && config.isConfigured) showConfig = false else onBack()
-                    }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                actions = {
-                    if (!showConfig) {
-                        IconButton(onClick = { vm.clearMessages() }) {
-                            Icon(Icons.Default.Delete, contentDescription = "清空对话")
+    Box(Modifier.fillMaxSize()) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = "屁岱",
+                    largeTitle = if (showConfig) "配置" else "屁岱",
+                    color = MiuixTheme.colorScheme.surface,
+                    scrollBehavior = scrollBehavior,
+                    navigationIcon = {
+                        IconButton(onClick = {
+                            if (showConfig && config.isConfigured) showConfig = false else onBack()
+                        }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        }
+                    },
+                    actions = {
+                        if (!showConfig) {
+                            IconButton(onClick = { drawerOpen = true }) {
+                                Icon(Icons.Default.Menu, contentDescription = "会话列表")
+                            }
+                            IconButton(onClick = { vm.clearMessages() }) {
+                                Icon(Icons.Default.Delete, contentDescription = "清空当前对话")
+                            }
+                        }
+                        IconButton(onClick = { showConfig = !showConfig }) {
+                            Icon(Icons.Default.Settings, contentDescription = "配置")
                         }
                     }
-                    IconButton(onClick = { showConfig = !showConfig }) {
-                        Icon(Icons.Default.Settings, contentDescription = "配置")
+                )
+            }
+        ) { padding ->
+            if (showConfig) {
+                ConfigPanel(
+                    config = config,
+                    onSave = { newConfig ->
+                        configStore.save(newConfig)
+                        config = newConfig
+                        showConfig = false
+                    },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                )
+            } else {
+                ChatPanel(
+                    vm = vm,
+                    config = config,
+                    loginState = loginState,
+                    padding = padding,
+                    scrollBehavior = scrollBehavior,
+                    onNavigate = onNavigate
+                )
+            }
+        }
+
+        SessionDrawer(
+            open = drawerOpen,
+            sessions = vm.sessions,
+            currentId = vm.currentSessionId,
+            onClose = { drawerOpen = false },
+            onNew = { vm.newSession(); drawerOpen = false },
+            onSelect = { vm.switchSession(it); drawerOpen = false },
+            onRename = { id, title -> vm.renameSession(id, title) },
+            onDelete = { vm.deleteSession(it) }
+        )
+    }
+}
+
+@Composable
+private fun SessionDrawer(
+    open: Boolean,
+    sessions: List<AgentSession>,
+    currentId: String?,
+    onClose: () -> Unit,
+    onNew: () -> Unit,
+    onSelect: (String) -> Unit,
+    onRename: (String, String) -> Unit,
+    onDelete: (String) -> Unit
+) {
+    var renameTarget by remember { mutableStateOf<AgentSession?>(null) }
+    var deleteTarget by remember { mutableStateOf<AgentSession?>(null) }
+
+    // 半透明遮罩，点击关闭
+    AnimatedVisibility(visible = open, enter = fadeIn(), exit = fadeOut()) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.4f))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) { onClose() }
+        )
+    }
+    // 左侧抽屉面板
+    AnimatedVisibility(
+        visible = open,
+        enter = slideInHorizontally { -it },
+        exit = slideOutHorizontally { -it }
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxHeight().width(300.dp),
+            color = MiuixTheme.colorScheme.surface
+        ) {
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 10.dp, vertical = 8.dp)
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("对话", style = MiuixTheme.textStyles.title2, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f))
+                    IconButton(onClick = onNew) {
+                        Icon(Icons.Default.Add, contentDescription = "新建对话",
+                            tint = MiuixTheme.colorScheme.primary)
                     }
                 }
-            )
+                LazyColumn(
+                    Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    items(sessions, key = { it.id }) { s ->
+                        val isCurrent = s.id == currentId
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (isCurrent) MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                    else MiuixTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier.fillMaxWidth().clickable { onSelect(s.id) }
+                        ) {
+                            Row(
+                                Modifier.padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(s.title, style = MiuixTheme.textStyles.body2,
+                                        fontWeight = FontWeight.Medium, maxLines = 1,
+                                        color = if (isCurrent) MiuixTheme.colorScheme.primary
+                                                else MiuixTheme.colorScheme.onSurface)
+                                    Text(formatSessionTime(s.updatedAt),
+                                        style = MiuixTheme.textStyles.footnote1,
+                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                                }
+                                IconButton(onClick = { renameTarget = s }) {
+                                    Icon(Icons.Default.Edit, contentDescription = "重命名",
+                                        modifier = Modifier.size(18.dp),
+                                        tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                                }
+                                IconButton(onClick = { deleteTarget = s }) {
+                                    Icon(Icons.Default.Delete, contentDescription = "删除",
+                                        modifier = Modifier.size(18.dp),
+                                        tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
-    ) { padding ->
-        if (showConfig) {
-            ConfigPanel(
-                config = config,
-                onSave = { newConfig ->
-                    configStore.save(newConfig)
-                    config = newConfig
-                    showConfig = false
-                },
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-            )
-        } else {
-            ChatPanel(
-                vm = vm,
-                config = config,
-                loginState = loginState,
-                padding = padding,
-                scrollBehavior = scrollBehavior,
-                onNavigate = onNavigate
-            )
+    }
+
+    // 重命名对话框
+    renameTarget?.let { target ->
+        var text by remember(target.id) { mutableStateOf(target.title) }
+        OverlayDialog(
+            show = true,
+            title = "重命名对话",
+            onDismissRequest = { renameTarget = null }
+        ) {
+            Column(Modifier.fillMaxWidth()) {
+                TextField(value = text, onValueChange = { text = it }, label = "标题",
+                    singleLine = true, modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(12.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TextButton(text = "取消", onClick = { renameTarget = null },
+                        modifier = Modifier.weight(1f))
+                    Button(onClick = { onRename(target.id, text); renameTarget = null },
+                        modifier = Modifier.weight(1f)) { Text("保存") }
+                }
+            }
+        }
+    }
+
+    // 删除确认
+    deleteTarget?.let { target ->
+        OverlayDialog(
+            show = true,
+            title = "删除对话",
+            summary = "确定删除「${target.title}」吗？此操作不可恢复。",
+            onDismissRequest = { deleteTarget = null }
+        ) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                TextButton(text = "取消", onClick = { deleteTarget = null },
+                    modifier = Modifier.weight(1f))
+                Button(onClick = { onDelete(target.id); deleteTarget = null },
+                    modifier = Modifier.weight(1f)) { Text("删除") }
+            }
         }
     }
 }
+
+private fun formatSessionTime(ts: Long): String =
+    java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.CHINA).format(java.util.Date(ts))
 
 @Composable
 private fun ChatPanel(
