@@ -161,6 +161,26 @@ class AgentToolRegistry(
         arr.add(tool("get_library_seats",
             "查询图书馆某区域的空闲座位数。需要图书馆系统登录。area 传区域名（模糊匹配，如「北楼二层外文库」），不填则列出所有可选区域名称。",
             params("area" to strProp("区域名称，不填返回区域列表。"))))
+        arr.add(tool("get_textbooks",
+            "搜索教材中心的教材（按书名或课程名关键词）。需要教材中心登录。",
+            params("keyword" to strProp("搜索关键词，如课程名或书名。"))))
+        arr.add(tool("get_coupons",
+            "查询我的加餐券（电子券）：名称、余额、有效期。需要加餐券系统登录。"))
+        arr.add(tool("get_lms_courses",
+            "列出我在思源学堂（LMS）的课程。需要思源学堂登录。"))
+        arr.add(tool("get_lms_activities",
+            "查询思源学堂某门课的作业、课件、回放等活动。course 传课程名（模糊匹配）。需要思源学堂登录。",
+            params("course" to strProp("课程名称，模糊匹配；不填会提示先查课程列表。"))))
+        arr.add(tool("get_lms_assignments",
+            "汇总思源学堂所有课程的作业（最新作业一览）。需要思源学堂登录，会逐课查询，稍慢。"))
+        arr.add(tool("get_app_settings",
+            "读取本应用可调设置（主题 / 启动页 / 网络模式 / 自动更新 / 更新通道）当前值与可选项。无需登录。"))
+        arr.add(tool("set_app_setting",
+            "修改本应用一项非敏感设置（账号密码等敏感项不可改）。无需登录。",
+            params(
+                "key" to strProp("设置键：dark_mode / default_tab / network_mode / auto_check_update / update_channel。"),
+                "value" to strProp("取值，可先用 get_app_settings 查看每项的可选值。")
+            )))
         return arr.toString()
     }
 
@@ -221,6 +241,13 @@ class AgentToolRegistry(
             "web_fetch" -> webFetch(args["url"] as? String ?: "")
             "get_library_booking" -> getLibraryBooking()
             "get_library_seats" -> getLibrarySeats(args["area"] as? String)
+            "get_textbooks" -> getTextbooks(args["keyword"] as? String ?: "")
+            "get_coupons" -> getCoupons()
+            "get_lms_courses" -> getLmsCourses()
+            "get_lms_activities" -> getLmsActivities(args["course"] as? String)
+            "get_lms_assignments" -> getLmsAssignments()
+            "get_app_settings" -> getAppSettings()
+            "set_app_setting" -> setAppSetting(args["key"] as? String ?: "", args["value"] as? String ?: "")
             else -> "未知工具：$name"
         }
     }
@@ -677,6 +704,175 @@ class AgentToolRegistry(
             throw e
         } catch (e: Exception) {
             "查询图书馆座位失败：${e.message ?: "网络异常"}"
+        }
+    }
+
+    private suspend fun getTextbooks(keyword: String): String {
+        if (keyword.isBlank()) return "请提供教材或课程名关键词。"
+        if (loginState.jiaocaiLogin == null && !tryAutoLogin(LoginType.JIAOCAI))
+            return "需要教材中心登录，请先打开教材功能完成认证。"
+        val login = loginState.jiaocaiLogin ?: return "登录未就绪，请稍后再试。"
+        return try {
+            val books = com.xjtu.toolbox.jiaocai.JiaocaiApi(login).search(keyword)
+            if (books.isEmpty()) return "未找到与「$keyword」相关的教材。"
+            buildString {
+                append("教材搜索「$keyword」（${books.size}本）：\n")
+                books.take(15).forEach { b ->
+                    append("• ${b.title}")
+                    if (b.author.isNotBlank()) append(" / ${b.author}")
+                    if (b.hasFullText) append("（有全文）")
+                    append("\n")
+                }
+            }
+        } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
+            throw e
+        } catch (e: Exception) {
+            "搜索教材失败：${e.message ?: "网络异常"}"
+        }
+    }
+
+    private suspend fun getCoupons(): String {
+        if (loginState.couponLogin == null && !tryAutoLogin(LoginType.COUPON))
+            return "需要加餐券系统登录，请先打开加餐券功能完成认证。"
+        val login = loginState.couponLogin ?: return "登录未就绪，请稍后再试。"
+        return try {
+            val page = com.xjtu.toolbox.coupon.CouponApi(login)
+                .queryCoupons(com.xjtu.toolbox.coupon.CouponFilter.USABLE)
+            if (page.records.isEmpty()) return "你当前没有可用的加餐券。"
+            val text = buildString {
+                append("我的可用加餐券（${page.records.size}张）：\n")
+                page.records.take(20).forEach { c ->
+                    append("• ${c.voucherName}（${c.typeName}）：余额¥${"%.2f".format(c.leftAmountFen / 100.0)}，有效期 ${c.startDate}~${c.endDate}\n")
+                }
+            }
+            dataCache.put("agent_coupons", text)
+            text
+        } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
+            throw e
+        } catch (e: Exception) {
+            staleOr("agent_coupons", "获取加餐券失败：${e.message ?: "网络异常"}")
+        }
+    }
+
+    private fun lmsTypeName(t: com.xjtu.toolbox.lms.LmsActivityType): String = when (t) {
+        com.xjtu.toolbox.lms.LmsActivityType.HOMEWORK -> "作业"
+        com.xjtu.toolbox.lms.LmsActivityType.MATERIAL -> "课件"
+        com.xjtu.toolbox.lms.LmsActivityType.LESSON -> "课程/回放"
+        com.xjtu.toolbox.lms.LmsActivityType.LECTURE_LIVE -> "直播/回放"
+        else -> "其他"
+    }
+
+    private suspend fun getLmsCourses(): String {
+        if (loginState.lmsLogin == null && !tryAutoLogin(LoginType.LMS))
+            return "需要思源学堂登录，请先打开思源学堂功能完成认证。"
+        val login = loginState.lmsLogin ?: return "登录未就绪，请稍后再试。"
+        return try {
+            val courses = com.xjtu.toolbox.lms.LmsApi(login).getMyCourses()
+            if (courses.isEmpty()) return "思源学堂暂无课程。"
+            "思源学堂课程（${courses.size}门）：\n" + courses.joinToString("\n") { "• ${it.name}" }
+        } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
+            throw e
+        } catch (e: Exception) {
+            "获取思源学堂课程失败：${e.message ?: "网络异常"}"
+        }
+    }
+
+    private suspend fun getLmsActivities(course: String?): String {
+        if (course.isNullOrBlank()) return "请指定课程名，或先用 get_lms_courses 查看课程列表。"
+        if (loginState.lmsLogin == null && !tryAutoLogin(LoginType.LMS))
+            return "需要思源学堂登录，请先打开思源学堂功能完成认证。"
+        val login = loginState.lmsLogin ?: return "登录未就绪，请稍后再试。"
+        return try {
+            val api = com.xjtu.toolbox.lms.LmsApi(login)
+            val c = api.getMyCourses().firstOrNull {
+                it.name == course || it.name.contains(course) || course.contains(it.name)
+            } ?: return "未找到课程「$course」。可先用 get_lms_courses 查看课程列表。"
+            val acts = api.getCourseActivities(c.id)
+            if (acts.isEmpty()) return "「${c.name}」暂无活动。"
+            buildString {
+                append("「${c.name}」活动（${acts.size}项）：\n")
+                acts.groupBy { it.type }.forEach { (t, list) ->
+                    append("【${lmsTypeName(t)}】\n")
+                    list.take(15).forEach { a ->
+                        append("• ${a.title}")
+                        a.endTime?.let { append("（截止 $it）") }
+                        append("\n")
+                    }
+                }
+            }
+        } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
+            throw e
+        } catch (e: Exception) {
+            "获取课程活动失败：${e.message ?: "网络异常"}"
+        }
+    }
+
+    private suspend fun getLmsAssignments(): String {
+        if (loginState.lmsLogin == null && !tryAutoLogin(LoginType.LMS))
+            return "需要思源学堂登录，请先打开思源学堂功能完成认证。"
+        val login = loginState.lmsLogin ?: return "登录未就绪，请稍后再试。"
+        return try {
+            val api = com.xjtu.toolbox.lms.LmsApi(login)
+            val homeworks = mutableListOf<Pair<String, com.xjtu.toolbox.lms.LmsActivity>>()
+            for (c in api.getMyCourses()) {
+                runCatching {
+                    api.getCourseActivities(c.id)
+                        .filter { it.type == com.xjtu.toolbox.lms.LmsActivityType.HOMEWORK }
+                        .forEach { homeworks.add(c.name to it) }
+                }
+            }
+            if (homeworks.isEmpty()) return "思源学堂暂无作业。"
+            val sorted = homeworks.sortedBy { it.second.endTime ?: "9999" }
+            buildString {
+                append("思源学堂作业（${sorted.size}项）：\n")
+                sorted.take(25).forEach { (cn, a) ->
+                    append("• [$cn] ${a.title}")
+                    a.endTime?.let { append("，截止 $it") }
+                    append("\n")
+                }
+            }
+        } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
+            throw e
+        } catch (e: Exception) {
+            "获取作业失败：${e.message ?: "网络异常"}"
+        }
+    }
+
+    // ── 应用设置读写（仅非敏感项白名单） ──────────────────────────────────
+
+    private fun getAppSettings(): String {
+        val cs = com.xjtu.toolbox.util.CredentialStore(context)
+        return buildString {
+            append("当前应用设置：\n")
+            append("• dark_mode（主题）：${cs.darkMode}　可选 system/light/dark\n")
+            append("• default_tab（启动页）：${cs.defaultTab}　可选 HOME/COURSES/TOOLS/PROFILE\n")
+            append("• network_mode（网络模式）：${cs.networkMode}\n")
+            append("• auto_check_update（自动检查更新）：${cs.autoCheckUpdate}　可选 true/false\n")
+            append("• update_channel（更新通道）：${cs.updateChannel}\n")
+            append("（账号、密码等敏感项不开放修改）")
+        }
+    }
+
+    private fun setAppSetting(key: String, value: String): String {
+        val cs = com.xjtu.toolbox.util.CredentialStore(context)
+        return when (key.trim()) {
+            "dark_mode" -> {
+                val v = value.trim().lowercase()
+                if (v !in listOf("system", "light", "dark")) "dark_mode 只能是 system/light/dark。"
+                else { cs.darkMode = v; "已将主题设为 $v。" }
+            }
+            "default_tab" -> {
+                val v = value.trim().uppercase()
+                if (v !in listOf("HOME", "COURSES", "TOOLS", "PROFILE")) "default_tab 只能是 HOME/COURSES/TOOLS/PROFILE。"
+                else { cs.defaultTab = v; "已将启动页设为 $v。" }
+            }
+            "network_mode" -> { cs.networkMode = value.trim(); "已将网络模式设为 ${value.trim()}。" }
+            "auto_check_update" -> {
+                val b = value.trim().toBooleanStrictOrNull() ?: return "auto_check_update 只能是 true/false。"
+                cs.autoCheckUpdate = b; "已${if (b) "开启" else "关闭"}自动检查更新。"
+            }
+            "update_channel" -> { cs.updateChannel = value.trim(); "已将更新通道设为 ${value.trim()}。" }
+            else -> "不支持修改「$key」。仅允许：dark_mode / default_tab / network_mode / auto_check_update / update_channel；账号密码等敏感项不可改。"
         }
     }
 

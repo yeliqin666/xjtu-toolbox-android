@@ -188,6 +188,13 @@ class AgentViewModel : ViewModel() {
                             "web_fetch"             -> "阅读网页…"
                             "get_library_booking"   -> "查询图书馆预约…"
                             "get_library_seats"     -> "查询图书馆座位…"
+                            "get_textbooks"         -> "搜索教材…"
+                            "get_coupons"           -> "查询加餐券…"
+                            "get_lms_courses"       -> "查询课程…"
+                            "get_lms_activities"    -> "查询课程活动…"
+                            "get_lms_assignments"   -> "汇总作业…"
+                            "get_app_settings"      -> "读取设置…"
+                            "set_app_setting"       -> "修改设置…"
                             else                    -> "调用工具 $name…"
                         }
                         if (toolBubbleIndex < 0) {
@@ -217,6 +224,10 @@ class AgentViewModel : ViewModel() {
                         "get_card_balance", "get_card_transactions" -> "校园卡" to "campus_card"
                         "get_notifications"                 -> "通知公告"   to "notification"
                         "get_library_booking", "get_library_seats" -> "图书馆" to "library"
+                        "get_textbooks"                     -> "教材中心"   to "jiaocai"
+                        "get_coupons"                       -> "加餐券"     to "coupon"
+                        "get_lms_courses", "get_lms_activities", "get_lms_assignments" -> "思源学堂" to "lms"
+                        "get_app_settings", "set_app_setting" -> "设置"     to "settings"
                         else                                -> null
                     }
                 }.distinctBy { it.second }

@@ -85,6 +85,30 @@ fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier) {
                     Modifier.padding(vertical = 4.dp),
                     color = quoteColor.copy(alpha = 0.25f)
                 )
+                is MdBlock.Table -> Column(
+                    Modifier.fillMaxWidth()
+                        .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.04f), RoundedCornerShape(8.dp))
+                        .padding(vertical = 4.dp)
+                ) {
+                    val cols = block.headers.size.coerceAtLeast(1)
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 5.dp)) {
+                        block.headers.forEach { h ->
+                            Text(inline(h, linkColor, codeBg), color = color, fontWeight = FontWeight.Bold,
+                                style = MiuixTheme.textStyles.footnote1,
+                                modifier = Modifier.weight(1f).padding(horizontal = 4.dp))
+                        }
+                    }
+                    HorizontalDivider(color = quoteColor.copy(alpha = 0.2f))
+                    block.rows.forEach { row ->
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp)) {
+                            for (ci in 0 until cols) {
+                                Text(inline(row.getOrElse(ci) { "" }, linkColor, codeBg), color = color,
+                                    style = MiuixTheme.textStyles.footnote1,
+                                    modifier = Modifier.weight(1f).padding(horizontal = 4.dp))
+                            }
+                        }
+                    }
+                }
                 is MdBlock.Para -> Text(inline(block.text, linkColor, codeBg), color = color,
                     style = MiuixTheme.textStyles.body1)
             }
@@ -109,8 +133,15 @@ private sealed interface MdBlock {
     data class Quote(val text: String) : MdBlock
     data class Code(val text: String) : MdBlock
     data object Rule : MdBlock
+    data class Table(val headers: List<String>, val rows: List<List<String>>) : MdBlock
     data class Para(val text: String) : MdBlock
 }
+
+private fun isTableSep(line: String): Boolean =
+    line.contains("-") && line.replace(Regex("""[\s|:-]"""), "").isEmpty()
+
+private fun splitCells(line: String): List<String> =
+    line.trim().trim('|').split("|").map { it.trim() }
 
 private val headingRe = Regex("""^(#{1,6})\s+(.*)""")
 private val bulletRe = Regex("""^[-*+]\s+(.*)""")
@@ -126,6 +157,20 @@ private fun parseBlocks(text: String): List<MdBlock> {
         val raw = lines[i]
         val line = raw.trimStart()
         val indent = (raw.length - line.length) / 2
+
+        // 表格：| 表头 | 行，下一行是 | --- | --- | 分隔
+        if (line.startsWith("|") && i + 1 < lines.size && isTableSep(lines[i + 1].trim())) {
+            val headers = splitCells(line)
+            var j = i + 2
+            val rows = ArrayList<List<String>>()
+            while (j < lines.size && lines[j].trimStart().startsWith("|")) {
+                rows.add(splitCells(lines[j].trim())); j++
+            }
+            out.add(MdBlock.Table(headers, rows))
+            i = j
+            continue
+        }
+
         when {
             line.startsWith("```") -> {
                 val sb = StringBuilder()

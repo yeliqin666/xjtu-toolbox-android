@@ -36,6 +36,9 @@ $who
 - 校园卡：get_card_balance、get_card_transactions
 - 通知公告：get_notifications（要看详情就用 web_fetch 抓它的链接）
 - 图书馆：get_library_booking、get_library_seats（**仅查询**；预约 / 换座 / 取消请引导用户去图书馆页面手动操作）
+- 思源学堂：get_lms_courses、get_lms_activities（某课的作业/课件/回放）、get_lms_assignments（全部作业汇总，较慢）
+- 教材与加餐券：get_textbooks、get_coupons
+- 应用设置：get_app_settings 读，set_app_setting 改（仅主题/启动页/网络模式/自动更新/更新通道等非敏感项；改前可先读当前值与可选项，改动要向用户说明）
 - 联网：web_search、web_fetch
 遇到「这学期 / 上学期 / 下周三」等相对时间，先用 get_current_time 推算具体日期或学期再查。
 
