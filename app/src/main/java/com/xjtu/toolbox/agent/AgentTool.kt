@@ -10,6 +10,8 @@ import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.card.CampusCardApi
 import com.xjtu.toolbox.emptyroom.CAMPUS_BUILDINGS
 import com.xjtu.toolbox.emptyroom.EmptyRoomApi
+import com.xjtu.toolbox.emptyroom.EmptyRoomCache
+import com.xjtu.toolbox.emptyroom.EmptyRoomDirectQuery
 import com.xjtu.toolbox.schedule.ScheduleApi
 import com.xjtu.toolbox.schedule.ScheduleCache
 import com.xjtu.toolbox.score.ScoreReportApi
@@ -49,6 +51,24 @@ class AgentToolRegistry(
 
     /** 取走并清空本轮收集的控件。 */
     fun drainWidgets(): List<AgentWidget> = pendingWidgets.toList().also { pendingWidgets.clear() }
+
+    /** 把毫秒年龄转成人话，供回退缓存时如实标注新鲜度。 */
+    private fun humanAge(ms: Long): String = when {
+        ms < 60_000L      -> "刚刚"
+        ms < 3_600_000L   -> "约${ms / 60_000L}分钟前"
+        ms < 86_400_000L  -> "约${ms / 3_600_000L}小时前"
+        else              -> "约${ms / 86_400_000L}天前"
+    }
+
+    /**
+     * 实时获取失败时的兜底：若有缓存则返回带「约 X 前」时间戳的缓存内容，否则返回实时错误文案。
+     * 让 Agent 能如实告诉用户「这是几点的缓存」，而不是干脆报错。
+     */
+    private fun staleOr(cacheKey: String, liveError: String): String {
+        val cached = dataCache.getStale(cacheKey) ?: return liveError
+        val age = dataCache.ageMs(cacheKey)?.let { humanAge(it) } ?: "较早"
+        return "⚠️ 实时获取失败，以下为$age 的缓存数据：\n$cached"
+    }
 
     /** 当前节次的 0 基索引；不在上课时段返回 -1。 */
     private fun currentPeriodIndex(): Int {
@@ -260,16 +280,18 @@ class AgentToolRegistry(
             val exams = ScheduleApi(login).getExamSchedule()
             if (exams.isEmpty()) return "暂无考试安排。"
             pendingWidgets.add(ExamWidget(exams))
-            buildString {
+            val text = buildString {
                 append("考试安排（${exams.size}场）：\n")
                 exams.forEach { e ->
                     append("• ${e.courseName}，${e.examDate} ${e.examTime}，${e.location}，座位：${e.seatNumber.ifBlank { "待定" }}\n")
                 }
             }
+            dataCache.put("agent_exam", text)
+            text
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
             throw e
         } catch (e: Exception) {
-            "获取考试安排失败：${e.message}"
+            staleOr("agent_exam", "获取考试安排失败：${e.message ?: "网络异常"}")
         }
     }
 
@@ -288,11 +310,25 @@ class AgentToolRegistry(
                     .ifEmpty { return "在${targetCampus}未找到楼：$building" }
             } else buildings
 
+            // 复用页面的「CDN / 直连教务」选择。直连较重（每楼逐节查询，约11次请求/楼），
+            // 仅在用户已开启直连且指定了具体楼栋时启用，避免对全校区直连冲击学校服务器。
+            val preferDirect = context.getSharedPreferences("empty_room", Context.MODE_PRIVATE)
+                .getBoolean("empty_room_use_direct_query", false)
+            val directClient = if (preferDirect && building != null) {
+                loginState.getDirectClient()
+                    ?: run { if (loginState.jwxtLogin == null) tryAutoLogin(LoginType.JWXT); loginState.jwxtLogin?.client }
+            } else null
+            val usingDirect = directClient != null
+
             // 并发请求各楼栋，避免整校区串行导致超时
             val allRooms = coroutineScope {
                 targetBuildings.map { b ->
                     async(Dispatchers.IO) {
-                        runCatching { api.getEmptyRooms(targetCampus, b, dateStr) }.getOrDefault(emptyList())
+                        runCatching {
+                            if (directClient != null)
+                                EmptyRoomDirectQuery(directClient, EmptyRoomCache(context)).queryDay(targetCampus, b, dateStr)
+                            else api.getEmptyRooms(targetCampus, b, dateStr)
+                        }.getOrDefault(emptyList())
                     }
                 }.awaitAll().flatten()
             }
@@ -311,6 +347,7 @@ class AgentToolRegistry(
                 building?.let { append(" $it") }
                 section?.let { append(" 第${it}节") }
                 append(" $dateStr")
+                if (usingDirect) append(" · 直连")
             }
             pendingWidgets.add(RoomWidget(cond, filtered, section?.minus(1) ?: currentPeriodIndex()))
             val shown = filtered.take(15)
@@ -340,7 +377,7 @@ class AgentToolRegistry(
             val records = AttendanceApi(login).getWaterRecords().take(limit.coerceIn(1, 30))
             if (records.isEmpty()) return "暂无考勤记录。"
             pendingWidgets.add(AttendanceWidget(records))
-            buildString {
+            val text = buildString {
                 append("最近${records.size}条考勤记录：\n")
                 records.forEach { r ->
                     append("• ${r.courseName}（${r.date} 第${r.startTime}-${r.endTime}节）：${r.status.displayName}")
@@ -348,10 +385,12 @@ class AgentToolRegistry(
                     append("\n")
                 }
             }
+            dataCache.put("agent_attendance", text)
+            text
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
             throw e
         } catch (e: Exception) {
-            "获取考勤记录失败：${e.message}"
+            staleOr("agent_attendance", "获取考勤记录失败：${e.message ?: "网络异常"}")
         }
     }
 
@@ -372,7 +411,7 @@ class AgentToolRegistry(
             val gpa = if (totalPoints > 0) graded.sumOf { it.gpa!! * it.coursePoint } / totalPoints else null
 
             pendingWidgets.add(GradeWidget(grades, gpa, totalPoints))
-            buildString {
+            val text = buildString {
                 append("成绩（${grades.size}门")
                 gpa?.let { append("，加权GPA %.2f".format(it)) }
                 append("）：\n")
@@ -383,10 +422,12 @@ class AgentToolRegistry(
                 }
                 if (grades.size > 30) append("…还有${grades.size - 30}门\n")
             }
+            dataCache.put("agent_grades_${term ?: "all"}", text)
+            text
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
             throw e
         } catch (e: Exception) {
-            "获取成绩失败：${e.message}"
+            staleOr("agent_grades_${term ?: "all"}", "获取成绩失败：${e.message ?: "网络异常"}")
         }
     }
 
@@ -397,16 +438,18 @@ class AgentToolRegistry(
         return try {
             val info = CampusCardApi(login).getCardInfo()
             pendingWidgets.add(CardWidget(info))
-            buildString {
+            val text = buildString {
                 append("校园卡余额：¥%.2f".format(info.balance))
                 if (info.pendingAmount > 0) append("，待入账¥%.2f".format(info.pendingAmount))
                 if (info.lostFlag) append("（已挂失）")
                 if (info.frozenFlag) append("（已冻结）")
             }
+            dataCache.put("agent_card", text)
+            text
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
             throw e
         } catch (e: Exception) {
-            "获取校园卡余额失败：${e.message}"
+            staleOr("agent_card", "获取校园卡余额失败：${e.message ?: "网络异常"}")
         }
     }
 }

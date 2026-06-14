@@ -3,7 +3,9 @@ package com.xjtu.toolbox.agent
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -56,16 +58,20 @@ class AgentRunner(private val tools: AgentToolRegistry) {
                 addProperty("tool_choice", "auto")
             }
 
-            val response = httpClient.newCall(
-                Request.Builder()
-                    .url("${config.effectiveBaseUrl}/chat/completions")
-                    .header("Authorization", "Bearer ${config.apiKey}")
-                    .header("Content-Type", "application/json")
-                    .post(reqBody.toString().toRequestBody(json))
-                    .build()
-            ).execute()
-
-            val body = response.body?.string() ?: throw RuntimeException("LLM 响应为空（HTTP ${response.code}）")
+            // 同步网络请求必须在 IO 线程执行：调用方（ViewModel）运行于 Main，
+            // 否则 OkHttp 的 execute() 会抛 NetworkOnMainThreadException。
+            val (response, body) = withContext(Dispatchers.IO) {
+                val resp = httpClient.newCall(
+                    Request.Builder()
+                        .url("${config.effectiveBaseUrl}/chat/completions")
+                        .header("Authorization", "Bearer ${config.apiKey}")
+                        .header("Content-Type", "application/json")
+                        .post(reqBody.toString().toRequestBody(json))
+                        .build()
+                ).execute()
+                resp to resp.body?.string()
+            }
+            if (body == null) throw RuntimeException("LLM 响应为空（HTTP ${response.code}）")
             if (!response.isSuccessful) {
                 val errMsg = runCatching {
                     JsonParser.parseString(body).asJsonObject
