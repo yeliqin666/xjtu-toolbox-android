@@ -343,6 +343,9 @@ class AppLoginState {
     internal val webVpnClientOrNull: okhttp3.OkHttpClient? get() = vpnClient
 
     fun clearVpnClient() {
+        vpnCookieJar?.clearForDomain("webvpn.xjtu.edu.cn")
+        vpnCookieJar?.clearForDomain(".webvpn.xjtu.edu.cn")
+        vpnCookieJar?.flushToDisk()
         vpnClient = null
         webVpnLoggedIn = false
     }
@@ -683,6 +686,9 @@ class AppLoginState {
                 // ── 方案2: 完整表单登录（降级） ──
                 // [关键] 必须用「带 WebVpnInterceptor 的 client」让登录链路走 webvpn 反向代理
                 // 否则校外环境下 XJTULogin 内部访问 login.xjtu.edu.cn（CAS）会直连超时（公网解析为内网IP）
+                vpnCookieJar?.clearForDomain("webvpn.xjtu.edu.cn")
+                vpnCookieJar?.clearForDomain(".webvpn.xjtu.edu.cn")
+                vpnCookieJar?.flushToDisk()
                 android.util.Log.d("WebVPN", "Creating XJTULogin for WebVPN URL with WebVpnInterceptor")
                 val webVpnRewriteClient = okhttp3.OkHttpClient.Builder()
                     .addInterceptor(okhttp3.brotli.BrotliInterceptor)
@@ -1578,9 +1584,18 @@ fun AppNavigation(
             arguments = listOf(navArgument("url") { type = NavType.StringType; defaultValue = "" })
         ) { backStackEntry ->
             val url = try { java.net.URLDecoder.decode(backStackEntry.arguments?.getString("url") ?: "", "UTF-8") } catch (_: Exception) { "" }
+            val browserSite = loginState.sessionManager?.getSiteOrNull(siteKeyForBrowserUrl(url))
+                ?: loginState.sessionManager?.getSiteOrNull("jwxt")
+            val host = runCatching { android.net.Uri.parse(url).host?.lowercase() }.getOrNull()
             com.xjtu.toolbox.browser.BrowserScreen(
                 initialUrl = url,
-                site = loginState.sessionManager?.getSiteOrNull("jwxt"),
+                site = browserSite,
+                cookieClient = if (url.contains("webvpn.xjtu.edu.cn", ignoreCase = true)) {
+                    loginState.webVpnClientOrNull
+                } else {
+                    null
+                },
+                extraCookieDomains = listOfNotNull(host),
                 onBack = { navController.popBackStack() }
             )
         }
@@ -1608,7 +1623,7 @@ fun AppNavigation(
                     //   2. 失效则 loginWebVpn（含 App 内 MFA dialog，若需要）
                     //   3. 成功后 navigate browser
                     // 校园网下用户也能用此入口（webvpn 链路本身可达），登录成功后浏览器内即可访问 vpnUrl。
-                    navController.popBackStack()
+                    // 不在这里先 popBackStack：若登录失败，用户应留在转换页看到状态，而不是被踢回 App 首页。
                     webVpnPendingBrowserUrl.value = vpnUrl
                 }
             )
@@ -2624,12 +2639,8 @@ private fun HomeTab(
                                 modifier = Modifier.size(12.dp)
                             )
                             Spacer(Modifier.width(4.dp))
-                            val visibleTypes = remember {
-                                listOf(LoginType.JWXT, LoginType.JWAPP, LoginType.LMS, LoginType.CLASS,
-                                    LoginType.YWTB, LoginType.LIBRARY, LoginType.CAMPUS_CARD, LoginType.VENUE,
-                                    LoginType.ATTENDANCE, LoginType.DZPZ, LoginType.JIAOCAI, LoginType.COUPON,
-                                    LoginType.SUPER_APP, LoginType.FITNESS, LoginType.JIAOXIAOZHI)
-                            }
+                            // 用全集，避免手写列表漏项与两处不一致
+                            val visibleTypes = remember { LoginType.entries.toList() }
                             fun isReady(type: LoginType): Boolean =
                                 loginState.sessionManager?.getSiteOrNull(type.siteKey())?.hasLogin == true
                             val ok = visibleTypes.count { isReady(it) }
@@ -2652,14 +2663,13 @@ private fun HomeTab(
                             title = "子系统连接状态",
                             onDismissRequest = { showStatusSheet.value = false }
                         ) {
-                            Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                                val types = listOf(
-                                    LoginType.JWXT, LoginType.JWAPP, LoginType.LMS, LoginType.CLASS,
-                                    LoginType.YWTB, LoginType.LIBRARY, LoginType.CAMPUS_CARD, LoginType.VENUE,
-                                    LoginType.ATTENDANCE, LoginType.POSTGRADUATE_ATTENDANCE, LoginType.DZPZ,
-                                    LoginType.JIAOCAI, LoginType.COUPON, LoginType.SUPER_APP, LoginType.FITNESS,
-                                    LoginType.JIAOXIAOZHI
-                                )
+                            Column(
+                                Modifier.fillMaxWidth().navigationBarsPadding()
+                                    .heightIn(max = 460.dp)
+                                    .verticalScroll(rememberScrollState())   // 16项超出弹窗高度，必须可滚动，否则底部(移动交大/体测/交晓智)被截看不见
+                                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                            ) {
+                                val types = LoginType.entries.toList()
                                 types.forEach { t ->
                                     val ready = loginState.sessionManager?.getSiteOrNull(t.siteKey())?.hasLogin == true
                                     Row(
@@ -4281,5 +4291,24 @@ private fun MarkdownReleaseNotes(markdown: String) {
                 modifier = Modifier.padding(vertical = 2.dp)
             )
         }
+    }
+}
+
+private fun siteKeyForBrowserUrl(url: String): String {
+    val host = runCatching { android.net.Uri.parse(url).host?.lowercase().orEmpty() }
+        .getOrDefault("")
+    return when {
+        "assistant.xjtu.edu.cn" in host -> "jiaoxiaozhi"
+        "superapp.xjtu.edu.cn" in host ||
+            "transaction-service.xjtu.edu.cn" in host ||
+            "message-service.xjtu.edu.cn" in host ||
+            "reservation-service.xjtu.edu.cn" in host -> "super_app"
+        "tyxylp.xjtu.edu.cn" in host -> "fitness"
+        "rg.lib.xjtu.edu.cn" in host -> "library"
+        "jwapp.xjtu.edu.cn" in host -> "jwapp"
+        "ywtb.xjtu.edu.cn" in host -> "ywtb"
+        "ncard.xjtu.edu.cn" in host -> "campus_card"
+        "bkkq.xjtu.edu.cn" in host -> "attendance"
+        else -> "jwxt"
     }
 }

@@ -24,6 +24,9 @@ class JiaoxiaozhiApi(private val session: JiaoxiaozhiSiteSession) {
         networkEnabled: Boolean = true,
         onDelta: suspend (String) -> Unit = {},
     ): String = coroutineScope {
+        val effectiveModel = JiaoxiaozhiModels.byId(modelId).id
+            .takeIf { it in setOf("qwen-plus", "qwen-max") }
+            ?: "qwen-plus"
         val request = Request.Builder()
             .url("${JiaoxiaozhiLogin.API_ROOT}/question/streamAnswer")
             .header("Accept", "text/event-stream")
@@ -33,7 +36,7 @@ class JiaoxiaozhiApi(private val session: JiaoxiaozhiSiteSession) {
                 FormBody.Builder()
                     .add("ask", question)
                     .add("sessionId", sessionId)
-                    .add("model", modelId)
+                    .add("model", effectiveModel)
                     .add("timestamp", System.currentTimeMillis().toString())
                     .add("serviceModel", "default")
                     .add("uploadUrl", "")
@@ -43,6 +46,7 @@ class JiaoxiaozhiApi(private val session: JiaoxiaozhiSiteSession) {
             )
             .build()
 
+        Log.d(TAG, "streamAnswer request model=$effectiveModel sessionId=$sessionId token=${session.hasAccessTokenForLog()} cookie=${session.hasCasAuthCookieForLog()} referer=${session.refererUrl.take(96)}")
         val call = session.apiClient.newBuilder()
             .readTimeout(180, TimeUnit.SECONDS)
             .build()
@@ -58,7 +62,10 @@ class JiaoxiaozhiApi(private val session: JiaoxiaozhiSiteSession) {
         try {
             val response = withContext(Dispatchers.IO) { call.execute() }
             response.use { resp ->
+                Log.d(TAG, "streamAnswer response code=${resp.code} url=${resp.request.url}")
                 if (resp.code == 401 || resp.code == 403) {
+                    val preview = runCatching { resp.peekBody(1024).string() }.getOrNull()
+                    Log.w(TAG, "streamAnswer auth failure body=${preview?.take(512)}")
                     session.invalidateLogin()
                     throw AuthExpiredException("交晓智")
                 }
@@ -78,7 +85,10 @@ class JiaoxiaozhiApi(private val session: JiaoxiaozhiSiteSession) {
                     if (payload.isBlank() || payload == "[DONE]") continue
                     val root = runCatching {
                         JsonParser.parseString(payload).asJsonObject
-                    }.getOrNull() ?: continue
+                    }.getOrElse {
+                        Log.w(TAG, "skip non-json SSE payload=${payload.take(240)}")
+                        continue
+                    }
                     val data = root.getAsJsonObject("data") ?: continue
                     val type = data.get("type")?.asInt
                     val content = data.get("content")
@@ -88,14 +98,17 @@ class JiaoxiaozhiApi(private val session: JiaoxiaozhiSiteSession) {
 
                     if (type == -1) {
                         upstreamError = content.ifBlank { "请求被上游拒绝" }
+                        Log.w(TAG, "upstream error: ${upstreamError.take(240)}")
                         if (isAuthExpiredText(upstreamError.orEmpty())) {
                             session.invalidateLogin()
                             throw AuthExpiredException("交晓智")
                         }
                         continue
                     }
-                    // 白名单：只取 type=12 的文本 delta；type=11 是 PCM 音频，type=14 是引用文档
-                    if (type != 12 || content.isEmpty()) continue
+                    // 白名单：type=1/12 都可能承载文本 delta；type=11 是 PCM 音频，其他多为检索/引用元数据。
+                    if (type !in setOf(1, 12) || content.isEmpty()) {
+                        continue
+                    }
 
                     answer.append(content)
                     withContext(Dispatchers.Main.immediate) { onDelta(content) }
@@ -112,6 +125,8 @@ class JiaoxiaozhiApi(private val session: JiaoxiaozhiSiteSession) {
     }
 
     companion object {
+        private const val TAG = "JiaoxiaozhiApi"
+
         fun isAuthExpiredText(text: String): Boolean {
             val normalized = text.lowercase()
             return text.contains("登录态已失效") ||

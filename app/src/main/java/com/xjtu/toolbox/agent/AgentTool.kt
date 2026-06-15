@@ -659,6 +659,7 @@ class AgentToolRegistry(
                     if (course.teacher.isNotBlank()) append(" / ${course.teacher}")
                     append("\n")
                     append("  ${course.credit}学分")
+                    if (course.className.isNotBlank()) append(" · 班级:${course.className}")
                     if (course.department.isNotBlank()) append(" · ${course.department}")
                     if (course.campus.isNotBlank()) append(" · ${course.campus}")
                     if (course.scheduleLocation.isNotBlank()) append("\n  ${course.scheduleLocation}")
@@ -713,9 +714,16 @@ class AgentToolRegistry(
 
         val termCode = cachedTermCode() ?: return "课表数据异常，请稍后重试。"
 
-        val courses = ScheduleCache.readOptimizedCourses(dataCache, gson, termCode, Long.MAX_VALUE)
+        val cachedCourses = ScheduleCache.readOptimizedCourses(dataCache, gson, termCode, Long.MAX_VALUE)
             ?: ScheduleCache.readRawCourses(dataCache, gson, termCode, Long.MAX_VALUE)
             ?: return "课表数据异常，请稍后重试。"
+        val customCourses = runCatching {
+            com.xjtu.toolbox.util.AppDatabase.getInstance(context)
+                .customCourseDao()
+                .getByTerm(termCode)
+                .map { it.toCourseItem() }
+        }.getOrDefault(emptyList())
+        val courses = cachedCourses + customCourses
 
         val startDate = runCatching {
             cachedStartDate(termCode)?.let { LocalDate.parse(it) }

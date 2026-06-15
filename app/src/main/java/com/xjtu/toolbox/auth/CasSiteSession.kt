@@ -34,6 +34,60 @@ abstract class CasSiteSession(
     /** 登录成功后回调。子类可在此提取本站局部 token，写入 [localToken]。 */
     protected open fun onLoginSuccess(login: XJTULogin) {}
 
+    suspend fun casHandoffUrl(loginUrl: String, username: String, password: String): String {
+        val backend = checkNotNull(backend) { "[$siteKey] backend not bound" }
+        val xl = object : XJTULogin(
+            loginUrl,
+            existingClient = backend.client,
+            visitorId = manager?.fpVisitorId,
+            cachedRsaKey = manager?.cachedRsaKey,
+            cookieJar = backend.cookieJar,
+        ) {}
+
+        var result = xl.login(username, password)
+        loop@ while (true) {
+            when (result.state) {
+                LoginState.SUCCESS -> {
+                    manager?.adoptFromLogin(xl)
+                    return xl.finalUrl
+                }
+                LoginState.FAIL -> {
+                    val msg = result.message
+                    if (isCredentialFailure(msg)) {
+                        throw PasswordInvalidatedException(siteName, msg)
+                    }
+                    throw IOException("$siteName CAS 接力失败：${msg.ifBlank { "未知错误" }}")
+                }
+                LoginState.REQUIRE_MFA -> {
+                    val ctx = result.mfaContext
+                        ?: throw IOException("$siteName 未返回 MFA 上下文")
+                    if (ctx.flow == MFAFlow.MFA_DETECT) {
+                        try {
+                            ctx.sendVerifyCode()
+                        } catch (e: Exception) {
+                            throw IOException("$siteName 发送验证码失败：${e.message}", e)
+                        }
+                    }
+                    val mgr = manager ?: throw IOException("$siteName SessionManager unavailable")
+                    val code = mgr.askMfaCode(siteKey, siteName, ctx)
+                        ?: throw IOException("$siteName 用户取消验证")
+                    try {
+                        ctx.verifyCode(code)
+                    } catch (e: Exception) {
+                        throw IOException("$siteName 验证码错误：${e.message}", e)
+                    }
+                    result = xl.login()
+                }
+                LoginState.REQUIRE_CAPTCHA -> {
+                    throw IOException("$siteName CAS 接力需要图形验证码")
+                }
+                LoginState.REQUIRE_ACCOUNT_CHOICE -> {
+                    result = xl.login(accountType = accountType)
+                }
+            }
+        }
+    }
+
     override suspend fun runLogin(username: String, password: String) {
         val backend = checkNotNull(backend) { "[$siteKey] backend not bound" }
         val xl = createLogin(

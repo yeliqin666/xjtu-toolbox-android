@@ -252,6 +252,9 @@ open class XJTULogin(
     // 登录提交的 URL
     private var postUrl: String
 
+    val finalUrl: String
+        get() = postUrl
+
     // CAS 认证的目标 Service URL（MFA 完成后获取 TGC 所需）
     internal var serviceUrl: String = ""
 

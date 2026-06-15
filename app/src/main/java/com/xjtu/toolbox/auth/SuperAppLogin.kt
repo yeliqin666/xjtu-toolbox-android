@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.auth
 
+import android.util.Log
 import android.util.Base64
 import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.OkHttpClient
@@ -22,6 +23,7 @@ class SuperAppLogin(
             throw RuntimeException("移动交大登录回调异常")
         }
         launchUrl = finalUrl
+        lastSuccessfulLaunchUrl = finalUrl
         launchExpireAt = 0L
         response.request.url.queryParameter("ticket")?.split(".")?.getOrNull(1)?.let { payload ->
             val padded = payload + "=".repeat((4 - payload.length % 4) % 4)
@@ -46,6 +48,7 @@ class SuperAppLogin(
     }
 
     companion object {
+        @Volatile var lastSuccessfulLaunchUrl: String = ""
         const val HOME_URL = "https://superapp.xjtu.edu.cn/pages/tab/index/index"
         const val LOGIN_URL =
             "https://login.xjtu.edu.cn/cas/login?service=https%3A%2F%2Fsuperapp.xjtu.edu.cn%2Fpages%2Ftab%2Findex%2Findex"

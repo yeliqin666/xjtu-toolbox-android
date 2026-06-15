@@ -2,6 +2,7 @@ package com.xjtu.toolbox.util
 
 import okhttp3.Interceptor
 import okhttp3.Response
+import java.net.URI
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
@@ -61,6 +62,26 @@ object WebVpnUtil {
      * 例: http://bkkq.xjtu.edu.cn/path → https://webvpn.xjtu.edu.cn/http/77726476706e697374686562657374218b8559...ef/path
      */
     fun getVpnUrl(url: String): String {
+        val trimmed = url.trim()
+        if (isWebVpnUrl(trimmed)) return trimmed
+
+        return try {
+            val uri = URI(trimmed)
+            val protocol = uri.scheme ?: return trimmed
+            val domain = uri.host ?: return legacyGetVpnUrl(trimmed)
+            val port = if (uri.port >= 0) "-${uri.port}" else ""
+            val path = uri.rawPath.orEmpty().removePrefix("/")
+            val query = uri.rawQuery?.let { "?$it" }.orEmpty()
+            val fragment = uri.rawFragment?.let { "#$it" }.orEmpty()
+            val suffix = "$path$query$fragment"
+            val encryptedDomain = encryptHostname(domain)
+            "https://$INSTITUTION/$protocol$port/$IV_HEX$encryptedDomain/$suffix"
+        } catch (_: Exception) {
+            legacyGetVpnUrl(trimmed)
+        }
+    }
+
+    private fun legacyGetVpnUrl(url: String): String {
         val parts = url.split("://", limit = 2)
         if (parts.size < 2) return url
 
@@ -68,7 +89,7 @@ object WebVpnUtil {
         val rest = parts[1]
 
         val segments = rest.split("/", limit = 2)
-        val hostPort = segments[0]
+        val hostPort = segments[0].substringBefore("?").substringBefore("#")
         val path = if (segments.size > 1) segments[1] else ""
 
         val domain = hostPort.split(":")[0]

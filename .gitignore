@@ -58,3 +58,8 @@ tools/
 
 # Reference clone of upstream
 .upstream-ref/yan-xiaoo/
+
+# 不纳入 App 仓库（保留本地）
+/website/
+/demo/
+/update_api.py

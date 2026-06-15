@@ -43,6 +43,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.xjtu.toolbox.auth.SiteSession
+import okhttp3.OkHttpClient
 import java.net.URI
 
 private const val TAG = "BrowserScreen"
@@ -55,12 +56,19 @@ internal fun syncCookiesToWebView(
     site: SiteSession?,
     extraDomains: List<String> = emptyList()
 ) {
-    if (site == null) return
+    syncCookiesToWebView(site?.client, extraDomains)
+}
+
+internal fun syncCookiesToWebView(
+    client: OkHttpClient?,
+    extraDomains: List<String> = emptyList()
+) {
+    if (client == null) return
     val webCookieManager = android.webkit.CookieManager.getInstance()
     webCookieManager.setAcceptCookie(true)
 
     try {
-        val jar = site.client.cookieJar
+        val jar = client.cookieJar
         if (jar is com.xjtu.toolbox.util.PersistentCookieJar) {
             // 使用 PersistentCookieJar：向常见域名查询 cookies
             val domains = (listOf(
@@ -101,6 +109,8 @@ internal fun syncCookiesToWebView(
 fun BrowserScreen(
     initialUrl: String = "",
     site: SiteSession? = null,
+    cookieClient: OkHttpClient? = null,
+    extraCookieDomains: List<String> = emptyList(),
     onBack: () -> Unit
 ) {
     var currentUrl by remember { mutableStateOf(initialUrl) }
@@ -112,9 +122,14 @@ fun BrowserScreen(
     var canGoForward by remember { mutableStateOf(false) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
 
-    // 同步 cookies（仅一次）
-    LaunchedEffect(site) {
-        syncCookiesToWebView(site)
+    val initialHost = remember(initialUrl) { hostOf(initialUrl) }
+    val cookieDomains = remember(initialHost, extraCookieDomains) {
+        (extraCookieDomains + listOfNotNull(initialHost)).distinct()
+    }
+
+    LaunchedEffect(site, cookieClient, cookieDomains) {
+        syncCookiesToWebView(site, cookieDomains)
+        syncCookiesToWebView(cookieClient, cookieDomains)
     }
 
     Scaffold(
@@ -163,6 +178,7 @@ fun BrowserScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .navigationBarsPadding()
+                        .imePadding()
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -211,6 +227,9 @@ fun BrowserScreen(
                             super.onPageStarted(view, url, favicon)
                             isLoading = true
                             url?.let {
+                                val host = hostOf(it)
+                                syncCookiesToWebView(site, listOfNotNull(host))
+                                syncCookiesToWebView(cookieClient, listOfNotNull(host))
                                 currentUrl = it
                                 editingUrl = it
                             }
@@ -291,7 +310,9 @@ fun BrowserScreen(
 
                     // 加载 URL
                     if (initialUrl.isNotBlank()) {
-                        loadUrl(normalizeUrl(initialUrl))
+                        val normalizedInitialUrl = normalizeUrl(initialUrl)
+                        Log.d(TAG, "load initialUrl=$normalizedInitialUrl")
+                        loadUrl(normalizedInitialUrl)
                     }
                 }
             },
@@ -308,3 +329,8 @@ private fun normalizeUrl(input: String): String {
     if (trimmed.contains(".") && !trimmed.contains(" ")) return "https://$trimmed"
     return "https://www.bing.com/search?q=${java.net.URLEncoder.encode(trimmed, "UTF-8")}"
 }
+
+private fun hostOf(url: String): String? =
+    runCatching { URI(normalizeUrl(url)).host?.lowercase() }
+        .getOrNull()
+        ?.takeIf { it.isNotBlank() }

@@ -180,15 +180,22 @@ class SuperAppSession : CasSiteSession("super_app", "移动交大", supportsWebV
 
     override fun onLoginSuccess(login: XJTULogin) {
         val superApp = login as? SuperAppLogin ?: return
-        superApp.launchUrl.takeIf { it.isNotBlank() }?.let {
+        val launchUrl = superApp.launchUrl
+            .takeIf { it.contains("superapp.xjtu.edu.cn") && it.contains("ticket=") }
+            ?: SuperAppLogin.lastSuccessfulLaunchUrl
+                .takeIf { it.contains("superapp.xjtu.edu.cn") && it.contains("ticket=") }
+            ?: superApp.launchUrl
+        android.util.Log.d(
+            "SuperAppSession",
+            "onLoginSuccess launchUrlHasTicket=${launchUrl.contains("ticket=")} valid=${superApp.isLaunchValid()}"
+        )
+        launchUrl.takeIf { it.isNotBlank() }?.let {
             localToken["launch_url"] = it
         }
-        localToken["launch_valid"] = superApp.isLaunchValid().toString()
+        localToken["launch_valid"] = launchUrl.contains("ticket=").toString()
     }
 
     override suspend fun validateLogin(): Boolean = withIo {
-        val launchUrl = localToken["launch_url"].orEmpty()
-        if (!launchUrl.contains("ticket=")) return@withIo false
         val response = client.newCall(
             Request.Builder().url(SuperAppLogin.HOME_URL).get().build()
         ).execute()

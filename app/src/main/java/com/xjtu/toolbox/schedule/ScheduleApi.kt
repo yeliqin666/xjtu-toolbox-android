@@ -599,39 +599,45 @@ class ScheduleApi(private val site: SiteSession) {
      * @return 学期代码列表，如 ["2024-2025-2", "2024-2025-1", "2023-2024-2", ...]
      */
     fun getTermList(): List<String> {
-        val request = Request.Builder()
-            .url("$baseUrl/jwapp/sys/wdkb/modules/jshkcb/cxxnxqgl.do")
-            .post(FormBody.Builder().build())
-            .header("Accept", "application/json, text/javascript, */*; q=0.01")
-            .build()
-
-        val responseBody = execute(request)
-
+        // 注意：execute 也要包进 try——它抛异常时必须回退生成学期，否则上层拿到空列表，学期切换永远不显示
         return try {
+            val request = Request.Builder()
+                .url("$baseUrl/jwapp/sys/wdkb/modules/jshkcb/cxxnxqgl.do")
+                .post(FormBody.Builder().build())
+                .header("Accept", "application/json, text/javascript, */*; q=0.01")
+                .build()
+            val responseBody = execute(request)
             val json = responseBody.safeParseJsonObject()
             val rows = json.getAsJsonObject("datas")
                 .getAsJsonObject("cxxnxqgl")
                 .getAsJsonArray("rows")
-            rows.map { it.asJsonObject.get("DM").asString }
-        } catch (_: Exception) {
-            // 如果接口不可用，基于当前学期生成最近 6 个学期
+            val list = rows.map { it.asJsonObject.get("DM").asString }
+            list.ifEmpty { generateRecentTerms() }
+        } catch (e: Exception) {
+            android.util.Log.w("ScheduleApi", "getTermList failed, fallback generated: ${e.message}")
             generateRecentTerms()
         }
     }
 
+    /** 基于当前学期生成最近 8 个学期；网络拿不到当前学期时按本地日期推算，保证永不为空。 */
     private fun generateRecentTerms(): List<String> {
-        val current = getCurrentTerm()
+        val current = runCatching { getCurrentTerm() }.getOrNull()
+            ?.takeIf { it.split("-").size == 3 && it.split("-").all { p -> p.toIntOrNull() != null } }
+            ?: currentTermFromDate()
         val parts = current.split("-")
-        val year1 = parts[0].toInt()
-        val year2 = parts[1].toInt()
-        val sem = parts[2].toInt()
-
+        var y1 = parts[0].toInt(); var y2 = parts[1].toInt(); var s = parts[2].toInt()
         val terms = mutableListOf<String>()
-        var y1 = year1; var y2 = year2; var s = sem
-        repeat(6) {
+        repeat(8) {
             terms.add("$y1-$y2-$s")
             if (s == 1) { y1--; y2--; s = 2 } else { s = 1 }
         }
         return terms
+    }
+
+    /** 仅凭本地日期推算当前学期代码（无网络）。9月起为秋季学期(-1)，否则为春季学期(-2)。 */
+    private fun currentTermFromDate(): String {
+        val now = java.time.LocalDate.now()
+        val y = now.year
+        return if (now.monthValue >= 9) "$y-${y + 1}-1" else "${y - 1}-$y-2"
     }
 }

@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.runtime.*
+import android.util.Log
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -167,6 +168,7 @@ fun WebVpnConverterScreen(
                                     if (it.isBlank()) error = "无法解析此 WebVPN 网址，请确认格式正确"
                                 }
                             }
+                            Log.d("WebVpnConverter", "convert reversed=$isReversed input=$normalized output=$convertedUrl")
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) { Text("转换") }

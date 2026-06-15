@@ -36,6 +36,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
@@ -48,6 +50,7 @@ import com.xjtu.toolbox.agent.MarkdownText
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Switch
@@ -55,6 +58,7 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 private val JiaozhiBlue = Color(0xFF315FD4)
@@ -75,6 +79,7 @@ fun JiaoxiaozhiScreen(
     var drawerOpen by rememberSaveable { mutableStateOf(false) }
     var showModels by rememberSaveable { mutableStateOf(false) }
     var networkEnabled by rememberSaveable { mutableStateOf(true) }
+    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
 
     Box(Modifier.fillMaxSize()) {
         Scaffold(
@@ -82,6 +87,7 @@ fun JiaoxiaozhiScreen(
                 TopAppBar(
                     title = "交晓智",
                     largeTitle = "交晓智",
+                    scrollBehavior = scrollBehavior,
                     color = MiuixTheme.colorScheme.surface,
                     navigationIcon = {
                         IconButton(onClick = onBack) {
@@ -102,6 +108,7 @@ fun JiaoxiaozhiScreen(
             JiaoxiaozhiChatPanel(
                 vm = vm,
                 padding = padding,
+                nestedScrollConnection = scrollBehavior.nestedScrollConnection,
                 networkEnabled = networkEnabled,
                 onNetworkEnabledChange = { networkEnabled = it },
                 onSend = { vm.sendMessage(it, sessionManager, networkEnabled) },
@@ -137,6 +144,7 @@ fun JiaoxiaozhiScreen(
 private fun JiaoxiaozhiChatPanel(
     vm: JiaoxiaozhiViewModel,
     padding: PaddingValues,
+    nestedScrollConnection: NestedScrollConnection,
     networkEnabled: Boolean,
     onNetworkEnabledChange: (Boolean) -> Unit,
     onSend: (String) -> Unit,
@@ -166,7 +174,9 @@ private fun JiaoxiaozhiChatPanel(
     ) {
         LazyColumn(
             state = listState,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier
+                .weight(1f)
+                .nestedScroll(nestedScrollConnection),
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {

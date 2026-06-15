@@ -331,6 +331,7 @@ fun ScheduleScreen(
                             val freshExams = examsDeferred.await()
                             val startDate = startDateDeferred.await()
                             val fetchedTermList = termListDeferred.await()
+                            android.util.Log.d("SchedTerm", "getTermList -> size=${fetchedTermList.size}: $fetchedTermList")
                             val freshHolidays = holidaysDeferred.await()
                             val optimizedFreshCourses = ScheduleCache.filterByHolidays(freshCourses, startDate, freshHolidays)
 
@@ -776,7 +777,7 @@ fun ScheduleScreen(
                             onClick = { showExportMenu = false; showAllWeeks = !showAllWeeks }
                         )
                     }
-                    if (termList.size > 1) {
+                    if (termList.isNotEmpty()) {
                         ScheduleMenuRow(
                             icon = Icons.Default.SwapHoriz,
                             text = "切换学期",
@@ -936,6 +937,16 @@ fun ScheduleScreen(
                                 Icon(Icons.Default.MoreVert, contentDescription = "更多")
                             }
                             AppDropdownMenu(expanded = showExportMenu, onDismissRequest = { showExportMenu = false }) {
+                                if (termList.size > 1) {
+                                    AppDropdownMenuItem(
+                                        text = { Text("切换学期") },
+                                        leadingIcon = { Icon(Icons.Default.SwapHoriz, null, Modifier.size(20.dp)) },
+                                        onClick = {
+                                            showExportMenu = false
+                                            termDropdownExpanded = true
+                                        }
+                                    )
+                                }
                                 AppDropdownMenuItem(
                                     text = { Text("导出日历 (ICS)") },
                                     leadingIcon = { Icon(Icons.Default.Event, null, Modifier.size(20.dp)) },

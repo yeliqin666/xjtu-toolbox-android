@@ -329,8 +329,15 @@ fun ScheduleGrid(
                             maxLines = 1,
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
-                    } else if (weekDates != null) {
-                        Text(" ", fontSize = 8.sp)
+                    } else if (date != null) {
+                        Text(
+                            "${date.monthValue}月${date.dayOfMonth}日",
+                            fontSize = 8.sp,
+                            color = if (isToday) MiuixTheme.colorScheme.primary
+                            else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
                     }
                 }
             }

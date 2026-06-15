@@ -360,76 +360,6 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
         }
     }
 
-    // ── 确认对话框 ──
-    val showConfirmDialog = remember { mutableStateOf(false) }
-    // 确认对话框：直接由 confirmDialog 驱动，去掉之前 LaunchedEffect→showConfirmDialog→confirmAction
-    // 的间接接线（那套不弹窗，导致换座/取消请求从未发出）。
-    val cd = confirmDialog
-    BackHandler(enabled = cd != null) { confirmDialog = null }
-    OverlayBottomSheet(
-        show = cd != null,
-        title = "确认操作",
-        renderInRootScaffold = false,   // 本 sheet 在 Scaffold 之外，必须独立渲染，否则拿不到 host 不显示
-        onDismissRequest = { confirmDialog = null }
-    ) {
-        Column(
-            Modifier.fillMaxWidth().padding(bottom = 12.dp).navigationBarsPadding()
-        ) {
-            Text(cd?.first ?: "", style = MiuixTheme.textStyles.body1)
-            Spacer(Modifier.height(24.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(
-                    onClick = { confirmDialog = null },
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(color = MiuixTheme.colorScheme.secondaryContainer)
-                ) { Text("取消", color = MiuixTheme.colorScheme.onSecondaryContainer) }
-                Button(
-                    onClick = {
-                        val act = cd?.second
-                        confirmDialog = null
-                        act?.invoke()
-                    },
-                    modifier = Modifier.weight(1f)
-                ) { Text("确认") }
-            }
-        }
-    }
-
-    BackHandler(enabled = showManualBooking.value) { showManualBooking.value = false }
-    OverlayBottomSheet(
-        show = showManualBooking.value,
-        title = "输入座位号",
-        renderInRootScaffold = false,   // 同样在 Scaffold 之外，需独立渲染
-        onDismissRequest = { showManualBooking.value = false }
-    ) {
-        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 12.dp)) {
-            Text(
-                "适合你已经知道座位号的情况",
-                style = MiuixTheme.textStyles.body2,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-            )
-            Spacer(Modifier.height(12.dp))
-            TextField(
-                value = seatInput,
-                onValueChange = { seatInput = it },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                label = "座位号（如 A101）"
-            )
-            Spacer(Modifier.height(12.dp))
-            Button(
-                onClick = {
-                    seatInput.trim().takeIf { it.isNotEmpty() }?.let {
-                        showManualBooking.value = false
-                        bookSeat(it)
-                    }
-                },
-                enabled = !isBooking && seatInput.isNotBlank(),
-                modifier = Modifier.fillMaxWidth()
-            ) { Text(if (myBooking == null) "预约此座位" else "换到此座位") }
-        }
-    }
-
     // ══════ UI ══════
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     Scaffold(
@@ -455,6 +385,78 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
             )
         }
     ) { padding ->
+        // 这两个 OverlayBottomSheet 必须放在 Scaffold content 内：miuix 弹窗靠 Scaffold 提供的
+        // MiuixPopupHost(LocalPopupStates) 渲染；放在 Scaffold 外（且 App 根无 popup host）会永不显示，
+        // 正是"换座/取消点了没反应、请求从未发出"的真因。
+        val cd = confirmDialog
+        BackHandler(enabled = cd != null) { confirmDialog = null }
+        OverlayBottomSheet(
+            show = cd != null,
+            title = "确认操作",
+            renderInRootScaffold = false,
+            onDismissRequest = {
+                android.util.Log.d("LibraryScreen", "confirm DISMISSED")
+                confirmDialog = null
+            }
+        ) {
+            Column(Modifier.fillMaxWidth().padding(bottom = 12.dp).navigationBarsPadding()) {
+                Text(cd?.first ?: "", style = MiuixTheme.textStyles.body1)
+                Spacer(Modifier.height(24.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Button(
+                        onClick = {
+                            android.util.Log.d("LibraryScreen", "confirm CANCELLED")
+                            confirmDialog = null
+                        },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(color = MiuixTheme.colorScheme.secondaryContainer)
+                    ) { Text("取消", color = MiuixTheme.colorScheme.onSecondaryContainer) }
+                    Button(
+                        onClick = {
+                            android.util.Log.d("LibraryScreen", "confirm CLICKED")
+                            val act = cd?.second
+                            confirmDialog = null
+                            act?.invoke()
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("确认") }
+                }
+            }
+        }
+
+        BackHandler(enabled = showManualBooking.value) { showManualBooking.value = false }
+        OverlayBottomSheet(
+            show = showManualBooking.value,
+            title = "输入座位号",
+            renderInRootScaffold = false,
+            onDismissRequest = { showManualBooking.value = false }
+        ) {
+            Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 12.dp)) {
+                Text("适合你已经知道座位号的情况",
+                    style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                Spacer(Modifier.height(12.dp))
+                TextField(
+                    value = seatInput,
+                    onValueChange = { seatInput = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = "座位号（如 A101）"
+                )
+                Spacer(Modifier.height(12.dp))
+                Button(
+                    onClick = {
+                        seatInput.trim().takeIf { it.isNotEmpty() }?.let {
+                            showManualBooking.value = false
+                            bookSeat(it)
+                        }
+                    },
+                    enabled = !isBooking && seatInput.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text(if (myBooking == null) "预约此座位" else "换到此座位") }
+            }
+        }
+
         top.yukonga.miuix.kmp.basic.PullToRefresh(
             isRefreshing = isLoading || isLoadingBooking,
             onRefresh = {

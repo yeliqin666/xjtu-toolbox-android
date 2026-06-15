@@ -32,6 +32,10 @@ class JiaoxiaozhiLogin(
         if (wxToken.isBlank()) throw RuntimeException("交晓智登录未返回入口令牌")
         exchangeBladeToken()
         initializeSession()
+        lastWxToken = wxToken
+        lastAccessToken = accessToken
+        lastAccessTokenExpiresAt = accessTokenExpiresAt
+        lastEntryUrl = entryUrl
     }
 
     private fun exchangeBladeToken() {
@@ -40,6 +44,7 @@ class JiaoxiaozhiLogin(
             .header("Authorization", XBMDCAS_BASIC_AUTH)
             .header("Tenant-Id", "000000")
             .header("Role-Id", "1664528453134516226")
+            .header("User-Agent", JiaoxiaozhiSiteSession.USER_AGENT)
             .header("Origin", "https://assistant.xjtu.edu.cn")
             .header("Referer", entryUrl)
             .post(
@@ -71,6 +76,7 @@ class JiaoxiaozhiLogin(
         val request = Request.Builder()
             .url(INIT_URL)
             .header("Blade-Auth", "bearer $accessToken")
+            .header("User-Agent", JiaoxiaozhiSiteSession.USER_AGENT)
             .header("Origin", "https://assistant.xjtu.edu.cn")
             .header("Referer", entryUrl)
             .post(FormBody.Builder().add("wxToken", wxToken).build())
@@ -88,6 +94,11 @@ class JiaoxiaozhiLogin(
         accessToken.isNotBlank() && System.currentTimeMillis() < accessTokenExpiresAt - 30_000L
 
     companion object {
+        @Volatile var lastWxToken: String = ""
+        @Volatile var lastAccessToken: String = ""
+        @Volatile var lastAccessTokenExpiresAt: Long = 0L
+        @Volatile var lastEntryUrl: String = ""
+
         const val CUSTOMER_ID = "80"
         const val SERVICE_URL =
             "https://assistant.xjtu.edu.cn/blade-auth2/oauth/casTokenXBMD?chatId=$CUSTOMER_ID"
