@@ -277,6 +277,7 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
 
     // 直接换座（已知有现有预约时使用）
     fun doSwapSeat(seatId: String) {
+        android.util.Log.d("LibraryScreen", "doSwapSeat ENTER seatId=$seatId")
         val areaCode = LibraryApi.AREA_MAP[selectedArea]
             ?: LibraryApi.guessAreaCode(seatId)
             ?: run { bookingResult = BookResult(false, "无法确定区域"); return }
@@ -295,6 +296,7 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
 
     // 预约前检查：如有现有预约则弹窗确认换座
     fun bookSeat(seatId: String) {
+        android.util.Log.d("LibraryScreen", "bookSeat CLICKED seatId=$seatId existing=${myBooking?.seatId}")
         val existing = myBooking?.seatId
         val isExpired = myBooking?.statusText?.let { "超时" in it || "过期" in it || "失效" in it } == true
         if (existing != null && !isExpired) {
@@ -310,6 +312,7 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
 
     // 执行操作
     fun executeBookingAction(label: String, url: String) {
+        android.util.Log.d("LibraryScreen", "executeBookingAction ENTER label=$label url=$url")
         isBooking = true
         scope.launch {
             try {
@@ -359,34 +362,33 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
 
     // ── 确认对话框 ──
     val showConfirmDialog = remember { mutableStateOf(false) }
-    var confirmMsg by remember { mutableStateOf("") }
-    var confirmAction by remember { mutableStateOf<(() -> Unit)?>(null) }
-    confirmDialog?.let { (msg, action) ->
-        LaunchedEffect(msg) {
-            confirmMsg = msg
-            confirmAction = action
-            showConfirmDialog.value = true
-        }
-    }
-    BackHandler(enabled = showConfirmDialog.value) { showConfirmDialog.value = false; confirmDialog = null }
+    // 确认对话框：直接由 confirmDialog 驱动，去掉之前 LaunchedEffect→showConfirmDialog→confirmAction
+    // 的间接接线（那套不弹窗，导致换座/取消请求从未发出）。
+    val cd = confirmDialog
+    BackHandler(enabled = cd != null) { confirmDialog = null }
     OverlayBottomSheet(
-        show = showConfirmDialog.value,
+        show = cd != null,
         title = "确认操作",
-        onDismissRequest = { showConfirmDialog.value = false; confirmDialog = null }
+        renderInRootScaffold = false,   // 本 sheet 在 Scaffold 之外，必须独立渲染，否则拿不到 host 不显示
+        onDismissRequest = { confirmDialog = null }
     ) {
         Column(
             Modifier.fillMaxWidth().padding(bottom = 12.dp).navigationBarsPadding()
         ) {
-            Text(confirmMsg, style = MiuixTheme.textStyles.body1)
+            Text(cd?.first ?: "", style = MiuixTheme.textStyles.body1)
             Spacer(Modifier.height(24.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(
-                    onClick = { showConfirmDialog.value = false; confirmDialog = null },
+                    onClick = { confirmDialog = null },
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(color = MiuixTheme.colorScheme.secondaryContainer)
                 ) { Text("取消", color = MiuixTheme.colorScheme.onSecondaryContainer) }
                 Button(
-                    onClick = { showConfirmDialog.value = false; confirmDialog = null; confirmAction?.invoke() },
+                    onClick = {
+                        val act = cd?.second
+                        confirmDialog = null
+                        act?.invoke()
+                    },
                     modifier = Modifier.weight(1f)
                 ) { Text("确认") }
             }
@@ -397,6 +399,7 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
     OverlayBottomSheet(
         show = showManualBooking.value,
         title = "输入座位号",
+        renderInRootScaffold = false,   // 同样在 Scaffold 之外，需独立渲染
         onDismissRequest = { showManualBooking.value = false }
     ) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 12.dp)) {
