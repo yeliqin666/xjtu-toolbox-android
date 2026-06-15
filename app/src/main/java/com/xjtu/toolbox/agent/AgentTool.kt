@@ -232,8 +232,8 @@ class AgentToolRegistry(
                 "date"     to strProp("查询日期：今天/明天/today/tomorrow/yyyy-MM-dd；不填则查今天。")
             )))
         arr.add(tool("get_attendance",
-            "查询最近考勤记录（正常/迟到/缺勤）。需要考勤系统登录。",
-            params("limit" to intProp("返回条数，默认10，最多30。"))))
+            "查询本学期考勤记录（正常/迟到/缺勤/请假）。需要考勤系统登录。要统计整学期出勤就把 limit 调大。",
+            params("limit" to intProp("返回条数，默认20，最多200。"))))
         arr.add(tool("get_grades",
             "查询本人课程成绩与加权平均学分绩点（GPA）。需要教务系统登录。term可选，传形如「2024-2025-1」只看该学期，不传返回全部成绩。",
             params("term" to strProp("学期代码，如2024-2025-1，不填返回全部。"))))
@@ -398,7 +398,7 @@ class AgentToolRegistry(
                 date = args["date"] as? String
             )  // suspend: parallel per-building fetches inside
             "get_attendance" -> getAttendance(
-                limit = (args["limit"] as? Double)?.toInt() ?: 10
+                limit = (args["limit"] as? Double)?.toInt() ?: 20
             )
             "get_grades" -> getGrades(args["term"] as? String)
             "get_card_balance" -> getCardBalance()
@@ -864,7 +864,7 @@ class AgentToolRegistry(
             val records = api.getWaterRecords(
                 termBh = termBh,
                 startDate = termStartDate ?: ""
-            ).take(limit.coerceIn(1, 30))
+            ).take(limit.coerceIn(1, 200))
             if (records.isEmpty()) return "暂无考勤记录。"
             pendingWidgets.add(AttendanceWidget(records))
             val text = buildString {

@@ -266,6 +266,8 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                 val result = withContext(Dispatchers.IO) { api.bookSeat(seatId, areaCode) }
                 bookingResult = result
                 loadSeats()
+                // 预约成功后服务端登记有延迟，稍等再查"我的预约"，避免拿到空、需手动刷新
+                if (result.success) kotlinx.coroutines.delay(800)
                 try { myBooking = withContext(Dispatchers.IO) { api.getMyBooking() } } catch (_: Exception) {}
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { bookingResult = BookResult(false, "预约异常: ${e.message}") }
