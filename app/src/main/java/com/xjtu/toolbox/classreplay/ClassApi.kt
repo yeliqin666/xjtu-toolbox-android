@@ -4,12 +4,15 @@ import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
+import kotlinx.coroutines.runBlocking
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 
 private const val TAG = "ClassApi"
+private const val CLASS_BASE_URL = "https://class.xjtu.edu.cn"
 
 // ════════════════════════════════════════
 //  Gson 安全扩展
@@ -104,7 +107,7 @@ data class ReplayDetail(
  * 获取用户课程列表（分页）
  */
 fun fetchCourses(
-    login: ClassLogin,
+    site: SiteSession,
     page: Int = 1,
     pageSize: Int = 50,
     keyword: String = ""
@@ -121,11 +124,11 @@ fun fetchCourses(
         "showScorePassedStatus" to false
     ))
 
-    val req = login.authenticatedRequest("${ClassLogin.BASE_URL}/api/my-courses")
+    val req = authenticatedRequest("$CLASS_BASE_URL/api/my-courses")
         .header("Content-Type", "application/json;charset=utf-8")
         .post(body.toRequestBody("application/json".toMediaType()))
 
-    val resp = login.executeWithReAuth(req)
+    val resp = runBlocking { site.executeWithReAuth(req.build()) }
     val json = resp.body?.string().safeParseJsonObject()
     resp.close()
 
@@ -174,17 +177,17 @@ fun fetchCourses(
  * 获取课程的直播/回放活动列表（分页）
  */
 fun fetchLiveActivities(
-    login: ClassLogin,
+    site: SiteSession,
     courseId: Int,
     page: Int = 1,
     pageSize: Int = 20
 ): Pair<List<LiveActivity>, Int> {
-    val url = "${ClassLogin.BASE_URL}/api/courses/$courseId/live-activities?" +
+    val url = "$CLASS_BASE_URL/api/courses/$courseId/live-activities?" +
         "status=&types[]=tencent_meeting&types[]=lecture_live&types[]=third_party_live&" +
         "page=$page&page_size=$pageSize"
 
-    val req = login.authenticatedRequest(url).get()
-    val resp = login.executeWithReAuth(req)
+    val req = authenticatedRequest(url).get().build()
+    val resp = runBlocking { site.executeWithReAuth(req) }
     val json = resp.body?.string().safeParseJsonObject()
     resp.close()
 
@@ -218,11 +221,11 @@ fun fetchLiveActivities(
  * 获取回放详情（包含视频源 URL）
  */
 fun fetchReplayDetail(
-    login: ClassLogin,
+    site: SiteSession,
     activityId: Int
 ): ReplayDetail? {
-    val req = login.authenticatedRequest("${ClassLogin.BASE_URL}/api/activities/$activityId").get()
-    val resp = login.executeWithReAuth(req)
+    val req = authenticatedRequest("$CLASS_BASE_URL/api/activities/$activityId").get().build()
+    val resp = runBlocking { site.executeWithReAuth(req) }
     val json = resp.body?.string().safeParseJsonObject()
     resp.close()
 
@@ -276,12 +279,12 @@ fun fetchReplayDetail(
  * 注意：class-rms 服务器校验 Origin / Referer，必须携带 class.xjtu.edu.cn 头
  */
 fun resolveVideoUrl(
-    login: ClassLogin,
+    site: SiteSession,
     previewUrl: String
 ): String? {
     return try {
         // 不跟随重定向，取 Location header
-        val noRedirectClient = login.client.newBuilder()
+        val noRedirectClient = site.client.newBuilder()
             .followRedirects(false)
             .followSslRedirects(false)
             .build()
@@ -313,3 +316,9 @@ fun resolveVideoUrl(
         null
     }
 }
+
+private fun authenticatedRequest(url: String): Request.Builder =
+    Request.Builder()
+        .url(url)
+        .header("Referer", "$CLASS_BASE_URL/user/index")
+        .header("Accept", "application/json, text/plain, */*")

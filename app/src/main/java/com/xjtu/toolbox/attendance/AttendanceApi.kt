@@ -2,9 +2,12 @@ package com.xjtu.toolbox.attendance
 
 import android.util.Log
 import com.google.gson.JsonElement
-import com.xjtu.toolbox.auth.AttendanceLogin
+import com.xjtu.toolbox.auth.AttendanceSession
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
+import kotlinx.coroutines.runBlocking
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -109,13 +112,14 @@ private val JsonElement?.safeInt: Int
 /**
  * 考勤 API 封装
  */
-class AttendanceApi(private val login: AttendanceLogin) {
+class AttendanceApi(private val site: SiteSession) {
 
     companion object {
         private const val TAG = "AttendanceApi"
     }
 
-    private val baseUrl: String get() = "https://${login.attendanceDomain}"
+    private val baseUrl: String
+        get() = "https://${(site as? AttendanceSession)?.attendanceDomain ?: "bkkq.xjtu.edu.cn"}"
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA)
     private val jsonType = "application/json".toMediaType()
 
@@ -131,8 +135,8 @@ class AttendanceApi(private val login: AttendanceLogin) {
             if (attempt > 0) Thread.sleep(if (attempt == 1) 800L else 2_000L)
             try {
                 val body = jsonBody?.toRequestBody(jsonType) ?: "".toRequestBody(null)
-                val request = login.authenticatedRequest(url).post(body)
-                val (code, result) = login.executeWithReAuth(request).use { response ->
+                val request = Request.Builder().url(url).post(body)
+                val (code, result) = runBlocking { site.executeWithReAuth(request.build()) }.use { response ->
                     response.code to (response.body?.string() ?: "")
                 }
                 Log.d(TAG, "POST $path → $code, len=${result.length} (attempt ${attempt + 1})")

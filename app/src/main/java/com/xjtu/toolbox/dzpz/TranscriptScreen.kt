@@ -33,7 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.xjtu.toolbox.auth.DzpzLogin
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
 import kotlinx.coroutines.Dispatchers
@@ -50,11 +50,11 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  */
 @Composable
 fun TranscriptScreen(
-    login: DzpzLogin,
+    site: SiteSession,
     onBack: () -> Unit
 ) {
     val appLoginState = LocalAppLoginState.current
-    val api = remember { TranscriptApi(login) }
+    val api = remember(site) { TranscriptApi(site) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 

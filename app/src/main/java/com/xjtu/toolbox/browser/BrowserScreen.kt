@@ -42,7 +42,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import com.xjtu.toolbox.auth.XJTULogin
+import com.xjtu.toolbox.auth.SiteSession
 import java.net.URI
 
 private const val TAG = "BrowserScreen"
@@ -52,15 +52,15 @@ private const val TAG = "BrowserScreen"
  * 兼容 PersistentCookieJar 和 java.net.CookieManager
  */
 internal fun syncCookiesToWebView(
-    login: XJTULogin?,
+    site: SiteSession?,
     extraDomains: List<String> = emptyList()
 ) {
-    if (login == null) return
+    if (site == null) return
     val webCookieManager = android.webkit.CookieManager.getInstance()
     webCookieManager.setAcceptCookie(true)
 
     try {
-        val jar = login.client.cookieJar
+        val jar = site.client.cookieJar
         if (jar is com.xjtu.toolbox.util.PersistentCookieJar) {
             // 使用 PersistentCookieJar：向常见域名查询 cookies
             val domains = (listOf(
@@ -80,32 +80,16 @@ internal fun syncCookiesToWebView(
                         append("; Domain=${cookie.domain}")
                         append("; Path=${cookie.path}")
                         if (cookie.secure) append("; Secure")
-                        if (cookie.httpOnly) append("; HttpOnly")
                     }
                     webCookieManager.setCookie("https://$domain/", cookieStr)
+                    if (!cookie.secure) webCookieManager.setCookie("http://$domain/", cookieStr)
                     count++
                 }
             }
             webCookieManager.flush()
             Log.d(TAG, "Cookie sync (PersistentCookieJar) complete, total: $count")
         } else {
-            // 兼容旧版 java.net.CookieManager
-            val store = login.cookieManager.cookieStore
-            val cookies = store.cookies
-            for (cookie in cookies) {
-                val uri = store.urIs.firstOrNull { store.get(it).contains(cookie) }
-                val domain = cookie.domain ?: uri?.host ?: continue
-                val cookieStr = buildString {
-                    append("${cookie.name}=${cookie.value}")
-                    append("; Domain=$domain")
-                    append("; Path=${cookie.path ?: "/"}")
-                    if (cookie.secure) append("; Secure")
-                }
-                val url = "https://$domain/"
-                webCookieManager.setCookie(url, cookieStr)
-            }
-            webCookieManager.flush()
-            Log.d(TAG, "Cookie sync (CookieManager) complete, total: ${cookies.size}")
+            Log.d(TAG, "Cookie sync skipped: unsupported jar ${jar.javaClass.name}")
         }
     } catch (e: Exception) {
         Log.e(TAG, "Cookie sync failed", e)
@@ -116,7 +100,7 @@ internal fun syncCookiesToWebView(
 @Composable
 fun BrowserScreen(
     initialUrl: String = "",
-    login: XJTULogin? = null,
+    site: SiteSession? = null,
     onBack: () -> Unit
 ) {
     var currentUrl by remember { mutableStateOf(initialUrl) }
@@ -129,8 +113,8 @@ fun BrowserScreen(
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
 
     // 同步 cookies（仅一次）
-    LaunchedEffect(login) {
-        syncCookiesToWebView(login)
+    LaunchedEffect(site) {
+        syncCookiesToWebView(site)
     }
 
     Scaffold(

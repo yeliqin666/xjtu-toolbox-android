@@ -25,6 +25,7 @@ import com.xjtu.toolbox.LocalAppLoginState
 import com.xjtu.toolbox.Routes
 import com.xjtu.toolbox.auth.AuthExpiredException
 import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,7 +37,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.auth.VenueLogin
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
@@ -57,10 +57,10 @@ import java.time.format.DateTimeFormatter
  * 流程：场馆列表 → 选择场馆 → 日期选择 + 时段网格 → 确认 → 滑动验证码 → 预订结果
  */
 @Composable
-fun VenueScreen(login: VenueLogin, onBack: () -> Unit) {
+fun VenueScreen(site: SiteSession, onBack: () -> Unit) {
     val appLoginState = LocalAppLoginState.current
     val scope = rememberCoroutineScope()
-    val api = remember { VenueApi(login) }
+    val api = remember(site) { VenueApi(site) }
     val context = LocalContext.current
 
     val favoritesManager = remember { VenueFavorites(context) }

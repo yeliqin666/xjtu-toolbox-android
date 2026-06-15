@@ -1,7 +1,8 @@
 package com.xjtu.toolbox.ywtb
 
-import com.xjtu.toolbox.auth.YwtbLogin
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
+import kotlinx.coroutines.runBlocking
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import java.time.LocalDate
@@ -15,7 +16,7 @@ data class UserInfo(
     val organizationName: String
 )
 
-class YwtbApi(private val login: YwtbLogin) {
+class YwtbApi(private val site: SiteSession) {
 
     /**
      * 构建带通用 header 的请求 Builder（不含 x-id-token，由 executeWithReAuth 注入）
@@ -31,7 +32,7 @@ class YwtbApi(private val login: YwtbLogin) {
     fun getUserInfo(): UserInfo {
         val request = baseRequest("https://authx-service.xjtu.edu.cn/personal/api/v1/personal/me/user")
             .get()
-        val (responseCode, body) = login.executeWithReAuth(request).use { response ->
+        val (responseCode, body) = runBlocking { site.executeWithReAuth(request.build()) }.use { response ->
             response.code to (response.body?.string() ?: throw RuntimeException("空响应"))
         }
         val json = body.safeParseJsonObject()
@@ -65,7 +66,7 @@ class YwtbApi(private val login: YwtbLogin) {
 
         android.util.Log.d("YwtbWeek", "requesting: today=$today")
         val request = baseRequest(url.toString()).get()
-        val responseBody = login.executeWithReAuth(request).use { response ->
+        val responseBody = runBlocking { site.executeWithReAuth(request.build()) }.use { response ->
             android.util.Log.d("YwtbWeek", "response code=${response.code}")
             response.body?.string() ?: run {
                 android.util.Log.w("YwtbWeek", "response body is null")
@@ -127,7 +128,7 @@ class YwtbApi(private val login: YwtbLogin) {
             .build()
 
         val request = baseRequest(url.toString()).get()
-        val responseBody = login.executeWithReAuth(request).use { response ->
+        val responseBody = runBlocking { site.executeWithReAuth(request.build()) }.use { response ->
             response.body?.string() ?: throw RuntimeException("空响应")
         }
         val json = responseBody.safeParseJsonObject()

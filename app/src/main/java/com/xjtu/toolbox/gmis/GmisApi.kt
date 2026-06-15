@@ -1,7 +1,8 @@
 package com.xjtu.toolbox.gmis
 
-import com.xjtu.toolbox.auth.GmisLogin
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.ui.ScheduleSlot
+import kotlinx.coroutines.runBlocking
 import okhttp3.Request
 import org.jsoup.Jsoup
 
@@ -53,7 +54,7 @@ private fun scoreToGpa(score: Double): Double {
     return 0.0
 }
 
-class GmisApi(private val login: GmisLogin) {
+class GmisApi(private val site: SiteSession) {
 
     private var schedulePageCache: String? = null
     private var lastModified: Long = 0
@@ -125,7 +126,7 @@ class GmisApi(private val login: GmisLogin) {
             schedulePageCache!!
         } else {
             val request = Request.Builder().url("https://gmis.xjtu.edu.cn/pyxx/pygl/xskbcx").get().build()
-            val data = login.client.newCall(request).execute().use { response ->
+            val data = runBlocking { site.executeWithReAuth(request) }.use { response ->
                 response.body?.string() ?: throw RuntimeException("空响应")
             }
             schedulePageCache = data
@@ -150,7 +151,7 @@ class GmisApi(private val login: GmisLogin) {
             if (termValueMap == null) { val page = fetchSchedulePage(); termValueMap = parseSemesterOptions(page) }
             val termValue = termValueMap!![termCode] ?: throw RuntimeException("未找到学期 $termCode 对应的选项")
             val request = Request.Builder().url("https://gmis.xjtu.edu.cn/pyxx/pygl/xskbcx/index/$termValue").get().build()
-            data = login.client.newCall(request).execute().use { response ->
+            data = runBlocking { site.executeWithReAuth(request) }.use { response ->
                 response.body?.string() ?: throw RuntimeException("空响应")
             }
         }
@@ -160,7 +161,7 @@ class GmisApi(private val login: GmisLogin) {
 
     fun getScore(): List<GmisScoreItem> {
         val request = Request.Builder().url("https://gmis.xjtu.edu.cn/pyxx/pygl/xscjcx/index").get().build()
-        val html = login.client.newCall(request).execute().use { response ->
+        val html = runBlocking { site.executeWithReAuth(request) }.use { response ->
             response.body?.string() ?: throw RuntimeException("空响应")
         }
         return parseScoreHtml(html)

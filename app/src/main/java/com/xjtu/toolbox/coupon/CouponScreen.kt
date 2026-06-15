@@ -51,7 +51,7 @@ import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
-import com.xjtu.toolbox.auth.CouponLogin
+import com.xjtu.toolbox.auth.SiteSession
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -75,11 +75,11 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 @Composable
 fun CouponScreen(
-    login: CouponLogin,
+    site: SiteSession,
     onBack: () -> Unit
 ) {
     val appLoginState = LocalAppLoginState.current
-    val api = remember(login) { CouponApi(login) }
+    val api = remember(site) { CouponApi(site) }
     val scope = rememberCoroutineScope()
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
 
@@ -198,7 +198,7 @@ fun CouponScreen(
                         } }
                     }
                     else -> CouponList(
-                        login = login,
+                        site = site,
                         records = records,
                         total = total,
                         filter = selectedFilter,
@@ -213,7 +213,7 @@ fun CouponScreen(
 
 @Composable
 private fun CouponList(
-    login: CouponLogin,
+    site: SiteSession,
     records: List<CouponRecord>,
     total: Int,
     isLoadingMore: Boolean,
@@ -238,7 +238,7 @@ private fun CouponList(
             )
         }
         items(records, key = { it.showCardId.ifBlank { it.sendId } }) { coupon ->
-            CouponRecordCard(login = login, coupon = coupon, filter = filter)
+            CouponRecordCard(site = site, coupon = coupon, filter = filter)
         }
         if (records.size < total) {
             item {
@@ -320,7 +320,7 @@ private fun CouponSummaryCard(
 
 @Composable
 private fun CouponRecordCard(
-    login: CouponLogin,
+    site: SiteSession,
     coupon: CouponRecord,
     filter: CouponFilter
 ) {
@@ -334,7 +334,7 @@ private fun CouponRecordCard(
                 .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            CouponImage(login = login, url = coupon.imageUrl)
+            CouponImage(site = site, url = coupon.imageUrl)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -384,14 +384,14 @@ private fun CouponRecordCard(
 }
 
 @Composable
-private fun CouponImage(login: CouponLogin, url: String) {
+private fun CouponImage(site: SiteSession, url: String) {
     var imageBytes by remember(url) { mutableStateOf<ByteArray?>(null) }
     LaunchedEffect(url) {
         imageBytes = null
         if (url.isBlank()) return@LaunchedEffect
         imageBytes = withContext(Dispatchers.IO) {
             runCatching {
-                login.client.newCall(Request.Builder().url(url).get().build()).execute().use { response ->
+                site.client.newCall(Request.Builder().url(url).get().build()).execute().use { response ->
                     if (!response.isSuccessful) null else response.body?.bytes()
                 }
             }.getOrNull()

@@ -13,6 +13,7 @@ data class AgentConfig(
     val maxToolCalls: Int = 4,
     val assistantName: String = DEFAULT_ASSISTANT_NAME,
     val disabledCaps: Set<String> = emptySet(),
+    val searchEngine: String = SEARCH_BING,
     val thinkingEnabled: Boolean = true,
     val reasoningEffort: String = REASONING_AUTO,
     val showReasoning: Boolean = true
@@ -44,15 +45,25 @@ data class AgentConfig(
         const val REASONING_AUTO = "auto"
         const val REASONING_HIGH = "high"
         const val REASONING_MAX = "max"
+        const val SEARCH_BING = "bing"
+        const val SEARCH_SOGOU = "sogou"
+        const val SEARCH_WECHAT = "wechat"
 
         val PROVIDERS = listOf(PROVIDER_DEEPSEEK, PROVIDER_OPENAI, PROVIDER_CUSTOM)
         val REASONING_EFFORTS = listOf(REASONING_AUTO, REASONING_HIGH, REASONING_MAX)
+        val SEARCH_ENGINES = listOf(SEARCH_BING, SEARCH_SOGOU, SEARCH_WECHAT)
 
         fun providerLabel(p: String) = when (p) {
             PROVIDER_DEEPSEEK -> "DeepSeek（推荐）"
             PROVIDER_OPENAI -> "OpenAI"
             PROVIDER_CUSTOM -> "自定义"
             else -> p
+        }
+
+        fun searchEngineLabel(engine: String) = when (engine) {
+            SEARCH_SOGOU -> "搜狗网页"
+            SEARCH_WECHAT -> "搜狗微信"
+            else -> "Bing"
         }
     }
 }
@@ -92,6 +103,9 @@ class AgentConfigStore(context: Context) {
             .map { it.trim() }
             .filter { it.isNotEmpty() }
             .toSet(),
+        searchEngine = prefs.getString("search_engine", AgentConfig.SEARCH_BING)
+            ?.takeIf { it in AgentConfig.SEARCH_ENGINES }
+            ?: AgentConfig.SEARCH_BING,
         thinkingEnabled = prefs.getBoolean("thinking_enabled", true),
         reasoningEffort = prefs.getString("reasoning_effort", AgentConfig.REASONING_AUTO)
             ?.takeIf { it in AgentConfig.REASONING_EFFORTS }
@@ -107,6 +121,7 @@ class AgentConfigStore(context: Context) {
             .putInt("max_tool_calls", config.maxToolCalls)
             .putString("assistant_name", config.assistantName)
             .putString("disabled_caps", config.disabledCaps.sorted().joinToString(","))
+            .putString("search_engine", config.searchEngine)
             .putBoolean("thinking_enabled", config.thinkingEnabled)
             .putString("reasoning_effort", config.reasoningEffort)
             .putBoolean("show_reasoning", config.showReasoning)

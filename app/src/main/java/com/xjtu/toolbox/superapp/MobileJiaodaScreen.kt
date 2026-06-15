@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
+import android.util.Log
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
@@ -31,7 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.viewinterop.AndroidView
-import com.xjtu.toolbox.auth.SuperAppLogin
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.browser.syncCookiesToWebView
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
@@ -41,12 +42,25 @@ import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
+private const val TAG = "MobileJiaoda"
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun MobileJiaodaScreen(
-    login: SuperAppLogin,
+    site: SiteSession,
     onClose: () -> Unit,
 ) {
+    // CAS ticket 是一次性的；只在本次登录后第一次打开时使用，之后直接走已同步的 session cookie。
+    val launchUrl = run {
+        val stored = site.localToken["launch_url"].orEmpty()
+        val isValid = site.localToken["launch_valid"] == "true"
+        if (isValid && stored.contains("superapp.xjtu.edu.cn") && stored.contains("ticket=")) {
+            site.localToken["launch_valid"] = "false"   // 消费一次，防止 ticket 被反复使用
+            stored
+        } else {
+            com.xjtu.toolbox.auth.SuperAppLogin.HOME_URL
+        }
+    }
     var webView by remember { mutableStateOf<WebView?>(null) }
     var canGoBack by remember { mutableStateOf(false) }
     var canGoForward by remember { mutableStateOf(false) }
@@ -116,7 +130,7 @@ fun MobileJiaodaScreen(
             modifier = Modifier.fillMaxSize().padding(padding),
             factory = { context ->
                 syncCookiesToWebView(
-                    login,
+                    site,
                     listOf(
                         "superapp.xjtu.edu.cn",
                         "transaction-service.xjtu.edu.cn",
@@ -140,11 +154,13 @@ fun MobileJiaodaScreen(
 
                     webViewClient = object : WebViewClient() {
                         override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                            Log.d(TAG, "onPageStarted: $url")
                             loading = true
                             updateNavigation(view)
                         }
 
                         override fun onPageFinished(view: WebView?, url: String?) {
+                            Log.d(TAG, "onPageFinished: $url cookies=${url?.let { CookieManager.getInstance().getCookie(it) }?.take(200)}")
                             loading = false
                             updateNavigation(view)
                         }
@@ -181,7 +197,8 @@ fun MobileJiaodaScreen(
                         }
                     }
                     webView = this
-                    loadUrl(SuperAppLogin.LOGIN_URL)
+                    Log.d(TAG, "loadUrl: $launchUrl")
+                    loadUrl(launchUrl)
                 }
             },
             update = { webView = it }

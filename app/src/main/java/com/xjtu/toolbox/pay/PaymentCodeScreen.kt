@@ -37,7 +37,7 @@ import com.google.zxing.EncodeHintType
 import com.google.zxing.common.BitMatrix
 import com.google.zxing.oned.Code128Writer
 import com.google.zxing.qrcode.QRCodeWriter
-import com.xjtu.toolbox.auth.CampusCardLogin
+import com.xjtu.toolbox.auth.SiteSession
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -74,10 +74,10 @@ private fun generateBarcode(text: String, width: Int = 800, height: Int = 200): 
 
 @Composable
 fun PaymentCodeDialog(
-    login: CampusCardLogin,
+    site: SiteSession,
     onDismiss: () -> Unit
 ) {
-    val api = remember(login) { PaymentCodeApi(login) }
+    val api = remember(site) { PaymentCodeApi(site) }
     val context = LocalContext.current
 
     var isLoading by remember { mutableStateOf(true) }

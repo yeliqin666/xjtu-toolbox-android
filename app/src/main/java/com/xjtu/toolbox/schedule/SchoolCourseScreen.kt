@@ -34,7 +34,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.xjtu.toolbox.auth.JwxtLogin
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
@@ -56,17 +56,17 @@ private const val TAG = "SchoolCourseScreen"
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SchoolCourseScreen(
-    login: JwxtLogin?,
+    site: SiteSession?,
     onBack: () -> Unit
 ) {
     val appLoginState = LocalAppLoginState.current
-    if (login == null) {
+    if (site == null) {
         LaunchedEffect(Unit) { onBack() }
         return
     }
 
     val scope = rememberCoroutineScope()
-    val api = remember { SchoolCourseApi(login) }
+    val api = remember(site) { SchoolCourseApi(site) }
 
     // ── 状态 ──
     var isInitializing by remember { mutableStateOf(true) }

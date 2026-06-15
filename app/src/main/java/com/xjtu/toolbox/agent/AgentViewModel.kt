@@ -50,6 +50,7 @@ class AgentViewModel : ViewModel() {
     // AgentToolRegistry 保持在 ViewModel 级别，使 loginFailedAt 冷却状态跨消息保留
     private var tools: AgentToolRegistry? = null
     private var toolsDisabledCaps: Set<String>? = null
+    private var toolsSearchEngine: String? = null
     private val gson = Gson()
 
     // 当前生成任务，供"停止生成"取消
@@ -245,15 +246,17 @@ class AgentViewModel : ViewModel() {
         currentJob = viewModelScope.launch {
             try {
                 // 首次调用时初始化，此后复用（loginFailedAt 冷却状态得以保留）
-                if (toolsDisabledCaps != config.disabledCaps) {
+                if (toolsDisabledCaps != config.disabledCaps || toolsSearchEngine != config.searchEngine) {
                     tools = null
                     toolsDisabledCaps = config.disabledCaps
+                    toolsSearchEngine = config.searchEngine
                 }
                 val registry = tools ?: AgentToolRegistry(
                     loginState,
                     DataCache(context),
                     context,
-                    config.disabledCaps
+                    config.disabledCaps,
+                    config.searchEngine
                 ).also { tools = it }
                 registry.drainWidgets()   // 丢弃上一轮残留，确保本轮控件干净
                 val runner = AgentRunner(registry)
@@ -355,7 +358,7 @@ class AgentViewModel : ViewModel() {
                 }
 
                 // 考勤路由根据实际登录类型动态选择，避免研究生跳转到本科考勤页
-                val attendanceRoute = if (loginState.postgraduateAttendanceLogin != null)
+                val attendanceRoute = if (loginState.sessionManager?.getSiteOrNull("pg_attendance")?.hasLogin == true)
                     "postgraduate_attendance" else "attendance"
 
                 val navSuggestions = calledTools.mapNotNull { toolName ->

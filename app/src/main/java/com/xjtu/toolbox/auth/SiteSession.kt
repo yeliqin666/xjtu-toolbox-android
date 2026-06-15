@@ -1,8 +1,10 @@
 package com.xjtu.toolbox.auth
 
 import android.util.Log
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -82,11 +84,16 @@ abstract class SiteSession(
      */
     @Throws(IOException::class)
     suspend fun ensureLogin(username: String, password: String, force: Boolean = false) {
-        manager?.checkPasswordValid()
+        val mgr = manager
+        mgr?.checkPasswordValid()
+        mgr?.checkLoginCooldown(siteKey, siteName)
+        if (currentAccessMode == AccessMode.WEBVPN) {
+            mgr?.ensureWebVpnLogin()
+        }
         loginLock.withLock {
             if (!force && hasLogin) {
                 try {
-                    if (validateLogin()) return
+                    if (withContext(Dispatchers.IO) { validateLogin() }) return
                 } catch (e: IOException) {
                     Log.w(TAG, "[$siteKey] validate IOException, keep valid: ${e.message}")
                     return
@@ -94,11 +101,16 @@ abstract class SiteSession(
             }
             invalidateLogin()
             try {
-                runLogin(username, password)
+                withContext(Dispatchers.IO) {
+                    runLogin(username, password)
+                }
                 hasLogin = true
+                manager?.clearLoginFailure(siteKey)
                 Log.d(TAG, "[$siteKey] login ok (mode=${currentAccessMode.key})")
             } catch (e: PasswordInvalidatedException) {
                 manager?.reportPasswordInvalidated(siteKey, siteName)
+                throw e
+            } catch (e: IOException) {
                 throw e
             }
         }
@@ -116,18 +128,18 @@ abstract class SiteSession(
      */
     @Throws(IOException::class, AuthExpiredException::class)
     suspend fun executeWithReAuth(request: Request, retried: Boolean = false): Response {
-        val finalRequest = decorateRequest(request.newBuilder()).build()
-        val response = client.newCall(finalRequest).execute()
+        val response = withContext(Dispatchers.IO) {
+            val finalRequest = decorateRequest(request.newBuilder()).build()
+            client.newCall(finalRequest).execute()
+        }
 
-        val contentType = response.header("Content-Type", "")?.lowercase().orEmpty()
-        val mayBeAuthFail = "html" in contentType || "text" in contentType || response.code in 400..499
-        val bodyPreview = if (mayBeAuthFail) {
+        val bodyPreview = withContext(Dispatchers.IO) {
             try { response.peekBody(8192).string() } catch (_: Exception) { null }
-        } else null
+        }
 
         if (!isAuthFailureResponse(response, bodyPreview)) return response
 
-        response.close()
+        withContext(Dispatchers.IO) { response.close() }
         if (retried) throw AuthExpiredException(siteName, "$siteName 登录态已失效")
         Log.w(TAG, "[$siteKey] auth failure, invalidate and re-login")
         invalidateLogin()
@@ -150,3 +162,8 @@ class PasswordInvalidatedException(
     val siteName: String = "",
     message: String = "账号或密码无效",
 ) : IOException(message)
+
+class LoginCooldownException(
+    val siteName: String,
+    val retryAfterSeconds: Long,
+) : IOException("${siteName}登录刚刚失败，请 ${retryAfterSeconds} 秒后再试")

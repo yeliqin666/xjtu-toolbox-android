@@ -53,11 +53,13 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Dialpad
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.runtime.*
 import com.xjtu.toolbox.LocalAppLoginState
 import com.xjtu.toolbox.Routes
 import com.xjtu.toolbox.auth.AuthExpiredException
 import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -68,8 +70,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.xjtu.toolbox.auth.LibraryLogin
-
 import top.yukonga.miuix.kmp.utils.SinkFeedback
 import androidx.compose.foundation.layout.FlowRow
 import com.xjtu.toolbox.ui.components.LoadingState
@@ -92,10 +92,10 @@ private fun saveFavorites(ctx: Context, favs: Set<String>) =
 // ══════ LibraryScreen ══════
 
 @Composable
-fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
+fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
     val appLoginState = LocalAppLoginState.current
     val scope = rememberCoroutineScope()
-    val api = remember { LibraryApi(login) }
+    val api = remember(site) { LibraryApi(site) }
     val context = LocalContext.current
 
     // ── 首次使用提示 ──
@@ -265,12 +265,8 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
             try {
                 val result = withContext(Dispatchers.IO) { api.bookSeat(seatId, areaCode) }
                 bookingResult = result
-                // 被占 → 自动刷新列表
-                if ("已被占" in result.message || "已被预约" in result.message || "刷新" in result.message) loadSeats()
-                if (result.success) {
-                    loadSeats()
-                    try { myBooking = withContext(Dispatchers.IO) { api.getMyBooking() } } catch (_: Exception) {}
-                }
+                loadSeats()
+                try { myBooking = withContext(Dispatchers.IO) { api.getMyBooking() } } catch (_: Exception) {}
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { bookingResult = BookResult(false, "预约异常: ${e.message}") }
             isBooking = false
@@ -287,10 +283,8 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
             try {
                 val result = withContext(Dispatchers.IO) { api.swapSeat(seatId, areaCode) }
                 bookingResult = result
-                if (result.success) {
-                    loadSeats()
-                    try { myBooking = withContext(Dispatchers.IO) { api.getMyBooking() } } catch (_: Exception) {}
-                }
+                loadSeats()
+                try { myBooking = withContext(Dispatchers.IO) { api.getMyBooking() } } catch (_: Exception) {}
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { bookingResult = BookResult(false, "换座异常: ${e.message}") }
             isBooking = false
@@ -320,7 +314,7 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
                 val result = withContext(Dispatchers.IO) { api.executeAction(url) }
                 bookingResult = BookResult(result.success, "$label: ${result.message}")
                 myBooking = withContext(Dispatchers.IO) { api.getMyBooking() }
-                if (label == "取消预约") loadSeats()
+                loadSeats()
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { bookingResult = BookResult(false, "$label 失败: ${e.message}") }
             isBooking = false
@@ -443,6 +437,12 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
                 },
                 actions = {
+                    IconButton(onClick = {
+                        loadSeats()
+                        refreshMyBooking()
+                    }) {
+                        Icon(Icons.Default.Refresh, "刷新")
+                    }
                     IconButton(onClick = { showManualBooking.value = true }) {
                         Icon(Icons.Default.Dialpad, "输入座位号")
                     }
@@ -698,9 +698,12 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
                                             isReAuth = true
                                             scope.launch {
                                                 try {
-                                                    val ok = withContext(Dispatchers.IO) { login.reAuthenticate() }
-                                                    if (ok) loadSeats()
-                                                    else errorMessage = "重新认证失败：${login.diagnosticInfo}"
+                                                    val creds = appLoginState.sessionManager?.credentials
+                                                        ?: error("未配置凭据")
+                                                    withContext(Dispatchers.IO) {
+                                                        site.ensureLogin(creds.first, creds.second, force = true)
+                                                    }
+                                                    loadSeats()
                                                 } catch (e: CancellationException) { throw e }
                                                 catch (e: Exception) { errorMessage = "重新认证失败: ${e.message}" }
                                                 isReAuth = false

@@ -86,8 +86,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
-import com.xjtu.toolbox.auth.JwappLogin
-import com.xjtu.toolbox.auth.JwxtLogin
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.score.ScoreReportApi
 import com.xjtu.toolbox.score.ReportedGrade
 import com.xjtu.toolbox.judge.JudgeApi
@@ -100,14 +99,14 @@ import kotlinx.coroutines.withContext
 
 @Composable
 fun JwappScoreScreen(
-    login: JwappLogin?,
-    jwxtLogin: JwxtLogin? = null,
+    site: SiteSession?,
+    jwxtSite: SiteSession? = null,
     studentId: String = "",
     onBack: () -> Unit,
     onOpenReport: () -> Unit = {}
 ) {
     val appLoginState = LocalAppLoginState.current
-    val api = remember(login) { login?.let { JwappApi(it) } }
+    val api = remember(site) { site?.let { JwappApi(it) } }
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
     val dataCache = remember { com.xjtu.toolbox.util.DataCache(context) }
@@ -184,9 +183,9 @@ fun JwappScoreScreen(
                     val grades = api.getGrade(null).toMutableList()
 
                     // CjcxApi 精确化：ZCJ/XFJD 替换 JWAPP 数据
-                    if (jwxtLogin != null) {
+                    if (jwxtSite != null) {
                         try {
-                            val cjcxApi = CjcxApi(jwxtLogin)
+                            val cjcxApi = CjcxApi(jwxtSite)
                             val preciseScores = cjcxApi.getAllScores()
                             val lookup = cjcxApi.buildLookup(preciseScores)
                             val preciseByKch = preciseScores.associateBy { it.kch }
@@ -255,10 +254,10 @@ fun JwappScoreScreen(
                     }.toMutableSet()
 
                     // 报表补充未评教课程
-                    if (jwxtLogin != null && studentId.isNotEmpty()) {
+                    if (jwxtSite != null && studentId.isNotEmpty()) {
                         var unevalSet = emptySet<String>()
                         try {
-                            val judgeApi = JudgeApi(jwxtLogin)
+                            val judgeApi = JudgeApi(jwxtSite)
                             val unfinished = judgeApi.unfinishedQuestionnaires()
                             unevalSet = unfinished.map { it.KCM }.toSet()
                             unevaluatedCourses = unevalSet
@@ -268,7 +267,7 @@ fun JwappScoreScreen(
 
                         if (unevalSet.isNotEmpty()) {
                             try {
-                                val reportGrades = ScoreReportApi(jwxtLogin).getReportedGrade(studentId)
+                                val reportGrades = ScoreReportApi(jwxtSite).getReportedGrade(studentId)
                                 val supplementByTerm = mutableMapOf<String, MutableList<ScoreItem>>()
                                 for (rg in reportGrades) {
                                     if (rg.courseName !in unevalSet) continue
@@ -353,9 +352,8 @@ fun JwappScoreScreen(
         }
     }
 
-    // [修复] 监听 login 变化：onRetry 中 clearLogin+autoLogin(JWAPP) 重建 JwappLogin 后，
-    // login 引用会变更，触发本 effect 用新 token 重新加载（避免 lambda 内 stale closure 问题）。
-    LaunchedEffect(login) { loadScoreData() }
+    // [修复] 监听 site 变化：重登后 SiteSession token 会刷新，触发本 effect 重新加载。
+    LaunchedEffect(site) { loadScoreData() }
 
     val currentTermScores = if (selectedTermIndex == 0 && allTermScores.isNotEmpty()) {
         // "所有学期" 选项
@@ -460,23 +458,16 @@ fun JwappScoreScreen(
                 ErrorState(
                     message = errorMessage!!,
                     onRetry = {
-                        // [关键修复] 之前 onRetry 直接 loadScoreData，但 jwappLogin.authToken
-                        // 已被上一次 reAuth-失败清空，loadScoreData → authenticatedRequest 立即抛
-                        // RuntimeException("未登录") → 用户看到"加载失败: 未登录"，再点重试同样无效。
-                        // 现在改为：先 clearLogin(JWAPP) + force autoLogin(JWAPP, interactive=true)
-                        // 让状态机重建 JwappLogin（含必要的 MFA dialog），拿新 token 后再 loadScoreData。
                         scope.launch {
                             isLoading = true
                             errorMessage = null
                             try {
                                 withContext(Dispatchers.IO) {
-                                    appLoginState.clearLogin(LoginType.JWAPP)
-                                    appLoginState.autoLogin(LoginType.JWAPP, force = true, interactive = true)
+                                    appLoginState.sessionManager?.credentials?.let { creds ->
+                                        site?.ensureLogin(creds.first, creds.second, force = true)
+                                    }
                                 }
                             } catch (_: Exception) {}
-                            // 不管 autoLogin 是否成功都 loadScoreData：
-                            //   - 成功 → 拿新 token 重试业务请求
-                            //   - 失败 → loadScoreData 内 catch 会显示更准确的错误（含缓存兜底）
                             loadScoreData()
                         }
                     },

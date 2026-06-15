@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.jiaoxiaozhi
 
 import com.xjtu.toolbox.auth.SessionManager
+import com.xjtu.toolbox.auth.AuthExpiredException
 import java.util.UUID
 
 /**
@@ -23,23 +24,38 @@ class JiaoxiaozhiCompat(private val sessionManager: SessionManager) {
         val credentials = sessionManager.credentials
             ?: throw IllegalStateException("请先在应用中登录校园账号")
         session.ensureLogin(credentials.first, credentials.second)
-        return try {
-            JiaoxiaozhiApi(session).ask(
-                question = question,
-                sessionId = conversationId,
-                modelId = JiaoxiaozhiModels.byId(modelId).id,
-                networkEnabled = networkEnabled,
-                onDelta = onDelta,
-            )
-        } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
-            session.ensureLogin(credentials.first, credentials.second, force = true)
-            JiaoxiaozhiApi(session).ask(
-                question = question,
-                sessionId = conversationId,
-                modelId = JiaoxiaozhiModels.byId(modelId).id,
-                networkEnabled = networkEnabled,
-                onDelta = onDelta,
-            )
+        var lastError: Throwable? = null
+        repeat(3) { attempt ->
+            try {
+                if (attempt > 0) {
+                    session.invalidateLogin()
+                    session.ensureLogin(credentials.first, credentials.second, force = true)
+                }
+                return askOnce(session, question, conversationId, modelId, networkEnabled, onDelta)
+            } catch (e: AuthExpiredException) {
+                lastError = e
+            } catch (e: RuntimeException) {
+                if (!JiaoxiaozhiApi.isAuthExpiredText(e.message.orEmpty())) throw e
+                lastError = e
+            }
         }
+        throw IllegalStateException("交晓智认证正在刷新，请稍后重试。", lastError)
+    }
+
+    private suspend fun askOnce(
+        session: JiaoxiaozhiSiteSession,
+        question: String,
+        conversationId: String,
+        modelId: String,
+        networkEnabled: Boolean,
+        onDelta: suspend (String) -> Unit,
+    ): String {
+        return JiaoxiaozhiApi(session).ask(
+            question = question,
+            sessionId = conversationId,
+            modelId = JiaoxiaozhiModels.byId(modelId).id,
+            networkEnabled = networkEnabled,
+            onDelta = onDelta,
+        )
     }
 }

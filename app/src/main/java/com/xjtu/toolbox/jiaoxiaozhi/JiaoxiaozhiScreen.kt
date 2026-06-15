@@ -41,10 +41,10 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xjtu.toolbox.LocalAppLoginState
 import com.xjtu.toolbox.agent.MarkdownText
-import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
@@ -55,7 +55,6 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.TopAppBar
-import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 private val JiaozhiBlue = Color(0xFF315FD4)
@@ -325,11 +324,10 @@ private fun OfficialServiceBanner(
                 )
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(
-                    Icons.Default.Public,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = if (networkEnabled) JiaozhiBlue else MiuixTheme.colorScheme.outline,
+                Text(
+                    if (networkEnabled) "联网" else "校内",
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = if (networkEnabled) JiaozhiBlue else MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
                 Switch(
                     checked = networkEnabled,
@@ -384,13 +382,38 @@ private fun ModelDialog(
     onSelect: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    OverlayDialog(
-        show = true,
-        title = "选择本会话模型",
-        summary = "模型选择按会话保存；切换不会清空该会话的上游上下文。",
-        onDismissRequest = onDismiss,
+    Box(
+        Modifier
+            .fillMaxSize()
+            .zIndex(4f)
+            .background(Color.Black.copy(alpha = 0.38f))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+            ) { onDismiss() },
+        contentAlignment = Alignment.Center,
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Surface(
+            shape = RoundedCornerShape(22.dp),
+            color = MiuixTheme.colorScheme.surface,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(22.dp)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                ) { },
+        ) {
+            Column(
+                Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("选择本会话模型", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold)
+                Text(
+                    "模型选择按会话保存；切换不会清空该会话的上游上下文。",
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
             JiaoxiaozhiModels.all.forEach { model ->
                 val selected = model.id == selectedId
                 Surface(
@@ -415,6 +438,7 @@ private fun ModelDialog(
             }
         }
     }
+    }
 }
 
 @Composable
@@ -429,9 +453,14 @@ private fun JiaoxiaozhiDrawer(
     onDelete: (String) -> Unit,
 ) {
     var renameTarget by remember { mutableStateOf<JiaoxiaozhiSession?>(null) }
-    var deleteTarget by remember { mutableStateOf<JiaoxiaozhiSession?>(null) }
+    var renameText by remember { mutableStateOf("") }
 
-    AnimatedVisibility(visible = open, enter = fadeIn(), exit = fadeOut()) {
+    AnimatedVisibility(
+        visible = open,
+        enter = fadeIn(),
+        exit = fadeOut(),
+        modifier = Modifier.zIndex(1f),
+    ) {
         Box(
             Modifier
                 .fillMaxSize()
@@ -446,6 +475,7 @@ private fun JiaoxiaozhiDrawer(
         visible = open,
         enter = slideInHorizontally { -it },
         exit = slideOutHorizontally { -it },
+        modifier = Modifier.zIndex(2f),
     ) {
         Surface(
             modifier = Modifier.fillMaxHeight().width(306.dp),
@@ -480,46 +510,70 @@ private fun JiaoxiaozhiDrawer(
                 ) {
                     items(sessions, key = { it.id }) { session ->
                         val selected = session.id == currentId
+                        val renaming = renameTarget?.id == session.id
                         Surface(
                             shape = RoundedCornerShape(13.dp),
                             color = if (selected) JiaozhiPurple.copy(alpha = 0.13f)
                             else MiuixTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier.fillMaxWidth().clickable { onSelect(session.id) },
+                            modifier = Modifier.fillMaxWidth(),
                         ) {
                             Row(
                                 Modifier.padding(start = 12.dp, end = 3.dp, top = 8.dp, bottom = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(
-                                        session.title,
-                                        maxLines = 1,
-                                        fontWeight = FontWeight.Medium,
-                                        color = if (selected) JiaozhiPurple else MiuixTheme.colorScheme.onSurface,
+                                if (renaming) {
+                                    TextField(
+                                        value = renameText,
+                                        onValueChange = { renameText = it },
+                                        label = "对话标题",
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f),
                                     )
-                                    Text(
-                                        "${JiaoxiaozhiModels.byId(session.modelId).label} · ${
-                                            java.text.SimpleDateFormat(
-                                                "MM-dd HH:mm",
-                                                java.util.Locale.CHINA
-                                            ).format(java.util.Date(session.updatedAt))
-                                        }",
-                                        style = MiuixTheme.textStyles.footnote1,
-                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    TextButton(
+                                        text = "保存",
+                                        onClick = {
+                                            onRename(session.id, renameText)
+                                            renameTarget = null
+                                        },
                                     )
-                                }
-                                IconButton(onClick = { renameTarget = session }) {
-                                    Icon(
-                                        Icons.Default.Edit,
+                                    TextButton(text = "取消", onClick = { renameTarget = null })
+                                } else {
+                                    Column(
+                                        Modifier
+                                            .weight(1f)
+                                            .clickable { onSelect(session.id) }
+                                            .padding(vertical = 6.dp)
+                                    ) {
+                                        Text(
+                                            session.title,
+                                            maxLines = 1,
+                                            fontWeight = FontWeight.Medium,
+                                            color = if (selected) JiaozhiPurple else MiuixTheme.colorScheme.onSurface,
+                                        )
+                                        Text(
+                                            "${JiaoxiaozhiModels.byId(session.modelId).label} · ${
+                                                java.text.SimpleDateFormat(
+                                                    "MM-dd HH:mm",
+                                                    java.util.Locale.CHINA
+                                                ).format(java.util.Date(session.updatedAt))
+                                            }",
+                                            style = MiuixTheme.textStyles.footnote1,
+                                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                        )
+                                    }
+                                    CompactJiaoxiaozhiAction(
+                                        icon = Icons.Default.Edit,
                                         contentDescription = "重命名",
-                                        modifier = Modifier.size(18.dp),
+                                        onClick = {
+                                            renameTarget = session
+                                            renameText = session.title
+                                        },
                                     )
-                                }
-                                IconButton(onClick = { deleteTarget = session }) {
-                                    Icon(
-                                        Icons.Default.Delete,
+                                    CompactJiaoxiaozhiAction(
+                                        icon = Icons.Default.Delete,
                                         contentDescription = "删除",
-                                        modifier = Modifier.size(18.dp),
+                                        onClick = { onDelete(session.id) },
+                                        tint = MiuixTheme.colorScheme.error,
                                     )
                                 }
                             }
@@ -529,62 +583,25 @@ private fun JiaoxiaozhiDrawer(
             }
         }
     }
+}
 
-    renameTarget?.let { target ->
-        var title by remember(target.id) { mutableStateOf(target.title) }
-        OverlayDialog(
-            show = true,
-            title = "重命名对话",
-            onDismissRequest = { renameTarget = null },
-        ) {
-            Column {
-                TextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    label = "标题",
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    TextButton(
-                        text = "取消",
-                        onClick = { renameTarget = null },
-                        modifier = Modifier.weight(1f),
-                    )
-                    Button(
-                        onClick = {
-                            onRename(target.id, title)
-                            renameTarget = null
-                        },
-                        modifier = Modifier.weight(1f),
-                    ) { Text("保存") }
-                }
-            }
-        }
-    }
-
-    deleteTarget?.let { target ->
-        OverlayDialog(
-            show = true,
-            title = "删除对话",
-            summary = "确定删除「${target.title}」吗？本地记录将不可恢复。",
-            onDismissRequest = { deleteTarget = null },
-        ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                TextButton(
-                    text = "取消",
-                    onClick = { deleteTarget = null },
-                    modifier = Modifier.weight(1f),
-                )
-                Button(
-                    onClick = {
-                        onDelete(target.id)
-                        deleteTarget = null
-                    },
-                    modifier = Modifier.weight(1f),
-                ) { Text("删除") }
-            }
+@Composable
+private fun CompactJiaoxiaozhiAction(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    tint: Color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MiuixTheme.colorScheme.surface.copy(alpha = 0.72f),
+        modifier = Modifier
+            .padding(start = 4.dp)
+            .size(34.dp)
+            .clickable(onClick = onClick),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = contentDescription, modifier = Modifier.size(17.dp), tint = tint)
         }
     }
 }

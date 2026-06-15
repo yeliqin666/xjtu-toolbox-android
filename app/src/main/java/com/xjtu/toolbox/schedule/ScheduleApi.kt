@@ -1,7 +1,8 @@
 package com.xjtu.toolbox.schedule
 
 import android.util.Log
-import com.xjtu.toolbox.auth.JwxtLogin
+import com.xjtu.toolbox.auth.SiteSession
+import kotlinx.coroutines.runBlocking
 import com.xjtu.toolbox.ui.ScheduleSlot
 import com.xjtu.toolbox.util.safeInt
 import com.xjtu.toolbox.util.safeParseJsonObject
@@ -72,20 +73,15 @@ data class TextbookItem(
                     || author.trim().length >= 2)
 }
 
-class ScheduleApi(private val login: JwxtLogin) {
+class ScheduleApi(private val site: SiteSession) {
 
     private val baseUrl = "https://jwxt.xjtu.edu.cn"
     private var cachedTermCode: String? = null
 
-    /**
-     * FineReport 专用 client：加长超时（帆软报表渲染可能需要 30s+）
-     */
-    private val frClient by lazy {
-        login.client.newBuilder()
-            .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
-            .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-            .build()
-    }
+    private fun execute(request: Request): String =
+        runBlocking { site.executeWithReAuth(request) }.use { response ->
+            response.body?.string() ?: throw RuntimeException("空响应")
+        }
 
     fun getCurrentTerm(): String {
         cachedTermCode?.let { return it }
@@ -95,9 +91,7 @@ class ScheduleApi(private val login: JwxtLogin) {
             .header("Accept", "application/json, text/javascript, */*; q=0.01")
             .build()
 
-        val responseBody = login.client.newCall(request).execute().use { response ->
-            response.body?.string() ?: throw RuntimeException("空响应")
-        }
+        val responseBody = execute(request)
         // 服务端登录态失效时返回 HTML 跳转页（CAS / Safety Verify），需提前拦截
         // 否则下游 safeParseJsonObject 会抛出无意义的 MalformedJsonException
         val trimmed = responseBody.trimStart()
@@ -122,9 +116,7 @@ class ScheduleApi(private val login: JwxtLogin) {
             .post(formBody)
             .build()
 
-        val responseBody = login.client.newCall(request).execute().use { response ->
-            response.body?.string() ?: throw RuntimeException("空响应")
-        }
+        val responseBody = execute(request)
         val json = responseBody.safeParseJsonObject()
         val rows = json.getAsJsonObject("datas")
             .getAsJsonObject("xskcb")
@@ -171,9 +163,7 @@ class ScheduleApi(private val login: JwxtLogin) {
             .post(formBody)
             .build()
 
-        val responseBody = login.client.newCall(request).execute().use { response ->
-            response.body?.string() ?: throw RuntimeException("空响应")
-        }
+        val responseBody = execute(request)
         val json = responseBody.safeParseJsonObject()
         val rows = json.getAsJsonObject("datas")
             .getAsJsonObject("wdksap")
@@ -219,9 +209,7 @@ class ScheduleApi(private val login: JwxtLogin) {
             .post(formBody)
             .build()
 
-        val responseBody = login.client.newCall(request).execute().use { response ->
-            response.body?.string() ?: throw RuntimeException("空响应")
-        }
+        val responseBody = execute(request)
         val json = responseBody.safeParseJsonObject()
         val dateStr = json.getAsJsonObject("datas")
             .getAsJsonObject("cxjcs")
@@ -255,7 +243,7 @@ class ScheduleApi(private val login: JwxtLogin) {
             .post(initBody)
             .header("Referer", "$frUrl?__cumulatepagenumber__=false")
             .build()
-        var html = frClient.newCall(initRequest).execute().use { resp ->
+        var html = runBlocking { site.executeWithReAuth(initRequest) }.use { resp ->
             Log.d(TAG, "getTextbooks: init code=${resp.code}, url=${resp.request.url}")
             resp.body?.string() ?: ""
         }
@@ -283,7 +271,7 @@ class ScheduleApi(private val login: JwxtLogin) {
                 .post(formBuilder.build())
                 .header("Referer", "$frUrl?__cumulatepagenumber__=false")
                 .build()
-            html = frClient.newCall(resubmitRequest).execute().use { resp ->
+            html = runBlocking { site.executeWithReAuth(resubmitRequest) }.use { resp ->
                 Log.d(TAG, "getTextbooks: resubmit code=${resp.code}, url=${resp.request.url}")
                 resp.body?.string() ?: ""
             }
@@ -384,7 +372,7 @@ class ScheduleApi(private val login: JwxtLogin) {
             .header("X-Requested-With", "XMLHttpRequest")
             .header("Referer", frUrl)
             .build()
-        val firstPageHtml = frClient.newCall(firstPageReq).execute().use { it.body?.string() ?: "" }
+        val firstPageHtml = runBlocking { site.executeWithReAuth(firstPageReq) }.use { it.body?.string() ?: "" }
         Log.d(TAG, "getTextbooks: page 1 len=${firstPageHtml.length}, preview=${firstPageHtml.take(300)}")
 
         // 检测 FineReport 错误页
@@ -408,7 +396,7 @@ class ScheduleApi(private val login: JwxtLogin) {
                 .header("X-Requested-With", "XMLHttpRequest")
                 .header("Referer", frUrl)
                 .build()
-            val pageHtml = frClient.newCall(pageReq).execute().use { it.body?.string() ?: "" }
+            val pageHtml = runBlocking { site.executeWithReAuth(pageReq) }.use { it.body?.string() ?: "" }
             Log.d(TAG, "getTextbooks: page $pn len=${pageHtml.length}")
             allItems.addAll(parseTextbookTable(pageHtml))
         }
@@ -617,9 +605,7 @@ class ScheduleApi(private val login: JwxtLogin) {
             .header("Accept", "application/json, text/javascript, */*; q=0.01")
             .build()
 
-        val responseBody = login.client.newCall(request).execute().use { response ->
-            response.body?.string() ?: throw RuntimeException("空响应")
-        }
+        val responseBody = execute(request)
 
         return try {
             val json = responseBody.safeParseJsonObject()

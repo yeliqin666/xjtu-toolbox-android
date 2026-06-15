@@ -48,12 +48,13 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.ViewModelStoreOwner
 import com.xjtu.toolbox.LocalAppLoginState
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.basic.CardDefaults
-import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
@@ -65,7 +66,7 @@ fun AgentScreen(onBack: () -> Unit, onNavigate: (String) -> Unit = {}) {
     val configStore = remember { AgentConfigStore(context) }
     var config by remember { mutableStateOf(configStore.load()) }
     var showConfig by rememberSaveable { mutableStateOf(!config.isConfigured) }
-    val vm: AgentViewModel = viewModel()
+    val vm: AgentViewModel = viewModel(viewModelStoreOwner = context as ViewModelStoreOwner)
 
     // 多会话持久化：绑定一次，加载会话列表并恢复最近会话
     val sessionStore = remember { AgentSessionStore(context) }
@@ -91,7 +92,11 @@ fun AgentScreen(onBack: () -> Unit, onNavigate: (String) -> Unit = {}) {
                     },
                     actions = {
                         // 顶栏只留两个按钮：会话列表（含新建/改名/删除）与设置
-                        if (!showConfig) {
+                        AnimatedVisibility(
+                            visible = !showConfig,
+                            enter = fadeIn(animationSpec = tween(160)),
+                            exit = fadeOut(animationSpec = tween(120))
+                        ) {
                             IconButton(onClick = { drawerOpen = true }) {
                                 Icon(Icons.AutoMirrored.Filled.List, contentDescription = "会话列表")
                             }
@@ -156,10 +161,15 @@ private fun SessionDrawer(
     onDelete: (String) -> Unit
 ) {
     var renameTarget by remember { mutableStateOf<AgentSession?>(null) }
-    var deleteTarget by remember { mutableStateOf<AgentSession?>(null) }
+    var renameText by remember { mutableStateOf("") }
 
     // 半透明遮罩，点击关闭
-    AnimatedVisibility(visible = open, enter = fadeIn(), exit = fadeOut()) {
+    AnimatedVisibility(
+        visible = open,
+        enter = fadeIn(animationSpec = tween(180)),
+        exit = fadeOut(animationSpec = tween(140)),
+        modifier = Modifier.zIndex(1f)
+    ) {
         Box(
             Modifier
                 .fillMaxSize()
@@ -173,8 +183,9 @@ private fun SessionDrawer(
     // 左侧抽屉面板
     AnimatedVisibility(
         visible = open,
-        enter = slideInHorizontally { -it },
-        exit = slideOutHorizontally { -it }
+        enter = slideInHorizontally(animationSpec = tween(260)) { -it },
+        exit = slideOutHorizontally(animationSpec = tween(220)) { -it },
+        modifier = Modifier.zIndex(2f)
     ) {
         Surface(
             modifier = Modifier.fillMaxHeight().width(300.dp),
@@ -204,34 +215,62 @@ private fun SessionDrawer(
                 ) {
                     items(sessions, key = { it.id }) { s ->
                         val isCurrent = s.id == currentId
+                        val isRenaming = renameTarget?.id == s.id
                         Surface(
                             shape = RoundedCornerShape(12.dp),
                             color = if (isCurrent) MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)
                                     else MiuixTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier.fillMaxWidth().clickable { onSelect(s.id) }
+                            modifier = Modifier.fillMaxWidth()
                         ) {
                             Row(
                                 Modifier.padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(s.title, style = MiuixTheme.textStyles.body2,
-                                        fontWeight = FontWeight.Medium, maxLines = 1,
-                                        color = if (isCurrent) MiuixTheme.colorScheme.primary
-                                                else MiuixTheme.colorScheme.onSurface)
-                                    Text(formatSessionTime(s.updatedAt),
-                                        style = MiuixTheme.textStyles.footnote1,
-                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                                if (isRenaming) {
+                                    TextField(
+                                        value = renameText,
+                                        onValueChange = { renameText = it },
+                                        label = "会话标题",
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                } else {
+                                    Column(
+                                        Modifier
+                                            .weight(1f)
+                                            .clickable { onSelect(s.id) }
+                                            .padding(vertical = 6.dp)
+                                    ) {
+                                        Text(s.title, style = MiuixTheme.textStyles.body2,
+                                            fontWeight = FontWeight.Medium, maxLines = 1,
+                                            color = if (isCurrent) MiuixTheme.colorScheme.primary
+                                                    else MiuixTheme.colorScheme.onSurface)
+                                        Text(formatSessionTime(s.updatedAt),
+                                            style = MiuixTheme.textStyles.footnote1,
+                                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                                    }
                                 }
-                                IconButton(onClick = { renameTarget = s }) {
-                                    Icon(Icons.Default.Edit, contentDescription = "重命名",
-                                        modifier = Modifier.size(18.dp),
-                                        tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                                }
-                                IconButton(onClick = { deleteTarget = s }) {
-                                    Icon(Icons.Default.Delete, contentDescription = "删除",
-                                        modifier = Modifier.size(18.dp),
-                                        tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                                if (isRenaming) {
+                                    TextButton(
+                                        text = "保存",
+                                        onClick = {
+                                            onRename(s.id, renameText)
+                                            renameTarget = null
+                                        }
+                                    )
+                                    TextButton(text = "取消", onClick = { renameTarget = null })
+                                } else {
+                                    CompactSessionAction(
+                                        icon = Icons.Default.Edit,
+                                        contentDescription = "重命名",
+                                        onClick = { renameTarget = s; renameText = s.title }
+                                    )
+                                    CompactSessionAction(
+                                        icon = Icons.Default.Delete,
+                                        contentDescription = "删除",
+                                        onClick = { onDelete(s.id) },
+                                        tint = MiuixTheme.colorScheme.error
+                                    )
                                 }
                             }
                         }
@@ -241,48 +280,31 @@ private fun SessionDrawer(
         }
     }
 
-    // 重命名对话框
-    renameTarget?.let { target ->
-        var text by remember(target.id) { mutableStateOf(target.title) }
-        OverlayDialog(
-            show = true,
-            title = "重命名对话",
-            onDismissRequest = { renameTarget = null }
-        ) {
-            Column(Modifier.fillMaxWidth()) {
-                TextField(value = text, onValueChange = { text = it }, label = "标题",
-                    singleLine = true, modifier = Modifier.fillMaxWidth())
-                Spacer(Modifier.height(12.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    TextButton(text = "取消", onClick = { renameTarget = null },
-                        modifier = Modifier.weight(1f))
-                    Button(onClick = { onRename(target.id, text); renameTarget = null },
-                        modifier = Modifier.weight(1f)) { Text("保存") }
-                }
-            }
-        }
-    }
-
-    // 删除确认
-    deleteTarget?.let { target ->
-        OverlayDialog(
-            show = true,
-            title = "删除对话",
-            summary = "确定删除「${target.title}」吗？此操作不可恢复。",
-            onDismissRequest = { deleteTarget = null }
-        ) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                TextButton(text = "取消", onClick = { deleteTarget = null },
-                    modifier = Modifier.weight(1f))
-                Button(onClick = { onDelete(target.id); deleteTarget = null },
-                    modifier = Modifier.weight(1f)) { Text("删除") }
-            }
-        }
-    }
 }
 
 private fun formatSessionTime(ts: Long): String =
     java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.CHINA).format(java.util.Date(ts))
+
+@Composable
+private fun CompactSessionAction(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    tint: Color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MiuixTheme.colorScheme.surface.copy(alpha = 0.72f),
+        modifier = Modifier
+            .padding(start = 4.dp)
+            .size(34.dp)
+            .clickable(onClick = onClick)
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = contentDescription, modifier = Modifier.size(17.dp), tint = tint)
+        }
+    }
+}
 
 @Composable
 private fun ChatPanel(
@@ -291,7 +313,8 @@ private fun ChatPanel(
     loginState: com.xjtu.toolbox.AppLoginState,
     padding: PaddingValues,
     scrollBehavior: ScrollBehavior,
-    onNavigate: (String) -> Unit
+    onNavigate: (String) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val listState = rememberLazyListState()
@@ -316,7 +339,7 @@ private fun ChatPanel(
     }
 
     Column(
-        Modifier
+        modifier
             .fillMaxSize()
             // 只吃顶部（TopAppBar 高度）；底部由输入栏自己的 navigationBarsPadding + imePadding 处理，
             // 否则会和输入栏的 inset 双重叠加，键盘弹出时把输入框顶飞。
@@ -628,6 +651,7 @@ private fun ConfigPanel(
     var maxToolCalls by remember { mutableIntStateOf(config.maxToolCalls) }
     var assistantName by remember { mutableStateOf(config.assistantName) }
     var disabledCaps by remember { mutableStateOf(config.disabledCaps) }
+    var searchEngine by remember { mutableStateOf(config.searchEngine) }
     var thinkingEnabled by remember { mutableStateOf(config.thinkingEnabled) }
     var reasoningEffort by remember { mutableStateOf(config.reasoningEffort) }
     var showReasoning by remember { mutableStateOf(config.showReasoning) }
@@ -642,12 +666,26 @@ private fun ConfigPanel(
         top.yukonga.miuix.kmp.basic.DropdownItem(text = AgentConfig.providerLabel(it))
     }
     val providerIndex = AgentConfig.PROVIDERS.indexOf(provider).coerceAtLeast(0)
+    val searchEngineItems = AgentConfig.SEARCH_ENGINES.map { DropdownItem(text = AgentConfig.searchEngineLabel(it)) }
+    val searchEngineIndex = AgentConfig.SEARCH_ENGINES.indexOf(searchEngine).coerceAtLeast(0)
 
     LazyColumn(
         modifier = modifier.overScrollVertical(),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        item {
+            Card(colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.errorContainer.copy(alpha = 0.35f))) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("首次使用前请确认", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold)
+                    Text(
+                        "推荐使用 DeepSeek 官方 API。请妥善保管 API Key，只选择可信、可靠的 API 来源；第三方中转可能接触你的提问内容、校园查询结果和工具返回数据，存在隐私泄露风险。本应用不会替你背书任何上游服务，由此产生的密钥泄露、资费损失或隐私风险需自行承担。",
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                    )
+                }
+            }
+        }
         item {
             Card(colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)) {
                 OverlaySpinnerPreference(
@@ -656,6 +694,17 @@ private fun ConfigPanel(
                     items = providerItems,
                     selectedIndex = providerIndex,
                     onSelectedIndexChange = { provider = AgentConfig.PROVIDERS[it] }
+                )
+            }
+        }
+        item {
+            Card(colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)) {
+                OverlaySpinnerPreference(
+                    title = "联网搜索引擎",
+                    summary = AgentConfig.searchEngineLabel(searchEngine),
+                    items = searchEngineItems,
+                    selectedIndex = searchEngineIndex,
+                    onSelectedIndexChange = { searchEngine = AgentConfig.SEARCH_ENGINES[it] }
                 )
             }
         }
@@ -669,6 +718,7 @@ private fun ConfigPanel(
                 "yellow_page" to "校园黄页",
                 "library" to "图书馆",
                 "lms" to "思源学堂",
+                "fitness" to "体测查询",
                 "textbook" to "教材",
                 "coupon" to "加餐券",
                 "web" to "联网搜索与网页阅读",
@@ -871,6 +921,7 @@ private fun ConfigPanel(
                         maxToolCalls = maxToolCalls,
                         assistantName = assistantName.trim(),
                         disabledCaps = disabledCaps,
+                        searchEngine = searchEngine,
                         thinkingEnabled = thinkingEnabled,
                         reasoningEffort = reasoningEffort,
                         showReasoning = showReasoning

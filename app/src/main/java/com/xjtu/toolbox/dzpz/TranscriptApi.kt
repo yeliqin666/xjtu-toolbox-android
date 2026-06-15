@@ -3,10 +3,11 @@ package com.xjtu.toolbox.dzpz
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonObject
-import com.xjtu.toolbox.auth.DzpzLogin
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.FormBody
 import okhttp3.Request
+import kotlinx.coroutines.runBlocking
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -23,11 +24,11 @@ import java.util.Locale
  * 6. getDownloadInfo() → 获取最终的文件下载链接
  * 7. downloadPdf() → 下载 PDF 二进制文件
  */
-class TranscriptApi(private val login: DzpzLogin) {
+class TranscriptApi(private val site: SiteSession) {
 
     companion object {
         private const val TAG = "TranscriptApi"
-        private const val BASE = DzpzLogin.BASE_URL
+        private const val BASE = "https://dzpz.xjtu.edu.cn"
 
         /** 成绩单服务 → workflowId 映射 */
         val WORKFLOW_MAP = mapOf(
@@ -38,9 +39,13 @@ class TranscriptApi(private val login: DzpzLogin) {
         )
     }
 
-    private val client get() = login.client
-    private val userId get() = login.userId ?: error("未登录")
+    private val userId get() = site.localToken["user_id"] ?: error("未登录")
     private val gson = Gson()
+
+    private fun execute(request: Request): String =
+        runBlocking { site.executeWithReAuth(request) }.use { it.body?.string().orEmpty() }
+
+    private fun execute(builder: Request.Builder): String = execute(builder.build())
 
     // ══════════════════════════════════════
     //  数据类
@@ -108,10 +113,10 @@ class TranscriptApi(private val login: DzpzLogin) {
             .post(body)
             .build()
 
-        val response = login.executeWithReAuth(Request.Builder()
+        val responseBody = execute(Request.Builder()
             .url("$BASE/api/workflow/reqform/loadForm")
             .post(body))
-        val json = response.body?.string().safeParseJsonObject()
+        val json = responseBody.safeParseJsonObject()
 
         val params = json.getAsJsonObject("params")
         val submitParams = json.getAsJsonObject("submitParams")
@@ -197,13 +202,12 @@ class TranscriptApi(private val login: DzpzLogin) {
             .add("f_weaver_belongto_usertype", "0")
             .build()
 
-        val resp1 = client.newCall(
+        val json1 = execute(
             Request.Builder()
                 .url("$BASE/api/workflow/linkage/reqDataInputResult")
                 .post(body1)
                 .build()
-        ).execute()
-        val json1 = resp1.body?.string().safeParseJsonObject()
+        ).safeParseJsonObject()
 
         val assign64 = json1.getAsJsonObject("assignInfo_64")
             ?.getAsJsonObject("changeValue")
@@ -230,13 +234,12 @@ class TranscriptApi(private val login: DzpzLogin) {
             .add("f_weaver_belongto_usertype", "0")
             .build()
 
-        val resp2 = client.newCall(
+        val json2 = execute(
             Request.Builder()
                 .url("$BASE/api/workflow/linkage/reqDataInputResult")
                 .post(body2)
                 .build()
-        ).execute()
-        val json2 = resp2.body?.string().safeParseJsonObject()
+        ).safeParseJsonObject()
 
         val assign43 = json2.getAsJsonObject("assignInfo_43")
             ?.getAsJsonObject("changeValue")
@@ -271,13 +274,12 @@ class TranscriptApi(private val login: DzpzLogin) {
             .add("cjdlx", typeValue.toString())
             .build()
 
-        val response = client.newCall(
+        val docId = execute(
             Request.Builder()
                 .url("$BASE/api/xjtuapi/procfiles")
                 .post(body)
                 .build()
-        ).execute()
-        val docId = response.body?.string()?.trim() ?: error("生成成绩单失败：服务器无响应")
+        ).trim().ifEmpty { error("生成成绩单失败：服务器无响应") }
         Log.d(TAG, "generatePreviewPdf: docId=$docId")
         return docId
     }
@@ -362,13 +364,12 @@ class TranscriptApi(private val login: DzpzLogin) {
             .add("wfTestStr", "")
             .build()
 
-        val response = client.newCall(
+        val json = execute(
             Request.Builder()
                 .url("$BASE/api/workflow/reqform/requestOperation")
                 .post(body)
                 .build()
-        ).execute()
-        val json = response.body?.string().safeParseJsonObject()
+        ).safeParseJsonObject()
 
         val data = json.getAsJsonObject("data")
             ?: error("提交失败：${json.get("message")?.asString ?: "未知错误"}")
@@ -414,13 +415,12 @@ class TranscriptApi(private val login: DzpzLogin) {
             .add("sessionkey", firstResult.sessionKey)
             .build()
 
-        val loadResp = client.newCall(
+        val loadJson = execute(
             Request.Builder()
                 .url("$BASE/api/workflow/reqform/loadForm")
                 .post(loadBody)
                 .build()
-        ).execute()
-        val loadJson = loadResp.body?.string().safeParseJsonObject()
+        ).safeParseJsonObject()
         val newParams = loadJson.getAsJsonObject("params")
         val newSubmitParams = loadJson.getAsJsonObject("submitParams")
         val newMaindata = loadJson.getAsJsonObject("maindata")
@@ -442,13 +442,12 @@ class TranscriptApi(private val login: DzpzLogin) {
             .add("cjdlx", typeValue.toString())
             .build()
 
-        val checkResp = client.newCall(
+        val checkResult = execute(
             Request.Builder()
                 .url("$BASE/api/xjtuapi/checksubmit")
                 .post(checkBody)
                 .build()
-        ).execute()
-        val checkResult = checkResp.body?.string()?.trim() ?: "1"
+        ).trim().ifEmpty { "1" }
         Log.d(TAG, "reloadAndForward: checksubmit=$checkResult")
         if (checkResult != "0") {
             Log.w(TAG, "reloadAndForward: checksubmit returned $checkResult (non-zero)")
@@ -571,13 +570,12 @@ class TranscriptApi(private val login: DzpzLogin) {
             .add("wfTestStr", "")
             .build()
 
-        val submitResp = client.newCall(
+        val submitJson = execute(
             Request.Builder()
                 .url("$BASE/api/workflow/reqform/requestOperation")
                 .post(submitBody)
                 .build()
-        ).execute()
-        val submitJson = submitResp.body?.string().safeParseJsonObject()
+        ).safeParseJsonObject()
 
         val data = submitJson.getAsJsonObject("data")
             ?: error("转发失败：${submitJson.get("message")?.asString ?: "未知错误"}")
@@ -621,13 +619,12 @@ class TranscriptApi(private val login: DzpzLogin) {
             .add("sessionkey", secondResult.sessionKey)
             .build()
 
-        val response = client.newCall(
+        val json = execute(
             Request.Builder()
                 .url("$BASE/api/workflow/reqform/loadForm")
                 .post(body)
                 .build()
-        ).execute()
-        val json = response.body?.string().safeParseJsonObject()
+        ).safeParseJsonObject()
         val maindata = json.getAsJsonObject("maindata")
 
         // 从 field7564 提取下载链接
@@ -680,7 +677,7 @@ class TranscriptApi(private val login: DzpzLogin) {
             .header("Referer", "$BASE/spa/workflow/static4form/index.html")
             .get()
             .build()
-        val response = client.newCall(request).execute()
+        val response = runBlocking { site.executeWithReAuth(request) }
         if (response.code != 200) {
             error("下载失败：HTTP ${response.code}")
         }

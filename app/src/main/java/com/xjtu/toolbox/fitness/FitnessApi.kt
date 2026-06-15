@@ -1,7 +1,9 @@
 package com.xjtu.toolbox.fitness
 
 import com.xjtu.toolbox.auth.AuthExpiredException
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
+import kotlinx.coroutines.runBlocking
 import okhttp3.FormBody
 import okhttp3.Request
 
@@ -30,11 +32,15 @@ data class FitnessItem(
     val tone: String,
 )
 
-class FitnessApi(private val login: FitnessLogin) {
+class FitnessApi(private val site: SiteSession) {
+    private val apiRoot = "https://tyxylp.xjtu.edu.cn/bdlp_h5_fitness_test/public/index.php/index"
+    private val origin = "https://tyxylp.xjtu.edu.cn"
+    private val refererUrl get() = site.localToken["referer_url"]
+        ?: "https://tyxylp.xjtu.edu.cn/bdlp_h5_fitness_test/view/h5xajt/#/pages/index/index"
 
     fun getYears(): List<FitnessYear> {
         val root = post(
-            "${FitnessLogin.API_ROOT}/fitness/fitnessYear",
+            "$apiRoot/fitness/fitnessYear",
             FormBody.Builder().add("from", "1").build()
         )
         val list = root.getAsJsonObject("data")?.getAsJsonArray("list")
@@ -54,18 +60,28 @@ class FitnessApi(private val login: FitnessLogin) {
 
     fun getScore(yearNum: String): FitnessScore {
         val root = post(
-            "${FitnessLogin.API_ROOT}/Report/getStudentScore",
+            "$apiRoot/Report/getStudentScore",
             FormBody.Builder().add("year_num", yearNum).build()
         )
-        val data = root.getAsJsonObject("data")
+        val dataElement = root.get("data")?.takeUnless { it.isJsonNull }
             ?: throw RuntimeException(root.get("info")?.asString ?: "暂无体测数据")
+        if (!dataElement.isJsonObject) {
+            val info = root.get("info")?.asString.orEmpty()
+            throw RuntimeException(info.takeIf { it.isNotBlank() && it != "查询成功" } ?: "该学年暂无体测数据")
+        }
+        val data = dataElement.asJsonObject
 
         fun value(key: String): String =
             data.get(key)?.takeUnless { it.isJsonNull }?.asString.orEmpty()
-        fun item(name: String, key: String, display: String = value(key)) = FitnessItem(
+        fun formatScore(raw: String): String =
+            raw.trim().toDoubleOrNull()?.let { String.format(java.util.Locale.US, "%.2f", it) }
+                ?: raw
+        fun scoreValue(key: String): String =
+            formatScore(value(key))
+        fun item(name: String, key: String, display: String = value("${key}_score")) = FitnessItem(
             name = name,
-            value = display.ifBlank { "未测" },
-            grade = value("${key}_grade").ifBlank { "缺项" },
+            value = formatScore(display).ifBlank { "未测" },
+            grade = scoreValue("${key}_grade").ifBlank { "缺项" },
             tone = value("${key}_class")
         )
 
@@ -76,7 +92,7 @@ class FitnessApi(private val login: FitnessLogin) {
         return FitnessScore(
             studentNumber = value("student_num"),
             studentName = value("student_name"),
-            totalScore = value("total_score").ifBlank { "--" },
+            totalScore = scoreValue("total_score").ifBlank { "--" },
             totalGrade = value("total_grade").ifBlank { "未测" },
             reportType = value("report_type"),
             reportStatus = value("report_status"),
@@ -95,15 +111,17 @@ class FitnessApi(private val login: FitnessLogin) {
     }
 
     private fun post(url: String, body: FormBody) =
-        login.client.newCall(
-            Request.Builder()
+        runBlocking {
+            site.executeWithReAuth(
+                Request.Builder()
                 .url(url)
-                .header("Origin", FitnessLogin.ORIGIN)
-                .header("Referer", login.refererUrl)
+                .header("Origin", origin)
+                .header("Referer", refererUrl)
                 .header("X-Requested-With", "XMLHttpRequest")
                 .post(body)
                 .build()
-        ).execute().use { response ->
+            )
+        }.use { response ->
             val text = response.body?.string().orEmpty()
             if (!response.isSuccessful) throw RuntimeException("体测服务响应 ${response.code}")
             val root = text.safeParseJsonObject()

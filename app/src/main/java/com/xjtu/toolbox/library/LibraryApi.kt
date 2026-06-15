@@ -1,7 +1,8 @@
 package com.xjtu.toolbox.library
 
 import android.util.Log
-import com.xjtu.toolbox.auth.LibraryLogin
+import com.xjtu.toolbox.auth.SiteSession
+import kotlinx.coroutines.runBlocking
 import okhttp3.Request
 import org.jsoup.Jsoup
 
@@ -88,7 +89,7 @@ sealed class SeatResult {
 
 // ══════ LibraryApi ══════
 
-class LibraryApi(private val login: LibraryLogin) {
+class LibraryApi(private val site: SiteSession) {
 
     companion object {
         private const val BASE_URL = "http://rg.lib.xjtu.edu.cn:8086"
@@ -174,12 +175,6 @@ class LibraryApi(private val login: LibraryLogin) {
      * 带有界超时的派生 client：复用底层 cookieJar / interceptor（含 WebVPN），
      * 仅追加 callTimeout，避免座位请求在弱网下长时间卡转圈（默认 client 是 25-30s）。
      */
-    private val timedClient: okhttp3.OkHttpClient by lazy {
-        login.client.newBuilder()
-            .callTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-            .build()
-    }
-
     private fun buildRequest(url: String, ajax: Boolean = false, referer: String = "$BASE_URL/seat/"): Request {
         val b = Request.Builder().url(url)
             .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36")
@@ -200,16 +195,10 @@ class LibraryApi(private val login: LibraryLogin) {
      * 执行请求，如果被重定向到 CAS 登录页则自动 reAuthenticate 并重试
      */
     private fun executeWithReAuth(request: Request): Pair<okhttp3.Response, String> {
-        val response = timedClient.newCall(request).execute()
+        val response = runBlocking { site.executeWithReAuth(request) }
         val body = response.body?.string() ?: ""
         if (isRedirectedToLogin(body, response.request.url.toString())) {
-            Log.d(TAG, "executeWithReAuth: redirected to login, trying reAuthenticate...")
             response.close()
-            if (login.reAuthenticate()) {
-                val retryResponse = timedClient.newCall(request).execute()
-                val retryBody = retryResponse.body?.string() ?: ""
-                return retryResponse to retryBody
-            }
             throw com.xjtu.toolbox.auth.AuthExpiredException("图书馆")
         }
         return response to body
@@ -367,14 +356,14 @@ class LibraryApi(private val login: LibraryLogin) {
      */
     /** GET 一个页面，并在 WebVPN 模式下补取该 path 的 wengine cookie。 */
     private fun loadPageWithVpnCookie(path: String) {
-        val resp = timedClient.newCall(buildRequest("$BASE_URL$path")).execute()
+        val resp = runBlocking { site.executeWithReAuth(buildRequest("$BASE_URL$path")) }
         val finalUrl = resp.request.url.toString()
         resp.close()
         if (com.xjtu.toolbox.util.WebVpnUtil.isWebVpnUrl(finalUrl)) {
             val cookieUrl = "https://webvpn.xjtu.edu.cn/wengine-vpn/cookie" +
                 "?method=get&host=rg.lib.xjtu.edu.cn&scheme=http&path=$path" +
                 "&vpn_timestamp=${System.currentTimeMillis()}"
-            timedClient.newCall(buildRequest(cookieUrl)).execute().use { it.body?.string() }
+            site.client.newCall(buildRequest(cookieUrl)).execute().use { it.body?.string() }
         }
     }
 
@@ -399,6 +388,11 @@ class LibraryApi(private val login: LibraryLogin) {
         Log.d(TAG, "swapSeat: $url")
         preflight("/updateseat/")
         return try {
+            runCatching {
+                executeWithReAuth(
+                    buildRequest("$BASE_URL/qseat?sp=$areaCode", ajax = true, referer = "$BASE_URL/updateseat/")
+                ).first.close()
+            }
             val (resp, html) = executeWithReAuth(buildRequest(url, referer = "$BASE_URL/updateseat/"))
             resp.close()
             val finalUrl = resp.request.url.toString()

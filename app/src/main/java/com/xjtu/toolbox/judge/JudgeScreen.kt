@@ -44,7 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.auth.JwxtLogin
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
@@ -58,12 +58,12 @@ import kotlinx.coroutines.withContext
  */
 @Composable
 fun JudgeScreen(
-    login: JwxtLogin,
+    site: SiteSession,
     username: String,
     onBack: () -> Unit
 ) {
     val appLoginState = LocalAppLoginState.current
-    val api = remember { JudgeApi(login) }
+    val api = remember(site) { JudgeApi(site) }
     val scope = rememberCoroutineScope()
 
     var isLoading by remember { mutableStateOf(true) }

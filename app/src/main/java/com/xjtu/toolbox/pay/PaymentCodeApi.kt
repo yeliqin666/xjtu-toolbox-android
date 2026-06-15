@@ -1,8 +1,9 @@
 package com.xjtu.toolbox.pay
 
 import android.util.Log
-import com.xjtu.toolbox.auth.CampusCardLogin
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
+import kotlinx.coroutines.runBlocking
 import okhttp3.Request
 
 /**
@@ -17,7 +18,7 @@ import okhttp3.Request
  *   - synAccessSource: h5
  *   - Referer: https://ncard.xjtu.edu.cn/plat/pay?lite=1&payacc=000&payid=0
  */
-class PaymentCodeApi(private val login: CampusCardLogin) {
+class PaymentCodeApi(private val site: SiteSession) {
 
     companion object {
         private const val TAG = "PaymentCodeApi"
@@ -26,8 +27,7 @@ class PaymentCodeApi(private val login: CampusCardLogin) {
             "$BASE_URL/berserker-app/authCode/batchGetBarCodeGet?payacc=000&voucherType=1&synAccessSource=h5"
         private const val REFERER = "$BASE_URL/plat/pay?lite=1&payacc=000&payid=0"
 
-        /** 兼容旧调用：JWT 由 CampusCardLogin 管理，这里 noop。 */
-        fun clearCachedJwt() { /* noop — JWT lifecycle is owned by CampusCardLogin */ }
+        fun clearCachedJwt() { /* noop - JWT lifecycle is owned by SiteSession */ }
     }
 
     /**
@@ -35,11 +35,8 @@ class PaymentCodeApi(private val login: CampusCardLogin) {
      * 若 CampusCardLogin 尚未持有 token，则尝试 reAuthenticate 一次。
      */
     fun authenticate() {
-        if (!login.accessToken.isNullOrEmpty()) return
-        Log.d(TAG, "authenticate: campus card token missing, trying reAuthenticate")
-        if (!login.reAuthenticate()) {
-            throw RuntimeException("校园卡未登录，无法获取付款码")
-        }
+        if (!site.localToken["access_token"].isNullOrEmpty()) return
+        throw RuntimeException("校园卡未登录，无法获取付款码")
     }
 
     /**
@@ -47,7 +44,7 @@ class PaymentCodeApi(private val login: CampusCardLogin) {
      * @return 付款码数字字符串（如 "40806400076085649835"）
      */
     fun getBarCode(): String {
-        val token = login.accessToken
+        val token = site.localToken["access_token"]
             ?: throw RuntimeException("校园卡未登录，无法获取付款码")
 
         val request = Request.Builder()
@@ -59,7 +56,7 @@ class PaymentCodeApi(private val login: CampusCardLogin) {
             .get()
             .build()
 
-        val resp = login.client.newCall(request).execute()
+        val resp = runBlocking { site.executeWithReAuth(request) }
         val text = resp.body?.use { it.string() } ?: throw RuntimeException("空响应")
         Log.d(TAG, "getBarCode: code=${resp.code}, body=${text.take(200)}")
 

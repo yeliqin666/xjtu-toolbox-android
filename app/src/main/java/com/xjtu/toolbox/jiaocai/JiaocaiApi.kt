@@ -1,10 +1,12 @@
 package com.xjtu.toolbox.jiaocai
 
 import android.util.Log
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
 import com.xjtu.toolbox.util.safeString
 import com.xjtu.toolbox.util.safeInt
 import okhttp3.Request
+import kotlinx.coroutines.runBlocking
 
 private const val TAG = "JiaocaiApi"
 
@@ -22,20 +24,19 @@ data class JiaocaiBook(
 
 // ── API 类 ───────────────────────────────────────────────────────────
 
-class JiaocaiApi(private val login: JiaocaiLogin) {
+class JiaocaiApi(private val site: SiteSession) {
 
-    private val client get() = login.client
-    private val BASE get() = JiaocaiLogin.BASE_URL
-    private val FID get() = JiaocaiLogin.FID
-    private val PAGE_ID get() = JiaocaiLogin.PAGE_ID
-    private val SEARCH_ID get() = JiaocaiLogin.SEARCH_ID
+    private val BASE get() = "https://jiaocai.lib.xjtu.edu.cn"
+    private val FID get() = "17071"
+    private val PAGE_ID get() = "13858"
+    private val SEARCH_ID get() = "10700"
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)
             .header("Referer", "$BASE/")
             .header("X-Requested-With", "XMLHttpRequest")
             .get().build()
-        return client.newCall(req).execute().use { it.body?.string() ?: "" }
+        return runBlocking { site.executeWithReAuth(req) }.use { it.body?.string() ?: "" }
     }
 
     /** 搜索教材，返回书目列表 */

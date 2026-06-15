@@ -52,7 +52,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.auth.AttendanceLogin
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.EmptyState
@@ -65,11 +65,12 @@ import kotlinx.coroutines.withContext
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AttendanceScreen(
-    login: AttendanceLogin,
+    site: SiteSession,
     onBack: () -> Unit
 ) {
+    val isPostgraduate = site.siteKey == "pg_attendance"
     val appLoginState = LocalAppLoginState.current
-    val api = remember { AttendanceApi(login) }
+    val api = remember(site) { AttendanceApi(site) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -137,7 +138,7 @@ fun AttendanceScreen(
                     // 加载考勤记录（历史学期需要日期范围）
                     val isCurrentTerm = termBh == null || bh == currentTermBh
                     val termInfo = termList.firstOrNull { it.bh == bh }
-                    val cachedSnapshot = AttendanceCache.load(context, login.isPostgraduate)
+                    val cachedSnapshot = AttendanceCache.load(context, isPostgraduate)
                     val canAppendCurrent = isCurrentTerm &&
                         cachedSnapshot?.selectedTermBh == bh &&
                         cachedSnapshot.records.isNotEmpty()
@@ -193,7 +194,7 @@ fun AttendanceScreen(
                     courseStats = fetchedStats
                     AttendanceCache.save(
                         context,
-                        login.isPostgraduate,
+                        isPostgraduate,
                         AttendanceSnapshot(
                             studentName = studentName,
                             termList = termList,
@@ -234,7 +235,7 @@ fun AttendanceScreen(
     }
 
     LaunchedEffect(Unit) {
-        AttendanceCache.load(context, login.isPostgraduate)?.let { cached ->
+        AttendanceCache.load(context, isPostgraduate)?.let { cached ->
             studentName = cached.studentName
             termList = cached.termList
             currentTermBh = cached.currentTermBh

@@ -54,7 +54,7 @@ class JwappSession : CasSiteSession("jwapp", "移动教务", supportsWebVpn = fa
     }
 
     override fun decorateRequest(builder: Request.Builder): Request.Builder {
-        localToken["auth_token"]?.let { builder.header("Authorization", "Bearer $it") }
+        localToken["auth_token"]?.let { builder.header("Authorization", it) }
         return builder
     }
 
@@ -63,12 +63,20 @@ class JwappSession : CasSiteSession("jwapp", "移动教务", supportsWebVpn = fa
         val resp = client.newCall(
             Request.Builder()
                 .url("https://jwapp.xjtu.edu.cn/api/biz/v410/common/school/time")
-                .header("Authorization", "Bearer $token")
+                .header("Authorization", token)
                 .get().build()
         ).execute()
         try {
             resp.code == 200
         } finally { resp.close() }
+    }
+
+    override fun isAuthFailureResponse(response: Response, bodyPreview: String?): Boolean {
+        if (super.isAuthFailureResponse(response, bodyPreview)) return true
+        val body = bodyPreview ?: return false
+        return """"code"\s*:\s*401""".toRegex().containsMatchIn(body) ||
+            body.contains("Authentication error", ignoreCase = true) ||
+            body.contains("token", ignoreCase = true) && body.contains("过期")
     }
 }
 
@@ -87,6 +95,13 @@ class YwtbSession : CasSiteSession("ywtb", "一网通办", supportsWebVpn = true
     override fun decorateRequest(builder: Request.Builder): Request.Builder {
         localToken["id_token"]?.let { builder.header("x-id-token", it) }
         return builder
+    }
+
+    override fun isAuthFailureResponse(response: Response, bodyPreview: String?): Boolean {
+        if (super.isAuthFailureResponse(response, bodyPreview)) return true
+        val body = bodyPreview ?: return false
+        return """"code"\s*:\s*401""".toRegex().containsMatchIn(body) ||
+            body.contains("未登录") || body.contains("登录过期")
     }
 }
 
@@ -139,13 +154,41 @@ class JiaocaiSession : CasSiteSession("jiaocai", "教材中心", supportsWebVpn 
 class CouponSession : CasSiteSession("coupon", "餐券系统", supportsWebVpn = true) {
     override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
         CouponLogin(session = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
+
+    override fun onLoginSuccess(login: XJTULogin) {
+        (login as? CouponLogin)?.authToken?.takeIf { it.isNotBlank() }?.let {
+            localToken["auth_token"] = it
+        }
+    }
+
+    override fun decorateRequest(builder: Request.Builder): Request.Builder {
+        localToken["auth_token"]?.let { builder.header("Authorization", it) }
+        return builder
+    }
+
+    override fun isAuthFailureResponse(response: Response, bodyPreview: String?): Boolean {
+        if (super.isAuthFailureResponse(response, bodyPreview)) return true
+        val body = bodyPreview ?: return false
+        return """"code"\s*:\s*401""".toRegex().containsMatchIn(body) ||
+            body.contains("登录过期") || body.contains("未登录")
+    }
 }
 
 class SuperAppSession : CasSiteSession("super_app", "移动交大", supportsWebVpn = false) {
     override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
         SuperAppLogin(session = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
 
+    override fun onLoginSuccess(login: XJTULogin) {
+        val superApp = login as? SuperAppLogin ?: return
+        superApp.launchUrl.takeIf { it.isNotBlank() }?.let {
+            localToken["launch_url"] = it
+        }
+        localToken["launch_valid"] = superApp.isLaunchValid().toString()
+    }
+
     override suspend fun validateLogin(): Boolean = withIo {
+        val launchUrl = localToken["launch_url"].orEmpty()
+        if (!launchUrl.contains("ticket=")) return@withIo false
         val response = client.newCall(
             Request.Builder().url(SuperAppLogin.HOME_URL).get().build()
         ).execute()
@@ -164,6 +207,12 @@ class FitnessSession : CasSiteSession("fitness", "体测查询", supportsWebVpn 
             visitorId = visitorId,
             cachedRsaKey = cachedRsaKey
         )
+
+    override fun onLoginSuccess(login: XJTULogin) {
+        (login as? com.xjtu.toolbox.fitness.FitnessLogin)?.refererUrl?.takeIf { it.isNotBlank() }?.let {
+            localToken["referer_url"] = it
+        }
+    }
 }
 
 // ── DZPZ 电子凭证（成绩单） ───────────────────────────────────────────
@@ -281,6 +330,14 @@ class CampusCardSession : CasSiteSession("campus_card", "校园卡", supportsWeb
     override fun decorateRequest(builder: Request.Builder): Request.Builder {
         localToken["access_token"]?.let { builder.header("Synjones-Auth", "bearer $it") }
         return builder
+    }
+
+    override fun isAuthFailureResponse(response: Response, bodyPreview: String?): Boolean {
+        if (super.isAuthFailureResponse(response, bodyPreview)) return true
+        val body = bodyPreview ?: return false
+        return """"code"\s*:\s*401""".toRegex().containsMatchIn(body) ||
+            body.contains("Unauthorized", ignoreCase = true) ||
+            body.contains("token", ignoreCase = true) && body.contains("过期")
     }
 }
 

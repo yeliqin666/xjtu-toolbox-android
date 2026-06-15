@@ -4,12 +4,17 @@ import android.content.Context
 import android.util.Log
 import com.xjtu.toolbox.util.PersistentCookieJar
 import com.xjtu.toolbox.util.WebVpnInterceptor
+import com.xjtu.toolbox.util.WebVpnUtil
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 
 /**
  * MFA 询问上下文。UI 层观察 [SessionManager.activeMfaRequest] 弹窗，
@@ -141,6 +146,91 @@ class SessionManager(context: Context) {
     fun checkPasswordValid() {
         if (_passwordInvalidated.value) {
             throw PasswordInvalidatedException(_passwordInvalidatedSite.value, "密码已失效，请更新")
+        }
+    }
+
+    // ── 站点登录失败冷却 ─────────────────────────────────
+    private val loginFailedAt = ConcurrentHashMap<String, Long>()
+    private val loginCooldownMs = TimeUnit.SECONDS.toMillis(60)
+
+    @Throws(LoginCooldownException::class)
+    fun checkLoginCooldown(siteKey: String, siteName: String) {
+        val failedAt = loginFailedAt[siteKey] ?: return
+        val remainMs = loginCooldownMs - (System.currentTimeMillis() - failedAt)
+        if (remainMs > 0) {
+            throw LoginCooldownException(
+                siteName = siteName.ifEmpty { siteKey },
+                retryAfterSeconds = ((remainMs + 999) / 1000).coerceAtLeast(1)
+            )
+        }
+        loginFailedAt.remove(siteKey, failedAt)
+    }
+
+    fun reportLoginFailure(siteKey: String) {
+        loginFailedAt[siteKey] = System.currentTimeMillis()
+    }
+
+    fun clearLoginFailure(siteKey: String) {
+        loginFailedAt.remove(siteKey)
+    }
+
+    /**
+     * WEBVPN backend 的网关自认证。支持 WebVPN 的业务站点在校外访问前先调用这里，
+     * 之后业务 URL 仍按原始域名构造，由 [WebVpnInterceptor] 无感改写。
+     */
+    @Throws(IOException::class, PasswordInvalidatedException::class)
+    suspend fun ensureWebVpnLogin() {
+        val backend = backend(AccessMode.WEBVPN)
+        if (backend.webvpnSelfLoggedIn) return
+        checkPasswordValid()
+        backend.loginLock.withLock {
+            if (backend.webvpnSelfLoggedIn) return@withLock
+            val creds = credentials ?: throw IOException("WebVPN 未配置凭据")
+            val login = withContext(Dispatchers.IO) {
+                XJTULogin(
+                    WebVpnUtil.WEBVPN_LOGIN_URL,
+                    existingClient = backend.client,
+                    visitorId = fpVisitorId,
+                    cachedRsaKey = cachedRsaKey,
+                    cookieJar = backend.cookieJar,
+                )
+            }
+            var result = withContext(Dispatchers.IO) { login.login(creds.first, creds.second) }
+            while (true) {
+                when (result.state) {
+                    LoginState.SUCCESS -> {
+                        adoptFromLogin(login)
+                        backend.webvpnSelfLoggedIn = true
+                        clearLoginFailure("webvpn")
+                        Log.d(TAG, "WebVPN gateway login ok")
+                        return@withLock
+                    }
+                    LoginState.FAIL -> {
+                        val msg = result.message.ifBlank { "未知错误" }
+                        if (msg.contains("用户名或密码") ||
+                            msg.contains("密码错误") ||
+                            msg.contains("账号或密码")) {
+                            throw PasswordInvalidatedException("WebVPN", msg)
+                        }
+                        reportLoginFailure("webvpn")
+                        throw IOException("WebVPN 登录失败：$msg")
+                    }
+                    LoginState.REQUIRE_MFA -> {
+                        val ctx = result.mfaContext ?: throw IOException("WebVPN 未返回 MFA 上下文")
+                        if (ctx.flow == MFAFlow.MFA_DETECT) {
+                            withContext(Dispatchers.IO) { ctx.sendVerifyCode() }
+                        }
+                        val code = askMfaCode("webvpn", "WebVPN（校外接入）", ctx)
+                            ?: throw IOException("WebVPN 用户取消验证")
+                        withContext(Dispatchers.IO) { ctx.verifyCode(code) }
+                        result = withContext(Dispatchers.IO) { login.login() }
+                    }
+                    LoginState.REQUIRE_CAPTCHA -> throw IOException("WebVPN 需要图形验证码")
+                    LoginState.REQUIRE_ACCOUNT_CHOICE -> {
+                        result = withContext(Dispatchers.IO) { login.login(accountType = accountType) }
+                    }
+                }
+            }
         }
     }
 

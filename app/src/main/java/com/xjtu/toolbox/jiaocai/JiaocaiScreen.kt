@@ -17,6 +17,7 @@ import com.xjtu.toolbox.LocalAppLoginState
 import com.xjtu.toolbox.Routes
 import com.xjtu.toolbox.auth.AuthExpiredException
 import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,7 +34,7 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
 // ── 主入口 ────────────────────────────────────────────────────────────
 
 @Composable
-fun JiaocaiScreen(login: JiaocaiLogin, onBack: () -> Unit) {
+fun JiaocaiScreen(site: SiteSession, onBack: () -> Unit) {
     var selectedBook by remember { mutableStateOf<JiaocaiBook?>(null) }
 
     if (selectedBook != null) {
@@ -43,7 +44,7 @@ fun JiaocaiScreen(login: JiaocaiLogin, onBack: () -> Unit) {
         )
     } else {
         JiaocaiSearchScreen(
-            login = login,
+            site = site,
             onBookClick = { selectedBook = it },
             onBack = onBack
         )
@@ -54,7 +55,7 @@ fun JiaocaiScreen(login: JiaocaiLogin, onBack: () -> Unit) {
 
 @Composable
 private fun JiaocaiSearchScreen(
-    login: JiaocaiLogin,
+    site: SiteSession,
     onBookClick: (JiaocaiBook) -> Unit,
     onBack: () -> Unit
 ) {
@@ -71,7 +72,7 @@ private fun JiaocaiSearchScreen(
         scope.launch {
             isLoading = true; errorMsg = null
             try {
-                books = withContext(Dispatchers.IO) { JiaocaiApi(login).search(keyword) }
+                books = withContext(Dispatchers.IO) { JiaocaiApi(site).search(keyword) }
                 hasSearched = true
             } catch (e: AuthExpiredException) {
                 appLoginState.handleAuthExpired(LoginType.JIAOCAI, Routes.JIAOCAI, onBack)

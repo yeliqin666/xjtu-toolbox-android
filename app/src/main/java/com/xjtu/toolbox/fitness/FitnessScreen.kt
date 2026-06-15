@@ -4,6 +4,7 @@ import com.xjtu.toolbox.LocalAppLoginState
 import com.xjtu.toolbox.Routes
 import com.xjtu.toolbox.auth.AuthExpiredException
 import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.SiteSession
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -41,6 +43,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
@@ -59,10 +62,10 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
 fun FitnessScreen(
-    login: FitnessLogin,
+    site: SiteSession,
     onBack: () -> Unit,
 ) {
-    val api = remember(login) { FitnessApi(login) }
+    val api = remember(site) { FitnessApi(site) }
     val loginState = LocalAppLoginState.current
     val scope = rememberCoroutineScope()
     var years by remember { mutableStateOf<List<FitnessYear>>(emptyList()) }
@@ -78,7 +81,9 @@ fun FitnessScreen(
             years = withContext(Dispatchers.IO) { api.getYears() }
             selectedYear = years.firstOrNull { it.checked } ?: years.firstOrNull()
             score = selectedYear?.let { year ->
-                withContext(Dispatchers.IO) { api.getScore(year.yearNum) }
+                runCatching { withContext(Dispatchers.IO) { api.getScore(year.yearNum) } }
+                    .onFailure { error = it.message ?: "该学年暂无体测数据" }
+                    .getOrNull()
             }
         } catch (e: Exception) {
             if (e is AuthExpiredException) {
@@ -111,7 +116,11 @@ fun FitnessScreen(
         }
     }
 
-    LaunchedEffect(login) { loadYears() }
+    suspend fun refreshCurrent() {
+        selectedYear?.let { selectYear(it) } ?: loadYears()
+    }
+
+    LaunchedEffect(site) { loadYears() }
 
     Scaffold(
         topBar = {
@@ -124,7 +133,7 @@ fun FitnessScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { scope.launch { loadYears() } }) {
+                    IconButton(onClick = { scope.launch { refreshCurrent() } }) {
                         Icon(Icons.Default.Refresh, contentDescription = "刷新")
                     }
                 }
@@ -136,7 +145,7 @@ fun FitnessScreen(
                 "正在读取体测成绩…",
                 Modifier.padding(padding)
             )
-            error != null && score == null -> ErrorState(
+            years.isEmpty() && error != null && score == null -> ErrorState(
                 "查询失败：$error",
                 onRetry = { scope.launch { loadYears() } },
                 modifier = Modifier.padding(padding)
@@ -179,6 +188,15 @@ fun FitnessScreen(
                     }
                     items(result.items) { FitnessItemCard(it) }
                 }
+                if (error != null && score == null) {
+                    item {
+                        ErrorState(
+                            "查询失败：$error",
+                            onRetry = { scope.launch { refreshCurrent() } },
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                        )
+                    }
+                }
             }
         }
     }
@@ -216,51 +234,64 @@ private fun ScoreHero(score: FitnessScore) {
                     )
                 )
                 .padding(20.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Box(
-                Modifier.size(58.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.18f)),
+                Modifier.size(50.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.18f)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     Icons.Default.DirectionsRun,
                     contentDescription = null,
                     tint = Color.White,
-                    modifier = Modifier.size(30.dp)
+                    modifier = Modifier.size(26.dp)
                 )
             }
-            Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
                 Text(
                     score.studentName.ifBlank { "体测成绩" },
                     color = Color.White,
                     style = MiuixTheme.textStyles.title2,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    listOf(score.studentNumber, score.sex, score.grade)
+                    listOf(score.sex, score.grade)
                         .filter { it.isNotBlank() }.joinToString(" · "),
                     color = Color.White.copy(alpha = 0.78f),
-                    style = MiuixTheme.textStyles.footnote1
+                    style = MiuixTheme.textStyles.footnote1,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
                     score.reportStatus.ifBlank { score.reportType },
                     color = Color.White.copy(alpha = 0.88f),
-                    style = MiuixTheme.textStyles.body2
+                    style = MiuixTheme.textStyles.body2,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
-            Column(horizontalAlignment = Alignment.End) {
+            Column(
+                modifier = Modifier.width(86.dp),
+                horizontalAlignment = Alignment.End
+            ) {
                 Text(
                     score.totalScore,
                     color = Color.White,
                     style = MiuixTheme.textStyles.title1,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Clip
                 )
                 Text(
                     score.totalGrade,
                     color = Color.White.copy(alpha = 0.85f),
-                    style = MiuixTheme.textStyles.footnote1
+                    style = MiuixTheme.textStyles.footnote1,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }

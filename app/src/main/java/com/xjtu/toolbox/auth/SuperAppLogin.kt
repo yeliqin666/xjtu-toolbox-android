@@ -22,6 +22,7 @@ class SuperAppLogin(
             throw RuntimeException("移动交大登录回调异常")
         }
         launchUrl = finalUrl
+        launchExpireAt = 0L
         response.request.url.queryParameter("ticket")?.split(".")?.getOrNull(1)?.let { payload ->
             val padded = payload + "=".repeat((4 - payload.length % 4) % 4)
             launchExpireAt = runCatching {
@@ -33,7 +34,8 @@ class SuperAppLogin(
     }
 
     fun isLaunchValid(): Boolean =
-        launchExpireAt == 0L || System.currentTimeMillis() / 1000 < launchExpireAt - 30
+        launchUrl.contains("ticket=") &&
+            (launchExpireAt == 0L || System.currentTimeMillis() / 1000 < launchExpireAt - 30)
 
     override fun validateLogin(): Boolean = try {
         client.newCall(Request.Builder().url(HOME_URL).get().build()).execute().use {

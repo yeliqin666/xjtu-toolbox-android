@@ -83,7 +83,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.xjtu.toolbox.auth.JwxtLogin
+import com.xjtu.toolbox.auth.SiteSession
+import com.xjtu.toolbox.auth.ensureSite
 import androidx.compose.foundation.text.selection.SelectionContainer
 import com.xjtu.toolbox.ui.DAY_START_HOUR
 import com.xjtu.toolbox.ui.ScheduleGrid
@@ -103,7 +104,7 @@ import java.time.temporal.ChronoUnit
 
 @Composable
 fun ScheduleScreen(
-    login: JwxtLogin? = null,
+    site: SiteSession? = null,
     studentId: String = "",
     onBack: () -> Unit = {},  // 用于 catch AuthExpired 时退出
     showTopBar: Boolean = true,
@@ -114,7 +115,8 @@ fun ScheduleScreen(
     contentBottomPadding: androidx.compose.ui.unit.Dp = 0.dp
 ) {
     val appLoginState = LocalAppLoginState.current
-    val api = remember(login) { login?.let { ScheduleApi(it) } }
+    var activeSite by remember(site) { mutableStateOf(site) }
+    val api = remember(activeSite) { activeSite?.let { ScheduleApi(it) } }
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
     val dataCache = remember { com.xjtu.toolbox.util.DataCache(context) }
@@ -511,8 +513,8 @@ fun ScheduleScreen(
 
     // 小组件/首页进入日程页时，可能先以离线缓存态渲染；
     // 当 JWXT 登录稍后恢复成功后，自动切换为在线刷新，避免长期停留离线视图。
-    LaunchedEffect(login) {
-        if (login == null) return@LaunchedEffect
+    LaunchedEffect(activeSite) {
+        if (activeSite == null) return@LaunchedEffect
         if (isLoading || isSwitching) return@LaunchedEffect
         if (!showingStaleData && errorMessage == null && courses.isNotEmpty()) return@LaunchedEffect
 
@@ -520,11 +522,9 @@ fun ScheduleScreen(
         loadInitialData()
     }
 
-    // login==null + 有凭据 + 在线 → 自动触发 JWXT 登录（背景，不显示登录 sheet）
-    // 成功后 loginState.jwxtLogin 写入，外层重组传新 login → 上面的 LaunchedEffect(login) 触发刷新。
     var attemptingAutoLogin by remember { mutableStateOf(false) }
-    LaunchedEffect(login, appLoginState.hasCredentials) {
-        if (login != null) return@LaunchedEffect
+    LaunchedEffect(activeSite, appLoginState.hasCredentials) {
+        if (activeSite != null) return@LaunchedEffect
         if (!appLoginState.hasCredentials) return@LaunchedEffect
         if (attemptingAutoLogin) return@LaunchedEffect
         // 网络检查
@@ -534,8 +534,8 @@ fun ScheduleScreen(
         if (!online) return@LaunchedEffect
         attemptingAutoLogin = true
         try {
-            android.util.Log.d("ScheduleUI", "login==null + online + has credentials → background autoLogin(JWXT)")
-            withContext(Dispatchers.IO) { appLoginState.autoLogin(LoginType.JWXT) }
+            android.util.Log.d("ScheduleUI", "site==null + online + has credentials -> background ensureSite(JWXT)")
+            activeSite = withContext(Dispatchers.IO) { appLoginState.sessionManager?.ensureSite(LoginType.JWXT) }
         } catch (_: Exception) {}
         attemptingAutoLogin = false
     }
@@ -1001,28 +1001,28 @@ fun ScheduleScreen(
                     message = errorMessage!!,
                     onRetry = {
                         // 用户主动重试：interactive=true 让 MFA 弹窗能正常工作（不被背景策略跳过）
-                        if (login == null && appLoginState.hasCredentials) {
+                        if (activeSite == null && appLoginState.hasCredentials) {
                             scope.launch {
                                 attemptingAutoLogin = true
                                 errorMessage = null
                                 isLoading = true
                                 try {
                                     withContext(Dispatchers.IO) {
-                                        appLoginState.autoLogin(LoginType.JWXT, force = true, interactive = true)
+                                        activeSite = appLoginState.sessionManager?.ensureSite(LoginType.JWXT)
                                     }
                                 } catch (_: Exception) {}
                                 attemptingAutoLogin = false
-                                // 若仍未拿到 login，回退到读缓存
-                                if (appLoginState.jwxtLogin == null) loadInitialData()
+                                if (activeSite == null) loadInitialData()
                             }
-                        } else if (login != null) {
-                            // 已有 login 但请求出错（token 过期 / 网络抖动）→ 强制重新登录刷新 cookies
+                        } else if (activeSite != null) {
                             scope.launch {
                                 errorMessage = null
                                 isLoading = true
                                 try {
                                     withContext(Dispatchers.IO) {
-                                        appLoginState.autoLogin(LoginType.JWXT, force = true, interactive = true)
+                                        appLoginState.sessionManager?.credentials?.let { creds ->
+                                            activeSite?.ensureLogin(creds.first, creds.second, force = true)
+                                        }
                                     }
                                 } catch (_: Exception) {}
                                 loadInitialData()
@@ -1070,19 +1070,17 @@ fun ScheduleScreen(
                             isLoading = textbooksLoading,
                             error = textbooksError,
                             onRetry = {
-                                // 当 api==null（jwxtLogin 尚未登录），仅 retry loadTextbooks 会立即返回错误。
-                                // 必须先触发 interactive autoLogin(JWXT) 让 MFA dialog 弹出。
                                 if (api == null && appLoginState.hasCredentials) {
                                     scope.launch {
                                         textbooksError = null
                                         attemptingAutoLogin = true
                                         try {
                                             withContext(Dispatchers.IO) {
-                                                appLoginState.autoLogin(LoginType.JWXT, force = true, interactive = true)
+                                                activeSite = appLoginState.sessionManager?.ensureSite(LoginType.JWXT)
                                             }
                                         } catch (_: Exception) {}
                                         attemptingAutoLogin = false
-                                        if (selectedTermCode.isNotEmpty() && appLoginState.jwxtLogin != null) {
+                                        if (selectedTermCode.isNotEmpty() && activeSite != null) {
                                             loadTextbooks(selectedTermCode)
                                         }
                                     }

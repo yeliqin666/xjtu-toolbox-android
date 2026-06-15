@@ -28,6 +28,7 @@ import com.xjtu.toolbox.LocalAppLoginState
 import com.xjtu.toolbox.Routes
 import com.xjtu.toolbox.auth.AuthExpiredException
 import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,10 +59,10 @@ private const val TAG = "ClassScreen"
 
 @Composable
 fun ClassScreen(
-    login: ClassLogin,
+    site: SiteSession,
     onBack: () -> Unit,
-    onPlayReplay: (login: ClassLogin, activityId: Int) -> Unit,
-    onDownloadReplay: (login: ClassLogin, activityIds: List<Int>) -> Unit = { _, _ -> }
+    onPlayReplay: (activityId: Int) -> Unit,
+    onDownloadReplay: (activityIds: List<Int>) -> Unit = {}
 ) {
     val context = LocalContext.current
     // 页面导航状态
@@ -122,10 +123,10 @@ fun ClassScreen(
         label = "ClassPage"
     ) { course ->
         if (course == null) {
-            CourseListPage(login = login, onBack = onBack, onCourseSelected = { selectedCourse = it })
+            CourseListPage(site = site, onBack = onBack, onCourseSelected = { selectedCourse = it })
         } else {
             ReplayListPage(
-                login = login,
+                site = site,
                 course = course,
                 onBack = { selectedCourse = null },
                 onPlayReplay = onPlayReplay,
@@ -141,7 +142,7 @@ fun ClassScreen(
 
 @Composable
 private fun CourseListPage(
-    login: ClassLogin,
+    site: SiteSession,
     onBack: () -> Unit,
     onCourseSelected: (Course) -> Unit
 ) {
@@ -162,7 +163,7 @@ private fun CourseListPage(
                 var page = 1
                 while (true) {
                     val (list, total) = withContext(Dispatchers.IO) {
-                        fetchCourses(login, page = page, pageSize = 100)
+                        fetchCourses(site, page = page, pageSize = 100)
                     }
                     result.addAll(list)
                     if (result.size >= total || list.isEmpty()) break
@@ -388,11 +389,11 @@ private fun CourseCard(course: Course, onClick: () -> Unit) {
 
 @Composable
 private fun ReplayListPage(
-    login: ClassLogin,
+    site: SiteSession,
     course: Course,
     onBack: () -> Unit,
-    onPlayReplay: (login: ClassLogin, activityId: Int) -> Unit,
-    onDownloadReplay: (login: ClassLogin, activityIds: List<Int>) -> Unit
+    onPlayReplay: (activityId: Int) -> Unit,
+    onDownloadReplay: (activityIds: List<Int>) -> Unit
 ) {
     val appLoginState = LocalAppLoginState.current
     var activities by remember { mutableStateOf<List<LiveActivity>>(emptyList()) }
@@ -418,7 +419,7 @@ private fun ReplayListPage(
                 var page = 1
                 while (true) {
                     val (list, total) = withContext(Dispatchers.IO) {
-                        fetchLiveActivities(login, course.id, page = page, pageSize = 50)
+                        fetchLiveActivities(site, course.id, page = page, pageSize = 50)
                     }
                     result.addAll(list.filter { it.isClosed })
                     if (result.size + list.count { !it.isClosed } >= total || list.isEmpty()) break
@@ -505,7 +506,7 @@ private fun ReplayListPage(
                     onAudioSourceChanged = { selectedAudioSource = it },
                     onDownload = {
                         if (selectedActivities.isNotEmpty() && selectedVideoSources.isNotEmpty()) {
-                            onDownloadReplay(login, selectedActivities.toList())
+                            onDownloadReplay(selectedActivities.toList())
                             isSelectionMode = false
                         }
                     },
@@ -595,7 +596,7 @@ private fun ReplayListPage(
                                             selectedActivities.add(activity.id)
                                         }
                                     } else {
-                                        onPlayReplay(login, activity.id)
+                                        onPlayReplay(activity.id)
                                     }
                                 }
                             )

@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.jiaoxiaozhi
 
+import android.util.Log
 import com.google.gson.JsonParser
 import com.xjtu.toolbox.auth.AuthExpiredException
 import kotlinx.coroutines.CoroutineStart
@@ -87,9 +88,14 @@ class JiaoxiaozhiApi(private val session: JiaoxiaozhiSiteSession) {
 
                     if (type == -1) {
                         upstreamError = content.ifBlank { "请求被上游拒绝" }
+                        if (isAuthExpiredText(upstreamError.orEmpty())) {
+                            session.invalidateLogin()
+                            throw AuthExpiredException("交晓智")
+                        }
                         continue
                     }
-                    if (type == 11 || type == 999 || content.isEmpty()) continue
+                    // 白名单：只取 type=12 的文本 delta；type=11 是 PCM 音频，type=14 是引用文档
+                    if (type != 12 || content.isEmpty()) continue
 
                     answer.append(content)
                     withContext(Dispatchers.Main.immediate) { onDelta(content) }
@@ -106,8 +112,28 @@ class JiaoxiaozhiApi(private val session: JiaoxiaozhiSiteSession) {
     }
 
     companion object {
+        fun isAuthExpiredText(text: String): Boolean {
+            val normalized = text.lowercase()
+            return text.contains("登录态已失效") ||
+                text.contains("登录已失效") ||
+                text.contains("登录过期") ||
+                text.contains("请重新登录") ||
+                text.contains("未登录") ||
+                normalized.contains("token") && (
+                    normalized.contains("expired") ||
+                        normalized.contains("invalid") ||
+                        normalized.contains("unauthorized")
+                    )
+        }
+
         fun cleanText(text: String): String = text
-            .replace(Regex("!!\\d+!!"), "")
+            .replace(Regex("(?s)```\\s*(?:json)?\\s*\\{[^`]*```"), "")
+            .replace(Regex("(?s)\\{\\s*\"(?:type|source|reference|metadata|citations?|docs?)\"\\s*:[\\s\\S]*?\\}"), "")
+            .replace(Regex("(?s)<\\|[^|]{0,80}\\|>"), "")
+            .replace(Regex("(?s)\\[\\[(?:citation|source|ref|doc)[^\\]]*\\]\\]"), "")
+            .replace(Regex("\\s*!!\\d+!!\\s*"), " ")   // !!N!! 引用标号，带周边空白替换为单空格
+            .replace(Regex(" +([。，！？、；：])"), "$1") // 标点前多余空格
+            .replace(Regex("\\u0000|\\uFFFD"), "")
             .replace(Regex("[ \\t]+\\n"), "\n")
             .replace(Regex("\\n{3,}"), "\n\n")
             .trim()

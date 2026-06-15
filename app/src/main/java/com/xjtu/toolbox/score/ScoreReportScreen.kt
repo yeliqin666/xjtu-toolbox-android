@@ -46,7 +46,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.auth.JwxtLogin
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
 import kotlinx.coroutines.Dispatchers
@@ -58,12 +58,12 @@ import kotlinx.coroutines.withContext
  */
 @Composable
 fun ScoreReportScreen(
-    login: JwxtLogin,
+    site: SiteSession,
     studentId: String,
     onBack: () -> Unit
 ) {
     val appLoginState = LocalAppLoginState.current
-    val api = remember { ScoreReportApi(login) }
+    val api = remember(site) { ScoreReportApi(site) }
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
     val dataCache = remember { com.xjtu.toolbox.util.DataCache(context) }

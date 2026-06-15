@@ -39,7 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.auth.GsteLogin
+import com.xjtu.toolbox.auth.SiteSession
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -50,10 +50,10 @@ import kotlinx.coroutines.withContext
  */
 @Composable
 fun GsteJudgeScreen(
-    login: GsteLogin,
+    site: SiteSession,
     onBack: () -> Unit
 ) {
-    val api = remember { GsteJudgeApi(login) }
+    val api = remember(site) { GsteJudgeApi(site) }
     val scope = rememberCoroutineScope()
 
     var isLoading by remember { mutableStateOf(true) }

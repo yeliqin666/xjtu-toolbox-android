@@ -7,6 +7,8 @@ import com.google.gson.JsonObject
 import com.xjtu.toolbox.AppLoginState
 import com.xjtu.toolbox.attendance.AttendanceApi
 import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.SiteSession
+import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.card.CampusCardApi
 import com.xjtu.toolbox.emptyroom.CAMPUS_BUILDINGS
 import com.xjtu.toolbox.emptyroom.EmptyRoomApi
@@ -31,7 +33,7 @@ import java.time.format.DateTimeFormatter
  *
  * 安全约束：
  * - 全部只读，无写/预订/支付接口
- * - 优先复用 AppLoginState 已有登录实例；若对应子系统未登录，调用一次 autoLogin，
+ * - 优先复用 SessionManager 已有站点会话；若对应子系统未登录，调用一次 ensureSite，
  *   60s 内不重试（防止反复触发导致服务端风控）
  * - Auth 异常直接上抛给 AgentRunner 终止循环（不重试）
  * - 优先命中 DataCache，减少对学校服务器的请求
@@ -40,9 +42,38 @@ class AgentToolRegistry(
     private val loginState: AppLoginState,
     private val dataCache: DataCache,
     private val context: Context,
-    private val disabledCaps: Set<String> = emptySet()
+    private val disabledCaps: Set<String> = emptySet(),
+    private val defaultSearchEngine: String = AgentConfig.SEARCH_BING
 ) {
     private val gson = Gson()
+
+    private val toolCaps = mapOf(
+        "get_schedule" to "schedule",
+        "get_exam_schedule" to "schedule",
+        "get_school_calendar" to "schedule",
+        "search_school_courses" to "schedule",
+        "get_empty_rooms" to "schedule",
+        "get_attendance" to "attendance",
+        "get_grades" to "grades",
+        "get_card_balance" to "card",
+        "get_card_transactions" to "card",
+        "get_notifications" to "notifications",
+        "search_yellow_page" to "yellow_page",
+        "web_search" to "web",
+        "web_fetch" to "web",
+        "get_library_booking" to "library",
+        "get_library_seats" to "library",
+        "get_textbooks" to "textbook",
+        "get_coupons" to "coupon",
+        "get_lms_courses" to "lms",
+        "get_lms_activities" to "lms",
+        "get_lms_assignments" to "lms",
+        "get_lms_activity_detail" to "lms",
+        "read_lms_attachment" to "lms",
+        "get_fitness_score" to "fitness",
+        "ask_jiaoxiaozhi" to "jiaoxiaozhi",
+        "set_app_setting" to "settings_write"
+    )
 
     // 每个 LoginType 上次失败的时间戳；60s 内不重试，防止反复触发服务端风控
     private val loginFailedAt = mutableMapOf<LoginType, Long>()
@@ -81,8 +112,8 @@ class AgentToolRegistry(
         }
         // 仍缺姓名或学院 → 在线拉一网通办
         if (name.isNullOrBlank() || college.isNullOrBlank()) {
-            if (loginState.ywtbLogin != null || tryAutoLogin(LoginType.YWTB)) {
-                runCatching { com.xjtu.toolbox.ywtb.YwtbApi(loginState.ywtbLogin!!).getUserInfo() }.getOrNull()?.let { ui ->
+            ensureSite(LoginType.YWTB)?.let { ywtbSite ->
+                runCatching { com.xjtu.toolbox.ywtb.YwtbApi(ywtbSite).getUserInfo() }.getOrNull()?.let { ui ->
                     if (name.isNullOrBlank()) name = ui.userName.takeIf { it.isNotBlank() }
                     if (college.isNullOrBlank()) college = ui.organizationName.takeIf { it.isNotBlank() }
                 }
@@ -144,20 +175,18 @@ class AgentToolRegistry(
         return (section ?: 0) - 1
     }
 
-    /**
-     * 尝试一次 autoLogin。若60s内已失败过则直接返回 false，不发出任何请求。
-     * autoLogin 内部有 mutex 防并发，此处只加时间冷却。
-     */
     private suspend fun tryAutoLogin(type: LoginType): Boolean {
         val now = System.currentTimeMillis()
         if (now - (loginFailedAt[type] ?: 0L) < 60_000L) return false
-        return if (loginState.autoLogin(type) != null) {
-            true
-        } else {
+        val ok = ensureSite(type) != null
+        if (!ok) {
             loginFailedAt[type] = now
-            false
         }
+        return ok
     }
+
+    private suspend fun ensureSite(type: LoginType): SiteSession? =
+        runCatching { loginState.sessionManager?.ensureSite(type) }.getOrNull()
 
     // OpenAI function calling 格式的工具描述。
     // 用 Gson 构建（自动转义），避免手写 JSON 在 description 里出现引号导致整串被截断。
@@ -177,17 +206,21 @@ class AgentToolRegistry(
             "查询西安交通大学校历，含学期起止日期、总周数、当前周、假期、考试周等重要事件。term可填学年或学期关键词，不填返回当前学期。",
             params("term" to strProp("学期关键词，如2025-2026、第一学期；不填查当前学期。"))))
         arr.add(tool("search_school_courses",
-            "查询全校开课信息，可按课程名、教师、校区、星期、节次、学期筛选，返回教师、学分、容量、时间地点等。需要教务系统登录。至少提供课程名或教师等一个条件，避免无边界查询。",
+            "查询全校开课信息，可按课程名、教师、课程号、班级、院系、校区、星期、节次范围、校公选类别、学期筛选，返回教师、学分、容量、班级、时间地点等。需要教务系统登录。至少提供一个条件，避免无边界查询。",
             params(
                 "course_name" to strProp("课程名称，模糊匹配。"),
                 "teacher" to strProp("教师姓名，模糊匹配。"),
                 "course_code" to strProp("课程号，模糊匹配。"),
+                "class_name" to strProp("上课班级，模糊匹配。"),
                 "department" to strProp("开课单位名称，如数学学院。"),
                 "campus" to strProp("校区：兴庆/雁塔/曲江/苏州/创新港。"),
                 "term" to strProp("学期代码，如2025-2026-2；不填使用当前学期。"),
                 "weekday" to intProp("星期几，1-7。"),
                 "section" to intProp("节次，1-11；同时匹配该节所在课程。"),
+                "start_section" to intProp("起始节次，1-11；与end_section配合查时间段。"),
+                "end_section" to intProp("结束节次，1-11。"),
                 "public_elective" to boolProp("是否仅查校公选课。"),
+                "elective_category" to strProp("校公选课类别：基础通识类选修课/基础通识类核心课/钱学森学院特色课。"),
                 "limit" to intProp("返回条数，默认10，最多20。")
             )))
         arr.add(tool("get_empty_rooms",
@@ -224,9 +257,10 @@ class AgentToolRegistry(
                 "limit" to intProp("返回条数，默认10，最多20。")
             )))
         arr.add(tool("web_search",
-            "联网搜索互联网。用于校历、政策、报名通知、通用知识等本地工具无法回答的问题。返回标题、链接、摘要。",
+            "联网搜索互联网。用于校历、政策、报名通知、通用知识等本地工具无法回答的问题。返回结构化标题、URL、摘要；随后可用 web_fetch 读取某个 URL。",
             params(
                 "query" to strProp("搜索关键词。"),
+                "engine" to strProp("搜索引擎：bing / sogou / wechat。不填使用用户设置。"),
                 "limit" to intProp("返回条数，默认5，最多8。")
             )))
         arr.add(tool("web_fetch",
@@ -249,6 +283,22 @@ class AgentToolRegistry(
             params("course" to strProp("课程名称，模糊匹配；不填会提示先查课程列表。"))))
         arr.add(tool("get_lms_assignments",
             "汇总思源学堂所有课程的作业（最新作业一览）。需要思源学堂登录，会逐课查询，稍慢。"))
+        arr.add(tool("get_lms_activity_detail",
+            "读取思源学堂某门课某个作业/课件/活动的详情，包含说明、截止时间、提交状态、附件名和可下载 URL。需要思源学堂登录。",
+            params(
+                "course" to strProp("课程名称，模糊匹配。"),
+                "activity" to strProp("活动/作业/课件标题，模糊匹配。")
+            )))
+        arr.add(tool("read_lms_attachment",
+            "下载并读取思源学堂附件的文本内容。适合 txt/md/html/json/csv 等文本文件；PDF/Office 文件会提示去页面下载查看。需要思源学堂登录。",
+            params(
+                "course" to strProp("课程名称，模糊匹配。"),
+                "activity" to strProp("活动/作业/课件标题，模糊匹配。"),
+                "file" to strProp("附件文件名关键词，模糊匹配。")
+            )))
+        arr.add(tool("get_fitness_score",
+            "查询本人体测成绩，包含总分、等级、学年和各项目成绩。需要体测系统登录。",
+            params("year" to strProp("体测学年名称或年份关键词，不填查当前/默认学年。"))))
         arr.add(tool("ask_jiaoxiaozhi",
             "向学校交晓智知识服务提问。适合查询校园政策、办事流程、校内知识库内容；返回内容仍需核验，不应用于课表、成绩、余额等已有专用工具可查询的数据。",
             params(
@@ -268,30 +318,6 @@ class AgentToolRegistry(
             params("expression" to strProp("表达式，如 (3.7*4+4.0*3)/(4+3) 或 92*0.4+88*0.6。"))))
         arr.add(tool("check_update",
             "检查 App 是否有新版本（对比当前版本与发布渠道的最新版）。无需登录。"))
-        val toolCaps = mapOf(
-            "get_schedule" to "schedule",
-            "get_exam_schedule" to "schedule",
-            "get_school_calendar" to "schedule",
-            "search_school_courses" to "schedule",
-            "get_empty_rooms" to "schedule",
-            "get_attendance" to "attendance",
-            "get_grades" to "grades",
-            "get_card_balance" to "card",
-            "get_card_transactions" to "card",
-            "get_notifications" to "notifications",
-            "search_yellow_page" to "yellow_page",
-            "web_search" to "web",
-            "web_fetch" to "web",
-            "get_library_booking" to "library",
-            "get_library_seats" to "library",
-            "get_textbooks" to "textbook",
-            "get_coupons" to "coupon",
-            "get_lms_courses" to "lms",
-            "get_lms_activities" to "lms",
-            "get_lms_assignments" to "lms",
-            "ask_jiaoxiaozhi" to "jiaoxiaozhi",
-            "set_app_setting" to "settings_write"
-        )
         return JsonArray().apply {
             arr.forEach { definition ->
                 val name = definition.asJsonObject
@@ -335,6 +361,10 @@ class AgentToolRegistry(
     }
 
     suspend fun execute(name: String, argsJson: String): String = withContext(Dispatchers.IO) {
+        toolCaps[name]?.takeIf { it in disabledCaps }?.let { cap ->
+            return@withContext "能力「$cap」已在屁岱设置中关闭，本次不会调用 ${name}。如需使用，请先在设置里重新开启。"
+        }
+
         val args = runCatching {
             @Suppress("UNCHECKED_CAST")
             gson.fromJson(argsJson, Map::class.java) as Map<String, Any>
@@ -349,12 +379,16 @@ class AgentToolRegistry(
                 courseName = args["course_name"] as? String,
                 teacher = args["teacher"] as? String,
                 courseCode = args["course_code"] as? String,
+                className = args["class_name"] as? String,
                 department = args["department"] as? String,
                 campus = args["campus"] as? String,
                 term = args["term"] as? String,
                 weekday = (args["weekday"] as? Double)?.toInt(),
                 section = (args["section"] as? Double)?.toInt(),
+                startSection = (args["start_section"] as? Double)?.toInt(),
+                endSection = (args["end_section"] as? Double)?.toInt(),
                 publicElective = args["public_elective"] as? Boolean,
+                electiveCategory = args["elective_category"] as? String,
                 limit = (args["limit"] as? Double)?.toInt() ?: 10
             )
             "get_empty_rooms" -> getEmptyRooms(
@@ -375,7 +409,11 @@ class AgentToolRegistry(
                 category = args["category"] as? String,
                 limit = (args["limit"] as? Double)?.toInt() ?: 10
             )
-            "web_search" -> webSearch(args["query"] as? String ?: "", (args["limit"] as? Double)?.toInt() ?: 5)
+            "web_search" -> webSearch(
+                query = args["query"] as? String ?: "",
+                limit = (args["limit"] as? Double)?.toInt() ?: 5,
+                engine = args["engine"] as? String
+            )
             "web_fetch" -> webFetch(args["url"] as? String ?: "")
             "get_library_booking" -> getLibraryBooking()
             "get_library_seats" -> getLibrarySeats(args["area"] as? String)
@@ -384,6 +422,9 @@ class AgentToolRegistry(
             "get_lms_courses" -> getLmsCourses()
             "get_lms_activities" -> getLmsActivities(args["course"] as? String)
             "get_lms_assignments" -> getLmsAssignments()
+            "get_lms_activity_detail" -> getLmsActivityDetail(args["course"] as? String, args["activity"] as? String)
+            "read_lms_attachment" -> readLmsAttachment(args["course"] as? String, args["activity"] as? String, args["file"] as? String)
+            "get_fitness_score" -> getFitnessScore(args["year"] as? String)
             "ask_jiaoxiaozhi" -> askJiaoxiaozhi(
                 question = args["question"] as? String ?: "",
                 model = args["model"] as? String
@@ -471,9 +512,9 @@ class AgentToolRegistry(
         gson.fromJson(dataCache.get("start_date_$term", Long.MAX_VALUE), String::class.java)
     }.getOrNull()
 
-    private fun getSchoolCalendar(term: String?): String {
+    private suspend fun getSchoolCalendar(term: String?): String {
         return try {
-            val terms = com.xjtu.toolbox.calendar.SchoolCalendarApi(loginState.jwxtLogin).getTerms()
+            val terms = com.xjtu.toolbox.calendar.SchoolCalendarApi(ensureSite(LoginType.JWXT)).getTerms()
             if (terms.isEmpty()) return "暂无校历数据。"
             val today = LocalDate.now()
             val selected = if (term.isNullOrBlank()) {
@@ -551,24 +592,30 @@ class AgentToolRegistry(
         courseName: String?,
         teacher: String?,
         courseCode: String?,
+        className: String?,
         department: String?,
         campus: String?,
         term: String?,
         weekday: Int?,
         section: Int?,
+        startSection: Int?,
+        endSection: Int?,
         publicElective: Boolean?,
+        electiveCategory: String?,
         limit: Int
     ): String {
-        val hasFilter = listOf(courseName, teacher, courseCode, department, campus, term)
-            .any { !it.isNullOrBlank() } || weekday != null || section != null || publicElective != null
+        val hasFilter = listOf(courseName, teacher, courseCode, className, department, campus, term, electiveCategory)
+            .any { !it.isNullOrBlank() } || weekday != null || section != null ||
+            startSection != null || endSection != null || publicElective != null
         if (!hasFilter) return "请至少提供课程名、教师、校区、星期或其他一个查询条件。"
         if (weekday != null && weekday !in 1..7) return "weekday 必须是1到7。"
         if (section != null && section !in 1..11) return "section 必须是1到11。"
-        if (loginState.jwxtLogin == null && !tryAutoLogin(LoginType.JWXT))
-            return "需要教务系统登录，请先打开全校课程查询页面完成认证。"
-        val login = loginState.jwxtLogin ?: return "教务系统登录未就绪，请稍后再试。"
+        if (startSection != null && startSection !in 1..11) return "start_section 必须是1到11。"
+        if (endSection != null && endSection !in 1..11) return "end_section 必须是1到11。"
         return try {
-            val api = com.xjtu.toolbox.schedule.SchoolCourseApi(login)
+            val site = ensureSite(LoginType.JWXT)
+                ?: return "需要教务系统登录，请先打开全校课程查询页面完成认证。"
+            val api = com.xjtu.toolbox.schedule.SchoolCourseApi(site)
             val termCode = term?.takeIf { it.isNotBlank() } ?: api.getCurrentTerm()
             if (termCode.isBlank()) return "无法获取当前学期，请明确提供学期代码，如2025-2026-2。"
             val departmentCode = department?.takeIf { it.isNotBlank() }?.let { name ->
@@ -581,17 +628,26 @@ class AgentToolRegistry(
                     it.name == name || it.name.contains(name) || name.contains(it.name)
                 }?.code ?: return "未找到校区「$name」。可选：${api.getCampusList().joinToString("、") { it.name }}"
             }
+            val electiveCategoryCode = electiveCategory?.takeIf { it.isNotBlank() }?.let { name ->
+                api.getElectiveCategories().firstOrNull {
+                    it.name == name || it.name.contains(name) || name.contains(it.name)
+                }?.code ?: return "未找到校公选类别「$name」。可选：${api.getElectiveCategories().joinToString("、") { it.name }}"
+            }
+            val start = startSection ?: section
+            val end = endSection ?: section
             val result = api.queryCourses(
                 termCode = termCode,
                 courseName = courseName,
                 courseCode = courseCode,
                 teacher = teacher,
                 departmentCode = departmentCode,
+                className = className,
                 campusCode = campusCode,
                 isPublicElective = publicElective,
+                electiveCategoryCode = electiveCategoryCode,
                 weekday = weekday,
-                startSection = section,
-                endSection = section,
+                startSection = start,
+                endSection = end,
                 pageSize = limit.coerceIn(1, 20),
                 pageNumber = 1
             )
@@ -631,11 +687,10 @@ class AgentToolRegistry(
                 ?: ScheduleCache.readRawCourses(dataCache, gson, term0, Long.MAX_VALUE)) != null
         if (coursesCached && term0 != null && cachedStartDate(term0) != null) return null
 
-        if (loginState.jwxtLogin == null && !tryAutoLogin(LoginType.JWXT))
-            return "课表未缓存，且当前无法登录教务系统（可能在校外或网络异常）。请联网后重试。"
-        val login = loginState.jwxtLogin ?: return "登录未就绪，请稍后再试。"
+        val site = ensureSite(LoginType.JWXT)
+            ?: return "课表未缓存，且当前无法登录教务系统（可能在校外或网络异常）。请联网后重试。"
         return try {
-            val api = ScheduleApi(login)
+            val api = ScheduleApi(site)
             val term = term0 ?: api.getCurrentTerm()
             if (term0 == null) dataCache.put("schedule_term_list", gson.toJson(listOf(term)))
             if ((ScheduleCache.readOptimizedCourses(dataCache, gson, term, Long.MAX_VALUE)
@@ -699,11 +754,10 @@ class AgentToolRegistry(
     }
 
     private suspend fun getExamSchedule(): String {
-        if (loginState.jwxtLogin == null && !tryAutoLogin(LoginType.JWXT))
-            return "需要教务系统登录，请先打开任意教务功能完成认证。"
-        val login = loginState.jwxtLogin ?: return "登录未就绪，请稍后再试。"
+        val site = ensureSite(LoginType.JWXT)
+            ?: return "需要教务系统登录，请先打开任意教务功能完成认证。"
         return try {
-            val exams = ScheduleApi(login).getExamSchedule()
+            val exams = ScheduleApi(site).getExamSchedule()
             if (exams.isEmpty()) return "暂无考试安排。"
             pendingWidgets.add(ExamWidget(exams))
             val text = buildString {
@@ -740,8 +794,7 @@ class AgentToolRegistry(
             val preferDirect = context.getSharedPreferences("empty_room", Context.MODE_PRIVATE)
                 .getBoolean("empty_room_use_direct_query", false)
             val directClient = if (preferDirect && building != null) {
-                loginState.getDirectClient()
-                    ?: run { if (loginState.jwxtLogin == null) tryAutoLogin(LoginType.JWXT); loginState.jwxtLogin?.client }
+                ensureSite(LoginType.JWXT)?.client
             } else null
             val usingDirect = directClient != null
 
@@ -799,16 +852,19 @@ class AgentToolRegistry(
     }
 
     private suspend fun getAttendance(limit: Int): String {
-        if (loginState.attendanceLogin == null && loginState.postgraduateAttendanceLogin == null) {
-            // 本科和研究生考勤系统不同，两个都试一次（各自有60s冷却保护）
-            if (!tryAutoLogin(LoginType.ATTENDANCE) && !tryAutoLogin(LoginType.POSTGRADUATE_ATTENDANCE)) {
-                return "需要考勤系统登录，请先打开考勤功能完成认证。"
-            }
-        }
-        val login = loginState.attendanceLogin ?: loginState.postgraduateAttendanceLogin
-            ?: return "登录未就绪，请稍后再试。"
+        val site = ensureSite(LoginType.ATTENDANCE)
+            ?: ensureSite(LoginType.POSTGRADUATE_ATTENDANCE)
+            ?: return "需要考勤系统登录，请先打开考勤功能完成认证。"
         return try {
-            val records = AttendanceApi(login).getWaterRecords().take(limit.coerceIn(1, 30))
+            val api = AttendanceApi(site)
+            val termBh = runCatching { api.getTermBh() }.getOrNull()
+            val termStartDate = termBh?.let {
+                runCatching { api.getTermList().firstOrNull { t -> t.bh == it }?.startDate }.getOrNull()
+            }
+            val records = api.getWaterRecords(
+                termBh = termBh,
+                startDate = termStartDate ?: ""
+            ).take(limit.coerceIn(1, 30))
             if (records.isEmpty()) return "暂无考勤记录。"
             pendingWidgets.add(AttendanceWidget(records))
             val text = buildString {
@@ -829,13 +885,12 @@ class AgentToolRegistry(
     }
 
     private suspend fun getGrades(term: String?): String {
-        if (loginState.jwxtLogin == null && !tryAutoLogin(LoginType.JWXT))
-            return "需要教务系统登录，请先打开任意教务功能完成认证。"
-        val login = loginState.jwxtLogin ?: return "登录未就绪，请稍后再试。"
+        val site = ensureSite(LoginType.JWXT)
+            ?: return "需要教务系统登录，请先打开任意教务功能完成认证。"
         val studentId = loginState.activeUsername
         if (studentId.isBlank()) return "未获取到学号，请重新登录后再试。"
         return try {
-            val all = ScoreReportApi(login).getReportedGrade(studentId)
+            val all = ScoreReportApi(site).getReportedGrade(studentId)
             val grades = if (term != null) all.filter { it.term == term } else all
             if (grades.isEmpty()) return if (term != null) "未找到${term}学期的成绩。" else "暂无成绩记录。"
 
@@ -866,11 +921,10 @@ class AgentToolRegistry(
     }
 
     private suspend fun getCardBalance(): String {
-        if (loginState.campusCardLogin == null && !tryAutoLogin(LoginType.CAMPUS_CARD))
-            return "需要校园卡系统登录，请先打开校园卡功能完成认证。"
-        val login = loginState.campusCardLogin ?: return "登录未就绪，请稍后再试。"
+        val site = ensureSite(LoginType.CAMPUS_CARD)
+            ?: return "需要校园卡系统登录，请先打开校园卡功能完成认证。"
         return try {
-            val info = CampusCardApi(login).getCardInfo()
+            val info = CampusCardApi(site).getCardInfo()
             pendingWidgets.add(CardWidget(info))
             val text = buildString {
                 append("校园卡余额：¥%.2f".format(info.balance))
@@ -888,12 +942,11 @@ class AgentToolRegistry(
     }
 
     private suspend fun getCardTransactions(days: Int): String {
-        if (loginState.campusCardLogin == null && !tryAutoLogin(LoginType.CAMPUS_CARD))
-            return "需要校园卡系统登录，请先打开校园卡功能完成认证。"
-        val login = loginState.campusCardLogin ?: return "登录未就绪，请稍后再试。"
+        val site = ensureSite(LoginType.CAMPUS_CARD)
+            ?: return "需要校园卡系统登录，请先打开校园卡功能完成认证。"
         val d = days.coerceIn(1, 180)   // 放宽：用户可能要看整月/整学期账单
         return try {
-            val (_, txs) = CampusCardApi(login).getTransactions(
+            val txs = CampusCardApi(site).getAllTransactions(
                 startDate = LocalDate.now().minusDays(d.toLong()),
                 endDate = LocalDate.now()
             )
@@ -962,41 +1015,90 @@ class AgentToolRegistry(
     private val webUa =
         "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
 
-    private fun decodeDdgLink(href: String): String {
-        Regex("uddg=([^&]+)").find(href)?.let {
-            return runCatching { java.net.URLDecoder.decode(it.groupValues[1], "UTF-8") }.getOrDefault(href)
+    private fun normalizeSearchLink(href: String): String {
+        return when {
+            href.startsWith("//") -> "https:$href"
+            href.startsWith("/") -> href
+            else -> href
         }
-        return if (href.startsWith("//")) "https:$href" else href
     }
 
-    private fun webSearch(query: String, limit: Int): String {
+    private fun parseBingResults(body: String, limit: Int): List<Triple<String, String, String>> {
+        val doc = org.jsoup.Jsoup.parse(body)
+        return doc.select("li.b_algo").asSequence()
+            .mapNotNull { el ->
+                val a = el.selectFirst("h2 a") ?: return@mapNotNull null
+                val title = a.text().ifBlank { return@mapNotNull null }
+                val link = normalizeSearchLink(a.attr("href"))
+                val snippet = el.selectFirst(".b_caption p, .b_snippet")?.text().orEmpty()
+                Triple(title, link, snippet)
+            }
+            .filter { (_, link, _) -> link.startsWith("http") }
+            .take(limit.coerceIn(1, 8))
+            .toList()
+    }
+
+    private fun parseSogouResults(body: String, limit: Int): List<Triple<String, String, String>> {
+        val doc = org.jsoup.Jsoup.parse(body)
+        return doc.select(".results .vrwrap, .results .rb").asSequence()
+            .mapNotNull { el ->
+                val a = el.selectFirst("h3 a, .vrTitle a") ?: return@mapNotNull null
+                val title = a.text().ifBlank { return@mapNotNull null }
+                val link = normalizeSearchLink(a.attr("href"))
+                val snippet = el.selectFirst(".str_info, .ft, .text-layout")?.text().orEmpty()
+                Triple(title, link, snippet)
+            }
+            .take(limit.coerceIn(1, 8))
+            .toList()
+    }
+
+    private fun webSearch(query: String, limit: Int, engine: String?): String {
         if (query.isBlank()) return "搜索词为空。"
         return try {
-            val url = "https://html.duckduckgo.com/html/?q=" +
-                java.net.URLEncoder.encode(query, "UTF-8")
-            val resp = webClient.newCall(
-                okhttp3.Request.Builder().url(url).header("User-Agent", webUa).get().build()
-            ).execute()
-            val body = resp.body?.string() ?: return "搜索失败：空响应。"
-            val doc = org.jsoup.Jsoup.parse(body)
-            val results = doc.select("div.result").asSequence()
-                .mapNotNull { el ->
-                    val a = el.selectFirst("a.result__a") ?: return@mapNotNull null
-                    val title = a.text().ifBlank { return@mapNotNull null }
-                    val link = decodeDdgLink(a.attr("href"))
-                    val snippet = el.selectFirst(".result__snippet")?.text().orEmpty()
-                    Triple(title, link, snippet)
-                }
-                .take(limit.coerceIn(1, 8))
-                .toList()
+            val encoded = java.net.URLEncoder.encode(query, "UTF-8")
+            val selectedEngine = when (engine?.trim()?.lowercase()) {
+                AgentConfig.SEARCH_SOGOU -> AgentConfig.SEARCH_SOGOU
+                AgentConfig.SEARCH_WECHAT, "weixin", "wx" -> AgentConfig.SEARCH_WECHAT
+                AgentConfig.SEARCH_BING -> AgentConfig.SEARCH_BING
+                else -> defaultSearchEngine
+            }
+            fun fetch(url: String): String? = webClient.newCall(
+                okhttp3.Request.Builder()
+                    .url(url)
+                    .header("User-Agent", webUa)
+                    .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.6")
+                    .get()
+                    .build()
+            ).execute().use { resp ->
+                if (!resp.isSuccessful) null else resp.body?.string()
+            }
+
+            fun searchOnce(which: String): List<Triple<String, String, String>> = when (which) {
+                AgentConfig.SEARCH_SOGOU -> fetch("https://www.sogou.com/web?query=$encoded")
+                    ?.let { parseSogouResults(it, limit) }.orEmpty()
+                AgentConfig.SEARCH_WECHAT -> fetch("https://weixin.sogou.com/weixin?type=2&query=$encoded")
+                    ?.let { parseSogouResults(it, limit) }.orEmpty()
+                else -> fetch("https://www.bing.com/search?q=$encoded&mkt=zh-CN&setlang=zh-CN")
+                    ?.let { parseBingResults(it, limit) }.orEmpty()
+            }
+            val primary = searchOnce(selectedEngine)
+            val results = primary.ifEmpty {
+                listOf(AgentConfig.SEARCH_BING, AgentConfig.SEARCH_SOGOU, AgentConfig.SEARCH_WECHAT)
+                    .filter { it != selectedEngine }
+                    .asSequence()
+                    .map { searchOnce(it) }
+                    .firstOrNull { it.isNotEmpty() }
+                    .orEmpty()
+            }
             if (results.isEmpty()) return "未搜到「$query」的结果。"
             buildString {
-                append("搜索「$query」结果：\n")
+                append("搜索「$query」结果（${AgentConfig.searchEngineLabel(selectedEngine)}）：\n")
                 results.forEachIndexed { i, (t, l, s) ->
-                    append("${i + 1}. $t\n$l\n")
-                    if (s.isNotBlank()) append("${s.take(140)}\n")
+                    append("${i + 1}. 标题：$t\n")
+                    append("   URL：$l\n")
+                    if (s.isNotBlank()) append("   摘要：${s.take(180)}\n")
                 }
-                append("\n如需详情可用 web_fetch 抓取对应链接。")
+                append("\n这些 URL 可直接传给 web_fetch 继续阅读。")
             }
         } catch (e: Exception) {
             "搜索失败：${e.message ?: "网络异常"}"
@@ -1004,11 +1106,10 @@ class AgentToolRegistry(
     }
 
     private suspend fun getLibraryBooking(): String {
-        if (loginState.libraryLogin == null && !tryAutoLogin(LoginType.LIBRARY))
-            return "需要图书馆系统登录，请先打开图书馆功能完成认证。"
-        val login = loginState.libraryLogin ?: return "登录未就绪，请稍后再试。"
+        val site = ensureSite(LoginType.LIBRARY)
+            ?: return "需要图书馆系统登录，请先打开图书馆功能完成认证。"
         return try {
-            val b = com.xjtu.toolbox.library.LibraryApi(login).getMyBooking()
+            val b = com.xjtu.toolbox.library.LibraryApi(site).getMyBooking()
                 ?: return "你当前没有图书馆座位预约。"
             buildString {
                 append("当前图书馆预约：座位 ${b.seatId ?: "?"}")
@@ -1023,9 +1124,8 @@ class AgentToolRegistry(
     }
 
     private suspend fun getLibrarySeats(area: String?): String {
-        if (loginState.libraryLogin == null && !tryAutoLogin(LoginType.LIBRARY))
-            return "需要图书馆系统登录，请先打开图书馆功能完成认证。"
-        val login = loginState.libraryLogin ?: return "登录未就绪，请稍后再试。"
+        val site = ensureSite(LoginType.LIBRARY)
+            ?: return "需要图书馆系统登录，请先打开图书馆功能完成认证。"
         val areaMap = com.xjtu.toolbox.library.LibraryApi.AREA_MAP
         if (area.isNullOrBlank()) {
             return "可查询的图书馆区域：\n" + areaMap.keys.joinToString("、")
@@ -1034,7 +1134,7 @@ class AgentToolRegistry(
             it.key == area || it.key.contains(area) || area.contains(it.key)
         } ?: return "未找到区域「$area」。可选：${areaMap.keys.joinToString("、")}"
         return try {
-            when (val r = com.xjtu.toolbox.library.LibraryApi(login).getSeats(entry.value)) {
+            when (val r = com.xjtu.toolbox.library.LibraryApi(site).getSeats(entry.value)) {
                 is com.xjtu.toolbox.library.SeatResult.Success -> {
                     val free = r.seats.count { it.available }
                     "${entry.key}：空闲 $free / 共 ${r.seats.size} 座"
@@ -1052,11 +1152,10 @@ class AgentToolRegistry(
 
     private suspend fun getTextbooks(keyword: String): String {
         if (keyword.isBlank()) return "请提供教材或课程名关键词。"
-        if (loginState.jiaocaiLogin == null && !tryAutoLogin(LoginType.JIAOCAI))
-            return "需要教材中心登录，请先打开教材功能完成认证。"
-        val login = loginState.jiaocaiLogin ?: return "登录未就绪，请稍后再试。"
+        val site = ensureSite(LoginType.JIAOCAI)
+            ?: return "需要教材中心登录，请先打开教材功能完成认证。"
         return try {
-            val books = com.xjtu.toolbox.jiaocai.JiaocaiApi(login).search(keyword)
+            val books = com.xjtu.toolbox.jiaocai.JiaocaiApi(site).search(keyword)
             if (books.isEmpty()) return "未找到与「$keyword」相关的教材。"
             buildString {
                 append("教材搜索「$keyword」（${books.size}本）：\n")
@@ -1075,11 +1174,10 @@ class AgentToolRegistry(
     }
 
     private suspend fun getCoupons(): String {
-        if (loginState.couponLogin == null && !tryAutoLogin(LoginType.COUPON))
-            return "需要加餐券系统登录，请先打开加餐券功能完成认证。"
-        val login = loginState.couponLogin ?: return "登录未就绪，请稍后再试。"
+        val site = ensureSite(LoginType.COUPON)
+            ?: return "需要加餐券系统登录，请先打开加餐券功能完成认证。"
         return try {
-            val page = com.xjtu.toolbox.coupon.CouponApi(login)
+            val page = com.xjtu.toolbox.coupon.CouponApi(site)
                 .queryCoupons(com.xjtu.toolbox.coupon.CouponFilter.USABLE)
             if (page.records.isEmpty()) return "你当前没有可用的加餐券。"
             val text = buildString {
@@ -1106,11 +1204,10 @@ class AgentToolRegistry(
     }
 
     private suspend fun getLmsCourses(): String {
-        if (loginState.lmsLogin == null && !tryAutoLogin(LoginType.LMS))
-            return "需要思源学堂登录，请先打开思源学堂功能完成认证。"
-        val login = loginState.lmsLogin ?: return "登录未就绪，请稍后再试。"
+        val site = ensureSite(LoginType.LMS)
+            ?: return "需要思源学堂登录，请先打开思源学堂功能完成认证。"
         return try {
-            val courses = com.xjtu.toolbox.lms.LmsApi(login).getMyCourses()
+            val courses = com.xjtu.toolbox.lms.LmsApi(site).getMyCourses()
             if (courses.isEmpty()) return "思源学堂暂无课程。"
             "思源学堂课程（${courses.size}门）：\n" + courses.joinToString("\n") { "• ${it.name}" }
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
@@ -1122,11 +1219,10 @@ class AgentToolRegistry(
 
     private suspend fun getLmsActivities(course: String?): String {
         if (course.isNullOrBlank()) return "请指定课程名，或先用 get_lms_courses 查看课程列表。"
-        if (loginState.lmsLogin == null && !tryAutoLogin(LoginType.LMS))
-            return "需要思源学堂登录，请先打开思源学堂功能完成认证。"
-        val login = loginState.lmsLogin ?: return "登录未就绪，请稍后再试。"
+        val site = ensureSite(LoginType.LMS)
+            ?: return "需要思源学堂登录，请先打开思源学堂功能完成认证。"
         return try {
-            val api = com.xjtu.toolbox.lms.LmsApi(login)
+            val api = com.xjtu.toolbox.lms.LmsApi(site)
             val c = api.getMyCourses().firstOrNull {
                 it.name == course || it.name.contains(course) || course.contains(it.name)
             } ?: return "未找到课程「$course」。可先用 get_lms_courses 查看课程列表。"
@@ -1151,11 +1247,10 @@ class AgentToolRegistry(
     }
 
     private suspend fun getLmsAssignments(): String {
-        if (loginState.lmsLogin == null && !tryAutoLogin(LoginType.LMS))
-            return "需要思源学堂登录，请先打开思源学堂功能完成认证。"
-        val login = loginState.lmsLogin ?: return "登录未就绪，请稍后再试。"
+        val site = ensureSite(LoginType.LMS)
+            ?: return "需要思源学堂登录，请先打开思源学堂功能完成认证。"
         return try {
-            val api = com.xjtu.toolbox.lms.LmsApi(login)
+            val api = com.xjtu.toolbox.lms.LmsApi(site)
             val homeworks = mutableListOf<Pair<String, com.xjtu.toolbox.lms.LmsActivity>>()
             for (c in api.getMyCourses()) {
                 runCatching {
@@ -1178,6 +1273,123 @@ class AgentToolRegistry(
             throw e
         } catch (e: Exception) {
             "获取作业失败：${e.message ?: "网络异常"}"
+        }
+    }
+
+    private fun findLmsCourse(
+        api: com.xjtu.toolbox.lms.LmsApi,
+        course: String?
+    ): com.xjtu.toolbox.lms.LmsCourseSummary? {
+        val key = course?.trim().orEmpty()
+        if (key.isBlank()) return null
+        return api.getMyCourses().firstOrNull {
+            it.name == key || it.name.contains(key) || key.contains(it.name)
+        }
+    }
+
+    private fun findLmsActivity(
+        api: com.xjtu.toolbox.lms.LmsApi,
+        courseId: Int,
+        activity: String?
+    ): com.xjtu.toolbox.lms.LmsActivity? {
+        val key = activity?.trim().orEmpty()
+        if (key.isBlank()) return null
+        return api.getCourseActivities(courseId).firstOrNull {
+            it.title == key || it.title.contains(key) || key.contains(it.title)
+        }
+    }
+
+    private suspend fun getLmsActivityDetail(course: String?, activity: String?): String {
+        val site = ensureSite(LoginType.LMS)
+            ?: return "需要思源学堂登录，请先打开思源学堂功能完成认证。"
+        return try {
+            val api = com.xjtu.toolbox.lms.LmsApi(site)
+            val c = findLmsCourse(api, course) ?: return "请提供有效课程名；可先用 get_lms_courses 查看课程列表。"
+            val brief = findLmsActivity(api, c.id, activity)
+                ?: return "未找到「${c.name}」中的活动「${activity.orEmpty()}」。可先用 get_lms_activities 查看活动列表。"
+            val a = api.getActivityDetail(brief.id)
+            buildString {
+                append("「${c.name}」${lmsTypeName(a.type)}详情：${a.title}\n")
+                a.startTime?.let { append("开始：$it\n") }
+                a.endTime?.let { append("截止：$it\n") }
+                if (!a.description.isNullOrBlank()) append("说明：${org.jsoup.Jsoup.parse(a.description).text().take(1200)}\n")
+                if (a.uploads.isNotEmpty()) {
+                    append("附件：\n")
+                    a.uploads.forEach { u ->
+                        append("• ${u.name}（${u.readableSize}）")
+                        val url = u.downloadUrl.ifBlank { u.attachmentUrl.ifBlank { u.previewUrl } }
+                        if (url.isNotBlank()) append(" $url")
+                        append("\n")
+                    }
+                }
+                a.submissionList?.list?.firstOrNull()?.let { s ->
+                    append("提交状态：${s.statusLabel}，分数：${s.scoreDisplay}\n")
+                    if (s.content.isNotBlank()) append("提交内容：${org.jsoup.Jsoup.parse(s.content).text().take(800)}\n")
+                    if (s.uploads.isNotEmpty()) append("我的提交附件：${s.uploads.joinToString("、") { it.name }}\n")
+                    if (s.instructorComment.isNotBlank()) append("教师评语：${s.instructorComment}\n")
+                }
+            }.trimEnd()
+        } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
+            throw e
+        } catch (e: Exception) {
+            "读取 LMS 活动详情失败：${e.message ?: "网络异常"}"
+        }
+    }
+
+    private suspend fun readLmsAttachment(course: String?, activity: String?, file: String?): String {
+        val site = ensureSite(LoginType.LMS)
+            ?: return "需要思源学堂登录，请先打开思源学堂功能完成认证。"
+        return try {
+            val api = com.xjtu.toolbox.lms.LmsApi(site)
+            val c = findLmsCourse(api, course) ?: return "请提供有效课程名；可先用 get_lms_courses 查看课程列表。"
+            val brief = findLmsActivity(api, c.id, activity)
+                ?: return "未找到「${c.name}」中的活动「${activity.orEmpty()}」。"
+            val detail = api.getActivityDetail(brief.id)
+            val uploads = detail.uploads + detail.submissionList?.list.orEmpty().flatMap { it.uploads }
+            val key = file?.trim().orEmpty()
+            val upload = uploads.firstOrNull { key.isBlank() || it.name.contains(key, ignoreCase = true) }
+                ?: return "未找到附件「$key」。可用 get_lms_activity_detail 查看附件名。"
+            val url = upload.downloadUrl.ifBlank { upload.attachmentUrl.ifBlank { upload.previewUrl } }
+            if (url.isBlank()) return "附件「${upload.name}」没有可下载 URL。"
+            val ext = upload.name.substringAfterLast('.', "").lowercase()
+            if (ext in listOf("pdf", "doc", "docx", "ppt", "pptx", "xls", "xlsx", "zip", "rar", "7z")) {
+                return "附件「${upload.name}」是 ${ext.uppercase()} 文件，屁岱当前不直接解析二进制内容；可打开 LMS 页面或下载记录查看。下载 URL：$url"
+            }
+            val bytes = api.downloadBytes(url) ?: return "下载附件失败。"
+            val text = bytes.toString(Charsets.UTF_8)
+            "附件「${upload.name}」内容：\n" + text.take(4000) + if (text.length > 4000) "\n…（已截断）" else ""
+        } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
+            throw e
+        } catch (e: Exception) {
+            "读取 LMS 附件失败：${e.message ?: "网络异常"}"
+        }
+    }
+
+    private suspend fun getFitnessScore(year: String?): String {
+        val site = ensureSite(LoginType.FITNESS)
+            ?: return "需要体测系统登录，请先打开体测查询功能完成认证。"
+        return try {
+            val api = com.xjtu.toolbox.fitness.FitnessApi(site)
+            val years = api.getYears()
+            val selected = year?.takeIf { it.isNotBlank() }?.let { key ->
+                years.firstOrNull { it.name.contains(key) || it.yearNum.contains(key) }
+            } ?: years.firstOrNull { it.checked } ?: years.firstOrNull()
+            selected ?: return "暂无可查询的体测学年。"
+            val score = api.getScore(selected.yearNum)
+            buildString {
+                append("体测成绩（${selected.name}）：${score.studentName} ${score.studentNumber}\n")
+                append("总分：${score.totalScore}，等级：${score.totalGrade}\n")
+                if (score.reportStatus.isNotBlank()) append("状态：${score.reportStatus}\n")
+                score.items.forEach { item ->
+                    append("• ${item.name}: ${item.value}")
+                    if (item.grade.isNotBlank()) append("（${item.grade}）")
+                    append("\n")
+                }
+            }.trimEnd()
+        } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
+            throw e
+        } catch (e: Exception) {
+            "查询体测成绩失败：${e.message ?: "网络异常"}"
         }
     }
 

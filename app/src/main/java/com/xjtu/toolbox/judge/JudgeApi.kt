@@ -1,11 +1,12 @@
 package com.xjtu.toolbox.judge
 
 import com.google.gson.Gson
-import com.xjtu.toolbox.auth.JwxtLogin
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
 import com.xjtu.toolbox.util.safeString
 import com.xjtu.toolbox.util.safeStringOrNull
 import com.xjtu.toolbox.util.safeInt
+import kotlinx.coroutines.runBlocking
 import okhttp3.FormBody
 import okhttp3.Request
 
@@ -146,11 +147,16 @@ data class QuestionnaireOptionData(
  * 教务评教 API
  * 封装了教务系统评教相关的所有请求接口
  */
-class JudgeApi(private val login: JwxtLogin) {
+class JudgeApi(private val site: SiteSession) {
 
     private val gson = Gson()
     private var cachedTerm: String? = null
     private var appInitialized = false
+
+    private fun execute(request: Request): String =
+        runBlocking { site.executeWithReAuth(request) }.use { response ->
+            response.body?.string() ?: ""
+        }
 
     /**
      * jwapp 框架要求每个 app 模块先 GET 入口让服务端注册 module session，
@@ -164,7 +170,7 @@ class JudgeApi(private val login: JwxtLogin) {
                 .header("Accept", "text/html")
                 .get()
                 .build()
-            login.client.newCall(req).execute().close()
+            runBlocking { site.executeWithReAuth(req) }.close()
             appInitialized = true
         } catch (_: Exception) {
             // 预热失败不阻塞业务，下游接口会自行报错
@@ -200,9 +206,7 @@ class JudgeApi(private val login: JwxtLogin) {
             .post(formBody)
             .build()
 
-        val responseBody = login.client.newCall(request).execute().use { response ->
-            response.body?.string() ?: ""
-        }
+        val responseBody = execute(request)
         if (responseBody.isEmpty()) throw RuntimeException("空响应")
         // CAS 把请求拦回登录页，body 不是 JSON
         if (!responseBody.trimStart().startsWith("{")) {
@@ -242,9 +246,7 @@ class JudgeApi(private val login: JwxtLogin) {
             .post(formBody)
             .build()
 
-        val responseBody = login.client.newCall(request).execute().use { response ->
-            response.body?.string() ?: throw RuntimeException("空响应")
-        }
+        val responseBody = execute(request).ifEmpty { throw RuntimeException("空响应") }
         val root = responseBody.safeParseJsonObject()
         val rows = root.getAsJsonObject("datas")
             .getAsJsonObject("cxdwpj")
@@ -315,9 +317,7 @@ class JudgeApi(private val login: JwxtLogin) {
             .post(formBody)
             .build()
 
-        val responseBody = login.client.newCall(request).execute().use { response ->
-            response.body?.string() ?: throw RuntimeException("空响应")
-        }
+        val responseBody = execute(request).ifEmpty { throw RuntimeException("空响应") }
         val root = responseBody.safeParseJsonObject()
         val rows = root.getAsJsonObject("datas")
             .getAsJsonObject("cxwjzb")
@@ -382,9 +382,7 @@ class JudgeApi(private val login: JwxtLogin) {
             .post(formBody)
             .build()
 
-        val responseBody = login.client.newCall(request).execute().use { response ->
-            response.body?.string() ?: throw RuntimeException("空响应")
-        }
+        val responseBody = execute(request).ifEmpty { throw RuntimeException("空响应") }
         val root = responseBody.safeParseJsonObject()
         val rows = root.getAsJsonObject("datas")
             .getAsJsonObject("cxxswjzbxq")
@@ -437,9 +435,7 @@ class JudgeApi(private val login: JwxtLogin) {
             .post(formBody)
             .build()
 
-        val responseBody = login.client.newCall(request).execute().use { response ->
-            response.body?.string() ?: throw RuntimeException("空响应")
-        }
+        val responseBody = execute(request).ifEmpty { throw RuntimeException("空响应") }
         val root = responseBody.safeParseJsonObject()
         val code = root.get("code").safeString("-1")
         val datasObj = root.getAsJsonObject("datas")
@@ -509,9 +505,7 @@ class JudgeApi(private val login: JwxtLogin) {
                         .post(formBody)
                         .build()
 
-                    val responseBody = login.client.newCall(request).execute().use { response ->
-                        response.body?.string() ?: throw RuntimeException("空响应")
-                    }
+                    val responseBody = execute(request).ifEmpty { throw RuntimeException("空响应") }
                     val root = responseBody.safeParseJsonObject()
                     val code = root.get("code").safeString("-1")
                     val datasObj = root.getAsJsonObject("datas")

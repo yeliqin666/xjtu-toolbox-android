@@ -163,16 +163,9 @@ class MainActivity : ComponentActivity() {
 
         // ── 后台 Session 保活：只设置一次 provider，循环本身根据用户开关在登录后启动 ──
         com.xjtu.toolbox.auth.SessionKeepAlive.setProvider {
-            val vm = androidx.lifecycle.ViewModelProvider(this)[AppLoginStateViewModel::class.java]
-            val s = vm.loginState
-            val logins = listOfNotNull(
-                s.jwxtLogin, s.jwappLogin, s.ywtbLogin, s.attendanceLogin, s.postgraduateAttendanceLogin,
-                s.dzpzLogin, s.venueLogin, s.classLogin, s.lmsLogin, s.couponLogin,
-                s.superAppLogin, s.fitnessLogin
-            )
             com.xjtu.toolbox.auth.SessionKeepAlive.KeepAliveSnapshot(
-                logins = logins,
-                vpnClient = s.webVpnClientOrNull
+                logins = emptyList(),
+                vpnClient = null
             )
         }
         // 启动循环（内部会读 KeepAlivePrefs.isEnabled，未开启则直接跳过）
@@ -306,10 +299,6 @@ class AppLoginState {
     // CAS TGC 未建立前所有 autoLogin 排队，避免多个并行登录各自弹 MFA
     private val mfaSerialMutex = kotlinx.coroutines.sync.Mutex()
 
-    // 同一子系统的 autoLogin 单飞：并发触发（页面进入 + 保活 + 网络切换）只跑一次真实登录
-    private val typeLoginMutexes =
-        java.util.concurrent.ConcurrentHashMap<LoginType, kotlinx.coroutines.sync.Mutex>()
-
     init {
         // 密码失效熔断接入 CAS 闸门：熔断中 XJTULogin/casAuthenticate 一律拒绝提交凭据
         val weakSelf = java.lang.ref.WeakReference(this)
@@ -317,9 +306,6 @@ class AppLoginState {
             weakSelf.get()?.passwordInvalidatedLatch == true
         }
     }
-
-    /** 是否已有任意子系统登录成功（sharedClient 持有 CAS TGC，可以 SSO） */
-    val ssoEstablished: Boolean get() = loginCount > 0
 
     // ── 密码全局失效熔断 ──────────────────────────────────────────
     // 任一子系统确认凭据无效时设置，后续 autoLogin 立即短路返回，
@@ -439,14 +425,14 @@ class AppLoginState {
         campusDetectTime = 0L
         val now = detectCampusNetwork()
         isOnCampus = now
+        sessionManager?.onNetworkChanged(
+            if (now) com.xjtu.toolbox.auth.AccessMode.NORMAL
+            else com.xjtu.toolbox.auth.AccessMode.WEBVPN
+        )
         if (prev != null && prev != now) {
             android.util.Log.w("AppLoginState", "Access mode changed: $prev → $now")
             clearAllCachedLogins()
             clearVpnClient()
-            sessionManager?.onNetworkChanged(
-                if (now == true) com.xjtu.toolbox.auth.AccessMode.NORMAL
-                else com.xjtu.toolbox.auth.AccessMode.WEBVPN
-            )
             return true
         }
         return false
@@ -473,7 +459,7 @@ class AppLoginState {
     // 缓存的昵称（从 CredentialStore 恢复，YWTB 加载前即可显示）
     var cachedNickname by mutableStateOf<String?>(null)
 
-    // CredentialStore 引用（cache() 时即时持久化）
+    // CredentialStore 引用
     private var credentialStoreRef: CredentialStore? = null
 
     // 保存的凭据（内存中），用于自动登录其他系统
@@ -496,52 +482,12 @@ class AppLoginState {
         }
     }
 
-    val loginCount: Int
-        get() = listOfNotNull(
-            attendanceLogin, postgraduateAttendanceLogin, jwxtLogin, jwappLogin, ywtbLogin, libraryLogin,
-            campusCardLogin, dzpzLogin, venueLogin, classLogin, lmsLogin, jiaocaiLogin, couponLogin,
-            superAppLogin, fitnessLogin, jiaoxiaozhiLogin
-        ).size
-
-    // ── autoLogin / loginWebVpn / loginJwxtWithDetails 期间触发 MFA 时的挂起信号（由 UI 层观察并弹出验证对话框）──
-    var pendingMfaLogin by mutableStateOf<XJTULogin?>(null)
-    var pendingMfaTarget by mutableStateOf<String?>(null)
-    var pendingMfaType by mutableStateOf<LoginType?>(null)
-    /**
-     * MFA 验证码通过后的接续逻辑（在 IO 线程执行）。
-     * - 为 null 时走默认路径：[finishLoginAfterMfa]，按 login 类型 cache。
-     * - 不为 null 时由设置 MFA 信号的代码定义：例如 WebVPN MFA 完成后建立 vpnClient
-     *   并继续 JWXT 登录；JWAPP 401 重登 MFA 完成后恢复 token 等。
-     * 返回值约定：null 代表成功；非空字符串为可展示给用户的错误描述。
-     */
-    @Volatile var pendingMfaContinuation: (suspend (XJTULogin) -> String?)? = null
-
-    private fun isDirectPublicService(type: LoginType): Boolean = type in setOf(
-        LoginType.JWXT,
-        LoginType.JWAPP,
-        LoginType.LMS,
-        LoginType.CLASS,
-        LoginType.SUPER_APP,
-        LoginType.FITNESS,
-        LoginType.JIAOXIAOZHI,
-    )
-
-    /** 登录阶段 URL 在校内的服务（需经 WebVPN 才能认证）。 */
-    private fun isInternalService(type: LoginType): Boolean = type in setOf(
-        LoginType.ATTENDANCE, LoginType.POSTGRADUATE_ATTENDANCE,
-        LoginType.LIBRARY
-    )
-
-    /** API 调用阶段需要校内网络的服务（CAS 认证阶段公网可达）。 */
-    fun isApiNeedsCampus(type: LoginType): Boolean = type in setOf(
-        LoginType.VENUE
-    )
-
     fun saveCredentials(username: String, password: String) {
         // 凭据变更视为用户已知晓并响应，清除密码失效熔断
         val credentialsChanged = (username != savedUsername || password != savedPassword)
         savedUsername = username
         savedPassword = password
+        activeUsername = username
         if (credentialsChanged && passwordInvalidatedLatch) {
             passwordInvalidatedLatch = false
             passwordInvalidatedSiteName = ""
@@ -585,119 +531,8 @@ class AppLoginState {
         cachedRsaKey?.let { store.saveRsaPublicKey(it) }
     }
 
-    /**
-     * 获取已缓存的登录实例（纯内存，零网络调用）。
-     * Token 过期时直接返回 null，由 navigateWithLogin → autoLogin (IO) 刷新。
-     */
-    fun getCached(type: LoginType): XJTULogin? {
-        val login = when (type) {
-            LoginType.ATTENDANCE -> attendanceLogin
-            LoginType.POSTGRADUATE_ATTENDANCE -> postgraduateAttendanceLogin
-            LoginType.JWXT -> jwxtLogin
-            LoginType.JWAPP -> jwappLogin
-            LoginType.YWTB -> ywtbLogin
-            LoginType.LIBRARY -> libraryLogin
-            LoginType.CAMPUS_CARD -> campusCardLogin
-            LoginType.DZPZ -> dzpzLogin
-            LoginType.VENUE -> venueLogin
-            LoginType.CLASS -> classLogin
-            LoginType.LMS -> lmsLogin
-            LoginType.JIAOCAI -> jiaocaiLogin
-            LoginType.COUPON -> couponLogin
-            LoginType.SUPER_APP -> superAppLogin
-            LoginType.FITNESS -> fitnessLogin
-            LoginType.JIAOXIAOZHI -> jiaoxiaozhiLogin
-        } ?: return null
-
-        // Token-based 系统：仅检查有效性，不做任何网络请求
-        when (login) {
-            is JwappLogin -> {
-                if (!login.isTokenValid()) {
-                    android.util.Log.d("AppLoginState", "getCached(JWAPP): token expired, returning null (reAuth deferred to autoLogin)")
-                    // 不清空缓存：autoLogin 会先尝试 reAuth
-                    return null
-                }
-            }
-            is YwtbLogin -> {
-                if (!login.isTokenValid()) {
-                    android.util.Log.d("AppLoginState", "getCached(YWTB): token expired, returning null (reAuth deferred to autoLogin)")
-                    return null
-                }
-            }
-            is SuperAppLogin -> {
-                if (!login.isLaunchValid()) return null
-            }
-            is com.xjtu.toolbox.jiaoxiaozhi.JiaoxiaozhiLogin -> {
-                if (!login.isAccessTokenValid()) return null
-            }
-            is CouponLogin -> {
-                if (!login.isTokenValid()) {
-                    android.util.Log.d("AppLoginState", "getCached(COUPON): token expired, returning null (reAuth deferred to autoLogin)")
-                    return null
-                }
-            }
-            // AttendanceLogin 已有 executeWithReAuth，不在此处检查
-            // Cookie-based 系统（Jwxt/Library/CampusCard）依赖 PersistentCookieJar
-        }
-        return login
-    }
-
-    /** 供 LoginScreen 等外部组件读取 SSO 上下文 */
+    /** 供 WebVPN SSO 读取共享 CAS client。 */
     fun getSharedClient(): okhttp3.OkHttpClient? = sharedClient
-    fun getVisitorId(): String? = firstVisitorId
-    fun getCachedRsaKey(): String? = cachedRsaKey
-
-    /**
-     * 业务 API 调用应优先使用此方法获取 client。
-     * - 公网已开放的教务相关服务优先使用 sharedClient（直连）
-     * - 其他校外服务（isOnCampus == false）：返回 vpnClient（已带 WebVpnInterceptor）
-     * - 校内或网络未知：返回 sharedClient
-     * - 校外但 vpnClient 还未建立时降级到 sharedClient（虽然多半不可达，但避免 NPE）
-     */
-    fun getActiveClient(): okhttp3.OkHttpClient? {
-        return if (isOnCampus == false) (vpnClient ?: sharedClient) else sharedClient
-    }
-
-    fun getDirectClient(): okhttp3.OkHttpClient? = sharedClient
-
-    fun cache(login: XJTULogin, username: String) {
-        activeUsername = username
-        // 更新 SSO 共享状态（手动登录后也能被后续 autoLogin 复用）
-        if (sharedClient == null) sharedClient = login.client
-        if (firstVisitorId == null) firstVisitorId = login.fpVisitorId
-        if (cachedRsaKey == null) cachedRsaKey = login.getRsaPublicKey()
-        when (login) {
-            is AttendanceLogin -> {
-                if (login.isPostgraduate) postgraduateAttendanceLogin = login
-                else attendanceLogin = login
-            }
-            is JwxtLogin -> jwxtLogin = login
-            is JwappLogin -> jwappLogin = login
-            is YwtbLogin -> ywtbLogin = login
-            is LibraryLogin -> libraryLogin = login
-            is CampusCardLogin -> campusCardLogin = login
-            is com.xjtu.toolbox.auth.DzpzLogin -> dzpzLogin = login
-            is com.xjtu.toolbox.auth.VenueLogin -> venueLogin = login
-            is com.xjtu.toolbox.classreplay.ClassLogin -> classLogin = login
-            is com.xjtu.toolbox.lms.LmsLogin -> lmsLogin = login
-            is com.xjtu.toolbox.jiaocai.JiaocaiLogin -> jiaocaiLogin = login
-            is CouponLogin -> couponLogin = login
-            is SuperAppLogin -> superAppLogin = login
-            is com.xjtu.toolbox.fitness.FitnessLogin -> fitnessLogin = login
-            is com.xjtu.toolbox.jiaoxiaozhi.JiaoxiaozhiLogin -> {
-                jiaoxiaozhiLogin = login
-                (sessionManager?.getSiteOrNull(
-                    com.xjtu.toolbox.jiaoxiaozhi.JiaoxiaozhiSiteSession.SITE_KEY
-                ) as? com.xjtu.toolbox.jiaoxiaozhi.JiaoxiaozhiSiteSession)?.adopt(login)
-            }
-        }
-        // 立即持久化关键状态（防进程被杀丢失）
-        credentialStoreRef?.let { store ->
-            if (hasCredentials) store.save(savedUsername, savedPassword)
-            firstVisitorId?.let { store.saveFpVisitorId(it) }
-            cachedRsaKey?.let { store.saveRsaPublicKey(it) }
-        }
-    }
 
     /** 清除指定类型的登录缓存（用于 reAuth 失败后强制 full login） */
     fun clearLogin(type: LoginType) {
@@ -797,10 +632,7 @@ class AppLoginState {
         return mfaSerialMutex.withLock {
             if (webVpnLoggedIn && vpnClient != null) return@withLock true
             val ok = doLoginWebVpn()
-            if (!ok && pendingMfaLogin != null && pendingMfaTarget == "_WEBVPN_") {
-                waitForPendingMfaCompletion(timeoutMs = 5 * 60_000L)
-            }
-            webVpnLoggedIn && vpnClient != null
+            ok && webVpnLoggedIn && vpnClient != null
         }
     }
 
@@ -897,40 +729,39 @@ class AppLoginState {
                         true
                     } else false
                 } else if (result.state == LoginState.REQUIRE_MFA) {
-                    // MFA 触发：把 login + continuation 抛给 UI 层弹窗
-                    // 用户输入验证码后，continuation 完成 webvpn 登录并建立 vpnClient
-                    android.util.Log.w("WebVPN", "WebVPN MFA triggered, signaling UI for verification")
-                    pendingMfaLogin = login
-                    pendingMfaTarget = "_WEBVPN_"
-                    pendingMfaType = null  // 不绑定具体子系统：MFA 完成后会按 pendingMfaTarget 决定后续动作
-                    pendingMfaContinuation = { mfaLogin ->
-                        // MFA verifyCode 通过后，继续 webvpn 登录拿到 webvpn session cookie
+                    android.util.Log.w("WebVPN", "WebVPN MFA triggered, delegating to SessionManager")
+                    val ctx = result.mfaContext ?: return@withContext false
+                    if (ctx.flow == com.xjtu.toolbox.auth.MFAFlow.MFA_DETECT) {
                         try {
-                            val r = mfaLogin.login()
-                            android.util.Log.d("WebVPN", "Post-MFA login state=${r.state}")
-                            if (r.state == LoginState.SUCCESS) {
-                                vpnClient = mfaLogin.client
-                                webVpnLoggedIn = true
-                                if (isOnCampus == false) sharedClient = vpnClient
-                                android.util.Log.d("WebVPN", "WebVPN login SUCCESS via MFA (sharedClient aliased)")
-                                null
-                            } else if (r.state == LoginState.REQUIRE_ACCOUNT_CHOICE) {
-                                val r2 = mfaLogin.login(accountType = selectedCasAccountType())
-                                if (r2.state == LoginState.SUCCESS) {
-                                    vpnClient = mfaLogin.client
-                                    webVpnLoggedIn = true
-                                    if (isOnCampus == false) sharedClient = vpnClient
-                                    null
-                                } else "WebVPN 登录失败：${r2.message.ifEmpty { "未知错误" }}"
-                            } else {
-                                "WebVPN 登录失败：${r.message.ifEmpty { "未知错误" }}"
-                            }
+                            ctx.sendVerifyCode()
                         } catch (e: Exception) {
-                            "WebVPN 登录异常：${e.message}"
+                            android.util.Log.w("WebVPN", "send MFA code failed: ${e.message}")
+                            return@withContext false
                         }
                     }
-                    // 立即返回 false：调用方知道 webvpn 还未就绪，UI 流会处理 MFA
-                    false
+                    val mgr = sessionManager ?: return@withContext false
+                    val code = mgr.askMfaCode("webvpn", "WebVPN（校外接入）", ctx)
+                        ?: return@withContext false
+                    try {
+                        ctx.verifyCode(code)
+                    } catch (e: Exception) {
+                        android.util.Log.w("WebVPN", "MFA verify failed: ${e.message}")
+                        return@withContext false
+                    }
+                    var postMfa = login.login()
+                    if (postMfa.state == LoginState.REQUIRE_ACCOUNT_CHOICE) {
+                        postMfa = login.login(accountType = selectedCasAccountType())
+                    }
+                    if (postMfa.state == LoginState.SUCCESS) {
+                        vpnClient = login.client
+                        webVpnLoggedIn = true
+                        if (isOnCampus == false) sharedClient = vpnClient
+                        android.util.Log.d("WebVPN", "WebVPN login SUCCESS via SessionManager MFA")
+                        true
+                    } else {
+                        android.util.Log.w("WebVPN", "WebVPN post-MFA failed: ${postMfa.state} ${postMfa.message}")
+                        false
+                    }
                 } else {
                     android.util.Log.w("WebVPN", "WebVPN login returned non-SUCCESS state: ${result.state}")
                     false
@@ -939,380 +770,6 @@ class AppLoginState {
         } catch (e: Exception) {
             android.util.Log.e("WebVPN", "WebVPN login exception", e)
             false
-        }
-    }
-
-    /**
-     * 自动登录指定系统（使用保存的凭据）。
-     * - token 过期先尝试 reAuth，失败再 full login
-     * - 网络异常自动重试（最多 2 次，指数退避 1s→3s）
-     * - 使用全局共享 ConnectionPool
-     */
-    /**
-     * @param interactive 是否是用户主动点击触发。true 时 MFA 反复弹窗也允许（用户主动愿意验证）；
-     *                    false 为背景 warmup，MFA 反复时静默跳过避免连环弹窗。
-     */
-    suspend fun autoLogin(type: LoginType, force: Boolean = false, interactive: Boolean = false): XJTULogin? {
-        if (!hasCredentials) return null
-        // 密码已确认无效，停止后续登录请求；用户更新凭据后熔断会自动清除
-        if (passwordInvalidatedLatch) {
-            android.util.Log.d("AppLoginState", "autoLogin($type): halted by password latch ($passwordInvalidatedSiteName)")
-            return null
-        }
-        getCached(type)?.let { return it }
-
-        // CAS TGC 未建立前所有 autoLogin 排队，避免并行登录各自弹 MFA。
-        // ssoEstablished 后走 SSO 不会再触发 MFA，自由并行。
-        if (!ssoEstablished) {
-            return mfaSerialMutex.withLock {
-                // 等锁期间别人可能已完成首次登录或登录了同一 type
-                getCached(type)?.let { return@withLock it }
-                var result = autoLoginInner(type, interactive)
-                // 如果触发了 MFA，必须在锁内等 UI 完成 MFA 后再释放，
-                // 否则后续 autoLogin 会立刻进入 → 又触发并行 MFA → 多个对话框叠出。
-                if (result == null && pendingMfaLogin != null) {
-                    waitForPendingMfaCompletion(timeoutMs = 5 * 60_000L)
-                    // MFA 完成后，UI 的 finishLoginAfterMfa 已把 当前 login 写入对应缓存。
-                    // 注意：如果这次是 WebVPN 的 MFA（pendingMfaTarget=_WEBVPN_），那只是 vpnClient
-                    // 建立完成，本 type 的子系统登录还没做 → 用新建立的 vpnClient 重新走一遍 inner。
-                    getCached(type)?.let { return@withLock it }
-                    if (vpnClient != null) {
-                        android.util.Log.d("AppLoginState", "autoLogin($type): WebVPN ready post-MFA, retrying inner")
-                        result = autoLoginInner(type, interactive)
-                    }
-                }
-                result
-            }
-        }
-        return autoLoginInner(type, interactive)
-    }
-
-    /** 等待 UI 完成当前 MFA 验证（pendingMfaLogin 变为 null）；超时则返回。 */
-    private suspend fun waitForPendingMfaCompletion(timeoutMs: Long) {
-        val start = System.currentTimeMillis()
-        while (pendingMfaLogin != null && System.currentTimeMillis() - start < timeoutMs) {
-            kotlinx.coroutines.delay(300)
-        }
-    }
-
-    private suspend fun autoLoginInner(type: LoginType, interactive: Boolean = false): XJTULogin? {
-        // 单飞：同一子系统并发 autoLogin 串行化，后到者直接复用先到者写入的缓存
-        val typeMutex = typeLoginMutexes.getOrPut(type) { kotlinx.coroutines.sync.Mutex() }
-        return typeMutex.withLock { autoLoginInnerLocked(type, interactive) }
-    }
-
-    private suspend fun autoLoginInnerLocked(type: LoginType, interactive: Boolean = false): XJTULogin? {
-        getCached(type)?.let { return it }
-
-        // Token 过期的系统：先尝试轻量 reAuth（SSO/casAuthenticate），失败再进入 full login
-        val existingLogin = when (type) {
-            LoginType.JWAPP -> jwappLogin
-            LoginType.YWTB -> ywtbLogin
-            LoginType.ATTENDANCE -> attendanceLogin
-            LoginType.POSTGRADUATE_ATTENDANCE -> postgraduateAttendanceLogin
-            LoginType.JWXT -> jwxtLogin
-            LoginType.DZPZ -> dzpzLogin
-            LoginType.VENUE -> venueLogin
-            LoginType.CLASS -> classLogin
-            LoginType.LMS -> lmsLogin
-            LoginType.COUPON -> couponLogin
-            else -> null
-        }
-        if (existingLogin != null) {
-            val reAuthOk = try {
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    when (existingLogin) {
-                        is JwappLogin -> existingLogin.reAuthenticate()
-                        is YwtbLogin -> existingLogin.reAuthenticate()
-                        is AttendanceLogin -> existingLogin.reAuthenticate()
-                        is JwxtLogin -> existingLogin.reAuthenticate()
-                        is com.xjtu.toolbox.auth.DzpzLogin -> existingLogin.reAuthenticate()
-                        is com.xjtu.toolbox.auth.VenueLogin -> existingLogin.reAuthenticate()
-                        is com.xjtu.toolbox.classreplay.ClassLogin -> existingLogin.reAuthenticate()
-                        is com.xjtu.toolbox.lms.LmsLogin -> existingLogin.reAuthenticate()
-                        is CouponLogin -> existingLogin.reAuthenticate()
-                        else -> false
-                    }
-                }
-            } catch (e: Exception) {
-                android.util.Log.w("AppLoginState", "autoLogin($type): reAuth exception: ${e.message}")
-                false
-            }
-            if (reAuthOk) {
-                android.util.Log.d("AppLoginState", "autoLogin($type): reAuth success")
-                return existingLogin
-            }
-            // reAuth 失败，进入 full login。不主动清 existingLogin —— 失败时仍可作为缓存兜底
-            android.util.Log.d("AppLoginState", "autoLogin($type): reAuth failed, full login (cache preserved)")
-        }
-
-        val forceDirect = isDirectPublicService(type)
-        if (!forceDirect && isOnCampus == null) isOnCampus = detectCampusNetwork()
-        if (!forceDirect && isOnCampus == false && vpnClient == null) doLoginWebVpn()
-
-        val useWebVpn = !forceDirect && isOnCampus == false
-        val clientForLogin = if (useWebVpn) {
-            vpnClient ?: return null  // WebVPN 未就绪（MFA 进行中），让 wrapper 处理
-        } else {
-            clientInitMutex.withLock {
-                sharedClient ?: persistentCookieJar?.let { jar ->
-                    okhttp3.OkHttpClient.Builder()
-                        .addInterceptor(okhttp3.brotli.BrotliInterceptor)
-                        .cookieJar(jar)
-                        .connectionPool(sharedConnectionPool)
-                        .followRedirects(true)
-                        .followSslRedirects(true)
-                        .connectTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
-                        .readTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
-                        .writeTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
-                        .build()
-                        .also { sharedClient = it }
-                }
-            }
-        }
-
-        val visitorId = firstVisitorId
-
-        // 重试登录（区分可重试 IOException 与不可重试的认证失败）
-        var lastException: Exception? = null
-        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            attemptsLoop@ for (attempt in 0..2) {
-                try {
-                    val login = type.createLogin(clientForLogin, visitorId, useWebVpn, cachedRsaKey)
-                    val result = login.login(savedUsername, savedPassword)
-                    if (result.state == LoginState.SUCCESS) {
-                        if (sharedClient == null) sharedClient = login.client
-                        if (firstVisitorId == null) firstVisitorId = login.fpVisitorId
-                        if (cachedRsaKey == null) cachedRsaKey = login.getRsaPublicKey()
-                        cache(login, savedUsername)
-                        return@withContext login
-                    } else if (result.state == LoginState.REQUIRE_ACCOUNT_CHOICE) {
-                        val accountType = if (type == LoginType.POSTGRADUATE_ATTENDANCE)
-                            XJTULogin.AccountType.POSTGRADUATE else XJTULogin.AccountType.UNDERGRADUATE
-                        val finalResult = login.login(accountType = accountType)
-                        if (finalResult.state == LoginState.SUCCESS) {
-                            if (sharedClient == null) sharedClient = login.client
-                            if (firstVisitorId == null) firstVisitorId = login.fpVisitorId
-                            if (cachedRsaKey == null) cachedRsaKey = login.getRsaPublicKey()
-                            cache(login, savedUsername)
-                            return@withContext login
-                        }
-                    }
-                    // MFA 触发：分两类——
-                    //   - MFA_DETECT：SSO 已建立但仍 detect 出 need=true，说明 TGC 不被识别。
-                    //                 后台静默跳过避免连环弹窗（用户主动点击 interactive=true 才弹）。
-                    //   - SAFETY_VERIFY：CAS server-side 风控（如 JWXT client_id=1675），
-                    //                    与 SSO 状态完全无关，**必须弹 MFA 让用户输短信码**，
-                    //                    否则该子系统永远进不去（probe 实证）。
-                    if (result.state == LoginState.REQUIRE_MFA) {
-                        val ctx = result.mfaContext
-                        val isSafetyVerify = ctx?.flow == com.xjtu.toolbox.auth.MFAFlow.SAFETY_VERIFY
-                        if (!isSafetyVerify && ssoEstablished && !interactive) {
-                            android.util.Log.w("AppLoginState", "autoLogin($type): MFA_DETECT after SSO (background), skip dialog")
-                            lastException = RuntimeException("SSO 已建立但仍要 MFA_DETECT，背景跳过避免连环弹窗")
-                            break@attemptsLoop
-                        }
-                        android.util.Log.w("AppLoginState", "autoLogin($type): REQUIRE_MFA(${ctx?.flow}), signaling UI (interactive=$interactive)")
-                        pendingMfaLogin = login
-                        pendingMfaType = type
-                        return@withContext null
-                    }
-                    // 认证失败：不可重试。密码错则触发全局熔断
-                    android.util.Log.w("AppLoginState", "autoLogin($type): auth failed state=${result.state} msg=${result.message}")
-                    if (isPasswordError(result)) {
-                        reportPasswordInvalidated(siteName = type.name)
-                        return@withContext null
-                    }
-                    lastException = RuntimeException("auth failed: ${result.message}")
-                    break@attemptsLoop
-                } catch (e: com.xjtu.toolbox.auth.CasGate.ThrottledException) {
-                    // CAS 闸门拒绝（熔断/退避期）：重试只会再次被拒，直接放弃
-                    android.util.Log.w("AppLoginState", "autoLogin($type): throttled by CasGate: ${e.message}")
-                    lastException = RuntimeException(e.message, e)
-                    break@attemptsLoop
-                } catch (e: java.io.IOException) {
-                    lastException = e
-                    android.util.Log.w("AppLoginState", "autoLogin($type): attempt ${attempt + 1}/3 IOException: ${e.message}")
-                    // RSA 公钥相关失败 → 清除缓存，下次重试用新 key
-                    if (e.message?.contains("RSA", ignoreCase = true) == true ||
-                        e.message?.contains("公钥", ignoreCase = true) == true) {
-                        cachedRsaKey = null
-                    }
-                    if (attempt < 2) kotlinx.coroutines.delay(if (attempt == 0) 1000L else 3000L)
-                } catch (e: Exception) {
-                    android.util.Log.e("AppLoginState", "autoLogin($type): exception on attempt ${attempt + 1}/3", e)
-                    lastException = e
-                    // RSA 公钥解析失败 → 清除缓存以便下次登录可刷新
-                    if (e.message?.contains("RSA", ignoreCase = true) == true ||
-                        e.message?.contains("公钥", ignoreCase = true) == true ||
-                        e.cause is java.security.spec.InvalidKeySpecException) {
-                        cachedRsaKey = null
-                        android.util.Log.w("AppLoginState", "autoLogin: RSA 公钥失败，已清除缓存")
-                        if (attempt < 2) {
-                            kotlinx.coroutines.delay(if (attempt == 0) 1000L else 3000L)
-                        } else {
-                            break@attemptsLoop
-                        }
-                    } else {
-                        // 其他异常（包括 TGC 失败、CAS 错误页等）：跳出重试，进入 fallback 兜底
-                        break@attemptsLoop
-                    }
-                }
-            }
-            android.util.Log.w("AppLoginState", "autoLogin($type): all 3 attempts failed: ${lastException?.message}")
-            // WebVPN 兜底：仅在校外（或网络未知）触发。校园网下直连失败说明子系统本身故障，
-            // 走 WebVPN 也不会更通；明确认证失败（RuntimeException）跳过；密码熔断后跳过。
-            val shouldFallback = !forceDirect && !useWebVpn && hasCredentials &&
-                isOnCampus != true &&
-                lastException !is RuntimeException &&
-                !passwordInvalidatedLatch
-            if (shouldFallback) {
-                android.util.Log.w("AppLoginState", "autoLogin($type): direct failed, fallback to WebVPN")
-                if (vpnClient == null) doLoginWebVpn()
-                val vpnFallbackClient = vpnClient
-                if (vpnFallbackClient != null) {
-                    try {
-                        val login = type.createLogin(vpnFallbackClient, visitorId, true, cachedRsaKey)
-                        val result = login.login(savedUsername, savedPassword)
-                        val finalResult = if (result.state == LoginState.REQUIRE_ACCOUNT_CHOICE) {
-                            val accountType = if (type == LoginType.POSTGRADUATE_ATTENDANCE)
-                                XJTULogin.AccountType.POSTGRADUATE else XJTULogin.AccountType.UNDERGRADUATE
-                            login.login(accountType = accountType)
-                        } else result
-                        when (finalResult.state) {
-                            LoginState.SUCCESS -> {
-                                if (firstVisitorId == null) firstVisitorId = login.fpVisitorId
-                                if (cachedRsaKey == null) cachedRsaKey = login.getRsaPublicKey()
-                                cache(login, savedUsername)
-                                if (isOnCampus == true) { isOnCampus = false; campusDetectTime = 0L }
-                                android.util.Log.d("AppLoginState", "autoLogin($type): WebVPN fallback SUCCESS")
-                                return@withContext login
-                            }
-                            LoginState.REQUIRE_MFA -> {
-                                if (ssoEstablished) {
-                                    android.util.Log.w("AppLoginState", "autoLogin($type): WebVPN fallback REQUIRE_MFA after SSO, skipping")
-                                } else {
-                                    android.util.Log.w("AppLoginState", "autoLogin($type): WebVPN fallback MFA, signaling UI")
-                                    pendingMfaLogin = login
-                                    pendingMfaType = type
-                                }
-                            }
-                            LoginState.FAIL -> {
-                                // fallback 也撞了密码错 → 立即触发全局熔断
-                                if (isPasswordError(finalResult)) {
-                                    reportPasswordInvalidated(siteName = type.name)
-                                }
-                            }
-                            else -> Unit
-                        }
-                    } catch (e: Exception) {
-                        android.util.Log.w("AppLoginState", "autoLogin($type): WebVPN fallback also failed: ${e.message}")
-                    }
-                }
-            }
-            null
-        }
-    }
-
-    /**
-     * JWXT 登录（带详细错误信息），专供手动登录流使用
-     * 返回: Triple(login实例, 错误信息, 是否需要MFA)
-     * - 成功: (login, null, false)
-     * - MFA: (login, null, true) — 需要先完成 MFA 再调 finishLoginAfterMfa()
-     * - 失败: (null, errorMsg, false)
-     */
-    suspend fun loginJwxtWithDetails(user: String, pwd: String): Triple<XJTULogin?, String?, Boolean> {
-        // 密码熔断：用户用相同失效密码反复点登录会被服务端限流。
-        // saveCredentials 内会在凭据**变化**时自动解熔断；这里只拦截相同密码的重复尝试。
-        if (passwordInvalidatedLatch && user == savedUsername && pwd == savedPassword) {
-            return Triple(null, "密码已失效，请检查后重新输入", false)
-        }
-        return try {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                // 确保首次登录时 sharedClient 使用 PersistentCookieJar + 共享连接池
-                if (sharedClient == null) {
-                    persistentCookieJar?.let { jar ->
-                        sharedClient = okhttp3.OkHttpClient.Builder()
-                            .addInterceptor(okhttp3.brotli.BrotliInterceptor)
-                            .cookieJar(jar)
-                            .connectionPool(sharedConnectionPool)
-                            .followRedirects(true).followSslRedirects(true)
-                            .connectTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
-                            .readTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
-                            .writeTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
-                            .build()
-                    }
-                }
-                saveCredentials(user, pwd)  // 让 loginWebVpn 能读取凭据
-                val clientForLogin = sharedClient
-                val login = LoginType.JWXT.createLogin(clientForLogin, firstVisitorId, false, cachedRsaKey)
-                val result = login.login(user, pwd)
-                android.util.Log.d("Login", "JWXT login result: state=${result.state}, msg=${result.message}")
-                when (result.state) {
-                    LoginState.SUCCESS -> {
-                        if (sharedClient == null) sharedClient = login.client
-                        if (firstVisitorId == null) firstVisitorId = login.fpVisitorId
-                        if (cachedRsaKey == null) cachedRsaKey = login.getRsaPublicKey()
-                        cache(login, user)
-                        Triple(login, null, false)
-                    }
-                    LoginState.REQUIRE_ACCOUNT_CHOICE -> {
-                        val finalResult = login.login(accountType = selectedCasAccountType())
-                        if (finalResult.state == LoginState.SUCCESS) {
-                            if (sharedClient == null) sharedClient = login.client
-                            if (firstVisitorId == null) firstVisitorId = login.fpVisitorId
-                            cache(login, user)
-                            Triple(login, null, false)
-                        } else {
-                            Triple(null, finalResult.message.ifEmpty { "账号选择失败" }, false)
-                        }
-                    }
-                    LoginState.REQUIRE_MFA -> Triple(login, null, true)
-                    LoginState.REQUIRE_CAPTCHA -> Triple(null, "登录频繁，需要验证码，请稍后重试", false)
-                    LoginState.FAIL -> Triple(null, result.message.ifEmpty { "登录失败" }, false)
-                }
-            }
-        } catch (e: java.io.IOException) {
-            android.util.Log.e("Login", "JWXT login IO error", e)
-            Triple(null, "网络超时，请检查网络连接后重试", false)
-        } catch (e: Exception) {
-            android.util.Log.e("Login", "JWXT login error", e)
-            Triple(null, "登录异常: ${e.message}", false)
-        }
-    }
-
-    /**
-     * MFA 验证完成后继续登录
-     */
-    suspend fun finishLoginAfterMfa(login: XJTULogin, user: String): String? {
-        return try {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                val result = login.login()  // MFA 已验证，重新调用 login 完成认证
-                android.util.Log.d("Login", "Post-MFA login: state=${result.state}, msg=${result.message}")
-                if (result.state == LoginState.SUCCESS) {
-                    if (sharedClient == null) sharedClient = login.client
-                    if (firstVisitorId == null) firstVisitorId = login.fpVisitorId
-                    if (cachedRsaKey == null) cachedRsaKey = login.getRsaPublicKey()
-                    cache(login, user)
-                    null // 成功
-                } else if (result.state == LoginState.REQUIRE_ACCOUNT_CHOICE) {
-                    val finalResult = login.login(accountType = selectedCasAccountType())
-                    if (finalResult.state == LoginState.SUCCESS) {
-                        if (sharedClient == null) sharedClient = login.client
-                        if (firstVisitorId == null) firstVisitorId = login.fpVisitorId
-                        if (cachedRsaKey == null) cachedRsaKey = login.getRsaPublicKey()
-                        cache(login, user)
-                        null
-                    } else {
-                        finalResult.message.ifEmpty { "账号选择失败" }
-                    }
-                } else {
-                    result.message.ifEmpty { "MFA 后登录失败" }
-                }
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("Login", "Post-MFA login error", e)
-            "MFA 后登录异常: ${e.message}"
         }
     }
 
@@ -1416,10 +873,10 @@ class AppLoginStateViewModel(application: android.app.Application) : androidx.li
 
 private suspend fun refreshCampusCardCache(
     context: android.content.Context,
-    login: CampusCardLogin
+    site: com.xjtu.toolbox.auth.SiteSession
 ): Boolean = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
     val appContext = context.applicationContext
-    val api = com.xjtu.toolbox.card.CampusCardApi(login)
+    val api = com.xjtu.toolbox.card.CampusCardApi(site)
     val info = api.getCardInfo()
     val (_, recentTx) = api.getTransactions(page = 1, pageSize = 50)
     val todayStr = java.time.LocalDate.now().toString()
@@ -1470,6 +927,7 @@ fun AppNavigation(
     val loginState = viewModel.loginState
     val credentialStore = viewModel.credentialStore
     val context = LocalContext.current
+    val mainScope = rememberCoroutineScope()
     var pendingMainTab by remember { mutableStateOf(initialTab) }
 
     // WebVPN 转换页：用户点击"用 WebVPN 打开"但 vpnClient 未就绪时，挂起此 URL，
@@ -1525,7 +983,7 @@ fun AppNavigation(
 
     LaunchedEffect(initialTab) {
         if (initialTab != BottomTab.COURSES.name) return@LaunchedEffect
-        if (loginState.jwxtLogin != null || !loginState.hasCredentials) return@LaunchedEffect
+        if (loginState.sessionManager?.getSiteOrNull("jwxt")?.hasLogin == true || !loginState.hasCredentials) return@LaunchedEffect
 
         val cm = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
         val isOnline = cm?.activeNetwork != null &&
@@ -1535,7 +993,7 @@ fun AppNavigation(
 
         kotlinx.coroutines.withTimeoutOrNull(10_000L) {
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                loginState.autoLogin(LoginType.JWXT)
+                loginState.sessionManager?.ensureSite(LoginType.JWXT)
             }
         }
     }
@@ -1576,12 +1034,12 @@ fun AppNavigation(
 
         scope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
-                android.util.Log.d("Warmup", "autoLogin(JWXT) direct to establish SSO")
-                runCatching { loginState.autoLogin(LoginType.JWXT) }
+                android.util.Log.d("Warmup", "ensureSite(JWXT) direct to establish SSO")
+                runCatching { loginState.sessionManager?.ensureSite(LoginType.JWXT) }
 
                 // Phase 2 全部移除：剩余 10 个子系统由 navigateWithLogin 按需触发，
                 // 既不打扰用户，也不会一次性触发 N 次 mfa/detect 引发服务端风控。
-                android.util.Log.d("Warmup", "Warmup done: SSO established=${loginState.ssoEstablished}")
+                android.util.Log.d("Warmup", "Warmup done: activeSites=${loginState.sessionManager?.activeSiteKeys}")
             } catch (e: Exception) {
                 android.util.Log.w("Warmup", "background login warmup failed: ${e.message}")
             }
@@ -1599,33 +1057,17 @@ fun AppNavigation(
                 lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                     try {
                         if (shouldRefreshSessions) {
-                            // JWAPP: proactive token 刷新
-                            loginState.jwappLogin?.let { jwapp ->
-                                if (!jwapp.isTokenValid()) {
-                                    android.util.Log.d("Lifecycle", "ON_RESUME: JWAPP token expired, refreshing...")
-                                    jwapp.reAuthenticate()
-                                }
-                            }
-                            // YWTB: proactive token 刷新
-                            loginState.ywtbLogin?.let { ywtb ->
-                                if (!ywtb.isTokenValid()) {
-                                    android.util.Log.d("Lifecycle", "ON_RESUME: YWTB token expired, refreshing...")
-                                    ywtb.reAuthenticate()
-                                }
-                            }
-                            // JWXT: proactive session 心跳（cookie-based，轻量重认证）
-                            loginState.jwxtLogin?.let { jwxt ->
-                                android.util.Log.d("Lifecycle", "ON_RESUME: JWXT session heartbeat")
-                                jwxt.reAuthenticate()
+                            loginState.sessionManager?.activeSiteKeys?.forEach { key ->
+                                val site = loginState.sessionManager?.getSiteOrNull(key) ?: return@forEach
+                                val creds = loginState.sessionManager?.credentials ?: return@forEach
+                                runCatching { site.ensureLogin(creds.first, creds.second) }
                             }
                         }
                         if (shouldRefreshCampusCard) {
-                            // [policy] 已登录的校园卡才静默刷新余额，未登录不主动 autoLogin 触发 MFA。
-                            // 用户首次进校园卡页面时，navigateWithLogin 会触发完整登录流程（含必要 MFA）。
-                            loginState.campusCardLogin?.let { cardLogin ->
+                            loginState.sessionManager?.getSiteOrNull("campus_card")?.takeIf { it.hasLogin }?.let { cardSite ->
                                 android.util.Log.d("Lifecycle", "ON_RESUME: refreshing campus card cache (cached session only)")
                                 try {
-                                    refreshCampusCardCache(context, cardLogin)
+                                    refreshCampusCardCache(context, cardSite)
                                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                                         loginState.campusCardCacheVersion++
                                     }
@@ -1773,7 +1215,7 @@ fun AppNavigation(
 
         // 有凭据且尚未建立任何登录会话 → 启动后台恢复
         // 注意：isLoggedIn 可能仅因 username 已设而为 true，但实际登录实例为 0
-        if (loginState.hasCredentials && loginState.loginCount == 0) {
+        if (loginState.hasCredentials && (loginState.sessionManager?.activeSiteCount ?: 0) == 0) {
             isRestoring = true
             // Phase 1: 直连恢复 JWXT（串行，避免竞争）
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -1786,7 +1228,7 @@ fun AppNavigation(
                     // 其余子系统（ncard/lms/dzpz/...）后续 lazy 登录可直接 SSO 复用，不再触发 MFA。
                     // 其余子系统**不在启动期预登**，由用户进入对应 Screen 时按需触发 autoLogin。
                     restoreStep = "正在认证..."
-                    val jwxt = loginState.autoLogin(LoginType.JWXT)
+                    val jwxt = loginState.sessionManager?.ensureSite(LoginType.JWXT)
                     android.util.Log.d("Restore", "Phase1 完成 ${System.currentTimeMillis() - startTime}ms: JWXT=${jwxt != null}, campus=${loginState.isOnCampus}")
                 } catch (e: Exception) {
                     android.util.Log.e("Restore", "Phase1 恢复失败", e)
@@ -1795,8 +1237,8 @@ fun AppNavigation(
             isRestoring = false  // Phase1 完成，立即隐藏 banner
 
             // [policy] 启动期 Phase2 已全部移除：JWXT 已在 Phase1 完成，其余子系统不预登：
-            // - 不再 autoLogin(CAMPUS_CARD) 刷余额（用户进校园卡页面再登）；
-            // - 不再 autoLogin(YWTB) 拉 userInfo（YWTB userInfo 由用户进入「我的」时按需加载）。
+            // - 不再预热 CAMPUS_CARD 刷余额（用户进校园卡页面再登）；
+            // - 不再预热 YWTB 拉 userInfo（YWTB userInfo 由用户进入「我的」时按需加载）。
             // 这样冷启动除 JWXT 核心探针外，无任何额外主动认证 → 不会触发额外 MFA。
             // 其余系统的 ensureLogin 由各 Screen 的 LaunchedEffect 按需触发，
             // 因 JWXT Safety Verify 后 CAS session 已可信，后续 OAuth 授权多走 SSO 不再 MFA。
@@ -1911,40 +1353,8 @@ fun AppNavigation(
             )
         }
 
-        composable(
-            route = Routes.LOGIN,
-            arguments = listOf(
-                navArgument("loginType") { type = NavType.StringType },
-                navArgument("target") { type = NavType.StringType }
-            )
-        ) { backStackEntry ->
-            val typeName = backStackEntry.arguments?.getString("loginType") ?: "ATTENDANCE"
-            val target = backStackEntry.arguments?.getString("target") ?: Routes.MAIN
-            val loginType = LoginType.valueOf(typeName)
-            LoginScreen(
-                loginType = loginType,
-                existingClient = loginState.getSharedClient(),
-                visitorId = loginState.getVisitorId(),
-                cachedRsaKey = loginState.getCachedRsaKey(),
-                onLoginSuccess = { login, username, password ->
-                    loginState.saveCredentials(username, password)
-                    loginState.persistCredentials(credentialStore)
-                    loginState.cache(login, username)
-                    navController.popBackStack()
-                    if (target == Routes.SCHEDULE) {
-                        navigateToMainTab(BottomTab.COURSES)
-                    } else {
-                        navController.navigate(target) { launchSingleTop = true }
-                    }
-                },
-                onBack = { navController.popBackStack() }
-            )
-        }
-
         composable(Routes.EMPTY_ROOM) {
-            // 直查需要一个已通过 JWXT 认证的 OkHttpClient：
-            // JWXT 已支持公网直连，优先使用 sharedClient / jwxtLogin.client，避免误走 WebVPN。
-            val direct = loginState.getDirectClient() ?: loginState.jwxtLogin?.client
+            val direct = loginState.sessionManager?.getSiteOrNull("jwxt")?.client
             EmptyRoomScreen(
                 onBack = { navController.popBackStack() },
                 directClient = direct,
@@ -1963,10 +1373,10 @@ fun AppNavigation(
             )
         }
         composable(Routes.ATTENDANCE) {
-            loginState.attendanceLogin?.let { AttendanceScreen(login = it, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
+            loginState.sessionManager?.getSiteOrNull("attendance")?.let { AttendanceScreen(site = it, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
         composable(Routes.POSTGRADUATE_ATTENDANCE) {
-            loginState.postgraduateAttendanceLogin?.let { AttendanceScreen(login = it, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
+            loginState.sessionManager?.getSiteOrNull("pg_attendance")?.let { AttendanceScreen(site = it, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
         composable(Routes.SCHEDULE) {
             LaunchedEffect(Unit) {
@@ -1975,57 +1385,62 @@ fun AppNavigation(
         }
         composable(Routes.JWAPP_SCORE) {
             JwappScoreScreen(
-                login = loginState.jwappLogin,
-                jwxtLogin = loginState.jwxtLogin,
+                site = loginState.sessionManager?.getSiteOrNull("jwapp"),
+                jwxtSite = loginState.sessionManager?.getSiteOrNull("jwxt"),
                 studentId = loginState.activeUsername,
                 onBack = { navController.popBackStack() },
                 onOpenReport = {
                     // 成绩报表需 JWXT 登录：已登录直接进，否则走 JWXT 登录后再跳报表
-                    if (loginState.jwxtLogin != null) navController.navigate(Routes.SCORE_REPORT)
-                    else navController.navigate(Routes.login(LoginType.JWXT, Routes.SCORE_REPORT))
+                    if (loginState.sessionManager?.getSiteOrNull("jwxt")?.hasLogin == true) navController.navigate(Routes.SCORE_REPORT)
+                    else mainScope.launch {
+                        val site = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            loginState.sessionManager?.ensureSite(LoginType.JWXT)
+                        }
+                        if (site != null) navController.navigate(Routes.SCORE_REPORT)
+                    }
                 }
             )
         }
         composable(Routes.JUDGE) {
-            loginState.jwxtLogin?.let { JudgeScreen(login = it, username = loginState.activeUsername, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
+            loginState.sessionManager?.getSiteOrNull("jwxt")?.let { JudgeScreen(site = it, username = loginState.activeUsername, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
         composable(Routes.LIBRARY) {
-            loginState.libraryLogin?.let { LibraryScreen(login = it, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
+            loginState.sessionManager?.getSiteOrNull("library")?.let { LibraryScreen(site = it, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
         composable(Routes.CAMPUS_CARD) {
-            loginState.campusCardLogin?.let { com.xjtu.toolbox.card.CampusCardScreen(login = it, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
+            loginState.sessionManager?.getSiteOrNull("campus_card")?.let { com.xjtu.toolbox.card.CampusCardScreen(site = it, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
         composable(Routes.COUPON) {
-            loginState.couponLogin?.let { com.xjtu.toolbox.coupon.CouponScreen(login = it, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
+            loginState.sessionManager?.getSiteOrNull("coupon")?.let { com.xjtu.toolbox.coupon.CouponScreen(site = it, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
         dialog(
             Routes.PAYMENT_CODE,
             dialogProperties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
             // 付款码必须在校园卡登录后使用（复用 ncard JWT 访问 /berserker-app/authCode）
-            loginState.campusCardLogin?.let { card ->
-                com.xjtu.toolbox.pay.PaymentCodeDialog(login = card) { navController.popBackStack() }
+            loginState.sessionManager?.getSiteOrNull("campus_card")?.let { cardSite ->
+                com.xjtu.toolbox.pay.PaymentCodeDialog(site = cardSite) { navController.popBackStack() }
             } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
         composable(Routes.SCORE_REPORT) {
-            loginState.jwxtLogin?.let { ScoreReportScreen(login = it, studentId = loginState.activeUsername, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
+            loginState.sessionManager?.getSiteOrNull("jwxt")?.let { ScoreReportScreen(site = it, studentId = loginState.activeUsername, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
         composable(Routes.TRANSCRIPT) {
-            loginState.dzpzLogin?.let { com.xjtu.toolbox.dzpz.TranscriptScreen(login = it, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
+            loginState.sessionManager?.getSiteOrNull("dzpz")?.let { com.xjtu.toolbox.dzpz.TranscriptScreen(site = it, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
         composable(Routes.VENUE) {
-            loginState.venueLogin?.let { com.xjtu.toolbox.venue.VenueScreen(login = it, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
+            loginState.sessionManager?.getSiteOrNull("venue")?.let { com.xjtu.toolbox.venue.VenueScreen(site = it, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
         composable(Routes.CLASS_REPLAY) {
-            loginState.classLogin?.let { classLogin ->
+            loginState.sessionManager?.getSiteOrNull("class")?.let { classSite ->
                 val context = androidx.compose.ui.platform.LocalContext.current
                 com.xjtu.toolbox.classreplay.ClassScreen(
-                    login = classLogin,
+                    site = classSite,
                     onBack = { navController.popBackStack() },
-                    onPlayReplay = { login, activityId ->
+                    onPlayReplay = { activityId ->
                         navController.navigate(Routes.videoPlayer(activityId))
                     },
-                    onDownloadReplay = { login, activityIds ->
+                    onDownloadReplay = { activityIds ->
                         // 启动下载流程
                         val appContext = context.applicationContext
                         val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO)
@@ -2036,7 +1451,7 @@ fun AppNavigation(
                                 // 获取课程名称和回放详情
                                 val activities = activityIds.mapNotNull { id ->
                                     try {
-                                        val detail = com.xjtu.toolbox.classreplay.fetchReplayDetail(login, id)
+                                        val detail = com.xjtu.toolbox.classreplay.fetchReplayDetail(classSite, id)
                                         detail?.let { id to it }
                                     } catch (e: Exception) {
                                         android.util.Log.e("MainActivity", "Failed to fetch detail for $id", e)
@@ -2050,7 +1465,7 @@ fun AppNavigation(
                                 for ((activityId, detail) in activities) {
                                     if (detail.replayVideos.isNotEmpty()) {
                                         val videos = detail.replayVideos.mapNotNull { video ->
-                                            val realUrl = com.xjtu.toolbox.classreplay.resolveVideoUrl(login, video.url)
+                                            val realUrl = com.xjtu.toolbox.classreplay.resolveVideoUrl(classSite, video.url)
                                             realUrl?.let { video to it }
                                         }
                                         
@@ -2095,27 +1510,27 @@ fun AppNavigation(
             )
         }
         composable(Routes.LMS) {
-            loginState.lmsLogin?.let { lmsLogin ->
+            loginState.sessionManager?.getSiteOrNull("lms")?.let { site ->
                 com.xjtu.toolbox.lms.LmsScreen(
-                    login = lmsLogin,
+                    site = site,
                     onBack = { navController.popBackStack() }
                 )
             } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
         composable(Routes.JIAOCAI) {
-            loginState.jiaocaiLogin?.let {
-                com.xjtu.toolbox.jiaocai.JiaocaiScreen(login = it, onBack = { navController.popBackStack() })
+            loginState.sessionManager?.getSiteOrNull("jiaocai")?.let {
+                com.xjtu.toolbox.jiaocai.JiaocaiScreen(site = it, onBack = { navController.popBackStack() })
             } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
         composable(Routes.SCHOOL_COURSE) {
             com.xjtu.toolbox.schedule.SchoolCourseScreen(
-                login = loginState.jwxtLogin,
+                site = loginState.sessionManager?.getSiteOrNull("jwxt"),
                 onBack = { navController.popBackStack() }
             )
         }
         composable(Routes.SCHOOL_CALENDAR) {
             com.xjtu.toolbox.calendar.SchoolCalendarScreen(
-                login = loginState.jwxtLogin,
+                site = loginState.sessionManager?.getSiteOrNull("jwxt"),
                 onBack = { navController.popBackStack() }
             )
         }
@@ -2125,17 +1540,17 @@ fun AppNavigation(
             )
         }
         composable(Routes.MOBILE_JIAODA) {
-            loginState.superAppLogin?.let {
+            loginState.sessionManager?.getSiteOrNull("super_app")?.let {
                 com.xjtu.toolbox.superapp.MobileJiaodaScreen(
-                    login = it,
+                    site = it,
                     onClose = { navController.popBackStack() }
                 )
             } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
         composable(Routes.FITNESS) {
-            loginState.fitnessLogin?.let {
+            loginState.sessionManager?.getSiteOrNull("fitness")?.let {
                 com.xjtu.toolbox.fitness.FitnessScreen(
-                    login = it,
+                    site = it,
                     onBack = { navController.popBackStack() }
                 )
             } ?: LaunchedEffect(Unit) { navController.popBackStack() }
@@ -2151,9 +1566,9 @@ fun AppNavigation(
             arguments = listOf(navArgument("activityId") { type = NavType.IntType })
         ) { backStackEntry ->
             val activityId = backStackEntry.arguments?.getInt("activityId") ?: 0
-            loginState.classLogin?.let { classLogin ->
+            loginState.sessionManager?.getSiteOrNull("class")?.let { classSite ->
                 com.xjtu.toolbox.classreplay.VideoPlayerScreen(
-                    login = classLogin,
+                    site = classSite,
                     activityId = activityId,
                     onBack = { navController.popBackStack() }
                 )
@@ -2165,7 +1580,7 @@ fun AppNavigation(
             val url = try { java.net.URLDecoder.decode(backStackEntry.arguments?.getString("url") ?: "", "UTF-8") } catch (_: Exception) { "" }
             com.xjtu.toolbox.browser.BrowserScreen(
                 initialUrl = url,
-                login = loginState.jwxtLogin,
+                site = loginState.sessionManager?.getSiteOrNull("jwxt"),
                 onBack = { navController.popBackStack() }
             )
         }
@@ -2303,12 +1718,11 @@ private fun MainScreen(
             return
         }
 
-        // ── 在线：有缓存 login → 直接进入 ──
-        if (type == LoginType.JIAOXIAOZHI) {
-            navigateToTarget(target)
-            return
-        }
-        if (loginState.getCached(type) != null) {
+        fun siteReady(t: LoginType): Boolean =
+            loginState.sessionManager?.getSiteOrNull(t.siteKey())?.hasLogin == true
+
+        val forceEnsureOnEnter = type == LoginType.SUPER_APP || type == LoginType.JIAOXIAOZHI
+        if (siteReady(type) && !forceEnsureOnEnter) {
             navigateToTarget(target)
         } else if (loginState.hasCredentials) {
             // 用户主动点击：永远允许立即登录（即使刚才取消过 MFA），由用户自己决定再次取消还是验证。
@@ -2326,18 +1740,15 @@ private fun MainScreen(
             autoLoginJob = scope.launch {
                 try {
                     val result = kotlinx.coroutines.withTimeoutOrNull(autoLoginTimeoutMs) {
-                        loginState.autoLogin(type, force = true, interactive = true)
+                        loginState.sessionManager?.ensureSite(type)
                     }
                     showAutoLoginSheet.value = false
                     autoLoginJob = null
                     if (result != null) {
                         navigateToTarget(target)
-                    } else if (loginState.pendingMfaLogin != null) {
-                        // autoLogin 触发了 MFA → 记录导航目标，UI 层会自动弹出 MFA 对话框
-                        loginState.pendingMfaTarget = target
                     } else {
-                        // autoLogin 返回 null 且没有 pendingMfa：可能是网络不通 / 密码错误 / 服务故障
-                        // 不再展示「受限请连 WebVPN/校园网」这种迷惑提示，autoLogin 内部已按网络环境自动 fallback
+                        // 登录未完成：可能是网络不通 / 密码错误 / 服务故障。
+                        // 不再展示「受限请连 WebVPN/校园网」这种迷惑提示，SessionManager 已按网络环境处理。
                         if (target in offlineCapableRoutes) {
                             navigateToTarget(target)
                             scope.launch {
@@ -2345,28 +1756,27 @@ private fun MainScreen(
                             }
                         } else {
                             scope.launch {
-                                snackbarHostState.showSnackbar("${type.label}暂不可用", duration = SnackbarDuration.Short)
+                                snackbarHostState.showSnackbar("${type.label}连接超时，请稍后重试", duration = SnackbarDuration.Short)
                             }
                         }
                     }
                 } catch (e: Exception) {
                     showAutoLoginSheet.value = false
                     autoLoginJob = null
-                    // 登录态失效（reAuth 失败）→ 清缓存 + 重新 autoLogin（CAS 触发 MFA 时会自动弹窗）
+                    android.util.Log.e("Login", "ensureSite($type) failed for $target", e)
+                    // 登录态失效（reAuth 失败）→ 清站点会话 + 重新 ensureSite（CAS 触发 MFA 时会自动弹窗）
                     if (e is AuthExpiredException) {
-                        android.util.Log.w("Login", "AuthExpired for $type, clearing cache and retrying full login")
-                        loginState.clearLogin(type)
+                        android.util.Log.w("Login", "AuthExpired for $type, retrying full SiteSession login")
+                        loginState.sessionManager?.getSiteOrNull(type.siteKey())?.invalidateLogin()
                         autoLoginMessage = "正在重新登录${type.label}..."
                         showAutoLoginSheet.value = true
                         autoLoginJob = scope.launch {
                             try {
-                                val r2 = kotlinx.coroutines.withTimeoutOrNull(autoLoginTimeoutMs) { loginState.autoLogin(type, interactive = true) }
+                                val r2 = kotlinx.coroutines.withTimeoutOrNull(autoLoginTimeoutMs) { loginState.sessionManager?.ensureSite(type) }
                                 showAutoLoginSheet.value = false
                                 autoLoginJob = null
                                 if (r2 != null) {
                                     navigateToTarget(target)
-                                } else if (loginState.pendingMfaLogin != null) {
-                                    loginState.pendingMfaTarget = target
                                 } else {
                                     scope.launch { snackbarHostState.showSnackbar("${type.label}暂未就绪", duration = SnackbarDuration.Short) }
                                 }
@@ -2383,9 +1793,10 @@ private fun MainScreen(
                         navigateToTarget(target)
                         scope.launch { snackbarHostState.showSnackbar("网络不佳，展示已缓存数据", duration = SnackbarDuration.Short) }
                     } else {
+                        val detail = e.message?.take(40)?.takeIf { it.isNotBlank() }
                         val msg = when (e) {
-                            is java.io.IOException -> "网络不佳，请检查网络连接"
-                            else -> "${type.label}暂未就绪"
+                            is java.io.IOException -> detail ?: "网络不佳，请检查网络连接"
+                            else -> detail ?: "${type.label}暂未就绪"
                         }
                         scope.launch { snackbarHostState.showSnackbar(msg, duration = SnackbarDuration.Short) }
                     }
@@ -2687,184 +2098,6 @@ private fun MainScreen(
                         },
                         modifier = Modifier.fillMaxWidth()
                     )
-                }
-            }
-
-            // ── 全局 MFA 两步验证对话框（autoLogin 触发）──
-            val globalMfaLogin = loginState.pendingMfaLogin
-            val showGlobalMfa = remember { mutableStateOf(false) }
-            var globalMfaPhone by remember { mutableStateOf("") }
-            var globalMfaCode by remember { mutableStateOf("") }
-            var globalMfaSending by remember { mutableStateOf(false) }
-            var globalMfaVerifying by remember { mutableStateOf(false) }
-            var globalMfaError by remember { mutableStateOf<String?>(null) }
-            var globalMfaCodeSent by remember { mutableStateOf(false) }
-
-            LaunchedEffect(globalMfaLogin) {
-                if (globalMfaLogin != null) {
-                    // 自动获取手机号并弹出对话框
-                    try {
-                        val phone = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                            globalMfaLogin.mfaContext!!.getPhoneNumber()
-                        }
-                        globalMfaPhone = phone
-                        globalMfaCode = ""
-                        globalMfaCodeSent = false
-                        globalMfaError = null
-                        showGlobalMfa.value = true
-                    } catch (e: Exception) {
-                        snackbarHostState.showSnackbar("获取验证手机号失败: ${e.message}", duration = SnackbarDuration.Short)
-                        loginState.pendingMfaLogin = null
-                        loginState.pendingMfaTarget = null
-                        loginState.pendingMfaType = null
-                        loginState.pendingMfaContinuation = null
-                    }
-                } else {
-                    showGlobalMfa.value = false
-                }
-            }
-
-            if (globalMfaLogin != null && showGlobalMfa.value) {
-                // MFA 弹窗使用 Miuix SuperDialog：内置 imePadding 抗键盘弹飞、大屏自适应，
-                // 整体风格与 app 其它弹窗保持一致。
-                val mfaSourceLabel = remember(loginState.pendingMfaTarget, loginState.pendingMfaType) {
-                    when {
-                        loginState.pendingMfaTarget == "_WEBVPN_" -> "WebVPN（校外接入）"
-                        loginState.pendingMfaType != null -> loginState.pendingMfaType?.label ?: "统一身份认证"
-                        else -> "统一身份认证"
-                    }
-                }
-                fun cancelMfa() {
-                    showGlobalMfa.value = false
-                    loginState.pendingMfaLogin = null
-                    loginState.pendingMfaTarget = null
-                    loginState.pendingMfaType = null
-                    loginState.pendingMfaContinuation = null
-                }
-                BackHandler(enabled = true) { cancelMfa() }
-                OverlayDialog(
-                    show = showGlobalMfa.value,
-                    title = "两步验证",
-                    summary = "登录「$mfaSourceLabel」需要短信验证码",
-                    onDismissRequest = { cancelMfa() }
-                ) {
-                    Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .imePadding(),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Text(
-                            "验证码将发送至 $globalMfaPhone",
-                            style = MiuixTheme.textStyles.body1,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                        )
-                        // 发送验证码按钮
-                        if (!globalMfaCodeSent) {
-                            Button(
-                                onClick = {
-                                    globalMfaSending = true
-                                    globalMfaError = null
-                                    scope.launch {
-                                        try {
-                                            val ctx = globalMfaLogin.mfaContext ?: run { globalMfaError = "MFA 上下文丢失"; return@launch }
-                                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                                ctx.sendVerifyCode()
-                                            }
-                                            globalMfaCodeSent = true
-                                        } catch (e: Exception) {
-                                            globalMfaError = "发送失败: ${e.message}"
-                                        }
-                                        globalMfaSending = false
-                                    }
-                                },
-                                enabled = !globalMfaSending,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                if (globalMfaSending) {
-                                    CircularProgressIndicator(size = 18.dp, strokeWidth = 2.dp)
-                                    Spacer(Modifier.width(8.dp))
-                                }
-                                Text(if (globalMfaSending) "发送中..." else "发送验证码")
-                            }
-                        }
-                        // 验证码输入
-                        if (globalMfaCodeSent) {
-                            TextField(
-                                value = globalMfaCode,
-                                onValueChange = { globalMfaCode = it.take(6); globalMfaError = null },
-                                label = "6位验证码",
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                            )
-                        }
-                        globalMfaError?.let {
-                            Text(it, color = MiuixTheme.colorScheme.error, style = MiuixTheme.textStyles.footnote1)
-                        }
-                        // 验证并登录
-                        if (globalMfaCodeSent) {
-                            Button(
-                                onClick = {
-                                    if (globalMfaCode.length != 6) {
-                                        globalMfaError = "请输入6位验证码"
-                                        return@Button
-                                    }
-                                    globalMfaVerifying = true
-                                    globalMfaError = null
-                                    scope.launch {
-                                        try {
-                                            val login = globalMfaLogin
-                                            val mfa = login.mfaContext ?: run { globalMfaError = "MFA 上下文丢失"; globalMfaVerifying = false; return@launch }
-                                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                                mfa.verifyCode(globalMfaCode)
-                                            }
-                                            // MFA 验证通过，根据 continuation 决定后续动作
-                                            val continuation = loginState.pendingMfaContinuation
-                                            val target = loginState.pendingMfaTarget
-                                            val error = if (continuation != null) {
-                                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                                    continuation(login)
-                                                }
-                                            } else {
-                                                val user = loginState.activeUsername
-                                                loginState.finishLoginAfterMfa(login, user)
-                                            }
-                                            if (error != null) {
-                                                globalMfaError = error
-                                                globalMfaVerifying = false
-                                                return@launch
-                                            }
-                                            // 成功：关闭对话框
-                                            globalMfaVerifying = false
-                                            showGlobalMfa.value = false
-                                            loginState.pendingMfaLogin = null
-                                            loginState.pendingMfaTarget = null
-                                            loginState.pendingMfaType = null
-                                            loginState.pendingMfaContinuation = null
-                                            // WebVPN MFA 完成后：vpnClient 已在 continuation 内建立，下次访问自动用
-                                            if (target == "_WEBVPN_") {
-                                                snackbarHostState.showSnackbar("WebVPN 已就绪，可以正常使用了", duration = SnackbarDuration.Short)
-                                            } else if (target != null) {
-                                                navigateToTarget(target)
-                                            }
-                                        } catch (e: Exception) {
-                                            globalMfaError = e.message ?: "验证失败"
-                                            globalMfaVerifying = false
-                                        }
-                                    }
-                                },
-                                enabled = !globalMfaVerifying,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                if (globalMfaVerifying) {
-                                    CircularProgressIndicator(size = 18.dp, strokeWidth = 2.dp)
-                                    Spacer(Modifier.width(8.dp))
-                                }
-                                Text(if (globalMfaVerifying) "验证中..." else "验证并登录")
-                            }
-                        }
-                    }
                 }
             }
 
@@ -3368,7 +2601,7 @@ private fun HomeTab(
                         }
                     }
                     Spacer(Modifier.width(8.dp))
-                    val sessionColor = if (loginState.loginCount > 0)
+                    val sessionColor = if ((loginState.sessionManager?.activeSiteCount ?: 0) > 0)
                         androidx.compose.ui.graphics.Color(0xFF2E7D32)
                     else MiuixTheme.colorScheme.onSurfaceVariantSummary
                     val showStatusSheet = remember { mutableStateOf(false) }
@@ -3398,11 +2631,7 @@ private fun HomeTab(
                                     LoginType.SUPER_APP, LoginType.FITNESS, LoginType.JIAOXIAOZHI)
                             }
                             fun isReady(type: LoginType): Boolean =
-                                loginState.getCached(type) != null ||
-                                    (type == LoginType.JIAOXIAOZHI &&
-                                        (loginState.sessionManager?.getSiteOrNull(
-                                            com.xjtu.toolbox.jiaoxiaozhi.JiaoxiaozhiSiteSession.SITE_KEY
-                                        ) as? com.xjtu.toolbox.jiaoxiaozhi.JiaoxiaozhiSiteSession)?.hasLogin == true)
+                                loginState.sessionManager?.getSiteOrNull(type.siteKey())?.hasLogin == true
                             val ok = visibleTypes.count { isReady(it) }
                             Text(
                                 when {
@@ -3432,12 +2661,7 @@ private fun HomeTab(
                                     LoginType.JIAOXIAOZHI
                                 )
                                 types.forEach { t ->
-                                    val cached = loginState.getCached(t)
-                                    val siteReady = t == LoginType.JIAOXIAOZHI &&
-                                        (loginState.sessionManager?.getSiteOrNull(
-                                            com.xjtu.toolbox.jiaoxiaozhi.JiaoxiaozhiSiteSession.SITE_KEY
-                                        ) as? com.xjtu.toolbox.jiaoxiaozhi.JiaoxiaozhiSiteSession)?.hasLogin == true
-                                    val ready = cached != null || siteReady
+                                    val ready = loginState.sessionManager?.getSiteOrNull(t.siteKey())?.hasLogin == true
                                     Row(
                                         Modifier.fillMaxWidth().padding(vertical = 8.dp),
                                         verticalAlignment = Alignment.CenterVertically
@@ -3548,6 +2772,16 @@ private fun HomeTab(
                     .padding(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                HomeSceneCard(
+                    title = "问屁岱",
+                    subtitle = "校园助手、工具调用与交晓智",
+                    icon = Icons.Default.SmartToy,
+                    accent = androidx.compose.ui.graphics.Color(0xFF00695C),
+                    entries = listOf(
+                        "问屁岱" to go(Routes.AGENT) { onNavigate(Routes.AGENT) },
+                        "交晓智" to go(Routes.JIAOXIAOZHI) { onNavigateWithLogin(Routes.JIAOXIAOZHI, LoginType.JIAOXIAOZHI) },
+                    )
+                )
                 HomeSceneCard(
                     title = "上课",
                     subtitle = "课表、自习与课程内容",
@@ -3665,7 +2899,7 @@ private fun CoursesTab(
             .then(if (scrollBehavior != null) Modifier.nestedScroll(scrollBehavior.nestedScrollConnection) else Modifier)
     ) {
         ScheduleScreen(
-            login = loginState.jwxtLogin,
+            site = loginState.sessionManager?.getSiteOrNull("jwxt"),
             studentId = loginState.activeUsername,
             onBack = {},
             showTopBar = false,
@@ -3771,63 +3005,12 @@ private fun ProfileTab(
     var loginProgress by remember { mutableStateOf(0f) }   // 0.0 ~ 1.0
     var loginStage by remember { mutableStateOf("") }       // 当前步骤描述
 
-    // MFA 两步验证状态
-    var mfaLogin by remember { mutableStateOf<XJTULogin?>(null) }
-    var mfaPhone by remember { mutableStateOf("") }
-    var mfaCode by remember { mutableStateOf("") }
-    var mfaSending by remember { mutableStateOf(false) }
-    var mfaVerifying by remember { mutableStateOf(false) }
-    var mfaError by remember { mutableStateOf<String?>(null) }
-    var mfaCodeSent by remember { mutableStateOf(false) }
-
     // Srun 校园网首次配置弹窗状态
     val showSrunSetupSheet = remember { mutableStateOf(false) }
     var srunSetupUsername by remember { mutableStateOf("") }
     var srunSetupPassword by remember { mutableStateOf("") }
     var srunSetupSaving by remember { mutableStateOf(false) }
     var srunSetupHint by remember { mutableStateOf<String?>(null) }
-
-    // MFA 完成后继续登录流程
-    fun finishMfaAndLogin() {
-        scope.launch {
-            mfaVerifying = true
-            mfaError = null
-            try {
-                val login = mfaLogin ?: return@launch
-                // 验证码校验
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    login.mfaContext!!.verifyCode(mfaCode)
-                }
-                // MFA 通过，继续登录
-                val error = loginState.finishLoginAfterMfa(login, username)
-                if (error != null) {
-                    mfaError = error
-                    mfaVerifying = false
-                    return@launch
-                }
-                // 登录成功
-                mfaVerifying = false
-                mfaLogin = null  // 关闭 MFA 对话框
-                mfaCode = ""
-
-                loginState.persistCredentials(credentialStore)
-                onWarmupRequest()
-                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                    try {
-                        // YWTB 个人信息（warmup 内 autoLogin(YWTB) 完成后异步取）
-                        kotlinx.coroutines.delay(1500L)
-                        if (loginState.ywtbLogin != null && loginState.ywtbUserInfo == null) {
-                            val api = com.xjtu.toolbox.ywtb.YwtbApi(loginState.ywtbLogin!!)
-                            loginState.ywtbUserInfo = api.getUserInfo()
-                        }
-                    } catch (_: Exception) { }
-                }
-            } catch (e: Exception) {
-                mfaError = e.message ?: "验证失败"
-                mfaVerifying = false
-            }
-        }
-    }
 
     // 智能登录：JWXT→核心登录→YWTB后台
     fun loginAllSystems(user: String, pwd: String) {
@@ -3839,59 +3022,19 @@ private fun ProfileTab(
         scope.launch {
             val startMs = System.currentTimeMillis()
 
-            // ── Phase 1: JWXT 直连登录 ──
             loginStage = "认证中..."
             loginProgress = 0.1f
-            var jwxtLogin: XJTULogin? = null
-            var jwxtError: String? = null
-            var needsMfa = false
             try {
-                val (login, error, mfa) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    loginState.loginJwxtWithDetails(user, pwd)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    loginState.sessionManager?.ensureSite(LoginType.JWXT)
                 }
-                jwxtLogin = login
-                jwxtError = error
-                needsMfa = mfa
             } catch (e: Exception) {
-                if (jwxtLogin == null && jwxtError == null) {
-                    jwxtError = "登录异常: ${e.message}"
-                }
-            }
-            loginProgress = 0.5f
-
-            // ── MFA 需要：弹出两步验证对话框 ──
-            // [关键] dialog summary 文案"短信验证码已发送至 ..."必须与实际状态一致：
-            // 弹出前**立即**调 sendVerifyCode() 并设 mfaCodeSent=true，让 dialog 直接进入
-            // 「输入验证码」模式，避免出现「显示已发送但其实没发送、要再点按钮才发送」的迷惑 UX。
-            if (needsMfa && jwxtLogin != null) {
                 isLoggingIn = false
-                loginStage = ""
-                try {
-                    val mfa = jwxtLogin!!.mfaContext!!
-                    val phone = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        mfa.getPhoneNumber()
-                    }
-                    // 自动发送验证码（与 summary "已发送" 文案匹配）
-                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        mfa.sendVerifyCode()
-                    }
-                    mfaLogin = jwxtLogin
-                    mfaPhone = phone
-                    mfaCode = ""
-                    mfaCodeSent = true
-                    mfaError = null
-                } catch (e: Exception) {
-                    loginError = "发送验证码失败: ${e.message}"
-                }
+                loginError = "登录异常: ${e.message}"
                 return@launch
             }
 
-            if (jwxtLogin == null) {
-                isLoggingIn = false
-                loginError = jwxtError ?: "登录失败"
-                // 不要 logout — 避免网络临时故障清空已保存的凭据
-                return@launch
-            }
+            loginProgress = 0.8f
 
             loginProgress = 0.8f
 
@@ -3911,114 +3054,11 @@ private fun ProfileTab(
             onWarmupRequest()
             scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
-                    kotlinx.coroutines.delay(1500L)  // 等 warmup 内 autoLogin(YWTB) 进展
-                    if (loginState.ywtbLogin != null && loginState.ywtbUserInfo == null) {
-                        val api = com.xjtu.toolbox.ywtb.YwtbApi(loginState.ywtbLogin!!)
-                        loginState.ywtbUserInfo = api.getUserInfo()
+                    val ywtbSite = loginState.sessionManager?.ensureSite(LoginType.YWTB)
+                    if (ywtbSite != null && loginState.ywtbUserInfo == null) {
+                        loginState.ywtbUserInfo = com.xjtu.toolbox.ywtb.YwtbApi(ywtbSite).getUserInfo()
                     }
                 } catch (_: Exception) { }
-            }
-        }
-    }
-
-    // ── MFA 两步验证对话框（OverlayDialog 抗键盘弹飞）──
-    val showMfaDialog = remember { mutableStateOf(false) }
-    LaunchedEffect(mfaLogin) { showMfaDialog.value = mfaLogin != null }
-    if (mfaLogin != null) {
-        BackHandler(enabled = showMfaDialog.value) {
-            showMfaDialog.value = false
-            mfaLogin = null
-            mfaCode = ""
-            mfaError = null
-        }
-        OverlayDialog(
-            show = showMfaDialog.value,
-            title = "两步验证",
-            summary = "短信验证码已发送至 $mfaPhone",
-            onDismissRequest = {
-                showMfaDialog.value = false
-                mfaLogin = null
-                mfaCode = ""
-                mfaError = null
-            }
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .imePadding()
-            ) {
-
-                // 发送验证码按钮
-                if (!mfaCodeSent) {
-                    Button(
-                        onClick = {
-                            mfaSending = true
-                            mfaError = null
-                            scope.launch {
-                                try {
-                                    val login = mfaLogin ?: run { mfaError = "MFA 会话丢失"; return@launch }
-                                    val ctx = login.mfaContext ?: run { mfaError = "MFA 上下文丢失"; return@launch }
-                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                        ctx.sendVerifyCode()
-                                    }
-                                    mfaCodeSent = true
-                                } catch (e: Exception) {
-                                    mfaError = "发送失败: ${e.message}"
-                                }
-                                mfaSending = false
-                            }
-                        },
-                        enabled = !mfaSending,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        if (mfaSending) {
-                            CircularProgressIndicator(size = 18.dp, strokeWidth = 2.dp)
-                            Spacer(Modifier.width(8.dp))
-                        }
-                        Text(if (mfaSending) "发送中..." else "发送验证码")
-                    }
-                } else {
-                    // 验证码输入
-                    TextField(
-                        value = mfaCode,
-                        onValueChange = { mfaCode = it; mfaError = null },
-                        label = "验证码",
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                    )
-                    if (mfaError != null) {
-                        Text(mfaError!!, color = MiuixTheme.colorScheme.error, style = MiuixTheme.textStyles.footnote1, modifier = Modifier.padding(start = 4.dp, top = 2.dp))
-                    }
-                }
-
-                Spacer(Modifier.height(20.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    TextButton(
-                        text = "取消",
-                        onClick = {
-                            showMfaDialog.value = false
-                            mfaLogin = null
-                            mfaCode = ""
-                            mfaError = null
-                        },
-                        modifier = Modifier.weight(1f)
-                    )
-                    if (mfaCodeSent) {
-                        Button(
-                            onClick = { finishMfaAndLogin() },
-                            enabled = mfaCode.length >= 4 && !mfaVerifying,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            if (mfaVerifying) {
-                                CircularProgressIndicator(size = 16.dp, strokeWidth = 2.dp)
-                                Spacer(Modifier.width(4.dp))
-                            }
-                            Text(if (mfaVerifying) "验证中..." else "验证并登录")
-                        }
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
             }
         }
     }
@@ -4304,19 +3344,14 @@ private fun ProfileTab(
         if (loginState.isLoggedIn) {
             val context = LocalContext.current
 
-            // YWTB 用户信息加载：lazy autoLogin 模式
-            // 启动期不再 warmup YWTB，所以进入 ProfileTab 时若 ywtbLogin 还为 null 要主动触发 autoLogin。
-            // YWTB OAuth client (appId=2) 不触发 Safety Verify（probe 实证），SSO 复用 webvpn cookie 不弹 MFA。
-            LaunchedEffect(loginState.ywtbLogin, loginState.hasCredentials) {
+            LaunchedEffect(loginState.hasCredentials) {
                 if (loginState.ywtbUserInfo != null) return@LaunchedEffect
                 if (!loginState.hasCredentials) return@LaunchedEffect
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    val ywtb = loginState.ywtbLogin
-                        ?: runCatching { loginState.autoLogin(LoginType.YWTB) as? com.xjtu.toolbox.auth.YwtbLogin }
-                            .getOrNull()
-                    if (ywtb != null && loginState.ywtbUserInfo == null) {
+                    val ywtbSite = runCatching { loginState.sessionManager?.ensureSite(LoginType.YWTB) }.getOrNull()
+                    if (ywtbSite != null && loginState.ywtbUserInfo == null) {
                         runCatching {
-                            loginState.ywtbUserInfo = com.xjtu.toolbox.ywtb.YwtbApi(ywtb).getUserInfo()
+                            loginState.ywtbUserInfo = com.xjtu.toolbox.ywtb.YwtbApi(ywtbSite).getUserInfo()
                         }
                     }
                 }
@@ -4324,16 +3359,16 @@ private fun ProfileTab(
 
             Column(Modifier.padding(horizontal = 20.dp)) {
 
-                // 学期 / 教学周 信息（使用 JWXT，Phase1 即可用，比 YWTB 快 ~3s）
-                if (loginState.jwxtLogin != null) {
+                // 学期 / 教学周 信息（使用 JWXT site）
+                loginState.sessionManager?.getSiteOrNull("jwxt")?.let { jwxtSite ->
                     var currentWeekText by remember { mutableStateOf<String?>(null) }
                     var termText by remember { mutableStateOf<String?>(null) }
                     var schoolYear by remember { mutableStateOf<String?>(null) }
                     var countdownText by remember { mutableStateOf<String?>(null) }
-                    LaunchedEffect(loginState.jwxtLogin) {
+                    LaunchedEffect(jwxtSite) {
                         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                             try {
-                                val api = com.xjtu.toolbox.schedule.ScheduleApi(loginState.jwxtLogin!!)
+                                val api = com.xjtu.toolbox.schedule.ScheduleApi(jwxtSite)
                                 val termCode = api.getCurrentTerm()    // e.g. "2025-2026-2"
                                 val parts = termCode.split("-")
                                 if (parts.size >= 2) schoolYear = "${parts[0]}-${parts[1]} 学年"

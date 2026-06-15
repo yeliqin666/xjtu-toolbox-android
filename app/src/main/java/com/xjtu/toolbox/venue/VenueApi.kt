@@ -5,7 +5,8 @@ import com.google.gson.Gson
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.google.gson.annotations.SerializedName
-import com.xjtu.toolbox.auth.VenueLogin
+import com.xjtu.toolbox.auth.SiteSession
+import kotlinx.coroutines.runBlocking
 import okhttp3.FormBody
 import okhttp3.Request
 import org.jsoup.Jsoup
@@ -16,13 +17,22 @@ import java.net.URLEncoder
  *
  * 基于 http://202.117.17.144 的 HTML + JSON 混合接口
  */
-class VenueApi(private val login: VenueLogin) {
+class VenueApi(private val site: SiteSession) {
 
     companion object {
         private const val TAG = "VenueApi"
-        private const val BASE = VenueLogin.BASE_URL
+        private const val BASE = "http://202.117.17.144:8071"
         private val gson = Gson()
     }
+
+    private fun request(url: String): Request.Builder =
+        Request.Builder()
+            .url(url)
+            .header("Referer", BASE)
+            .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36")
+
+    private fun execute(builder: Request.Builder) =
+        runBlocking { site.executeWithReAuth(builder.build()) }
 
     // ─── 数据模型 ─────────────────────────────────────────
 
@@ -75,7 +85,7 @@ class VenueApi(private val login: VenueLogin) {
      * 获取场馆列表（从 index.html 解析）
      */
     fun fetchVenueList(): List<Venue> {
-        val response = login.executeWithReAuth(login.authenticatedRequest("$BASE/product/index.html"))
+        val response = execute(request("$BASE/product/index.html"))
         val html = response.body?.string() ?: throw RuntimeException("获取场馆列表失败")
         response.close()
 
@@ -110,7 +120,7 @@ class VenueApi(private val login: VenueLogin) {
      */
     fun fetchAvailableSlots(serviceid: Int, date: String): List<AreaSlot> {
         val url = "$BASE/product/findOkArea.html?s_date=$date&serviceid=$serviceid&_=${System.currentTimeMillis()}"
-        val response = login.executeWithReAuth(login.authenticatedRequest(url))
+        val response = execute(request(url))
         val body = response.body?.string() ?: return emptyList()
         response.close()
 
@@ -122,7 +132,7 @@ class VenueApi(private val login: VenueLogin) {
      */
     fun fetchLockedSlots(serviceid: Int, date: String): List<AreaSlot> {
         val url = "$BASE/product/findLockArea.html?s_date=$date&serviceid=$serviceid&_=${System.currentTimeMillis()}"
-        val response = login.executeWithReAuth(login.authenticatedRequest(url))
+        val response = execute(request(url))
         val body = response.body?.string() ?: return emptyList()
         response.close()
 
@@ -134,7 +144,7 @@ class VenueApi(private val login: VenueLogin) {
      */
     fun generateCaptcha(): CaptchaData {
         val url = "$BASE/gen"
-        val response = login.executeWithReAuth(login.authenticatedRequest(url))
+        val response = execute(request(url))
         val body = response.body?.string() ?: throw RuntimeException("获取验证码失败")
         response.close()
 
@@ -214,9 +224,7 @@ class VenueApi(private val login: VenueLogin) {
             .add("json", "true")
             .build()
 
-        val response = login.executeWithReAuth(
-            login.authenticatedRequest("$BASE/order/book.html").post(formBody)
-        )
+        val response = execute(request("$BASE/order/book.html").post(formBody))
         val responseBody = response.body?.string() ?: "{}"
         response.close()
 

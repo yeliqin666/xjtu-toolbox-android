@@ -30,6 +30,7 @@ import com.xjtu.toolbox.LocalAppLoginState
 import com.xjtu.toolbox.Routes
 import com.xjtu.toolbox.auth.AuthExpiredException
 import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -80,10 +81,10 @@ private sealed class LmsPage {
 // ════════════════════════════════════════
 
 @Composable
-fun LmsScreen(login: LmsLogin, onBack: () -> Unit) {
+fun LmsScreen(site: SiteSession, onBack: () -> Unit) {
     val appLoginState = LocalAppLoginState.current
     val context = LocalContext.current
-    val api = remember { LmsApi(login) }
+    val api = remember(site) { LmsApi(site) }
 
     var currentPage by remember { mutableStateOf<LmsPage>(LmsPage.CourseList) }
 

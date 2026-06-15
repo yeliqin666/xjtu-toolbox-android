@@ -54,7 +54,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.auth.CampusCardLogin
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.EmptyState
@@ -81,10 +81,10 @@ private enum class TimeRange(val label: String, val months: Int) {
 
 @Composable
 fun CampusCardScreen(
-    login: CampusCardLogin,
+    site: SiteSession,
     onBack: () -> Unit
 ) {
-    val api = remember { CampusCardApi(login) }
+    val api = remember(site) { CampusCardApi(site) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }

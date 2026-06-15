@@ -24,6 +24,7 @@ import com.xjtu.toolbox.LocalAppLoginState
 import com.xjtu.toolbox.Routes
 import com.xjtu.toolbox.auth.AuthExpiredException
 import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -77,7 +78,7 @@ enum class AudioSource(val label: String) {
 @OptIn(UnstableApi::class)
 @Composable
 fun VideoPlayerScreen(
-    login: ClassLogin,
+    site: SiteSession,
     activityId: Int,
     onBack: () -> Unit
 ) {
@@ -117,7 +118,7 @@ fun VideoPlayerScreen(
             errorMsg = null
             try {
                 val detail = withContext(Dispatchers.IO) {
-                    fetchReplayDetail(login, activityId)
+                    fetchReplayDetail(site, activityId)
                 }
                 if (detail == null || detail.replayVideos.isEmpty()) {
                     errorMsg = "未找到回放视频"
@@ -130,8 +131,8 @@ fun VideoPlayerScreen(
                     val instrVid = detail.replayVideos.find { it.cameraType == "instructor" }
                     val encVid = detail.replayVideos.find { it.cameraType == "encoder" }
 
-                    val dInstr = async { instrVid?.let { resolveVideoUrl(login, it.url) } }
-                    val dEnc = async { encVid?.let { resolveVideoUrl(login, it.url) } }
+                    val dInstr = async { instrVid?.let { resolveVideoUrl(site, it.url) } }
+                    val dEnc = async { encVid?.let { resolveVideoUrl(site, it.url) } }
                     instructorUrl = dInstr.await()
                     encoderUrl = dEnc.await()
                 }
