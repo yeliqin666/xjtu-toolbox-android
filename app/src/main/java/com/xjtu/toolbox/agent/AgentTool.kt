@@ -198,8 +198,11 @@ class AgentToolRegistry(
         arr.add(tool("get_current_time",
             "获取当前日期、时间、星期、学期周数、当前/下一节次。无需登录。"))
         arr.add(tool("get_schedule",
-            "查询课表。date填yyyy-MM-dd查当天，不填返回本周全部课程。需要本地缓存（用户曾打开过课表页面）。",
-            params("date" to strProp("查询日期，格式yyyy-MM-dd，不填则返回本周。"))))
+            "查询课表（含用户手动添加的日程）。date填yyyy-MM-dd查当天，不填返回本周；term填学期代码(如2024-2025-1)查历史学期整学期课表。未缓存会自动联网拉取。",
+            params(
+                "date" to strProp("查询日期，格式yyyy-MM-dd，不填则返回本周（或整学期，当指定了 term）。"),
+                "term" to strProp("学期代码如2024-2025-1，查历史学期用；不填为当前学期。可先用 get_current_time/get_school_calendar 推算学期代码。")
+            )))
         arr.add(tool("get_exam_schedule",
             "查询考试安排，含日期、时间、地点、座位号。需要教务系统登录。"))
         arr.add(tool("get_school_calendar",
@@ -372,7 +375,7 @@ class AgentToolRegistry(
 
         when (name) {
             "get_current_time" -> getCurrentTime()
-            "get_schedule" -> getSchedule(args["date"] as? String)
+            "get_schedule" -> getSchedule(args["date"] as? String, args["term"] as? String)
             "get_exam_schedule" -> getExamSchedule()
             "get_school_calendar" -> getSchoolCalendar(args["term"] as? String)
             "search_school_courses" -> searchSchoolCourses(
@@ -681,8 +684,12 @@ class AgentToolRegistry(
      * 确保课表（学期 / 课程 / 起始日）就绪：缓存缺失时**直接在线拉取并写缓存**，
      * 而不是让用户「先去打开课表页同步」。需教务系统登录。返回 null 表示就绪，否则为错误提示。
      */
-    private suspend fun ensureScheduleLoaded(): String? {
-        val term0 = cachedTermCode()
+    /**
+     * 确保某学期（[targetTerm] 为空则当前学期）的课表 + 起始日就绪：缺失则在线拉取并写缓存。
+     * 返回 null 表示就绪，否则为错误提示。
+     */
+    private suspend fun ensureScheduleLoaded(targetTerm: String? = null): String? {
+        val term0 = targetTerm?.takeIf { it.isNotBlank() } ?: cachedTermCode()
         val coursesCached = term0 != null && (
             ScheduleCache.readOptimizedCourses(dataCache, gson, term0, Long.MAX_VALUE)
                 ?: ScheduleCache.readRawCourses(dataCache, gson, term0, Long.MAX_VALUE)) != null
@@ -693,7 +700,7 @@ class AgentToolRegistry(
         return try {
             val api = ScheduleApi(site)
             val term = term0 ?: api.getCurrentTerm()
-            if (term0 == null) dataCache.put("schedule_term_list", gson.toJson(listOf(term)))
+            if (cachedTermCode() == null) dataCache.put("schedule_term_list", gson.toJson(listOf(term)))
             if ((ScheduleCache.readOptimizedCourses(dataCache, gson, term, Long.MAX_VALUE)
                     ?: ScheduleCache.readRawCourses(dataCache, gson, term, Long.MAX_VALUE)) == null) {
                 ScheduleCache.writeOptimizedCourses(dataCache, gson, term, api.getSchedule(term))
@@ -709,14 +716,17 @@ class AgentToolRegistry(
         }
     }
 
-    private suspend fun getSchedule(dateStr: String?): String {
-        ensureScheduleLoaded()?.let { return it }
+    private suspend fun getSchedule(dateStr: String?, term: String? = null): String {
+        val requested = term?.takeIf { it.isNotBlank() }
+        ensureScheduleLoaded(requested)?.let { return it }
 
-        val termCode = cachedTermCode() ?: return "课表数据异常，请稍后重试。"
+        val termCode = requested ?: cachedTermCode() ?: return "课表数据异常，请稍后重试。"
+        val isHistorical = requested != null && requested != cachedTermCode()
 
         val cachedCourses = ScheduleCache.readOptimizedCourses(dataCache, gson, termCode, Long.MAX_VALUE)
             ?: ScheduleCache.readRawCourses(dataCache, gson, termCode, Long.MAX_VALUE)
             ?: return "课表数据异常，请稍后重试。"
+        // 合并该学期用户手动添加的日程（历史学期同样按该学期读取）
         val customCourses = runCatching {
             com.xjtu.toolbox.util.AppDatabase.getInstance(context)
                 .customCourseDao()
@@ -725,11 +735,24 @@ class AgentToolRegistry(
         }.getOrDefault(emptyList())
         val courses = cachedCourses + customCourses
 
+        val dayNames = listOf("", "周一", "周二", "周三", "周四", "周五", "周六", "周日")
+
+        // 指定历史学期且未指定日期：给整学期总览（"本周"对历史学期无意义）
+        if (isHistorical && dateStr == null) {
+            if (courses.isEmpty()) return "${termCode}学期没有课程记录。"
+            pendingWidgets.add(ScheduleWidget("${termCode}学期课表", courses))
+            return buildString {
+                append("${termCode}学期课表（共${courses.size}门，含手动添加${customCourses.size}）：\n")
+                courses.sortedWith(compareBy({ it.dayOfWeek }, { it.startSection })).groupBy { it.dayOfWeek }
+                    .forEach { (day, cs) ->
+                        append("${dayNames.getOrElse(day) { "" }}：${cs.joinToString("；") { "${it.courseName}（${it.startSection}-${it.endSection}节，${it.location}）" }}\n")
+                    }
+            }
+        }
+
         val startDate = runCatching {
             cachedStartDate(termCode)?.let { LocalDate.parse(it) }
         }.getOrNull() ?: return "学期起始日期未知，请稍后重试。"
-
-        val dayNames = listOf("", "周一", "周二", "周三", "周四", "周五", "周六", "周日")
 
         if (dateStr != null) {
             val targetDate = runCatching { LocalDate.parse(dateStr) }.getOrElse { LocalDate.now() }

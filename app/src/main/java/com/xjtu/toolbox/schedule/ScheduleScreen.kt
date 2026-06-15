@@ -331,7 +331,6 @@ fun ScheduleScreen(
                             val freshExams = examsDeferred.await()
                             val startDate = startDateDeferred.await()
                             val fetchedTermList = termListDeferred.await()
-                            android.util.Log.d("SchedTerm", "getTermList -> size=${fetchedTermList.size}: $fetchedTermList")
                             val freshHolidays = holidaysDeferred.await()
                             val optimizedFreshCourses = ScheduleCache.filterByHolidays(freshCourses, startDate, freshHolidays)
 

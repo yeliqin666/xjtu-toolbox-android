@@ -277,7 +277,6 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
 
     // 直接换座（已知有现有预约时使用）
     fun doSwapSeat(seatId: String) {
-        android.util.Log.d("LibraryScreen", "doSwapSeat ENTER seatId=$seatId")
         val areaCode = LibraryApi.AREA_MAP[selectedArea]
             ?: LibraryApi.guessAreaCode(seatId)
             ?: run { bookingResult = BookResult(false, "无法确定区域"); return }
@@ -296,7 +295,6 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
 
     // 预约前检查：如有现有预约则弹窗确认换座
     fun bookSeat(seatId: String) {
-        android.util.Log.d("LibraryScreen", "bookSeat CLICKED seatId=$seatId existing=${myBooking?.seatId}")
         val existing = myBooking?.seatId
         val isExpired = myBooking?.statusText?.let { "超时" in it || "过期" in it || "失效" in it } == true
         if (existing != null && !isExpired) {
@@ -312,7 +310,6 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
 
     // 执行操作
     fun executeBookingAction(label: String, url: String) {
-        android.util.Log.d("LibraryScreen", "executeBookingAction ENTER label=$label url=$url")
         isBooking = true
         scope.launch {
             try {
