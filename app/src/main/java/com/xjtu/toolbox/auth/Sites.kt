@@ -141,6 +141,31 @@ class CouponSession : CasSiteSession("coupon", "餐券系统", supportsWebVpn = 
         CouponLogin(session = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
 }
 
+class SuperAppSession : CasSiteSession("super_app", "移动交大", supportsWebVpn = false) {
+    override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
+        SuperAppLogin(session = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
+
+    override suspend fun validateLogin(): Boolean = withIo {
+        val response = client.newCall(
+            Request.Builder().url(SuperAppLogin.HOME_URL).get().build()
+        ).execute()
+        try {
+            response.code == 200 && "login.xjtu.edu.cn" !in response.request.url.host
+        } finally {
+            response.close()
+        }
+    }
+}
+
+class FitnessSession : CasSiteSession("fitness", "体测查询", supportsWebVpn = false) {
+    override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
+        com.xjtu.toolbox.fitness.FitnessLogin(
+            session = client,
+            visitorId = visitorId,
+            cachedRsaKey = cachedRsaKey
+        )
+}
+
 // ── DZPZ 电子凭证（成绩单） ───────────────────────────────────────────
 
 class DzpzSession : CasSiteSession("dzpz", "电子凭证", supportsWebVpn = true) {

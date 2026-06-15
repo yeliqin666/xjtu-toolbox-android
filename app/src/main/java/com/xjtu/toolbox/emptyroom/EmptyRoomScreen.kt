@@ -228,6 +228,17 @@ fun EmptyRoomScreen(
     val currentPeriod = remember { getCurrentPeriod() }
     val isToday = selectedDate == LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
     val effectivePeriod = if (isToday) currentPeriod else -1
+    val smartFilters = if (isToday) {
+        listOf("现在空闲", "刚解放", "大教室", "全部")
+    } else {
+        listOf("大教室", "全部")
+    }
+
+    LaunchedEffect(isToday) {
+        if (!isToday && smartFilter in listOf("现在空闲", "刚解放")) {
+            smartFilter = "全部"
+        }
+    }
 
     // 自动查询（选择改变 / 数据源切换即触发）
     // [取消语义] LaunchedEffect 在 keys 变化时自动 cancel 旧 coroutine。
@@ -652,7 +663,7 @@ fun EmptyRoomScreen(
                             .padding(horizontal = 12.dp, vertical = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        listOf("现在空闲", "刚解放", "大教室", "全部").forEach { filter ->
+                        smartFilters.forEach { filter ->
                             AppFilterChip(
                                 selected = smartFilter == filter,
                                 onClick = { smartFilter = filter },

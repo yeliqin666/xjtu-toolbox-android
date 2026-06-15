@@ -29,8 +29,11 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.rememberCoroutineScope
@@ -103,6 +106,10 @@ fun AgentScreen(onBack: () -> Unit, onNavigate: (String) -> Unit = {}) {
             if (showConfig) {
                 ConfigPanel(
                     config = config,
+                    onCapabilitiesChange = { newConfig ->
+                        configStore.save(newConfig)
+                        config = newConfig
+                    },
                     onSave = { newConfig ->
                         configStore.save(newConfig)
                         config = newConfig
@@ -291,9 +298,13 @@ private fun ChatPanel(
     var input by rememberSaveable { mutableStateOf("") }
     val keyboard = LocalSoftwareKeyboardController.current
 
-    // 新消息到达时滚到底部
+    // 切换会话：直接定位到底部（不要从顶部滑下来）
+    LaunchedEffect(vm.currentSessionId) {
+        if (vm.messages.isNotEmpty()) listState.scrollToItem(vm.messages.lastIndex)
+    }
+    // 同一会话内新消息到达：直接贴到底部
     LaunchedEffect(vm.messages.size) {
-        if (vm.messages.isNotEmpty()) listState.animateScrollToItem(vm.messages.lastIndex)
+        if (vm.messages.isNotEmpty()) listState.scrollToItem(vm.messages.lastIndex)
     }
 
     fun send() {
@@ -335,7 +346,7 @@ private fun ChatPanel(
             }
             items(vm.messages) { msg ->
                 Box(Modifier.fillMaxWidth().animateItem()) {
-                    MessageBubble(msg, onNavigate)
+                    MessageBubble(msg, config.showReasoning, onNavigate)
                 }
             }
             if (vm.isLoading && (vm.messages.isEmpty() || vm.messages.last().role != "tool_event")) {
@@ -368,17 +379,27 @@ private fun ChatPanel(
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                     keyboardActions = KeyboardActions(onSend = { send() })
                 )
-                IconButton(
-                    onClick = { send() },
-                    enabled = input.isNotBlank() && !vm.isLoading
-                ) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.Send,
-                        contentDescription = "发送",
-                        tint = if (input.isNotBlank() && !vm.isLoading)
-                            MiuixTheme.colorScheme.primary
-                        else MiuixTheme.colorScheme.outline
-                    )
+                // 生成中显示"停止"，否则"发送"
+                if (vm.isLoading) {
+                    IconButton(onClick = { vm.stop() }) {
+                        Icon(
+                            Icons.Default.Stop,
+                            contentDescription = "停止生成",
+                            tint = MiuixTheme.colorScheme.primary
+                        )
+                    }
+                } else {
+                    IconButton(
+                        onClick = { send() },
+                        enabled = input.isNotBlank()
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.Send,
+                            contentDescription = "发送",
+                            tint = if (input.isNotBlank()) MiuixTheme.colorScheme.primary
+                            else MiuixTheme.colorScheme.outline
+                        )
+                    }
                 }
             }
         }
@@ -416,7 +437,11 @@ private fun ThinkingDots() {
 }
 
 @Composable
-private fun MessageBubble(msg: ChatMessage, onNavigate: (String) -> Unit) {
+private fun MessageBubble(
+    msg: ChatMessage,
+    showReasoning: Boolean,
+    onNavigate: (String) -> Unit
+) {
     when (msg.role) {
         "tool_event" -> {
             Box(Modifier.fillMaxWidth().padding(vertical = 2.dp), contentAlignment = Alignment.Center) {
@@ -465,23 +490,81 @@ private fun MessageBubble(msg: ChatMessage, onNavigate: (String) -> Unit) {
             }
         }
         else -> {
+            var reasoningExpanded by rememberSaveable { mutableStateOf(false) }
             Column(
                 Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.Start
             ) {
-                Card(
-                    modifier = Modifier.widthIn(max = 300.dp),
-                    cornerRadius = 4.dp,
-                    colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)
-                ) {
-                    MarkdownText(
-                        text = msg.content,
-                        color = MiuixTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                        onLink = { url ->
-                            onNavigate("browser?url=" + java.net.URLEncoder.encode(url, "UTF-8"))
+                if (showReasoning && msg.reasoningContent.isNotBlank()) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MiuixTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier
+                            .widthIn(max = 340.dp)
+                            .clickable { reasoningExpanded = !reasoningExpanded }
+                    ) {
+                        Column(Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                Text(
+                                    "Thinking",
+                                    style = MiuixTheme.textStyles.footnote1,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MiuixTheme.colorScheme.primary
+                                )
+                                if (!reasoningExpanded) {
+                                    Text(
+                                        msg.reasoningContent
+                                            .replace(Regex("\\s+"), " ")
+                                            .trim(),
+                                        style = MiuixTheme.textStyles.footnote1,
+                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                } else {
+                                    Spacer(Modifier.weight(1f))
+                                }
+                                Icon(
+                                    if (reasoningExpanded) Icons.Default.KeyboardArrowUp
+                                    else Icons.Default.KeyboardArrowDown,
+                                    contentDescription = if (reasoningExpanded) "收起思考过程" else "展开思考过程",
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                                )
+                            }
+                            if (reasoningExpanded) {
+                                Spacer(Modifier.height(6.dp))
+                                MarkdownText(
+                                    text = msg.reasoningContent,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    onLink = { url ->
+                                        onNavigate("browser?url=" + java.net.URLEncoder.encode(url, "UTF-8"))
+                                    }
+                                )
+                            }
                         }
-                    )
+                    }
+                    Spacer(Modifier.height(6.dp))
+                }
+                if (msg.content.isNotBlank()) {
+                    Card(
+                        modifier = Modifier.widthIn(max = 300.dp),
+                        cornerRadius = 4.dp,
+                        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)
+                    ) {
+                        MarkdownText(
+                            text = msg.content,
+                            color = MiuixTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                            onLink = { url ->
+                                onNavigate("browser?url=" + java.net.URLEncoder.encode(url, "UTF-8"))
+                            }
+                        )
+                    }
                 }
                 // 富控件（课表卡 / 成绩卡 / 空教室卡…），由工具结果直接渲染
                 msg.widgets.forEach { widget ->
@@ -534,6 +617,7 @@ private fun MessageBubble(msg: ChatMessage, onNavigate: (String) -> Unit) {
 @Composable
 private fun ConfigPanel(
     config: AgentConfig,
+    onCapabilitiesChange: (AgentConfig) -> Unit,
     onSave: (AgentConfig) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -543,6 +627,10 @@ private fun ConfigPanel(
     var baseUrl by remember { mutableStateOf(config.baseUrl) }
     var maxToolCalls by remember { mutableIntStateOf(config.maxToolCalls) }
     var assistantName by remember { mutableStateOf(config.assistantName) }
+    var disabledCaps by remember { mutableStateOf(config.disabledCaps) }
+    var thinkingEnabled by remember { mutableStateOf(config.thinkingEnabled) }
+    var reasoningEffort by remember { mutableStateOf(config.reasoningEffort) }
+    var showReasoning by remember { mutableStateOf(config.showReasoning) }
 
     // 模型一键拉取
     var availableModels by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -569,6 +657,47 @@ private fun ConfigPanel(
                     selectedIndex = providerIndex,
                     onSelectedIndexChange = { provider = AgentConfig.PROVIDERS[it] }
                 )
+            }
+        }
+        item {
+            val capabilities = listOf(
+                "schedule" to "课表、校历、全校课程与空教室",
+                "grades" to "成绩",
+                "attendance" to "考勤",
+                "card" to "校园卡",
+                "notifications" to "通知公告",
+                "yellow_page" to "校园黄页",
+                "library" to "图书馆",
+                "lms" to "思源学堂",
+                "textbook" to "教材",
+                "coupon" to "加餐券",
+                "web" to "联网搜索与网页阅读",
+                "settings_write" to "修改 App 设置"
+            )
+            Card(colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("能力开关", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold)
+                    Text(
+                        "关闭后，模型不会看到对应工具。",
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                    )
+                    capabilities.forEach { (key, label) ->
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(label, modifier = Modifier.weight(1f), style = MiuixTheme.textStyles.body1)
+                            Switch(
+                                checked = key !in disabledCaps,
+                                onCheckedChange = { enabled ->
+                                    disabledCaps = if (enabled) disabledCaps - key else disabledCaps + key
+                                    onCapabilitiesChange(config.copy(disabledCaps = disabledCaps))
+                                }
+                            )
+                        }
+                    }
+                }
             }
         }
         item {
@@ -646,6 +775,67 @@ private fun ConfigPanel(
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
+                        Text(
+                            "填写 OpenAI 兼容中转地址；Claude 可通过 OpenRouter 等兼容服务接入。",
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                        )
+                    }
+                }
+            }
+        }
+        if (provider == AgentConfig.PROVIDER_DEEPSEEK) {
+            item {
+                Card(colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text("思考模式", style = MiuixTheme.textStyles.body1)
+                                Text(
+                                    "提升复杂查询和多步工具调用的准确性",
+                                    style = MiuixTheme.textStyles.footnote1,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                                )
+                            }
+                            Switch(
+                                checked = thinkingEnabled,
+                                onCheckedChange = { thinkingEnabled = it }
+                            )
+                        }
+                        if (thinkingEnabled) {
+                            val efforts = AgentConfig.REASONING_EFFORTS
+                            OverlaySpinnerPreference(
+                                title = "思考强度",
+                                summary = when (reasoningEffort) {
+                                    AgentConfig.REASONING_HIGH -> "高"
+                                    AgentConfig.REASONING_MAX -> "最大"
+                                    else -> "自动（Agent 请求通常使用最大）"
+                                },
+                                items = listOf("自动", "高", "最大").map { DropdownItem(text = it) },
+                                selectedIndex = efforts.indexOf(reasoningEffort).coerceAtLeast(0),
+                                onSelectedIndexChange = { reasoningEffort = efforts[it] }
+                            )
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("显示思考过程", style = MiuixTheme.textStyles.body1)
+                                    Text(
+                                        "在回答上方以折叠栏展示",
+                                        style = MiuixTheme.textStyles.footnote1,
+                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                                    )
+                                }
+                                Switch(
+                                    checked = showReasoning,
+                                    onCheckedChange = { showReasoning = it }
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -653,14 +843,19 @@ private fun ConfigPanel(
         item {
             Card(colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("最多工具调用次数：$maxToolCalls", style = MiuixTheme.textStyles.body1)
-                    val sliderItems = (1..8).map { DropdownItem(text = it.toString()) }
+                    // 0 = 不限制；1..12 为具体上限（每次提问独立计数）
+                    val options = listOf(0) + (1..12).toList()
+                    Text(
+                        "每次提问最多工具调用：" + if (maxToolCalls <= 0) "不限制" else "$maxToolCalls 次",
+                        style = MiuixTheme.textStyles.body1
+                    )
+                    val sliderItems = options.map { DropdownItem(text = if (it == 0) "不限制" else "$it 次") }
                     OverlaySpinnerPreference(
                         title = "上限",
-                        summary = "$maxToolCalls 次",
+                        summary = if (maxToolCalls <= 0) "不限制" else "$maxToolCalls 次",
                         items = sliderItems,
-                        selectedIndex = maxToolCalls - 1,
-                        onSelectedIndexChange = { maxToolCalls = it + 1 }
+                        selectedIndex = options.indexOf(maxToolCalls).coerceAtLeast(0),
+                        onSelectedIndexChange = { maxToolCalls = options[it] }
                     )
                 }
             }
@@ -674,7 +869,11 @@ private fun ConfigPanel(
                         model = model.trim(),
                         baseUrl = baseUrl.trim(),
                         maxToolCalls = maxToolCalls,
-                        assistantName = assistantName.trim()
+                        assistantName = assistantName.trim(),
+                        disabledCaps = disabledCaps,
+                        thinkingEnabled = thinkingEnabled,
+                        reasoningEffort = reasoningEffort,
+                        showReasoning = showReasoning
                     ))
                 },
                 enabled = apiKey.isNotBlank(),

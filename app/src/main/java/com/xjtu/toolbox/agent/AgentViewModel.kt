@@ -8,6 +8,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.gson.JsonArray
+import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.xjtu.toolbox.AppLoginState
@@ -26,7 +27,8 @@ data class ChatMessage(
     val content: String,
     val isToolCall: Boolean = false,
     val navSuggestions: List<Pair<String, String>> = emptyList(),
-    val widgets: List<AgentWidget> = emptyList()
+    val widgets: List<AgentWidget> = emptyList(),
+    val reasoningContent: String = ""
 )
 
 class AgentViewModel : ViewModel() {
@@ -47,6 +49,65 @@ class AgentViewModel : ViewModel() {
 
     // AgentToolRegistry 保持在 ViewModel 级别，使 loginFailedAt 冷却状态跨消息保留
     private var tools: AgentToolRegistry? = null
+    private var toolsDisabledCaps: Set<String>? = null
+    private val gson = Gson()
+
+    // 当前生成任务，供"停止生成"取消
+    private var currentJob: kotlinx.coroutines.Job? = null
+
+    /** 停止正在进行的生成。 */
+    fun stop() { currentJob?.cancel() }
+
+    /** 直接截断过长历史：保留 system + 最近若干条，并去掉开头孤儿的 tool/带tool_calls的assistant。 */
+    private fun truncateHistory() {
+        val max = 50
+        if (llmHistory.size() <= max) return
+        val items = (0 until llmHistory.size()).map { llmHistory[it].asJsonObject }
+        val system = items.firstOrNull { it.get("role")?.asString == "system" }
+        val rest = items.filter { it !== system }
+        val keep = rest.takeLast(max - (if (system != null) 1 else 0)).toMutableList()
+        while (keep.isNotEmpty()) {
+            val first = keep.first()
+            val role = first.get("role")?.asString
+            val hasToolCalls = first.has("tool_calls") && !first.get("tool_calls").isJsonNull
+            if (role == "tool" || (role == "assistant" && hasToolCalls)) keep.removeAt(0) else break
+        }
+        llmHistory = JsonArray().apply {
+            system?.let { add(it) }
+            keep.forEach { add(it) }
+        }
+    }
+
+    /**
+     * 修复历史完整性：丢弃"带 tool_calls 却没有(完整) tool 回应"的 assistant 残体，以及孤儿 tool 消息。
+     * 用于自愈此前因取消/掉线/后台中断而损坏的会话（否则会永久报 must be followed by tool messages）。
+     */
+    private fun sanitizeHistory() {
+        val items = (0 until llmHistory.size()).map { llmHistory[it].asJsonObject }
+        val out = ArrayList<JsonObject>()
+        var i = 0
+        while (i < items.size) {
+            val m = items[i]
+            val role = m.get("role")?.asString
+            val tcs = if (m.has("tool_calls") && !m.get("tool_calls").isJsonNull) m.getAsJsonArray("tool_calls") else null
+            when {
+                role == "assistant" && tcs != null -> {
+                    val ids = tcs.mapNotNull { it.asJsonObject.get("id")?.asString }.toSet()
+                    val toolMsgs = ArrayList<JsonObject>()
+                    var j = i + 1
+                    while (j < items.size && items[j].get("role")?.asString == "tool") { toolMsgs.add(items[j]); j++ }
+                    val covered = toolMsgs.mapNotNull { it.get("tool_call_id")?.asString }.toSet()
+                    if (ids.isNotEmpty() && ids.all { it in covered }) {
+                        out.add(m); toolMsgs.forEach { out.add(it) }
+                    } // 否则：丢弃该 assistant 及其不完整 tool 回应
+                    i = j
+                }
+                role == "tool" -> i++   // 孤儿 tool，丢弃
+                else -> { out.add(m); i++ }
+            }
+        }
+        if (out.size != items.size) llmHistory = JsonArray().apply { out.forEach { add(it) } }
+    }
 
     // ── 会话管理 ────────────────────────────────────────────────────────
 
@@ -61,7 +122,7 @@ class AgentViewModel : ViewModel() {
 
     fun newSession() {
         val store = store ?: return
-        if (isLoading) return
+        currentJob?.cancel(); isLoading = false   // 取消进行中的生成，避免写入新会话造成错乱
         val s = store.create()
         currentSessionId = s.id
         messages.clear(); llmHistory = JsonArray(); systemPromptAdded = false; tools = null; errorMessage = null
@@ -70,9 +131,8 @@ class AgentViewModel : ViewModel() {
 
     fun switchSession(id: String) {
         val store = store ?: return
-        if (isLoading || id == currentSessionId && messages.isNotEmpty()) {
-            currentSessionId = id; return
-        }
+        if (id == currentSessionId && messages.isNotEmpty() && !isLoading) return
+        currentJob?.cancel(); isLoading = false   // 切换前停掉旧生成，避免两个会话内容串台
         val convo = store.load(id) ?: return
         currentSessionId = id
         messages.clear()
@@ -80,7 +140,9 @@ class AgentViewModel : ViewModel() {
             messages.add(ChatMessage(
                 role = m.role,
                 content = m.content,
-                navSuggestions = m.nav.mapNotNull { if (it.size >= 2) it[0] to it[1] else null }
+                navSuggestions = m.nav.mapNotNull { if (it.size >= 2) it[0] to it[1] else null },
+                widgets = m.widgets.orEmpty().mapNotNull { storedToWidget(it, gson) },
+                reasoningContent = m.reasoningContent.orEmpty()
             ))
         }
         llmHistory = runCatching { JsonParser.parseString(convo.llmHistory).asJsonArray }.getOrDefault(JsonArray())
@@ -111,11 +173,17 @@ class AgentViewModel : ViewModel() {
     }
 
     /** 把当前会话写盘。保留 tool_event 工具调用记录（下次进入不丢）；标题已锁定时不自动覆盖。 */
-    private fun persist() {
+    private fun persist(id: String? = currentSessionId) {
         val store = store ?: return
-        val id = currentSessionId ?: return
+        id ?: return
         val stored = messages.map {
-            StoredMessage(it.role, it.content, it.navSuggestions.map { p -> listOf(p.first, p.second) })
+            StoredMessage(
+                it.role,
+                it.content,
+                it.navSuggestions.map { p -> listOf(p.first, p.second) },
+                it.widgets.map { widget -> widget.toStored(gson) }.filter { widget -> widget.type.isNotEmpty() },
+                it.reasoningContent.takeIf { reasoning -> reasoning.isNotBlank() }
+            )
         }
         val title = if (store.isLocked(id))
             sessions.firstOrNull { it.id == id }?.title ?: deriveTitle()
@@ -172,11 +240,21 @@ class AgentViewModel : ViewModel() {
         messages.add(ChatMessage("user", userText))
         isLoading = true
 
-        viewModelScope.launch {
+        val turnSid = currentSessionId   // 本轮所属会话；切走后不再写当前 messages，避免串台
+        var streamIdx = -1   // 流式回答气泡的下标，首个 delta 到达时创建
+        currentJob = viewModelScope.launch {
             try {
                 // 首次调用时初始化，此后复用（loginFailedAt 冷却状态得以保留）
-                val registry = tools ?: AgentToolRegistry(loginState, DataCache(context), context)
-                    .also { tools = it }
+                if (toolsDisabledCaps != config.disabledCaps) {
+                    tools = null
+                    toolsDisabledCaps = config.disabledCaps
+                }
+                val registry = tools ?: AgentToolRegistry(
+                    loginState,
+                    DataCache(context),
+                    context,
+                    config.disabledCaps
+                ).also { tools = it }
                 registry.drainWidgets()   // 丢弃上一轮残留，确保本轮控件干净
                 val runner = AgentRunner(registry)
 
@@ -200,6 +278,8 @@ class AgentViewModel : ViewModel() {
                     addProperty("role", "user")
                     addProperty("content", "${nowTag()}\n$userText")
                 })
+                sanitizeHistory()   // 自愈：清掉上一次中断留下的 tool_calls 残体
+                truncateHistory()   // 过长则直接截断旧消息
 
                 var toolBubbleIndex = -1
                 val calledTools = mutableListOf<String>()
@@ -207,18 +287,43 @@ class AgentViewModel : ViewModel() {
                 val reply = runner.run(
                     messages = llmHistory,
                     config = config,
+                    onDelta = { frag ->
+                        if (currentSessionId == turnSid) {   // 已切走则不再写，防串台
+                            if (streamIdx < 0) {
+                                messages.add(ChatMessage("assistant", ""))
+                                streamIdx = messages.lastIndex
+                            }
+                            messages[streamIdx] = messages[streamIdx].copy(
+                                content = messages[streamIdx].content + frag
+                            )
+                        }
+                    },
+                    onReasoningDelta = { frag ->
+                        if (currentSessionId == turnSid) {
+                            if (streamIdx < 0) {
+                                messages.add(ChatMessage("assistant", ""))
+                                streamIdx = messages.lastIndex
+                            }
+                            messages[streamIdx] = messages[streamIdx].copy(
+                                reasoningContent = messages[streamIdx].reasoningContent + frag
+                            )
+                        }
+                    },
                     onToolCall = { name ->
                         calledTools.add(name)
                         val label = when (name) {
                             "get_current_time"      -> "获取当前时间…"
                             "get_schedule"          -> "查询课表…"
                             "get_exam_schedule"     -> "查询考试安排…"
+                            "get_school_calendar"   -> "查询校历…"
+                            "search_school_courses" -> "查询全校课程…"
                             "get_empty_rooms"       -> "查询空教室…"
                             "get_attendance"        -> "查询考勤记录…"
                             "get_grades"            -> "查询成绩…"
                             "get_card_balance"      -> "查询校园卡余额…"
                             "get_card_transactions" -> "查询校园卡流水…"
                             "get_notifications"     -> "查询通知公告…"
+                            "search_yellow_page"    -> "查询校园黄页…"
                             "web_search"            -> "联网搜索…"
                             "web_fetch"             -> "阅读网页…"
                             "get_library_booking"   -> "查询图书馆预约…"
@@ -228,6 +333,7 @@ class AgentViewModel : ViewModel() {
                             "get_lms_courses"       -> "查询课程…"
                             "get_lms_activities"    -> "查询课程活动…"
                             "get_lms_assignments"   -> "汇总作业…"
+                            "ask_jiaoxiaozhi"       -> "询问交晓智…"
                             "get_app_settings"      -> "读取设置…"
                             "set_app_setting"       -> "修改设置…"
                             "calculate"             -> "计算…"
@@ -255,11 +361,14 @@ class AgentViewModel : ViewModel() {
                 val navSuggestions = calledTools.mapNotNull { toolName ->
                     when (toolName) {
                         "get_schedule", "get_exam_schedule" -> "查看课表"   to "schedule"
+                        "get_school_calendar"               -> "查看校历"   to "school_calendar"
+                        "search_school_courses"             -> "全校课程"   to "school_course"
                         "get_empty_rooms"                   -> "空闲教室"   to "empty_room"
                         "get_attendance"                    -> "查看考勤"   to attendanceRoute
                         "get_grades"                        -> "成绩查询"   to "jwapp_score"
                         "get_card_balance", "get_card_transactions" -> "校园卡" to "campus_card"
                         "get_notifications"                 -> "通知公告"   to "notification"
+                        "search_yellow_page"                -> "校园黄页"   to "yellow_page"
                         "get_library_booking", "get_library_seats" -> "图书馆" to "library"
                         "get_textbooks"                     -> "教材中心"   to "jiaocai"
                         "get_coupons"                       -> "加餐券"     to "coupon"
@@ -270,20 +379,40 @@ class AgentViewModel : ViewModel() {
                 }.distinctBy { it.second }
 
                 val widgets = registry.drainWidgets()
-                messages.add(ChatMessage("assistant", reply, navSuggestions = navSuggestions, widgets = widgets))
-                maybeAutoTitle(config)   // 首轮结束后用 AI 总结一个会话标题（仿 opencode）
+                if (currentSessionId == turnSid) {   // 仍在本会话才写 UI
+                    if (streamIdx >= 0) {
+                        messages[streamIdx] = messages[streamIdx].copy(
+                            content = reply, navSuggestions = navSuggestions, widgets = widgets
+                        )
+                    } else {
+                        messages.add(ChatMessage("assistant", reply, navSuggestions = navSuggestions, widgets = widgets))
+                    }
+                    maybeAutoTitle(config)   // 首轮结束后用 AI 总结一个会话标题（仿 opencode）
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // 用户点了"停止"/切换会话：保留已生成的部分（仅当仍在本会话）
+                if (currentSessionId == turnSid && streamIdx >= 0)
+                    messages[streamIdx] = messages[streamIdx].copy(
+                        content = messages[streamIdx].content.ifBlank { "（已停止）" }
+                    )
+                throw e
             } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
-                messages.add(ChatMessage("assistant", "登录已失效，请返回并重新进入对应功能页面完成认证后再试。"))
+                if (currentSessionId == turnSid)
+                    messages.add(ChatMessage("assistant", "登录已失效，请返回并重新进入对应功能页面完成认证后再试。"))
             } catch (e: Exception) {
                 // 兜底文案：异常 message 可能为 null（如某些 IO/解析异常），避免直接显示「出错了：null」
                 val detail = e.message?.takeIf { it.isNotBlank() }
                     ?: e::class.simpleName?.let { "请求异常（$it）" }
                     ?: "未知错误"
-                errorMessage = detail
-                messages.add(ChatMessage("assistant", "出错了：$detail"))
+                if (currentSessionId == turnSid) {
+                    errorMessage = detail
+                    messages.add(ChatMessage("assistant", "出错了：$detail"))
+                }
             } finally {
-                isLoading = false
-                persist()   // 落盘当前会话（用户提问 + 回复/错误都已在 messages 中）
+                if (currentSessionId == turnSid) {
+                    isLoading = false
+                    persist(turnSid)   // 仅当仍在本会话才落盘，避免把新会话内容写到旧 id
+                }
             }
         }
     }

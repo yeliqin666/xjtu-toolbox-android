@@ -39,7 +39,8 @@ import java.time.format.DateTimeFormatter
 class AgentToolRegistry(
     private val loginState: AppLoginState,
     private val dataCache: DataCache,
-    private val context: Context
+    private val context: Context,
+    private val disabledCaps: Set<String> = emptySet()
 ) {
     private val gson = Gson()
 
@@ -172,13 +173,30 @@ class AgentToolRegistry(
             params("date" to strProp("查询日期，格式yyyy-MM-dd，不填则返回本周。"))))
         arr.add(tool("get_exam_schedule",
             "查询考试安排，含日期、时间、地点、座位号。需要教务系统登录。"))
+        arr.add(tool("get_school_calendar",
+            "查询西安交通大学校历，含学期起止日期、总周数、当前周、假期、考试周等重要事件。term可填学年或学期关键词，不填返回当前学期。",
+            params("term" to strProp("学期关键词，如2025-2026、第一学期；不填查当前学期。"))))
+        arr.add(tool("search_school_courses",
+            "查询全校开课信息，可按课程名、教师、校区、星期、节次、学期筛选，返回教师、学分、容量、时间地点等。需要教务系统登录。至少提供课程名或教师等一个条件，避免无边界查询。",
+            params(
+                "course_name" to strProp("课程名称，模糊匹配。"),
+                "teacher" to strProp("教师姓名，模糊匹配。"),
+                "course_code" to strProp("课程号，模糊匹配。"),
+                "department" to strProp("开课单位名称，如数学学院。"),
+                "campus" to strProp("校区：兴庆/雁塔/曲江/苏州/创新港。"),
+                "term" to strProp("学期代码，如2025-2026-2；不填使用当前学期。"),
+                "weekday" to intProp("星期几，1-7。"),
+                "section" to intProp("节次，1-11；同时匹配该节所在课程。"),
+                "public_elective" to boolProp("是否仅查校公选课。"),
+                "limit" to intProp("返回条数，默认10，最多20。")
+            )))
         arr.add(tool("get_empty_rooms",
-            "查询空闲教室。从CDN获取数据，无需登录。campus可选：兴庆校区/雁塔校区/曲江校区/创新港校区；building为楼名如「主楼A」；section为节次1-11；date为yyyy-MM-dd。",
+            "查询空闲教室。从CDN获取数据，无需登录。campus可选：兴庆校区/雁塔校区/曲江校区/创新港校区；building为楼名如「主楼A」；section为节次1-11；date可填今天/明天/today/tomorrow/yyyy-MM-dd。",
             params(
                 "campus"   to strProp("校区名称，不填则默认兴庆校区。"),
                 "building" to strProp("教学楼名称，不填则查该校区所有楼。"),
                 "section"  to intProp("节次1-11，不填则查全天空教室。"),
-                "date"     to strProp("日期yyyy-MM-dd，不填则查今天。")
+                "date"     to strProp("查询日期：今天/明天/today/tomorrow/yyyy-MM-dd；不填则查今天。")
             )))
         arr.add(tool("get_attendance",
             "查询最近考勤记录（正常/迟到/缺勤）。需要考勤系统登录。",
@@ -196,6 +214,13 @@ class AgentToolRegistry(
             "查询校内最新通知公告，含标题、来源、日期、链接。无需登录。可指定来源（某学院/部门）；不指定则看核心来源（教务处+研究生院+学生处）。",
             params(
                 "source" to strProp("来源名称，如 教务处/研究生院/机械学院/电气学院/数学学院 等；不填看核心来源。"),
+                "limit" to intProp("返回条数，默认10，最多20。")
+            )))
+        arr.add(tool("search_yellow_page",
+            "查询西安交通大学校园黄页中的机构联系电话。可按机构名称、电话号码或机构分类搜索，无需登录。",
+            params(
+                "query" to strProp("机构名或电话号码关键词，如教务处、保卫处、82665623；可留空配合category列出分类。"),
+                "category" to strProp("机构分类：党群机构/行政机构/直属单位/附属单位/其它。"),
                 "limit" to intProp("返回条数，默认10，最多20。")
             )))
         arr.add(tool("web_search",
@@ -224,6 +249,12 @@ class AgentToolRegistry(
             params("course" to strProp("课程名称，模糊匹配；不填会提示先查课程列表。"))))
         arr.add(tool("get_lms_assignments",
             "汇总思源学堂所有课程的作业（最新作业一览）。需要思源学堂登录，会逐课查询，稍慢。"))
+        arr.add(tool("ask_jiaoxiaozhi",
+            "向学校交晓智知识服务提问。适合查询校园政策、办事流程、校内知识库内容；返回内容仍需核验，不应用于课表、成绩、余额等已有专用工具可查询的数据。",
+            params(
+                "question" to strProp("要交给交晓智回答的完整问题。"),
+                "model" to strProp("可选模型：qwen-plus / qwen-max / deepseek-r1 / doubao-pro；默认 qwen-plus。")
+            )))
         arr.add(tool("get_app_settings",
             "读取本应用可调设置（主题 / 启动页 / 网络模式 / 自动更新 / 更新通道）当前值与可选项。无需登录。"))
         arr.add(tool("set_app_setting",
@@ -237,7 +268,39 @@ class AgentToolRegistry(
             params("expression" to strProp("表达式，如 (3.7*4+4.0*3)/(4+3) 或 92*0.4+88*0.6。"))))
         arr.add(tool("check_update",
             "检查 App 是否有新版本（对比当前版本与发布渠道的最新版）。无需登录。"))
-        return arr.toString()
+        val toolCaps = mapOf(
+            "get_schedule" to "schedule",
+            "get_exam_schedule" to "schedule",
+            "get_school_calendar" to "schedule",
+            "search_school_courses" to "schedule",
+            "get_empty_rooms" to "schedule",
+            "get_attendance" to "attendance",
+            "get_grades" to "grades",
+            "get_card_balance" to "card",
+            "get_card_transactions" to "card",
+            "get_notifications" to "notifications",
+            "search_yellow_page" to "yellow_page",
+            "web_search" to "web",
+            "web_fetch" to "web",
+            "get_library_booking" to "library",
+            "get_library_seats" to "library",
+            "get_textbooks" to "textbook",
+            "get_coupons" to "coupon",
+            "get_lms_courses" to "lms",
+            "get_lms_activities" to "lms",
+            "get_lms_assignments" to "lms",
+            "ask_jiaoxiaozhi" to "jiaoxiaozhi",
+            "set_app_setting" to "settings_write"
+        )
+        return JsonArray().apply {
+            arr.forEach { definition ->
+                val name = definition.asJsonObject
+                    .getAsJsonObject("function")
+                    .get("name").asString
+                val cap = toolCaps[name]
+                if (cap == null || cap !in disabledCaps) add(definition)
+            }
+        }.toString()
     }
 
     /** 构造单个 function-calling 工具对象。params 省略时为无参。 */
@@ -265,6 +328,7 @@ class AgentToolRegistry(
 
     private fun strProp(description: String): JsonObject = propOf("string", description)
     private fun intProp(description: String): JsonObject = propOf("integer", description)
+    private fun boolProp(description: String): JsonObject = propOf("boolean", description)
     private fun propOf(type: String, description: String): JsonObject = JsonObject().apply {
         addProperty("type", type)
         addProperty("description", description)
@@ -280,6 +344,19 @@ class AgentToolRegistry(
             "get_current_time" -> getCurrentTime()
             "get_schedule" -> getSchedule(args["date"] as? String)
             "get_exam_schedule" -> getExamSchedule()
+            "get_school_calendar" -> getSchoolCalendar(args["term"] as? String)
+            "search_school_courses" -> searchSchoolCourses(
+                courseName = args["course_name"] as? String,
+                teacher = args["teacher"] as? String,
+                courseCode = args["course_code"] as? String,
+                department = args["department"] as? String,
+                campus = args["campus"] as? String,
+                term = args["term"] as? String,
+                weekday = (args["weekday"] as? Double)?.toInt(),
+                section = (args["section"] as? Double)?.toInt(),
+                publicElective = args["public_elective"] as? Boolean,
+                limit = (args["limit"] as? Double)?.toInt() ?: 10
+            )
             "get_empty_rooms" -> getEmptyRooms(
                 campus = args["campus"] as? String,
                 building = args["building"] as? String,
@@ -293,6 +370,11 @@ class AgentToolRegistry(
             "get_card_balance" -> getCardBalance()
             "get_card_transactions" -> getCardTransactions((args["days"] as? Double)?.toInt() ?: 7)
             "get_notifications" -> getNotifications(args["source"] as? String, (args["limit"] as? Double)?.toInt() ?: 10)
+            "search_yellow_page" -> searchYellowPage(
+                query = args["query"] as? String,
+                category = args["category"] as? String,
+                limit = (args["limit"] as? Double)?.toInt() ?: 10
+            )
             "web_search" -> webSearch(args["query"] as? String ?: "", (args["limit"] as? Double)?.toInt() ?: 5)
             "web_fetch" -> webFetch(args["url"] as? String ?: "")
             "get_library_booking" -> getLibraryBooking()
@@ -302,6 +384,10 @@ class AgentToolRegistry(
             "get_lms_courses" -> getLmsCourses()
             "get_lms_activities" -> getLmsActivities(args["course"] as? String)
             "get_lms_assignments" -> getLmsAssignments()
+            "ask_jiaoxiaozhi" -> askJiaoxiaozhi(
+                question = args["question"] as? String ?: "",
+                model = args["model"] as? String
+            )
             "get_app_settings" -> getAppSettings()
             "set_app_setting" -> setAppSetting(args["key"] as? String ?: "", args["value"] as? String ?: "")
             "calculate" -> calculate(args["expression"] as? String ?: "")
@@ -311,6 +397,30 @@ class AgentToolRegistry(
     }
 
     // ── 实现 ──────────────────────────────────────────────────────────────
+
+    private suspend fun askJiaoxiaozhi(question: String, model: String?): String {
+        if (question.isBlank()) return "请提供要向交晓智提问的问题。"
+        val manager = loginState.sessionManager ?: return "交晓智会话管理器尚未初始化。"
+        val modelId = when (model?.trim()?.lowercase()) {
+            null, "", "qwen-plus" -> "qwen-plus"
+            "qwen-max" -> "qwen-max"
+            "deepseek-r1", "deepseek" -> "ep-20250207092149-pvc95"
+            "doubao-pro", "doubao1.5-pro", "doubao" -> "ep-20250219175323-5mvmg"
+            else -> "qwen-plus"
+        }
+        return runCatching {
+            com.xjtu.toolbox.jiaoxiaozhi.JiaoxiaozhiCompat(manager).ask(
+                question = """
+                    你是一个供另一位校园助手参考的知识子代理。
+                    请直接回答问题，区分已确认事实与不确定信息，不要声称你能访问未实际提供的数据。
+
+                    问题：$question
+                """.trimIndent(),
+                modelId = modelId,
+                networkEnabled = true,
+            )
+        }.getOrElse { "交晓智查询失败：${it.message ?: "服务暂不可用"}" }
+    }
 
     private fun getCurrentTime(): String {
         val now = LocalDateTime.now()
@@ -360,6 +470,155 @@ class AgentToolRegistry(
     private fun cachedStartDate(term: String): String? = runCatching {
         gson.fromJson(dataCache.get("start_date_$term", Long.MAX_VALUE), String::class.java)
     }.getOrNull()
+
+    private fun getSchoolCalendar(term: String?): String {
+        return try {
+            val terms = com.xjtu.toolbox.calendar.SchoolCalendarApi(loginState.jwxtLogin).getTerms()
+            if (terms.isEmpty()) return "暂无校历数据。"
+            val today = LocalDate.now()
+            val selected = if (term.isNullOrBlank()) {
+                terms.firstOrNull { today in it.startDate..it.endDate }
+                    ?: terms.lastOrNull { it.startDate <= today }
+                    ?: terms.last()
+            } else {
+                terms.firstOrNull {
+                    it.id.contains(term, ignoreCase = true) ||
+                        it.termName.contains(term, ignoreCase = true) ||
+                        it.yearName.contains(term, ignoreCase = true)
+                } ?: return "未找到学期「$term」。可选：${terms.takeLast(6).joinToString("、") { it.termName }}"
+            }
+            val week = selected.currentWeek(today)
+            buildString {
+                append("${selected.termName}校历：\n")
+                append("• 学期：${selected.startDate} 至 ${selected.endDate}，共${selected.totalWeeks}周")
+                if (week > 0) append("；今天是第${week}周")
+                append("\n")
+                if (selected.events.isEmpty()) {
+                    append("• 暂无假期或重要事件数据。")
+                } else {
+                    append("重要事件：\n")
+                    selected.events.forEach { event ->
+                        append("• ${event.name}：${event.startDate}")
+                        if (event.endDate != event.startDate) append(" 至 ${event.endDate}")
+                        if (event.days > 0) append("（${event.days}天）")
+                        if (event.remark.isNotBlank()) append("；${event.remark}")
+                        append("\n")
+                    }
+                }
+            }.trimEnd()
+        } catch (e: Exception) {
+            "获取校历失败：${e.message ?: "网络异常"}"
+        }
+    }
+
+    private fun searchYellowPage(query: String?, category: String?, limit: Int): String {
+        return try {
+            val data = com.xjtu.toolbox.yellowpage.YellowPageApi(context).getData()
+            val categoryId = category?.takeIf { it.isNotBlank() }?.let { name ->
+                data.categories.firstOrNull {
+                    it.name == name || it.name.contains(name) || name.contains(it.name)
+                }?.id ?: return "未找到黄页分类「$name」。可选：${data.categories.joinToString("、") { it.name }}"
+            }
+            val keyword = query.orEmpty().trim()
+            val result = data.departments.asSequence()
+                .filter { categoryId == null || it.categoryId == categoryId }
+                .filter {
+                    keyword.isBlank() ||
+                        it.name.contains(keyword, ignoreCase = true) ||
+                        it.phone.contains(keyword, ignoreCase = true)
+                }
+                .take(limit.coerceIn(1, 20))
+                .toList()
+            if (result.isEmpty()) return "校园黄页中没有找到符合条件的机构。"
+            buildString {
+                append("校园黄页")
+                if (data.updateTime.isNotBlank()) append("（更新于${data.updateTime}）")
+                append("：\n")
+                result.forEach { department ->
+                    val categoryName = data.categories.firstOrNull { it.id == department.categoryId }?.name
+                    append("• ${department.name}：${department.phone}")
+                    categoryName?.let { append("（$it）") }
+                    append("\n")
+                }
+                if (result.size == limit.coerceIn(1, 20)) append("如需查看更多，可打开校园黄页继续搜索。")
+            }.trimEnd()
+        } catch (e: Exception) {
+            "查询校园黄页失败：${e.message ?: "网络异常"}"
+        }
+    }
+
+    private suspend fun searchSchoolCourses(
+        courseName: String?,
+        teacher: String?,
+        courseCode: String?,
+        department: String?,
+        campus: String?,
+        term: String?,
+        weekday: Int?,
+        section: Int?,
+        publicElective: Boolean?,
+        limit: Int
+    ): String {
+        val hasFilter = listOf(courseName, teacher, courseCode, department, campus, term)
+            .any { !it.isNullOrBlank() } || weekday != null || section != null || publicElective != null
+        if (!hasFilter) return "请至少提供课程名、教师、校区、星期或其他一个查询条件。"
+        if (weekday != null && weekday !in 1..7) return "weekday 必须是1到7。"
+        if (section != null && section !in 1..11) return "section 必须是1到11。"
+        if (loginState.jwxtLogin == null && !tryAutoLogin(LoginType.JWXT))
+            return "需要教务系统登录，请先打开全校课程查询页面完成认证。"
+        val login = loginState.jwxtLogin ?: return "教务系统登录未就绪，请稍后再试。"
+        return try {
+            val api = com.xjtu.toolbox.schedule.SchoolCourseApi(login)
+            val termCode = term?.takeIf { it.isNotBlank() } ?: api.getCurrentTerm()
+            if (termCode.isBlank()) return "无法获取当前学期，请明确提供学期代码，如2025-2026-2。"
+            val departmentCode = department?.takeIf { it.isNotBlank() }?.let { name ->
+                api.getDepartments().firstOrNull {
+                    it.name == name || it.name.contains(name) || name.contains(it.name)
+                }?.code ?: return "未找到开课单位「$name」。"
+            }
+            val campusCode = campus?.takeIf { it.isNotBlank() }?.let { name ->
+                api.getCampusList().firstOrNull {
+                    it.name == name || it.name.contains(name) || name.contains(it.name)
+                }?.code ?: return "未找到校区「$name」。可选：${api.getCampusList().joinToString("、") { it.name }}"
+            }
+            val result = api.queryCourses(
+                termCode = termCode,
+                courseName = courseName,
+                courseCode = courseCode,
+                teacher = teacher,
+                departmentCode = departmentCode,
+                campusCode = campusCode,
+                isPublicElective = publicElective,
+                weekday = weekday,
+                startSection = section,
+                endSection = section,
+                pageSize = limit.coerceIn(1, 20),
+                pageNumber = 1
+            )
+            if (result.courses.isEmpty()) return "没有找到符合条件的课程。"
+            buildString {
+                append("全校课程查询：共找到${result.totalSize}条，展示${result.courses.size}条：\n")
+                result.courses.forEach { course ->
+                    append("• ${course.courseName}（${course.courseCode}-${course.sectionNumber}）")
+                    if (course.teacher.isNotBlank()) append(" / ${course.teacher}")
+                    append("\n")
+                    append("  ${course.credit}学分")
+                    if (course.department.isNotBlank()) append(" · ${course.department}")
+                    if (course.campus.isNotBlank()) append(" · ${course.campus}")
+                    if (course.scheduleLocation.isNotBlank()) append("\n  ${course.scheduleLocation}")
+                    if (course.capacity > 0) {
+                        append("\n  已选${course.enrollCount}/${course.capacity}，剩余${course.remaining.coerceAtLeast(0)}")
+                    }
+                    append("\n")
+                }
+                if (result.totalSize > result.courses.size) append("还有更多结果，可前往全校课程查询页继续筛选。")
+            }.trimEnd()
+        } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
+            throw e
+        } catch (e: Exception) {
+            "查询全校课程失败：${e.message ?: "网络异常"}"
+        }
+    }
 
     /**
      * 确保课表（学期 / 课程 / 起始日）就绪：缓存缺失时**直接在线拉取并写缓存**，
@@ -465,8 +724,7 @@ class AgentToolRegistry(
     private suspend fun getEmptyRooms(campus: String?, building: String?, section: Int?, date: String?): String {
         return try {
             val api = EmptyRoomApi(context)
-            val targetDate = date?.let { runCatching { LocalDate.parse(it) }.getOrElse { LocalDate.now() } }
-                ?: LocalDate.now()
+            val targetDate = parseToolDate(date)
             val dateStr = targetDate.format(DateTimeFormatter.ISO_LOCAL_DATE)
 
             val targetCampus = campus ?: "兴庆校区"
@@ -528,6 +786,15 @@ class AgentToolRegistry(
             }
         } catch (e: Exception) {
             "获取空教室失败：${e.message}"
+        }
+    }
+
+    private fun parseToolDate(date: String?): LocalDate {
+        val today = LocalDate.now()
+        return when (date?.trim()?.lowercase()) {
+            null, "", "今天", "今日", "today" -> today
+            "明天", "tomorrow" -> today.plusDays(1)
+            else -> runCatching { LocalDate.parse(date.trim()) }.getOrElse { today }
         }
     }
 
@@ -993,7 +1260,7 @@ class AgentToolRegistry(
             return v
         }
         private fun skipWs() { while (pos < s.length && s[pos].isWhitespace()) pos++ }
-        private fun peek(): Char { skipWs(); return if (pos < s.length) s[pos] else ' ' }
+        private fun peek(): Char { skipWs(); return if (pos < s.length) s[pos] else '\u0000' }
         private fun expr(): Double {
             var v = term()
             while (true) when (peek()) {

@@ -98,6 +98,7 @@ class SessionManager(context: Context) {
     // ── 凭据 ────────────────────────────────────────────
     @Volatile var credentials: Pair<String, String>? = null
         private set
+    @Volatile var accountType: XJTULogin.AccountType = XJTULogin.AccountType.UNDERGRADUATE
 
     fun setCredentials(username: String, password: String) {
         val old = credentials

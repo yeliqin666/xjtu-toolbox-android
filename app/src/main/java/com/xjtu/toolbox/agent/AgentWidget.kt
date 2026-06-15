@@ -10,6 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.google.gson.Gson
 import com.xjtu.toolbox.attendance.AttendanceWaterRecord
 import com.xjtu.toolbox.attendance.WaterType
 import com.xjtu.toolbox.card.CardInfo
@@ -50,6 +51,21 @@ data class GradeWidget(val grades: List<ReportedGrade>, val gpa: Double?, val to
 
 /** 校园卡信息。 */
 data class CardWidget(val info: CardInfo) : AgentWidget
+
+fun AgentWidget.toStored(gson: Gson): StoredWidget =
+    StoredWidget(javaClass.simpleName, gson.toJson(this))
+
+fun storedToWidget(stored: StoredWidget, gson: Gson): AgentWidget? = runCatching {
+    when (stored.type) {
+        "ScheduleWidget" -> gson.fromJson(stored.json, ScheduleWidget::class.java)
+        "ExamWidget" -> gson.fromJson(stored.json, ExamWidget::class.java)
+        "RoomWidget" -> gson.fromJson(stored.json, RoomWidget::class.java)
+        "AttendanceWidget" -> gson.fromJson(stored.json, AttendanceWidget::class.java)
+        "GradeWidget" -> gson.fromJson(stored.json, GradeWidget::class.java)
+        "CardWidget" -> gson.fromJson(stored.json, CardWidget::class.java)
+        else -> null
+    }
+}.getOrNull()
 
 private val DAY_NAMES = listOf("", "周一", "周二", "周三", "周四", "周五", "周六", "周日")
 

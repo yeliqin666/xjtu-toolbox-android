@@ -28,7 +28,8 @@ abstract class CasSiteSession(
     ): XJTULogin
 
     /** 若账户存在多重身份，本站选择哪一种。默认研究生。 */
-    protected open val accountType: XJTULogin.AccountType = XJTULogin.AccountType.POSTGRADUATE
+    protected open val accountType: XJTULogin.AccountType
+        get() = manager?.accountType ?: XJTULogin.AccountType.UNDERGRADUATE
 
     /** 登录成功后回调。子类可在此提取本站局部 token，写入 [localToken]。 */
     protected open fun onLoginSuccess(login: XJTULogin) {}

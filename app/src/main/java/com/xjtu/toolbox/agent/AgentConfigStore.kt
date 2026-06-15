@@ -11,7 +11,11 @@ data class AgentConfig(
     val model: String = "",
     val baseUrl: String = "",
     val maxToolCalls: Int = 4,
-    val assistantName: String = DEFAULT_ASSISTANT_NAME
+    val assistantName: String = DEFAULT_ASSISTANT_NAME,
+    val disabledCaps: Set<String> = emptySet(),
+    val thinkingEnabled: Boolean = true,
+    val reasoningEffort: String = REASONING_AUTO,
+    val showReasoning: Boolean = true
 ) {
     val effectiveName: String get() = assistantName.trim().ifBlank { DEFAULT_ASSISTANT_NAME }
 
@@ -26,7 +30,7 @@ data class AgentConfig(
         get() = model.ifBlank {
             when (provider) {
                 PROVIDER_OPENAI -> "gpt-4o-mini"
-                else -> "deepseek-chat"
+                else -> "deepseek-v4-flash"
             }
         }
 
@@ -37,8 +41,12 @@ data class AgentConfig(
         const val PROVIDER_DEEPSEEK = "deepseek"
         const val PROVIDER_OPENAI = "openai"
         const val PROVIDER_CUSTOM = "custom"
+        const val REASONING_AUTO = "auto"
+        const val REASONING_HIGH = "high"
+        const val REASONING_MAX = "max"
 
         val PROVIDERS = listOf(PROVIDER_DEEPSEEK, PROVIDER_OPENAI, PROVIDER_CUSTOM)
+        val REASONING_EFFORTS = listOf(REASONING_AUTO, REASONING_HIGH, REASONING_MAX)
 
         fun providerLabel(p: String) = when (p) {
             PROVIDER_DEEPSEEK -> "DeepSeek（推荐）"
@@ -77,7 +85,18 @@ class AgentConfigStore(context: Context) {
         baseUrl = prefs.getString("base_url", "") ?: "",
         maxToolCalls = prefs.getInt("max_tool_calls", 4),
         assistantName = prefs.getString("assistant_name", AgentConfig.DEFAULT_ASSISTANT_NAME)
-            ?: AgentConfig.DEFAULT_ASSISTANT_NAME
+            ?: AgentConfig.DEFAULT_ASSISTANT_NAME,
+        disabledCaps = prefs.getString("disabled_caps", "")
+            .orEmpty()
+            .split(",")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .toSet(),
+        thinkingEnabled = prefs.getBoolean("thinking_enabled", true),
+        reasoningEffort = prefs.getString("reasoning_effort", AgentConfig.REASONING_AUTO)
+            ?.takeIf { it in AgentConfig.REASONING_EFFORTS }
+            ?: AgentConfig.REASONING_AUTO,
+        showReasoning = prefs.getBoolean("show_reasoning", true)
     )
 
     fun save(config: AgentConfig) {
@@ -87,6 +106,10 @@ class AgentConfigStore(context: Context) {
             .putString("base_url", config.baseUrl)
             .putInt("max_tool_calls", config.maxToolCalls)
             .putString("assistant_name", config.assistantName)
+            .putString("disabled_caps", config.disabledCaps.sorted().joinToString(","))
+            .putBoolean("thinking_enabled", config.thinkingEnabled)
+            .putString("reasoning_effort", config.reasoningEffort)
+            .putBoolean("show_reasoning", config.showReasoning)
             .apply()
         securePrefs.edit()
             .putString("api_key", config.apiKey)

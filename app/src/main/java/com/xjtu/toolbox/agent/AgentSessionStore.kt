@@ -18,11 +18,18 @@ data class AgentSession(
     val locked: Boolean = false
 )
 
-/** 持久化用的精简消息——不含 widgets：富控件是每轮即时派生的展示物，不入库。 */
+data class StoredWidget(
+    val type: String,
+    val json: String
+)
+
+/** 持久化用的精简消息。 */
 data class StoredMessage(
     val role: String,
     val content: String,
-    val nav: List<List<String>> = emptyList()   // [[label, route], ...]
+    val nav: List<List<String>> = emptyList(),   // [[label, route], ...]
+    val widgets: List<StoredWidget>? = emptyList(),
+    val reasoningContent: String? = null
 )
 
 /** 一个会话的完整内容：UI 消息 + 供续聊的 LLM 历史（JsonArray 的字符串形式）。 */

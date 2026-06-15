@@ -51,7 +51,10 @@ private const val TAG = "BrowserScreen"
  * 将 OkHttp CookieJar 中的 cookies 同步到 Android WebView CookieManager
  * 兼容 PersistentCookieJar 和 java.net.CookieManager
  */
-private fun syncCookiesToWebView(login: XJTULogin?) {
+internal fun syncCookiesToWebView(
+    login: XJTULogin?,
+    extraDomains: List<String> = emptyList()
+) {
     if (login == null) return
     val webCookieManager = android.webkit.CookieManager.getInstance()
     webCookieManager.setAcceptCookie(true)
@@ -60,12 +63,12 @@ private fun syncCookiesToWebView(login: XJTULogin?) {
         val jar = login.client.cookieJar
         if (jar is com.xjtu.toolbox.util.PersistentCookieJar) {
             // 使用 PersistentCookieJar：向常见域名查询 cookies
-            val domains = listOf(
+            val domains = (listOf(
                 "login.xjtu.edu.cn", "cas.xjtu.edu.cn", "org.xjtu.edu.cn",
                 "jwxt.xjtu.edu.cn", "ywtb.xjtu.edu.cn", "bkkq.xjtu.edu.cn",
                 "ncard.xjtu.edu.cn", "rg.lib.xjtu.edu.cn", "jwapp.xjtu.edu.cn",
                 "webvpn.xjtu.edu.cn"
-            )
+            ) + extraDomains).distinct()
             var count = 0
             for (domain in domains) {
                 val url = okhttp3.HttpUrl.Builder()

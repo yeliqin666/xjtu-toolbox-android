@@ -167,7 +167,8 @@ class MainActivity : ComponentActivity() {
             val s = vm.loginState
             val logins = listOfNotNull(
                 s.jwxtLogin, s.jwappLogin, s.ywtbLogin, s.attendanceLogin, s.postgraduateAttendanceLogin,
-                s.dzpzLogin, s.venueLogin, s.classLogin, s.lmsLogin, s.couponLogin
+                s.dzpzLogin, s.venueLogin, s.classLogin, s.lmsLogin, s.couponLogin,
+                s.superAppLogin, s.fitnessLogin
             )
             com.xjtu.toolbox.auth.SessionKeepAlive.KeepAliveSnapshot(
                 logins = logins,
@@ -232,12 +233,16 @@ object Routes {
     const val JIAOCAI = "jiaocai"
     const val SCHOOL_COURSE = "school_course"
     const val SCHOOL_CALENDAR = "school_calendar"
+    const val YELLOW_PAGE = "yellow_page"
+    const val MOBILE_JIAODA = "mobile_jiaoda"
+    const val FITNESS = "fitness"
     const val VIDEO_PLAYER = "video_player/{activityId}"
     const val DOWNLOAD_MANAGER = "download_manager"
     const val BROWSER = "browser?url={url}"
     const val SETTINGS = "settings"
     const val WEBVPN_CONVERTER = "webvpn_converter"
     const val AGENT = "agent"
+    const val JIAOXIAOZHI = "jiaoxiaozhi"
 
     fun login(type: LoginType, target: String) = "login/${type.name}/$target"
     fun browser(url: String = "") = "browser?url=${java.net.URLEncoder.encode(url, "UTF-8")}"
@@ -283,6 +288,9 @@ class AppLoginState {
     var lmsLogin by mutableStateOf<com.xjtu.toolbox.lms.LmsLogin?>(null)
     var jiaocaiLogin by mutableStateOf<com.xjtu.toolbox.jiaocai.JiaocaiLogin?>(null)
     var couponLogin by mutableStateOf<CouponLogin?>(null)
+    var superAppLogin by mutableStateOf<SuperAppLogin?>(null)
+    var fitnessLogin by mutableStateOf<com.xjtu.toolbox.fitness.FitnessLogin?>(null)
+    var jiaoxiaozhiLogin by mutableStateOf<com.xjtu.toolbox.jiaoxiaozhi.JiaoxiaozhiLogin?>(null)
 
     // 持久化 CookieJar（由 ViewModel 注入；普通直连和 WebVPN 各持一个实例，cookie 物理隔离）
     var persistentCookieJar: com.xjtu.toolbox.util.PersistentCookieJar? = null
@@ -406,6 +414,9 @@ class AppLoginState {
         lmsLogin = null
         jiaocaiLogin = null
         couponLogin = null
+        superAppLogin = null
+        fitnessLogin = null
+        jiaoxiaozhiLogin = null
     }
 
     /**
@@ -487,7 +498,9 @@ class AppLoginState {
 
     val loginCount: Int
         get() = listOfNotNull(
-            attendanceLogin, postgraduateAttendanceLogin, jwxtLogin, jwappLogin, ywtbLogin, libraryLogin, campusCardLogin, dzpzLogin, venueLogin, classLogin, lmsLogin, jiaocaiLogin, couponLogin
+            attendanceLogin, postgraduateAttendanceLogin, jwxtLogin, jwappLogin, ywtbLogin, libraryLogin,
+            campusCardLogin, dzpzLogin, venueLogin, classLogin, lmsLogin, jiaocaiLogin, couponLogin,
+            superAppLogin, fitnessLogin, jiaoxiaozhiLogin
         ).size
 
     // ── autoLogin / loginWebVpn / loginJwxtWithDetails 期间触发 MFA 时的挂起信号（由 UI 层观察并弹出验证对话框）──
@@ -508,6 +521,9 @@ class AppLoginState {
         LoginType.JWAPP,
         LoginType.LMS,
         LoginType.CLASS,
+        LoginType.SUPER_APP,
+        LoginType.FITNESS,
+        LoginType.JIAOXIAOZHI,
     )
 
     /** 登录阶段 URL 在校内的服务（需经 WebVPN 才能认证）。 */
@@ -532,7 +548,10 @@ class AppLoginState {
             passwordInvalidatedDialogVisible = false
             android.util.Log.i("AppLoginState", "credentials updated, password latch cleared")
         }
-        sessionManager?.setCredentials(username, password)
+        sessionManager?.let {
+            it.setCredentials(username, password)
+            it.accountType = selectedCasAccountType()
+        }
     }
 
     /** 从 EncryptedSharedPreferences 恢复凭据和缓存 */
@@ -553,6 +572,7 @@ class AppLoginState {
         // 同步至新会话架构
         sessionManager?.let {
             it.setCredentials(savedUsername, savedPassword)
+            it.accountType = selectedCasAccountType()
             it.fpVisitorId = firstVisitorId
             it.cachedRsaKey = cachedRsaKey
         }
@@ -584,6 +604,9 @@ class AppLoginState {
             LoginType.LMS -> lmsLogin
             LoginType.JIAOCAI -> jiaocaiLogin
             LoginType.COUPON -> couponLogin
+            LoginType.SUPER_APP -> superAppLogin
+            LoginType.FITNESS -> fitnessLogin
+            LoginType.JIAOXIAOZHI -> jiaoxiaozhiLogin
         } ?: return null
 
         // Token-based 系统：仅检查有效性，不做任何网络请求
@@ -600,6 +623,12 @@ class AppLoginState {
                     android.util.Log.d("AppLoginState", "getCached(YWTB): token expired, returning null (reAuth deferred to autoLogin)")
                     return null
                 }
+            }
+            is SuperAppLogin -> {
+                if (!login.isLaunchValid()) return null
+            }
+            is com.xjtu.toolbox.jiaoxiaozhi.JiaoxiaozhiLogin -> {
+                if (!login.isAccessTokenValid()) return null
             }
             is CouponLogin -> {
                 if (!login.isTokenValid()) {
@@ -653,6 +682,14 @@ class AppLoginState {
             is com.xjtu.toolbox.lms.LmsLogin -> lmsLogin = login
             is com.xjtu.toolbox.jiaocai.JiaocaiLogin -> jiaocaiLogin = login
             is CouponLogin -> couponLogin = login
+            is SuperAppLogin -> superAppLogin = login
+            is com.xjtu.toolbox.fitness.FitnessLogin -> fitnessLogin = login
+            is com.xjtu.toolbox.jiaoxiaozhi.JiaoxiaozhiLogin -> {
+                jiaoxiaozhiLogin = login
+                (sessionManager?.getSiteOrNull(
+                    com.xjtu.toolbox.jiaoxiaozhi.JiaoxiaozhiSiteSession.SITE_KEY
+                ) as? com.xjtu.toolbox.jiaoxiaozhi.JiaoxiaozhiSiteSession)?.adopt(login)
+            }
         }
         // 立即持久化关键状态（防进程被杀丢失）
         credentialStoreRef?.let { store ->
@@ -678,6 +715,9 @@ class AppLoginState {
             LoginType.LMS -> lmsLogin = null
             LoginType.JIAOCAI -> jiaocaiLogin = null
             LoginType.COUPON -> couponLogin = null
+            LoginType.SUPER_APP -> superAppLogin = null
+            LoginType.FITNESS -> fitnessLogin = null
+            LoginType.JIAOXIAOZHI -> jiaoxiaozhiLogin = null
         }
     }
 
@@ -1283,6 +1323,7 @@ class AppLoginState {
         savedUsername = ""; savedPassword = ""
         attendanceLogin = null; postgraduateAttendanceLogin = null; jwxtLogin = null; jwappLogin = null
         ywtbLogin = null; libraryLogin = null; campusCardLogin = null; jiaocaiLogin = null; couponLogin = null
+        superAppLogin = null; fitnessLogin = null; jiaoxiaozhiLogin = null
         sharedClient = null
         vpnClient = null
         webVpnLoggedIn = false
@@ -1344,6 +1385,9 @@ class AppLoginStateViewModel(application: android.app.Application) : androidx.li
             register(com.xjtu.toolbox.auth.AttendanceSession(isPostgraduate = false))
             register(com.xjtu.toolbox.auth.AttendanceSession(isPostgraduate = true))
             register(com.xjtu.toolbox.auth.CampusCardSession())
+            register(com.xjtu.toolbox.auth.SuperAppSession())
+            register(com.xjtu.toolbox.auth.FitnessSession())
+            register(com.xjtu.toolbox.jiaoxiaozhi.JiaoxiaozhiSiteSession())
         }
         // 设备指纹：基于 ANDROID_ID 派生（硬件级稳定，不会每次启动重生成），
         // 持久化到 EncryptedSharedPreferences。即便首次登录失败也不会因为
@@ -1632,6 +1676,9 @@ fun AppNavigation(
                 Routes.LMS -> LoginType.LMS
                 Routes.JIAOCAI -> LoginType.JIAOCAI
                 Routes.COUPON -> LoginType.COUPON
+                Routes.MOBILE_JIAODA -> LoginType.SUPER_APP
+                Routes.FITNESS -> LoginType.FITNESS
+                Routes.JIAOXIAOZHI -> LoginType.JIAOXIAOZHI
                 Routes.SCHEDULE -> LoginType.JWXT
                 else -> null
             }
@@ -2072,6 +2119,33 @@ fun AppNavigation(
                 onBack = { navController.popBackStack() }
             )
         }
+        composable(Routes.YELLOW_PAGE) {
+            com.xjtu.toolbox.yellowpage.YellowPageScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+        composable(Routes.MOBILE_JIAODA) {
+            loginState.superAppLogin?.let {
+                com.xjtu.toolbox.superapp.MobileJiaodaScreen(
+                    login = it,
+                    onClose = { navController.popBackStack() }
+                )
+            } ?: LaunchedEffect(Unit) { navController.popBackStack() }
+        }
+        composable(Routes.FITNESS) {
+            loginState.fitnessLogin?.let {
+                com.xjtu.toolbox.fitness.FitnessScreen(
+                    login = it,
+                    onBack = { navController.popBackStack() }
+                )
+            } ?: LaunchedEffect(Unit) { navController.popBackStack() }
+        }
+        composable(Routes.JIAOXIAOZHI) {
+            com.xjtu.toolbox.jiaoxiaozhi.JiaoxiaozhiScreen(
+                onBack = { navController.popBackStack() },
+                onOpenLink = { url -> navController.navigate(Routes.browser(url)) }
+            )
+        }
         composable(
             Routes.VIDEO_PLAYER,
             arguments = listOf(navArgument("activityId") { type = NavType.IntType })
@@ -2230,6 +2304,10 @@ private fun MainScreen(
         }
 
         // ── 在线：有缓存 login → 直接进入 ──
+        if (type == LoginType.JIAOXIAOZHI) {
+            navigateToTarget(target)
+            return
+        }
         if (loginState.getCached(type) != null) {
             navigateToTarget(target)
         } else if (loginState.hasCredentials) {
@@ -2237,7 +2315,13 @@ private fun MainScreen(
             // 有保存的凭据，尝试自动登录
             showAutoLoginSheet.value = true
             autoLoginMessage = "正在连接${type.label}…"
-            val autoLoginTimeoutMs = if (type == LoginType.COUPON) 180_000L else 25_000L
+            val autoLoginTimeoutMs = when (type) {
+                LoginType.COUPON,
+                LoginType.SUPER_APP,
+                LoginType.FITNESS,
+                LoginType.JIAOXIAOZHI -> 180_000L
+                else -> 25_000L
+            }
             autoLoginJob?.cancel() // 取消旧的登录任务，避免竞态
             autoLoginJob = scope.launch {
                 try {
@@ -2336,12 +2420,6 @@ private fun MainScreen(
     // 手机横屏/折叠屏内屏（600-839dp）继续用底栏
     val isWideScreen = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 840
 
-    // HOME 大标题
-    val homeGreeting = if (loginState.isLoggedIn) {
-        val name = loginState.ywtbUserInfo?.userName ?: loginState.cachedNickname
-        if (!name.isNullOrBlank()) "你好, $name" else "你好"
-    } else "岱宗盒子"
-
     // COURSES tab 副标题 + actions slot + bottomContent slot
     var courseSubtitle by remember { mutableStateOf("") }
     var courseHeaderActions by remember { mutableStateOf<(@Composable androidx.compose.foundation.layout.RowScope.() -> Unit)?>(null) }
@@ -2358,7 +2436,7 @@ private fun MainScreen(
                     BottomTab.PROFILE -> "我的"
                 },
                 largeTitle = when (selectedTab) {
-                    BottomTab.HOME -> homeGreeting
+                    BottomTab.HOME -> "岱宗盒子"
                     BottomTab.COURSES -> "日程"
                     BottomTab.TOOLS -> "仲英学辅资料站"
                     BottomTab.PROFILE -> "我的"
@@ -2442,7 +2520,12 @@ private fun MainScreen(
         }
         Box(Modifier.fillMaxSize()) {
             // 需要联网的无登录路由（空闲教室、通知公告等纯网络功能）
-            val networkRequiredRoutes = setOf(Routes.EMPTY_ROOM, Routes.NOTIFICATION, Routes.AGENT)
+            val networkRequiredRoutes = setOf(
+                Routes.EMPTY_ROOM,
+                Routes.NOTIFICATION,
+                Routes.YELLOW_PAGE,
+                Routes.AGENT
+            )
             val onNavigateWithNetCheck: (String) -> Unit = { route ->
                 if (route == Routes.SCHEDULE) {
                     switchToTab(BottomTab.COURSES)
@@ -3311,9 +3394,16 @@ private fun HomeTab(
                             val visibleTypes = remember {
                                 listOf(LoginType.JWXT, LoginType.JWAPP, LoginType.LMS, LoginType.CLASS,
                                     LoginType.YWTB, LoginType.LIBRARY, LoginType.CAMPUS_CARD, LoginType.VENUE,
-                                    LoginType.ATTENDANCE, LoginType.DZPZ, LoginType.JIAOCAI, LoginType.COUPON)
+                                    LoginType.ATTENDANCE, LoginType.DZPZ, LoginType.JIAOCAI, LoginType.COUPON,
+                                    LoginType.SUPER_APP, LoginType.FITNESS, LoginType.JIAOXIAOZHI)
                             }
-                            val ok = visibleTypes.count { loginState.getCached(it) != null }
+                            fun isReady(type: LoginType): Boolean =
+                                loginState.getCached(type) != null ||
+                                    (type == LoginType.JIAOXIAOZHI &&
+                                        (loginState.sessionManager?.getSiteOrNull(
+                                            com.xjtu.toolbox.jiaoxiaozhi.JiaoxiaozhiSiteSession.SITE_KEY
+                                        ) as? com.xjtu.toolbox.jiaoxiaozhi.JiaoxiaozhiSiteSession)?.hasLogin == true)
+                            val ok = visibleTypes.count { isReady(it) }
                             Text(
                                 when {
                                     isRestoring -> "正在连接…"
@@ -3338,18 +3428,24 @@ private fun HomeTab(
                                     LoginType.JWXT, LoginType.JWAPP, LoginType.LMS, LoginType.CLASS,
                                     LoginType.YWTB, LoginType.LIBRARY, LoginType.CAMPUS_CARD, LoginType.VENUE,
                                     LoginType.ATTENDANCE, LoginType.POSTGRADUATE_ATTENDANCE, LoginType.DZPZ,
-                                    LoginType.JIAOCAI, LoginType.COUPON
+                                    LoginType.JIAOCAI, LoginType.COUPON, LoginType.SUPER_APP, LoginType.FITNESS,
+                                    LoginType.JIAOXIAOZHI
                                 )
                                 types.forEach { t ->
                                     val cached = loginState.getCached(t)
+                                    val siteReady = t == LoginType.JIAOXIAOZHI &&
+                                        (loginState.sessionManager?.getSiteOrNull(
+                                            com.xjtu.toolbox.jiaoxiaozhi.JiaoxiaozhiSiteSession.SITE_KEY
+                                        ) as? com.xjtu.toolbox.jiaoxiaozhi.JiaoxiaozhiSiteSession)?.hasLogin == true
+                                    val ready = cached != null || siteReady
                                     Row(
                                         Modifier.fillMaxWidth().padding(vertical = 8.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        val statusColor = if (cached != null) androidx.compose.ui.graphics.Color(0xFF2E7D32)
+                                        val statusColor = if (ready) androidx.compose.ui.graphics.Color(0xFF2E7D32)
                                         else MiuixTheme.colorScheme.onSurfaceVariantSummary
                                         Icon(
-                                            if (cached != null) Icons.Default.CheckCircle else Icons.Default.RemoveCircleOutline,
+                                            if (ready) Icons.Default.CheckCircle else Icons.Default.RemoveCircleOutline,
                                             contentDescription = null,
                                             tint = statusColor,
                                             modifier = Modifier.size(16.dp)
@@ -3360,7 +3456,7 @@ private fun HomeTab(
                                             Text(t.description, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                                         }
                                         Text(
-                                            if (cached != null) "已连接" else "未登录",
+                                            if (ready) "已连接" else "未登录",
                                             style = MiuixTheme.textStyles.footnote1,
                                             color = statusColor
                                         )
@@ -3400,14 +3496,18 @@ private fun HomeTab(
                 Quick(Routes.JWAPP_SCORE, Icons.Default.Assessment, "成绩", colorPurple) { onNavigateWithLogin(Routes.JWAPP_SCORE, LoginType.JWAPP) },
                 Quick(Routes.COUPON, Icons.Default.Restaurant, "加餐券", colorAmber) { onNavigateWithLogin(Routes.COUPON, LoginType.COUPON) },
                 Quick(Routes.LIBRARY, Icons.Default.Chair, "图书馆", colorOrange) { onNavigateWithLogin(Routes.LIBRARY, LoginType.LIBRARY) },
-                Quick(Routes.LMS, Icons.Default.School, "思源", colorIndigo) { onNavigateWithLogin(Routes.LMS, LoginType.LMS) }
+                Quick(Routes.LMS, Icons.Default.School, "思源", colorIndigo) { onNavigateWithLogin(Routes.LMS, LoginType.LMS) },
+                Quick(Routes.AGENT, Icons.Default.SmartToy, "问屁岱", colorTeal) { onNavigate(Routes.AGENT) },
+                Quick(Routes.JIAOXIAOZHI, Icons.Default.AutoAwesome, "交晓智", colorPurple) {
+                    onNavigateWithLogin(Routes.JIAOXIAOZHI, LoginType.JIAOXIAOZHI)
+                }
             )
             val quickKeys = remember(quickPool) {
                 com.xjtu.toolbox.util.ServiceUsageTracker.topKeys(
                     ctxQuick,
                     quickPool.map { it.key },
                     n = 4,
-                    fallback = listOf(Routes.CAMPUS_CARD, Routes.EMPTY_ROOM, Routes.PAYMENT_CODE, Routes.NOTIFICATION)
+                    fallback = listOf(Routes.CAMPUS_CARD, Routes.EMPTY_ROOM, Routes.AGENT, Routes.NOTIFICATION)
                 )
             }
             val quickShown = quickKeys.mapNotNull { k -> quickPool.find { it.key == k } }
@@ -3512,8 +3612,14 @@ private fun HomeTab(
                 MoreSvc(Routes.CLASS_REPLAY, Icons.Default.OndemandVideo, "课程回放", androidx.compose.ui.graphics.Color(0xFF512DA8)) { onNavigateWithLogin(Routes.CLASS_REPLAY, LoginType.CLASS) },
                 MoreSvc(Routes.SCHOOL_COURSE, Icons.Default.TravelExplore, "课程查询", androidx.compose.ui.graphics.Color(0xFF00838F)) { onNavigateWithLogin(Routes.SCHOOL_COURSE, LoginType.JWXT) },
                 MoreSvc(Routes.SCHOOL_CALENDAR, Icons.Default.EventNote, "校历", androidx.compose.ui.graphics.Color(0xFF00796B)) { onNavigate(Routes.SCHOOL_CALENDAR) },
+                MoreSvc(Routes.YELLOW_PAGE, Icons.Default.ContactPhone, "校园黄页", androidx.compose.ui.graphics.Color(0xFF1565C0)) { onNavigate(Routes.YELLOW_PAGE) },
+                MoreSvc(Routes.MOBILE_JIAODA, Icons.Default.PhoneAndroid, "移动交大", androidx.compose.ui.graphics.Color(0xFF005BAC)) { onNavigateWithLogin(Routes.MOBILE_JIAODA, LoginType.SUPER_APP) },
+                MoreSvc(Routes.FITNESS, Icons.Default.DirectionsRun, "体测查询", androidx.compose.ui.graphics.Color(0xFF00897B)) { onNavigateWithLogin(Routes.FITNESS, LoginType.FITNESS) },
                 MoreSvc(Routes.WEBVPN_CONVERTER, Icons.Default.VpnKey, "WebVPN", androidx.compose.ui.graphics.Color(0xFF4E342E)) { onNavigate(Routes.WEBVPN_CONVERTER) },
-                MoreSvc(Routes.AGENT, Icons.Default.SmartToy, "屁岱", androidx.compose.ui.graphics.Color(0xFF00695C)) { onNavigate(Routes.AGENT) }
+                MoreSvc(Routes.AGENT, Icons.Default.SmartToy, "屁岱", androidx.compose.ui.graphics.Color(0xFF00695C)) { onNavigate(Routes.AGENT) },
+                MoreSvc(Routes.JIAOXIAOZHI, Icons.Default.AutoAwesome, "交晓智", androidx.compose.ui.graphics.Color(0xFF6750A4)) {
+                    onNavigateWithLogin(Routes.JIAOXIAOZHI, LoginType.JIAOXIAOZHI)
+                }
             )
             moreServices.chunked(4).forEach { rowItems ->
                 Row(Modifier.fillMaxWidth()) {

@@ -105,7 +105,7 @@ abstract class SiteSession(
     }
 
     /** 标记本站点会话失效（清 hasLogin + 局部 token，不动共享 cookies）。 */
-    fun invalidateLogin() {
+    open fun invalidateLogin() {
         hasLogin = false
         localToken.clear()
     }
