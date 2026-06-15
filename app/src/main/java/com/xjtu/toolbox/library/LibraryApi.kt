@@ -402,6 +402,8 @@ class LibraryApi(private val login: LibraryLogin) {
             val (resp, html) = executeWithReAuth(buildRequest(url, referer = "$BASE_URL/updateseat/"))
             resp.close()
             val finalUrl = resp.request.url.toString()
+            // 诊断：定位"换座不可用"到底是被弹登录还是别的（请抓 logcat tag=LibraryApi）
+            Log.d(TAG, "swapSeat result finalUrl=$finalUrl loginRedirect=${isRedirectedToLogin(html, finalUrl)} htmlHead=${html.take(160).replace("\n"," ")}")
             // 实测：换座后查询「我的预约」，座位号变成目标即真成功
             val after = runCatching { getMyBooking() }.getOrNull()
             val booked = after?.seatId
@@ -740,7 +742,7 @@ class LibraryApi(private val login: LibraryLogin) {
             val (response, html) = executeWithReAuth(buildRequest(normalizedUrl, referer = "$BASE_URL$pagePath"))
             response.close()
             val finalUrl = response.request.url.toString()
-            Log.d(TAG, "action: url=$actionUrl, finalUrl=$finalUrl, len=${html.length}")
+            Log.d(TAG, "action: url=$actionUrl finalUrl=$finalUrl loginRedirect=${isRedirectedToLogin(html, finalUrl)} len=${html.length} head=${html.take(160).replace("\n"," ")}")
 
             val doc = Jsoup.parse(html)
             val bodyText = doc.body()?.text() ?: ""
