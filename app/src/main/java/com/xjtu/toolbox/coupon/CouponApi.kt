@@ -19,6 +19,9 @@ class CouponApi(private val site: SiteSession) {
         private const val TYPE_LIST_URL = "$BASE_URL/app/voucher/query.type.list"
         private const val AUTO_SWITCH_URL = "$BASE_URL/app/voucher/get.auto.receive.switch"
         private const val PAGE_LIST_URL = "$BASE_URL/app/voucher/query.page.list"
+        private const val DETAIL_URL = "$BASE_URL/app/voucher/query.details"
+        private const val ACTIVATE_URL = "$BASE_URL/app/voucher/activate"
+        private const val ACTIVATE_PERCENT_URL = "$BASE_URL/app/voucher/get.activate.percent"
         private val JSON = "application/json;charset=UTF-8".toMediaType()
     }
 
@@ -52,6 +55,24 @@ class CouponApi(private val site: SiteSession) {
         """.trimIndent()
         val root = executeVoucherJson(PAGE_LIST_URL, body, allowRetry = true)
         return CouponJsonParser.parsePage(root)
+    }
+
+    fun getCouponDetail(showCardId: String): CouponDetail {
+        val body = """{"cardId":"$showCardId","json":true}"""
+        val root = executeVoucherJson(DETAIL_URL, body, allowRetry = true)
+        return CouponJsonParser.parseDetail(root, showCardId)
+    }
+
+    fun activateCoupon(showCardId: String) {
+        val body = """{"cardId":"$showCardId","json":true}"""
+        executeVoucherJson(ACTIVATE_URL, body, allowRetry = true)
+    }
+
+    fun getActivatePercent(batchId: String): String {
+        if (batchId.isBlank()) return ""
+        val body = """{"batchId":"$batchId","json":true}"""
+        val root = executeVoucherJson(ACTIVATE_PERCENT_URL, body, allowRetry = true)
+        return root.safeGet("data").safeString()
     }
 
     private fun executeVoucherJson(url: String, jsonBody: String, allowRetry: Boolean): JsonObject {

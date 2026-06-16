@@ -25,6 +25,13 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "4.1.1" to VersionChangelog(
+            items = listOf(
+                "🎫" to "加餐券支持一键领取，保留官方详情文案用于领取提示",
+                "💳" to "付款码新增加餐券抵扣选择，勾选后主动同步到付款会话，避免网页刷新后状态丢失",
+                "🤖" to "屁岱会在端午、中秋、国庆、春节、劳动节、校庆等节点温和提醒领取和使用加餐券"
+            )
+        ),
         "4.1" to VersionChangelog(
             items = listOf(
                 "🤖" to "屁岱新增亲切 / 专业两套回复风格：默认亲切，专业模式更克制、精准、少废话",

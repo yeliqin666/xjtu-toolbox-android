@@ -305,7 +305,8 @@ class AgentToolRegistry(
                 "term" to strProp("学期代码，如2025-2026-2；不填使用当前学期或课表缓存学期。")
             )))
         arr.add(tool("get_coupons",
-            "查询我的加餐券（电子券）：名称、余额、有效期。需要加餐券系统登录。"))
+            "查询我的加餐券（电子券）：可领取、可使用、余额、有效期。需要加餐券系统登录。",
+            params("status" to strProp("查询范围：all=可领取+可使用，available=仅可领取，usable=仅可使用；默认 all。"))))
         arr.add(tool("get_lms_courses",
             "列出我在思源学堂（LMS）的课程。需要思源学堂登录。"))
         arr.add(tool("get_lms_activities",
@@ -464,7 +465,7 @@ class AgentToolRegistry(
             "get_library_booking" -> getLibraryBooking()
             "get_library_seats" -> getLibrarySeats(args["area"] as? String)
             "get_textbooks" -> getTextbooks(args["course"] as? String, args["term"] as? String)
-            "get_coupons" -> getCoupons()
+            "get_coupons" -> getCoupons(args["status"] as? String)
             "get_lms_courses" -> getLmsCourses()
             "get_lms_activities" -> getLmsActivities(args["course"] as? String)
             "get_lms_assignments" -> getLmsAssignments()
@@ -1290,17 +1291,34 @@ class AgentToolRegistry(
         }
     }
 
-    private suspend fun getCoupons(): String {
+    private suspend fun getCoupons(status: String? = null): String {
         val site = ensureSite(LoginType.COUPON)
             ?: return "需要加餐券系统登录，请先打开加餐券功能完成认证。"
         return try {
-            val page = com.xjtu.toolbox.coupon.CouponApi(site)
-                .queryCoupons(com.xjtu.toolbox.coupon.CouponFilter.USABLE)
-            if (page.records.isEmpty()) return "你当前没有可用的加餐券。"
+            val api = com.xjtu.toolbox.coupon.CouponApi(site)
+            val filters = when (status?.lowercase()?.trim()) {
+                "available", "可领取", "unclaimed" -> listOf(com.xjtu.toolbox.coupon.CouponFilter.AVAILABLE)
+                "usable", "可用", "可使用" -> listOf(com.xjtu.toolbox.coupon.CouponFilter.USABLE)
+                else -> listOf(
+                    com.xjtu.toolbox.coupon.CouponFilter.AVAILABLE,
+                    com.xjtu.toolbox.coupon.CouponFilter.USABLE
+                )
+            }
+            val pages = filters.associateWith { filter -> api.queryCoupons(filter, page = 1, pageSize = 20) }
+            if (pages.values.all { it.records.isEmpty() }) return "你当前没有可领取或可使用的加餐券。"
             val text = buildString {
-                append("我的可用加餐券（${page.records.size}张）：\n")
-                page.records.take(20).forEach { c ->
-                    append("• ${c.voucherName}（${c.typeName}）：余额¥${"%.2f".format(c.leftAmountFen / 100.0)}，有效期 ${c.startDate}~${c.endDate}\n")
+                pages[com.xjtu.toolbox.coupon.CouponFilter.AVAILABLE]?.records?.takeIf { it.isNotEmpty() }?.let { records ->
+                    append("可领取加餐券（${records.size}张）：\n")
+                    records.take(20).forEach { c ->
+                        append("• ${c.voucherName}：面额¥${"%.2f".format(c.amountFen / 100.0)}，领取/使用期 ${c.startDate}~${c.endDate}\n")
+                    }
+                }
+                pages[com.xjtu.toolbox.coupon.CouponFilter.USABLE]?.records?.takeIf { it.isNotEmpty() }?.let { records ->
+                    if (isNotEmpty()) append("\n")
+                    append("可使用加餐券（${records.size}张）：\n")
+                    records.take(20).forEach { c ->
+                        append("• ${c.voucherName}（${c.typeName}）：余额¥${"%.2f".format(c.leftAmountFen / 100.0)}，有效期 ${c.startDate}~${c.endDate}\n")
+                    }
                 }
             }
             dataCache.put("agent_coupons", text)

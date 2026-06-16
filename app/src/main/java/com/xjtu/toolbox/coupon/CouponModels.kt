@@ -43,6 +43,23 @@ data class CouponPage(
     val total: Int
 )
 
+data class CouponDetail(
+    val showCardId: String,
+    val voucherName: String,
+    val title: String,
+    val description: String,
+    val amountFen: Long,
+    val leftAmountFen: Long,
+    val startDate: String,
+    val endDate: String,
+    val batchId: String,
+    val imageUrl: String,
+    val closedPacketImageUrl: String,
+    val openPacketImageUrl: String
+) {
+    val amountYuan: Double get() = amountFen / 100.0
+}
+
 data class CouponType(
     val id: Int,
     val name: String
@@ -78,6 +95,38 @@ object CouponJsonParser {
             )
             if (id == 0 && name.isBlank()) null else CouponType(id, name)
         }
+    }
+
+    fun parseDetail(root: JsonObject, showCardId: String): CouponDetail {
+        val data = root.safeGet("data")?.asJsonObjectOrNull()
+            ?: return CouponDetail(
+                showCardId = showCardId,
+                voucherName = "加餐券",
+                title = "",
+                description = "",
+                amountFen = 0L,
+                leftAmountFen = 0L,
+                startDate = "",
+                endDate = "",
+                batchId = "",
+                imageUrl = "",
+                closedPacketImageUrl = "",
+                openPacketImageUrl = ""
+            )
+        return CouponDetail(
+            showCardId = showCardId,
+            voucherName = data.safeGet("voucherName").safeString("加餐券"),
+            title = data.safeGet("destitle").safeString(),
+            description = data.safeGet("describes").safeString(),
+            amountFen = data.safeGet("tranamt").safeLong(),
+            leftAmountFen = data.safeGet("ltranamt").safeLong(),
+            startDate = data.safeGet("startDate").safeString(),
+            endDate = data.safeGet("endDate").safeString(),
+            batchId = data.safeGet("batchId").safeString(),
+            imageUrl = normalizeImageUrl(data.safeGet("pic").safeString()),
+            closedPacketImageUrl = normalizeImageUrl(data.safeGet("rclose").safeString()),
+            openPacketImageUrl = normalizeImageUrl(data.safeGet("ropen").safeString())
+        )
     }
 
     private fun parseRecord(obj: JsonObject): CouponRecord {

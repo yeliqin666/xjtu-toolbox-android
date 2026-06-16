@@ -91,6 +91,8 @@ fun CouponScreen(
     var isLoadingMore by remember { mutableStateOf(false) }
     var isRefreshing by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var statusMessage by remember { mutableStateOf<String?>(null) }
+    var receivingIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     val pullToRefreshState = rememberPullToRefreshState()
 
     fun loadPage(filter: CouponFilter = selectedFilter, page: Int = 1, append: Boolean = false, silent: Boolean = false) {
@@ -118,6 +120,33 @@ fun CouponScreen(
                 isLoading = false
                 isLoadingMore = false
                 isRefreshing = false
+            }
+        }
+    }
+
+    fun receiveCoupon(coupon: CouponRecord) {
+        val id = coupon.showCardId
+        if (id.isBlank() || id in receivingIds) return
+        receivingIds = receivingIds + id
+        statusMessage = null
+        scope.launch {
+            try {
+                val detail = withContext(Dispatchers.IO) {
+                    val fetched = runCatching { api.getCouponDetail(id) }.getOrNull()
+                    api.activateCoupon(id)
+                    fetched
+                }
+                statusMessage = detail?.title?.takeIf { it.isNotBlank() }
+                    ?: "已领取 ${coupon.voucherName}"
+                loadPage(selectedFilter, page = 1, append = false, silent = true)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.COUPON, Routes.COUPON, onBack)
+            } catch (e: Exception) {
+                statusMessage = "领取失败：${e.message ?: "网络异常"}"
+            } finally {
+                receivingIds = receivingIds - id
             }
         }
     }
@@ -202,6 +231,9 @@ fun CouponScreen(
                         records = records,
                         total = total,
                         filter = selectedFilter,
+                        statusMessage = statusMessage,
+                        receivingIds = receivingIds,
+                        onReceive = ::receiveCoupon,
                         isLoadingMore = isLoadingMore,
                         onLoadMore = { loadPage(selectedFilter, currentPage + 1, append = true) }
                     )
@@ -218,7 +250,10 @@ private fun CouponList(
     total: Int,
     isLoadingMore: Boolean,
     onLoadMore: () -> Unit,
-    filter: CouponFilter
+    filter: CouponFilter,
+    statusMessage: String?,
+    receivingIds: Set<String>,
+    onReceive: (CouponRecord) -> Unit
 ) {
     val leftAmount = records.sumOf { it.leftAmountFen }
     LazyColumn(
@@ -234,11 +269,18 @@ private fun CouponList(
                 visibleCount = records.size,
                 total = total,
                 filter = filter,
-                leftAmountFen = leftAmount
+                leftAmountFen = leftAmount,
+                statusMessage = statusMessage
             )
         }
         items(records, key = { it.showCardId.ifBlank { it.sendId } }) { coupon ->
-            CouponRecordCard(site = site, coupon = coupon, filter = filter)
+            CouponRecordCard(
+                site = site,
+                coupon = coupon,
+                filter = filter,
+                isReceiving = coupon.showCardId in receivingIds,
+                onReceive = onReceive
+            )
         }
         if (records.size < total) {
             item {
@@ -263,7 +305,8 @@ private fun CouponSummaryCard(
     visibleCount: Int,
     total: Int,
     filter: CouponFilter,
-    leftAmountFen: Long
+    leftAmountFen: Long,
+    statusMessage: String?
 ) {
     val countLabel = when (filter) {
         CouponFilter.AVAILABLE -> "可领取 $total 张"
@@ -304,6 +347,16 @@ private fun CouponSummaryCard(
                     style = MiuixTheme.textStyles.title3,
                     fontWeight = FontWeight.Bold
                 )
+                if (!statusMessage.isNullOrBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        statusMessage,
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text(countLabel, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
@@ -322,7 +375,9 @@ private fun CouponSummaryCard(
 private fun CouponRecordCard(
     site: SiteSession,
     coupon: CouponRecord,
-    filter: CouponFilter
+    filter: CouponFilter,
+    isReceiving: Boolean,
+    onReceive: (CouponRecord) -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -378,6 +433,20 @@ private fun CouponRecordCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                if (filter == CouponFilter.AVAILABLE) {
+                    Spacer(Modifier.height(10.dp))
+                    Button(
+                        onClick = { onReceive(coupon) },
+                        enabled = !isReceiving && coupon.showCardId.isNotBlank(),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (isReceiving) {
+                            CircularProgressIndicator(size = 16.dp, strokeWidth = 2.dp)
+                        } else {
+                            Text("领取")
+                        }
+                    }
+                }
             }
         }
     }
