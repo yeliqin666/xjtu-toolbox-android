@@ -43,6 +43,23 @@ XJTUTOOLBOX_CMP/
 # miuix reference source (read-only, not part of this repo)
 miuix-ref/
 
+# Upstream Python reference (local only)
+.upstream-ref/
+
 # Misc local artifacts
 build_output.txt
+
+# Refactoring / planning docs (local only, not part of repo)
+REFACTORING_PLAN.md
+PROGRESS*.md
+NOTES*.md
+TODO*.md
 tools/
+
+# Reference clone of upstream
+.upstream-ref/yan-xiaoo/
+
+# 不纳入 App 仓库（保留本地）
+/website/
+/demo/
+/update_api.py

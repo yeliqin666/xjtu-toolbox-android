@@ -1,13 +1,31 @@
 # 岱宗盒子
-> 作者最近忙炸，App不在近期计划内...上等的PR会接受！
+
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Android-green?logo=android" />
   <img src="https://img.shields.io/badge/minSdk-31_(Android_12)-blue" />
-  <img src="https://img.shields.io/badge/version-3.3.0-orange" />
+  <img src="https://img.shields.io/badge/version-4.0-orange" />
   <img src="https://img.shields.io/badge/license-MIT-lightgrey" />
 </p>
 
-西安交通大学校园工具箱。Kotlin + Jetpack Compose 原生实现，直接调用教务系统、图书馆、校园卡等官方接口，不依赖任何三方服务器。
+基于 AI 的西安交通大学校园工具箱。Kotlin + Jetpack Compose 原生实现，直接调用教务系统、图书馆、校园卡、思源学堂等学校系统接口，不依赖自建中转服务器。
+
+内置校园助手「**屁岱**」（~~当然可以改名~~），授权与配置后调用本地校园工具，调用课表、成绩、考试、空教室、校园卡、通知、LMS、体测、图书馆等信息组织成可读答案与卡片，并可使用“交晓智”作为免费的校内知识subAgent。推荐配合DeepSeek官方API使用。
+
+本版起接入“**移动交通大学**”功能，可快速访问智慧体育、一网通办提醒等移动交大子功能（暂仅限非校内服务）。
+---
+
+## 4.0 亮点
+
+| 能力 | 说明 |
+|------|------|
+| 🤖 屁岱 Agent | 支持多会话、Markdown、流式回复、能力开关、联网搜索、网页阅读与校园工具调用 |
+| 🧠 校园工具调用 | 可查询课表、考试、成绩/GPA、空闲教室、考勤、校园卡流水、通知公告、黄页、教材、LMS 作业课件、体测成绩等 |
+| 🤝 交晓智接入 | 新增原生交晓智独立对话；也可作为屁岱的校内知识子代理，用于政策、办事流程、校内知识问答 |
+| 📅 多学期日程 | 日程页支持切换学期；课表、考试、教材跟随学期查看；手动添加日程与教务课表并行合并，不会被刷新覆盖 |
+| 📱 移动交大 | 支持 App 内置访问、子服务登录接力与网页定位授权桥接，减少反复跳登录 |
+| 🌐 WebVPN / 浏览器 | 内置浏览器支持登录态继承，WebVPN 链路用于校外访问学校内部资源 |
+
+> 使用屁岱时建议选择可靠 API 来源并妥善保管 API Key。对话内容可能包含个人校园数据，请勿把密钥交给不可信服务。
 
 ---
 
@@ -15,100 +33,68 @@
 
 | 模块 | 功能 |
 |------|------|
-| 🔐 统一认证 | CAS 登录（RSA + MFA 手机验证码）+ WebVPN 自动切换 |
-| 📅 课表 | 周视图 + 考试安排 + 教材信息 + 桌面小组件（2×2 / 4×2）|
-| 📊 成绩 | JWAPP 正式成绩 + FineReport 报表 + GPA 计算 |
-| ✅ 考勤 | 全 20 周出勤流水，正常/迟到/缺勤统计 |
-| 🏫 空闲教室 | 节次筛选，CDN 公开数据，无需登录和校园网 |
-| 💳 校园卡 | 余额 + 账单流水 + 智能洞察 |
-| 🎫 加餐券 | 电子加餐券余额、有效期、状态筛选与自动登录 |
-| 📚 图书馆 | 在座/预约状态 + 空闲座位推荐/签退 |
-| 🔍 全校课表 | 按课程名、教师、院系、校区、节次等多维度检索全校开课信息 |
-| 📢 通知公告 | 一网通办 + 各学院通知多源聚合 |
-| 🎓 课程回放 | TronClass 多机位视频播放 + 课件下载 |
-| 📖 思源学堂 | 活动详情、作业与评分、课件、直播流 |
-| 👤 个人信息 | NSA OAuth2，包含 16 项详细信息 |
-| ✏️ 评教 | GSTE + 常规评教一键完成 |
-| � 电子教材 | 教材中心搜索 + 在线阅览 + PDF 下载 |
-| ⭐ NeoSchool | 拔尖计划课程、章节、课件与资源下载 |
-
----
-
-## 开发计划
-
-- 图书馆座位智能推荐
-- 个人/教务通知订阅 & Push
-- 方案管理
+| 🔐 统一认证 | CAS 登录、MFA 手机验证码、WebVPN 自动切换、SessionManager 统一会话与失败退避 |
+| 📅 日程 | 多学期课表、考试安排、教材信息、手动日程、桌面小组件、ICS/CSV/图片导出 |
+| 📊 成绩 | JWAPP 正式成绩、FineReport 成绩单、GPA 计算 |
+| ✅ 考勤 | 本科/研究生考勤查询，出勤状态统计 |
+| 🏫 空闲教室 | CDN/直查双模式，支持今天/明天、楼栋、节次筛选 |
+| 💳 校园卡 | 余额、状态、账单流水与消费汇总 |
+| 🎫 加餐券 | 电子券余额、有效期、状态筛选 |
+| 📚 图书馆 | 当前预约、座位状态、空闲座位推荐、预约/换座/取消/签到 |
+| 📖 思源学堂 | 课程、活动、作业、评分、课件、附件读取与下载链接 |
+| 🎓 课程回放 | TronClass 多机位视频播放与课件下载 |
+| 🔍 全校课程 | 按课程名、教师、班级、院系、校区、节次、校公选类别等字段检索 |
+| 📢 通知公告 | 教务处与学院通知多源聚合 |
+| 🏃 体测查询 | 学年切换、总分/等级与项目成绩 |
+| 📱 移动交大 | 内置 WebView 访问移动交大及部分子服务 |
+| 🧠 交晓智 | 官方校园智能问答，支持多会话、模型切换、流式响应 |
+| ✏️ 评教 | GSTE + 常规评教 |
+| 📖 电子教材 | 教材中心搜索 |
+| ⚡ 更多功能 | 请自由探索 |
 
 ---
 
 ## 技术栈
 
-纯 Kotlin 2.0 编写，UI 层使用 Jetpack Compose + MIUIX（HyperOS 设计语言），网络层是 OkHttp 4.12，全程启用 Brotli 解压（服务端支持 `Content-Encoding: br` 时生效，降低接口流量而非 APK 体积）。HTML 解析用 Jsoup，本地数据持久化走 Room。构建工具链 AGP 9.0 + Gradle 9.3.1，Release 包经 R8 全量混淆后约 **10 MB**，其中 ~9 MB 为 `classes.dex`（Compose runtime + Media3 + MIUIX 等库的编译产物，无冗余资源）。APK 签名为 v2+v3 双方案。
+纯 Kotlin 编写，UI 层使用 Jetpack Compose + MIUIX ，网络层使用 OkHttp + Brotli，HTML 解析使用 Jsoup，本地持久化使用 Room。构建工具链为 AGP 9 + Gradle 9。
 
-最低支持 Android 12（API 31），目标 Android 16（API 36.1）。
-
----
-
-## 项目结构
-
-```
-app/src/main/java/com/xjtu/toolbox/
-├── MainActivity.kt              # 入口、导航、登录状态、首页
-├── auth/                        # CAS 统一认证、WebVPN、各系统 Token
-├── schedule/                    # 课表、考试、教材、桌面小组件
-├── score/                       # 成绩报表、GPA 计算
-├── attendance/                  # 出勤记录
-├── emptyroom/                   # 空闲教室
-├── card/                        # 校园卡
-├── coupon/                      # 电子加餐券
-├── library/                     # 图书馆座位
-├── notification/                # 通知公告爬虫
-├── nsa/                         # 个人信息（OAuth2 + 动态表单）
-├── judge/                       # 评教
-├── browser/                     # 应用内浏览器
-├── ywtb/                        # 一网通办
-├── gmis/                        # 研究生系统
-├── lms/                         # 思源学堂 + 课程回放
-├── jiaocai/                     # 电子教材中心
-├── neo/                         # NeoSchool 拔尖计划
-└── util/                        # Cookie 持久化、WebVPN 工具、凭据管理
-```
+最低支持 Android 12（API 31），目标 Android 16。
 
 ---
 
-## 构建与发版
+## 构建
 
 ```bash
 # Debug 包
 ./gradlew assembleDebug
 
-# Release 包（R8 压缩混淆）
+# Release 包
 ./gradlew assembleRelease
 ```
 
-项目配置了 GitHub Actions：push/PR 到 `main` 自动编译 Debug，推送 `v*` tag 自动打包 Release 并发布到 GitHub Releases。
+项目配置了 GitHub Actions：push/PR 到 `main` 自动编译 Debug，推送 `v*` tag 自动打包 Release。
 
 ```bash
-git tag v3.3.0
-git push origin v3.3.0
-# Actions 自动构建并发布
+git tag v4.0
+git push origin v4.0
 ```
 
 ---
 
 ## 注意事项
 
-- 考勤、图书馆等服务仅限校内网络，应用会自动识别并切换到 WebVPN
-- 空闲教室数据来自公开 CDN，不需要登录
-- `network_security_config.xml` 允许 XJTU 子域名的 cleartext HTTP
+- 本项目仅供学习与个人校园信息管理使用。
+- 考勤、图书馆、部分移动交大子服务等可能依赖校内网络或 WebVPN。
+- 学校系统接口可能随时调整，功能可用性以实际系统为准。
+- 使用 AI 功能时，请自行选择可信 API 服务商并保护 API Key。
 
 ---
 
-## 致谢
+## 友情项目
 
-部分核心算法来自 [XJTUToolBox](https://github.com/yan-xiaoo/XJTUToolBox.git)，CAS 登录流程、WebVPN 加解密、FineReport 报表解析、空闲教室 CDN 数据、学期时间计算等均参考或移植自该项目的 Python 实现。感谢 [@yan-xiaoo](https://github.com/yan-xiaoo) 的开源贡献。
+- [XJTUToolBox](https://github.com/yan-xiaoo/XJTUToolBox.git)
+- [XJTU-Course-Genius](https://github.com/Hz162/XJTU-Course-Genius)
 
 ---
- 
+
 **License**：MIT

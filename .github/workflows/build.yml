@@ -81,6 +81,58 @@ jobs:
           make_latest: true
           prerelease: ${{ contains(steps.version.outputs.version, 'alpha') || contains(steps.version.outputs.version, 'beta') }}
 
+      - name: Generate release notes from AppChangelog.kt
+        id: notes
+        run: |
+          python3 - <<'PY' > /tmp/release_body.md
+          import re, sys, os
+          ver = "${{ steps.version.outputs.version }}"
+          src = open('app/src/main/java/com/xjtu/toolbox/util/AppChangelog.kt', encoding='utf-8').read()
+          # 匹配 "X.Y.Z" to VersionChangelog( ... ),
+          pattern = rf'"{re.escape(ver)}"\s*to\s*VersionChangelog\((.*?)\n\s*\)\s*,?\s*(?:"|//|$)'
+          m = re.search(pattern, src, re.S)
+          if not m:
+              # 兜底：版本号是 ENTRIES 第一个元素时后面没逗号
+              pattern2 = rf'"{re.escape(ver)}"\s*to\s*VersionChangelog\((.*?)\n\s*\)'
+              m = re.search(pattern2, src, re.S)
+          if not m:
+              print(f"## 岱宗盒子 v{ver}\n\n本次更新见应用内「设置 → 关于 → 更新日志」。")
+              sys.exit(0)
+          block = m.group(1)
+          # 提取 items: "emoji" to "text"
+          items_match = re.search(r'items\s*=\s*listOf\((.*?)\)\s*(?:,\s*issues|\)|$)', block, re.S)
+          items = []
+          if items_match:
+              items = re.findall(r'"([^"]+)"\s*to\s*"([^"]+)"', items_match.group(1))
+          # 提取 issues
+          issues = []
+          issues_match = re.search(r'issues\s*=\s*listOf\((.*?)\)', block, re.S)
+          if issues_match:
+              issues = re.findall(r'"([^"]+)"', issues_match.group(1))
+
+          out = [f"## 岱宗盒子 v{ver}", ""]
+          if items:
+              out.append("### 更新内容")
+              out.append("")
+              for emoji, text in items:
+                  out.append(f"- {emoji} {text}")
+              out.append("")
+          if issues:
+              out.append("### 已知问题")
+              out.append("")
+              for i in issues:
+                  out.append(f"- {i}")
+              out.append("")
+          out.append("---")
+          out.append("APK 已附在本 Release，可直接下载安装。")
+          print("\n".join(out))
+          PY
+          echo "Generated release notes:"
+          cat /tmp/release_body.md
+          # 转义为 JSON 安全字符串供下一步使用
+          python3 -c "import json; print(json.dumps(open('/tmp/release_body.md', encoding='utf-8').read()))" > /tmp/release_body.json
+          echo "body_json_path=/tmp/release_body.json" >> $GITHUB_OUTPUT
+
       - name: Sync to Gitee (code + tag + release)
         continue-on-error: true
         env:
@@ -112,6 +164,9 @@ jobs:
             echo "Deleted old Gitee release $OLD_ID"
           fi
 
+          # 读取由上一步生成的 release body（已经是 JSON 字符串字面量，含两端引号）
+          BODY_JSON=$(cat /tmp/release_body.json)
+
           # 创建 Gitee release（target_commitish 必填）
           RELEASE=$(curl -s -X POST "https://gitee.com/api/v5/repos/${OWNER}/${REPO}/releases" \
             -H "Content-Type: application/json" \
@@ -119,7 +174,7 @@ jobs:
               \"access_token\": \"${GITEE_TOKEN}\",
               \"tag_name\": \"${TAG}\",
               \"name\": \"${TAG}\",
-              \"body\": \"同步自 GitHub Release ${TAG}\",
+              \"body\": ${BODY_JSON},
               \"target_commitish\": \"main\",
               \"prerelease\": false
             }")
