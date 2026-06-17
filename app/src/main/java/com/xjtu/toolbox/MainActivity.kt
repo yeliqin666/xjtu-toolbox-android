@@ -274,6 +274,9 @@ class AppLoginState {
     // [B2] WebVPN 持久化 CookieJar（独立实例，校外冷启动可复用 VPN session）
     var vpnCookieJar: com.xjtu.toolbox.util.PersistentCookieJar? = null
 
+    /** 新会话架构入口；由 [AppLoginStateViewModel] 在创建时注入。 */
+    var sessionManager: com.xjtu.toolbox.auth.SessionManager? = null
+
     // SSO: 共享的 OkHttpClient（携带 CAS TGC cookie），实现一次登录、所有系统自动认证
     @Volatile private var sharedClient: okhttp3.OkHttpClient? = null
 
@@ -298,6 +301,37 @@ class AppLoginState {
         /** 用户取消 MFA 后的冷却期：仅阻止后台 warmup 反复触发 MFA。
          *  用户主动点击功能（navigateWithLogin / loginWebVpn 主动调用）会传 `force=true` 无视此冷却。 */
         const val MFA_COOLDOWN_MS = 60_000L  // 60 秒
+    }
+
+    // ── 密码全局失效熔断 ──────────────────────────────────────────
+    // 任一子系统确认凭据无效时设置；所有后续 autoLogin 将立即短路返回，
+    // 避免对同一错密的并行重试被服务端连续 401 触发风控封号。
+    // 用户在登录界面重新输入凭据后自动清除。
+    var passwordInvalidatedLatch by mutableStateOf(false)
+        private set
+    /** 首次确认凭据失效的子系统名，UI 弹窗展示用。 */
+    var passwordInvalidatedSiteName by mutableStateOf("")
+        private set
+    /** UI 弹窗显隐控制。 */
+    var passwordInvalidatedDialogVisible by mutableStateOf(false)
+
+    /** 子系统检测到明确凭据无效时调用。重复调用幂等。 */
+    fun reportPasswordInvalidated(siteName: String) {
+        if (passwordInvalidatedLatch) return
+        passwordInvalidatedLatch = true
+        passwordInvalidatedSiteName = siteName
+        passwordInvalidatedDialogVisible = true
+        android.util.Log.w("AppLoginState", "password invalidated by site=$siteName")
+    }
+
+    /** 仅在明确 401 或登录失败响应消息含"用户名或密码错误"等关键字时返回 true，避免误判。 */
+    private fun isPasswordError(result: com.xjtu.toolbox.auth.LoginResult): Boolean {
+        if (result.state != com.xjtu.toolbox.auth.LoginState.FAIL) return false
+        val msg = result.message
+        return msg.contains("用户名或密码", ignoreCase = true) ||
+                msg.contains("密码错误", ignoreCase = true) ||
+                msg.contains("账号或密码", ignoreCase = true) ||
+                msg.contains("401")
     }
 
     // [CP] 全局共享连接池：所有子系统复用 TLS 连接，避免重复握手（~800ms→~50ms）
@@ -387,9 +421,15 @@ class AppLoginState {
         val now = detectCampusNetwork()
         isOnCampus = now
         if (prev != null && prev != now) {
-            android.util.Log.w("AppLoginState", "Access mode changed: $prev → $now, invalidating cached logins and vpnClient")
+            android.util.Log.w("AppLoginState", "Access mode changed: $prev → $now")
+            // 旧架构：丢弃 cached login + vpnClient（仍保留以便业务过渡期使用）
             clearAllCachedLogins()
             clearVpnClient()
+            // 新架构：通知 SessionManager 切换 active backend；两边 cookies 保留以便快速切回
+            sessionManager?.onNetworkChanged(
+                if (now == true) com.xjtu.toolbox.auth.AccessMode.NORMAL
+                else com.xjtu.toolbox.auth.AccessMode.WEBVPN
+            )
             return true
         }
         return false
@@ -469,8 +509,17 @@ class AppLoginState {
     )
 
     fun saveCredentials(username: String, password: String) {
+        // 凭据变更视为用户已知晓并响应，清除密码失效熔断
+        val credentialsChanged = (username != savedUsername || password != savedPassword)
         savedUsername = username
         savedPassword = password
+        if (credentialsChanged && passwordInvalidatedLatch) {
+            passwordInvalidatedLatch = false
+            passwordInvalidatedSiteName = ""
+            passwordInvalidatedDialogVisible = false
+            android.util.Log.i("AppLoginState", "credentials updated, password latch cleared")
+        }
+        sessionManager?.setCredentials(username, password)
     }
 
     /** 从 EncryptedSharedPreferences 恢复凭据和缓存 */
@@ -487,6 +536,12 @@ class AppLoginState {
         cachedRsaKey = store.loadRsaPublicKey()
         // 恢复缓存昵称（欢迎卡片秒显示）
         cachedNickname = store.loadNickname()
+        // 同步至新会话架构
+        sessionManager?.let {
+            it.setCredentials(savedUsername, savedPassword)
+            it.fpVisitorId = firstVisitorId
+            it.cachedRsaKey = cachedRsaKey
+        }
         // 恢复 NSA 个人信息缓存（首次登录后持久化，冷启动秒显示）
         store.loadNsaProfile()?.let { json ->
             com.xjtu.toolbox.nsa.NsaStudentProfile.fromJson(json)?.let { profile ->
@@ -852,6 +907,11 @@ class AppLoginState {
      */
     suspend fun autoLogin(type: LoginType, force: Boolean = false): XJTULogin? {
         if (!hasCredentials) return null
+        // 密码已确认无效，停止后续登录请求；用户更新凭据后熔断会自动清除
+        if (passwordInvalidatedLatch) {
+            android.util.Log.d("AppLoginState", "autoLogin($type): halted by password latch ($passwordInvalidatedSiteName)")
+            return null
+        }
         getCached(type)?.let { return it }
         // 用户取消 MFA 后短暂冷却（仅对 background warmup 起效，用户主动点击 force=true 跳过）。
         // 已经有 TGC（ssoEstablished）的话即便取消过 MFA 也能继续——后续登录走 SSO 不会再 MFA。
@@ -1024,8 +1084,14 @@ class AppLoginState {
                         pendingMfaType = type
                         return@withContext null
                     }
-                    // 认证失败（密码错误等）：本次循环不可重试，但仍允许 fallback 走 WebVPN 兜底
+                    // 认证失败：本次循环不可重试
                     android.util.Log.w("AppLoginState", "autoLogin($type): auth failed state=${result.state} msg=${result.message}")
+                    // 明确凭据无效 → 触发全局熔断，跳过 fallback（fallback 也会撞同一错密）
+                    if (isPasswordError(result)) {
+                        reportPasswordInvalidated(siteName = type.name)
+                        lastException = RuntimeException("password invalidated: ${result.message}")
+                        return@withContext null
+                    }
                     lastException = RuntimeException("auth failed: ${result.message}")
                     break@attemptsLoop
                 } catch (e: java.io.IOException) {
@@ -1272,10 +1338,32 @@ class AppLoginStateViewModel(application: android.app.Application) : androidx.li
     // sharedClient 共用同一 jar → 校外通过 vpnClient 登录后，sharedClient 访问 pay/login 等公网域也能 SSO。
     val vpnCookieJar: com.xjtu.toolbox.util.PersistentCookieJar = persistentCookieJar
 
+    /** 新会话架构入口：双 backend、SiteSession 注册中心、MFA 状态机宿主。 */
+    val sessionManager = com.xjtu.toolbox.auth.SessionManager(application)
+
     init {
         // 注入持久化组件（无需 LaunchedEffect，ViewModel 创建时即完成）
         loginState.persistentCookieJar = persistentCookieJar
         loginState.vpnCookieJar = vpnCookieJar
+        loginState.sessionManager = sessionManager
+        // 注册所有业务子系统
+        with(sessionManager) {
+            register(com.xjtu.toolbox.auth.JwxtSession())
+            register(com.xjtu.toolbox.auth.JwappSession())
+            register(com.xjtu.toolbox.auth.YwtbSession())
+            register(com.xjtu.toolbox.auth.LibrarySession())
+            register(com.xjtu.toolbox.auth.LmsSession())
+            register(com.xjtu.toolbox.auth.ClassSession())
+            register(com.xjtu.toolbox.auth.JiaocaiSession())
+            register(com.xjtu.toolbox.auth.CouponSession())
+            register(com.xjtu.toolbox.auth.DzpzSession())
+            register(com.xjtu.toolbox.auth.VenueSession())
+            register(com.xjtu.toolbox.auth.GmisSession())
+            register(com.xjtu.toolbox.auth.GsteSession())
+            register(com.xjtu.toolbox.auth.AttendanceSession(isPostgraduate = false))
+            register(com.xjtu.toolbox.auth.AttendanceSession(isPostgraduate = true))
+            register(com.xjtu.toolbox.auth.CampusCardSession())
+        }
         // 恢复凭据（同步执行，确保 Compose 首帧读取到正确状态）
         loginState.restoreCredentials(credentialStore)
     }
