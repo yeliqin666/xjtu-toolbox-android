@@ -2,6 +2,7 @@ package com.xjtu.toolbox.card
 
 import android.content.Context
 import com.google.gson.Gson
+import com.xjtu.toolbox.account.AccountContext
 import java.time.LocalDate
 
 data class CampusCardSnapshot(
@@ -13,12 +14,14 @@ data class CampusCardSnapshot(
 )
 
 object CampusCardCache {
-    private const val PREFS = "campus_card_data_cache"
+    private const val PREFS_PREFIX = "campus_card_data_cache"
     private const val KEY = "snapshot"
     private val gson = Gson()
 
+    private fun prefsName(): String = PREFS_PREFIX + AccountContext.safeSuffix()
+
     fun load(context: Context): CampusCardSnapshot? {
-        val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val raw = context.getSharedPreferences(prefsName(), Context.MODE_PRIVATE)
             .getString(KEY, null) ?: return null
         return runCatching { gson.fromJson(raw, CampusCardSnapshot::class.java) }.getOrNull()
     }
@@ -37,9 +40,19 @@ object CampusCardCache {
             rangeEnd = rangeEnd.toString(),
             savedAt = System.currentTimeMillis()
         )
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        context.getSharedPreferences(prefsName(), Context.MODE_PRIVATE)
             .edit()
             .putString(KEY, gson.toJson(snapshot))
             .apply()
+    }
+
+    /** 删除当前账号的校园卡缓存（切换/删除账号时调用）。 */
+    fun clear(context: Context) {
+        context.getSharedPreferences(prefsName(), Context.MODE_PRIVATE).edit().clear().apply()
+    }
+
+    /** 当前账号命名空间下的校园卡余额/流水缓存 SharedPreferences。 */
+    fun cardPrefs(context: Context): android.content.SharedPreferences {
+        return context.getSharedPreferences("campus_card" + AccountContext.safeSuffix(), Context.MODE_PRIVATE)
     }
 }

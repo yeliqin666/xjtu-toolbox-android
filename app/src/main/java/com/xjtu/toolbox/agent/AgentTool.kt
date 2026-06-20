@@ -775,7 +775,7 @@ class AgentToolRegistry(
         val customCourses = runCatching {
             com.xjtu.toolbox.util.AppDatabase.getInstance(context)
                 .customCourseDao()
-                .getByTerm(termCode)
+                .getByTerm(com.xjtu.toolbox.account.AccountContext.activeAccountId ?: "", termCode)
                 .map { it.toCourseItem() }
         }.getOrDefault(emptyList())
         val courses = cachedCourses + customCourses

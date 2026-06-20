@@ -60,10 +60,15 @@ class SessionManager(context: Context) {
 
     private val appContext = context.applicationContext
 
-    private val backends: Map<AccessMode, SessionBackend> = run {
-        val normalJar = PersistentCookieJar(appContext, prefsName = "cookies_normal")
-        val webvpnJar = PersistentCookieJar(appContext, prefsName = "cookies_webvpn")
-        mapOf(
+    private val backendsLock = Any()
+
+    @Volatile
+    private var backends: Map<AccessMode, SessionBackend> = buildBackends(null)
+
+    private fun buildBackends(accountSuffix: String?): Map<AccessMode, SessionBackend> {
+        val normalJar = PersistentCookieJar(appContext, "cookies_normal$accountSuffix")
+        val webvpnJar = PersistentCookieJar(appContext, "cookies_webvpn$accountSuffix")
+        return mapOf(
             AccessMode.NORMAL to SessionBackend(AccessMode.NORMAL, normalJar),
             AccessMode.WEBVPN to SessionBackend(
                 AccessMode.WEBVPN,
@@ -323,6 +328,36 @@ class SessionManager(context: Context) {
     fun adoptFromLogin(login: XJTULogin) {
         if (fpVisitorId == null) fpVisitorId = login.fpVisitorId
         if (cachedRsaKey == null) cachedRsaKey = login.getRsaPublicKey()
+    }
+
+    /**
+     * 切换账号时重建 backends：用目标账号命名空间的 cookieJar 实例化两个新 [SessionBackend]，
+     * 重新绑定所有已注册 site 的 backend，并清空凭据/指纹/RSA/熔断/冷却等账号相关状态。
+     *
+     * 调用方应在切换前后自行更新 [AccountContext.activeAccountId] 与 [credentials]。
+     *
+     * @param accountSuffix 命名空间后缀（形如 "_学号"），由 [com.xjtu.toolbox.account.AccountContext.safeSuffix] 派生
+     */
+    fun reconfigureForAccount(accountSuffix: String) {
+        synchronized(backendsLock) {
+            // 旧 backends 的 cookieJar 不主动 clear——其磁盘文件保留以便切回该账号时复用；
+            // 但主动驱逐其连接池里的空闲连接，避免频繁切账号累积 socket fd。
+            backends.values.forEach { runCatching { it.client.connectionPool.evictAll() } }
+            backends = buildBackends(accountSuffix)
+        }
+        // 重新绑定每个 site 到新 backend；supportsWebVpn=false 的 site 永远绑 NORMAL
+        sites.values.forEach {
+            it.backend = backendFor(it)
+            it.invalidateLogin()
+        }
+        // 清空账号相关共享状态
+        credentials = null
+        fpVisitorId = null
+        cachedRsaKey = null
+        _passwordInvalidated.value = false
+        _passwordInvalidatedSite.value = ""
+        loginFailedAt.clear()
+        recordDiagnostic("INFO", "account", "SessionManager reconfigured for suffix=$accountSuffix")
     }
 
     companion object {

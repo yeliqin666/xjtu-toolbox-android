@@ -25,6 +25,13 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "4.1.2" to VersionChangelog(
+            items = listOf(
+                "👤" to "新增多账号管理：支持添加、切换、改密、删除账号，各账号的课表、成绩、对话、校园卡数据相互隔离",
+                "🔒" to "修复切换账号后仍显示旧账号昵称与课表的缓存泄露问题",
+                "🔄" to "切换账号即热加载目标账号缓存，命名空间按账号隔离 Cookie 与本地数据"
+            )
+        ),
         "4.1.1" to VersionChangelog(
             items = listOf(
                 "🎫" to "加餐券支持一键领取，保留官方详情文案用于领取提示",

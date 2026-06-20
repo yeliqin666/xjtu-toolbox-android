@@ -2,6 +2,7 @@ package com.xjtu.toolbox.util
 
 import android.content.Context
 import android.util.Log
+import com.xjtu.toolbox.account.AccountContext
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
@@ -11,15 +12,26 @@ private const val TAG = "DataCache"
  * [RC] 轻量级 JSON 文件缓存（线程安全 + 原子写入）
  * 用于缓存日程、成绩等学期内稳定的数据，二次打开 0ms
  *
- * 缓存目录: `context.cacheDir/data_cache/`
+ * 缓存目录: `context.cacheDir/data_cache${AccountContext.safeSuffix()}/`
  * 文件名: `{key}.json`
  * 过期策略: 手动失效 + TTL（默认 7 天）
+ *
+ * 账号隔离：缓存目录随 [AccountContext.activeAccountId] 变化，
+ * 切换账号后 get/put 自动落到新账号目录，旧账号数据不会被读到。
  *
  * 线程安全: per-key 锁，不同 key 之间无竞争
  * 原子写入: 先写 .tmp 再 rename，避免写入中途 crash 损坏文件
  */
 class DataCache(context: Context) {
-    private val cacheDir = File(context.cacheDir, "data_cache").apply { mkdirs() }
+    private val appContext = context.applicationContext
+
+    /** 当前账号对应的缓存目录，每次调用动态解析以响应账号切换。 */
+    private val cacheDir: File
+        get() = File(appContext.cacheDir, "data_cache${AccountContext.safeSuffix()}").apply { mkdirs() }
+
+    /** 兼容旧调用：返回账号无关的默认目录，仅迁移时使用。 */
+    private val legacyCacheDir: File
+        get() = File(appContext.cacheDir, "data_cache")
 
     /** per-key 锁对象，不同 key 之间互不阻塞 */
     private val locks = ConcurrentHashMap<String, Any>()

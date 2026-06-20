@@ -63,6 +63,7 @@ import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.filled.Event
+import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.ui.components.AppDropdownMenu
 import com.xjtu.toolbox.ui.components.AppDropdownMenuItem
 import com.xjtu.toolbox.ui.components.AppTopBar
@@ -509,11 +510,20 @@ fun ScheduleScreen(
     }
 
     LaunchedEffect(Unit) {
-        android.util.Log.d("ScheduleUI", "ScheduleScreen entered: studentId='\$studentId', online=\${api != null}")
+        android.util.Log.d("ScheduleUI", "ScheduleScreen entered: studentId='$studentId', online=${api != null}")
         loadInitialData()
         launch {
             try { holidayDates = HolidayApi.getHolidayDates(context) } catch (_: Exception) {}
         }
+    }
+
+    // 账号切换后热加载：从新账号命名空间缓存秒显示课表，后台再拉网络覆盖。
+    LaunchedEffect(appLoginState.accountId) {
+        if (appLoginState.accountId.isEmpty()) return@LaunchedEffect
+        android.util.Log.d("ScheduleUI", "Account switched to ${appLoginState.accountId}, hot-reloading schedule")
+        // 清旧账号残留内存态，强制从新账号缓存重读
+        courses = emptyList(); exams = emptyList(); customCourses = emptyList()
+        loadInitialData()
     }
 
     // 小组件/首页进入日程页时，可能先以离线缓存态渲染；
@@ -548,7 +558,7 @@ fun ScheduleScreen(
     // 加载自定义课程（学期变更时刷新）
     LaunchedEffect(selectedTermCode) {
         if (selectedTermCode.isNotEmpty()) {
-            customCourses = customCourseDao.getByTerm(selectedTermCode)
+            customCourses = customCourseDao.getByTerm(AccountContext.activeAccountId ?: "", selectedTermCode)
         }
     }
 
@@ -565,29 +575,32 @@ fun ScheduleScreen(
     // 自定义课程操作
     fun saveCustomCourse(entity: CustomCourseEntity) {
         scope.launch {
+            val accountId = AccountContext.activeAccountId ?: ""
+            val withAccount = if (entity.accountId.isBlank()) entity.copy(accountId = accountId) else entity
             // ★ 修改前排查冲突排查
-            val conflicts = customCourseDao.getConflicts(entity.termCode, entity.dayOfWeek, entity.startSection, entity.endSection)
-            val realConflicts = conflicts.filter { it.id != entity.id } // 排除自己自身
+            val conflicts = customCourseDao.getConflicts(accountId, withAccount.termCode, withAccount.dayOfWeek, withAccount.startSection, withAccount.endSection)
+            val realConflicts = conflicts.filter { it.id != withAccount.id } // 排除自己自身
             if (realConflicts.isNotEmpty()) {
                 val conflictNames = realConflicts.joinToString("、") { it.courseName }
                 // 为了简单展示，我们这里直接先将碰撞的旧课程删除
-                android.util.Log.d("ScheduleUI", "Deleting conflicts: \$conflictNames")
+                android.util.Log.d("ScheduleUI", "Deleting conflicts: $conflictNames")
                 realConflicts.forEach {
                     customCourseDao.delete(it)
                 }
-                snackbarHostState.showSnackbar("已自动清除时间冲突的课程(\$conflictNames)", duration = SnackbarDuration.Short)
+                snackbarHostState.showSnackbar("已自动清除时间冲突的课程($conflictNames)", duration = SnackbarDuration.Short)
             }
-            
-            if (entity.id == 0L) customCourseDao.insert(entity) else customCourseDao.update(entity)
-            customCourses = customCourseDao.getByTerm(selectedTermCode)
+
+            if (withAccount.id == 0L) customCourseDao.insert(withAccount) else customCourseDao.update(withAccount)
+            customCourses = customCourseDao.getByTerm(accountId, selectedTermCode)
             ScheduleWidgetUpdater.requestUpdate(context)
-            snackbarHostState.showSnackbar(if (entity.id == 0L) "已添加日程" else "已更新日程", duration = SnackbarDuration.Short)
+            snackbarHostState.showSnackbar(if (withAccount.id == 0L) "已添加日程" else "已更新日程", duration = SnackbarDuration.Short)
         }
     }
     fun deleteCustomCourse(entity: CustomCourseEntity) {
         scope.launch {
+            val accountId = AccountContext.activeAccountId ?: ""
             customCourseDao.delete(entity)
-            customCourses = customCourseDao.getByTerm(selectedTermCode)
+            customCourses = customCourseDao.getByTerm(accountId, selectedTermCode)
             ScheduleWidgetUpdater.requestUpdate(context)
             snackbarHostState.showSnackbar("已删除「${entity.courseName}」", duration = SnackbarDuration.Short)
         }

@@ -132,7 +132,7 @@ fun CampusCardScreen(
             tx.time.startsWith(todayStr) && tx.amount < 0 &&
                 tx.time.substringAfter(" ").substringBefore(":").toIntOrNull()?.let { it in 17..21 } == true
         }.sumOf { -it.amount }
-        context.getSharedPreferences("campus_card", 0).edit()
+        com.xjtu.toolbox.card.CampusCardCache.cardPrefs(context).edit()
             .putString("card_recent_tx_cache", recentJson)
             .putFloat("card_today_spend_cache", todaySpend.toFloat())
             .putFloat("card_today_breakfast_cache", todayBreakfast.toFloat())
@@ -162,7 +162,7 @@ fun CampusCardScreen(
                 cardInfo = withContext(Dispatchers.IO) { api.getCardInfo() }
                 // 缓存余额 + 姓名 供首页智能卡片使用
                 cardInfo?.let { info ->
-                    context.getSharedPreferences("campus_card", 0).edit()
+                    com.xjtu.toolbox.card.CampusCardCache.cardPrefs(context).edit()
                         .putFloat("card_balance_cache", info.balance.toFloat())
                         .putString("card_name_cache", info.name)
                         .putLong("card_cache_time", System.currentTimeMillis())

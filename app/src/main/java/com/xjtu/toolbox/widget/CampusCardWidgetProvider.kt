@@ -24,7 +24,7 @@ object CampusCardWidgetUpdater {
 
     fun update(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         if (appWidgetIds.isEmpty()) return
-        val prefs = context.getSharedPreferences("campus_card", Context.MODE_PRIVATE)
+        val prefs = com.xjtu.toolbox.card.CampusCardCache.cardPrefs(context)
         val balance = prefs.getFloat("card_balance_cache", -1f)
         val todaySpend = prefs.getFloat("card_today_spend_cache", -1f)
         val breakfast = prefs.getFloat("card_today_breakfast_cache", -1f)

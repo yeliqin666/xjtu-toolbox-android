@@ -2,6 +2,7 @@ package com.xjtu.toolbox.agent
 
 import android.content.Context
 import com.google.gson.Gson
+import com.xjtu.toolbox.account.AccountContext
 import java.io.File
 import java.util.UUID
 
@@ -49,9 +50,14 @@ data class StoredConversation(
  */
 class AgentSessionStore(context: Context) {
 
-    private val dir = File(context.applicationContext.filesDir, "agent_sessions").apply { mkdirs() }
-    private val indexFile = File(dir, "index.json")
+    private val appContext = context.applicationContext
     private val gson = Gson()
+
+    /** 当前账号命名空间下的会话目录，每次调用动态解析以响应账号切换。 */
+    private val dir: File
+        get() = File(appContext.filesDir, "agent_sessions${AccountContext.safeSuffix()}").apply { mkdirs() }
+    private val indexFile: File
+        get() = File(dir, "index.json")
 
     /** 全部会话，按最近更新降序。 */
     fun list(): List<AgentSession> = readIndex().sortedByDescending { it.updatedAt }

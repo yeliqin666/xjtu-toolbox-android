@@ -13,7 +13,7 @@ import com.xjtu.toolbox.schedule.CustomCourseEntity
 
 @Database(
     entities = [CustomCourseEntity::class, DownloadTaskEntity::class],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -76,6 +76,19 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // Migration 4→5: custom_courses 增加 accountId 列，多账号隔离。
+        // 回填值由 AccountMigration 在迁移完成后通过 update 语句写入当前 active accountId；
+        // 此处仅保证列存在且默认空串，避免破坏旧数据读取。
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                try {
+                    database.execSQL("ALTER TABLE custom_courses ADD COLUMN accountId TEXT NOT NULL DEFAULT ''")
+                } catch (e: Exception) {
+                    // 列已存在，忽略
+                }
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -83,7 +96,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "xjtu_toolbox.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .build()
                     .also { INSTANCE = it }
             }

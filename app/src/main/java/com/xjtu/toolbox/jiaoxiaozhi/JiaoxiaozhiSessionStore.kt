@@ -2,13 +2,18 @@ package com.xjtu.toolbox.jiaoxiaozhi
 
 import android.content.Context
 import com.google.gson.Gson
+import com.xjtu.toolbox.account.AccountContext
 import java.io.File
 import java.util.UUID
 
 class JiaoxiaozhiSessionStore(context: Context) {
-    private val dir = File(context.applicationContext.filesDir, "jiaoxiaozhi_sessions").apply { mkdirs() }
-    private val indexFile = File(dir, "index.json")
+    private val appContext = context.applicationContext
     private val gson = Gson()
+
+    private val dir: File
+        get() = File(appContext.filesDir, "jiaoxiaozhi_sessions${AccountContext.safeSuffix()}").apply { mkdirs() }
+    private val indexFile: File
+        get() = File(dir, "index.json")
 
     fun list(): List<JiaoxiaozhiSession> = readIndex().sortedByDescending { it.updatedAt }
 

@@ -19,6 +19,8 @@ fun decodeAgendaNote(note: String): String = note.removePrefix(AGENDA_NOTE_PREFI
 data class CustomCourseEntity(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
+    /** 所属账号 ID（学号/手机号）。多账号隔离用。 */
+    val accountId: String = "",
     val courseName: String,
     val teacher: String = "",
     val location: String = "",
@@ -104,8 +106,8 @@ fun List<Int>.toWeekBits(maxWeeks: Int = 20): String {
 
 @Dao
 interface CustomCourseDao {
-    @Query("SELECT * FROM custom_courses WHERE termCode = :termCode ORDER BY dayOfWeek, startSection, startMinuteOfDay")
-    suspend fun getByTerm(termCode: String): List<CustomCourseEntity>
+    @Query("SELECT * FROM custom_courses WHERE accountId = :accountId AND termCode = :termCode ORDER BY dayOfWeek, startSection, startMinuteOfDay")
+    suspend fun getByTerm(accountId: String, termCode: String): List<CustomCourseEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(course: CustomCourseEntity): Long
@@ -116,20 +118,25 @@ interface CustomCourseDao {
     @Delete
     suspend fun delete(course: CustomCourseEntity)
 
-    @Query("DELETE FROM custom_courses WHERE termCode = :termCode")
-    suspend fun deleteByTerm(termCode: String)
+    @Query("DELETE FROM custom_courses WHERE accountId = :accountId AND termCode = :termCode")
+    suspend fun deleteByTerm(accountId: String, termCode: String)
 
-    @Query("SELECT * FROM custom_courses ORDER BY termCode DESC, dayOfWeek, startSection, startMinuteOfDay")
-    suspend fun getAll(): List<CustomCourseEntity>
+    @Query("SELECT * FROM custom_courses WHERE accountId = :accountId ORDER BY termCode DESC, dayOfWeek, startSection, startMinuteOfDay")
+    suspend fun getAll(accountId: String): List<CustomCourseEntity>
 
     /**
      * 查询同一学期内、同星期、且时间段有交集的课程（粗略排课冲突检测）
      */
     @Query("""
-        SELECT * FROM custom_courses 
-        WHERE termCode = :termCode 
+        SELECT * FROM custom_courses
+        WHERE accountId = :accountId
+          AND termCode = :termCode
           AND dayOfWeek = :dayOfWeek
           AND NOT (endSection < :startSection OR startSection > :endSection)
     """)
-    suspend fun getConflicts(termCode: String, dayOfWeek: Int, startSection: Int, endSection: Int): List<CustomCourseEntity>
+    suspend fun getConflicts(accountId: String, termCode: String, dayOfWeek: Int, startSection: Int, endSection: Int): List<CustomCourseEntity>
+
+    /** 删除某账号的全部自定义课程（删除账号时调用）。 */
+    @Query("DELETE FROM custom_courses WHERE accountId = :accountId")
+    suspend fun deleteByAccount(accountId: String)
 }

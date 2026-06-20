@@ -259,6 +259,15 @@ object ScheduleWidgetUpdater {
     }
 
     internal fun loadScheduleData(context: Context): WidgetScheduleData {
+        // Widget 进程入口可能未经 MainActivity，AccountContext 未初始化；
+        // 从 AccountStore 恢复激活账号，保证 DataCache/Room 命名空间正确。
+        if (com.xjtu.toolbox.account.AccountContext.activeAccountId == null) {
+            runCatching {
+                com.xjtu.toolbox.account.AccountStore(context).activeAccountId()?.let {
+                    com.xjtu.toolbox.account.AccountContext.activeAccountId = it
+                }
+            }
+        }
         val now = LocalTime.now()
         val nowDate = LocalDate.now()
         val todayDow = nowDate.dayOfWeek.value
@@ -283,7 +292,7 @@ object ScheduleWidgetUpdater {
             runBlocking {
                 AppDatabase.getInstance(context)
                     .customCourseDao()
-                    .getByTerm(termCode)
+                    .getByTerm(com.xjtu.toolbox.account.AccountContext.activeAccountId ?: "", termCode)
                     .map { it.toCourseItem() }
             }
         }.getOrDefault(emptyList())
@@ -487,7 +496,8 @@ object ScheduleWidgetUpdater {
 
         if (!termFromLast.isNullOrBlank()) return termFromLast
 
-        val cacheDir = File(context.cacheDir, "data_cache")
+        // Fallback：扫描当前账号命名空间下的缓存目录（迁移后旧 data_cache/ 已被 rename 走）
+        val cacheDir = File(context.cacheDir, "data_cache${com.xjtu.toolbox.account.AccountContext.safeSuffix()}")
         val scheduleFiles = cacheDir.listFiles()
             ?.filter {
                 it.isFile &&

@@ -136,6 +136,41 @@ class PersistentCookieJar(context: Context, prefsName: String = PREFS_NAME) : Co
     }
 
     /**
+     * 导出全部 cookie 为原始管道串（迁移账号命名空间用）。
+     * 触发 ensureLoaded 后读 cookieStore 当前内容。
+     */
+    fun exportRaw(): String {
+        ensureLoaded()
+        val sb = StringBuilder()
+        for ((_, cookies) in cookieStore) {
+            synchronized(cookies) {
+                for (c in cookies) {
+                    if (c.expiresAt <= System.currentTimeMillis()) continue
+                    sb.append(encodeCookie(c)).append('\n')
+                }
+            }
+        }
+        return sb.toString()
+    }
+
+    /** 从原始管道串导入 cookie（覆盖式追加，按 name+path 去重）。迁移用。 */
+    fun importRaw(raw: String) {
+        ensureLoaded()
+        val now = System.currentTimeMillis()
+        for (line in raw.lines()) {
+            if (line.isBlank()) continue
+            val cookie = decodeCookie(line) ?: continue
+            if (cookie.expiresAt <= now) continue
+            val list = cookieStore.getOrPut(cookie.domain) { mutableListOf() }
+            synchronized(list) {
+                list.removeAll { it.name == cookie.name && it.path == cookie.path }
+                list.add(cookie)
+            }
+        }
+        flushToDisk()
+    }
+
+    /**
      * 清掉某个域（精确 + 前导点变体）下的所有 cookie。
      *
      * 用途：JWAPP 业务 401 时，旧的 `sk` session cookie 会导致 OAuth 重定向链上 server 返回

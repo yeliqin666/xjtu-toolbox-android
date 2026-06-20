@@ -233,6 +233,7 @@ object Routes {
     const val DOWNLOAD_MANAGER = "download_manager"
     const val BROWSER = "browser?url={url}"
     const val SETTINGS = "settings"
+    const val ACCOUNTS = "accounts"
     const val WEBVPN_CONVERTER = "webvpn_converter"
     const val AGENT = "agent"
     const val JIAOXIAOZHI = "jiaoxiaozhi"
@@ -266,8 +267,8 @@ enum class BottomTab(
 
 // ── 登录状态 ──────────────────────────────
 
-class AppLoginState {
-    var activeUsername by mutableStateOf("")
+class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
+    override var activeUsername by mutableStateOf("")
     var attendanceLogin by mutableStateOf<AttendanceLogin?>(null)
     var postgraduateAttendanceLogin by mutableStateOf<AttendanceLogin?>(null)
     var jwxtLogin by mutableStateOf<JwxtLogin?>(null)
@@ -448,36 +449,87 @@ class AppLoginState {
     private val CAMPUS_CACHE_MS = 10 * 60 * 1000L
 
     // 设备指纹 ID（首次登录时生成，后续系统复用以避免 MFA 重复验证）
-    @Volatile private var firstVisitorId: String? = null
+    @Volatile internal var firstVisitorId: String? = null
 
     // RSA 公钥缓存
-    @Volatile private var cachedRsaKey: String? = null
+    @Volatile internal var cachedRsaKey: String? = null
 
     // 一网通办个人信息（登录后自动获取，在"我的"页面展示）
-    var ywtbUserInfo by mutableStateOf<com.xjtu.toolbox.ywtb.UserInfo?>(null)
+    override var ywtbUserInfo by mutableStateOf<com.xjtu.toolbox.ywtb.UserInfo?>(null)
 
     // 校园卡缓存刷新版本：余额/最近消费落盘后递增，驱动首页智能卡片重读缓存。
     var campusCardCacheVersion by mutableIntStateOf(0)
 
     // 缓存的昵称（从 CredentialStore 恢复，YWTB 加载前即可显示）
-    var cachedNickname by mutableStateOf<String?>(null)
+    override var cachedNickname by mutableStateOf<String?>(null)
+
+    // 当前激活账号 ID（= 学号 / 手机号）。多账号隔离的根键。
+    override var accountId by mutableStateOf("")
+
+    /**
+     * 清空全部「内存中」的会话/身份状态（不动磁盘命名空间数据）。
+     * 切换账号前调用，确保旧账号的 ywtbUserInfo/nickname/cached login 不会泄露给新账号 UI。
+     */
+    override fun clearInMemorySessionState() {
+        activeUsername = ""
+        savedUsername = ""; savedPassword = ""
+        attendanceLogin = null; postgraduateAttendanceLogin = null; jwxtLogin = null; jwappLogin = null
+        ywtbLogin = null; libraryLogin = null; campusCardLogin = null; jiaocaiLogin = null; couponLogin = null
+        superAppLogin = null; fitnessLogin = null; jiaoxiaozhiLogin = null
+        sharedClient = null
+        vpnClient = null
+        webVpnLoggedIn = false
+        isOnCampus = null
+        campusDetectTime = 0L
+        ywtbUserInfo = null
+        firstVisitorId = null
+        cachedRsaKey = null
+        cachedNickname = null
+        accountId = ""
+        passwordInvalidatedLatch = false
+        passwordInvalidatedSiteName = ""
+        passwordInvalidatedDialogVisible = false
+        com.xjtu.toolbox.pay.PaymentCodeApi.clearCachedJwt()
+        campusCardCacheVersion++  // 触发首页校园卡卡片重读（切到新账号命名空间缓存）
+    }
+
+    /**
+     * 从一个 [com.xjtu.toolbox.account.Account] 载入身份到内存（切换账号或启动恢复时用）。
+     * 仅设置内存态；磁盘 cookies 由 SessionManager.reconfigureForAccount 处理。
+     */
+    override fun loadIdentityFromAccount(account: com.xjtu.toolbox.account.Account) {
+        accountId = account.accountId
+        savedUsername = account.accountId
+        savedPassword = account.password
+        activeUsername = account.accountId
+        accountType = account.accountType
+        cachedNickname = account.nickname
+        firstVisitorId = account.fpVisitorId
+        cachedRsaKey = account.rsaPublicKey
+        com.xjtu.toolbox.account.AccountContext.activeAccountId = account.accountId
+        sessionManager?.let {
+            it.setCredentials(account.accountId, account.password)
+            it.accountType = selectedCasAccountType()
+            it.fpVisitorId = account.fpVisitorId
+            it.cachedRsaKey = account.rsaPublicKey
+        }
+    }
 
     // CredentialStore 引用
     private var credentialStoreRef: CredentialStore? = null
 
     // 保存的凭据（内存中），用于自动登录其他系统
-    var savedUsername: String = ""
-        private set
-    var savedPassword: String = ""
-        private set
-    var accountType: com.xjtu.toolbox.auth.AccountType = com.xjtu.toolbox.auth.AccountType.UNDERGRADUATE
-        private set
+    override var savedUsername: String = ""
+    override var savedPassword: String = ""
+    override var accountType: com.xjtu.toolbox.auth.AccountType = com.xjtu.toolbox.auth.AccountType.UNDERGRADUATE
 
     val hasCredentials: Boolean get() = savedUsername.isNotEmpty() && savedPassword.isNotEmpty()
     val isLoggedIn: Boolean get() = activeUsername.isNotEmpty()
 
     private fun selectedCasAccountType(): XJTULogin.AccountType {
-        val currentAccountType = credentialStoreRef?.accountType ?: accountType
+        // 优先用内存中当前账号的 accountType（多账号隔离后每个账号各自持有），
+        // 仅在尚未载入时回退到 CredentialStore 旧单值。
+        val currentAccountType = if (accountId.isNotEmpty()) accountType else (credentialStoreRef?.accountType ?: accountType)
         return if (currentAccountType == com.xjtu.toolbox.auth.AccountType.POSTGRADUATE) {
             XJTULogin.AccountType.POSTGRADUATE
         } else {
@@ -779,25 +831,21 @@ class AppLoginState {
         }
     }
 
+    /**
+     * 兼容兜底登出。多账号架构下请优先用 [com.xjtu.toolbox.account.AccountManager.logoutCurrent]，
+     * 它会额外切换到 default 命名空间并清 AccountStore 激活指针。此方法仅在无 AccountManager 引用时使用。
+     */
     fun logout(store: CredentialStore? = null) {
         // 停止后台保活循环
         com.xjtu.toolbox.auth.SessionKeepAlive.stop()
-        activeUsername = ""
-        savedUsername = ""; savedPassword = ""
-        attendanceLogin = null; postgraduateAttendanceLogin = null; jwxtLogin = null; jwappLogin = null
-        ywtbLogin = null; libraryLogin = null; campusCardLogin = null; jiaocaiLogin = null; couponLogin = null
-        superAppLogin = null; fitnessLogin = null; jiaoxiaozhiLogin = null
-        sharedClient = null
-        vpnClient = null
-        webVpnLoggedIn = false
-        isOnCampus = null
-        campusDetectTime = 0L
-        ywtbUserInfo = null
-        firstVisitorId = null
-        cachedRsaKey = null
-        persistentCookieJar?.clear()
-        vpnCookieJar?.clear()
-        com.xjtu.toolbox.pay.PaymentCodeApi.clearCachedJwt()
+        // 清当前账号命名空间的 cookies（SessionManager 的 backends 已绑定当前账号 jar）
+        runCatching {
+            sessionManager?.backend(com.xjtu.toolbox.auth.AccessMode.NORMAL)?.clearAuth()
+            sessionManager?.backend(com.xjtu.toolbox.auth.AccessMode.WEBVPN)?.clearAuth()
+        }
+        clearInMemorySessionState()
+        com.xjtu.toolbox.account.AccountContext.activeAccountId = null
+        // 兼容：清旧单值凭据（迁移期向后兼容）
         store?.clear()
     }
 }
@@ -817,6 +865,7 @@ val LocalAppLoginState = staticCompositionLocalOf<AppLoginState> {
 class AppLoginStateViewModel(application: android.app.Application) : androidx.lifecycle.AndroidViewModel(application) {
     val loginState = AppLoginState()
     val credentialStore = CredentialStore(application)
+    val accountStore = com.xjtu.toolbox.account.AccountStore(application)
     val persistentCookieJar = com.xjtu.toolbox.util.PersistentCookieJar(application)
     // [关键] vpnCookieJar 直接复用 persistentCookieJar：
     // WebVpnInterceptor 豁免 login.xjtu.edu.cn → vpnClient 登录得到的 TGC 写在 login.xjtu.edu.cn 域（公网）
@@ -825,6 +874,9 @@ class AppLoginStateViewModel(application: android.app.Application) : androidx.li
 
     /** 新会话架构入口：双 backend、SiteSession 注册中心、MFA 状态机宿主。 */
     val sessionManager = com.xjtu.toolbox.auth.SessionManager(application)
+
+    /** 多账号编排器。 */
+    val accountManager = com.xjtu.toolbox.account.AccountManager(application, accountStore, credentialStore)
 
     init {
         // 注入持久化组件（无需 LaunchedEffect，ViewModel 创建时即完成）
@@ -852,28 +904,56 @@ class AppLoginStateViewModel(application: android.app.Application) : androidx.li
             register(com.xjtu.toolbox.auth.FitnessSession())
             register(com.xjtu.toolbox.jiaoxiaozhi.JiaoxiaozhiSiteSession())
         }
-        // 设备指纹：基于 ANDROID_ID 派生（硬件级稳定，不会每次启动重生成），
-        // 持久化到 EncryptedSharedPreferences。即便首次登录失败也不会因为
-        // 重新生成 fp 让服务端把每次都当新设备 → trustAgent 才能真正生效。
-        ensureStableFpVisitorId()
-        // 恢复凭据（同步执行，确保 Compose 首帧读取到正确状态）
-        loginState.restoreCredentials(credentialStore)
+        // 绑定 AccountManager 到 sessionManager + loginState
+        accountManager.sessionManager = sessionManager
+        accountManager.holder = loginState
+
+        // 一次性迁移旧单账号数据 → 首个 Account 命名空间
+        val migrated = com.xjtu.toolbox.account.AccountMigration
+            .runIfNeeded(application, accountStore, credentialStore)
+
+        // 恢复激活账号身份（从 AccountStore，而非旧 CredentialStore 单值）
+        // 先恢复身份，再补 fp，确保 ensureStableFpVisitorId 能正确读到当前 accountId 并同步内存态。
+        restoreActiveAccount(migrated)
+
+        // 设备指纹：仅当激活账号仍缺 fpVisitorId 时基于设备 + accountId 派生一个稳定值
+        ensureStableFpVisitorId(migrated)
     }
 
-    private fun ensureStableFpVisitorId() {
-        val existing = credentialStore.loadFpVisitorId()
-        if (!existing.isNullOrEmpty()) return
+    private fun restoreActiveAccount(migrated: com.xjtu.toolbox.account.Account?) {
+        val active = migrated ?: accountStore.activeAccount()
+        if (active != null) {
+            // 用当前账号命名空间重建 backends（复用其磁盘 cookies）
+            val suffix = "_" + active.accountId.replace(Regex("[^a-zA-Z0-9]"), "_")
+            sessionManager.reconfigureForAccount(suffix)
+            loginState.loadIdentityFromAccount(active)
+        } else {
+            // 无账号：保持默认 backends（匿名 _default），等用户登录
+            com.xjtu.toolbox.account.AccountContext.activeAccountId = null
+        }
+    }
+
+    private fun ensureStableFpVisitorId(migrated: com.xjtu.toolbox.account.Account?) {
+        // 多账号模式下 fpVisitorId 存在 Account 记录里，按账号独立。
+        // 仅当某账号缺 fp 时基于设备派生一个；迁移路径已在 AccountMigration 把旧 fp 带入。
+        val active = migrated ?: accountStore.activeAccount() ?: return
+        if (!active.fpVisitorId.isNullOrBlank()) return
         val androidId = try {
             android.provider.Settings.Secure.getString(
                 getApplication<android.app.Application>().contentResolver,
                 android.provider.Settings.Secure.ANDROID_ID
             ) ?: ""
         } catch (_: Exception) { "" }
-        val seed = "android|${android.os.Build.MANUFACTURER}|${android.os.Build.MODEL}|$androidId"
+        val seed = "android|${android.os.Build.MANUFACTURER}|${android.os.Build.MODEL}|$androidId|${active.accountId}"
         val digest = java.security.MessageDigest.getInstance("SHA-256")
         val hash = digest.digest(seed.toByteArray()).joinToString("") { "%02x".format(it) }.take(32)
-        credentialStore.saveFpVisitorId(hash)
-        android.util.Log.d("FpVisitorId", "stable fp generated and persisted")
+        accountStore.update(active.accountId) { it.copy(fpVisitorId = hash) }
+        // 同步到当前内存态
+        if (loginState.accountId == active.accountId) {
+            loginState.firstVisitorId = hash
+            sessionManager.fpVisitorId = hash
+        }
+        android.util.Log.d("FpVisitorId", "stable fp generated for account=${active.accountId}")
     }
 }
 
@@ -902,7 +982,7 @@ private suspend fun refreshCampusCardCache(
             tx.time.substringAfter(" ").substringBefore(":").toIntOrNull()?.let { h -> h in 17..21 } == true
     }.sumOf { tx -> -tx.amount }
 
-    appContext.getSharedPreferences("campus_card", 0).edit()
+    com.xjtu.toolbox.card.CampusCardCache.cardPrefs(appContext).edit()
         .putFloat("card_balance_cache", info.balance.toFloat())
         .putString("card_name_cache", info.name)
         .putLong("card_cache_time", System.currentTimeMillis())
@@ -1010,6 +1090,9 @@ fun AppNavigation(
         if (!name.isNullOrBlank()) {
             loginState.cachedNickname = name
             credentialStore.saveNickname(name)
+            // 同步到当前账号的 AccountStore 记录（多账号隔离）
+            val aid = loginState.accountId
+            if (aid.isNotEmpty()) viewModel.accountManager.updateNickname(aid, name)
         }
     }
 
@@ -1367,6 +1450,7 @@ fun AppNavigation(
                 navController = navController,
                 loginState = loginState,
                 credentialStore = credentialStore,
+                accountManager = viewModel.accountManager,
                 isRestoring = isRestoring,
                 restoreStep = restoreStep,
                 pendingTab = pendingMainTab,
@@ -1631,6 +1715,15 @@ fun AppNavigation(
             )
         }
 
+        // ── 账号管理页 ──
+        composable(Routes.ACCOUNTS) {
+            com.xjtu.toolbox.account.AccountManagerScreen(
+                accountManager = viewModel.accountManager,
+                loginState = loginState,
+                onBack = { navController.popBackStack() }
+            )
+        }
+
         // ── WebVPN 网址互转 ──
         composable(Routes.WEBVPN_CONVERTER) {
             com.xjtu.toolbox.webvpn.WebVpnConverterScreen(
@@ -1664,6 +1757,7 @@ private fun MainScreen(
     navController: NavHostController,
     loginState: AppLoginState,
     credentialStore: CredentialStore,
+    accountManager: com.xjtu.toolbox.account.AccountManager,
     isRestoring: Boolean = false,
     restoreStep: String = "",
     pendingTab: String? = null,
@@ -2061,9 +2155,11 @@ private fun MainScreen(
                                         loginState,
                                         ::navigateWithLogin,
                                         credentialStore,
+                                        accountManager,
                                         scrollBehavior = profileScrollBehavior,
                                         onNavigateToDownloads = { navController.navigate(Routes.DOWNLOAD_MANAGER) },
                                         onNavigateToSettings = { navController.navigate(Routes.SETTINGS) { launchSingleTop = true } },
+                                        onNavigateToAccounts = { navController.navigate(com.xjtu.toolbox.Routes.ACCOUNTS) { launchSingleTop = true } },
                                         navBarStyle = navBarStyle,
                                         onWarmupRequest = onWarmupRequest
                                     )
@@ -2476,12 +2572,19 @@ private fun HomeTab(
     val heroContext = LocalContext.current
     var scheduleReminderState by remember { mutableStateOf<ScheduleReminderInfo?>(null) }
     var isScheduleReminderLoaded by remember { mutableStateOf(false) }
-    val cardPrefs = remember { heroContext.getSharedPreferences("campus_card", 0) }
+    val cardPrefs = remember(com.xjtu.toolbox.account.AccountContext.activeAccountId) {
+        com.xjtu.toolbox.card.CampusCardCache.cardPrefs(heroContext)
+    }
     var cachedBalance by remember { mutableStateOf(cardPrefs.getFloat("card_balance_cache", -1f)) }
     LaunchedEffect(loginState.campusCardCacheVersion) {
         cachedBalance = cardPrefs.getFloat("card_balance_cache", -1f)
     }
-    LaunchedEffect(Unit) {
+    LaunchedEffect(loginState.accountId) {
+        if (loginState.accountId.isEmpty()) return@LaunchedEffect
+        // 账号切换：先清旧账号的提醒与校园卡缓存内存态，再从新账号命名空间重读
+        isScheduleReminderLoaded = false
+        scheduleReminderState = null
+        cachedBalance = cardPrefs.getFloat("card_balance_cache", -1f)
         val loadedReminder = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 val dataCache = com.xjtu.toolbox.util.DataCache(heroContext)
@@ -2498,7 +2601,7 @@ private fun HomeTab(
                     ?: emptyList()
                 val customCourses = try {
                     com.xjtu.toolbox.util.AppDatabase.getInstance(heroContext)
-                        .customCourseDao().getByTerm(termCode)
+                        .customCourseDao().getByTerm(com.xjtu.toolbox.account.AccountContext.activeAccountId ?: "", termCode)
                         .map { it.toCourseItem() }
                 } catch (_: Exception) { emptyList() }
                 val allSchedules = apiCourses + customCourses
@@ -3018,9 +3121,11 @@ private fun ProfileTab(
     loginState: AppLoginState,
     onNavigateWithLogin: (String, LoginType) -> Unit,
     credentialStore: CredentialStore,
+    accountManager: com.xjtu.toolbox.account.AccountManager,
     scrollBehavior: ScrollBehavior? = null,
     onNavigateToDownloads: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
+    onNavigateToAccounts: () -> Unit = {},
     navBarStyle: String = "floating",
     onWarmupRequest: () -> Unit = {}
 ) {
@@ -3043,6 +3148,7 @@ private fun ProfileTab(
 
     // 智能登录：JWXT→核心登录→YWTB后台
     fun loginAllSystems(user: String, pwd: String) {
+        val user = user.trim()
         isLoggingIn = true
         loginError = null
         loginProgress = 0f
@@ -3070,6 +3176,8 @@ private fun ProfileTab(
             // ── 完成核心登录 ──
             loginProgress = 1f
             isLoggingIn = false
+            // 落库到 AccountStore（多账号架构），同时兼容旧 CredentialStore 单值
+            accountManager.persistCurrentLogin(user, pwd, loginState.accountType)
             loginState.persistCredentials(credentialStore)
 
             // ── 首次登录后引导用户配置 Srun 校园网自动登录 ──
@@ -3086,6 +3194,10 @@ private fun ProfileTab(
                     val ywtbSite = loginState.sessionManager?.ensureSite(LoginType.YWTB)
                     if (ywtbSite != null && loginState.ywtbUserInfo == null) {
                         loginState.ywtbUserInfo = com.xjtu.toolbox.ywtb.YwtbApi(ywtbSite).getUserInfo()
+                        // YWTB 拿到昵称后回写到 AccountStore
+                        loginState.ywtbUserInfo?.userName?.let { name ->
+                            accountManager.updateNickname(user, name)
+                        }
                     }
                 } catch (_: Exception) { }
             }
@@ -3180,7 +3292,9 @@ private fun ProfileTab(
     ) {
         // ━━ Hero Header ━━
         Surface(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(if (loginState.isLoggedIn) Modifier.clickable { onNavigateToAccounts() } else Modifier),
             color = MiuixTheme.colorScheme.surface
         ) {
             Box(
@@ -3517,13 +3631,43 @@ private fun ProfileTab(
 
                 Spacer(Modifier.height(16.dp))
 
-                // ━━ 设置入口 + 退出登录 ━━
+                // ━━ 账号管理 + 设置 + 退出登录 ━━
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     cornerRadius = 20.dp,
                     colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
                 ) {
                     Column {
+                        // 账号管理入口行
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .pressOverlay { onNavigateToAccounts() }
+                                .padding(horizontal = 20.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(shape = CircleShape, color = MiuixTheme.colorScheme.primary.copy(alpha = 0.1f), modifier = Modifier.size(36.dp)) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.Person, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.primary)
+                                }
+                            }
+                            Spacer(Modifier.width(14.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text("账号管理", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium)
+                                val cnt = accountManager.accountCount()
+                                if (cnt > 0) {
+                                    Text(
+                                        "已保存 $cnt 个账号",
+                                        style = MiuixTheme.textStyles.footnote2,
+                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                                    )
+                                }
+                            }
+                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f))
+                        }
+
+                        HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MiuixTheme.colorScheme.outline.copy(alpha = 0.3f))
+
                         // 设置入口行
                         Row(
                             Modifier
@@ -3568,7 +3712,7 @@ private fun ProfileTab(
                             OverlayDialog(
                                 show = showLogoutDialog.value,
                                 title = "确认退出",
-                                summary = "退出登录后大量功能将不可用，同时清除所有缓存。确定要退出吗？",
+                                summary = "退出当前账号的登录，清除其会话 Cookie。账号记录与本地缓存保留，下次可在「账号管理」快速切回。",
                                 onDismissRequest = { showLogoutDialog.value = false }
                             ) {
                                 Row(
@@ -3583,7 +3727,7 @@ private fun ProfileTab(
                                     Button(
                                         onClick = {
                                             showLogoutDialog.value = false
-                                            loginState.logout(credentialStore)
+                                            scope.launch { accountManager.logoutCurrent() }
                                         },
                                         modifier = Modifier.weight(1f)
                                     ) { Text("退出登录") }
