@@ -27,6 +27,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -38,8 +40,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
@@ -114,6 +115,7 @@ import com.xjtu.toolbox.library.LibraryScreen
 import com.xjtu.toolbox.judge.JudgeScreen
 import com.xjtu.toolbox.score.ScoreReportScreen
 import com.xjtu.toolbox.ui.theme.XJTUToolBoxTheme
+import com.xjtu.toolbox.ui.theme.serviceColor
 import com.xjtu.toolbox.ui.settings.SettingsScreen
 import com.xjtu.toolbox.ui.components.AmbientGlow
 import com.xjtu.toolbox.ui.components.ExpressiveIcon
@@ -1015,6 +1017,9 @@ fun AppNavigation(
     val context = LocalContext.current
     val mainScope = rememberCoroutineScope()
     var pendingMainTab by remember { mutableStateOf(initialTab) }
+    var homeTheme by remember { mutableStateOf(credentialStore.homeTheme) }
+    var pinnedServices by remember { mutableStateOf(credentialStore.pinnedServices) }
+    var showQuickActions by remember { mutableStateOf(credentialStore.showQuickActions) }
 
     // WebVPN 转换页：用户点击"用 WebVPN 打开"但 vpnClient 未就绪时，挂起此 URL，
     // 启动 loginWebVpn（必要时含 MFA），登录成功后再 navigate(browser(url))。
@@ -1458,7 +1463,17 @@ fun AppNavigation(
                     pendingMainTab = null
                     onInitialTabConsumed()
                 },
-                onWarmupRequest = { startBackgroundLoginWarmup(mainScope, force = true) }
+                onWarmupRequest = { startBackgroundLoginWarmup(mainScope, force = true) },
+                homeTheme = homeTheme,
+                pinnedServices = pinnedServices,
+                onTogglePin = { key ->
+                    val newSet = pinnedServices.toMutableSet().apply {
+                        if (contains(key)) remove(key) else add(key)
+                    }
+                    pinnedServices = newSet
+                    credentialStore.pinnedServices = newSet
+                },
+                showQuickActions = showQuickActions
             )
         }
 
@@ -1711,7 +1726,17 @@ fun AppNavigation(
                 onNavBarStyleChanged = { /* NavBar 风格变化通过 MainScreen 内部状态处理 */ },
                 onDarkModeChanged = onDarkModeChanged,
                 onDefaultTabChanged = { /* 下次启动生效 */ },
-                onOpenDownloads = { navController.navigate(Routes.DOWNLOAD_MANAGER) }
+                onOpenDownloads = { navController.navigate(Routes.DOWNLOAD_MANAGER) },
+                homeTheme = homeTheme,
+                onHomeThemeChanged = { v ->
+                    homeTheme = v
+                    credentialStore.homeTheme = v
+                },
+                showQuickActions = showQuickActions,
+                onShowQuickActionsChanged = { v ->
+                    showQuickActions = v
+                    credentialStore.showQuickActions = v
+                }
             )
         }
 
@@ -1762,7 +1787,11 @@ private fun MainScreen(
     restoreStep: String = "",
     pendingTab: String? = null,
     onPendingTabConsumed: () -> Unit = {},
-    onWarmupRequest: () -> Unit = {}
+    onWarmupRequest: () -> Unit = {},
+    homeTheme: String = CredentialStore.THEME_CARD,
+    pinnedServices: Set<String> = emptySet(),
+    onTogglePin: (String) -> Unit = {},
+    showQuickActions: Boolean = true,
 ) {
     // 读取设置的默认 Tab
     val defaultTabOrdinal = remember {
@@ -2147,7 +2176,11 @@ private fun MainScreen(
                                         onNavigateToProfile = { selectedTabOrdinal = BottomTab.PROFILE.ordinal },
                                         onNavigateToCourses = { selectedTabOrdinal = BottomTab.COURSES.ordinal },
                                         scrollBehavior = homeScrollBehavior,
-                                        navBarStyle = navBarStyle
+                                        navBarStyle = navBarStyle,
+                                        homeTheme = homeTheme,
+                                        pinnedServices = pinnedServices,
+                                        onTogglePin = onTogglePin,
+                                        showQuickActions = showQuickActions
                                     )
                                     BottomTab.COURSES -> CoursesTab(loginState, ::navigateWithLogin, onNavigateWithNetCheck, scrollBehavior = coursesScrollBehavior, navBarStyle = navBarStyle, onSubtitleChange = { courseSubtitle = it }, onActionsChange = { courseHeaderActions = it }, onBottomContentChange = { courseHeaderBottomContent = it })
                                     BottomTab.TOOLS -> ToolsTab(loginState, ::navigateWithLogin, onNavigateWithNetCheck, scrollBehavior = toolsScrollBehavior, navBarStyle = navBarStyle)
@@ -2566,7 +2599,11 @@ private fun HomeTab(
     onNavigateToProfile: () -> Unit = {},
     onNavigateToCourses: () -> Unit = {},
     scrollBehavior: ScrollBehavior? = null,
-    navBarStyle: String = "floating"
+    navBarStyle: String = "floating",
+    homeTheme: String = CredentialStore.THEME_CARD,
+    pinnedServices: Set<String> = emptySet(),
+    onTogglePin: (String) -> Unit = {},
+    showQuickActions: Boolean = true,
 ) {
     // ── 仪表盘数据：下一节日程 + 校园卡余额缓存（供 Hero 重点信息区使用）──
     val heroContext = LocalContext.current
@@ -2827,180 +2864,400 @@ private fun HomeTab(
 
         Spacer(Modifier.height(24.dp))
 
-        // ── Zone B: 常用功能（按频率自适应的 4 个大图标，无卡片背景）──
-        Column(Modifier.padding(horizontal = 16.dp)) {
-            Text(
-                "常用功能",
-                style = MiuixTheme.textStyles.headline1,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(start = 4.dp, bottom = 12.dp)
-            )
-            val colorGreen = androidx.compose.ui.graphics.Color(0xFF2E7D32)
-            val colorOrange = androidx.compose.ui.graphics.Color(0xFFE65100)
-            val colorPurple = androidx.compose.ui.graphics.Color(0xFF7B1FA2)
-            val colorTeal = androidx.compose.ui.graphics.Color(0xFF00796B)
-            val colorAmber = androidx.compose.ui.graphics.Color(0xFFF9A825)
-            val colorIndigo = androidx.compose.ui.graphics.Color(0xFF283593)
-            val ctxQuick = LocalContext.current
-            // 快捷入口候选（根据使用频率动态选 top-4，首次用默认顺序）
-            data class Quick(val key: String, val icon: ImageVector, val label: String, val color: androidx.compose.ui.graphics.Color, val onClick: () -> Unit)
-            val quickPool = listOf(
-                Quick(Routes.CAMPUS_CARD, Icons.Default.CreditCard, "校园卡", colorGreen) { onNavigateWithLogin(Routes.CAMPUS_CARD, LoginType.CAMPUS_CARD) },
-                Quick(Routes.EMPTY_ROOM, Icons.Default.LocationOn, "空闲教室", colorIndigo) { onNavigateWithLogin(Routes.EMPTY_ROOM, LoginType.JWXT) },
-                Quick(Routes.PAYMENT_CODE, Icons.Default.QrCode, "付款码", colorTeal) { onNavigateWithLogin(Routes.PAYMENT_CODE, LoginType.CAMPUS_CARD) },
-                Quick(Routes.NOTIFICATION, Icons.Default.Notifications, "通知", colorOrange) { onNavigate(Routes.NOTIFICATION) },
-                Quick(Routes.JWAPP_SCORE, Icons.Default.Assessment, "成绩", colorPurple) { onNavigateWithLogin(Routes.JWAPP_SCORE, LoginType.JWAPP) },
-                Quick(Routes.COUPON, Icons.Default.Restaurant, "加餐券", colorAmber) { onNavigateWithLogin(Routes.COUPON, LoginType.COUPON) },
-                Quick(Routes.LIBRARY, Icons.Default.Chair, "图书馆", colorOrange) { onNavigateWithLogin(Routes.LIBRARY, LoginType.LIBRARY) },
-                Quick(Routes.LMS, Icons.Default.School, "思源", colorIndigo) { onNavigateWithLogin(Routes.LMS, LoginType.LMS) },
-                Quick(Routes.AGENT, Icons.Default.SmartToy, "问屁岱", colorTeal) { onNavigate(Routes.AGENT) },
-                Quick(Routes.JIAOXIAOZHI, Icons.Default.AutoAwesome, "交晓智", colorPurple) {
-                    onNavigateWithLogin(Routes.JIAOXIAOZHI, LoginType.JIAOXIAOZHI)
-                }
-            )
-            val quickKeys = remember(quickPool) {
-                com.xjtu.toolbox.util.ServiceUsageTracker.topKeys(
-                    ctxQuick,
-                    quickPool.map { it.key },
-                    n = 4,
-                    fallback = listOf(Routes.CAMPUS_CARD, Routes.EMPTY_ROOM, Routes.AGENT, Routes.NOTIFICATION)
-                )
-            }
-            val quickShown = quickKeys.mapNotNull { k -> quickPool.find { it.key == k } }
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                quickShown.forEach { q ->
-                    HomeQuickAction(q.icon, q.label, q.color) {
-                        com.xjtu.toolbox.util.ServiceUsageTracker.record(ctxQuick, q.key)
-                        q.onClick()
-                    }
-                }
-            }
-        }
-
-        Spacer(Modifier.height(24.dp))
-
-        // ── Zone C: 场景入口（3 张横向特色卡：上课 / 校园生活 / 学业）──
-        Column(Modifier.padding(horizontal = 16.dp)) {
-            Text(
-                "场景入口",
-                style = MiuixTheme.textStyles.headline1,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(start = 4.dp, bottom = 12.dp)
-            )
-        }
-        run {
-            val ctxScene = LocalContext.current
-            fun go(key: String, action: () -> Unit): () -> Unit = {
-                com.xjtu.toolbox.util.ServiceUsageTracker.record(ctxScene, key)
-                action()
-            }
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                HomeSceneCard(
-                    title = "问屁岱",
-                    subtitle = "校园助手、工具调用与交晓智",
-                    icon = Icons.Default.SmartToy,
-                    accent = androidx.compose.ui.graphics.Color(0xFF00695C),
-                    entries = listOf(
-                        "问屁岱" to go(Routes.AGENT) { onNavigate(Routes.AGENT) },
-                        "交晓智" to go(Routes.JIAOXIAOZHI) { onNavigateWithLogin(Routes.JIAOXIAOZHI, LoginType.JIAOXIAOZHI) },
-                    )
-                )
-                HomeSceneCard(
-                    title = "上课",
-                    subtitle = "课表、自习与课程内容",
-                    icon = Icons.Default.School,
-                    accent = androidx.compose.ui.graphics.Color(0xFF315FD4),
-                    entries = listOf(
-                        "日程" to go(Routes.SCHEDULE) { onNavigateToCourses() },
-                        "空闲教室" to go(Routes.EMPTY_ROOM) { onNavigateWithLogin(Routes.EMPTY_ROOM, LoginType.JWXT) },
-                        "思源" to go(Routes.LMS) { onNavigateWithLogin(Routes.LMS, LoginType.LMS) },
-                    )
-                )
-                HomeSceneCard(
-                    title = "校园生活",
-                    subtitle = "校园支付与生活服务",
-                    icon = Icons.Default.Restaurant,
-                    accent = androidx.compose.ui.graphics.Color(0xFF2E7D32),
-                    entries = listOf(
-                        "校园卡" to go(Routes.CAMPUS_CARD) { onNavigateWithLogin(Routes.CAMPUS_CARD, LoginType.CAMPUS_CARD) },
-                        "付款码" to go(Routes.PAYMENT_CODE) { onNavigateWithLogin(Routes.PAYMENT_CODE, LoginType.CAMPUS_CARD) },
-                        "加餐券" to go(Routes.COUPON) { onNavigateWithLogin(Routes.COUPON, LoginType.COUPON) },
-                    )
-                )
-                HomeSceneCard(
-                    title = "学业",
-                    subtitle = "成绩、评教和教材",
-                    icon = Icons.Default.Assessment,
-                    accent = androidx.compose.ui.graphics.Color(0xFF7B1FA2),
-                    entries = listOf(
-                        "成绩" to go(Routes.JWAPP_SCORE) { onNavigateWithLogin(Routes.JWAPP_SCORE, LoginType.JWAPP) },
-                        "评教" to go(Routes.JUDGE) { onNavigateWithLogin(Routes.JUDGE, LoginType.JWXT) },
-                        "教材" to go(Routes.JIAOCAI) { onNavigateWithLogin(Routes.JIAOCAI, LoginType.JIAOCAI) },
-                    )
-                )
-            }
-        }
-
-        Spacer(Modifier.height(24.dp))
-
-        // ── Zone D: 更多服务（纯图标宫格：无副标题、无卡片背景，低频工具集中于此）──
-        Column(Modifier.padding(horizontal = 16.dp)) {
-            Text(
-                "更多服务",
-                style = MiuixTheme.textStyles.headline1,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
-            )
-            val ctx = LocalContext.current
-            data class MoreSvc(
-                val key: String,
-                val icon: ImageVector,
-                val title: String,
-                val color: androidx.compose.ui.graphics.Color,
-                val onClick: () -> Unit
-            )
-            val moreServices = listOf(
-                MoreSvc(Routes.LIBRARY, Icons.Default.Chair, "图书馆", androidx.compose.ui.graphics.Color(0xFFE65100)) { onNavigateWithLogin(Routes.LIBRARY, LoginType.LIBRARY) },
-                MoreSvc(Routes.NOTIFICATION, Icons.Default.Notifications, "通知公告", MiuixTheme.colorScheme.error) { onNavigate(Routes.NOTIFICATION) },
-                MoreSvc(Routes.ATTENDANCE, Icons.Default.DateRange, "考勤", androidx.compose.ui.graphics.Color(0xFF4E342E)) { onNavigateWithLogin(Routes.ATTENDANCE, LoginType.ATTENDANCE) },
-                MoreSvc(Routes.POSTGRADUATE_ATTENDANCE, Icons.Default.DateRange, "研考勤", androidx.compose.ui.graphics.Color(0xFF4E342E)) { onNavigateWithLogin(Routes.POSTGRADUATE_ATTENDANCE, LoginType.POSTGRADUATE_ATTENDANCE) },
-                MoreSvc(Routes.TRANSCRIPT, Icons.Default.Description, "成绩单", androidx.compose.ui.graphics.Color(0xFF283593)) { onNavigateWithLogin(Routes.TRANSCRIPT, LoginType.DZPZ) },
-                MoreSvc(Routes.VENUE, Icons.Default.Place, "场馆预订", androidx.compose.ui.graphics.Color(0xFF00838F)) { onNavigateWithLogin(Routes.VENUE, LoginType.VENUE) },
-                MoreSvc(Routes.CLASS_REPLAY, Icons.Default.OndemandVideo, "课程回放", androidx.compose.ui.graphics.Color(0xFF512DA8)) { onNavigateWithLogin(Routes.CLASS_REPLAY, LoginType.CLASS) },
-                MoreSvc(Routes.SCHOOL_COURSE, Icons.Default.TravelExplore, "课程查询", androidx.compose.ui.graphics.Color(0xFF00838F)) { onNavigateWithLogin(Routes.SCHOOL_COURSE, LoginType.JWXT) },
-                MoreSvc(Routes.SCHOOL_CALENDAR, Icons.Default.EventNote, "校历", androidx.compose.ui.graphics.Color(0xFF00796B)) { onNavigate(Routes.SCHOOL_CALENDAR) },
-                MoreSvc(Routes.YELLOW_PAGE, Icons.Default.ContactPhone, "校园黄页", androidx.compose.ui.graphics.Color(0xFF1565C0)) { onNavigate(Routes.YELLOW_PAGE) },
-                MoreSvc(Routes.MOBILE_JIAODA, Icons.Default.PhoneAndroid, "移动交大", androidx.compose.ui.graphics.Color(0xFF005BAC)) { onNavigateWithLogin(Routes.MOBILE_JIAODA, LoginType.SUPER_APP) },
-                MoreSvc(Routes.FITNESS, Icons.Default.DirectionsRun, "体测查询", androidx.compose.ui.graphics.Color(0xFF00897B)) { onNavigateWithLogin(Routes.FITNESS, LoginType.FITNESS) },
-                MoreSvc(Routes.WEBVPN_CONVERTER, Icons.Default.VpnKey, "WebVPN", androidx.compose.ui.graphics.Color(0xFF4E342E)) { onNavigate(Routes.WEBVPN_CONVERTER) },
-                MoreSvc(Routes.AGENT, Icons.Default.SmartToy, "屁岱", androidx.compose.ui.graphics.Color(0xFF00695C)) { onNavigate(Routes.AGENT) },
-                MoreSvc(Routes.JIAOXIAOZHI, Icons.Default.AutoAwesome, "交晓智", androidx.compose.ui.graphics.Color(0xFF6750A4)) {
-                    onNavigateWithLogin(Routes.JIAOXIAOZHI, LoginType.JIAOXIAOZHI)
-                }
-            )
-            moreServices.chunked(4).forEach { rowItems ->
+        // ── 服务分类宫格 ──
+        data class MoreSvc(
+            val key: String,
+            val icon: ImageVector,
+            val title: String,
+            val color: androidx.compose.ui.graphics.Color,
+            val onClick: () -> Unit
+        )
+        val ctx = LocalContext.current
+        @Composable
+        fun renderGrid(services: List<MoreSvc>, onLongClick: ((String) -> Unit)? = null) {
+            services.chunked(4).forEach { rowItems ->
                 Row(Modifier.fillMaxWidth()) {
                     rowItems.forEach { svc ->
                         HomeGridItem(
                             icon = svc.icon,
                             label = svc.title,
                             color = svc.color,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            com.xjtu.toolbox.util.ServiceUsageTracker.record(ctx, svc.key)
-                            svc.onClick()
-                        }
+                            modifier = Modifier.weight(1f),
+                            onClick = {
+                                com.xjtu.toolbox.util.ServiceUsageTracker.record(ctx, svc.key)
+                                svc.onClick()
+                            },
+                            onLongClick = if (onLongClick != null) ({ onLongClick(svc.key) }) else null,
+                        )
                     }
                     repeat(4 - rowItems.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+        }
+
+        when (homeTheme) {
+            CredentialStore.THEME_ICON -> {
+                @Composable
+                fun svcColor(index: Int, key: String): androidx.compose.ui.graphics.Color =
+                    serviceColor(index, 24)
+
+                val allServices = listOf(
+                    // 上课 (0..6)
+                    MoreSvc(Routes.SCHEDULE, Icons.Default.CalendarMonth, "日程", androidx.compose.ui.graphics.Color.Unspecified) { onNavigateToCourses() },
+                    MoreSvc(Routes.EMPTY_ROOM, Icons.Default.LocationOn, "空闲教室", androidx.compose.ui.graphics.Color.Unspecified) { onNavigateWithLogin(Routes.EMPTY_ROOM, LoginType.JWXT) },
+                    MoreSvc(Routes.LMS, Icons.Default.School, "思源", androidx.compose.ui.graphics.Color.Unspecified) { onNavigateWithLogin(Routes.LMS, LoginType.LMS) },
+                    MoreSvc(Routes.CLASS_REPLAY, Icons.Default.OndemandVideo, "课程回放", androidx.compose.ui.graphics.Color.Unspecified) { onNavigateWithLogin(Routes.CLASS_REPLAY, LoginType.CLASS) },
+                    MoreSvc(Routes.SCHOOL_COURSE, Icons.Default.TravelExplore, "课程查询", androidx.compose.ui.graphics.Color.Unspecified) { onNavigateWithLogin(Routes.SCHOOL_COURSE, LoginType.JWXT) },
+                    MoreSvc(Routes.ATTENDANCE, Icons.Default.DateRange, "考勤", androidx.compose.ui.graphics.Color.Unspecified) { onNavigateWithLogin(Routes.ATTENDANCE, LoginType.ATTENDANCE) },
+                    MoreSvc(Routes.POSTGRADUATE_ATTENDANCE, Icons.Default.DateRange, "研考勤", androidx.compose.ui.graphics.Color.Unspecified) { onNavigateWithLogin(Routes.POSTGRADUATE_ATTENDANCE, LoginType.POSTGRADUATE_ATTENDANCE) },
+                    // 学业 (7..12)
+                    MoreSvc(Routes.JWAPP_SCORE, Icons.Default.Assessment, "成绩", androidx.compose.ui.graphics.Color.Unspecified) { onNavigateWithLogin(Routes.JWAPP_SCORE, LoginType.JWAPP) },
+                    MoreSvc(Routes.JUDGE, Icons.Default.RateReview, "评教", androidx.compose.ui.graphics.Color.Unspecified) { onNavigateWithLogin(Routes.JUDGE, LoginType.JWXT) },
+                    MoreSvc(Routes.JIAOCAI, Icons.AutoMirrored.Filled.MenuBook, "教材", androidx.compose.ui.graphics.Color.Unspecified) { onNavigateWithLogin(Routes.JIAOCAI, LoginType.JIAOCAI) },
+                    MoreSvc(Routes.LIBRARY, Icons.Default.Chair, "图书馆", androidx.compose.ui.graphics.Color.Unspecified) { onNavigateWithLogin(Routes.LIBRARY, LoginType.LIBRARY) },
+                    MoreSvc(Routes.TRANSCRIPT, Icons.Default.Description, "成绩单", androidx.compose.ui.graphics.Color.Unspecified) { onNavigateWithLogin(Routes.TRANSCRIPT, LoginType.DZPZ) },
+                    MoreSvc(Routes.NOTIFICATION, Icons.Default.Notifications, "通知公告", androidx.compose.ui.graphics.Color.Unspecified) { onNavigate(Routes.NOTIFICATION) },
+                    // 校园生活 (13..19)
+                    MoreSvc(Routes.CAMPUS_CARD, Icons.Default.CreditCard, "校园卡", androidx.compose.ui.graphics.Color.Unspecified) { onNavigateWithLogin(Routes.CAMPUS_CARD, LoginType.CAMPUS_CARD) },
+                    MoreSvc(Routes.PAYMENT_CODE, Icons.Default.QrCode, "付款码", androidx.compose.ui.graphics.Color.Unspecified) { onNavigateWithLogin(Routes.PAYMENT_CODE, LoginType.CAMPUS_CARD) },
+                    MoreSvc(Routes.COUPON, Icons.Default.Restaurant, "加餐券", androidx.compose.ui.graphics.Color.Unspecified) { onNavigateWithLogin(Routes.COUPON, LoginType.COUPON) },
+                    MoreSvc(Routes.SCHOOL_CALENDAR, Icons.AutoMirrored.Filled.EventNote, "校历", androidx.compose.ui.graphics.Color.Unspecified) { onNavigate(Routes.SCHOOL_CALENDAR) },
+                    MoreSvc(Routes.VENUE, Icons.Default.Place, "场馆预订", androidx.compose.ui.graphics.Color.Unspecified) { onNavigateWithLogin(Routes.VENUE, LoginType.VENUE) },
+                    MoreSvc(Routes.FITNESS, Icons.AutoMirrored.Filled.DirectionsRun, "体测查询", androidx.compose.ui.graphics.Color.Unspecified) { onNavigateWithLogin(Routes.FITNESS, LoginType.FITNESS) },
+                    MoreSvc(Routes.YELLOW_PAGE, Icons.Default.ContactPhone, "校园黄页", androidx.compose.ui.graphics.Color.Unspecified) { onNavigate(Routes.YELLOW_PAGE) },
+                    // 工具与助手 (20..23)
+                    MoreSvc(Routes.WEBVPN_CONVERTER, Icons.Default.VpnKey, "WebVPN", androidx.compose.ui.graphics.Color.Unspecified) { onNavigate(Routes.WEBVPN_CONVERTER) },
+                    MoreSvc(Routes.MOBILE_JIAODA, Icons.Default.PhoneAndroid, "移动交大", androidx.compose.ui.graphics.Color.Unspecified) { onNavigateWithLogin(Routes.MOBILE_JIAODA, LoginType.SUPER_APP) },
+                    MoreSvc(Routes.JIAOXIAOZHI, Icons.Default.AutoAwesome, "交晓智", androidx.compose.ui.graphics.Color.Unspecified) { onNavigateWithLogin(Routes.JIAOXIAOZHI, LoginType.JIAOXIAOZHI) },
+                    MoreSvc(Routes.AGENT, Icons.Default.SmartToy, "屁岱", androidx.compose.ui.graphics.Color.Unspecified) { onNavigate(Routes.AGENT) },
+                )
+
+                // Pinned
+                if (pinnedServices.isNotEmpty()) {
+                    val pinnedItems = allServices
+                        .filter { it.key in pinnedServices }
+                        .mapNotNull { svc ->
+                            val origIdx = allServices.indexOfFirst { it.key == svc.key }
+                            if (origIdx < 0) null
+                            else svc.copy(color = svcColor(origIdx, svc.key))
+                        }
+                    if (pinnedItems.isNotEmpty()) {
+                        Column(Modifier.padding(horizontal = 16.dp)) {
+                            Text(
+                                "收藏夹",
+                                style = MiuixTheme.textStyles.headline1,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
+                            )
+                            renderGrid(pinnedItems, onLongClick = { onTogglePin(it) })
+                        }
+                        Spacer(Modifier.height(24.dp))
+                    }
+                }
+
+                // 上课 (0..6)
+                Column(Modifier.padding(horizontal = 16.dp)) {
+                    Text(
+                        "上课",
+                        style = MiuixTheme.textStyles.headline1,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
+                    )
+                    val items = allServices.subList(0, 7).mapIndexed { i, svc ->
+                        svc.copy(color = svcColor(i, svc.key))
+                    }
+                    renderGrid(items, onLongClick = { onTogglePin(it) })
+                }
+
+                Spacer(Modifier.height(24.dp))
+
+                // 学业 (7..12)
+                Column(Modifier.padding(horizontal = 16.dp)) {
+                    Text(
+                        "学业",
+                        style = MiuixTheme.textStyles.headline1,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
+                    )
+                    val items = allServices.subList(7, 13).mapIndexed { i, svc ->
+                        svc.copy(color = svcColor(7 + i, svc.key))
+                    }
+                    renderGrid(items, onLongClick = { onTogglePin(it) })
+                }
+
+                Spacer(Modifier.height(24.dp))
+
+                // 校园生活 (13..19)
+                Column(Modifier.padding(horizontal = 16.dp)) {
+                    Text(
+                        "校园生活",
+                        style = MiuixTheme.textStyles.headline1,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
+                    )
+                    val items = allServices.subList(13, 20).mapIndexed { i, svc ->
+                        svc.copy(color = svcColor(13 + i, svc.key))
+                    }
+                    renderGrid(items, onLongClick = { onTogglePin(it) })
+                }
+
+                Spacer(Modifier.height(24.dp))
+
+                // 工具与助手 (20..23)
+                Column(Modifier.padding(horizontal = 16.dp)) {
+                    Text(
+                        "工具与助手",
+                        style = MiuixTheme.textStyles.headline1,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
+                    )
+                    val items = allServices.subList(20, 24).mapIndexed { i, svc ->
+                        svc.copy(color = svcColor(20 + i, svc.key))
+                    }
+                    renderGrid(items, onLongClick = { onTogglePin(it) })
+                }
+            }
+            else -> {
+                // Card theme: original 3-zone layout
+
+                // Pinned (if any) — using legacy colors
+                val pinnedKeyToColor = mutableMapOf<String, androidx.compose.ui.graphics.Color>()
+                @Composable
+                fun pinnedColor(key: String): androidx.compose.ui.graphics.Color {
+                    return pinnedKeyToColor.getOrPut(key) {
+                        com.xjtu.toolbox.ui.theme.legacyColor(key)
+                    }
+                }
+                if (pinnedServices.isNotEmpty()) {
+                    val pinnedSvc = listOf(
+                        "schedule" to "日程",
+                        "empty_room" to "空闲教室",
+                        "lms" to "思源",
+                        "class_replay" to "课程回放",
+                        "school_course" to "课程查询",
+                        "attendance" to "考勤",
+                        "postgraduate_attendance" to "研考勤",
+                        "jwapp_score" to "成绩",
+                        "judge" to "评教",
+                        "jiaocai" to "教材",
+                        "library" to "图书馆",
+                        "transcript" to "成绩单",
+                        "notification" to "通知公告",
+                        "campus_card" to "校园卡",
+                        "payment_code" to "付款码",
+                        "coupon" to "加餐券",
+                        "school_calendar" to "校历",
+                        "venue" to "场馆预订",
+                        "fitness" to "体测查询",
+                        "yellow_page" to "校园黄页",
+                        "webvpn_converter" to "WebVPN",
+                        "mobile_jiaoda" to "移动交大",
+                        "jiaoxiaozhi" to "交晓智",
+                        "agent" to "屁岱",
+                    ).filter { it.first in pinnedServices }
+                    if (pinnedSvc.isNotEmpty()) {
+                        val items = pinnedSvc.map { (k, label) ->
+                            // Map key back to known icons for pinned rendering
+                            val ico = when (k) {
+                                "schedule" -> Icons.Default.CalendarMonth
+                                "empty_room" -> Icons.Default.LocationOn
+                                "lms" -> Icons.Default.School
+                                "class_replay" -> Icons.Default.OndemandVideo
+                                "school_course" -> Icons.Default.TravelExplore
+                                "attendance" -> Icons.Default.DateRange
+                                "postgraduate_attendance" -> Icons.Default.DateRange
+                                "jwapp_score" -> Icons.Default.Assessment
+                                "judge" -> Icons.Default.RateReview
+                                "jiaocai" -> Icons.AutoMirrored.Filled.MenuBook
+                                "library" -> Icons.Default.Chair
+                                "transcript" -> Icons.Default.Description
+                                "notification" -> Icons.Default.Notifications
+                                "campus_card" -> Icons.Default.CreditCard
+                                "payment_code" -> Icons.Default.QrCode
+                                "coupon" -> Icons.Default.Restaurant
+                                "school_calendar" -> Icons.AutoMirrored.Filled.EventNote
+                                "venue" -> Icons.Default.Place
+                                "fitness" -> Icons.AutoMirrored.Filled.DirectionsRun
+                                "yellow_page" -> Icons.Default.ContactPhone
+                                "webvpn_converter" -> Icons.Default.VpnKey
+                                "mobile_jiaoda" -> Icons.Default.PhoneAndroid
+                                "jiaoxiaozhi" -> Icons.Default.AutoAwesome
+                                "agent" -> Icons.Default.SmartToy
+                                else -> Icons.AutoMirrored.Filled.HelpOutline
+                            }
+                            MoreSvc(k, ico, label, pinnedColor(k)) { onNavigate(k) }
+                        }
+                        Column(Modifier.padding(horizontal = 16.dp)) {
+                            Text(
+                                "收藏夹",
+                                style = MiuixTheme.textStyles.headline1,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
+                            )
+                            renderGrid(items, onLongClick = { onTogglePin(it) })
+                        }
+                        Spacer(Modifier.height(24.dp))
+                    }
+                }
+
+                // ── Zone B: 常用功能（按频率自适应的 4 个大图标，无卡片背景）──
+                if (showQuickActions) {
+                Column(Modifier.padding(horizontal = 16.dp)) {
+                    Text(
+                        "常用功能",
+                        style = MiuixTheme.textStyles.headline1,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(start = 4.dp, bottom = 12.dp)
+                    )
+                    val colorGreen = androidx.compose.ui.graphics.Color(0xFF2E7D32)
+                    val colorOrange = androidx.compose.ui.graphics.Color(0xFFE65100)
+                    val colorPurple = androidx.compose.ui.graphics.Color(0xFF7B1FA2)
+                    val colorTeal = androidx.compose.ui.graphics.Color(0xFF00796B)
+                    val colorAmber = androidx.compose.ui.graphics.Color(0xFFF9A825)
+                    val colorIndigo = androidx.compose.ui.graphics.Color(0xFF283593)
+                    val ctxQuick = LocalContext.current
+                    data class Quick(val key: String, val icon: ImageVector, val label: String, val color: androidx.compose.ui.graphics.Color, val onClick: () -> Unit)
+                    val quickPool = listOf(
+                        Quick(Routes.CAMPUS_CARD, Icons.Default.CreditCard, "校园卡", colorGreen) { onNavigateWithLogin(Routes.CAMPUS_CARD, LoginType.CAMPUS_CARD) },
+                        Quick(Routes.EMPTY_ROOM, Icons.Default.LocationOn, "空闲教室", colorIndigo) { onNavigateWithLogin(Routes.EMPTY_ROOM, LoginType.JWXT) },
+                        Quick(Routes.PAYMENT_CODE, Icons.Default.QrCode, "付款码", colorTeal) { onNavigateWithLogin(Routes.PAYMENT_CODE, LoginType.CAMPUS_CARD) },
+                        Quick(Routes.NOTIFICATION, Icons.Default.Notifications, "通知", colorOrange) { onNavigate(Routes.NOTIFICATION) },
+                        Quick(Routes.JWAPP_SCORE, Icons.Default.Assessment, "成绩", colorPurple) { onNavigateWithLogin(Routes.JWAPP_SCORE, LoginType.JWAPP) },
+                        Quick(Routes.COUPON, Icons.Default.Restaurant, "加餐券", colorAmber) { onNavigateWithLogin(Routes.COUPON, LoginType.COUPON) },
+                        Quick(Routes.LIBRARY, Icons.Default.Chair, "图书馆", colorOrange) { onNavigateWithLogin(Routes.LIBRARY, LoginType.LIBRARY) },
+                        Quick(Routes.LMS, Icons.Default.School, "思源", colorIndigo) { onNavigateWithLogin(Routes.LMS, LoginType.LMS) },
+                        Quick(Routes.AGENT, Icons.Default.SmartToy, "问屁岱", colorTeal) { onNavigate(Routes.AGENT) },
+                        Quick(Routes.JIAOXIAOZHI, Icons.Default.AutoAwesome, "交晓智", colorPurple) {
+                            onNavigateWithLogin(Routes.JIAOXIAOZHI, LoginType.JIAOXIAOZHI)
+                        }
+                    )
+                    val quickKeys = remember(quickPool) {
+                        com.xjtu.toolbox.util.ServiceUsageTracker.topKeys(
+                            ctxQuick,
+                            quickPool.map { it.key },
+                            n = 4,
+                            fallback = listOf(Routes.CAMPUS_CARD, Routes.EMPTY_ROOM, Routes.AGENT, Routes.NOTIFICATION)
+                        )
+                    }
+                    val quickShown = quickKeys.mapNotNull { k -> quickPool.find { it.key == k } }
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        quickShown.forEach { q ->
+                            HomeQuickAction(q.icon, q.label, q.color, onClick = {
+                                com.xjtu.toolbox.util.ServiceUsageTracker.record(ctxQuick, q.key)
+                                q.onClick()
+                            }, onLongClick = { onTogglePin(q.key) })
+                        }
+                    }
+                }
+                }
+
+                Spacer(Modifier.height(24.dp))
+
+                // ── Zone C: 场景入口（4 张横向特色卡）──
+                Column(Modifier.padding(horizontal = 16.dp)) {
+                    Text(
+                        "场景入口",
+                        style = MiuixTheme.textStyles.headline1,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(start = 4.dp, bottom = 12.dp)
+                    )
+                }
+                run {
+                    val ctxScene = LocalContext.current
+                    fun go(key: String, action: () -> Unit): () -> Unit = {
+                        com.xjtu.toolbox.util.ServiceUsageTracker.record(ctxScene, key)
+                        action()
+                    }
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        HomeSceneCard(
+                            title = "问屁岱",
+                            subtitle = "校园助手、工具调用与交晓智",
+                            icon = Icons.Default.SmartToy,
+                            accent = androidx.compose.ui.graphics.Color(0xFF00695C),
+                            entries = listOf(
+                                SceneEntry("问屁岱", Routes.AGENT, go(Routes.AGENT) { onNavigate(Routes.AGENT) }),
+                                SceneEntry("交晓智", Routes.JIAOXIAOZHI, go(Routes.JIAOXIAOZHI) { onNavigateWithLogin(Routes.JIAOXIAOZHI, LoginType.JIAOXIAOZHI) }),
+                            ),
+                            onLongClick = onTogglePin
+                        )
+                        HomeSceneCard(
+                            title = "上课",
+                            subtitle = "课表、自习与课程内容",
+                            icon = Icons.Default.School,
+                            accent = androidx.compose.ui.graphics.Color(0xFF315FD4),
+                            entries = listOf(
+                                SceneEntry("日程", Routes.SCHEDULE, go(Routes.SCHEDULE) { onNavigateToCourses() }),
+                                SceneEntry("空闲教室", Routes.EMPTY_ROOM, go(Routes.EMPTY_ROOM) { onNavigateWithLogin(Routes.EMPTY_ROOM, LoginType.JWXT) }),
+                                SceneEntry("思源", Routes.LMS, go(Routes.LMS) { onNavigateWithLogin(Routes.LMS, LoginType.LMS) }),
+                            ),
+                            onLongClick = onTogglePin
+                        )
+                        HomeSceneCard(
+                            title = "校园生活",
+                            subtitle = "校园支付与生活服务",
+                            icon = Icons.Default.Restaurant,
+                            accent = androidx.compose.ui.graphics.Color(0xFF2E7D32),
+                            entries = listOf(
+                                SceneEntry("校园卡", Routes.CAMPUS_CARD, go(Routes.CAMPUS_CARD) { onNavigateWithLogin(Routes.CAMPUS_CARD, LoginType.CAMPUS_CARD) }),
+                                SceneEntry("付款码", Routes.PAYMENT_CODE, go(Routes.PAYMENT_CODE) { onNavigateWithLogin(Routes.PAYMENT_CODE, LoginType.CAMPUS_CARD) }),
+                                SceneEntry("加餐券", Routes.COUPON, go(Routes.COUPON) { onNavigateWithLogin(Routes.COUPON, LoginType.COUPON) }),
+                            ),
+                            onLongClick = onTogglePin
+                        )
+                        HomeSceneCard(
+                            title = "学业",
+                            subtitle = "成绩、评教和教材",
+                            icon = Icons.Default.Assessment,
+                            accent = androidx.compose.ui.graphics.Color(0xFF7B1FA2),
+                            entries = listOf(
+                                SceneEntry("成绩", Routes.JWAPP_SCORE, go(Routes.JWAPP_SCORE) { onNavigateWithLogin(Routes.JWAPP_SCORE, LoginType.JWAPP) }),
+                                SceneEntry("评教", Routes.JUDGE, go(Routes.JUDGE) { onNavigateWithLogin(Routes.JUDGE, LoginType.JWXT) }),
+                                SceneEntry("教材", Routes.JIAOCAI, go(Routes.JIAOCAI) { onNavigateWithLogin(Routes.JIAOCAI, LoginType.JIAOCAI) }),
+                            ),
+                            onLongClick = onTogglePin
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(24.dp))
+
+                // ── Zone D: 更多服务（15 项宫格，旧配色）──
+                Column(Modifier.padding(horizontal = 16.dp)) {
+                    Text(
+                        "更多服务",
+                        style = MiuixTheme.textStyles.headline1,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
+                    )
+                    val moreServices = listOf(
+                        MoreSvc(Routes.LIBRARY, Icons.Default.Chair, "图书馆", androidx.compose.ui.graphics.Color(0xFFE65100)) { onNavigateWithLogin(Routes.LIBRARY, LoginType.LIBRARY) },
+                        MoreSvc(Routes.NOTIFICATION, Icons.Default.Notifications, "通知公告", MiuixTheme.colorScheme.error) { onNavigate(Routes.NOTIFICATION) },
+                        MoreSvc(Routes.ATTENDANCE, Icons.Default.DateRange, "考勤", androidx.compose.ui.graphics.Color(0xFF4E342E)) { onNavigateWithLogin(Routes.ATTENDANCE, LoginType.ATTENDANCE) },
+                        MoreSvc(Routes.POSTGRADUATE_ATTENDANCE, Icons.Default.DateRange, "研考勤", androidx.compose.ui.graphics.Color(0xFF4E342E)) { onNavigateWithLogin(Routes.POSTGRADUATE_ATTENDANCE, LoginType.POSTGRADUATE_ATTENDANCE) },
+                        MoreSvc(Routes.TRANSCRIPT, Icons.Default.Description, "成绩单", androidx.compose.ui.graphics.Color(0xFF283593)) { onNavigateWithLogin(Routes.TRANSCRIPT, LoginType.DZPZ) },
+                        MoreSvc(Routes.VENUE, Icons.Default.Place, "场馆预订", androidx.compose.ui.graphics.Color(0xFF00838F)) { onNavigateWithLogin(Routes.VENUE, LoginType.VENUE) },
+                        MoreSvc(Routes.CLASS_REPLAY, Icons.Default.OndemandVideo, "课程回放", androidx.compose.ui.graphics.Color(0xFF512DA8)) { onNavigateWithLogin(Routes.CLASS_REPLAY, LoginType.CLASS) },
+                        MoreSvc(Routes.SCHOOL_COURSE, Icons.Default.TravelExplore, "课程查询", androidx.compose.ui.graphics.Color(0xFF00838F)) { onNavigateWithLogin(Routes.SCHOOL_COURSE, LoginType.JWXT) },
+                        MoreSvc(Routes.SCHOOL_CALENDAR, Icons.AutoMirrored.Filled.EventNote, "校历", androidx.compose.ui.graphics.Color(0xFF00796B)) { onNavigate(Routes.SCHOOL_CALENDAR) },
+                        MoreSvc(Routes.YELLOW_PAGE, Icons.Default.ContactPhone, "校园黄页", androidx.compose.ui.graphics.Color(0xFF1565C0)) { onNavigate(Routes.YELLOW_PAGE) },
+                        MoreSvc(Routes.MOBILE_JIAODA, Icons.Default.PhoneAndroid, "移动交大", androidx.compose.ui.graphics.Color(0xFF005BAC)) { onNavigateWithLogin(Routes.MOBILE_JIAODA, LoginType.SUPER_APP) },
+                        MoreSvc(Routes.FITNESS, Icons.AutoMirrored.Filled.DirectionsRun, "体测查询", androidx.compose.ui.graphics.Color(0xFF00897B)) { onNavigateWithLogin(Routes.FITNESS, LoginType.FITNESS) },
+                        MoreSvc(Routes.WEBVPN_CONVERTER, Icons.Default.VpnKey, "WebVPN", androidx.compose.ui.graphics.Color(0xFF4E342E)) { onNavigate(Routes.WEBVPN_CONVERTER) },
+                        MoreSvc(Routes.AGENT, Icons.Default.SmartToy, "屁岱", androidx.compose.ui.graphics.Color(0xFF00695C)) { onNavigate(Routes.AGENT) },
+                        MoreSvc(Routes.JIAOXIAOZHI, Icons.Default.AutoAwesome, "交晓智", androidx.compose.ui.graphics.Color(0xFF6750A4)) {
+                            onNavigateWithLogin(Routes.JIAOXIAOZHI, LoginType.JIAOXIAOZHI)
+                        }
+                    )
+                    renderGrid(moreServices, onLongClick = { onTogglePin(it) })
                 }
             }
         }
@@ -3857,16 +4114,27 @@ private fun formatScheduleReminderDateLabel(targetDate: java.time.LocalDate, tod
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun HomeQuickAction(icon: ImageVector, label: String, color: androidx.compose.ui.graphics.Color, onClick: () -> Unit) {
+private fun HomeQuickAction(icon: ImageVector, label: String, color: androidx.compose.ui.graphics.Color, onClick: () -> Unit, onLongClick: (() -> Unit)? = null) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .clip(RoundedCornerShape(16.dp))
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = SinkFeedback(),
-                onClick = onClick
+            .then(
+                if (onLongClick != null)
+                    Modifier.combinedClickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = SinkFeedback(),
+                        onClick = onClick,
+                        onLongClick = onLongClick
+                    )
+                else
+                    Modifier.clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = SinkFeedback(),
+                        onClick = onClick
+                    )
             )
             .padding(horizontal = 8.dp, vertical = 6.dp)
     ) {
@@ -3878,21 +4146,25 @@ private fun HomeQuickAction(icon: ImageVector, label: String, color: androidx.co
 
 /**
  * 场景入口特色卡：标题 + 一句话场景描述 + 最多 3 个子入口胶囊。
- * 整卡点击进入第一个入口，胶囊各自可点。
+ * 整卡点击进入第一个入口，胶囊各自可点、可长按固定。
  */
+data class SceneEntry(val label: String, val key: String, val action: () -> Unit)
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun HomeSceneCard(
     title: String,
     subtitle: String,
     icon: ImageVector,
     accent: androidx.compose.ui.graphics.Color,
-    entries: List<Pair<String, () -> Unit>>,
+    entries: List<SceneEntry>,
+    onLongClick: ((String) -> Unit)? = null,
 ) {
     ExpressivePanel(
         modifier = Modifier.width(236.dp),
         accent = accent,
         cornerRadius = 24.dp,
-        onClick = entries.firstOrNull()?.second,
+        onClick = entries.firstOrNull()?.action,
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -3911,18 +4183,26 @@ private fun HomeSceneCard(
             }
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                entries.forEach { (label, action) ->
+                entries.forEach { entry ->
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = accent.copy(alpha = 0.10f),
-                        modifier = Modifier.clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = SinkFeedback(),
-                            onClick = action
-                        )
+                        modifier = if (onLongClick != null)
+                            Modifier.combinedClickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = SinkFeedback(),
+                                onClick = entry.action,
+                                onLongClick = { onLongClick(entry.key) }
+                            )
+                        else
+                            Modifier.clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = SinkFeedback(),
+                                onClick = entry.action
+                            )
                     ) {
                         Text(
-                            label,
+                            entry.label,
                             Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                             style = MiuixTheme.textStyles.footnote1,
                             color = accent,
@@ -3935,7 +4215,8 @@ private fun HomeSceneCard(
     }
 }
 
-/** 更多服务宫格项：纯图标 + 标签，无背景无副标题。 */
+/** 更多服务宫格项：纯图标 + 标签，无背景无副标题。长按可固定/取消固定。 */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun HomeGridItem(
     icon: ImageVector,
@@ -3943,15 +4224,26 @@ private fun HomeGridItem(
     color: androidx.compose.ui.graphics.Color,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = SinkFeedback(),
-                onClick = onClick
+            .then(
+                if (onLongClick != null)
+                    Modifier.combinedClickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = SinkFeedback(),
+                        onClick = onClick,
+                        onLongClick = onLongClick
+                    )
+                else
+                    Modifier.clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = SinkFeedback(),
+                        onClick = onClick
+                    )
             )
             .padding(vertical = 10.dp)
     ) {

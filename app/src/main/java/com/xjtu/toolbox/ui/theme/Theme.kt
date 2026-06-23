@@ -3,13 +3,17 @@ package com.xjtu.toolbox.ui.theme
 import android.app.Activity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeController
+
+val LocalIsDarkTheme = compositionLocalOf { false }
 
 /**
  * @param darkModeOverride "system" | "light" | "dark" — 手动覆盖系统深色模式
@@ -40,5 +44,7 @@ fun XJTUToolBoxTheme(
             insetsController.isAppearanceLightNavigationBars = !darkTheme
         }
     }
-    MiuixTheme(controller = controller, content = content)
+    CompositionLocalProvider(LocalIsDarkTheme provides darkTheme) {
+        MiuixTheme(controller = controller, content = content)
+    }
 }

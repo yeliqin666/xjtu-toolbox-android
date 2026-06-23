@@ -25,6 +25,13 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "4.1.3" to VersionChangelog(
+            items = listOf(
+                "🏠" to "首页新增图标宫格主题：分类 4 列彩虹图标布局，可在 设置 → 外观 中与经典卡片主题切换",
+                "📌" to "首页卡片、图标全面支持长按固定到收藏夹，再次长按可取消固定",
+                "⚙️" to "设置 → 外观新增「显示常用功能」开关（卡片主题专属），可隐藏智能推荐的常用入口"
+            )
+        ),
         "4.1.2" to VersionChangelog(
             items = listOf(
                 "👤" to "新增多账号管理：支持添加、切换、改密、删除账号，各账号的课表、成绩、对话、校园卡数据相互隔离",

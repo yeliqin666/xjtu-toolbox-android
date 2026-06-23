@@ -26,7 +26,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SpaceBar
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Tab
+import androidx.compose.material.icons.filled.DarkMode
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.icon.extended.Theme
@@ -97,7 +99,11 @@ fun SettingsScreen(
     onNavBarStyleChanged: (String) -> Unit = {},
     onDarkModeChanged: (String) -> Unit = {},
     onDefaultTabChanged: (String) -> Unit = {},
-    onOpenDownloads: () -> Unit = {}
+    onOpenDownloads: () -> Unit = {},
+    homeTheme: String = CredentialStore.THEME_CARD,
+    onHomeThemeChanged: (String) -> Unit = {},
+    showQuickActions: Boolean = true,
+    onShowQuickActionsChanged: (Boolean) -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -110,6 +116,7 @@ fun SettingsScreen(
     var autoCheckUpdate by remember { mutableStateOf(credentialStore.autoCheckUpdate) }
     var updateChannel by remember { mutableStateOf(credentialStore.updateChannel) }
     var accountType by remember { mutableStateOf(credentialStore.accountType) }
+    var theme by remember { mutableStateOf(homeTheme) }
     var cacheSizeText by remember { mutableStateOf("计算中...") }
     var showChangelog by remember { mutableStateOf(false) }
     var showEula by remember { mutableStateOf(false) }
@@ -146,6 +153,11 @@ fun SettingsScreen(
         CredentialStore.DARK_MODE_SYSTEM,
         CredentialStore.DARK_MODE_LIGHT,
         CredentialStore.DARK_MODE_DARK
+    )
+    val themeOptions = listOf("卡片主题", "图标主题")
+    val themeValues = listOf(
+        CredentialStore.THEME_CARD,
+        CredentialStore.THEME_ICON
     )
     val navStyleOptions = listOf("悬浮胶囊", "经典底栏")
     val navStyleValues = listOf(
@@ -201,7 +213,7 @@ fun SettingsScreen(
                     title = "深色模式",
                     items = darkModeOptions,
                     selectedIndex = darkModeValues.indexOf(darkMode).coerceAtLeast(0),
-                    startAction = { SettingsIcon(MiuixIcons.Theme, cPurple) },
+                    startAction = { SettingsIcon(Icons.Default.DarkMode, cPurple) },
                     onSelectedIndexChange = { idx ->
                         val v = darkModeValues[idx]
                         darkMode = v
@@ -209,6 +221,27 @@ fun SettingsScreen(
                         onDarkModeChanged(v)
                     }
                 )
+                OverlayDropdownPreference(
+                    title = "主题",
+                    items = themeOptions,
+                    summary = if (theme == CredentialStore.THEME_CARD) "三段式卡片布局" else "分类宫格彩虹图标",
+                    selectedIndex = themeValues.indexOf(theme).coerceAtLeast(0),
+                    startAction = { SettingsIcon(MiuixIcons.Theme, cOrange) },
+                    onSelectedIndexChange = { idx ->
+                        val v = themeValues[idx]
+                        theme = v
+                        onHomeThemeChanged(v)
+                    }
+                )
+                if (theme == CredentialStore.THEME_CARD) {
+                    SwitchPreference(
+                        title = "显示常用功能",
+                        summary = if (showQuickActions) "在首页显示智能推荐的 4 个常用入口" else "已隐藏",
+                        checked = showQuickActions,
+                        startAction = { SettingsIcon(Icons.Default.Star, cTeal) },
+                        onCheckedChange = onShowQuickActionsChanged
+                    )
+                }
                 OverlayDropdownPreference(
                     title = "底栏风格",
                     items = navStyleOptions,

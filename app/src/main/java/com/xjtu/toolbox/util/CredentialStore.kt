@@ -214,6 +214,18 @@ class CredentialStore(context: Context) {
         get() = appPrefs.getBoolean(KEY_EMPTY_ROOM_CDN_TIP, false)
         set(value) { appPrefs.edit().putBoolean(KEY_EMPTY_ROOM_CDN_TIP, value).apply() }
 
+    var homeTheme: String
+        get() = appPrefs.getString(KEY_HOME_THEME, THEME_CARD) ?: THEME_CARD
+        set(value) { appPrefs.edit().putString(KEY_HOME_THEME, value).apply() }
+
+    var pinnedServices: Set<String>
+        get() = appPrefs.getStringSet(KEY_PINNED, emptySet()) ?: emptySet()
+        set(value) { appPrefs.edit().putStringSet(KEY_PINNED, value).apply() }
+
+    var showQuickActions: Boolean
+        get() = appPrefs.getBoolean(KEY_SHOW_QUICK_ACTIONS, true)
+        set(value) { appPrefs.edit().putBoolean(KEY_SHOW_QUICK_ACTIONS, value).apply() }
+
     companion object {
         private const val KEY_USERNAME = "username"
         private const val KEY_PASSWORD = "password"
@@ -240,6 +252,9 @@ class CredentialStore(context: Context) {
         private const val KEY_LAST_AUTO_UPDATE_CHECK_AT = "last_auto_update_check_at"
         private const val KEY_ACCOUNT_TYPE = "account_type"
         private const val KEY_EMPTY_ROOM_CDN_TIP = "empty_room_cdn_tip"
+        private const val KEY_HOME_THEME = "home_theme"
+        private const val KEY_PINNED = "pinned_services"
+        private const val KEY_SHOW_QUICK_ACTIONS = "show_quick_actions"
 
         // ── 设置值常量 ──
         const val NAV_STYLE_FLOATING = "floating"
@@ -247,6 +262,8 @@ class CredentialStore(context: Context) {
         const val DARK_MODE_SYSTEM = "system"
         const val DARK_MODE_LIGHT = "light"
         const val DARK_MODE_DARK = "dark"
+        const val THEME_CARD = "card"
+        const val THEME_ICON = "icon"
         const val TAB_HOME = "HOME"
         const val TAB_COURSES = "COURSES"
         const val TAB_TOOLS = "TOOLS"
