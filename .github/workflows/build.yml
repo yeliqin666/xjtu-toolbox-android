@@ -16,6 +16,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Checkout Miuix main source
+        run: git clone --depth 1 https://github.com/miuix-kotlin-multiplatform/miuix.git miuix-ref
+
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
@@ -31,8 +34,8 @@ jobs:
       - name: Accept Android SDK licenses
         run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
-      - name: Install Android SDK 36
-        run: $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - name: Install Android SDK 37
+        run: $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-37" "build-tools;37.0.0"
 
       - name: Extract version name
         id: version
