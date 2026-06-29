@@ -7,7 +7,7 @@ plugins {
 android {
     namespace = "com.xjtu.toolbox"
     compileSdk {
-        version = release(37) {
+        version = release(36) {
         }
     }
 
