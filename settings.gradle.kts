@@ -24,3 +24,11 @@ dependencyResolutionManagement {
 
 rootProject.name = "XJTUToolBox"
 include(":app")
+
+includeBuild("miuix-ref") {
+    dependencySubstitution {
+        substitute(module("top.yukonga.miuix.kmp:miuix-ui-android")).using(project(":miuix-ui"))
+        substitute(module("top.yukonga.miuix.kmp:miuix-preference-android")).using(project(":miuix-preference"))
+        substitute(module("top.yukonga.miuix.kmp:miuix-icons-android")).using(project(":miuix-icons"))
+    }
+}

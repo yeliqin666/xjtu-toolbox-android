@@ -25,6 +25,13 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "4.1.4" to VersionChangelog(
+            items = listOf(
+                "🎨" to "直接接入 MIUIX main 源码，启用未发布的 Badge、Tooltip 等新控件",
+                "🏫" to "空闲教室教学楼选择改为整块高亮样式，连续选择时列表不再跳动，并更正创新港楼名",
+                "👤" to "多账号管理页补齐图标操作提示，首页导航会用角标提示登录与多账号状态"
+            )
+        ),
         "4.1.3" to VersionChangelog(
             items = listOf(
                 "🏠" to "首页新增图标宫格主题：分类 4 列彩虹图标布局，可在 设置 → 外观 中与经典卡片主题切换",

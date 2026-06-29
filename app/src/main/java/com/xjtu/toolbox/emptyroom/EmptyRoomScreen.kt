@@ -17,7 +17,6 @@ import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.TabRowWithContour
-import top.yukonga.miuix.kmp.basic.Checkbox
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.preference.RangeSliderPreference
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
@@ -40,6 +39,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -145,6 +145,68 @@ private fun getSmartTags(room: RoomInfo, currentPeriod: Int): List<Pair<String, 
     if (room.size >= 100) tags.add("大教室" to MiuixTheme.colorScheme.primaryVariant)
 
     return tags
+}
+
+@Composable
+private fun BuildingSelectionTile(
+    text: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(14.dp)
+    val containerColor = if (selected) {
+        MiuixTheme.colorScheme.primary.copy(alpha = 0.14f)
+    } else {
+        MiuixTheme.colorScheme.surfaceVariant
+    }
+    val contentColor = if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface
+    Surface(
+        modifier = modifier
+            .heightIn(min = 48.dp)
+            .clip(shape)
+            .border(
+                width = 1.dp,
+                color = if (selected) MiuixTheme.colorScheme.primary.copy(alpha = 0.32f) else Color.Transparent,
+                shape = shape
+            )
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = SinkFeedback(),
+                onClick = onClick
+            ),
+        shape = shape,
+        color = containerColor
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.secondary.copy(alpha = 0.45f)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                if (selected) {
+                    Icon(Icons.Default.Check, null, Modifier.size(15.dp), tint = MiuixTheme.colorScheme.onPrimary)
+                }
+            }
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text,
+                style = MiuixTheme.textStyles.body2,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                color = contentColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
 }
 
 @Composable
@@ -711,34 +773,17 @@ fun EmptyRoomScreen(
                     )
                     // 全选/取消全选
                     val allSelected = selectedBuildings.size == buildings.size
-                    Row(
-                        Modifier.fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = SinkFeedback()
-                            ) {
-                                selectedBuildings = if (allSelected) setOf(buildings.firstOrNull() ?: "") else buildings.toSet()
-                                persistBuildingSelection()
-                            }
-                            .padding(horizontal = 4.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    BuildingSelectionTile(
+                        text = if (allSelected) "已选择全部教学楼" else "选择全部教学楼",
+                        selected = allSelected,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
                     ) {
-                        Checkbox(
-                            state = if (allSelected) androidx.compose.ui.state.ToggleableState.On else androidx.compose.ui.state.ToggleableState.Off,
-                            onClick = {
-                                val nowAll = !allSelected
-                                selectedBuildings = if (nowAll) buildings.toSet() else setOf(buildings.firstOrNull() ?: "")
-                                persistBuildingSelection()
-                            }
-                        )
-                        Spacer(Modifier.width(12.dp))
-                        Text("全选", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium)
+                        selectedBuildings = if (allSelected) setOf(buildings.firstOrNull() ?: "") else buildings.toSet()
+                        persistBuildingSelection()
                     }
                     HorizontalDivider(Modifier.padding(vertical = 4.dp))
                     val visibleBuildings = buildings
                         .filter { buildingQuery.isBlank() || it.contains(buildingQuery, ignoreCase = true) }
-                        .sortedByDescending { it in selectedBuildings }
                     visibleBuildings.chunked(2).forEach { rowBuildings ->
                         Row(
                             Modifier.fillMaxWidth().padding(vertical = 4.dp),
@@ -746,50 +791,18 @@ fun EmptyRoomScreen(
                         ) {
                             rowBuildings.forEach { building ->
                                 val isSelected = building in selectedBuildings
-                                Surface(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clip(RoundedCornerShape(14.dp))
-                                        .clickable(
-                                            interactionSource = remember { MutableInteractionSource() },
-                                            indication = SinkFeedback()
-                                        ) {
-                                            selectedBuildings = if (isSelected) {
-                                                val newSet = selectedBuildings - building
-                                                if (newSet.isEmpty()) selectedBuildings else newSet
-                                            } else selectedBuildings + building
-                                            persistBuildingSelection()
-                                        },
-                                    shape = RoundedCornerShape(14.dp),
-                                    color = if (isSelected) MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)
-                                        else MiuixTheme.colorScheme.surfaceVariant
+                                BuildingSelectionTile(
+                                    text = building,
+                                    selected = isSelected,
+                                    modifier = Modifier.weight(1f)
                                 ) {
-                                    Row(
-                                        Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Checkbox(
-                                            state = if (isSelected) androidx.compose.ui.state.ToggleableState.On else androidx.compose.ui.state.ToggleableState.Off,
-                                            onClick = {
-                                                selectedBuildings = if (!isSelected) selectedBuildings + building
-                                                else {
-                                                    val newSet = selectedBuildings - building
-                                                    if (newSet.isEmpty()) selectedBuildings else newSet
-                                                }
-                                                persistBuildingSelection()
-                                            }
-                                        )
-                                        Spacer(Modifier.width(6.dp))
-                                        Text(
-                                            building,
-                                            style = MiuixTheme.textStyles.body2,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                            color = if (isSelected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f)
-                                        )
+                                    selectedBuildings = if (isSelected) {
+                                        val newSet = selectedBuildings - building
+                                        if (newSet.isEmpty()) selectedBuildings else newSet
+                                    } else {
+                                        selectedBuildings + building
                                     }
+                                    persistBuildingSelection()
                                 }
                             }
                             if (rowBuildings.size == 1) Spacer(Modifier.weight(1f))

@@ -5,9 +5,7 @@ import androidx.compose.ui.graphics.Color
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
- * 按位置比例从 24 色彩虹色盘中取色。
- *
- * 色相 = index / total * 360°，插入或删除服务后自动重新均分，保持渐变连续。
+ * 首页图标主题使用的低饱和彩色盘。
  *
  * @param index 当前服务在扁平列表中的下标（从 0 开始）
  * @param total 扁平列表中服务总数
@@ -15,12 +13,30 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 @Composable
 fun serviceColor(index: Int, total: Int): Color {
     val isDark = LocalIsDarkTheme.current
-    val hue = index * 360f / total
-    return if (isDark) {
-        Color.hsl(hue, 0.50f, 0.70f)
-    } else {
-        Color.hsl(hue, 0.55f, 0.45f)
-    }
+    val lightPalette = listOf(
+        Color(0xFF315FD4),
+        Color(0xFF00796B),
+        Color(0xFF7B1FA2),
+        Color(0xFFE65100),
+        Color(0xFF2E7D32),
+        Color(0xFF1565C0),
+        Color(0xFFAD1457),
+        Color(0xFF5D6D7E),
+    )
+    val darkPalette = listOf(
+        Color(0xFF82A8FF),
+        Color(0xFF6FD6C8),
+        Color(0xFFD0A2FF),
+        Color(0xFFFFB46B),
+        Color(0xFF8FD694),
+        Color(0xFF7BB7FF),
+        Color(0xFFFF94B4),
+        Color(0xFFB4C0CC),
+    )
+    val palette = if (isDark) darkPalette else lightPalette
+    val safeTotal = total.coerceAtLeast(1)
+    val offset = index / safeTotal
+    return palette[(index + offset) % palette.size]
 }
 
 // ══════════════════════════════════════════
