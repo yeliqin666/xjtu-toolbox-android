@@ -17,4 +17,7 @@
     <string name="shortcut_empty_room_long">查空教室</string>
     <string name="shortcut_payment_short">付款码</string>
     <string name="shortcut_payment_long">出示付款码</string>
+
+    <string name="notice_widget_name">教务通知</string>
+    <string name="notice_widget_desc">显示最近 3 条教务通知</string>
 </resources>

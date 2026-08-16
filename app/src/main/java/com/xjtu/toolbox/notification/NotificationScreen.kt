@@ -40,6 +40,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -64,6 +65,7 @@ fun NotificationScreen(
 ) {
     val api = remember { NotificationApi() }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     // ── 状态 ──
     var selectedCategory by rememberSaveable { mutableStateOf<SourceCategory?>(null) } // null = 全部分类
@@ -128,6 +130,14 @@ fun NotificationScreen(
             notifications = newList
             cache[cacheKey] = newList
             currentPage = page
+            // 写 widget 缓存（PR-3）。非 append 路径下，前 3 条标题足够代表最新通知。
+            if (!append) {
+                com.xjtu.toolbox.widget.NoticeWidgetStore.write(
+                    context,
+                    result.take(3).map { it.title }
+                )
+                com.xjtu.toolbox.widget.NoticeWidgetUpdater.requestUpdate(context)
+            }
         } catch (e: Exception) {
             if (!append) errorMessage = "加载失败: ${e.message}"
         } finally {
