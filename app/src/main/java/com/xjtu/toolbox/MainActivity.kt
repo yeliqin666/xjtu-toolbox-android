@@ -1702,6 +1702,7 @@ private fun MainScreen(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var lastBackPressTime by remember { mutableLongStateOf(0L) }
+    var showOnboarding by remember { mutableStateOf(false) }
 
     LaunchedEffect(pendingTab) {
         val tabName = pendingTab ?: return@LaunchedEffect
@@ -1710,6 +1711,13 @@ private fun MainScreen(
             selectedTabOrdinal = matched.ordinal
         }
         onPendingTabConsumed()
+    }
+
+    // PR-7 首次启动 → 展示 Onboarding（一次性）
+    LaunchedEffect(Unit) {
+        if (com.xjtu.toolbox.onboarding.OnboardingStore.needsToShow(context)) {
+            showOnboarding = true
+        }
     }
 
     BackHandler {
@@ -2323,6 +2331,21 @@ private fun MainScreen(
                 com.xjtu.toolbox.agent.AgentPendingPrompt.set(prompt)
                 navController.navigate(Routes.AGENT) { launchSingleTop = true }
             },
+        )
+    }
+
+    // PR-7 首次启动 onboarding 覆盖层（优先级最高，最早渲染）
+    if (showOnboarding) {
+        com.xjtu.toolbox.onboarding.OnboardingScreen(
+            isLoggedIn = loginState.isLoggedIn,
+            onFinish = {
+                com.xjtu.toolbox.onboarding.OnboardingStore.markDone(context)
+                showOnboarding = false
+                // 未登录 → 主动推一下登录入口（不强制，让用户可以继续逛）
+                if (!loginState.isLoggedIn) {
+                    navController.navigate(com.xjtu.toolbox.Routes.ACCOUNTS) { launchSingleTop = true }
+                }
+            }
         )
     }
 }
