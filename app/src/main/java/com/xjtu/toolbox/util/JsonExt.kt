@@ -40,13 +40,24 @@ fun JsonObject.safeGet(key: String): JsonElement? {
 /** 安全解析 JSON 字符串为 JsonObject，失败时抛出明确错误信息 */
 fun String?.safeParseJsonObject(): JsonObject {
     if (this.isNullOrBlank()) throw RuntimeException("服务器返回空数据")
+    
+    // 检查是否返回了 HTML 而非 JSON
+    val trimmed = this.trimStart()
+    if (trimmed.startsWith("<!DOCTYPE", ignoreCase = true) || 
+        trimmed.startsWith("<html", ignoreCase = true)) {
+        throw RuntimeException("服务器返回了网页而非数据，请稍后重试")
+    }
+    
     val element = try {
         JsonParser.parseString(this)
     } catch (e: Exception) {
-        throw RuntimeException("数据解析失败", e)
+        // 提供更具体的错误信息
+        val preview = this.take(100).replace("\n", " ")
+        throw RuntimeException("数据格式错误，无法解析：$preview", e)
     }
     if (!element.isJsonObject) {
-        throw RuntimeException("数据格式异常")
+        val preview = this.take(100).replace("\n", " ")
+        throw RuntimeException("服务器返回了非预期的数据格式：$preview")
     }
     return element.asJsonObject
 }
@@ -54,13 +65,23 @@ fun String?.safeParseJsonObject(): JsonObject {
 /** 安全解析 JSON 字符串为 JsonArray，失败时抛出明确错误信息 */
 fun String?.safeParseJsonArray(): JsonArray {
     if (this.isNullOrBlank()) throw RuntimeException("服务器返回空数据")
+    
+    // 检查是否返回了 HTML 而非 JSON
+    val trimmed = this.trimStart()
+    if (trimmed.startsWith("<!DOCTYPE", ignoreCase = true) || 
+        trimmed.startsWith("<html", ignoreCase = true)) {
+        throw RuntimeException("服务器返回了网页而非数据，请稍后重试")
+    }
+    
     val element = try {
         JsonParser.parseString(this)
     } catch (e: Exception) {
-        throw RuntimeException("数据解析失败", e)
+        val preview = this.take(100).replace("\n", " ")
+        throw RuntimeException("数据格式错误，无法解析：$preview", e)
     }
     if (!element.isJsonArray) {
-        throw RuntimeException("数据格式异常")
+        val preview = this.take(100).replace("\n", " ")
+        throw RuntimeException("服务器返回了非预期的数据格式：$preview")
     }
     return element.asJsonArray
 }
@@ -68,9 +89,18 @@ fun String?.safeParseJsonArray(): JsonArray {
 /** 安全解析 JSON 字符串为 JsonElement，失败时抛出明确错误信息 */
 fun String?.safeParseJson(): JsonElement {
     if (this.isNullOrBlank()) throw RuntimeException("服务器返回空数据")
+    
+    // 检查是否返回了 HTML 而非 JSON
+    val trimmed = this.trimStart()
+    if (trimmed.startsWith("<!DOCTYPE", ignoreCase = true) || 
+        trimmed.startsWith("<html", ignoreCase = true)) {
+        throw RuntimeException("服务器返回了网页而非数据，请稍后重试")
+    }
+    
     return try {
         JsonParser.parseString(this)
     } catch (e: Exception) {
-        throw RuntimeException("数据解析失败", e)
+        val preview = this.take(100).replace("\n", " ")
+        throw RuntimeException("数据格式错误，无法解析：$preview", e)
     }
 }

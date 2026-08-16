@@ -25,6 +25,24 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "4.5.5" to VersionChangelog(
+            items = listOf(
+                "🧮" to "GPA/均分计算统一：成绩页、Agent 工具与报表共用 util/ScoreCalculator，跨界面结果完全一致",
+                "🛡️" to "屁岱联网搜索与抓取加 2 MiB 响应上限 + CAPTCHA 检测，避免大页面撑爆内存或把验证页喂给模型",
+                "🔗" to "AI 消息中的 Markdown 链接现在只允许 http(s)/mailto/tel 协议，点不了的恶意 javascript:/data:/file: 链接会显示「被阻止」",
+                "📚" to "为 Agent 上下文增加 ContextBudget 工具：web_fetch 正文截断按预算管理，不再覆盖式塞进 prompt",
+                "🔄" to "DeepSeek 模型默认值已升级到 v4-flash（兼容 chat/reasoner 旧别名）；旧别名已全网下线"
+            )
+        ),
+        "4.5.4" to VersionChangelog(
+            items = listOf(
+                "🤖" to "屁岱设置页输入不再卡顿：缓存 EncryptedSharedPreferences 实例，按键不再触发 keystore 密钥派生",
+                "🛡️" to "屁岱联网搜索与网页阅读修复同源判断在显式端口下的误判，避免跨源重定向绕过",
+                "💬" to "交晓智重试更稳：清空白占位消息时与流式响应串行化，不再偶发丢消息",
+                "⌨️" to "设置项变更改为 500ms 防抖保存，文本框连按不再每键写盘",
+                "🎨" to "课程、通知、空教室、考勤新增统一的次级提示样式（颜色、图标、形状一致），GPA 精度切换从卡片点击改为顶栏独立按钮"
+            )
+        ),
         "4.5.3" to VersionChangelog(
             items = listOf(
                 "🧾" to "场馆新增「我的订单」：支持分页查看订单、查看详情与刷新/错误重试",

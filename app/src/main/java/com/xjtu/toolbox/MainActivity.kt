@@ -286,6 +286,17 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
 
     // [已移除] persistentCookieJar / vpnCookieJar：cookie 存储唯一归属 SessionManager 的两个 backend。
 
+    /**
+     * 账号切换/新增/删除的一次性通知。MainActivity 的 LaunchedEffect 监听 → Snackbar，
+     * mutableStateOf 由 Compose 自动重组；UI 取出后立即重置为 null（消费即焚）。
+     */
+    override var switchNotice by mutableStateOf<String?>(null)
+    override fun consumeSwitchNotice(): String? {
+        val n = switchNotice
+        switchNotice = null
+        return n
+    }
+
     /** 新会话架构入口；由 [AppLoginStateViewModel] 创建时注入。 */
     var sessionManager: com.xjtu.toolbox.auth.SessionManager? = null
 

@@ -261,9 +261,9 @@ object HomeStats {
             if (!out.containsKey("schedule")) {
                 runCatching {
                     val courses = com.xjtu.toolbox.schedule.ScheduleCache
-                        .readOptimizedCourses(cache, gson, termCode, Long.MAX_VALUE)
+                        .readOptimizedCourses(cache, gson, termCode)
                         ?: com.xjtu.toolbox.schedule.ScheduleCache
-                            .readRawCourses(cache, gson, termCode, Long.MAX_VALUE)
+                            .readRawCourses(cache, gson, termCode)
                     if (!courses.isNullOrEmpty()) {
                         out["schedule"] = HomeStat("${courses.size} 门课", "$termCode 学期")
                     }

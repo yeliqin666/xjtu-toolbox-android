@@ -402,9 +402,27 @@ class TranscriptApi(private val login: DzpzLogin) {
 
         val submitJson = submitBody.safeParseJsonObject()
         val data = submitJson["data"]?.jsonObject
-            ?: error("转发失败：${submitJson["message"]?.jsonPrimitive?.content ?: "未知错误"}")
+        if (data == null) {
+            // 提取详细错误信息
+            val message = submitJson["message"]?.jsonPrimitive?.content
+            val errorMsg = submitJson["errorMsg"]?.jsonPrimitive?.content
+            val tips = submitJson["tips"]?.jsonPrimitive?.content
+            val detail = errorMsg ?: message ?: tips ?: "未知错误"
+            Logger.e(TAG, "reloadAndForward: submit failed, no data object. detail=$detail")
+            error("转发失败：$detail")
+        }
+        
         val resultType = data["type"]?.jsonPrimitive?.content
-        if (resultType != "SUCCESS") error("转发失败：$resultType")
+        if (resultType != "SUCCESS") {
+            // 提取详细错误信息
+            val msgInfo = data["messageInfo"]?.jsonObject
+            val errorMsg = msgInfo?.get("message")?.jsonPrimitive?.content
+                ?: data["message"]?.jsonPrimitive?.content
+                ?: data["errorMsg"]?.jsonPrimitive?.content
+            val detail = errorMsg ?: resultType ?: "提交被拒绝"
+            Logger.e(TAG, "reloadAndForward: resultType=$resultType, errorMsg=$errorMsg")
+            error("转发失败：$detail")
+        }
 
         val msgInfo = data["messageInfo"]?.jsonObject
         val resultInfo = data["resultInfo"]?.jsonObject

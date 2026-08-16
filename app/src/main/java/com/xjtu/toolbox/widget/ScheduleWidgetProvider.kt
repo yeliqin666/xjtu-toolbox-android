@@ -284,8 +284,8 @@ object ScheduleWidgetUpdater {
                 hasCache = false
             )
 
-        val apiCourses = ScheduleCache.readOptimizedCourses(cache, gson, termCode, Long.MAX_VALUE)
-            ?: ScheduleCache.readRawCourses(cache, gson, termCode, Long.MAX_VALUE)
+        val apiCourses = ScheduleCache.readOptimizedCourses(cache, gson, termCode)
+            ?: ScheduleCache.readRawCourses(cache, gson, termCode)
             ?: emptyList()
 
         val customCourses = runCatching {

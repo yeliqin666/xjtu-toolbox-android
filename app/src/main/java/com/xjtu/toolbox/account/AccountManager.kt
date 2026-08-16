@@ -78,6 +78,11 @@ class AccountManager(
         // 4) 持久化激活指针 + lastUsedAt
         accountStore.setActive(accountId)
         accountStore.update(accountId) { it.copy(lastUsedAt = System.currentTimeMillis()) }
+        // 5) 通知 UI：避免在「我的」页面改信息时误以为是当前账号。
+        // 显式切到 Main 线程：mutableStateOf 的写入对其他线程不可见，必须在主线程上 set。
+        withContext(Dispatchers.Main) {
+            holder.switchNotice = "已切换到「${account.nickname ?: account.accountId}」"
+        }
         return account
     }
 
@@ -149,6 +154,9 @@ class AccountManager(
         accountStore.upsert(persisted, setActive = true)
         accountStore.update(username) { it.copy(lastUsedAt = System.currentTimeMillis()) }
         Log.i(TAG, "addAccount ok: $username")
+        withContext(Dispatchers.Main) {
+            holder.switchNotice = "已添加并切换到「${nickname ?: username}」"
+        }
         return Result.success(persisted)
     }
 
@@ -265,6 +273,10 @@ class AccountManager(
             }
         }
         Log.i(TAG, "removeAccount($accountId, deleteCache=$deleteCache) done")
+        withContext(Dispatchers.Main) {
+            holder.switchNotice = if (deleteCache) "已彻底删除账号「${account.nickname ?: account.accountId}」及本地缓存"
+                else "已删除账号「${account.nickname ?: account.accountId}」（保留缓存）"
+        }
         return true
     }
 
@@ -317,6 +329,15 @@ interface AppLoginStateHolder {
     var activeUsername: String
     var cachedNickname: String?
     var ywtbUserInfo: com.xjtu.toolbox.ywtb.UserInfo?
+    /**
+     * 账号切换/新增/删除的即时事件：UI 层用 `LaunchedEffect` 监听后弹 Snackbar / Toast。
+     *
+     * 设计为"一次性事件"模式：消费后由消费者调用 [consumeSwitchNotice] 重置为 null，
+     * 避免配置变更/重组时重复弹出。
+     */
+    var switchNotice: String?
     fun clearInMemorySessionState()
     fun loadIdentityFromAccount(account: Account)
+    /** 取出并清空切换通知。 */
+    fun consumeSwitchNotice(): String?
 }
