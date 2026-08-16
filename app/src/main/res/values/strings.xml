@@ -5,4 +5,16 @@
     <string name="schedule_widget_desc">显示今日日程与下一项安排</string>
     <string name="campus_card_widget_name">校园卡</string>
     <string name="campus_card_widget_desc">显示校园卡余额与今日消费</string>
+
+    <!-- 启动器长按快捷入口：shortLabel 限 12 字符，longLabel 限 25 字符 -->
+    <string name="shortcut_agent_short">屁岱</string>
+    <string name="shortcut_agent_long">问屁岱</string>
+    <string name="shortcut_schedule_short">课表</string>
+    <string name="shortcut_schedule_long">我的课表</string>
+    <string name="shortcut_card_short">校园卡</string>
+    <string name="shortcut_card_long">校园卡余额</string>
+    <string name="shortcut_empty_room_short">空教室</string>
+    <string name="shortcut_empty_room_long">查空教室</string>
+    <string name="shortcut_payment_short">付款码</string>
+    <string name="shortcut_payment_long">出示付款码</string>
 </resources>

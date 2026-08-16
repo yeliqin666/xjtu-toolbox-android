@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  静态 Shortcuts：长按 launcher 图标弹出 5 个直达入口。
+
+  实现机制：每个 <shortcut> 编译期绑定一个 intent（显式 component = MainActivity），
+  extras 走 EXTRA_LAUNCH_ROUTE 协议，MainActivity.onCreate / onNewIntent 已支持，
+  这里只声明，不动 MainActivity。
+-->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <shortcut
+        android:shortcutId="agent"
+        android:enabled="true"
+        android:icon="@drawable/shortcut_agent"
+        android:shortcutShortLabel="@string/shortcut_agent_short"
+        android:shortcutLongLabel="@string/shortcut_agent_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.xjtu.toolbox"
+            android:targetClass="com.xjtu.toolbox.MainActivity">
+            <extra
+                android:name="extra_launch_route"
+                android:value="agent" />
+        </intent>
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="schedule"
+        android:enabled="true"
+        android:icon="@drawable/shortcut_schedule"
+        android:shortcutShortLabel="@string/shortcut_schedule_short"
+        android:shortcutLongLabel="@string/shortcut_schedule_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.xjtu.toolbox"
+            android:targetClass="com.xjtu.toolbox.MainActivity">
+            <extra
+                android:name="extra_launch_route"
+                android:value="schedule" />
+        </intent>
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="campus_card"
+        android:enabled="true"
+        android:icon="@drawable/shortcut_campus_card"
+        android:shortcutShortLabel="@string/shortcut_card_short"
+        android:shortcutLongLabel="@string/shortcut_card_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.xjtu.toolbox"
+            android:targetClass="com.xjtu.toolbox.MainActivity">
+            <extra
+                android:name="extra_launch_route"
+                android:value="campus_card" />
+        </intent>
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="empty_room"
+        android:enabled="true"
+        android:icon="@drawable/shortcut_empty_room"
+        android:shortcutShortLabel="@string/shortcut_empty_room_short"
+        android:shortcutLongLabel="@string/shortcut_empty_room_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.xjtu.toolbox"
+            android:targetClass="com.xjtu.toolbox.MainActivity">
+            <extra
+                android:name="extra_launch_route"
+                android:value="empty_room" />
+        </intent>
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="payment_code"
+        android:enabled="true"
+        android:icon="@drawable/shortcut_payment"
+        android:shortcutShortLabel="@string/shortcut_payment_short"
+        android:shortcutLongLabel="@string/shortcut_payment_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.xjtu.toolbox"
+            android:targetClass="com.xjtu.toolbox.MainActivity">
+            <extra
+                android:name="extra_launch_route"
+                android:value="payment_code" />
+        </intent>
+    </shortcut>
+
+</shortcuts>
