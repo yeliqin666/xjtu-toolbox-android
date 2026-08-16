@@ -157,12 +157,16 @@ class MainActivity : ComponentActivity() {
     private val launchRouteState = mutableStateOf<String?>(null)
     private val launchTabState = mutableStateOf<String?>(null)
     private val darkModeOverrideState = mutableStateOf("system")
+    private val deepLinkPrompt = mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splash = installSplashScreen()
         splash.setKeepOnScreenCondition { !isAppReady }
         super.onCreate(savedInstanceState)
-        val launchRoute = intent?.getStringExtra(EXTRA_LAUNCH_ROUTE)
+        // PR-11：xjtu:// 深链优先于 EXTRA_LAUNCH_ROUTE
+        val deepLink = com.xjtu.toolbox.util.DeepLinkRouter.resolve(intent)
+        val launchRoute = deepLink?.route ?: intent?.getStringExtra(EXTRA_LAUNCH_ROUTE)
+        deepLinkPrompt.value = deepLink?.prompt
         val launchTab = intent?.getStringExtra(EXTRA_LAUNCH_TAB)
         launchRouteState.value = launchRoute
         launchTabState.value = launchTab ?: if (launchRoute == Routes.SCHEDULE) BottomTab.COURSES.name else null
@@ -182,6 +186,11 @@ class MainActivity : ComponentActivity() {
         // Agent 改深色模式时即时刷新主题（CredentialStore 写 pref 不会触发重组）
         com.xjtu.toolbox.agent.AgentRuntimeHooks.applyDarkMode = { mode ->
             darkModeOverrideState.value = mode
+        }
+        // PR-11：把深链里的 prompt 塞给屁岱（AgentScreen 会 consume 后自动发）
+        deepLinkPrompt.value?.let {
+            com.xjtu.toolbox.agent.AgentPendingPrompt.set(it)
+            deepLinkPrompt.value = null
         }
         setContent {
             XJTUToolBoxTheme(darkModeOverride = darkModeOverrideState.value) {
@@ -203,10 +212,14 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        val launchRoute = intent.getStringExtra(EXTRA_LAUNCH_ROUTE)
+        val deepLink = com.xjtu.toolbox.util.DeepLinkRouter.resolve(intent)
+        val launchRoute = deepLink?.route ?: intent.getStringExtra(EXTRA_LAUNCH_ROUTE)
+        deepLinkPrompt.value = deepLink?.prompt
         val launchTab = intent.getStringExtra(EXTRA_LAUNCH_TAB)
         launchRouteState.value = launchRoute
         launchTabState.value = launchTab ?: if (launchRoute == Routes.SCHEDULE) BottomTab.COURSES.name else null
+        // 触发 prompt 注入（在 setContent 上下文里更稳，但 onNewIntent 时 Compose 树已存在）
+        deepLink?.prompt?.let { com.xjtu.toolbox.agent.AgentPendingPrompt.set(it) }
     }
 }
 

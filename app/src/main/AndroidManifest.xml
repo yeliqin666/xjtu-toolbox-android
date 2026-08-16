@@ -54,6 +54,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- PR-11 自定义 scheme 深链 xjtu:// -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="xjtu" />
+            </intent-filter>
+
             <!-- 启动器长按快捷入口：5 个 static shortcuts，定义在 res/xml/shortcuts.xml -->
             <meta-data
                 android:name="android.app.shortcuts"
