@@ -219,6 +219,8 @@ fun BrowserScreen(
                     settings.userAgentString = settings.userAgentString.replace(
                         Regex("wv"), ""
                     ) // 去掉 wv 标记，某些网站会拒绝 WebView
+                    // PR-12：在 UA 末尾追加 XJTU-WX-MP 标识，方便服务端识别来自本 App
+                    settings.userAgentString = settings.userAgentString + " XJTU-WX-MP/1.0"
 
                     android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
 
@@ -227,6 +229,15 @@ fun BrowserScreen(
                             super.onPageStarted(view, url, favicon)
                             isLoading = true
                             url?.let {
+                                // PR-12：微信小程序入口页 servicewechat.com 在 WebView 里无法
+                                // 真正打开，提示用户去外部浏览器
+                                if (it.contains("servicewechat.com")) {
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "小程序链接请用外部浏览器打开",
+                                        android.widget.Toast.LENGTH_LONG,
+                                    ).show()
+                                }
                                 val host = hostOf(it)
                                 syncCookiesToWebView(site, listOfNotNull(host))
                                 syncCookiesToWebView(cookieClient, listOfNotNull(host))
