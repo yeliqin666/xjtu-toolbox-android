@@ -49,6 +49,10 @@ object ShareUtils {
                 file,
             )
         } catch (e: Exception) {
+            com.xjtu.toolbox.error.ErrorReporting.report(
+                "ShareUtils.shareFile", e,
+                mapOf("fileName" to file.name, "mime" to mime)
+            )
             Toast.makeText(context, "分享失败：${e.message}", Toast.LENGTH_SHORT).show()
             return
         }
