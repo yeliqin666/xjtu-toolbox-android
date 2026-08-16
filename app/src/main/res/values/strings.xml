@@ -28,4 +28,50 @@
     <string name="agent_shortcut_widget_desc">点击直接打开屁岱输入框</string>
     <string name="agent_shortcut_widget_title">问屁岱</string>
     <string name="agent_shortcut_widget_subtitle">点击开始提问</string>
+
+    <!-- PR-7 Onboarding -->
+    <string name="onboarding_page1_title">功能一览</string>
+    <string name="onboarding_page1_body">课表、成绩、空教室、校园卡、通知、付款码……  把校园服务装进一个盒子。</string>
+    <string name="onboarding_page2_title">隐私优先</string>
+    <string name="onboarding_page2_body">凭据与 Cookie 不参与备份（Auto Backup 自动排除）。通知、余额等缓存是临时信息，重装即清。</string>
+    <string name="onboarding_page3_title">开始使用</string>
+    <string name="onboarding_page3_title_logged_out">登录后开始</string>
+    <string name="onboarding_page3_body">你已经登录好了，直接去首页。</string>
+    <string name="onboarding_page3_body_logged_out">需要登录后才能抓取课表、成绩、校园卡等数据。</string>
+    <string name="onboarding_next">下一步</string>
+    <string name="onboarding_enter">进入岱宗盒子</string>
+    <string name="onboarding_go_login">去登录</string>
+
+    <!-- PR-6 Global Search -->
+    <string name="global_search_title">搜索</string>
+    <string name="global_search_back">返回</string>
+    <string name="global_search_clear">清空</string>
+    <string name="global_search_hint">试试搜索：课表 / 校园卡 / 空教室</string>
+    <string name="global_search_fallback_no_match">没有匹配的屏幕，试试直接问屁岱：</string>
+    <string name="global_search_fallback_to_ai">让 AI 来处理</string>
+    <string name="global_search_ask_pidai">问屁岱</string>
+
+    <!-- PR-8 Share -->
+    <string name="share_button">分享</string>
+    <string name="share_toast_notifications">教务通知</string>
+    <string name="share_toast_pidai">屁岱回复</string>
+    <string name="share_failed">分享失败：%s</string>
+    <string name="share_no_app">没有可用的分享应用</string>
+
+    <!-- PR-14 Feedback -->
+    <string name="feedback_entry_title">反馈与建议</string>
+    <string name="feedback_entry_summary">写反馈、收集日志、跳 GitHub Issue</string>
+    <string name="feedback_screen_title">反馈与建议</string>
+    <string name="feedback_intro">想说点什么？Bug、功能建议、吐槽都行。反馈内容只保存在本地，由你决定要不要发出去。</string>
+    <string name="feedback_input_label">写下你的反馈</string>
+    <string name="feedback_save">保存到本地</string>
+    <string name="feedback_saved">反馈已保存到 cache/feedback/</string>
+    <string name="feedback_save_failed">保存失败</string>
+    <string name="feedback_collect_logs">收集最近 7 天日志</string>
+    <string name="feedback_logs_collected">已收集最近 7 天日志</string>
+    <string name="feedback_logs_failed">日志收集失败</string>
+    <string name="feedback_go_github">跳 GitHub 提 Issue</string>
+
+    <!-- PR-12 WX -->
+    <string name="wx_miniprogram_toast">小程序链接请用外部浏览器打开</string>
 </resources>
