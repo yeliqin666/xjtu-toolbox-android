@@ -24,6 +24,7 @@ dependencyResolutionManagement {
 
 rootProject.name = "XJTUToolBox"
 include(":app")
+include(":wear")
 
 includeBuild("miuix-ref") {
     dependencySubstitution {
