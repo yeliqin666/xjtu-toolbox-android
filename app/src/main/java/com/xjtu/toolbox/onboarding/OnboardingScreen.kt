@@ -19,11 +19,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
+import com.xjtu.toolbox.R
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Scaffold
@@ -105,10 +109,13 @@ fun OnboardingScreen(
                 }
             }
 
-            // 圆点
+            // 圆点：第几页（共 pages.size 页）
             Row(
                 Modifier
-                    .padding(vertical = 16.dp),
+                    .padding(vertical = 16.dp)
+                    .semantics(mergeDescendants = true) {
+                        contentDescription = "第 ${pagerState.currentPage + 1} 页，共 ${pages.size} 页"
+                    },
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 pages.indices.forEach { i ->

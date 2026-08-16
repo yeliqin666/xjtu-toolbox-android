@@ -23,6 +23,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.Routes
@@ -225,12 +227,21 @@ private fun SearchResultRow(
     showAiIcon: Boolean,
     onClick: () -> Unit,
 ) {
+    // PR-17 TalkBack：mergeDescendants=true 让无障碍服务一次读出整行（title + subtitle + icon），
+    // 而不是分开念多个分散节点。
     Surface(
         shape = RoundedCornerShape(12.dp),
         color = MiuixTheme.colorScheme.surfaceVariant,
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
+            .semantics(mergeDescendants = true) {
+                contentDescription = if (showAiIcon) {
+                    "问屁岱：$title"
+                } else {
+                    title
+                }
+            }
     ) {
         Row(
             Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
@@ -239,7 +250,7 @@ private fun SearchResultRow(
             if (showAiIcon) {
                 Icon(
                     Icons.Default.TravelExplore,
-                    contentDescription = null,
+                    contentDescription = null, // 由 surface semantics 统一读出
                     modifier = Modifier.size(20.dp),
                     tint = MiuixTheme.colorScheme.primary,
                 )
