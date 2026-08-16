@@ -34,6 +34,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Merge
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.outlined.WarningAmber
 import com.xjtu.toolbox.ui.components.AppTopBar
 import androidx.compose.runtime.*
@@ -198,6 +199,26 @@ fun NotificationScreen(
                             contentDescription = if (mergeMode) "取消合并" else "合并模式",
                             tint = if (mergeMode) MiuixTheme.colorScheme.primary
                             else MiuixTheme.colorScheme.onSurfaceVariantSummary
+                        )
+                    }
+                    // PR-8 分享当前页通知列表
+                    IconButton(
+                        onClick = {
+                            val text = filteredNotifications.take(20).joinToString("\n") {
+                                "[${it.source.displayName}] ${it.title}（${it.date}）\n${it.link}"
+                            }
+                            com.xjtu.toolbox.util.ShareUtils.shareText(
+                                context,
+                                title = "教务通知",
+                                text = text.ifBlank { "（当前列表为空）" },
+                                fileBaseName = "notifications_${System.currentTimeMillis()}.txt",
+                            )
+                        }
+                    ) {
+                        Icon(
+                            Icons.Default.Share,
+                            contentDescription = "分享",
+                            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         )
                     }
                 }

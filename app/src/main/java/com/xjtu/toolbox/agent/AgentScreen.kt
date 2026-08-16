@@ -17,6 +17,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -692,7 +693,8 @@ private fun ThinkingDots() {
 private fun MessageBubble(
     msg: ChatMessage,
     showReasoning: Boolean,
-    onNavigate: (String) -> Unit
+    onNavigate: (String) -> Unit,
+    context: android.content.Context = androidx.compose.ui.platform.LocalContext.current,
 ) {
     // [LocalClipboard] 取代已废弃的 [LocalClipboardManager]：suspend setClip，跨进程兼容。
     val clipboard = androidx.compose.ui.platform.LocalClipboard.current
@@ -929,6 +931,27 @@ private fun MessageBubble(
                         ) {
                             Text(
                                 "复制",
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.primary,
+                            )
+                        }
+                        // PR-8 分享按钮：复用 ShareUtils 写 txt → ACTION_SEND chooser
+                        Box(
+                            Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    com.xjtu.toolbox.util.ShareUtils.shareText(
+                                        context = context,
+                                        title = "屁岱回复",
+                                        text = msg.content,
+                                        fileBaseName = "pidai_${msg.timestamp}.txt",
+                                    )
+                                }
+                                .padding(horizontal = 6.dp, vertical = 0.dp),
+                            contentAlignment = androidx.compose.ui.Alignment.Center,
+                        ) {
+                            Text(
+                                "分享",
                                 style = MiuixTheme.textStyles.footnote1,
                                 color = MiuixTheme.colorScheme.primary,
                             )
