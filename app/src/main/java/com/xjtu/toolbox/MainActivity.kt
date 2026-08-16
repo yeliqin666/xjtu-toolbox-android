@@ -1893,6 +1893,7 @@ private fun MainScreen(
     var courseSubtitle by remember { mutableStateOf("") }
     var courseHeaderActions by remember { mutableStateOf<(@Composable androidx.compose.foundation.layout.RowScope.() -> Unit)?>(null) }
     var courseHeaderBottomContent by remember { mutableStateOf<(@Composable () -> Unit)?>(null) }
+    var showGlobalSearch by remember { mutableStateOf(false) }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -1928,6 +1929,16 @@ private fun MainScreen(
                             Icon(
                                 Icons.Default.Download,
                                 contentDescription = "下载管理",
+                                tint = MiuixTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                    // PR-6：首页全局搜索入口
+                    if (selectedTab == BottomTab.HOME) {
+                        IconButton(onClick = { showGlobalSearch = true }) {
+                            Icon(
+                                androidx.compose.material.icons.Icons.Default.Search,
+                                contentDescription = "搜索",
                                 tint = MiuixTheme.colorScheme.onSurface
                             )
                         }
@@ -2298,7 +2309,23 @@ private fun MainScreen(
         }
         }
         }
+
+    // PR-6 全局搜索覆盖层（在 MainScreen 内，跨 tab 共用同一个浮层）
+    if (showGlobalSearch) {
+        com.xjtu.toolbox.home.GlobalSearchScreen(
+            onBack = { showGlobalSearch = false },
+            onNavigate = { route ->
+                showGlobalSearch = false
+                navController.navigate(route) { launchSingleTop = true }
+            },
+            onAskAgent = { prompt ->
+                showGlobalSearch = false
+                com.xjtu.toolbox.agent.AgentPendingPrompt.set(prompt)
+                navController.navigate(Routes.AGENT) { launchSingleTop = true }
+            },
+        )
     }
+}
 }
 
 private fun bottomTabBadge(
