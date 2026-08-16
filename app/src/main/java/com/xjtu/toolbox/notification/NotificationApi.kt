@@ -736,6 +736,35 @@ class NotificationApi(
         return crawler.fetch(page)
     }
 
+    /**
+     * 取多个来源的通知，并返回本次被「静默跳过」的通知源集合。
+     * 静默跳过 = 域名级 DNS/连接失败（[failedDomains]），或来源整体抛异常。
+     * 客户端应在 UI 上提示「以下来源暂不可用：…」——否则用户以为没通知。
+     */
+    suspend fun getMergedNotificationsWithSkipped(
+        sources: List<NotificationSource>,
+        page: Int = 1,
+    ): Pair<List<Notification>, Set<NotificationSource>> = coroutineScope {
+        sources.map { source ->
+            async(Dispatchers.IO) { source to runCatching { getNotifications(source, page) } }
+        }.awaitAll().let { results ->
+            val skipped = mutableSetOf<NotificationSource>()
+            val merged = mutableListOf<Notification>()
+            for ((source, result) in results) {
+                result.fold(
+                    onSuccess = { list ->
+                        // 域名级失败：结果非空但内容很短（如 HTML 空响应）且源属于失败列表 → 视为静默
+                        val srcDomain = try { java.net.URI(source.baseUrl).host } catch (_: Exception) { null }
+                        if (list.isEmpty() && srcDomain != null && isDomainFailed(srcDomain)) skipped.add(source)
+                        else merged.addAll(list)
+                    },
+                    onFailure = { skipped.add(source) },
+                )
+            }
+            merged.sortedByDescending { it.date } to skipped
+        }
+    }
+
     suspend fun getMergedNotifications(sources: List<NotificationSource>, page: Int = 1): List<Notification> {
         return coroutineScope {
             sources.map { source ->

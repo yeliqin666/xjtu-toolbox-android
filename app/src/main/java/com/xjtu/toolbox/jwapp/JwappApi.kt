@@ -325,37 +325,6 @@ class JwappApi(private val site: SiteSession) {
      * GPA 计算：二等级制不参与，优先 xscjcx.do 精确值，fallback 本地映射。
      * passFlag 对等级制课程可能错误返回 false，需 GPA/分数二次兜底。
      */
-    fun calculateGpaForCourses(courses: List<ScoreItem>): GpaInfo {
-        var totalCredits = 0.0
-        var weightedGpa = 0.0
-        var weightedScore = 0.0
-        var scoreCredits = 0.0
-        var courseCount = 0
-
-        for (score in courses) {
-            val raw = score.score.trim()
-            if (raw == "通过" || raw == "不通过") continue
-
-            val courseGpa = score.gpa?.takeIf { it > 0.0 }
-                ?: com.xjtu.toolbox.score.ScoreReportApi.scoreToGpa(raw)
-                ?: 0.0
-            val numeric = score.scoreValue
-            val passed = score.passFlag || courseGpa > 0.0 || (numeric != null && numeric >= 60.0)
-
-            if (!passed && score.examProp == "初修") continue
-
-            totalCredits += score.coursePoint
-            weightedGpa += courseGpa * score.coursePoint
-            if (numeric != null && numeric > 0.0) {
-                weightedScore += numeric * score.coursePoint
-                scoreCredits += score.coursePoint
-            }
-            courseCount++
-        }
-
-        val gpa = if (totalCredits > 0) weightedGpa / totalCredits else 0.0
-        val avg = if (scoreCredits > 0) weightedScore / scoreCredits else 0.0
-        Log.d(TAG, "GPA=${"%.4f".format(gpa)}, 均分=${"%.2f".format(avg)}, $courseCount/${courses.size}门, ${totalCredits}学分")
-        return GpaInfo(gpa, avg, totalCredits, courseCount)
-    }
+    fun calculateGpaForCourses(courses: List<ScoreItem>): GpaInfo =
+        com.xjtu.toolbox.util.ScoreCalculator.calculateGpaForCourses(courses)
 }

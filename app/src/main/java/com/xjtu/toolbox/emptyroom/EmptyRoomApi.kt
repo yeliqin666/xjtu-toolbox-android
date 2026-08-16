@@ -439,9 +439,7 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient, private val cac
         if (!resp.isSuccessful) throw RuntimeException("空闲教室查询失败: HTTP ${resp.code}")
         val body = resp.body?.string().orEmpty()
         android.util.Log.d(TAG, "queryRooms date=$date start=$startTime end=$endTime http=${resp.code} bodyPrefix=${body.take(120)}")
-        if (!body.trimStart().startsWith("{")) {
-            throw RuntimeException("空闲教室查询响应异常")
-        }
+        // safeParseJsonObject 会自动检测 HTML 响应并抛出友好的错误信息
         val root = body.safeParseJsonObject()
         val datas = root.getAsJsonObject("datas")
             ?: throw RuntimeException("空闲教室查询响应缺少 datas")

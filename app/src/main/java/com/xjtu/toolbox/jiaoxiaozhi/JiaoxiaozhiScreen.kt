@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.jiaoxiaozhi
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -34,6 +35,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -50,6 +52,7 @@ import androidx.compose.ui.zIndex
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xjtu.toolbox.LocalAppLoginState
 import com.xjtu.toolbox.agent.MarkdownText
+import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
@@ -114,6 +117,13 @@ fun JiaoxiaozhiScreen(
                 networkEnabled = networkEnabled,
                 onNetworkEnabledChange = { networkEnabled = it },
                 onSend = { vm.sendMessage(it, sessionManager, networkEnabled) },
+                onRetry = {
+                    val lastUser = vm.messages.lastOrNull { it.role == "user" }?.content
+                    if (!lastUser.isNullOrBlank()) {
+                        vm.trimTrailingEmptyAssistant()
+                        vm.sendMessage(lastUser, sessionManager, networkEnabled)
+                    }
+                },
                 onOpenLink = onOpenLink,
             )
         }
@@ -155,6 +165,7 @@ private fun JiaoxiaozhiChatPanel(
     networkEnabled: Boolean,
     onNetworkEnabledChange: (Boolean) -> Unit,
     onSend: (String) -> Unit,
+    onRetry: () -> Unit,
     onOpenLink: (String) -> Unit,
 ) {
     val listState = rememberLazyListState()
@@ -199,7 +210,7 @@ private fun JiaoxiaozhiChatPanel(
             if (vm.messages.isEmpty()) {
                 item {
                     Column(
-                        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 30.dp),
+                        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         Icon(
@@ -220,26 +231,58 @@ private fun JiaoxiaozhiChatPanel(
                             style = MiuixTheme.textStyles.footnote1,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         )
+                        // 快捷提问：点击直接发送，帮第一次打开用户快速起步
+                        Spacer(Modifier.height(20.dp))
+                        val suggestions = remember {
+                            listOf(
+                                "研究生复试成绩如何复议？",
+                                "如何办理休学？",
+                                "校历本学期怎么安排的？",
+                                "教务处联系电话？",
+                            )
+                        }
+                        suggestions.forEach { q ->
+                            Surface(
+                                shape = RoundedCornerShape(20.dp),
+                                color = JiaozhiPurple.copy(alpha = 0.08f),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                    ) {
+                                        // 异步派发到下一帧，避免在 clickable 同步路径里
+                                        // 触发 sendMessage 的协程与 Compose 重组冲突
+                                        android.os.Handler(android.os.Looper.getMainLooper())
+                                            .post { onSend(q) }
+                                    },
+                            ) {
+                                Text(
+                                    q,
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                    style = MiuixTheme.textStyles.body2,
+                                    color = JiaozhiPurple,
+                                )
+                            }
+                        }
                     }
                 }
             }
             items(vm.messages, key = { "${it.createdAt}-${it.role}" }) { message ->
-                JiaoxiaozhiBubble(message, onOpenLink)
+                // 重试按钮只在最后一条 assistant 消息下显示（仅有一条「可重试」目标）
+                val isLastAssistant = message.role == "assistant" &&
+                    !vm.isLoading &&
+                    message === vm.messages.lastOrNull()
+                JiaoxiaozhiBubble(
+                    message = message,
+                    onOpenLink = onOpenLink,
+                    onRetry = if (isLastAssistant && message.content.isNotBlank()) onRetry else null,
+                )
             }
             if (vm.isLoading && vm.messages.lastOrNull()?.content.isNullOrBlank()) {
                 item {
-                    Row(
-                        Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        CircularProgressIndicator(size = 16.dp, strokeWidth = 2.dp)
-                        Text(
-                            "正在连接交晓智…",
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        )
-                    }
+                    ThinkingIndicator()
                 }
             }
             vm.errorMessage?.let { error ->
@@ -356,12 +399,59 @@ private fun OfficialServiceBanner(
 }
 
 @Composable
+private fun ThinkingIndicator() {
+    val transition = androidx.compose.animation.core.rememberInfiniteTransition()
+    Row(
+        Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        // 三个圆点交替呼吸：经典"打字机"暗示
+        listOf(0, 1, 2).forEach { idx ->
+            val alpha by transition.animateFloat(
+                initialValue = 0.3f,
+                targetValue = 1f,
+                animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                    animation = tween(900, delayMillis = idx * 180),
+                    repeatMode = androidx.compose.animation.core.RepeatMode.Reverse,
+                ),
+                label = "dot-$idx",
+            )
+            Box(
+                Modifier
+                    .size(7.dp)
+                    .background(
+                        color = JiaozhiPurple.copy(alpha = alpha),
+                        shape = androidx.compose.foundation.shape.CircleShape,
+                    ),
+            )
+        }
+        Text(
+            "正在连接交晓智…",
+            style = MiuixTheme.textStyles.footnote1,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        )
+    }
+}
+
+@Composable
 private fun JiaoxiaozhiBubble(
     message: JiaoxiaozhiMessage,
     onOpenLink: (String) -> Unit,
+    onCopy: (String) -> Unit = {},
+    onRetry: (() -> Unit)? = null,
 ) {
+    // [LocalClipboard] 取代已废弃的 [LocalClipboardManager]：suspend setClip。
+    val clipboard = androidx.compose.ui.platform.LocalClipboard.current
+    val coroutineScope = rememberCoroutineScope()
+    val timestamp = remember(message.createdAt) {
+        java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(message.createdAt))
+    }
     if (message.role == "user") {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        Column(
+            Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.End,
+        ) {
             Surface(
                 shape = RoundedCornerShape(18.dp, 4.dp, 18.dp, 18.dp),
                 color = JiaozhiBlue,
@@ -374,9 +464,15 @@ private fun JiaoxiaozhiBubble(
                     style = MiuixTheme.textStyles.body1,
                 )
             }
+            Text(
+                timestamp,
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.padding(end = 4.dp, top = 2.dp),
+            )
         }
     } else if (message.content.isNotBlank()) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.Start) {
             Surface(
                 shape = RoundedCornerShape(4.dp, 18.dp, 18.dp, 18.dp),
                 color = JiaozhiPurple.copy(alpha = 0.10f),
@@ -388,6 +484,55 @@ private fun JiaoxiaozhiBubble(
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                     onLink = onOpenLink,
                 )
+            }
+            // 操作栏：复制 + 时间 + 可选重试
+            Row(
+                Modifier.padding(start = 4.dp, top = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    timestamp,
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+                androidx.compose.foundation.layout.Box(
+                    modifier = Modifier
+                        .height(20.dp)
+                        .clickable {
+                            coroutineScope.launch {
+                                clipboard.setClipEntry(
+                                    androidx.compose.ui.platform.ClipEntry(
+                                        android.content.ClipData.newPlainText("message", message.content)
+                                    )
+                                )
+                                onCopy("已复制")
+                            }
+                        }
+                        .padding(horizontal = 6.dp, vertical = 0.dp),
+                    contentAlignment = androidx.compose.ui.Alignment.Center,
+                ) {
+                    Text(
+                        "复制",
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.primary,
+                    )
+                }
+                if (onRetry != null) {
+                    androidx.compose.foundation.layout.Box(
+                        modifier = Modifier
+                            .height(20.dp)
+                            .clickable { onRetry() }
+                            .padding(horizontal = 6.dp, vertical = 0.dp),
+                        contentAlignment = androidx.compose.ui.Alignment.Center,
+                    ) {
+                        Text(
+                            "重试",
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.primary,
+                        )
+                    }
+                }
             }
         }
     }

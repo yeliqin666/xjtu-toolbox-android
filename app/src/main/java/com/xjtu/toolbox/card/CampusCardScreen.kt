@@ -615,7 +615,8 @@ private fun CardStatusPanel(info: CardInfo) {
 
 @Composable
 private fun StatusChip(icon: ImageVector, text: String, isWarning: Boolean, modifier: Modifier = Modifier) {
-    val okColor = Color(0xFF2E9E5B)
+    // "正常"用主题 success 语义色（如果有），否则降级到 MiuixTheme.colorScheme.primary
+    val okColor = MiuixTheme.colorScheme.primary  // primary 在两个主题下都有合理对比度
     val accent = if (isWarning) MiuixTheme.colorScheme.error else okColor
     Surface(
         modifier = modifier, shape = RoundedCornerShape(12.dp),

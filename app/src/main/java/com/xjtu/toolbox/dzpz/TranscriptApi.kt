@@ -449,9 +449,6 @@ class TranscriptApi(private val site: SiteSession) {
                 .build()
         ).trim().ifEmpty { "1" }
         Log.d(TAG, "reloadAndForward: checksubmit=$checkResult")
-        if (checkResult != "0") {
-            Log.w(TAG, "reloadAndForward: checksubmit returned $checkResult (non-zero)")
-        }
 
         // 5c: 读取表单字段值
         fun fieldVal(fieldName: String): String {
@@ -578,10 +575,26 @@ class TranscriptApi(private val site: SiteSession) {
         ).safeParseJsonObject()
 
         val data = submitJson.getAsJsonObject("data")
-            ?: error("转发失败：${submitJson.get("message")?.asString ?: "未知错误"}")
+        if (data == null) {
+            // 提取详细错误信息
+            val message = submitJson.get("message")?.asString
+            val errorMsg = submitJson.get("errorMsg")?.asString
+            val tips = submitJson.get("tips")?.asString
+            val detail = errorMsg ?: message ?: tips ?: "未知错误"
+            Log.e(TAG, "reloadAndForward: submit failed, no data object. detail=$detail")
+            error("转发失败：$detail")
+        }
+        
         val resultType = data.get("type")?.asString
         if (resultType != "SUCCESS") {
-            error("转发失败：$resultType")
+            // 提取详细错误信息
+            val msgInfo = data.getAsJsonObject("messageInfo")
+            val errorMsg = msgInfo?.get("message")?.asString
+                ?: data.get("message")?.asString
+                ?: data.get("errorMsg")?.asString
+            val detail = errorMsg ?: resultType ?: "提交被拒绝"
+            Log.e(TAG, "reloadAndForward: resultType=$resultType, errorMsg=$errorMsg")
+            error("转发失败：$detail")
         }
 
         val msgInfo = data.getAsJsonObject("messageInfo")

@@ -10,10 +10,19 @@ import com.xjtu.toolbox.auth.SessionManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class JiaoxiaozhiViewModel : ViewModel() {
     val sessions = mutableStateListOf<JiaoxiaozhiSession>()
     val messages = mutableStateListOf<JiaoxiaozhiMessage>()
+
+    /**
+     * 保护 [messages] 的非原子读改写操作（特别是 [trimTrailingEmptyAssistant]）。
+     * sendMessage 内的 onDelta 也在 viewModelScope.launch 里运行，与 UI 触发
+     * 的 trim 之间存在竞态：用 Mutex 串行化避免 list 状态错乱或越界。
+     */
+    private val messagesMutex = Mutex()
 
     var currentSessionId by mutableStateOf<String?>(null)
         private set
@@ -80,6 +89,26 @@ class JiaoxiaozhiViewModel : ViewModel() {
 
     fun stop() {
         currentJob?.cancel()
+    }
+
+    /**
+     * 用户中断 / 失败留白时，会有一条空 assistant 占位消息。
+     * 在重试/重新生成前先清掉，否则会和新的 assistant 一起出现两条。
+     *
+     * 用 [messagesMutex] 串行化：sendMessage 的 onDelta 回调也在
+     * viewModelScope 上运行，与 UI 触发的 trim 之间存在竞态。
+     */
+    fun trimTrailingEmptyAssistant() {
+        viewModelScope.launch {
+            messagesMutex.withLock {
+                while (messages.isNotEmpty() && messages.last().role == "assistant" && messages.last().content.isBlank()) {
+                    messages.removeAt(messages.lastIndex)
+                }
+                if (messages.isNotEmpty() && messages.last().role == "user" && messages.last().content.isBlank()) {
+                    messages.removeAt(messages.lastIndex)
+                }
+            }
+        }
     }
 
     fun sendMessage(

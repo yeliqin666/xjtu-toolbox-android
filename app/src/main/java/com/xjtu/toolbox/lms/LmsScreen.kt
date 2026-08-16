@@ -606,7 +606,7 @@ private fun ActivityDetailPage(
                 appLoginState.handleAuthExpired(LoginType.LMS, Routes.LMS, onBack)
             } catch (e: Exception) {
                 Log.e(TAG, "loadDetail error", e)
-                errorMsg = "加载详情失败: ${e.message}"
+                errorMsg = com.xjtu.toolbox.util.FriendlyError.of(e, "加载课程详情")
             } finally {
                 isLoading = false
             }

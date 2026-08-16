@@ -3,6 +3,7 @@ package com.xjtu.toolbox.attendance
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.utils.SinkFeedback
 import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Text
@@ -27,6 +28,7 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -39,6 +41,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.FilterAlt
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import com.xjtu.toolbox.LocalAppLoginState
@@ -97,6 +100,9 @@ fun AttendanceScreen(
     var selectedStatus by rememberSaveable { mutableStateOf<WaterType?>(null) }
     // 课程搜索
     var searchQuery by rememberSaveable { mutableStateOf("") }
+    // 从概览卡片点下钻时锁定到某门课：流水 Tab 自动用此作为过滤
+    var drilldownSubject by rememberSaveable { mutableStateOf<String?>(null) }
+    val effectiveSubjectFilter = drilldownSubject ?: ""  // 下钻 vs 搜索同时只一个生效
 
     fun loadData(termBh: String? = null) {
         loadJob?.cancel()
@@ -145,7 +151,7 @@ fun AttendanceScreen(
                         cachedSnapshot?.selectedTermBh == bh &&
                         cachedSnapshot.records.isNotEmpty()
                     val fetchedRecords = if (canAppendCurrent) {
-                        val cachedRecords = cachedSnapshot?.records.orEmpty()
+                        val cachedRecords = cachedSnapshot.records
                         val latestCachedDate = cachedRecords
                             .mapNotNull { runCatching { java.time.LocalDate.parse(it.date) }.getOrNull() }
                             .maxOrNull()
@@ -252,12 +258,13 @@ fun AttendanceScreen(
     // 派生数据
     val maxWeek = remember(records) { records.maxOfOrNull { it.week } ?: 0 }
 
-    val filteredRecords = remember(records, selectedWeek, selectedStatus, searchQuery) {
+    val filteredRecords = remember(records, selectedWeek, selectedStatus, searchQuery, drilldownSubject) {
         records.asSequence()
             .let { seq -> if (selectedWeek != null) seq.filter { it.week == selectedWeek } else seq }
             .let { seq -> if (selectedStatus != null) seq.filter { it.status == selectedStatus } else seq }
             .let { seq ->
-                if (searchQuery.isNotBlank()) seq.filter {
+                if (drilldownSubject != null) seq.filter { it.courseName == drilldownSubject }
+                else if (searchQuery.isNotBlank()) seq.filter {
                     searchQuery.lowercase() in it.courseName.lowercase() ||
                             searchQuery.lowercase() in it.location.lowercase() ||
                             searchQuery.lowercase() in it.teacher.lowercase()
@@ -385,9 +392,13 @@ fun AttendanceScreen(
                     when (tab) {
                         0 -> OverviewTab(courseStats, totalNormal, totalLate,
                             totalAbsence, totalLeave, attendanceRate,
-                            searchQuery) { searchQuery = it }
+                            searchQuery, { searchQuery = it },
+                            { drilldownSubject = it },
+                            { searchQuery = "" },
+                            { selectedTab = 1 })
                         1 -> RecordFlowTab(filteredRecords, selectedStatus, displayRecords.size,
-                            searchQuery, { searchQuery = it }) { selectedStatus = it }
+                            searchQuery, { searchQuery = it }, { selectedStatus = it },
+                            drilldownSubject, { drilldownSubject = null })
                     }
                 }
             }
@@ -402,7 +413,10 @@ private fun OverviewTab(
     totalNormal: Int, totalLate: Int, totalAbsence: Int, totalLeave: Int,
     attendanceRate: Int,
     searchQuery: String,
-    onSearchChange: (String) -> Unit
+    onSearchChange: (String) -> Unit,
+    onDrilldownSubject: (String) -> Unit,
+    onClearSearch: () -> Unit,
+    onSwitchToRecordTab: () -> Unit,
 ) {
     LazyColumn(
         Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
@@ -480,7 +494,14 @@ private fun OverviewTab(
                 .filter { searchQuery.isBlank() || searchQuery.lowercase() in it.subjectName.lowercase() }
                 .sortedByDescending { it.abnormalCount }
 
-            items(filtered) { stat -> CourseStatCard(stat) }
+            items(filtered) { stat ->
+                CourseStatCard(stat) {
+                    // 下钻：切到流水 Tab，锁定该课程，清掉搜索状态避免混淆
+                    onDrilldownSubject(stat.subjectName)
+                    onClearSearch()
+                    onSwitchToRecordTab()
+                }
+            }
 
             if (filtered.all { it.abnormalCount == 0 }) {
                 item {
@@ -519,10 +540,17 @@ private fun OverviewTab(
 }
 
 @Composable
-private fun CourseStatCard(stat: CourseAttendanceStat) {
+private fun CourseStatCard(stat: CourseAttendanceStat, onClick: () -> Unit = {}) {
     val hasIssue = stat.abnormalCount > 0
     top.yukonga.miuix.kmp.basic.Card(
-        modifier = Modifier.fillMaxWidth(), cornerRadius = 12.dp,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                indication = SinkFeedback(),
+                onClick = onClick,
+            ),
+        cornerRadius = 12.dp,
         // 默认 defaultColors() 用的是 surfaceContainer，深色主题下与页面背景同为 #242424，
         // 卡片同样会糊掉，所以统一走 AppCardColor
         colors = if (hasIssue) top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.errorContainer.copy(alpha = 0.15f)
@@ -595,13 +623,53 @@ private fun RecordFlowTab(
     totalCount: Int,
     searchQuery: String,
     onSearchChange: (String) -> Unit,
-    onStatusChange: (WaterType?) -> Unit
+    onStatusChange: (WaterType?) -> Unit,
+    drilldownSubject: String? = null,
+    onClearDrilldown: () -> Unit = {},
 ) {
     LazyColumn(
         Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
         contentPadding = PaddingValues(vertical = 12.dp)
     ) {
+        // 下钻来源提示：概览卡片点过来的，醒目地告诉用户为什么只看到一门课
+        if (drilldownSubject != null) {
+            item {
+                Surface(
+                    color = MiuixTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.Outlined.FilterAlt,
+                            contentDescription = null,
+                            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "已筛选「$drilldownSubject」",
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            style = MiuixTheme.textStyles.footnote1,
+                            modifier = Modifier.weight(1f),
+                        )
+                        androidx.compose.foundation.layout.Box(
+                            modifier = Modifier
+                                .clickable { onClearDrilldown() }
+                                .padding(horizontal = 8.dp, vertical = 2.dp),
+                            contentAlignment = androidx.compose.ui.Alignment.Center,
+                        ) {
+                            // 与 Jiaoxiaozhi 复制按钮统一：可点击元素用 primary 突出。
+                            Text("清除", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.primary)
+                        }
+                    }
+                }
+            }
+        }
         // 搜索框
         item {
             com.xjtu.toolbox.ui.components.AppSearchBar(

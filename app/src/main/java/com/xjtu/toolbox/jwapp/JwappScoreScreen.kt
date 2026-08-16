@@ -419,6 +419,31 @@ fun JwappScoreScreen(
                     IconButton(onClick = onOpenReport) {
                         Icon(Icons.Default.Assessment, contentDescription = "成绩报表")
                     }
+                    // GPA 小数精度切换：2 → 3 → 4 → 2，原先藏在卡片点击里，
+                    // 改放顶栏独立按钮——一眼可见、零误触。
+                    IconButton(onClick = {
+                        gpaPrecision = when (gpaPrecision) {
+                            2 -> 3
+                            3 -> 4
+                            else -> 2
+                        }
+                    }) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(end = 4.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.Calculate,
+                                contentDescription = "GPA 精度",
+                            )
+                            Spacer(Modifier.width(2.dp))
+                            Text(
+                                "${gpaPrecision}位",
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.onSurface,
+                            )
+                        }
+                    }
                     // GPA 映射表
                     IconButton(onClick = { showGpaTips.value = true }) {
                         Icon(Icons.Default.Info, contentDescription = "GPA 映射")
@@ -998,8 +1023,7 @@ fun ScoreCard(
                             Text(scoreItem.examType, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         }
                         // 显示课程 GPA（服务器返回>0时使用，否则本地映射）
-                        val courseGpa = (scoreItem.gpa?.takeIf { it > 0.0 })
-                            ?: com.xjtu.toolbox.score.ScoreReportApi.scoreToGpa(scoreItem.score)
+                        val courseGpa = com.xjtu.toolbox.util.ScoreCalculator.courseGpa(scoreItem)
                         if (courseGpa != null) {
                             Text("GPA %.1f".format(courseGpa), style = MiuixTheme.textStyles.footnote1,
                                 color = MiuixTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
@@ -1009,10 +1033,7 @@ fun ScoreCard(
                 Spacer(Modifier.width(12.dp))
                 Column(horizontalAlignment = Alignment.End) {
                     // 通过判断（passFlag 对等级制可能不准，需 GPA/分数兜底）
-                    val localGpa = com.xjtu.toolbox.score.ScoreReportApi.scoreToGpa(scoreItem.score)
-                    val reallyPassed = scoreItem.passFlag
-                            || (localGpa != null && localGpa > 0.0)
-                            || (scoreItem.scoreValue != null && scoreItem.scoreValue >= 60.0)
+                    val reallyPassed = com.xjtu.toolbox.util.ScoreCalculator.isPassed(scoreItem)
                     val scoreColor = when {
                         !reallyPassed -> MiuixTheme.colorScheme.error
                         scoreItem.scoreValue != null && scoreItem.scoreValue >= 90 -> MiuixTheme.colorScheme.primary

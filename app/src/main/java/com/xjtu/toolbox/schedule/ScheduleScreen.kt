@@ -61,8 +61,12 @@ import androidx.compose.material.icons.filled.Business
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.IosShare
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.filled.Event
+import androidx.compose.material.icons.outlined.CloudOff
+import androidx.compose.material.icons.outlined.EventAvailable
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.ui.components.AppDropdownMenu
 import com.xjtu.toolbox.ui.components.AppDropdownMenuItem
@@ -246,7 +250,7 @@ fun ScheduleScreen(
                             }
                             val cachedHolidays = try { HolidayApi.getHolidayDates(context) } catch (_: Exception) { emptyMap() }
                             holidayDates = cachedHolidays
-                            val optimizedCourses = ScheduleCache.readOptimizedCourses(dataCache, gson, termCode, Long.MAX_VALUE)
+                            val optimizedCourses = ScheduleCache.readOptimizedCourses(dataCache, gson, termCode)
                             if (optimizedCourses != null) {
                                 courses = optimizedCourses
                                 android.util.Log.d("ScheduleUI", "Offline: loaded ${optimizedCourses.size} optimized courses from cache")
@@ -444,7 +448,7 @@ fun ScheduleScreen(
                             if (termCode.isNotEmpty()) {
                                 selectedTermCode = termCode
                                 currentTermCode = termCode
-                                val optimizedCourses = ScheduleCache.readOptimizedCourses(dataCache, gson, termCode, Long.MAX_VALUE)
+                                val optimizedCourses = ScheduleCache.readOptimizedCourses(dataCache, gson, termCode)
                                 if (optimizedCourses != null) {
                                     courses = optimizedCourses
                                 } else {
@@ -485,11 +489,53 @@ fun ScheduleScreen(
             } catch (e: AuthExpiredException) {
                 appLoginState.handleAuthExpired(LoginType.JWXT, Routes.SCHEDULE, onBack)
             } catch (e: Exception) {
-                errorMessage = "加载失败: ${e.message}"
+                errorMessage = com.xjtu.toolbox.util.FriendlyError.of(e, "加载课表")
             } finally {
                 isLoading = false
                 isRefreshingFromNetwork = false
                 ScheduleWidgetUpdater.requestUpdate(context)
+            }
+        }
+    }
+
+    /**
+     * 手动刷新：从缓存读取拉到网络强制刷新，避免依赖下拉手势（页面顶部不一定能下拉）。
+     * [force] = true 时跳过缓存直接走网络；为 false 时仍然走在线路径但允许后台先展示缓存。
+     */
+    fun refreshSchedule(force: Boolean = true) {
+        if (api == null) return
+        if (isRefreshingFromNetwork) return
+        isRefreshingFromNetwork = true
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val termCode = try {
+                        api.getCurrentTerm()
+                    } catch (e: Exception) {
+                        val cachedTermList = dataCache.get("schedule_term_list", Long.MAX_VALUE)
+                        val cachedTerms = if (cachedTermList != null) {
+                            try { gson.fromJson(cachedTermList, Array<String>::class.java).toList() } catch (_: Exception) { emptyList() }
+                        } else emptyList()
+                        cachedTerms.firstOrNull() ?: throw e
+                    }
+                    selectedTermCode = termCode
+                    currentTermCode = termCode
+                    val apiCourses = try { api.getSchedule(termCode) } catch (_: Exception) { emptyList<CourseItem>() }
+                    val customCourses = try {
+                        val accountId = com.xjtu.toolbox.account.AccountContext.activeAccountId ?: ""
+                        com.xjtu.toolbox.util.AppDatabase.getInstance(context)
+                            .customCourseDao().getAll(accountId).map { it.toCourseItem() }
+                    } catch (_: Exception) { emptyList<CourseItem>() }
+                    val merged = (apiCourses + customCourses).distinctBy { it.courseCode + "|" + it.dayOfWeek + "|" + it.startSection + "|" + it.weekBits }
+                    courses = merged
+                    showingStaleData = false
+                    dataCache.put("schedule_$termCode", gson.toJson(merged))
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("ScheduleUI", "refreshSchedule failed", e)
+                errorMessage = com.xjtu.toolbox.util.FriendlyError.of(e, "刷新课表")
+            } finally {
+                isRefreshingFromNetwork = false
             }
         }
     }
@@ -523,7 +569,7 @@ fun ScheduleScreen(
                 appLoginState.handleAuthExpired(LoginType.JWXT, Routes.SCHEDULE, onBack)
             } catch (e: Exception) {
                 android.util.Log.e("ScheduleUI", "loadTextbooks failed", e)
-                textbooksError = "教材查询失败: ${e.message}"
+                textbooksError = com.xjtu.toolbox.util.FriendlyError.of(e, "查询教材")
             } finally { textbooksLoading = false }
         }
     }
@@ -686,8 +732,8 @@ fun ScheduleScreen(
                     val isOldTerm = newTermCode != currentTermCode
 
                     // 先尝试从缓存加载
-                    val cachedOptimizedCourses = ScheduleCache.readOptimizedCourses(dataCache, gson, newTermCode, Long.MAX_VALUE)
-                    val cachedExams = dataCache.get("exams_$newTermCode", Long.MAX_VALUE)
+                    val cachedOptimizedCourses = ScheduleCache.readOptimizedCourses(dataCache, gson, newTermCode)
+                    val cachedExams = dataCache.get("exams_$newTermCode", com.xjtu.toolbox.util.DataCache.TERM_TTL_MS)
                     if (cachedOptimizedCourses != null) {
                         courses = cachedOptimizedCourses
                         if (cachedExams != null) {
@@ -776,7 +822,7 @@ fun ScheduleScreen(
             } catch (e: AuthExpiredException) {
                 appLoginState.handleAuthExpired(LoginType.JWXT, Routes.SCHEDULE, onBack)
             } catch (e: Exception) {
-                errorMessage = "加载失败: ${e.message}"
+                errorMessage = com.xjtu.toolbox.util.FriendlyError.of(e, "切换学期")
             } finally {
                 isSwitching = false
                 ScheduleWidgetUpdater.requestUpdate(context)
@@ -929,6 +975,21 @@ fun ScheduleScreen(
                         }
                     },
                     actions = {
+                        // 手动刷新：从缓存读取拉到网络强制刷新，避免依赖下拉手势（页面顶部不一定能下拉）
+                        IconButton(
+                            onClick = {
+                                if (!isRefreshingFromNetwork && api != null) refreshSchedule(true)
+                            },
+                            enabled = !isRefreshingFromNetwork && api != null,
+                        ) {
+                            Icon(
+                                Icons.Default.Refresh,
+                                contentDescription = "刷新课表",
+                                tint = if (isRefreshingFromNetwork)
+                                    MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f)
+                                else MiuixTheme.colorScheme.onSurface
+                            )
+                        }
                         // 学期切换（仅多个学期时显示）
                         if (termList.size > 1) {
                             Box {
@@ -942,6 +1003,21 @@ fun ScheduleScreen(
                                     onDismissRequest = { termDropdownExpanded = false }
                                 ) {
                                     ListPopupColumn {
+                                        // 快捷回当前学期：用户从历史学期切回去时不用翻列表
+                                        if (termList.size > 1 && currentTermCode.isNotEmpty() &&
+                                            termList.indexOf(currentTermCode) >= 0 &&
+                                            currentTermCode != selectedTermCode) {
+                                            DropdownImpl(
+                                                text = "📍 当前学期 · $currentTermCode",
+                                                optionSize = termList.size + 1,
+                                                isSelected = false,
+                                                onSelectedIndexChange = {
+                                                    termDropdownExpanded = false
+                                                    switchTerm(currentTermCode)
+                                                },
+                                                index = -1,
+                                            )
+                                        }
                                         termList.forEachIndexed { idx, term ->
                                             DropdownImpl(
                                                 text = term,
@@ -967,9 +1043,24 @@ fun ScheduleScreen(
                                 )
                             }
                         }
-                        // 导出菜单
+                        // 导出快捷按钮：最常用操作（日历订阅）从菜单里提升到顶栏
+                        IconButton(
+                            onClick = {
+                                val st = startOfTerm
+                                if (st == null) {
+                                    scope.launch { snackbarHostState.showSnackbar("无法获取开学日期，ICS 导出不可用") }
+                                    return@IconButton
+                                }
+                                val ics = ScheduleExport.generateIcs(filteredMergedCourses, st, selectedTermCode)
+                                ScheduleExport.shareTextFile(context, ics, "${selectedTermCode}_日程.ics", "text/calendar")
+                            },
+                            enabled = filteredMergedCourses.isNotEmpty(),
+                        ) {
+                            Icon(Icons.Default.IosShare, contentDescription = "导出日历")
+                        }
+                        // 更多（CSV/图片/学期切换）
                         Box {
-                            IconButton(onClick = { showExportMenu = true }, enabled = filteredMergedCourses.isNotEmpty()) {
+                            IconButton(onClick = { showExportMenu = true }) {
                                 Icon(Icons.Default.MoreVert, contentDescription = "更多")
                             }
                             AppDropdownMenu(expanded = showExportMenu, onDismissRequest = { showExportMenu = false }) {
@@ -983,20 +1074,6 @@ fun ScheduleScreen(
                                         }
                                     )
                                 }
-                                AppDropdownMenuItem(
-                                    text = { Text("导出日历 (ICS)") },
-                                    leadingIcon = { Icon(Icons.Default.Event, null, Modifier.size(20.dp)) },
-                                    onClick = {
-                                        showExportMenu = false
-                                        val st = startOfTerm
-                                        if (st == null) {
-                                            scope.launch { snackbarHostState.showSnackbar("无法获取开学日期，ICS 导出不可用") }
-                                            return@AppDropdownMenuItem
-                                        }
-                                        val ics = ScheduleExport.generateIcs(filteredMergedCourses, st, selectedTermCode)
-                                        ScheduleExport.shareTextFile(context, ics, "${selectedTermCode}_日程.ics", "text/calendar")
-                                    }
-                                )
                                 AppDropdownMenuItem(
                                     text = { Text("导出表格 (CSV)") },
                                     leadingIcon = { Icon(Icons.Default.TableChart, null, Modifier.size(20.dp)) },
@@ -1041,6 +1118,45 @@ fun ScheduleScreen(
         ) {
             // 嵌入式 header 已迁移到 MainScreen TopAppBar.actions / bottomContent slot
 
+            // 缓存数据提示：刷新失败但有缓存时，顶部一条小 banner 告知用户「这可能是旧数据」
+            if (showingStaleData && !isLoading) {
+                Surface(
+                    color = MiuixTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.Outlined.CloudOff,
+                            contentDescription = null,
+                            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "网络异常，正在展示缓存数据",
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            style = MiuixTheme.textStyles.footnote1,
+                            modifier = Modifier.weight(1f),
+                        )
+                        androidx.compose.foundation.layout.Box(
+                            modifier = Modifier
+                                .height(20.dp)
+                                .clickable { if (!isRefreshingFromNetwork && api != null) refreshSchedule(true) }
+                                .padding(horizontal = 8.dp, vertical = 2.dp),
+                            contentAlignment = androidx.compose.ui.Alignment.Center,
+                        ) {
+                            // 与 AttendanceScreen「清除」、Jiaoxiaozhi「复制」风格统一：primary 色。
+                            Text("重试", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.primary)
+                        }
+                    }
+                }
+            }
             if (isLoading) {
                 LoadingState(message = "\u52a0\u8f7d\u65e5\u7a0b...", modifier = Modifier.fillMaxSize())
             } else if (errorMessage != null) {
@@ -1409,8 +1525,30 @@ private fun ExamTabContent(exams: List<ExamItem>, bottomPadding: androidx.compos
     // 去重（同一门课+同一天只显示一次）
     val uniqueExams = exams.distinctBy { "${it.courseName}_${it.examDate}" }
     if (uniqueExams.isEmpty()) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("暂无考试安排", style = MiuixTheme.textStyles.body1)
+        Column(
+            modifier = Modifier.fillMaxSize().padding(32.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(
+                Icons.Outlined.EventAvailable,
+                contentDescription = null,
+                modifier = Modifier.size(56.dp),
+                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f),
+            )
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "本学期暂无考试安排",
+                style = MiuixTheme.textStyles.body1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "若已临近期末仍无数据，可能教务系统未发布或当前学期设置有误；可下拉刷新或切换其他学期查看。",
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.7f),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
         }
         return
     }

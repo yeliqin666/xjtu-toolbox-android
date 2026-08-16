@@ -28,67 +28,16 @@ class ScoreReportApi(private val site: SiteSession) {
     companion object {
         private const val FR_REPORT_URL = "https://jwxt.xjtu.edu.cn/jwapp/sys/frReport2/show.do"
 
-        /** 成绩 → GPA 映射（西安交大 4.3 绩点制） */
-        fun scoreToGpa(score: Any?): Double? {
-            return when (score) {
-                is Number -> {
-                    val s = score.toDouble()
-                    when {
-                        s >= 95 -> 4.3
-                        s >= 90 -> 4.0
-                        s >= 85 -> 3.7
-                        s >= 81 -> 3.3
-                        s >= 78 -> 3.0
-                        s >= 75 -> 2.7
-                        s >= 72 -> 2.3
-                        s >= 68 -> 2.0
-                        s >= 64 -> 1.7
-                        s >= 60 -> 1.3  // D = 1.3（西交教〔2015〕87号）
-                        else -> 0.0
-                    }
-                }
-                is String -> {
-                    // 清理隐藏字符（零宽空格等），全角＋－转半角，只保留有效字符
-                    val g = score
-                        .replace('＋', '+')   // 全角 U+FF0B → ASCII +
-                        .replace('－', '-')   // 全角 U+FF0D → ASCII -
-                        .replace(Regex("[^a-zA-Z0-9+\\-\\u4e00-\\u9fff]"), "").uppercase()
-                    when {
-                        g.isEmpty() -> null
-                        g.toDoubleOrNull() != null -> scoreToGpa(g.toDouble())
-                        // 英文等级制（11级，西交教〔2015〕87号，无 D+）
-                        g == "A+" -> 4.3
-                        g == "A"  -> 4.0
-                        g == "A-" -> 3.7
-                        g == "B+" -> 3.3
-                        g == "B"  -> 3.0
-                        g == "B-" -> 2.7
-                        g == "C+" -> 2.3
-                        g == "C"  -> 2.0
-                        g == "C-" -> 1.7
-                        g == "D"  -> 1.3
-                        g == "F"  -> 0.0
-                        // 中文等级制（11级）
-                        g == "优+" -> 4.3
-                        g == "优"  -> 4.0
-                        g == "优-" -> 3.7
-                        g == "良+" -> 3.3
-                        g == "良"  -> 3.0
-                        g == "良-" -> 2.7
-                        g == "中+" -> 2.3
-                        g == "中"  -> 2.0
-                        g == "中-" -> 1.7
-                        g == "及格" -> 1.3
-                        g == "不及格" -> 0.0
-                        // 二等级制不参与 GPA
-                        g == "通过" || g == "不通过" -> null
-                        else -> null
-                    }
-                }
-                else -> null
-            }
-        }
-    }
+/**
+     * 成绩 → GPA 映射（西安交大 4.3 绩点制）
+     */
+    @Deprecated(
+        message = "已迁移到 util.ScoreCalculator",
+        replaceWith = ReplaceWith("com.xjtu.toolbox.util.ScoreCalculator.scoreToGpa(score)"),
+    )
+    fun scoreToGpa(score: Any?): Double? =
+        com.xjtu.toolbox.util.ScoreCalculator.scoreToGpa(score)
+}
 
     /**
      * 从 FR Report 的 HTML 中提取 Session ID

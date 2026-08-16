@@ -34,6 +34,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Merge
+import androidx.compose.material.icons.outlined.WarningAmber
 import com.xjtu.toolbox.ui.components.AppTopBar
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -74,6 +75,11 @@ fun NotificationScreen(
     var isLoading by remember { mutableStateOf(true) }
     var isLoadingMore by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    /**
+     * 本轮哪些通知源被静默跳过（域名级失败/异常）：用于顶部 banner 告知用户
+     * 「这些来源可能没拉到，不要以为是没人发通知」。
+     */
+    var skippedSourceNotice by remember { mutableStateOf<String?>(null) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var currentPage by rememberSaveable { mutableIntStateOf(1) }
     var hasMorePages by remember { mutableStateOf(true) }
@@ -102,13 +108,21 @@ fun NotificationScreen(
         if (!append && cache[cacheKey] == null) isLoading = true
         errorMessage = null
         try {
-            val result = withContext(Dispatchers.IO) {
+            val (result, skipped) = withContext(Dispatchers.IO) {
                 if (mergeMode) {
-                    api.getMergedNotifications(selectedSources.toList(), page)
+                    api.getMergedNotificationsWithSkipped(selectedSources.toList(), page)
                 } else {
-                    api.getNotifications(selectedSource, page)
+                    // 单源模式：单条爬取，skipped 来自 try/catch
+                    val list = runCatching { api.getNotifications(selectedSource, page) }
+                        .getOrElse { emptyList() }
+                    list to emptySet<com.xjtu.toolbox.notification.NotificationSource>()
                 }
             }
+            // 把「静默跳过」告诉用户：避免「通知怎么一条都没有」误以为是教务真没发
+            skippedSourceNotice = if (skipped.isNotEmpty()) {
+                skipped.joinToString("、") { it.displayName } + " 暂不可达，可能是网络问题或站点维护"
+            } else null
+
             if (append && result.isEmpty()) hasMorePages = false
             val newList = if (append) notifications + result else result
             notifications = newList
@@ -299,6 +313,37 @@ fun NotificationScreen(
             // ═══ 加载条 ═══
             AnimatedVisibility(isLoading && notifications.isNotEmpty(), enter = fadeIn(), exit = fadeOut()) {
                 LinearProgressIndicator(Modifier.fillMaxWidth())
+            }
+
+            // 通知源静默跳过提示：放在加载条下、内容区上——不挤占列表第一行
+            // 让用户知道"不是没通知，是某些源被静默"。
+            skippedSourceNotice?.let { msg ->
+                Surface(
+                    color = MiuixTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.Outlined.WarningAmber,
+                            contentDescription = "通知源不可达",
+                            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            msg,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            style = MiuixTheme.textStyles.footnote1,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
             }
 
             // ═══ 内容区 ═══

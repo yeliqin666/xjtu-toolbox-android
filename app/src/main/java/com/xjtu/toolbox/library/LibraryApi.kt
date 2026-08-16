@@ -212,9 +212,16 @@ class LibraryApi(private val site: SiteSession) {
         val (response, body) = executeWithReAuth(
             buildRequest(qspaceUrl, ajax = true, referer = "$BASE_URL/seat/")
         )
+        val contentType = response.header("Content-Type")?.lowercase() ?: ""
         response.close()
         if (!response.isSuccessful) {
             throw RuntimeException("楼层信息加载失败: HTTP ${response.code}")
+        }
+        // 检查是否返回了 HTML 而非 JSON
+        if ("html" in contentType || body.trimStart().startsWith("<!DOCTYPE", ignoreCase = true) ||
+            body.trimStart().startsWith("<html", ignoreCase = true)) {
+            Log.e(TAG, "qspace returned HTML instead of JSON. ContentType=$contentType, body preview: ${body.take(200)}")
+            throw RuntimeException("图书馆楼层信息接口返回异常（非 JSON 响应）")
         }
         val json = org.json.JSONObject(body)
         val stats = parseAreaStats(json.optJSONObject("scount"))
@@ -269,6 +276,14 @@ class LibraryApi(private val site: SiteSession) {
             return SeatResult.AuthError("认证已失效")
         if (body.length < 10)
             return SeatResult.Error("服务器返回异常")
+
+        // 检查 Content-Type：若服务器返回 HTML 而非 JSON，说明遇到错误页
+        val contentType = response.header("Content-Type")?.lowercase() ?: ""
+        if ("html" in contentType || body.trimStart().startsWith("<!DOCTYPE", ignoreCase = true) ||
+            body.trimStart().startsWith("<html", ignoreCase = true)) {
+            Log.e(TAG, "qseat returned HTML instead of JSON. ContentType=$contentType, body preview: ${body.take(200)}")
+            return SeatResult.Error("图书馆服务器返回异常（非 JSON 响应），请稍后重试")
+        }
 
         try {
             val json = org.json.JSONObject(body)

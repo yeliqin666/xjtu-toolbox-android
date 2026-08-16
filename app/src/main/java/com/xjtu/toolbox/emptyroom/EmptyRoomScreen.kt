@@ -49,6 +49,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.outlined.CloudOff
 import com.xjtu.toolbox.ui.components.AppDropdownMenu
 import com.xjtu.toolbox.ui.components.AppDropdownMenuItem
 import androidx.compose.runtime.*
@@ -219,6 +220,12 @@ fun EmptyRoomScreen(
     var rooms by remember { mutableStateOf<List<RoomInfo>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    /**
+     * 显示的是过期缓存的标识：联网失败时若磁盘上有缓存可读，会把缓存灌入 [rooms] 并把这条
+     * 信息显示出来——比"空白页 + 红字错误"更友好。
+     * 格式：「数据可能不是最新 · 缓存于 HH:mm」；null 表示当前显示的是实时数据。
+     */
+    var staleNote by remember { mutableStateOf<String?>(null) }
     var useDirectQuery by rememberSaveable {
         mutableStateOf(accountType != AccountType.POSTGRADUATE && prefs.getBoolean("empty_room_use_direct_query", false))
     }
@@ -299,6 +306,36 @@ fun EmptyRoomScreen(
     // [优化] 单楼缓存：key = "campus|building|date"，value = 该楼当天教室列表。
     // 用户重复勾选同一建筑（A→AB→A）时，命中缓存的不会重新发请求；
     // 仅 cache miss 的建筑才进网络。日期/校区变化时缓存自然失效（不参与命中的 key 不同）。
+
+    /**
+     * 网络失败时从磁盘读 [EmptyRoomCache.readRoomListStale] 兜底：
+     * 缓存有数据 → 写入 [rooms] 并把 [staleNote] 标为「数据可能不是最新 · 缓存于 HH:mm」。
+     * 缓存为空 → [staleNote] 仍为 null，由 errorMessage 单独展示。
+     */
+    fun fallbackToStaleCache(activeBuildings: Collection<String>, date: String, reason: String) {
+        val source = if (useDirectQuery) "direct" else "cdn"
+        val merged = mutableListOf<RoomInfo>()
+        var newestSavedAt = 0L
+        var anyHit = false
+        for (b in activeBuildings) {
+            val key = "$source|$selectedCampus|$b|$date"
+            val stale = emptyRoomCache.readRoomListStale(key)
+            if (stale != null) {
+                merged.addAll(stale)
+                val savedAt = emptyRoomCache.savedAt(key)
+                if (savedAt > newestSavedAt) newestSavedAt = savedAt
+                anyHit = true
+            }
+        }
+        if (anyHit && merged.isNotEmpty()) {
+            rooms = merged.sortedBy { it.name }
+            val ts = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(newestSavedAt)
+            staleNote = "数据可能不是最新 · 缓存于今天 $ts · $reason"
+            android.util.Log.i("EmptyRoomScreen", "fallback to stale cache: $newestSavedAt, reason=$reason")
+        } else {
+            staleNote = null
+        }
+    }
     val buildingCache = remember { mutableStateMapOf<String, Pair<String, List<RoomInfo>>>() }
 
     // [并发计数] 每次 LaunchedEffect 启动 +1，用 generation 标记当前查询。
@@ -349,6 +386,7 @@ fun EmptyRoomScreen(
             android.util.Log.d("EmptyRoomScreen", "gen=$myGen all ${active.size} buildings cache hit")
             rooms = cachedRows.sortedBy { it.name }
             errorMessage = null
+            staleNote = null
             isLoading = false
             directProgress = null
             return@LaunchedEffect
@@ -403,13 +441,26 @@ fun EmptyRoomScreen(
             // 旧查询被新查询取代，不更新 UI；不再 rethrow（rethrow 会让 LaunchedEffect 抛异常）
             android.util.Log.d("EmptyRoomScreen", "gen=$myGen cancelled (newer gen ${queryGeneration.get()})")
         } catch (e: NoDataException) {
-            if (isLatest()) { errorMessage = e.message; rooms = emptyList() }
+            if (isLatest()) {
+                errorMessage = e.message
+                rooms = emptyList()
+                staleNote = null
+            }
         } catch (e: java.net.ConnectException) {
-            if (isLatest()) errorMessage = "网络不可用，请检查连接"
+            if (isLatest()) {
+                errorMessage = "网络不可用，请检查连接"
+                fallbackToStaleCache(active, selectedDate, "网络不可用")
+            }
         } catch (e: java.net.SocketTimeoutException) {
-            if (isLatest()) errorMessage = "网络不可用，请检查连接"
+            if (isLatest()) {
+                errorMessage = "网络不可用，请检查连接"
+                fallbackToStaleCache(active, selectedDate, "网络连接超时")
+            }
         } catch (e: Exception) {
-            if (isLatest()) errorMessage = "查询失败：${e.message ?: "未知错误"}"
+            if (isLatest()) {
+                errorMessage = com.xjtu.toolbox.util.FriendlyError.of(e, "查询空教室")
+                fallbackToStaleCache(active, selectedDate, "查询失败")
+            }
         } finally {
             // 只有最新一代查询才能更新 isLoading=false，避免旧 coroutine 覆盖新 coroutine 的 isLoading=true
             if (isLatest()) {
@@ -596,6 +647,36 @@ fun EmptyRoomScreen(
                 .padding(padding)
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
         ) {
+            // 网络失败兜底提示：展示磁盘缓存 + 「缓存于 HH:mm」标识。
+            // 与下面 errorMessage 的区别：errorMessage 是红字无数据；staleNote 是黄底有数据可看。
+            staleNote?.let { note ->
+                Surface(
+                    color = MiuixTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            androidx.compose.material.icons.Icons.Outlined.CloudOff,
+                            contentDescription = "网络不可用提示",
+                            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            note,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            style = MiuixTheme.textStyles.footnote1,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
             val showFilterSheet = remember { mutableStateOf(false) }
             var buildingQuery by rememberSaveable { mutableStateOf("") }
             BackHandler(enabled = showFilterSheet.value) {

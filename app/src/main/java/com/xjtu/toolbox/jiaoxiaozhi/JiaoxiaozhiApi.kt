@@ -128,7 +128,13 @@ class JiaoxiaozhiApi(private val session: JiaoxiaozhiSiteSession) {
                         .trim()
                     if (fallback.isNotBlank()) return@coroutineScope fallback
                     Log.w(TAG, "streamAnswer blank text events=$eventCount model=$effectiveModel sessionId=$sessionId")
-                    return@coroutineScope "交晓智本次返回为空，可能是上游响应格式波动；请换个问法或稍后重试。"
+                    // 空响应的根因排查：登录态过期是常见原因之一（cookie 失效/被服务端登出）。
+                    // 给用户一个明确的「请重新登录」入口，而不是让他反复换措辞重试。
+                    return@coroutineScope if (!session.hasAccessTokenForLog()) {
+                        "交晓智本次返回为空。你可能尚未登录或登录已过期，请到设置页重新登录后再试。"
+                    } else {
+                        "交晓智本次返回为空，可能是上游响应格式波动；请换个问法或稍后重试。"
+                    }
                 }
                 return@coroutineScope cleaned
             }

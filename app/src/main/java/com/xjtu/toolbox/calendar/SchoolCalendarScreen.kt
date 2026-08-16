@@ -431,11 +431,12 @@ private fun EventTimelineItem(
     isCurrent: Boolean,
     isLast: Boolean
 ) {
+    val fallbackColor = MiuixTheme.colorScheme.primary  // 用主题色兜底，深色主题下也有对比度
     val accentColor = remember(event.colorHex) {
         runCatching {
             val argb = android.graphics.Color.parseColor(event.colorHex)
             Color(argb)
-        }.getOrElse { Color(0xFF196DD0) }
+        }.getOrElse { fallbackColor }
     }
     val alpha = if (isPast) 0.45f else 1f
 
