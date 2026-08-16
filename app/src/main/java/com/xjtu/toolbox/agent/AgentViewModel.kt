@@ -28,7 +28,13 @@ data class ChatMessage(
     val isToolCall: Boolean = false,
     val navSuggestions: List<Pair<String, String>> = emptyList(),
     val widgets: List<AgentWidget> = emptyList(),
-    val reasoningContent: String = ""
+    val reasoningContent: String = "",
+    val timestamp: Long = System.currentTimeMillis(),
+    /**
+     * 工具调用失败信息：非 null 时 UI 上对应气泡标红并显示原因。
+     * 区分 [isToolCall] 的"执行中转圈"和"执行失败"——避免用户被空提示骗"还在跑"。
+     */
+    val toolError: String? = null,
 )
 
 class AgentViewModel : ViewModel() {
@@ -40,9 +46,22 @@ class AgentViewModel : ViewModel() {
     val messages = mutableStateListOf<ChatMessage>()
     var isLoading by mutableStateOf(false)
     var errorMessage by mutableStateOf<String?>(null)
+    /**
+     * 上下文耗尽标记。变 true 时 UI 应主动弹窗提醒用户"请新开对话"，
+     * 而不是悄悄把输入框禁用 + 文字提示里藏一句。
+     */
     var contextExhausted by mutableStateOf(false)
         private set
     private var lastTotalTokens: Long? = null
+
+    /** contextExhausted 刚刚由 false 变 true 的一次性事件：UI 用 LaunchedEffect 弹窗。 */
+    var contextExhaustedJustTriggered by mutableStateOf(false)
+        private set
+    fun consumeContextExhaustedTrigger(): Boolean {
+        val v = contextExhaustedJustTriggered
+        contextExhaustedJustTriggered = false
+        return v
+    }
 
     // ── 多会话状态 ──────────────────────────────────────────────────────
     val sessions = mutableStateListOf<AgentSession>()
@@ -116,7 +135,7 @@ class AgentViewModel : ViewModel() {
         val s = store.create()
         currentSessionId = s.id
         messages.clear(); llmHistory = JsonArray(); systemPromptAdded = false; tools = null; errorMessage = null
-        lastTotalTokens = null; contextExhausted = false
+        lastTotalTokens = null; contextExhausted = false; contextExhaustedJustTriggered = false
         refreshSessions()
     }
 
@@ -133,12 +152,15 @@ class AgentViewModel : ViewModel() {
                 content = m.content,
                 navSuggestions = m.nav.mapNotNull { if (it.size >= 2) it[0] to it[1] else null },
                 widgets = m.widgets.orEmpty().mapNotNull { storedToWidget(it, gson) },
-                reasoningContent = m.reasoningContent.orEmpty()
+                reasoningContent = m.reasoningContent.orEmpty(),
+                // 加载历史时用持久化的时间，否则用「加载时刻」会让所有历史消息时间戳一样
+                timestamp = m.timestamp ?: System.currentTimeMillis(),
             ))
         }
         llmHistory = runCatching { JsonParser.parseString(convo.llmHistory).asJsonArray }.getOrDefault(JsonArray())
         lastTotalTokens = convo.lastTotalTokens
         contextExhausted = convo.contextExhausted
+        contextExhaustedJustTriggered = false
         systemPromptAdded = llmHistory.any {
             runCatching { it.asJsonObject.get("role")?.asString == "system" }.getOrDefault(false)
         }
@@ -175,7 +197,8 @@ class AgentViewModel : ViewModel() {
                 it.content,
                 it.navSuggestions.map { p -> listOf(p.first, p.second) },
                 it.widgets.map { widget -> widget.toStored(gson) }.filter { widget -> widget.type.isNotEmpty() },
-                it.reasoningContent.takeIf { reasoning -> reasoning.isNotBlank() }
+                it.reasoningContent.takeIf { reasoning -> reasoning.isNotBlank() },
+                it.timestamp,
             )
         }
         val title = if (store.isLocked(id))
@@ -199,8 +222,12 @@ class AgentViewModel : ViewModel() {
         val id = currentSessionId ?: return
         if (store.isLocked(id)) return
         if (messages.count { it.role == "user" } != 1) return
-        val firstUser = messages.firstOrNull { it.role == "user" }?.content ?: return
-        val firstAssistant = messages.lastOrNull { it.role == "assistant" }?.content ?: return
+        val firstUser = messages.firstOrNull { it.role == "user" }?.content?.trim().orEmpty()
+        if (firstUser.isBlank()) return
+        // 取**最后一条**助手消息：当首轮触发了工具调用链路时，UI 里
+        // 会留下若干 tool 段 + 结尾的 assistant 总结；标题应当基于**最终回复**来起。
+        val firstAssistant = messages.lastOrNull { it.role == "assistant" }?.content?.trim().orEmpty()
+        if (firstAssistant.isBlank()) return
         viewModelScope.launch {
             val title = AgentTitleGen.generate(config, firstUser, firstAssistant)?.takeIf { it.isNotBlank() }
                 ?: return@launch
@@ -291,6 +318,35 @@ class AgentViewModel : ViewModel() {
                 val calledTools = mutableListOf<String>()
                 val toolBubbleIndices = mutableListOf<Int>()
 
+                // MFA 提示：监控 SessionManager 的 activeMfaRequest，弹窗期间在对话列表追加一条
+                // "需要登录验证" tool_event，让用户知道为什么对话卡住——不是 AI 在慢，是在校验。
+                // 协程在 run() 挂起期间仍存活，MFA 完成后我们再把这个事件标 isToolCall=false 让它收尾。
+                var mfaBubbleIdx = -1
+                var mfaJob: kotlinx.coroutines.Job? = null
+                val mfaFlow = loginState.sessionManager?.activeMfaRequest
+                if (mfaFlow != null) {
+                    mfaJob = launch {
+                        mfaFlow.collect { req ->
+                            if (req != null && mfaBubbleIdx < 0 && currentSessionId == turnSid) {
+                                messages.add(
+                                    ChatMessage(
+                                        role = "tool_event",
+                                        content = "需要登录验证：等待「${req.siteName}」短信验证码…",
+                                        isToolCall = true,
+                                    )
+                                )
+                                mfaBubbleIdx = messages.lastIndex
+                            } else if (req == null && mfaBubbleIdx >= 0) {
+                                // MFA 结束（无论成功或取消）：把气泡关掉
+                                if (mfaBubbleIdx in messages.indices) {
+                                    messages[mfaBubbleIdx] = messages[mfaBubbleIdx].copy(isToolCall = false)
+                                }
+                                mfaBubbleIdx = -1
+                            }
+                        }
+                    }
+                }
+
                 val reply = runner.run(
                     messages = llmHistory,
                     config = config,
@@ -357,14 +413,47 @@ class AgentViewModel : ViewModel() {
                             toolBubbleIndices.add(messages.lastIndex)
                         }
                     },
+                    onToolResult = { name, success, errMsg ->
+                        if (currentSessionId == turnSid && toolBubbleIndices.isNotEmpty()) {
+                            val lastIdx = toolBubbleIndices.last()
+                            if (lastIdx in messages.indices) {
+                                val bubble = messages[lastIdx]
+                                if (success) {
+                                    // 正常收尾（runner.run 结束后会把所有 isToolCall=false，下面会再做）
+                                } else {
+                                    messages[lastIdx] = bubble.copy(
+                                        isToolCall = false,
+                                        toolError = errMsg ?: "工具调用失败",
+                                    )
+                                }
+                            }
+                            // 失败时不再依赖 run() 结束后的批量关闭——避免用户多看几秒"加载中"
+                            if (!success) {
+                                toolBubbleIndices.remove(lastIdx)
+                            }
+                        }
+                    },
                     onUsage = { totalTokens ->
                         lastTotalTokens = totalTokens
-                        if (totalTokens >= CONTEXT_TOKEN_LIMIT) contextExhausted = true
+                        if (totalTokens >= CONTEXT_TOKEN_LIMIT) {
+                            val wasExhausted = contextExhausted
+                            contextExhausted = true
+                            // 只在本次会话中由「未耗尽 → 耗尽」转变时弹窗，避免每次回复都触发
+                            if (!wasExhausted) {
+                                contextExhaustedJustTriggered = true
+                            }
+                        }
                     }
                 )
 
                 toolBubbleIndices.forEach { idx ->
                     if (idx in messages.indices) messages[idx] = messages[idx].copy(isToolCall = false)
+                }
+                mfaJob?.cancel()
+                mfaJob = null
+                // MFA 还挂起时退出 run 的极端情况下，标记 mfaBubble 完成避免残留加载图标
+                if (mfaBubbleIdx >= 0 && mfaBubbleIdx in messages.indices) {
+                    messages[mfaBubbleIdx] = messages[mfaBubbleIdx].copy(isToolCall = false)
                 }
 
                 // 考勤路由根据实际登录类型动态选择，避免研究生跳转到本科考勤页
@@ -438,6 +527,7 @@ class AgentViewModel : ViewModel() {
         errorMessage = null
         lastTotalTokens = null
         contextExhausted = false
+        contextExhaustedJustTriggered = false
         // tools 保留（loginFailedAt 冷却状态有价值），不在 clearMessages 时重置
         persist()
     }

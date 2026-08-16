@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKeys
+import com.xjtu.toolbox.account.AccountContext
 
 data class AgentConfig(
     val provider: String = PROVIDER_DEEPSEEK,
@@ -27,7 +28,7 @@ data class AgentConfig(
         get() = when {
             provider == PROVIDER_CUSTOM && baseUrl.isNotBlank() -> baseUrl.trimEnd('/')
             provider == PROVIDER_OPENAI -> "https://api.openai.com/v1"
-            else -> "https://api.deepseek.com/v1"
+            else -> "https://api.deepseek.com"
         }
 
     val effectiveModel: String
@@ -90,23 +91,40 @@ fun sanitizeAgentTitle(raw: String, fallback: String = AgentConfig.DEFAULT_ASSIS
 class AgentConfigStore(context: Context) {
     private val appContext = context.applicationContext
 
-    // API Key 用 EncryptedSharedPreferences 存储；失败则降级为普通 SharedPreferences（不明文持久化于代码层面已尽力）
-    private val securePrefs: SharedPreferences by lazy {
+/**
+ * EncryptedSharedPreferences 按账号缓存。
+ *
+ * **为什么需要缓存**：
+ * - `EncryptedSharedPreferences.create()` 每次都做 keystore 密钥派生（一次 ~50–200ms），
+ *   在 `ConfigPanel` 每次按键都触发 `save()` 的场景下会让 UI 卡顿数秒。
+ * - 用 `lazy` 一次性建好后，按账号缓存；切账号时新建。
+ *
+ * **为什么不用 `lazy {}` 全局**：
+ * - 全局 lazy 会导致切账号后还读到旧账号的 prefs，违反账号隔离。
+ *   所以必须按 `safeSuffix()` 分别缓存。
+ */
+private val securePrefsCache = java.util.concurrent.ConcurrentHashMap<String, SharedPreferences>()
+private val prefsCache = java.util.concurrent.ConcurrentHashMap<String, SharedPreferences>()
+
+private val securePrefs: SharedPreferences
+    get() = securePrefsCache.getOrPut(AccountContext.safeSuffix()) {
         try {
             EncryptedSharedPreferences.create(
-                "agent_config_secure",
+                "agent_config_secure${AccountContext.safeSuffix()}",
                 MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC),
                 appContext,
                 EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
             )
         } catch (_: Exception) {
-            appContext.getSharedPreferences("agent_config_fallback", Context.MODE_PRIVATE)
+            appContext.getSharedPreferences("agent_config_fallback${AccountContext.safeSuffix()}", Context.MODE_PRIVATE)
         }
     }
 
-    private val prefs: SharedPreferences =
-        appContext.getSharedPreferences("agent_config", Context.MODE_PRIVATE)
+private val prefs: SharedPreferences
+    get() = prefsCache.getOrPut(AccountContext.safeSuffix()) {
+        appContext.getSharedPreferences("agent_config${AccountContext.safeSuffix()}", Context.MODE_PRIVATE)
+    }
 
     fun load(): AgentConfig = AgentConfig(
         provider = prefs.getString("provider", AgentConfig.PROVIDER_DEEPSEEK) ?: AgentConfig.PROVIDER_DEEPSEEK,

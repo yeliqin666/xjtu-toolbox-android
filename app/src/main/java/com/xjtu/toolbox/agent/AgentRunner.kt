@@ -89,6 +89,7 @@ class AgentRunner(private val tools: AgentToolRegistry) {
         messages: JsonArray,
         config: AgentConfig,
         onToolCall: (name: String) -> Unit = {},
+        onToolResult: (name: String, success: Boolean, errorMessage: String?) -> Unit = { _, _, _ -> },
         onDelta: suspend (String) -> Unit = {},
         onReasoningDelta: suspend (String) -> Unit = {},
         onUsage: (Long) -> Unit = {}
@@ -180,11 +181,19 @@ class AgentRunner(private val tools: AgentToolRegistry) {
                     }
                     lastCallAt[site] = System.currentTimeMillis()
                 }
-                val result = runCatching { tools.execute(tc.name, tc.arguments) }
-                    .getOrElse { e ->
-                        if (e is com.xjtu.toolbox.auth.AuthExpiredException) throw e
-                        "工具调用出错：${e.message}"
-                    }
+                val toolResult = runCatching { tools.execute(tc.name, tc.arguments) }
+                val result: String
+                val toolErrorMsg: String?
+                if (toolResult.isSuccess) {
+                    result = toolResult.getOrThrow() as String
+                    toolErrorMsg = null
+                } else {
+                    val e = toolResult.exceptionOrNull()
+                    if (e is com.xjtu.toolbox.auth.AuthExpiredException) throw e
+                    result = "工具调用出错：${e?.message ?: "未知异常"}"
+                    toolErrorMsg = e?.message ?: "未知异常"
+                }
+                onToolResult(tc.name, toolErrorMsg == null, toolErrorMsg)
                 toolCallCount++
                 toolResults.add(JsonObject().apply {
                     addProperty("role", "tool")

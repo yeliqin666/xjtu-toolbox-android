@@ -34,6 +34,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier, onLink: (String) -> Unit = {}) {
     val blocks = remember(text) { parseBlocks(text) }
     val linkColor = MiuixTheme.colorScheme.primary
+    val errorColor = MiuixTheme.colorScheme.error
     val codeBg = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f)
     val quoteColor = MiuixTheme.colorScheme.onSurfaceVariantSummary
 
@@ -41,7 +42,7 @@ fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier, onLi
         blocks.forEach { block ->
             when (block) {
                 is MdBlock.Heading -> Text(
-                    inline(block.text, linkColor, codeBg, onLink),
+                    inline(block.text, linkColor, codeBg, errorColor, onLink),
                     color = color,
                     fontWeight = FontWeight.Bold,
                     style = when (block.level) {
@@ -52,12 +53,12 @@ fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier, onLi
                     }
                 )
                 is MdBlock.Bullet -> ListRow(block.indent, "•") {
-                    Text(inline(block.text, linkColor, codeBg, onLink), color = color,
+                    Text(inline(block.text, linkColor, codeBg, errorColor, onLink), color = color,
                         style = MiuixTheme.textStyles.body1, modifier = Modifier.weight(1f))
                 }
                 is MdBlock.Task -> ListRow(block.indent, if (block.checked) "☑" else "☐") {
                     Text(
-                        inline(block.text, linkColor, codeBg, onLink),
+                        inline(block.text, linkColor, codeBg, errorColor, onLink),
                         color = if (block.checked) MiuixTheme.colorScheme.onSurfaceVariantSummary else color,
                         style = MiuixTheme.textStyles.body1,
                         textDecoration = if (block.checked) TextDecoration.LineThrough else null,
@@ -65,14 +66,14 @@ fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier, onLi
                     )
                 }
                 is MdBlock.Numbered -> ListRow(block.indent, "${block.num}.") {
-                    Text(inline(block.text, linkColor, codeBg, onLink), color = color,
+                    Text(inline(block.text, linkColor, codeBg, errorColor, onLink), color = color,
                         style = MiuixTheme.textStyles.body1, modifier = Modifier.weight(1f))
                 }
                 is MdBlock.Quote -> Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
                     Box(Modifier.width(3.dp).fillMaxHeight()
                         .background(quoteColor.copy(alpha = 0.5f), RoundedCornerShape(2.dp)))
                     Spacer(Modifier.width(8.dp))
-                    Text(inline(block.text, linkColor, codeBg, onLink), color = quoteColor,
+                    Text(inline(block.text, linkColor, codeBg, errorColor, onLink), color = quoteColor,
                         style = MiuixTheme.textStyles.body2)
                 }
                 is MdBlock.Code -> Box(
@@ -96,7 +97,7 @@ fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier, onLi
                     val cols = block.headers.size.coerceAtLeast(1)
                     Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 5.dp)) {
                         block.headers.forEach { h ->
-                            Text(inline(h, linkColor, codeBg, onLink), color = color, fontWeight = FontWeight.Bold,
+                            Text(inline(h, linkColor, codeBg, errorColor, onLink), color = color, fontWeight = FontWeight.Bold,
                                 style = MiuixTheme.textStyles.footnote1,
                                 modifier = Modifier.weight(1f).padding(horizontal = 4.dp))
                         }
@@ -105,14 +106,14 @@ fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier, onLi
                     block.rows.forEach { row ->
                         Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp)) {
                             for (ci in 0 until cols) {
-                                Text(inline(row.getOrElse(ci) { "" }, linkColor, codeBg, onLink), color = color,
+                                Text(inline(row.getOrElse(ci) { "" }, linkColor, codeBg, errorColor, onLink), color = color,
                                     style = MiuixTheme.textStyles.footnote1,
                                     modifier = Modifier.weight(1f).padding(horizontal = 4.dp))
                             }
                         }
                     }
                 }
-                is MdBlock.Para -> Text(inline(block.text, linkColor, codeBg, onLink), color = color,
+                is MdBlock.Para -> Text(inline(block.text, linkColor, codeBg, errorColor, onLink), color = color,
                     style = MiuixTheme.textStyles.body1)
             }
         }
@@ -220,7 +221,24 @@ private val inlineRe = Regex(
         """|\[([^\]]+)]\(([^)]+)\)"""        // 9 link-text, 10 link-url
 )
 
-private fun inline(s: String, linkColor: Color, codeBg: Color, onLink: (String) -> Unit): AnnotatedString = buildAnnotatedString {
+/**
+ * 仅允许 http(s) / mailto / tel scheme。其他（javascript: / data: / file: / intent: ...）
+ * 一律不形成可点击 LinkAnnotation——模型被 prompt injection 注入的恶意 URL 不该被执行。
+ */
+private fun isSafeLinkScheme(url: String): Boolean {
+    val s = url.trim()
+    if (s.isEmpty()) return false
+    // 纯相对路径或井号锚点——onLink 调用方负责解析
+    if (s.startsWith("#") || s.startsWith("/") || s.startsWith("?")) return true
+    val scheme = s.substringBefore(":", missingDelimiterValue = "").lowercase()
+    if (scheme.isEmpty()) return true   // 没 scheme 默认相对 URL
+    return when (scheme) {
+        "http", "https", "mailto", "tel" -> true
+        else -> false
+    }
+}
+
+private fun inline(s: String, linkColor: Color, codeBg: Color, errorColor: Color, onLink: (String) -> Unit): AnnotatedString = buildAnnotatedString {
     var last = 0
     for (m in inlineRe.findAll(s)) {
         if (m.range.first > last) append(s.substring(last, m.range.first))
@@ -237,11 +255,18 @@ private fun inline(s: String, linkColor: Color, codeBg: Color, onLink: (String) 
             g[8].isNotEmpty() -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(g[8]) }
             g[9].isNotEmpty() -> {
                 val url = g[10]
-                withLink(LinkAnnotation.Clickable(
-                    tag = url,
-                    styles = TextLinkStyles(SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline)),
-                    linkInteractionListener = { onLink(url) }
-                )) { append(g[9]) }
+                if (!isSafeLinkScheme(url)) {
+                    // 文本照常显示，URL 标为「被阻止」并用 error 色渲染——不形成可点击 LinkAnnotation。
+                    withStyle(SpanStyle(color = errorColor)) {
+                        append("[${g[9]}（链接被阻止：非 http(s) scheme）]")
+                    }
+                } else {
+                    withLink(LinkAnnotation.Clickable(
+                        tag = url,
+                        styles = TextLinkStyles(SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline)),
+                        linkInteractionListener = { onLink(url) }
+                    )) { append(g[9]) }
+                }
             }
         }
         last = m.range.last + 1

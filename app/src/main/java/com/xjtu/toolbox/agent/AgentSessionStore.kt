@@ -30,7 +30,8 @@ data class StoredMessage(
     val content: String,
     val nav: List<List<String>> = emptyList(),   // [[label, route], ...]
     val widgets: List<StoredWidget>? = emptyList(),
-    val reasoningContent: String? = null
+    val reasoningContent: String? = null,
+    val timestamp: Long? = null,
 )
 
 /** 一个会话的完整内容：UI 消息 + 供续聊的 LLM 历史（JsonArray 的字符串形式）。 */

@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalLayoutApi::class)
+
 package com.xjtu.toolbox.agent
 
 import androidx.activity.compose.BackHandler
@@ -17,6 +19,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -37,6 +41,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.rememberCoroutineScope
@@ -83,6 +88,14 @@ fun AgentScreen(onBack: () -> Unit, onNavigate: (String) -> Unit = {}) {
         if (!config.isConfigured) return@LaunchedEffect
         vm.newSession()
         vm.sendMessage(pending, config, loginState, context)
+    }
+
+    // 上下文耗尽主动弹窗：避免"输入框禁用 + label 文字里藏一句"的隐晦提示
+    var showContextExhaustedDialog by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(vm.contextExhaustedJustTriggered) {
+        if (vm.consumeContextExhaustedTrigger()) {
+            showContextExhaustedDialog = true
+        }
     }
     var drawerOpen by rememberSaveable { mutableStateOf(false) }
 
@@ -139,14 +152,10 @@ fun AgentScreen(onBack: () -> Unit, onNavigate: (String) -> Unit = {}) {
                     ConfigPanel(
                         config = config,
                         scrollBehavior = scrollBehavior,
-                        onCapabilitiesChange = { newConfig ->
-                            configStore.save(newConfig)
-                            config = newConfig
-                        },
                         onSave = { newConfig ->
+                            // 即改即存：每次配置变动立即写入，不必等到用户点「保存」
                             configStore.save(newConfig)
                             config = newConfig
-                            showConfig = false
                         },
                         modifier = Modifier
                             .fillMaxSize()
@@ -175,6 +184,36 @@ fun AgentScreen(onBack: () -> Unit, onNavigate: (String) -> Unit = {}) {
             onRename = { id, title -> vm.renameSession(id, title) },
             onDelete = { vm.deleteSession(it) }
         )
+
+        // 上下文耗尽弹窗
+        if (showContextExhaustedDialog) {
+            top.yukonga.miuix.kmp.overlay.OverlayDialog(
+                show = true,
+                title = "对话上下文已达上限",
+                summary = AgentViewModel.CONTEXT_EXHAUSTED_MESSAGE + "\n\n继续累积可能导致 AI 回复变慢或回答失准。",
+                onDismissRequest = { showContextExhaustedDialog = false }
+            ) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    TextButton(
+                        text = "稍后",
+                        onClick = { showContextExhaustedDialog = false },
+                        modifier = Modifier.weight(1f),
+                    )
+                    Button(
+                        onClick = {
+                            showContextExhaustedDialog = false
+                            vm.newSession()
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("新建对话")
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -191,6 +230,7 @@ private fun SessionDrawer(
 ) {
     var renameTarget by remember { mutableStateOf<AgentSession?>(null) }
     var renameText by remember { mutableStateOf("") }
+    var deleteTarget by remember { mutableStateOf<AgentSession?>(null) }
 
     // 半透明遮罩，点击关闭
     AnimatedVisibility(
@@ -242,6 +282,33 @@ private fun SessionDrawer(
                     Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
+                    if (sessions.isEmpty()) {
+                        item {
+                            Column(
+                                Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.List,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(36.dp),
+                                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                )
+                                Spacer(Modifier.height(10.dp))
+                                Text(
+                                    "还没有任何对话",
+                                    style = MiuixTheme.textStyles.body2,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                )
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    "点右上的 + 开始第一个",
+                                    style = MiuixTheme.textStyles.footnote1,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                )
+                            }
+                        }
+                    }
                     items(sessions, key = { it.id }) { s ->
                         val isCurrent = s.id == currentId
                         val isRenaming = renameTarget?.id == s.id
@@ -308,7 +375,7 @@ private fun SessionDrawer(
                                     CompactSessionAction(
                                         icon = Icons.Default.Delete,
                                         contentDescription = "删除",
-                                        onClick = { onDelete(s.id) },
+                                        onClick = { deleteTarget = s },
                                         tint = MiuixTheme.colorScheme.error
                                     )
                                 }
@@ -320,6 +387,63 @@ private fun SessionDrawer(
         }
     }
 
+    // 删除确认弹窗：避免一不小心把整段对话清空
+    deleteTarget?.let { target ->
+        Box(
+            Modifier
+                .fillMaxSize()
+                .zIndex(3f)
+                .background(Color.Black.copy(alpha = 0.45f))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                ) { deleteTarget = null },
+            contentAlignment = Alignment.Center,
+        ) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = MiuixTheme.colorScheme.surface,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 32.dp)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                    ) { /* 拦截点击，避免冒泡关闭 */ },
+            ) {
+                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "删除对话？",
+                        style = MiuixTheme.textStyles.title3,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        "「${target.title}」将被彻底清除，无法恢复。",
+                        style = MiuixTheme.textStyles.body2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                    ) {
+                        DrawerTextAction(
+                            text = "取消",
+                            primary = false,
+                            onClick = { deleteTarget = null },
+                        )
+                        DrawerTextAction(
+                            text = "删除",
+                            primary = true,
+                            onClick = {
+                                onDelete(target.id)
+                                deleteTarget = null
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
 
 private fun formatSessionTime(ts: Long): String =
@@ -420,13 +544,54 @@ private fun ChatPanel(
         ) {
             if (vm.messages.isEmpty()) {
                 item {
-                    Box(Modifier.fillParentMaxWidth(), contentAlignment = Alignment.Center) {
+                    Column(
+                        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 28.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Icon(
+                            Icons.Default.Bolt,
+                            contentDescription = null,
+                            tint = MiuixTheme.colorScheme.primary,
+                            modifier = Modifier.size(40.dp),
+                        )
+                        Spacer(Modifier.height(12.dp))
                         Text(
                             "你好！可以问我课表、空教室、考勤、考试安排等校园信息。",
                             style = MiuixTheme.textStyles.body2,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            modifier = Modifier.padding(top = 48.dp, start = 24.dp, end = 24.dp)
                         )
+                        // 推荐问题：点击直接发到输入框或直接发送，帮初次用户快速上手
+                        Spacer(Modifier.height(18.dp))
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            listOf(
+                                "本周有什么考试？",
+                                "明天哪里有空教室？",
+                                "我最近的成绩怎么样？",
+                                "校园卡余额多少？",
+                                "教务处电话？",
+                            ).forEach { q ->
+                                Surface(
+                                    shape = RoundedCornerShape(20.dp),
+                                    color = MiuixTheme.colorScheme.primary.copy(alpha = 0.08f),
+                                    modifier = Modifier.clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                    ) {
+                                        input = q
+                                    },
+                                ) {
+                                    Text(
+                                        q,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                                        style = MiuixTheme.textStyles.footnote1,
+                                        color = MiuixTheme.colorScheme.primary,
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -529,22 +694,51 @@ private fun MessageBubble(
     showReasoning: Boolean,
     onNavigate: (String) -> Unit
 ) {
+    // [LocalClipboard] 取代已废弃的 [LocalClipboardManager]：suspend setClip，跨进程兼容。
+    val clipboard = androidx.compose.ui.platform.LocalClipboard.current
+    val coroutineScope = rememberCoroutineScope()
+    val timestamp = remember(msg.timestamp) {
+        java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+            .format(java.util.Date(msg.timestamp))
+    }
     when (msg.role) {
         "tool_event" -> {
+            val hasError = msg.toolError != null
             Box(Modifier.fillMaxWidth().padding(vertical = 2.dp), contentAlignment = Alignment.Center) {
                 Surface(
                     shape = RoundedCornerShape(12.dp),
-                    color = MiuixTheme.colorScheme.surfaceVariant
+                    color = if (hasError) MiuixTheme.colorScheme.errorContainer.copy(alpha = 0.45f)
+                        else MiuixTheme.colorScheme.surfaceVariant,
+                    modifier = if (hasError) Modifier.clickable(
+                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                        indication = top.yukonga.miuix.kmp.utils.SinkFeedback(),
+                        onClick = {
+                            // 失败气泡可点击：把错误细节复制到剪贴板，方便用户反馈 bug
+                            val full = "${msg.content} · ${msg.toolError}"
+                            coroutineScope.launch {
+                                clipboard.setClipEntry(
+                                    androidx.compose.ui.platform.ClipEntry(
+                                        android.content.ClipData.newPlainText("agent error", full)
+                                    )
+                                )
+                            }
+                        },
+                    ) else Modifier,
                 ) {
                     Row(
                         Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        if (msg.isToolCall) {
-                            CircularProgressIndicator(size = 13.dp, strokeWidth = 2.dp)
-                        } else {
-                            Icon(
+                        when {
+                            hasError -> Icon(
+                                Icons.Outlined.ErrorOutline,
+                                contentDescription = "工具调用失败",
+                                modifier = Modifier.size(13.dp),
+                                tint = MiuixTheme.colorScheme.error,
+                            )
+                            msg.isToolCall -> CircularProgressIndicator(size = 13.dp, strokeWidth = 2.dp)
+                            else -> Icon(
                                 Icons.Default.Bolt,
                                 contentDescription = null,
                                 modifier = Modifier.size(13.dp),
@@ -552,16 +746,19 @@ private fun MessageBubble(
                             )
                         }
                         Text(
-                            msg.content,
+                            if (hasError) "${msg.content} · ${msg.toolError}" else msg.content,
                             style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                            color = if (hasError) MiuixTheme.colorScheme.error
+                                else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            maxLines = 3,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         )
                     }
                 }
             }
         }
         "user" -> {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
                 Surface(
                     shape = RoundedCornerShape(18.dp, 4.dp, 18.dp, 18.dp),
                     color = MiuixTheme.colorScheme.primary,
@@ -574,6 +771,12 @@ private fun MessageBubble(
                         color = MiuixTheme.colorScheme.onPrimary
                     )
                 }
+                Text(
+                    timestamp,
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(end = 4.dp, top = 2.dp),
+                )
             }
         }
         else -> {
@@ -664,9 +867,10 @@ private fun MessageBubble(
                 }
                 // 跳转建议按钮（本轮涉及哪些功能页就显示对应入口）
                 if (msg.navSuggestions.isNotEmpty()) {
-                    Row(
+                    FlowRow(
                         modifier = Modifier.padding(top = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         msg.navSuggestions.forEach { (label, route) ->
                             Surface(
@@ -696,6 +900,41 @@ private fun MessageBubble(
                         }
                     }
                 }
+                // 操作栏：时间 + 复制（最后一行）
+                Row(
+                    modifier = Modifier.padding(top = 4.dp, start = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text(
+                        timestamp,
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                    if (msg.content.isNotBlank()) {
+                        androidx.compose.foundation.layout.Box(
+                            modifier = Modifier
+                                .height(20.dp)
+                                .clickable {
+                                    coroutineScope.launch {
+                                        clipboard.setClipEntry(
+                                            androidx.compose.ui.platform.ClipEntry(
+                                                android.content.ClipData.newPlainText("message", msg.content)
+                                            )
+                                        )
+                                    }
+                                }
+                                .padding(horizontal = 6.dp, vertical = 0.dp),
+                            contentAlignment = androidx.compose.ui.Alignment.Center,
+                        ) {
+                            Text(
+                                "复制",
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -705,7 +944,6 @@ private fun MessageBubble(
 private fun ConfigPanel(
     config: AgentConfig,
     scrollBehavior: ScrollBehavior,
-    onCapabilitiesChange: (AgentConfig) -> Unit,
     onSave: (AgentConfig) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -722,11 +960,50 @@ private fun ConfigPanel(
     var reasoningEffort by remember { mutableStateOf(config.reasoningEffort) }
     var showReasoning by remember { mutableStateOf(config.showReasoning) }
 
+    // 辅助函数：立即保存当前所有配置
+    fun saveNow() {
+        onSave(AgentConfig(
+            provider = provider,
+            apiKey = apiKey.trim(),
+            model = model.trim(),
+            baseUrl = baseUrl.trim(),
+            maxToolCalls = maxToolCalls,
+            assistantName = sanitizeAgentTitle(assistantName),
+            disabledCaps = disabledCaps,
+            searchEngine = searchEngine,
+            responseStyle = responseStyle,
+            thinkingEnabled = thinkingEnabled,
+            reasoningEffort = reasoningEffort,
+            showReasoning = showReasoning
+        ))
+    }
+
+    /**
+     * 防抖保存：每次调用都把挂起的保存任务延后 500ms，
+     * 文本框按键连续触发时只触发最后一次，避免每键一次 SharedPreferences 写。
+     * 切页 / 退出 Composable 时通过 `DisposableEffect` flush。
+     */
+    var pendingSaveJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+
     // 模型一键拉取
     var availableModels by remember { mutableStateOf<List<String>>(emptyList()) }
     var fetchingModels by remember { mutableStateOf(false) }
     var fetchError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+
+    /**
+     * 防抖保存：每次调用都把挂起的保存任务延后 500ms，
+     * 文本框按键连续触发时只触发最后一次，避免每键一次 SharedPreferences 写。
+     * 切页 / 退出 Composable 时通过 `DisposableEffect` flush。
+     */
+    fun scheduleSave() {
+        pendingSaveJob?.cancel()
+        pendingSaveJob = scope.launch {
+            kotlinx.coroutines.delay(500)
+            saveNow()
+            pendingSaveJob = null
+        }
+    }
 
     val providerItems = AgentConfig.PROVIDERS.map {
         top.yukonga.miuix.kmp.basic.DropdownItem(text = AgentConfig.providerLabel(it))
@@ -763,7 +1040,10 @@ private fun ConfigPanel(
                     summary = AgentConfig.providerLabel(provider),
                     items = providerItems,
                     selectedIndex = providerIndex,
-                    onSelectedIndexChange = { provider = AgentConfig.PROVIDERS[it] }
+                    onSelectedIndexChange = { 
+                        provider = AgentConfig.PROVIDERS[it]
+                        saveNow()
+                    }
                 )
             }
         }
@@ -774,7 +1054,10 @@ private fun ConfigPanel(
                     summary = AgentConfig.searchEngineLabel(searchEngine),
                     items = searchEngineItems,
                     selectedIndex = searchEngineIndex,
-                    onSelectedIndexChange = { searchEngine = AgentConfig.SEARCH_ENGINES[it] }
+                    onSelectedIndexChange = { 
+                        searchEngine = AgentConfig.SEARCH_ENGINES[it]
+                        saveNow()
+                    }
                 )
             }
         }
@@ -785,7 +1068,10 @@ private fun ConfigPanel(
                     summary = AgentConfig.responseStyleLabel(responseStyle),
                     items = responseStyleItems,
                     selectedIndex = responseStyleIndex,
-                    onSelectedIndexChange = { responseStyle = AgentConfig.RESPONSE_STYLES[it] }
+                    onSelectedIndexChange = { 
+                        responseStyle = AgentConfig.RESPONSE_STYLES[it]
+                        saveNow()
+                    }
                 )
             }
         }
@@ -824,7 +1110,7 @@ private fun ConfigPanel(
                                 checked = key !in disabledCaps,
                                 onCheckedChange = { enabled ->
                                     disabledCaps = if (enabled) disabledCaps - key else disabledCaps + key
-                                    onCapabilitiesChange(config.copy(disabledCaps = disabledCaps))
+                                    saveNow()
                                 }
                             )
                         }
@@ -837,26 +1123,43 @@ private fun ConfigPanel(
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     TextField(
                         value = assistantName,
-                        onValueChange = { assistantName = sanitizeAgentTitle(it, "") },
+                        onValueChange = {
+                            assistantName = sanitizeAgentTitle(it, "")
+                            scheduleSave()
+                        },
                         label = "助手名字（默认 屁岱）",
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { saveNow() })
                     )
                     TextField(
                         value = apiKey,
-                        onValueChange = { apiKey = it },
+                        onValueChange = {
+                            apiKey = it
+                            scheduleSave()
+                        },
                         label = "API Key *",
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                         visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Password,
+                            imeAction = ImeAction.Done
+                        ),
+                        keyboardActions = KeyboardActions(onDone = { saveNow() })
                     )
                     TextField(
                         value = model,
-                        onValueChange = { model = it },
+                        onValueChange = {
+                            model = it
+                            scheduleSave()
+                        },
                         label = "模型（留空使用默认）",
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { saveNow() })
                     )
                     // 一键拉取模型列表，选择填入
                     Row(
@@ -896,16 +1199,24 @@ private fun ConfigPanel(
                             summary = model.ifBlank { "点击从 ${availableModels.size} 个模型中选择" },
                             items = availableModels.map { DropdownItem(text = it) },
                             selectedIndex = selIdx,
-                            onSelectedIndexChange = { model = availableModels[it] }
+                            onSelectedIndexChange = {
+                                model = availableModels[it]
+                                saveNow()
+                            }
                         )
                     }
                     if (provider == AgentConfig.PROVIDER_CUSTOM) {
                         TextField(
                             value = baseUrl,
-                            onValueChange = { baseUrl = it },
+                            onValueChange = {
+                                baseUrl = it
+                                scheduleSave()
+                            },
                             label = "Base URL（含 /v1）",
                             singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(onDone = { saveNow() })
                         )
                         Text(
                             "填写 OpenAI 兼容中转地址；Claude 可通过 OpenRouter 等兼容服务接入。",
@@ -934,7 +1245,10 @@ private fun ConfigPanel(
                             }
                             Switch(
                                 checked = thinkingEnabled,
-                                onCheckedChange = { thinkingEnabled = it }
+                                onCheckedChange = { 
+                                    thinkingEnabled = it
+                                    saveNow()
+                                }
                             )
                         }
                         if (thinkingEnabled) {
@@ -948,7 +1262,10 @@ private fun ConfigPanel(
                                 },
                                 items = listOf("自动", "高", "最大").map { DropdownItem(text = it) },
                                 selectedIndex = efforts.indexOf(reasoningEffort).coerceAtLeast(0),
-                                onSelectedIndexChange = { reasoningEffort = efforts[it] }
+                                onSelectedIndexChange = {
+                                    reasoningEffort = efforts[it]
+                                    saveNow()
+                                }
                             )
                             Row(
                                 Modifier.fillMaxWidth(),
@@ -964,7 +1281,10 @@ private fun ConfigPanel(
                                 }
                                 Switch(
                                     checked = showReasoning,
-                                    onCheckedChange = { showReasoning = it }
+                                    onCheckedChange = { 
+                                        showReasoning = it
+                                        saveNow()
+                                    }
                                 )
                             }
                         }
@@ -987,34 +1307,14 @@ private fun ConfigPanel(
                         summary = if (maxToolCalls <= 0) "不限制" else "$maxToolCalls 次",
                         items = sliderItems,
                         selectedIndex = options.indexOf(maxToolCalls).coerceAtLeast(0),
-                        onSelectedIndexChange = { maxToolCalls = options[it] }
+                        onSelectedIndexChange = {
+                            maxToolCalls = options[it]
+                            saveNow()
+                        }
                     )
                 }
             }
         }
-        item {
-            Button(
-                onClick = {
-                    onSave(AgentConfig(
-                        provider = provider,
-                        apiKey = apiKey.trim(),
-                        model = model.trim(),
-                        baseUrl = baseUrl.trim(),
-                        maxToolCalls = maxToolCalls,
-                        assistantName = sanitizeAgentTitle(assistantName),
-                        disabledCaps = disabledCaps,
-                        searchEngine = searchEngine,
-                        responseStyle = responseStyle,
-                        thinkingEnabled = thinkingEnabled,
-                        reasoningEffort = reasoningEffort,
-                        showReasoning = showReasoning
-                    ))
-                },
-                enabled = apiKey.isNotBlank(),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("保存")
-            }
-        }
+        // 所有配置已改为即时保存，无需底部按钮
     }
 }
