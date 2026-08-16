@@ -23,4 +23,9 @@
 
     <string name="empty_room_widget_name">空教室</string>
     <string name="empty_room_widget_desc">显示最近一次查到的 3 间空教室</string>
+
+    <string name="agent_shortcut_widget_name">问屁岱</string>
+    <string name="agent_shortcut_widget_desc">点击直接打开屁岱输入框</string>
+    <string name="agent_shortcut_widget_title">问屁岱</string>
+    <string name="agent_shortcut_widget_subtitle">点击开始提问</string>
 </resources>
