@@ -2120,7 +2120,7 @@ private fun MainScreen(
                                         homeTheme = homeTheme,
                                         showQuickActions = showQuickActions
                                     )
-                                    BottomTab.COURSES -> CoursesTab(loginState, ::navigateWithLogin, onNavigateWithNetCheck, scrollBehavior = coursesScrollBehavior, navBarStyle = navBarStyle, onSubtitleChange = { courseSubtitle = it }, onActionsChange = { courseHeaderActions = it }, onBottomContentChange = { courseHeaderBottomContent = it })
+                                    BottomTab.COURSES -> CoursesTab(loginState, ::navigateWithLogin, onNavigateWithNetCheck, scrollBehavior = coursesScrollBehavior, navBarStyle = navBarStyle, onSubtitleChange = { courseSubtitle = it }, onActionsChange = { courseHeaderActions = it }, onBottomContentChange = { courseHeaderBottomContent = it }, windowSize = if (isWideScreen) com.xjtu.toolbox.ui.WindowSize.Expanded else com.xjtu.toolbox.ui.WindowSize.Compact)
                                     BottomTab.TOOLS -> ToolsTab(loginState, ::navigateWithLogin, onNavigateWithNetCheck, scrollBehavior = toolsScrollBehavior, navBarStyle = navBarStyle)
                                     BottomTab.PROFILE -> ProfileTab(
                                         loginState,
@@ -3213,7 +3213,8 @@ private fun CoursesTab(
     navBarStyle: String = "floating",
     onSubtitleChange: (String) -> Unit = {},
     onActionsChange: ((@Composable androidx.compose.foundation.layout.RowScope.() -> Unit)?) -> Unit = {},
-    onBottomContentChange: ((@Composable () -> Unit)?) -> Unit = {}
+    onBottomContentChange: ((@Composable () -> Unit)?) -> Unit = {},
+    windowSize: com.xjtu.toolbox.ui.WindowSize = com.xjtu.toolbox.ui.WindowSize.Compact,
 ) {
     val bottomReserve = if (navBarStyle == "floating") 96.dp else 0.dp
     Box(
@@ -3229,7 +3230,8 @@ private fun CoursesTab(
             onSubtitleChange = onSubtitleChange,
             onActionsChange = onActionsChange,
             onBottomContentChange = onBottomContentChange,
-            contentBottomPadding = bottomReserve
+            contentBottomPadding = bottomReserve,
+            windowSize = windowSize,
         )
     }
 }

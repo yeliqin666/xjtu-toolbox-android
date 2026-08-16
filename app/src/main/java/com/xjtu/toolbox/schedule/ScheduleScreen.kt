@@ -2,6 +2,7 @@ package com.xjtu.toolbox.schedule
 
 import androidx.activity.compose.BackHandler
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import com.xjtu.toolbox.ui.WindowSize
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Button
@@ -117,7 +118,8 @@ fun ScheduleScreen(
     onSubtitleChange: (String) -> Unit = {},
     onActionsChange: ((@Composable androidx.compose.foundation.layout.RowScope.() -> Unit)?) -> Unit = {},
     onBottomContentChange: ((@Composable () -> Unit)?) -> Unit = {},
-    contentBottomPadding: androidx.compose.ui.unit.Dp = 0.dp
+    contentBottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
+    windowSize: WindowSize = WindowSize.Compact,
 ) {
     val appLoginState = LocalAppLoginState.current
     var activeSite by remember(site) { mutableStateOf(site) }
