@@ -104,6 +104,7 @@ fun SettingsScreen(
     onHomeThemeChanged: (String) -> Unit = {},
     showQuickActions: Boolean = true,
     onShowQuickActionsChanged: (Boolean) -> Unit = {},
+    onOpenFeedback: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -526,6 +527,13 @@ fun SettingsScreen(
                     title = "版本号",
                     summary = versionText,
                     startAction = { SettingsIcon(MiuixIcons.Info, cGreen) }
+                )
+                // PR-14 反馈入口
+                ArrowPreference(
+                    title = "反馈与建议",
+                    summary = "写反馈、收集日志、跳 GitHub Issue",
+                    startAction = { SettingsIcon(MiuixIcons.Report, cPink) },
+                    onClick = { onOpenFeedback() }
                 )
                 ArrowPreference(
                     title = "更新日志",

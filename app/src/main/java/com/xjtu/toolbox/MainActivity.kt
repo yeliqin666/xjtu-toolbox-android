@@ -258,6 +258,7 @@ object Routes {
     const val ACCOUNTS = "accounts"
     const val WEBVPN_CONVERTER = "webvpn_converter"
     const val AGENT = "agent"
+    const val FEEDBACK = "feedback"
     const val JIAOXIAOZHI = "jiaoxiaozhi"
     const val ICLASSFACE = "iclassface"
 
@@ -1646,7 +1647,15 @@ fun AppNavigation(
                 onShowQuickActionsChanged = { v ->
                     showQuickActions = v
                     credentialStore.showQuickActions = v
-                }
+                },
+                onOpenFeedback = { navController.navigate(Routes.FEEDBACK) }
+            )
+        }
+
+        // ── PR-14 用户反馈 ──
+        composable(Routes.FEEDBACK) {
+            com.xjtu.toolbox.settings.FeedbackScreen(
+                onBack = { navController.popBackStack() }
             )
         }
 
