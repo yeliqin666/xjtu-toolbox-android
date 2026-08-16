@@ -20,4 +20,7 @@
 
     <string name="notice_widget_name">教务通知</string>
     <string name="notice_widget_desc">显示最近 3 条教务通知</string>
+
+    <string name="empty_room_widget_name">空教室</string>
+    <string name="empty_room_widget_desc">显示最近一次查到的 3 间空教室</string>
 </resources>
