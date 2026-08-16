@@ -3,8 +3,7 @@
     android:width="48dp"
     android:height="48dp"
     android:viewportWidth="48"
-    android:viewportHeight="48"
-    android:tint="?attr/colorOnPrimary">
+    android:viewportHeight="48">
     <path
         android:fillColor="@android:color/white"
         android:pathData="M6,4v14h14V4H6zM16,14H10V8h6V14zM28,4v14h14V4H28zM38,14h-6V8h6V14zM6,28v14h14V28H6zM16,38H10v-6h6V38zM28,30h4v4h-4V30zM32,28h-4v6h6v-2h2v4h-2v-2h-4v2h-4v-10h6V28zM42,30h-4v2h4v2h-2v2h-2v-2h-2v-4h2v-2h4V30zM34,38h2v2h-2V38zM40,38h2v2h-2V38zM36,40h2v2h-2V40zM42,40h2v2h-2V40z"/>
