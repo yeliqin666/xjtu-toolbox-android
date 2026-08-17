@@ -188,6 +188,11 @@ class CredentialStore(context: Context) {
         get() = appPrefs.getString(KEY_DARK_MODE, DARK_MODE_SYSTEM) ?: DARK_MODE_SYSTEM
         set(value) { appPrefs.edit().putString(KEY_DARK_MODE, value).apply() }
 
+    /** 跟随系统壁纸 / 调色盘动态取色（Material You / Monet）。默认关闭。 */
+    var dynamicColor: Boolean
+        get() = appPrefs.getBoolean(KEY_DYNAMIC_COLOR, false)
+        set(value) { appPrefs.edit().putBoolean(KEY_DYNAMIC_COLOR, value).apply() }
+
     // 默认启动 tab 改为日程（COURSES）：课表是用户最常用的核心功能，
     // 直接进日程减少一次点击。设置页可改回首页或其他。
     var defaultTab: String
@@ -271,6 +276,7 @@ class CredentialStore(context: Context) {
         // ── 设置页键 ──
         private const val KEY_NAV_BAR_STYLE = "nav_bar_style"
         private const val KEY_DARK_MODE = "dark_mode"
+        private const val KEY_DYNAMIC_COLOR = "dynamic_color"
         private const val KEY_DEFAULT_TAB = "default_tab"
         private const val KEY_NETWORK_MODE = "network_mode"
         private const val KEY_AUTO_CHECK_UPDATE = "auto_check_update"

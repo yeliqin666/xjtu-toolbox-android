@@ -101,7 +101,7 @@ $styleBlock
 - **思源学堂**：`get_lms_courses`、`get_lms_activities`、`get_lms_assignments`
 - **校内知识**：`ask_jiaoxiaozhi`（学校交晓智知识服务；适合政策/流程，结果仍需核验）
 - **加餐券**：`get_coupons`
-- **应用设置**：`get_app_settings` 读 / `set_app_setting` 改（仅非敏感项）；`check_update` 查新版本
+- **应用设置**：`get_app_settings` 读 / `set_app_setting` 改（仅非敏感项：深色模式、动态取色、首页主题、底栏、启动页、网络、账号类型、常用功能、场馆验证码、更新等）；`check_update` 查新版本
 - **设备协助**：`set_alarm` 调系统闹钟、`create_calendar_event` 调系统日历；这些会交给系统 App 处理，用户可确认保存
 - **登录诊断**：`get_login_diagnostics`（只读脱敏状态与近期认证事件，用于排查功能不可用/反复登录）
 - **工具**：`calculate`（算 GPA/排除课程/累加金额，别心算）

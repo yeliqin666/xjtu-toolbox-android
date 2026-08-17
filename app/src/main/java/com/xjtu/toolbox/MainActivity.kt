@@ -128,6 +128,7 @@ import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.ExpressiveIcon
 import com.xjtu.toolbox.ui.components.ExpressivePanel
 import com.xjtu.toolbox.agent.AgentPendingPrompt
+import com.xjtu.toolbox.agent.AgentRuntimeHooks
 import com.xjtu.toolbox.util.CredentialStore
 import com.xjtu.toolbox.util.DeepLinkRouter
 import com.xjtu.toolbox.widget.CampusCardWidgetUpdater
@@ -163,6 +164,7 @@ class MainActivity : ComponentActivity() {
     private val launchRouteState = mutableStateOf<String?>(null)
     private val launchTabState = mutableStateOf<String?>(null)
     private val darkModeOverrideState = mutableStateOf("system")
+    private val dynamicColorState = mutableStateOf(false)
     private val deepLinkPrompt = mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -179,6 +181,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         val prefs = getSharedPreferences("app_settings", MODE_PRIVATE)
         darkModeOverrideState.value = prefs.getString("dark_mode", "system") ?: "system"
+        dynamicColorState.value = prefs.getBoolean("dynamic_color", false)
 
         // ── 后台 Session 保活：只设置一次 provider，循环本身根据用户开关在登录后启动 ──
         com.xjtu.toolbox.auth.SessionKeepAlive.setProvider {
@@ -193,13 +196,19 @@ class MainActivity : ComponentActivity() {
         com.xjtu.toolbox.agent.AgentRuntimeHooks.applyDarkMode = { mode ->
             darkModeOverrideState.value = mode
         }
+        com.xjtu.toolbox.agent.AgentRuntimeHooks.applyDynamicColor = { enabled ->
+            dynamicColorState.value = enabled
+        }
         // 深链里的 prompt 一次性塞给屁岱（AgentScreen consume 后自动发，再消费即焚）
         deepLinkPrompt.value?.let {
             AgentPendingPrompt.set(it)
             deepLinkPrompt.value = null
         }
         setContent {
-            XJTUToolBoxTheme(darkModeOverride = darkModeOverrideState.value) {
+            XJTUToolBoxTheme(
+                darkModeOverride = darkModeOverrideState.value,
+                dynamicColor = dynamicColorState.value,
+            ) {
                 AppNavigation(
                     initialRoute = launchRouteState.value,
                     onInitialRouteConsumed = { launchRouteState.value = null },
@@ -209,6 +218,10 @@ class MainActivity : ComponentActivity() {
                     onDarkModeChanged = { mode ->
                         darkModeOverrideState.value = mode
                         prefs.edit().putString("dark_mode", mode).apply()
+                    },
+                    onDynamicColorChanged = { enabled ->
+                        dynamicColorState.value = enabled
+                        prefs.edit().putBoolean("dynamic_color", enabled).apply()
                     }
                 )
             }
@@ -914,7 +927,8 @@ fun AppNavigation(
     initialTab: String? = null,
     onInitialTabConsumed: () -> Unit = {},
     onReady: () -> Unit = {},
-    onDarkModeChanged: (String) -> Unit = {}
+    onDarkModeChanged: (String) -> Unit = {},
+    onDynamicColorChanged: (Boolean) -> Unit = {},
 ) {
     val navController = rememberNavController()
     // [VM] ViewModel 保证状态跨 Configuration Change 存活
@@ -927,6 +941,14 @@ fun AppNavigation(
     var pendingLaunchRoute by remember { mutableStateOf<String?>(null) }
     var homeTheme by remember { mutableStateOf(credentialStore.homeTheme) }
     var showQuickActions by remember { mutableStateOf(credentialStore.showQuickActions) }
+    DisposableEffect(Unit) {
+        AgentRuntimeHooks.applyHomeTheme = { v -> homeTheme = v }
+        AgentRuntimeHooks.applyShowQuickActions = { v -> showQuickActions = v }
+        onDispose {
+            AgentRuntimeHooks.applyHomeTheme = null
+            AgentRuntimeHooks.applyShowQuickActions = null
+        }
+    }
 
     // WebVPN 转换页：用户点击"用 WebVPN 打开"但 vpnClient 未就绪时，挂起此 URL，
     // 启动 loginWebVpn（必要时含 MFA），登录成功后再 navigate(browser(url))。
@@ -1708,6 +1730,7 @@ fun AppNavigation(
                 onBack = { navController.popBackStack() },
                 onNavBarStyleChanged = { /* NavBar 风格变化通过 MainScreen 内部状态处理 */ },
                 onDarkModeChanged = onDarkModeChanged,
+                onDynamicColorChanged = onDynamicColorChanged,
                 onDefaultTabChanged = { /* 下次启动生效 */ },
                 homeTheme = homeTheme,
                 onHomeThemeChanged = { v ->
@@ -1805,6 +1828,10 @@ private fun MainScreen(
 
     // 底栏风格
     var navBarStyle by remember { mutableStateOf(credentialStore.navBarStyle) }
+    DisposableEffect(Unit) {
+        AgentRuntimeHooks.applyNavBarStyle = { v -> navBarStyle = v }
+        onDispose { AgentRuntimeHooks.applyNavBarStyle = null }
+    }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var lastBackPressTime by remember { mutableLongStateOf(0L) }

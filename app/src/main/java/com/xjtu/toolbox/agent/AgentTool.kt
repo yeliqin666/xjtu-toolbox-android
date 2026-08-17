@@ -12,6 +12,7 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.xjtu.toolbox.AppLoginState
 import com.xjtu.toolbox.attendance.AttendanceApi
+import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.ensureSite
@@ -23,6 +24,7 @@ import com.xjtu.toolbox.emptyroom.EmptyRoomDirectQuery
 import com.xjtu.toolbox.schedule.ScheduleApi
 import com.xjtu.toolbox.schedule.ScheduleCache
 import com.xjtu.toolbox.score.ScoreReportApi
+import com.xjtu.toolbox.util.CredentialStore
 import com.xjtu.toolbox.util.DataCache
 import com.xjtu.toolbox.util.XjtuTime
 import kotlinx.coroutines.Dispatchers
@@ -371,14 +373,14 @@ class AgentToolRegistry(
                 "model" to strProp("可选模型：qwen-plus / qwen-max / deepseek-r1 / doubao-pro；默认 qwen-plus。")
             )))
         arr.add(tool("get_app_settings",
-            "读取本应用可调设置（主题 / 启动页 / 网络模式 / 自动更新 / 更新通道）当前值与可选项。无需登录。"))
+            "读取本应用可调设置（深色模式 / 动态取色 / 首页主题 / 底栏 / 启动页 / 网络模式 / 账号类型 / 常用功能 / 场馆验证码 / 自动更新 / 更新通道）当前值与可选项。无需登录。"))
         arr.add(tool("get_login_diagnostics",
             "读取当前各子系统登录状态、访问模式、近期登录/重认证/冷却事件，用于帮助用户诊断“某功能暂不可用/反复登录/认证失败”的原因。只返回脱敏状态，不含密码、cookie、token值。",
             params("limit" to intProp("返回近期事件条数，默认30，最多80。"))))
         arr.add(tool("set_app_setting",
             "修改本应用一项非敏感设置（账号密码等敏感项不可改）。无需登录。",
             params(
-                "key" to strProp("设置键：dark_mode / default_tab / network_mode / auto_check_update / update_channel。update_channel 可用 gitee/gitee_latest/github/github_latest。"),
+                "key" to strProp("设置键：dark_mode / dynamic_color / home_theme / nav_bar_style / show_quick_actions / default_tab / network_mode / account_type / venue_auto_solve_captcha / auto_check_update / update_channel。"),
                 "value" to strProp("取值，可先用 get_app_settings 查看每项的可选值。")
             )))
         arr.add(tool("calculate",
@@ -1752,16 +1754,36 @@ private fun defaultPort(scheme: String): Int =
 
     // ── 应用设置读写（仅非敏感项白名单） ──────────────────────────────────
 
+    private val writableSettingKeys = listOf(
+        "dark_mode", "dynamic_color", "home_theme", "nav_bar_style", "show_quick_actions",
+        "default_tab", "network_mode", "account_type", "venue_auto_solve_captcha",
+        "auto_check_update", "update_channel",
+    )
+
+    private fun parseBoolSetting(value: String): Boolean? {
+        return when (value.trim().lowercase()) {
+            "true", "1", "on", "yes", "开", "开启" -> true
+            "false", "0", "off", "no", "关", "关闭" -> false
+            else -> null
+        }
+    }
+
     private fun getAppSettings(): String {
         val cs = com.xjtu.toolbox.util.CredentialStore(context)
         return buildString {
             append("当前应用设置：\n")
-            append("• dark_mode（主题）：${cs.darkMode}　可选 system/light/dark\n")
+            append("• dark_mode（深色模式）：${cs.darkMode}　可选 system/light/dark\n")
+            append("• dynamic_color（跟随系统取色）：${cs.dynamicColor}　可选 true/false\n")
+            append("• home_theme（首页主题）：${cs.homeTheme}　可选 card/icon\n")
+            append("• nav_bar_style（底栏风格）：${cs.navBarStyle}　可选 floating/classic\n")
+            append("• show_quick_actions（首页常用功能）：${cs.showQuickActions}　可选 true/false\n")
             append("• default_tab（启动页）：${cs.defaultTab}　可选 HOME/COURSES/TOOLS/PROFILE\n")
-            append("• network_mode（网络模式）：${cs.networkMode}\n")
+            append("• network_mode（网络模式）：${cs.networkMode}　可选 auto/direct/vpn\n")
+            append("• account_type（账号类型）：${cs.accountType.key}　可选 undergraduate/postgraduate\n")
+            append("• venue_auto_solve_captcha（场馆验证码自动识别）：${cs.venueAutoSolveCaptchaEnabled}　可选 true/false\n")
             append("• auto_check_update（自动检查更新）：${cs.autoCheckUpdate}　可选 true/false\n")
             append("• update_channel（更新通道）：${cs.updateChannel}（${com.xjtu.toolbox.util.AppUpdater.channelLabel(cs.updateChannel)}）　可选 ${com.xjtu.toolbox.util.AppUpdater.channelKeys.joinToString("/")}\n")
-            append("（账号、密码等敏感项不开放修改）")
+            append("（账号、密码、校园网凭据等敏感项不开放修改）")
         }
     }
 
@@ -1773,19 +1795,75 @@ private fun defaultPort(scheme: String): Int =
                 if (v !in listOf("system", "light", "dark")) "dark_mode 只能是 system/light/dark。"
                 else {
                     cs.darkMode = v
-                    AgentRuntimeHooks.applyDarkMode?.invoke(v)   // 即时刷新主题，而非只写 pref
-                    "已将主题设为 $v（已即时生效）。"
+                    AgentRuntimeHooks.applyDarkMode?.invoke(v)
+                    "已将深色模式设为 $v（已即时生效）。"
                 }
+            }
+            "dynamic_color" -> {
+                val b = parseBoolSetting(value) ?: return "dynamic_color 只能是 true/false。"
+                cs.dynamicColor = b
+                AgentRuntimeHooks.applyDynamicColor?.invoke(b)
+                "已${if (b) "开启" else "关闭"}跟随系统取色（已即时生效）。"
+            }
+            "home_theme" -> {
+                val v = when (value.trim().lowercase()) {
+                    "card", "卡片", "卡片主题" -> CredentialStore.THEME_CARD
+                    "icon", "图标", "图标主题" -> CredentialStore.THEME_ICON
+                    else -> return "home_theme 只能是 card/icon。"
+                }
+                cs.homeTheme = v
+                AgentRuntimeHooks.applyHomeTheme?.invoke(v)
+                "已将首页主题设为 $v（已即时生效）。"
+            }
+            "nav_bar_style" -> {
+                val v = when (value.trim().lowercase()) {
+                    "floating", "悬浮", "悬浮胶囊" -> CredentialStore.NAV_STYLE_FLOATING
+                    "classic", "经典", "经典底栏" -> CredentialStore.NAV_STYLE_CLASSIC
+                    else -> return "nav_bar_style 只能是 floating/classic。"
+                }
+                cs.navBarStyle = v
+                AgentRuntimeHooks.applyNavBarStyle?.invoke(v)
+                "已将底栏风格设为 $v（已即时生效）。"
+            }
+            "show_quick_actions" -> {
+                val b = parseBoolSetting(value) ?: return "show_quick_actions 只能是 true/false。"
+                cs.showQuickActions = b
+                AgentRuntimeHooks.applyShowQuickActions?.invoke(b)
+                "已${if (b) "显示" else "隐藏"}首页常用功能（已即时生效）。"
             }
             "default_tab" -> {
                 val v = value.trim().uppercase()
                 if (v !in listOf("HOME", "COURSES", "TOOLS", "PROFILE")) "default_tab 只能是 HOME/COURSES/TOOLS/PROFILE。"
-                else { cs.defaultTab = v; "已将启动页设为 $v。" }
+                else { cs.defaultTab = v; "已将启动页设为 $v（下次冷启动生效）。" }
             }
-            "network_mode" -> { cs.networkMode = value.trim(); "已将网络模式设为 ${value.trim()}。" }
+            "network_mode" -> {
+                val v = when (value.trim().lowercase()) {
+                    "auto", "自动", "自动检测" -> CredentialStore.NETWORK_AUTO
+                    "direct", "直连", "强制直连" -> CredentialStore.NETWORK_DIRECT
+                    "vpn", "webvpn", "强制 webvpn" -> CredentialStore.NETWORK_VPN
+                    else -> return "network_mode 只能是 auto/direct/vpn。"
+                }
+                cs.networkMode = v
+                "已将网络模式设为 $v。"
+            }
+            "account_type" -> {
+                val type = when (value.trim().lowercase()) {
+                    "undergraduate", "本科", "本科生" -> AccountType.UNDERGRADUATE
+                    "postgraduate", "研究生" -> AccountType.POSTGRADUATE
+                    else -> return "account_type 只能是 undergraduate/postgraduate。"
+                }
+                cs.accountType = type
+                "已将账号类型设为 ${type.displayName}。"
+            }
+            "venue_auto_solve_captcha" -> {
+                val b = parseBoolSetting(value) ?: return "venue_auto_solve_captcha 只能是 true/false。"
+                cs.venueAutoSolveCaptchaEnabled = b
+                "已${if (b) "开启" else "关闭"}场馆验证码自动识别。"
+            }
             "auto_check_update" -> {
-                val b = value.trim().toBooleanStrictOrNull() ?: return "auto_check_update 只能是 true/false。"
-                cs.autoCheckUpdate = b; "已${if (b) "开启" else "关闭"}自动检查更新。"
+                val b = parseBoolSetting(value) ?: return "auto_check_update 只能是 true/false。"
+                cs.autoCheckUpdate = b
+                "已${if (b) "开启" else "关闭"}自动检查更新。"
             }
             "update_channel" -> {
                 val raw = value.trim().lowercase()
@@ -1798,7 +1876,7 @@ private fun defaultPort(scheme: String): Int =
                     "已将更新通道设为 $v（${com.xjtu.toolbox.util.AppUpdater.channelLabel(v)}）。"
                 }
             }
-            else -> "不支持修改「$key」。仅允许：dark_mode / default_tab / network_mode / auto_check_update / update_channel；账号密码等敏感项不可改。"
+            else -> "不支持修改「$key」。仅允许：${writableSettingKeys.joinToString(" / ")}；账号密码等敏感项不可改。"
         }
     }
 

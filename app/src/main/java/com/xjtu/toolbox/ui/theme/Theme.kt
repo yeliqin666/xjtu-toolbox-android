@@ -17,18 +17,28 @@ val LocalIsDarkTheme = compositionLocalOf { false }
 
 /**
  * @param darkModeOverride "system" | "light" | "dark" — 手动覆盖系统深色模式
+ * @param dynamicColor 跟随系统壁纸 / 调色盘取色（Monet）
  */
 @Composable
 fun XJTUToolBoxTheme(
     darkModeOverride: String = "system",
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    val mode = when (darkModeOverride) {
-        "light" -> ColorSchemeMode.Light
-        "dark" -> ColorSchemeMode.Dark
-        else -> ColorSchemeMode.System
+    val mode = if (dynamicColor) {
+        when (darkModeOverride) {
+            "light" -> ColorSchemeMode.MonetLight
+            "dark" -> ColorSchemeMode.MonetDark
+            else -> ColorSchemeMode.MonetSystem
+        }
+    } else {
+        when (darkModeOverride) {
+            "light" -> ColorSchemeMode.Light
+            "dark" -> ColorSchemeMode.Dark
+            else -> ColorSchemeMode.System
+        }
     }
-    val controller = remember(darkModeOverride) { ThemeController(mode) }
+    val controller = remember(darkModeOverride, dynamicColor) { ThemeController(mode) }
     val systemDark = isSystemInDarkTheme()
     val darkTheme = when (darkModeOverride) {
         "light" -> false

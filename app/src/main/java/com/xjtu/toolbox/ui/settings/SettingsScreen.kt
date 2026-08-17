@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.SpaceBar
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Tab
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Palette
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.icon.extended.Theme
@@ -98,6 +99,7 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onNavBarStyleChanged: (String) -> Unit = {},
     onDarkModeChanged: (String) -> Unit = {},
+    onDynamicColorChanged: (Boolean) -> Unit = {},
     onDefaultTabChanged: (String) -> Unit = {},
     homeTheme: String = CredentialStore.THEME_CARD,
     onHomeThemeChanged: (String) -> Unit = {},
@@ -111,6 +113,7 @@ fun SettingsScreen(
 
     var navBarStyle by remember { mutableStateOf(credentialStore.navBarStyle) }
     var darkMode by remember { mutableStateOf(credentialStore.darkMode) }
+    var dynamicColor by remember { mutableStateOf(credentialStore.dynamicColor) }
     var defaultTab by remember { mutableStateOf(credentialStore.defaultTab) }
     var networkMode by remember { mutableStateOf(credentialStore.networkMode) }
     var autoCheckUpdate by remember { mutableStateOf(credentialStore.autoCheckUpdate) }
@@ -220,6 +223,17 @@ fun SettingsScreen(
                         darkMode = v
                         credentialStore.darkMode = v
                         onDarkModeChanged(v)
+                    }
+                )
+                SwitchPreference(
+                    title = "跟随系统取色",
+                    summary = if (dynamicColor) "主题色跟随壁纸与系统调色盘" else "已关闭，使用应用默认配色",
+                    checked = dynamicColor,
+                    startAction = { SettingsIcon(Icons.Default.Palette, cPink) },
+                    onCheckedChange = { enabled ->
+                        dynamicColor = enabled
+                        credentialStore.dynamicColor = enabled
+                        onDynamicColorChanged(enabled)
                     }
                 )
                 OverlayDropdownPreference(

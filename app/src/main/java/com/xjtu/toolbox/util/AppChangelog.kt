@@ -25,6 +25,11 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "4.61" to VersionChangelog(
+            items = listOf(
+                "🎨" to "设置可开跟随系统取色，主题色跟着壁纸走"
+            )
+        ),
         "4.6" to VersionChangelog(
             items = listOf(
                 "👨‍🏫" to "新增教师主页，可查全校老师",
