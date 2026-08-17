@@ -400,7 +400,10 @@ private fun WorkflowProgressCard(
         colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
     ) {
         Column(
-            Modifier.padding(16.dp),
+            // 必须 fillMaxWidth：IDLE/RUNNING/ERROR 三态都有撑满宽度的按钮或进度条，
+            // 唯独 SUCCESS 态只有图标 + 一行字，Column 会缩到内容宽度并贴在卡片左侧，
+            // 看起来就是「已生成」没居中。
+            Modifier.fillMaxWidth().padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             when (state) {

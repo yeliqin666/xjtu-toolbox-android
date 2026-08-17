@@ -7,7 +7,6 @@ import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.SiteSession
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,8 +21,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -82,7 +82,14 @@ fun FitnessScreen(
         error = null
         try {
             years = withContext(Dispatchers.IO) { api.getYears() }
-            selectedYear = years.firstOrNull { it.checked } ?: years.firstOrNull()
+            // 服务端的 checked 经常整列都是 false，那时不能退回 years.first()——
+            // 列表顺序不保证，用户点进来会看到一个莫名其妙的旧学年（甚至没有任何选中）。
+            // 用日期推出本学年（9 月起算，2025-2026 学年 = 2025）作为第二优先，
+            // 实在匹配不上才退回第一项。
+            val currentYear = com.xjtu.toolbox.util.XjtuTime.currentAcademicYear().toString()
+            selectedYear = years.firstOrNull { it.checked }
+                ?: years.firstOrNull { it.yearNum == currentYear }
+                ?: years.firstOrNull()
             score = selectedYear?.let { year ->
                 runCatching { withContext(Dispatchers.IO) { api.getScore(year.yearNum) } }
                     .onFailure { error = it.message ?: "该学年暂无体测数据" }
@@ -121,6 +128,13 @@ fun FitnessScreen(
 
     suspend fun refreshCurrent() {
         selectedYear?.let { selectYear(it) } ?: loadYears()
+    }
+
+    val yearListState = rememberLazyListState()
+    // 选中的学年滚进可视区
+    LaunchedEffect(selectedYear, years) {
+        val index = years.indexOf(selectedYear)
+        if (index >= 0) runCatching { yearListState.animateScrollToItem(index) }
     }
 
     LaunchedEffect(site) { loadYears() }
@@ -167,14 +181,16 @@ fun FitnessScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 item {
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState())
-                            .padding(horizontal = 16.dp),
+                    // 用 LazyRow 而非 horizontalScroll 的 Row：学年多起来时选中项常在最右侧，
+                    // 普通 Row 没法定位到某一项，用户看到的就是一排全未选中的胶囊
+                    // ——数据其实是对的，只是选中的那枚在屏幕外。
+                    LazyRow(
+                        state = yearListState,
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(horizontal = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        years.forEach { year ->
+                        items(years) { year ->
                             YearChip(
                                 year = year,
                                 selected = year == selectedYear,

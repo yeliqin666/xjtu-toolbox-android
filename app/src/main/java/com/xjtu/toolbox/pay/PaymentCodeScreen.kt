@@ -334,18 +334,18 @@ fun PaymentCodeDialog(
                                 selectedVoucherIds = next
                                 selectionConfigured = true
                                 saveSelectedVoucherIds(context, next)
-                                voucherStatusMessage = "正在同步加餐券选择…"
+                                voucherStatusMessage = "同步中…"
                                 isVoucherSyncing = true
                                 scope.launch {
                                     try {
                                         withContext(Dispatchers.IO) { api.updateVoucherStatus(next) }
                                         voucherStatusMessage = if (next.isEmpty()) {
-                                            "已关闭加餐券抵扣"
+                                            "未使用加餐券"
                                         } else {
-                                            "已启用 ${next.size} 张加餐券，付款时自动抵扣"
+                                            "已选 ${next.size} 张"
                                         }
                                     } catch (e: Exception) {
-                                        voucherStatusMessage = "同步失败：${e.message ?: "网络异常"}"
+                                        voucherStatusMessage = "同步失败，请重试"
                                     } finally {
                                         isVoucherSyncing = false
                                     }
@@ -392,7 +392,7 @@ private fun VoucherSelectorCard(
                 Column(Modifier.weight(1f)) {
                     Text("加餐券抵扣", style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Bold)
                     Text(
-                        "在本页勾选后写入付款会话，付款时自动抵扣",
+                        "勾选后付款时自动抵扣",
                         style = MiuixTheme.textStyles.footnote1,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                     )
@@ -407,7 +407,7 @@ private fun VoucherSelectorCard(
                 ) {
                     CircularProgressIndicator(size = 18.dp, strokeWidth = 2.dp)
                     Spacer(Modifier.width(8.dp))
-                    Text("加载可用加餐券…", style = MiuixTheme.textStyles.footnote1)
+                    Text("加载中…", style = MiuixTheme.textStyles.footnote1)
                 }
                 error != null -> Row(
                     Modifier.fillMaxWidth(),
@@ -424,7 +424,7 @@ private fun VoucherSelectorCard(
                     TextButton(text = "重试", onClick = onRetry)
                 }
                 vouchers.isEmpty() -> Text(
-                    "暂无可用于付款码抵扣的加餐券",
+                    "暂无可用加餐券",
                     style = MiuixTheme.textStyles.footnote1,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                 )
@@ -458,10 +458,9 @@ private fun VoucherSelectorCard(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
-                                        "¥%.2f · 至 %s%s".format(
+                                        "¥%.2f · 至 %s".format(
                                             voucher.amountYuan,
-                                            voucher.endDate.ifBlank { "未知" },
-                                            if (voucher.serverFlag == "1" && !checked) " · 网页曾启用" else ""
+                                            voucher.endDate.ifBlank { "—" }
                                         ),
                                         style = MiuixTheme.textStyles.footnote1,
                                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -474,7 +473,7 @@ private fun VoucherSelectorCard(
                     }
                     if (vouchers.size > 4) {
                         Text(
-                            "还有 ${vouchers.size - 4} 张，可在加餐券页面管理",
+                            "还有 ${vouchers.size - 4} 张",
                             style = MiuixTheme.textStyles.footnote1,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                         )

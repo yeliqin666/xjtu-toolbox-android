@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -18,6 +20,36 @@ android {
         versionName = "0.1.0-wear"
     }
 
+    // 与 :app 用同一套密钥：手表 APK 与手机 APK 属于同一发布主体，
+    // 签名一致才能共用 Data Layer 通信与后续的手表端配套安装校验。
+    // 取值优先级与 :app 完全一致：CI 环境变量 > 本地 release.jks + keystore.properties。
+    signingConfigs {
+        create("release") {
+            val keystoreFile = System.getenv("KEYSTORE_PATH")
+            if (keystoreFile != null) {
+                storeFile = file(keystoreFile)
+                storePassword = System.getenv("STORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            } else {
+                // 口令不写在源码里——这个文件要提交，硬编码等于把签名密钥口令公开。
+                // 缺任一文件则不配置签名，release 构建产出未签名包（与 :app 行为一致）。
+                val localKeystore = rootProject.file("release.jks")
+                val props = rootProject.file("keystore.properties")
+                if (localKeystore.exists() && props.exists()) {
+                    val p = Properties()
+                    props.inputStream().use { p.load(it) }
+                    storeFile = localKeystore
+                    storePassword = p.getProperty("storePassword")
+                    keyAlias = p.getProperty("keyAlias")
+                    keyPassword = p.getProperty("keyPassword")
+                }
+            }
+            // minSdk=26 时 V3 需 API≥28，低版本手表由 V2 兜底，开启不影响兼容性
+            enableV3Signing = true
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -25,6 +57,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {

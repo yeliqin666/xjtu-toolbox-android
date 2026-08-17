@@ -97,18 +97,33 @@ class DownloadManager private constructor(private val context: Context) {
     }
 
     /**
+     * 一条待下载的视频。
+     *
+     * 用中立类型而非 [ReplayVideo]，是为了让 class 与思源学堂两个模块共用下载队列：
+     * 前者的地址要先经 resolveVideoUrl 解析，后者的 download_url 本身就是直链，
+     * 差异留在各自的调用方，下载管理这边只认「机位 + 直链」。
+     */
+    data class DownloadItem(
+        /** "instructor" / "encoder"，用于命名与分类 */
+        val cameraType: String,
+        /** 可直接 GET 的视频地址；HLS(m3u8) 不受支持，调用方需自行排除 */
+        val url: String,
+    )
+
+    /**
      * 批量创建下载任务
      */
     suspend fun enqueueDownloads(
         courseName: String,
         activityTitle: String,
         activityId: Int,
-        videos: List<Pair<ReplayVideo, String>>, // (视频信息, 真实URL)
-        audioSource: String
+        videos: List<DownloadItem>,
     ): List<Long> {
         val taskIds = mutableListOf<Long>()
 
-        for ((videoInfo, videoUrl) in videos) {
+        for (item in videos) {
+            val videoInfo = item
+            val videoUrl = item.url
             // 生成文件路径
             val safeCourseName = sanitizeFileName(courseName)
             val safeActivityTitle = sanitizeFileName(activityTitle)
@@ -128,7 +143,10 @@ class DownloadManager private constructor(private val context: Context) {
                 activityTitle = activityTitle,
                 cameraType = videoInfo.cameraType,
                 videoUrl = videoUrl,
-                audioSource = audioSource,
+                // 每个机位本身就是独立 mp4、自带音轨，分开下载时「选音源」没有落点，
+                // 该能力从未实现（此字段过去只写库、从不参与下载）。UI 已移除，
+                // 这里保留列名并填占位，避免动 Room schema 触发迁移。
+                audioSource = videoInfo.cameraType,
                 filePath = filePath,
                 fileSize = -1,
                 downloadedSize = 0,

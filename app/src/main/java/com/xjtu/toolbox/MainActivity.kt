@@ -133,7 +133,6 @@ import com.xjtu.toolbox.util.DeepLinkRouter
 import com.xjtu.toolbox.widget.CampusCardWidgetUpdater
 import com.xjtu.toolbox.widget.ScheduleWidgetUpdater
 import com.xjtu.toolbox.home.GlobalSearchScreen
-import com.xjtu.toolbox.onboarding.OnboardingScreen
 import com.xjtu.toolbox.onboarding.OnboardingStore
 import com.xjtu.toolbox.settings.FeedbackScreen
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -143,6 +142,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_LAUNCH_ROUTE = "extra_launch_route"
         const val EXTRA_LAUNCH_TAB = "extra_launch_tab"
+        const val EXTRA_LAUNCH_PROMPT = "extra_launch_prompt"
 
         /** 版本号比较函数：v1 > v2 返回正数，v1 == v2 返回 0，v1 < v2 返回负数 */
         fun compareVersionStrings(v1: String, v2: String): Int {
@@ -172,7 +172,7 @@ class MainActivity : ComponentActivity() {
         // 深链优先于 EXTRA_LAUNCH_ROUTE；二者都未设置则交给 navController 自己的默认路由
         val deepLink = DeepLinkRouter.resolve(intent)
         val launchRoute = deepLink?.route ?: intent?.getStringExtra(EXTRA_LAUNCH_ROUTE)
-        deepLinkPrompt.value = deepLink?.prompt
+        deepLinkPrompt.value = deepLink?.prompt ?: intent?.getStringExtra(EXTRA_LAUNCH_PROMPT)
         val launchTab = intent?.getStringExtra(EXTRA_LAUNCH_TAB)
         launchRouteState.value = launchRoute
         launchTabState.value = launchTab ?: if (launchRoute == Routes.SCHEDULE) BottomTab.COURSES.name else null
@@ -220,12 +220,12 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         val deepLink = DeepLinkRouter.resolve(intent)
         val launchRoute = deepLink?.route ?: intent.getStringExtra(EXTRA_LAUNCH_ROUTE)
-        deepLinkPrompt.value = deepLink?.prompt
+        val launchPrompt = deepLink?.prompt ?: intent.getStringExtra(EXTRA_LAUNCH_PROMPT)
+        deepLinkPrompt.value = launchPrompt
         val launchTab = intent.getStringExtra(EXTRA_LAUNCH_TAB)
         launchRouteState.value = launchRoute
         launchTabState.value = launchTab ?: if (launchRoute == Routes.SCHEDULE) BottomTab.COURSES.name else null
-        // 触发 prompt 注入（在 setContent 上下文里更稳，但 onNewIntent 时 Compose 树已存在）
-        deepLink?.prompt?.let { AgentPendingPrompt.set(it) }
+        launchPrompt?.let { AgentPendingPrompt.set(it) }
     }
 }
 
@@ -266,11 +266,33 @@ object Routes {
     const val AGENT = "agent"
     const val FEEDBACK = "feedback"
     const val JIAOXIAOZHI = "jiaoxiaozhi"
+    const val FACULTY = "faculty"
     const val ICLASSFACE = "iclassface"
 
     fun login(type: LoginType, target: String) = "login/${type.name}/$target"
     fun browser(url: String = "") = "browser?url=${java.net.URLEncoder.encode(url, "UTF-8")}"
     fun videoPlayer(activityId: Int) = "video_player/$activityId"
+}
+
+/** shortcut / 搜索 / 深链进功能页时，对应要先登录的站点。null = 无需登录可直达。 */
+fun loginTypeForRoute(route: String): LoginType? = when (route) {
+    Routes.ATTENDANCE -> LoginType.ATTENDANCE
+    Routes.POSTGRADUATE_ATTENDANCE -> LoginType.POSTGRADUATE_ATTENDANCE
+    Routes.LIBRARY -> LoginType.LIBRARY
+    Routes.CAMPUS_CARD, Routes.PAYMENT_CODE -> LoginType.CAMPUS_CARD
+    Routes.JWAPP_SCORE -> LoginType.JWAPP
+    Routes.SCORE_REPORT, Routes.JUDGE, Routes.SCHOOL_COURSE, Routes.EMPTY_ROOM, Routes.SCHEDULE -> LoginType.JWXT
+    Routes.TRANSCRIPT -> LoginType.DZPZ
+    Routes.VENUE -> LoginType.VENUE
+    Routes.CLASS_REPLAY -> LoginType.CLASS
+    Routes.LMS -> LoginType.LMS
+    Routes.JIAOCAI -> LoginType.JIAOCAI
+    Routes.COUPON -> LoginType.COUPON
+    Routes.MOBILE_JIAODA -> LoginType.SUPER_APP
+    Routes.FITNESS -> LoginType.FITNESS
+    Routes.JIAOXIAOZHI -> LoginType.JIAOXIAOZHI
+    Routes.ICLASSFACE -> LoginType.ICLASSFACE
+    else -> null
 }
 
 // ── 维护中（学校系统）服务清单 ────────────────────────────
@@ -902,6 +924,7 @@ fun AppNavigation(
     val context = LocalContext.current
     val mainScope = rememberCoroutineScope()
     var pendingMainTab by remember { mutableStateOf(initialTab) }
+    var pendingLaunchRoute by remember { mutableStateOf<String?>(null) }
     var homeTheme by remember { mutableStateOf(credentialStore.homeTheme) }
     var showQuickActions by remember { mutableStateOf(credentialStore.showQuickActions) }
 
@@ -948,11 +971,12 @@ fun AppNavigation(
             return@LaunchedEffect
         }
 
+        // 不在这里直接 navigate：付款码/校园卡等目的地会在会话未就绪时立刻 pop。
+        // 交给 MainScreen 等凭据恢复后再走 navigateWithLogin。
         if (route == Routes.SCHEDULE) {
             navigateToMainTab(BottomTab.COURSES)
-        } else {
-            navController.navigate(route) { launchSingleTop = true }
         }
+        pendingLaunchRoute = route
         onInitialRouteConsumed()
     }
 
@@ -1081,30 +1105,7 @@ fun AppNavigation(
         val connectivityManager = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
         var networkCheckJob: kotlinx.coroutines.Job? = null
         // Route → LoginType 映射（仅含需要登录的 Screen 路由）
-        val routeToLoginType: (String) -> LoginType? = { route ->
-            when (route) {
-                Routes.ATTENDANCE -> LoginType.ATTENDANCE
-                Routes.POSTGRADUATE_ATTENDANCE -> LoginType.POSTGRADUATE_ATTENDANCE
-                Routes.LIBRARY -> LoginType.LIBRARY
-                Routes.CAMPUS_CARD -> LoginType.CAMPUS_CARD
-                Routes.JWAPP_SCORE -> LoginType.JWAPP
-                Routes.SCORE_REPORT -> LoginType.JWXT
-                Routes.JUDGE -> LoginType.JWXT
-                Routes.SCHOOL_COURSE -> LoginType.JWXT
-                Routes.TRANSCRIPT -> LoginType.DZPZ
-                Routes.VENUE -> LoginType.VENUE
-                Routes.CLASS_REPLAY -> LoginType.CLASS
-                Routes.LMS -> LoginType.LMS
-                Routes.JIAOCAI -> LoginType.JIAOCAI
-                Routes.COUPON -> LoginType.COUPON
-                Routes.MOBILE_JIAODA -> LoginType.SUPER_APP
-                Routes.FITNESS -> LoginType.FITNESS
-                Routes.JIAOXIAOZHI -> LoginType.JIAOXIAOZHI
-                Routes.ICLASSFACE -> LoginType.ICLASSFACE
-                Routes.SCHEDULE -> LoginType.JWXT
-                else -> null
-            }
-        }
+        val routeToLoginType: (String) -> LoginType? = { loginTypeForRoute(it) }
         fun trigger(reason: String) {
             if (!loginState.isLoggedIn) return
             networkCheckJob?.cancel()
@@ -1176,6 +1177,7 @@ fun AppNavigation(
 
     // 恢复凭据并自动初始化（Splash 只做启动，登录在主界面后台进行）
     var isRestoring by remember { mutableStateOf(false) }
+    var restoreGateReady by remember { mutableStateOf(false) }
     var restoreStep by remember { mutableStateOf("") }
     val restoreScope = rememberCoroutineScope()
     val view = LocalView.current
@@ -1189,6 +1191,8 @@ fun AppNavigation(
         runCatching {
             ScheduleWidgetUpdater.requestUpdate(context, resetToToday = false)
             CampusCardWidgetUpdater.requestUpdate(context)
+            com.xjtu.toolbox.widget.NoticeWidgetUpdater.requestUpdate(context)
+            com.xjtu.toolbox.widget.EmptyRoomWidgetUpdater.requestUpdate(context)
         }
 
         onReady()
@@ -1235,6 +1239,7 @@ fun AppNavigation(
             // 其余系统的 ensureLogin 由各 Screen 的 LaunchedEffect 按需触发，
             // 因 JWXT Safety Verify 后 CAS session 已可信，后续 OAuth 授权多走 SSO 不再 MFA。
         }
+        restoreGateReady = true
     }
 
     // ── 用户协议弹窗（首次启动或未签署时强制展示） ──
@@ -1245,6 +1250,20 @@ fun AppNavigation(
             eulaAccepted = true
         })
         return  // 未同意协议前阻止渲染主界面
+    }
+
+    // ── 首启引导：直接把新用户送到登录页 ──
+    // 4.6 前这里是三屏轮播（功能介绍 / 隐私声明 / 去登录）。砍掉的理由：
+    // 前两屏在刚签完 EULA 之后重复且无动作，唯一的真实动作就是最后一屏的「去登录」；
+    // 功能介绍由首页承担——它本来就是功能总览。
+    // 等 restoreGateReady 是为了让凭据与会话状态先落定，避免误判成新用户。
+    LaunchedEffect(restoreGateReady) {
+        if (!restoreGateReady) return@LaunchedEffect
+        if (!OnboardingStore.needsFirstRunLogin(context)) return@LaunchedEffect
+        OnboardingStore.markDone(context)
+        if (!loginState.hasCredentials) {
+            navController.navigate(Routes.ACCOUNTS) { launchSingleTop = true }
+        }
     }
 
     val previousRunVersion = remember { credentialStore.lastRunVersion }
@@ -1259,7 +1278,12 @@ fun AppNavigation(
         val baseline = credentialStore.lastSeenChangelogVersion ?: previousRunVersion
         com.xjtu.toolbox.util.AppChangelog.since(baseline)
     }
-    val showUpdateNotice = remember { mutableStateOf(pendingChangelog.isNotEmpty()) }
+    // 全新安装没有「上一版」可言，给第一次打开的人看更新公告是噪音。
+    // 这里不写 lastSeenChangelogVersion，所以下次真正升级时照常提示。
+    val isFreshInstall = previousRunVersion == null
+    val showUpdateNotice = remember {
+        mutableStateOf(pendingChangelog.isNotEmpty() && !isFreshInstall)
+    }
     if (showUpdateNotice.value) {
         UpdateNoticeDialog(
             entries = pendingChangelog,
@@ -1369,11 +1393,14 @@ fun AppNavigation(
                 accountManager = viewModel.accountManager,
                 isRestoring = isRestoring,
                 restoreStep = restoreStep,
+                restoreGateReady = restoreGateReady,
                 pendingTab = pendingMainTab,
                 onPendingTabConsumed = {
                     pendingMainTab = null
                     onInitialTabConsumed()
                 },
+                pendingLaunchRoute = pendingLaunchRoute,
+                onPendingLaunchConsumed = { pendingLaunchRoute = null },
                 onWarmupRequest = { startBackgroundLoginWarmup(mainScope, force = true) },
                 homeTheme = homeTheme,
                 showQuickActions = showQuickActions
@@ -1435,7 +1462,23 @@ fun AppNavigation(
             loginState.sessionManager?.getSiteOrNull("library")?.let { LibraryScreen(site = it, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
         composable(Routes.CAMPUS_CARD) {
-            loginState.sessionManager?.getSiteOrNull("campus_card")?.let { com.xjtu.toolbox.card.CampusCardScreen(site = it, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
+            var cardSite by remember { mutableStateOf(loginState.sessionManager?.getSiteOrNull("campus_card")) }
+            val readyCard = cardSite
+            if (readyCard != null) {
+                com.xjtu.toolbox.card.CampusCardScreen(site = readyCard, onBack = { navController.popBackStack() })
+            } else {
+                LaunchedEffect(Unit) {
+                    repeat(12) {
+                        kotlinx.coroutines.delay(120)
+                        val found = loginState.sessionManager?.getSiteOrNull("campus_card")
+                        if (found != null) {
+                            cardSite = found
+                            return@LaunchedEffect
+                        }
+                    }
+                    navController.popBackStack()
+                }
+            }
         }
         composable(Routes.COUPON) {
             loginState.sessionManager?.getSiteOrNull("coupon")?.let { com.xjtu.toolbox.coupon.CouponScreen(site = it, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
@@ -1445,9 +1488,23 @@ fun AppNavigation(
             dialogProperties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
             // 付款码必须在校园卡登录后使用（复用 ncard JWT 访问 /berserker-app/authCode）
-            loginState.sessionManager?.getSiteOrNull("campus_card")?.let { cardSite ->
-                com.xjtu.toolbox.pay.PaymentCodeDialog(site = cardSite) { navController.popBackStack() }
-            } ?: LaunchedEffect(Unit) { navController.popBackStack() }
+            var cardSite by remember { mutableStateOf(loginState.sessionManager?.getSiteOrNull("campus_card")) }
+            val readyCard = cardSite
+            if (readyCard != null) {
+                com.xjtu.toolbox.pay.PaymentCodeDialog(site = readyCard) { navController.popBackStack() }
+            } else {
+                LaunchedEffect(Unit) {
+                    repeat(12) {
+                        kotlinx.coroutines.delay(120)
+                        val found = loginState.sessionManager?.getSiteOrNull("campus_card")
+                        if (found != null) {
+                            cardSite = found
+                            return@LaunchedEffect
+                        }
+                    }
+                    navController.popBackStack()
+                }
+            }
         }
         composable(Routes.SCORE_REPORT) {
             loginState.sessionManager?.getSiteOrNull("jwxt")?.let { ScoreReportScreen(site = it, studentId = loginState.activeUsername, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
@@ -1473,7 +1530,7 @@ fun AppNavigation(
                     onPlayReplay = { activityId ->
                         navController.navigate(Routes.videoPlayer(activityId))
                     },
-                    onDownloadReplay = { activityIds ->
+                    onDownloadReplay = { activityIds, videoSources ->
                         // 启动下载流程
                         val appContext = context.applicationContext
                         val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO)
@@ -1497,9 +1554,19 @@ fun AppNavigation(
                                 // 为每个活动创建下载任务
                                 for ((activityId, detail) in activities) {
                                     if (detail.replayVideos.isNotEmpty()) {
-                                        val videos = detail.replayVideos.mapNotNull { video ->
+                                        // 只下用户勾选的机位。videoSources 为空时才退回全部，
+                                        // 避免上游万一没传导致一个都下不到。
+                                        val wanted = detail.replayVideos.filter {
+                                            videoSources.isEmpty() || it.cameraType in videoSources
+                                        }
+                                        val videos = wanted.mapNotNull { video ->
                                             val realUrl = com.xjtu.toolbox.classreplay.resolveVideoUrl(classSite, video.url)
-                                            realUrl?.let { video to it }
+                                            realUrl?.let {
+                                                com.xjtu.toolbox.classreplay.DownloadManager.DownloadItem(
+                                                    cameraType = video.cameraType,
+                                                    url = it,
+                                                )
+                                            }
                                         }
                                         
                                         if (videos.isNotEmpty()) {
@@ -1507,8 +1574,7 @@ fun AppNavigation(
                                                 courseName = courseName,
                                                 activityTitle = detail.title,
                                                 activityId = activityId,
-                                                videos = videos,
-                                                audioSource = "instructor"
+                                                videos = videos
                                             )
                                         }
                                     }
@@ -1665,6 +1731,16 @@ fun AppNavigation(
             )
         }
 
+        // ── 教师主页检索 ──
+        // 无需登录：faculty.xjtu.edu.cn 与 gr.xjtu.edu.cn 都是公开站点，
+        // 因此这里不接 SessionManager，也不做 ensureSite。
+        composable(Routes.FACULTY) {
+            com.xjtu.toolbox.faculty.FacultyScreen(
+                onBack = { navController.popBackStack() },
+                onOpenUrl = { url -> navController.navigate(Routes.browser(url)) },
+            )
+        }
+
         // ── 账号管理页 ──
         composable(Routes.ACCOUNTS) {
             com.xjtu.toolbox.account.AccountManagerScreen(
@@ -1710,8 +1786,11 @@ private fun MainScreen(
     accountManager: com.xjtu.toolbox.account.AccountManager,
     isRestoring: Boolean = false,
     restoreStep: String = "",
+    restoreGateReady: Boolean = true,
     pendingTab: String? = null,
     onPendingTabConsumed: () -> Unit = {},
+    pendingLaunchRoute: String? = null,
+    onPendingLaunchConsumed: () -> Unit = {},
     onWarmupRequest: () -> Unit = {},
     homeTheme: String = CredentialStore.THEME_CARD,
     showQuickActions: Boolean = true,
@@ -1730,7 +1809,6 @@ private fun MainScreen(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var lastBackPressTime by remember { mutableLongStateOf(0L) }
-    var showOnboarding by remember { mutableStateOf(false) }
     var showGlobalSearch by remember { mutableStateOf(false) }
 
     LaunchedEffect(pendingTab) {
@@ -1742,19 +1820,8 @@ private fun MainScreen(
         onPendingTabConsumed()
     }
 
-    // 首次启动展示 Onboarding（一次性，OnboardingStore 记 done 标志）
-    LaunchedEffect(Unit) {
-        if (OnboardingStore.needsToShow(context)) {
-            showOnboarding = true
-        }
-    }
-
     BackHandler {
         when {
-            showOnboarding -> {
-                OnboardingStore.markDone(context)
-                showOnboarding = false
-            }
             showGlobalSearch -> showGlobalSearch = false
             selectedTab != BottomTab.HOME -> selectedTabOrdinal = BottomTab.HOME.ordinal
             else -> {
@@ -1906,6 +1973,18 @@ private fun MainScreen(
             scope.launch {
                 snackbarHostState.showSnackbar("请先登录后使用${type.label}", duration = SnackbarDuration.Short)
             }
+        }
+    }
+
+    LaunchedEffect(pendingLaunchRoute, restoreGateReady) {
+        if (!restoreGateReady) return@LaunchedEffect
+        val route = pendingLaunchRoute ?: return@LaunchedEffect
+        onPendingLaunchConsumed()
+        val type = loginTypeForRoute(route)
+        if (type != null) {
+            navigateWithLogin(route, type)
+        } else {
+            navigateToTarget(route)
         }
     }
 
@@ -2357,28 +2436,15 @@ private fun MainScreen(
             onBack = { showGlobalSearch = false },
             onNavigate = { route ->
                 showGlobalSearch = false
-                navController.navigate(route) { launchSingleTop = true }
+                val type = loginTypeForRoute(route)
+                if (type != null) navigateWithLogin(route, type)
+                else navigateToTarget(route)
             },
             onAskAgent = { prompt ->
                 showGlobalSearch = false
                 AgentPendingPrompt.set(prompt)
                 navController.navigate(Routes.AGENT) { launchSingleTop = true }
             },
-        )
-    }
-
-    // 首次启动 onboarding 覆盖层（优先级最高，最早渲染）
-    if (showOnboarding) {
-        OnboardingScreen(
-            isLoggedIn = loginState.isLoggedIn,
-            onFinish = {
-                OnboardingStore.markDone(context)
-                showOnboarding = false
-                // 未登录 → 主动推一下登录入口（不强制，让用户可以继续逛）
-                if (!loginState.isLoggedIn) {
-                    navController.navigate(Routes.ACCOUNTS) { launchSingleTop = true }
-                }
-            }
         )
     }
 }
@@ -2945,6 +3011,8 @@ private fun HomeTab(
             MoreSvc(Routes.LIBRARY, Icons.Default.Chair, "图书馆", com.xjtu.toolbox.ui.theme.legacyColor(Routes.LIBRARY), ServiceCategory.STUDY) { onNavigateWithLogin(Routes.LIBRARY, LoginType.LIBRARY) },
             MoreSvc(Routes.TRANSCRIPT, Icons.Default.Description, "成绩单", com.xjtu.toolbox.ui.theme.legacyColor(Routes.TRANSCRIPT), ServiceCategory.STUDY) { onNavigateWithLogin(Routes.TRANSCRIPT, LoginType.DZPZ) },
             MoreSvc(Routes.NOTIFICATION, Icons.Default.Notifications, "通知公告", com.xjtu.toolbox.ui.theme.legacyColor(Routes.NOTIFICATION), ServiceCategory.STUDY) { onNavigate(Routes.NOTIFICATION) },
+            // 教师主页是公开站点，用 onNavigate 而非 onNavigateWithLogin——不该为它触发一次统一认证
+            MoreSvc(Routes.FACULTY, Icons.Default.PersonSearch, "教师主页", com.xjtu.toolbox.ui.theme.legacyColor(Routes.FACULTY), ServiceCategory.STUDY) { onNavigate(Routes.FACULTY) },
 
             MoreSvc(Routes.CAMPUS_CARD, Icons.Default.CreditCard, "校园卡", com.xjtu.toolbox.ui.theme.legacyColor(Routes.CAMPUS_CARD), ServiceCategory.LIFE) { onNavigateWithLogin(Routes.CAMPUS_CARD, LoginType.CAMPUS_CARD) },
             MoreSvc(Routes.PAYMENT_CODE, Icons.Default.QrCode, "付款码", com.xjtu.toolbox.ui.theme.legacyColor(Routes.PAYMENT_CODE), ServiceCategory.LIFE) { onNavigateWithLogin(Routes.PAYMENT_CODE, LoginType.CAMPUS_CARD) },

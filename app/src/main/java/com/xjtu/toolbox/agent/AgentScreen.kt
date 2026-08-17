@@ -35,8 +35,10 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Menu
@@ -74,12 +76,20 @@ fun AgentScreen(onBack: () -> Unit, onNavigate: (String) -> Unit = {}) {
     val loginState = LocalAppLoginState.current
     val configStore = remember { AgentConfigStore(context) }
     var config by remember { mutableStateOf(configStore.load()) }
-    var showConfig by rememberSaveable { mutableStateOf(!config.isConfigured) }
+    // 不要 rememberSaveable：冷启动第一帧可能读到空 key，之后会把设置页钉死。
+    var showConfig by remember { mutableStateOf(false) }
     val vm: AgentViewModel = viewModel(viewModelStoreOwner = context as ViewModelStoreOwner)
 
     // 多会话持久化：绑定一次，加载会话列表并恢复最近会话
     val sessionStore = remember { AgentSessionStore(context) }
     LaunchedEffect(Unit) { vm.bind(sessionStore) }
+
+    LaunchedEffect(loginState.accountId) {
+        config = configStore.load()
+        // 刻意不再「没配 key 就自动跳设置页」：那样每次进来都是一屏表单，
+        // 既没解释为什么，也让人以为点错了。改为正常进对话界面，
+        // 由输入栏上方的提示条说明情况并提供入口（见 ChatPanel 的 needsSetup）。
+    }
 
     // 从主动提醒气泡进来时，**开一个新会话**并把提醒作为真实的第一条用户消息发出去。
     // 不新建会话的话会接在上一次的对话尾巴上，用户看到的就是"老对话"，
@@ -87,6 +97,7 @@ fun AgentScreen(onBack: () -> Unit, onNavigate: (String) -> Unit = {}) {
     LaunchedEffect(config.isConfigured, AgentPendingPrompt.generation) {
         if (!config.isConfigured) return@LaunchedEffect
         val pending = AgentPendingPrompt.consume() ?: return@LaunchedEffect
+        showConfig = false
         vm.newSession()
         vm.sendMessage(pending, config, loginState, context)
     }
@@ -175,7 +186,8 @@ fun AgentScreen(onBack: () -> Unit, onNavigate: (String) -> Unit = {}) {
                         loginState = loginState,
                         padding = padding,
                         scrollBehavior = scrollBehavior,
-                        onNavigate = onNavigate
+                        onNavigate = onNavigate,
+                        onOpenConfig = { showConfig = true }
                     )
                 }
             }
@@ -508,6 +520,7 @@ private fun ChatPanel(
     padding: PaddingValues,
     scrollBehavior: ScrollBehavior,
     onNavigate: (String) -> Unit,
+    onOpenConfig: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -527,6 +540,8 @@ private fun ChatPanel(
     fun send() {
         val text = input.trim()
         if (text.isBlank() || vm.contextExhausted) return
+        // 没有 key 时点发送，直接把人送到配置页，而不是让消息石沉大海
+        if (!config.isConfigured) { onOpenConfig(); return }
         input = ""
         keyboard?.hide()
         vm.sendMessage(text, config, loginState, context)
@@ -612,6 +627,49 @@ private fun ChatPanel(
                     Box(Modifier.fillMaxWidth().padding(8.dp), contentAlignment = Alignment.CenterStart) {
                         ThinkingDots()
                     }
+                }
+            }
+        }
+
+        // 未配置模型时的提示条。放在输入栏正上方而不是弹窗或整页表单，
+        // 是因为它要解释「为什么现在发不出去」，紧挨着发送动作才说得通。
+        if (!config.isConfigured) {
+            Surface(
+                color = MiuixTheme.colorScheme.primary.copy(alpha = 0.10f),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onOpenConfig() },
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 11.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Default.Key,
+                        contentDescription = null,
+                        tint = MiuixTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "还没有配置模型",
+                            style = MiuixTheme.textStyles.body2,
+                            color = MiuixTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            "填入 API Key 后即可开始对话",
+                            style = MiuixTheme.textStyles.footnote2,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        )
+                    }
+                    Icon(
+                        Icons.Default.ChevronRight,
+                        contentDescription = null,
+                        tint = MiuixTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp),
+                    )
                 }
             }
         }

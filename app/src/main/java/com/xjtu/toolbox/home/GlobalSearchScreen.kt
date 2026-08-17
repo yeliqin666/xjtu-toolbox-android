@@ -1,8 +1,17 @@
 package com.xjtu.toolbox.home
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,6 +24,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -23,10 +33,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.xjtu.toolbox.Routes
 import com.xjtu.toolbox.ui.components.AppSearchBar
 import top.yukonga.miuix.kmp.basic.Icon
@@ -40,14 +54,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.TravelExplore
+import androidx.compose.material.icons.outlined.ChevronRight
+import kotlinx.coroutines.delay
 
 /**
  * 搜索结果条目。两种类型：
  * - [SearchEntry.Screen]：跳屏
- * - [SearchEntry.AgentPrompt]：把搜索词直接送给屁岱，让它自然分流
- *
- * 选择 AgentPrompt 而不是工具直跳：用户搜"成绩"是想看成绩，搜"空教室"是想查空教室，
- * 但搜"高数成绩"是问问题。统一走 AI 自动分发，比维护一套 query 解析器靠谱得多。
+ * - [SearchEntry.AgentPrompt]：把搜索词直接送给屁岱
  */
 internal sealed class SearchEntry {
     abstract val title: String
@@ -69,12 +82,6 @@ internal sealed class SearchEntry {
     ) : SearchEntry()
 }
 
-/**
- * 静态搜索索引。
- *
- * 设计原则：覆盖**用户**输入而非**所有工具**——20 多个 tool 都列出来反而劝退，
- * 索引只列最常被搜的几条 + 让用户去 agent 屏用自然语言命中长尾。
- */
 internal object GlobalSearchIndex {
     fun entries(): List<SearchEntry> = listOf(
         SearchEntry.Screen("我的课表", "查看本学期课表", Routes.SCHEDULE,
@@ -97,6 +104,8 @@ internal object GlobalSearchIndex {
             listOf("付款", "扫码")),
         SearchEntry.Screen("空闲场馆", "预约羽毛球/网球", Routes.VENUE,
             listOf("场馆", "羽毛", "网球场")),
+        SearchEntry.Screen("教师主页", "按姓名、学院或研究方向找老师", Routes.FACULTY,
+            listOf("教师", "老师", "导师", "博导", "硕导", "研究方向", "teacher", "faculty")),
         SearchEntry.AgentPrompt("问屁岱", "我的校园卡余额还有多少？", "我的校园卡余额还有多少？",
             listOf("余额", "还有多少")),
         SearchEntry.AgentPrompt("问屁岱", "今天我还有哪些课？", "今天我还有哪些课？",
@@ -119,101 +128,227 @@ internal object GlobalSearchIndex {
     }
 }
 
+private val QuickChips = listOf("课表", "空教室", "校园卡", "成绩", "付款码", "通知")
+
 /**
- * 全局搜索屏。从 Home 顶栏的搜索图标进入。
- *
- * 结果分两组：屏幕直达 / 问屁岱。最后一行永远带"问屁岱：xxx"兜底。
+ * 全局搜索。独立 Dialog，盖过首页大标题和悬浮底栏；打开时上滑淡入。
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun GlobalSearchScreen(
     onBack: () -> Unit,
     onNavigate: (String) -> Unit,
     onAskAgent: (String) -> Unit,
 ) {
-    var query by rememberSaveable { mutableStateOf("") }
-    val results by remember {
-        derivedStateOf { GlobalSearchIndex.search(query) }
-    }
-
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = "搜索",
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                actions = {
-                    if (query.isNotEmpty()) {
-                        IconButton(onClick = { query = "" }) {
-                            Icon(Icons.Default.Close, contentDescription = "清空")
-                        }
-                    }
-                }
-            )
+    Dialog(
+        onDismissRequest = onBack,
+        properties = DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = false,
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = true,
+        )
+    ) {
+        var query by rememberSaveable { mutableStateOf("") }
+        val results by remember { derivedStateOf { GlobalSearchIndex.search(query) } }
+        val focusRequester = remember { FocusRequester() }
+        LaunchedEffect(Unit) {
+            delay(80)
+            runCatching { focusRequester.requestFocus() }
         }
-    ) { padding ->
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp)
-        ) {
-            Spacer(Modifier.height(4.dp))
-            AppSearchBar(
-                query = query,
-                onQueryChange = { query = it },
-                label = "试试搜索：课表 / 校园卡 / 空教室",
-                modifier = Modifier.fillMaxWidth()
-            )
 
-            if (query.isBlank()) {
-                Spacer(Modifier.height(16.dp))
-                Text("或者直接问屁岱，AI 会帮你找。")
-                return@Column
-            }
+        BackHandler(onBack = onBack)
 
-            Spacer(Modifier.height(12.dp))
-            LazyColumn(
-                contentPadding = PaddingValues(vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                if (results.isEmpty()) {
-                    item {
-                        Text("没有匹配的屏幕，试试直接问屁岱：")
-                        Spacer(Modifier.height(8.dp))
-                    }
-                } else {
-                    items(results, key = { it::class.simpleName + it.title + it.subtitle }) { entry ->
-                        when (entry) {
-                            is SearchEntry.Screen -> SearchResultRow(
-                                title = entry.title,
-                                subtitle = entry.subtitle,
-                                showAiIcon = false,
-                                onClick = { onNavigate(entry.route) }
-                            )
-                            is SearchEntry.AgentPrompt -> SearchResultRow(
-                                title = "问屁岱",
-                                subtitle = entry.prompt,
-                                showAiIcon = true,
-                                onClick = { onAskAgent(entry.prompt) }
-                            )
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = "搜索",
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        }
+                    },
+                    actions = {
+                        if (query.isNotEmpty()) {
+                            IconButton(onClick = { query = "" }) {
+                                Icon(Icons.Default.Close, contentDescription = "清空")
+                            }
                         }
                     }
-                }
+                )
+            }
+        ) { padding ->
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(horizontal = 16.dp)
+            ) {
+                Spacer(Modifier.height(4.dp))
+                AppSearchBar(
+                    query = query,
+                    onQueryChange = { query = it },
+                    label = "课表、成绩、空教室、问屁岱…",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(focusRequester)
+                )
 
-                // 兜底：永远显示"问屁岱：xxx"
-                item {
-                    Spacer(Modifier.height(4.dp))
-                    SearchResultRow(
-                        title = "问屁岱：" + query,
-                        subtitle = "让 AI 来处理",
-                        showAiIcon = true,
-                        onClick = { onAskAgent(query) }
+                AnimatedContent(
+                    targetState = query.isBlank(),
+                    transitionSpec = {
+                        (fadeIn(tween(180)) + slideInVertically(tween(220)) { it / 12 })
+                            .togetherWith(fadeOut(tween(120)))
+                    },
+                    label = "searchBody",
+                    modifier = Modifier.fillMaxSize(),
+                ) { blank ->
+                    if (blank) {
+                        SearchEmptyHints(
+                            onChip = { query = it },
+                            onAskAgent = onAskAgent,
+                        )
+                    } else {
+                        SearchResultList(
+                            query = query,
+                            results = results,
+                            onNavigate = onNavigate,
+                            onAskAgent = onAskAgent,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SearchEmptyHints(
+    onChip: (String) -> Unit,
+    onAskAgent: (String) -> Unit,
+) {
+    Column(Modifier.fillMaxWidth().padding(top = 20.dp)) {
+        Text(
+            "常用入口",
+            style = MiuixTheme.textStyles.subtitle,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Spacer(Modifier.height(12.dp))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            QuickChips.forEach { chip ->
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = MiuixTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier.clickable { onChip(chip) },
+                ) {
+                    Text(
+                        chip,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                        style = MiuixTheme.textStyles.body2,
                     )
                 }
             }
+        }
+        Spacer(Modifier.height(28.dp))
+        Text(
+            "直接问屁岱",
+            style = MiuixTheme.textStyles.subtitle,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "搜不到也没关系，把问题丢给 AI。",
+            style = MiuixTheme.textStyles.footnote1,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        )
+        Spacer(Modifier.height(12.dp))
+        SearchResultRow(
+            title = "今天还有哪些课？",
+            subtitle = "问屁岱",
+            showAiIcon = true,
+            onClick = { onAskAgent("今天我还有哪些课？") },
+        )
+        Spacer(Modifier.height(8.dp))
+        SearchResultRow(
+            title = "帮我查空教室",
+            subtitle = "问屁岱",
+            showAiIcon = true,
+            onClick = { onAskAgent("帮我查空教室") },
+        )
+    }
+}
+
+@Composable
+private fun SearchResultList(
+    query: String,
+    results: List<SearchEntry>,
+    onNavigate: (String) -> Unit,
+    onAskAgent: (String) -> Unit,
+) {
+    val screens = results.filterIsInstance<SearchEntry.Screen>()
+    val prompts = results.filterIsInstance<SearchEntry.AgentPrompt>()
+
+    LazyColumn(
+        contentPadding = PaddingValues(vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        if (screens.isNotEmpty()) {
+            item(key = "hdr-screen") {
+                Text(
+                    "功能",
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(bottom = 2.dp, top = 4.dp),
+                )
+            }
+            items(screens, key = { "s-${it.route}-${it.title}" }) { entry ->
+                SearchResultRow(
+                    title = entry.title,
+                    subtitle = entry.subtitle,
+                    showAiIcon = false,
+                    onClick = { onNavigate(entry.route) }
+                )
+            }
+        }
+        if (prompts.isNotEmpty()) {
+            item(key = "hdr-ai") {
+                Text(
+                    "问屁岱",
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(bottom = 2.dp, top = 8.dp),
+                )
+            }
+            items(prompts, key = { "a-${it.prompt}" }) { entry ->
+                SearchResultRow(
+                    title = entry.prompt,
+                    subtitle = "让 AI 处理",
+                    showAiIcon = true,
+                    onClick = { onAskAgent(entry.prompt) }
+                )
+            }
+        }
+        if (results.isEmpty()) {
+            item(key = "empty") {
+                Text(
+                    "没有直接匹配的功能",
+                    style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(vertical = 8.dp),
+                )
+            }
+        }
+        item(key = "fallback") {
+            SearchResultRow(
+                title = "问屁岱：$query",
+                subtitle = "用这句话提问",
+                showAiIcon = true,
+                onClick = { onAskAgent(query) }
+            )
         }
     }
 }
@@ -225,30 +360,24 @@ private fun SearchResultRow(
     showAiIcon: Boolean,
     onClick: () -> Unit,
 ) {
-    // TalkBack：mergeDescendants=true 让无障碍服务一次读出整行（title + subtitle + icon），
-    // 而不是分开念多个分散节点。
     Surface(
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(14.dp),
         color = MiuixTheme.colorScheme.surfaceVariant,
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .semantics(mergeDescendants = true) {
-                contentDescription = if (showAiIcon) {
-                    "问屁岱：$title"
-                } else {
-                    title
-                }
+                contentDescription = if (showAiIcon) "问屁岱：$title" else title
             }
     ) {
         Row(
-            Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (showAiIcon) {
                 Icon(
                     Icons.Default.TravelExplore,
-                    contentDescription = null, // 由 surface semantics 统一读出
+                    contentDescription = null,
                     modifier = Modifier.size(20.dp),
                     tint = MiuixTheme.colorScheme.primary,
                 )
@@ -265,6 +394,12 @@ private fun SearchResultRow(
                     )
                 }
             }
+            Icon(
+                Icons.Outlined.ChevronRight,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
         }
     }
 }

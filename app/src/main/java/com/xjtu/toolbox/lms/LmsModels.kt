@@ -163,6 +163,13 @@ data class LmsActivity(
     val highestScore: Double? = null,
     val lowestScore: Double? = null,
     val hasScoreCount: Int? = null,
+    /** 截止时间（UTC）。上游 deadline，与 endTime 多数一致但以此为准 */
+    val deadline: String? = null,
+    /** 允许提交次数；[nonSubmitTimes] 为 true 表示不限次 */
+    val submitTimes: Int? = null,
+    val nonSubmitTimes: Boolean = false,
+    /** 作业是否已关闭 */
+    val isClosed: Boolean = false,
 
     // lesson 专有
     val replayCode: String? = null,
@@ -203,6 +210,11 @@ data class LmsSubmissionItem(
     val studentId: Int = 0,
     val groupId: Int = 0,
     val canRetract: Boolean = false,
+    /**
+     * 草稿。上游 is_draft=true 表示只是暂存、**并未正式提交**。
+     * 不区分的话学生会以为已经交了——这是本页最容易误导人的一个字段。
+     */
+    val isDraft: Boolean = false,
     val comment: String = "",
     val createdAt: String? = null,
     val createdBy: LmsSubmissionCreator = LmsSubmissionCreator(),
@@ -213,6 +225,8 @@ data class LmsSubmissionItem(
     val mode: String = "",
     val status: String = "",
     val score: Any? = null,
+    /** 最终成绩。多次提交按 score_rule 折算后的结果，score 为空时优先看它 */
+    val finalScore: String? = null,
     val scoreAt: String? = null,
     val submittedAt: String? = null,
     val submitByInstructor: Boolean = false,
@@ -221,17 +235,20 @@ data class LmsSubmissionItem(
     val content: String = "",
     val uploads: List<LmsUpload> = emptyList()
 ) {
-    /** 分数显示 */
+    /** 分数显示。score 为空时回退 final_score——多次提交的场次只有后者有值 */
     val scoreDisplay: String
-        get() = when (score) {
-            null -> "未评分"
-            is Number -> score.toString()
-            else -> score.toString().ifEmpty { "未评分" }
+        get() {
+            val raw = when (score) {
+                null -> finalScore
+                is Number -> score.toString()
+                else -> score.toString().ifEmpty { finalScore }
+            }
+            return raw?.takeIf { it.isNotBlank() && it != "null" } ?: "未评分"
         }
 
-    /** 状态中文 */
+    /** 状态中文。草稿优先——它比 status 字段更能说明"到底交了没" */
     val statusLabel: String
-        get() = when (status) {
+        get() = if (isDraft) "草稿（未提交）" else when (status) {
             "submitted" -> "已提交"
             "graded" -> "已批改"
             "not_submitted" -> "未提交"

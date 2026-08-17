@@ -419,31 +419,6 @@ fun JwappScoreScreen(
                     IconButton(onClick = onOpenReport) {
                         Icon(Icons.Default.Assessment, contentDescription = "成绩报表")
                     }
-                    // GPA 小数精度切换：2 → 3 → 4 → 2，原先藏在卡片点击里，
-                    // 改放顶栏独立按钮——一眼可见、零误触。
-                    IconButton(onClick = {
-                        gpaPrecision = when (gpaPrecision) {
-                            2 -> 3
-                            3 -> 4
-                            else -> 2
-                        }
-                    }) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(end = 4.dp),
-                        ) {
-                            Icon(
-                                Icons.Default.Calculate,
-                                contentDescription = "GPA 精度",
-                            )
-                            Spacer(Modifier.width(2.dp))
-                            Text(
-                                "${gpaPrecision}位",
-                                style = MiuixTheme.textStyles.footnote1,
-                                color = MiuixTheme.colorScheme.onSurface,
-                            )
-                        }
-                    }
                     // GPA 映射表
                     IconButton(onClick = { showGpaTips.value = true }) {
                         Icon(Icons.Default.Info, contentDescription = "GPA 映射")
@@ -1139,59 +1114,34 @@ fun GpaMappingDialog(show: MutableState<Boolean>) {
     ) {
             Column(
                 modifier = Modifier.overScrollVertical().verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Text("数字成绩 → GPA（4.3 绩点制）", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold)
-                Text("依据：西交教〔2015〕87号 及 本科生学籍管理与学位授予规定（2017）", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                Text("4.3 绩点制", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold)
                 val numericRules = listOf(
-                    "95-100" to "4.3", "90-94" to "4.0", "85-89" to "3.7",
-                    "81-84" to "3.3", "78-80" to "3.0", "75-77" to "2.7",
-                    "72-74" to "2.3", "68-71" to "2.0", "64-67" to "1.7",
-                    "60-63" to "1.3", "<60" to "0.0"
+                    "95–100 → 4.3", "90–94 → 4.0", "85–89 → 3.7",
+                    "81–84 → 3.3", "78–80 → 3.0", "75–77 → 2.7",
+                    "72–74 → 2.3", "68–71 → 2.0", "64–67 → 1.7",
+                    "60–63 → 1.3", "<60 → 0"
                 )
-                numericRules.forEach { (range, gpa) ->
+                numericRules.chunked(2).forEach { pair ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(range, style = MiuixTheme.textStyles.footnote1)
-                        Text(gpa, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium)
+                        Text(pair[0], style = MiuixTheme.textStyles.footnote1, modifier = Modifier.weight(1f))
+                        if (pair.size > 1) {
+                            Text(pair[1], style = MiuixTheme.textStyles.footnote1, modifier = Modifier.weight(1f))
+                        }
                     }
                 }
-                Spacer(Modifier.height(8.dp))
-                Text("等级制（11级，英文/中文）", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold)
-                val gradeRules = listOf(
-                    Triple("A+ / 优+", "98", "4.3"),
-                    Triple("A  / 优", "92", "4.0"),
-                    Triple("A- / 优-", "87", "3.7"),
-                    Triple("B+ / 良+", "83", "3.3"),
-                    Triple("B  / 良", "79", "3.0"),
-                    Triple("B- / 良-", "76", "2.7"),
-                    Triple("C+ / 中+", "73", "2.3"),
-                    Triple("C  / 中", "70", "2.0"),
-                    Triple("C- / 中-", "66", "1.7"),
-                    Triple("D  / 及格", "62", "1.3"),
-                    Triple("F  / 不及格", "0", "0.0")
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "等级制按同样分数映射（A+/优+ = 4.3 … F/不及格 = 0）。通过/不通过不计入。",
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("等级", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                    Text("分数", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
-                    Text("GPA", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
-                }
-                gradeRules.forEach { (grade, score, gpa) ->
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(grade, style = MiuixTheme.textStyles.footnote1, modifier = Modifier.weight(1f))
-                        Text(score, style = MiuixTheme.textStyles.footnote1, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
-                        Text(gpa, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-                Text("GPA = Σ(课程GPA × 学分) / Σ学分",
+                Text(
+                    "GPA = Σ(绩点 × 学分) / Σ学分",
                     style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                Text("二等级制（通过/不通过）不参与 GPA 计算",
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                Text("优先使用 xscjcx.do 精确成绩（ZCJ/XFJD）",
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
             }
         Spacer(Modifier.height(16.dp))
         Button(

@@ -57,6 +57,7 @@ private const val R_JIAOCAI = "jiaocai"
 private const val R_LIBRARY = "library"
 private const val R_TRANSCRIPT = "transcript"
 private const val R_NOTIFICATION = "notification"
+private const val R_FACULTY = "faculty"
 private const val R_CAMPUS_CARD = "campus_card"
 private const val R_PAYMENT_CODE = "payment_code"
 private const val R_COUPON = "coupon"
@@ -91,6 +92,7 @@ fun legacyColor(key: String): Color = when (key) {
     R_LIBRARY -> Color(0xFFE65100)
     R_TRANSCRIPT -> Color(0xFF283593)
     R_NOTIFICATION -> MiuixTheme.colorScheme.error
+    R_FACULTY -> Color(0xFF455A64)
     // 校园生活
     R_CAMPUS_CARD -> Color(0xFF2E7D32)
     R_PAYMENT_CODE -> Color(0xFF00796B)

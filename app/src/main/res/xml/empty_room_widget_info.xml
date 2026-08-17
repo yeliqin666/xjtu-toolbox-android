@@ -8,6 +8,6 @@
     android:targetCellHeight="2"
     android:updatePeriodMillis="0"
     android:initialLayout="@layout/widget_empty_room"
-    android:previewLayout="@layout/widget_empty_room"
+    android:previewLayout="@layout/widget_fallback"
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen" />

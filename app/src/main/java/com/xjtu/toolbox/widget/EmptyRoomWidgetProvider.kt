@@ -50,25 +50,35 @@ object EmptyRoomWidgetUpdater {
         )
 
         for (id in appWidgetIds) {
-            val views = RemoteViews(context.packageName, R.layout.widget_empty_room)
-            for (i in 0..2) {
-                val textId = when (i) {
-                    0 -> R.id.widget_emptyroom_1
-                    1 -> R.id.widget_emptyroom_2
-                    else -> R.id.widget_emptyroom_3
+            runCatching {
+                val views = RemoteViews(context.packageName, R.layout.widget_empty_room)
+                for (i in 0..2) {
+                    val textId = when (i) {
+                        0 -> R.id.widget_emptyroom_1
+                        1 -> R.id.widget_emptyroom_2
+                        else -> R.id.widget_emptyroom_3
+                    }
+                    val subId = when (i) {
+                        0 -> R.id.widget_emptyroom_1_size
+                        1 -> R.id.widget_emptyroom_2_size
+                        else -> R.id.widget_emptyroom_3_size
+                    }
+                    val room = rooms.getOrNull(i)
+                    views.setTextViewText(textId, room?.name ?: if (i == 0) "--" else "")
+                    views.setTextViewText(subId, room?.let { "${it.size} 座" } ?: "")
                 }
-                val subId = when (i) {
-                    0 -> R.id.widget_emptyroom_1_size
-                    1 -> R.id.widget_emptyroom_2_size
-                    else -> R.id.widget_emptyroom_3_size
-                }
-                val room = rooms.getOrNull(i)
-                views.setTextViewText(textId, room?.name ?: "--")
-                views.setTextViewText(subId, room?.let { "${it.size} 座" } ?: "")
+                views.setTextViewText(R.id.widget_emptyroom_update_time, timeText)
+                views.setOnClickPendingIntent(R.id.widget_emptyroom_root, pendingIntent)
+                appWidgetManager.updateAppWidget(id, views)
+            }.onFailure {
+                val fallback = RemoteViews(context.packageName, R.layout.widget_fallback)
+                fallback.setTextViewText(
+                    R.id.widget_fallback_text,
+                    rooms.firstOrNull()?.name ?: context.getString(R.string.empty_room_widget_name),
+                )
+                fallback.setOnClickPendingIntent(R.id.widget_fallback_root, pendingIntent)
+                appWidgetManager.updateAppWidget(id, fallback)
             }
-            views.setTextViewText(R.id.widget_emptyroom_update_time, timeText)
-            views.setOnClickPendingIntent(R.id.widget_emptyroom_root, pendingIntent)
-            appWidgetManager.updateAppWidget(id, views)
         }
     }
 }

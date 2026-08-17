@@ -40,6 +40,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.ui.components.AppFilterChip
+import com.xjtu.toolbox.ui.components.rememberRetainedLazyListState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -58,16 +59,27 @@ private const val TAG = "ClassScreen"
 //  入口：课程回放主屏幕
 // ════════════════════════════════════════
 
+/**
+ * 会话内页面缓存，与思源学堂同样的道理：[ClassScreen] 在课程列表 / 回放列表之间
+ * 切换时始终保持组合，把数据放这一层，返回上一层就不必重新请求、也不丢筛选。
+ */
+private class ClassPageCache {
+    var courses by mutableStateOf<List<Course>>(emptyList())
+    var selectedSemester by mutableStateOf<String?>(null)
+    val activities = mutableStateMapOf<Int, List<LiveActivity>>()
+}
+
 @Composable
 fun ClassScreen(
     site: SiteSession,
     onBack: () -> Unit,
     onPlayReplay: (activityId: Int) -> Unit,
-    onDownloadReplay: (activityIds: List<Int>) -> Unit = {}
+    onDownloadReplay: (activityIds: List<Int>, videoSources: Set<String>) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
     // 页面导航状态
     var selectedCourse by remember { mutableStateOf<Course?>(null) }
+    val cache = remember { ClassPageCache() }
 
     // 首次使用提醒
     val prefs = remember { context.getSharedPreferences("feature_hints", Context.MODE_PRIVATE) }
@@ -128,10 +140,11 @@ fun ClassScreen(
         label = "ClassPage"
     ) { course ->
         if (course == null) {
-            CourseListPage(site = site, onBack = onBack, onCourseSelected = { selectedCourse = it })
+            CourseListPage(site = site, cache = cache, onBack = onBack, onCourseSelected = { selectedCourse = it })
         } else {
             ReplayListPage(
                 site = site,
+                cache = cache,
                 course = course,
                 onBack = { selectedCourse = null },
                 onPlayReplay = onPlayReplay,
@@ -148,15 +161,19 @@ fun ClassScreen(
 @Composable
 private fun CourseListPage(
     site: SiteSession,
+    cache: ClassPageCache,
     onBack: () -> Unit,
     onCourseSelected: (Course) -> Unit
 ) {
     val appLoginState = LocalAppLoginState.current
-    var allCourses by remember { mutableStateOf<List<Course>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
+    val allCourses = cache.courses
+    var isLoading by remember { mutableStateOf(cache.courses.isEmpty()) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
-    var selectedSemester by remember { mutableStateOf<String?>(null) } // null = 全部
+    var selectedSemester by remember { mutableStateOf(cache.selectedSemester) } // null = 全部
     val scope = rememberCoroutineScope()
+    val listState = rememberRetainedLazyListState("class_courses")
+
+    LaunchedEffect(selectedSemester) { cache.selectedSemester = selectedSemester }
 
     // 一次性加载所有课程（多页）
     fun loadAllCourses() {
@@ -174,7 +191,7 @@ private fun CourseListPage(
                     if (result.size >= total || list.isEmpty()) break
                     page++
                 }
-                allCourses = result
+                cache.courses = result
             } catch (e: AuthExpiredException) {
                 appLoginState.handleAuthExpired(LoginType.CLASS, Routes.CLASS_REPLAY, onBack)
             } catch (e: Exception) {
@@ -186,7 +203,8 @@ private fun CourseListPage(
         }
     }
 
-    LaunchedEffect(Unit) { loadAllCourses() }
+    // 有缓存就不重新请求：返回上一层应当是「回到原样」
+    LaunchedEffect(Unit) { if (cache.courses.isEmpty()) loadAllCourses() }
 
     // 提取可用学期列表（按时间倒序）
     val semesters = remember(allCourses) {
@@ -238,7 +256,8 @@ private fun CourseListPage(
                 }
                 else -> {
                     LazyColumn(
-                        Modifier.fillMaxSize(),
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(bottom = 16.dp)
                     ) {
                         // 学期筛选卡（与 LMS 课程页同构）
@@ -395,14 +414,16 @@ private fun CourseCard(course: Course, onClick: () -> Unit) {
 @Composable
 private fun ReplayListPage(
     site: SiteSession,
+    cache: ClassPageCache,
     course: Course,
     onBack: () -> Unit,
     onPlayReplay: (activityId: Int) -> Unit,
-    onDownloadReplay: (activityIds: List<Int>) -> Unit
+    onDownloadReplay: (activityIds: List<Int>, videoSources: Set<String>) -> Unit
 ) {
     val appLoginState = LocalAppLoginState.current
-    var activities by remember { mutableStateOf<List<LiveActivity>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
+    val activities = cache.activities[course.id].orEmpty()
+    val listState = rememberRetainedLazyListState("class_replays_${course.id}")
+    var isLoading by remember { mutableStateOf(cache.activities[course.id] == null) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
@@ -412,7 +433,6 @@ private fun ReplayListPage(
 
     // 下载配置状态
     var selectedVideoSources by remember { mutableStateOf<Set<String>>(setOf("instructor")) }
-    var selectedAudioSource by remember { mutableStateOf("instructor") }
 
     // 加载回放列表
     fun loadAllActivities() {
@@ -430,7 +450,7 @@ private fun ReplayListPage(
                     if (result.size + list.count { !it.isClosed } >= total || list.isEmpty()) break
                     page++
                 }
-                activities = result
+                cache.activities[course.id] = result
             } catch (e: AuthExpiredException) {
                 appLoginState.handleAuthExpired(LoginType.CLASS, Routes.CLASS_REPLAY, onBack)
             } catch (e: Exception) {
@@ -442,7 +462,7 @@ private fun ReplayListPage(
         }
     }
 
-    LaunchedEffect(Unit) { loadAllActivities() }
+    LaunchedEffect(Unit) { if (cache.activities[course.id] == null) loadAllActivities() }
 
     // 退出选择模式时清空
     DisposableEffect(isSelectionMode) {
@@ -507,11 +527,12 @@ private fun ReplayListPage(
                     totalCount = activities.size,
                     selectedVideoSources = selectedVideoSources,
                     onVideoSourcesChanged = { selectedVideoSources = it },
-                    selectedAudioSource = selectedAudioSource,
-                    onAudioSourceChanged = { selectedAudioSource = it },
                     onDownload = {
                         if (selectedActivities.isNotEmpty() && selectedVideoSources.isNotEmpty()) {
-                            onDownloadReplay(selectedActivities.toList())
+                            // 必须把用户选的机位和音源一并传出去——
+                            // 之前只传 activityIds，上层拿不到选择，只能把所有机位全下一遍，
+                            // 于是「只选教师画面」也会多出一个电脑屏幕文件。
+                            onDownloadReplay(selectedActivities.toList(), selectedVideoSources)
                             isSelectionMode = false
                         }
                     },
@@ -570,7 +591,8 @@ private fun ReplayListPage(
                 }
                 else -> {
                     LazyColumn(
-                        Modifier.fillMaxSize(),
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(bottom = 16.dp)
                     ) {
                         item(key = "count_hint") {
@@ -736,8 +758,6 @@ private fun DownloadBottomBar(
     totalCount: Int,
     selectedVideoSources: Set<String>,
     onVideoSourcesChanged: (Set<String>) -> Unit,
-    selectedAudioSource: String,
-    onAudioSourceChanged: (String) -> Unit,
     onDownload: () -> Unit,
     enabled: Boolean
 ) {
@@ -802,69 +822,6 @@ private fun DownloadBottomBar(
                     }
                 }
             }
-
-            Spacer(Modifier.height(8.dp))
-
-            // 音频源选择行（横向滚动）
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("音频源", style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium, modifier = Modifier.width(56.dp).wrapContentWidth(Alignment.End))
-                Spacer(Modifier.width(8.dp))
-                
-                Row(
-                    modifier = Modifier
-                        .weight(1f)
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    listOf(
-                        "instructor" to "教师音频",
-                        "encoder" to "电脑音频",
-                        "both" to "双音轨",
-                        "mute" to "静音"
-                    ).forEach { (value, label) ->
-                        val isSelected = selectedAudioSource == value
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = if (isSelected) MiuixTheme.colorScheme.primary.copy(alpha = 0.12f) else MiuixTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier.clickable { onAudioSourceChanged(value) }
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                if (isSelected) {
-                                    androidx.compose.foundation.layout.Box(
-                                        modifier = Modifier
-                                            .size(10.dp)
-                                            .background(MiuixTheme.colorScheme.primary, androidx.compose.foundation.shape.CircleShape)
-                                    )
-                                } else {
-                                    androidx.compose.foundation.layout.Box(
-                                        modifier = Modifier
-                                            .size(10.dp)
-                                            .border(
-                                                1.5.dp,
-                                                MiuixTheme.colorScheme.outline,
-                                                androidx.compose.foundation.shape.CircleShape
-                                            )
-                                    )
-                                }
-                                Text(
-                                    label,
-                                    style = MiuixTheme.textStyles.footnote1,
-                                    color = if (isSelected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
             Spacer(Modifier.height(12.dp))
 
             // 下载按钮

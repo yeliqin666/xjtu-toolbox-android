@@ -412,7 +412,7 @@ private fun EmptyAccountsPanel(
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                "添加后即可在本机保存并切换校园账号",
+                "登录统一身份认证，课表、成绩、校园卡自动同步",
                 style = MiuixTheme.textStyles.footnote1,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary
             )

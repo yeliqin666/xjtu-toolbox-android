@@ -25,9 +25,12 @@
     <string name="empty_room_widget_desc">Last 3 empty rooms</string>
 
     <string name="agent_shortcut_widget_name">Ask AI</string>
-    <string name="agent_shortcut_widget_desc">Tap to open AI chat</string>
+    <string name="agent_shortcut_widget_desc">Ask about today\'s classes, empty rooms, or card balance</string>
     <string name="agent_shortcut_widget_title">Ask AI</string>
-    <string name="agent_shortcut_widget_subtitle">Tap to start</string>
+    <string name="agent_shortcut_widget_subtitle">Tap a question</string>
+    <string name="agent_widget_ask_schedule">What\'s on today?</string>
+    <string name="agent_widget_ask_room">Find empty rooms</string>
+    <string name="agent_widget_ask_card">Card balance?</string>
 
     <string name="onboarding_page1_title">All in one box</string>
     <string name="onboarding_page1_body">Schedule, grades, empty rooms, campus card, notices, payment code…  all campus services in one place.</string>

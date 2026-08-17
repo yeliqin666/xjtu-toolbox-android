@@ -517,7 +517,12 @@ class LmsApi(private val site: SiteSession) {
                 averageScore = obj.get("average_score")?.let { if (it.isJsonNull) null else it.asDouble },
                 highestScore = obj.get("highest_score")?.let { if (it.isJsonNull) null else it.asDouble },
                 lowestScore = obj.get("lowest_score")?.let { if (it.isJsonNull) null else it.asDouble },
-                hasScoreCount = obj.get("has_score_count")?.let { if (it.isJsonNull) null else it.safeInt() }
+                hasScoreCount = obj.get("has_score_count")?.let { if (it.isJsonNull) null else it.safeInt() },
+                // 截止时间与提交规则：学生最关心的信息，之前完全没解析
+                deadline = obj.get("deadline").safeString() ?: obj.get("end_time").safeString(),
+                submitTimes = dataObj?.get("submit_times")?.let { if (it.isJsonNull) null else it.safeInt() },
+                nonSubmitTimes = obj.get("non_submit_times").safeBoolean(),
+                isClosed = obj.get("is_closed").safeBoolean(),
             )
 
             LmsActivityType.MATERIAL -> common.copy(
@@ -677,7 +682,9 @@ class LmsApi(private val site: SiteSession) {
                     isRedo = obj.get("is_redo").safeBoolean(),
                     mode = obj.get("mode").safeString() ?: "",
                     status = obj.get("status").safeString() ?: "",
+                    isDraft = obj.get("is_draft").safeBoolean(),
                     score = obj.get("score").safeString(),
+                    finalScore = obj.get("final_score").safeString(),
                     scoreAt = obj.get("score_at").safeString(),
                     submittedAt = obj.get("submitted_at").safeString(),
                     submitByInstructor = obj.get("submit_by_instructor").safeBoolean(),

@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.xjtu.toolbox.ui.components.AppFilterChip
+import com.xjtu.toolbox.ui.components.rememberRetainedLazyListState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -57,6 +58,24 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 
 private const val TAG = "LmsScreen"
+
+/**
+ * 会话内页面缓存。
+ *
+ * [LmsScreen] 这一层在课程列表 / 活动列表 / 活动详情之间切换时始终保持组合，
+ * 所以把已加载的数据和筛选选择放在这里，返回上一层就不再重新请求、也不丢筛选。
+ * 之前各子页面各自 `remember` + `LaunchedEffect(Unit) { load() }`，
+ * 每次返回都是一次冷加载，既慢又把用户的筛选状态清空。
+ *
+ * 仅存活于本次进入 LMS 期间；退出页面即释放，不做跨会话持久化。
+ */
+private class LmsPageCache {
+    var courses by mutableStateOf<List<LmsCourseSummary>>(emptyList())
+    var selectedSemester by mutableStateOf<String?>(null)
+    val activities = mutableStateMapOf<Int, List<LmsActivity>>()
+    val selectedTypes = mutableStateMapOf<Int, LmsActivityType?>()
+    val details = mutableStateMapOf<Int, LmsActivity>()
+}
 
 // ════════════════════════════════════════
 //  导航状态
@@ -88,6 +107,7 @@ fun LmsScreen(site: SiteSession, onBack: () -> Unit) {
     val api = remember(site) { LmsApi(site) }
 
     var currentPage by remember { mutableStateOf<LmsPage>(LmsPage.CourseList) }
+    val cache = remember { LmsPageCache() }
 
     // 首次使用提示
     val prefs = remember { context.getSharedPreferences("feature_hints", Context.MODE_PRIVATE) }
@@ -176,17 +196,20 @@ fun LmsScreen(site: SiteSession, onBack: () -> Unit) {
         when (page) {
             is LmsPage.CourseList -> CourseListPage(
                 api = api,
+                cache = cache,
                 onBack = onBack,
                 onCourseSelected = { currentPage = LmsPage.ActivityList(it) }
             )
             is LmsPage.ActivityList -> ActivityListPage(
                 api = api,
+                cache = cache,
                 course = page.course,
                 onBack = { currentPage = LmsPage.CourseList },
                 onActivitySelected = { currentPage = LmsPage.ActivityDetail(page.course, it) }
             )
             is LmsPage.ActivityDetail -> ActivityDetailPage(
                 api = api,
+                cache = cache,
                 course = page.course,
                 activity = page.activity,
                 onBack = { currentPage = LmsPage.ActivityList(page.course) },
@@ -213,22 +236,28 @@ fun LmsScreen(site: SiteSession, onBack: () -> Unit) {
 @Composable
 private fun CourseListPage(
     api: LmsApi,
+    cache: LmsPageCache,
     onBack: () -> Unit,
     onCourseSelected: (LmsCourseSummary) -> Unit
 ) {
     val appLoginState = LocalAppLoginState.current
-    var courses by remember { mutableStateOf<List<LmsCourseSummary>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
+    val courses = cache.courses
+    var isLoading by remember { mutableStateOf(cache.courses.isEmpty()) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
-    var selectedSemester by remember { mutableStateOf<String?>(null) }
+    var selectedSemester by remember { mutableStateOf(cache.selectedSemester) }
     val scope = rememberCoroutineScope()
+
+    // 学期筛选也跟着缓存走，返回时保持用户的选择
+    LaunchedEffect(selectedSemester) { cache.selectedSemester = selectedSemester }
+
+    val listState = rememberRetainedLazyListState("lms_courses")
 
     fun loadCourses() {
         scope.launch {
             isLoading = true
             errorMsg = null
             try {
-                courses = withContext(Dispatchers.IO) { api.getMyCourses() }
+                cache.courses = withContext(Dispatchers.IO) { api.getMyCourses() }
             } catch (e: AuthExpiredException) {
                 appLoginState.handleAuthExpired(LoginType.LMS, Routes.LMS, onBack)
             } catch (e: Exception) {
@@ -240,7 +269,8 @@ private fun CourseListPage(
         }
     }
 
-    LaunchedEffect(Unit) { loadCourses() }
+    // 已有缓存就不再请求——返回上一层应当是「回到原样」而不是重新加载
+    LaunchedEffect(Unit) { if (cache.courses.isEmpty()) loadCourses() }
 
     val semesters = remember(courses) {
         courses.map { it.semesterLabel }.distinct().sortedDescending()
@@ -271,7 +301,8 @@ private fun CourseListPage(
                 courses.isEmpty() -> EmptyState(Icons.Default.School, "没有课程", "暂未加入任何课程")
                 else -> {
                     LazyColumn(
-                        Modifier.fillMaxSize(),
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(bottom = 16.dp)
                     ) {
                         if (semesters.size > 1) {
@@ -405,23 +436,28 @@ private fun LmsCourseCard(course: LmsCourseSummary, onClick: () -> Unit) {
 @Composable
 private fun ActivityListPage(
     api: LmsApi,
+    cache: LmsPageCache,
     course: LmsCourseSummary,
     onBack: () -> Unit,
     onActivitySelected: (LmsActivity) -> Unit
 ) {
     val appLoginState = LocalAppLoginState.current
-    var activities by remember { mutableStateOf<List<LmsActivity>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
+    val activities = cache.activities[course.id].orEmpty()
+    var isLoading by remember { mutableStateOf(cache.activities[course.id] == null) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
-    var selectedType by remember { mutableStateOf<LmsActivityType?>(null) }
+    var selectedType by remember { mutableStateOf(cache.selectedTypes[course.id]) }
     val scope = rememberCoroutineScope()
+
+    LaunchedEffect(selectedType) { cache.selectedTypes[course.id] = selectedType }
+
+    val listState = rememberRetainedLazyListState("lms_activities_${course.id}")
 
     fun loadActivities() {
         scope.launch {
             isLoading = true
             errorMsg = null
             try {
-                activities = withContext(Dispatchers.IO) { api.getCourseActivities(course.id) }
+                cache.activities[course.id] = withContext(Dispatchers.IO) { api.getCourseActivities(course.id) }
             } catch (e: AuthExpiredException) {
                 appLoginState.handleAuthExpired(LoginType.LMS, Routes.LMS, onBack)
             } catch (e: Exception) {
@@ -433,7 +469,7 @@ private fun ActivityListPage(
         }
     }
 
-    LaunchedEffect(Unit) { loadActivities() }
+    LaunchedEffect(Unit) { if (cache.activities[course.id] == null) loadActivities() }
 
     val types = remember(activities) {
         activities.map { it.type }.distinct().sortedBy { it.ordinal }
@@ -464,7 +500,8 @@ private fun ActivityListPage(
                 activities.isEmpty() -> EmptyState(Icons.Default.Inbox, "暂无活动", "该课程还没有发布任何活动")
                 else -> {
                     LazyColumn(
-                        Modifier.fillMaxSize(),
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(bottom = 16.dp)
                     ) {
                         if (types.size > 1) {
@@ -584,6 +621,7 @@ private fun LmsActivityCard(activity: LmsActivity, onClick: () -> Unit) {
 @Composable
 private fun ActivityDetailPage(
     api: LmsApi,
+    cache: LmsPageCache,
     course: LmsCourseSummary,
     activity: LmsActivity,
     onBack: () -> Unit,
@@ -591,17 +629,53 @@ private fun ActivityDetailPage(
 ) {
     val context = LocalContext.current
     val appLoginState = LocalAppLoginState.current
-    var detail by remember { mutableStateOf<LmsActivity?>(null) }
-    var isLoading by remember { mutableStateOf(true) }
+    val detail = cache.details[activity.id]
+    var isLoading by remember { mutableStateOf(cache.details[activity.id] == null) }
+    val listState = rememberRetainedLazyListState("lms_detail_${activity.id}")
     var errorMsg by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+
+
+    // 思源学堂回放下载：复用 classreplay 的 DownloadManager 队列。
+    // 与 class 的差别是这里 download_url 已是直链，不必再解析一次。
+    // 直播流（HLS/m3u8）不提供下载——它不是单文件，按分片下载另属一套实现。
+    fun enqueueDownload(video: LmsReplayVideo, title: String) {
+        val url = video.downloadUrl
+        if (url.isBlank() || url.contains(".m3u8", ignoreCase = true)) {
+            Toast.makeText(context, "该视频不支持下载", Toast.LENGTH_SHORT).show()
+            return
+        }
+        scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    com.xjtu.toolbox.classreplay.DownloadManager.getInstance(context.applicationContext)
+                        .enqueueDownloads(
+                            courseName = course.name,
+                            activityTitle = title,
+                            activityId = activity.id,
+                            videos = listOf(
+                                com.xjtu.toolbox.classreplay.DownloadManager.DownloadItem(
+                                    cameraType = if (video.label.contains("instructor", true)) "instructor" else "encoder",
+                                    url = url,
+                                )
+                            ),
+                        )
+                }
+            }.onSuccess {
+                Toast.makeText(context, "已加入下载队列", Toast.LENGTH_SHORT).show()
+            }.onFailure {
+                Log.e(TAG, "enqueue lms download failed", it)
+                Toast.makeText(context, "加入下载失败：${it.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     fun loadDetail() {
         scope.launch {
             isLoading = true
             errorMsg = null
             try {
-                detail = withContext(Dispatchers.IO) { api.getActivityDetail(activity.id) }
+                cache.details[activity.id] = withContext(Dispatchers.IO) { api.getActivityDetail(activity.id) }
             } catch (e: AuthExpiredException) {
                 appLoginState.handleAuthExpired(LoginType.LMS, Routes.LMS, onBack)
             } catch (e: Exception) {
@@ -613,7 +687,7 @@ private fun ActivityDetailPage(
         }
     }
 
-    LaunchedEffect(Unit) { loadDetail() }
+    LaunchedEffect(Unit) { if (cache.details[activity.id] == null) loadDetail() }
 
     Scaffold(
         topBar = {
@@ -634,8 +708,18 @@ private fun ActivityDetailPage(
                 errorMsg != null -> ErrorRetry(errorMsg!!) { loadDetail() }
                 detail != null -> {
                     val d = detail!!
+
+                    // 视频源要求带同源请求头，否则 CDN 直接 403。
+                    // 直播分支一直带着这两个头能正常播，回放分支之前传的是 emptyMap()，
+                    // 于是 ExoPlayer 取流被拒（日志：Source error → Response code: 403）。
+                    // 提到这里共用，避免两个分支再次走散。
+                    val lmsVideoHeaders = mapOf(
+                        "Origin" to "https://lms.xjtu.edu.cn",
+                        "Referer" to "https://lms.xjtu.edu.cn/",
+                    )
                     LazyColumn(
-                        Modifier.fillMaxSize(),
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
                     ) {
                         // 基本信息卡
@@ -670,14 +754,20 @@ private fun ActivityDetailPage(
                             }
                         }
 
-                        // 作业提交记录
-                        if (d.type == LmsActivityType.HOMEWORK && d.submissionList != null) {
-                            val submissions = d.submissionList!!
-                            if (submissions.list.isNotEmpty()) {
-                                item(key = "sub_header") { SectionHeader("提交记录 (${submissions.list.size})") }
-                                items(submissions.list, key = { "sub_${it.id}" }) { sub ->
+                        // 作业信息 + 提交记录
+                        if (d.type == LmsActivityType.HOMEWORK) {
+                            item(key = "hw_meta") { HomeworkMetaCard(d) }
+
+                            val submissions = d.submissionList?.list.orEmpty()
+                            if (submissions.isNotEmpty()) {
+                                item(key = "sub_header") { SectionHeader("提交记录 (${submissions.size})") }
+                                items(submissions, key = { "sub_${it.id}" }) { sub ->
                                     SubmissionCard(sub, context, api)
                                 }
+                            } else {
+                                // 一条都没有时必须明确说出来。之前这里什么都不渲染，
+                                // 用户分不清是「没交」还是「加载失败」。
+                                item(key = "sub_empty") { NoSubmissionCard(closed = d.isClosed) }
                             }
                         }
 
@@ -702,7 +792,7 @@ private fun ActivityDetailPage(
                                                 instrVideo?.downloadUrl,
                                                 encVideo?.downloadUrl ?: d.replayVideos.first().downloadUrl,
                                                 false,
-                                                emptyMap()
+                                                lmsVideoHeaders
                                             )
                                         },
                                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
@@ -715,7 +805,10 @@ private fun ActivityDetailPage(
                             }
 
                             items(d.replayVideos, key = { "replay_${it.id}" }) { video ->
-                                ReplayVideoCard(video, context) {
+                                ReplayVideoCard(
+                                    video, context,
+                                    onDownload = { enqueueDownload(video, d.title) },
+                                ) {
                                     // 单机位播放
                                     if (video.downloadUrl.isNotEmpty()) {
                                         val isInstr = video.label.contains("instructor", true)
@@ -724,7 +817,7 @@ private fun ActivityDetailPage(
                                             if (isInstr) video.downloadUrl else null,
                                             if (!isInstr) video.downloadUrl else null,
                                             false,
-                                            emptyMap()
+                                            lmsVideoHeaders
                                         )
                                     }
                                 }
@@ -741,10 +834,6 @@ private fun ActivityDetailPage(
                                 item(key = "live_play_btn") {
                                     val instrStream = d.liveStreams.find { it.isInstructor }
                                     val encStream = d.liveStreams.find { it.isEncoder }
-                                    val lmsHeaders = mapOf(
-                                        "Origin" to "https://lms.xjtu.edu.cn",
-                                        "Referer" to "https://lms.xjtu.edu.cn/"
-                                    )
                                     Button(
                                         onClick = {
                                             onPlayVideo(
@@ -752,7 +841,7 @@ private fun ActivityDetailPage(
                                                 instrStream?.src,
                                                 encStream?.src ?: d.liveStreams.first().src,
                                                 true,
-                                                lmsHeaders
+                                                lmsVideoHeaders
                                             )
                                         },
                                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
@@ -765,16 +854,12 @@ private fun ActivityDetailPage(
                                 // 单独的流列表
                                 items(d.liveStreams, key = { "stream_${it.label}" }) { stream ->
                                     LiveStreamCard(stream) {
-                                        val lmsHeaders = mapOf(
-                                            "Origin" to "https://lms.xjtu.edu.cn",
-                                            "Referer" to "https://lms.xjtu.edu.cn/"
-                                        )
                                         onPlayVideo(
                                             "${d.title} - ${stream.readableLabel}",
                                             if (stream.isInstructor) stream.src else null,
                                             if (!stream.isInstructor) stream.src else null,
                                             true,
-                                            lmsHeaders
+                                            lmsVideoHeaders
                                         )
                                     }
                                 }
@@ -800,7 +885,7 @@ private fun ActivityDetailPage(
                                                     instrVideo?.downloadUrl,
                                                     encVideo?.downloadUrl ?: d.liveReplayVideos.first().downloadUrl,
                                                     false,
-                                                    emptyMap()
+                                                    lmsVideoHeaders
                                                 )
                                             },
                                             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
@@ -814,7 +899,10 @@ private fun ActivityDetailPage(
 
                                 d.liveReplayVideos.forEachIndexed { idx, video ->
                                     item(key = "live_replay_${idx}_${video.id}") {
-                                        ReplayVideoCard(video, context) {
+                                        ReplayVideoCard(
+                                            video, context,
+                                            onDownload = { enqueueDownload(video, d.title) },
+                                        ) {
                                             if (video.downloadUrl.isNotEmpty()) {
                                                 val isInstr = video.label.contains("instructor", true)
                                                 onPlayVideo(
@@ -822,7 +910,7 @@ private fun ActivityDetailPage(
                                                     if (isInstr) video.downloadUrl else null,
                                                     if (!isInstr) video.downloadUrl else null,
                                                     false,
-                                                    emptyMap()
+                                                    lmsVideoHeaders
                                                 )
                                             }
                                         }
@@ -994,6 +1082,113 @@ private fun UploadCard(upload: LmsUpload, context: Context, api: LmsApi? = null)
     }
 }
 
+/**
+ * 作业基本信息：截止时间、剩余时间、提交次数、取分规则。
+ *
+ * 这些字段上游一直有（deadline / submit_times / score_rule 等），此前没解析也没展示，
+ * 学生看不到「什么时候截止、还能交几次」——恰恰是最该先看到的东西。
+ */
+@Composable
+private fun HomeworkMetaCard(activity: LmsActivity) {
+    val deadline = activity.deadline
+    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Schedule,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = MiuixTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    if (deadline.isNullOrBlank()) "未设置截止时间"
+                    else "截止 " + formatLmsTime(deadline),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+                Spacer(Modifier.width(8.dp))
+                val remain = deadline?.let { remainingLabel(it) }
+                if (activity.isClosed) {
+                    Text("已关闭", fontSize = 12.sp, color = MiuixTheme.colorScheme.error)
+                } else if (remain != null) {
+                    Text(
+                        remain,
+                        fontSize = 12.sp,
+                        color = if (remain == "已过期") MiuixTheme.colorScheme.error
+                        else MiuixTheme.colorScheme.primary,
+                    )
+                }
+            }
+
+            val extras = buildList {
+                when {
+                    activity.nonSubmitTimes -> add("提交次数不限")
+                    activity.submitTimes != null && activity.submitTimes > 0 ->
+                        add("最多提交 " + activity.submitTimes + " 次")
+                }
+                if (activity.userSubmitCount > 0) add("已提交 " + activity.userSubmitCount + " 次")
+                // 只留跟"我还能不能交、交过几次"直接相关的。
+                // 取分规则/可撤回/提交形式这类对学生是套话，占位置不提供决策依据。
+            }
+            if (extras.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    extras.joinToString(" · "),
+                    fontSize = 12.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+            }
+        }
+    }
+}
+
+/** 没有任何提交记录时的明确说明，避免和「加载失败」混淆 */
+@Composable
+private fun NoSubmissionCard(closed: Boolean) {
+    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+        Column(
+            Modifier.fillMaxWidth().padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(
+                Icons.Default.AssignmentLate,
+                contentDescription = null,
+                modifier = Modifier.size(32.dp),
+                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                if (closed) "这次作业你没有提交记录" else "还没有提交记录",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "提交请前往思源学堂网页端",
+                fontSize = 12.sp,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+        }
+    }
+}
+
+/** 距截止还剩多久；已过返回「已过期」。解析失败返回 null，不猜。 */
+private fun remainingLabel(deadlineRaw: String): String? = try {
+    val deadline = java.time.ZonedDateTime.parse(deadlineRaw).toInstant()
+    val now = java.time.Instant.now()
+    if (deadline.isBefore(now)) "已过期" else {
+        val minutes = java.time.Duration.between(now, deadline).toMinutes()
+        when {
+            minutes < 60 -> "剩 " + minutes + " 分钟"
+            minutes < 60 * 24 -> "剩 " + (minutes / 60) + " 小时"
+            else -> "剩 " + (minutes / (60 * 24)) + " 天"
+        }
+    }
+} catch (_: Exception) {
+    null
+}
+
 @Composable
 private fun SubmissionCard(sub: LmsSubmissionItem, context: Context, api: LmsApi) {
     val scope = rememberCoroutineScope()
@@ -1005,10 +1200,13 @@ private fun SubmissionCard(sub: LmsSubmissionItem, context: Context, api: LmsApi
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    val statusColor = when (sub.status) {
-                        "graded" -> Color(0xFF4CAF50)
-                        "submitted" -> MiuixTheme.colorScheme.primary
-                        "returned" -> Color(0xFFFF9800)
+                    // 草稿要压过 status：上游 status 可能仍是 submitted，
+                    // 但 is_draft=true 意味着实际没交出去
+                    val statusColor = when {
+                        sub.isDraft -> Color(0xFFFF9800)
+                        sub.status == "graded" -> Color(0xFF4CAF50)
+                        sub.status == "submitted" -> MiuixTheme.colorScheme.primary
+                        sub.status == "returned" -> Color(0xFFFF9800)
                         else -> MiuixTheme.colorScheme.onSurfaceVariantSummary
                     }
                     Text(sub.statusLabel, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = statusColor)
@@ -1086,7 +1284,14 @@ private fun SubmissionCard(sub: LmsSubmissionItem, context: Context, api: LmsApi
 }
 
 @Composable
-private fun ReplayVideoCard(video: LmsReplayVideo, context: Context, onPlay: () -> Unit) {
+private fun ReplayVideoCard(
+    video: LmsReplayVideo,
+    context: Context,
+    onDownload: (() -> Unit)? = null,
+    // onPlay 必须是最后一个参数：调用方用尾随 lambda 传它，
+    // 放在 onDownload 之前会让尾随 lambda 绑错形参。
+    onPlay: () -> Unit,
+) {
     Card(
         onClick = onPlay,
         pressFeedbackType = PressFeedbackType.Sink,
@@ -1104,9 +1309,23 @@ private fun ReplayVideoCard(video: LmsReplayVideo, context: Context, onPlay: () 
                     if (video.readableSize.isNotEmpty()) {
                         Text(video.readableSize, fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
-                    if (video.mute) {
-                        Text("静音", fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                    // 不要把 mute 显示成「静音」：上游同时下发 mute 与 is_best_audio，
+                    // mute 是「多机位同放时该路要静音」的播放提示（避免回声），
+                    // 不代表文件没有音轨——单独播放这一路是有声音的。
+                    // 真正有信息量的是哪一路被标为推荐音源。
+                    if (video.isBestAudio) {
+                        Text("主音源", fontSize = 12.sp, color = MiuixTheme.colorScheme.primary)
                     }
+                }
+            }
+            // 只有拿得到可直接 GET 的地址才给下载入口（HLS 已在调用方排除）
+            if (onDownload != null) {
+                IconButton(onClick = onDownload) {
+                    Icon(
+                        Icons.Default.Download,
+                        contentDescription = "下载",
+                        tint = MiuixTheme.colorScheme.primary,
+                    )
                 }
             }
             Icon(Icons.Default.PlayArrow, null, tint = MiuixTheme.colorScheme.primary)
@@ -1135,8 +1354,9 @@ private fun LiveStreamCard(stream: LmsLiveStream, onPlay: () -> Unit) {
                 Text(stream.readableLabel, fontSize = 15.sp, fontWeight = FontWeight.Medium)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("HLS 直播", fontSize = 12.sp, color = Color(0xFFC62828))
-                    if (stream.mute) {
-                        Text("静音", fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                    // 同上：直播流的 mute 也是多路同放时的静音提示
+                    if (!stream.mute) {
+                        Text("含音频", fontSize = 12.sp, color = MiuixTheme.colorScheme.primary)
                     }
                 }
             }

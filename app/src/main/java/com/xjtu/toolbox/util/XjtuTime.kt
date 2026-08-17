@@ -75,4 +75,16 @@ object XjtuTime {
         val schedule = if (summer) SUMMER_SCHEDULE else WINTER_SCHEDULE
         return schedule.entries.sortedBy { it.key }.map { it.key to it.value }
     }
+
+    /**
+     * 当前学年的起始年份。学年从 9 月起算，用起始年命名——
+     * 2025-2026 学年即「2025 学年」。
+     *
+     * 例：2026-08-17 仍属 2025 学年（新学年 9 月才开始）；2026-09-01 起为 2026 学年。
+     *
+     * 各系统的年份下拉多数只给 `2025` 这样的起始年，需要默认选中"本学年"时用它，
+     * 不要各页面各自 `LocalDate.now().year` ——那样 1–8 月会整体错一年。
+     */
+    fun currentAcademicYear(today: java.time.LocalDate = java.time.LocalDate.now()): Int =
+        if (today.monthValue >= 9) today.year else today.year - 1
 }

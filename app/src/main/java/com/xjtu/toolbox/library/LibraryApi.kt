@@ -139,6 +139,16 @@ class LibraryApi(private val site: SiteSession) {
         val AREA_MAP_REVERSE = AREA_MAP.entries.associate { (name, code) -> code to name }
 
         /**
+         * 判断响应体是不是 JSON，只看首个非空白字符。
+         *
+         * 不能用 Content-Type 做判据：rg.lib.xjtu.edu.cn 对合法 JSON 也会打
+         * `text/html; charset=utf-8` 的头，照着响应头判会把正常数据当成错误页拒掉。
+         * 反过来登录跳转页/错误页首字符是 `<`，这里一样能兜住。
+         */
+        private fun looksLikeJson(body: String): Boolean =
+            body.trimStart().firstOrNull()?.let { it == '{' || it == '[' } == true
+
+        /**
          * 座位号正则：匹配字母前缀的 (C08, Y003) 和纯数字零开头的 (002, 019)。
          * 东南侧/西南侧的座位是纯数字编号，没有字母前缀。
          */
@@ -218,9 +228,8 @@ class LibraryApi(private val site: SiteSession) {
             throw RuntimeException("楼层信息加载失败: HTTP ${response.code}")
         }
         // 检查是否返回了 HTML 而非 JSON
-        if ("html" in contentType || body.trimStart().startsWith("<!DOCTYPE", ignoreCase = true) ||
-            body.trimStart().startsWith("<html", ignoreCase = true)) {
-            Log.e(TAG, "qspace returned HTML instead of JSON. ContentType=$contentType, body preview: ${body.take(200)}")
+        if (!looksLikeJson(body)) {
+            Log.e(TAG, "qspace did not return JSON. ContentType=$contentType, body preview: ${body.take(500)}")
             throw RuntimeException("图书馆楼层信息接口返回异常（非 JSON 响应）")
         }
         val json = org.json.JSONObject(body)
@@ -264,9 +273,13 @@ class LibraryApi(private val site: SiteSession) {
             response.close()
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
             throw e   // 透传给 UI 层做静默重登，不要降级成普通错误
-        } catch (e: Exception) {
+        } catch (e: java.io.IOException) {
             Log.e(TAG, "getSeats network error", e)
             return SeatResult.Error("网络请求失败: ${e.message}")
+        } catch (e: Exception) {
+            // 解析/响应异常（如 loadFloorContext 抛出的非 JSON），别伪装成网络问题
+            Log.e(TAG, "getSeats failed", e)
+            return SeatResult.Error(e.message ?: "座位信息加载失败")
         }
 
         val finalUrl = response.request.url.toString()
@@ -277,11 +290,10 @@ class LibraryApi(private val site: SiteSession) {
         if (body.length < 10)
             return SeatResult.Error("服务器返回异常")
 
-        // 检查 Content-Type：若服务器返回 HTML 而非 JSON，说明遇到错误页
+        // 若服务器没返回 JSON（错误页/登录页），说明这次查询没拿到数据
         val contentType = response.header("Content-Type")?.lowercase() ?: ""
-        if ("html" in contentType || body.trimStart().startsWith("<!DOCTYPE", ignoreCase = true) ||
-            body.trimStart().startsWith("<html", ignoreCase = true)) {
-            Log.e(TAG, "qseat returned HTML instead of JSON. ContentType=$contentType, body preview: ${body.take(200)}")
+        if (!looksLikeJson(body)) {
+            Log.e(TAG, "qseat did not return JSON. ContentType=$contentType, body preview: ${body.take(500)}")
             return SeatResult.Error("图书馆服务器返回异常（非 JSON 响应），请稍后重试")
         }
 

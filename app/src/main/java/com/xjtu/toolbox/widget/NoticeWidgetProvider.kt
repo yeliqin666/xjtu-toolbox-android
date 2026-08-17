@@ -50,13 +50,20 @@ object NoticeWidgetUpdater {
         )
 
         for (id in appWidgetIds) {
-            val views = RemoteViews(context.packageName, R.layout.widget_notice)
-            views.setTextViewText(R.id.widget_notice_1, titles.getOrNull(0) ?: "--")
-            views.setTextViewText(R.id.widget_notice_2, titles.getOrNull(1) ?: "")
-            views.setTextViewText(R.id.widget_notice_3, titles.getOrNull(2) ?: "")
-            views.setTextViewText(R.id.widget_notice_update_time, timeText)
-            views.setOnClickPendingIntent(R.id.widget_notice_root, pendingIntent)
-            appWidgetManager.updateAppWidget(id, views)
+            runCatching {
+                val views = RemoteViews(context.packageName, R.layout.widget_notice)
+                views.setTextViewText(R.id.widget_notice_1, titles.getOrNull(0) ?: "--")
+                views.setTextViewText(R.id.widget_notice_2, titles.getOrNull(1) ?: "")
+                views.setTextViewText(R.id.widget_notice_3, titles.getOrNull(2) ?: "")
+                views.setTextViewText(R.id.widget_notice_update_time, timeText)
+                views.setOnClickPendingIntent(R.id.widget_notice_root, pendingIntent)
+                appWidgetManager.updateAppWidget(id, views)
+            }.onFailure {
+                val fallback = RemoteViews(context.packageName, R.layout.widget_fallback)
+                fallback.setTextViewText(R.id.widget_fallback_text, titles.getOrNull(0) ?: context.getString(R.string.notice_widget_name))
+                fallback.setOnClickPendingIntent(R.id.widget_fallback_root, pendingIntent)
+                appWidgetManager.updateAppWidget(id, fallback)
+            }
         }
     }
 }

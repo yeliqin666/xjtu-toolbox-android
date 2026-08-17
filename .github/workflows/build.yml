@@ -69,11 +69,25 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: ./gradlew assembleRelease
 
+      # assembleRelease 是根任务，:app 与 :wear 都会构建。
+      # :wear 已配置与 :app 相同的 signingConfig，读的是上一步同一批环境变量，
+      # 因此产物是 wear-release.apk（未配签名时才会是 wear-release-unsigned.apk）。
+      - name: Verify wear APK is signed
+        run: |
+          if [ ! -f wear/build/outputs/apk/release/wear-release.apk ]; then
+            echo "::error::wear-release.apk 不存在——签名配置未生效，请检查 keystore secrets"
+            ls -la wear/build/outputs/apk/release/ || true
+            exit 1
+          fi
+          echo "wear APK: $(wc -c < wear/build/outputs/apk/release/wear-release.apk) bytes"
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-release
-          path: app/build/outputs/apk/release/app-release.apk
+          path: |
+            app/build/outputs/apk/release/app-release.apk
+            wear/build/outputs/apk/release/wear-release.apk
 
       - name: Delete existing tag (if any)
         run: |
@@ -85,7 +99,9 @@ jobs:
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: ${{ steps.version.outputs.tag }}
-          files: app/build/outputs/apk/release/app-release.apk
+          files: |
+            app/build/outputs/apk/release/app-release.apk
+            wear/build/outputs/apk/release/wear-release.apk
           generate_release_notes: true
           make_latest: true
           prerelease: ${{ contains(steps.version.outputs.version, 'alpha') || contains(steps.version.outputs.version, 'beta') }}
@@ -151,6 +167,7 @@ jobs:
           OWNER="yeliqin666"
           REPO="xjtu-toolbox-android"
           APK_PATH="app/build/outputs/apk/release/app-release.apk"
+          WEAR_APK_PATH="wear/build/outputs/apk/release/wear-release.apk"
 
           # 配置 Gitee remote
           git remote add gitee "https://yeliqin666:${GITEE_TOKEN}@gitee.com/${OWNER}/${REPO}.git" 2>/dev/null || \
@@ -195,15 +212,21 @@ jobs:
           fi
           echo "Created Gitee release $RELEASE_ID"
 
-          # 上传 APK
-          echo "APK file size: $(wc -c < ${APK_PATH}) bytes"
-          HTTP_CODE=$(curl --max-time 1200 --progress-bar -w "%{http_code}" \
-            -X POST "https://gitee.com/api/v5/repos/${OWNER}/${REPO}/releases/${RELEASE_ID}/attach_files" \
-            -F "access_token=${GITEE_TOKEN}" \
-            -F "file=@${APK_PATH};type=application/vnd.android.package-archive") || HTTP_CODE="000"
-          echo "Upload HTTP code: $HTTP_CODE"
-          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-            echo "APK uploaded to Gitee release"
-          else
-            echo "Upload failed with HTTP $HTTP_CODE, but continuing"
-          fi
+          # 上传 APK（手机包必传；手表包存在才传，缺失不阻断整个同步）
+          for APK in "${APK_PATH}" "${WEAR_APK_PATH}"; do
+            if [ ! -f "$APK" ]; then
+              echo "Skip missing $APK"
+              continue
+            fi
+            echo "Uploading $(basename "$APK"): $(wc -c < "$APK") bytes"
+            HTTP_CODE=$(curl --max-time 1200 --progress-bar -w "%{http_code}" \
+              -X POST "https://gitee.com/api/v5/repos/${OWNER}/${REPO}/releases/${RELEASE_ID}/attach_files" \
+              -F "access_token=${GITEE_TOKEN}" \
+              -F "file=@${APK};type=application/vnd.android.package-archive") || HTTP_CODE="000"
+            echo "Upload HTTP code: $HTTP_CODE"
+            if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+              echo "$(basename "$APK") uploaded to Gitee release"
+            else
+              echo "Upload failed with HTTP $HTTP_CODE, but continuing"
+            fi
+          done

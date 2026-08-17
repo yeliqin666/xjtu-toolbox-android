@@ -37,6 +37,7 @@ object DeepLinkRouter {
             "schedule", "course" -> DeepLinkTarget(Routes.SCHEDULE)
             "empty_room" -> DeepLinkTarget(Routes.EMPTY_ROOM)
             "campus_card" -> DeepLinkTarget(Routes.CAMPUS_CARD)
+            "payment_code", "pay" -> DeepLinkTarget(Routes.PAYMENT_CODE)
             "notification" -> DeepLinkTarget(Routes.NOTIFICATION)
             "score", "grade" -> DeepLinkTarget(Routes.JWAPP_SCORE)
             else -> null
