@@ -99,7 +99,6 @@ fun SettingsScreen(
     onNavBarStyleChanged: (String) -> Unit = {},
     onDarkModeChanged: (String) -> Unit = {},
     onDefaultTabChanged: (String) -> Unit = {},
-    onOpenDownloads: () -> Unit = {},
     homeTheme: String = CredentialStore.THEME_CARD,
     onHomeThemeChanged: (String) -> Unit = {},
     showQuickActions: Boolean = true,
@@ -455,12 +454,6 @@ fun SettingsScreen(
                     startAction = { SettingsIcon(MiuixIcons.Delete, cRed) },
                     onClick = { showClearCacheDialog = true }
                 )
-                ArrowPreference(
-                    title = "下载管理",
-                    summary = "查看思源课件和课堂回放，管理已下载文件",
-                    startAction = { SettingsIcon(MiuixIcons.Folder, cBrown) },
-                    onClick = onOpenDownloads
-                )
             }
 
             // ── 更新 ──
@@ -528,10 +521,9 @@ fun SettingsScreen(
                     summary = versionText,
                     startAction = { SettingsIcon(MiuixIcons.Info, cGreen) }
                 )
-                // 反馈入口
                 ArrowPreference(
                     title = "反馈与建议",
-                    summary = "写反馈、收集日志、跳 GitHub Issue",
+                    summary = "提交问题或建议，可附带日志",
                     startAction = { SettingsIcon(MiuixIcons.Report, cPink) },
                     onClick = { onOpenFeedback() }
                 )
@@ -546,12 +538,6 @@ fun SettingsScreen(
                     summary = "GitHub · yeliqin666/xjtu-toolbox-android",
                     startAction = { SettingsIcon(MiuixIcons.Forward, cBlue) },
                     onClick = { uriHandler.openUri("https://github.com/yeliqin666/xjtu-toolbox-android") }
-                )
-                ArrowPreference(
-                    title = "反馈建议",
-                    summary = "提交 GitHub Issue",
-                    startAction = { SettingsIcon(MiuixIcons.Report, cPink) },
-                    onClick = { uriHandler.openUri("https://github.com/yeliqin666/xjtu-toolbox-android/issues") }
                 )
                 ArrowPreference(
                     title = "用户协议与隐私政策",

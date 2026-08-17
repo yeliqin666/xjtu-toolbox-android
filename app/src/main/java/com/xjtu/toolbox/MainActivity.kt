@@ -1709,7 +1709,6 @@ fun AppNavigation(
                 onNavBarStyleChanged = { /* NavBar 风格变化通过 MainScreen 内部状态处理 */ },
                 onDarkModeChanged = onDarkModeChanged,
                 onDefaultTabChanged = { /* 下次启动生效 */ },
-                onOpenDownloads = { navController.navigate(Routes.DOWNLOAD_MANAGER) },
                 homeTheme = homeTheme,
                 onHomeThemeChanged = { v ->
                     homeTheme = v
