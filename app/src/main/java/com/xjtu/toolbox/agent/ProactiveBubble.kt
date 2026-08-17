@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -309,7 +310,14 @@ object AgentPendingPrompt {
     @Volatile
     private var pending: String? = null
 
-    fun set(text: String) { pending = text }
+    /** Compose 观察此值，才能在 Agent 已打开时收到第二次深链 / 搜索。 */
+    var generation by mutableIntStateOf(0)
+        private set
+
+    fun set(text: String) {
+        pending = text
+        generation++
+    }
 
     fun consume(): String? {
         val v = pending

@@ -43,28 +43,29 @@ import androidx.compose.material.icons.filled.TravelExplore
 
 /**
  * 搜索结果条目。两种类型：
- * - [TypeScreen]：跳屏
- * - [TypeAgentPrompt]：把搜索词直接送给屁岱，让它自然分流
+ * - [SearchEntry.Screen]：跳屏
+ * - [SearchEntry.AgentPrompt]：把搜索词直接送给屁岱，让它自然分流
  *
- * 选择 [TypeAgentPrompt] 而不是工具直跳：用户搜"成绩"是想看成绩，搜"空教室"是想查空教室，
+ * 选择 AgentPrompt 而不是工具直跳：用户搜"成绩"是想看成绩，搜"空教室"是想查空教室，
  * 但搜"高数成绩"是问问题。统一走 AI 自动分发，比维护一套 query 解析器靠谱得多。
  */
 internal sealed class SearchEntry {
     abstract val title: String
     abstract val subtitle: String
+    abstract val aliases: List<String>
 
     data class Screen(
         override val title: String,
         override val subtitle: String,
         val route: String,
-        val aliases: List<String> = emptyList(),
+        override val aliases: List<String> = emptyList(),
     ) : SearchEntry()
 
     data class AgentPrompt(
         override val title: String,
         override val subtitle: String,
         val prompt: String,
-        val aliases: List<String> = emptyList(),
+        override val aliases: List<String> = emptyList(),
     ) : SearchEntry()
 }
 
@@ -112,10 +113,7 @@ internal object GlobalSearchIndex {
         if (query.isBlank()) return emptyList()
         val q = query.trim().lowercase()
         return entries().filter { e ->
-            val titles = listOf(e.title) + when (e) {
-                is SearchEntry.Screen -> e.aliases
-                is SearchEntry.AgentPrompt -> e.aliases
-            }
+            val titles = listOf(e.title) + e.aliases
             titles.any { it.lowercase().contains(q) }
         }
     }
@@ -227,7 +225,7 @@ private fun SearchResultRow(
     showAiIcon: Boolean,
     onClick: () -> Unit,
 ) {
-    // PR-17 TalkBack：mergeDescendants=true 让无障碍服务一次读出整行（title + subtitle + icon），
+    // TalkBack：mergeDescendants=true 让无障碍服务一次读出整行（title + subtitle + icon），
     // 而不是分开念多个分散节点。
     Surface(
         shape = RoundedCornerShape(12.dp),

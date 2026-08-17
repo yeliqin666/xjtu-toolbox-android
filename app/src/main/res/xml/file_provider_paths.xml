@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
     <cache-path name="exports" path="exports/" />
-    <cache-path name="apk_cache" path="." />
-    <!-- 课程回放下载目录：公共 Downloads/ClassReplay -->
-    <!-- external-path 对应 Environment.getExternalStorageDirectory() -->
-    <external-path name="downloads" path="Download/" />
-    <external-path name="class_replay" path="Download/ClassReplay/" />
+    <cache-path name="apk_cache" path="updates/" />
+    <!-- 课程回放：应用专属 Download/ClassReplay，不是公共 Download/ -->
+    <external-files-path name="class_replay" path="Download/ClassReplay/" />
+    <files-path name="class_replay_internal" path="Download/ClassReplay/" />
 </paths>

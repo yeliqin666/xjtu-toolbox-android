@@ -127,9 +127,15 @@ import com.xjtu.toolbox.ui.components.AmbientGlow
 import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.ExpressiveIcon
 import com.xjtu.toolbox.ui.components.ExpressivePanel
+import com.xjtu.toolbox.agent.AgentPendingPrompt
 import com.xjtu.toolbox.util.CredentialStore
+import com.xjtu.toolbox.util.DeepLinkRouter
 import com.xjtu.toolbox.widget.CampusCardWidgetUpdater
 import com.xjtu.toolbox.widget.ScheduleWidgetUpdater
+import com.xjtu.toolbox.home.GlobalSearchScreen
+import com.xjtu.toolbox.onboarding.OnboardingScreen
+import com.xjtu.toolbox.onboarding.OnboardingStore
+import com.xjtu.toolbox.settings.FeedbackScreen
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
 
@@ -163,8 +169,8 @@ class MainActivity : ComponentActivity() {
         val splash = installSplashScreen()
         splash.setKeepOnScreenCondition { !isAppReady }
         super.onCreate(savedInstanceState)
-        // PR-11：xjtu:// 深链优先于 EXTRA_LAUNCH_ROUTE
-        val deepLink = com.xjtu.toolbox.util.DeepLinkRouter.resolve(intent)
+        // 深链优先于 EXTRA_LAUNCH_ROUTE；二者都未设置则交给 navController 自己的默认路由
+        val deepLink = DeepLinkRouter.resolve(intent)
         val launchRoute = deepLink?.route ?: intent?.getStringExtra(EXTRA_LAUNCH_ROUTE)
         deepLinkPrompt.value = deepLink?.prompt
         val launchTab = intent?.getStringExtra(EXTRA_LAUNCH_TAB)
@@ -187,9 +193,9 @@ class MainActivity : ComponentActivity() {
         com.xjtu.toolbox.agent.AgentRuntimeHooks.applyDarkMode = { mode ->
             darkModeOverrideState.value = mode
         }
-        // PR-11：把深链里的 prompt 塞给屁岱（AgentScreen 会 consume 后自动发）
+        // 深链里的 prompt 一次性塞给屁岱（AgentScreen consume 后自动发，再消费即焚）
         deepLinkPrompt.value?.let {
-            com.xjtu.toolbox.agent.AgentPendingPrompt.set(it)
+            AgentPendingPrompt.set(it)
             deepLinkPrompt.value = null
         }
         setContent {
@@ -212,14 +218,14 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        val deepLink = com.xjtu.toolbox.util.DeepLinkRouter.resolve(intent)
+        val deepLink = DeepLinkRouter.resolve(intent)
         val launchRoute = deepLink?.route ?: intent.getStringExtra(EXTRA_LAUNCH_ROUTE)
         deepLinkPrompt.value = deepLink?.prompt
         val launchTab = intent.getStringExtra(EXTRA_LAUNCH_TAB)
         launchRouteState.value = launchRoute
         launchTabState.value = launchTab ?: if (launchRoute == Routes.SCHEDULE) BottomTab.COURSES.name else null
         // 触发 prompt 注入（在 setContent 上下文里更稳，但 onNewIntent 时 Compose 树已存在）
-        deepLink?.prompt?.let { com.xjtu.toolbox.agent.AgentPendingPrompt.set(it) }
+        deepLink?.prompt?.let { AgentPendingPrompt.set(it) }
     }
 }
 
@@ -1652,9 +1658,9 @@ fun AppNavigation(
             )
         }
 
-        // ── PR-14 用户反馈 ──
+        // ── 用户反馈 ──
         composable(Routes.FEEDBACK) {
-            com.xjtu.toolbox.settings.FeedbackScreen(
+            FeedbackScreen(
                 onBack = { navController.popBackStack() }
             )
         }
@@ -1725,6 +1731,7 @@ private fun MainScreen(
     val context = LocalContext.current
     var lastBackPressTime by remember { mutableLongStateOf(0L) }
     var showOnboarding by remember { mutableStateOf(false) }
+    var showGlobalSearch by remember { mutableStateOf(false) }
 
     LaunchedEffect(pendingTab) {
         val tabName = pendingTab ?: return@LaunchedEffect
@@ -1735,24 +1742,29 @@ private fun MainScreen(
         onPendingTabConsumed()
     }
 
-    // PR-7 首次启动 → 展示 Onboarding（一次性）
+    // 首次启动展示 Onboarding（一次性，OnboardingStore 记 done 标志）
     LaunchedEffect(Unit) {
-        if (com.xjtu.toolbox.onboarding.OnboardingStore.needsToShow(context)) {
+        if (OnboardingStore.needsToShow(context)) {
             showOnboarding = true
         }
     }
 
     BackHandler {
-        if (selectedTab != BottomTab.HOME) {
-            selectedTabOrdinal = BottomTab.HOME.ordinal
-        } else {
-            val now = System.currentTimeMillis()
-            if (now - lastBackPressTime < 2000) {
-                // 2秒内连按两次返回 → 彻底退出
-                (context as? android.app.Activity)?.finishAffinity()
-            } else {
-                lastBackPressTime = now
-                android.widget.Toast.makeText(context, "再按一次返回退出", android.widget.Toast.LENGTH_SHORT).show()
+        when {
+            showOnboarding -> {
+                OnboardingStore.markDone(context)
+                showOnboarding = false
+            }
+            showGlobalSearch -> showGlobalSearch = false
+            selectedTab != BottomTab.HOME -> selectedTabOrdinal = BottomTab.HOME.ordinal
+            else -> {
+                val now = System.currentTimeMillis()
+                if (now - lastBackPressTime < 2000) {
+                    (context as? android.app.Activity)?.finishAffinity()
+                } else {
+                    lastBackPressTime = now
+                    android.widget.Toast.makeText(context, "再按一次返回退出", android.widget.Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }
@@ -1923,7 +1935,6 @@ private fun MainScreen(
     var courseSubtitle by remember { mutableStateOf("") }
     var courseHeaderActions by remember { mutableStateOf<(@Composable androidx.compose.foundation.layout.RowScope.() -> Unit)?>(null) }
     var courseHeaderBottomContent by remember { mutableStateOf<(@Composable () -> Unit)?>(null) }
-    var showGlobalSearch by remember { mutableStateOf(false) }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -1963,7 +1974,7 @@ private fun MainScreen(
                             )
                         }
                     }
-                    // PR-6：首页全局搜索入口
+                    // 首页全局搜索入口
                     if (selectedTab == BottomTab.HOME) {
                         IconButton(onClick = { showGlobalSearch = true }) {
                             Icon(
@@ -2142,7 +2153,7 @@ private fun MainScreen(
                                         homeTheme = homeTheme,
                                         showQuickActions = showQuickActions
                                     )
-                                    BottomTab.COURSES -> CoursesTab(loginState, ::navigateWithLogin, onNavigateWithNetCheck, scrollBehavior = coursesScrollBehavior, navBarStyle = navBarStyle, onSubtitleChange = { courseSubtitle = it }, onActionsChange = { courseHeaderActions = it }, onBottomContentChange = { courseHeaderBottomContent = it }, windowSize = if (isWideScreen) com.xjtu.toolbox.ui.WindowSize.Expanded else com.xjtu.toolbox.ui.WindowSize.Compact)
+                                    BottomTab.COURSES -> CoursesTab(loginState, ::navigateWithLogin, onNavigateWithNetCheck, scrollBehavior = coursesScrollBehavior, navBarStyle = navBarStyle, onSubtitleChange = { courseSubtitle = it }, onActionsChange = { courseHeaderActions = it }, onBottomContentChange = { courseHeaderBottomContent = it })
                                     BottomTab.TOOLS -> ToolsTab(loginState, ::navigateWithLogin, onNavigateWithNetCheck, scrollBehavior = toolsScrollBehavior, navBarStyle = navBarStyle)
                                     BottomTab.PROFILE -> ProfileTab(
                                         loginState,
@@ -2340,9 +2351,9 @@ private fun MainScreen(
         }
         }
 
-    // PR-6 全局搜索覆盖层（在 MainScreen 内，跨 tab 共用同一个浮层）
+    // 全局搜索覆盖层（跨 tab 共用同一个浮层，渲染优先级高于普通导航）
     if (showGlobalSearch) {
-        com.xjtu.toolbox.home.GlobalSearchScreen(
+        GlobalSearchScreen(
             onBack = { showGlobalSearch = false },
             onNavigate = { route ->
                 showGlobalSearch = false
@@ -2350,22 +2361,22 @@ private fun MainScreen(
             },
             onAskAgent = { prompt ->
                 showGlobalSearch = false
-                com.xjtu.toolbox.agent.AgentPendingPrompt.set(prompt)
+                AgentPendingPrompt.set(prompt)
                 navController.navigate(Routes.AGENT) { launchSingleTop = true }
             },
         )
     }
 
-    // PR-7 首次启动 onboarding 覆盖层（优先级最高，最早渲染）
+    // 首次启动 onboarding 覆盖层（优先级最高，最早渲染）
     if (showOnboarding) {
-        com.xjtu.toolbox.onboarding.OnboardingScreen(
+        OnboardingScreen(
             isLoggedIn = loginState.isLoggedIn,
             onFinish = {
-                com.xjtu.toolbox.onboarding.OnboardingStore.markDone(context)
+                OnboardingStore.markDone(context)
                 showOnboarding = false
                 // 未登录 → 主动推一下登录入口（不强制，让用户可以继续逛）
                 if (!loginState.isLoggedIn) {
-                    navController.navigate(com.xjtu.toolbox.Routes.ACCOUNTS) { launchSingleTop = true }
+                    navController.navigate(Routes.ACCOUNTS) { launchSingleTop = true }
                 }
             }
         )
@@ -3236,7 +3247,6 @@ private fun CoursesTab(
     onSubtitleChange: (String) -> Unit = {},
     onActionsChange: ((@Composable androidx.compose.foundation.layout.RowScope.() -> Unit)?) -> Unit = {},
     onBottomContentChange: ((@Composable () -> Unit)?) -> Unit = {},
-    windowSize: com.xjtu.toolbox.ui.WindowSize = com.xjtu.toolbox.ui.WindowSize.Compact,
 ) {
     val bottomReserve = if (navBarStyle == "floating") 96.dp else 0.dp
     Box(
@@ -3253,7 +3263,6 @@ private fun CoursesTab(
             onActionsChange = onActionsChange,
             onBottomContentChange = onBottomContentChange,
             contentBottomPadding = bottomReserve,
-            windowSize = windowSize,
         )
     }
 }

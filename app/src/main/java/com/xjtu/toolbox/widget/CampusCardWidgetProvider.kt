@@ -24,6 +24,13 @@ object CampusCardWidgetUpdater {
 
     fun update(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         if (appWidgetIds.isEmpty()) return
+        if (com.xjtu.toolbox.account.AccountContext.activeAccountId == null) {
+            runCatching {
+                com.xjtu.toolbox.account.AccountStore(context).activeAccountId()?.let {
+                    com.xjtu.toolbox.account.AccountContext.activeAccountId = it
+                }
+            }
+        }
         val prefs = com.xjtu.toolbox.card.CampusCardCache.cardPrefs(context)
         val balance = prefs.getFloat("card_balance_cache", -1f)
         val todaySpend = prefs.getFloat("card_today_spend_cache", -1f)

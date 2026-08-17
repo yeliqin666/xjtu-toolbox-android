@@ -137,8 +137,8 @@ abstract class CasSiteSession(
                     if (silentLogin) {
                         throw IOException("$siteName 需要验证码，后台静默流程已跳过")
                     }
-                    // SAFETY_VERIFY 流程已在 XJTULogin 内自动发送过验证码，无需重复发；
-                    // MFA_DETECT 流程需要主动触发短信下发。
+                    // SAFETY_VERIFY：落到 Safety Verify 页时 CAS 已经下发过短信，
+                    // 再调 sendVerifyCode 会重复发。MFA_DETECT 才需要主动 POST /send。
                     if (ctx.flow == MFAFlow.MFA_DETECT) {
                         try {
                             ctx.sendVerifyCode()

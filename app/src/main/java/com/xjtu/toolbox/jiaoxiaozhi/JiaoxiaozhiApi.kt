@@ -166,7 +166,7 @@ class JiaoxiaozhiApi(private val session: JiaoxiaozhiSiteSession) {
             .replace(Regex("(?s)\\{\\s*\"(?:type|source|reference|metadata|citations?|docs?)\"\\s*:[\\s\\S]*?\\}"), "")
             .replace(Regex("(?s)<\\|[^|]{0,80}\\|>"), "")
             .replace(Regex("(?s)\\[\\[(?:citation|source|ref|doc)[^\\]]*\\]\\]"), "")
-            .replace(Regex("\\s*!!\\d+!!\\s*"), " ")   // !!N!! 引用标号，带周边空白替换为单空格
+            .replace(Regex("[ \\t]*!!\\d+!![ \\t]*"), " ")   // !!N!! 引用标号，不吞换行
             .replace(Regex(" +([。，！？、；：])"), "$1") // 标点前多余空格
             .replace(Regex("\\u0000|\\uFFFD"), "")
             .replace(Regex("[ \\t]+\\n"), "\n")

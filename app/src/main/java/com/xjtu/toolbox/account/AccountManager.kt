@@ -2,6 +2,7 @@ package com.xjtu.toolbox.account
 
 import android.content.Context
 import android.util.Log
+import com.xjtu.toolbox.auth.AccessMode
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.LoginState
 import com.xjtu.toolbox.auth.SessionManager
@@ -233,7 +234,10 @@ class AccountManager(
         val suffix = "_" + accountId.replace(Regex("[^a-zA-Z0-9]"), "_")
         val appContext = context.applicationContext
 
-        // cookies
+        // cookies：当前账号必须清正在用的 jar，否则 debounce 写盘会把 TGC 写回
+        if (AccountContext.activeAccountId == accountId) {
+            runCatching { AccessMode.entries.forEach { sessionManager.backend(it).clearAuth() } }
+        }
         runCatching { PersistentCookieJar(appContext, "cookies_normal$suffix").clear() }
         runCatching { PersistentCookieJar(appContext, "cookies_webvpn$suffix").clear() }
 
@@ -286,16 +290,16 @@ class AccountManager(
      */
     suspend fun logoutCurrent() = switchLock.withLock {
         val id = AccountContext.activeAccountId ?: return@withLock
-        val suffix = "_" + id.replace(Regex("[^a-zA-Z0-9]"), "_")
-        // 1) 先清磁盘 cookie（当前账号命名空间）
-        runCatching { PersistentCookieJar(context.applicationContext, "cookies_normal$suffix").clear() }
-        runCatching { PersistentCookieJar(context.applicationContext, "cookies_webvpn$suffix").clear() }
-        // 2) 先置空 AccountContext，让后续 IO 回退到 default 命名空间，避免用旧 id 写新 backend
+        // 清正在用的 jar（取消 debounce 写盘），不要另 new 一份同名 jar：
+        // 活着的那份 500ms 后仍会把 TGC 写回同一 prefs。
+        runCatching {
+            AccessMode.entries.forEach { sessionManager.backend(it).clearAuth() }
+        }
         AccountContext.activeAccountId = null
-        // 3) 清内存态 + 重建 backends 到 default 命名空间
         holder.clearInMemorySessionState()
         sessionManager.reconfigureForAccount("_default")
         accountStore.clearActive()
+        Log.i(TAG, "logoutCurrent($id) done")
     }
 
     private suspend fun rollbackTo(previousActiveId: String?) {

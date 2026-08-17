@@ -12,7 +12,7 @@ import androidx.compose.ui.platform.LocalConfiguration
  * - Medium   600-839 手机横屏 / 折叠屏
  * - Expanded ≥ 840   平板 / 桌面 / 折叠屏展开
  *
- * 单方向（width），符合 PR-9 适配范围；要做横屏 / 折叠屏精细适配再补 height。
+ * 单方向（width），符合 Material 3 WindowSizeClass 简化范围；要做横屏 / 折叠屏精细适配再补 height。
  */
 @Immutable
 enum class WindowSize { Compact, Medium, Expanded }

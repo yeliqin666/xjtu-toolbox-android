@@ -12,8 +12,7 @@ import androidx.core.content.getSystemService
  * 三个 channel 各司其职：
  * - [CHANNEL_APP]     常规业务通知（余额低 / 新通知 / 新成绩），有声音但不打扰
  * - [CHANNEL_REMINDER] 上课前提醒，高优先级，锁屏可见
- * - [CHANNEL_SILENT]  Agent 主动拉新（与 [com.xjtu.toolbox.agent.ProactiveBubble] 冗余通道），
- *                     LOW importance，不响不弹，纯抽屉里落一条
+ * - [CHANNEL_SILENT]  静默备份通道，LOW importance，不响不弹，纯抽屉里落一条
  *
  * 必须在 [Application.onCreate] 调一次 [ensureChannels]，否则 8.0+ 发通知会被系统丢弃。
  * 调用幂等：重复注册同名 channel 会覆盖，不会泄漏。

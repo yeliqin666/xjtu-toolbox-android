@@ -12,12 +12,8 @@ import android.content.Context
  */
 internal object EmptyRoomWidgetStore {
     private const val PREFS = "empty_room_widget_cache"
-    private const val KEY_N0 = "name_0"
-    private const val KEY_N1 = "name_1"
-    private const val KEY_N2 = "name_2"
-    private const val KEY_S0 = "size_0"
-    private const val KEY_S1 = "size_1"
-    private const val KEY_S2 = "size_2"
+    private val NAME_KEYS = listOf("name_0", "name_1", "name_2")
+    private val SIZE_KEYS = listOf("size_0", "size_1", "size_2")
     private const val KEY_TIME = "updated_at"
 
     data class RoomBrief(val name: String, val size: Int)
@@ -27,9 +23,9 @@ internal object EmptyRoomWidgetStore {
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val rooms = mutableListOf<RoomBrief>()
         for (i in 0..2) {
-            val name = p.getString(keyName(i), null) ?: break
-            val size = p.getInt(keySize(i), 0)
-            rooms.add(RoomBrief(name, size))
+            // 跳过空槽位但不因第一个空就 break——损坏 / 半写数据仍能展示剩余部分
+            val name = p.getString(NAME_KEYS[i], null)?.takeIf { it.isNotBlank() } ?: continue
+            rooms.add(RoomBrief(name, p.getInt(SIZE_KEYS[i], 0)))
         }
         return Snapshot(rooms, p.getLong(KEY_TIME, 0L))
     }
@@ -38,18 +34,15 @@ internal object EmptyRoomWidgetStore {
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val editor = p.edit()
         rooms.take(3).forEachIndexed { i, r ->
-            editor.putString(keyName(i), r.name)
-            editor.putInt(keySize(i), r.size)
+            editor.putString(NAME_KEYS[i], r.name)
+            editor.putInt(SIZE_KEYS[i], r.size)
         }
         // 多余的槽位清空，避免上次写满 3 条后下次只写 1 条残留旧数据
         for (i in rooms.size.coerceAtMost(3)..2) {
-            editor.remove(keyName(i))
-            editor.remove(keySize(i))
+            editor.remove(NAME_KEYS[i])
+            editor.remove(SIZE_KEYS[i])
         }
         editor.putLong(KEY_TIME, System.currentTimeMillis())
         editor.apply()
     }
-
-    private fun keyName(i: Int) = if (i == 0) KEY_N0 else if (i == 1) KEY_N1 else KEY_N2
-    private fun keySize(i: Int) = if (i == 0) KEY_S0 else if (i == 1) KEY_S1 else KEY_S2
 }

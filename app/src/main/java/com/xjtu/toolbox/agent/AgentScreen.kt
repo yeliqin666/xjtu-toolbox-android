@@ -84,9 +84,9 @@ fun AgentScreen(onBack: () -> Unit, onNavigate: (String) -> Unit = {}) {
     // 从主动提醒气泡进来时，**开一个新会话**并把提醒作为真实的第一条用户消息发出去。
     // 不新建会话的话会接在上一次的对话尾巴上，用户看到的就是"老对话"，
     // 跟刚才气泡说的事毫无关系。
-    LaunchedEffect(config.isConfigured) {
-        val pending = AgentPendingPrompt.consume() ?: return@LaunchedEffect
+    LaunchedEffect(config.isConfigured, AgentPendingPrompt.generation) {
         if (!config.isConfigured) return@LaunchedEffect
+        val pending = AgentPendingPrompt.consume() ?: return@LaunchedEffect
         vm.newSession()
         vm.sendMessage(pending, config, loginState, context)
     }
@@ -101,7 +101,13 @@ fun AgentScreen(onBack: () -> Unit, onNavigate: (String) -> Unit = {}) {
     var drawerOpen by rememberSaveable { mutableStateOf(false) }
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
-    BackHandler(enabled = showConfig) { showConfig = false }
+    BackHandler(enabled = showConfig || drawerOpen || showContextExhaustedDialog) {
+        when {
+            showContextExhaustedDialog -> showContextExhaustedDialog = false
+            drawerOpen -> drawerOpen = false
+            else -> showConfig = false
+        }
+    }
 
     Box(Modifier.fillMaxSize()) {
         Scaffold(
@@ -935,7 +941,7 @@ private fun MessageBubble(
                                 color = MiuixTheme.colorScheme.primary,
                             )
                         }
-                        // PR-8 分享按钮：复用 ShareUtils 写 txt → ACTION_SEND chooser
+                        // 分享按钮：复用 ShareUtils 写 txt → ACTION_SEND chooser
                         Box(
                             Modifier
                                 .clip(RoundedCornerShape(8.dp))

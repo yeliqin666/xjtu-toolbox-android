@@ -129,10 +129,12 @@ class PersistentCookieJar(context: Context, prefsName: String = PREFS_NAME) : Co
 
     /** 清空所有 cookie（登出时使用） */
     fun clear() {
-        cookieStore.clear()
         saveHandler.removeCallbacksAndMessages(null)
         savePending = false
-        prefs.edit().clear().apply()
+        synchronized(this) {
+            cookieStore.clear()
+            prefs.edit().clear().commit()
+        }
     }
 
     /** 获取指定域名下的所有 cookie */
@@ -214,17 +216,20 @@ class PersistentCookieJar(context: Context, prefsName: String = PREFS_NAME) : Co
     // ── 序列化/反序列化 ──
 
     private fun saveToDisk() {
-        try {
-            val sb = StringBuilder()
-            for ((_, cookies) in cookieStore) {
-                for (c in cookies) {
-                    if (c.expiresAt <= System.currentTimeMillis()) continue
-                    sb.append(encodeCookie(c)).append('\n')
+        synchronized(this) {
+            try {
+                val sb = StringBuilder()
+                for ((_, cookies) in cookieStore) {
+                    for (c in cookies) {
+                        if (c.expiresAt > System.currentTimeMillis()) {
+                            sb.append(encodeCookie(c)).append('\n')
+                        }
+                    }
                 }
+                prefs.edit().putString(KEY_ALL_COOKIES, sb.toString()).apply()
+            } catch (e: Exception) {
+                Log.e(TAG, "saveToDisk failed", e)
             }
-            prefs.edit().putString(KEY_ALL_COOKIES, sb.toString()).apply()
-        } catch (e: Exception) {
-            Log.e(TAG, "saveToDisk failed", e)
         }
     }
 

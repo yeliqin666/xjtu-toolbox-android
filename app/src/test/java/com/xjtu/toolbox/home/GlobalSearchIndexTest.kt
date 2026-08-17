@@ -1,7 +1,6 @@
 package com.xjtu.toolbox.home
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -56,7 +55,6 @@ class GlobalSearchIndexTest {
     @Test
     fun allEntries_haveNonBlankTitle() {
         GlobalSearchIndex.entries().forEach {
-            assertNotNull(it.title)
             assertTrue("title blank", it.title.isNotBlank())
         }
     }

@@ -528,7 +528,7 @@ fun SettingsScreen(
                     summary = versionText,
                     startAction = { SettingsIcon(MiuixIcons.Info, cGreen) }
                 )
-                // PR-14 反馈入口
+                // 反馈入口
                 ArrowPreference(
                     title = "反馈与建议",
                     summary = "写反馈、收集日志、跳 GitHub Issue",

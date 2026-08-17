@@ -2,22 +2,19 @@ package com.xjtu.toolbox.util
 
 import android.content.Intent
 import android.net.Uri
+import com.xjtu.toolbox.Routes
 
 /**
  * App Links / 深链路由。
  *
  * Scheme: `xjtu://`
- * 路径模板：
- * - xjtu://agent?q=xxx            → 跳 agent + 喂 prompt
- * - xjtu://schedule               → 跳课表
- * - xjtu://empty_room             → 跳空教室
- * - xjtu://campus_card            → 跳校园卡
- * - xjtu://notification           → 跳通知
- * - xjtu://score                  → 跳成绩
- * - xjtu://grade/{term}           → 跳成绩（term 占位，暂不消费）
- * - xjtu://course/{courseId}      → 跳课表（占位）
+ * 已支持的 host：
+ * - agent / schedule / empty_room / campus_card / notification / score / grade / course
  *
- * 失败（host 未知、缺少 q 等）→ null，由调用方降级到主屏。
+ * `xjtu://agent?q=xxx` 中的 q 解析成 [DeepLinkTarget.prompt]，交给 AgentScreen 自动发送。
+ * 其余 host 暂不消费 path（`grade/{term}` / `course/{courseId}` 仅 host 命中）。
+ *
+ * 失败（host 未知、scheme 不匹配）→ null，由调用方降级到主屏。
  */
 object DeepLinkRouter {
     private const val SCHEME = "xjtu"
@@ -34,15 +31,14 @@ object DeepLinkRouter {
         return when (uri.host) {
             "agent" -> {
                 val q = uri.getQueryParameter("q")?.takeIf { it.isNotBlank() }
-                    ?: return DeepLinkTarget(com.xjtu.toolbox.Routes.AGENT)
-                DeepLinkTarget(com.xjtu.toolbox.Routes.AGENT, q)
+                    ?: return DeepLinkTarget(Routes.AGENT)
+                DeepLinkTarget(Routes.AGENT, q)
             }
-            "schedule" -> DeepLinkTarget(com.xjtu.toolbox.Routes.SCHEDULE)
-            "empty_room" -> DeepLinkTarget(com.xjtu.toolbox.Routes.EMPTY_ROOM)
-            "campus_card" -> DeepLinkTarget(com.xjtu.toolbox.Routes.CAMPUS_CARD)
-            "notification" -> DeepLinkTarget(com.xjtu.toolbox.Routes.NOTIFICATION)
-            "score", "grade" -> DeepLinkTarget(com.xjtu.toolbox.Routes.JWAPP_SCORE)
-            "course" -> DeepLinkTarget(com.xjtu.toolbox.Routes.SCHEDULE)
+            "schedule", "course" -> DeepLinkTarget(Routes.SCHEDULE)
+            "empty_room" -> DeepLinkTarget(Routes.EMPTY_ROOM)
+            "campus_card" -> DeepLinkTarget(Routes.CAMPUS_CARD)
+            "notification" -> DeepLinkTarget(Routes.NOTIFICATION)
+            "score", "grade" -> DeepLinkTarget(Routes.JWAPP_SCORE)
             else -> null
         }
     }

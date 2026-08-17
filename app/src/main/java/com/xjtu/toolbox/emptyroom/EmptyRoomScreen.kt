@@ -232,7 +232,7 @@ fun EmptyRoomScreen(
     var showCdnTip by remember { mutableStateOf(!credentialStore.hasReadEmptyRoomCdnTip && !useDirectQuery) }
     var directProgress by remember { mutableStateOf<Pair<Int, Int>?>(null) }
 
-    // PR-4：每次 rooms 更新后写空教室 widget 缓存（最多 3 条）+ 触发刷新
+    // 每次 rooms 更新后写空教室 widget 缓存（最多 3 条）+ 触发刷新
     LaunchedEffect(rooms) {
         if (rooms.isNotEmpty()) {
             com.xjtu.toolbox.widget.EmptyRoomWidgetStore.write(

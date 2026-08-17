@@ -13,29 +13,30 @@ import android.content.Context
  */
 internal object NoticeWidgetStore {
     private const val PREFS = "notice_widget_cache"
-    private const val KEY_T0 = "title_0"
-    private const val KEY_T1 = "title_1"
-    private const val KEY_T2 = "title_2"
+    private val TITLE_KEYS = listOf("title_0", "title_1", "title_2")
     private const val KEY_TIME = "updated_at"
 
     data class Snapshot(val titles: List<String>, val updatedAt: Long)
 
     fun read(context: Context): Snapshot {
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val titles = listOfNotNull(
-            p.getString(KEY_T0, null),
-            p.getString(KEY_T1, null),
-            p.getString(KEY_T2, null),
-        ).filter { it.isNotBlank() }
+        val titles = TITLE_KEYS.mapNotNull { p.getString(it, null) }
+            .filter { it.isNotBlank() }
         return Snapshot(titles, p.getLong(KEY_TIME, 0L))
     }
 
     fun write(context: Context, titles: List<String>) {
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val editor = p.edit()
-        editor.putString(KEY_T0, titles.getOrNull(0))
-        editor.putString(KEY_T1, titles.getOrNull(1))
-        editor.putString(KEY_T2, titles.getOrNull(2))
+        // 多余的槽位清空，避免上次写满 3 条后下次只写 1 条残留旧数据
+        for (i in 0..2) {
+            val title = titles.getOrNull(i)
+            if (title != null) {
+                editor.putString(TITLE_KEYS[i], title)
+            } else {
+                editor.remove(TITLE_KEYS[i])
+            }
+        }
         editor.putLong(KEY_TIME, System.currentTimeMillis())
         editor.apply()
     }

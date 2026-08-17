@@ -29,7 +29,6 @@
     <string name="agent_shortcut_widget_title">问屁岱</string>
     <string name="agent_shortcut_widget_subtitle">点击开始提问</string>
 
-    <!-- PR-7 Onboarding -->
     <string name="onboarding_page1_title">功能一览</string>
     <string name="onboarding_page1_body">课表、成绩、空教室、校园卡、通知、付款码……  把校园服务装进一个盒子。</string>
     <string name="onboarding_page2_title">隐私优先</string>
@@ -42,7 +41,6 @@
     <string name="onboarding_enter">进入岱宗盒子</string>
     <string name="onboarding_go_login">去登录</string>
 
-    <!-- PR-6 Global Search -->
     <string name="global_search_title">搜索</string>
     <string name="global_search_back">返回</string>
     <string name="global_search_clear">清空</string>
@@ -51,14 +49,12 @@
     <string name="global_search_fallback_to_ai">让 AI 来处理</string>
     <string name="global_search_ask_pidai">问屁岱</string>
 
-    <!-- PR-8 Share -->
     <string name="share_button">分享</string>
     <string name="share_toast_notifications">教务通知</string>
     <string name="share_toast_pidai">屁岱回复</string>
     <string name="share_failed">分享失败：%s</string>
     <string name="share_no_app">没有可用的分享应用</string>
 
-    <!-- PR-14 Feedback -->
     <string name="feedback_entry_title">反馈与建议</string>
     <string name="feedback_entry_summary">写反馈、收集日志、跳 GitHub Issue</string>
     <string name="feedback_screen_title">反馈与建议</string>
@@ -72,6 +68,5 @@
     <string name="feedback_logs_failed">日志收集失败</string>
     <string name="feedback_go_github">跳 GitHub 提 Issue</string>
 
-    <!-- PR-12 WX -->
     <string name="wx_miniprogram_toast">小程序链接请用外部浏览器打开</string>
 </resources>

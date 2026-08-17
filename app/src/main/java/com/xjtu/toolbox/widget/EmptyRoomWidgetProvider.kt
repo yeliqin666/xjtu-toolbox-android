@@ -18,7 +18,7 @@ import com.xjtu.toolbox.Routes
  * 每次成功拉到列表后写入前 3 条（教室名 + 座位数）。Widget 不发请求。
  *
  * 简化策略：取列表前 3 条。应用不做"当前时段"推断，widget 也就省了——牺牲一点
- * 精确度换 widget 极简实现。如果用户反馈"显示的不是现在的空教室"，后续 PR 再升级。
+ * 精确度换 widget 极简实现。当前时段推断留给后续升级。
  */
 object EmptyRoomWidgetUpdater {
     fun requestUpdate(context: Context) {

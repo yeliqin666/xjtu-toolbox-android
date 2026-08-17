@@ -99,6 +99,7 @@ import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.ErrorState
+import com.xjtu.toolbox.ui.currentWindowSize
 import com.xjtu.toolbox.widget.ScheduleWidgetUpdater
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -119,8 +120,9 @@ fun ScheduleScreen(
     onActionsChange: ((@Composable androidx.compose.foundation.layout.RowScope.() -> Unit)?) -> Unit = {},
     onBottomContentChange: ((@Composable () -> Unit)?) -> Unit = {},
     contentBottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
-    windowSize: WindowSize = WindowSize.Compact,
 ) {
+    // 大屏适配由屏内 Composable 自己根据 currentWindowSize() 判断，调用方不再透传
+    val windowSize: WindowSize = currentWindowSize()
     val appLoginState = LocalAppLoginState.current
     var activeSite by remember(site) { mutableStateOf(site) }
     val api = remember(activeSite) { activeSite?.let { ScheduleApi(it) } }
@@ -522,16 +524,16 @@ fun ScheduleScreen(
                     }
                     selectedTermCode = termCode
                     currentTermCode = termCode
-                    val apiCourses = try { api.getSchedule(termCode) } catch (_: Exception) { emptyList<CourseItem>() }
-                    val customCourses = try {
-                        val accountId = com.xjtu.toolbox.account.AccountContext.activeAccountId ?: ""
-                        com.xjtu.toolbox.util.AppDatabase.getInstance(context)
-                            .customCourseDao().getAll(accountId).map { it.toCourseItem() }
-                    } catch (_: Exception) { emptyList<CourseItem>() }
-                    val merged = (apiCourses + customCourses).distinctBy { it.courseCode + "|" + it.dayOfWeek + "|" + it.startSection + "|" + it.weekBits }
-                    courses = merged
+                    val apiCourses = try {
+                        api.getSchedule(termCode)
+                    } catch (e: Exception) {
+                        android.util.Log.w("ScheduleUI", "refreshSchedule getSchedule failed", e)
+                        return@withContext
+                    }
+                    // courses 只放教务结果；自定义课由 mergedCourses 再拼，避免刷新后重复
+                    courses = apiCourses
                     showingStaleData = false
-                    dataCache.put("schedule_$termCode", gson.toJson(merged))
+                    dataCache.put("schedule_$termCode", gson.toJson(apiCourses))
                 }
             } catch (e: Exception) {
                 android.util.Log.w("ScheduleUI", "refreshSchedule failed", e)
@@ -1229,7 +1231,7 @@ fun ScheduleScreen(
                             customCourses = customCourses,
                             onEditCustomCourse = { editingCourse = it }
                         )
-                        1 -> ExamTabContent(exams, contentBottomPadding)
+                        1 -> ExamTabContent(exams, contentBottomPadding, windowSize)
                         2 -> TextbookTabContent(
                             textbooks = textbooks,
                             isLoading = textbooksLoading,
@@ -1253,7 +1255,8 @@ fun ScheduleScreen(
                                     loadTextbooks(selectedTermCode)
                                 }
                             },
-                            bottomPadding = contentBottomPadding
+                            bottomPadding = contentBottomPadding,
+                            windowSize = windowSize
                         )
                     }
                 }
@@ -1523,7 +1526,11 @@ private fun formatWeeks(weeks: List<Int>): String {
 }
 
 @Composable
-private fun ExamTabContent(exams: List<ExamItem>, bottomPadding: androidx.compose.ui.unit.Dp = 0.dp) {
+private fun ExamTabContent(
+    exams: List<ExamItem>,
+    bottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
+    windowSize: WindowSize = WindowSize.Compact,
+) {
     // 去重（同一门课+同一天只显示一次）
     val uniqueExams = exams.distinctBy { "${it.courseName}_${it.examDate}" }
     if (uniqueExams.isEmpty()) {
@@ -1554,10 +1561,30 @@ private fun ExamTabContent(exams: List<ExamItem>, bottomPadding: androidx.compos
         }
         return
     }
-    LazyColumn(Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(top = 12.dp, bottom = 12.dp + bottomPadding)) {
-        items(uniqueExams) { exam -> ExamCard(exam) }
+    Box(
+        Modifier.fillMaxSize(),
+        contentAlignment = Alignment.TopCenter,
+    ) {
+        LazyColumn(
+            Modifier
+                .contentMaxWidth(windowSize)
+                .fillMaxSize()
+                .overScrollVertical()
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(top = 12.dp, bottom = 12.dp + bottomPadding),
+        ) {
+            items(uniqueExams) { exam -> ExamCard(exam) }
+        }
     }
 }
+
+/**
+ * 大屏（平板 / 折叠屏展开）下给单列卡片列表限宽，避免整行被拉到一两千 dp 宽
+ * 导致每张卡片里的文字稀稀拉拉横跨全屏。Compact / Medium 不做限制。
+ */
+private fun Modifier.contentMaxWidth(windowSize: WindowSize): Modifier =
+    if (windowSize == WindowSize.Expanded) this.widthIn(max = 720.dp) else this
 
 @Composable
 private fun ExamCard(exam: ExamItem) {
@@ -1696,7 +1723,8 @@ private fun TextbookTabContent(
     isLoading: Boolean,
     error: String?,
     onRetry: () -> Unit,
-    bottomPadding: androidx.compose.ui.unit.Dp = 0.dp
+    bottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
+    windowSize: WindowSize = WindowSize.Compact,
 ) {
     when {
         isLoading -> LoadingState(message = "查询教材信息...", modifier = Modifier.fillMaxSize())
@@ -1713,12 +1741,18 @@ private fun TextbookTabContent(
             }
         }
         else -> {
-            LazyColumn(
-                Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                contentPadding = PaddingValues(top = 12.dp, bottom = 12.dp + bottomPadding)
-            ) {
-                items(textbooks) { item -> TextbookCard(item) }
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                LazyColumn(
+                    Modifier
+                        .contentMaxWidth(windowSize)
+                        .fillMaxSize()
+                        .overScrollVertical()
+                        .padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(top = 12.dp, bottom = 12.dp + bottomPadding)
+                ) {
+                    items(textbooks) { item -> TextbookCard(item) }
+                }
             }
         }
     }

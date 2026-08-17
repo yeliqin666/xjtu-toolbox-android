@@ -1,5 +1,3 @@
-import java.util.Properties
-
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -49,8 +47,7 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation("androidx.compose.foundation:foundation")
     implementation(libs.coroutines.android)
-    // Wear OS 官方 home tiles/complications API
+    // Wear OS 官方 home tiles / complications API
     implementation("androidx.wear:wear:1.3.0")
-    // 暂不引入 androidx.wear.compose:compose 以减小依赖；后续 PR 加 Watch Face
     debugImplementation(libs.androidx.ui.tooling)
 }

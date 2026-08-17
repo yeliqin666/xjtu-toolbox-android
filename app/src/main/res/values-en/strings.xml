@@ -29,7 +29,6 @@
     <string name="agent_shortcut_widget_title">Ask AI</string>
     <string name="agent_shortcut_widget_subtitle">Tap to start</string>
 
-    <!-- PR-7 Onboarding -->
     <string name="onboarding_page1_title">All in one box</string>
     <string name="onboarding_page1_body">Schedule, grades, empty rooms, campus card, notices, payment code…  all campus services in one place.</string>
     <string name="onboarding_page2_title">Privacy first</string>
@@ -42,7 +41,6 @@
     <string name="onboarding_enter">Enter XJTUToolBox</string>
     <string name="onboarding_go_login">Go to login</string>
 
-    <!-- PR-6 Global Search -->
     <string name="global_search_title">Search</string>
     <string name="global_search_back">Back</string>
     <string name="global_search_clear">Clear</string>
@@ -51,14 +49,12 @@
     <string name="global_search_fallback_to_ai">Let AI handle it</string>
     <string name="global_search_ask_pidai">Ask AI</string>
 
-    <!-- PR-8 Share -->
     <string name="share_button">Share</string>
     <string name="share_toast_notifications">Academic notices</string>
     <string name="share_toast_pidai">AI reply</string>
     <string name="share_failed">Share failed: %s</string>
     <string name="share_no_app">No share app available</string>
 
-    <!-- PR-14 Feedback -->
     <string name="feedback_entry_title">Feedback &amp; suggestions</string>
     <string name="feedback_entry_summary">Write feedback, collect logs, jump to GitHub</string>
     <string name="feedback_screen_title">Feedback &amp; suggestions</string>
@@ -72,6 +68,5 @@
     <string name="feedback_logs_failed">Log collection failed</string>
     <string name="feedback_go_github">Jump to GitHub issue</string>
 
-    <!-- PR-12 WX -->
     <string name="wx_miniprogram_toast">Please open mini-program links in external browser</string>
 </resources>

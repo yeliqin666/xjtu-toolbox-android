@@ -12,12 +12,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 
 /**
- * Wear 占位 Activity——v4.6 仅建立模块骨架。
+ * Wear 占位 Activity——目前只建立模块骨架，承载编译验证。
  *
- * 后续 PR：
- * - PR-10a 课表 Complication（数据由 :app 通过 Wearable Data Layer 推送）
- * - PR-10b 通知摘要卡片
- * - PR-10c Agent 语音入口（依赖系统授权）
+ * 后续在此基础上加课表 Complication / 通知摘要卡片 / Agent 语音入口等真功能。
  */
 class HelloActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {

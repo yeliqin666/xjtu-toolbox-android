@@ -1,14 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <data-extraction-rules>
+    <!-- minSdk 31：实际走这套规则。path 可带 *；sharedpref 写文件名（可带或不带 .xml） -->
     <cloud-backup>
-        <!-- 排除加密凭据和 Cookie 文件，避免备份恢复到新设备后 Keystore 密钥不匹配 -->
         <exclude domain="sharedpref" path="xjtu_credentials.xml"/>
         <exclude domain="sharedpref" path="xjtu_credentials_fallback.xml"/>
+        <exclude domain="sharedpref" path="xjtu_accounts.xml"/>
+        <exclude domain="sharedpref" path="xjtu_accounts_fallback.xml"/>
         <exclude domain="sharedpref" path="xjtu_cookies.xml"/>
         <exclude domain="sharedpref" path="xjtu_vpn_cookies.xml"/>
+        <exclude domain="sharedpref" path="cookies_normal*"/>
+        <exclude domain="sharedpref" path="cookies_webvpn*"/>
+        <exclude domain="sharedpref" path="agent_config*"/>
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="xjtu_credentials.xml"/>
         <exclude domain="sharedpref" path="xjtu_credentials_fallback.xml"/>
+        <exclude domain="sharedpref" path="xjtu_accounts.xml"/>
+        <exclude domain="sharedpref" path="xjtu_accounts_fallback.xml"/>
+        <exclude domain="sharedpref" path="xjtu_cookies.xml"/>
+        <exclude domain="sharedpref" path="xjtu_vpn_cookies.xml"/>
+        <exclude domain="sharedpref" path="cookies_normal*"/>
+        <exclude domain="sharedpref" path="cookies_webvpn*"/>
+        <exclude domain="sharedpref" path="agent_config*"/>
     </device-transfer>
 </data-extraction-rules>

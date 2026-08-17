@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
-    <!-- 排除加密凭据和 Cookie 文件 -->
+    <!-- 凭据 / 账号 / Cookie / Agent 密钥：排除当前文件名，不只是历史遗留名 -->
     <exclude domain="sharedpref" path="xjtu_credentials.xml"/>
     <exclude domain="sharedpref" path="xjtu_credentials_fallback.xml"/>
+    <exclude domain="sharedpref" path="xjtu_accounts.xml"/>
+    <exclude domain="sharedpref" path="xjtu_accounts_fallback.xml"/>
     <exclude domain="sharedpref" path="xjtu_cookies.xml"/>
     <exclude domain="sharedpref" path="xjtu_vpn_cookies.xml"/>
 </full-backup-content>

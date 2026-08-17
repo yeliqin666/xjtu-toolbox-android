@@ -131,7 +131,7 @@ fun NotificationScreen(
             notifications = newList
             cache[cacheKey] = newList
             currentPage = page
-            // 写 widget 缓存（PR-3）。非 append 路径下，前 3 条标题足够代表最新通知。
+            // 写 widget 缓存。非 append 路径下，前 3 条标题足够代表最新通知。
             if (!append) {
                 com.xjtu.toolbox.widget.NoticeWidgetStore.write(
                     context,
@@ -201,7 +201,7 @@ fun NotificationScreen(
                             else MiuixTheme.colorScheme.onSurfaceVariantSummary
                         )
                     }
-                    // PR-8 分享当前页通知列表
+                    // 分享当前页通知列表
                     IconButton(
                         onClick = {
                             val text = filteredNotifications.take(20).joinToString("\n") {
