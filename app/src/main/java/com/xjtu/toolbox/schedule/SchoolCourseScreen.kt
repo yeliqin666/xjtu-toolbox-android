@@ -32,6 +32,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.auth.SiteSession
@@ -876,6 +877,12 @@ private fun CourseDetailSheet(
 
     OverlayBottomSheet(
         show = showSheet.value,
+        // 默认 insideMargin 已含 24dp 横向内边距，内容里再加一层就成了 48dp。
+        // 收到 16dp 并让内容自身不再加横向 padding，和列表页的边距对齐。
+        insideMargin = DpSize(16.dp, 0.dp),
+        // 默认底色是 background（浅色下纯白），卡片的 surfaceVariant 同样是白，
+        // 铺上去看不出边界；和页面一样改用 surface 打底
+        backgroundColor = MiuixTheme.colorScheme.surface,
         onDismissRequest = { showSheet.value = false; onDismiss() }
     ) {
         Column(
@@ -883,140 +890,177 @@ private fun CourseDetailSheet(
                 .fillMaxWidth()
                 .overScrollVertical()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .navigationBarsPadding()
         ) {
-            // 标题
-            Text(
-                course.courseName,
-                style = MiuixTheme.textStyles.headline2,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "${course.courseCode} · 课序号 ${course.sectionNumber}",
-                style = MiuixTheme.textStyles.body2,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-            )
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                cornerRadius = 20.dp,
+                colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Text(
+                        course.courseName,
+                        style = MiuixTheme.textStyles.title4,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "${course.courseCode} · 课序号 ${course.sectionNumber}",
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    Row(Modifier.fillMaxWidth()) {
+                        HeadlineStat("学分", "${course.credit}", Modifier.weight(1f))
+                        HeadlineStat("总学时", "${course.totalHours.toInt()}", Modifier.weight(1f))
+                        HeadlineStat(
+                            "剩余名额",
+                            "${course.remaining}",
+                            Modifier.weight(1f),
+                            valueColor = when {
+                                course.remaining <= 0 -> Color(0xFFD32F2F)
+                                course.remaining <= 5 -> Color(0xFFE65100)
+                                else -> null
+                            },
+                        )
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    CapacityBar(course)
+                }
+            }
 
-            Spacer(Modifier.height(16.dp))
-            HorizontalDivider()
-            Spacer(Modifier.height(16.dp))
-
-            // 基本信息
-            DetailSection("基本信息") {
+            SmallTitle("基本信息")
+            DetailCard {
                 DetailRow("开课单位", course.department)
                 DetailRow("教师", course.teacher.ifBlank { "未知" })
-                DetailRow("学分", "${course.credit}")
-                DetailRow("总学时", "${course.totalHours.toInt()}")
                 if (course.lectureHours > 0) DetailRow("授课学时", "${course.lectureHours.toInt()}")
                 if (course.labHours > 0) DetailRow("实验学时", "${course.labHours.toInt()}")
                 if (course.practiceHours > 0) DetailRow("实践学时", "${course.practiceHours.toInt()}")
                 if (course.weeklyHours > 0) DetailRow("周学时", "${course.weeklyHours}")
+                DetailRow("校区", course.campus.ifBlank { "未知" })
             }
 
-            Spacer(Modifier.height(16.dp))
-
-            // 时间地点
             if (course.scheduleLocation.isNotBlank()) {
-                DetailSection("时间地点") {
-                    // 按逗号分割各时段
-                    course.scheduleLocation.split(",").forEach { slot ->
-                        val trimmed = slot.trim()
-                        if (trimmed.isNotEmpty()) {
+                SmallTitle("时间地点")
+                DetailCard {
+                    course.scheduleLocation.split(",")
+                        .map { it.trim() }
+                        .filter { it.isNotEmpty() }
+                        .forEach { slot ->
                             Row(
-                                Modifier.padding(vertical = 4.dp),
+                                Modifier.fillMaxWidth().padding(vertical = 5.dp),
                                 verticalAlignment = Alignment.Top
                             ) {
-                                Surface(
-                                    shape = CircleShape,
-                                    color = MiuixTheme.colorScheme.primary.copy(alpha = 0.12f),
-                                    modifier = Modifier.size(8.dp).offset(y = 5.dp)
-                                ) {}
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    trimmed,
-                                    style = MiuixTheme.textStyles.body2
+                                Box(
+                                    Modifier
+                                        .padding(top = 6.dp)
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(MiuixTheme.colorScheme.primary)
                                 )
+                                Spacer(Modifier.width(10.dp))
+                                Text(slot, style = MiuixTheme.textStyles.body2)
                             }
                         }
-                    }
                 }
-                Spacer(Modifier.height(16.dp))
             }
 
-            // 选课信息
-            DetailSection("选课信息") {
-                DetailRow("选课人数", "${course.enrollCount}")
-                DetailRow("课容量", "${course.capacity}")
-                DetailRow("剩余名额", "${course.remaining}", valueColor = when {
-                    course.remaining <= 0 -> Color(0xFFD32F2F)
-                    course.remaining <= 5 -> Color(0xFFE65100)
-                    else -> null
-                })
-                DetailRow("男生", "${course.maleEnrollCount}人")
-                DetailRow("女生", "${course.femaleEnrollCount}人")
+            SmallTitle("选课情况")
+            DetailCard {
+                DetailRow("选课人数", "${course.enrollCount} / ${course.capacity}")
+                DetailRow("男生", "${course.maleEnrollCount} 人")
+                DetailRow("女生", "${course.femaleEnrollCount} 人")
+            }
 
-                // 容量条指示
-                Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "容量 ${(course.fillRatio * 100).toInt()}%",
-                        style = MiuixTheme.textStyles.footnote1,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Box(
-                        Modifier
-                            .weight(1f)
-                            .height(6.dp)
-                            .clip(RoundedCornerShape(3.dp))
-                            .background(MiuixTheme.colorScheme.surfaceVariant)
-                    ) {
-                        val fillColor = when {
-                            course.fillRatio >= 0.95f -> Color(0xFFD32F2F)
-                            course.fillRatio >= 0.8f -> Color(0xFFE65100)
-                            course.fillRatio >= 0.5f -> Color(0xFFF9A825)
-                            else -> Color(0xFF2E7D32)
+            val hasExtra = course.isPublicElective ||
+                course.className.isNotBlank() ||
+                course.teachingClassId.isNotBlank()
+            if (hasExtra) {
+                SmallTitle("其他")
+                DetailCard {
+                    if (course.isPublicElective) {
+                        DetailRow("校公选课", "是")
+                        if (course.electiveCategory.isNotBlank()) {
+                            DetailRow("公选类别", course.electiveCategory)
                         }
-                        Box(
-                            Modifier
-                                .fillMaxHeight()
-                                .fillMaxWidth(course.fillRatio)
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(fillColor)
-                        )
+                    }
+                    if (course.className.isNotBlank()) DetailRow("上课班级", course.className)
+                    if (course.teachingClassId.isNotBlank()) {
+                        DetailRow("教学班 ID", course.teachingClassId)
                     }
                 }
             }
 
             Spacer(Modifier.height(16.dp))
-
-            // 其他信息
-            DetailSection("其他") {
-                DetailRow("校区", course.campus.ifBlank { "未知" })
-                if (course.isPublicElective) {
-                    DetailRow("校公选课", "是")
-                    if (course.electiveCategory.isNotBlank()) DetailRow("公选类别", course.electiveCategory)
-                }
-                if (course.className.isNotBlank()) DetailRow("上课班级", course.className)
-                DetailRow("教学班ID", course.teachingClassId)
-            }
-
-            Spacer(Modifier.height(32.dp))
         }
     }
 }
 
+/** 头部三联数值，比铺成键值行更容易一眼扫到 */
 @Composable
-private fun DetailSection(title: String, content: @Composable ColumnScope.() -> Unit) {
-    Text(
-        title,
-        style = MiuixTheme.textStyles.subtitle,
-        fontWeight = FontWeight.Bold,
-        color = MiuixTheme.colorScheme.primary
-    )
-    Spacer(Modifier.height(8.dp))
-    Column(Modifier.padding(start = 4.dp), content = content)
+private fun HeadlineStat(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    valueColor: Color? = null,
+) {
+    Column(modifier) {
+        Text(
+            value,
+            style = MiuixTheme.textStyles.title4,
+            fontWeight = FontWeight.Bold,
+            color = valueColor ?: MiuixTheme.colorScheme.onSurface,
+        )
+        Text(
+            label,
+            style = MiuixTheme.textStyles.footnote2,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        )
+    }
+}
+
+@Composable
+private fun CapacityBar(course: SchoolCourse) {
+    val fillColor = when {
+        course.fillRatio >= 0.95f -> Color(0xFFD32F2F)
+        course.fillRatio >= 0.8f -> Color(0xFFE65100)
+        course.fillRatio >= 0.5f -> Color(0xFFF9A825)
+        else -> Color(0xFF2E7D32)
+    }
+    Column {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .clip(RoundedCornerShape(3.dp))
+                .background(MiuixTheme.colorScheme.onBackground.copy(alpha = 0.08f))
+        ) {
+            Box(
+                Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(course.fillRatio.coerceIn(0f, 1f))
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(fillColor)
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "已选 ${(course.fillRatio * 100).toInt()}%",
+            style = MiuixTheme.textStyles.footnote2,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        )
+    }
+}
+
+@Composable
+private fun DetailCard(content: @Composable ColumnScope.() -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        cornerRadius = 20.dp,
+        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), content = content)
+    }
 }
 
 @Composable
@@ -1035,15 +1079,15 @@ private fun DetailRow(
             label,
             style = MiuixTheme.textStyles.body2,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            modifier = Modifier.widthIn(max = 100.dp)
         )
+        Spacer(Modifier.width(16.dp))
         Text(
             value,
             style = MiuixTheme.textStyles.body2,
             fontWeight = FontWeight.Medium,
             color = valueColor ?: MiuixTheme.colorScheme.onSurface,
             textAlign = TextAlign.End,
-            modifier = Modifier.weight(1f, fill = false)
+            modifier = Modifier.weight(1f)
         )
     }
 }
