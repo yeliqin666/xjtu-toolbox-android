@@ -35,17 +35,25 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import kotlin.math.abs
 import kotlinx.coroutines.*
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 private const val TAG = "VideoPlayer"
+
+/** 双画面漂移超过这个值才纠，避免每几秒都 seek 一次造成顿挫 */
+private const val SYNC_DRIFT_MS = 300L
+private const val SYNC_INTERVAL_MS = 2500L
 
 // ════════════════════════════════════════
 //  显示模式
@@ -196,6 +204,7 @@ fun VideoPlayerScreen(
  * @param title         视频标题
  * @param headers       额外请求头（如 Origin / Referer）
  * @param isLive        是否直播模式（隐藏进度条/快进快退）
+ * @param startInDual   两路都在时是否直接双画面；单机位入口应保持 false
  * @param onBack        返回回调
  */
 @OptIn(UnstableApi::class)
@@ -206,6 +215,7 @@ fun DirectVideoPlayerScreen(
     title: String,
     headers: Map<String, String> = emptyMap(),
     isLive: Boolean = false,
+    startInDual: Boolean = false,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -241,6 +251,7 @@ fun DirectVideoPlayerScreen(
         title = title,
         headers = headers,
         isLive = isLive,
+        startInDual = startInDual,
         onBack = onBack
     )
 }
@@ -257,6 +268,7 @@ private fun DualVideoPlayer(
     title: String,
     headers: Map<String, String> = emptyMap(),
     isLive: Boolean = false,
+    startInDual: Boolean = false,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -327,7 +339,12 @@ private fun DualVideoPlayer(
     val hasBoth = hasInstructor && hasEncoder
 
     // 状态
-    var displayMode by remember { mutableStateOf(DisplayMode.SINGLE) }
+    var displayMode by remember {
+        mutableStateOf(
+            if (startInDual && instructorUrl != null && encoderUrl != null) DisplayMode.DUAL
+            else DisplayMode.SINGLE
+        )
+    }
     var videoSource by remember {
         mutableStateOf(if (hasEncoder) VideoSource.ENCODER else VideoSource.INSTRUCTOR)
     }
@@ -341,6 +358,12 @@ private fun DualVideoPlayer(
     var duration by remember { mutableLongStateOf(0L) }
     var showSpeedMenu by remember { mutableStateOf(false) }
     var showSourceMenu by remember { mutableStateOf(false) }
+    var isScrubbing by remember { mutableStateOf(false) }
+    var scrubFraction by remember { mutableFloatStateOf(0f) }
+    var instructorBuffering by remember { mutableStateOf(instructorPlayer != null) }
+    var encoderBuffering by remember { mutableStateOf(encoderPlayer != null) }
+    var instructorError by remember { mutableStateOf<String?>(null) }
+    var encoderError by remember { mutableStateOf<String?>(null) }
 
     // 主播放器（用于进度追踪）
     val primaryPlayer = when {
@@ -349,8 +372,13 @@ private fun DualVideoPlayer(
         else -> encoderPlayer ?: instructorPlayer
     }
 
+    val instructorVisible = displayMode == DisplayMode.DUAL ||
+        (displayMode == DisplayMode.SINGLE && videoSource == VideoSource.INSTRUCTOR)
+    val encoderVisible = displayMode == DisplayMode.DUAL ||
+        (displayMode == DisplayMode.SINGLE && videoSource == VideoSource.ENCODER)
+
     fun syncPlayers() {
-        val pos = primaryPlayer?.currentPosition ?: 0
+        val pos = primaryPlayer?.currentPosition ?: currentPosition
         instructorPlayer?.seekTo(pos)
         encoderPlayer?.seekTo(pos)
     }
@@ -372,14 +400,67 @@ private fun DualVideoPlayer(
         encoderPlayer?.volume = encVol
     }
 
-    // 初始化
-    LaunchedEffect(Unit) {
-        updateAudioVolumes()
-        instructorPlayer?.playWhenReady = true
-        encoderPlayer?.playWhenReady = true
+    /**
+     * 单画面时关掉隐藏路的视频解码；这一路如果也不是当前音源，整路暂停。
+     * 切回双画面或切到这一路时再打开。音频仍由 [updateAudioVolumes] 管音量。
+     */
+    fun applyLane(player: ExoPlayer?, videoOn: Boolean, audioOn: Boolean) {
+        if (player == null) return
+        val next = player.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, !videoOn)
+            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, !audioOn)
+            .build()
+        if (next != player.trackSelectionParameters) {
+            player.trackSelectionParameters = next
+        }
+        player.playWhenReady = isPlaying && (videoOn || audioOn)
     }
 
-    LaunchedEffect(audioSource) { updateAudioVolumes() }
+    fun applyLanes() {
+        val instrAudio = audioSource == AudioSource.INSTRUCTOR || audioSource == AudioSource.BOTH
+        val encAudio = audioSource == AudioSource.ENCODER || audioSource == AudioSource.BOTH
+        applyLane(instructorPlayer, videoOn = instructorVisible, audioOn = instrAudio)
+        applyLane(encoderPlayer, videoOn = encoderVisible, audioOn = encAudio)
+        updateAudioVolumes()
+    }
+
+    DisposableEffect(instructorPlayer, encoderPlayer) {
+        fun bind(
+            player: ExoPlayer,
+            onBuffering: (Boolean) -> Unit,
+            onError: (String?) -> Unit,
+        ): Player.Listener {
+            val listener = object : Player.Listener {
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    onBuffering(playbackState == Player.STATE_BUFFERING)
+                    if (playbackState == Player.STATE_READY) onError(null)
+                }
+                override fun onPlayerError(error: PlaybackException) {
+                    onError(friendlyPlaybackError(error))
+                    onBuffering(false)
+                }
+            }
+            player.addListener(listener)
+            onBuffering(player.playbackState == Player.STATE_BUFFERING)
+            return listener
+        }
+        val instrListener = instructorPlayer?.let { player ->
+            bind(player, { instructorBuffering = it }, { instructorError = it })
+        }
+        val encListener = encoderPlayer?.let { player ->
+            bind(player, { encoderBuffering = it }, { encoderError = it })
+        }
+        onDispose {
+            instrListener?.let { instructorPlayer?.removeListener(it) }
+            encListener?.let { encoderPlayer?.removeListener(it) }
+            instructorPlayer?.release()
+            encoderPlayer?.release()
+        }
+    }
+
+    LaunchedEffect(displayMode, videoSource, audioSource, isPlaying) {
+        applyLanes()
+    }
 
     LaunchedEffect(playbackSpeed) {
         val params = PlaybackParameters(playbackSpeed)
@@ -387,31 +468,38 @@ private fun DualVideoPlayer(
         encoderPlayer?.playbackParameters = params
     }
 
-    // 进度追踪
-    LaunchedEffect(primaryPlayer) {
+    LaunchedEffect(primaryPlayer, isScrubbing) {
         while (true) {
-            primaryPlayer?.let {
-                currentPosition = it.currentPosition
-                duration = it.duration.coerceAtLeast(0)
-                isPlaying = it.isPlaying
+            if (!isScrubbing) {
+                primaryPlayer?.let {
+                    currentPosition = it.currentPosition
+                    duration = it.duration.coerceAtLeast(0)
+                }
             }
-            delay(500)
+            delay(250)
         }
     }
 
-    // 自动隐藏控制栏
+    // 双画面定期对钟：只纠正明显漂移的那一路，直播不对（时间轴不是同一套）
+    LaunchedEffect(displayMode, isPlaying, isLive, isScrubbing) {
+        if (isLive || displayMode != DisplayMode.DUAL || !hasBoth) return@LaunchedEffect
+        while (true) {
+            delay(SYNC_INTERVAL_MS)
+            if (isScrubbing || !isPlaying) continue
+            val a = instructorPlayer ?: continue
+            val b = encoderPlayer ?: continue
+            if (a.playbackState != Player.STATE_READY || b.playbackState != Player.STATE_READY) continue
+            if (abs(a.currentPosition - b.currentPosition) < SYNC_DRIFT_MS) continue
+            val target = (primaryPlayer ?: a).currentPosition
+            if (abs(a.currentPosition - target) >= SYNC_DRIFT_MS) a.seekTo(target)
+            if (abs(b.currentPosition - target) >= SYNC_DRIFT_MS) b.seekTo(target)
+        }
+    }
+
     LaunchedEffect(showControls, isPlaying) {
         if (showControls && isPlaying) {
             delay(4000)
             showControls = false
-        }
-    }
-
-    // 释放
-    DisposableEffect(Unit) {
-        onDispose {
-            instructorPlayer?.release()
-            encoderPlayer?.release()
         }
     }
 
@@ -435,27 +523,53 @@ private fun DualVideoPlayer(
             displayMode == DisplayMode.DUAL && hasBoth -> {
                 if (isLandscape) {
                     Row(Modifier.fillMaxSize()) {
-                        VideoPanel(instructorPlayer!!, "教师直播", Modifier.weight(1f).fillMaxHeight())
+                        VideoPanel(
+                            instructorPlayer!!, "教师直播", Modifier.weight(1f).fillMaxHeight(),
+                            buffering = instructorBuffering, error = instructorError,
+                            onRetry = { instructorError = null; instructorPlayer.prepare(); applyLanes() },
+                        )
                         Spacer(Modifier.width(2.dp))
-                        VideoPanel(encoderPlayer!!, "电脑屏幕", Modifier.weight(1f).fillMaxHeight())
+                        VideoPanel(
+                            encoderPlayer!!, "电脑屏幕", Modifier.weight(1f).fillMaxHeight(),
+                            buffering = encoderBuffering, error = encoderError,
+                            onRetry = { encoderError = null; encoderPlayer.prepare(); applyLanes() },
+                        )
                     }
                 } else {
                     Column(Modifier.fillMaxSize()) {
-                        VideoPanel(instructorPlayer!!, "教师直播", Modifier.weight(1f).fillMaxWidth())
+                        VideoPanel(
+                            instructorPlayer!!, "教师直播", Modifier.weight(1f).fillMaxWidth(),
+                            buffering = instructorBuffering, error = instructorError,
+                            onRetry = { instructorError = null; instructorPlayer.prepare(); applyLanes() },
+                        )
                         Spacer(Modifier.height(2.dp))
-                        VideoPanel(encoderPlayer!!, "电脑屏幕", Modifier.weight(1f).fillMaxWidth())
+                        VideoPanel(
+                            encoderPlayer!!, "电脑屏幕", Modifier.weight(1f).fillMaxWidth(),
+                            buffering = encoderBuffering, error = encoderError,
+                            onRetry = { encoderError = null; encoderPlayer.prepare(); applyLanes() },
+                        )
                     }
                 }
             }
             else -> {
-                // 单画面
+                val showingInstructor = videoSource == VideoSource.INSTRUCTOR && hasInstructor
                 val player = when {
-                    videoSource == VideoSource.INSTRUCTOR && hasInstructor -> instructorPlayer!!
+                    showingInstructor -> instructorPlayer!!
                     hasEncoder -> encoderPlayer!!
                     hasInstructor -> instructorPlayer!!
                     else -> return@Box
                 }
-                VideoPanel(player, null, Modifier.fillMaxSize())
+                val showingInstr = player === instructorPlayer
+                VideoPanel(
+                    player, null, Modifier.fillMaxSize(),
+                    buffering = if (showingInstr) instructorBuffering else encoderBuffering,
+                    error = if (showingInstr) instructorError else encoderError,
+                    onRetry = {
+                        if (showingInstr) instructorError = null else encoderError = null
+                        player.prepare()
+                        applyLanes()
+                    },
+                )
             }
         }
 
@@ -516,14 +630,11 @@ private fun DualVideoPlayer(
                     IconButton(
                         onClick = {
                             if (isPlaying) {
-                                instructorPlayer?.pause()
-                                encoderPlayer?.pause()
+                                isPlaying = false
                             } else {
                                 syncPlayers()
-                                instructorPlayer?.play()
-                                encoderPlayer?.play()
+                                isPlaying = true
                             }
-                            isPlaying = !isPlaying
                             showControls = true
                         },
                         modifier = Modifier.size(56.dp)
@@ -558,15 +669,29 @@ private fun DualVideoPlayer(
                         .padding(horizontal = 16.dp, vertical = 8.dp)
                 ) {
                     if (!isLive) {
-                        // 进度条（录播模式）
+                        val fraction = if (isScrubbing) scrubFraction
+                        else if (duration > 0) currentPosition.toFloat() / duration else 0f
                         Slider(
-                            value = if (duration > 0) currentPosition.toFloat() / duration else 0f,
-                            onValueChange = { fraction ->
-                                val newPos = (fraction * duration).toLong()
+                            value = fraction.coerceIn(0f, 1f),
+                            onValueChange = { value ->
+                                isScrubbing = true
+                                scrubFraction = value
+                                currentPosition = (value * duration).toLong()
+                            },
+                            onValueChangeFinished = {
+                                val newPos = (scrubFraction * duration).toLong()
                                 instructorPlayer?.seekTo(newPos)
                                 encoderPlayer?.seekTo(newPos)
                                 currentPosition = newPos
-                            }
+                                isScrubbing = false
+                            },
+                            // 播放器悬浮在视频画面上，主题色对比度不够，这里固定用白色
+                            colors = SliderDefaults.sliderColors(
+                                foregroundColor = Color.White,
+                                thumbColor = Color.White,
+                                backgroundColor = Color.White.copy(alpha = 0.32f),
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
                         )
                     }
 
@@ -679,7 +804,10 @@ private fun DualVideoPlayer(
 private fun VideoPanel(
     player: ExoPlayer,
     label: String?,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    buffering: Boolean = false,
+    error: String? = null,
+    onRetry: (() -> Unit)? = null,
 ) {
     Box(modifier.background(Color.Black), contentAlignment = Alignment.Center) {
         AndroidView(
@@ -705,6 +833,28 @@ private fun VideoPanel(
                     .padding(8.dp)
                     .background(Color.Black.copy(alpha = 0.4f))
                     .padding(horizontal = 6.dp, vertical = 2.dp)
+            )
+        }
+        if (error != null) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(16.dp),
+            ) {
+                Text(error, color = Color(0xFFEF5350), fontSize = 14.sp)
+                if (onRetry != null) {
+                    Spacer(Modifier.height(10.dp))
+                    TextButton(text = "重试", onClick = onRetry)
+                }
+            }
+        } else if (buffering) {
+            CircularProgressIndicator(
+                size = 36.dp,
+                strokeWidth = 3.dp,
+                colors = ProgressIndicatorDefaults.progressIndicatorColors(
+                    foregroundColor = Color.White
+                ),
             )
         }
     }
@@ -841,6 +991,18 @@ private fun SourceMenu(
 // ════════════════════════════════════════
 //  工具
 // ════════════════════════════════════════
+
+private fun friendlyPlaybackError(error: PlaybackException): String = when (error.errorCode) {
+    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> "网络中断，稍后重试"
+    PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS,
+    PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND -> "视频地址失效"
+    PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
+    PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED -> "视频格式无法解析"
+    PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+    PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED -> "设备无法解码此视频"
+    else -> error.message?.substringBefore('\n')?.takeIf { it.isNotBlank() } ?: "播放失败"
+}
 
 private fun formatTime(ms: Long): String {
     if (ms <= 0) return "00:00"

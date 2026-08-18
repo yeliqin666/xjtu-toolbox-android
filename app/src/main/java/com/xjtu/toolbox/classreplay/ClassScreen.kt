@@ -8,6 +8,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import android.content.Context
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.BorderStroke
@@ -42,6 +43,8 @@ import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.rememberRetainedLazyListState
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.*
@@ -67,18 +70,37 @@ private class ClassPageCache {
     var courses by mutableStateOf<List<Course>>(emptyList())
     var selectedSemester by mutableStateOf<String?>(null)
     val activities = mutableStateMapOf<Int, List<LiveActivity>>()
+    val details = mutableStateMapOf<Int, ReplayDetail>()
+    /** activityId → cameraType → 已解析的直链 */
+    val resolvedUrls = mutableStateMapOf<Int, Map<String, String>>()
 }
+
+private sealed class ClassPage {
+    data object CourseList : ClassPage()
+    data class ReplayList(val course: Course) : ClassPage()
+    data class ReplayDetail(val course: Course, val activity: LiveActivity) : ClassPage()
+    data class VideoPlayer(
+        val title: String,
+        val instructorUrl: String?,
+        val encoderUrl: String?,
+        val startInDual: Boolean,
+        val returnPage: ClassPage,
+    ) : ClassPage()
+}
+
+private val CLASS_VIDEO_HEADERS = mapOf(
+    "Origin" to "https://class.xjtu.edu.cn",
+    "Referer" to "https://class.xjtu.edu.cn/",
+)
 
 @Composable
 fun ClassScreen(
     site: SiteSession,
     onBack: () -> Unit,
-    onPlayReplay: (activityId: Int) -> Unit,
     onDownloadReplay: (activityIds: List<Int>, videoSources: Set<String>) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
-    // 页面导航状态
-    var selectedCourse by remember { mutableStateOf<Course?>(null) }
+    var currentPage by remember { mutableStateOf<ClassPage>(ClassPage.CourseList) }
     val cache = remember { ClassPageCache() }
 
     // 首次使用提醒
@@ -121,35 +143,78 @@ fun ClassScreen(
         }
     }
 
-    // 系统返回键处理：子页面返回上级而非直接退出
-    BackHandler(enabled = selectedCourse != null) {
-        selectedCourse = null
+    BackHandler(enabled = currentPage !is ClassPage.CourseList) {
+        currentPage = when (val cur = currentPage) {
+            is ClassPage.VideoPlayer -> cur.returnPage
+            is ClassPage.ReplayDetail -> ClassPage.ReplayList(cur.course)
+            is ClassPage.ReplayList -> ClassPage.CourseList
+            else -> ClassPage.CourseList
+        }
+    }
+
+    val videoPage = currentPage as? ClassPage.VideoPlayer
+    if (videoPage != null) {
+        DirectVideoPlayerScreen(
+            instructorUrl = videoPage.instructorUrl,
+            encoderUrl = videoPage.encoderUrl,
+            title = videoPage.title,
+            headers = CLASS_VIDEO_HEADERS,
+            startInDual = videoPage.startInDual,
+            onBack = { currentPage = videoPage.returnPage },
+        )
+        return
     }
 
     AnimatedContent(
-        targetState = selectedCourse,
+        targetState = currentPage,
         transitionSpec = {
-            if (targetState != null) {
+            val forward = when {
+                targetState is ClassPage.ReplayList && initialState is ClassPage.CourseList -> true
+                targetState is ClassPage.ReplayDetail && initialState is ClassPage.ReplayList -> true
+                else -> false
+            }
+            if (forward) {
                 (slideInHorizontally { it / 3 } + fadeIn()) togetherWith
-                        (slideOutHorizontally { -it / 3 } + fadeOut())
+                    (slideOutHorizontally { -it / 3 } + fadeOut())
             } else {
                 (slideInHorizontally { -it / 3 } + fadeIn()) togetherWith
-                        (slideOutHorizontally { it / 3 } + fadeOut())
+                    (slideOutHorizontally { it / 3 } + fadeOut())
             }
         },
         label = "ClassPage"
-    ) { course ->
-        if (course == null) {
-            CourseListPage(site = site, cache = cache, onBack = onBack, onCourseSelected = { selectedCourse = it })
-        } else {
-            ReplayListPage(
+    ) { page ->
+        when (page) {
+            is ClassPage.CourseList -> CourseListPage(
                 site = site,
                 cache = cache,
-                course = course,
-                onBack = { selectedCourse = null },
-                onPlayReplay = onPlayReplay,
-                onDownloadReplay = onDownloadReplay
+                onBack = onBack,
+                onCourseSelected = { currentPage = ClassPage.ReplayList(it) },
             )
+            is ClassPage.ReplayList -> ReplayListPage(
+                site = site,
+                cache = cache,
+                course = page.course,
+                onBack = { currentPage = ClassPage.CourseList },
+                onActivitySelected = { currentPage = ClassPage.ReplayDetail(page.course, it) },
+                onDownloadReplay = onDownloadReplay,
+            )
+            is ClassPage.ReplayDetail -> ReplayDetailPage(
+                site = site,
+                cache = cache,
+                course = page.course,
+                activity = page.activity,
+                onBack = { currentPage = ClassPage.ReplayList(page.course) },
+                onPlayVideo = { title, instrUrl, encUrl, startInDual ->
+                    currentPage = ClassPage.VideoPlayer(
+                        title = title,
+                        instructorUrl = instrUrl,
+                        encoderUrl = encUrl,
+                        startInDual = startInDual,
+                        returnPage = ClassPage.ReplayDetail(page.course, page.activity),
+                    )
+                },
+            )
+            is ClassPage.VideoPlayer -> { }
         }
     }
 }
@@ -417,7 +482,7 @@ private fun ReplayListPage(
     cache: ClassPageCache,
     course: Course,
     onBack: () -> Unit,
-    onPlayReplay: (activityId: Int) -> Unit,
+    onActivitySelected: (LiveActivity) -> Unit,
     onDownloadReplay: (activityIds: List<Int>, videoSources: Set<String>) -> Unit
 ) {
     val appLoginState = LocalAppLoginState.current
@@ -623,11 +688,264 @@ private fun ReplayListPage(
                                             selectedActivities.add(activity.id)
                                         }
                                     } else {
-                                        onPlayReplay(activity.id)
+                                        onActivitySelected(activity)
                                     }
                                 }
                             )
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReplayDetailPage(
+    site: SiteSession,
+    cache: ClassPageCache,
+    course: Course,
+    activity: LiveActivity,
+    onBack: () -> Unit,
+    onPlayVideo: (title: String, instructorUrl: String?, encoderUrl: String?, startInDual: Boolean) -> Unit,
+) {
+    val context = LocalContext.current
+    val appLoginState = LocalAppLoginState.current
+    val detail = cache.details[activity.id]
+    val urls = cache.resolvedUrls[activity.id].orEmpty()
+    var isLoading by remember { mutableStateOf(cache.details[activity.id] == null) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+
+    fun loadDetail() {
+        scope.launch {
+            isLoading = true
+            errorMsg = null
+            try {
+                val fetched = withContext(Dispatchers.IO) { fetchReplayDetail(site, activity.id) }
+                if (fetched == null) {
+                    errorMsg = "未找到回放详情"
+                    return@launch
+                }
+                cache.details[activity.id] = fetched
+                cache.resolvedUrls[activity.id] = withContext(Dispatchers.IO) {
+                    coroutineScope {
+                        fetched.replayVideos.map { video ->
+                            async { video.cameraType to resolveVideoUrl(site, video.url) }
+                        }.mapNotNull { deferred ->
+                            val (type, url) = deferred.await()
+                            url?.let { type to it }
+                        }.toMap()
+                    }
+                }
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.CLASS, Routes.CLASS_REPLAY, onBack)
+            } catch (e: Exception) {
+                Log.e(TAG, "loadReplayDetail error", e)
+                errorMsg = e.message ?: "加载失败"
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    LaunchedEffect(activity.id) {
+        if (cache.details[activity.id] == null) loadDetail()
+    }
+
+    fun enqueueDownload(cameraType: String, url: String) {
+        scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    DownloadManager.getInstance(context.applicationContext).enqueueDownloads(
+                        courseName = course.displayName,
+                        activityTitle = detail?.title ?: activity.title,
+                        activityId = activity.id,
+                        videos = listOf(DownloadManager.DownloadItem(cameraType = cameraType, url = url)),
+                    )
+                }
+            }.onSuccess {
+                Toast.makeText(context, "已加入下载队列", Toast.LENGTH_SHORT).show()
+            }.onFailure {
+                Toast.makeText(context, "加入下载失败：${it.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    Scaffold(
+        topBar = {
+            SmallTopAppBar(
+                title = activity.title,
+                color = MiuixTheme.colorScheme.surfaceVariant,
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                },
+            )
+        }
+    ) { padding ->
+        Box(Modifier.fillMaxSize().padding(padding)) {
+            when {
+                isLoading -> {
+                    Column(
+                        Modifier.align(Alignment.Center),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        CircularProgressIndicator()
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "加载回放详情…",
+                            fontSize = 13.sp,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        )
+                    }
+                }
+                errorMsg != null && detail == null -> {
+                    Column(
+                        Modifier.align(Alignment.Center).padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(errorMsg ?: "", color = MiuixTheme.colorScheme.error)
+                        Spacer(Modifier.height(8.dp))
+                        TextButton(text = "重试", onClick = { loadDetail() })
+                    }
+                }
+                detail != null -> {
+                    val instructorUrl = urls["instructor"]
+                    val encoderUrl = urls["encoder"]
+                    val hasBoth = instructorUrl != null && encoderUrl != null
+
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                    ) {
+                        item(key = "info") {
+                            Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                                Column(Modifier.padding(16.dp)) {
+                                    Text(
+                                        detail.title.ifBlank { activity.title },
+                                        style = MiuixTheme.textStyles.title3,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                    Spacer(Modifier.height(8.dp))
+                                    Text(
+                                        formatActivityTime(activity.startTime, activity.endTime),
+                                        style = MiuixTheme.textStyles.footnote1,
+                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    )
+                                    if (!detail.roomName.isNullOrBlank()) {
+                                        Spacer(Modifier.height(6.dp))
+                                        Text(
+                                            "教室：${detail.roomName}",
+                                            style = MiuixTheme.textStyles.body2,
+                                        )
+                                    }
+                                    if (detail.instructorNames.isNotEmpty()) {
+                                        Spacer(Modifier.height(4.dp))
+                                        Text(
+                                            "教师：${detail.instructorNames.joinToString("、")}",
+                                            style = MiuixTheme.textStyles.body2,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        if (detail.replayVideos.isEmpty()) {
+                            item(key = "empty") {
+                                Text(
+                                    "这次课还没有可播放的录像",
+                                    style = MiuixTheme.textStyles.body2,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    modifier = Modifier.padding(vertical = 16.dp),
+                                )
+                            }
+                        } else {
+                            item(key = "header") {
+                                Text(
+                                    "课堂回放 (${detail.replayVideos.size})",
+                                    style = MiuixTheme.textStyles.subtitle,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(top = 12.dp, bottom = 8.dp),
+                                )
+                            }
+
+                            if (hasBoth) {
+                                item(key = "multi_cam") {
+                                    Button(
+                                        onClick = {
+                                            onPlayVideo(detail.title, instructorUrl, encoderUrl, true)
+                                        },
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                    ) {
+                                        Icon(Icons.Default.PlayCircle, null, Modifier.size(18.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("多机位播放器")
+                                    }
+                                }
+                            }
+
+                            items(detail.replayVideos, key = { "cam_${it.cameraType}_${it.cameraId}" }) { video ->
+                                val url = urls[video.cameraType]
+                                Card(
+                                    onClick = {
+                                        if (url.isNullOrBlank()) {
+                                            Toast.makeText(context, "这一路暂时打不开", Toast.LENGTH_SHORT).show()
+                                            return@Card
+                                        }
+                                        val isInstr = video.cameraType == "instructor"
+                                        onPlayVideo(
+                                            "${detail.title} - ${video.label}",
+                                            if (isInstr) url else null,
+                                            if (!isInstr) url else null,
+                                            false,
+                                        )
+                                    },
+                                    pressFeedbackType = PressFeedbackType.Sink,
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                                ) {
+                                    Row(
+                                        Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Icon(
+                                            if (video.cameraType == "instructor") Icons.Default.Videocam
+                                            else Icons.Default.ScreenShare,
+                                            null,
+                                            tint = MiuixTheme.colorScheme.primary,
+                                            modifier = Modifier.size(32.dp),
+                                        )
+                                        Spacer(Modifier.width(12.dp))
+                                        Column(Modifier.weight(1f)) {
+                                            Text(
+                                                video.label,
+                                                fontSize = 15.sp,
+                                                fontWeight = FontWeight.Medium,
+                                            )
+                                            Text(
+                                                if (url != null) "单独画面" else "地址解析失败",
+                                                fontSize = 12.sp,
+                                                color = if (url != null) MiuixTheme.colorScheme.onSurfaceVariantSummary
+                                                else MiuixTheme.colorScheme.error,
+                                            )
+                                        }
+                                        if (url != null) {
+                                            IconButton(onClick = { enqueueDownload(video.cameraType, url) }) {
+                                                Icon(
+                                                    Icons.Default.Download,
+                                                    contentDescription = "下载",
+                                                    tint = MiuixTheme.colorScheme.primary,
+                                                )
+                                            }
+                                        }
+                                        Icon(Icons.Default.PlayArrow, null, tint = MiuixTheme.colorScheme.primary)
+                                    }
+                                }
+                            }
+                        }
+
+                        item { Spacer(Modifier.height(16.dp)) }
                     }
                 }
             }

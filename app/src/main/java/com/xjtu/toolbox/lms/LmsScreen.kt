@@ -92,7 +92,8 @@ private sealed class LmsPage {
         val encoderUrl: String?,
         val isLive: Boolean,
         val returnPage: LmsPage,
-        val headers: Map<String, String> = emptyMap()
+        val headers: Map<String, String> = emptyMap(),
+        val startInDual: Boolean = false,
     ) : LmsPage()
 }
 
@@ -169,6 +170,7 @@ fun LmsScreen(site: SiteSession, onBack: () -> Unit) {
             title = videoPage.title,
             headers = videoPage.headers,
             isLive = videoPage.isLive,
+            startInDual = videoPage.startInDual,
             onBack = { currentPage = videoPage.returnPage }
         )
         return
@@ -213,14 +215,15 @@ fun LmsScreen(site: SiteSession, onBack: () -> Unit) {
                 course = page.course,
                 activity = page.activity,
                 onBack = { currentPage = LmsPage.ActivityList(page.course) },
-                onPlayVideo = { title, instrUrl, encUrl, isLive, headers ->
+                onPlayVideo = { title, instrUrl, encUrl, isLive, headers, startInDual ->
                     currentPage = LmsPage.VideoPlayer(
                         title = title,
                         instructorUrl = instrUrl,
                         encoderUrl = encUrl,
                         isLive = isLive,
                         returnPage = LmsPage.ActivityDetail(page.course, page.activity),
-                        headers = headers
+                        headers = headers,
+                        startInDual = startInDual,
                     )
                 }
             )
@@ -625,7 +628,7 @@ private fun ActivityDetailPage(
     course: LmsCourseSummary,
     activity: LmsActivity,
     onBack: () -> Unit,
-    onPlayVideo: (title: String, instructorUrl: String?, encoderUrl: String?, isLive: Boolean, headers: Map<String, String>) -> Unit
+    onPlayVideo: (title: String, instructorUrl: String?, encoderUrl: String?, isLive: Boolean, headers: Map<String, String>, startInDual: Boolean) -> Unit
 ) {
     val context = LocalContext.current
     val appLoginState = LocalAppLoginState.current
@@ -792,7 +795,8 @@ private fun ActivityDetailPage(
                                                 instrVideo?.downloadUrl,
                                                 encVideo?.downloadUrl ?: d.replayVideos.first().downloadUrl,
                                                 false,
-                                                lmsVideoHeaders
+                                                lmsVideoHeaders,
+                                                true,
                                             )
                                         },
                                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
@@ -817,7 +821,8 @@ private fun ActivityDetailPage(
                                             if (isInstr) video.downloadUrl else null,
                                             if (!isInstr) video.downloadUrl else null,
                                             false,
-                                            lmsVideoHeaders
+                                            lmsVideoHeaders,
+                                            false,
                                         )
                                     }
                                 }
@@ -841,7 +846,8 @@ private fun ActivityDetailPage(
                                                 instrStream?.src,
                                                 encStream?.src ?: d.liveStreams.first().src,
                                                 true,
-                                                lmsVideoHeaders
+                                                lmsVideoHeaders,
+                                                true,
                                             )
                                         },
                                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
@@ -859,7 +865,8 @@ private fun ActivityDetailPage(
                                             if (stream.isInstructor) stream.src else null,
                                             if (!stream.isInstructor) stream.src else null,
                                             true,
-                                            lmsVideoHeaders
+                                            lmsVideoHeaders,
+                                            false,
                                         )
                                     }
                                 }
@@ -885,7 +892,8 @@ private fun ActivityDetailPage(
                                                     instrVideo?.downloadUrl,
                                                     encVideo?.downloadUrl ?: d.liveReplayVideos.first().downloadUrl,
                                                     false,
-                                                    lmsVideoHeaders
+                                                    lmsVideoHeaders,
+                                                    true,
                                                 )
                                             },
                                             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
@@ -910,7 +918,8 @@ private fun ActivityDetailPage(
                                                     if (isInstr) video.downloadUrl else null,
                                                     if (!isInstr) video.downloadUrl else null,
                                                     false,
-                                                    lmsVideoHeaders
+                                                    lmsVideoHeaders,
+                                                    false,
                                                 )
                                             }
                                         }
