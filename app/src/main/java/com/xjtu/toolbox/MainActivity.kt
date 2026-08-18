@@ -6,6 +6,7 @@ import android.os.Bundle
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import com.xjtu.toolbox.util.safeParseJsonObject
 import kotlinx.coroutines.async
 import kotlinx.coroutines.sync.withLock
@@ -50,7 +51,6 @@ import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
-import top.yukonga.miuix.kmp.basic.TabRowWithContour
 import top.yukonga.miuix.kmp.basic.SnackbarDuration
 import top.yukonga.miuix.kmp.basic.SnackbarHost
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
@@ -89,13 +89,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import top.yukonga.miuix.kmp.squircle.squircleBackground
 import top.yukonga.miuix.kmp.squircle.squircleBorder
 import top.yukonga.miuix.kmp.squircle.squircleClip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -123,17 +123,17 @@ import com.xjtu.toolbox.score.ScoreReportScreen
 import com.xjtu.toolbox.ui.theme.XJTUToolBoxTheme
 import com.xjtu.toolbox.ui.theme.serviceColor
 import com.xjtu.toolbox.ui.settings.SettingsScreen
-import com.xjtu.toolbox.ui.components.AmbientGlow
 import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.ExpressiveIcon
-import com.xjtu.toolbox.ui.components.ExpressivePanel
 import com.xjtu.toolbox.agent.AgentPendingPrompt
 import com.xjtu.toolbox.agent.AgentRuntimeHooks
 import com.xjtu.toolbox.util.CredentialStore
 import com.xjtu.toolbox.util.DeepLinkRouter
 import com.xjtu.toolbox.widget.CampusCardWidgetUpdater
 import com.xjtu.toolbox.widget.ScheduleWidgetUpdater
+import com.xjtu.toolbox.home.AppServices
 import com.xjtu.toolbox.home.GlobalSearchScreen
+import com.xjtu.toolbox.home.ServiceCategory
 import com.xjtu.toolbox.onboarding.OnboardingStore
 import com.xjtu.toolbox.settings.FeedbackScreen
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -579,7 +579,7 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
     // 保存的凭据（内存中），用于自动登录其他系统
     override var savedUsername: String = ""
     override var savedPassword: String = ""
-    override var accountType: com.xjtu.toolbox.auth.AccountType = com.xjtu.toolbox.auth.AccountType.UNDERGRADUATE
+    override var accountType by mutableStateOf(com.xjtu.toolbox.auth.AccountType.UNDERGRADUATE)
 
     val hasCredentials: Boolean get() = savedUsername.isNotEmpty() && savedPassword.isNotEmpty()
     val isLoggedIn: Boolean get() = activeUsername.isNotEmpty()
@@ -1218,7 +1218,6 @@ fun AppNavigation(
             ScheduleWidgetUpdater.requestUpdate(context, resetToToday = false)
             CampusCardWidgetUpdater.requestUpdate(context)
             com.xjtu.toolbox.widget.NoticeWidgetUpdater.requestUpdate(context)
-            com.xjtu.toolbox.widget.EmptyRoomWidgetUpdater.requestUpdate(context)
         }
 
         onReady()
@@ -1333,7 +1332,7 @@ fun AppNavigation(
     var autoUpdateChannel by remember { mutableStateOf("") }
     val showAutoUpdateDialog = remember { mutableStateOf(false) }
 
-    LaunchedEffect(credentialStore.autoCheckUpdate) {
+    LaunchedEffect(Unit) {
         if (autoUpdateCheckDone.value) return@LaunchedEffect
         if (!credentialStore.autoCheckUpdate) return@LaunchedEffect
         val now = System.currentTimeMillis()
@@ -1341,10 +1340,11 @@ fun AppNavigation(
             return@LaunchedEffect
         }
         autoUpdateCheckDone.value = true
-        credentialStore.lastAutoUpdateCheckAt = now
         try {
             val update = com.xjtu.toolbox.util.AppUpdater.check(credentialStore.updateChannel)
-                ?: return@LaunchedEffect
+            // 只有请求成功才记冷却：失败下次冷启动还会再试，避免「看起来像没检查」。
+            credentialStore.lastAutoUpdateCheckAt = System.currentTimeMillis()
+            if (update == null) return@LaunchedEffect
             if (credentialStore.isUpdateNoticeSeen("auto_${update.channel}_${update.version}")) return@LaunchedEffect
             autoUpdateVersion = update.version
             autoUpdateBody = update.notes
@@ -1353,7 +1353,8 @@ fun AppNavigation(
             autoUpdateChannelKey = update.channel
             autoUpdateChannel = update.channelLabel
             showAutoUpdateDialog.value = true
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            android.util.Log.w("AppUpdater", "startup update check failed", e)
         }
     }
 
@@ -1783,7 +1784,21 @@ fun AppNavigation(
                     showQuickActions = v
                     credentialStore.showQuickActions = v
                 },
-                onOpenFeedback = { navController.navigate(Routes.FEEDBACK) }
+                onOpenFeedback = { navController.navigate(Routes.FEEDBACK) },
+                onAccountTypeChanged = { type ->
+                    loginState.accountType = type
+                    loginState.sessionManager?.accountType =
+                        if (type == com.xjtu.toolbox.auth.AccountType.POSTGRADUATE) {
+                            com.xjtu.toolbox.auth.XJTULogin.AccountType.POSTGRADUATE
+                        } else {
+                            com.xjtu.toolbox.auth.XJTULogin.AccountType.UNDERGRADUATE
+                        }
+                    val id = loginState.accountId
+                    if (id.isNotEmpty()) {
+                        val store = com.xjtu.toolbox.account.AccountStore(context)
+                        store.get(id)?.let { store.upsert(it.copy(accountType = type)) }
+                    }
+                }
             )
         }
 
@@ -2421,9 +2436,10 @@ private fun MainScreen(
                             Text(it, color = MiuixTheme.colorScheme.error, style = MiuixTheme.textStyles.footnote1)
                         }
                         if (codeSent) {
-                            Button(
+                            TextButton(
+                                text = if (verifying) "验证中…" else "验证并登录",
                                 onClick = {
-                                    if (codeInput.length != 6) { err = "请输入6位验证码"; return@Button }
+                                    if (codeInput.length != 6) { err = "请输入6位验证码"; return@TextButton }
                                     verifying = true; err = null
                                     if (!req.submit(codeInput)) {
                                         err = "提交失败"
@@ -2432,13 +2448,8 @@ private fun MainScreen(
                                 },
                                 enabled = !verifying,
                                 modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                if (verifying) {
-                                    CircularProgressIndicator(size = 18.dp, strokeWidth = 2.dp)
-                                    Spacer(Modifier.width(8.dp))
-                                }
-                                Text(if (verifying) "验证中…" else "验证并登录")
-                            }
+                                colors = ButtonDefaults.textButtonColorsPrimary()
+                            )
                         } else if (sending) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 CircularProgressIndicator(size = 18.dp, strokeWidth = 2.dp)
@@ -2459,16 +2470,15 @@ private fun MainScreen(
                     summary = "「${loginState.passwordInvalidatedSiteName}」登录失败，已暂停其他系统的自动登录以保护账号。请在设置中更新密码。",
                     onDismissRequest = { loginState.passwordInvalidatedDialogVisible = false }
                 ) {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
+                    Row(Modifier.fillMaxWidth()) {
                         TextButton(
                             text = "稍后",
                             onClick = { loginState.passwordInvalidatedDialogVisible = false },
                             modifier = Modifier.weight(1f),
                         )
-                        Button(
+                        Spacer(Modifier.width(20.dp))
+                        TextButton(
+                            text = "去更新密码",
                             onClick = {
                                 loginState.passwordInvalidatedDialogVisible = false
                                 navController.navigate(Routes.SETTINGS) {
@@ -2476,9 +2486,8 @@ private fun MainScreen(
                                 }
                             },
                             modifier = Modifier.weight(1f),
-                        ) {
-                            Text("去更新密码")
-                        }
+                            colors = ButtonDefaults.textButtonColorsPrimary()
+                        )
                     }
                 }
             }
@@ -2501,6 +2510,7 @@ private fun MainScreen(
                 AgentPendingPrompt.set(prompt)
                 navController.navigate(Routes.AGENT) { launchSingleTop = true }
             },
+            accountType = loginState.accountType,
         )
     }
 }
@@ -2535,10 +2545,12 @@ private fun bottomTabBadge(
 private fun HomeHero(
     greetingName: String,
     dateLabel: String,
+    weekNumber: Int,
     isLoggedIn: Boolean,
     isFocusLoaded: Boolean,
     reminder: ScheduleReminderInfo?,
     balance: Float,
+    todaySpend: Float,
     onOpenCourses: () -> Unit,
     onOpenCard: () -> Unit,
     onOpenProfile: () -> Unit,
@@ -2550,222 +2562,171 @@ private fun HomeHero(
         in 14..17 -> "下午好"
         else -> "晚上好"
     }
-    val blue = androidx.compose.ui.graphics.Color(0xFF315FD4)
-    val violet = androidx.compose.ui.graphics.Color(0xFF7357D8)
-    // 插画尺寸与边距：文字列的右侧预留也由这两个值算出，改一处即可，避免再次对不上
-    val HERO_ART_SIZE = 124.dp
-    val HERO_ART_MARGIN = 6.dp
+    val headline = if (greetingName.isBlank()) greeting else "$greeting，$greetingName"
+    val meta = buildString {
+        append(dateLabel)
+        if (weekNumber in 1..25) append(" · 第${weekNumber}周")
+    }
+    val primary = MiuixTheme.colorScheme.primary
+    val muted = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    val artSize = 128.dp
 
-    // 重点信息决定整卡点击去向：有课→日程；无课有余额→校园卡；否则→个人页
-    val heroClick = when {
-        !isLoggedIn -> onOpenProfile
-        reminder != null -> onOpenCourses
-        balance >= 0f -> onOpenCard
-        else -> onOpenProfile
+    val courseTitle: String
+    val courseDetail: String?
+    when {
+        !isLoggedIn -> {
+            courseTitle = "登录后查看课表和余额"
+            courseDetail = "课表、校园卡会显示在这里"
+        }
+        !isFocusLoaded -> {
+            courseTitle = "正在读取今日安排…"
+            courseDetail = null
+        }
+        reminder != null -> {
+            val now = java.time.LocalDateTime.now()
+            val minutesUntil = java.time.Duration.between(now, reminder.startAt)
+                .toMinutes().coerceAtLeast(0)
+            val dayLabel = formatScheduleReminderDateLabel(
+                reminder.startAt.toLocalDate(), now.toLocalDate()
+            )
+            val startLabel = formatMinuteClock(reminder.startAt.hour * 60 + reminder.startAt.minute)
+            val endLabel = reminder.endAt?.let {
+                formatMinuteClock(it.hour * 60 + it.minute)
+            }
+            val timePart = if (endLabel != null) "$startLabel–$endLabel" else startLabel
+            courseTitle = reminder.name
+            courseDetail = buildString {
+                append(formatScheduleReminderEta(minutesUntil))
+                if (dayLabel != "今天") append(" · $dayLabel")
+                append(" · $timePart")
+                if (reminder.location.isNotBlank()) append(" · ${reminder.location}")
+            }
+        }
+        else -> {
+            courseTitle = "未来两周暂无日程"
+            courseDetail = "打开课表看看"
+        }
     }
 
-    // 高度按内容自适应，不设 heightIn(min)：内容约占 130dp，设成更大的值会让
-    // CenterStart 把多余高度上下平分，底部出现空白。插画 124dp + 6dp 边距本身即下限。
-    ExpressivePanel(
-        modifier = Modifier.fillMaxWidth(),
-        accent = blue,
-        cornerRadius = 28.dp,
-        onClick = heroClick,
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .squircleClip(CARD_RADIUS)
+            .background(AppCardColor),
     ) {
-        Box(
-            Modifier
-                .matchParentSize()
-                .background(
-                    Brush.linearGradient(
-                        listOf(
-                            blue.copy(alpha = 0.16f),
-                            violet.copy(alpha = 0.08f),
-                            MiuixTheme.colorScheme.surface.copy(alpha = 0.05f),
+        Box(Modifier.matchParentSize()) {
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = 56.dp, y = (-64).dp)
+                    .size(260.dp)
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(primary.copy(alpha = 0.20f), Color.Transparent),
                         ),
                     ),
-                ),
-        )
-        AmbientGlow(
-            color = androidx.compose.ui.graphics.Color(0xFF40B8FF),
-            modifier = Modifier.align(Alignment.TopEnd).offset(x = 36.dp, y = (-40).dp),
-            size = 190.dp,
-        )
-        // 主楼插画。原来是 size(132) + offset(8, 8)：正偏移把图推出卡片右下角造成溢出，
-        // 而文字列只预留了 end = 116dp，比图实际占的 124dp 少 8dp，于是文字与图重叠错位。
-        // 现在去掉偏移、留出边距，并让文字预留宽度与图的占位（HERO_ART_SIZE + 间距）
-        // 由同一组常量算出，不再两处各写一个数字对不上。
-        Image(
-            painter = painterResource(R.drawable.home_campus_hero),
-            contentDescription = "兴庆校区主楼",
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = HERO_ART_MARGIN, bottom = HERO_ART_MARGIN)
-                .size(HERO_ART_SIZE),
-            contentScale = ContentScale.Fit,
-        )
+            )
+            Image(
+                painter = painterResource(R.drawable.home_campus_hero),
+                contentDescription = "兴庆校区主楼",
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 8.dp, bottom = 12.dp)
+                    .size(artSize),
+                contentScale = ContentScale.Fit,
+            )
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .background(
+                        Brush.linearGradient(
+                            listOf(
+                                primary.copy(alpha = 0.14f),
+                                primary.copy(alpha = 0.04f),
+                                Color.Transparent,
+                            ),
+                        ),
+                    ),
+            )
+        }
         Column(
-            modifier = Modifier
-                .align(Alignment.CenterStart)
-                .padding(
-                    start = 20.dp,
-                    top = 18.dp,
-                    bottom = 18.dp,
-                    // 图的总占位 + 一点呼吸间隙，保证文字永远不会压到画上
-                    end = HERO_ART_SIZE + HERO_ART_MARGIN + 8.dp,
-                ),
+            Modifier
+                .fillMaxWidth()
+                .padding(start = 20.dp, top = 22.dp, bottom = 22.dp, end = artSize + 8.dp),
         ) {
             Text(
-                dateLabel,
+                meta,
                 style = MiuixTheme.textStyles.footnote1,
-                color = blue,
+                color = primary,
                 fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(8.dp))
             Text(
-                if (greetingName.isBlank()) greeting else "$greeting，$greetingName",
+                headline,
                 style = MiuixTheme.textStyles.title3,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Spacer(Modifier.height(12.dp))
-            // ── 重点信息区：下一节课 > 余额 > 引导文案，全部单行防换行 ──
-            when {
-                !isLoggedIn -> {
-                    HeroFocusLine(
-                        icon = Icons.Default.AccountCircle,
-                        primary = "登录以使用全部功能",
-                        secondary = "课表、余额和通知会显示在这里",
-                        accent = blue,
-                    )
-                }
-                !isFocusLoaded -> {
-                    HeroFocusLine(
-                        icon = Icons.Default.Schedule,
-                        primary = "正在读取今日安排…",
-                        secondary = null,
-                        accent = blue,
-                    )
-                }
-                reminder != null -> {
-                    val now = java.time.LocalDateTime.now()
-                    val minutesUntil = java.time.Duration.between(now, reminder.startAt)
-                        .toMinutes().coerceAtLeast(0)
-                    val dayLabel = formatScheduleReminderDateLabel(
-                        reminder.startAt.toLocalDate(), now.toLocalDate()
-                    )
-                    val startLabel = formatMinuteClock(reminder.startAt.hour * 60 + reminder.startAt.minute)
-                    val detail = buildString {
-                        append("$dayLabel $startLabel · ${reminder.name}")
-                        if (reminder.location.isNotBlank()) append(" · ${reminder.location}")
-                    }
-                    HeroFocusLine(
-                        icon = Icons.Default.Schedule,
-                        primary = formatScheduleReminderEta(minutesUntil),
-                        secondary = detail,
-                        accent = blue,
-                    )
-                }
-                balance >= 0f -> {
-                    HeroFocusLine(
-                        icon = Icons.Default.CreditCard,
-                        // 文案要短：这一行右边被主楼插画压掉 130dp，"校园卡余额 ¥123.45"
-                        // 在窄屏上会被截成"校园卡余额 ¥1…"，金额反而看不见——
-                        // 而金额才是这行唯一的信息。把定语挪到副标题去。
-                        primary = "¥${"%.2f".format(balance)}",
-                        secondary = "校园卡余额",
-                        accent = blue,
-                    )
-                }
-                else -> {
-                    HeroFocusLine(
-                        icon = Icons.Default.EventNote,
-                        primary = "未来两周暂无日程",
-                        secondary = "点击查看个人主页",
-                        accent = blue,
-                    )
-                }
-            }
-            // 有课时余额退居次要位置：重点信息行下方的小胶囊，独立点击进校园卡
-            if (isLoggedIn && reminder != null && balance >= 0f) {
-                Spacer(Modifier.height(10.dp))
-                val isLowBalance = balance <= 30f
-                val pillColor = if (isLowBalance) MiuixTheme.colorScheme.error else blue
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = pillColor.copy(alpha = 0.10f),
-                    modifier = Modifier.clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = SinkFeedback(),
-                        onClick = onOpenCard
-                    )
-                ) {
-                    Row(
-                        Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Default.CreditCard, null, Modifier.size(13.dp), tint = pillColor)
-                        Spacer(Modifier.width(5.dp))
-                        Text(
-                            if (isLowBalance) "余额 ¥${"%.2f".format(balance)} · 该充值了"
-                            else "余额 ¥${"%.2f".format(balance)}",
-                            style = MiuixTheme.textStyles.footnote2,
-                            color = pillColor,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** Hero 卡内的重点信息行：图标徽章 + 主行（粗体单行）+ 可选次行（单行省略）。 */
-@Composable
-private fun HeroFocusLine(
-    icon: ImageVector,
-    primary: String,
-    secondary: String?,
-    accent: androidx.compose.ui.graphics.Color,
-) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        ExpressiveIcon(icon = icon, color = accent, size = 36.dp, iconSize = 18.dp)
-        Spacer(Modifier.width(10.dp))
-        Column {
-            Text(
-                primary,
-                style = MiuixTheme.textStyles.body1,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (secondary != null) {
-                Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(18.dp))
+            Column(
+                Modifier.clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = SinkFeedback(),
+                    onClick = if (isLoggedIn) onOpenCourses else onOpenProfile,
+                ),
+            ) {
                 Text(
-                    secondary,
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    courseTitle,
+                    style = MiuixTheme.textStyles.body1,
+                    fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                if (courseDetail != null) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        courseDetail,
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = muted,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            if (isLoggedIn) {
+                Spacer(Modifier.height(16.dp))
+                Row(
+                    Modifier.clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = SinkFeedback(),
+                        onClick = onOpenCard,
+                    ),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    val balanceText = if (balance >= 0f) "¥${"%.2f".format(balance)}" else "—"
+                    val spendText = if (todaySpend >= 0f) "¥${"%.2f".format(todaySpend)}" else "—"
+                    Text("余额 ", style = MiuixTheme.textStyles.footnote1, color = muted)
+                    Text(
+                        balanceText,
+                        style = MiuixTheme.textStyles.footnote1,
+                        fontWeight = FontWeight.Bold,
+                        color = if (balance in 0f..30f) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.onSurface,
+                    )
+                    Text("  ·  今日 ", style = MiuixTheme.textStyles.footnote1, color = muted)
+                    Text(
+                        spendText,
+                        style = MiuixTheme.textStyles.footnote1,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
             }
         }
     }
 }
 
-/**
- * 主页服务分类。两种主题（图标宫格 / 卡片）共用同一份分类定义，
- * 避免出现"图标主题按四类分、卡片主题另有一套场景分组且漏掉 7 个服务"这种不一致。
- */
-private enum class ServiceCategory(val title: String, val subtitle: String) {
-    // 顺序即首页展示顺序。校园生活排第一：校园卡余额、加餐券、体测、黄页都在这一类，
-    // 是**实时信息最密集**的一块，放最前面首屏就有内容可看。
-    LIFE("校园生活", "支付、校历与场馆服务"),
-    CLASS("上课", "课表、自习与课程内容"),
-    STUDY("学业", "成绩、评教与学习资料"),
-    TOOL("工具与助手", "智能助手与连接工具"),
-}
 
 @Composable
 private fun HomeTab(
@@ -2784,20 +2745,25 @@ private fun HomeTab(
     val heroContext = LocalContext.current
     var scheduleReminderState by remember { mutableStateOf<ScheduleReminderInfo?>(null) }
     var isScheduleReminderLoaded by remember { mutableStateOf(false) }
+    var currentWeekNumber by remember { mutableIntStateOf(0) }
     val cardPrefs = remember(com.xjtu.toolbox.account.AccountContext.activeAccountId) {
         com.xjtu.toolbox.card.CampusCardCache.cardPrefs(heroContext)
     }
     var cachedBalance by remember { mutableStateOf(cardPrefs.getFloat("card_balance_cache", -1f)) }
+    var cachedTodaySpend by remember { mutableStateOf(cardPrefs.getFloat("card_today_spend_cache", -1f)) }
     LaunchedEffect(loginState.campusCardCacheVersion) {
         cachedBalance = cardPrefs.getFloat("card_balance_cache", -1f)
+        cachedTodaySpend = cardPrefs.getFloat("card_today_spend_cache", -1f)
     }
     LaunchedEffect(loginState.accountId) {
         if (loginState.accountId.isEmpty()) return@LaunchedEffect
         // 账号切换：先清旧账号的提醒与校园卡缓存内存态，再从新账号命名空间重读
         isScheduleReminderLoaded = false
         scheduleReminderState = null
+        currentWeekNumber = 0
         cachedBalance = cardPrefs.getFloat("card_balance_cache", -1f)
-        val loadedReminder = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        cachedTodaySpend = cardPrefs.getFloat("card_today_spend_cache", -1f)
+        val loadedFocus = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 val dataCache = com.xjtu.toolbox.util.DataCache(heroContext)
                 val gson = com.google.gson.Gson()
@@ -2805,7 +2771,7 @@ private fun HomeTab(
                 val termList = if (termListJson != null) {
                     gson.fromJson(termListJson, Array<String>::class.java)?.toList() ?: emptyList()
                 } else emptyList<String>()
-                val termCode = termList.firstOrNull() ?: return@withContext null
+                val termCode = termList.firstOrNull() ?: return@withContext Pair(null, 0)
                 val apiCourses = com.xjtu.toolbox.schedule.ScheduleCache
                     .readOptimizedCourses(dataCache, gson, termCode, Long.MAX_VALUE)
                     ?: com.xjtu.toolbox.schedule.ScheduleCache
@@ -2820,8 +2786,15 @@ private fun HomeTab(
                 val startDateJson = dataCache.get("start_date_$termCode", Long.MAX_VALUE)
                 val startDateStr = if (startDateJson != null) gson.fromJson(startDateJson, String::class.java) else null
                 val startDate = if (!startDateStr.isNullOrBlank()) runCatching { java.time.LocalDate.parse(startDateStr) }.getOrNull() else null
+                val today = java.time.LocalDate.now()
+                val weekNumber = if (startDate != null) {
+                    ((java.time.temporal.ChronoUnit.DAYS.between(startDate, today) / 7) + 1).toInt()
+                        .takeIf { it in 1..25 } ?: 0
+                } else {
+                    0
+                }
                 if (startDate == null) {
-                    return@withContext null
+                    return@withContext Pair(null, weekNumber)
                 }
                 val holidayDates = try {
                     com.xjtu.toolbox.schedule.HolidayApi.getHolidayDates(heroContext)
@@ -2829,7 +2802,6 @@ private fun HomeTab(
                     emptyMap()
                 }
 
-                val today = java.time.LocalDate.now()
                 val nowDateTime = java.time.LocalDateTime.now()
                 for (offset in 0..14) {
                     val targetDate = today.plusDays(offset.toLong())
@@ -2869,20 +2841,24 @@ private fun HomeTab(
                                 else -> null
                             }
                         }
-                        return@withContext ScheduleReminderInfo(
-                            name = schedule.name,
-                            location = schedule.location,
-                            startAt = startAt,
-                            endAt = endAt
+                        return@withContext Pair(
+                            ScheduleReminderInfo(
+                                name = schedule.name,
+                                location = schedule.location,
+                                startAt = startAt,
+                                endAt = endAt
+                            ),
+                            weekNumber,
                         )
                     }
                 }
-                null
+                Pair(null, weekNumber)
             } catch (_: Exception) {
-                null
+                Pair(null, 0)
             }
         }
-        scheduleReminderState = loadedReminder
+        scheduleReminderState = loadedFocus.first
+        currentWeekNumber = loadedFocus.second
         isScheduleReminderLoaded = true
     }
 
@@ -2909,10 +2885,12 @@ private fun HomeTab(
                     .ifBlank { loginState.ywtbUserInfo?.userName.orEmpty() }
                     .ifBlank { loginState.activeUsername },
                 dateLabel = "${today.monthValue}月${today.dayOfMonth}日 · $weekDay",
+                weekNumber = currentWeekNumber,
                 isLoggedIn = loginState.isLoggedIn,
                 isFocusLoaded = isScheduleReminderLoaded,
                 reminder = scheduleReminderState,
                 balance = cachedBalance,
+                todaySpend = cachedTodaySpend,
                 onOpenCourses = onNavigateToCourses,
                 onOpenCard = { onNavigateWithLogin(Routes.CAMPUS_CARD, LoginType.CAMPUS_CARD) },
                 onOpenProfile = onNavigateToProfile,
@@ -3051,39 +3029,54 @@ private fun HomeTab(
             val onClick: () -> Unit
         )
         val ctx = LocalContext.current
-        val allServices = listOf(
-            MoreSvc(Routes.SCHEDULE, Icons.Default.CalendarMonth, "日程", com.xjtu.toolbox.ui.theme.legacyColor(Routes.SCHEDULE), ServiceCategory.CLASS) { onNavigateToCourses() },
-            MoreSvc(Routes.EMPTY_ROOM, Icons.Default.MeetingRoom, "空闲教室", com.xjtu.toolbox.ui.theme.legacyColor(Routes.EMPTY_ROOM), ServiceCategory.CLASS) { onNavigateWithLogin(Routes.EMPTY_ROOM, LoginType.JWXT) },
-            MoreSvc(Routes.LMS, Icons.Default.School, "思源", com.xjtu.toolbox.ui.theme.legacyColor(Routes.LMS), ServiceCategory.CLASS) { onNavigateWithLogin(Routes.LMS, LoginType.LMS) },
-            MoreSvc(Routes.CLASS_REPLAY, Icons.Default.OndemandVideo, "课程回放", com.xjtu.toolbox.ui.theme.legacyColor(Routes.CLASS_REPLAY), ServiceCategory.CLASS) { onNavigateWithLogin(Routes.CLASS_REPLAY, LoginType.CLASS) },
-            MoreSvc(Routes.SCHOOL_COURSE, Icons.Default.TravelExplore, "课程查询", com.xjtu.toolbox.ui.theme.legacyColor(Routes.SCHOOL_COURSE), ServiceCategory.CLASS) { onNavigateWithLogin(Routes.SCHOOL_COURSE, LoginType.JWXT) },
-            MoreSvc(Routes.ATTENDANCE, Icons.Default.EventAvailable, "考勤", com.xjtu.toolbox.ui.theme.legacyColor(Routes.ATTENDANCE), ServiceCategory.CLASS) { onNavigateWithLogin(Routes.ATTENDANCE, LoginType.ATTENDANCE) },
-            MoreSvc(Routes.POSTGRADUATE_ATTENDANCE, Icons.AutoMirrored.Filled.FactCheck, "研考勤", com.xjtu.toolbox.ui.theme.legacyColor(Routes.POSTGRADUATE_ATTENDANCE), ServiceCategory.CLASS) { onNavigateWithLogin(Routes.POSTGRADUATE_ATTENDANCE, LoginType.POSTGRADUATE_ATTENDANCE) },
-            MoreSvc(Routes.ICLASSFACE, Icons.Default.Face, "快速考勤流水", com.xjtu.toolbox.ui.theme.legacyColor(Routes.ICLASSFACE), ServiceCategory.CLASS) { onNavigateWithLogin(Routes.ICLASSFACE, LoginType.ICLASSFACE) },
-
-            MoreSvc(Routes.JWAPP_SCORE, Icons.Default.Assessment, "成绩", com.xjtu.toolbox.ui.theme.legacyColor(Routes.JWAPP_SCORE), ServiceCategory.STUDY) { onNavigateWithLogin(Routes.JWAPP_SCORE, LoginType.JWAPP) },
-            MoreSvc(Routes.JUDGE, Icons.Default.RateReview, "评教", com.xjtu.toolbox.ui.theme.legacyColor(Routes.JUDGE), ServiceCategory.STUDY) { onNavigateWithLogin(Routes.JUDGE, LoginType.JWXT) },
-            MoreSvc(Routes.JIAOCAI, Icons.AutoMirrored.Filled.MenuBook, "教材", com.xjtu.toolbox.ui.theme.legacyColor(Routes.JIAOCAI), ServiceCategory.STUDY) { onNavigateWithLogin(Routes.JIAOCAI, LoginType.JIAOCAI) },
-            MoreSvc(Routes.JIAOCAI1, Icons.AutoMirrored.Filled.LibraryBooks, "教材全文", com.xjtu.toolbox.ui.theme.legacyColor(Routes.JIAOCAI1), ServiceCategory.STUDY) { onNavigateWithLogin(Routes.JIAOCAI1, LoginType.JIAOCAI) },
-            MoreSvc(Routes.LIBRARY, Icons.Default.Chair, "图书馆", com.xjtu.toolbox.ui.theme.legacyColor(Routes.LIBRARY), ServiceCategory.STUDY) { onNavigateWithLogin(Routes.LIBRARY, LoginType.LIBRARY) },
-            MoreSvc(Routes.TRANSCRIPT, Icons.Default.Description, "成绩单", com.xjtu.toolbox.ui.theme.legacyColor(Routes.TRANSCRIPT), ServiceCategory.STUDY) { onNavigateWithLogin(Routes.TRANSCRIPT, LoginType.DZPZ) },
-            MoreSvc(Routes.NOTIFICATION, Icons.Default.Notifications, "通知公告", com.xjtu.toolbox.ui.theme.legacyColor(Routes.NOTIFICATION), ServiceCategory.STUDY) { onNavigate(Routes.NOTIFICATION) },
-            // 教师主页是公开站点，用 onNavigate 而非 onNavigateWithLogin——不该为它触发一次统一认证
-            MoreSvc(Routes.FACULTY, Icons.Default.PersonSearch, "教师主页", com.xjtu.toolbox.ui.theme.legacyColor(Routes.FACULTY), ServiceCategory.STUDY) { onNavigate(Routes.FACULTY) },
-
-            MoreSvc(Routes.CAMPUS_CARD, Icons.Default.CreditCard, "校园卡", com.xjtu.toolbox.ui.theme.legacyColor(Routes.CAMPUS_CARD), ServiceCategory.LIFE) { onNavigateWithLogin(Routes.CAMPUS_CARD, LoginType.CAMPUS_CARD) },
-            MoreSvc(Routes.PAYMENT_CODE, Icons.Default.QrCode, "付款码", com.xjtu.toolbox.ui.theme.legacyColor(Routes.PAYMENT_CODE), ServiceCategory.LIFE) { onNavigateWithLogin(Routes.PAYMENT_CODE, LoginType.CAMPUS_CARD) },
-            MoreSvc(Routes.COUPON, Icons.Default.Restaurant, "加餐券", com.xjtu.toolbox.ui.theme.legacyColor(Routes.COUPON), ServiceCategory.LIFE) { onNavigateWithLogin(Routes.COUPON, LoginType.COUPON) },
-            MoreSvc(Routes.SCHOOL_CALENDAR, Icons.AutoMirrored.Filled.EventNote, "校历", com.xjtu.toolbox.ui.theme.legacyColor(Routes.SCHOOL_CALENDAR), ServiceCategory.LIFE) { onNavigate(Routes.SCHOOL_CALENDAR) },
-            MoreSvc(Routes.VENUE, Icons.Default.Stadium, "场馆预订", com.xjtu.toolbox.ui.theme.legacyColor(Routes.VENUE), ServiceCategory.LIFE) { onNavigateWithLogin(Routes.VENUE, LoginType.VENUE) },
-            MoreSvc(Routes.FITNESS, Icons.AutoMirrored.Filled.DirectionsRun, "体测查询", com.xjtu.toolbox.ui.theme.legacyColor(Routes.FITNESS), ServiceCategory.LIFE) { onNavigateWithLogin(Routes.FITNESS, LoginType.FITNESS) },
-            MoreSvc(Routes.YELLOW_PAGE, Icons.Default.ContactPhone, "校园黄页", com.xjtu.toolbox.ui.theme.legacyColor(Routes.YELLOW_PAGE), ServiceCategory.LIFE) { onNavigate(Routes.YELLOW_PAGE) },
-
-            MoreSvc(Routes.WEBVPN_CONVERTER, Icons.Default.VpnKey, "WebVPN", com.xjtu.toolbox.ui.theme.legacyColor(Routes.WEBVPN_CONVERTER), ServiceCategory.TOOL) { onNavigate(Routes.WEBVPN_CONVERTER) },
-            MoreSvc(Routes.MOBILE_JIAODA, Icons.Default.PhoneAndroid, "移动交大", com.xjtu.toolbox.ui.theme.legacyColor(Routes.MOBILE_JIAODA), ServiceCategory.TOOL) { onNavigateWithLogin(Routes.MOBILE_JIAODA, LoginType.SUPER_APP) },
-            MoreSvc(Routes.JIAOXIAOZHI, Icons.Default.AutoAwesome, "交晓智", com.xjtu.toolbox.ui.theme.legacyColor(Routes.JIAOXIAOZHI), ServiceCategory.TOOL) { onNavigateWithLogin(Routes.JIAOXIAOZHI, LoginType.JIAOXIAOZHI) },
-            MoreSvc(Routes.AGENT, Icons.Default.SmartToy, "屁岱", com.xjtu.toolbox.ui.theme.legacyColor(Routes.AGENT), ServiceCategory.TOOL) { onNavigate(Routes.AGENT) },
+        val homeIcons = mapOf(
+            Routes.SCHEDULE to Icons.Default.CalendarMonth,
+            Routes.EMPTY_ROOM to Icons.Default.MeetingRoom,
+            Routes.LMS to Icons.Default.School,
+            Routes.CLASS_REPLAY to Icons.Default.OndemandVideo,
+            Routes.SCHOOL_COURSE to Icons.Default.TravelExplore,
+            Routes.ATTENDANCE to Icons.Default.EventAvailable,
+            Routes.POSTGRADUATE_ATTENDANCE to Icons.AutoMirrored.Filled.FactCheck,
+            Routes.ICLASSFACE to Icons.Default.Face,
+            Routes.JWAPP_SCORE to Icons.Default.Assessment,
+            Routes.JUDGE to Icons.Default.RateReview,
+            Routes.JIAOCAI to Icons.AutoMirrored.Filled.MenuBook,
+            Routes.JIAOCAI1 to Icons.AutoMirrored.Filled.LibraryBooks,
+            Routes.LIBRARY to Icons.Default.Chair,
+            Routes.TRANSCRIPT to Icons.Default.Description,
+            Routes.NOTIFICATION to Icons.Default.Notifications,
+            Routes.FACULTY to Icons.Default.PersonSearch,
+            Routes.CAMPUS_CARD to Icons.Default.CreditCard,
+            Routes.PAYMENT_CODE to Icons.Default.QrCode,
+            Routes.COUPON to Icons.Default.Restaurant,
+            Routes.SCHOOL_CALENDAR to Icons.AutoMirrored.Filled.EventNote,
+            Routes.VENUE to Icons.Default.Stadium,
+            Routes.FITNESS to Icons.AutoMirrored.Filled.DirectionsRun,
+            Routes.YELLOW_PAGE to Icons.Default.ContactPhone,
+            Routes.WEBVPN_CONVERTER to Icons.Default.VpnKey,
+            Routes.MOBILE_JIAODA to Icons.Default.PhoneAndroid,
+            Routes.JIAOXIAOZHI to Icons.Default.AutoAwesome,
+            Routes.AGENT to Icons.Default.SmartToy,
         )
+        val allServices = AppServices.homeFor(loginState.accountType).map { svc ->
+            MoreSvc(
+                key = svc.route,
+                icon = homeIcons[svc.route] ?: Icons.Default.Apps,
+                title = svc.title,
+                color = com.xjtu.toolbox.ui.theme.legacyColor(svc.route),
+                category = svc.category,
+                onClick = {
+                    when (svc.route) {
+                        Routes.SCHEDULE -> onNavigateToCourses()
+                        else -> {
+                            val login = loginTypeForRoute(svc.route)
+                            if (login != null) onNavigateWithLogin(svc.route, login)
+                            else onNavigate(svc.route)
+                        }
+                    }
+                },
+            )
+        }
         fun servicesByKeys(keys: List<String>): List<MoreSvc> =
             keys.mapNotNull { key -> allServices.firstOrNull { it.key == key } }
 
@@ -3190,15 +3183,19 @@ private fun HomeTab(
                         HomeSectionHeader("常用功能", Modifier.padding(start = 4.dp, bottom = 12.dp))
                         Box(Modifier.fillMaxWidth()) {
                             Row(
-                                Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceEvenly
+                                Modifier
+                                    .fillMaxWidth()
+                                    .squircleClip(CARD_RADIUS)
+                                    .background(AppCardColor)
+                                    .padding(vertical = 10.dp),
                             ) {
                                 quickShown.forEach { service ->
                                     HomeQuickAction(
                                         service.icon,
                                         service.title,
                                         service.color,
-                                        onClick = trackedAction(service)
+                                        onClick = trackedAction(service),
+                                        modifier = Modifier.weight(1f),
                                     )
                                 }
                             }
@@ -3305,7 +3302,11 @@ private fun HomeTab(
                     homeStats = com.xjtu.toolbox.home.HomeStats.collect(statsCtx, term)
                     // 再跑一轮主动刷新：只拉过期的源，源之间串行留间隔（见 HomeStatsRefresher），
                     // 拉完重新读一次缓存把新值显示出来。全程静默，失败不打扰用户。
-                    com.xjtu.toolbox.home.HomeStatsRefresher.refreshDue(statsCtx, loginState.sessionManager)
+                    com.xjtu.toolbox.home.HomeStatsRefresher.refreshDue(
+                        statsCtx,
+                        loginState.sessionManager,
+                        loginState.accountType,
+                    )
                     homeStats = com.xjtu.toolbox.home.HomeStats.collect(statsCtx, term)
                 }
 
@@ -3712,85 +3713,115 @@ private fun ToolsTab(
  */
 @Composable
 private fun ProfileInfoCard(p: com.xjtu.toolbox.hello.HelloProfile) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    val summary = p.professionName.ifBlank { p.departmentName }.ifBlank { p.className }
     Card(
         modifier = Modifier.fillMaxWidth(),
         cornerRadius = 20.dp,
         colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
     ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp)) {
-            HomeSectionHeader("学籍信息")
-            Spacer(Modifier.height(10.dp))
-
-            val rows = buildList {
-                p.departmentName.takeIf { it.isNotBlank() }?.let { add("学院" to it) }
-                p.academyName.takeIf { it.isNotBlank() }?.let { add("书院" to it) }
-                p.professionName.takeIf { it.isNotBlank() }?.let { add("专业" to it) }
-                p.className.takeIf { it.isNotBlank() }?.let { add("班级" to it) }
-                p.campusName.takeIf { it.isNotBlank() }?.let { add("校区" to it) }
-                if (p.grade > 0) {
-                    val len = if (p.schoolingLen > 0) "（学制 ${p.schoolingLen} 年）" else ""
-                    add("年级" to "${p.grade} 级$len")
-                }
-                p.enterSchoolDate.takeIf { it.isNotBlank() }?.let { add("入学" to it) }
-                p.cardId.takeIf { it.isNotBlank() }?.let { add("校园卡号" to it) }
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = SinkFeedback(),
+                    ) { expanded = !expanded },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                HomeSectionHeader("学籍信息", Modifier.weight(1f))
+                Icon(
+                    imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = if (expanded) "收起" else "展开",
+                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.size(22.dp)
+                )
             }
-            rows.forEachIndexed { index, (label, value) ->
-                if (index > 0) Spacer(Modifier.height(8.dp))
-                Row(Modifier.fillMaxWidth()) {
-                    Text(
-                        label,
-                        style = MiuixTheme.textStyles.body2,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        modifier = Modifier.width(64.dp)
-                    )
-                    Text(
-                        value,
-                        style = MiuixTheme.textStyles.body2,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
+            if (!expanded && summary.isNotBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    summary,
+                    style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                )
             }
+            AnimatedVisibility(visible = expanded) {
+                Column {
+                    Spacer(Modifier.height(10.dp))
 
-            if (p.hasMentor()) {
-                Spacer(Modifier.height(14.dp))
-                HorizontalDivider(color = MiuixTheme.colorScheme.dividerLine)
-                Spacer(Modifier.height(12.dp))
-                listOfNotNull(
-                    p.counselorName.takeIf { it.isNotBlank() }
-                        ?.let { Triple("辅导员", it, p.counselorPhone) },
-                    p.classTeacherName.takeIf { it.isNotBlank() }
-                        ?.let { Triple("班主任", it, p.classTeacherPhone) },
-                ).forEachIndexed { index, (label, name, phone) ->
-                    if (index > 0) Spacer(Modifier.height(8.dp))
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            label,
-                            style = MiuixTheme.textStyles.body2,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            modifier = Modifier.width(64.dp)
-                        )
-                        Text(name, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium)
-                        if (phone.isNotBlank()) {
-                            Spacer(Modifier.weight(1f))
+                    val rows = buildList {
+                        p.departmentName.takeIf { it.isNotBlank() }?.let { add("学院" to it) }
+                        p.academyName.takeIf { it.isNotBlank() }?.let { add("书院" to it) }
+                        p.professionName.takeIf { it.isNotBlank() }?.let { add("专业" to it) }
+                        p.className.takeIf { it.isNotBlank() }?.let { add("班级" to it) }
+                        p.campusName.takeIf { it.isNotBlank() }?.let { add("校区" to it) }
+                        if (p.grade > 0) {
+                            val len = if (p.schoolingLen > 0) "（学制 ${p.schoolingLen} 年）" else ""
+                            add("年级" to "${p.grade} 级$len")
+                        }
+                        p.enterSchoolDate.takeIf { it.isNotBlank() }?.let { add("入学" to it) }
+                        p.cardId.takeIf { it.isNotBlank() }?.let { add("校园卡号" to it) }
+                    }
+                    rows.forEachIndexed { index, (label, value) ->
+                        if (index > 0) Spacer(Modifier.height(8.dp))
+                        Row(Modifier.fillMaxWidth()) {
                             Text(
-                                phone,
-                                style = MiuixTheme.textStyles.footnote1,
-                                color = MiuixTheme.colorScheme.primary
+                                label,
+                                style = MiuixTheme.textStyles.body2,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                modifier = Modifier.width(64.dp)
+                            )
+                            Text(
+                                value,
+                                style = MiuixTheme.textStyles.body2,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.weight(1f)
                             )
                         }
                     }
-                }
-                p.counselorOffice.takeIf { it.isNotBlank() }?.let {
-                    Spacer(Modifier.height(8.dp))
-                    Row(Modifier.fillMaxWidth()) {
-                        Text(
-                            "办公室",
-                            style = MiuixTheme.textStyles.body2,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            modifier = Modifier.width(64.dp)
-                        )
-                        Text(it, style = MiuixTheme.textStyles.body2, modifier = Modifier.weight(1f))
+
+                    if (p.hasMentor()) {
+                        Spacer(Modifier.height(14.dp))
+                        HorizontalDivider(color = MiuixTheme.colorScheme.dividerLine)
+                        Spacer(Modifier.height(12.dp))
+                        listOfNotNull(
+                            p.counselorName.takeIf { it.isNotBlank() }
+                                ?.let { Triple("辅导员", it, p.counselorPhone) },
+                            p.classTeacherName.takeIf { it.isNotBlank() }
+                                ?.let { Triple("班主任", it, p.classTeacherPhone) },
+                        ).forEachIndexed { index, (label, name, phone) ->
+                            if (index > 0) Spacer(Modifier.height(8.dp))
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    label,
+                                    style = MiuixTheme.textStyles.body2,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    modifier = Modifier.width(64.dp)
+                                )
+                                Text(name, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium)
+                                if (phone.isNotBlank()) {
+                                    Spacer(Modifier.weight(1f))
+                                    Text(
+                                        phone,
+                                        style = MiuixTheme.textStyles.footnote1,
+                                        color = MiuixTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+                        p.counselorOffice.takeIf { it.isNotBlank() }?.let {
+                            Spacer(Modifier.height(8.dp))
+                            Row(Modifier.fillMaxWidth()) {
+                                Text(
+                                    "办公室",
+                                    style = MiuixTheme.textStyles.body2,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    modifier = Modifier.width(64.dp)
+                                )
+                                Text(it, style = MiuixTheme.textStyles.body2, modifier = Modifier.weight(1f))
+                            }
+                        }
                     }
                 }
             }
@@ -3977,25 +4008,23 @@ private fun ProfileTab(
                     style = MiuixTheme.textStyles.footnote2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                 )
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Button(
+                Row(Modifier.fillMaxWidth()) {
+                    TextButton(
+                        text = "暂不开启",
                         onClick = {
                             credentialStore.srunSetupAsked = true
                             credentialStore.srunAutoLoginEnabled = false
                             showSrunSetupSheet.value = false
                         },
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(
-                            color = MiuixTheme.colorScheme.secondaryContainer
-                        )
-                    ) {
-                        Text("暂不开启", color = MiuixTheme.colorScheme.onSecondaryContainer)
-                    }
-                    Button(
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(Modifier.width(20.dp))
+                    TextButton(
+                        text = if (srunSetupSaving) "保存中..." else "启用并保存",
                         onClick = {
                             if (srunSetupUsername.isBlank() || srunSetupPassword.isBlank()) {
                                 srunSetupHint = "请填写账号和密码（或选择跳过）"
-                                return@Button
+                                return@TextButton
                             }
                             srunSetupSaving = true
                             credentialStore.saveSrunCredentials(srunSetupUsername.trim(), srunSetupPassword)
@@ -4005,10 +4034,9 @@ private fun ProfileTab(
                             showSrunSetupSheet.value = false
                         },
                         enabled = !srunSetupSaving,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(if (srunSetupSaving) "保存中..." else "启用并保存")
-                    }
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.textButtonColorsPrimary()
+                    )
                 }
             }
         }
@@ -4078,33 +4106,14 @@ private fun ProfileTab(
                                 fontWeight = FontWeight.Bold
                             )
                             Spacer(Modifier.height(2.dp))
-                            // 学号
+                            // 学号。班级/专业放在下面学籍卡里，这里不再重复。
                             Text(
                                 loginState.activeUsername,
                                 style = MiuixTheme.textStyles.body2,
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                             )
-                            // 副标题优先用 hello 的「班级 · 专业」——比 YWTB 的「身份 · 组织」具体得多
-                            val subtitle = helloProfile?.let { p ->
-                                listOf(p.className, p.professionName)
-                                    .filter { it.isNotBlank() }
-                                    .joinToString(" · ")
-                                    .takeIf { it.isNotBlank() }
-                            } ?: loginState.ywtbUserInfo?.let { info ->
-                                "${info.identityTypeName} · ${info.organizationName}"
-                            }
-                            subtitle?.let {
-                                Spacer(Modifier.height(2.dp))
-                                Text(
-                                    it,
-                                    style = MiuixTheme.textStyles.body2,
-                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
                         } else {
-                            Text("XJTU 工具箱", style = MiuixTheme.textStyles.title2, fontWeight = FontWeight.Bold)
+                            Text("岱宗盒子", style = MiuixTheme.textStyles.title2, fontWeight = FontWeight.Bold)
                             Text("登录以使用全部功能", style = MiuixTheme.textStyles.body1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         }
                     }
@@ -4252,84 +4261,6 @@ private fun ProfileTab(
                 // 学籍档案（hello.xjtu.edu.cn）。缓存优先，没有就整块不渲染。
                 helloProfile?.takeIf { it.hasContent() }?.let { p ->
                     ProfileInfoCard(p)
-                    Spacer(Modifier.height(12.dp))
-                }
-
-                // 学期 / 教学周 信息（使用 JWXT site）
-                loginState.sessionManager?.getSiteOrNull("jwxt")?.let { jwxtSite ->
-                    var currentWeekText by remember { mutableStateOf<String?>(null) }
-                    var termText by remember { mutableStateOf<String?>(null) }
-                    var schoolYear by remember { mutableStateOf<String?>(null) }
-                    var countdownText by remember { mutableStateOf<String?>(null) }
-                    LaunchedEffect(jwxtSite) {
-                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                            try {
-                                val api = com.xjtu.toolbox.schedule.ScheduleApi(jwxtSite)
-                                val termCode = api.getCurrentTerm()    // e.g. "2025-2026-2"
-                                val parts = termCode.split("-")
-                                if (parts.size >= 2) schoolYear = "${parts[0]}-${parts[1]} 学年"
-                                termText = when (parts.getOrNull(2)) {
-                                    "1" -> "第一学期"
-                                    "2" -> "第二学期"
-                                    else -> termCode
-                                }
-                                try {
-                                    val startDate = api.getStartOfTerm(termCode)
-                                    val today = java.time.LocalDate.now()
-                                    val daysBetween = java.time.temporal.ChronoUnit.DAYS.between(startDate, today)
-                                    val rawWeek = ((daysBetween / 7) + 1).toInt()
-                                    val totalWeeks = 20
-                                    when {
-                                        rawWeek in 1..totalWeeks -> currentWeekText = "第${rawWeek}周"
-                                        rawWeek > totalWeeks -> {
-                                            currentWeekText = null
-                                            val m = java.time.LocalDate.now().monthValue
-                                            termText = if (m in 7..8) "暑假" else "假期"
-                                        }
-                                        else -> {
-                                            // 未开学 → 计算倒计时
-                                            currentWeekText = null
-                                            val daysUntil = java.time.temporal.ChronoUnit.DAYS.between(today, startDate)
-                                            countdownText = if (daysUntil > 0) "距开学还有 ${daysUntil} 天" else "即将开学"
-                                        }
-                                    }
-                                } catch (_: Exception) { }
-                            } catch (e: Exception) {
-                                val m = java.time.LocalDate.now().monthValue
-                                termText = if (m in 2..7) "第二学期" else "第一学期"
-                            }
-                        }
-                    }
-                    if (currentWeekText != null || termText != null || schoolYear != null) {
-                        Spacer(Modifier.height(12.dp))
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            cornerRadius = 20.dp,
-                            colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
-                        ) {
-                            Row(
-                                Modifier.fillMaxWidth().padding(20.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Default.CalendarMonth, null, Modifier.size(20.dp), tint = MiuixTheme.colorScheme.primaryVariant)
-                                Spacer(Modifier.width(12.dp))
-                                Column(Modifier.weight(1f)) {
-                                    schoolYear?.let {
-                                        Text(it, style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium)
-                                    }
-                                    termText?.let { Text(it, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary) }
-                                    countdownText?.let {
-                                        Text(it, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.primaryVariant, fontWeight = FontWeight.Medium)
-                                    }
-                                }
-                                currentWeekText?.let {
-                                    Surface(shape = RoundedCornerShape(6.dp), color = MiuixTheme.colorScheme.primaryVariant.copy(alpha = 0.12f)) {
-                                        Text(it, Modifier.padding(horizontal = 8.dp, vertical = 3.dp), style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.primaryVariant, fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                            }
-                        }
-                    }
                 }
 
                 Spacer(Modifier.height(12.dp))
@@ -4468,22 +4399,24 @@ private fun ProfileTab(
                                 summary = "退出当前账号的登录，清除其会话 Cookie。账号记录与本地缓存保留，下次可在「账号管理」快速切回。",
                                 onDismissRequest = { showLogoutDialog.value = false }
                             ) {
-                                Row(
-                                    Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
+                                Row(Modifier.fillMaxWidth()) {
                                     TextButton(
                                         text = "取消",
                                         onClick = { showLogoutDialog.value = false },
                                         modifier = Modifier.weight(1f)
                                     )
-                                    Button(
+                                    Spacer(Modifier.width(20.dp))
+                                    TextButton(
+                                        text = "退出登录",
                                         onClick = {
                                             showLogoutDialog.value = false
                                             scope.launch { accountManager.logoutCurrent() }
                                         },
-                                        modifier = Modifier.weight(1f)
-                                    ) { Text("退出登录") }
+                                        modifier = Modifier.weight(1f),
+                                        colors = ButtonDefaults.textButtonColors(
+                                            textColor = MiuixTheme.colorScheme.error
+                                        )
+                                    )
                                 }
                             }
                         }
@@ -4901,18 +4834,23 @@ private fun HomeSectionHeader(title: String, modifier: Modifier = Modifier) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun HomeQuickAction(icon: ImageVector, label: String, color: androidx.compose.ui.graphics.Color, onClick: () -> Unit) {
+private fun HomeQuickAction(
+    icon: ImageVector,
+    label: String,
+    color: androidx.compose.ui.graphics.Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
+        modifier = modifier
             .clip(RoundedCornerShape(18.dp))
-            .background(MiuixTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = SinkFeedback(),
                 onClick = onClick
             )
-            .padding(horizontal = 14.dp, vertical = 10.dp)
+            .padding(horizontal = 8.dp, vertical = 8.dp)
     ) {
         ExpressiveIcon(icon = icon, color = color)
         Spacer(Modifier.height(8.dp))
@@ -5264,11 +5202,9 @@ private fun UpdateNoticeDialog(
                     }
                 }
             }
-            Spacer(Modifier.height(20.dp))
-            Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
-                Text("知道了")
-            }
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(12.dp))
+            TextButton(text = "知道了", onClick = onDismiss, modifier = Modifier.fillMaxWidth())
+            Spacer(Modifier.height(8.dp))
             Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
         }
     }
@@ -5500,6 +5436,7 @@ private fun siteKeyForBrowserUrl(url: String): String {
         "ywtb.xjtu.edu.cn" in host -> "ywtb"
         "ncard.xjtu.edu.cn" in host -> "campus_card"
         "bkkq.xjtu.edu.cn" in host -> "attendance"
+        "lms.xjtu.edu.cn" in host -> "lms"
         else -> "jwxt"
     }
 }

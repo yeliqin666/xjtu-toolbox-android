@@ -5,7 +5,7 @@ import android.content.Context
 /**
  * NoticeWidget 的轻量缓存：最多 3 条标题 + 更新时间戳。
  *
- * 写入方：[com.xjtu.toolbox.notification.NotificationScreen] 在成功加载后写一份。
+ * 写入方：通知页加载成功，以及 [com.xjtu.toolbox.home.HomeStatsRefresher] 后台抓取。
  * 读取方：[NoticeWidgetUpdater]。
  *
  * 不放入 Auto Backup 白名单：通知标题是临时信息，重装后由应用重新拉取，

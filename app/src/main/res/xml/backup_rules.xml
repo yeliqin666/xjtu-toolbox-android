@@ -7,4 +7,5 @@
     <exclude domain="sharedpref" path="xjtu_accounts_fallback.xml"/>
     <exclude domain="sharedpref" path="xjtu_cookies.xml"/>
     <exclude domain="sharedpref" path="xjtu_vpn_cookies.xml"/>
+    <exclude domain="sharedpref" path="notice_watch.xml"/>
 </full-backup-content>

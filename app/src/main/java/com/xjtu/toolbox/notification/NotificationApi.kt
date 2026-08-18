@@ -518,8 +518,12 @@ private class GenericXjtuCrawler(
      */
     private fun findNextAbsUrl(doc: Document, currentUrl: String): String? {
         val raw = doc.selectFirst("span.p_next a[href]")?.attr("href")
-            ?: doc.select("a").firstOrNull { el ->
-                val text = el.ownText().trim()
+            ?: doc.select("a.Next[href], a.next[href]").firstOrNull { el ->
+                val text = el.ownText().ifBlank { el.text() }.trim()
+                text == "下页" || text == "下一页"
+            }?.attr("href")
+            ?: doc.select("a[href]").firstOrNull { el ->
+                val text = el.ownText().ifBlank { el.text() }.trim()
                 text == "下页" || text == "下一页"
             }?.attr("href")
         if (raw.isNullOrBlank() || raw == "#" || raw.startsWith("javascript", ignoreCase = true)) {

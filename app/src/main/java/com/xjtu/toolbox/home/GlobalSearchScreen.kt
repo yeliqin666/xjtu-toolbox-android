@@ -41,7 +41,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.ui.components.AppSearchBar
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
@@ -83,29 +83,7 @@ internal sealed class SearchEntry {
 }
 
 internal object GlobalSearchIndex {
-    fun entries(): List<SearchEntry> = listOf(
-        SearchEntry.Screen("我的课表", "查看本学期课表", Routes.SCHEDULE,
-            listOf("课表", "课程", "schedule", "今天", "明天")),
-        SearchEntry.Screen("空教室", "查找自习空教室", Routes.EMPTY_ROOM,
-            listOf("空教室", "自习", "教室")),
-        SearchEntry.Screen("校园卡", "余额与今日消费", Routes.CAMPUS_CARD,
-            listOf("校园卡", "余额", "一卡通")),
-        SearchEntry.Screen("教务通知", "教务处通知公告", Routes.NOTIFICATION,
-            listOf("通知", "公告", "教务")),
-        SearchEntry.Screen("成绩查询", "本学期成绩与 GPA", Routes.JWAPP_SCORE,
-            listOf("成绩", "分数", "gpa", "绩点")),
-        SearchEntry.Screen("成绩报表", "历年成绩明细", Routes.SCORE_REPORT,
-            listOf("成绩单", "报表")),
-        SearchEntry.Screen("图书馆", "借阅与座位", Routes.LIBRARY,
-            listOf("图书", "借书", "座位", "自习室")),
-        SearchEntry.Screen("校历", "学期与考试安排", Routes.SCHOOL_CALENDAR,
-            listOf("校历", "学期", "周数")),
-        SearchEntry.Screen("付款码", "出示校园付款码", Routes.PAYMENT_CODE,
-            listOf("付款", "扫码")),
-        SearchEntry.Screen("空闲场馆", "预约羽毛球/网球", Routes.VENUE,
-            listOf("场馆", "羽毛", "网球场")),
-        SearchEntry.Screen("教师主页", "按姓名、学院或研究方向找老师", Routes.FACULTY,
-            listOf("教师", "老师", "导师", "博导", "硕导", "研究方向", "teacher", "faculty")),
+    private val agentPrompts = listOf(
         SearchEntry.AgentPrompt("问屁岱", "我的校园卡余额还有多少？", "我的校园卡余额还有多少？",
             listOf("余额", "还有多少")),
         SearchEntry.AgentPrompt("问屁岱", "今天我还有哪些课？", "今天我还有哪些课？",
@@ -118,12 +96,28 @@ internal object GlobalSearchIndex {
             listOf("找空教室", "哪里空")),
     )
 
-    fun search(query: String): List<SearchEntry> {
+    fun entries(accountType: AccountType? = null): List<SearchEntry> {
+        val services = if (accountType == null) AppServices.all else AppServices.visibleFor(accountType)
+        return services.map { svc ->
+            SearchEntry.Screen(
+                title = svc.title,
+                subtitle = svc.subtitle,
+                route = svc.route,
+                aliases = svc.aliases,
+            )
+        } + agentPrompts
+    }
+
+    fun search(query: String, accountType: AccountType? = null): List<SearchEntry> {
         if (query.isBlank()) return emptyList()
         val q = query.trim().lowercase()
-        return entries().filter { e ->
-            val titles = listOf(e.title) + e.aliases
-            titles.any { it.lowercase().contains(q) }
+        return entries(accountType).filter { e ->
+            val haystack = buildList {
+                add(e.title)
+                add(e.subtitle)
+                addAll(e.aliases)
+            }
+            haystack.any { it.lowercase().contains(q) }
         }
     }
 }
@@ -139,6 +133,7 @@ fun GlobalSearchScreen(
     onBack: () -> Unit,
     onNavigate: (String) -> Unit,
     onAskAgent: (String) -> Unit,
+    accountType: AccountType = AccountType.UNDERGRADUATE,
 ) {
     Dialog(
         onDismissRequest = onBack,
@@ -150,7 +145,7 @@ fun GlobalSearchScreen(
         )
     ) {
         var query by rememberSaveable { mutableStateOf("") }
-        val results by remember { derivedStateOf { GlobalSearchIndex.search(query) } }
+        val results by remember(accountType) { derivedStateOf { GlobalSearchIndex.search(query, accountType) } }
         val focusRequester = remember { FocusRequester() }
         LaunchedEffect(Unit) {
             delay(80)

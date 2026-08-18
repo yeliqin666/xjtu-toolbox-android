@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.emptyroom
 
-import android.content.Intent
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -16,7 +15,6 @@ import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
-import top.yukonga.miuix.kmp.basic.TabRowWithContour
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.preference.RangeSliderPreference
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
@@ -48,10 +46,10 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.outlined.CloudOff
 import com.xjtu.toolbox.ui.components.AppDropdownMenu
 import com.xjtu.toolbox.ui.components.AppDropdownMenuItem
+import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -231,17 +229,6 @@ fun EmptyRoomScreen(
     }
     var showCdnTip by remember { mutableStateOf(!credentialStore.hasReadEmptyRoomCdnTip && !useDirectQuery) }
     var directProgress by remember { mutableStateOf<Pair<Int, Int>?>(null) }
-
-    // 每次 rooms 更新后写空教室 widget 缓存（最多 3 条）+ 触发刷新
-    LaunchedEffect(rooms) {
-        if (rooms.isNotEmpty()) {
-            com.xjtu.toolbox.widget.EmptyRoomWidgetStore.write(
-                context,
-                rooms.take(3).map { com.xjtu.toolbox.widget.EmptyRoomWidgetStore.RoomBrief(it.name, it.size) }
-            )
-            com.xjtu.toolbox.widget.EmptyRoomWidgetUpdater.requestUpdate(context)
-        }
-    }
 
     val campusNames = CAMPUS_BUILDINGS.keys.toList()
     fun savedCampusIndex(): Int {
@@ -505,23 +492,6 @@ fun EmptyRoomScreen(
         }
     }
 
-    fun shareCurrentRooms() {
-        val text = buildString {
-            appendLine("空闲教室")
-            appendLine("$selectedCampus · ${selectedBuildings.joinToString("、")} · $selectedDate")
-            appendLine("节次：第${startPeriod}节 - 第${endPeriod}节")
-            appendLine()
-            displayRooms.forEach { room ->
-                appendLine("${room.name} · ${room.size}座")
-            }
-        }
-        val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, text)
-        }
-        context.startActivity(Intent.createChooser(intent, "分享空闲教室"))
-    }
-
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     var showActionsMenu by remember { mutableStateOf(false) }
     Scaffold(
@@ -539,92 +509,81 @@ fun EmptyRoomScreen(
                     IconButton(onClick = { refreshNonce.intValue++ }) {
                         Icon(Icons.Default.Refresh, contentDescription = "刷新")
                     }
-                    Box {
-                        IconButton(onClick = { showActionsMenu = true }) {
-                            Icon(Icons.Default.MoreVert, contentDescription = "更多")
-                        }
-                        AppDropdownMenu(
-                            expanded = showActionsMenu,
-                            onDismissRequest = { showActionsMenu = false }
-                        ) {
-                            Text(
-                                "数据源",
-                                modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
-                                style = MiuixTheme.textStyles.footnote1,
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                            )
-                            AppDropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text(
-                                            "CDN 缓存",
-                                            style = MiuixTheme.textStyles.body2,
-                                            fontWeight = if (!useDirectQuery) FontWeight.Bold else FontWeight.Normal
-                                        )
-                                        Text(
-                                            "免登录，定时生成",
-                                            style = MiuixTheme.textStyles.footnote1,
-                                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                                        )
-                                    }
-                                },
-                                onClick = {
-                                    showActionsMenu = false
-                                    if (useDirectQuery) {
-                                        useDirectQuery = false
-                                        if (!credentialStore.hasReadEmptyRoomCdnTip) {
-                                            showCdnTip = true
+                    if (accountType != AccountType.POSTGRADUATE) {
+                        Box {
+                            IconButton(onClick = { showActionsMenu = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "更多")
+                            }
+                            AppDropdownMenu(
+                                expanded = showActionsMenu,
+                                onDismissRequest = { showActionsMenu = false }
+                            ) {
+                                Text(
+                                    "数据源",
+                                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
+                                    style = MiuixTheme.textStyles.footnote1,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                                )
+                                AppDropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(
+                                                "CDN 缓存",
+                                                style = MiuixTheme.textStyles.body2,
+                                                fontWeight = if (!useDirectQuery) FontWeight.Bold else FontWeight.Normal
+                                            )
+                                            Text(
+                                                "免登录，定时生成",
+                                                style = MiuixTheme.textStyles.footnote1,
+                                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                                            )
                                         }
-                                        refreshNonce.intValue++
+                                    },
+                                    onClick = {
+                                        showActionsMenu = false
+                                        if (useDirectQuery) {
+                                            useDirectQuery = false
+                                            if (!credentialStore.hasReadEmptyRoomCdnTip) {
+                                                showCdnTip = true
+                                            }
+                                            refreshNonce.intValue++
+                                        }
+                                    },
+                                    trailingIcon = {
+                                        if (!useDirectQuery) {
+                                            Icon(Icons.Default.Check, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.primary)
+                                        }
                                     }
-                                },
-                                trailingIcon = {
-                                    if (!useDirectQuery) {
-                                        Icon(Icons.Default.Check, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.primary)
+                                )
+                                AppDropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(
+                                                "直查教务",
+                                                style = MiuixTheme.textStyles.body2,
+                                                fontWeight = if (useDirectQuery) FontWeight.Bold else FontWeight.Normal
+                                            )
+                                            Text(
+                                                "登录后实时查询",
+                                                style = MiuixTheme.textStyles.footnote1,
+                                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                                            )
+                                        }
+                                    },
+                                    onClick = {
+                                        showActionsMenu = false
+                                        if (!useDirectQuery) {
+                                            useDirectQuery = true
+                                            refreshNonce.intValue++
+                                        }
+                                    },
+                                    trailingIcon = {
+                                        if (useDirectQuery) {
+                                            Icon(Icons.Default.Check, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.primary)
+                                        }
                                     }
-                                }
-                            )
-                            AppDropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text(
-                                            "直查教务",
-                                            style = MiuixTheme.textStyles.body2,
-                                            fontWeight = if (useDirectQuery) FontWeight.Bold else FontWeight.Normal
-                                        )
-                                        Text(
-                                            if (accountType == AccountType.POSTGRADUATE) "研究生账号默认使用 CDN" else "登录后实时查询",
-                                            style = MiuixTheme.textStyles.footnote1,
-                                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                                        )
-                                    }
-                                },
-                                onClick = {
-                                    showActionsMenu = false
-                                    if (!useDirectQuery) {
-                                        useDirectQuery = true
-                                        refreshNonce.intValue++
-                                    }
-                                },
-                                enabled = accountType != AccountType.POSTGRADUATE,
-                                trailingIcon = {
-                                    if (useDirectQuery) {
-                                        Icon(Icons.Default.Check, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.primary)
-                                    }
-                                }
-                            )
-                            HorizontalDivider(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                                color = MiuixTheme.colorScheme.outline.copy(alpha = 0.08f)
-                            )
-                            AppDropdownMenuItem(
-                                text = { Text("分享当前结果") },
-                                leadingIcon = { Icon(Icons.Default.Share, null, Modifier.size(20.dp)) },
-                                onClick = {
-                                    showActionsMenu = false
-                                    shareCurrentRooms()
-                                }
-                            )
+                                )
+                            }
                         }
                     }
                 }
@@ -635,21 +594,24 @@ fun EmptyRoomScreen(
             OverlayDialog(
                 show = true,
                 title = "Cloudflare CDN 查询说明",
-                summary = "CDN 查询无需登录教务系统，也不会发送账号相关信息；数据由后台定时生成，可能不是实时结果。如果查询失败或需要最新数据，可切换为直查教务。",
+                summary = if (accountType == AccountType.POSTGRADUATE) {
+                    "CDN 查询无需登录教务系统，也不会发送账号相关信息；数据由后台定时生成，可能不是实时结果。"
+                } else {
+                    "CDN 查询无需登录教务系统，也不会发送账号相关信息；数据由后台定时生成，可能不是实时结果。如果查询失败或需要最新数据，可切换为直查教务。"
+                },
                 onDismissRequest = {
                     credentialStore.hasReadEmptyRoomCdnTip = true
                     showCdnTip = false
                 }
             ) {
-                Button(
+                TextButton(
+                    text = "知道了",
                     onClick = {
                         credentialStore.hasReadEmptyRoomCdnTip = true
                         showCdnTip = false
                     },
                     modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("知道了")
-                }
+                )
             }
         }
         Column(
@@ -724,12 +686,16 @@ fun EmptyRoomScreen(
                         )
                         if (isLoading && rooms.isNotEmpty()) {
                             Spacer(Modifier.height(6.dp))
-                            Text(
-                                directProgress?.let { "直查教务 ${it.first}/${it.second}，正在更新结果" }
-                                    ?: "正在更新结果",
-                                style = MiuixTheme.textStyles.footnote1,
-                                color = MiuixTheme.colorScheme.primary
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(size = 12.dp, strokeWidth = 1.5.dp)
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    directProgress?.let { "直查教务更新中…${it.first}/${it.second}" }
+                                        ?: "正在更新结果",
+                                    style = MiuixTheme.textStyles.footnote1,
+                                    color = MiuixTheme.colorScheme.primary
+                                )
+                            }
                         }
                     }
                     if (isToday && currentPeriod >= 0) {
@@ -831,7 +797,7 @@ fun EmptyRoomScreen(
                         .heightIn(max = 520.dp)
                         .verticalScroll(rememberScrollState())
                 ) {
-                    TabRowWithContour(
+                    AppSegmentedTabs(
                         tabs = campusNames.map { it.removeSuffix("校区") },
                         selectedTabIndex = selectedCampusIndex,
                         onTabSelected = {
@@ -840,7 +806,7 @@ fun EmptyRoomScreen(
                                 .putString("empty_room_last_campus", campusNames.getOrElse(it) { selectedCampus })
                                 .apply()
                         },
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                        embedded = true,
                     )
 
                     Text(
@@ -911,7 +877,7 @@ fun EmptyRoomScreen(
                             Spacer(Modifier.height(8.dp))
                             val pg = directProgress
                             Text(
-                                if (pg != null) "直查教务 ${pg.first}/${pg.second}…" else "正在查询...",
+                                if (pg != null) "直查教务更新中…${pg.first}/${pg.second}" else "正在查询...",
                                 style = MiuixTheme.textStyles.body2
                             )
                         }

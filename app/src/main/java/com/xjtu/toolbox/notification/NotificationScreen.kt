@@ -40,7 +40,6 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -51,6 +50,7 @@ import com.xjtu.toolbox.ui.components.AppSuggestionChip
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -64,7 +64,6 @@ fun NotificationScreen(
 ) {
     val api = remember { NotificationApi() }
     val scope = rememberCoroutineScope()
-    val context = LocalContext.current
 
     // ── 状态 ──
     var selectedCategory by rememberSaveable { mutableStateOf<SourceCategory?>(null) } // null = 全部分类
@@ -113,8 +112,13 @@ fun NotificationScreen(
                 if (mergeMode) {
                     api.getMergedNotificationsWithSkipped(selectedSources.toList(), page)
                 } else {
-                    val pageResult = runCatching { api.getNotificationPage(selectedSource, page) }
-                        .getOrElse { NotificationPage(emptyList(), false) }
+                    val pageResult = try {
+                        api.getNotificationPage(selectedSource, page)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        NotificationPage(emptyList(), false)
+                    }
                     MergedNotificationPage(pageResult.items, emptySet(), pageResult.hasMore)
                 }
             }
@@ -138,13 +142,8 @@ fun NotificationScreen(
                 hasMorePages = fetched.hasMore
             }
             currentPage = page
-            if (!append) {
-                com.xjtu.toolbox.widget.NoticeWidgetStore.write(
-                    context,
-                    incoming.take(3).map { it.title }
-                )
-                com.xjtu.toolbox.widget.NoticeWidgetUpdater.requestUpdate(context)
-            }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             if (!append) errorMessage = "加载失败: ${e.message}"
             else hasMorePages = false
@@ -163,7 +162,11 @@ fun NotificationScreen(
         // scrollToItem 必须在 loadNotifications 之后：
         // 首次加载时 LazyColumn 不存在（显示 LoadingState），
         // 如果先 scroll 会无限挂起导致 loadNotifications 永不执行
-        try { listState.scrollToItem(0) } catch (_: Exception) {}
+        try {
+            listState.scrollToItem(0)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {}
     }
 
     // 滑动到底自动翻页
@@ -176,10 +179,18 @@ fun NotificationScreen(
         }
     }
 
+    // 和加餐券页一样：真正的请求丢进 scope，不要写在这个 Effect 里。
+    // 若把 isLoadingMore 当 key 又在 Effect 里 await，状态一改 Effect 就会被取消；
+    // CancellationException 再被当成普通失败，hasMorePages 会被关掉，之后怎么拉都不翻页。
+    fun requestLoadMore() {
+        if (isLoading || isLoadingMore || !hasMorePages || filteredNotifications.isEmpty()) return
+        isLoadingMore = true
+        scope.launch { loadNotifications(page = currentPage + 1, append = true) }
+    }
+
     LaunchedEffect(shouldLoadMore, isLoadingMore, isLoading) {
         if (shouldLoadMore && hasMorePages && !isLoading && !isLoadingMore && filteredNotifications.isNotEmpty()) {
-            isLoadingMore = true
-            loadNotifications(page = currentPage + 1, append = true)
+            requestLoadMore()
         }
     }
 
@@ -422,7 +433,7 @@ fun NotificationScreen(
                                 )
                             }
 
-                            if (isLoadingMore) {
+                            if (hasMorePages || isLoadingMore) {
                                 item {
                                     Box(
                                         modifier = Modifier.fillMaxWidth().padding(16.dp),

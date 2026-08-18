@@ -1,12 +1,21 @@
 package com.xjtu.toolbox.ui.settings
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.filled.Notifications
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -15,7 +24,10 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -66,12 +78,17 @@ import com.xjtu.toolbox.AutoUpdateDialog
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.util.AppUpdateInfo
 import com.xjtu.toolbox.util.AppUpdater
+import com.xjtu.toolbox.notification.NoticeWatchScheduler
+import com.xjtu.toolbox.notification.NoticeWatchStore
+import com.xjtu.toolbox.notification.NoticeWatchSync
+import com.xjtu.toolbox.notification.NotificationSource
+import com.xjtu.toolbox.notification.SourceCategory
+import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.util.CredentialStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.BasicComponent
-import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -106,6 +123,7 @@ fun SettingsScreen(
     showQuickActions: Boolean = true,
     onShowQuickActionsChanged: (Boolean) -> Unit = {},
     onOpenFeedback: () -> Unit = {},
+    onAccountTypeChanged: (AccountType) -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -126,7 +144,36 @@ fun SettingsScreen(
     var showEula by remember { mutableStateOf(false) }
     var showClearCacheDialog by remember { mutableStateOf(false) }
     var pendingUpdate by remember { mutableStateOf<AppUpdateInfo?>(null) }
+    var noticeWatchEnabled by remember { mutableStateOf(NoticeWatchStore.isEnabled(context)) }
+    var noticeWatchSummary by remember { mutableStateOf(NoticeWatchStore.sourceSummary(context)) }
+    var showNoticeSources by remember { mutableStateOf(false) }
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+
+    fun applyNoticeWatch(enabled: Boolean = noticeWatchEnabled) {
+        NoticeWatchStore.setEnabled(context, enabled)
+        noticeWatchEnabled = enabled
+        NoticeWatchScheduler.apply(context)
+        if (!enabled) return
+        scope.launch(Dispatchers.IO) {
+            NoticeWatchSync.sync(context, notify = true, force = true)
+            withContext(Dispatchers.Main) {
+                noticeWatchSummary = NoticeWatchStore.sourceSummary(context)
+            }
+        }
+    }
+
+    val noticePermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        applyNoticeWatch(enabled = true)
+        if (!granted) {
+            Toast.makeText(
+                context,
+                "未授予通知权限。小组件仍会更新，但不会弹出系统通知",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
 
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
@@ -191,7 +238,7 @@ fun SettingsScreen(
             TopAppBar(
                 title = "设置",
                 largeTitle = "设置",
-                color = MiuixTheme.colorScheme.background,
+                color = MiuixTheme.colorScheme.surface,
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -204,7 +251,7 @@ fun SettingsScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(MiuixTheme.colorScheme.background)
+                .background(MiuixTheme.colorScheme.surface)
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
                 .overScrollVertical()
                 .verticalScroll(rememberScrollState())
@@ -301,12 +348,13 @@ fun SettingsScreen(
                     title = "账号类型",
                     items = accountTypeOptions,
                     selectedIndex = accountTypeValues.indexOf(accountType).coerceAtLeast(0),
-                    summary = "影响登录身份选择与空闲教室默认查询方式",
+                    summary = "影响登录身份、考勤入口和空闲教室查询方式",
                     startAction = { SettingsIcon(MiuixIcons.Info, cBlue) },
                     onSelectedIndexChange = { idx ->
                         val v = accountTypeValues[idx]
                         accountType = v
                         credentialStore.accountType = v
+                        onAccountTypeChanged(v)
                     }
                 )
                 // ── 校园网（XJTU_STU）自动登录 ──
@@ -374,22 +422,16 @@ fun SettingsScreen(
                 if (showSrunEdit.value) {
                     var u by remember { mutableStateOf(srunCreds.value?.first ?: "") }
                     var p by remember { mutableStateOf(srunCreds.value?.second ?: "") }
-                    OverlayBottomSheet(
+                    OverlayDialog(
                         show = showSrunEdit.value,
                         title = "校园网账号",
+                        summary = "连接 XJTU_STU 时使用，账号需包含 @stu 或 @xjtu 后缀。",
                         onDismissRequest = { showSrunEdit.value = false }
                     ) {
                         Column(
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = 12.dp),
+                            Modifier.fillMaxWidth().imePadding(),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Text(
-                                "连接 XJTU_STU 时使用，账号需包含 @stu 或 @xjtu 后缀。",
-                                style = MiuixTheme.textStyles.body2,
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                            )
                             top.yukonga.miuix.kmp.basic.TextField(
                                 value = u, onValueChange = { u = it },
                                 label = "账号（含 @stu/@xjtu）",
@@ -405,21 +447,29 @@ fun SettingsScreen(
                                     keyboardType = androidx.compose.ui.text.input.KeyboardType.Password
                                 )
                             )
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Button(
+                            if (srunCreds.value != null) {
+                                TextButton(
+                                    text = "清除已保存的账号",
                                     onClick = {
                                         credentialStore.clearSrunCredentials()
                                         srunCreds.value = null
                                         showSrunEdit.value = false
                                     },
-                                    modifier = Modifier.weight(1f),
-                                    colors = ButtonDefaults.buttonColors(
-                                        color = MiuixTheme.colorScheme.secondaryContainer
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.textButtonColors(
+                                        textColor = MiuixTheme.colorScheme.error
                                     )
-                                ) {
-                                    Text("清除", color = MiuixTheme.colorScheme.onSecondaryContainer)
-                                }
-                                Button(
+                                )
+                            }
+                            Row(Modifier.fillMaxWidth()) {
+                                TextButton(
+                                    text = "取消",
+                                    onClick = { showSrunEdit.value = false },
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Spacer(Modifier.width(20.dp))
+                                TextButton(
+                                    text = "保存",
                                     onClick = {
                                         if (u.isNotBlank() && p.isNotBlank()) {
                                             credentialStore.saveSrunCredentials(u.trim(), p)
@@ -427,12 +477,50 @@ fun SettingsScreen(
                                             showSrunEdit.value = false
                                         }
                                     },
-                                    modifier = Modifier.weight(1f)
-                                ) { Text("保存") }
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.textButtonColorsPrimary()
+                                )
                             }
                         }
                     }
                 }
+            }
+
+            // ── 教务通知 ──
+            SmallTitle("教务通知")
+            SettingsCard {
+                SwitchPreference(
+                    title = "新通知提醒",
+                    summary = if (noticeWatchEnabled) {
+                        "有新通知时在系统通知栏提示。后台按省电策略每隔数小时检查，电量低或没网会推迟"
+                    } else {
+                        "关闭后小组件不再自动更新，也不会弹出通知"
+                    },
+                    checked = noticeWatchEnabled,
+                    startAction = { SettingsIcon(Icons.Default.Notifications, cIndigo) },
+                    onCheckedChange = { on ->
+                        if (on) {
+                            val needAsk = Build.VERSION.SDK_INT >= 33 &&
+                                ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.POST_NOTIFICATIONS
+                                ) != PackageManager.PERMISSION_GRANTED
+                            if (needAsk) {
+                                noticePermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            } else {
+                                applyNoticeWatch(enabled = true)
+                            }
+                        } else {
+                            applyNoticeWatch(enabled = false)
+                        }
+                    }
+                )
+                ArrowPreference(
+                    title = "推送来源",
+                    summary = "$noticeWatchSummary · 小组件与提醒共用",
+                    startAction = { SettingsIcon(MiuixIcons.Folder, cTeal) },
+                    onClick = { showNoticeSources = true }
+                )
             }
 
             // ── 场馆 ──
@@ -443,7 +531,7 @@ fun SettingsScreen(
                     summary = if (venueAutoSolveCaptcha) {
                         "预约时先尝试自动识别，失败后可手动滑动"
                     } else {
-                        "已关闭，预约时始终手动滑动（推荐）"
+                        "已关闭，预约时始终手动滑动"
                     },
                     checked = venueAutoSolveCaptcha,
                     startAction = { SettingsIcon(MiuixIcons.Settings, cIndigo) },
@@ -475,7 +563,7 @@ fun SettingsScreen(
             SettingsCard {
                 SwitchPreference(
                     title = "启动时检查更新",
-                    summary = "打开 App 时自动检查新版本",
+                    summary = "打开 App 时自动检查新版本（成功检查后 24 小时内不重复）",
                     checked = autoCheckUpdate,
                     onCheckedChange = {
                         autoCheckUpdate = it
@@ -583,13 +671,15 @@ fun SettingsScreen(
                 summary = "将清除约 $cacheSizeText 的临时缓存，不会影响登录状态和下载文件。",
                 onDismissRequest = { showClearCacheDialog = false }
             ) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(Modifier.fillMaxWidth()) {
                     TextButton(
                         text = "取消",
                         onClick = { showClearCacheDialog = false },
                         modifier = Modifier.weight(1f)
                     )
-                    Button(
+                    Spacer(Modifier.width(20.dp))
+                    TextButton(
+                        text = "确认清除",
                         onClick = {
                             showClearCacheDialog = false
                             scope.launch(Dispatchers.IO) {
@@ -611,10 +701,9 @@ fun SettingsScreen(
                                 }
                             }
                         },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("确认清除")
-                    }
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.textButtonColorsPrimary()
+                    )
                 }
             }
         }
@@ -630,6 +719,82 @@ fun SettingsScreen(
         }
         ChangelogSheet(show = showChangelog, onDismiss = { showChangelog = false })
         EulaSheet(show = showEula, onDismiss = { showEula = false })
+        NoticeSourceSheet(
+            show = showNoticeSources,
+            onDismiss = {
+                showNoticeSources = false
+                noticeWatchSummary = NoticeWatchStore.sourceSummary(context)
+                applyNoticeWatch()
+            },
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun NoticeSourceSheet(
+    show: Boolean,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    var selected by remember(show) {
+        mutableStateOf(NoticeWatchStore.sources(context))
+    }
+    BackHandler(enabled = show) { onDismiss() }
+    OverlayBottomSheet(
+        show = show,
+        title = "推送来源",
+        onDismissRequest = onDismiss
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 520.dp)
+                .overScrollVertical()
+                .verticalScroll(rememberScrollState())
+                .navigationBarsPadding()
+        ) {
+            Text(
+                "系统通知和小部件共用。勾得越多检查越慢，也更费电。",
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+            )
+            Text(
+                if (selected.isEmpty()) "还没选来源" else "已选 ${selected.size} 个",
+                style = MiuixTheme.textStyles.footnote1,
+                color = if (selected.isEmpty()) {
+                    MiuixTheme.colorScheme.onSurfaceVariantSummary
+                } else {
+                    MiuixTheme.colorScheme.primary
+                },
+                modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
+            )
+            SourceCategory.entries.forEach { category ->
+                Text(
+                    category.displayName,
+                    style = MiuixTheme.textStyles.subtitle,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(top = 12.dp, bottom = 8.dp)
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    NotificationSource.byCategory(category).forEach { source ->
+                        val checked = source in selected
+                        AppFilterChip(
+                            selected = checked,
+                            onClick = {
+                                selected = if (checked) selected - source else selected + source
+                                NoticeWatchStore.setSources(context, selected)
+                            },
+                            label = source.displayName
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
     }
 }
 
@@ -640,7 +805,7 @@ private fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp),
         cornerRadius = 16.dp,
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surface)
+        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
     ) {
         Column(content = content)
     }
@@ -672,6 +837,7 @@ private fun ChangelogSheet(show: Boolean, onDismiss: () -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
+                .navigationBarsPadding()
         ) {
             changelogItems().forEach { entry ->
                 Text(
@@ -689,12 +855,7 @@ private fun ChangelogSheet(show: Boolean, onDismiss: () -> Unit) {
                     )
                 }
             }
-            Spacer(Modifier.height(12.dp))
-            Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
-                Text("知道了")
-            }
-            Spacer(Modifier.height(16.dp))
-            Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+            Spacer(Modifier.height(8.dp))
         }
     }
 }
@@ -711,6 +872,7 @@ private fun EulaSheet(show: Boolean, onDismiss: () -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
+                .navigationBarsPadding()
         ) {
             Text("用户协议", style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
@@ -727,12 +889,7 @@ private fun EulaSheet(show: Boolean, onDismiss: () -> Unit) {
                 style = MiuixTheme.textStyles.body2,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary
             )
-            Spacer(Modifier.height(16.dp))
-            Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
-                Text("知道了")
-            }
-            Spacer(Modifier.height(16.dp))
-            Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+            Spacer(Modifier.height(8.dp))
         }
     }
 }

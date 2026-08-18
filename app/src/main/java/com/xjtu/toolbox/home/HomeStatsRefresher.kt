@@ -3,6 +3,7 @@ package com.xjtu.toolbox.home
 import android.content.Context
 import android.util.Log
 import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.SessionManager
 import com.xjtu.toolbox.auth.SiteSession
@@ -170,20 +171,25 @@ object HomeStatsRefresher {
             }
         },
 
-        // 教务处通知：**不需要登录**，所以可以勤一点，4 小时一次。
+        // 教务通知：来源跟用户在设置里勾的一致，小组件和系统通知共用。
+        // 不需要登录，4 小时一次；真正抓取和去重交给 NoticeWatchSync。
         Source(Routes.NOTIFICATION, 4 * 60 * 60 * 1000L, null) { ctx, _ ->
-            withContext(Dispatchers.IO) {
-                val list = runCatching {
-                    com.xjtu.toolbox.notification.NotificationApi()
-                        .getNotifications(com.xjtu.toolbox.notification.NotificationSource.JWC)
-                }.onFailure { Log.w(TAG, "notice: 抓取失败 ${it.message}") }
-                    .getOrNull().orEmpty()
-                Log.d(TAG, "notice: 教务处 ${list.size} 条")
-                val top = list.firstOrNull() ?: return@withContext null
-                // 记下最新一条标题，供屁岱判断"是不是没见过的新通知"
-                HomeStats.putLatestNoticeTitle(ctx, top.title)
-                HomeStat(top.title.take(16), list.getOrNull(1)?.title?.take(16) ?: "教务处最新通知")
+            if (!com.xjtu.toolbox.notification.NoticeWatchStore.isEnabled(ctx)) {
+                val cached = com.xjtu.toolbox.notification.NoticeWatchStore.lastTitles(ctx)
+                val top = cached.firstOrNull() ?: return@Source null
+                return@Source HomeStat(top.take(16), cached.getOrNull(1)?.take(16))
             }
+            val result = com.xjtu.toolbox.notification.NoticeWatchSync.sync(
+                ctx,
+                notify = true,
+                force = false,
+            )
+            Log.d(TAG, "notice: titles=${result.titles.size} new=${result.newCount} cache=${result.usedCache}")
+            val top = result.newestTitle ?: result.titles.firstOrNull() ?: return@Source null
+            HomeStat(
+                top.take(16),
+                result.titles.getOrNull(1)?.take(16) ?: "所选来源最新通知",
+            )
         },
 
         // 校园黄页：不需要登录，数据几乎不变，一周一次足够。
@@ -275,7 +281,11 @@ object HomeStatsRefresher {
      * 跑一轮刷新。只处理已过期的源，逐个串行，源之间留 [GAP_MS]。
      * 同一时刻只允许一轮（[runLock]），防止反复进出首页把请求叠起来。
      */
-    suspend fun refreshDue(context: Context, manager: SessionManager?) {
+    suspend fun refreshDue(
+        context: Context,
+        manager: SessionManager?,
+        accountType: AccountType = AccountType.UNDERGRADUATE,
+    ) {
         if (manager?.credentials == null) {
             Log.d(TAG, "skip: no credentials (manager=${manager != null})")
             return
@@ -293,6 +303,8 @@ object HomeStatsRefresher {
             val existing = HomeStats.collect(context, null).keys
             Log.d(TAG, "start; coldStart=$coldStart 已有内容=$existing stamps=${stamps.mapValues { (now - it.value) / 60000 }} (分钟前)")
             for (s in sources) {
+                if (s.loginType == LoginType.ATTENDANCE && accountType != AccountType.UNDERGRADUATE) continue
+                if (s.loginType == LoginType.ICLASSFACE && accountType != AccountType.UNDERGRADUATE) continue
                 val last = stamps[s.routeKey] ?: 0L
                 val hasContent = s.routeKey in existing
                 if (now - last < s.ttlMs && !(coldStart && !hasContent)) {

@@ -101,6 +101,7 @@ dependencies {
     implementation(libs.media3.ui)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
+    implementation(libs.androidx.work.runtime.ktx)
     ksp(libs.androidx.room.compiler)
     // 版本号仅为占位：settings.gradle.kts 的 dependencySubstitution 会把这三个坐标
     // 替换成 includeBuild("miuix-ref") 里的本地工程，实际编译的永远是源码树当前状态。

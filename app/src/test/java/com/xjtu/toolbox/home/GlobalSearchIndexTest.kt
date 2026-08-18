@@ -1,6 +1,9 @@
 package com.xjtu.toolbox.home
 
+import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.AccountType
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -57,5 +60,58 @@ class GlobalSearchIndexTest {
         GlobalSearchIndex.entries().forEach {
             assertTrue("title blank", it.title.isNotBlank())
         }
+    }
+
+    @Test
+    fun fitnessAlias_hitsFitnessScreen() {
+        val results = GlobalSearchIndex.search("体测")
+        assertTrue(
+            "expected 体测查询 screen, got ${results.map { it.title }}",
+            results.any { it is SearchEntry.Screen && it.route == Routes.FITNESS }
+        )
+    }
+
+    @Test
+    fun catalogCoversEveryAppService() {
+        val screenRoutes = GlobalSearchIndex.entries()
+            .filterIsInstance<SearchEntry.Screen>()
+            .map { it.route }
+            .toSet()
+        val catalogRoutes = AppServices.all.map { it.route }.toSet()
+        assertEquals(catalogRoutes, screenRoutes)
+    }
+
+    @Test
+    fun postgraduateAttendance_isSearchableForPostgraduates() {
+        assertTrue(
+            AppServices.all.any { it.route == Routes.POSTGRADUATE_ATTENDANCE && it.showOnHome },
+        )
+        val results = GlobalSearchIndex.search("研究生考勤", AccountType.POSTGRADUATE)
+        assertTrue(
+            "expected 研考勤 screen, got ${results.map { it.title }}",
+            results.any { it is SearchEntry.Screen && it.route == Routes.POSTGRADUATE_ATTENDANCE },
+        )
+    }
+
+    @Test
+    fun undergraduate_cannotSeePostgraduateAttendance() {
+        val homeRoutes = AppServices.homeFor(AccountType.UNDERGRADUATE).map { it.route }
+        assertFalse(Routes.POSTGRADUATE_ATTENDANCE in homeRoutes)
+        assertTrue(Routes.ATTENDANCE in homeRoutes)
+        val results = GlobalSearchIndex.search("研究生考勤", AccountType.UNDERGRADUATE)
+        assertFalse(
+            results.any { it is SearchEntry.Screen && it.route == Routes.POSTGRADUATE_ATTENDANCE },
+        )
+    }
+
+    @Test
+    fun postgraduate_cannotSeeUndergraduateAttendance() {
+        val homeRoutes = AppServices.homeFor(AccountType.POSTGRADUATE).map { it.route }
+        assertFalse(Routes.ATTENDANCE in homeRoutes)
+        assertFalse(Routes.ICLASSFACE in homeRoutes)
+        assertTrue(Routes.POSTGRADUATE_ATTENDANCE in homeRoutes)
+        val results = GlobalSearchIndex.search("考勤", AccountType.POSTGRADUATE)
+        assertFalse(results.any { it is SearchEntry.Screen && it.route == Routes.ATTENDANCE })
+        assertTrue(results.any { it is SearchEntry.Screen && it.route == Routes.POSTGRADUATE_ATTENDANCE })
     }
 }

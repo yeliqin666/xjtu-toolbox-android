@@ -11,6 +11,7 @@
         <exclude domain="sharedpref" path="cookies_normal*"/>
         <exclude domain="sharedpref" path="cookies_webvpn*"/>
         <exclude domain="sharedpref" path="agent_config*"/>
+        <exclude domain="sharedpref" path="notice_watch.xml"/>
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="xjtu_credentials.xml"/>
@@ -22,5 +23,6 @@
         <exclude domain="sharedpref" path="cookies_normal*"/>
         <exclude domain="sharedpref" path="cookies_webvpn*"/>
         <exclude domain="sharedpref" path="agent_config*"/>
+        <exclude domain="sharedpref" path="notice_watch.xml"/>
     </device-transfer>
 </data-extraction-rules>

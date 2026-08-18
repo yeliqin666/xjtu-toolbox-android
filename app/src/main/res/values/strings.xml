@@ -19,18 +19,7 @@
     <string name="shortcut_payment_long">出示付款码</string>
 
     <string name="notice_widget_name">教务通知</string>
-    <string name="notice_widget_desc">显示最近 3 条教务通知</string>
-
-    <string name="empty_room_widget_name">空教室</string>
-    <string name="empty_room_widget_desc">显示最近一次查到的 3 间空教室</string>
-
-    <string name="agent_shortcut_widget_name">问屁岱</string>
-    <string name="agent_shortcut_widget_desc">一键问今天的课、空教室或校园卡余额</string>
-    <string name="agent_shortcut_widget_title">问屁岱</string>
-    <string name="agent_shortcut_widget_subtitle">点一条直接提问</string>
-    <string name="agent_widget_ask_schedule">今天有什么课？</string>
-    <string name="agent_widget_ask_room">帮我查空教室</string>
-    <string name="agent_widget_ask_card">校园卡还剩多少？</string>
+    <string name="notice_widget_desc">显示所选来源的最近 3 条通知</string>
 
     <string name="onboarding_page1_title">功能一览</string>
     <string name="onboarding_page1_body">课表、成绩、空教室、校园卡、通知、付款码……  把校园服务装进一个盒子。</string>

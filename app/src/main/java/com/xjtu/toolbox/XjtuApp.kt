@@ -20,5 +20,6 @@ class XjtuApp : Application() {
         super.onCreate()
         AppNotificationChannels.ensureChannels(this)
         ErrorReporting.install(FileErrorReporter(this))
+        com.xjtu.toolbox.notification.NoticeWatchScheduler.apply(this)
     }
 }

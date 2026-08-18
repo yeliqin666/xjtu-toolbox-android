@@ -159,13 +159,17 @@ object HomeStats {
      * 返回值表示**是不是没见过的新通知**——屁岱只在标题变化时才提醒，
      * 否则每隔 4 小时抓一次就会把同一条通知反复推给用户。
      */
-    fun putLatestNoticeTitle(context: Context, title: String): Boolean = runCatching {
+    fun putLatestNoticeTitle(
+        context: Context,
+        title: String,
+        markUnseen: Boolean = true,
+    ): Boolean = runCatching {
         val prefs = context.getSharedPreferences("home_stats_cursor", Context.MODE_PRIVATE)
         val prev = prefs.getString(KEY_LATEST_NOTICE, null)
         if (prev == title) return@runCatching false
-        prefs.edit().putString(KEY_LATEST_NOTICE, title)
-            .putString("proactive_notice_unseen", title)
-            .apply()
+        val editor = prefs.edit().putString(KEY_LATEST_NOTICE, title)
+        if (markUnseen) editor.putString("proactive_notice_unseen", title)
+        editor.apply()
         // 首次记录不算"新通知"：这是基线，报出来等于把一条老通知当新的推一次
         prev != null
     }.getOrDefault(false)

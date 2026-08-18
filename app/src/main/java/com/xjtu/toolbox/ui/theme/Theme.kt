@@ -10,6 +10,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
+import top.yukonga.miuix.kmp.theme.Colors
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeController
 
@@ -55,6 +56,39 @@ fun XJTUToolBoxTheme(
         }
     }
     CompositionLocalProvider(LocalIsDarkTheme provides darkTheme) {
-        MiuixTheme(controller = controller, content = content)
+        MiuixTheme(controller = controller) {
+            if (!dynamicColor) {
+                content()
+            } else {
+                MiuixTheme(
+                    colors = remapMonetColorsToMiuix(MiuixTheme.colorScheme, darkTheme),
+                    content = content,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Monet / MD3 按同名角色灌进 MIUIX，会把「灰页 / 白卡片」对调。
+ *
+ * MIUIX 浅色默认：`surface` 是页面灰（`#F7F7F7`），`surfaceVariant` / `surfaceContainer`
+ * 是卡片白。MD3 浅色正好相反：`surface` 近白，`surfaceContainer` 才是略深的灰底，
+ * `surfaceVariant` 还带着壁纸色相。一对一映射后 TopAppBar（默认 `surface`）变纯白，
+ * 下面的 Tab / 卡片（`surfaceVariant`）变成淡紫，顶栏看起来像被切开。
+ *
+ * 深色同样不用 MD3 的 `surfaceVariant`（tone 30，过亮），卡片改走 `surfaceContainer`。
+ */
+private fun remapMonetColorsToMiuix(colors: Colors, dark: Boolean): Colors {
+    return if (dark) {
+        colors.copy(
+            surfaceVariant = colors.surfaceContainer,
+        )
+    } else {
+        colors.copy(
+            surface = colors.surfaceContainer,
+            surfaceVariant = colors.surface,
+            surfaceContainer = colors.surface,
+        )
     }
 }
