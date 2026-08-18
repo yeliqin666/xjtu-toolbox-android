@@ -82,9 +82,13 @@ class JwappSession : CasSiteSession("jwapp", "移动教务", mustUseWebVpn = fal
     override fun isAuthFailureResponse(response: Response, bodyPreview: String?): Boolean {
         if (super.isAuthFailureResponse(response, bodyPreview)) return true
         val body = bodyPreview ?: return false
-        return """"code"\s*:\s*401""".toRegex().containsMatchIn(body) ||
-            body.contains("Authentication error", ignoreCase = true) ||
-            body.contains("token", ignoreCase = true) && body.contains("过期")
+        // 分项成绩接口对「这门课没有细则」也会给 JSON code=401，不能单凭数字当掉登录。
+        return body.contains("Authentication error", ignoreCase = true) ||
+            (body.contains("token", ignoreCase = true) && body.contains("过期")) ||
+            (""""code"\s*:\s*401""".toRegex().containsMatchIn(body) &&
+                (body.contains("authentication", ignoreCase = true) ||
+                    body.contains("未登录") ||
+                    body.contains("过期")))
     }
 }
 
@@ -139,6 +143,15 @@ class LibrarySession : CasSiteSession("library", "图书馆", mustUseWebVpn = tr
 class LmsSession : CasSiteSession("lms", "思源学堂", mustUseWebVpn = false) {
     override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
         com.xjtu.toolbox.lms.LmsLogin(session = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
+
+    override fun isAuthFailureResponse(response: Response, bodyPreview: String?): Boolean {
+        // 活动已结束时 /api/uploads/{id}/blob 也是 403 + 「没有权限」。
+        // 这是业务拒绝，不是掉登录，按 403 重登只会空转。
+        if (response.code == 403 && bodyPreview?.contains("没有权限") == true) return false
+        if (response.code == 401) return true
+        if (bodyPreview != null) return XJTULogin.isAuthFailureResponse(bodyPreview)
+        return false
+    }
 }
 
 // ── CLASS 课程回放 ────────────────────────────────────────────────────

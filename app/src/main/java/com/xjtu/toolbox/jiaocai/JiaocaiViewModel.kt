@@ -14,8 +14,7 @@ import kotlinx.coroutines.withContext
 /**
  * 教材中心的浏览态。
  *
- * 放 ViewModel 而不是 Composable 内 `remember`：搜索结果页和详情页是同一个目的地里的
- * 两个分支，切过去时搜索页的 composition 会被销毁，`remember` 的关键词和结果跟着没。
+ * 关键词和结果放 ViewModel：离开再回来（例如去读全文）不会把搜索结果冲掉。
  */
 class JiaocaiViewModel : ViewModel() {
 

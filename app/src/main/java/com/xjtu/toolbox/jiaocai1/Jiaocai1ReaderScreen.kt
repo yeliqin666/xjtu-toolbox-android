@@ -123,7 +123,7 @@ private fun ReaderShell(title: String, onBack: () -> Unit, body: @Composable () 
         topBar = {
             SmallTopAppBar(
                 title = title,
-                color = MiuixTheme.colorScheme.background,
+                color = MiuixTheme.colorScheme.surface,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -194,7 +194,7 @@ private fun ReaderContent(
             if (chromeVisible) {
                 SmallTopAppBar(
                     title = title,
-                    color = MiuixTheme.colorScheme.background,
+                    color = MiuixTheme.colorScheme.surface,
                     navigationIcon = {
                         IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")

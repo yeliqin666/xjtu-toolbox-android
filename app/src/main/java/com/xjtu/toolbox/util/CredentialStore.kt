@@ -251,11 +251,10 @@ class CredentialStore(context: Context) {
     /**
      * 场馆滑块验证码自动识别开关。
      *
-     * 默认关闭：自动识别属于实验性能力，识别置信度不足时仍会回退到手动滑块，
-     * 用户明确打开后才会在预约流程中尝试自动提交。
+     * 默认开启：预约时先自动识别，置信度不足仍回退到手动滑块。
      */
     var venueAutoSolveCaptchaEnabled: Boolean
-        get() = appPrefs.getBoolean(KEY_VENUE_AUTO_SOLVE_CAPTCHA, false)
+        get() = appPrefs.getBoolean(KEY_VENUE_AUTO_SOLVE_CAPTCHA, true)
         set(value) { appPrefs.edit().putBoolean(KEY_VENUE_AUTO_SOLVE_CAPTCHA, value).apply() }
 
     companion object {

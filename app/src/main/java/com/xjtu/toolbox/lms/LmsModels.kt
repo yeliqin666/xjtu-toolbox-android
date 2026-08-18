@@ -128,7 +128,9 @@ data class LmsUpload(
     val updatedAt: String = "",
     val downloadUrl: String = "",
     val previewUrl: String = "",
-    val attachmentUrl: String = ""
+    val attachmentUrl: String = "",
+    val activityId: Int = 0,
+    val courseId: Int = 0,
 ) {
     /** 人类可读的文件大小 */
     val readableSize: String
@@ -168,7 +170,7 @@ data class LmsActivity(
     /** 允许提交次数；[nonSubmitTimes] 为 true 表示不限次 */
     val submitTimes: Int? = null,
     val nonSubmitTimes: Boolean = false,
-    /** 作业是否已关闭 */
+    /** 活动是否已结束。学堂关掉后 /blob 会 403，与列表里的 allow_download 无关。 */
     val isClosed: Boolean = false,
 
     // lesson 专有
@@ -190,6 +192,12 @@ data class LmsActivity(
     val viewLive: Boolean = false,
     val viewRecord: Boolean = false
 )
+
+sealed class LmsDownloadResult {
+    data object Ok : LmsDownloadResult()
+    data object Forbidden : LmsDownloadResult()
+    data object Failed : LmsDownloadResult()
+}
 
 // ════════════════════════════════════════
 //  作业提交

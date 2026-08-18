@@ -45,6 +45,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -62,6 +63,7 @@ import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.handleAuthExpired
 import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.AppSearchBar
+import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.components.AppSuggestionChip
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
@@ -75,12 +77,12 @@ import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
-import top.yukonga.miuix.kmp.basic.SmallTopAppBar
-import top.yukonga.miuix.kmp.basic.TabRowDefaults
-import top.yukonga.miuix.kmp.basic.TabRowWithContour
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -134,12 +136,14 @@ private fun Jiaocai1BrowseScreen(
     val context = LocalContext.current
     val loader = remember(site) { Jiaocai1PageLoader(context, site) }
     val shelf by vm.shelf.collectAsState()
+    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
 
     Scaffold(
         topBar = {
-            SmallTopAppBar(
+            TopAppBar(
                 title = "教材全文库",
-                color = MiuixTheme.colorScheme.surface,
+                largeTitle = "教材全文库",
+                scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -152,16 +156,13 @@ private fun Jiaocai1BrowseScreen(
             Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .nestedScroll(scrollBehavior.nestedScrollConnection)
                 .background(MiuixTheme.colorScheme.surface)
         ) {
-            TabRowWithContour(
+            AppSegmentedTabs(
                 tabs = listOf("书架", "检索", "分类"),
                 selectedTabIndex = vm.tab,
                 onTabSelected = { vm.tab = it },
-                colors = TabRowDefaults.tabRowColors(
-                    backgroundColor = MiuixTheme.colorScheme.onBackground.copy(alpha = 0.06f)
-                ),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
             )
 
             AnimatedContent(
@@ -173,7 +174,8 @@ private fun Jiaocai1BrowseScreen(
                             slideOutHorizontally { -dir * it / 4 } + fadeOut(spring(dampingRatio = 0.85f, stiffness = 500f))
                         )
                 },
-                label = "jiaocai1Tab"
+                label = "jiaocai1Tab",
+                modifier = Modifier.weight(1f)
             ) { current ->
                 when (current) {
                     0 -> ShelfTab(

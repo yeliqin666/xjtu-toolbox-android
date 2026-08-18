@@ -43,7 +43,24 @@ data class ScoreItem(
     val courseCategory: String? = null,
     val courseCode: String? = null,
     val courseGroup: CourseGroup? = null,
-)
+) {
+    fun asEmptyDetail(): ScoreDetail = ScoreDetail(
+        courseName = courseName,
+        coursePoint = coursePoint,
+        examType = examType,
+        majorFlag = majorFlag,
+        examProp = examProp,
+        replaceFlag = replaceFlag,
+        score = score,
+        scoreValue = scoreValue,
+        gpa = com.xjtu.toolbox.util.ScoreCalculator.courseGpa(this) ?: 0.0,
+        passFlag = com.xjtu.toolbox.util.ScoreCalculator.isPassed(this),
+        specificReason = specificReason,
+        itemList = emptyList(),
+    )
+}
+
+class NoScoreDetailException(message: String = "该课程暂无分项成绩") : RuntimeException(message)
 
 data class ScoreDetailItem(
     val itemName: String,
@@ -196,27 +213,36 @@ class JwappApi(private val site: SiteSession) {
             .post(body)
 
         val responseBody = execute(request)
+        Log.d(TAG, "scoreDetail id=$courseId body=${responseBody.take(240)}")
         val root = responseBody.safeParseJsonObject()
 
-        val resultCode = root.get("code").asInt
-        if (resultCode != 200) {
-            throw RuntimeException(root.get("msg")?.asString ?: "服务器错误 ($resultCode)")
+        val resultCode = root.get("code").safeInt(-1)
+        val msg = root.get("msg").safeString("服务器错误 ($resultCode)")
+        val dataEl = root.get("data")
+        if (resultCode != 200 || dataEl == null || dataEl.isJsonNull || !dataEl.isJsonObject) {
+            Log.w(TAG, "scoreDetail empty/fail code=$resultCode msg=$msg data=${dataEl}")
+            if (resultCode == 200 || resultCode == 401 || resultCode == 404 || isNoScoreDetailMessage(msg)) {
+                throw NoScoreDetailException(msg.ifBlank { "该课程暂无分项成绩" })
+            }
+            throw RuntimeException(msg)
         }
 
-        val data = root.getAsJsonObject("data")
+        val data = dataEl.asJsonObject
 
-        val items = data.getAsJsonArray("itemList")?.map { itemEl ->
-            val item = itemEl.asJsonObject
+        val itemEl = data.get("itemList")
+        val items = if (itemEl == null || itemEl.isJsonNull || !itemEl.isJsonArray) {
+            emptyList()
+        } else itemEl.asJsonArray.map { el ->
+            val item = el.asJsonObject
             val percentStr = item.get("itemPercent").safeString("0")
             val percent = percentStr.trimEnd('%').toDoubleOrNull()?.let { it / 100.0 } ?: 0.0
-
             ScoreDetailItem(
                 itemName = item.get("itemName").safeString(),
                 itemPercent = percent,
                 itemScore = item.get("itemScore").safeString(),
                 itemScoreValue = item.get("itemScore").safeString().toDoubleOrNull()
             )
-        } ?: emptyList()
+        }
 
         val rawScore = data.get("score").safeString()
         val serverGpa = data.get("gpa").safeDouble()
@@ -257,13 +283,15 @@ class JwappApi(private val site: SiteSession) {
 
         val data = root.getAsJsonObject("data")
 
-        val dist = data.getAsJsonArray("scoreDist")?.map { distEl ->
-            val d = distEl.asJsonObject
+        val distEl = data.get("scoreDist")
+        val dist = if (distEl == null || distEl.isJsonNull || !distEl.isJsonArray) emptyList()
+        else distEl.asJsonArray.map { el ->
+            val d = el.asJsonObject
             ScoreDistRange(
                 range = d.get("range").safeString(),
                 num = d.get("num").safeInt()
             )
-        } ?: emptyList()
+        }
 
         return ScoreRank(
             defeatPercent = data.get("defeatPercent").safeDoubleOrNull(),
@@ -327,4 +355,9 @@ class JwappApi(private val site: SiteSession) {
      */
     fun calculateGpaForCourses(courses: List<ScoreItem>): GpaInfo =
         com.xjtu.toolbox.util.ScoreCalculator.calculateGpaForCourses(courses)
+}
+
+internal fun isNoScoreDetailMessage(msg: String?): Boolean {
+    if (msg.isNullOrBlank()) return false
+    return listOf("无分项", "没有分项", "暂无", "不存在", "未查询", "无明细", "无细则", "没有明细", "无成绩").any { it in msg }
 }

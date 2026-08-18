@@ -10,7 +10,6 @@ import kotlinx.coroutines.runBlocking
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import java.net.URL
 
 private const val TAG = "LmsApi"
 
@@ -197,25 +196,70 @@ class LmsApi(private val site: SiteSession) {
         }
     }
 
-    /** 流式下载到 OutputStream（带认证），用于大文件保存到本地 */
+    /**
+     * 官方下载就是 GET /api/uploads/{id}/blob。
+     * 活动未结束时 200 或 302 到 media.xjtu.edu.cn（带 timestamp/token）；
+     * 已结束时学堂直接 403。不要再换别的 URL。
+     */
     fun downloadToStream(url: String, outputStream: java.io.OutputStream): Boolean {
+        return pullToStream(url, outputStream) == LmsDownloadResult.Ok
+    }
+
+    fun downloadUpload(upload: LmsUpload, outputStream: java.io.OutputStream): LmsDownloadResult {
+        val url = blobUrl(upload) ?: upload.attachmentUrl.takeIf { it.isNotBlank() }
+        if (url.isNullOrBlank()) return LmsDownloadResult.Failed
+        return pullToStream(url, outputStream)
+    }
+
+    fun downloadBytes(url: String): ByteArray? = pullToBytes(url)
+
+    fun downloadUploadBytes(upload: LmsUpload): ByteArray? {
+        val url = blobUrl(upload) ?: return null
+        return pullToBytes(url)
+    }
+
+    private fun blobUrl(upload: LmsUpload): String? = when {
+        upload.downloadUrl.isNotBlank() -> upload.downloadUrl
+        upload.id > 0 -> "$baseUrl/api/uploads/${upload.id}/blob"
+        else -> null
+    }
+
+    private fun pullToStream(url: String, outputStream: java.io.OutputStream): LmsDownloadResult {
         return try {
             val resp = runBlocking { site.executeWithReAuth(authenticatedRequest(url).get().build()) }
-            resp.body?.byteStream()?.use { input ->
-                outputStream.use { out -> input.copyTo(out) }
+            resp.use { r ->
+                when {
+                    r.code == 403 -> {
+                        Log.w(TAG, "download $url → 403")
+                        LmsDownloadResult.Forbidden
+                    }
+                    !r.isSuccessful -> {
+                        Log.w(TAG, "download $url → HTTP ${r.code}")
+                        LmsDownloadResult.Failed
+                    }
+                    else -> {
+                        r.body?.byteStream()?.use { it.copyTo(outputStream) }
+                            ?: return LmsDownloadResult.Failed
+                        LmsDownloadResult.Ok
+                    }
+                }
             }
-            true
         } catch (e: Exception) {
             Log.e(TAG, "downloadToStream failed: $url", e)
-            false
+            LmsDownloadResult.Failed
         }
     }
 
-    /** 下载任意 URL 的字节数组（带认证），用于附件预览 */
-    fun downloadBytes(url: String): ByteArray? {
+    private fun pullToBytes(url: String): ByteArray? {
         return try {
             val resp = runBlocking { site.executeWithReAuth(authenticatedRequest(url).get().build()) }
-            resp.body?.use { it.bytes() }
+            resp.use { r ->
+                if (!r.isSuccessful) {
+                    Log.w(TAG, "downloadBytes $url → HTTP ${r.code}")
+                    return null
+                }
+                r.body?.bytes()
+            }
         } catch (e: Exception) {
             Log.e(TAG, "downloadBytes failed: $url", e)
             null
@@ -262,6 +306,7 @@ class LmsApi(private val site: SiteSession) {
             .header("Referer", "$baseUrl/user/courses")
             .header("Accept", "application/json, text/plain, */*")
 
+
     // ── 作业提交列表 ──────────────────────
 
     private fun getSubmissionList(
@@ -304,11 +349,7 @@ class LmsApi(private val site: SiteSession) {
         playerTokenCache[lessonActivityId]?.let { return it }
         val playerUrl = getLessonPlayerUrl(lessonActivityId)
         val token = try {
-            URL(playerUrl).let { url ->
-                url.query?.split("&")
-                    ?.associate { it.split("=", limit = 2).let { parts -> parts[0] to (parts.getOrNull(1) ?: "") } }
-                    ?.get("token")
-            }
+            android.net.Uri.parse(playerUrl).getQueryParameter("token")
         } catch (_: Exception) { null }
             ?: throw RuntimeException("播放器 URL 中找不到 token")
         playerTokenCache[lessonActivityId] = token
@@ -461,7 +502,8 @@ class LmsApi(private val site: SiteSession) {
             submitByGroup = obj.get("submit_by_group").safeBoolean(),
             published = obj.get("published").safeBoolean(),
             createdAt = obj.get("created_at").safeString() ?: "",
-            updatedAt = obj.get("updated_at").safeString() ?: ""
+            updatedAt = obj.get("updated_at").safeString() ?: "",
+            isClosed = obj.get("is_closed").safeBoolean(),
         )
     }
 
@@ -478,7 +520,7 @@ class LmsApi(private val site: SiteSession) {
             createdAt = obj.get("created_at").safeString() ?: "",
             updatedAt = obj.get("updated_at").safeString() ?: "",
             downloadUrl = if (uploadId > 0) "$baseUrl/api/uploads/$uploadId/blob" else "",
-            previewUrl = if (refId > 0) "$baseUrl/api/uploads/reference/document/$refId/url" else ""
+            previewUrl = if (refId > 0) "$baseUrl/api/uploads/reference/document/$refId/url?preview=true" else ""
         )
     }
 
@@ -489,13 +531,15 @@ class LmsApi(private val site: SiteSession) {
         val lessonResource = obj.get("lesson_resource").safeObject()
         val lessonProperties = lessonResource?.get("properties").safeObject()
 
+        val activityId = obj.get("id").safeInt()
+        val courseId = obj.get("course_id").safeInt()
         val uploads = obj.get("uploads").safeArray().mapNotNull { elem ->
-            try { extractUpload(elem.asJsonObject) } catch (_: Exception) { null }
+            try { extractUpload(elem.asJsonObject).copy(activityId = activityId, courseId = courseId) } catch (_: Exception) { null }
         }
 
         val common = LmsActivity(
-            id = obj.get("id").safeInt(),
-            courseId = obj.get("course_id").safeInt(),
+            id = activityId,
+            courseId = courseId,
             type = type,
             title = obj.get("title").safeString() ?: "",
             moduleId = obj.get("module_id")?.let { if (it.isJsonNull) null else it.safeInt() },
@@ -504,7 +548,8 @@ class LmsApi(private val site: SiteSession) {
             published = obj.get("published").safeBoolean(),
             createdAt = obj.get("created_at").safeString() ?: "",
             updatedAt = obj.get("updated_at").safeString() ?: "",
-            uploads = uploads
+            uploads = uploads,
+            isClosed = obj.get("is_closed").safeBoolean(),
         )
 
         return when (type) {
@@ -522,7 +567,6 @@ class LmsApi(private val site: SiteSession) {
                 deadline = obj.get("deadline").safeString() ?: obj.get("end_time").safeString(),
                 submitTimes = dataObj?.get("submit_times")?.let { if (it.isJsonNull) null else it.safeInt() },
                 nonSubmitTimes = obj.get("non_submit_times").safeBoolean(),
-                isClosed = obj.get("is_closed").safeBoolean(),
             )
 
             LmsActivityType.MATERIAL -> common.copy(

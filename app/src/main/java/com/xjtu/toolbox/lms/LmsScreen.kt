@@ -52,8 +52,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jsoup.Jsoup
 import top.yukonga.miuix.kmp.basic.*
-import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
-import top.yukonga.miuix.kmp.window.WindowBottomSheet
+import top.yukonga.miuix.kmp.window.WindowDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 
@@ -120,33 +119,30 @@ fun LmsScreen(site: SiteSession, onBack: () -> Unit) {
         // （CourseListPage / ActivityListPage…），而 Overlay* 需要 Scaffold 提供的
         // LocalDialogStates 宿主才会渲染，写在外壳里拿不到宿主会静默不显示。
         // 当前显示哪个子页面是动态的，搬进任一个都不对，故用自带独立 Window 的变体。
-        WindowBottomSheet(
+        WindowDialog(
             show = showHint.value,
             title = "功能说明",
+            summary = "思源学堂（lms.xjtu.edu.cn）是学校新一代课程管理平台，数据来源为 LMS 系统。",
             onDismissRequest = {
                 showHint.value = false
                 prefs.edit().putBoolean("lms_hint_shown", true).apply()
             }
         ) {
-            Column(Modifier.padding(bottom = 16.dp).navigationBarsPadding()) {
+            Column(Modifier.fillMaxWidth()) {
                 Text(
-                    "思源学堂（lms.xjtu.edu.cn）是学校新一代课程管理平台，数据来源为 LMS 系统。",
-                    style = MiuixTheme.textStyles.body1
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "支持查看课程、作业、课件和课堂回放。课件会在应用内下载，并统一显示在下载管理中。",
+                    "支持查看课程、作业、课件和课堂回放。课件会保存到下载管理；已结束的活动学堂会关掉下载。",
                     style = MiuixTheme.textStyles.body2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                 )
-                Spacer(Modifier.height(16.dp))
-                Button(
+                Spacer(Modifier.height(12.dp))
+                TextButton(
+                    text = "知道了",
                     onClick = {
                         showHint.value = false
                         prefs.edit().putBoolean("lms_hint_shown", true).apply()
                     },
                     modifier = Modifier.fillMaxWidth()
-                ) { Text("知道了") }
+                )
             }
         }
     }
@@ -288,7 +284,7 @@ private fun CourseListPage(
         topBar = {
             SmallTopAppBar(
                 title = "思源学堂",
-                color = MiuixTheme.colorScheme.background,
+                color = MiuixTheme.colorScheme.surface,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -487,7 +483,7 @@ private fun ActivityListPage(
         topBar = {
             SmallTopAppBar(
                 title = course.name,
-                color = MiuixTheme.colorScheme.background,
+                color = MiuixTheme.colorScheme.surface,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -603,6 +599,9 @@ private fun LmsActivityCard(activity: LmsActivity, onClick: () -> Unit) {
                         fontSize = 12.sp,
                         color = color
                     )
+                    if (activity.isClosed) {
+                        Text("已结束", fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                    }
                     activity.startTime?.let {
                         Text(
                             formatLmsTime(it),
@@ -696,7 +695,7 @@ private fun ActivityDetailPage(
         topBar = {
             SmallTopAppBar(
                 title = activity.title,
-                color = MiuixTheme.colorScheme.background,
+                color = MiuixTheme.colorScheme.surface,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -753,7 +752,7 @@ private fun ActivityDetailPage(
                         if (d.uploads.isNotEmpty()) {
                             item(key = "uploads_header") { SectionHeader("附件 (${d.uploads.size})") }
                             items(d.uploads, key = { "upload_${it.id}" }) { upload ->
-                                UploadCard(upload, context, api)
+                                UploadCard(upload, context, api, activityClosed = d.isClosed)
                             }
                         }
 
@@ -765,7 +764,7 @@ private fun ActivityDetailPage(
                             if (submissions.isNotEmpty()) {
                                 item(key = "sub_header") { SectionHeader("提交记录 (${submissions.size})") }
                                 items(submissions, key = { "sub_${it.id}" }) { sub ->
-                                    SubmissionCard(sub, context, api)
+                                    SubmissionCard(sub, context, api, activityClosed = d.isClosed)
                                 }
                             } else {
                                 // 一条都没有时必须明确说出来。之前这里什么都不渲染，
@@ -949,6 +948,10 @@ private fun ActivityInfoCard(activity: LmsActivity) {
                 Icon(icon, null, tint = color, modifier = Modifier.size(24.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(activity.type.displayName(), fontSize = 14.sp, fontWeight = FontWeight.Medium, color = color)
+                if (activity.isClosed) {
+                    Spacer(Modifier.width(8.dp))
+                    Text("已结束", fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                }
             }
             Spacer(Modifier.height(8.dp))
             Text(activity.title, fontSize = 18.sp, fontWeight = FontWeight.Bold)
@@ -1006,7 +1009,12 @@ private fun InfoChip(text: String, icon: ImageVector) {
 }
 
 @Composable
-private fun UploadCard(upload: LmsUpload, context: Context, api: LmsApi? = null) {
+private fun UploadCard(
+    upload: LmsUpload,
+    context: Context,
+    api: LmsApi? = null,
+    activityClosed: Boolean = false,
+) {
     val isImage = upload.type.startsWith("image", ignoreCase = true)
     var previewBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
     var isDownloading by remember { mutableStateOf(false) }
@@ -1036,30 +1044,31 @@ private fun UploadCard(upload: LmsUpload, context: Context, api: LmsApi? = null)
 
     Card(
         onClick = {
+            if (activityClosed) {
+                Toast.makeText(context, "活动已结束，学堂已关闭下载", Toast.LENGTH_SHORT).show()
+                return@Card
+            }
             if (isImage && api != null) {
-                val url = upload.downloadUrl.ifEmpty { upload.previewUrl }
-                if (url.isNotEmpty() && !isDownloading) {
+                if (!isDownloading) {
                     isDownloading = true
                     scope.launch {
-                        val bytes = withContext(Dispatchers.IO) { api.downloadBytes(url) }
+                        val bytes = withContext(Dispatchers.IO) { api.downloadUploadBytes(upload) }
                         previewBitmap = bytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+                        if (previewBitmap == null) {
+                            Toast.makeText(context, "无法预览", Toast.LENGTH_SHORT).show()
+                        }
                         isDownloading = false
                     }
                 }
             } else if (api != null) {
-                val url = upload.downloadUrl.ifEmpty { upload.previewUrl }
-                if (url.isNotEmpty() && !isDownloading) {
+                if (!isDownloading) {
                     isDownloading = true
                     scope.launch {
-                        val ok = withContext(Dispatchers.IO) {
-                            saveToDownloads(context, upload.name, upload.type, url, api)
+                        val result = withContext(Dispatchers.IO) {
+                            saveUploadToDownloads(context, upload, api)
                         }
                         isDownloading = false
-                        Toast.makeText(
-                            context,
-                            if (ok) "已保存到下载" else "下载失败，请重试",
-                            Toast.LENGTH_SHORT
-                        ).show()
+                        Toast.makeText(context, downloadToast(result), Toast.LENGTH_SHORT).show()
                     }
                 }
             }
@@ -1199,7 +1208,12 @@ private fun remainingLabel(deadlineRaw: String): String? = try {
 }
 
 @Composable
-private fun SubmissionCard(sub: LmsSubmissionItem, context: Context, api: LmsApi) {
+private fun SubmissionCard(
+    sub: LmsSubmissionItem,
+    context: Context,
+    api: LmsApi,
+    activityClosed: Boolean = false,
+) {
     val scope = rememberCoroutineScope()
     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
         Column(Modifier.padding(16.dp)) {
@@ -1252,7 +1266,7 @@ private fun SubmissionCard(sub: LmsSubmissionItem, context: Context, api: LmsApi
                 Spacer(Modifier.height(8.dp))
                 Text("批改附件", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 correctUploads.forEach { upload ->
-                    UploadCard(upload, context, api)
+                    UploadCard(upload, context, api, activityClosed = activityClosed)
                 }
             }
 
@@ -1261,7 +1275,7 @@ private fun SubmissionCard(sub: LmsSubmissionItem, context: Context, api: LmsApi
                 Spacer(Modifier.height(8.dp))
                 Text("提交附件", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 sub.uploads.forEach { upload ->
-                    UploadCard(upload, context, api)
+                    UploadCard(upload, context, api, activityClosed = activityClosed)
                     if (upload.attachmentUrl.isNotEmpty()) {
                         var downloadingMarked by remember { mutableStateOf(false) }
                         TextButton(
@@ -1272,13 +1286,17 @@ private fun SubmissionCard(sub: LmsSubmissionItem, context: Context, api: LmsApi
                                 scope.launch {
                                     val markedName = upload.name.substringBeforeLast('.', upload.name) +
                                         "_批改版." + upload.name.substringAfterLast('.', "bin")
-                                    val ok = withContext(Dispatchers.IO) {
+                                    val result = withContext(Dispatchers.IO) {
                                         saveToDownloads(context, markedName, upload.type, upload.attachmentUrl, api)
                                     }
                                     downloadingMarked = false
                                     Toast.makeText(
                                         context,
-                                        if (ok) "批改版已保存到下载管理" else "批改版下载失败",
+                                        when (result) {
+                                            LmsDownloadResult.Ok -> "批改版已保存到下载管理"
+                                            LmsDownloadResult.Forbidden -> "活动已结束，学堂已关闭下载"
+                                            LmsDownloadResult.Failed -> "批改版下载失败"
+                                        },
                                         Toast.LENGTH_SHORT
                                     ).show()
                                 }
@@ -1501,7 +1519,23 @@ private fun activityTypeVisual(type: LmsActivityType): Pair<ImageVector, Color> 
     LmsActivityType.UNKNOWN -> Icons.Default.HelpOutline to Color(0xFF757575)
 }
 
-private fun saveToDownloads(context: Context, name: String, mimeType: String, url: String, api: LmsApi): Boolean {
+private fun downloadToast(result: LmsDownloadResult): String = when (result) {
+    LmsDownloadResult.Ok -> "已保存到下载"
+    LmsDownloadResult.Forbidden -> "活动已结束，学堂已关闭下载"
+    LmsDownloadResult.Failed -> "下载失败"
+}
+
+private fun saveUploadToDownloads(context: Context, upload: LmsUpload, api: LmsApi): LmsDownloadResult =
+    saveToDownloads(context, upload.name, upload.type, url = null, api = api, upload = upload)
+
+private fun saveToDownloads(
+    context: Context,
+    name: String,
+    mimeType: String,
+    url: String?,
+    api: LmsApi,
+    upload: LmsUpload? = null,
+): LmsDownloadResult {
     val mime = mimeType.ifBlank { "application/octet-stream" }
     val cv = ContentValues().apply {
         put(MediaStore.Downloads.DISPLAY_NAME, name)
@@ -1510,14 +1544,19 @@ private fun saveToDownloads(context: Context, name: String, mimeType: String, ur
         put(MediaStore.Downloads.IS_PENDING, 1)
     }
     val resolver = context.contentResolver
-    val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv) ?: return false
+    val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv)
+        ?: return LmsDownloadResult.Failed
     return try {
-        val out = resolver.openOutputStream(uri) ?: return false
-        val ok = api.downloadToStream(url, out)
+        val out = resolver.openOutputStream(uri) ?: return LmsDownloadResult.Failed
+        val result = out.use { stream ->
+            if (upload != null) api.downloadUpload(upload, stream)
+            else if (api.downloadToStream(checkNotNull(url), stream)) LmsDownloadResult.Ok
+            else LmsDownloadResult.Failed
+        }
         cv.clear()
         cv.put(MediaStore.Downloads.IS_PENDING, 0)
         resolver.update(uri, cv, null, null)
-        if (ok) {
+        if (result is LmsDownloadResult.Ok) {
             LmsDownloadStore.add(
                 context,
                 LmsDownloadRecord(
@@ -1531,10 +1570,10 @@ private fun saveToDownloads(context: Context, name: String, mimeType: String, ur
         } else {
             resolver.delete(uri, null, null)
         }
-        ok
+        result
     } catch (e: Exception) {
         resolver.delete(uri, null, null)
-        false
+        LmsDownloadResult.Failed
     }
 }
 
