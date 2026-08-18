@@ -34,7 +34,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Merge
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.outlined.WarningAmber
 import com.xjtu.toolbox.ui.components.AppTopBar
 import androidx.compose.runtime.*
@@ -47,7 +46,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.AppSuggestionChip
 import com.xjtu.toolbox.ui.components.EmptyState
@@ -111,36 +109,45 @@ fun NotificationScreen(
         if (!append && cache[cacheKey] == null) isLoading = true
         errorMessage = null
         try {
-            val (result, skipped) = withContext(Dispatchers.IO) {
+            val fetched = withContext(Dispatchers.IO) {
                 if (mergeMode) {
                     api.getMergedNotificationsWithSkipped(selectedSources.toList(), page)
                 } else {
-                    // 单源模式：单条爬取，skipped 来自 try/catch
-                    val list = runCatching { api.getNotifications(selectedSource, page) }
-                        .getOrElse { emptyList() }
-                    list to emptySet<com.xjtu.toolbox.notification.NotificationSource>()
+                    val pageResult = runCatching { api.getNotificationPage(selectedSource, page) }
+                        .getOrElse { NotificationPage(emptyList(), false) }
+                    MergedNotificationPage(pageResult.items, emptySet(), pageResult.hasMore)
                 }
             }
-            // 把「静默跳过」告诉用户：避免「通知怎么一条都没有」误以为是教务真没发
-            skippedSourceNotice = if (skipped.isNotEmpty()) {
-                skipped.joinToString("、") { it.displayName } + " 暂不可达，可能是网络问题或站点维护"
+            skippedSourceNotice = if (fetched.skipped.isNotEmpty()) {
+                fetched.skipped.joinToString("、") { it.displayName } + " 暂不可达，可能是网络问题或站点维护"
             } else null
 
-            if (append && result.isEmpty()) hasMorePages = false
-            val newList = if (append) notifications + result else result
-            notifications = newList
-            cache[cacheKey] = newList
+            val incoming = fetched.items
+            if (append) {
+                val seen = notifications.map { it.link }.toHashSet()
+                val fresh = incoming.filter { it.link !in seen }
+                if (fresh.isEmpty()) hasMorePages = false
+                else {
+                    notifications = notifications + fresh
+                    cache[cacheKey] = notifications
+                    hasMorePages = fetched.hasMore
+                }
+            } else {
+                notifications = incoming
+                cache[cacheKey] = incoming
+                hasMorePages = fetched.hasMore
+            }
             currentPage = page
-            // 写 widget 缓存。非 append 路径下，前 3 条标题足够代表最新通知。
             if (!append) {
                 com.xjtu.toolbox.widget.NoticeWidgetStore.write(
                     context,
-                    result.take(3).map { it.title }
+                    incoming.take(3).map { it.title }
                 )
                 com.xjtu.toolbox.widget.NoticeWidgetUpdater.requestUpdate(context)
             }
         } catch (e: Exception) {
             if (!append) errorMessage = "加载失败: ${e.message}"
+            else hasMorePages = false
         } finally {
             isLoading = false
             isLoadingMore = false
@@ -160,15 +167,16 @@ fun NotificationScreen(
     }
 
     // 滑动到底自动翻页
-    val shouldLoadMore by remember {
+    val shouldLoadMore by remember(hasMorePages) {
         derivedStateOf {
-            val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            if (!hasMorePages) return@derivedStateOf false
+            val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: return@derivedStateOf false
             val totalItems = listState.layoutInfo.totalItemsCount
             totalItems > 0 && lastVisibleIndex >= totalItems - 3
         }
     }
 
-    LaunchedEffect(shouldLoadMore) {
+    LaunchedEffect(shouldLoadMore, isLoadingMore, isLoading) {
         if (shouldLoadMore && hasMorePages && !isLoading && !isLoadingMore && filteredNotifications.isNotEmpty()) {
             isLoadingMore = true
             loadNotifications(page = currentPage + 1, append = true)
@@ -199,26 +207,6 @@ fun NotificationScreen(
                             contentDescription = if (mergeMode) "取消合并" else "合并模式",
                             tint = if (mergeMode) MiuixTheme.colorScheme.primary
                             else MiuixTheme.colorScheme.onSurfaceVariantSummary
-                        )
-                    }
-                    // 分享当前页通知列表
-                    IconButton(
-                        onClick = {
-                            val text = filteredNotifications.take(20).joinToString("\n") {
-                                "[${it.source.displayName}] ${it.title}（${it.date}）\n${it.link}"
-                            }
-                            com.xjtu.toolbox.util.ShareUtils.shareText(
-                                context,
-                                title = "教务通知",
-                                text = text.ifBlank { "（当前列表为空）" },
-                                fileBaseName = "notifications_${System.currentTimeMillis()}.txt",
-                            )
-                        }
-                    ) {
-                        Icon(
-                            Icons.Default.Share,
-                            contentDescription = "分享",
-                            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         )
                     }
                 }
@@ -405,7 +393,9 @@ fun NotificationScreen(
                             onRefresh = {
                                 isPullRefreshing = true
                                 scope.launch {
+                                    cache.remove(cacheKey)
                                     currentPage = 1
+                                    hasMorePages = true
                                     loadNotifications()
                                     isPullRefreshing = false
                                 }

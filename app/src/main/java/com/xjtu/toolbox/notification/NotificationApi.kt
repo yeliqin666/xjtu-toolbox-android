@@ -15,6 +15,8 @@ import org.jsoup.nodes.Document
 import okhttp3.brotli.BrotliInterceptor
 import java.net.URI
 import java.net.URL
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 import java.time.LocalDate
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
@@ -29,6 +31,18 @@ data class Notification(
     val tags: List<String> = emptyList(),
     val date: LocalDate = LocalDate.now(),
     val isRead: Boolean = false
+)
+
+/** 某一页的抓取结果。[hasMore] 表示站点分页里还有下一页，不是「这一页是不是空的」。 */
+data class NotificationPage(
+    val items: List<Notification>,
+    val hasMore: Boolean,
+)
+
+data class MergedNotificationPage(
+    val items: List<Notification>,
+    val skipped: Set<NotificationSource>,
+    val hasMore: Boolean,
 )
 
 // ==================== 来源分类 ====================
@@ -51,10 +65,15 @@ enum class NotificationSource(
     JWC("教务处", "https://dean.xjtu.edu.cn/jxxx/jxtz2.htm", SourceCategory.GENERAL),
     GS("研究生院", "https://gs.xjtu.edu.cn/tzgg.htm", SourceCategory.GENERAL),
     QXS("钱学森书院", "https://bjb.xjtu.edu.cn/xydt/tzgg.htm", SourceCategory.GENERAL),
+    CY("仲英书院", "https://cy.xjtu.edu.cn/xwdt/tzgg.htm", SourceCategory.GENERAL),
+    PEC("实践教学中心", "https://pec.xjtu.edu.cn/xxgg/tzgg.htm", SourceCategory.GENERAL),
     FTI("未来技术学院", "https://wljsxy.xjtu.edu.cn/xwgg/tzgg.htm", SourceCategory.GENERAL),
-    XSC("学生处", "https://xsc.xjtu.edu.cn/xgdt/tzgg.htm", SourceCategory.GENERAL),
+        XSC("学生处", "https://xsc.xjtu.edu.cn/xgdt/tzgg.htm", SourceCategory.GENERAL),
+    OA("OA 通知", "https://oa.xjtu.edu.cn/zxgg_index.jsp", SourceCategory.GENERAL),
 
     // ── 工学 ──
+    // 电信学部「更多」指向的 tzgg.htm 是停更栏目；首页通知条才是仍在更新的 1005 栏。
+    EIEUG("电信学部", "https://eieug.xjtu.edu.cn/", SourceCategory.ENGINEERING),
     ME("机械学院", "https://mec.xjtu.edu.cn/index/tzgg/bks.htm", SourceCategory.ENGINEERING),
     EE("电气学院", "https://ee.xjtu.edu.cn/jzxx/bks.htm", SourceCategory.ENGINEERING),
     EPE("能动学院", "https://epe.xjtu.edu.cn/index/tzgg.htm", SourceCategory.ENGINEERING),
@@ -313,7 +332,7 @@ private fun fetchDocumentWithChallenge(client: OkHttpClient, url: String): Docum
 // ==================== 爬虫接口 ====================
 
 private interface NotificationCrawler {
-    fun fetch(page: Int): List<Notification>
+    fun fetchPage(page: Int): NotificationPage
 }
 
 // ==================== 教务处爬虫 ====================
@@ -324,6 +343,10 @@ private class GenericXjtuCrawler(
     private val client: OkHttpClient,
     private val source: NotificationSource
 ) : NotificationCrawler {
+
+    @Volatile private var lastPage = 0
+    @Volatile private var nextAbsUrl: String? = null
+    @Volatile private var resolvedListUrl: String? = null
 
     companion object {
         val LIST_SELECTORS = listOf(
@@ -355,17 +378,10 @@ private class GenericXjtuCrawler(
             "#container ul > li",
             "div.content_area ul > li",
             "div.list_main > ul > li",
+            "ul.listg > li",                 // PEC 实践教学中心
+            "div.tzgg_lr ul > li",           // 电信学部首页通知条
+            "li[id^=line_u]",                // 仲英书院 VSB 静态翻页列表
 
-        )
-
-        val NEXT_SELECTORS = listOf(
-            "span.p_next a",
-            "a:containsOwn(下一页)",
-            "a:containsOwn(下页)",
-            "a.next",
-            ".pagination a.next",
-            "a:containsOwn(>)",
-            "a:containsOwn(Next)",
         )
 
         /** 主 URL 不可用时，尝试的备选路径（覆盖 XJTU 各学院 CMS 常见变体） */
@@ -392,6 +408,7 @@ private class GenericXjtuCrawler(
             "/ggl/tzgg.htm",
             "/xgdt/tzgg.htm",
             "/xydt/tzgg.htm",
+            "/xxgg/tzgg.htm",
             "/glfw/tzgg.htm",
             // 传统路径
             "/tzgg.htm",
@@ -410,33 +427,49 @@ private class GenericXjtuCrawler(
         private val YEAR_ONLY_RE = Regex("""\b(\d{4})\b""")
         private val SMALL_NUM_RE = Regex("""\b(\d{1,2})\b""")
         private val DIGITS_RE = Regex("""\d+""")
+        /** CMS 详情、相对路径 info/栏/文.htm，以及书院站点外链的微信稿。 */
+        private val ARTICLE_HREF_RE = Regex(
+            """(?:^|/)info/\d+/|content\.jsp|mp\.weixin\.qq\.com/s/""",
+            RegexOption.IGNORE_CASE,
+        )
     }
 
-    override fun fetch(page: Int): List<Notification> {
-        val allNotifications = mutableListOf<Notification>()
-        var url = source.baseUrl
+    override fun fetchPage(page: Int): NotificationPage {
+        if (page < 1) return NotificationPage(emptyList(), false)
 
-        // 检查域名是否已知失败（DNS/超时），如是则直接跳过
-        val domain = try { URI(url).host } catch (_: Exception) { null }
+        val domain = try { URI(source.baseUrl).host } catch (_: Exception) { null }
         if (domain != null && isDomainFailed(domain)) {
             Log.d(TAG, "GenericCrawler[${source.displayName}] skipping - domain $domain cached as failed")
-            return emptyList()
+            return NotificationPage(emptyList(), false)
         }
 
-        // 尝试主 URL
+        if (page == 1) {
+            lastPage = 0
+            nextAbsUrl = null
+            resolvedListUrl = null
+        }
+
+        // 连续翻页：只跟「下页」，不要从首页再走一遍。
+        if (page > 1 && page == lastPage + 1) {
+            val url = nextAbsUrl ?: return NotificationPage(emptyList(), false)
+            val doc = tryFetchDoc(url) ?: return NotificationPage(emptyList(), false)
+            return finishPage(doc, url, page)
+        }
+
+        var url = resolvedListUrl ?: source.baseUrl
         var doc = tryFetchDoc(url)
 
-        // 主 URL 无内容，尝试备选路径（仅在域名可达时）
-        if (doc == null || extractItems(doc).isEmpty()) {
-            // 如果域名本身失败（DNS/超时），不再尝试备选路径
+        if (page == 1 && (doc == null || extractItems(doc).isEmpty())) {
             if (domain != null && isDomainFailed(domain)) {
-                return emptyList()
+                return NotificationPage(emptyList(), false)
             }
-            val baseHost = try { val u = URI(url); "${u.scheme}://${u.host}" } catch (_: Exception) { null }
+            val baseHost = try {
+                val u = URI(source.baseUrl); "${u.scheme}://${u.host}"
+            } catch (_: Exception) { null }
             if (baseHost != null) {
                 for (path in FALLBACK_PATHS) {
                     val fallbackUrl = "$baseHost$path"
-                    if (fallbackUrl == url) continue
+                    if (fallbackUrl == source.baseUrl) continue
                     val fallbackDoc = tryFetchDoc(fallbackUrl)
                     if (fallbackDoc != null && extractItems(fallbackDoc).isNotEmpty()) {
                         doc = fallbackDoc
@@ -444,49 +477,56 @@ private class GenericXjtuCrawler(
                         Log.d(TAG, "GenericCrawler[${source.displayName}] fallback hit: $url")
                         break
                     }
-                    // 域名失败后立即停止所有备选路径
                     if (domain != null && isDomainFailed(domain)) break
                 }
             }
         }
 
-        if (doc == null) return emptyList()
+        if (doc == null) return NotificationPage(emptyList(), false)
+        resolvedListUrl = url
 
-        for (i in 0 until page) {
-            if (i > 0) {
-                doc = tryFetchDoc(url)
-                if (doc == null) break
-            }
-
-            val items = extractItems(doc!!)
-            if (items.isEmpty()) {
-                Log.w(TAG, "GenericCrawler[${source.displayName}] no items at $url (page $i)")
-                // 第一页就没有内容，尝试暴力搜索
-                if (i == 0) {
-                    val bruteItems = bruteForceExtract(doc!!, url)
-                    Log.d(TAG, "GenericCrawler[${source.displayName}] brute force yielded ${bruteItems.size} items")
-                    allNotifications.addAll(bruteItems)
-                }
-                break
-            }
-
-            Log.d(TAG, "GenericCrawler[${source.displayName}] page $i: ${items.size} items from $url")
-            for (el in items) {
-                val notification = parseListItem(el, url) ?: continue
-                allNotifications.add(notification)
-            }
-
-            // 翻页
-            var nextHref: String? = null
-            for (selector in NEXT_SELECTORS) {
-                nextHref = doc!!.selectFirst(selector)?.attr("href")
-                if (!nextHref.isNullOrBlank()) break
-            }
-            if (nextHref.isNullOrBlank()) break
-            url = resolveUrl(url, nextHref)
+        // 非连续跳页（少见）：从列表首页顺着「下页」走到目标页。
+        repeat(page - 1) {
+            val next = findNextAbsUrl(doc!!, url) ?: return NotificationPage(emptyList(), false)
+            url = next
+            doc = tryFetchDoc(url) ?: return NotificationPage(emptyList(), false)
         }
+        return finishPage(doc!!, url, page)
+    }
 
-        return allNotifications.distinctBy { Triple(it.title, it.link, it.source) }
+    private fun finishPage(doc: Document, url: String, page: Int): NotificationPage {
+        val items = extractItems(doc)
+        val notifications = if (items.isEmpty()) {
+            Log.w(TAG, "GenericCrawler[${source.displayName}] no items at $url (page $page)")
+            if (page == 1) bruteForceExtract(doc, url) else emptyList()
+        } else {
+            Log.d(TAG, "GenericCrawler[${source.displayName}] page $page: ${items.size} items from $url")
+            items.mapNotNull { parseListItem(it, url) }
+        }.distinctBy { Triple(it.title, it.link, it.source) }
+
+        lastPage = page
+        nextAbsUrl = findNextAbsUrl(doc, url)
+        resolvedListUrl = resolvedListUrl ?: url
+        return NotificationPage(notifications, hasMore = nextAbsUrl != null)
+    }
+
+    /**
+     * 西交 CMS 两种分页：
+     * - 新模板 `span.p_next a`，href 常是倒序编号（第 2 页 = tzgg/28.htm，不是 tzgg/2.htm）
+     * - 旧模板 `a.Next` 文本「下页」
+     * 不要用 `a:containsOwn(>)`，会误伤面包屑。
+     */
+    private fun findNextAbsUrl(doc: Document, currentUrl: String): String? {
+        val raw = doc.selectFirst("span.p_next a[href]")?.attr("href")
+            ?: doc.select("a").firstOrNull { el ->
+                val text = el.ownText().trim()
+                text == "下页" || text == "下一页"
+            }?.attr("href")
+        if (raw.isNullOrBlank() || raw == "#" || raw.startsWith("javascript", ignoreCase = true)) {
+            return null
+        }
+        val abs = resolveUrl(currentUrl, raw)
+        return abs.takeUnless { it == currentUrl }
     }
 
     private fun tryFetchDoc(url: String): Document? {
@@ -500,19 +540,15 @@ private class GenericXjtuCrawler(
         }
     }
 
-    /** 判断一个 li 元素是否包含 XJTU CMS 通知链接（/info/XXXX/YYYYY.htm 模式） */
+    /** 判断一个 li 是否指向通知正文（CMS /info/、相对 info/、或书院微信稿）。 */
     private fun hasInfoLink(el: org.jsoup.nodes.Element): Boolean {
-        val a = el.selectFirst("a[href]") ?: return false
-        val href = a.attr("href")
-        // XJTU CMS 通知详情链接固定为: /info/栏目ID/文章ID.htm
-        // 导航链接永远不使用 /info/ 路径
-        return href.contains("/info/") || href.contains("content.jsp")
+        val href = el.selectFirst("a[href]")?.attr("href") ?: return false
+        return ARTICLE_HREF_RE.containsMatchIn(href)
     }
 
     private fun extractItems(doc: Document): List<org.jsoup.nodes.Element> {
-        // ── 策略一：找含 /info/ 链接最多的 <ul>/<ol> ──
-        // XJTU CMS 通知详情链接固定为 /info/栏目ID/文章ID.htm
-        // 导航链接永远不匹配此模式，所以这是 100% 可靠的结构性区分
+        // ── 策略一：找正文链接最多的列表 ──
+        // CMS 用 /info/栏/文.htm（也有相对路径 info/…）；仲英列表外链微信稿。
         data class CandidateList(
             val items: List<org.jsoup.nodes.Element>,   // 仅含 /info/ 链接的条目
             val infoCount: Int
@@ -594,7 +630,7 @@ private class GenericXjtuCrawler(
                 return try { LocalDate.of(y, m, d) } catch (_: Exception) { null }
         }
 
-        // MM/DD + YYYY（CLET 模式）
+        // MM/DD + YYYY（CLET 模式）；只有 MM-DD 时按「不会是未来日期」回推年份
         val mdMatch = MONTH_DAY_RE.find(text)
         if (mdMatch != null && ymMatch == null) {
             val a = mdMatch.groupValues[1].toIntOrNull() ?: return null
@@ -604,6 +640,7 @@ private class GenericXjtuCrawler(
             val y = yStr?.toIntOrNull()
             if (y != null && y in 2000..2099 && a in 1..12 && b in 1..31)
                 return try { LocalDate.of(y, a, b) } catch (_: Exception) { null }
+            if (y == null && a in 1..12 && b in 1..31) return inferMonthDay(a, b)
         }
 
         // YYYY + MM-DD（SAE 模式）
@@ -620,6 +657,17 @@ private class GenericXjtuCrawler(
         }
 
         return null
+    }
+
+    /** 页面只给 MM-DD 时，把「比今天晚一周以上」的日期算到去年。 */
+    private fun inferMonthDay(month: Int, day: Int): LocalDate? {
+        return try {
+            val today = LocalDate.now()
+            val candidate = LocalDate.of(today.year, month, day)
+            if (candidate.isAfter(today.plusDays(7))) candidate.minusYears(1) else candidate
+        } catch (_: Exception) {
+            null
+        }
     }
 
     /**
@@ -686,6 +734,67 @@ private class GenericXjtuCrawler(
     }
 }
 
+/**
+ * 办公自动化公开通知。列表是表格行，正文靠 `gotodetail(id)` 打开，
+ * 不是学院 CMS 的 `/info/` 路径。
+ */
+private class OaNoticeCrawler(
+    private val client: OkHttpClient,
+    private val source: NotificationSource,
+) : NotificationCrawler {
+
+    override fun fetchPage(page: Int): NotificationPage {
+        val pageNo = page.coerceAtLeast(1)
+        val url = if (pageNo == 1) INDEX_URL else "$INDEX_URL?strPageNo=$pageNo"
+        val domain = URI(INDEX_URL).host
+        if (isDomainFailed(domain)) {
+            Log.d(TAG, "OaCrawler skipping - domain $domain cached as failed")
+            return NotificationPage(emptyList(), false)
+        }
+        val doc = try {
+            fetchDocumentWithChallenge(client, url)
+        } catch (e: Exception) {
+            Log.w(TAG, "OaCrawler fetch error at $url: ${e.message}")
+            return NotificationPage(emptyList(), false)
+        }
+        val items = doc.select("a.noa_list").mapNotNull { parseRow(it) }.distinctBy { it.link }
+        val hasMore = PAGE_META_RE.find(doc.body()?.text().orEmpty())?.let { match ->
+            val current = match.groupValues[1].toIntOrNull() ?: pageNo
+            val total = match.groupValues[2].toIntOrNull() ?: current
+            current < total
+        } ?: (items.size >= PAGE_SIZE)
+        Log.d(TAG, "OaCrawler page $pageNo: ${items.size} items hasMore=$hasMore")
+        return NotificationPage(items, hasMore)
+    }
+
+    private fun parseRow(a: org.jsoup.nodes.Element): Notification? {
+        val title = a.attr("title").ifBlank { a.text() }.trim()
+        if (title.length < 4) return null
+        val id = DETAIL_ID_RE.find(a.attr("onclick"))?.groupValues?.get(1) ?: return null
+        val link = "$DETAIL_URL?processInsId=${URLEncoder.encode(id, StandardCharsets.UTF_8)}"
+        val meta = a.closest("tr")
+            ?.selectFirst("td.timedate1")
+            ?.text()
+            .orEmpty()
+            .replace('\u00a0', ' ')
+            .trim()
+        val match = META_RE.find(meta)
+        val dept = match?.groupValues?.get(1)?.trim().orEmpty()
+        val date = match?.groupValues?.get(2)?.let { parseDateSafe(it) } ?: LocalDate.now()
+        val tags = if (dept.isNotEmpty()) listOf(dept) else emptyList()
+        return Notification(title = title, link = link, source = source, date = date, tags = tags)
+    }
+
+    companion object {
+        private const val INDEX_URL = "https://oa.xjtu.edu.cn/zxgg_index.jsp"
+        private const val DETAIL_URL = "https://oa.xjtu.edu.cn/zxgg_infonew.jsp"
+        private const val PAGE_SIZE = 25
+        private val DETAIL_ID_RE = Regex("""gotodetail\('([^']+)'\)""")
+        private val META_RE = Regex("""^(.*?)[（(](\d{4}-\d{1,2}-\d{1,2})[）)]""")
+        private val PAGE_META_RE = Regex("""页次:\s*(\d+)\s*/\s*(\d+)\s*页""")
+    }
+}
+
 // ==================== 工具函数 ====================
 
 private fun resolveUrl(baseUrl: String, relative: String): String {
@@ -726,14 +835,22 @@ class NotificationApi(
 ) {
     private val crawlers: Map<NotificationSource, NotificationCrawler> = buildMap {
         NotificationSource.entries.forEach { source ->
-            put(source, GenericXjtuCrawler(client, source))
+            put(
+                source,
+                if (source == NotificationSource.OA) OaNoticeCrawler(client, source)
+                else GenericXjtuCrawler(client, source),
+            )
         }
     }
 
-    fun getNotifications(source: NotificationSource, page: Int = 1): List<Notification> {
+    fun getNotificationPage(source: NotificationSource, page: Int = 1): NotificationPage {
         val crawler = crawlers[source]
             ?: throw IllegalArgumentException("不支持的通知来源: $source")
-        return crawler.fetch(page)
+        return crawler.fetchPage(page)
+    }
+
+    fun getNotifications(source: NotificationSource, page: Int = 1): List<Notification> {
+        return getNotificationPage(source, page).items
     }
 
     /**
@@ -744,35 +861,37 @@ class NotificationApi(
     suspend fun getMergedNotificationsWithSkipped(
         sources: List<NotificationSource>,
         page: Int = 1,
-    ): Pair<List<Notification>, Set<NotificationSource>> = coroutineScope {
+    ): MergedNotificationPage = coroutineScope {
         sources.map { source ->
-            async(Dispatchers.IO) { source to runCatching { getNotifications(source, page) } }
+            async(Dispatchers.IO) { source to runCatching { getNotificationPage(source, page) } }
         }.awaitAll().let { results ->
             val skipped = mutableSetOf<NotificationSource>()
             val merged = mutableListOf<Notification>()
+            var hasMore = false
             for ((source, result) in results) {
                 result.fold(
-                    onSuccess = { list ->
-                        // 域名级失败：结果非空但内容很短（如 HTML 空响应）且源属于失败列表 → 视为静默
+                    onSuccess = { pageResult ->
                         val srcDomain = try { java.net.URI(source.baseUrl).host } catch (_: Exception) { null }
-                        if (list.isEmpty() && srcDomain != null && isDomainFailed(srcDomain)) skipped.add(source)
-                        else merged.addAll(list)
+                        if (pageResult.items.isEmpty() && srcDomain != null && isDomainFailed(srcDomain)) {
+                            skipped.add(source)
+                        } else {
+                            merged.addAll(pageResult.items)
+                            if (pageResult.hasMore) hasMore = true
+                        }
                     },
                     onFailure = { skipped.add(source) },
                 )
             }
-            merged.sortedByDescending { it.date } to skipped
+            MergedNotificationPage(
+                items = merged.sortedByDescending { it.date },
+                skipped = skipped,
+                hasMore = hasMore,
+            )
         }
     }
 
     suspend fun getMergedNotifications(sources: List<NotificationSource>, page: Int = 1): List<Notification> {
-        return coroutineScope {
-            sources.map { source ->
-                async(Dispatchers.IO) {
-                    runCatching { getNotifications(source, page) }.getOrDefault(emptyList())
-                }
-            }.awaitAll().flatten()
-        }.sortedByDescending { it.date }
+        return getMergedNotificationsWithSkipped(sources, page).items
     }
 
     suspend fun getAllNotifications(page: Int = 1): List<Notification> {
