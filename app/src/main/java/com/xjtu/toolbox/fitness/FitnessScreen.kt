@@ -82,18 +82,35 @@ fun FitnessScreen(
         error = null
         try {
             years = withContext(Dispatchers.IO) { api.getYears() }
-            // 服务端的 checked 经常整列都是 false，那时不能退回 years.first()——
-            // 列表顺序不保证，用户点进来会看到一个莫名其妙的旧学年（甚至没有任何选中）。
-            // 用日期推出本学年（9 月起算，2025-2026 学年 = 2025）作为第二优先，
-            // 实在匹配不上才退回第一项。
-            val currentYear = com.xjtu.toolbox.util.XjtuTime.currentAcademicYear().toString()
-            selectedYear = years.firstOrNull { it.checked }
-                ?: years.firstOrNull { it.yearNum == currentYear }
-                ?: years.firstOrNull()
-            score = selectedYear?.let { year ->
-                runCatching { withContext(Dispatchers.IO) { api.getScore(year.yearNum) } }
-                    .onFailure { error = it.message ?: "该学年暂无体测数据" }
-                    .getOrNull()
+            // 不要信服务端 checked，也不要 years.first()：列表常把还没开测的下一学年排在最前。
+            val candidates = orderedFitnessYears(years)
+            var picked: Pair<FitnessYear, FitnessScore>? = null
+            var fallback: Pair<FitnessYear, FitnessScore>? = null
+            var lastError: String? = null
+            for (year in candidates.take(3)) {
+                val result = runCatching {
+                    withContext(Dispatchers.IO) { api.getScore(year.yearNum) }
+                }
+                val s = result.getOrNull()
+                if (s == null) {
+                    lastError = result.exceptionOrNull()?.message ?: "该学年暂无体测数据"
+                    continue
+                }
+                if (s.hasUsableTotal()) {
+                    picked = year to s
+                    break
+                }
+                if (fallback == null) fallback = year to s
+            }
+            val chosen = picked ?: fallback
+            if (chosen != null) {
+                selectedYear = chosen.first
+                score = chosen.second
+                error = null
+            } else {
+                selectedYear = candidates.firstOrNull()
+                score = null
+                error = lastError ?: "该学年暂无体测数据"
             }
         } catch (e: Exception) {
             if (e is AuthExpiredException) {
@@ -177,7 +194,7 @@ fun FitnessScreen(
             else -> LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(padding)
                     .nestedScroll(scrollBehavior.nestedScrollConnection),
-                contentPadding = PaddingValues(bottom = 28.dp),
+                contentPadding = PaddingValues(top = 16.dp, bottom = 28.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 item {

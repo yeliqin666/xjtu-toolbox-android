@@ -290,9 +290,9 @@ class AgentToolRegistry(
                 "整月填 days=30；整学期：先用 get_current_time 拿\"开学至今 N 天\"再把 N 填进来，别硬编死天数（学期可能刚开始）。",
             params("days" to intProp("最近几天，默认7，最多180。"))))
         arr.add(tool("get_notifications",
-            "查询校内最新通知公告，含标题、来源、日期、链接。无需登录。可指定来源（某学院/部门）；不指定则看核心来源（教务处+研究生院+学生处）。",
+            "查询校内最新通知公告，含标题、来源、日期、链接。无需登录。可指定来源（某学院/部门）；不指定则看核心来源（教务处+研究生院+学生处+实践教学中心+OA 通知）。",
             params(
-                "source" to strProp("来源名称，如 教务处/研究生院/机械学院/电气学院/数学学院 等；不填看核心来源。"),
+                "source" to strProp("来源名称，如 教务处/OA 通知/实践教学中心/仲英书院/电信学部 等；不填看核心来源。"),
                 "limit" to intProp("返回条数，默认10，最多20。")
             )))
         arr.add(tool("search_yellow_page",
@@ -1095,7 +1095,9 @@ class AgentToolRegistry(
                 listOf(
                     com.xjtu.toolbox.notification.NotificationSource.JWC,
                     com.xjtu.toolbox.notification.NotificationSource.GS,
-                    com.xjtu.toolbox.notification.NotificationSource.XSC
+                    com.xjtu.toolbox.notification.NotificationSource.XSC,
+                    com.xjtu.toolbox.notification.NotificationSource.PEC,
+                    com.xjtu.toolbox.notification.NotificationSource.OA,
                 )
             } else {
                 all.filter { it.displayName.contains(source) || source.contains(it.displayName) }

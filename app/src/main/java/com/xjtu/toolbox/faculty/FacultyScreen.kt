@@ -63,6 +63,7 @@ import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 /**
@@ -312,7 +313,8 @@ fun FacultyScreen(
                 else -> LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize().overScrollVertical(),
-                    contentPadding = PaddingValues(bottom = 24.dp),
+                    contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     item {
                         // 服务端 totalnum 对姓名检索是模糊计数，标注清楚免得用户以为漏了人
@@ -321,7 +323,7 @@ fun FacultyScreen(
                             else "约 $total 位相关教师，精确匹配排在前面",
                             style = MiuixTheme.textStyles.footnote1,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
                         )
                     }
                     items(members, key = { it.teacherId }) { member ->
@@ -388,72 +390,64 @@ private enum class PickerTarget { COLLEGE, DISCIPLINE, PRO_RANK }
 @Composable
 private fun FacultyCard(member: FacultyMember, onClick: () -> Unit) {
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 5.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .clickable { onClick() },
-        cornerRadius = 18.dp,
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surface),
+        modifier = Modifier.fillMaxWidth(),
+        onClick = onClick,
+        pressFeedbackType = PressFeedbackType.Sink,
+        cornerRadius = 16.dp,
+        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
     ) {
         Row(
-            Modifier.fillMaxWidth().padding(14.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 11.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            FacultyAvatar(member, size = 54)
+            FacultyAvatar(member, size = 52)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    // weight(fill = false) + 单行省略：三个 Text 都不带 weight 时，
-                    // 姓名会先吃满宽度，把后面的职称、导师标签压到 0 宽或半个字。
-                    // 让姓名成为唯一可压缩的一项，标签才能保住完整形状。
-                    Text(
-                        member.name,
-                        style = MiuixTheme.textStyles.subtitle,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                    if (member.proRank.isNotBlank()) {
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            member.proRank,
-                            style = MiuixTheme.textStyles.footnote2,
-                            color = MiuixTheme.colorScheme.primary,
-                        )
-                    }
-                    if (member.tutorLabel.isNotBlank()) {
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            member.tutorLabel,
-                            style = MiuixTheme.textStyles.footnote2,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        )
-                    }
-                }
+                Text(
+                    member.name,
+                    style = MiuixTheme.textStyles.subtitle,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 if (member.collegeName.isNotBlank()) {
                     Spacer(Modifier.height(2.dp))
                     Text(
                         member.collegeName,
                         style = MiuixTheme.textStyles.footnote1,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
-                val directions = member.researchDirections.take(3)
-                if (directions.isNotEmpty()) {
+                val meta = buildList {
+                    if (member.proRank.isNotBlank()) add(member.proRank)
+                    if (member.isDoctoralTutor) add("博导")
+                    if (member.isMasterTutor) add("硕导")
+                }
+                if (meta.isNotEmpty()) {
                     Spacer(Modifier.height(6.dp))
-                    // 纵向间距不能省：研究方向多的老师（如吴思凡）标签会换行，
-                    // 只设横向间距时两行会直接贴在一起
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        directions.forEach { TagPill(it) }
+                        meta.forEachIndexed { i, text ->
+                            MetaChip(text, emphasized = i == 0 && member.proRank.isNotBlank())
+                        }
+                    }
+                }
+                val directions = member.researchDirections.take(3)
+                if (directions.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        directions.forEach { TagPill(it, onTonal = true) }
                     }
                 } else if (member.discipline.isNotBlank()) {
                     Spacer(Modifier.height(6.dp))
-                    TagPill(member.discipline)
+                    TagPill(member.discipline, onTonal = true)
                 }
             }
         }
@@ -489,46 +483,59 @@ private fun FacultyDetailSheet(
     ) {
         Column(
             Modifier
+                .fillMaxWidth()
                 .overScrollVertical()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 24.dp),
+                .padding(bottom = 12.dp),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                FacultyAvatar(shown, size = 72)
-                Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        listOfNotNull(
-                            shown.proRank.takeIf { it.isNotBlank() },
-                            shown.tutorLabel.takeIf { it.isNotBlank() },
-                        ).joinToString(" · ").ifBlank { "教师" },
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MiuixTheme.textStyles.body2,
-                        color = MiuixTheme.colorScheme.primary,
-                    )
-                    if (shown.collegeName.isNotBlank()) {
-                        Text(
-                            shown.collegeName,
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        )
-                    }
-                    if (shown.englishName.isNotBlank()) {
-                        Text(
-                            shown.englishName,
-                            style = MiuixTheme.textStyles.footnote2,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                cornerRadius = 16.dp,
+                colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    FacultyAvatar(shown, size = 64)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        val meta = buildList {
+                            if (shown.proRank.isNotBlank()) add(shown.proRank)
+                            if (shown.isDoctoralTutor) add("博导")
+                            if (shown.isMasterTutor) add("硕导")
+                        }.ifEmpty { listOf("教师") }
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            meta.forEachIndexed { i, text ->
+                                MetaChip(text, emphasized = i == 0)
+                            }
+                        }
+                        if (shown.collegeName.isNotBlank()) {
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                shown.collegeName,
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            )
+                        }
+                        if (shown.englishName.isNotBlank()) {
+                            Text(
+                                shown.englishName,
+                                style = MiuixTheme.textStyles.footnote2,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 }
             }
 
             if (shown.researchDirections.isNotEmpty()) {
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(12.dp))
                 SectionTitle("研究方向")
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -555,13 +562,13 @@ private fun FacultyDetailSheet(
             }.filter { it.second.isNotBlank() }
 
             if (basics.isNotEmpty()) {
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(12.dp))
                 SectionTitle("基本信息")
                 InfoCard { basics.forEach { (label, value) -> InfoRow(label, value) } }
             }
 
             if (shown.profile.isNotBlank()) {
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(12.dp))
                 SectionTitle("个人简介")
                 InfoCard {
                     Text(
@@ -572,7 +579,7 @@ private fun FacultyDetailSheet(
                 }
             }
 
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(12.dp))
             when (val result = homepage) {
                 null -> LoadingState("正在读取个人主页…")
 
@@ -584,7 +591,7 @@ private fun FacultyDetailSheet(
                     if (extra.isNotEmpty()) {
                         SectionTitle("主页补充")
                         InfoCard { extra.forEach { (label, value) -> InfoRow(label, value) } }
-                        Spacer(Modifier.height(16.dp))
+                        Spacer(Modifier.height(12.dp))
                     }
                     // 按一级栏目分组渲染。拍平会把「基本信息（一级）」和它同名的
                     // 子页并列成两条，看着像重复；分组后层级关系一目了然。
@@ -610,7 +617,7 @@ private fun FacultyDetailSheet(
             }
 
             if (shown.homepageUrl.isNotBlank()) {
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(12.dp))
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -672,7 +679,7 @@ private fun OptionPickerSheet(
         title = title,
         onDismissRequest = onDismiss,
     ) {
-        Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 16.dp)) {
+        Column(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
             if (hint.isNotBlank()) {
                 Text(
                     hint,
@@ -747,16 +754,34 @@ private fun FilterPill(text: String, active: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun TagPill(text: String) {
+private fun TagPill(text: String, onTonal: Boolean = false) {
     Surface(
         shape = RoundedCornerShape(50.dp),
-        color = MiuixTheme.colorScheme.surfaceVariant,
+        color = if (onTonal) MiuixTheme.colorScheme.surface
+        else MiuixTheme.colorScheme.surfaceVariant,
     ) {
         Text(
             text,
-            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
             style = MiuixTheme.textStyles.footnote2,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        )
+    }
+}
+
+@Composable
+private fun MetaChip(text: String, emphasized: Boolean = false) {
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = if (emphasized) MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)
+        else MiuixTheme.colorScheme.surface,
+    ) {
+        Text(
+            text,
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+            style = MiuixTheme.textStyles.footnote2,
+            color = if (emphasized) MiuixTheme.colorScheme.primary
+            else MiuixTheme.colorScheme.onSurfaceVariantSummary,
         )
     }
 }
@@ -774,7 +799,7 @@ private fun InfoCard(content: @Composable ColumnScope.() -> Unit) {
         cornerRadius = 16.dp,
         colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
     ) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), content = content)
+        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), content = content)
     }
 }
 

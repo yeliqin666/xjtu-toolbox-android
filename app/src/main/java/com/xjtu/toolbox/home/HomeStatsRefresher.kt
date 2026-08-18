@@ -8,6 +8,8 @@ import com.xjtu.toolbox.auth.SessionManager
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.auth.siteKey
+import com.xjtu.toolbox.fitness.hasUsableTotal
+import com.xjtu.toolbox.fitness.orderedFitnessYears
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
@@ -90,30 +92,13 @@ object HomeStatsRefresher {
             withContext(Dispatchers.IO) {
                 val api = com.xjtu.toolbox.fitness.FitnessApi(site)
                 val years = runCatching { api.getYears() }.getOrNull().orEmpty()
-
-                // 「最新学年」不能取列表第一条——体测系统会把尚未开测的下一学年也列出来
-                // （真机实测：当前是 2025-2026-3 学期，却抓成了 2026 学年）。
-                // 学年要由**当前学期**推：学期码 2025-2026-3 → 学年 2025。
-                // 然后按用户给的规则从这一档开始往前退，取到第一个有总分的为止。
-                val currentYear = currentTermCode(ctx)?.substringBefore("-")?.toIntOrNull()
-                fun yearOf(y: com.xjtu.toolbox.fitness.FitnessYear): Int? =
-                    Regex("""\d{4}""").find(y.yearNum)?.value?.toIntOrNull()
-                        ?: Regex("""\d{4}""").find(y.name)?.value?.toIntOrNull()
-
-                val ordered = years
-                    .sortedByDescending { yearOf(it) ?: Int.MIN_VALUE }
-                    .let { list ->
-                        // 丢掉比当前学年更新的（还没考的），拿不到当前学年就退回原顺序
-                        if (currentYear == null) list
-                        else list.filter { (yearOf(it) ?: Int.MAX_VALUE) <= currentYear }
-                            .ifEmpty { list }
-                    }
+                val ordered = com.xjtu.toolbox.fitness.orderedFitnessYears(years)
 
                 var picked: Pair<String, com.xjtu.toolbox.fitness.FitnessScore>? = null
                 for ((i, y) in ordered.take(3).withIndex()) {
                     if (i > 0) delay(GAP_MS)
                     val s = runCatching { api.getScore(y.yearNum) }.getOrNull() ?: continue
-                    if (s.totalScore.isNotBlank()) { picked = y.name to s; break }
+                    if (s.hasUsableTotal()) { picked = y.name to s; break }
                 }
                 picked?.let { (name, s) ->
                     HomeStat(
@@ -279,13 +264,6 @@ object HomeStatsRefresher {
     }
 
     private const val LMS_MAX_COURSES = 6
-
-    /** 当前学期码（如 `2025-2026-3`），取自课表缓存；没有就返回 null。 */
-    private fun currentTermCode(context: Context): String? = runCatching {
-        com.xjtu.toolbox.util.DataCache(context)
-            .get("schedule_term_list", Long.MAX_VALUE)
-            ?.let { com.google.gson.Gson().fromJson(it, Array<String>::class.java)?.firstOrNull() }
-    }.getOrNull()
 
     private fun shortName(full: String) = when {
         full.contains("教务") -> "教务处"

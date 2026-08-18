@@ -32,6 +32,28 @@ data class FitnessItem(
     val tone: String,
 )
 
+fun FitnessScore.hasUsableTotal(): Boolean {
+    val s = totalScore.trim()
+    return s.isNotEmpty() && s != "--" && s != "未测"
+}
+
+fun FitnessYear.yearValue(): Int? =
+    Regex("""\d{4}""").find(yearNum)?.value?.toIntOrNull()
+        ?: Regex("""\d{4}""").find(name)?.value?.toIntOrNull()
+
+/**
+ * 体测系统会把尚未开测的下一学年也列在最前，[checked] 也经常指到那一档。
+ * 按当前学年（9 月起算）往前排，丢掉还没考的年份。
+ */
+fun orderedFitnessYears(
+    years: List<FitnessYear>,
+    academicYear: Int = com.xjtu.toolbox.util.XjtuTime.currentAcademicYear(),
+): List<FitnessYear> {
+    val ranked = years.sortedByDescending { it.yearValue() ?: Int.MIN_VALUE }
+    val eligible = ranked.filter { (it.yearValue() ?: Int.MAX_VALUE) <= academicYear }
+    return eligible.ifEmpty { ranked }
+}
+
 class FitnessApi(private val site: SiteSession) {
     private val apiRoot = "https://tyxylp.xjtu.edu.cn/bdlp_h5_fitness_test/public/index.php/index"
     private val origin = "https://tyxylp.xjtu.edu.cn"
