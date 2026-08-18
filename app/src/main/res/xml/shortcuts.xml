@@ -2,6 +2,9 @@
 <!--
   静态 Shortcuts：长按 launcher 图标弹出 5 个直达入口。
 
+  图标必须用带色底的 layer-list（*_icon），不能只用白矢量。
+  启动器不会像应用内那样自动垫圆底，白字形叠透明会和浅色弹层糊在一起。
+
   实现机制：每个 <shortcut> 编译期绑定一个 intent（显式 component = MainActivity），
   extras 走 EXTRA_LAUNCH_ROUTE 协议，MainActivity.onCreate / onNewIntent 已支持，
   这里只声明，不动 MainActivity。
@@ -11,7 +14,7 @@
     <shortcut
         android:shortcutId="agent"
         android:enabled="true"
-        android:icon="@drawable/shortcut_agent"
+        android:icon="@drawable/shortcut_agent_icon"
         android:shortcutShortLabel="@string/shortcut_agent_short"
         android:shortcutLongLabel="@string/shortcut_agent_long">
         <intent
@@ -28,7 +31,7 @@
     <shortcut
         android:shortcutId="schedule"
         android:enabled="true"
-        android:icon="@drawable/shortcut_schedule"
+        android:icon="@drawable/shortcut_schedule_icon"
         android:shortcutShortLabel="@string/shortcut_schedule_short"
         android:shortcutLongLabel="@string/shortcut_schedule_long">
         <intent
@@ -44,7 +47,7 @@
     <shortcut
         android:shortcutId="campus_card"
         android:enabled="true"
-        android:icon="@drawable/shortcut_campus_card"
+        android:icon="@drawable/shortcut_campus_card_icon"
         android:shortcutShortLabel="@string/shortcut_card_short"
         android:shortcutLongLabel="@string/shortcut_card_long">
         <intent
@@ -60,7 +63,7 @@
     <shortcut
         android:shortcutId="empty_room"
         android:enabled="true"
-        android:icon="@drawable/shortcut_empty_room"
+        android:icon="@drawable/shortcut_empty_room_icon"
         android:shortcutShortLabel="@string/shortcut_empty_room_short"
         android:shortcutLongLabel="@string/shortcut_empty_room_long">
         <intent
@@ -76,7 +79,7 @@
     <shortcut
         android:shortcutId="payment_code"
         android:enabled="true"
-        android:icon="@drawable/shortcut_payment"
+        android:icon="@drawable/shortcut_payment_icon"
         android:shortcutShortLabel="@string/shortcut_payment_short"
         android:shortcutLongLabel="@string/shortcut_payment_long">
         <intent

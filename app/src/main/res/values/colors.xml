@@ -20,4 +20,11 @@
     <color name="widget_course_tone_4">#FFF5E9FF</color>
     <color name="widget_course_tone_5">#FFE8F7F9</color>
     <color name="widget_course_tone_6">#FFFFEAEA</color>
+
+    <!-- 启动器 shortcut 底色：白字形必须自己带不透明背景，系统不会垫色圈。 -->
+    <color name="shortcut_agent_bg">#FF00695C</color>
+    <color name="shortcut_schedule_bg">#FF315FD4</color>
+    <color name="shortcut_campus_card_bg">#FF2E7D32</color>
+    <color name="shortcut_empty_room_bg">#FF283593</color>
+    <color name="shortcut_payment_bg">#FF00796B</color>
 </resources>
