@@ -48,6 +48,7 @@ import com.xjtu.toolbox.auth.AccountType
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
@@ -125,7 +126,7 @@ fun AccountManagerScreen(
             TopAppBar(
                 title = "账号管理",
                 largeTitle = "账号管理",
-                color = MiuixTheme.colorScheme.background,
+                color = MiuixTheme.colorScheme.surface,
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -766,17 +767,20 @@ private fun AddAccountDialog(
             error?.let {
                 Text(it, color = MiuixTheme.colorScheme.error, style = MiuixTheme.textStyles.footnote1)
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxWidth()) {
                 TextButton(text = "取消", onClick = onDismiss, modifier = Modifier.weight(1f))
-                Button(
+                Spacer(Modifier.width(20.dp))
+                TextButton(
+                    text = "登录并添加",
                     onClick = {
                         if (username.isBlank() || password.isBlank()) {
-                            error = "请输入学号和密码"; return@Button
+                            error = "请输入学号和密码"; return@TextButton
                         }
                         onSubmit(username.trim(), password, accountType)
                     },
-                    modifier = Modifier.weight(1f)
-                ) { Text("登录并添加") }
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColorsPrimary()
+                )
             }
         }
     }
@@ -795,9 +799,15 @@ private fun SwitchConfirmDialog(
         summary = "将切换到 ${target.nickname ?: target.accountId}，当前账号的内存会话将被清空（缓存保留）。",
         onDismissRequest = onDismiss
     ) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.fillMaxWidth()) {
             TextButton(text = "取消", onClick = onDismiss, modifier = Modifier.weight(1f))
-            Button(onClick = onConfirm, modifier = Modifier.weight(1f)) { Text("切换") }
+            Spacer(Modifier.width(20.dp))
+            TextButton(
+                text = "切换",
+                onClick = onConfirm,
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.textButtonColorsPrimary()
+            )
         }
     }
 }
@@ -832,15 +842,18 @@ private fun EditPasswordDialog(
                 }
             )
             error?.let { Text(it, color = MiuixTheme.colorScheme.error, style = MiuixTheme.textStyles.footnote1) }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxWidth()) {
                 TextButton(text = "取消", onClick = onDismiss, modifier = Modifier.weight(1f))
-                Button(
+                Spacer(Modifier.width(20.dp))
+                TextButton(
+                    text = "保存",
                     onClick = {
-                        if (pwd.isBlank()) { error = "密码不能为空"; return@Button }
+                        if (pwd.isBlank()) { error = "密码不能为空"; return@TextButton }
                         onSubmit(pwd)
                     },
-                    modifier = Modifier.weight(1f)
-                ) { Text("保存") }
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColorsPrimary()
+                )
             }
         }
     }
@@ -884,15 +897,17 @@ private fun DeleteConfirmDialog(
                 Spacer(Modifier.width(10.dp))
                 Text("同时删除本地缓存", style = MiuixTheme.textStyles.body2)
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxWidth()) {
                 TextButton(text = "取消", onClick = onDismiss, modifier = Modifier.weight(1f))
-                Button(
+                Spacer(Modifier.width(20.dp))
+                TextButton(
+                    text = "删除",
                     onClick = onConfirm,
                     modifier = Modifier.weight(1f),
-                    colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColors(
-                        color = MiuixTheme.colorScheme.error
+                    colors = ButtonDefaults.textButtonColors(
+                        textColor = MiuixTheme.colorScheme.error
                     )
-                ) { Text("删除") }
+                )
             }
         }
     }

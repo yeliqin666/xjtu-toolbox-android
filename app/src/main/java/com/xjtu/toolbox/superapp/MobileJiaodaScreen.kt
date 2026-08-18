@@ -174,7 +174,7 @@ fun MobileJiaodaScreen(
             Column {
                 SmallTopAppBar(
                     title = "移动交大",
-                    color = MiuixTheme.colorScheme.surfaceVariant,
+                    color = MiuixTheme.colorScheme.surface,
                     navigationIcon = {
                         IconButton(onClick = onClose) {
                             Icon(Icons.Default.Close, contentDescription = "关闭")

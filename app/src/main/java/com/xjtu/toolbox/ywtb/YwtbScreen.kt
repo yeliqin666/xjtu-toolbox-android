@@ -80,7 +80,7 @@ fun YwtbScreen(site: SiteSession, onBack: () -> Unit) {
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     Scaffold(
         topBar = {
-            TopAppBar(title = "一网通办", color = MiuixTheme.colorScheme.surfaceVariant, largeTitle = "一网通办", scrollBehavior = scrollBehavior, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回") } })
+            TopAppBar(title = "一网通办", color = MiuixTheme.colorScheme.surface, largeTitle = "一网通办", scrollBehavior = scrollBehavior, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回") } })
         }
     ) { padding ->
         when {

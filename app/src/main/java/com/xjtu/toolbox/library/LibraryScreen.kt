@@ -6,9 +6,7 @@ import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.Surface
-import top.yukonga.miuix.kmp.basic.TabRowWithContour
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
@@ -19,8 +17,7 @@ import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
-import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
-import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
+import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.squircle.squircleSurface
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
@@ -52,8 +49,6 @@ import androidx.compose.material.icons.filled.ViewModule
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
-import androidx.compose.material.icons.filled.Dialpad
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.runtime.*
 import com.xjtu.toolbox.LocalAppLoginState
 import com.xjtu.toolbox.Routes
@@ -72,8 +67,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import top.yukonga.miuix.kmp.utils.SinkFeedback
 import androidx.compose.foundation.layout.FlowRow
+import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.components.LoadingState
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.cancellation.CancellationException
@@ -112,8 +110,7 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
     // 预约
     var bookingResult by remember { mutableStateOf<BookResult?>(null) }
     var isBooking by remember { mutableStateOf(false) }
-    var seatInput by remember { mutableStateOf("") }
-    val showManualBooking = remember { mutableStateOf(false) }
+    var lastLoadedAreaCode by remember { mutableStateOf<String?>(null) }
 
     // 预约结果自动消失
     LaunchedEffect(bookingResult) {
@@ -174,7 +171,9 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
     }
 
     // ── 加载座位（统一入口） ──
-    fun loadSeatsFor(areaCode: String) {
+    fun loadSeatsFor(areaCode: String, force: Boolean = false) {
+        if (!force && lastLoadedAreaCode == areaCode) return
+        lastLoadedAreaCode = areaCode
         val generation = seatLoadGeneration.incrementAndGet()
         isLoading = true; errorMessage = null
         scope.launch {
@@ -200,9 +199,11 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
         }
     }
 
-    fun loadSeats() { LibraryApi.AREA_MAP[selectedArea]?.let { loadSeatsFor(it) } }
+    fun loadSeats(force: Boolean = false) {
+        LibraryApi.AREA_MAP[selectedArea]?.let { loadSeatsFor(it, force) }
+    }
 
-    // 区域变化 → 自动加载
+    // 区域变化 → 自动加载（与首次 bootstrap 去重，同一区域不打第二枪）
     LaunchedEffect(selectedArea) {
         if (selectedArea.isNotEmpty()) {
             LibraryApi.AREA_MAP[selectedArea]?.let { loadSeatsFor(it) }
@@ -216,6 +217,26 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
         try { myBooking = withContext(Dispatchers.IO) { api.getMyBooking() } } catch (_: Exception) {}
     }
 
+    // 预约/换座/取消后只刷新一轮：座位 + 我的预约并行，不再各走一遍
+    suspend fun refreshAfterBooking() = coroutineScope {
+        val areaCode = LibraryApi.AREA_MAP[selectedArea]
+        val seatsDeferred = if (areaCode != null) {
+            lastLoadedAreaCode = areaCode
+            async(Dispatchers.IO) { api.getSeats(areaCode) }
+        } else null
+        val bookingDeferred = async(Dispatchers.IO) {
+            runCatching { api.getMyBooking() }.getOrNull()
+        }
+        if (seatsDeferred != null) {
+            when (val result = seatsDeferred.await()) {
+                is SeatResult.Success -> { seats = result.seats; areaStatsMap = result.areaStatsMap; errorMessage = null }
+                is SeatResult.AuthError -> errorMessage = result.message
+                is SeatResult.Error -> errorMessage = result.message
+            }
+        }
+        myBooking = bookingDeferred.await()
+    }
+
     // ── 预约 ──
     fun doBookSeat(seatId: String) {
         val areaCode = LibraryApi.AREA_MAP[selectedArea]
@@ -227,10 +248,8 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
             try {
                 val result = withContext(Dispatchers.IO) { api.bookSeat(seatId, areaCode) }
                 bookingResult = result
-                loadSeats()
-                // 预约成功后服务端登记有延迟，稍等再查"我的预约"，避免拿到空、需手动刷新
-                if (result.success) kotlinx.coroutines.delay(800)
-                try { myBooking = withContext(Dispatchers.IO) { api.getMyBooking() } } catch (_: Exception) {}
+                if (result.success) kotlinx.coroutines.delay(400)
+                refreshAfterBooking()
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { bookingResult = BookResult(false, "预约异常: ${e.message}") }
             isBooking = false
@@ -247,8 +266,7 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
             try {
                 val result = withContext(Dispatchers.IO) { api.swapSeat(seatId, areaCode) }
                 bookingResult = result
-                loadSeats()
-                try { myBooking = withContext(Dispatchers.IO) { api.getMyBooking() } } catch (_: Exception) {}
+                refreshAfterBooking()
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { bookingResult = BookResult(false, "换座异常: ${e.message}") }
             isBooking = false
@@ -277,8 +295,7 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
             try {
                 val result = withContext(Dispatchers.IO) { api.executeAction(url) }
                 bookingResult = BookResult(result.success, "$label: ${result.message}")
-                myBooking = withContext(Dispatchers.IO) { api.getMyBooking() }
-                loadSeats()
+                refreshAfterBooking()
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { bookingResult = BookResult(false, "$label 失败: ${e.message}") }
             isBooking = false
@@ -329,17 +346,6 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
-                },
-                actions = {
-                    IconButton(onClick = {
-                        loadSeats()
-                        refreshMyBooking()
-                    }) {
-                        Icon(Icons.Default.Refresh, "刷新")
-                    }
-                    IconButton(onClick = { showManualBooking.value = true }) {
-                        Icon(Icons.Default.Dialpad, "输入座位号")
-                    }
                 }
             )
         }
@@ -352,7 +358,7 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
         // 空列表，无宿主渲染，不报错也不崩溃，就是不显示。
         if (showHint.value) {
             BackHandler { showHint.value = false; prefs.edit().putBoolean("library_hint_shown", true).apply() }
-            OverlayBottomSheet(
+            OverlayDialog(
                 show = showHint.value,
                 title = "图书馆座位预约",
                 onDismissRequest = {
@@ -360,10 +366,7 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                     prefs.edit().putBoolean("library_hint_shown", true).apply()
                 }
             ) {
-                Column(Modifier.padding(bottom = 16.dp).navigationBarsPadding()) {
-                    Text("使用说明", style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                    Spacer(Modifier.height(8.dp))
-
+                Column(Modifier.fillMaxWidth()) {
                     val tips = listOf(
                         "💡" to "智能推荐算法会根据「桌组空闲度、邻座占用率、是否靠墙/角落、离入口距离」等因素为你打分推荐最佳座位。",
                         "⏰" to "预约成功后，请在 30 分钟内入馆签到，否则当日将被禁止线上预约。",
@@ -377,86 +380,54 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                             Text(text, style = MiuixTheme.textStyles.body2, modifier = Modifier.weight(1f))
                         }
                     }
-                    Spacer(Modifier.height(16.dp))
-                    Button(
+                    Spacer(Modifier.height(12.dp))
+                    TextButton(
+                        text = "知道了",
                         onClick = {
                             showHint.value = false
                             prefs.edit().putBoolean("library_hint_shown", true).apply()
                         },
                         modifier = Modifier.fillMaxWidth()
-                    ) { Text("知道了") }
+                    )
                 }
             }
         }
-        // 这两个 OverlayBottomSheet 必须放在 Scaffold content 内：miuix 弹窗靠 Scaffold 提供的
+        // Overlay* 必须放在 Scaffold content 内：miuix 弹窗靠 Scaffold 提供的
         // MiuixPopupHost(LocalPopupStates) 渲染；放在 Scaffold 外（且 App 根无 popup host）会永不显示，
         // 正是"换座/取消点了没反应、请求从未发出"的真因。
         val cd = confirmDialog
         BackHandler(enabled = cd != null) { confirmDialog = null }
-        OverlayBottomSheet(
+        OverlayDialog(
             show = cd != null,
             title = "确认操作",
+            summary = cd?.first,
             renderInRootScaffold = false,
             onDismissRequest = {
                 android.util.Log.d("LibraryScreen", "confirm DISMISSED")
                 confirmDialog = null
             }
         ) {
-            Column(Modifier.fillMaxWidth().padding(bottom = 12.dp).navigationBarsPadding()) {
-                Text(cd?.first ?: "", style = MiuixTheme.textStyles.body1)
-                Spacer(Modifier.height(24.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Button(
-                        onClick = {
-                            android.util.Log.d("LibraryScreen", "confirm CANCELLED")
-                            confirmDialog = null
-                        },
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(color = MiuixTheme.colorScheme.secondaryContainer)
-                    ) { Text("取消", color = MiuixTheme.colorScheme.onSecondaryContainer) }
-                    Button(
-                        onClick = {
-                            android.util.Log.d("LibraryScreen", "confirm CLICKED")
-                            val act = cd?.second
-                            confirmDialog = null
-                            act?.invoke()
-                        },
-                        modifier = Modifier.weight(1f)
-                    ) { Text("确认") }
-                }
-            }
-        }
-
-        BackHandler(enabled = showManualBooking.value) { showManualBooking.value = false }
-        OverlayBottomSheet(
-            show = showManualBooking.value,
-            title = "输入座位号",
-            renderInRootScaffold = false,
-            onDismissRequest = { showManualBooking.value = false }
-        ) {
-            Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 12.dp)) {
-                Text("适合你已经知道座位号的情况",
-                    style = MiuixTheme.textStyles.body2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                Spacer(Modifier.height(12.dp))
-                TextField(
-                    value = seatInput,
-                    onValueChange = { seatInput = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    label = "座位号（如 A101）"
-                )
-                Spacer(Modifier.height(12.dp))
-                Button(
+            Row(Modifier.fillMaxWidth()) {
+                TextButton(
+                    text = "取消",
                     onClick = {
-                        seatInput.trim().takeIf { it.isNotEmpty() }?.let {
-                            showManualBooking.value = false
-                            bookSeat(it)
-                        }
+                        android.util.Log.d("LibraryScreen", "confirm CANCELLED")
+                        confirmDialog = null
                     },
-                    enabled = !isBooking && seatInput.isNotBlank(),
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text(if (myBooking == null) "预约此座位" else "换到此座位") }
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(Modifier.width(20.dp))
+                TextButton(
+                    text = "确认",
+                    onClick = {
+                        android.util.Log.d("LibraryScreen", "confirm CLICKED")
+                        val act = cd?.second
+                        confirmDialog = null
+                        act?.invoke()
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColorsPrimary()
+                )
             }
         }
 
@@ -470,7 +441,7 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
             isRefreshing = isPullRefreshing,
             onRefresh = {
                 isPullRefreshing = true
-                loadSeats()
+                loadSeats(force = true)
                 refreshMyBooking()
                 bookingResult = null
             },
@@ -582,59 +553,12 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                     colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)
                 ) {
                     Column {
-                        Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    selectedArea.ifEmpty { "选择阅览区" },
-                                    style = MiuixTheme.textStyles.subtitle,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                if (totalCount > 0) {
-                                    Text(
-                                        "$availableCount / $totalCount 个座位可用",
-                                        style = MiuixTheme.textStyles.footnote1,
-                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                                    )
-                                }
-                            }
-                            if (mapAvailable) {
-                                IconButton(
-                                    onClick = { showMapView = !showMapView },
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Icon(
-                                        if (showMapView) Icons.Default.ViewModule else Icons.Default.Map,
-                                        contentDescription = if (showMapView) "列表视图" else "地图视图",
-                                        modifier = Modifier.size(19.dp)
-                                    )
-                                }
-                            }
-                        }
-                        if (totalCount > 0) {
-                            LinearProgressIndicator(
-                                progress = availableCount.toFloat() / totalCount,
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                                height = 5.dp,
-                                colors = ProgressIndicatorDefaults.progressIndicatorColors(
-                                    foregroundColor = MiuixTheme.colorScheme.primary,
-                                    backgroundColor = MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)
-                                )
-                            )
-                            Spacer(Modifier.height(10.dp))
-                        }
-                        HorizontalDivider(
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                            color = MiuixTheme.colorScheme.outline.copy(alpha = 0.08f)
-                        )
                         if (floors.isNotEmpty()) {
-                            TabRowWithContour(
+                            AppSegmentedTabs(
                                 tabs = floors,
                                 selectedTabIndex = (floors.indexOf(selectedFloor)).coerceAtLeast(0),
                                 onTabSelected = { selectedFloor = floors.getOrElse(it) { floors.first() } },
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+                                embedded = true,
                             )
                         }
                         if (floors.isNotEmpty() && areas.isNotEmpty()) {
@@ -687,6 +611,18 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                                 modifier = Modifier.weight(1f)
                             )
                         }
+                        if (mapAvailable) {
+                            IconButton(
+                                onClick = { showMapView = !showMapView },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    if (showMapView) Icons.Default.ViewModule else Icons.Default.Map,
+                                    contentDescription = if (showMapView) "列表视图" else "地图视图",
+                                    modifier = Modifier.size(19.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -715,7 +651,7 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                                 textAlign = TextAlign.Center, style = MiuixTheme.textStyles.body2)
                             Spacer(Modifier.height(12.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(onClick = { loadSeats() }) { Text("重试") }
+                                Button(onClick = { loadSeats(force = true) }) { Text("重试") }
                                 // 认证相关错误 → 提供重新认证
                                 if ("认证" in (errorMessage ?: "") || "登录" in (errorMessage ?: "") || "VPN" in (errorMessage ?: "")) {
                                     var isReAuth by remember { mutableStateOf(false) }
@@ -729,7 +665,7 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                                                     withContext(Dispatchers.IO) {
                                                         site.ensureLogin(creds.first, creds.second, force = true)
                                                     }
-                                                    loadSeats()
+                                                    loadSeats(force = true)
                                                 } catch (e: CancellationException) { throw e }
                                                 catch (e: Exception) { errorMessage = "重新认证失败: ${e.message}" }
                                                 isReAuth = false

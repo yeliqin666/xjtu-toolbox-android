@@ -16,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.util.WebVpnUtil
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
@@ -24,7 +25,6 @@ import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTopAppBar
-import top.yukonga.miuix.kmp.basic.TabRowWithContour
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
@@ -57,7 +57,7 @@ fun WebVpnConverterScreen(
         topBar = {
             SmallTopAppBar(
                 title = "WebVPN 网址互转",
-                color = MiuixTheme.colorScheme.surfaceVariant,
+                color = MiuixTheme.colorScheme.surface,
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -120,7 +120,7 @@ fun WebVpnConverterScreen(
                         )
                     }
                     Spacer(Modifier.height(12.dp))
-                    TabRowWithContour(
+                    AppSegmentedTabs(
                         tabs = listOf("原始 → WebVPN", "WebVPN → 原始"),
                         selectedTabIndex = if (isReversed) 1 else 0,
                         onTabSelected = { tab ->
@@ -128,7 +128,7 @@ fun WebVpnConverterScreen(
                             convertedUrl = ""
                             error = null
                         },
-                        modifier = Modifier.fillMaxWidth()
+                        embedded = true,
                     )
                     Spacer(Modifier.height(12.dp))
                     TextField(

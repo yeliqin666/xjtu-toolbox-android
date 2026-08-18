@@ -50,6 +50,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
@@ -65,7 +66,6 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Surface
-import top.yukonga.miuix.kmp.basic.TabRowWithContour
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
@@ -194,7 +194,7 @@ fun CouponScreen(
             TopAppBar(
                 title = "加餐券",
                 largeTitle = "加餐券",
-                color = MiuixTheme.colorScheme.surfaceVariant,
+                color = MiuixTheme.colorScheme.surface,
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -209,19 +209,11 @@ fun CouponScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = MiuixTheme.colorScheme.surfaceVariant
-            ) {
-                TabRowWithContour(
-                    tabs = CouponFilter.entries.map { it.label },
-                    selectedTabIndex = CouponFilter.entries.indexOf(selectedFilter),
-                    onTabSelected = { selectedFilter = CouponFilter.entries[it] },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-            }
+            AppSegmentedTabs(
+                tabs = CouponFilter.entries.map { it.label },
+                selectedTabIndex = CouponFilter.entries.indexOf(selectedFilter),
+                onTabSelected = { selectedFilter = CouponFilter.entries[it] },
+            )
 
             PullToRefresh(
                 isRefreshing = isRefreshing,

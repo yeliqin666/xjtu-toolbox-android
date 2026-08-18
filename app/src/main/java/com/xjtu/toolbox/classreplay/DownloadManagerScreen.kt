@@ -28,7 +28,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
 import kotlinx.coroutines.*
 import top.yukonga.miuix.kmp.basic.*
-import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
+import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import top.yukonga.miuix.kmp.utils.overScrollVertical
@@ -104,7 +104,7 @@ fun DownloadManagerScreen(
             if (isCleanupMode) {
                 SmallTopAppBar(
                     title = "批量管理",
-                    color = MiuixTheme.colorScheme.surfaceVariant,
+                    color = MiuixTheme.colorScheme.surface,
                     navigationIcon = {
                         IconButton(onClick = { isCleanupMode = false }) {
                             Icon(Icons.Default.Close, contentDescription = "取消清理")
@@ -130,7 +130,7 @@ fun DownloadManagerScreen(
             } else {
                 SmallTopAppBar(
                     title = "下载管理",
-                    color = MiuixTheme.colorScheme.surfaceVariant,
+                    color = MiuixTheme.colorScheme.surface,
                     navigationIcon = {
                         IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -811,13 +811,16 @@ private fun formatTimestamp(timestamp: Long): String {
 @Composable
 private fun DownloadDirInfoDialog(show: MutableState<Boolean>) {
     BackHandler(enabled = show.value) { show.value = false }
-    OverlayBottomSheet(
+    OverlayDialog(
         show = show.value,
         title = "下载目录信息",
         onDismissRequest = { show.value = false }
     ) {
         Column(
-            modifier = Modifier.overScrollVertical().verticalScroll(rememberScrollState()),
+            modifier = Modifier
+                .fillMaxWidth()
+                .overScrollVertical()
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(
@@ -831,12 +834,6 @@ private fun DownloadDirInfoDialog(show: MutableState<Boolean>) {
                 style = MiuixTheme.textStyles.body2,
                 color = MiuixTheme.colorScheme.primary,
                 fontWeight = FontWeight.Medium
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "提示",
-                style = MiuixTheme.textStyles.body1,
-                fontWeight = FontWeight.Bold
             )
             Text(
                 "• 成绩单、思源课件、资料站文件统一保存到公共下载目录，系统文件管理器可见，卸载 App 不会丢",
@@ -858,15 +855,12 @@ private fun DownloadDirInfoDialog(show: MutableState<Boolean>) {
                 style = MiuixTheme.textStyles.body2,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary
             )
+            Spacer(Modifier.height(4.dp))
+            TextButton(
+                text = "知道了",
+                onClick = { show.value = false },
+                modifier = Modifier.fillMaxWidth()
+            )
         }
-        Spacer(Modifier.height(16.dp))
-        Button(
-            onClick = { show.value = false },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("知道了")
-        }
-        Spacer(Modifier.height(16.dp))
-        Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
     }
 }

@@ -4,6 +4,8 @@ import android.util.Log
 import com.xjtu.toolbox.auth.SiteSession
 import kotlinx.coroutines.runBlocking
 import com.xjtu.toolbox.ui.ScheduleSlot
+import com.google.gson.JsonObject
+import com.xjtu.toolbox.util.XjtuTime
 import com.xjtu.toolbox.util.safeInt
 import com.xjtu.toolbox.util.safeParseJsonObject
 import com.xjtu.toolbox.util.safeString
@@ -77,6 +79,20 @@ class ScheduleApi(private val site: SiteSession) {
 
     private val baseUrl = "https://jwxt.xjtu.edu.cn"
     private var cachedTermCode: String? = null
+    private val termNameCache = mutableMapOf<String, String>()
+
+    /** 可读学期名。优先接口 `MC`，否则把代码译成秋季/春季/短学期/暑假。 */
+    fun termDisplayName(code: String): String {
+        if (code.isBlank()) return code
+        val named = termNameCache[code]
+        if (!named.isNullOrBlank() && named != code) return named
+        return XjtuTime.displayTerm(code)
+    }
+
+    private fun rememberTermName(code: String, row: JsonObject) {
+        val mc = row.get("MC")?.asString?.trim().orEmpty()
+        if (code.isNotBlank() && mc.isNotBlank()) termNameCache[code] = mc
+    }
 
     private fun execute(request: Request): String =
         runBlocking { site.executeWithReAuth(request) }.use { response ->
@@ -100,10 +116,11 @@ class ScheduleApi(private val site: SiteSession) {
             throw com.xjtu.toolbox.auth.AuthExpiredException("教务系统")
         }
         val json = responseBody.safeParseJsonObject()
-        val code = json.getAsJsonObject("datas")
+        val row = json.getAsJsonObject("datas")
             .getAsJsonObject("dqxnxq")
             .getAsJsonArray("rows")[0].asJsonObject
-            .get("DM").asString
+        val code = row.get("DM").asString
+        rememberTermName(code, row)
         cachedTermCode = code
         return code
     }
@@ -611,7 +628,12 @@ class ScheduleApi(private val site: SiteSession) {
             val rows = json.getAsJsonObject("datas")
                 .getAsJsonObject("cxxnxqgl")
                 .getAsJsonArray("rows")
-            val list = rows.map { it.asJsonObject.get("DM").asString }
+            val list = rows.map { el ->
+                val row = el.asJsonObject
+                val dm = row.get("DM").asString
+                rememberTermName(dm, row)
+                dm
+            }
             list.ifEmpty { generateRecentTerms() }
         } catch (e: Exception) {
             android.util.Log.w("ScheduleApi", "getTermList failed, fallback generated: ${e.message}")

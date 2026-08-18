@@ -17,7 +17,6 @@ import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
-import top.yukonga.miuix.kmp.basic.TabRowWithContour
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
@@ -26,7 +25,6 @@ import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -55,6 +53,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.auth.SiteSession
+import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.EmptyState
@@ -274,18 +273,11 @@ fun CampusCardScreen(
                 ErrorState(errorMessage!!, { loadData() }, Modifier.fillMaxSize().padding(padding))
             else -> {
                 Column(Modifier.fillMaxSize().padding(padding).nestedScroll(scrollBehavior.nestedScrollConnection)) {
-                    Surface(
-                        color = MiuixTheme.colorScheme.secondaryContainer.copy(alpha = 0.72f),
-                        shape = RoundedCornerShape(18.dp),
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
-                    ) {
-                        TabRowWithContour(
-                            tabs = listOf("概览", "流水", "分析"),
-                            selectedTabIndex = selectedTab,
-                            onTabSelected = { selectedTab = it },
-                            modifier = Modifier.fillMaxWidth().padding(4.dp)
-                        )
-                    }
+                    AppSegmentedTabs(
+                        tabs = listOf("概览", "流水", "分析"),
+                        selectedTabIndex = selectedTab,
+                        onTabSelected = { selectedTab = it },
+                    )
                     var isPullRefreshing by remember { mutableStateOf(false) }
                     LaunchedEffect(isLoading, isReloadingRange) {
                         if (!isLoading && !isReloadingRange) isPullRefreshing = false
@@ -358,10 +350,24 @@ private fun OverviewTab(
         }
         if (recentTransactions.isNotEmpty()) {
             item {
-                Text("最近交易", style = MiuixTheme.textStyles.body1,
-                    fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 4.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
+                ) {
+                    Column {
+                        Text(
+                            "最近交易",
+                            style = MiuixTheme.textStyles.body1,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)
+                        )
+                        recentTransactions.forEach { tx ->
+                            HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                            TransactionItem(tx)
+                        }
+                    }
+                }
             }
-            items(recentTransactions) { tx -> TransactionItem(tx) }
         }
     }
 }
@@ -663,57 +669,75 @@ private fun TransactionTab(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
         contentPadding = PaddingValues(vertical = 12.dp)
     ) {
-        // 时间范围选择器
-        item { TimeRangeSelector(selectedTimeRange, onTimeRangeChange) }
-        if (isReloading) {
-            item { LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), height = 2.dp) }
-        }
-
-        // 搜索是流水页的一部分，不再由顶栏按钮控制。
         item {
-            com.xjtu.toolbox.ui.components.AppSearchBar(
-                query = searchQuery,
-                onQueryChange = onSearchChange,
-                label = "搜索商户或交易类型",
-                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
-            )
-        }
-        item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(
-                    if (searchQuery.isNotBlank()) "搜索结果: ${filtered.size} 笔"
-                    else "共 $total 笔交易",
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                val totalSpend = filtered.filter { it.amount < 0 }.sumOf { -it.amount }
-                val totalIncome = filtered.filter { it.amount > 0 }.sumOf { it.amount }
-                Text("支出¥%.0f | 收入¥%.0f".format(totalSpend, totalIncome),
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-            }
-            Spacer(Modifier.height(8.dp))
-        }
-        grouped.forEach { (date, txList) ->
-            item {
-                val dayTotal = -txList.filter { it.amount < 0 }.sumOf { it.amount }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(formatDateHeader(date),
-                        style = MiuixTheme.textStyles.body2,
-                        fontWeight = FontWeight.Medium,
-                        color = MiuixTheme.colorScheme.primary)
-                    if (dayTotal > 0) {
-                        Text("−¥%.2f".format(dayTotal),
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(Modifier.padding(vertical = 8.dp)) {
+                    TimeRangeSelector(
+                        selectedTimeRange,
+                        onTimeRangeChange,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                    )
+                    if (isReloading) {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp), height = 2.dp)
+                    }
+                    com.xjtu.toolbox.ui.components.AppSearchBar(
+                        query = searchQuery,
+                        onQueryChange = onSearchChange,
+                        label = "搜索商户或交易类型",
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            if (searchQuery.isNotBlank()) "搜索结果: ${filtered.size} 笔"
+                            else "共 $total 笔交易",
                             style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.error.copy(alpha = 0.7f))
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                        val totalSpend = filtered.filter { it.amount < 0 }.sumOf { -it.amount }
+                        val totalIncome = filtered.filter { it.amount > 0 }.sumOf { it.amount }
+                        Text("支出¥%.0f | 收入¥%.0f".format(totalSpend, totalIncome),
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
                 }
-                Spacer(Modifier.height(4.dp))
             }
-            items(txList, key = { "${it.time}_${it.merchant}_${it.amount}" }) { tx ->
-                TransactionItem(tx)
+        }
+        grouped.forEach { (date, txList) ->
+            item(key = "day_$date") {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
+                ) {
+                    Column {
+                        val dayTotal = -txList.filter { it.amount < 0 }.sumOf { it.amount }
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(formatDateHeader(date),
+                                style = MiuixTheme.textStyles.body2,
+                                fontWeight = FontWeight.Medium,
+                                color = MiuixTheme.colorScheme.primary)
+                            if (dayTotal > 0) {
+                                Text("−¥%.2f".format(dayTotal),
+                                    style = MiuixTheme.textStyles.footnote1,
+                                    color = MiuixTheme.colorScheme.error.copy(alpha = 0.7f))
+                            }
+                        }
+                        txList.forEach { tx ->
+                            HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                            TransactionItem(tx)
+                        }
+                    }
+                }
             }
         }
         if (searchQuery.isBlank() && transactions.size < total) {
@@ -747,8 +771,7 @@ private fun TransactionItem(tx: Transaction) {
     val iconBg = if (isExpense) MiuixTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
     else MiuixTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
 
-    Surface(shape = RoundedCornerShape(12.dp), color = MiuixTheme.colorScheme.surfaceVariant, modifier = Modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(shape = CircleShape, color = iconBg, modifier = Modifier.size(40.dp)) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(icon, null, modifier = Modifier.size(20.dp),
@@ -775,7 +798,6 @@ private fun TransactionItem(tx: Transaction) {
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.6f))
             }
         }
-    }
 }
 
 // ==================== 分析 Tab ====================
@@ -820,8 +842,12 @@ private fun AnalyticsTab(
 }
 
 @Composable
-private fun TimeRangeSelector(selected: TimeRange, onChange: (TimeRange) -> Unit) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+private fun TimeRangeSelector(
+    selected: TimeRange,
+    onChange: (TimeRange) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         TimeRange.entries.forEach { range ->
             AppFilterChip(selected = range == selected, onClick = { onChange(range) },
                 label = range.label, modifier = Modifier.weight(1f))

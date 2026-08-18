@@ -53,6 +53,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
@@ -218,15 +219,29 @@ fun FitnessScreen(
                 }
                 score?.let { result ->
                     item { ScoreHero(result) }
-                    item {
-                        Text(
-                            "项目成绩",
-                            style = MiuixTheme.textStyles.title2,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 18.dp, vertical = 2.dp)
-                        )
+                    if (result.items.isNotEmpty()) {
+                        item {
+                            Card(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                                colors = CardDefaults.defaultColors(
+                                    color = MiuixTheme.colorScheme.surfaceVariant
+                                )
+                            ) {
+                                Column {
+                                    Text(
+                                        "项目成绩",
+                                        style = MiuixTheme.textStyles.title2,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp)
+                                    )
+                                    result.items.forEach { item ->
+                                        HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                                        FitnessItemRow(item)
+                                    }
+                                }
+                            }
+                        }
                     }
-                    items(result.items) { FitnessItemCard(it) }
                 }
                 if (error != null && score == null) {
                     item {
@@ -339,22 +354,16 @@ private fun ScoreHero(score: FitnessScore) {
 }
 
 @Composable
-private fun FitnessItemCard(item: FitnessItem) {
+private fun FitnessItemRow(item: FitnessItem) {
     val accent = when (item.tone.lowercase()) {
         "green" -> Color(0xFF2E7D32)
         "red" -> MiuixTheme.colorScheme.error
         else -> MiuixTheme.colorScheme.primary
     }
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        colors = CardDefaults.defaultColors(
-            color = MiuixTheme.colorScheme.surfaceVariant
-        )
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 15.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 15.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
             Box(
                 Modifier.size(9.dp).clip(CircleShape).background(accent)
             )
@@ -378,5 +387,4 @@ private fun FitnessItemCard(item: FitnessItem) {
                 )
             }
         }
-    }
 }

@@ -39,6 +39,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
@@ -48,8 +49,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.cancellation.CancellationException
 import top.yukonga.miuix.kmp.basic.*
-import top.yukonga.miuix.kmp.basic.TabRowWithContour
-import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
@@ -194,7 +193,7 @@ fun VenueScreen(
     }
 
     /**
-     * 把验证码交给自动识别器；自动识别是设置项，默认关闭。
+     * 把验证码交给自动识别器；自动识别是设置项，默认开启。
      * 识别失败只显示提示并保留当前验证码，用户仍可直接手动滑动。
      */
     suspend fun processCaptcha(
@@ -457,55 +456,46 @@ fun VenueScreen(
         // 空列表，无宿主渲染，不报错也不崩溃，就是不显示。
         if (showHint.value) {
             BackHandler { showHint.value = false; prefs.edit().putBoolean("venue_hint_shown", true).apply() }
-            OverlayBottomSheet(
+            OverlayDialog(
                 show = showHint.value,
                 title = "功能说明",
+                summary = "场馆预约支持时段查询、预约和订单管理。",
                 onDismissRequest = {
                     showHint.value = false
                     prefs.edit().putBoolean("venue_hint_shown", true).apply()
                 }
             ) {
-                Column(Modifier.padding(bottom = 16.dp).navigationBarsPadding()) {
+                Column(Modifier.fillMaxWidth()) {
                     Text(
-                        "场馆预约支持时段查询、预约和订单管理。",
-                        style = MiuixTheme.textStyles.body1
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        "• 验证码自动识别可在设置中开启（默认关闭）\n" +
+                        "• 验证码默认自动识别，可在设置中关闭；失败仍可手滑\n" +
                             "• 支付和登录会在系统浏览器中完成\n\n" +
                             "望理解，请尽量在校园网环境下使用。",
                         style = MiuixTheme.textStyles.body2,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                     )
-                    Spacer(Modifier.height(16.dp))
-                    Button(
+                    Spacer(Modifier.height(12.dp))
+                    TextButton(
+                        text = "知道了",
                         onClick = {
                             showHint.value = false
                             prefs.edit().putBoolean("venue_hint_shown", true).apply()
                         },
                         modifier = Modifier.fillMaxWidth()
-                    ) { Text("知道了") }
+                    )
                 }
             }
         }
         Column(Modifier.fillMaxSize().padding(padding)) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = MiuixTheme.colorScheme.surfaceVariant
-            ) {
-                TabRowWithContour(
-                    tabs = listOf("场馆预订", "我的订单"),
-                    selectedTabIndex = selectedTab,
-                    onTabSelected = { index ->
-                        selectedTab = index
-                        if (index == 1 && orders.isEmpty() && !ordersLoading) {
-                            loadOrders(reset = true)
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-            }
+            AppSegmentedTabs(
+                tabs = listOf("场馆预订", "我的订单"),
+                selectedTabIndex = selectedTab,
+                onTabSelected = { index ->
+                    selectedTab = index
+                    if (index == 1 && orders.isEmpty() && !ordersLoading) {
+                        loadOrders(reset = true)
+                    }
+                },
+            )
 
             if (selectedTab == 1) {
                 VenueOrdersContent(
@@ -616,19 +606,19 @@ fun VenueScreen(
                         color = MiuixTheme.colorScheme.primary,
                         fontWeight = FontWeight.Bold
                     )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
+                    Row(Modifier.fillMaxWidth()) {
                         TextButton(
                             text = "再看看",
                             onClick = { showBookingConfirm = false },
                             modifier = Modifier.weight(1f)
                         )
-                        Button(
+                        Spacer(Modifier.width(20.dp))
+                        TextButton(
+                            text = "继续预约",
                             onClick = { startBookingFlow() },
-                            modifier = Modifier.weight(1f)
-                        ) { Text("继续预约") }
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.textButtonColorsPrimary()
+                        )
                     }
                 }
             }
@@ -677,7 +667,7 @@ fun VenueScreen(
                         captchaError != null -> {
                             Text(captchaError!!, color = MiuixTheme.colorScheme.error)
                             Spacer(Modifier.height(12.dp))
-                            Button(onClick = { startBookingFlow() }) { Text("重试") }
+                            TextButton(text = "重试", onClick = { startBookingFlow() })
                         }
                         captchaData != null -> {
                             captchaNotice?.let { notice ->
@@ -762,7 +752,8 @@ fun VenueScreen(
                     }
                     Spacer(Modifier.height(8.dp))
                     if (result.success && result.orderId != null && result.price > 0) {
-                        Button(
+                        TextButton(
+                            text = "去支付",
                             onClick = {
                                 showResultDialog.value = false
                                 payTarget = VenueApi.OrderInfo(
@@ -773,10 +764,12 @@ fun VenueScreen(
                                     details = emptyList()
                                 )
                             },
-                            modifier = Modifier.fillMaxWidth()
-                        ) { Text("去支付") }
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.textButtonColorsPrimary()
+                        )
                     }
-                    Button(
+                    TextButton(
+                        text = "确定",
                         onClick = {
                             showResultDialog.value = false
                             if (result.success) {
@@ -785,7 +778,7 @@ fun VenueScreen(
                             }
                         },
                         modifier = Modifier.fillMaxWidth()
-                    ) { Text("确定") }
+                    )
                 }
             }
         }
@@ -837,18 +830,20 @@ fun VenueScreen(
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(Modifier.height(4.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
+                    Row(Modifier.fillMaxWidth()) {
                         if (order.canPay) {
-                            Button(
+                            TextButton(
+                                text = "去支付",
                                 onClick = {
                                     orderDetail = null
                                     payTarget = order
                                 },
-                                modifier = Modifier.weight(1f)
-                            ) { Text("去支付") }
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.textButtonColorsPrimary()
+                            )
+                        }
+                        if (order.canPay && order.canCancel) {
+                            Spacer(Modifier.width(20.dp))
                         }
                         if (order.canCancel) {
                             TextButton(
@@ -857,14 +852,18 @@ fun VenueScreen(
                                     orderDetail = null
                                     cancelTarget = order
                                 },
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.textButtonColors(
+                                    textColor = MiuixTheme.colorScheme.error
+                                )
                             )
                         }
                         if (!order.canPay && !order.canCancel) {
-                            Button(
+                            TextButton(
+                                text = "关闭",
                                 onClick = { orderDetail = null },
                                 modifier = Modifier.fillMaxWidth()
-                            ) { Text("关闭") }
+                            )
                         }
                     }
                 }
@@ -892,19 +891,21 @@ fun VenueScreen(
                         style = MiuixTheme.textStyles.footnote1,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                     )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
+                    Row(Modifier.fillMaxWidth()) {
                         TextButton(
-                            text = "取消",
+                            text = "再想想",
                             onClick = { cancelTarget = null },
                             modifier = Modifier.weight(1f)
                         )
-                        Button(
+                        Spacer(Modifier.width(20.dp))
+                        TextButton(
+                            text = "确认取消",
                             onClick = { performCancel(order) },
-                            modifier = Modifier.weight(1f)
-                        ) { Text("确认取消") }
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.textButtonColors(
+                                textColor = MiuixTheme.colorScheme.error
+                            )
+                        )
                     }
                 }
             }
@@ -931,22 +932,22 @@ fun VenueScreen(
                         style = MiuixTheme.textStyles.footnote1,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                     )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
+                    Row(Modifier.fillMaxWidth()) {
                         TextButton(
                             text = "去登录",
                             onClick = { openExternalUrl(VenueApi.BROWSER_LOGIN_URL) },
                             modifier = Modifier.weight(1f)
                         )
-                        Button(
+                        Spacer(Modifier.width(20.dp))
+                        TextButton(
+                            text = "去支付",
                             onClick = {
                                 payTarget = null
                                 openExternalUrl(api.paymentUrl(order.orderId))
                             },
-                            modifier = Modifier.weight(1f)
-                        ) { Text("去支付") }
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.textButtonColorsPrimary()
+                        )
                     }
                 }
             }

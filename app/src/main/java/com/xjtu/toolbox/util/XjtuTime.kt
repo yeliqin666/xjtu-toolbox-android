@@ -87,4 +87,21 @@ object XjtuTime {
      */
     fun currentAcademicYear(today: java.time.LocalDate = java.time.LocalDate.now()): Int =
         if (today.monthValue >= 9) today.year else today.year - 1
+
+    /**
+     * 把教务学年学期代码（如 `2025-2026-4`）译成可读名称。
+     * 末位：1 秋、2 春、3 短学期、4 暑假。接口没给 MC 时用这个，不必再登 JWAPP。
+     */
+    fun displayTerm(code: String): String {
+        val parts = code.split("-")
+        if (parts.size != 3) return code
+        val season = when (parts[2]) {
+            "1" -> "秋季学期"
+            "2" -> "春季学期"
+            "3" -> "短学期"
+            "4" -> "暑假"
+            else -> "第${parts[2]}学期"
+        }
+        return "${parts[0]}-${parts[1]} $season"
+    }
 }

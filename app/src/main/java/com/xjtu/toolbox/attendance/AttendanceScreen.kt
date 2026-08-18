@@ -15,7 +15,7 @@ import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
-import top.yukonga.miuix.kmp.basic.TabRowWithContour
+import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
 import top.yukonga.miuix.kmp.basic.SnackbarDuration
 import top.yukonga.miuix.kmp.basic.SnackbarHost
@@ -31,8 +31,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -359,23 +357,16 @@ fun AttendanceScreen(
                             }
                         )
                     }
+                    if (termItems.isNotEmpty() || maxWeek > 0) {
+                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                    }
+                    AppSegmentedTabs(
+                        tabs = listOf("概览", "流水"),
+                        selectedTabIndex = selectedTab,
+                        onTabSelected = { selectedTab = it },
+                        embedded = true,
+                    )
                 }
-
-                TabRowWithContour(
-                    tabs = listOf("概览", "流水"),
-                    selectedTabIndex = selectedTab,
-                    onTabSelected = { selectedTab = it },
-                    // 默认轨道色是 surface，和页面背景（同为 surface）同色，轨道等于隐形。
-                    // 上一版换成 AppInsetColor（surfaceContainerHigh 半透明）在浅色下够用，
-                    // 但深色主题页面背景是纯黑，0xFF242424 半透明叠在纯黑上还是几乎看不出来。
-                    // 换成 onBackground.copy(alpha=...)——这是 miuix BreadcrumbBarDefaults 自己
-                    // 用的技巧：onBackground 在浅色是黑、深色是近白，同一份 alpha 在两个主题下
-                    // 都能相对页面背景做出稳定的浅灰对比，不需要为每个主题单独调值。
-                    colors = top.yukonga.miuix.kmp.basic.TabRowDefaults.tabRowColors(
-                        backgroundColor = MiuixTheme.colorScheme.onBackground.copy(alpha = 0.06f)
-                    ),
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
-                )
 
                 AnimatedContent(
                     targetState = selectedTab,
@@ -418,145 +409,124 @@ private fun OverviewTab(
     onClearSearch: () -> Unit,
     onSwitchToRecordTab: () -> Unit,
 ) {
+    val filtered = courseStats
+        .filter { searchQuery.isBlank() || searchQuery.lowercase() in it.subjectName.lowercase() }
+        .sortedByDescending { it.abnormalCount }
     LazyColumn(
         Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        contentPadding = PaddingValues(vertical = 12.dp)
+        contentPadding = PaddingValues(vertical = 8.dp)
     ) {
-        // 出勤率环形已删：miuix CircularProgressIndicator 的 Canvas 内部按 size 参数
-        // （默认 30dp）画图，外层 Modifier.fillMaxSize() 会被内部 .size(size) 覆盖，
-        // 手动传 size 才能对齐，试了几次都在文字和圆环之间错位。既然只有百分比数字本身
-        // 有用，直接用大号文字表达，不需要绘制一个图形元素来表达一个数字。
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.defaultColors(color = AppCardColor)
             ) {
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    val rateColor = when {
-                        attendanceRate >= 90 -> MiuixTheme.colorScheme.primary
-                        attendanceRate >= 70 -> MiuixTheme.colorScheme.primaryVariant
-                        else -> MiuixTheme.colorScheme.error
-                    }
-                    Column {
-                        Text(
-                            "${attendanceRate}%",
-                            style = MiuixTheme.textStyles.title1,
-                            fontWeight = FontWeight.Bold,
-                            color = rateColor
-                        )
-                        Text(
-                            "出勤率",
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                        )
-                    }
-                    Spacer(Modifier.width(20.dp))
+                Column {
                     Row(
-                        modifier = Modifier.weight(1f),
-                        horizontalArrangement = Arrangement.SpaceEvenly
+                        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        StatValue("正常", totalNormal, MiuixTheme.colorScheme.primary, Modifier.weight(1f))
-                        StatValue("迟到", totalLate, MiuixTheme.colorScheme.primaryVariant, Modifier.weight(1f))
-                        StatValue("缺勤", totalAbsence, MiuixTheme.colorScheme.error, Modifier.weight(1f))
-                        StatValue(
-                            "请假",
-                            totalLeave,
-                            MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            Modifier.weight(1f)
-                        )
-                    }
-                }
-            }
-        }
-
-        // 按课程统计
-        if (courseStats.isNotEmpty()) {
-            item {
-                Text("按课程统计", style = MiuixTheme.textStyles.body1,
-                    fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
-            }
-
-            // 搜索
-            item {
-                com.xjtu.toolbox.ui.components.AppSearchBar(
-                    query = searchQuery,
-                    onQueryChange = onSearchChange,
-                    label = "搜索课程...",
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-
-            val filtered = courseStats
-                .filter { searchQuery.isBlank() || searchQuery.lowercase() in it.subjectName.lowercase() }
-                .sortedByDescending { it.abnormalCount }
-
-            items(filtered) { stat ->
-                CourseStatCard(stat) {
-                    // 下钻：切到流水 Tab，锁定该课程，清掉搜索状态避免混淆
-                    onDrilldownSubject(stat.subjectName)
-                    onClearSearch()
-                    onSwitchToRecordTab()
-                }
-            }
-
-            if (filtered.all { it.abnormalCount == 0 }) {
-                item {
-                    top.yukonga.miuix.kmp.basic.Card(
-                        Modifier.fillMaxWidth(),
-                        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(
-                            color = MiuixTheme.colorScheme.primary.copy(alpha = 0.08f)
-                        )
-                    ) {
-                        Row(
-                            Modifier.fillMaxWidth().padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                Icons.Default.CheckCircle, null,
-                                modifier = Modifier.size(18.dp),
-                                tint = MiuixTheme.colorScheme.primary
+                        val rateColor = when {
+                            attendanceRate >= 90 -> MiuixTheme.colorScheme.primary
+                            attendanceRate >= 70 -> MiuixTheme.colorScheme.primaryVariant
+                            else -> MiuixTheme.colorScheme.error
+                        }
+                        Column {
+                            Text(
+                                "${attendanceRate}%",
+                                style = MiuixTheme.textStyles.title1,
+                                fontWeight = FontWeight.Bold,
+                                color = rateColor
                             )
-                            Spacer(Modifier.width(8.dp))
-                            Text("所有课程出勤良好", style = MiuixTheme.textStyles.body2,
-                                fontWeight = FontWeight.Medium,
-                                color = MiuixTheme.colorScheme.primary)
+                            Text(
+                                "出勤率",
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                            )
+                        }
+                        Spacer(Modifier.width(20.dp))
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            horizontalArrangement = Arrangement.SpaceEvenly
+                        ) {
+                            StatValue("正常", totalNormal, MiuixTheme.colorScheme.primary, Modifier.weight(1f))
+                            StatValue("迟到", totalLate, MiuixTheme.colorScheme.primaryVariant, Modifier.weight(1f))
+                            StatValue("缺勤", totalAbsence, MiuixTheme.colorScheme.error, Modifier.weight(1f))
+                            StatValue(
+                                "请假",
+                                totalLeave,
+                                MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                Modifier.weight(1f)
+                            )
+                        }
+                    }
+                    if (courseStats.isEmpty()) {
+                        HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                        EmptyState(
+                            title = "暂无课程考勤统计数据",
+                            subtitle = "尝试切换学期或检查网络连接"
+                        )
+                    } else {
+                        HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                        Text(
+                            "按课程统计",
+                            style = MiuixTheme.textStyles.body1,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 8.dp)
+                        )
+                        com.xjtu.toolbox.ui.components.AppSearchBar(
+                            query = searchQuery,
+                            onQueryChange = onSearchChange,
+                            label = "搜索课程...",
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
+                        )
+                        filtered.forEach { stat ->
+                            HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                            CourseStatRow(stat) {
+                                onDrilldownSubject(stat.subjectName)
+                                onClearSearch()
+                                onSwitchToRecordTab()
+                            }
+                        }
+                        if (filtered.isNotEmpty() && filtered.all { it.abnormalCount == 0 }) {
+                            HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                            Row(
+                                Modifier.fillMaxWidth().padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.CheckCircle, null,
+                                    modifier = Modifier.size(18.dp),
+                                    tint = MiuixTheme.colorScheme.primary
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    "所有课程出勤良好",
+                                    style = MiuixTheme.textStyles.body2,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MiuixTheme.colorScheme.primary
+                                )
+                            }
                         }
                     }
                 }
-            }
-        } else {
-            item {
-                EmptyState(
-                    title = "暂无课程考勤统计数据",
-                    subtitle = "尝试切换学期或检查网络连接"
-                )
             }
         }
     }
 }
 
 @Composable
-private fun CourseStatCard(stat: CourseAttendanceStat, onClick: () -> Unit = {}) {
-    val hasIssue = stat.abnormalCount > 0
-    top.yukonga.miuix.kmp.basic.Card(
-        modifier = Modifier
+private fun CourseStatRow(stat: CourseAttendanceStat, onClick: () -> Unit = {}) {
+    Column(
+        Modifier
             .fillMaxWidth()
             .clickable(
                 interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                 indication = SinkFeedback(),
                 onClick = onClick,
-            ),
-        cornerRadius = 12.dp,
-        // 默认 defaultColors() 用的是 surfaceContainer，深色主题下与页面背景同为 #242424，
-        // 卡片同样会糊掉，所以统一走 AppCardColor
-        colors = if (hasIssue) top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.errorContainer.copy(alpha = 0.15f)
-        ) else top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = AppCardColor)
+            )
+            .padding(16.dp)
     ) {
-        Column(Modifier.padding(16.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically) {
                 Text(stat.subjectName, style = MiuixTheme.textStyles.body1,
@@ -601,7 +571,6 @@ private fun CourseStatCard(stat: CourseAttendanceStat, onClick: () -> Unit = {})
                 StatChip("总计", stat.total, MiuixTheme.colorScheme.onSurface)
             }
         }
-    }
 }
 
 @Composable
@@ -627,104 +596,102 @@ private fun RecordFlowTab(
     drilldownSubject: String? = null,
     onClearDrilldown: () -> Unit = {},
 ) {
+    val groupedByDate = filteredRecords.groupBy { it.date }
     LazyColumn(
         Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
-        contentPadding = PaddingValues(vertical = 12.dp)
+        contentPadding = PaddingValues(vertical = 8.dp)
     ) {
-        // 下钻来源提示：概览卡片点过来的，醒目地告诉用户为什么只看到一门课
-        if (drilldownSubject != null) {
-            item {
-                Surface(
-                    color = MiuixTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f),
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            Icons.Outlined.FilterAlt,
-                            contentDescription = null,
-                            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            "已筛选「$drilldownSubject」",
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            style = MiuixTheme.textStyles.footnote1,
-                            modifier = Modifier.weight(1f),
-                        )
-                        androidx.compose.foundation.layout.Box(
-                            modifier = Modifier
-                                .clickable { onClearDrilldown() }
-                                .padding(horizontal = 8.dp, vertical = 2.dp),
-                            contentAlignment = androidx.compose.ui.Alignment.Center,
-                        ) {
-                            // 与 Jiaoxiaozhi 复制按钮统一：可点击元素用 primary 突出。
-                            Text("清除", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.primary)
-                        }
-                    }
-                }
-            }
-        }
-        // 搜索框
-        item {
-            com.xjtu.toolbox.ui.components.AppSearchBar(
-                query = searchQuery,
-                onQueryChange = onSearchChange,
-                label = "搜索课程、教室、教师...",
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-
-        // 状态筛选
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.defaultColors(color = AppCardColor)
             ) {
-                FlowRow(
-                    modifier = Modifier.padding(12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    AppFilterChip(
-                        selected = selectedStatus == null,
-                        onClick = { onStatusChange(null) },
-                        label = "全部 ($totalCount)",
-                        leadingIcon = { Icon(Icons.Default.FilterList, null, Modifier.size(16.dp)) }
-                    )
-                    WaterType.entries.forEach { type ->
-                        AppFilterChip(
-                            selected = selectedStatus == type,
-                            onClick = { onStatusChange(if (selectedStatus == type) null else type) },
-                            label = type.displayName
-                        )
+                Column {
+                    if (drilldownSubject != null) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                Icons.Outlined.FilterAlt,
+                                contentDescription = null,
+                                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "已筛选「$drilldownSubject」",
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                style = MiuixTheme.textStyles.footnote1,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .clickable { onClearDrilldown() }
+                                    .padding(horizontal = 8.dp, vertical = 2.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text("清除", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.primary)
+                            }
+                        }
+                        HorizontalDivider(Modifier.padding(horizontal = 16.dp))
                     }
+                    com.xjtu.toolbox.ui.components.AppSearchBar(
+                        query = searchQuery,
+                        onQueryChange = onSearchChange,
+                        label = "搜索课程、教室、教师...",
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)
+                    )
+                    FlowRow(
+                        modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        AppFilterChip(
+                            selected = selectedStatus == null,
+                            onClick = { onStatusChange(null) },
+                            label = "全部 ($totalCount)",
+                            leadingIcon = { Icon(Icons.Default.FilterList, null, Modifier.size(16.dp)) }
+                        )
+                        WaterType.entries.forEach { type ->
+                            AppFilterChip(
+                                selected = selectedStatus == type,
+                                onClick = { onStatusChange(if (selectedStatus == type) null else type) },
+                                label = type.displayName
+                            )
+                        }
+                    }
+                    Text(
+                        "${filteredRecords.size} 条记录",
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp, top = 4.dp)
+                    )
                 }
             }
         }
 
-        item {
-            Text("${filteredRecords.size} 条记录",
-                style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-        }
-
-        // 按日期分组
-        val groupedByDate = filteredRecords.groupBy { it.date }
         groupedByDate.forEach { (date, dayRecords) ->
-            item(key = "header_$date") {
-                Text(date, style = MiuixTheme.textStyles.body2,
-                    fontWeight = FontWeight.Bold,
-                    color = MiuixTheme.colorScheme.primary,
-                    modifier = Modifier.padding(top = 4.dp))
-            }
-            itemsIndexed(dayRecords, key = { idx, it -> "${it.date}_${it.startTime}_${it.courseName}_${it.sbh}_$idx" }) { _, record ->
-                AttendanceRecordCard(record)
+            item(key = "day_$date") {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.defaultColors(color = AppCardColor)
+                ) {
+                    Column {
+                        Text(
+                            date,
+                            style = MiuixTheme.textStyles.body2,
+                            fontWeight = FontWeight.Bold,
+                            color = MiuixTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                        )
+                        dayRecords.forEach { record ->
+                            HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                            AttendanceRecordRow(record)
+                        }
+                    }
+                }
             }
         }
 
@@ -766,20 +733,17 @@ private fun StatValue(
 }
 
 @Composable
-private fun AttendanceRecordCard(record: AttendanceWaterRecord) {
+private fun AttendanceRecordRow(record: AttendanceWaterRecord) {
     val statusColor = when (record.status) {
         WaterType.NORMAL -> MiuixTheme.colorScheme.primary
         WaterType.LATE -> MiuixTheme.colorScheme.primaryVariant
         WaterType.ABSENCE -> MiuixTheme.colorScheme.error
         WaterType.LEAVE -> MiuixTheme.colorScheme.onSurfaceVariantSummary
     }
-    top.yukonga.miuix.kmp.basic.Card(
-        modifier = Modifier.fillMaxWidth(),
-        // 这里原本用 surface —— 而 Scaffold 背景正是 surface，所以这张卡整个没有背景。
-        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = AppCardColor)
+    Row(
+        Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min),
-            verticalAlignment = Alignment.CenterVertically) {
             Box(
                 Modifier.width(3.dp).fillMaxHeight()
                     .padding(vertical = 10.dp)
@@ -812,5 +776,4 @@ private fun AttendanceRecordCard(record: AttendanceWaterRecord) {
                 }
             }
         }
-    }
 }

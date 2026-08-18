@@ -171,16 +171,21 @@ fun CustomCourseDialog(
             summary = "确定要删除「${existing.courseName}」吗？此操作不可恢复。",
             onDismissRequest = { showDeleteConfirm.value = false }
         ) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxWidth()) {
                 TextButton(
                     text = "取消",
                     onClick = { showDeleteConfirm.value = false },
                     modifier = Modifier.weight(1f)
                 )
-                Button(
+                Spacer(Modifier.width(20.dp))
+                TextButton(
+                    text = "删除",
                     onClick = { onDelete?.invoke(existing); onDismiss() },
-                    modifier = Modifier.weight(1f)
-                ) { Text("删除") }
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColors(
+                        textColor = MiuixTheme.colorScheme.error
+                    )
+                )
             }
         }
     }

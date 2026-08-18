@@ -15,8 +15,10 @@ import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
-import top.yukonga.miuix.kmp.basic.TabRowWithContour
-import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
+import com.xjtu.toolbox.ui.components.AppSegmentedTabs
+import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
+import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -114,7 +116,7 @@ fun JudgeScreen(
         topBar = {
             TopAppBar(
                 title = "本科评教",
-                color = MiuixTheme.colorScheme.surfaceVariant,
+                color = MiuixTheme.colorScheme.surface,
                 largeTitle = "本科评教",
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
@@ -136,39 +138,30 @@ fun JudgeScreen(
                 .padding(padding)
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
         ) {
-            // 切换Tab: 未评 / 已评
-            Surface(modifier = Modifier.fillMaxWidth(), color = MiuixTheme.colorScheme.surfaceVariant) {
-                TabRowWithContour(
-                    tabs = listOf("未评 (${unfinishedList.size})", "已评 (${finishedList.size})"),
-                    selectedTabIndex = selectedTab,
-                    onTabSelected = { selectedTab = it },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-            }
+            AppSegmentedTabs(
+                tabs = listOf("未评 (${unfinishedList.size})", "已评 (${finishedList.size})"),
+                selectedTabIndex = selectedTab,
+                onTabSelected = { selectedTab = it },
+            )
 
             // 确认对话框（提升至顶层，不受 selectedTab 条件约束）
             BackHandler(enabled = showConfirmDialog.value) { showConfirmDialog.value = false }
-            OverlayBottomSheet(
+            OverlayDialog(
                     show = showConfirmDialog.value,
                     title = "确认一键好评",
+                    summary = "将为 ${unfinishedList.size} 门课程全部提交好评，确定继续？",
                     onDismissRequest = { showConfirmDialog.value = false }
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .imePadding()
-                            .navigationBarsPadding()
-                            .padding(bottom = 8.dp)
-                    ) {
-                        Text("将为 ${unfinishedList.size} 门课程全部提交好评，确定继续？")
-                        Spacer(Modifier.height(20.dp))
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Button(
-                                onClick = { showConfirmDialog.value = false },
-                                modifier = Modifier.weight(1f),
-                                colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColors(color = MiuixTheme.colorScheme.secondaryContainer)
-                            ) { Text("取消", color = MiuixTheme.colorScheme.onSecondaryContainer) }
-                            Button(onClick = {
+                    Row(Modifier.fillMaxWidth()) {
+                        TextButton(
+                            text = "取消",
+                            onClick = { showConfirmDialog.value = false },
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(Modifier.width(20.dp))
+                        TextButton(
+                            text = "确定",
+                            onClick = {
                                 showConfirmDialog.value = false
                                 scope.launch {
                                     isAutoJudging = true
@@ -206,8 +199,10 @@ fun JudgeScreen(
                                         isAutoJudging = false
                                     }
                                 }
-                            }, modifier = Modifier.weight(1f)) { Text("确认") }
-                        }
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.textButtonColorsPrimary()
+                        )
                     }
                 }
 

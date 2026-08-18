@@ -15,9 +15,10 @@ import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
-import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
+import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -97,7 +98,7 @@ fun GsteJudgeScreen(
         topBar = {
             TopAppBar(
                 title = "研究生评教",
-                color = MiuixTheme.colorScheme.surfaceVariant,
+                color = MiuixTheme.colorScheme.surface,
                 largeTitle = "研究生评教",
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
@@ -170,27 +171,22 @@ fun GsteJudgeScreen(
 
                 // 确认对话框（研究生评教不可撤销，需更醒目的警告）
                 BackHandler(enabled = showConfirmDialog.value) { showConfirmDialog.value = false }
-                OverlayBottomSheet(
+                OverlayDialog(
                     show = showConfirmDialog.value,
-                    title = "⚠️ 确认一键好评",
+                    title = "确认一键好评",
+                    summary = "将为 ${allowList.size} 门课程全部提交好评。研究生评教提交后不可撤销，请确认后操作。",
                     onDismissRequest = { showConfirmDialog.value = false }
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .imePadding()
-                            .navigationBarsPadding()
-                            .padding(bottom = 8.dp)
-                    ) {
-                        Text("将为 ${allowList.size} 门课程全部提交好评。\n\n注意：研究生评教提交后不可撤销，请确认后操作。")
-                        Spacer(Modifier.height(20.dp))
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Button(
-                                onClick = { showConfirmDialog.value = false },
-                                modifier = Modifier.weight(1f),
-                                colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColors(color = MiuixTheme.colorScheme.secondaryContainer)
-                            ) { Text("取消", color = MiuixTheme.colorScheme.onSecondaryContainer) }
-                            Button(onClick = {
+                    Row(Modifier.fillMaxWidth()) {
+                        TextButton(
+                            text = "取消",
+                            onClick = { showConfirmDialog.value = false },
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(Modifier.width(20.dp))
+                        TextButton(
+                            text = "确认提交",
+                            onClick = {
                                 showConfirmDialog.value = false
                                 scope.launch {
                                     isAutoJudging = true
@@ -231,8 +227,10 @@ fun GsteJudgeScreen(
                                         isAutoJudging = false
                                     }
                                 }
-                            }, modifier = Modifier.weight(1f)) { Text("确认提交") }
-                        }
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.textButtonColorsPrimary()
+                        )
                     }
                 }
 

@@ -48,9 +48,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.*
-import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
-import top.yukonga.miuix.kmp.window.WindowBottomSheet
-import top.yukonga.miuix.kmp.overlay.OverlayDialog
+import top.yukonga.miuix.kmp.window.WindowDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import java.time.ZonedDateTime
@@ -112,33 +110,30 @@ fun ClassScreen(
         // （CourseListPage / ReplayListPage），而 Overlay* 需要 Scaffold 提供的
         // LocalDialogStates 宿主才会渲染，写在外壳里拿不到宿主会静默不显示。
         // 当前显示哪个子页面是动态的，搬进任一个都不对，故用自带独立 Window 的变体。
-        WindowBottomSheet(
+        WindowDialog(
             show = showHint.value,
             title = "功能说明",
+            summary = "课程回放功能数据来源为 class 平台（TronClass），而非思源学堂。",
             onDismissRequest = {
                 showHint.value = false
                 prefs.edit().putBoolean("class_replay_hint_shown", true).apply()
             }
         ) {
-            Column(Modifier.padding(bottom = 16.dp).navigationBarsPadding()) {
-                Text(
-                    "课程回放功能数据来源为 class 平台（TronClass），而非思源学堂。",
-                    style = MiuixTheme.textStyles.body1
-                )
-                Spacer(Modifier.height(8.dp))
+            Column(Modifier.fillMaxWidth()) {
                 Text(
                     "class 平台专注课程录播回看（或许不全，但相对稳定）。如需查看作业、课件等完整功能，请使用教务 Tab 中的「思源学堂」。",
                     style = MiuixTheme.textStyles.body2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                 )
-                Spacer(Modifier.height(16.dp))
-                Button(
+                Spacer(Modifier.height(12.dp))
+                TextButton(
+                    text = "知道了",
                     onClick = {
                         showHint.value = false
                         prefs.edit().putBoolean("class_replay_hint_shown", true).apply()
                     },
                     modifier = Modifier.fillMaxWidth()
-                ) { Text("知道了") }
+                )
             }
         }
     }
@@ -287,7 +282,7 @@ private fun CourseListPage(
         topBar = {
             SmallTopAppBar(
                 title = "课程回放",
-                color = MiuixTheme.colorScheme.surfaceVariant,
+                color = MiuixTheme.colorScheme.surface,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -542,7 +537,7 @@ private fun ReplayListPage(
                 // 选择模式 TopAppBar
                 SmallTopAppBar(
                     title = "下载课程回放",
-                    color = MiuixTheme.colorScheme.surfaceVariant,
+                    color = MiuixTheme.colorScheme.surface,
                     navigationIcon = {
                         IconButton(onClick = {
                             isSelectionMode = false
@@ -567,7 +562,7 @@ private fun ReplayListPage(
                 // 普通模式 TopAppBar
                 SmallTopAppBar(
                     title = course.displayName,
-                    color = MiuixTheme.colorScheme.surfaceVariant,
+                    color = MiuixTheme.colorScheme.surface,
                     navigationIcon = {
                         IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -776,7 +771,7 @@ private fun ReplayDetailPage(
         topBar = {
             SmallTopAppBar(
                 title = activity.title,
-                color = MiuixTheme.colorScheme.surfaceVariant,
+                color = MiuixTheme.colorScheme.surface,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")

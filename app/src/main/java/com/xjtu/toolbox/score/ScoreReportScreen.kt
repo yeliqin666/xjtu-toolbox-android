@@ -51,6 +51,7 @@ import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
+import com.xjtu.toolbox.util.XjtuTime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -143,7 +144,7 @@ fun ScoreReportScreen(
         topBar = {
             TopAppBar(
                 title = "成绩报表",
-                color = MiuixTheme.colorScheme.surfaceVariant,
+                color = MiuixTheme.colorScheme.surface,
                 largeTitle = "成绩报表",
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
@@ -353,18 +354,4 @@ private fun ReportGradeRow(grade: ReportedGrade) {
     }
 }
 
-/**
- * 格式化学期代码为显示文本
- * "2024-2025-1" → "2024-2025 秋季学期"
- */
-private fun formatTermDisplay(term: String): String {
-    val parts = term.split("-")
-    if (parts.size != 3) return term
-    val semesterName = when (parts[2]) {
-        "1" -> "秋季学期"
-        "2" -> "春季学期"
-        "3" -> "夏季学期"
-        else -> "第${parts[2]}学期"
-    }
-    return "${parts[0]}-${parts[1]} $semesterName"
-}
+private fun formatTermDisplay(term: String): String = XjtuTime.displayTerm(term)

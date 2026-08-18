@@ -212,24 +212,22 @@ fun AgentScreen(onBack: () -> Unit, onNavigate: (String) -> Unit = {}) {
                 summary = AgentViewModel.CONTEXT_EXHAUSTED_MESSAGE + "\n\n继续累积可能导致 AI 回复变慢或回答失准。",
                 onDismissRequest = { showContextExhaustedDialog = false }
             ) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
+                Row(Modifier.fillMaxWidth()) {
                     TextButton(
                         text = "稍后",
                         onClick = { showContextExhaustedDialog = false },
                         modifier = Modifier.weight(1f),
                     )
-                    Button(
+                    Spacer(Modifier.width(20.dp))
+                    TextButton(
+                        text = "新建对话",
                         onClick = {
                             showContextExhaustedDialog = false
                             vm.newSession()
                         },
                         modifier = Modifier.weight(1f),
-                    ) {
-                        Text("新建对话")
-                    }
+                        colors = ButtonDefaults.textButtonColorsPrimary()
+                    )
                 }
             }
         }

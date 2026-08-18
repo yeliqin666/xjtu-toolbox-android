@@ -19,7 +19,6 @@ import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.TabRowWithContour
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.overlay.OverlayListPopup
 import top.yukonga.miuix.kmp.basic.ListPopupColumn
@@ -69,6 +68,7 @@ import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.EventAvailable
 import com.xjtu.toolbox.account.AccountContext
+import com.xjtu.toolbox.util.XjtuTime
 import com.xjtu.toolbox.ui.components.AppDropdownMenu
 import com.xjtu.toolbox.ui.components.AppDropdownMenuItem
 import com.xjtu.toolbox.ui.components.AppTopBar
@@ -96,6 +96,7 @@ import com.xjtu.toolbox.ui.DAY_START_HOUR
 import com.xjtu.toolbox.ui.ScheduleGrid
 import com.xjtu.toolbox.ui.WeekSelector
 import com.xjtu.toolbox.ui.components.AppFilterChip
+import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.ErrorState
@@ -126,6 +127,8 @@ fun ScheduleScreen(
     val appLoginState = LocalAppLoginState.current
     var activeSite by remember(site) { mutableStateOf(site) }
     val api = remember(activeSite) { activeSite?.let { ScheduleApi(it) } }
+    fun termLabel(code: String): String =
+        if (code.isBlank()) "" else api?.termDisplayName(code) ?: XjtuTime.displayTerm(code)
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
     val dataCache = remember { com.xjtu.toolbox.util.DataCache(context) }
@@ -191,12 +194,13 @@ fun ScheduleScreen(
     var showExportMenu by remember { mutableStateOf(false) }
 
     // 通知外层（MainScreen TopAppBar）当前学期 / 周次（不含日期范围）
-    LaunchedEffect(selectedTab, selectedTermCode, currentWeek, showAllWeeks, weekNote) {
+    LaunchedEffect(selectedTab, selectedTermCode, currentWeek, showAllWeeks, weekNote, termList) {
+        val name = termLabel(selectedTermCode)
         val subtitle = when {
-            selectedTab != 0 -> selectedTermCode
-            weekNote != null -> selectedTermCode
-            showAllWeeks -> selectedTermCode.takeIf { it.isNotEmpty() }?.let { "$it · 全学期" } ?: "全学期"
-            selectedTermCode.isNotEmpty() -> "$selectedTermCode · 第 $currentWeek 周"
+            selectedTab != 0 -> name
+            weekNote != null -> name
+            showAllWeeks -> name.takeIf { it.isNotEmpty() }?.let { "$it · 全学期" } ?: "全学期"
+            name.isNotEmpty() -> "$name · 第 $currentWeek 周"
             else -> "第 $currentWeek 周"
         }
         onSubtitleChange(subtitle)
@@ -906,7 +910,7 @@ fun ScheduleScreen(
                 ListPopupColumn {
                     termList.forEachIndexed { idx, term ->
                         DropdownImpl(
-                            text = term,
+                            text = termLabel(term),
                             optionSize = termList.size,
                             isSelected = idx == termSelectedIdxTb,
                             onSelectedIndexChange = {
@@ -921,23 +925,16 @@ fun ScheduleScreen(
         }
     }
     val headerBottomContent: (@Composable () -> Unit) = {
-        Surface(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-            shape = RoundedCornerShape(14.dp),
-            color = MiuixTheme.colorScheme.surfaceContainer
-        ) {
-            TabRowWithContour(
-                tabs = listOf("日程", "考试", "教材"),
-                selectedTabIndex = selectedTab,
-                onTabSelected = { tab ->
-                    selectedTab = tab
-                    if (tab == 2) {
-                        if (!textbooksLoaded && !textbooksLoading && selectedTermCode.isNotEmpty()) loadTextbooks(selectedTermCode)
-                    }
-                },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)
-            )
-        }
+        AppSegmentedTabs(
+            tabs = listOf("日程", "考试", "教材"),
+            selectedTabIndex = selectedTab,
+            onTabSelected = { tab ->
+                selectedTab = tab
+                if (tab == 2) {
+                    if (!textbooksLoaded && !textbooksLoading && selectedTermCode.isNotEmpty()) loadTextbooks(selectedTermCode)
+                }
+            },
+        )
     }
     DisposableEffect(showTopBar) {
         if (!showTopBar) {
@@ -963,11 +960,11 @@ fun ScheduleScreen(
                     } else null
                 }
                 val computedSubtitle = when {
-                    selectedTab != 0 -> selectedTermCode.takeIf { it.isNotEmpty() } ?: ""
-                    weekNote != null -> selectedTermCode.takeIf { it.isNotEmpty() } ?: ""
-                    showAllWeeks -> "${selectedTermCode} · 全学期"
-                    weekDateLabel != null -> "${selectedTermCode} · 第 $currentWeek 周 · $weekDateLabel"
-                    selectedTermCode.isNotEmpty() -> "${selectedTermCode} · 第 $currentWeek 周"
+                    selectedTab != 0 -> termLabel(selectedTermCode)
+                    weekNote != null -> termLabel(selectedTermCode)
+                    showAllWeeks -> "${termLabel(selectedTermCode)} · 全学期"
+                    weekDateLabel != null -> "${termLabel(selectedTermCode)} · 第 $currentWeek 周 · $weekDateLabel"
+                    selectedTermCode.isNotEmpty() -> "${termLabel(selectedTermCode)} · 第 $currentWeek 周"
                     else -> "第 $currentWeek 周"
                 }
                 SmallTopAppBar(
@@ -1012,7 +1009,7 @@ fun ScheduleScreen(
                                             termList.indexOf(currentTermCode) >= 0 &&
                                             currentTermCode != selectedTermCode) {
                                             DropdownImpl(
-                                                text = "📍 当前学期 · $currentTermCode",
+                                                text = "📍 当前学期 · ${termLabel(currentTermCode)}",
                                                 optionSize = termList.size + 1,
                                                 isSelected = false,
                                                 onSelectedIndexChange = {
@@ -1024,7 +1021,7 @@ fun ScheduleScreen(
                                         }
                                         termList.forEachIndexed { idx, term ->
                                             DropdownImpl(
-                                                text = term,
+                                                text = termLabel(term),
                                                 optionSize = termList.size,
                                                 isSelected = idx == termSelectedIdx,
                                                 onSelectedIndexChange = {
