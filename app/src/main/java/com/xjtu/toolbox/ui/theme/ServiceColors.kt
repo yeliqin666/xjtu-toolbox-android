@@ -54,6 +54,7 @@ private const val R_POSTGRADUATE_ATTENDANCE = "postgraduate_attendance"
 private const val R_JWAPP_SCORE = "jwapp_score"
 private const val R_JUDGE = "judge"
 private const val R_JIAOCAI = "jiaocai"
+private const val R_JIAOCAI1 = "jiaocai1"
 private const val R_LIBRARY = "library"
 private const val R_TRANSCRIPT = "transcript"
 private const val R_NOTIFICATION = "notification"
@@ -89,6 +90,7 @@ fun legacyColor(key: String): Color = when (key) {
     R_JWAPP_SCORE -> Color(0xFF7B1FA2)
     R_JUDGE -> Color(0xFF6A1B9A)
     R_JIAOCAI -> Color(0xFFAD1457)
+    R_JIAOCAI1 -> Color(0xFF880E4F)
     R_LIBRARY -> Color(0xFFE65100)
     R_TRANSCRIPT -> Color(0xFF283593)
     R_NOTIFICATION -> MiuixTheme.colorScheme.error

@@ -1,5 +1,12 @@
 package com.xjtu.toolbox.jiaocai
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -12,7 +19,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.*
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.xjtu.toolbox.ui.components.rememberRetainedLazyListState
 import com.xjtu.toolbox.LocalAppLoginState
 import com.xjtu.toolbox.Routes
 import com.xjtu.toolbox.auth.AuthExpiredException
@@ -25,6 +35,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.*
 import top.yukonga.miuix.kmp.basic.*
@@ -34,20 +45,59 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
 // ── 主入口 ────────────────────────────────────────────────────────────
 
 @Composable
-fun JiaocaiScreen(site: SiteSession, onBack: () -> Unit) {
-    var selectedBook by remember { mutableStateOf<JiaocaiBook?>(null) }
+fun JiaocaiScreen(
+    site: SiteSession,
+    onBack: () -> Unit,
+    onOpenFullText: (ssno: String, title: String) -> Unit,
+) {
+    val appLoginState = LocalAppLoginState.current
+    val vm: JiaocaiViewModel = viewModel()
+    vm.bind(site)
 
-    if (selectedBook != null) {
-        JiaocaiDetailScreen(
-            book = selectedBook!!,
-            onBack = { selectedBook = null }
-        )
-    } else {
-        JiaocaiSearchScreen(
-            site = site,
-            onBookClick = { selectedBook = it },
-            onBack = onBack
-        )
+    if (vm.authExpired) {
+        LaunchedEffect(Unit) {
+            vm.authExpired = false
+            appLoginState.handleAuthExpired(LoginType.JIAOCAI, Routes.JIAOCAI, onBack)
+        }
+    }
+
+    BackHandler(enabled = vm.selected != null) { vm.selected = null }
+
+    // 列表和详情是同一目的地里的两个分支，拿不到导航图的转场，这里照 NavHost 的
+    // 参数复刻一份，进出方向和全局一致
+    AnimatedContent(
+        targetState = vm.selected,
+        contentKey = { it?.id },
+        transitionSpec = {
+            val spec = spring<Float>(dampingRatio = 0.86f, stiffness = 500f)
+            val offsetSpec = spring<IntOffset>(dampingRatio = 0.86f, stiffness = 500f)
+            if (targetState != null) {
+                (slideInHorizontally(offsetSpec) { it } + fadeIn(spec))
+                    .togetherWith(
+                        slideOutHorizontally(offsetSpec) { -it / 4 } +
+                            fadeOut(spec, targetAlpha = 0.5f)
+                    )
+            } else {
+                (slideInHorizontally(offsetSpec) { -it / 4 } + fadeIn(spec, initialAlpha = 0.5f))
+                    .togetherWith(slideOutHorizontally(offsetSpec) { it })
+            }
+        },
+        label = "jiaocaiDetail",
+    ) { selected ->
+        if (selected != null) {
+            JiaocaiDetailScreen(
+                site = site,
+                book = selected,
+                onBack = { vm.selected = null },
+                onRead = { ssno -> onOpenFullText(ssno, selected.title) },
+            )
+        } else {
+            JiaocaiSearchScreen(
+                vm = vm,
+                onBookClick = { vm.selected = it },
+                onBack = onBack
+            )
+        }
     }
 }
 
@@ -55,40 +105,24 @@ fun JiaocaiScreen(site: SiteSession, onBack: () -> Unit) {
 
 @Composable
 private fun JiaocaiSearchScreen(
-    site: SiteSession,
+    vm: JiaocaiViewModel,
     onBookClick: (JiaocaiBook) -> Unit,
     onBack: () -> Unit
 ) {
-    val appLoginState = LocalAppLoginState.current
-    val scope = rememberCoroutineScope()
-    var keyword by remember { mutableStateOf("") }
-    var books by remember { mutableStateOf<List<JiaocaiBook>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(false) }
-    var errorMsg by remember { mutableStateOf<String?>(null) }
-    var hasSearched by remember { mutableStateOf(false) }
+    val listState = rememberRetainedLazyListState("jiaocai_search")
+    val keyword = vm.keyword
+    val books = vm.books
+    val isLoading = vm.loading
+    val errorMsg = vm.error
+    val hasSearched = vm.hasSearched
 
-    fun doSearch() {
-        if (keyword.isBlank()) return
-        scope.launch {
-            isLoading = true; errorMsg = null
-            try {
-                books = withContext(Dispatchers.IO) { JiaocaiApi(site).search(keyword) }
-                hasSearched = true
-            } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(LoginType.JIAOCAI, Routes.JIAOCAI, onBack)
-            } catch (e: Exception) {
-                errorMsg = "搜索失败: ${e.message}"
-            } finally {
-                isLoading = false
-            }
-        }
-    }
+    fun doSearch() = vm.search()
 
     Scaffold(
         topBar = {
             SmallTopAppBar(
                 title = "教材中心",
-                color = MiuixTheme.colorScheme.background,
+                color = MiuixTheme.colorScheme.surface,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -101,7 +135,7 @@ private fun JiaocaiSearchScreen(
             Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(MiuixTheme.colorScheme.background)
+                .background(MiuixTheme.colorScheme.surface)
         ) {
             Card(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
@@ -132,7 +166,7 @@ private fun JiaocaiSearchScreen(
                     Spacer(Modifier.height(16.dp))
                     com.xjtu.toolbox.ui.components.AppSearchBar(
                         query = keyword,
-                        onQueryChange = { keyword = it },
+                        onQueryChange = { vm.keyword = it },
                         label = "书名、作者或课程",
                         onSearch = { doSearch() },
                         modifier = Modifier.fillMaxWidth()
@@ -152,7 +186,7 @@ private fun JiaocaiSearchScreen(
                             listOf("高等数学", "大学物理", "程序设计").forEach { suggestion ->
                                 com.xjtu.toolbox.ui.components.AppSuggestionChip(
                                     label = suggestion,
-                                    onClick = { keyword = suggestion; doSearch() }
+                                    onClick = { vm.searchWith(suggestion) }
                                 )
                             }
                         }
@@ -160,6 +194,15 @@ private fun JiaocaiSearchScreen(
                 }
             }
 
+            AnimatedContent(
+                targetState = Triple(isLoading, errorMsg, books),
+                contentKey = { (l, e, b) -> "$l|${e != null}|${b.size}" },
+                transitionSpec = {
+                    fadeIn(spring(stiffness = 500f)) togetherWith fadeOut(spring(stiffness = 500f))
+                },
+                label = "jiaocaiResult",
+                modifier = Modifier.weight(1f),
+            ) { (isLoading, errorMsg, books) ->
             when {
                 isLoading -> Box(Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
@@ -177,7 +220,8 @@ private fun JiaocaiSearchScreen(
                     }
                 }
                 else -> LazyColumn(
-                    modifier = Modifier.weight(1f),
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
                 ) {
@@ -194,6 +238,7 @@ private fun JiaocaiSearchScreen(
                     }
                     item { Spacer(Modifier.height(80.dp)) }
                 }
+            }
             }
         }
     }
@@ -253,14 +298,25 @@ private fun BookCard(book: JiaocaiBook, onClick: () -> Unit) {
 
 @Composable
 private fun JiaocaiDetailScreen(
+    site: SiteSession,
     book: JiaocaiBook,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onRead: (String) -> Unit,
 ) {
+    // 列表接口不给 ssno，进详情时补一次；没有全文的书直接跳过这次请求
+    var ssno by remember(book.id) { mutableStateOf(book.ssno) }
+    var resolving by remember(book.id) { mutableStateOf(false) }
+    LaunchedEffect(book.id) {
+        if (ssno != null || !book.hasFullText) return@LaunchedEffect
+        resolving = true
+        ssno = withContext(Dispatchers.IO) { JiaocaiApi(site).fetchSsno(book) }
+        resolving = false
+    }
     Scaffold(
         topBar = {
             SmallTopAppBar(
                 title = book.title,
-                color = MiuixTheme.colorScheme.background,
+                color = MiuixTheme.colorScheme.surface,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -307,27 +363,54 @@ private fun JiaocaiDetailScreen(
                 }
             }
 
-            Spacer(Modifier.height(16.dp))
-            if (book.summary.isNotBlank()) {
-                Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
-                    Column(Modifier.padding(18.dp)) {
-                        Text("书目信息", style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.height(8.dp))
-                        Text(book.summary, style = MiuixTheme.textStyles.body2,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            if (book.hasFullText) {
+                Spacer(Modifier.height(16.dp))
+                val ready = ssno
+                Button(
+                    onClick = { ready?.let(onRead) },
+                    enabled = ready != null,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.AutoStories, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            when {
+                                ready != null -> "阅读全文"
+                                resolving -> "正在获取全文地址…"
+                                else -> "该书暂无法在线阅读"
+                            }
+                        )
                     }
                 }
             }
 
-            if (book.hasFullText) {
-                Spacer(Modifier.height(16.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.background(
-                        MiuixTheme.colorScheme.primary.copy(alpha = 0.15f),
-                        RoundedCornerShape(4.dp)
-                    ).padding(horizontal = 6.dp, vertical = 2.dp)) {
-                        Text("本地全文可用", style = MiuixTheme.textStyles.footnote2,
-                            color = MiuixTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
+            Spacer(Modifier.height(16.dp))
+            // 描述本身就是「键：值」串起来的；拆不出字段的条目退回整段展示
+            val infoFields = book.fields.filterKeys { it !in HIDDEN_FIELDS }
+            if (infoFields.isNotEmpty() || book.summary.isNotBlank()) {
+                Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
+                    Column(Modifier.padding(18.dp)) {
+                        Text("书目信息", style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(10.dp))
+                        if (infoFields.isNotEmpty()) {
+                            infoFields.forEach { (key, value) ->
+                                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                                    Text(
+                                        key,
+                                        style = MiuixTheme.textStyles.body2,
+                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                        modifier = Modifier.width(88.dp)
+                                    )
+                                    Text(value, style = MiuixTheme.textStyles.body2, modifier = Modifier.weight(1f))
+                                }
+                            }
+                        } else {
+                            Text(
+                                book.summary, style = MiuixTheme.textStyles.body2,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                            )
+                        }
                     }
                 }
             }
@@ -336,3 +419,6 @@ private fun JiaocaiDetailScreen(
         }
     }
 }
+
+/** 获取方式相关字段已由「阅读全文」按钮承担，不再列出 */
+private val HIDDEN_FIELDS = setOf("获取方式一", "获取方式二", "获取方式一地址", "获取方式二地址")

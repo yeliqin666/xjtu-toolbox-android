@@ -265,6 +265,8 @@ object Routes {
     const val CLASS_REPLAY = "class_replay"
     const val LMS = "lms"
     const val JIAOCAI = "jiaocai"
+    const val JIAOCAI1 = "jiaocai1"
+    const val JIAOCAI1_READER = "jiaocai1_reader/{ssno}?title={title}"
     const val SCHOOL_COURSE = "school_course"
     const val SCHOOL_CALENDAR = "school_calendar"
     const val YELLOW_PAGE = "yellow_page"
@@ -285,6 +287,8 @@ object Routes {
     fun login(type: LoginType, target: String) = "login/${type.name}/$target"
     fun browser(url: String = "") = "browser?url=${java.net.URLEncoder.encode(url, "UTF-8")}"
     fun videoPlayer(activityId: Int) = "video_player/$activityId"
+    fun jiaocai1Reader(ssno: String, title: String = "") =
+        "jiaocai1_reader/$ssno?title=${java.net.URLEncoder.encode(title, "UTF-8")}"
 }
 
 /** shortcut / 搜索 / 深链进功能页时，对应要先登录的站点。null = 无需登录可直达。 */
@@ -299,13 +303,13 @@ fun loginTypeForRoute(route: String): LoginType? = when (route) {
     Routes.VENUE -> LoginType.VENUE
     Routes.CLASS_REPLAY -> LoginType.CLASS
     Routes.LMS -> LoginType.LMS
-    Routes.JIAOCAI -> LoginType.JIAOCAI
+    Routes.JIAOCAI, Routes.JIAOCAI1 -> LoginType.JIAOCAI
     Routes.COUPON -> LoginType.COUPON
     Routes.MOBILE_JIAODA -> LoginType.SUPER_APP
     Routes.FITNESS -> LoginType.FITNESS
     Routes.JIAOXIAOZHI -> LoginType.JIAOXIAOZHI
     Routes.ICLASSFACE -> LoginType.ICLASSFACE
-    else -> null
+    else -> if (route.startsWith("jiaocai1_reader")) LoginType.JIAOCAI else null
 }
 
 // ── 维护中（学校系统）服务清单 ────────────────────────────
@@ -1549,9 +1553,6 @@ fun AppNavigation(
                 com.xjtu.toolbox.classreplay.ClassScreen(
                     site = classSite,
                     onBack = { navController.popBackStack() },
-                    onPlayReplay = { activityId ->
-                        navController.navigate(Routes.videoPlayer(activityId))
-                    },
                     onDownloadReplay = { activityIds, videoSources ->
                         // 启动下载流程
                         val appContext = context.applicationContext
@@ -1640,7 +1641,47 @@ fun AppNavigation(
         }
         composable(Routes.JIAOCAI) {
             loginState.sessionManager?.getSiteOrNull("jiaocai")?.let {
-                com.xjtu.toolbox.jiaocai.JiaocaiScreen(site = it, onBack = { navController.popBackStack() })
+                com.xjtu.toolbox.jiaocai.JiaocaiScreen(
+                    site = it,
+                    onBack = { navController.popBackStack() },
+                    onOpenFullText = { ssno, title ->
+                        navController.navigate(Routes.jiaocai1Reader(ssno, title))
+                    },
+                )
+            } ?: LaunchedEffect(Unit) { navController.popBackStack() }
+        }
+        composable(Routes.JIAOCAI1) {
+            // 全文库只认 IP、不做 CAS，借 jiaocai 会话是为了拿它的 OkHttp 客户端
+            loginState.sessionManager?.getSiteOrNull("jiaocai")?.let {
+                com.xjtu.toolbox.jiaocai1.Jiaocai1Screen(
+                    site = it,
+                    onBack = { navController.popBackStack() },
+                    onOpenBook = { ssno, title ->
+                        navController.navigate(Routes.jiaocai1Reader(ssno, title))
+                    },
+                )
+            } ?: LaunchedEffect(Unit) { navController.popBackStack() }
+        }
+        composable(
+            Routes.JIAOCAI1_READER,
+            arguments = listOf(
+                navArgument("ssno") { type = NavType.StringType },
+                navArgument("title") { type = NavType.StringType; defaultValue = "" },
+            )
+        ) { backStackEntry ->
+            val ssno = backStackEntry.arguments?.getString("ssno").orEmpty()
+            val title = try {
+                java.net.URLDecoder.decode(backStackEntry.arguments?.getString("title") ?: "", "UTF-8")
+            } catch (_: Exception) {
+                backStackEntry.arguments?.getString("title").orEmpty()
+            }
+            loginState.sessionManager?.getSiteOrNull("jiaocai")?.let {
+                com.xjtu.toolbox.jiaocai1.Jiaocai1ReaderScreen(
+                    site = it,
+                    ssno = ssno,
+                    fallbackTitle = title,
+                    onBack = { navController.popBackStack() },
+                )
             } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
         composable(Routes.SCHOOL_COURSE) {
@@ -2067,17 +2108,6 @@ private fun MainScreen(
                 actions = {
                     if (selectedTab == BottomTab.COURSES) {
                         courseHeaderActions?.invoke(this)
-                    }
-                    // 资料站可以下载文件，就近给一个进下载管理的入口——
-                    // 否则用户得退到「我的」页去找，而下载正是在这一页发起的。
-                    if (selectedTab == BottomTab.TOOLS) {
-                        IconButton(onClick = { navController.navigate(Routes.DOWNLOAD_MANAGER) }) {
-                            Icon(
-                                Icons.Default.Download,
-                                contentDescription = "下载管理",
-                                tint = MiuixTheme.colorScheme.onSurface
-                            )
-                        }
                     }
                     // 首页全局搜索入口
                     if (selectedTab == BottomTab.HOME) {
@@ -3034,6 +3064,7 @@ private fun HomeTab(
             MoreSvc(Routes.JWAPP_SCORE, Icons.Default.Assessment, "成绩", com.xjtu.toolbox.ui.theme.legacyColor(Routes.JWAPP_SCORE), ServiceCategory.STUDY) { onNavigateWithLogin(Routes.JWAPP_SCORE, LoginType.JWAPP) },
             MoreSvc(Routes.JUDGE, Icons.Default.RateReview, "评教", com.xjtu.toolbox.ui.theme.legacyColor(Routes.JUDGE), ServiceCategory.STUDY) { onNavigateWithLogin(Routes.JUDGE, LoginType.JWXT) },
             MoreSvc(Routes.JIAOCAI, Icons.AutoMirrored.Filled.MenuBook, "教材", com.xjtu.toolbox.ui.theme.legacyColor(Routes.JIAOCAI), ServiceCategory.STUDY) { onNavigateWithLogin(Routes.JIAOCAI, LoginType.JIAOCAI) },
+            MoreSvc(Routes.JIAOCAI1, Icons.AutoMirrored.Filled.LibraryBooks, "教材全文", com.xjtu.toolbox.ui.theme.legacyColor(Routes.JIAOCAI1), ServiceCategory.STUDY) { onNavigateWithLogin(Routes.JIAOCAI1, LoginType.JIAOCAI) },
             MoreSvc(Routes.LIBRARY, Icons.Default.Chair, "图书馆", com.xjtu.toolbox.ui.theme.legacyColor(Routes.LIBRARY), ServiceCategory.STUDY) { onNavigateWithLogin(Routes.LIBRARY, LoginType.LIBRARY) },
             MoreSvc(Routes.TRANSCRIPT, Icons.Default.Description, "成绩单", com.xjtu.toolbox.ui.theme.legacyColor(Routes.TRANSCRIPT), ServiceCategory.STUDY) { onNavigateWithLogin(Routes.TRANSCRIPT, LoginType.DZPZ) },
             MoreSvc(Routes.NOTIFICATION, Icons.Default.Notifications, "通知公告", com.xjtu.toolbox.ui.theme.legacyColor(Routes.NOTIFICATION), ServiceCategory.STUDY) { onNavigate(Routes.NOTIFICATION) },

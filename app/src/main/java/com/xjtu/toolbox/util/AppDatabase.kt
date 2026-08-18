@@ -8,17 +8,26 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.xjtu.toolbox.classreplay.DownloadTaskDao
 import com.xjtu.toolbox.classreplay.DownloadTaskEntity
+import com.xjtu.toolbox.jiaocai1.Jiaocai1CachePageEntity
+import com.xjtu.toolbox.jiaocai1.Jiaocai1ShelfDao
+import com.xjtu.toolbox.jiaocai1.Jiaocai1ShelfEntity
 import com.xjtu.toolbox.schedule.CustomCourseDao
 import com.xjtu.toolbox.schedule.CustomCourseEntity
 
 @Database(
-    entities = [CustomCourseEntity::class, DownloadTaskEntity::class],
-    version = 5,
+    entities = [
+        CustomCourseEntity::class,
+        DownloadTaskEntity::class,
+        Jiaocai1ShelfEntity::class,
+        Jiaocai1CachePageEntity::class,
+    ],
+    version = 6,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun customCourseDao(): CustomCourseDao
     abstract fun downloadTaskDao(): DownloadTaskDao
+    abstract fun jiaocai1ShelfDao(): Jiaocai1ShelfDao
 
     companion object {
         @Volatile
@@ -89,6 +98,44 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS jiaocai1_shelf (
+                        ssno TEXT NOT NULL PRIMARY KEY,
+                        title TEXT NOT NULL,
+                        author TEXT NOT NULL,
+                        coverUrl TEXT NOT NULL,
+                        totalPages INTEGER NOT NULL,
+                        lastReadIndex INTEGER NOT NULL,
+                        lastReadAt INTEGER NOT NULL,
+                        addedAt INTEGER NOT NULL,
+                        pinned INTEGER NOT NULL,
+                        cachedPages INTEGER NOT NULL,
+                        cropLeft REAL NOT NULL,
+                        cropTop REAL NOT NULL,
+                        cropRight REAL NOT NULL,
+                        cropBottom REAL NOT NULL,
+                        cropReady INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS jiaocai1_cache_pages (
+                        ssno TEXT NOT NULL,
+                        fileName TEXT NOT NULL,
+                        ready INTEGER NOT NULL,
+                        failCount INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL,
+                        PRIMARY KEY(ssno, fileName)
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -96,7 +143,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "xjtu_toolbox.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     .build()
                     .also { INSTANCE = it }
             }
