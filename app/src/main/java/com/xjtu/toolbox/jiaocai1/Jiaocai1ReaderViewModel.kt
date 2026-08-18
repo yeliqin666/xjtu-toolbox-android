@@ -111,8 +111,6 @@ class Jiaocai1ReaderViewModel : ViewModel() {
                     lastReadIndex = index,
                     lastReadAt = now,
                     addedAt = now,
-                    pinned = false,
-                    cachedPages = 0,
                 )).copy(
                     title = h.title.ifBlank { existing?.title ?: fallbackTitle },
                     totalPages = h.pages.size,

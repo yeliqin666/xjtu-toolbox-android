@@ -8,7 +8,6 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.xjtu.toolbox.classreplay.DownloadTaskDao
 import com.xjtu.toolbox.classreplay.DownloadTaskEntity
-import com.xjtu.toolbox.jiaocai1.Jiaocai1CachePageEntity
 import com.xjtu.toolbox.jiaocai1.Jiaocai1ShelfDao
 import com.xjtu.toolbox.jiaocai1.Jiaocai1ShelfEntity
 import com.xjtu.toolbox.schedule.CustomCourseDao
@@ -19,9 +18,8 @@ import com.xjtu.toolbox.schedule.CustomCourseEntity
         CustomCourseEntity::class,
         DownloadTaskEntity::class,
         Jiaocai1ShelfEntity::class,
-        Jiaocai1CachePageEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -136,6 +134,41 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * 移除整本离线缓存留下的痕迹：pinned / cachedPages / crop* 六列已无人读写，
+         * jiaocai1_cache_pages 更是专为记录整本下载进度而建。SQLite 不支持 DROP
+         * COLUMN，只能建新表拷数据再换名。
+         */
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("DROP TABLE IF EXISTS jiaocai1_cache_pages")
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS jiaocai1_shelf_new (
+                        ssno TEXT NOT NULL PRIMARY KEY,
+                        title TEXT NOT NULL,
+                        author TEXT NOT NULL,
+                        coverUrl TEXT NOT NULL,
+                        totalPages INTEGER NOT NULL,
+                        lastReadIndex INTEGER NOT NULL,
+                        lastReadAt INTEGER NOT NULL,
+                        addedAt INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL(
+                    """
+                    INSERT OR REPLACE INTO jiaocai1_shelf_new
+                        (ssno, title, author, coverUrl, totalPages, lastReadIndex, lastReadAt, addedAt)
+                    SELECT ssno, title, author, coverUrl, totalPages, lastReadIndex, lastReadAt, addedAt
+                    FROM jiaocai1_shelf
+                    """.trimIndent()
+                )
+                database.execSQL("DROP TABLE jiaocai1_shelf")
+                database.execSQL("ALTER TABLE jiaocai1_shelf_new RENAME TO jiaocai1_shelf")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -143,7 +176,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "xjtu_toolbox.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                     .build()
                     .also { INSTANCE = it }
             }

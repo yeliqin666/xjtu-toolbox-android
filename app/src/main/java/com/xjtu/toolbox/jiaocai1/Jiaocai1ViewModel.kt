@@ -138,7 +138,6 @@ class Jiaocai1ViewModel : ViewModel() {
         val context = appContext ?: return
         withContext(Dispatchers.IO) {
             val dao = AppDatabase.getInstance(context).jiaocai1ShelfDao()
-            dao.deletePages(ssno)
             dao.delete(ssno)
             Jiaocai1PageLoader.evictBookStatic(context, ssno)
         }

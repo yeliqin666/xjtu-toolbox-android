@@ -1116,7 +1116,8 @@ private fun SlotSelectionContent(
         // 日期选择栏
         DateSelector(
             selectedDate = date,
-            onDateChange = onDateChange
+            onDateChange = onDateChange,
+            advanceDay = venue.advanceDay,
         )
 
         when {
@@ -1205,15 +1206,20 @@ private fun SlotSelectionContent(
 @Composable
 private fun DateSelector(
     selectedDate: LocalDate,
-    onDateChange: (LocalDate) -> Unit
+    onDateChange: (LocalDate) -> Unit,
+    // 可提前几天由场馆自己给（productData 的 advanceday），不同场馆并不一样
+    advanceDay: Int = 7,
 ) {
     val today = remember { LocalDate.now() }
-    // 显示未来 7 天
-    val dates = remember { (0..6).map { today.plusDays(it.toLong()) } }
-    val dayNames = remember {
-        listOf("今天", "明天", "后天").plus(
-            (3..6).map { today.plusDays(it.toLong()).dayOfWeek.let { d ->
-                when (d) {
+    val span = advanceDay.coerceIn(1, 14)
+    val dates = remember(span) { (0 until span).map { today.plusDays(it.toLong()) } }
+    val dayNames = remember(span) {
+        (0 until span).map { offset ->
+            when (offset) {
+                0 -> "今天"
+                1 -> "明天"
+                2 -> "后天"
+                else -> when (today.plusDays(offset.toLong()).dayOfWeek) {
                     java.time.DayOfWeek.MONDAY -> "周一"
                     java.time.DayOfWeek.TUESDAY -> "周二"
                     java.time.DayOfWeek.WEDNESDAY -> "周三"
@@ -1222,8 +1228,8 @@ private fun DateSelector(
                     java.time.DayOfWeek.SATURDAY -> "周六"
                     java.time.DayOfWeek.SUNDAY -> "周日"
                 }
-            }}
-        )
+            }
+        }
     }
 
     Row(

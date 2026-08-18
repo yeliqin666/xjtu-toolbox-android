@@ -6,7 +6,6 @@ import android.graphics.BitmapFactory
 import android.util.Log
 import android.util.LruCache
 import com.xjtu.toolbox.auth.SiteSession
-import com.xjtu.toolbox.util.WebVpnUtil
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -147,36 +146,26 @@ class Jiaocai1PageLoader(
         }
     }
 
-    private enum class Variant { VPN_REFERER, NO_REFERER, PLAIN_REFERER }
-
-    private suspend fun fetchBytes(url: String, referer: String): ByteArray? {
-        winningVariant?.let { v ->
-            tryVariant(url, referer, v)?.let { return it }
-            winningVariant = null
-        }
-        for (v in listOf(Variant.VPN_REFERER, Variant.NO_REFERER, Variant.PLAIN_REFERER)) {
-            val bytes = tryVariant(url, referer, v)
-            if (bytes != null) {
-                winningVariant = v
-                return bytes
-            }
-        }
-        return null
-    }
-
-    private suspend fun tryVariant(url: String, referer: String, variant: Variant): ByteArray? = try {
-        val builder = Request.Builder().url(url).get()
+    /**
+     * 令牌失效或资源不存在时服务端不给 4xx，而是 200 + 空体，只能靠图片魔数判成败。
+     *
+     * Referer 交给 WebVpnInterceptor 改写成网关形式——它是取图能否成功的关键，
+     * 但那是全站共性问题，不该在这里单独兜。
+     */
+    private suspend fun fetchBytes(url: String, referer: String): ByteArray? = try {
+        val request = Request.Builder().url(url).get()
             .header("Accept", "image/avif,image/webp,image/png,image/*;q=0.8,*/*;q=0.5")
-        when (variant) {
-            Variant.VPN_REFERER -> builder.header("Referer", WebVpnUtil.getVpnUrl(referer))
-            Variant.PLAIN_REFERER -> builder.header("Referer", referer)
-            Variant.NO_REFERER -> Unit
-        }
-        site.executeWithReAuth(builder.build()).use { resp ->
+            .header("Referer", referer)
+            .build()
+        site.executeWithReAuth(request).use { resp ->
             val body = resp.body?.bytes()
-            if (!resp.isSuccessful || body == null || !body.looksLikeImage()) null else body
+            if (!resp.isSuccessful || body == null || !body.looksLikeImage()) {
+                Log.w(TAG, "非图像响应 code=${resp.code} len=${body?.size} headers=${resp.headers}")
+                null
+            } else body
         }
-    } catch (_: Exception) {
+    } catch (e: Exception) {
+        Log.w(TAG, "fetch failed: ${e.message}")
         null
     }
 
@@ -248,9 +237,6 @@ class Jiaocai1PageLoader(
     companion object {
         private const val DISK_CAP_BYTES = 160L * 1024 * 1024
         private const val TRIM_EVERY = 40
-
-        @Volatile
-        private var winningVariant: Variant? = null
 
         fun evictBookStatic(context: Context, ssno: String) {
             try {

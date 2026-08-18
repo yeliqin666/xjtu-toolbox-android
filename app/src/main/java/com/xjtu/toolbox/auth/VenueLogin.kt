@@ -1,21 +1,22 @@
 package com.xjtu.toolbox.auth
 
 import android.util.Log
-import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 
 /**
- * 体育场馆预订系统登录 (202.117.17.144)
+ * 体育场馆预订系统登录（202.117.17.144:8080）。
  *
- * 认证链路（CAS OAuth2.0 → org.xjtu.edu.cn 中转）：
- * 1. 访问 CAS OAuth2 authorize (client_id=1439)
- * 2. CAS 登录成功 → callbackAuthorize → org.xjtu.edu.cn/authorizesw
- * 3. org.xjtu.edu.cn 302 → http://202.117.17.144/xjtu/cas/oauth2url.html?code=...&employeeNo=...
- * 4. 202.117.17.144 设置 JSESSIONID → 302 → index.html
+ * 认证链路：
+ * 1. org.xjtu.edu.cn 开放平台 OAuth2（appId=1659）
+ * 2. → CAS → `202.117.17.144:8080/web/cas/oauth2url.html?code=…`
+ * 3. 场馆站下发 SESSION cookie → 302 → `/web/index.html`
  *
- * 会话凭据: JSESSIONID cookie (on 202.117.17.144)
+ * 会话凭据：8080 端口上的 SESSION cookie。
+ *
+ * 早前这里走的是另一套部署（CAS client_id=1439 → 80 端口的 `/xjtu/…`，业务路径不带
+ * `/web/` 前缀）。那套会话很不稳定、订单接口也取不到数据，改成本文件现在这套。
  */
 class VenueLogin(
     session: OkHttpClient? = null,
@@ -29,196 +30,111 @@ class VenueLogin(
 ) {
     companion object {
         private const val TAG = "VenueLogin"
-        @Volatile private var lastSessionValidFromPostLogin: Boolean = false
+
+        /** 业务基址。所有接口都在 `/web/` 下。 */
+        const val BASE_URL = "http://202.117.17.144:8080"
 
         /**
-         * 场馆系统基础地址。
-         *
-         * 注意：抓包实证全站请求都走默认 80 端口，从未出现 :8071。原 APP_URL
-         * 常量把 :8071 当成真实访问端口是错的——那段文本只在滑块验证码提交时
-         * 作为服务端要求的固定校验字符串出现（见 VenueApi.kt submitBooking 的
-         * yzm 拼接），不代表真实端口。此处不再区分 BASE_URL/APP_URL，统一用
-         * BASE_URL。
+         * 支付页在 80 端口的另一套站点上，且要求浏览器自身的会话，
+         * 不能把 App 内的 cookie 拼进 URL。
          */
-        const val BASE_URL = "http://202.117.17.144"
+        const val PAY_BASE_URL = "http://202.117.17.144"
 
-        /**
-         * CAS OAuth2.0 授权 URL
-         * client_id=1439 → 体育场馆预订平台
-         * redirect_uri → org.xjtu.edu.cn 中转后回调到 202.117.17.144
-         */
         const val VENUE_OAUTH_URL =
-            "https://login.xjtu.edu.cn/cas/oauth2.0/authorize?" +
-            "response_type=code&client_id=1439&" +
-            "redirect_uri=https%3A%2F%2Forg.xjtu.edu.cn%2Fopenplatform%2Foauth%2Fauthorizesw" +
-            "%3Fredirect_uri%3Dhttp%3A%2F%2F202.117.17.144%2Fxjtu%2Fcas%2Foauth2url.html&" +
-            "state=1"
+            "https://org.xjtu.edu.cn/openplatform/oauth/authorize?" +
+                "responseType=code&scope=user_info&appId=1659&state=1&" +
+                "redirectUri=http://202.117.17.144:8080/web/cas/oauth2url.html"
+
+        /** 探活接口。返回 JSON 数组即认为会话有效。 */
+        private const val PROBE_URL =
+            "$BASE_URL/web/product/productData.html" +
+                "?page=1&rows=8&merccode=100001&remark=defaultProList"
     }
 
-    /** 登录后是否已获取有效 session */
-    var sessionValid: Boolean = lastSessionValidFromPostLogin
+    var sessionValid: Boolean = false
         private set
 
     override fun postLogin(response: Response) {
-        // OkHttp 自动跟随重定向链，最终到达 202.117.17.144/index.html
-        // JSESSIONID 已自动存入 CookieJar
-        val finalUrl = response.request.url.toString()
-        Log.d(TAG, "postLogin: finalUrl=$finalUrl")
+        Log.d(TAG, "postLogin: finalUrl=${response.request.url}")
 
-        if (com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(finalUrl, "202.117.17.144")) {
-            sessionValid = true
-            lastSessionValidFromPostLogin = true
-            Log.d(TAG, "postLogin: session established via redirect chain")
-            return
-        }
-
-        // 最终 URL 不在 venue 站点（直连或 WebVPN），手动访问首页触发 session
-        Log.d(TAG, "postLogin: not at venue site, manually accessing index")
-        try {
-            val indexReq = Request.Builder()
-                .url("$BASE_URL/index.html")
-                .get()
-                .build()
-            val indexResp = client.newCall(indexReq).execute()
-            val indexFinalUrl = indexResp.request.url.toString()
-            indexResp.close()
-
-            sessionValid = com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(indexFinalUrl, "202.117.17.144")
-            if (!sessionValid) {
-                val appResp = client.newCall(
-                    Request.Builder().url("$BASE_URL/product/index.html").get().build()
-                ).execute()
-                val appFinalUrl = appResp.request.url.toString()
-                val appBody = appResp.peekBody(4096).string()
-                appResp.close()
-                sessionValid = com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(appFinalUrl, "202.117.17.144") &&
-                    !isAuthFailureResponse(appBody)
-                Log.d(TAG, "postLogin: app access finalUrl=$appFinalUrl, valid=$sessionValid")
-            }
-            Log.d(TAG, "postLogin: manual access finalUrl=$indexFinalUrl, valid=$sessionValid")
-        } catch (e: Exception) {
-            Log.e(TAG, "postLogin: manual access failed", e)
-        }
+        // 首页里带 userno 才算真拿到身份；只看落点 URL 不够，未登录时同样会停在站内
+        sessionValid = runCatching {
+            client.newCall(
+                Request.Builder().url("$BASE_URL/web/index.html").get().build()
+            ).execute().use { it.body?.string().orEmpty() }
+        }.getOrDefault("").hasUserNo()
 
         if (!sessionValid) {
-            lastSessionValidFromPostLogin = false
-            throw RuntimeException("登录失败：无法建立场馆系统会话")
+            Log.w(TAG, "postLogin: index 未包含有效 userno，回退探活接口")
+            sessionValid = validateLogin()
         }
-        lastSessionValidFromPostLogin = true
+        if (!sessionValid) throw RuntimeException("登录失败：无法建立场馆系统会话")
     }
 
-    /**
-     * 构建带 session cookies 的请求
-     */
-    fun authenticatedRequest(url: String): Request.Builder {
-        return Request.Builder()
-            .url(url)
-            .header("Referer", "$BASE_URL/product/index.html")
+    override fun validateLogin(): Boolean = try {
+        client.newCall(
+            Request.Builder().url(PROBE_URL)
+                .header("Referer", "$BASE_URL/web/index.html")
+                .get().build()
+        ).execute().use { resp ->
+            val body = resp.body?.string().orEmpty()
+            // 未登录时这里会返回登录跳转页而非 JSON 数组
+            resp.code == 200 && body.trimStart().startsWith("[") && body.trimStart() != "[]"
+        }
+    } catch (_: Exception) {
+        false
     }
 
-    override fun validateLogin(): Boolean {
-        return try {
-            val request = Request.Builder().url("$BASE_URL/product/index.html").get().build()
-            val response = client.newCall(request).execute()
-            val finalUrl = response.request.url.toString()
-            val body = response.peekBody(4096).string()
-            response.close()
-            com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(finalUrl, "202.117.17.144") &&
-                !isAuthFailureResponse(body)
-        } catch (_: Exception) { false }
-    }
-
-    override fun keepAlive(): KeepAliveStatus {
-        return try {
-            if (validateLogin()) return KeepAliveStatus.VALID
-            if (reAuthenticate()) KeepAliveStatus.REAUTH_OK
-            else KeepAliveStatus.AUTH_INVALID
-        } catch (_: java.io.IOException) { KeepAliveStatus.NETWORK_ERROR }
-        catch (_: Exception) { KeepAliveStatus.ERROR }
+    override fun keepAlive(): KeepAliveStatus = try {
+        when {
+            validateLogin() -> KeepAliveStatus.VALID
+            reAuthenticate() -> KeepAliveStatus.REAUTH_OK
+            else -> KeepAliveStatus.AUTH_INVALID
+        }
+    } catch (_: java.io.IOException) {
+        KeepAliveStatus.NETWORK_ERROR
+    } catch (_: Exception) {
+        KeepAliveStatus.ERROR
     }
 
     private val reAuthLock = Any()
 
-    /**
-     * 重新认证
-     */
+    /** 先试 SSO 直通，不行再走完整 CAS。 */
     fun reAuthenticate(): Boolean = synchronized(reAuthLock) {
         try {
-            // 检查 session 是否仍有效
-            val checkReq = Request.Builder()
-                .url("$BASE_URL/product/index.html")
-                .get()
-                .build()
-            val checkResp = client.newCall(checkReq).execute()
-            val finalUrl = checkResp.request.url.toString()
-            val body = checkResp.body?.string() ?: ""
-            checkResp.close()
-
-            if (com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(finalUrl, "202.117.17.144") &&
-                body.contains("product/show.html")) {
-                Log.d(TAG, "reAuthenticate: session still valid")
+            if (validateLogin()) {
                 sessionValid = true
-                lastSessionValidFromPostLogin = true
                 return true
             }
-
-            // SSO 方式
-            Log.d(TAG, "reAuthenticate: session expired, trying SSO")
-            val ssoReq = Request.Builder().url(VENUE_OAUTH_URL).get().build()
-            val ssoResp = client.newCall(ssoReq).execute()
-            val ssoFinalUrl = ssoResp.request.url.toString()
-            ssoResp.close()
-
-            if (com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(ssoFinalUrl, "202.117.17.144")) {
+            runCatching {
+                client.newCall(Request.Builder().url(VENUE_OAUTH_URL).get().build())
+                    .execute().close()
+            }
+            if (validateLogin()) {
                 sessionValid = true
-                lastSessionValidFromPostLogin = true
-                Log.d(TAG, "reAuthenticate: SSO success")
+                Log.d(TAG, "reAuthenticate: SSO 直通成功")
                 return true
             }
-
-            // fallback: casAuthenticate
-            Log.d(TAG, "reAuthenticate: SSO failed, trying casAuthenticate")
-            val casResult = casAuthenticate(VENUE_OAUTH_URL) ?: return false
-            if (com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(casResult.second, "202.117.17.144")) {
+            casAuthenticate(VENUE_OAUTH_URL) ?: return false
+            if (validateLogin()) {
                 sessionValid = true
-                lastSessionValidFromPostLogin = true
-                Log.d(TAG, "reAuthenticate: casAuthenticate success")
+                Log.d(TAG, "reAuthenticate: CAS 重认证成功")
                 return true
             }
         } catch (e: Exception) {
             Log.e(TAG, "reAuthenticate failed", e)
         }
         sessionValid = false
-        lastSessionValidFromPostLogin = false
         return@synchronized false
     }
+}
 
-    /**
-     * 执行带自动重认证的请求
-     * 如果请求返回 302 到 CAS、401/403 或被 Safety Verify 拦截，自动重认证并重试
-     */
-    fun executeWithReAuth(request: Request.Builder): Response {
-        val response = client.newCall(request.build()).execute()
-        val finalUrl = response.request.url.toString()
-
-        val needReAuth = when {
-            finalUrl.contains("login.xjtu.edu.cn/cas/login", ignoreCase = true) -> true
-            response.code in listOf(401, 403) -> true
-            response.code == 200 -> {
-                val ct = response.header("Content-Type") ?: ""
-                if ("html" in ct || "text" in ct) {
-                    XJTULogin.isAuthFailureResponse(response.peekBody(8192).string())
-                } else false
-            }
-            else -> false
-        }
-        if (needReAuth) {
-            response.close()
-            if (reAuthenticate()) {
-                return client.newCall(request.build()).execute()
-            }
-            throw AuthExpiredException("体育场馆")
-        }
-        return response
-    }
+/**
+ * 未登录时 `/web/index.html` 也能打开，但 userno 是空的，
+ * 所以要连值一起看，不能只判断字段出现过。
+ */
+private fun String.hasUserNo(): Boolean {
+    val at = indexOf("userno")
+    if (at < 0) return false
+    return !substring(at, minOf(length, at + 50)).contains("value=\"\"")
 }

@@ -15,6 +15,9 @@ import javax.crypto.spec.SecretKeySpec
 object WebVpnUtil {
 
     private const val INSTITUTION = "webvpn.xjtu.edu.cn"
+
+    /** 网关自身的 origin。WEBVPN 模式下所有请求在网关看来都来自这里。 */
+    const val GATEWAY_ORIGIN = "https://$INSTITUTION"
     private val KEY = "wrdvpnisthebest!".toByteArray(Charsets.UTF_8)
     private val IV = "wrdvpnisthebest!".toByteArray(Charsets.UTF_8)
     private val IV_HEX = IV.joinToString("") { "%02x".format(it) }
@@ -208,26 +211,39 @@ object WebVpnUtil {
 }
 
 /**
- * OkHttp 拦截器：自动将非 WebVPN URL 加密为 WebVPN 代理 URL
- * 添加到 OkHttpClient 后，所有 HTTP 请求自动通过 WebVPN 代理
+ * OkHttp 拦截器：把原域名 URL 改写成 WebVPN 代理形式，业务层无感知。
+ *
+ * 只挂在 WEBVPN backend 的 client 上（见 SessionManager.createBackends），
+ * 直连 backend 没有它，所以这里的改写不必再判断当前模式。
+ *
+ * 除 URL 外还要改写 `Referer` / `Origin`：网关会拿这两个头判断请求来源，留着原域名
+ * 等于告诉它「我来自一个你不认识的主机」。教材全文库的取图接口就是这么被拒的——
+ * 返回 200 但只有一个 `Server` 头、body 为空，状态码完全看不出问题。
  */
 class WebVpnInterceptor : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
-        val url = request.url.toString()
-        val host = request.url.host
+        val builder = request.newBuilder()
 
-        // 已经是 WebVPN URL，不重复加密
-        if (WebVpnUtil.isWebVpnUrl(url)) {
-            return chain.proceed(request)
+        // 注意：login.xjtu.edu.cn 也必须走 webvpn 代理。校外环境下它 DNS 解析到
+        // 内网 IP（202.117.x.x）不可达，经网关反代是校外访问 CAS 的唯一通路。
+        val url = request.url.toString()
+        if (!WebVpnUtil.isWebVpnUrl(url)) {
+            builder.url(WebVpnUtil.getVpnUrl(url))
         }
 
-        // 注意：login.xjtu.edu.cn 也必须走 webvpn 代理！
-        // 校外环境下 login.xjtu.edu.cn DNS 解析到内网 IP（202.117.x.x）不可达。
-        // 通过 webvpn 反向代理是校外访问 CAS 的唯一通路。
+        request.header("Referer")?.let { referer ->
+            if (!WebVpnUtil.isWebVpnUrl(referer)) {
+                builder.header("Referer", WebVpnUtil.getVpnUrl(referer))
+            }
+        }
+        // Origin 只有协议和主机，没有路径；网关形式下浏览器发的就是网关自身的 origin
+        request.header("Origin")?.let { origin ->
+            if (!WebVpnUtil.isWebVpnUrl(origin)) {
+                builder.header("Origin", WebVpnUtil.GATEWAY_ORIGIN)
+            }
+        }
 
-        val vpnUrl = WebVpnUtil.getVpnUrl(url)
-        val newRequest = request.newBuilder().url(vpnUrl).build()
-        return chain.proceed(newRequest)
+        return chain.proceed(builder.build())
     }
 }
