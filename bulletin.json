@@ -1,7 +1,7 @@
 {
   "bulletins": [
     {
-      "id": "2026-08-19-test-force-update",
+      "id": "2026-08-19-test-force-update-2",
       "level": "force_update",
       "title": "【测试】强制更新通道",
       "body": "演习：打开会先弹窗，首页通知栏只有「立即更新」。没有新包就去设置里检查。点「稍后」后，这条这轮启动不再出现。测完可删。",
@@ -14,7 +14,7 @@
       "block": false
     },
     {
-      "id": "2026-08-19-test-update",
+      "id": "2026-08-19-test-update-2",
       "level": "update",
       "title": "【测试】可选更新",
       "body": "演习：建议升到 4.73。当前 4.72 会看到。forceBelow 是 4.70，所以仍是建议而不是强制。测完可删。",
@@ -27,7 +27,7 @@
       "block": false
     },
     {
-      "id": "2026-08-19-test-critical",
+      "id": "2026-08-19-test-critical-2",
       "level": "critical",
       "title": "【测试】重大必读",
       "body": "演习：默认进日程也会被弹窗拦住。关掉弹窗后，首页通知栏还在，要点「知道了」才消失。测完可删。",
@@ -38,7 +38,7 @@
       "block": false
     },
     {
-      "id": "2026-08-19-test-warn",
+      "id": "2026-08-19-test-warn-2",
       "level": "warn",
       "title": "【测试】模拟教务维护",
       "body": "演习：橙色维护通知。不挡登录，可以收起，也可以叉掉。测完可删。",
@@ -49,7 +49,7 @@
       "block": false
     },
     {
-      "id": "2026-08-19-test-info",
+      "id": "2026-08-19-test-info-2",
       "level": "info",
       "title": "【测试】公告通道已接通",
       "body": "演习：最低档通知。未登录也能看见。叉掉之后不再出现。测完可删。",
