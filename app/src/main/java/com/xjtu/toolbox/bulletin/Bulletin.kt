@@ -40,8 +40,10 @@ data class Bulletin(
     val endsAt: Instant? = null,
     val minVersion: String? = null,
     val maxVersion: String? = null,
-    /** 当前版本 >= 此值则不展示。用来发「请升到 4.7.3」时让已更新的人自动消失。 */
+    /** 当前 versionName >= 此值则不展示。名字会打架（4.72 对 4.7.3），新公告请同时写 [targetVersionCode]。 */
     val targetVersion: String? = null,
+    /** 当前 versionCode >= 此值则不展示。内部版本号单调递增，比名字可靠。 */
+    val targetVersionCode: Int? = null,
     /** 当前版本 < 此值时，把 update 升级成 force_update。 */
     val forceBelow: String? = null,
     val mustAck: Boolean,
@@ -84,6 +86,7 @@ object BulletinRules {
                 minVersion = obj.get("minVersion")?.takeIf { it.isJsonPrimitive }?.asString?.trim()?.ifBlank { null },
                 maxVersion = obj.get("maxVersion")?.takeIf { it.isJsonPrimitive }?.asString?.trim()?.ifBlank { null },
                 targetVersion = obj.get("targetVersion")?.takeIf { it.isJsonPrimitive }?.asString?.trim()?.ifBlank { null },
+                targetVersionCode = parseInt(obj.get("targetVersionCode")),
                 forceBelow = obj.get("forceBelow")?.takeIf { it.isJsonPrimitive }?.asString?.trim()?.ifBlank { null },
                 mustAck = mustAck,
                 block = obj.get("block")?.takeIf { it.isJsonPrimitive }?.asBoolean ?: false,
@@ -91,13 +94,22 @@ object BulletinRules {
         }
     }
 
-    fun isActive(bulletin: Bulletin, now: Instant, currentVersion: String): Boolean {
+    fun isActive(
+        bulletin: Bulletin,
+        now: Instant,
+        currentVersion: String,
+        currentVersionCode: Int? = null,
+    ): Boolean {
         if (bulletin.startsAt != null && now.isBefore(bulletin.startsAt)) return false
         if (bulletin.endsAt != null && !now.isBefore(bulletin.endsAt)) return false
         val min = bulletin.minVersion
         if (!min.isNullOrBlank() && compareVersions(currentVersion, min) < 0) return false
         val max = bulletin.maxVersion
         if (!max.isNullOrBlank() && compareVersions(currentVersion, max) > 0) return false
+        val targetCode = bulletin.targetVersionCode
+        if (targetCode != null && currentVersionCode != null && currentVersionCode >= targetCode) {
+            return false
+        }
         val target = bulletin.targetVersion
         if (!target.isNullOrBlank() && compareVersions(currentVersion, target) >= 0) return false
         return true
@@ -135,9 +147,10 @@ object BulletinRules {
         dismissedIds: Set<String>,
         ackedIds: Set<String>,
         snoozedIds: Set<String>,
+        currentVersionCode: Int? = null,
     ): List<Bulletin> {
         return items
-            .filter { isActive(it, now, currentVersion) }
+            .filter { isActive(it, now, currentVersion, currentVersionCode) }
             .filterNot { isHidden(it, dismissedIds, ackedIds, snoozedIds) }
             .map { resolveForVersion(it, currentVersion) }
             .sortedWith(
@@ -153,6 +166,7 @@ object BulletinRules {
         dismissedIds: Set<String>,
         ackedIds: Set<String>,
         snoozedIds: Set<String>,
+        currentVersionCode: Int? = null,
     ): Bulletin? = visible(
         items,
         now,
@@ -160,6 +174,7 @@ object BulletinRules {
         dismissedIds,
         ackedIds,
         snoozedIds,
+        currentVersionCode,
     ).firstOrNull()
 
     fun shouldShowLaunchDialog(bulletin: Bulletin): Boolean =
@@ -170,6 +185,13 @@ object BulletinRules {
     /** 冷启动只弹一条：已按等级排好的列表里，取第一条需要弹窗的。 */
     fun pickLaunchDialog(items: List<Bulletin>): Bulletin? =
         items.firstOrNull { !it.synthesized && shouldShowLaunchDialog(it) }
+
+    private fun parseInt(el: com.google.gson.JsonElement?): Int? {
+        if (el == null || !el.isJsonPrimitive) return null
+        val p = el.asJsonPrimitive
+        if (p.isNumber) return runCatching { p.asInt }.getOrNull()
+        return p.asString.trim().toIntOrNull()
+    }
 
     fun parseInstant(raw: String?): Instant? {
         val text = raw?.trim().orEmpty()

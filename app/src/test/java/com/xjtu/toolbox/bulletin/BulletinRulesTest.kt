@@ -101,9 +101,10 @@ class BulletinRulesTest {
     @Test
     fun parse_targetVersionAndForceBelow() {
         val items = BulletinRules.parsePayload(
-            """{"bulletins":[{"id":"u","title":"升到 4.72","level":"update","targetVersion":"4.72","forceBelow":"4.70"}]}"""
+            """{"bulletins":[{"id":"u","title":"升到 4.72","level":"update","targetVersion":"4.72","targetVersionCode":51,"forceBelow":"4.70"}]}"""
         )
         assertEquals("4.72", items[0].targetVersion)
+        assertEquals(51, items[0].targetVersionCode)
         assertEquals("4.70", items[0].forceBelow)
     }
 
@@ -209,6 +210,25 @@ class BulletinRulesTest {
         assertTrue(BulletinRules.compareVersions("4.72", "4.7.3") < 0)
         assertTrue(BulletinRules.compareVersions("4.71", "4.7.3") < 0)
         assertTrue(BulletinRules.compareVersions("4.7.3", "4.7") > 0)
+        assertEquals(0, BulletinRules.compareVersions("4.7.3", "4.73"))
+        assertTrue(BulletinRules.compareVersions("4.72", "4.73") < 0)
+    }
+
+    @Test
+    fun targetVersion_4_73_hidesDottedAndCompactCurrent() {
+        val b = sample(targetVersion = "4.73")
+        assertTrue(BulletinRules.isActive(b, now, "4.72"))
+        assertTrue(BulletinRules.isActive(b, now, "4.7.2"))
+        assertFalse(BulletinRules.isActive(b, now, "4.7.3"))
+        assertFalse(BulletinRules.isActive(b, now, "4.73"))
+    }
+
+    @Test
+    fun targetVersionCode_hidesByInternalCode() {
+        val b = sample(targetVersion = "4.7.3", targetVersionCode = 51)
+        assertTrue(BulletinRules.isActive(b, now, "4.72", currentVersionCode = 50))
+        assertFalse(BulletinRules.isActive(b, now, "4.7.3", currentVersionCode = 51))
+        assertFalse(BulletinRules.isActive(b, now, "4.72", currentVersionCode = 51))
     }
 
     @Test
@@ -227,6 +247,7 @@ class BulletinRulesTest {
         minVersion: String? = null,
         maxVersion: String? = null,
         targetVersion: String? = null,
+        targetVersionCode: Int? = null,
         forceBelow: String? = null,
         mustAck: Boolean = level == BulletinLevel.CRITICAL,
         block: Boolean = false,
@@ -240,6 +261,7 @@ class BulletinRulesTest {
         minVersion = minVersion,
         maxVersion = maxVersion,
         targetVersion = targetVersion,
+        targetVersionCode = targetVersionCode,
         forceBelow = forceBelow,
         mustAck = mustAck,
         block = block,

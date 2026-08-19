@@ -9,6 +9,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import com.xjtu.toolbox.util.safeParseJsonObject
 import kotlinx.coroutines.async
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -487,12 +488,26 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
         }
         return false
     }
+
+    /**
+     * 登录前 / 徽标为空时探测校园网。有缓存就复用，避免和首次登录并行走两次探针。
+     */
+    override suspend fun ensureCampusDetected() {
+        campusDetectMutex.withLock {
+            val cached = isOnCampus
+            if (cached != null && System.currentTimeMillis() - campusDetectTime < CAMPUS_CACHE_MS) {
+                return
+            }
+            onNetworkChanged()
+        }
+    }
     var isOnCampus by mutableStateOf<Boolean?>(null)   // null=未检测, true=校内, false=校外
     // [已移除] webVpnLoggedIn：网关登录态改读 SessionBackend.webvpnSelfLoggedIn，避免两处状态漂移。
 
     // 网络检测结果缓存（10 分钟）
     private var campusDetectTime: Long = 0L
     private val CAMPUS_CACHE_MS = 10 * 60 * 1000L
+    private val campusDetectMutex = Mutex()
 
     // 设备指纹 ID（首次登录时生成，后续系统复用以避免 MFA 重复验证）
     @Volatile internal var firstVisitorId: String? = null
@@ -1100,32 +1115,30 @@ fun AppNavigation(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // 网络变化监听：WiFi / 移动数据 / 校园网切换时重新探测 access mode、后台预热新 mode 的 session。
+    // 网络变化监听：默认网络（WiFi / 蜂窝 / VPN）切换、能力变化、链路属性变化时重探。
+    // 不是拦截每一次 HTTP——那会把探针打爆。只听 ConnectivityManager 的默认网络。
     //
-    // 波动稳健策略：
-    // - **3 秒防抖**：等网络真正稳定，避免短时间内反复回调触发探测
-    // - **二次确认**：detectCampusNetwork 自身已做二次确认（间隔 1.5s），单次失败不算 mode 变化
-    // - **主动清失效缓存**：mode 真变化时清掉所有 cached login + vpnClient（旧 client 已不可用）
-    // - **当前 Screen 自动重登**：用户正在使用某需登录 Screen 时，触发 markStaleAndRetry
-    //   → nav 自动 popBack + 重新进入，全程对用户透明（仅显示一闪而过的 autoLoginSheet）
-    // - **后台预热**：mode 真变化时启动 background warmup，预热其它子系统
+    // - **3 秒防抖**：等网络真正稳定
+    // - **二次确认**：detectCampusNetwork 自身已做二次确认（间隔 1.5s）
+    // - **未登录也探**：先把 isOnCampus 填上，避免首次登录后徽标一直「检测中」
+    // - **已登录且 mode 真变**：清旧会话，当前业务页 markStaleAndRetry
     val networkScope = rememberCoroutineScope()
     DisposableEffect(Unit) {
         val connectivityManager = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
         var networkCheckJob: kotlinx.coroutines.Job? = null
-        // Route → LoginType 映射（仅含需要登录的 Screen 路由）
         val routeToLoginType: (String) -> LoginType? = { loginTypeForRoute(it) }
         fun trigger(reason: String) {
-            if (!loginState.isLoggedIn) return
             networkCheckJob?.cancel()
             networkCheckJob = networkScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                kotlinx.coroutines.delay(3000L)  // 3 秒防抖：等网络真正稳定
+                kotlinx.coroutines.delay(3000L)
                 try {
                     android.util.Log.d("Network", "Network changed ($reason), re-evaluating access mode after 3s settle")
+                    if (!loginState.isLoggedIn) {
+                        loginState.ensureCampusDetected()
+                        return@launch
+                    }
                     val modeChanged = loginState.onNetworkChanged()
                     if (modeChanged) {
-                        // 当前正在 active Screen 内 → 触发 markStaleAndRetry，让 nav 自动重新登录并重新进入。
-                        // 这样用户切换网络时正在使用的 Screen 会无缝重新加载，而不是看到一闪而过的离线/错误。
                         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                             val currentRoute = navController.currentBackStackEntry?.destination?.route
                             val activeType = currentRoute?.let(routeToLoginType)
@@ -1134,9 +1147,6 @@ fun AppNavigation(
                                 loginState.markStaleAndRetry(activeType, currentRoute)
                             }
                         }
-                        // [policy] 不再 startBackgroundLoginWarmup：网络抖动时主动 autoLogin 会触发
-                        // webvpn re-login → MFA detect 弹窗，违反「用户主动才认证」约定。
-                        // 用户进入对应 Screen 时按需 autoLogin 即可。
                     }
                 } catch (e: Exception) {
                     android.util.Log.w("Network", "Network callback error: ${e.message}")
@@ -1146,15 +1156,22 @@ fun AppNavigation(
         val callback = object : android.net.ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: android.net.Network) { trigger("onAvailable") }
             override fun onLost(network: android.net.Network) { trigger("onLost") }
-            override fun onCapabilitiesChanged(network: android.net.Network, caps: android.net.NetworkCapabilities) {
-                // WiFi 切换、VPN 启停等也会 fire 这个事件
+            override fun onCapabilitiesChanged(
+                network: android.net.Network,
+                caps: android.net.NetworkCapabilities,
+            ) {
                 trigger("onCapabilitiesChanged")
             }
+            override fun onLinkPropertiesChanged(
+                network: android.net.Network,
+                properties: android.net.LinkProperties,
+            ) {
+                trigger("onLinkPropertiesChanged")
+            }
         }
-        val networkRequest = android.net.NetworkRequest.Builder()
-            .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .build()
-        connectivityManager?.registerNetworkCallback(networkRequest, callback)
+        // 默认网络：用户实际在用的那条（切 WiFi/蜂窝/VPN 都会到）
+        runCatching { connectivityManager?.registerDefaultNetworkCallback(callback) }
+            .onFailure { android.util.Log.w("Network", "registerDefaultNetworkCallback failed: ${it.message}") }
         onDispose {
             try { connectivityManager?.unregisterNetworkCallback(callback) } catch (_: Exception) {}
         }
@@ -1216,7 +1233,7 @@ fun AppNavigation(
             // 完全不反映用户实际所在的网络环境。必须在这里主动探测一次兜底。
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 try {
-                    loginState.onNetworkChanged()
+                    loginState.ensureCampusDetected()
                 } catch (e: Exception) {
                     android.util.Log.w("Restore", "Phase0 网络探测失败", e)
                 }
@@ -1248,6 +1265,17 @@ fun AppNavigation(
             // 因 JWXT Safety Verify 后 CAS session 已可信，后续 OAuth 授权多走 SSO 不再 MFA。
         }
         restoreGateReady = true
+    }
+
+    // 首次登录 / 切账号后 isOnCampus 可能仍是 null（启动探测被没凭据跳过，
+    // 网络回调又要求已登录）。徽标空着时补探一次，有缓存则立刻返回。
+    LaunchedEffect(loginState.isLoggedIn, loginState.accountId) {
+        if (!loginState.isLoggedIn) return@LaunchedEffect
+        if (loginState.isOnCampus != null) return@LaunchedEffect
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching { loginState.ensureCampusDetected() }
+                .onFailure { android.util.Log.w("Campus", "login campus detect failed", it) }
+        }
     }
 
     // ── 用户协议弹窗（首次启动或未签署时强制展示） ──
@@ -1321,6 +1349,7 @@ fun AppNavigation(
             items = remote + listOfNotNull(synthetic),
             now = java.time.Instant.now(),
             currentVersion = BuildConfig.VERSION_NAME,
+            currentVersionCode = BuildConfig.VERSION_CODE,
             dismissedIds = bulletinStore.dismissedIds,
             ackedIds = bulletinStore.ackedIds,
             snoozedIds = BulletinStore.sessionSnoozedIds(),
@@ -4307,6 +4336,7 @@ private fun ProfileTab(
             loginProgress = 0.1f
             try {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    loginState.ensureCampusDetected()
                     loginState.sessionManager?.ensureSite(LoginType.JWXT)
                 }
             } catch (e: Exception) {

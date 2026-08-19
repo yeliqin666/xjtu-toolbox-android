@@ -64,7 +64,7 @@ object AppServices {
         AppService(Routes.DOWNLOAD_MANAGER, "下载管理", "课件与回放下载", ServiceCategory.TOOL, listOf("下载", "已下载"), showOnHome = false),
         AppService(Routes.SETTINGS, "设置", "外观、校园网与通知", ServiceCategory.TOOL, listOf("偏好", "主题"), showOnHome = false),
         AppService(Routes.ACCOUNTS, "账号管理", "切换或添加统一认证账号", ServiceCategory.TOOL, listOf("切换账号", "多账号"), showOnHome = false),
-        AppService(Routes.FEEDBACK, "意见反馈", "向开发者反馈问题", ServiceCategory.TOOL, listOf("反馈", "bug"), showOnHome = false),
+        AppService(Routes.FEEDBACK, "意见反馈", "GitHub 提 Issue 或博客留言", ServiceCategory.TOOL, listOf("反馈", "bug", "issue"), showOnHome = false),
     )
 
     val home: List<AppService> = all.filter { it.showOnHome }

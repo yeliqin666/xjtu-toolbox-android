@@ -614,7 +614,7 @@ fun SettingsScreen(
                 )
                 ArrowPreference(
                     title = "反馈与建议",
-                    summary = "提交问题或建议，可附带日志",
+                    summary = "GitHub 提 Issue，或到博客留言",
                     startAction = { SettingsIcon(MiuixIcons.Report, cPink) },
                     onClick = { onOpenFeedback() }
                 )

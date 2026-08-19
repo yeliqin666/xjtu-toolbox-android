@@ -76,6 +76,8 @@ class AccountManager(
         sessionManager.reconfigureForAccount(suffix)
         // 3) 载入新账号身份（内部会设置 AccountContext.activeAccountId）
         holder.loadIdentityFromAccount(account)
+        runCatching { holder.ensureCampusDetected() }
+            .onFailure { Log.w(TAG, "switchTo campus detect failed: ${it.message}") }
         // 4) 持久化激活指针 + lastUsedAt
         accountStore.setActive(accountId)
         accountStore.update(accountId) { it.copy(lastUsedAt = System.currentTimeMillis()) }
@@ -129,6 +131,8 @@ class AccountManager(
         val suffix = "_" + username.replace(Regex("[^a-zA-Z0-9]"), "_")
         sessionManager.reconfigureForAccount(suffix)
         holder.loadIdentityFromAccount(tempAccount)
+        runCatching { holder.ensureCampusDetected() }
+            .onFailure { Log.w(TAG, "addAccount campus detect failed: ${it.message}") }
 
         // 探活：尝试 JWXT 登录。MFA 由 SessionManager 状态机驱动 UI 弹窗。
         val loginResult = runCatching {
@@ -342,6 +346,7 @@ interface AppLoginStateHolder {
     var switchNotice: String?
     fun clearInMemorySessionState()
     fun loadIdentityFromAccount(account: Account)
+    suspend fun ensureCampusDetected()
     /** 取出并清空切换通知。 */
     fun consumeSwitchNotice(): String?
 }
