@@ -4,7 +4,7 @@
 
 App 打开时先拉 Gitee `announce` 上的这份文件，失败再走页面 raw，再失败走 GitHub。
 
-当前是演习条目，测完删掉即可。不要把这个分支 merge 进 `main`，也不要把仓库默认分支改成 `announce`。
+不要把这个分支 merge 进 `main`，也不要把仓库默认分支改成 `announce`。
 
 `level`：`info` / `warn` / `update` / `critical` / `force_update`。
 
