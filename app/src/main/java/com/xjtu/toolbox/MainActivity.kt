@@ -1120,7 +1120,7 @@ fun AppNavigation(
     //
     // - **3 秒防抖**：等网络真正稳定
     // - **二次确认**：detectCampusNetwork 自身已做二次确认（间隔 1.5s）
-    // - **未登录也探**：先把 isOnCampus 填上，避免首次登录后徽标一直「检测中」
+    // - **默认网络一变就强制重探**：不走 10 分钟缓存；未登录也更新徽标
     // - **已登录且 mode 真变**：清旧会话，当前业务页 markStaleAndRetry
     val networkScope = rememberCoroutineScope()
     DisposableEffect(Unit) {
@@ -1133,12 +1133,9 @@ fun AppNavigation(
                 kotlinx.coroutines.delay(3000L)
                 try {
                     android.util.Log.d("Network", "Network changed ($reason), re-evaluating access mode after 3s settle")
-                    if (!loginState.isLoggedIn) {
-                        loginState.ensureCampusDetected()
-                        return@launch
-                    }
+                    // 系统默认网络变了就必须重探，不能走 10 分钟缓存。
                     val modeChanged = loginState.onNetworkChanged()
-                    if (modeChanged) {
+                    if (loginState.isLoggedIn && modeChanged) {
                         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                             val currentRoute = navController.currentBackStackEntry?.destination?.route
                             val activeType = currentRoute?.let(routeToLoginType)
