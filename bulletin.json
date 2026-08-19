@@ -1,11 +1,11 @@
 {
   "bulletins": [
     {
-      "id": "2026-08-19-force-4.72",
+      "id": "2026-08-19-force-4.7.3",
       "level": "force_update",
-      "title": "请更新到 4.72",
-      "body": "前面攒的问题这版基本修完了，功能也是目前最完整的一版。低于 4.72 的先更新，再继续用。",
-      "targetVersion": "4.72",
+      "title": "请更新到 4.7.3",
+      "body": "前面攒的问题这版基本修完了，功能也是目前最完整的一版。低于 4.7.3 的先更新，再继续用。",
+      "targetVersion": "4.7.3",
       "mustAck": false,
       "block": false
     },
