@@ -35,7 +35,7 @@ object AppServices {
         AppService(Routes.CLASS_REPLAY, "课程回放", "课堂录像回放", ServiceCategory.CLASS, listOf("回放", "录像", "录播")),
         AppService(Routes.SCHOOL_COURSE, "课程查询", "全校开课查询", ServiceCategory.CLASS, listOf("开课", "选课", "查课")),
         AppService(Routes.ATTENDANCE, "考勤", "本科出勤与考勤流水", ServiceCategory.CLASS, listOf("考勤查询", "出勤", "迟到", "缺勤"), audience = AccountType.UNDERGRADUATE),
-        AppService(Routes.POSTGRADUATE_ATTENDANCE, "研考勤", "研究生考勤", ServiceCategory.CLASS, listOf("研究生考勤", "研究生出勤", "gste"), audience = AccountType.POSTGRADUATE),
+        AppService(Routes.POSTGRADUATE_ATTENDANCE, "研考勤", "研究生考勤", ServiceCategory.CLASS, listOf("研究生考勤", "研究生出勤", "yjskq"), audience = AccountType.POSTGRADUATE),
         AppService(Routes.ICLASSFACE, "快速考勤流水", "课堂人脸考勤记录", ServiceCategory.CLASS, listOf("人脸考勤", "刷脸", "iclassface"), audience = AccountType.UNDERGRADUATE),
 
         AppService(Routes.JWAPP_SCORE, "成绩", "本学期成绩与 GPA", ServiceCategory.STUDY, listOf("成绩查询", "分数", "gpa", "绩点")),

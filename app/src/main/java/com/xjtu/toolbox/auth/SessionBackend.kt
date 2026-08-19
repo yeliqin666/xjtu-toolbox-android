@@ -53,12 +53,34 @@ class SessionBackend(
     /**
      * backend 自身的认证状态（特指 WebVPN 网关）。
      * NORMAL backend 永为 true（直连无需网关认证）。
+     *
+     * 不能当成永生旗标：进程挂很久后 wengine ticket 会过期，必须靠
+     * [webvpnValidatedAt] + 探活再决定要不要重登。
      */
     @Volatile var webvpnSelfLoggedIn: Boolean = accessMode == AccessMode.NORMAL
+
+    /** 上次确认网关仍有效的 elapsedRealtime；0 表示从未确认。 */
+    @Volatile var webvpnValidatedAt: Long = 0L
+
+    fun markWebVpnReady() {
+        webvpnSelfLoggedIn = true
+        webvpnValidatedAt = android.os.SystemClock.elapsedRealtime()
+    }
+
+    fun markWebVpnStale() {
+        if (accessMode == AccessMode.NORMAL) {
+            webvpnSelfLoggedIn = true
+            webvpnValidatedAt = 0L
+            return
+        }
+        webvpnSelfLoggedIn = false
+        webvpnValidatedAt = 0L
+    }
 
     /** 清空 cookies + 重置自身认证态，限于登出、密码变更等场景；不用于网络切换。 */
     fun clearAuth() {
         cookieJar.clear()
-        webvpnSelfLoggedIn = accessMode == AccessMode.NORMAL
+        markWebVpnStale()
+        if (accessMode == AccessMode.NORMAL) webvpnSelfLoggedIn = true
     }
 }

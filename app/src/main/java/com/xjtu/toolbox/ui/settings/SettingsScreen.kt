@@ -134,7 +134,6 @@ fun SettingsScreen(
     var dynamicColor by remember { mutableStateOf(credentialStore.dynamicColor) }
     var defaultTab by remember { mutableStateOf(credentialStore.defaultTab) }
     var networkMode by remember { mutableStateOf(credentialStore.networkMode) }
-    var autoCheckUpdate by remember { mutableStateOf(credentialStore.autoCheckUpdate) }
     var updateChannel by remember { mutableStateOf(credentialStore.updateChannel) }
     var accountType by remember { mutableStateOf(credentialStore.accountType) }
     var venueAutoSolveCaptcha by remember { mutableStateOf(credentialStore.venueAutoSolveCaptchaEnabled) }
@@ -561,16 +560,6 @@ fun SettingsScreen(
             // ── 更新 ──
             SmallTitle("更新")
             SettingsCard {
-                SwitchPreference(
-                    title = "启动时检查更新",
-                    summary = "打开 App 时自动检查新版本（成功检查后 24 小时内不重复）",
-                    checked = autoCheckUpdate,
-                    onCheckedChange = {
-                        autoCheckUpdate = it
-                        credentialStore.autoCheckUpdate = it
-                    },
-                    startAction = { SettingsIcon(MiuixIcons.Update, cOrange) }
-                )
                 OverlayDropdownPreference(
                     title = "更新渠道",
                     items = channelOptions,

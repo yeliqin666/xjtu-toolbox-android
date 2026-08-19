@@ -33,6 +33,7 @@ import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
@@ -232,6 +233,7 @@ private fun CourseListPage(
     var selectedSemester by remember { mutableStateOf(cache.selectedSemester) } // null = 全部
     val scope = rememberCoroutineScope()
     val listState = rememberRetainedLazyListState("class_courses")
+    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
 
     LaunchedEffect(selectedSemester) { cache.selectedSemester = selectedSemester }
 
@@ -280,9 +282,11 @@ private fun CourseListPage(
 
     Scaffold(
         topBar = {
-            SmallTopAppBar(
+            TopAppBar(
                 title = "课程回放",
+                largeTitle = "课程回放",
                 color = MiuixTheme.colorScheme.surface,
+                scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -291,7 +295,7 @@ private fun CourseListPage(
             )
         }
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
+        Box(Modifier.fillMaxSize().padding(padding).nestedScroll(scrollBehavior.nestedScrollConnection)) {
             when {
                 isLoading && allCourses.isEmpty() -> {
                     Column(
@@ -531,6 +535,7 @@ private fun ReplayListPage(
         }
     }
 
+    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     Scaffold(
         topBar = {
             if (isSelectionMode) {
@@ -559,10 +564,11 @@ private fun ReplayListPage(
                     }
                 )
             } else {
-                // 普通模式 TopAppBar
-                SmallTopAppBar(
+                TopAppBar(
                     title = course.displayName,
+                    largeTitle = course.displayName,
                     color = MiuixTheme.colorScheme.surface,
+                    scrollBehavior = scrollBehavior,
                     navigationIcon = {
                         IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -601,7 +607,7 @@ private fun ReplayListPage(
             }
         }
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
+        Box(Modifier.fillMaxSize().padding(padding).nestedScroll(scrollBehavior.nestedScrollConnection)) {
             when {
                 isLoading && activities.isEmpty() -> {
                     Column(
@@ -767,11 +773,14 @@ private fun ReplayDetailPage(
         }
     }
 
+    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     Scaffold(
         topBar = {
-            SmallTopAppBar(
+            TopAppBar(
                 title = activity.title,
+                largeTitle = activity.title,
                 color = MiuixTheme.colorScheme.surface,
+                scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -780,7 +789,7 @@ private fun ReplayDetailPage(
             )
         }
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
+        Box(Modifier.fillMaxSize().padding(padding).nestedScroll(scrollBehavior.nestedScrollConnection)) {
             when {
                 isLoading -> {
                     Column(

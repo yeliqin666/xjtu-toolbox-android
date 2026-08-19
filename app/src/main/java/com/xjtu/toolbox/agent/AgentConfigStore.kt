@@ -16,7 +16,7 @@ data class AgentConfig(
     val maxToolCalls: Int = 8,
     val assistantName: String = DEFAULT_ASSISTANT_NAME,
     val disabledCaps: Set<String> = emptySet(),
-    val searchEngine: String = SEARCH_BING,
+    val searchEngine: String = SEARCH_AUTO,
     val responseStyle: String = STYLE_FRIENDLY,
     val thinkingEnabled: Boolean = true,
     val reasoningEffort: String = REASONING_AUTO,
@@ -49,15 +49,20 @@ data class AgentConfig(
         const val REASONING_AUTO = "auto"
         const val REASONING_HIGH = "high"
         const val REASONING_MAX = "max"
+        const val SEARCH_AUTO = "auto"
         const val SEARCH_BING = "bing"
         const val SEARCH_SOGOU = "sogou"
         const val SEARCH_WECHAT = "wechat"
+        const val SEARCH_DDG = "duckduckgo"
+        const val SEARCH_JINA = "jina"
+        const val SEARCH_SO360 = "so360"
+        const val SEARCH_BRAVE = "brave"
         const val STYLE_FRIENDLY = "friendly"
         const val STYLE_PROFESSIONAL = "professional"
 
         val PROVIDERS = listOf(PROVIDER_DEEPSEEK, PROVIDER_OPENAI, PROVIDER_CUSTOM)
         val REASONING_EFFORTS = listOf(REASONING_AUTO, REASONING_HIGH, REASONING_MAX)
-        val SEARCH_ENGINES = listOf(SEARCH_BING, SEARCH_SOGOU, SEARCH_WECHAT)
+        val SEARCH_ENGINES = listOf(SEARCH_AUTO, SEARCH_SO360, SEARCH_DDG, SEARCH_WECHAT, SEARCH_SOGOU)
         val RESPONSE_STYLES = listOf(STYLE_FRIENDLY, STYLE_PROFESSIONAL)
 
         fun providerLabel(p: String) = when (p) {
@@ -68,9 +73,15 @@ data class AgentConfig(
         }
 
         fun searchEngineLabel(engine: String) = when (engine) {
+            SEARCH_AUTO -> "自动（推荐）"
+            SEARCH_SO360 -> "360 搜索"
             SEARCH_SOGOU -> "搜狗网页"
             SEARCH_WECHAT -> "搜狗微信"
-            else -> "Bing"
+            SEARCH_DDG -> "DuckDuckGo"
+            SEARCH_JINA -> "Jina"
+            SEARCH_BRAVE -> "Brave"
+            SEARCH_BING -> "Bing"
+            else -> "自动"
         }
 
         fun responseStyleLabel(style: String) = when (style) {
@@ -142,9 +153,16 @@ private val prefs: SharedPreferences
             .map { it.trim() }
             .filter { it.isNotEmpty() }
             .toSet(),
-        searchEngine = prefs.getString("search_engine", AgentConfig.SEARCH_BING)
-            ?.takeIf { it in AgentConfig.SEARCH_ENGINES }
-            ?: AgentConfig.SEARCH_BING,
+        searchEngine = prefs.getString("search_engine", AgentConfig.SEARCH_AUTO)
+            ?.let { raw ->
+                when (raw) {
+                    AgentConfig.SEARCH_BING, AgentConfig.SEARCH_JINA, AgentConfig.SEARCH_BRAVE ->
+                        AgentConfig.SEARCH_AUTO
+                    in AgentConfig.SEARCH_ENGINES -> raw
+                    else -> AgentConfig.SEARCH_AUTO
+                }
+            }
+            ?: AgentConfig.SEARCH_AUTO,
         responseStyle = prefs.getString("response_style", AgentConfig.STYLE_FRIENDLY)
             ?.takeIf { it in AgentConfig.RESPONSE_STYLES }
             ?: AgentConfig.STYLE_FRIENDLY,

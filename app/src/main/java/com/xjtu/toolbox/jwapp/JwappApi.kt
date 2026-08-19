@@ -248,7 +248,7 @@ class JwappApi(private val site: SiteSession) {
         val serverGpa = data.get("gpa").safeDouble()
         // 如果服务器 GPA 为 0 但课程已通过，用本地映射兜底
         val effectiveGpa = if (serverGpa > 0.0) serverGpa
-            else com.xjtu.toolbox.score.ScoreReportApi.scoreToGpa(rawScore) ?: 0.0
+            else com.xjtu.toolbox.util.ScoreCalculator.scoreToGpa(rawScore) ?: 0.0
 
         return ScoreDetail(
             courseName = data.get("courseName").safeString(),

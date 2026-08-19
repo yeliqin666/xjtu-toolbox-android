@@ -203,6 +203,7 @@ class CredentialStore(context: Context) {
         get() = appPrefs.getString(KEY_NETWORK_MODE, NETWORK_AUTO) ?: NETWORK_AUTO
         set(value) { appPrefs.edit().putString(KEY_NETWORK_MODE, value).apply() }
 
+    /** 旧开关，启动路径不再读取。保留以免旧安装读到 false 还要迁一次。 */
     var autoCheckUpdate: Boolean
         get() = appPrefs.getBoolean(KEY_AUTO_CHECK_UPDATE, true)
         set(value) { appPrefs.edit().putBoolean(KEY_AUTO_CHECK_UPDATE, value).apply() }

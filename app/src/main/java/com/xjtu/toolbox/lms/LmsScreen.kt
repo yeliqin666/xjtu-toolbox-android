@@ -34,6 +34,7 @@ import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -250,6 +251,7 @@ private fun CourseListPage(
     LaunchedEffect(selectedSemester) { cache.selectedSemester = selectedSemester }
 
     val listState = rememberRetainedLazyListState("lms_courses")
+    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
 
     fun loadCourses() {
         scope.launch {
@@ -282,9 +284,11 @@ private fun CourseListPage(
 
     Scaffold(
         topBar = {
-            SmallTopAppBar(
+            TopAppBar(
                 title = "思源学堂",
+                largeTitle = "思源学堂",
                 color = MiuixTheme.colorScheme.surface,
+                scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -293,7 +297,7 @@ private fun CourseListPage(
             )
         }
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
+        Box(Modifier.fillMaxSize().padding(padding).nestedScroll(scrollBehavior.nestedScrollConnection)) {
             when {
                 isLoading && courses.isEmpty() -> LoadingIndicator("加载课程列表…")
                 errorMsg != null && courses.isEmpty() -> ErrorRetry(errorMsg!!) { loadCourses() }
@@ -450,6 +454,7 @@ private fun ActivityListPage(
     LaunchedEffect(selectedType) { cache.selectedTypes[course.id] = selectedType }
 
     val listState = rememberRetainedLazyListState("lms_activities_${course.id}")
+    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
 
     fun loadActivities() {
         scope.launch {
@@ -481,9 +486,11 @@ private fun ActivityListPage(
 
     Scaffold(
         topBar = {
-            SmallTopAppBar(
+            TopAppBar(
                 title = course.name,
+                largeTitle = course.name,
                 color = MiuixTheme.colorScheme.surface,
+                scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -492,7 +499,7 @@ private fun ActivityListPage(
             )
         }
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
+        Box(Modifier.fillMaxSize().padding(padding).nestedScroll(scrollBehavior.nestedScrollConnection)) {
             when {
                 isLoading && activities.isEmpty() -> LoadingIndicator("加载活动列表…")
                 errorMsg != null && activities.isEmpty() -> ErrorRetry(errorMsg!!) { loadActivities() }
@@ -691,11 +698,14 @@ private fun ActivityDetailPage(
 
     LaunchedEffect(Unit) { if (cache.details[activity.id] == null) loadDetail() }
 
+    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     Scaffold(
         topBar = {
-            SmallTopAppBar(
+            TopAppBar(
                 title = activity.title,
+                largeTitle = activity.title,
                 color = MiuixTheme.colorScheme.surface,
+                scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -704,7 +714,7 @@ private fun ActivityDetailPage(
             )
         }
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
+        Box(Modifier.fillMaxSize().padding(padding).nestedScroll(scrollBehavior.nestedScrollConnection)) {
             when {
                 isLoading -> LoadingIndicator("加载活动详情…")
                 errorMsg != null -> ErrorRetry(errorMsg!!) { loadDetail() }

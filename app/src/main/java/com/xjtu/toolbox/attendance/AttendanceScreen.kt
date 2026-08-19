@@ -17,13 +17,13 @@ import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
+import top.yukonga.miuix.kmp.basic.PullToRefresh
+import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.basic.SnackbarDuration
 import top.yukonga.miuix.kmp.basic.SnackbarHost
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
 import top.yukonga.miuix.kmp.utils.overScrollVertical
-
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -81,6 +81,9 @@ fun AttendanceScreen(
     var records by remember { mutableStateOf<List<AttendanceWaterRecord>>(emptyList()) }
     var courseStats by remember { mutableStateOf<List<CourseAttendanceStat>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
+    var isRefreshing by remember { mutableStateOf(false) }
+    var isUpdating by remember { mutableStateOf(false) }
+    var shellReady by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var studentName by remember { mutableStateOf("") }
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
@@ -102,7 +105,7 @@ fun AttendanceScreen(
     var drilldownSubject by rememberSaveable { mutableStateOf<String?>(null) }
     val effectiveSubjectFilter = drilldownSubject ?: ""  // 下钻 vs 搜索同时只一个生效
 
-    fun loadData(termBh: String? = null) {
+    fun loadData(termBh: String? = null, fromPull: Boolean = false) {
         loadJob?.cancel()
         val myGeneration = ++loadGeneration
         fun ensureLatest() {
@@ -110,7 +113,11 @@ fun AttendanceScreen(
                 throw kotlinx.coroutines.CancellationException("superseded by newer attendance load")
             }
         }
-        isLoading = records.isEmpty()
+        val chromeReady = shellReady || termList.isNotEmpty() || records.isNotEmpty() || courseStats.isNotEmpty()
+        // 学期选择器一旦出来过就闩住，切学期不再整页 LoadingState。
+        isLoading = !chromeReady
+        isRefreshing = fromPull && chromeReady
+        isUpdating = !fromPull && chromeReady
         errorMessage = null
         loadJob = scope.launch {
             try {
@@ -226,7 +233,12 @@ fun AttendanceScreen(
                 }
             } finally {
                 if (myGeneration == loadGeneration) {
+                    if (termList.isNotEmpty() || records.isNotEmpty() || courseStats.isNotEmpty()) {
+                        shellReady = true
+                    }
                     isLoading = false
+                    isRefreshing = false
+                    isUpdating = false
                 }
             }
         }
@@ -249,6 +261,9 @@ fun AttendanceScreen(
             records = cached.records
             courseStats = cached.courseStats
             isLoading = false
+            if (cached.termList.isNotEmpty() || cached.records.isNotEmpty() || cached.courseStats.isNotEmpty()) {
+                shellReady = true
+            }
         }
         loadData(selectedTermBh.ifEmpty { null })
     }
@@ -289,6 +304,7 @@ fun AttendanceScreen(
     val selectedWeekIndex = if (maxWeek > 0) selectedWeek?.coerceIn(1, maxWeek) ?: 0 else 0
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val pullToRefreshState = rememberPullToRefreshState()
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -301,18 +317,13 @@ fun AttendanceScreen(
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
-                },
-                actions = {
-                    IconButton(onClick = { loadData(selectedTermBh.ifEmpty { null }) }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "刷新")
-                    }
                 }
             )
         }
     ) { padding ->
-        if (isLoading) {
+        if (!shellReady && isLoading && termList.isEmpty() && records.isEmpty() && courseStats.isEmpty()) {
             LoadingState(message = "加载考勤数据...", modifier = Modifier.fillMaxSize().padding(padding))
-        } else if (errorMessage != null && records.isEmpty()) {
+        } else if (errorMessage != null && records.isEmpty() && termList.isEmpty()) {
             ErrorState(
                 message = errorMessage!!,
                 onRetry = { loadData() },
@@ -324,8 +335,13 @@ fun AttendanceScreen(
                     .fillMaxSize()
                     .padding(padding)
                     .background(MiuixTheme.colorScheme.surface)
-                    .nestedScroll(scrollBehavior.nestedScrollConnection)
             ) {
+                if (isUpdating) {
+                    LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth(),
+                        height = 2.dp
+                    )
+                }
                 Card(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                     colors = CardDefaults.defaultColors(color = AppCardColor)
@@ -368,6 +384,13 @@ fun AttendanceScreen(
                     )
                 }
 
+                PullToRefresh(
+                    isRefreshing = isRefreshing,
+                    onRefresh = { loadData(selectedTermBh.ifEmpty { null }, fromPull = true) },
+                    pullToRefreshState = pullToRefreshState,
+                    topAppBarScrollBehavior = scrollBehavior,
+                    modifier = Modifier.fillMaxSize()
+                ) {
                 AnimatedContent(
                     targetState = selectedTab,
                     transitionSpec = {
@@ -391,6 +414,7 @@ fun AttendanceScreen(
                             searchQuery, { searchQuery = it }, { selectedStatus = it },
                             drilldownSubject, { drilldownSubject = null })
                     }
+                }
                 }
             }
         }

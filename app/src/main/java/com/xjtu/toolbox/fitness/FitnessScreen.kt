@@ -29,7 +29,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DirectionsRun
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -58,11 +57,13 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
+import top.yukonga.miuix.kmp.basic.PullToRefresh
 import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 @Composable
 fun FitnessScreen(
@@ -76,6 +77,7 @@ fun FitnessScreen(
     var selectedYear by remember { mutableStateOf<FitnessYear?>(null) }
     var score by remember { mutableStateOf<FitnessScore?>(null) }
     var loading by remember { mutableStateOf(true) }
+    var isRefreshing by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
     suspend fun loadYears() {
@@ -145,7 +147,24 @@ fun FitnessScreen(
     }
 
     suspend fun refreshCurrent() {
-        selectedYear?.let { selectYear(it) } ?: loadYears()
+        isRefreshing = true
+        try {
+            selectedYear?.let { year ->
+                error = null
+                try {
+                    score = withContext(Dispatchers.IO) { api.getScore(year.yearNum) }
+                } catch (e: Exception) {
+                    if (e is AuthExpiredException) {
+                        loginState.markStaleAndRetry(LoginType.FITNESS, Routes.FITNESS)
+                        onBack()
+                        return
+                    }
+                    error = e.message ?: "体测查询失败"
+                }
+            } ?: loadYears()
+        } finally {
+            isRefreshing = false
+        }
     }
 
     val yearListState = rememberLazyListState()
@@ -158,6 +177,7 @@ fun FitnessScreen(
     LaunchedEffect(site) { loadYears() }
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val pullToRefreshState = rememberPullToRefreshState()
 
     Scaffold(
         topBar = {
@@ -169,32 +189,33 @@ fun FitnessScreen(
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
-                },
-                actions = {
-                    IconButton(onClick = { scope.launch { refreshCurrent() } }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "刷新")
-                    }
                 }
             )
         }
     ) { padding ->
+        PullToRefresh(
+            isRefreshing = isRefreshing,
+            onRefresh = { scope.launch { refreshCurrent() } },
+            pullToRefreshState = pullToRefreshState,
+            topAppBarScrollBehavior = scrollBehavior,
+            modifier = Modifier.fillMaxSize().padding(padding)
+        ) {
         when {
-            loading && score == null -> LoadingState(
-                "正在读取体测成绩…",
-                Modifier.padding(padding)
-            )
-            years.isEmpty() && error != null && score == null -> ErrorState(
-                "查询失败：$error",
-                onRetry = { scope.launch { loadYears() } },
-                modifier = Modifier.padding(padding)
-            )
-            years.isEmpty() -> EmptyState(
-                "暂无可查询的体测学年",
-                modifier = Modifier.padding(padding)
-            )
+            loading && score == null -> LazyColumn(Modifier.fillMaxSize()) {
+                item { Box(Modifier.fillParentMaxSize()) { LoadingState("正在读取体测成绩…", Modifier.fillMaxSize()) } }
+            }
+            years.isEmpty() && error != null && score == null -> LazyColumn(Modifier.fillMaxSize()) {
+                item {
+                    Box(Modifier.fillParentMaxSize()) {
+                        ErrorState("查询失败：$error", onRetry = { scope.launch { loadYears() } }, modifier = Modifier.fillMaxSize())
+                    }
+                }
+            }
+            years.isEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
+                item { Box(Modifier.fillParentMaxSize()) { EmptyState("暂无可查询的体测学年", modifier = Modifier.fillMaxSize()) } }
+            }
             else -> LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding)
-                    .nestedScroll(scrollBehavior.nestedScrollConnection),
+                modifier = Modifier.fillMaxSize().overScrollVertical(),
                 contentPadding = PaddingValues(top = 16.dp, bottom = 28.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
@@ -253,6 +274,7 @@ fun FitnessScreen(
                     }
                 }
             }
+        }
         }
     }
 }

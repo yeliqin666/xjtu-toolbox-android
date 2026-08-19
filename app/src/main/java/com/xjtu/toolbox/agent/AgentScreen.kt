@@ -37,7 +37,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -59,6 +58,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.ViewModelStoreOwner
@@ -110,6 +110,10 @@ fun AgentScreen(onBack: () -> Unit, onNavigate: (String) -> Unit = {}) {
         }
     }
     var drawerOpen by rememberSaveable { mutableStateOf(false) }
+    val keyboard = LocalSoftwareKeyboardController.current
+    LaunchedEffect(drawerOpen) {
+        if (drawerOpen) keyboard?.hide()
+    }
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     BackHandler(enabled = showConfig || drawerOpen || showContextExhaustedDialog) {
@@ -200,7 +204,6 @@ fun AgentScreen(onBack: () -> Unit, onNavigate: (String) -> Unit = {}) {
             onClose = { drawerOpen = false },
             onNew = { vm.newSession(); drawerOpen = false },
             onSelect = { vm.switchSession(it); drawerOpen = false },
-            onRename = { id, title -> vm.renameSession(id, title) },
             onDelete = { vm.deleteSession(it) }
         )
 
@@ -242,11 +245,8 @@ private fun SessionDrawer(
     onClose: () -> Unit,
     onNew: () -> Unit,
     onSelect: (String) -> Unit,
-    onRename: (String, String) -> Unit,
     onDelete: (String) -> Unit
 ) {
-    var renameTarget by remember { mutableStateOf<AgentSession?>(null) }
-    var renameText by remember { mutableStateOf("") }
     var deleteTarget by remember { mutableStateOf<AgentSession?>(null) }
 
     // 半透明遮罩，点击关闭
@@ -328,7 +328,6 @@ private fun SessionDrawer(
                     }
                     items(sessions, key = { it.id }) { s ->
                         val isCurrent = s.id == currentId
-                        val isRenaming = renameTarget?.id == s.id
                         Surface(
                             shape = RoundedCornerShape(12.dp),
                             color = if (isCurrent) MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)
@@ -339,63 +338,26 @@ private fun SessionDrawer(
                                 Modifier.padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                if (isRenaming) {
-                                    Column(
-                                        Modifier.weight(1f),
-                                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        TextField(
-                                            value = renameText,
-                                            onValueChange = { renameText = sanitizeAgentTitle(it, "") },
-                                            label = "会话标题",
-                                            singleLine = true,
-                                            modifier = Modifier.fillMaxWidth()
-                                        )
-                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            DrawerTextAction(
-                                                text = "保存",
-                                                primary = true,
-                                                onClick = {
-                                                    onRename(s.id, renameText)
-                                                    renameTarget = null
-                                                }
-                                            )
-                                            DrawerTextAction(
-                                                text = "取消",
-                                                primary = false,
-                                                onClick = { renameTarget = null }
-                                            )
-                                        }
-                                    }
-                                } else {
-                                    Column(
-                                        Modifier
-                                            .weight(1f)
-                                            .clickable { onSelect(s.id) }
-                                            .padding(vertical = 6.dp)
-                                    ) {
-                                        Text(s.title, style = MiuixTheme.textStyles.body2,
-                                            fontWeight = FontWeight.Medium, maxLines = 1,
-                                            color = if (isCurrent) MiuixTheme.colorScheme.primary
-                                                    else MiuixTheme.colorScheme.onSurface)
-                                        Text(formatSessionTime(s.updatedAt),
-                                            style = MiuixTheme.textStyles.footnote1,
-                                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                                    }
+                                Column(
+                                    Modifier
+                                        .weight(1f)
+                                        .clickable { onSelect(s.id) }
+                                        .padding(vertical = 6.dp)
+                                ) {
+                                    Text(s.title, style = MiuixTheme.textStyles.body2,
+                                        fontWeight = FontWeight.Medium, maxLines = 1,
+                                        color = if (isCurrent) MiuixTheme.colorScheme.primary
+                                                else MiuixTheme.colorScheme.onSurface)
+                                    Text(formatSessionTime(s.updatedAt),
+                                        style = MiuixTheme.textStyles.footnote1,
+                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                                 }
-                                if (!isRenaming) {
-                                    CompactSessionAction(
-                                        icon = Icons.Default.Edit,
-                                        contentDescription = "重命名",
-                                        onClick = { renameTarget = s; renameText = s.title }
-                                    )
-                                    CompactSessionAction(
-                                        icon = Icons.Default.Delete,
-                                        contentDescription = "删除",
-                                        onClick = { deleteTarget = s },
-                                        tint = MiuixTheme.colorScheme.error
-                                    )
-                                }
+                                CompactSessionAction(
+                                    icon = Icons.Default.Delete,
+                                    contentDescription = "删除",
+                                    onClick = { deleteTarget = s },
+                                    tint = MiuixTheme.colorScheme.error
+                                )
                             }
                         }
                     }
@@ -522,18 +484,8 @@ private fun ChatPanel(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val listState = rememberLazyListState()
     var input by rememberSaveable { mutableStateOf("") }
     val keyboard = LocalSoftwareKeyboardController.current
-
-    // 切换会话：直接定位到底部（不要从顶部滑下来）
-    LaunchedEffect(vm.currentSessionId) {
-        if (vm.messages.isNotEmpty()) listState.scrollToItem(vm.messages.lastIndex)
-    }
-    // 同一会话内新消息到达：直接贴到底部
-    LaunchedEffect(vm.messages.size) {
-        if (vm.messages.isNotEmpty()) listState.scrollToItem(vm.messages.lastIndex)
-    }
 
     fun send() {
         val text = input.trim()
@@ -552,16 +504,26 @@ private fun ChatPanel(
             // 否则会和输入栏的 inset 双重叠加，键盘弹出时把输入框顶飞。
             .padding(top = padding.calculateTopPadding())
             .background(MiuixTheme.colorScheme.surface)
+            .clipToBounds()
     ) {
-        LazyColumn(
-            state = listState,
-            modifier = Modifier
-                .weight(1f)
-                .overScrollVertical()
-                .nestedScroll(scrollBehavior.nestedScrollConnection),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
+        Box(Modifier.weight(1f).clipToBounds()) {
+            key(vm.currentSessionId) {
+                val listState = rememberLazyListState()
+                LaunchedEffect(Unit) {
+                    if (vm.messages.isNotEmpty()) listState.scrollToItem(vm.messages.lastIndex)
+                }
+                LaunchedEffect(vm.messages.size) {
+                    if (vm.messages.isNotEmpty()) listState.scrollToItem(vm.messages.lastIndex)
+                }
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .overScrollVertical()
+                        .nestedScroll(scrollBehavior.nestedScrollConnection),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
             if (vm.messages.isEmpty()) {
                 item {
                     Column(
@@ -615,16 +577,16 @@ private fun ChatPanel(
                     }
                 }
             }
-            items(vm.messages) { msg ->
-                Box(Modifier.fillMaxWidth().animateItem()) {
-                    MessageBubble(msg, config.showReasoning, onNavigate)
-                }
+            items(vm.messages, key = { "${it.timestamp}-${it.role}-${it.content.hashCode()}" }) { msg ->
+                MessageBubble(msg, config.showReasoning, onNavigate)
             }
             if (vm.isLoading && (vm.messages.isEmpty() || vm.messages.last().role != "tool_event")) {
                 item {
                     Box(Modifier.fillMaxWidth().padding(8.dp), contentAlignment = Alignment.CenterStart) {
                         ThinkingDots()
                     }
+                }
+            }
                 }
             }
         }
@@ -905,20 +867,14 @@ private fun MessageBubble(
                     Spacer(Modifier.height(6.dp))
                 }
                 if (msg.content.isNotBlank()) {
-                    Card(
-                        modifier = Modifier.widthIn(max = 300.dp),
-                        cornerRadius = 4.dp,
-                        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)
-                    ) {
-                        MarkdownText(
-                            text = msg.content,
-                            color = MiuixTheme.colorScheme.onSurface,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                            onLink = { url ->
-                                onNavigate("browser?url=" + java.net.URLEncoder.encode(url, "UTF-8"))
-                            }
-                        )
-                    }
+                    MarkdownText(
+                        text = msg.content,
+                        color = MiuixTheme.colorScheme.onSurface,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                        onLink = { url ->
+                            onNavigate("browser?url=" + java.net.URLEncoder.encode(url, "UTF-8"))
+                        }
+                    )
                 }
                 // 富控件（课表卡 / 成绩卡 / 空教室卡…），由工具结果直接渲染
                 msg.widgets.forEach { widget ->

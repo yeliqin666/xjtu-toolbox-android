@@ -26,8 +26,6 @@ class JiaoxiaozhiApi(private val session: JiaoxiaozhiSiteSession) {
         onDelta: suspend (String) -> Unit = {},
     ): String = coroutineScope {
         val effectiveModel = JiaoxiaozhiModels.byId(modelId).id
-            .takeIf { it in setOf("qwen-plus", "qwen-max") }
-            ?: "qwen-plus"
         val request = Request.Builder()
             .url("${JiaoxiaozhiLogin.API_ROOT}/question/streamAnswer")
             .header("Accept", "text/event-stream")

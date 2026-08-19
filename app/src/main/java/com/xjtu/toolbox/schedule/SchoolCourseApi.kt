@@ -89,6 +89,7 @@ class SchoolCourseApi(private val site: SiteSession) {
 
     /** kcbcx 应用的基础 URL（与 wdkb 不同，是独立的应用） */
     private val appBase = "$BASE_URL/jwapp/sys/kcbcx"
+    private val kcbcxReferer = "$appBase/*default/index.do"
 
     // ── 初始化：确保 kcbcx 应用已加载 ──
 
@@ -116,11 +117,7 @@ class SchoolCourseApi(private val site: SiteSession) {
     /** 获取当前学期 */
     fun getCurrentTerm(): String {
         ensureAppInitialized()
-        val request = Request.Builder()
-            .url("$appBase/modules/bjkcb/dqxnxq.do")
-            .post(FormBody.Builder().build())
-            .header("Accept", "application/json")
-            .build()
+        val request = kcbcxPost("$appBase/modules/bjkcb/dqxnxq.do")
 
         val body = execute(request)
         val json = body.safeParseJsonObject()
@@ -133,11 +130,10 @@ class SchoolCourseApi(private val site: SiteSession) {
     /** 获取所有学期列表 */
     fun getTermList(): List<TermOption> {
         ensureAppInitialized()
-        val request = Request.Builder()
-            .url("$appBase/modules/bjkcb/xnxqcx.do")
-            .post(FormBody.Builder().add("*order", "-DM").build())
-            .header("Accept", "application/json")
-            .build()
+        val request = kcbcxPost(
+            "$appBase/modules/bjkcb/xnxqcx.do",
+            FormBody.Builder().add("*order", "-DM").build(),
+        )
 
         val body = execute(request)
         val json = body.safeParseJsonObject()
@@ -158,11 +154,8 @@ class SchoolCourseApi(private val site: SiteSession) {
     /** 获取开课单位列表 */
     fun getDepartments(): List<DepartmentOption> {
         ensureAppInitialized()
-        val request = Request.Builder()
-            .url("$BASE_URL/jwapp/code/44e02e19-e31b-4916-91b2-0a04380cbd3a.do")
-            .post(FormBody.Builder().build())
-            .header("Accept", "application/json")
-            .build()
+        // /jwapp/code/* 与空教室的校区字典同类：不带 kcbcx Referer + XHR 头时 rows 经常是空的。
+        val request = kcbcxPost("$BASE_URL/jwapp/code/44e02e19-e31b-4916-91b2-0a04380cbd3a.do")
 
         val body = execute(request)
         val json = body.safeParseJsonObject()
@@ -294,11 +287,7 @@ class SchoolCourseApi(private val site: SiteSession) {
             .add("pageSize", pageSize.toString())
             .add("pageNumber", pageNumber.toString())
 
-        val request = Request.Builder()
-            .url("$appBase/modules/qxkcb/qxfbkccx.do")
-            .post(formBuilder.build())
-            .header("Accept", "application/json")
-            .build()
+        val request = kcbcxPost("$appBase/modules/qxkcb/qxfbkccx.do", formBuilder.build())
 
         val body = execute(request)
         val json = body.safeParseJsonObject()
@@ -388,6 +377,15 @@ class SchoolCourseApi(private val site: SiteSession) {
         addProperty("linkOpt", "AND")
         addProperty("builder", "m_value_equal")
     }
+
+    private fun kcbcxPost(url: String, form: FormBody = FormBody.Builder().build()): Request =
+        Request.Builder()
+            .url(url)
+            .post(form)
+            .header("Accept", "application/json, text/javascript, */*; q=0.01")
+            .header("X-Requested-With", "XMLHttpRequest")
+            .header("Referer", kcbcxReferer)
+            .build()
 
     private fun execute(request: Request): String =
         runBlocking { site.executeWithReAuth(request) }.use { it.body?.string().orEmpty() }

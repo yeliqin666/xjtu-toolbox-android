@@ -9,7 +9,7 @@ import okhttp3.Response
 /**
  * 迎新/个人信息系统（hello.xjtu.edu.cn）登录。
  *
- * 认证链路与 gmis/jwapp 同构（org.xjtu 开放平台 OAuth，appId=966），
+ * 认证链路与 jwapp 同构（org.xjtu 开放平台 OAuth，appId=966），
  * 依据 `hello.xjtu.edu.cn_Archive [26-08-01 00-39-40].har` 逐跳核实：
  * ```
  * 302 org.xjtu.edu.cn/openplatform/oauth/authorize?appId=966&redirectUri=…/yingxin/login/xjtu/oauth/pc

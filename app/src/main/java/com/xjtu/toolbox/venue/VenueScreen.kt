@@ -34,7 +34,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -92,6 +91,7 @@ fun VenueScreen(
     // ─── 场馆列表 ───
     var venues by remember { mutableStateOf<List<VenueApi.Venue>>(emptyList()) }
     var venueLoading by remember { mutableStateOf(true) }
+    var venueRefreshing by remember { mutableStateOf(false) }
     var venueError by remember { mutableStateOf<String?>(null) }
 
     // ─── 时段选择 ───
@@ -99,6 +99,7 @@ fun VenueScreen(
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
     var availableSlots by remember { mutableStateOf<List<VenueApi.AreaSlot>>(emptyList()) }
     var slotsLoading by remember { mutableStateOf(false) }
+    var slotsRefreshing by remember { mutableStateOf(false) }
     var slotsError by remember { mutableStateOf<String?>(null) }
     var selectedSlots by remember { mutableStateOf<Set<VenueApi.AreaSlot>>(emptySet()) }
 
@@ -130,8 +131,9 @@ fun VenueScreen(
     var orderActionLoading by remember { mutableStateOf(false) }
 
     // ─── 加载函数 ───
-    fun loadVenues() {
-        venueLoading = true; venueError = null
+    fun loadVenues(silent: Boolean = false) {
+        if (silent) venueRefreshing = true else venueLoading = true
+        venueError = null
         scope.launch {
             try {
                 val result = withContext(Dispatchers.IO) { api.fetchVenueList() }
@@ -140,12 +142,17 @@ fun VenueScreen(
                 appLoginState.handleAuthExpired(LoginType.VENUE, Routes.VENUE, onBack)
             } catch (e: Exception) {
                 venueError = e.message ?: "加载场馆列表失败"
-            } finally { venueLoading = false }
+            } finally {
+                venueLoading = false
+                venueRefreshing = false
+            }
         }
     }
 
-    fun loadSlots() {
-        slotsLoading = true; slotsError = null; selectedSlots = emptySet()
+    fun loadSlots(silent: Boolean = false) {
+        if (silent) slotsRefreshing = true else slotsLoading = true
+        slotsError = null
+        if (!silent) selectedSlots = emptySet()
         scope.launch {
             try {
                 val date = selectedDate.format(DateTimeFormatter.ISO_LOCAL_DATE)
@@ -156,7 +163,10 @@ fun VenueScreen(
                 appLoginState.handleAuthExpired(LoginType.VENUE, Routes.VENUE, onBack)
             } catch (e: Exception) {
                 slotsError = e.message ?: "加载时段失败"
-            } finally { slotsLoading = false }
+            } finally {
+                slotsLoading = false
+                slotsRefreshing = false
+            }
         }
     }
 
@@ -396,7 +406,7 @@ fun VenueScreen(
     // 切换日期/场馆时重新加载时段
     LaunchedEffect(selectedDate) {
         if (selectedVenue != null && currentPage is VenuePage.SlotSelection) {
-            loadSlots()
+            loadSlots(silent = availableSlots.isNotEmpty())
         }
     }
 
@@ -430,21 +440,6 @@ fun VenueScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
-                actions = {
-                    if (selectedTab == 1) {
-                        IconButton(onClick = { loadOrders(reset = true) }) {
-                            Icon(Icons.Default.Refresh, contentDescription = "刷新订单")
-                        }
-                    } else if (currentPage is VenuePage.SlotSelection) {
-                        IconButton(onClick = { loadSlots() }) {
-                            Icon(Icons.Default.Refresh, contentDescription = "刷新")
-                        }
-                    } else {
-                        IconButton(onClick = { loadVenues() }) {
-                            Icon(Icons.Default.Refresh, contentDescription = "刷新")
-                        }
-                    }
-                }
             )
         }
     ) { padding ->
@@ -505,6 +500,7 @@ fun VenueScreen(
                     error = ordersError,
                     hasMore = ordersHasMore,
                     onRetry = { loadOrders(reset = true) },
+                    onRefresh = { loadOrders(reset = true) },
                     onLoadMore = { loadOrders(reset = false) },
                     onDetail = { orderDetail = it },
                     onCancel = { cancelTarget = it },
@@ -528,11 +524,13 @@ fun VenueScreen(
                     label = "VenuePage"
                 ) { page ->
                     when (page) {
-                        VenuePage.VenueList -> VenueListContent(
+                        VenuePage.VenueList ->                         VenueListContent(
                             venues = venues,
                             isLoading = venueLoading,
+                            isRefreshing = venueRefreshing,
                             error = venueError,
                             onRetry = { loadVenues() },
+                            onRefresh = { loadVenues(silent = true) },
                             onVenueSelected = { venue ->
                                 selectedVenue = venue
                                 currentPage = VenuePage.SlotSelection
@@ -557,8 +555,10 @@ fun VenueScreen(
                                 selectedSlots = if (slot in selectedSlots) selectedSlots - slot else selectedSlots + slot
                             },
                             isLoading = slotsLoading,
+                            isRefreshing = slotsRefreshing,
                             error = slotsError,
                             onRetry = { loadSlots() },
+                            onRefresh = { loadSlots(silent = true) },
                             onConfirm = { showBookingConfirm = true },
                             modifier = Modifier.fillMaxSize(),
                             scrollBehavior = scrollBehavior
@@ -966,8 +966,10 @@ private sealed class VenuePage {
 private fun VenueListContent(
     venues: List<VenueApi.Venue>,
     isLoading: Boolean,
+    isRefreshing: Boolean,
     error: String?,
     onRetry: () -> Unit,
+    onRefresh: () -> Unit,
     onVenueSelected: (VenueApi.Venue) -> Unit,
     favoriteIds: Set<Int>,
     onToggleFavorite: (VenueApi.Venue) -> Unit,
@@ -977,25 +979,28 @@ private fun VenueListContent(
     val sortedVenues = remember(venues, favoriteIds) {
         venues.sortedByDescending { it.id in favoriteIds }
     }
+    val pullToRefreshState = rememberPullToRefreshState()
 
+    PullToRefresh(
+        isRefreshing = isRefreshing,
+        onRefresh = onRefresh,
+        pullToRefreshState = pullToRefreshState,
+        topAppBarScrollBehavior = scrollBehavior,
+        modifier = modifier.fillMaxSize()
+    ) {
     when {
-        isLoading -> LoadingState(
-            message = "加载场馆列表...",
-            modifier = modifier.fillMaxSize()
-        )
-        error != null -> ErrorState(
-            message = error,
-            onRetry = onRetry,
-            modifier = modifier.fillMaxSize()
-        )
-        sortedVenues.isEmpty() -> EmptyState(
-            title = "暂无可预订场馆",
-            modifier = modifier.fillMaxSize()
-        )
+        isLoading -> LazyColumn(Modifier.fillMaxSize()) {
+            item { Box(Modifier.fillParentMaxSize()) { LoadingState(message = "加载场馆列表...", modifier = Modifier.fillMaxSize()) } }
+        }
+        error != null && venues.isEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
+            item { Box(Modifier.fillParentMaxSize()) { ErrorState(message = error, onRetry = onRetry, modifier = Modifier.fillMaxSize()) } }
+        }
+        sortedVenues.isEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
+            item { Box(Modifier.fillParentMaxSize()) { EmptyState(title = "暂无可预订场馆", modifier = Modifier.fillMaxSize()) } }
+        }
         else -> LazyColumn(
-            modifier = modifier
-                .fillMaxSize()
-                .nestedScroll(scrollBehavior.nestedScrollConnection),
+            modifier = Modifier
+                .fillMaxSize(),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -1008,6 +1013,7 @@ private fun VenueListContent(
                 )
             }
         }
+    }
     }
 }
 
@@ -1107,35 +1113,40 @@ private fun SlotSelectionContent(
     selectedSlots: Set<VenueApi.AreaSlot>,
     onToggleSlot: (VenueApi.AreaSlot) -> Unit,
     isLoading: Boolean,
+    isRefreshing: Boolean,
     error: String?,
     onRetry: () -> Unit,
+    onRefresh: () -> Unit,
     onConfirm: () -> Unit,
     modifier: Modifier = Modifier,
     scrollBehavior: ScrollBehavior
 ) {
+    val pullToRefreshState = rememberPullToRefreshState()
     Column(modifier = modifier.fillMaxSize()) {
-        // 日期选择栏
+        // 日期选择栏留在下拉刷新外面，避免和横向选日抢手势
         DateSelector(
             selectedDate = date,
             onDateChange = onDateChange,
             advanceDay = venue.advanceDay,
         )
 
+        PullToRefresh(
+            isRefreshing = isRefreshing,
+            onRefresh = onRefresh,
+            pullToRefreshState = pullToRefreshState,
+            topAppBarScrollBehavior = scrollBehavior,
+            modifier = Modifier.weight(1f).fillMaxWidth()
+        ) {
         when {
-            isLoading -> LoadingState(
-                message = "加载可用时段...",
-                modifier = Modifier.fillMaxWidth().weight(1f)
-            )
-            error != null -> ErrorState(
-                message = error,
-                onRetry = onRetry,
-                modifier = Modifier.fillMaxWidth().weight(1f)
-            )
-            availableSlots.isEmpty() -> EmptyState(
-                title = "该日期暂无可预订时段",
-                subtitle = "请尝试其他日期",
-                modifier = Modifier.fillMaxWidth().weight(1f)
-            )
+            isLoading -> LazyColumn(Modifier.fillMaxSize()) {
+                item { Box(Modifier.fillParentMaxSize()) { LoadingState(message = "加载可用时段...", modifier = Modifier.fillMaxSize()) } }
+            }
+            error != null && availableSlots.isEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
+                item { Box(Modifier.fillParentMaxSize()) { ErrorState(message = error, onRetry = onRetry, modifier = Modifier.fillMaxSize()) } }
+            }
+            availableSlots.isEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
+                item { Box(Modifier.fillParentMaxSize()) { EmptyState(title = "该日期暂无可预订时段", subtitle = "请尝试其他日期", modifier = Modifier.fillMaxSize()) } }
+            }
             else -> {
                 // 按时段分组（同一时段可能有多个场地）
                 val slotsByTime = remember(availableSlots) {
@@ -1144,9 +1155,7 @@ private fun SlotSelectionContent(
 
                 LazyColumn(
                     modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .nestedScroll(scrollBehavior.nestedScrollConnection),
+                        .fillMaxSize(),
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
@@ -1164,6 +1173,7 @@ private fun SlotSelectionContent(
                     item { Spacer(Modifier.height(72.dp)) }
                 }
             }
+        }
         }
 
         // 底部确认栏

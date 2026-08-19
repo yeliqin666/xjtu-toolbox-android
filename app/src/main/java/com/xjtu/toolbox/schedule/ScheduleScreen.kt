@@ -25,6 +25,8 @@ import top.yukonga.miuix.kmp.basic.ListPopupColumn
 import top.yukonga.miuix.kmp.basic.DropdownImpl
 import top.yukonga.miuix.kmp.basic.PopupPositionProvider
 import top.yukonga.miuix.kmp.utils.overScrollVertical
+import top.yukonga.miuix.kmp.basic.PullToRefresh
+import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.snapshotFlow
@@ -62,7 +64,6 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.IosShare
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.outlined.CloudOff
@@ -103,12 +104,47 @@ import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.currentWindowSize
 import com.xjtu.toolbox.widget.ScheduleWidgetUpdater
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
+
+private data class ScheduleDiskSnapshot(
+    val termList: List<String> = emptyList(),
+    val termCode: String = "",
+    val courses: List<CourseItem> = emptyList(),
+    val exams: List<ExamItem> = emptyList(),
+    val startDate: LocalDate? = null,
+)
+
+private fun readScheduleDiskSnapshot(
+    dataCache: com.xjtu.toolbox.util.DataCache,
+    gson: com.google.gson.Gson,
+): ScheduleDiskSnapshot {
+    val termList = dataCache.get("schedule_term_list", Long.MAX_VALUE)?.let { json ->
+        try { gson.fromJson(json, Array<String>::class.java).toList() } catch (_: Exception) { emptyList() }
+    }.orEmpty()
+    val termCode = dataCache.get("schedule_last_term", Long.MAX_VALUE)
+        ?.trim('"')
+        .orEmpty()
+        .ifEmpty { termList.firstOrNull().orEmpty() }
+    if (termCode.isEmpty()) return ScheduleDiskSnapshot(termList = termList)
+    val courses = ScheduleCache.readOptimizedCourses(dataCache, gson, termCode)
+        ?: dataCache.get("schedule_$termCode", Long.MAX_VALUE)?.let { json ->
+            try { gson.fromJson(json, Array<CourseItem>::class.java).toList() } catch (_: Exception) { null }
+        }
+        ?: emptyList()
+    val exams = dataCache.get("exams_$termCode", Long.MAX_VALUE)?.let { json ->
+        try { gson.fromJson(json, Array<ExamItem>::class.java).toList() } catch (_: Exception) { emptyList() }
+    }.orEmpty()
+    val startDate = dataCache.get("start_date_$termCode", Long.MAX_VALUE)?.let { json ->
+        try { LocalDate.parse(json.trim('"')) } catch (_: Exception) { null }
+    }
+    return ScheduleDiskSnapshot(termList, termCode, courses, exams, startDate)
+}
 
 @Composable
 fun ScheduleScreen(
@@ -134,6 +170,7 @@ fun ScheduleScreen(
     val dataCache = remember { com.xjtu.toolbox.util.DataCache(context) }
     val gson = remember { com.google.gson.Gson() }
     val snackbarHostState = remember { SnackbarHostState() }
+    val disk = remember { readScheduleDiskSnapshot(dataCache, gson) }
 
     // Room 数据库 - 自定义课程
     val db = remember { com.xjtu.toolbox.util.AppDatabase.getInstance(context) }
@@ -143,24 +180,24 @@ fun ScheduleScreen(
     var editingCourse by remember { mutableStateOf<CustomCourseEntity?>(null) }
     var addScheduleDraft by remember { mutableStateOf(CustomCourseDraft()) }
 
-    var courses by remember { mutableStateOf<List<CourseItem>>(emptyList()) }
-    var exams by remember { mutableStateOf<List<ExamItem>>(emptyList()) }
+    var courses by remember { mutableStateOf(disk.courses) }
+    var exams by remember { mutableStateOf(disk.exams) }
     var textbooks by remember { mutableStateOf<List<TextbookItem>>(emptyList()) }
     var textbooksLoading by remember { mutableStateOf(false) }
     var textbooksError by remember { mutableStateOf<String?>(null) }
     var textbooksLoaded by remember { mutableStateOf(false) }
-    var isLoading by remember { mutableStateOf(true) }
+    var textbooksRefreshing by remember { mutableStateOf(false) }
+    var examsRefreshing by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(disk.courses.isEmpty()) }
     var isSwitching by remember { mutableStateOf(false) }  // 学期切换中（保留旧日程显示）
     var isRefreshingFromNetwork by remember { mutableStateOf(false) } // 缓存已显示，后台刷新中
+    var loadJob by remember { mutableStateOf<Job?>(null) }
+    val loadGen = remember { java.util.concurrent.atomic.AtomicInteger(0) }
+    var lastLoadedAccount by remember { mutableStateOf<String?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    // 立即从缓存计算当前周（避免打开闪第一周）
-    val initialWeek = remember {
+    val initialWeek = remember(disk.startDate) {
+        val startDate = disk.startDate ?: return@remember 0
         try {
-            val cachedTerm = dataCache.get("schedule_last_term", Long.MAX_VALUE)?.trim('"').orEmpty()
-            if (cachedTerm.isEmpty()) return@remember 0
-            val cachedStart = dataCache.get("start_date_$cachedTerm", Long.MAX_VALUE)?.trim('"').orEmpty()
-            if (cachedStart.isEmpty()) return@remember 0
-            val startDate = LocalDate.parse(cachedStart)
             val daysBetween = ChronoUnit.DAYS.between(startDate, LocalDate.now())
             val w = ((daysBetween / 7) + 1).toInt()
             if (w in 1..20) w else 0
@@ -173,22 +210,22 @@ fun ScheduleScreen(
     var weekNote by remember { mutableStateOf<String?>(null) } // "距开学X周" / "学期已结束"
 
     // 学期相关
-    var termList by remember { mutableStateOf<List<String>>(emptyList()) }
-    var selectedTermCode by remember { mutableStateOf("") }
-    var currentTermCode by remember { mutableStateOf("") }  // 当前学期，用于判断是否缓存考试
+    var termList by remember { mutableStateOf(disk.termList) }
+    var selectedTermCode by remember { mutableStateOf(disk.termCode) }
+    var currentTermCode by remember { mutableStateOf(disk.termCode) }  // 当前学期，用于判断是否缓存考试
     var termDropdownExpanded by remember { mutableStateOf(false) }
 
     // 周视图 vs 总览（每次启动默认周视图，不保存状态）
     var showAllWeeks by remember { mutableStateOf(false) }
 
     // 是否正在显示缓存数据（网络失败时提示）
-    var showingStaleData by remember { mutableStateOf(false) }
+    var showingStaleData by remember { mutableStateOf(disk.courses.isNotEmpty()) }
 
     // 开学日期（导出 ICS 用）
-    var startOfTerm by remember { mutableStateOf<LocalDate?>(null) }
+    var startOfTerm by remember { mutableStateOf(disk.startDate) }
     
     // 法定节假日
-    var holidayDates by remember { mutableStateOf<Map<LocalDate, String>>(emptyMap()) }
+    var holidayDates by remember { mutableStateOf(HolidayApi.peekCached(context)) }
 
     // 导出菜单
     var showExportMenu by remember { mutableStateOf(false) }
@@ -206,282 +243,236 @@ fun ScheduleScreen(
         onSubtitleChange(subtitle)
     }
 
-    // 初始加载
+    fun readCachedTerms(): List<String> {
+        val json = dataCache.get("schedule_term_list", Long.MAX_VALUE) ?: return emptyList()
+        return try { gson.fromJson(json, Array<String>::class.java).toList() } catch (_: Exception) { emptyList() }
+    }
+
+    fun applyTermStart(startDate: LocalDate) {
+        startOfTerm = startDate
+        try {
+            val today = LocalDate.now()
+            val daysBetween = ChronoUnit.DAYS.between(startDate, today)
+            val rawWeek = ((daysBetween / 7) + 1).toInt()
+            if (rawWeek in 1..totalWeeks) realCurrentWeek = rawWeek
+            val firstTeachWeek = courses.flatMap { c ->
+                c.weekBits.indices.filter { c.weekBits[it] == '1' }.map { it + 1 }
+            }.minOrNull()
+            val notStarted = rawWeek in 1..totalWeeks &&
+                    firstTeachWeek != null && rawWeek < firstTeachWeek
+            currentWeek = when {
+                rawWeek <= 0 -> 1
+                rawWeek > totalWeeks -> { showAllWeeks = true; 1 }
+                notStarted -> firstTeachWeek
+                else -> rawWeek
+            }
+            weekNote = when {
+                rawWeek <= 0 -> "距开学还有 ${1 - rawWeek} 周"
+                rawWeek > totalWeeks -> "学期已结束"
+                notStarted -> "尚未开课 · 第${firstTeachWeek}周开始上课"
+                else -> null
+            }
+        } catch (_: Exception) {
+            currentWeek = 1
+            weekNote = null
+        }
+    }
+
+    /** 磁盘缓存立刻上屏，不碰网络。 */
+    fun paintCache(termCode: String): Int {
+        if (termCode.isEmpty()) return -1
+        selectedTermCode = termCode
+        currentTermCode = termCode
+        val optimized = ScheduleCache.readOptimizedCourses(dataCache, gson, termCode)
+        if (optimized != null) {
+            courses = optimized
+        } else {
+            val cached = dataCache.get("schedule_$termCode", Long.MAX_VALUE)
+            if (cached != null) {
+                try { courses = gson.fromJson(cached, Array<CourseItem>::class.java).toList() } catch (_: Exception) {}
+            }
+        }
+        dataCache.get("exams_$termCode", Long.MAX_VALUE)?.let { json ->
+            try { exams = gson.fromJson(json, Array<ExamItem>::class.java).toList() } catch (_: Exception) {}
+        }
+        dataCache.get("start_date_$termCode", Long.MAX_VALUE)?.let { json ->
+            try { applyTermStart(LocalDate.parse(json.trim('"'))) } catch (_: Exception) { currentWeek = 1 }
+        }
+        return courses.size
+    }
+
+    // 初始加载：有缓存先上屏，课表接口一到就停转圈；考试/学期列表后台补。
     fun loadInitialData() {
-        isLoading = true
-        isRefreshingFromNetwork = false
+        loadJob?.cancel()
         errorMessage = null
+        val keepShowing = courses.isNotEmpty()
+        if (!keepShowing) isLoading = true
+        isRefreshingFromNetwork = false
         showingStaleData = false
-        scope.launch {
+        val gen = loadGen.incrementAndGet()
+        loadJob = scope.launch {
             try {
-                // 未登录态：仅展示缓存，不打断流程
-                if (api == null) {
-                    withContext(Dispatchers.IO) {
-                        // 尝试从缓存中找到最近一个学期的数据
-                        val cachedTermList = dataCache.get("schedule_term_list")
-                        val cachedTerms = if (cachedTermList != null) {
-                            try { gson.fromJson(cachedTermList, Array<String>::class.java).toList() } catch (_: Exception) { emptyList() }
-                        } else emptyList()
-                        if (cachedTerms.isNotEmpty()) termList = cachedTerms
-
-                        val termCode = cachedTerms.firstOrNull() ?: ""
-                        selectedTermCode = termCode
-                        currentTermCode = termCode
-                        if (termCode.isNotEmpty()) {
-                            try { dataCache.put("schedule_last_term", gson.toJson(termCode)) } catch (_: Exception) {}
-                        }
-
-                        if (termCode.isNotEmpty()) {
-                            val cached = dataCache.get("schedule_$termCode", Long.MAX_VALUE)  // 离线不限 TTL
-                            if (cached != null) {
-                                try {
-                                    courses = gson.fromJson(cached, Array<CourseItem>::class.java).toList()
-                                    android.util.Log.d("ScheduleUI", "Offline: loaded ${courses.size} courses from cache")
-                                } catch (_: Exception) {}
-                            }
-                            val cachedExams = dataCache.get("exams_$termCode", Long.MAX_VALUE)
-                            if (cachedExams != null) {
-                                try { exams = gson.fromJson(cachedExams, Array<ExamItem>::class.java).toList() } catch (_: Exception) {}
-                            }
-                            // 从缓存的开学日期计算当前周
-                            val cachedStart = dataCache.get("start_date_$termCode", Long.MAX_VALUE)
-                            if (cachedStart != null) {
-                                try {
-                                    val startDate = LocalDate.parse(cachedStart.trim('"'))
-                                    startOfTerm = startDate
-                                    val today = LocalDate.now()
-                                    val daysBetween = ChronoUnit.DAYS.between(startDate, today)
-                                    val rawWeek = ((daysBetween / 7) + 1).toInt()
-                                    if (rawWeek in 1..totalWeeks) realCurrentWeek = rawWeek
-                                    currentWeek = rawWeek.coerceIn(1, totalWeeks)
-                                } catch (_: Exception) { currentWeek = 1 }
-                            }
-                            val cachedHolidays = try { HolidayApi.getHolidayDates(context) } catch (_: Exception) { emptyMap() }
-                            holidayDates = cachedHolidays
-                            val optimizedCourses = ScheduleCache.readOptimizedCourses(dataCache, gson, termCode)
-                            if (optimizedCourses != null) {
-                                courses = optimizedCourses
-                                android.util.Log.d("ScheduleUI", "Offline: loaded ${optimizedCourses.size} optimized courses from cache")
-                            } else if (courses.isNotEmpty()) {
-                                val filtered = ScheduleCache.filterByHolidays(courses, startOfTerm, cachedHolidays)
-                                courses = filtered
-                                ScheduleCache.writeOptimizedCourses(dataCache, gson, termCode, filtered)
-                            }
-                        }
-
-                        if (courses.isEmpty()) {
-                            // 无缓存：抛出空状态，由 UI 决定如何提示
-                            throw RuntimeException("暂无缓存日程")
-                        }
+                withContext(Dispatchers.IO) {
+                    val cachedTerms = readCachedTerms()
+                    if (cachedTerms.isNotEmpty()) termList = cachedTerms
+                    val lastTerm = dataCache.get("schedule_last_term", Long.MAX_VALUE)
+                        ?.trim('"')
+                        .orEmpty()
+                        .ifEmpty { cachedTerms.firstOrNull().orEmpty() }
+                    if (lastTerm.isNotEmpty() && paintCache(lastTerm) > 0) {
+                        isLoading = false
+                        isRefreshingFromNetwork = api != null
                         showingStaleData = true
                     }
-                    return@launch
-                }
 
-                // ── 在线模式 ──
-                withContext(Dispatchers.IO) {
-                    // getCurrentTerm 可能网络失败 → 尝试用缓存学期
-                    val termCode = try {
-                        api.getCurrentTerm()
-                    } catch (e: Exception) {
-                        android.util.Log.w("ScheduleUI", "getCurrentTerm failed, trying cache", e)
-                        val cachedTermList = dataCache.get("schedule_term_list", Long.MAX_VALUE)
-                        val cachedTerms = if (cachedTermList != null) {
-                            try { gson.fromJson(cachedTermList, Array<String>::class.java).toList() } catch (_: Exception) { emptyList() }
-                        } else emptyList()
-                        cachedTerms.firstOrNull() ?: throw RuntimeException("网络不可用且无缓存学期数据，请连网后重试")
-                    }
-                    selectedTermCode = termCode
-                    currentTermCode = termCode
-                    try { dataCache.put("schedule_last_term", gson.toJson(termCode)) } catch (_: Exception) {}
-
-                    val cachedOptimizedCoursesJson = dataCache.get(ScheduleCache.optimizedScheduleKey(termCode), Long.MAX_VALUE)
-                    var cachedOptimizedCoursesSize = -1
-                    if (cachedOptimizedCoursesJson != null) {
-                        try {
-                            val parsed = gson.fromJson(cachedOptimizedCoursesJson, Array<CourseItem>::class.java).toList()
-                            courses = parsed
-                            cachedOptimizedCoursesSize = parsed.size
-                            if (parsed.isNotEmpty()) {
-                                // 先展示缓存，随后后台轻量刷新
-                                isLoading = false
-                                isRefreshingFromNetwork = true
-                                showingStaleData = true
-                            }
-                            android.util.Log.d("ScheduleUI", "Loaded optimized courses from cache: ${parsed.size}")
-                        } catch (_: Exception) { cachedOptimizedCoursesSize = -1 }
-                    } else {
-                        val cachedCourses = dataCache.get("schedule_$termCode")
-                        if (cachedCourses != null) {
-                            try {
-                                val parsed = gson.fromJson(cachedCourses, Array<CourseItem>::class.java).toList()
-                                courses = parsed
-                                if (parsed.isNotEmpty()) {
-                                    isLoading = false
-                                    isRefreshingFromNetwork = true
-                                    showingStaleData = true
-                                }
-                                android.util.Log.d("ScheduleUI", "Loaded raw courses from cache: ${parsed.size}")
-                            } catch (_: Exception) {}
-                        }
+                    if (api == null) {
+                        if (courses.isEmpty()) throw RuntimeException("暂无缓存日程")
+                        showingStaleData = true
+                        return@withContext
                     }
 
+                    // ── 在线模式 ──
+                    // 学期接口和课表并行：有上次学期时先按缓存学期拉课表并立刻上屏，学期代码回来再对一下。
                     try {
-                        // 课表是主数据；考试、开学日期、学期列表和节假日都是可降级的附属数据。
-                        // 使用 supervisorScope，避免其中一个附属接口的瞬时失败把“合法的空课表”
-                        // 一起判成网络失败（首次打开显示错误、点击重试后才显示空状态）。
                         supervisorScope {
-                            val coursesDeferred = async { api.getSchedule(termCode) }
-                            val examsDeferred = async { api.getExamSchedule(termCode) }
+                            val termDeferred = async {
+                                try {
+                                    api.getCurrentTerm()
+                                } catch (e: AuthExpiredException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    android.util.Log.w("ScheduleUI", "getCurrentTerm failed, trying cache", e)
+                                    lastTerm.ifEmpty { throw RuntimeException("网络不可用且无缓存学期数据，请连网后重试") }
+                                }
+                            }
+                            val schedulePrefetch = lastTerm.takeIf { it.isNotEmpty() }?.let { cached ->
+                                async {
+                                    try {
+                                        api.getSchedule(cached)
+                                    } catch (e: AuthExpiredException) {
+                                        throw e
+                                    } catch (_: Exception) {
+                                        null
+                                    }
+                                }
+                            }
+                            val examsDeferred = async {
+                                val termForExam = lastTerm.ifEmpty { termDeferred.await() }
+                                try {
+                                    api.getExamSchedule(termForExam)
+                                } catch (e: kotlinx.coroutines.CancellationException) {
+                                    throw e
+                                } catch (e: AuthExpiredException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    android.util.Log.w("ScheduleUI", "getExamSchedule failed; keeping cached/empty exams", e)
+                                    exams
+                                }
+                            }
                             val startDateDeferred = async {
-                                try { api.getStartOfTerm(termCode) } catch (_: Exception) { null }
+                                val termForStart = lastTerm.ifEmpty { termDeferred.await() }
+                                try { api.getStartOfTerm(termForStart) } catch (_: Exception) { null }
                             }
                             val termListDeferred = async {
                                 try { api.getTermList() } catch (_: Exception) { emptyList() }
                             }
-                            val holidaysDeferred = async {
-                                try { HolidayApi.getHolidayDates(context, forceRefresh = true) } catch (_: Exception) { emptyMap() }
-                            }
-                            // 保留曾经成功获取过的学期，避免教务端本次只返回当前学期或暂时空响应时，
-                            // 把已可用的下学期选项从 UI 中抹掉。
-                            val cachedTermCodes = dataCache.get("schedule_term_list", Long.MAX_VALUE)
-                                ?.let { json ->
-                                    try { gson.fromJson(json, Array<String>::class.java).toList() }
-                                    catch (_: Exception) { emptyList() }
+
+                            fun paintCourses(termCode: String, freshCourses: List<CourseItem>, startDate: LocalDate?) {
+                                val holidays = holidayDates.ifEmpty { HolidayApi.peekCached(context) }
+                                if (holidays.isNotEmpty()) holidayDates = holidays
+                                val optimized = ScheduleCache.filterByHolidays(freshCourses, startDate, holidays)
+                                val optimizedJson = gson.toJson(optimized)
+                                val cachedOptimizedJson =
+                                    dataCache.get(ScheduleCache.optimizedScheduleKey(termCode), Long.MAX_VALUE)
+                                val contentChanged = cachedOptimizedJson == null || optimizedJson != cachedOptimizedJson
+                                if (courses.isEmpty() || contentChanged) {
+                                    courses = optimized
                                 }
-                                .orEmpty()
-
-                            val freshCourses = coursesDeferred.await()
-                            val freshExams = try {
-                                examsDeferred.await()
-                            } catch (e: kotlinx.coroutines.CancellationException) {
-                                throw e
-                            } catch (e: Exception) {
-                                android.util.Log.w("ScheduleUI", "getExamSchedule failed; keeping cached/empty exams", e)
-                                exams
+                                showingStaleData = false
+                                isLoading = false
+                                isRefreshingFromNetwork = false
+                                try { dataCache.put("schedule_$termCode", gson.toJson(freshCourses)) } catch (_: Exception) {}
+                                try { dataCache.put(ScheduleCache.optimizedScheduleKey(termCode), optimizedJson) } catch (_: Exception) {}
+                                if (contentChanged && cachedOptimizedJson != null) {
+                                    scope.launch { snackbarHostState.showSnackbar("日程有更新", duration = SnackbarDuration.Short) }
+                                }
                             }
-                            val startDate = startDateDeferred.await()
-                            val fetchedTermList = termListDeferred.await()
-                            val freshHolidays = holidaysDeferred.await()
-                            val optimizedFreshCourses = ScheduleCache.filterByHolidays(freshCourses, startDate, freshHolidays)
 
-                            val hasUpdate = cachedOptimizedCoursesSize >= 0 && optimizedFreshCourses.size != cachedOptimizedCoursesSize
-                            val optimizedFreshCoursesJson = gson.toJson(optimizedFreshCourses)
-                            val contentChanged = if (!hasUpdate && cachedOptimizedCoursesSize >= 0) {
-                                optimizedFreshCoursesJson != cachedOptimizedCoursesJson
-                            } else hasUpdate
-
-                            if (cachedOptimizedCoursesSize < 0 || contentChanged) {
-                                courses = optimizedFreshCourses
+                            val prefetched = schedulePrefetch?.await()
+                            if (prefetched != null) {
+                                paintCourses(lastTerm, prefetched, startOfTerm)
                             }
-                            exams = freshExams
-                            holidayDates = freshHolidays
-                            showingStaleData = false
-                            isRefreshingFromNetwork = false
-                            val availableTerms = (fetchedTermList + cachedTermCodes).distinct()
+
+                            val termCode = termDeferred.await()
+                            selectedTermCode = termCode
+                            currentTermCode = termCode
+                            try { dataCache.put("schedule_last_term", gson.toJson(termCode)) } catch (_: Exception) {}
+                            if (termCode != lastTerm && lastTerm.isNotEmpty()) {
+                                if (paintCache(termCode) > 0) {
+                                    isLoading = false
+                                    isRefreshingFromNetwork = true
+                                    showingStaleData = true
+                                }
+                                schedulePrefetch?.cancel()
+                                examsDeferred.cancel()
+                                startDateDeferred.cancel()
+                                val freshCourses = api.getSchedule(termCode)
+                                val startDate = try { api.getStartOfTerm(termCode) } catch (_: Exception) { startOfTerm }
+                                paintCourses(termCode, freshCourses, startDate)
+                                if (startDate != null) {
+                                    applyTermStart(startDate)
+                                    try { dataCache.put("start_date_$termCode", gson.toJson(startDate.toString())) } catch (_: Exception) {}
+                                }
+                                val freshExams = try { api.getExamSchedule(termCode) } catch (_: Exception) { exams }
+                                exams = freshExams
+                                if (freshExams.isNotEmpty()) {
+                                    try { dataCache.put("exams_$termCode", gson.toJson(freshExams)) } catch (_: Exception) {}
+                                }
+                            } else {
+                                val freshCourses = prefetched ?: api.getSchedule(termCode)
+                                if (prefetched == null) {
+                                    paintCourses(termCode, freshCourses, startOfTerm)
+                                }
+                                val startDate = startDateDeferred.await() ?: startOfTerm
+                                if (startDate != null) {
+                                    applyTermStart(startDate)
+                                    try { dataCache.put("start_date_$termCode", gson.toJson(startDate.toString())) } catch (_: Exception) {}
+                                    if (holidayDates.isNotEmpty()) {
+                                        courses = ScheduleCache.filterByHolidays(freshCourses, startDate, holidayDates)
+                                    }
+                                }
+                                val freshExams = examsDeferred.await()
+                                exams = freshExams
+                                if (freshExams.isNotEmpty()) {
+                                    try { dataCache.put("exams_$termCode", gson.toJson(freshExams)) } catch (_: Exception) {}
+                                }
+                            }
+                            val availableTerms = (termListDeferred.await() + readCachedTerms()).distinct()
                             if (availableTerms.isNotEmpty()) {
                                 termList = availableTerms
-                                // 缓存学期列表（离线时使用）
                                 try { dataCache.put("schedule_term_list", gson.toJson(availableTerms)) } catch (_: Exception) {}
                             }
-
-                            try { dataCache.put("schedule_$termCode", gson.toJson(freshCourses)) } catch (_: Exception) {}
-                            try { dataCache.put(ScheduleCache.optimizedScheduleKey(termCode), optimizedFreshCoursesJson) } catch (_: Exception) {}
-                            // 缓存考试数据（离线时使用）
-                            if (freshExams.isNotEmpty()) {
-                                try { dataCache.put("exams_$termCode", gson.toJson(freshExams)) } catch (_: Exception) {}
-                            }
-
-                            // 缓存开学日期（离线时计算当前周用）
-                            if (startDate != null) {
-                                startOfTerm = startDate
-                                try { dataCache.put("start_date_$termCode", gson.toJson(startDate.toString())) } catch (_: Exception) {}
-                            }
-
-                            if (contentChanged) {
-                                scope.launch { snackbarHostState.showSnackbar("日程有更新", duration = SnackbarDuration.Short) }
-                            }
-
-                            if (startDate != null) {
-                                try {
-                                    val today = LocalDate.now()
-                                    val daysBetween = ChronoUnit.DAYS.between(startDate, today)
-                                    val rawWeek = ((daysBetween / 7) + 1).toInt()
-                                    if (rawWeek in 1..totalWeeks) realCurrentWeek = rawWeek
-                                    val firstTeachWeek = courses.flatMap { c ->
-                                        c.weekBits.indices.filter { c.weekBits[it] == '1' }.map { it + 1 }
-                                    }.minOrNull()
-                                    val notStarted = rawWeek in 1..totalWeeks &&
-                                            firstTeachWeek != null && rawWeek < firstTeachWeek
-                                    currentWeek = when {
-                                        rawWeek <= 0 -> 1
-                                        rawWeek > totalWeeks -> { showAllWeeks = true; 1 }
-                                        notStarted -> firstTeachWeek
-                                        else -> rawWeek
-                                    }
-                                    weekNote = when {
-                                        rawWeek <= 0 -> "距开学还有 ${1 - rawWeek} 周"
-                                        rawWeek > totalWeeks -> "学期已结束"
-                                        notStarted -> "尚未开课 · 第${firstTeachWeek}周开始上课"
-                                        else -> null
-                                    }
-                                } catch (_: Exception) { currentWeek = 1; weekNote = null }
-                            } else {
-                                currentWeek = 1; weekNote = null
-                            }
                         }
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: AuthExpiredException) {
+                        throw e
                     } catch (e: Exception) {
                         if (courses.isNotEmpty()) {
                             showingStaleData = true
                             isRefreshingFromNetwork = false
-                            // 离线时也尝试加载缓存的学期列表
                             if (termList.isEmpty()) {
-                                val cachedTermList = dataCache.get("schedule_term_list", Long.MAX_VALUE)
-                                if (cachedTermList != null) {
-                                    try { termList = gson.fromJson(cachedTermList, Array<String>::class.java).toList() } catch (_: Exception) {}
-                                }
+                                val t = readCachedTerms()
+                                if (t.isNotEmpty()) termList = t
                             }
                             scope.launch { snackbarHostState.showSnackbar("网络异常，显示的可能不是最新数据", duration = SnackbarDuration.Long) }
                             android.util.Log.w("ScheduleUI", "Network failed, showing cached data", e)
                         } else {
-                            // ── 在线路径失败且无已加载数据 → 尝试缓存回退 ──
                             android.util.Log.w("ScheduleUI", "Online failed, falling back to cache", e)
-                            val cachedTermList = dataCache.get("schedule_term_list", Long.MAX_VALUE)
-                            val cachedTerms = if (cachedTermList != null) {
-                                try { gson.fromJson(cachedTermList, Array<String>::class.java).toList() } catch (_: Exception) { emptyList() }
-                            } else emptyList()
-                            if (cachedTerms.isNotEmpty()) termList = cachedTerms
-
-                            val termCode = if (selectedTermCode.isNotEmpty()) selectedTermCode else cachedTerms.firstOrNull() ?: ""
-                            if (termCode.isNotEmpty()) {
-                                selectedTermCode = termCode
-                                currentTermCode = termCode
-                                val optimizedCourses = ScheduleCache.readOptimizedCourses(dataCache, gson, termCode)
-                                if (optimizedCourses != null) {
-                                    courses = optimizedCourses
-                                } else {
-                                    val cached = dataCache.get("schedule_$termCode", Long.MAX_VALUE)
-                                    if (cached != null) {
-                                        try { courses = gson.fromJson(cached, Array<CourseItem>::class.java).toList() } catch (_: Exception) {}
-                                    }
-                                }
-                                val cachedExams = dataCache.get("exams_$termCode", Long.MAX_VALUE)
-                                if (cachedExams != null) {
-                                    try { exams = gson.fromJson(cachedExams, Array<ExamItem>::class.java).toList() } catch (_: Exception) {}
-                                }
-                                val cachedStart = dataCache.get("start_date_$termCode", Long.MAX_VALUE)
-                                if (cachedStart != null) {
-                                    try {
-                                        val startDate = LocalDate.parse(cachedStart.trim('"'))
-                                        startOfTerm = startDate
-                                        val today = LocalDate.now()
-                                        val daysBetween = ChronoUnit.DAYS.between(startDate, today)
-                                        val rawWeek = ((daysBetween / 7) + 1).toInt()
-                                        if (rawWeek in 1..totalWeeks) realCurrentWeek = rawWeek
-                                        currentWeek = rawWeek.coerceIn(1, totalWeeks)
-                                    } catch (_: Exception) { currentWeek = 1 }
-                                }
-                            }
+                            val t = readCachedTerms()
+                            if (t.isNotEmpty()) termList = t
+                            val fallbackTerm = selectedTermCode.ifEmpty { t.firstOrNull().orEmpty() }
+                            if (fallbackTerm.isNotEmpty()) paintCache(fallbackTerm)
                             if (courses.isNotEmpty()) {
                                 showingStaleData = true
                                 isRefreshingFromNetwork = false
@@ -499,9 +490,11 @@ fun ScheduleScreen(
             } catch (e: Exception) {
                 errorMessage = com.xjtu.toolbox.util.FriendlyError.of(e, "加载课表")
             } finally {
-                isLoading = false
-                isRefreshingFromNetwork = false
-                ScheduleWidgetUpdater.requestUpdate(context)
+                if (gen == loadGen.get()) {
+                    isLoading = false
+                    isRefreshingFromNetwork = false
+                    ScheduleWidgetUpdater.requestUpdate(context)
+                }
             }
         }
     }
@@ -548,19 +541,49 @@ fun ScheduleScreen(
         }
     }
 
+    fun refreshExams() {
+        val scheduleApi = api
+        if (scheduleApi == null || selectedTermCode.isEmpty() || examsRefreshing) return
+        examsRefreshing = true
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val fresh = scheduleApi.getExamSchedule(selectedTermCode)
+                    exams = fresh
+                    dataCache.put("exams_$selectedTermCode", gson.toJson(fresh))
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.JWXT, Routes.SCHEDULE, onBack)
+            } catch (e: Exception) {
+                snackbarHostState.showSnackbar(com.xjtu.toolbox.util.FriendlyError.of(e, "刷新考试"))
+            } finally {
+                examsRefreshing = false
+            }
+        }
+    }
+
     // 懒加载教材（切换到教材 tab 时才加载）
-    fun loadTextbooks(termCode: String) {
+    fun loadTextbooks(termCode: String, silent: Boolean = false) {
         if (api == null) { textbooksError = "尚未登录教务系统"; return }
-        android.util.Log.d("ScheduleUI", "loadTextbooks called: studentId='$studentId', termCode='$termCode'")
+        android.util.Log.d("ScheduleUI", "loadTextbooks called: studentId='$studentId', termCode='$termCode' silent=$silent")
         if (studentId.isBlank()) { textbooksError = "未获取到学号"; return }
-        textbooksLoading = true
+        if (silent) {
+            if (textbooksRefreshing) return
+            textbooksRefreshing = true
+        } else {
+            textbooksLoading = true
+        }
         textbooksError = null
         scope.launch {
             try {
                 withContext(Dispatchers.IO) {
-                    ScheduleCache.readTextbooks(dataCache, gson, termCode, Long.MAX_VALUE)?.let { cached ->
-                        textbooks = cached.sortedBy { item -> if (item.hasSubstantiveTextbook) 0 else 1 }
-                        textbooksLoaded = true
+                    if (!silent) {
+                        ScheduleCache.readTextbooks(dataCache, gson, termCode, Long.MAX_VALUE)?.let { cached ->
+                            textbooks = cached.sortedBy { item -> if (item.hasSubstantiveTextbook) 0 else 1 }
+                            textbooksLoaded = true
+                        }
                     }
                     val raw = api.getTextbooks(studentId, termCode)
                     // 排序：有教材的在前，无教材的在后
@@ -578,35 +601,43 @@ fun ScheduleScreen(
             } catch (e: Exception) {
                 android.util.Log.e("ScheduleUI", "loadTextbooks failed", e)
                 textbooksError = com.xjtu.toolbox.util.FriendlyError.of(e, "查询教材")
-            } finally { textbooksLoading = false }
+            } finally {
+                textbooksLoading = false
+                textbooksRefreshing = false
+            }
         }
     }
 
-    LaunchedEffect(Unit) {
-        android.util.Log.d("ScheduleUI", "ScheduleScreen entered: studentId='$studentId', online=${api != null}")
-        loadInitialData()
-        launch {
-            try { holidayDates = HolidayApi.getHolidayDates(context) } catch (_: Exception) {}
+    fun refreshActiveTab() {
+        when (selectedTab) {
+            1 -> refreshExams()
+            2 -> if (selectedTermCode.isNotEmpty()) {
+                loadTextbooks(selectedTermCode, silent = textbooksLoaded)
+            }
+            else -> refreshSchedule(true)
         }
     }
 
-    // 账号切换后热加载：从新账号命名空间缓存秒显示课表，后台再拉网络覆盖。
     LaunchedEffect(appLoginState.accountId) {
-        if (appLoginState.accountId.isEmpty()) return@LaunchedEffect
-        android.util.Log.d("ScheduleUI", "Account switched to ${appLoginState.accountId}, hot-reloading schedule")
-        // 清旧账号残留内存态，强制从新账号缓存重读
-        courses = emptyList(); exams = emptyList(); customCourses = emptyList()
+        val id = appLoginState.accountId
+        if (lastLoadedAccount != null && lastLoadedAccount != id) {
+            courses = emptyList()
+            exams = emptyList()
+            customCourses = emptyList()
+        }
+        lastLoadedAccount = id
         loadInitialData()
+        try { holidayDates = HolidayApi.getHolidayDates(context) } catch (_: Exception) {}
     }
 
-    // 小组件/首页进入日程页时，可能先以离线缓存态渲染；
-    // 当 JWXT 登录稍后恢复成功后，自动切换为在线刷新，避免长期停留离线视图。
+    // 先进来时还没登录、稍后 JWXT 会话才就绪：补一次在线刷新。入页时已经有 site 就不要再打一遍。
+    var hadSite by remember { mutableStateOf(site != null) }
     LaunchedEffect(activeSite) {
-        if (activeSite == null) return@LaunchedEffect
-        if (isLoading || isSwitching) return@LaunchedEffect
-        if (!showingStaleData && errorMessage == null && courses.isNotEmpty()) return@LaunchedEffect
-
-        android.util.Log.d("ScheduleUI", "Login became available, refreshing schedule online")
+        val now = activeSite != null
+        val appeared = now && !hadSite
+        hadSite = now
+        if (!appeared) return@LaunchedEffect
+        if (isLoading || isSwitching || isRefreshingFromNetwork) return@LaunchedEffect
         loadInitialData()
     }
 
@@ -976,21 +1007,6 @@ fun ScheduleScreen(
                         }
                     },
                     actions = {
-                        // 手动刷新：从缓存读取拉到网络强制刷新，避免依赖下拉手势（页面顶部不一定能下拉）
-                        IconButton(
-                            onClick = {
-                                if (!isRefreshingFromNetwork && api != null) refreshSchedule(true)
-                            },
-                            enabled = !isRefreshingFromNetwork && api != null,
-                        ) {
-                            Icon(
-                                Icons.Default.Refresh,
-                                contentDescription = "刷新课表",
-                                tint = if (isRefreshingFromNetwork)
-                                    MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f)
-                                else MiuixTheme.colorScheme.onSurface
-                            )
-                        }
                         // 学期切换（仅多个学期时显示）
                         if (termList.size > 1) {
                             Box {
@@ -1198,7 +1214,7 @@ fun ScheduleScreen(
                     modifier = Modifier.fillMaxSize()
                 )
             } else {
-                if (isSwitching || isRefreshingFromNetwork) {
+                if (selectedTab == 0 && isSwitching) {
                     LinearProgressIndicator(
                         modifier = Modifier.fillMaxWidth(),
                         height = 2.dp
@@ -1212,49 +1228,83 @@ fun ScheduleScreen(
                     }, label = "tabSwitch"
                 ) { tab ->
                     when (tab) {
-                        0 -> ScheduleTabContent(
-                            courses = filteredMergedCourses,
-                            currentWeek = currentWeek,
-                            totalWeeks = totalWeeks,
-                            showAllWeeks = showAllWeeks,
-                            weekNote = weekNote,
-                            realCurrentWeek = realCurrentWeek,
-                            selectedTermCode = selectedTermCode,
-                            startOfTerm = startOfTerm,
-                            currentTermCode = currentTermCode,
-                            onWeekChange = { currentWeek = it },
-                            onToggleMode = { showAllWeeks = !showAllWeeks },
-                            holidayDates = holidayDates,
-                            customCourses = customCourses,
-                            onEditCustomCourse = { editingCourse = it }
-                        )
-                        1 -> ExamTabContent(exams, contentBottomPadding, windowSize)
-                        2 -> TextbookTabContent(
-                            textbooks = textbooks,
-                            isLoading = textbooksLoading,
-                            error = textbooksError,
-                            onRetry = {
-                                if (api == null && appLoginState.hasCredentials) {
-                                    scope.launch {
-                                        textbooksError = null
-                                        attemptingAutoLogin = true
-                                        try {
-                                            withContext(Dispatchers.IO) {
-                                                activeSite = appLoginState.sessionManager?.ensureSite(LoginType.JWXT)
+                        0 -> {
+                            val schedulePull = rememberPullToRefreshState()
+                            PullToRefresh(
+                                isRefreshing = isRefreshingFromNetwork,
+                                onRefresh = { if (api != null) refreshSchedule(true) },
+                                pullToRefreshState = schedulePull,
+                                modifier = Modifier.fillMaxSize(),
+                            ) {
+                                ScheduleTabContent(
+                                    courses = filteredMergedCourses,
+                                    currentWeek = currentWeek,
+                                    totalWeeks = totalWeeks,
+                                    showAllWeeks = showAllWeeks,
+                                    weekNote = weekNote,
+                                    realCurrentWeek = realCurrentWeek,
+                                    selectedTermCode = selectedTermCode,
+                                    startOfTerm = startOfTerm,
+                                    currentTermCode = currentTermCode,
+                                    onWeekChange = { currentWeek = it },
+                                    onToggleMode = { showAllWeeks = !showAllWeeks },
+                                    holidayDates = holidayDates,
+                                    customCourses = customCourses,
+                                    onEditCustomCourse = { editingCourse = it }
+                                )
+                            }
+                        }
+                        1 -> {
+                            val examPull = rememberPullToRefreshState()
+                            PullToRefresh(
+                                isRefreshing = examsRefreshing,
+                                onRefresh = { refreshExams() },
+                                pullToRefreshState = examPull,
+                                modifier = Modifier.fillMaxSize(),
+                            ) {
+                                ExamTabContent(exams, contentBottomPadding, windowSize)
+                            }
+                        }
+                        2 -> {
+                            val bookPull = rememberPullToRefreshState()
+                            PullToRefresh(
+                                isRefreshing = textbooksRefreshing,
+                                onRefresh = {
+                                    if (selectedTermCode.isNotEmpty()) {
+                                        loadTextbooks(selectedTermCode, silent = textbooksLoaded)
+                                    }
+                                },
+                                pullToRefreshState = bookPull,
+                                modifier = Modifier.fillMaxSize(),
+                            ) {
+                                TextbookTabContent(
+                                    textbooks = textbooks,
+                                    isLoading = textbooksLoading,
+                                    error = textbooksError,
+                                    onRetry = {
+                                        if (api == null && appLoginState.hasCredentials) {
+                                            scope.launch {
+                                                textbooksError = null
+                                                attemptingAutoLogin = true
+                                                try {
+                                                    withContext(Dispatchers.IO) {
+                                                        activeSite = appLoginState.sessionManager?.ensureSite(LoginType.JWXT)
+                                                    }
+                                                } catch (_: Exception) {}
+                                                attemptingAutoLogin = false
+                                                if (selectedTermCode.isNotEmpty() && activeSite != null) {
+                                                    loadTextbooks(selectedTermCode)
+                                                }
                                             }
-                                        } catch (_: Exception) {}
-                                        attemptingAutoLogin = false
-                                        if (selectedTermCode.isNotEmpty() && activeSite != null) {
+                                        } else if (selectedTermCode.isNotEmpty()) {
                                             loadTextbooks(selectedTermCode)
                                         }
-                                    }
-                                } else if (selectedTermCode.isNotEmpty()) {
-                                    loadTextbooks(selectedTermCode)
-                                }
-                            },
-                            bottomPadding = contentBottomPadding,
-                            windowSize = windowSize
-                        )
+                                    },
+                                    bottomPadding = contentBottomPadding,
+                                    windowSize = windowSize
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -1275,7 +1325,7 @@ private fun ScheduleTabContent(
     val allNames = remember(courses) { courses.map { it.courseName }.distinct().sorted() }
     var selectedCourse by remember { mutableStateOf<CourseItem?>(null) }
 
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().overScrollVertical()) {
         // 学期状态提示（未开学/已结束）
         if (weekNote != null) {
             Surface(
@@ -1530,34 +1580,6 @@ private fun ExamTabContent(
 ) {
     // 去重（同一门课+同一天只显示一次）
     val uniqueExams = exams.distinctBy { "${it.courseName}_${it.examDate}" }
-    if (uniqueExams.isEmpty()) {
-        Column(
-            modifier = Modifier.fillMaxSize().padding(32.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Icon(
-                Icons.Outlined.EventAvailable,
-                contentDescription = null,
-                modifier = Modifier.size(56.dp),
-                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f),
-            )
-            Spacer(Modifier.height(12.dp))
-            Text(
-                "本学期暂无考试安排",
-                style = MiuixTheme.textStyles.body1,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "若已临近期末仍无数据，可能教务系统未发布或当前学期设置有误；可下拉刷新或切换其他学期查看。",
-                style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.7f),
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            )
-        }
-        return
-    }
     Box(
         Modifier.fillMaxSize(),
         contentAlignment = Alignment.TopCenter,
@@ -1571,7 +1593,37 @@ private fun ExamTabContent(
             verticalArrangement = Arrangement.spacedBy(10.dp),
             contentPadding = PaddingValues(top = 12.dp, bottom = 12.dp + bottomPadding),
         ) {
-            items(uniqueExams) { exam -> ExamCard(exam) }
+            if (uniqueExams.isEmpty()) {
+                item {
+                    Column(
+                        modifier = Modifier.fillParentMaxSize().padding(32.dp),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Icon(
+                            Icons.Outlined.EventAvailable,
+                            contentDescription = null,
+                            modifier = Modifier.size(56.dp),
+                            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f),
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            "本学期暂无考试安排",
+                            style = MiuixTheme.textStyles.body1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "若已临近期末仍无数据，可能教务系统未发布或当前学期设置有误；可下拉刷新或切换其他学期查看。",
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.7f),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        )
+                    }
+                }
+            } else {
+                items(uniqueExams) { exam -> ExamCard(exam) }
+            }
         }
     }
 }
@@ -1725,18 +1777,6 @@ private fun TextbookTabContent(
 ) {
     when {
         isLoading -> LoadingState(message = "查询教材信息...", modifier = Modifier.fillMaxSize())
-        error != null -> ErrorState(message = error, onRetry = onRetry, modifier = Modifier.fillMaxSize())
-        textbooks.isEmpty() -> {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.AutoMirrored.Filled.MenuBook, null, Modifier.size(48.dp), tint = MiuixTheme.colorScheme.outline)
-                    Spacer(Modifier.height(12.dp))
-                    Text("暂无教材信息", style = MiuixTheme.textStyles.body1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                    Spacer(Modifier.height(4.dp))
-                    Text("本学期可能未录入教材数据", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.outline)
-                }
-            }
-        }
         else -> {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
                 LazyColumn(
@@ -1748,7 +1788,25 @@ private fun TextbookTabContent(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     contentPadding = PaddingValues(top = 12.dp, bottom = 12.dp + bottomPadding)
                 ) {
-                    items(textbooks) { item -> TextbookCard(item) }
+                    when {
+                        error != null -> item {
+                            ErrorState(message = error, onRetry = onRetry, modifier = Modifier.fillParentMaxSize())
+                        }
+                        textbooks.isEmpty() -> item {
+                            Column(
+                                modifier = Modifier.fillParentMaxSize(),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center,
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.MenuBook, null, Modifier.size(48.dp), tint = MiuixTheme.colorScheme.outline)
+                                Spacer(Modifier.height(12.dp))
+                                Text("暂无教材信息", style = MiuixTheme.textStyles.body1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                                Spacer(Modifier.height(4.dp))
+                                Text("本学期可能未录入教材数据，可下拉再试", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.outline)
+                            }
+                        }
+                        else -> items(textbooks) { item -> TextbookCard(item) }
+                    }
                 }
             }
         }

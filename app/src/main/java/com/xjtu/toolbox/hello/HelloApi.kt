@@ -93,7 +93,8 @@ class HelloApi(private val site: SiteSession) {
         val json = body.safeParseJsonObject()
         val state = json.get("state")?.asInt
         if (state != 200) {
-            throw RuntimeException(json.get("message")?.asString ?: "个人信息接口返回 state=$state")
+            val message = json.get("message")?.asString ?: "个人信息接口返回 state=$state"
+            throw AuthExpiredException(site.siteName, message)
         }
         val data = json.getAsJsonObject("data") ?: throw RuntimeException("个人信息接口缺少 data")
         val stu = data.getAsJsonObject("studentBean") ?: throw RuntimeException("个人信息接口缺少 studentBean")

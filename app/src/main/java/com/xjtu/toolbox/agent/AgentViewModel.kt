@@ -385,6 +385,7 @@ class AgentViewModel : ViewModel() {
                             "get_empty_rooms"       -> "查询空教室…"
                             "get_attendance"        -> "查询考勤记录…"
                             "get_grades"            -> "查询成绩…"
+                            "get_fitness_score"     -> "查询体测成绩…"
                             "get_card_balance"      -> "查询校园卡余额…"
                             "get_card_transactions" -> "查询校园卡流水…"
                             "get_notifications"     -> "查询通知公告…"

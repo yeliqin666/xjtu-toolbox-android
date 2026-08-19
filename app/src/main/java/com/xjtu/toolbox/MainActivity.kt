@@ -123,6 +123,11 @@ import com.xjtu.toolbox.score.ScoreReportScreen
 import com.xjtu.toolbox.ui.theme.XJTUToolBoxTheme
 import com.xjtu.toolbox.ui.theme.serviceColor
 import com.xjtu.toolbox.ui.settings.SettingsScreen
+import com.xjtu.toolbox.bulletin.Bulletin
+import com.xjtu.toolbox.bulletin.BulletinApi
+import com.xjtu.toolbox.bulletin.BulletinLevel
+import com.xjtu.toolbox.bulletin.BulletinRules
+import com.xjtu.toolbox.bulletin.BulletinStore
 import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.ExpressiveIcon
 import com.xjtu.toolbox.agent.AgentPendingPrompt
@@ -183,14 +188,7 @@ class MainActivity : ComponentActivity() {
         darkModeOverrideState.value = prefs.getString("dark_mode", "system") ?: "system"
         dynamicColorState.value = prefs.getBoolean("dynamic_color", false)
 
-        // ── 后台 Session 保活：只设置一次 provider，循环本身根据用户开关在登录后启动 ──
-        com.xjtu.toolbox.auth.SessionKeepAlive.setProvider {
-            com.xjtu.toolbox.auth.SessionKeepAlive.KeepAliveSnapshot(
-                logins = emptyList(),
-                vpnClient = null
-            )
-        }
-        // 启动循环（内部会读 KeepAlivePrefs.isEnabled，未开启则直接跳过）
+        // 后台保活：循环读 KeepAlivePrefs，真正续期走 sessionRefresher。
         com.xjtu.toolbox.auth.SessionKeepAlive.start(this)
         // Agent 改深色模式时即时刷新主题（CredentialStore 写 pref 不会触发重组）
         com.xjtu.toolbox.agent.AgentRuntimeHooks.applyDarkMode = { mode ->
@@ -246,7 +244,6 @@ class MainActivity : ComponentActivity() {
 
 object Routes {
     const val MAIN = "main"
-    const val LOGIN = "login/{loginType}/{target}"
     const val EMPTY_ROOM = "empty_room"
     const val NOTIFICATION = "notification"
     const val ATTENDANCE = "attendance"
@@ -254,7 +251,6 @@ object Routes {
     const val SCHEDULE = "schedule"
     const val JUDGE = "judge"
     const val JWAPP_SCORE = "jwapp_score"
-    const val YWTB = "ywtb"
     const val LIBRARY = "library"
     const val CAMPUS_CARD = "campus_card"
     const val SCORE_REPORT = "score_report"
@@ -284,7 +280,6 @@ object Routes {
     const val FACULTY = "faculty"
     const val ICLASSFACE = "iclassface"
 
-    fun login(type: LoginType, target: String) = "login/${type.name}/$target"
     fun browser(url: String = "") = "browser?url=${java.net.URLEncoder.encode(url, "UTF-8")}"
     fun videoPlayer(activityId: Int) = "video_player/$activityId"
     fun jiaocai1Reader(ssno: String, title: String = "") =
@@ -418,7 +413,7 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
             b.cookieJar.clearForDomain("webvpn.xjtu.edu.cn")
             b.cookieJar.clearForDomain(".webvpn.xjtu.edu.cn")
             b.cookieJar.flushToDisk()
-            b.webvpnSelfLoggedIn = false
+            b.markWebVpnStale()
         }
     }
 
@@ -536,7 +531,7 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
         sessionManager?.invalidateAllSites()
         // 网关登录态随 backend 走：切账号时 reconfigureForAccount 会整体换掉 backends，
         // 这里额外置一次，覆盖「尚未 reconfigure 就先清内存态」的调用顺序。
-        webVpnBackend?.webvpnSelfLoggedIn = false
+        webVpnBackend?.markWebVpnStale()
         isOnCampus = null
         campusDetectTime = 0L
         ywtbUserInfo = null
@@ -813,8 +808,6 @@ class AppLoginStateViewModel(application: android.app.Application) : androidx.li
             register(com.xjtu.toolbox.auth.CouponSession())
             register(com.xjtu.toolbox.auth.DzpzSession())
             register(com.xjtu.toolbox.auth.VenueSession())
-            register(com.xjtu.toolbox.auth.GmisSession())
-            register(com.xjtu.toolbox.auth.GsteSession())
             register(com.xjtu.toolbox.auth.AttendanceSession(isPostgraduate = false))
             register(com.xjtu.toolbox.auth.AttendanceSession(isPostgraduate = true))
             register(com.xjtu.toolbox.auth.CampusCardSession())
@@ -828,8 +821,7 @@ class AppLoginStateViewModel(application: android.app.Application) : androidx.li
         accountManager.sessionManager = sessionManager
         accountManager.holder = loginState
 
-        // 保活接回新架构：每轮对已登录站点做免密 SSO 续期（静默，撞 MFA 即退出）。
-        // 旧的 LoginProvider 只返回空列表，循环等于空转，会话该凉还是凉。
+        // 保活：每轮对已登录站点做免密 SSO 续期（静默，撞 MFA 即退出）。
         com.xjtu.toolbox.auth.SessionKeepAlive.sessionRefresher = {
             sessionManager.refreshLoggedInSites()
         }
@@ -1321,9 +1313,13 @@ fun AppNavigation(
         )
     }
 
-    // ── 启动时自动检查更新（根据用户设置） ──
+    // ── 启动必检：公告 + 更新（不再看「启动时检查更新」开关）──
+    val bulletinStore = remember { BulletinStore(context) }
+    var heroBulletin by remember { mutableStateOf<Bulletin?>(null) }
+    var pendingUpdate by remember { mutableStateOf<com.xjtu.toolbox.util.AppUpdateInfo?>(null) }
+    var bulletinDialogShown by remember { mutableStateOf(false) }
+    val showBulletinDialog = remember { mutableStateOf(false) }
     val autoUpdateCheckDone = remember { mutableStateOf(false) }
-    // 自动更新弹窗状态
     var autoUpdateVersion by remember { mutableStateOf("") }
     var autoUpdateBody by remember { mutableStateOf("") }
     var autoUpdateDownloadUrl by remember { mutableStateOf("") }
@@ -1332,29 +1328,139 @@ fun AppNavigation(
     var autoUpdateChannel by remember { mutableStateOf("") }
     val showAutoUpdateDialog = remember { mutableStateOf(false) }
 
+    fun applyHeroBulletin(
+        remote: List<Bulletin>,
+        update: com.xjtu.toolbox.util.AppUpdateInfo?,
+    ) {
+        val synthetic = update?.let { info ->
+            val syn = BulletinRules.syntheticUpdate(info.version, info.channel)
+            if (credentialStore.isUpdateNoticeSeen(syn.id)) null else syn
+        }
+        heroBulletin = BulletinRules.pick(
+            items = remote + listOfNotNull(synthetic),
+            now = java.time.Instant.now(),
+            currentVersion = BuildConfig.VERSION_NAME,
+            dismissedIds = bulletinStore.dismissedIds,
+            ackedIds = bulletinStore.ackedIds,
+            snoozedIds = BulletinStore.sessionSnoozedIds(),
+        )
+    }
+
+    fun presentUpdate(update: com.xjtu.toolbox.util.AppUpdateInfo) {
+        pendingUpdate = update
+        autoUpdateVersion = update.version
+        autoUpdateBody = update.notes
+        autoUpdateDownloadUrl = update.downloadUrl
+        autoUpdateReleaseUrl = update.releaseUrl
+        autoUpdateChannelKey = update.channel
+        autoUpdateChannel = update.channelLabel
+        showAutoUpdateDialog.value = true
+    }
+
+    fun openPendingUpdate() {
+        val ready = pendingUpdate
+        if (ready != null) {
+            presentUpdate(ready)
+            return
+        }
+        mainScope.launch {
+            val result = runCatching {
+                com.xjtu.toolbox.util.AppUpdater.check(credentialStore.updateChannel)
+            }
+            result.fold(
+                onSuccess = { update ->
+                    if (update != null) {
+                        presentUpdate(update)
+                    } else {
+                        android.widget.Toast.makeText(
+                            context,
+                            "暂未查到新版本，请到设置里手动检查",
+                            android.widget.Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                },
+                onFailure = {
+                    android.widget.Toast.makeText(
+                        context,
+                        "检查更新失败：${it.message}",
+                        android.widget.Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            )
+        }
+    }
+
+    fun dismissHeroBulletin(bulletin: Bulletin) {
+        when {
+            bulletin.synthesized -> credentialStore.markUpdateNoticeSeen(bulletin.id)
+            bulletin.level == BulletinLevel.CRITICAL -> bulletinStore.ack(bulletin.id)
+            bulletin.level == BulletinLevel.FORCE_UPDATE -> bulletinStore.snooze(bulletin.id)
+            else -> bulletinStore.dismiss(bulletin.id)
+        }
+        applyHeroBulletin(bulletinStore.peekCached(), pendingUpdate)
+    }
+
+    fun onHeroBulletinTap(bulletin: Bulletin) {
+        if (bulletin.level == BulletinLevel.FORCE_UPDATE ||
+            bulletin.level == BulletinLevel.UPDATE ||
+            bulletin.synthesized
+        ) {
+            openPendingUpdate()
+            return
+        }
+        val url = bulletin.url
+        if (!url.isNullOrBlank()) {
+            runCatching {
+                context.startActivity(
+                    android.content.Intent(
+                        android.content.Intent.ACTION_VIEW,
+                        android.net.Uri.parse(url),
+                    ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            }
+        }
+    }
+
     LaunchedEffect(Unit) {
         if (autoUpdateCheckDone.value) return@LaunchedEffect
-        if (!credentialStore.autoCheckUpdate) return@LaunchedEffect
-        val now = System.currentTimeMillis()
-        if (now - credentialStore.lastAutoUpdateCheckAt < com.xjtu.toolbox.util.AppUpdater.AUTO_CHECK_INTERVAL_MS) {
-            return@LaunchedEffect
-        }
         autoUpdateCheckDone.value = true
-        try {
-            val update = com.xjtu.toolbox.util.AppUpdater.check(credentialStore.updateChannel)
-            // 只有请求成功才记冷却：失败下次冷启动还会再试，避免「看起来像没检查」。
-            credentialStore.lastAutoUpdateCheckAt = System.currentTimeMillis()
-            if (update == null) return@LaunchedEffect
-            if (credentialStore.isUpdateNoticeSeen("auto_${update.channel}_${update.version}")) return@LaunchedEffect
-            autoUpdateVersion = update.version
-            autoUpdateBody = update.notes
-            autoUpdateDownloadUrl = update.downloadUrl
-            autoUpdateReleaseUrl = update.releaseUrl
-            autoUpdateChannelKey = update.channel
-            autoUpdateChannel = update.channelLabel
-            showAutoUpdateDialog.value = true
-        } catch (e: Exception) {
-            android.util.Log.w("AppUpdater", "startup update check failed", e)
+        applyHeroBulletin(bulletinStore.peekCached(), null)
+        val cached = heroBulletin
+        if (!bulletinDialogShown && cached != null &&
+            !cached.synthesized && BulletinRules.shouldShowLaunchDialog(cached)
+        ) {
+            showBulletinDialog.value = true
+            bulletinDialogShown = true
+        }
+
+        val fetched = runCatching { BulletinApi.fetch() }.getOrNull()
+        if (fetched != null) bulletinStore.cachedJson = fetched.rawJson
+        val remoteItems = fetched?.items ?: bulletinStore.peekCached()
+
+        var update: com.xjtu.toolbox.util.AppUpdateInfo? = null
+        val now = System.currentTimeMillis()
+        if (now - credentialStore.lastAutoUpdateCheckAt >= com.xjtu.toolbox.util.AppUpdater.AUTO_CHECK_INTERVAL_MS) {
+            try {
+                update = com.xjtu.toolbox.util.AppUpdater.check(credentialStore.updateChannel)
+                credentialStore.lastAutoUpdateCheckAt = System.currentTimeMillis()
+            } catch (e: Exception) {
+                android.util.Log.w("AppUpdater", "startup update check failed", e)
+            }
+        }
+        if (update != null) pendingUpdate = update
+        applyHeroBulletin(remoteItems, update)
+        val picked = heroBulletin
+        if (!bulletinDialogShown && picked != null &&
+            !picked.synthesized && BulletinRules.shouldShowLaunchDialog(picked)
+        ) {
+            showBulletinDialog.value = true
+            bulletinDialogShown = true
+        }
+        if (update != null &&
+            !credentialStore.isUpdateNoticeSeen("auto_${update.channel}_${update.version}") &&
+            heroBulletin?.level != BulletinLevel.FORCE_UPDATE
+        ) {
+            presentUpdate(update)
         }
     }
 
@@ -1369,7 +1475,29 @@ fun AppNavigation(
             onDismiss = {
                 credentialStore.markUpdateNoticeSeen("auto_${autoUpdateChannelKey}_${autoUpdateVersion}")
                 showAutoUpdateDialog.value = false
+                applyHeroBulletin(bulletinStore.peekCached(), pendingUpdate)
             }
+        )
+    }
+
+    val dialogBulletin = heroBulletin
+    if (showBulletinDialog.value && dialogBulletin != null) {
+        BulletinLaunchDialog(
+            bulletin = dialogBulletin,
+            show = showBulletinDialog,
+            onDismiss = {
+                if (dialogBulletin.level == BulletinLevel.FORCE_UPDATE) {
+                    bulletinStore.snooze(dialogBulletin.id)
+                    applyHeroBulletin(bulletinStore.peekCached(), pendingUpdate)
+                }
+                showBulletinDialog.value = false
+            },
+            onPrimary = {
+                showBulletinDialog.value = false
+                if (dialogBulletin.level == BulletinLevel.FORCE_UPDATE) {
+                    openPendingUpdate()
+                }
+            },
         )
     }
 
@@ -1430,7 +1558,10 @@ fun AppNavigation(
                 onPendingLaunchConsumed = { pendingLaunchRoute = null },
                 onWarmupRequest = { startBackgroundLoginWarmup(mainScope, force = true) },
                 homeTheme = homeTheme,
-                showQuickActions = showQuickActions
+                showQuickActions = showQuickActions,
+                heroBulletin = heroBulletin,
+                onHeroBulletinTap = ::onHeroBulletinTap,
+                onHeroBulletinDismiss = ::dismissHeroBulletin,
             )
         }
 
@@ -1872,6 +2003,9 @@ private fun MainScreen(
     onWarmupRequest: () -> Unit = {},
     homeTheme: String = CredentialStore.THEME_CARD,
     showQuickActions: Boolean = true,
+    heroBulletin: Bulletin? = null,
+    onHeroBulletinTap: (Bulletin) -> Unit = {},
+    onHeroBulletinDismiss: (Bulletin) -> Unit = {},
 ) {
     // 读取设置的默认 Tab
     val defaultTabOrdinal = remember {
@@ -1967,7 +2101,19 @@ private fun MainScreen(
         fun siteReady(t: LoginType): Boolean =
             loginState.sessionManager?.getSiteOrNull(t.siteKey())?.hasLogin == true
 
-        val forceEnsureOnEnter = type == LoginType.SUPER_APP || type == LoginType.JIAOXIAOZHI
+        // 移动交大的 ticket 只给 WebView 用：入口处再 ensureSite 一次会先吃掉一张，
+        // 进页 force 登录又登一遍。网关是否还活着交给页面里的 ensureWebVpnLogin。
+        if (type == LoginType.SUPER_APP) {
+            if (loginState.hasCredentials) {
+                navigateToTarget(target)
+            } else {
+                scope.launch {
+                    snackbarHostState.showSnackbar("请先登录后使用${type.label}", duration = SnackbarDuration.Short)
+                }
+            }
+            return
+        }
+        val forceEnsureOnEnter = type == LoginType.JIAOXIAOZHI
         if (siteReady(type) && !forceEnsureOnEnter) {
             navigateToTarget(target)
         } else if (loginState.hasCredentials) {
@@ -2301,7 +2447,10 @@ private fun MainScreen(
                                         scrollBehavior = homeScrollBehavior,
                                         navBarStyle = navBarStyle,
                                         homeTheme = homeTheme,
-                                        showQuickActions = showQuickActions
+                                        showQuickActions = showQuickActions,
+                                        bulletin = heroBulletin,
+                                        onBulletinTap = onHeroBulletinTap,
+                                        onBulletinDismiss = onHeroBulletinDismiss,
                                     )
                                     BottomTab.COURSES -> CoursesTab(loginState, ::navigateWithLogin, onNavigateWithNetCheck, scrollBehavior = coursesScrollBehavior, navBarStyle = navBarStyle, onSubtitleChange = { courseSubtitle = it }, onActionsChange = { courseHeaderActions = it }, onBottomContentChange = { courseHeaderBottomContent = it })
                                     BottomTab.TOOLS -> ToolsTab(loginState, ::navigateWithLogin, onNavigateWithNetCheck, scrollBehavior = toolsScrollBehavior, navBarStyle = navBarStyle)
@@ -2727,6 +2876,228 @@ private fun HomeHero(
     }
 }
 
+@Composable
+private fun BulletinNoticePanel(
+    bulletin: Bulletin,
+    onTap: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val accent = when (bulletin.level) {
+        BulletinLevel.WARN -> Color(0xFFE65100)
+        BulletinLevel.CRITICAL, BulletinLevel.FORCE_UPDATE -> Color(0xFFC62828)
+        BulletinLevel.UPDATE -> Color(0xFF1565C0)
+        BulletinLevel.INFO -> MiuixTheme.colorScheme.primary
+    }
+    val levelLabel = when (bulletin.level) {
+        BulletinLevel.FORCE_UPDATE -> "必须更新"
+        BulletinLevel.UPDATE -> "可更新"
+        BulletinLevel.CRITICAL -> "重要"
+        BulletinLevel.WARN -> "维护"
+        BulletinLevel.INFO -> "通知"
+    }
+    var expanded by remember(bulletin.id) {
+        mutableStateOf(
+            bulletin.level == BulletinLevel.CRITICAL ||
+                bulletin.level == BulletinLevel.FORCE_UPDATE ||
+                bulletin.level == BulletinLevel.UPDATE
+        )
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        cornerRadius = 18.dp,
+        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = AppCardColor),
+    ) {
+        Column(Modifier.fillMaxWidth()) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = SinkFeedback(),
+                        onClick = { expanded = !expanded },
+                    )
+                    .padding(start = 14.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(accent),
+                )
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        levelLabel,
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = accent,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        bulletin.title,
+                        style = MiuixTheme.textStyles.body2,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Icon(
+                    imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = if (expanded) "收起" else "展开",
+                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.size(22.dp),
+                )
+                if (bulletin.level == BulletinLevel.INFO ||
+                    bulletin.level == BulletinLevel.WARN ||
+                    bulletin.level == BulletinLevel.UPDATE
+                ) {
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "关闭",
+                            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                }
+            }
+            AnimatedVisibility(visible = expanded) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(start = 32.dp, end = 14.dp, bottom = 14.dp)
+                ) {
+                    if (bulletin.body.isNotBlank()) {
+                        Text(
+                            bulletin.body,
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        )
+                        Spacer(Modifier.height(12.dp))
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        when (bulletin.level) {
+                            BulletinLevel.FORCE_UPDATE -> {
+                                Text(
+                                    "立即更新",
+                                    style = MiuixTheme.textStyles.body2,
+                                    fontWeight = FontWeight.Bold,
+                                    color = accent,
+                                    modifier = Modifier.clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = SinkFeedback(),
+                                        onClick = onTap,
+                                    ),
+                                )
+                            }
+                            BulletinLevel.UPDATE -> {
+                                Text(
+                                    "去更新",
+                                    style = MiuixTheme.textStyles.body2,
+                                    fontWeight = FontWeight.Bold,
+                                    color = accent,
+                                    modifier = Modifier.clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = SinkFeedback(),
+                                        onClick = onTap,
+                                    ),
+                                )
+                            }
+                            BulletinLevel.CRITICAL -> {
+                                Text(
+                                    "知道了",
+                                    style = MiuixTheme.textStyles.body2,
+                                    fontWeight = FontWeight.Bold,
+                                    color = accent,
+                                    modifier = Modifier.clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = SinkFeedback(),
+                                        onClick = onDismiss,
+                                    ),
+                                )
+                            }
+                            BulletinLevel.INFO, BulletinLevel.WARN -> {
+                                if (!bulletin.url.isNullOrBlank()) {
+                                    Text(
+                                        "查看详情",
+                                        style = MiuixTheme.textStyles.body2,
+                                        fontWeight = FontWeight.Bold,
+                                        color = accent,
+                                        modifier = Modifier.clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = SinkFeedback(),
+                                            onClick = onTap,
+                                        ),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BulletinLaunchDialog(
+    bulletin: Bulletin,
+    show: MutableState<Boolean>,
+    onDismiss: () -> Unit,
+    onPrimary: () -> Unit,
+) {
+    BackHandler(enabled = show.value) { onDismiss() }
+    val title = when (bulletin.level) {
+        BulletinLevel.FORCE_UPDATE -> "需要更新"
+        BulletinLevel.UPDATE -> "发现新版本"
+        BulletinLevel.CRITICAL -> "重要通知"
+        BulletinLevel.WARN -> "维护通知"
+        BulletinLevel.INFO -> "通知"
+    }
+    WindowBottomSheet(
+        show = show.value,
+        title = title,
+        onDismissRequest = onDismiss,
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+        ) {
+            Text(
+                bulletin.title,
+                style = MiuixTheme.textStyles.title4,
+                fontWeight = FontWeight.Bold,
+            )
+            if (bulletin.body.isNotBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Text(bulletin.body, style = MiuixTheme.textStyles.body2)
+            }
+            Spacer(Modifier.height(16.dp))
+            Row(Modifier.fillMaxWidth()) {
+                if (bulletin.level == BulletinLevel.FORCE_UPDATE) {
+                    TextButton(
+                        text = "稍后",
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        text = "立即更新",
+                        onClick = onPrimary,
+                        modifier = Modifier.weight(1f),
+                    )
+                } else {
+                    TextButton(
+                        text = "知道了",
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        }
+    }
+}
 
 @Composable
 private fun HomeTab(
@@ -2740,6 +3111,9 @@ private fun HomeTab(
     navBarStyle: String = "floating",
     homeTheme: String = CredentialStore.THEME_CARD,
     showQuickActions: Boolean = true,
+    bulletin: Bulletin? = null,
+    onBulletinTap: (Bulletin) -> Unit = {},
+    onBulletinDismiss: (Bulletin) -> Unit = {},
 ) {
     // ── 仪表盘数据：下一节日程 + 校园卡余额缓存（供 Hero 重点信息区使用）──
     val heroContext = LocalContext.current
@@ -2880,6 +3254,14 @@ private fun HomeTab(
             val weekDay = today.dayOfWeek.getDisplayName(
                 java.time.format.TextStyle.FULL, java.util.Locale.CHINESE
             )
+            if (bulletin != null) {
+                BulletinNoticePanel(
+                    bulletin = bulletin,
+                    onTap = { onBulletinTap(bulletin) },
+                    onDismiss = { onBulletinDismiss(bulletin) },
+                )
+                Spacer(Modifier.height(10.dp))
+            }
             HomeHero(
                 greetingName = loginState.cachedNickname.orEmpty()
                     .ifBlank { loginState.ywtbUserInfo?.userName.orEmpty() }

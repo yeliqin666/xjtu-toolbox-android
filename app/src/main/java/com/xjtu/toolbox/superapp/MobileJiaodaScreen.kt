@@ -33,6 +33,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -46,6 +47,7 @@ import androidx.core.content.ContextCompat
 import com.xjtu.toolbox.LocalAppLoginState
 import com.xjtu.toolbox.auth.CasSiteSession
 import com.xjtu.toolbox.auth.SiteSession
+import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -100,38 +102,27 @@ fun MobileJiaodaScreen(
             )
         }
     }
-    // superapp.xjtu.edu.cn 是纯前端 SPA，全程不用 cookie 鉴权——认证态全靠 URL 里的
-    // ticket 参数（JWT，内嵌 idToken），SPA 拿到后自行解析存本地，后续业务请求走
-    // X-Id-Token 请求头。这张票据是否单次消费型未经证实，为保险起见每次打开都强制
-    // 走一次新鲜登录（force=true），不复用可能已被消费过的缓存 launch_url。
+    // superapp.xjtu.edu.cn 是纯前端 SPA，认证靠 URL 里的 ticket。入口不再预先 ensureSite，
+    // 只在这里登录一次，避免先吃掉一张票再 force 登第二遍。
     var launchUrl by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(site) {
+    var loginError by remember { mutableStateOf<String?>(null) }
+    var loginAttempt by remember { mutableIntStateOf(0) }
+    LaunchedEffect(site, loginAttempt) {
         launchUrl = null
+        loginError = null
         try {
             val creds = loginState.sessionManager?.credentials
                 ?: error("未配置校园账号凭据")
             withContext(Dispatchers.IO) {
-                // 校外走 WEBVPN 时，WebView 直接加载 webvpn.xjtu.edu.cn 加密地址前，
-                // 必须先确保 WebVPN 网关自身已认证（wengine_vpn_ticket 等 cookie），
-                // 否则会被网关拦截跳转到登录页——这与 site.ensureLogin 里业务站点的
-                // 登录是两层不同的认证。
                 if (site.currentAccessMode == com.xjtu.toolbox.auth.AccessMode.WEBVPN) {
                     loginState.sessionManager?.ensureWebVpnLogin()
                 }
                 site.ensureLogin(creds.first, creds.second, force = true, userInitiated = true)
             }
             val fresh = site.localToken["launch_url"].orEmpty()
-            // WebVPN 模式下 launch_url 是加密后的 webvpn.xjtu.edu.cn/... 地址，域名部分
-            // 被加密，不能再用字符串 contains("superapp.xjtu.edu.cn") 判断。
             val resolved = fresh.takeIf {
                 com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(it, "superapp.xjtu.edu.cn") && it.contains("ticket=")
-            } ?: com.xjtu.toolbox.auth.SuperAppLogin.LOGIN_URL
-            // cookie 必须在 WebView 建出来之前就写进系统 CookieManager。
-            // 原来放在下面 Scaffold 里的 LaunchedEffect(currentLaunchUrl) 太晚了：
-            // AndroidView 的 factory 在 Compose 应用变更时就跑了 loadUrl，而 LaunchedEffect
-            // 的协程体是之后才被调度的——首次加载必然抢在同步之前发出，网关看不到
-            // wengine_vpn_ticket 就把它当未登录，直接跳网关登录页（真机现象：停在 WebVPN 登录页）。
-            // 现在同步完成后才给 launchUrl 赋值，赋值前页面停在 LoadingState，WebView 尚未创建。
+            } ?: throw IllegalStateException("移动交大未返回可用的登录票据")
             if (com.xjtu.toolbox.util.WebVpnUtil.isWebVpnUrl(resolved)) {
                 com.xjtu.toolbox.browser.syncCookiesToWebView(
                     loginState.webVpnClientOrNull,
@@ -141,8 +132,8 @@ fun MobileJiaodaScreen(
             launchUrl = resolved
             Log.d(TAG, "fresh launch_url hasTicket=${resolved.contains("ticket=")} viaWebVpn=${com.xjtu.toolbox.util.WebVpnUtil.isWebVpnUrl(resolved)}")
         } catch (e: Exception) {
-            Log.e(TAG, "force re-login for launch_url failed, fallback to LOGIN_URL", e)
-            launchUrl = com.xjtu.toolbox.auth.SuperAppLogin.LOGIN_URL
+            Log.e(TAG, "force re-login for launch_url failed", e)
+            loginError = e.message?.takeIf { it.isNotBlank() } ?: "移动交大登录失败，请重试"
         }
     }
     var webView by remember { mutableStateOf<WebView?>(null) }
@@ -212,6 +203,17 @@ fun MobileJiaodaScreen(
         }
     ) { padding ->
         val currentLaunchUrl = launchUrl
+        val currentError = loginError
+        if (currentError != null) {
+            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                ErrorState(
+                    message = currentError,
+                    onRetry = { loginAttempt += 1 },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            return@Scaffold
+        }
         if (currentLaunchUrl == null) {
             Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 LoadingState(message = "正在登录移动交大...")

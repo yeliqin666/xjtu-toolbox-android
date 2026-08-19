@@ -14,6 +14,8 @@ import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
+import top.yukonga.miuix.kmp.basic.PullToRefresh
+import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import top.yukonga.miuix.kmp.basic.TextButton
@@ -21,7 +23,6 @@ import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.animation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -31,8 +32,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.RateReview
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -69,6 +68,7 @@ fun JudgeScreen(
     val scope = rememberCoroutineScope()
 
     var isLoading by remember { mutableStateOf(true) }
+    var isRefreshing by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     // 0=未评, 1=已评
@@ -87,10 +87,10 @@ fun JudgeScreen(
     // 确认对话框状态（提升到顶层，避免条件分支内状态丢失）
     val showConfirmDialog = remember { mutableStateOf(false) }
 
-    // 加载问卷列表
-    fun loadData() {
+    // 加载问卷列表。silent：下拉刷新时保住当前列表，只转指示器。
+    fun loadData(silent: Boolean = false) {
         scope.launch {
-            isLoading = true
+            if (silent) isRefreshing = true else isLoading = true
             errorMessage = null
             try {
                 withContext(Dispatchers.IO) {
@@ -103,6 +103,7 @@ fun JudgeScreen(
                 errorMessage = "加载失败: ${e.message}"
             } finally {
                 isLoading = false
+                isRefreshing = false
             }
         }
     }
@@ -112,6 +113,7 @@ fun JudgeScreen(
     }
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val pullToRefreshState = rememberPullToRefreshState()
     Scaffold(
         topBar = {
             TopAppBar(
@@ -123,11 +125,6 @@ fun JudgeScreen(
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
-                },
-                actions = {
-                    IconButton(onClick = { loadData() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "刷新")
-                    }
                 }
             )
         }
@@ -136,7 +133,6 @@ fun JudgeScreen(
             Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .nestedScroll(scrollBehavior.nestedScrollConnection)
         ) {
             AppSegmentedTabs(
                 tabs = listOf("未评 (${unfinishedList.size})", "已评 (${finishedList.size})"),
@@ -265,71 +261,96 @@ fun JudgeScreen(
                 }
             }
 
-            // 内容区域
-            when {
-                isLoading -> LoadingState(
-                    message = "正在加载评教列表...",
-                    modifier = Modifier.fillMaxSize()
-                )
-                errorMessage != null -> ErrorState(
-                    message = errorMessage!!,
-                    onRetry = { loadData() },
-                    modifier = Modifier.fillMaxSize()
-                )
-                else -> {
-                    AnimatedContent(
-                        targetState = selectedTab,
-                        transitionSpec = {
-                            fadeIn() + slideInHorizontally {
-                                if (targetState > initialState) it else -it
-                            } togetherWith fadeOut() + slideOutHorizontally {
-                                if (targetState > initialState) -it else it
+            PullToRefresh(
+                isRefreshing = isRefreshing,
+                onRefresh = { loadData(silent = true) },
+                pullToRefreshState = pullToRefreshState,
+                topAppBarScrollBehavior = scrollBehavior,
+                modifier = Modifier.fillMaxSize()
+            ) {
+                when {
+                    isLoading -> LazyColumn(Modifier.fillMaxSize()) {
+                        item {
+                            Box(Modifier.fillParentMaxSize()) {
+                                LoadingState(
+                                    message = "正在加载评教列表...",
+                                    modifier = Modifier.fillMaxSize()
+                                )
                             }
-                        },
-                        label = "judgeTab"
-                    ) { tab ->
-                        val displayList = if (tab == 0) unfinishedList else finishedList
-                        if (displayList.isEmpty()) {
-                            EmptyState(
-                                title = if (tab == 0) "暂无待评课程" else "暂无已评课程",
-                                subtitle = if (tab == 0) "本学期所有课程均已完成评教" else "尚未完成任何课程评教",
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else {
-                            LazyColumn(
-                                Modifier
-                                    .fillMaxSize()
-                                    .overScrollVertical()
-                                    .padding(horizontal = 16.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp),
-                                contentPadding = PaddingValues(vertical = 12.dp)
-                            ) {
-                                items(displayList, key = { "${it.WJDM}_${it.JXBID}_${it.BPR}" }) { q ->
-                                    val qKey = "${q.WJDM}_${q.JXBID}_${q.BPR}"
-                                    QuestionnaireCard(
-                                        q = q,
-                                        finished = tab == 1,
-                                        undoing = undoingKey == qKey,
-                                        onUndo = if (tab == 1) { {
-                                            undoingKey = qKey
-                                            scope.launch {
-                                                try {
-                                                    val (success, msg) = withContext(Dispatchers.IO) {
-                                                        api.editQuestionnaire(q, username)
+                        }
+                    }
+                    errorMessage != null -> LazyColumn(Modifier.fillMaxSize()) {
+                        item {
+                            Box(Modifier.fillParentMaxSize()) {
+                                ErrorState(
+                                    message = errorMessage!!,
+                                    onRetry = { loadData() },
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                        }
+                    }
+                    else -> {
+                        AnimatedContent(
+                            targetState = selectedTab,
+                            transitionSpec = {
+                                fadeIn() + slideInHorizontally {
+                                    if (targetState > initialState) it else -it
+                                } togetherWith fadeOut() + slideOutHorizontally {
+                                    if (targetState > initialState) -it else it
+                                }
+                            },
+                            label = "judgeTab"
+                        ) { tab ->
+                            val displayList = if (tab == 0) unfinishedList else finishedList
+                            if (displayList.isEmpty()) {
+                                LazyColumn(Modifier.fillMaxSize()) {
+                                    item {
+                                        Box(Modifier.fillParentMaxSize()) {
+                                            EmptyState(
+                                                title = if (tab == 0) "暂无待评课程" else "暂无已评课程",
+                                                subtitle = if (tab == 0) "本学期所有课程均已完成评教" else "尚未完成任何课程评教",
+                                                modifier = Modifier.fillMaxSize()
+                                            )
+                                        }
+                                    }
+                                }
+                            } else {
+                                LazyColumn(
+                                    Modifier
+                                        .fillMaxSize()
+                                        .overScrollVertical()
+                                        .padding(horizontal = 16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                                    contentPadding = PaddingValues(vertical = 12.dp)
+                                ) {
+                                    items(displayList, key = { "${it.WJDM}_${it.JXBID}_${it.BPR}" }) { q ->
+                                        val qKey = "${q.WJDM}_${q.JXBID}_${q.BPR}"
+                                        QuestionnaireCard(
+                                            q = q,
+                                            finished = tab == 1,
+                                            undoing = undoingKey == qKey,
+                                            onUndo = if (tab == 1) { {
+                                                undoingKey = qKey
+                                                scope.launch {
+                                                    try {
+                                                        val (success, msg) = withContext(Dispatchers.IO) {
+                                                            api.editQuestionnaire(q, username)
+                                                        }
+                                                        if (success) {
+                                                            loadData()
+                                                        } else {
+                                                            errorMessage = "撤回失败: $msg"
+                                                        }
+                                                    } catch (e: Exception) {
+                                                        errorMessage = "撤回失败: ${e.message}"
+                                                    } finally {
+                                                        undoingKey = null
                                                     }
-                                                    if (success) {
-                                                        loadData()
-                                                    } else {
-                                                        errorMessage = "撤回失败: $msg"
-                                                    }
-                                                } catch (e: Exception) {
-                                                    errorMessage = "撤回失败: ${e.message}"
-                                                } finally {
-                                                    undoingKey = null
                                                 }
-                                            }
-                                        } } else null
-                                    )
+                                            } } else null
+                                        )
+                                    }
                                 }
                             }
                         }

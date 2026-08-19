@@ -16,13 +16,14 @@ import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
+import top.yukonga.miuix.kmp.basic.PullToRefresh
+import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.preference.RangeSliderPreference
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.utils.SinkFeedback
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -44,7 +45,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Apartment
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.outlined.CloudOff
 import com.xjtu.toolbox.ui.components.AppDropdownMenu
@@ -506,9 +506,6 @@ fun EmptyRoomScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { refreshNonce.intValue++ }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "刷新")
-                    }
                     if (accountType != AccountType.POSTGRADUATE) {
                         Box {
                             IconButton(onClick = { showActionsMenu = true }) {
@@ -614,11 +611,11 @@ fun EmptyRoomScreen(
                 )
             }
         }
+        val pullToRefreshState = rememberPullToRefreshState()
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .nestedScroll(scrollBehavior.nestedScrollConnection)
         ) {
             // 网络失败兜底提示：展示磁盘缓存 + 「缓存于 HH:mm」标识。
             // 与下面 errorMessage 的区别：errorMessage 是红字无数据；staleNote 是黄底有数据可看。
@@ -868,10 +865,19 @@ fun EmptyRoomScreen(
 
             Spacer(Modifier.height(4.dp))
 
-            // ── 内容区 ──
+            // 筛选卡（含节次滑条）留在下拉刷新外面，避免和纵向手势抢。
+            PullToRefresh(
+                isRefreshing = isLoading && rooms.isNotEmpty(),
+                onRefresh = { refreshNonce.intValue++ },
+                pullToRefreshState = pullToRefreshState,
+                topAppBarScrollBehavior = scrollBehavior,
+                modifier = Modifier.fillMaxSize()
+            ) {
             when {
                 isLoading && rooms.isEmpty() -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    LazyColumn(Modifier.fillMaxSize()) {
+                    item {
+                    Box(Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             CircularProgressIndicator()
                             Spacer(Modifier.height(8.dp))
@@ -882,36 +888,51 @@ fun EmptyRoomScreen(
                             )
                         }
                     }
+                    }
+                    }
                 }
 
                 errorMessage != null -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    LazyColumn(Modifier.fillMaxSize()) {
+                    item {
+                    Box(Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(errorMessage!!, color = MiuixTheme.colorScheme.error, textAlign = TextAlign.Center)
                             Spacer(Modifier.height(12.dp))
                             Button(onClick = { refreshNonce.intValue++ }) { Text("重试") }
                         }
                     }
+                    }
+                    }
                 }
 
                 rooms.isEmpty() && selectedBuildings.all { it.isEmpty() } -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("选择教学楼后自动查询",
-                            style = MiuixTheme.textStyles.body1,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                    LazyColumn(Modifier.fillMaxSize()) {
+                        item {
+                            Box(Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
+                                Text("选择教学楼后自动查询",
+                                    style = MiuixTheme.textStyles.body1,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                            }
+                        }
                     }
                 }
 
                 displayRooms.isEmpty() -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("暂无符合条件的教室", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                            TextButton(text = "查看全部", onClick = { smartFilter = "全部" })
+                    LazyColumn(Modifier.fillMaxSize()) {
+                        item {
+                            Box(Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("暂无符合条件的教室", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                                    TextButton(text = "查看全部", onClick = { smartFilter = "全部" })
+                                }
+                            }
                         }
                     }
                 }
 
                 else -> {
+                    Column(Modifier.fillMaxSize()) {
                     // 统计 + PeriodHeader
                     Row(
                         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
@@ -975,7 +996,9 @@ fun EmptyRoomScreen(
                             }
                         }
                     }
+                    }
                 }
+            }
             }
         }
     }

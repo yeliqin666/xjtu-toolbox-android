@@ -54,6 +54,33 @@ fun orderedFitnessYears(
     return eligible.ifEmpty { ranked }
 }
 
+/**
+ * 从用户/模型传入的学年参数里取出起始年。
+ * `2025`、`2025-2026`、`2025-2026-1` 都表示 2025-2026 学年。
+ */
+fun parseFitnessAcademicYear(raw: String?): Int? {
+    val s = raw?.trim().orEmpty()
+    if (s.isBlank()) return null
+    Regex("""(20\d{2})\s*[-~—/到至]\s*(20\d{2})""").find(s)?.let {
+        return it.groupValues[1].toInt()
+    }
+    return Regex("""20\d{2}""").find(s)?.value?.toIntOrNull()
+}
+
+fun pickFitnessYear(
+    years: List<FitnessYear>,
+    yearKey: String?,
+    academicYear: Int = com.xjtu.toolbox.util.XjtuTime.currentAcademicYear(),
+): FitnessYear? {
+    val ordered = orderedFitnessYears(years, academicYear)
+    val want = parseFitnessAcademicYear(yearKey) ?: return ordered.firstOrNull()
+    return ordered.firstOrNull { it.yearValue() == want }
+        ?: years.firstOrNull { it.yearValue() == want }
+        ?: yearKey?.let { key ->
+            years.firstOrNull { it.name.contains(key) || it.yearNum.contains(key) }
+        }
+}
+
 class FitnessApi(private val site: SiteSession) {
     private val apiRoot = "https://tyxylp.xjtu.edu.cn/bdlp_h5_fitness_test/public/index.php/index"
     private val origin = "https://tyxylp.xjtu.edu.cn"

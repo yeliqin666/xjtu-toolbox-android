@@ -22,10 +22,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.Box
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
@@ -34,10 +34,12 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.PullToRefresh
 import top.yukonga.miuix.kmp.basic.ScrollBehavior
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.Surface
+import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -54,6 +56,7 @@ fun VenueOrdersContent(
     error: String?,
     hasMore: Boolean,
     onRetry: () -> Unit,
+    onRefresh: () -> Unit,
     onLoadMore: () -> Unit,
     onDetail: (VenueApi.OrderInfo) -> Unit,
     onCancel: (VenueApi.OrderInfo) -> Unit,
@@ -61,54 +64,33 @@ fun VenueOrdersContent(
     modifier: Modifier = Modifier,
     scrollBehavior: ScrollBehavior? = null
 ) {
+    val pullToRefreshState = rememberPullToRefreshState()
+    PullToRefresh(
+        isRefreshing = isLoading && orders.isNotEmpty(),
+        onRefresh = onRefresh,
+        pullToRefreshState = pullToRefreshState,
+        topAppBarScrollBehavior = scrollBehavior,
+        modifier = modifier.fillMaxSize()
+    ) {
     when {
-        isLoading && orders.isEmpty() -> LoadingState(
-            message = "加载订单...",
-            modifier = modifier.fillMaxSize()
-        )
+        isLoading && orders.isEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
+            item { Box(Modifier.fillParentMaxSize()) { LoadingState(message = "加载订单...", modifier = Modifier.fillMaxSize()) } }
+        }
 
-        error != null && orders.isEmpty() -> ErrorState(
-            message = error,
-            onRetry = onRetry,
-            modifier = modifier.fillMaxSize()
-        )
+        error != null && orders.isEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
+            item { Box(Modifier.fillParentMaxSize()) { ErrorState(message = error, onRetry = onRetry, modifier = Modifier.fillMaxSize()) } }
+        }
 
-        orders.isEmpty() -> EmptyState(
-            title = "暂无订单",
-            subtitle = "预约场馆后，订单会显示在这里",
-            modifier = modifier.fillMaxSize()
-        )
+        orders.isEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
+            item { Box(Modifier.fillParentMaxSize()) { EmptyState(title = "暂无订单", subtitle = "预约场馆后，订单会显示在这里", modifier = Modifier.fillMaxSize()) } }
+        }
 
         else -> {
             LazyColumn(
-                modifier = modifier
-                    .fillMaxSize()
-                    .then(
-                        scrollBehavior?.let { Modifier.nestedScroll(it.nestedScrollConnection) }
-                            ?: Modifier
-                    ),
+                modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                if (isLoading) {
-                    item(key = "refreshing") {
-                        Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            color = MiuixTheme.colorScheme.surfaceVariant
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
-                            ) {
-                                CircularProgressIndicator(modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text("正在刷新订单", style = MiuixTheme.textStyles.footnote1)
-                            }
-                        }
-                    }
-                }
-
                 if (error != null) {
                     item(key = "refresh-error") {
                         Surface(
@@ -168,6 +150,7 @@ fun VenueOrdersContent(
                 }
             }
         }
+    }
     }
 }
 

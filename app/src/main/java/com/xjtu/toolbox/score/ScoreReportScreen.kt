@@ -13,10 +13,9 @@ import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
-import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
+import top.yukonga.miuix.kmp.basic.PullToRefresh
+import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.utils.overScrollVertical
-
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -29,7 +28,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Warning
@@ -92,14 +90,16 @@ fun ScoreReportScreen(
         grades.filter { it.courseName.contains(searchQuery, ignoreCase = true) }
     }.filter { it.value.isNotEmpty() }
 
-    fun loadData() {
-        isLoading = true
-        isRefreshing = false
+    fun loadData(silent: Boolean = false) {
+        if (silent) isRefreshing = true else {
+            isLoading = true
+            isRefreshing = false
+        }
         errorMessage = null
         scope.launch {
             // SWR: 先尝试缓存秒显
             val cacheKey = "score_report_${studentId}"
-            try {
+            if (!silent) try {
                 val cached = dataCache.get(cacheKey, com.xjtu.toolbox.util.DataCache.DEFAULT_TTL_MS)
                 if (cached != null) {
                     val cachedGrades = gson.fromJson(cached, Array<ReportedGrade>::class.java).toList()
@@ -140,6 +140,7 @@ fun ScoreReportScreen(
     LaunchedEffect(Unit) { loadData() }
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val pullToRefreshState = rememberPullToRefreshState()
     Scaffold(
         topBar = {
             TopAppBar(
@@ -151,35 +152,36 @@ fun ScoreReportScreen(
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回")
                     }
-                },
-                actions = {
-                    if (!isLoading) {
-                        IconButton(onClick = { loadData() }) {
-                            Icon(Icons.Default.Refresh, contentDescription = "刷新")
-                        }
-                    }
                 }
             )
         }
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).nestedScroll(scrollBehavior.nestedScrollConnection)) {
-            if (isRefreshing) {
-                LinearProgressIndicator(Modifier.fillMaxWidth())
-            }
+        PullToRefresh(
+            isRefreshing = isRefreshing,
+            onRefresh = { loadData(silent = true) },
+            pullToRefreshState = pullToRefreshState,
+            topAppBarScrollBehavior = scrollBehavior,
+            modifier = Modifier.fillMaxSize().padding(padding)
+        ) {
             when {
             isLoading -> {
-                LoadingState(
-                    message = "正在加载成绩报表...",
-                    modifier = Modifier.fillMaxSize()
-                )
+                LazyColumn(Modifier.fillMaxSize()) {
+                    item { Box(Modifier.fillParentMaxSize()) { LoadingState(message = "正在加载成绩报表...", modifier = Modifier.fillMaxSize()) } }
+                }
             }
 
-            errorMessage != null -> {
-                ErrorState(
-                    message = errorMessage!!,
-                    onRetry = { loadData() },
-                    modifier = Modifier.fillMaxSize()
-                )
+            errorMessage != null && allGrades.isEmpty() -> {
+                LazyColumn(Modifier.fillMaxSize()) {
+                    item {
+                        Box(Modifier.fillParentMaxSize()) {
+                            ErrorState(
+                                message = errorMessage!!,
+                                onRetry = { loadData() },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    }
+                }
             }
 
             else -> {

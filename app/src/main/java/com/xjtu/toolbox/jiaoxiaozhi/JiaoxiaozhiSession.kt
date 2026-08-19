@@ -46,12 +46,6 @@ class JiaoxiaozhiSiteSession : CasSiteSession(
         localToken["entry_url"] = entryUrl
     }
 
-    /** 过渡期供旧 LoginScreen 把已完成的登录移交给 SessionManager，避免重复 CAS。 */
-    fun adopt(login: JiaoxiaozhiLogin) {
-        onLoginSuccess(login)
-        hasLogin = true
-    }
-
     override fun invalidateLogin() {
         super.invalidateLogin()
         authenticatedClient = null

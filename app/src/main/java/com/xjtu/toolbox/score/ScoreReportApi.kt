@@ -27,17 +27,7 @@ class ScoreReportApi(private val site: SiteSession) {
 
     companion object {
         private const val FR_REPORT_URL = "https://jwxt.xjtu.edu.cn/jwapp/sys/frReport2/show.do"
-
-/**
-     * 成绩 → GPA 映射（西安交大 4.3 绩点制）
-     */
-    @Deprecated(
-        message = "已迁移到 util.ScoreCalculator",
-        replaceWith = ReplaceWith("com.xjtu.toolbox.util.ScoreCalculator.scoreToGpa(score)"),
-    )
-    fun scoreToGpa(score: Any?): Double? =
-        com.xjtu.toolbox.util.ScoreCalculator.scoreToGpa(score)
-}
+    }
 
     /**
      * 从 FR Report 的 HTML 中提取 Session ID
@@ -111,7 +101,7 @@ class ScoreReportApi(private val site: SiteSession) {
             if (courseName in listOf("课程", "学分", "成绩") || creditText.toDoubleOrNull() == null) continue
 
             val credit = creditText.toDoubleOrNull() ?: continue
-            val gpa = scoreToGpa(scoreText)
+            val gpa = com.xjtu.toolbox.util.ScoreCalculator.scoreToGpa(scoreText)
 
             courses.add(ReportedGrade(courseName, credit, scoreText, gpa, currentTerm))
         }

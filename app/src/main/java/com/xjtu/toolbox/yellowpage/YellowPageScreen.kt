@@ -27,7 +27,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Business
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.ContactPhone
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -42,7 +41,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -59,10 +57,12 @@ import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
+import top.yukonga.miuix.kmp.basic.PullToRefresh
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
@@ -73,6 +73,7 @@ fun YellowPageScreen(onBack: () -> Unit) {
     val api = remember { YellowPageApi(context) }
     val scope = rememberCoroutineScope()
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val pullToRefreshState = rememberPullToRefreshState()
 
     var data by remember { mutableStateOf<YellowPageData?>(null) }
     var loading by remember { mutableStateOf(true) }
@@ -122,30 +123,35 @@ fun YellowPageScreen(onBack: () -> Unit) {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
-                },
-                actions = {
-                    IconButton(
-                        enabled = !refreshing,
-                        onClick = { scope.launch { load(force = true) } }
-                    ) {
-                        Icon(Icons.Default.Refresh, contentDescription = "刷新")
-                    }
                 }
             )
         }
     ) { padding ->
+        PullToRefresh(
+            isRefreshing = refreshing,
+            onRefresh = { scope.launch { load(force = true) } },
+            pullToRefreshState = pullToRefreshState,
+            topAppBarScrollBehavior = scrollBehavior,
+            modifier = Modifier.fillMaxSize().padding(padding)
+        ) {
         when {
-            loading -> LoadingState("正在加载校园通讯录…", Modifier.padding(padding))
-            error != null && data == null -> ErrorState(
-                "加载失败：$error",
-                onRetry = { scope.launch { load(force = true) } },
-                modifier = Modifier.padding(padding)
-            )
+            loading -> LazyColumn(Modifier.fillMaxSize()) {
+                item { Box(Modifier.fillParentMaxSize()) { LoadingState("正在加载校园通讯录…", Modifier.fillMaxSize()) } }
+            }
+            error != null && data == null -> LazyColumn(Modifier.fillMaxSize()) {
+                item {
+                    Box(Modifier.fillParentMaxSize()) {
+                        ErrorState(
+                            "加载失败：$error",
+                            onRetry = { scope.launch { load(force = true) } },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
+            }
             else -> LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(padding)
-                    .nestedScroll(scrollBehavior.nestedScrollConnection)
                     .overScrollVertical(),
                 contentPadding = PaddingValues(bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -226,6 +232,7 @@ fun YellowPageScreen(onBack: () -> Unit) {
                     }
                 }
             }
+        }
         }
     }
 }

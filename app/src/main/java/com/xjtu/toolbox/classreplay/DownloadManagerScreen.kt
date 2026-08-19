@@ -19,6 +19,7 @@ import androidx.compose.material.icons.outlined.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -64,6 +65,7 @@ fun DownloadManagerScreen(
     
     // 显示下载目录信息弹窗
     val showDirInfo = remember { mutableStateOf(false) }
+    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
 
     // 加载任务列表
     fun loadTasks() {
@@ -128,9 +130,11 @@ fun DownloadManagerScreen(
                     }
                 )
             } else {
-                SmallTopAppBar(
+                TopAppBar(
                     title = "下载管理",
+                    largeTitle = "下载管理",
                     color = MiuixTheme.colorScheme.surface,
+                    scrollBehavior = scrollBehavior,
                     navigationIcon = {
                         IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -224,7 +228,7 @@ fun DownloadManagerScreen(
             }
         }
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
+        Box(Modifier.fillMaxSize().padding(padding).nestedScroll(scrollBehavior.nestedScrollConnection)) {
             if (allTasks.isEmpty() && lmsDownloads.isEmpty()) {
                 EmptyState(
                     title = "暂无下载内容",

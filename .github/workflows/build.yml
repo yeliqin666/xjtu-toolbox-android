@@ -212,21 +212,49 @@ jobs:
           fi
           echo "Created Gitee release $RELEASE_ID"
 
-          # 上传 APK（手机包必传；手表包存在才传，缺失不阻断整个同步）
-          for APK in "${APK_PATH}" "${WEAR_APK_PATH}"; do
-            if [ ! -f "$APK" ]; then
-              echo "Skip missing $APK"
-              continue
+          # 上传 APK：每个包最多 3 次，失败间隔 30s / 60s，单次超时 1 小时。
+          # 手机包三次仍失败则让本步失败（外层 continue-on-error 再接手）；
+          # 手表包失败只警告。
+          upload_apk() {
+            local APK="$1"
+            local REQUIRED="$2"
+            local NAME
+            NAME="$(basename "$APK")"
+            echo "Uploading $NAME: $(wc -c < "$APK") bytes"
+            local ATTEMPT=1
+            local DELAYS="0 30 60"
+            for DELAY in $DELAYS; do
+              if [ "$ATTEMPT" -gt 1 ]; then
+                echo "Retry $ATTEMPT/3 for $NAME after ${DELAY}s"
+                sleep "$DELAY"
+              fi
+              HTTP_CODE=$(curl --max-time 3600 --progress-bar -w "%{http_code}" -o /tmp/gitee_upload_body.txt \
+                -X POST "https://gitee.com/api/v5/repos/${OWNER}/${REPO}/releases/${RELEASE_ID}/attach_files" \
+                -F "access_token=${GITEE_TOKEN}" \
+                -F "file=@${APK};type=application/vnd.android.package-archive") || HTTP_CODE="000"
+              echo "Upload $NAME attempt $ATTEMPT HTTP $HTTP_CODE"
+              if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+                echo "$NAME uploaded to Gitee release"
+                return 0
+              fi
+              ATTEMPT=$((ATTEMPT + 1))
+            done
+            if [ "$REQUIRED" = "true" ]; then
+              echo "::error::$NAME upload failed after 3 attempts"
+              return 1
             fi
-            echo "Uploading $(basename "$APK"): $(wc -c < "$APK") bytes"
-            HTTP_CODE=$(curl --max-time 1200 --progress-bar -w "%{http_code}" \
-              -X POST "https://gitee.com/api/v5/repos/${OWNER}/${REPO}/releases/${RELEASE_ID}/attach_files" \
-              -F "access_token=${GITEE_TOKEN}" \
-              -F "file=@${APK};type=application/vnd.android.package-archive") || HTTP_CODE="000"
-            echo "Upload HTTP code: $HTTP_CODE"
-            if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-              echo "$(basename "$APK") uploaded to Gitee release"
-            else
-              echo "Upload failed with HTTP $HTTP_CODE, but continuing"
-            fi
-          done
+            echo "::warning::$NAME upload failed after 3 attempts, continuing"
+            return 0
+          }
+
+          if [ -f "$APK_PATH" ]; then
+            upload_apk "$APK_PATH" true || exit 1
+          else
+            echo "::error::phone APK missing at $APK_PATH"
+            exit 1
+          fi
+          if [ -f "$WEAR_APK_PATH" ]; then
+            upload_apk "$WEAR_APK_PATH" false
+          else
+            echo "Skip missing $WEAR_APK_PATH"
+          fi

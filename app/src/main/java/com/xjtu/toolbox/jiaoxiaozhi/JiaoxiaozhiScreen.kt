@@ -5,8 +5,6 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
@@ -26,13 +24,12 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -40,6 +37,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -52,18 +50,20 @@ import androidx.compose.ui.zIndex
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xjtu.toolbox.LocalAppLoginState
 import com.xjtu.toolbox.agent.MarkdownText
+import com.xjtu.toolbox.ui.components.AppFilterChip
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Surface
-import top.yukonga.miuix.kmp.basic.Switch
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
+import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 private val JiaozhiBlue = Color(0xFF315FD4)
@@ -85,6 +85,13 @@ fun JiaoxiaozhiScreen(
     var showModels by rememberSaveable { mutableStateOf(false) }
     var networkEnabled by rememberSaveable { mutableStateOf(true) }
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val keyboard = LocalSoftwareKeyboardController.current
+    LaunchedEffect(drawerOpen, showModels) {
+        if (drawerOpen || showModels) keyboard?.hide()
+    }
+    val currentModel = JiaoxiaozhiModels.byId(
+        vm.currentSession?.modelId ?: JiaoxiaozhiModels.DEFAULT_ID
+    )
 
     Box(Modifier.fillMaxSize()) {
         Scaffold(
@@ -100,9 +107,6 @@ fun JiaoxiaozhiScreen(
                         }
                     },
                     actions = {
-                        IconButton(onClick = { showModels = true }) {
-                            Icon(Icons.Default.Tune, contentDescription = "选择模型", tint = JiaozhiPurple)
-                        }
                         IconButton(onClick = { drawerOpen = true }) {
                             Icon(Icons.AutoMirrored.Filled.List, contentDescription = "会话列表")
                         }
@@ -114,7 +118,9 @@ fun JiaoxiaozhiScreen(
                 vm = vm,
                 padding = padding,
                 nestedScrollConnection = scrollBehavior.nestedScrollConnection,
+                model = currentModel,
                 networkEnabled = networkEnabled,
+                onOpenModels = { showModels = true },
                 onNetworkEnabledChange = { networkEnabled = it },
                 onSend = { vm.sendMessage(it, sessionManager, networkEnabled) },
                 onRetry = {
@@ -126,6 +132,56 @@ fun JiaoxiaozhiScreen(
                 },
                 onOpenLink = onOpenLink,
             )
+            // OverlayBottomSheet 必须写在 Scaffold 内容里，否则拿不到宿主，点了没反应。
+            OverlayBottomSheet(
+                show = showModels,
+                title = "选择模型",
+                onDismissRequest = { showModels = false },
+            ) {
+                Column(
+                    Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        "按会话记住。换模型不会清掉这边已有的对话。",
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                    Card(
+                        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
+                    ) {
+                        JiaoxiaozhiModels.all.forEachIndexed { index, model ->
+                            if (index > 0) {
+                                top.yukonga.miuix.kmp.basic.HorizontalDivider(
+                                    modifier = Modifier.padding(horizontal = 16.dp),
+                                )
+                            }
+                            val selected = model.id == currentModel.id
+                            Column(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        vm.selectModel(model.id)
+                                        showModels = false
+                                    }
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                            ) {
+                                Text(
+                                    model.label,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (selected) JiaozhiPurple else MiuixTheme.colorScheme.onSurface,
+                                )
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    if (selected) "${model.description} · 当前使用" else model.description,
+                                    style = MiuixTheme.textStyles.footnote1,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         JiaoxiaozhiDrawer(
@@ -135,24 +191,7 @@ fun JiaoxiaozhiScreen(
             onClose = { drawerOpen = false },
             onNew = { vm.newSession(); drawerOpen = false },
             onSelect = { vm.switchSession(it); drawerOpen = false },
-            onRename = vm::renameSession,
             onDelete = vm::deleteSession,
-        )
-    }
-
-    AnimatedVisibility(
-        visible = showModels,
-        enter = fadeIn(animationSpec = tween(160)) + scaleIn(animationSpec = tween(180), initialScale = 0.94f),
-        exit = fadeOut(animationSpec = tween(120)) + scaleOut(animationSpec = tween(140), targetScale = 0.96f),
-        modifier = Modifier.zIndex(4f),
-    ) {
-        ModelDialog(
-            selectedId = vm.currentSession?.modelId ?: JiaoxiaozhiModels.DEFAULT_ID,
-            onSelect = {
-                vm.selectModel(it)
-                showModels = false
-            },
-            onDismiss = { showModels = false },
         )
     }
 }
@@ -162,19 +201,16 @@ private fun JiaoxiaozhiChatPanel(
     vm: JiaoxiaozhiViewModel,
     padding: PaddingValues,
     nestedScrollConnection: NestedScrollConnection,
+    model: JiaoxiaozhiModel,
     networkEnabled: Boolean,
+    onOpenModels: () -> Unit,
     onNetworkEnabledChange: (Boolean) -> Unit,
     onSend: (String) -> Unit,
     onRetry: () -> Unit,
     onOpenLink: (String) -> Unit,
 ) {
-    val listState = rememberLazyListState()
     val keyboard = LocalSoftwareKeyboardController.current
     var input by rememberSaveable { mutableStateOf("") }
-
-    LaunchedEffect(vm.messages.size) {
-        if (vm.messages.isNotEmpty()) listState.animateScrollToItem(vm.messages.lastIndex)
-    }
 
     fun send() {
         val value = input.trim()
@@ -189,24 +225,25 @@ private fun JiaoxiaozhiChatPanel(
             .fillMaxSize()
             .padding(top = padding.calculateTopPadding())
             .background(MiuixTheme.colorScheme.surface)
+            .clipToBounds()
     ) {
-        LazyColumn(
-            state = listState,
-            modifier = Modifier
-                .weight(1f)
-                .nestedScroll(nestedScrollConnection),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            item {
-                OfficialServiceBanner(
-                    model = JiaoxiaozhiModels.byId(
-                        vm.currentSession?.modelId ?: JiaoxiaozhiModels.DEFAULT_ID
-                    ),
-                    networkEnabled = networkEnabled,
-                    onNetworkEnabledChange = onNetworkEnabledChange,
-                )
-            }
+        Box(Modifier.weight(1f).clipToBounds()) {
+            key(vm.currentSessionId) {
+                val listState = rememberLazyListState()
+                LaunchedEffect(Unit) {
+                    if (vm.messages.isNotEmpty()) listState.scrollToItem(vm.messages.lastIndex)
+                }
+                LaunchedEffect(vm.messages.size) {
+                    if (vm.messages.isNotEmpty()) listState.scrollToItem(vm.messages.lastIndex)
+                }
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .nestedScroll(nestedScrollConnection),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
             if (vm.messages.isEmpty()) {
                 item {
                     Column(
@@ -231,7 +268,6 @@ private fun JiaoxiaozhiChatPanel(
                             style = MiuixTheme.textStyles.footnote1,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         )
-                        // 快捷提问：点击直接发送，帮第一次打开用户快速起步
                         Spacer(Modifier.height(20.dp))
                         val suggestions = remember {
                             listOf(
@@ -252,8 +288,6 @@ private fun JiaoxiaozhiChatPanel(
                                         interactionSource = remember { MutableInteractionSource() },
                                         indication = null,
                                     ) {
-                                        // 异步派发到下一帧，避免在 clickable 同步路径里
-                                        // 触发 sendMessage 的协程与 Compose 重组冲突
                                         android.os.Handler(android.os.Looper.getMainLooper())
                                             .post { onSend(q) }
                                     },
@@ -269,8 +303,7 @@ private fun JiaoxiaozhiChatPanel(
                     }
                 }
             }
-            items(vm.messages, key = { "${it.createdAt}-${it.role}" }) { message ->
-                // 重试按钮只在最后一条 assistant 消息下显示（仅有一条「可重试」目标）
+            items(vm.messages, key = { "${it.createdAt}-${it.role}-${it.content.hashCode()}" }) { message ->
                 val isLastAssistant = message.role == "assistant" &&
                     !vm.isLoading &&
                     message === vm.messages.lastOrNull()
@@ -299,6 +332,38 @@ private fun JiaoxiaozhiChatPanel(
                         )
                     }
                 }
+            }
+                }
+            }
+        }
+
+        Surface(color = MiuixTheme.colorScheme.surface) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                AppFilterChip(
+                    selected = true,
+                    onClick = onOpenModels,
+                    label = model.label,
+                )
+                AppFilterChip(
+                    selected = networkEnabled,
+                    onClick = { onNetworkEnabledChange(!networkEnabled) },
+                    label = if (networkEnabled) "联网" else "校内",
+                    leadingIcon = {
+                        Icon(
+                            Icons.Default.Public,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = if (networkEnabled) MiuixTheme.colorScheme.onTertiaryContainer
+                            else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        )
+                    },
+                )
             }
         }
 
@@ -332,67 +397,6 @@ private fun JiaoxiaozhiChatPanel(
                         else MiuixTheme.colorScheme.outline,
                     )
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun OfficialServiceBanner(
-    model: JiaoxiaozhiModel,
-    networkEnabled: Boolean,
-    onNetworkEnabledChange: (Boolean) -> Unit,
-) {
-    Surface(
-        shape = RoundedCornerShape(18.dp),
-        color = JiaozhiBlue.copy(alpha = 0.10f),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(
-            Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                Modifier
-                    .size(36.dp)
-                    .background(
-                        brush = androidx.compose.ui.graphics.Brush.linearGradient(
-                            listOf(JiaozhiBlue, JiaozhiPurple)
-                        ),
-                        shape = RoundedCornerShape(12.dp),
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.Default.AutoAwesome,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    "学校交晓智服务",
-                    style = MiuixTheme.textStyles.body2,
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    "${model.label} · ${model.description}",
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                )
-            }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    if (networkEnabled) "联网" else "校内",
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = if (networkEnabled) JiaozhiBlue else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                )
-                Switch(
-                    checked = networkEnabled,
-                    onCheckedChange = onNetworkEnabledChange,
-                )
             }
         }
     }
@@ -473,18 +477,12 @@ private fun JiaoxiaozhiBubble(
         }
     } else if (message.content.isNotBlank()) {
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.Start) {
-            Surface(
-                shape = RoundedCornerShape(4.dp, 18.dp, 18.dp, 18.dp),
-                color = JiaozhiPurple.copy(alpha = 0.10f),
-                modifier = Modifier.widthIn(max = 320.dp),
-            ) {
-                MarkdownText(
-                    text = message.content,
-                    color = MiuixTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                    onLink = onOpenLink,
-                )
-            }
+            MarkdownText(
+                text = message.content,
+                color = MiuixTheme.colorScheme.onSurface,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                onLink = onOpenLink,
+            )
             // 操作栏：复制 + 时间 + 可选重试
             Row(
                 Modifier.padding(start = 4.dp, top = 2.dp),
@@ -539,71 +537,6 @@ private fun JiaoxiaozhiBubble(
 }
 
 @Composable
-private fun ModelDialog(
-    selectedId: String,
-    onSelect: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    Box(
-        Modifier
-            .fillMaxSize()
-            .zIndex(4f)
-            .background(Color.Black.copy(alpha = 0.38f))
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-            ) { onDismiss() },
-        contentAlignment = Alignment.Center,
-    ) {
-        Surface(
-            shape = RoundedCornerShape(22.dp),
-            color = MiuixTheme.colorScheme.surface,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(22.dp)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                ) { },
-        ) {
-            Column(
-                Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text("选择本会话模型", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold)
-                Text(
-                    "模型选择按会话保存；切换不会清空该会话的上游上下文。",
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                )
-            JiaoxiaozhiModels.all.forEach { model ->
-                val selected = model.id == selectedId
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = if (selected) JiaozhiPurple.copy(alpha = 0.14f)
-                    else MiuixTheme.colorScheme.surfaceVariant,
-                    modifier = Modifier.fillMaxWidth().clickable { onSelect(model.id) },
-                ) {
-                    Column(Modifier.padding(12.dp)) {
-                        Text(
-                            model.label,
-                            fontWeight = FontWeight.Bold,
-                            color = if (selected) JiaozhiPurple else MiuixTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            model.description,
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        )
-                    }
-                }
-            }
-        }
-    }
-    }
-}
-
-@Composable
 private fun JiaoxiaozhiDrawer(
     open: Boolean,
     sessions: List<JiaoxiaozhiSession>,
@@ -611,11 +544,8 @@ private fun JiaoxiaozhiDrawer(
     onClose: () -> Unit,
     onNew: () -> Unit,
     onSelect: (String) -> Unit,
-    onRename: (String, String) -> Unit,
     onDelete: (String) -> Unit,
 ) {
-    var renameTarget by remember { mutableStateOf<JiaoxiaozhiSession?>(null) }
-    var renameText by remember { mutableStateOf("") }
 
     AnimatedVisibility(
         visible = open,
@@ -672,7 +602,6 @@ private fun JiaoxiaozhiDrawer(
                 ) {
                     items(sessions, key = { it.id }) { session ->
                         val selected = session.id == currentId
-                        val renaming = renameTarget?.id == session.id
                         Surface(
                             shape = RoundedCornerShape(13.dp),
                             color = if (selected) JiaozhiPurple.copy(alpha = 0.13f)
@@ -683,101 +612,41 @@ private fun JiaoxiaozhiDrawer(
                                 Modifier.padding(start = 12.dp, end = 3.dp, top = 8.dp, bottom = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                if (renaming) {
-                                    Column(
-                                        Modifier.weight(1f),
-                                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                                    ) {
-                                        TextField(
-                                            value = renameText,
-                                            onValueChange = { renameText = it.take(24) },
-                                            label = "对话标题",
-                                            singleLine = true,
-                                            modifier = Modifier.fillMaxWidth(),
-                                        )
-                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            JiaoxiaozhiTextAction(
-                                                text = "保存",
-                                                primary = true,
-                                                onClick = {
-                                                    onRename(session.id, renameText.trim().ifBlank { "新对话" })
-                                                    renameTarget = null
-                                                },
-                                            )
-                                            JiaoxiaozhiTextAction(
-                                                text = "取消",
-                                                primary = false,
-                                                onClick = { renameTarget = null },
-                                            )
-                                        }
-                                    }
-                                } else {
-                                    Column(
-                                        Modifier
-                                            .weight(1f)
-                                            .clickable { onSelect(session.id) }
-                                            .padding(vertical = 6.dp)
-                                    ) {
-                                        Text(
-                                            session.title,
-                                            maxLines = 1,
-                                            fontWeight = FontWeight.Medium,
-                                            color = if (selected) JiaozhiPurple else MiuixTheme.colorScheme.onSurface,
-                                        )
-                                        Text(
-                                            "${JiaoxiaozhiModels.byId(session.modelId).label} · ${
-                                                java.text.SimpleDateFormat(
-                                                    "MM-dd HH:mm",
-                                                    java.util.Locale.CHINA
-                                                ).format(java.util.Date(session.updatedAt))
-                                            }",
-                                            style = MiuixTheme.textStyles.footnote1,
-                                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                        )
-                                    }
-                                    CompactJiaoxiaozhiAction(
-                                        icon = Icons.Default.Edit,
-                                        contentDescription = "重命名",
-                                        onClick = {
-                                            renameTarget = session
-                                            renameText = session.title
-                                        },
+                                Column(
+                                    Modifier
+                                        .weight(1f)
+                                        .clickable { onSelect(session.id) }
+                                        .padding(vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        session.title,
+                                        maxLines = 1,
+                                        fontWeight = FontWeight.Medium,
+                                        color = if (selected) JiaozhiPurple else MiuixTheme.colorScheme.onSurface,
                                     )
-                                    CompactJiaoxiaozhiAction(
-                                        icon = Icons.Default.Delete,
-                                        contentDescription = "删除",
-                                        onClick = { onDelete(session.id) },
-                                        tint = MiuixTheme.colorScheme.error,
+                                    Text(
+                                        "${JiaoxiaozhiModels.byId(session.modelId).label} · ${
+                                            java.text.SimpleDateFormat(
+                                                "MM-dd HH:mm",
+                                                java.util.Locale.CHINA
+                                            ).format(java.util.Date(session.updatedAt))
+                                        }",
+                                        style = MiuixTheme.textStyles.footnote1,
+                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                     )
                                 }
+                                CompactJiaoxiaozhiAction(
+                                    icon = Icons.Default.Delete,
+                                    contentDescription = "删除",
+                                    onClick = { onDelete(session.id) },
+                                    tint = MiuixTheme.colorScheme.error,
+                                )
                             }
                         }
                     }
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun JiaoxiaozhiTextAction(
-    text: String,
-    primary: Boolean,
-    onClick: () -> Unit,
-) {
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = if (primary) JiaozhiPurple.copy(alpha = 0.14f)
-        else MiuixTheme.colorScheme.surface,
-        modifier = Modifier.clickable(onClick = onClick),
-    ) {
-        Text(
-            text = text,
-            modifier = Modifier.padding(horizontal = 13.dp, vertical = 7.dp),
-            style = MiuixTheme.textStyles.footnote1,
-            fontWeight = FontWeight.Medium,
-            color = if (primary) JiaozhiPurple else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        )
     }
 }
 

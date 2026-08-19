@@ -12,6 +12,7 @@ composeBom = "2025.01.01"
 navigationCompose = "2.8.9"
 okhttp = "4.12.0"
 jsoup = "1.18.3"
+flexmark = "0.64.8"
 gson = "2.11.0"
 coroutines = "1.8.1"
 securityCrypto = "1.0.0"
@@ -38,6 +39,7 @@ okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhtt
 okhttp-brotli = { group = "com.squareup.okhttp3", name = "okhttp-brotli", version.ref = "okhttp" }
 okhttp-urlconnection = { group = "com.squareup.okhttp3", name = "okhttp-urlconnection", version.ref = "okhttp" }
 jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
+flexmark-html2md = { group = "com.vladsch.flexmark", name = "flexmark-html2md-converter", version.ref = "flexmark" }
 gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
 coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }

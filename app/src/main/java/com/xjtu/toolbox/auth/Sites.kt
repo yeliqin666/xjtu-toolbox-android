@@ -193,9 +193,57 @@ class HelloSession : CasSiteSession("hello", "个人信息", mustUseWebVpn = tru
         )
     }
 
-    // 令牌是否还在只能靠实际调用来判断，这里不额外做一次探活往返：
-    // 业务请求失败时 executeWithReAuth 会自愈重登。
-    override suspend fun validateLogin(): Boolean = localToken["access_token"].isNullOrBlank().not()
+    // JWT 必须由会话层注入：HelloApi 若在建请求时写死 token，executeWithReAuth
+    // 重登后重放的仍是旧头，新令牌用不上。
+    override fun decorateRequest(builder: Request.Builder): Request.Builder {
+        localToken["access_token"]?.let { token ->
+            builder.header("access-token", token)
+            builder.header("access_token", token)
+        }
+        builder.header("systemtype", localToken["system_type"] ?: "yingxin_student_pc")
+        builder.header("synAccessSource", "pc")
+        return builder
+    }
+
+    // 过期 JWT 仍回 HTTP 200 + JSON state!=200，基类只认 401/CAS 页，探活必须读 state。
+    override suspend fun validateLogin(): Boolean = withIo {
+        val token = localToken["access_token"] ?: return@withIo false
+        val resp = client.newCall(
+            Request.Builder()
+                .url("${com.xjtu.toolbox.hello.HelloLogin.BASE_URL}/yingxin/user/afterLogin?synAccessSource=pc")
+                .header("access-token", token)
+                .header("access_token", token)
+                .header("systemtype", localToken["system_type"] ?: "yingxin_student_pc")
+                .header("synAccessSource", "pc")
+                .header("Referer", "${com.xjtu.toolbox.hello.HelloLogin.BASE_URL}/yingxin-pc/")
+                .get()
+                .build()
+        ).execute()
+        try {
+            if (resp.code != 200) return@withIo false
+            val body = resp.body?.string() ?: return@withIo false
+            if (XJTULogin.isAuthFailureResponse(body)) return@withIo false
+            runCatching { body.safeParseJsonObject().get("state")?.asInt }.getOrNull() == 200
+        } finally {
+            resp.close()
+        }
+    }
+
+    override fun isAuthFailureResponse(response: Response, bodyPreview: String?): Boolean {
+        if (super.isAuthFailureResponse(response, bodyPreview)) return true
+        val body = bodyPreview ?: return false
+        val json = runCatching { body.safeParseJsonObject() }.getOrNull() ?: return false
+        val state = json.get("state")?.takeIf { !it.isJsonNull }
+            ?.runCatching { asInt }?.getOrNull() ?: return false
+        if (state == 200) return false
+        val path = response.request.url.encodedPath
+        if ("/yingxin/user/" in path) return true
+        val message = json.get("message")?.takeIf { !it.isJsonNull }?.asString.orEmpty()
+        return state == 401 || state == 403 ||
+            message.contains("未登录") ||
+            message.contains("过期") ||
+            message.contains("token", ignoreCase = true)
+    }
 }
 
 // ── JIAOCAI 教材中心 ──────────────────────────────────────────────────
@@ -345,20 +393,6 @@ class DzpzSession : CasSiteSession("dzpz", "电子凭证", mustUseWebVpn = false
 class VenueSession : CasSiteSession("venue", "场馆预订", mustUseWebVpn = false) {
     override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
         VenueLogin(session = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
-}
-
-// ── GMIS 研究生管理 ──────────────────────────────────────────────────
-
-class GmisSession : CasSiteSession("gmis", "研究生管理", mustUseWebVpn = true) {
-    override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
-        GmisLogin(session = client, visitorId = visitorId)
-}
-
-// ── GSTE 研究生评教 ──────────────────────────────────────────────────
-
-class GsteSession : CasSiteSession("gste", "研究生评教", mustUseWebVpn = true) {
-    override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
-        GsteLogin(session = client, visitorId = visitorId)
 }
 
 // ── ATTENDANCE 考勤系统（本科 / 研究生） ──────────────────────────────

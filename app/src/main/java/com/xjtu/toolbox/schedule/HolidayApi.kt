@@ -25,23 +25,29 @@ object HolidayApi {
     // 内存缓存
     private var cachedHolidays: Map<LocalDate, String>? = null
 
+    /** 只读内存/磁盘，不访问网络。课表首屏不能被节假日接口拖住。 */
+    fun peekCached(context: Context? = null): Map<LocalDate, String> {
+        cachedHolidays?.let { return it }
+        val cache = context?.applicationContext?.let { DataCache(it) }
+        cache?.get(CACHE_KEY, Long.MAX_VALUE)?.let { cachedJson ->
+            parseCachedHolidays(cachedJson)?.let { holidays ->
+                cachedHolidays = holidays
+                Log.d(TAG, "Loaded holidays from disk cache: ${holidays.size} days")
+                return holidays
+            }
+        }
+        return emptyMap()
+    }
+
     suspend fun getHolidayDates(
         context: Context? = null,
         forceRefresh: Boolean = false
     ): Map<LocalDate, String> = withContext(Dispatchers.IO) {
         if (!forceRefresh) {
-            cachedHolidays?.let { return@withContext it }
+            val cached = peekCached(context)
+            if (cached.isNotEmpty()) return@withContext cached
         }
         val cache = context?.applicationContext?.let { DataCache(it) }
-        if (!forceRefresh) {
-            cache?.get(CACHE_KEY, Long.MAX_VALUE)?.let { cachedJson ->
-                parseCachedHolidays(cachedJson)?.let { holidays ->
-                    cachedHolidays = holidays
-                    Log.d(TAG, "Loaded holidays from disk cache: ${holidays.size} days")
-                    return@withContext holidays
-                }
-            }
-        }
         val holidays = mutableMapOf<LocalDate, String>()
         
         try {

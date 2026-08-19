@@ -251,15 +251,30 @@ class SessionManager(context: Context) {
     /**
      * WEBVPN backend 的网关自认证。支持 WebVPN 的业务站点在校外访问前先调用这里，
      * 之后业务 URL 仍按原始域名构造，由 [WebVpnInterceptor] 无感改写。
+     *
+     * 进程活很久时 [SessionBackend.webvpnSelfLoggedIn] 仍可能是 true，但 ticket 早已失效。
+     * 这里先看 cookie / 新鲜窗口，过期再探活，探活失败才重登——别的直连站点不受影响。
      */
     @Throws(IOException::class, PasswordInvalidatedException::class)
     suspend fun ensureWebVpnLogin() {
         val backend = backend(AccessMode.WEBVPN)
-        if (backend.webvpnSelfLoggedIn) return
+        if (isWebVpnGatewayFresh(backend)) return
+        if (hasLiveWebVpnTicket(backend) && probeWebVpnGateway(backend)) {
+            backend.markWebVpnReady()
+            return
+        }
+        if (backend.webvpnSelfLoggedIn) {
+            recordDiagnostic("WARN", "webvpn", "网关会话过期，准备重新认证")
+            backend.markWebVpnStale()
+        }
         checkPasswordValid()
         checkLoginCooldown("webvpn", "WebVPN")
         backend.loginLock.withLock {
-            if (backend.webvpnSelfLoggedIn) return@withLock
+            if (isWebVpnGatewayFresh(backend)) return@withLock
+            if (hasLiveWebVpnTicket(backend) && probeWebVpnGateway(backend)) {
+                backend.markWebVpnReady()
+                return@withLock
+            }
             val creds = credentials ?: throw IOException("WebVPN 未配置凭据")
             val login = withContext(Dispatchers.IO) {
                 XJTULogin(
@@ -275,7 +290,7 @@ class SessionManager(context: Context) {
                 when (result.state) {
                     LoginState.SUCCESS -> {
                         adoptFromLogin(login)
-                        backend.webvpnSelfLoggedIn = true
+                        backend.markWebVpnReady()
                         clearLoginFailure("webvpn")
                         recordDiagnostic("INFO", "webvpn", "WebVPN 网关登录成功")
                         Log.d(TAG, "WebVPN gateway login ok")
@@ -297,10 +312,10 @@ class SessionManager(context: Context) {
                         //
                         // 不做这个判断的后果（已发生）：网关明明是好的，却被判失败并触发
                         // 60 秒登录冷却，期间所有走 WebVPN 的站点全部连不上。
-                        if (backend.cookieJar.findCookieByName("wengine_vpn_ticketwebvpn_xjtu_edu_cn") != null ||
+                        if (backend.cookieJar.findCookieByName(WEBVPN_TICKET_COOKIE) != null ||
                             com.xjtu.toolbox.util.WebVpnUtil.getOriginalUrl(login.finalUrl) != null
                         ) {
-                            backend.webvpnSelfLoggedIn = true
+                            backend.markWebVpnReady()
                             clearLoginFailure("webvpn")
                             recordDiagnostic(
                                 "INFO", "webvpn",
@@ -464,7 +479,51 @@ class SessionManager(context: Context) {
         recordDiagnostic("INFO", "account", "SessionManager reconfigured for suffix=$accountSuffix")
     }
 
+    private fun hasLiveWebVpnTicket(backend: SessionBackend): Boolean =
+        backend.cookieJar.findCookieByName(WEBVPN_TICKET_COOKIE) != null
+
+    private fun isWebVpnGatewayFresh(backend: SessionBackend): Boolean {
+        if (!backend.webvpnSelfLoggedIn || !hasLiveWebVpnTicket(backend)) return false
+        val age = android.os.SystemClock.elapsedRealtime() - backend.webvpnValidatedAt
+        return backend.webvpnValidatedAt > 0L && age in 0 until WEBVPN_VALIDATE_TTL_MS
+    }
+
+    /** 不跟随重定向：被扔回 CAS 就说明网关 ticket 已经死了。网络抖动不当失效。 */
+    private suspend fun probeWebVpnGateway(backend: SessionBackend): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val client = backend.client.newBuilder()
+                .followRedirects(false)
+                .followSslRedirects(false)
+                .build()
+            val request = okhttp3.Request.Builder()
+                .url(WebVpnUtil.WEBVPN_LOGIN_URL)
+                .get()
+                .build()
+            client.newCall(request).execute().use { response ->
+                val loc = response.header("Location").orEmpty()
+                val preview = runCatching { response.peekBody(8192).string() }.getOrDefault("")
+                val bouncedToCas = "cas_login" in loc ||
+                    "/cas/login" in loc ||
+                    "login.xjtu.edu.cn" in loc
+                val authPage = XJTULogin.isAuthFailureResponse(preview)
+                val resourcePage = "西安交通大学WebVPN" in preview || "资源站点" in preview
+                val alive = resourcePage ||
+                    (response.code in 200..299 && !authPage) ||
+                    (response.code in 300..399 && !bouncedToCas)
+                if (!alive) {
+                    Log.w(TAG, "WebVPN probe stale: code=${response.code} loc=$loc")
+                }
+                alive
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "WebVPN probe failed, keep current session: ${e.message}")
+            true
+        }
+    }
+
     companion object {
         private const val TAG = "SessionManager"
+        private const val WEBVPN_TICKET_COOKIE = "wengine_vpn_ticketwebvpn_xjtu_edu_cn"
+        private const val WEBVPN_VALIDATE_TTL_MS = 120_000L
     }
 }

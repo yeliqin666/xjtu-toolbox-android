@@ -35,6 +35,10 @@
 -keep class org.jsoup.** { *; }
 -dontwarn org.jsoup.**
 
+# ── flexmark HTML→Markdown（web_fetch，对应 smolagents markdownify）──
+-keep class com.vladsch.flexmark.** { *; }
+-dontwarn com.vladsch.flexmark.**
+
 # ── Kotlin ────────────────────────────
 -keep class kotlin.Metadata { *; }
 -dontwarn kotlin.**

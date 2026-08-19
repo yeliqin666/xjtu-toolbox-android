@@ -3,7 +3,6 @@ package com.xjtu.toolbox.card
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
-import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.Surface
@@ -13,11 +12,14 @@ import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
+import top.yukonga.miuix.kmp.overlay.OverlayDialog
+import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -25,6 +27,7 @@ import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -60,6 +63,7 @@ import com.xjtu.toolbox.ui.components.EmptyState
 import androidx.compose.animation.*
 import androidx.compose.animation.core.spring
 import androidx.compose.ui.platform.LocalContext
+import com.xjtu.toolbox.ui.components.AppDatePickerDialog
 import com.xjtu.toolbox.ui.components.AppFilterChip
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -67,15 +71,37 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.YearMonth
+import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import kotlin.math.abs
 
 // ==================== 时间范围枚举 ====================
 
-private enum class TimeRange(val label: String, val months: Int) {
+private enum class TimeRange(val label: String, val months: Int?) {
     ONE_MONTH("1个月", 1),
     THREE_MONTHS("3个月", 3),
     SIX_MONTHS("半年", 6),
-    ONE_YEAR("1年", 12);
+    ONE_YEAR("1年", 12),
+    CUSTOM("自定义", null);
+}
+
+private val CardDateFmt: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy/M/d")
+private val CardDateChipFmt: DateTimeFormatter = DateTimeFormatter.ofPattern("M/d")
+
+private fun TimeRange.resolve(customStart: LocalDate, customEnd: LocalDate): Pair<LocalDate, LocalDate> {
+    if (this == TimeRange.CUSTOM) {
+        return if (customStart.isAfter(customEnd)) customEnd to customStart else customStart to customEnd
+    }
+    val months = this.months ?: 1
+    return LocalDate.now().minusMonths(months.toLong()) to LocalDate.now()
+}
+
+private fun formatRangeChip(start: LocalDate, end: LocalDate): String {
+    return if (start.year == end.year) {
+        "${start.format(CardDateChipFmt)}–${end.format(CardDateChipFmt)}"
+    } else {
+        "${start.format(CardDateFmt)}–${end.format(CardDateFmt)}"
+    }
 }
 
 @Composable
@@ -104,9 +130,13 @@ fun CampusCardScreen(
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     // 时间范围
     var selectedTimeRange by rememberSaveable { mutableStateOf(TimeRange.ONE_MONTH) }
+    var customStart by rememberSaveable { mutableStateOf(LocalDate.now().minusMonths(1).toString()) }
+    var customEnd by rememberSaveable { mutableStateOf(LocalDate.now().toString()) }
+    var showCustomRange by remember { mutableStateOf(false) }
     // 流水加载
     var isLoadingMore by remember { mutableStateOf(false) }
     var currentPage by rememberSaveable { mutableIntStateOf(1) }
+    var loadGeneration by remember { mutableIntStateOf(0) }
     // 切换时间范围用：不阻塞整页，只在 Tab 顶部细进度条提示
     var isReloadingRange by remember { mutableStateOf(false) }
     // 搜索
@@ -149,13 +179,22 @@ fun CampusCardScreen(
         weekdayWeekend = api.analyzeWeekdayVsWeekend(allTx)
     }
 
+    fun currentRangeDates(): Pair<LocalDate, LocalDate> {
+        val start = runCatching { LocalDate.parse(customStart) }.getOrDefault(LocalDate.now().minusMonths(1))
+        val end = runCatching { LocalDate.parse(customEnd) }.getOrDefault(LocalDate.now())
+        return selectedTimeRange.resolve(start, end)
+    }
+
     fun loadData(range: TimeRange = selectedTimeRange, silent: Boolean = false) {
-        if (silent || transactions.isNotEmpty()) isReloadingRange = true else isLoading = true
+        val hasContent = transactions.isNotEmpty() || cardInfo != null
+        if (silent || hasContent) isReloadingRange = true else isLoading = true
         errorMessage = null
+        val myGeneration = ++loadGeneration
         scope.launch {
             try {
-                val startDate = LocalDate.now().minusMonths(range.months.toLong())
-                val endDate = LocalDate.now()
+                val customS = runCatching { LocalDate.parse(customStart) }.getOrDefault(LocalDate.now().minusMonths(1))
+                val customE = runCatching { LocalDate.parse(customEnd) }.getOrDefault(LocalDate.now())
+                val (startDate, endDate) = range.resolve(customS, customE)
 
                 // 先获取卡信息（回填 cardAccount），再并行抓流水
                 cardInfo = withContext(Dispatchers.IO) { api.getCardInfo() }
@@ -184,6 +223,7 @@ fun CampusCardScreen(
                         api.getAllTransactions(startDate, endDate, maxPages = 12)
                     }
                 }
+                if (myGeneration != loadGeneration) return@launch
                 applyTransactions(allTx)
                 cardInfo?.let { CampusCardCache.save(context, it, allTx, startDate, endDate) }
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -197,8 +237,10 @@ fun CampusCardScreen(
                     snackbarHostState.showSnackbar("更新失败，当前显示上次缓存的数据", duration = SnackbarDuration.Long)
                 }
             } finally {
-                isLoading = false
-                isReloadingRange = false
+                if (myGeneration == loadGeneration) {
+                    isLoading = false
+                    isReloadingRange = false
+                }
             }
         }
     }
@@ -209,9 +251,10 @@ fun CampusCardScreen(
         scope.launch {
             try {
                 withContext(Dispatchers.IO) {
+                    val (startDate, endDate) = currentRangeDates()
                     val (_, txList) = api.getTransactions(
-                        startDate = LocalDate.now().minusMonths(selectedTimeRange.months.toLong()),
-                        endDate = LocalDate.now(),
+                        startDate = startDate,
+                        endDate = endDate,
                         page = currentPage + 1,
                         pageSize = 50
                     )
@@ -267,9 +310,29 @@ fun CampusCardScreen(
             )
         }
     ) { padding ->
+        val rangeDates = currentRangeDates()
+        val customChipLabel = if (selectedTimeRange == TimeRange.CUSTOM) {
+            formatRangeChip(rangeDates.first, rangeDates.second)
+        } else null
+        val rangeDays = ChronoUnit.DAYS.between(rangeDates.first, rangeDates.second) + 1
+        CustomRangeDialog(
+            show = showCustomRange,
+            initialStart = rangeDates.first,
+            initialEnd = rangeDates.second,
+            onDismiss = { showCustomRange = false },
+            onConfirm = { start, end ->
+                customStart = start.toString()
+                customEnd = end.toString()
+                selectedTimeRange = TimeRange.CUSTOM
+                showCustomRange = false
+                currentPage = 1
+                loadData(TimeRange.CUSTOM, silent = true)
+            }
+        )
         when {
-            isLoading -> LoadingState("正在加载校园卡数据...", Modifier.fillMaxSize().padding(padding))
-            errorMessage != null && transactions.isEmpty() ->
+            isLoading && cardInfo == null && transactions.isEmpty() ->
+                LoadingState("正在加载校园卡数据...", Modifier.fillMaxSize().padding(padding))
+            errorMessage != null && transactions.isEmpty() && cardInfo == null ->
                 ErrorState(errorMessage!!, { loadData() }, Modifier.fillMaxSize().padding(padding))
             else -> {
                 Column(Modifier.fillMaxSize().padding(padding).nestedScroll(scrollBehavior.nestedScrollConnection)) {
@@ -307,12 +370,17 @@ fun CampusCardScreen(
                             1 -> TransactionTab(transactions, totalRecords, isLoadingMore, searchQuery,
                                 onSearchChange = { searchQuery = it }, onLoadMore = ::loadMore,
                                 selectedTimeRange = selectedTimeRange,
-                                onTimeRangeChange = { selectedTimeRange = it; loadData(it, silent = true) },
+                                customChipLabel = customChipLabel,
+                                onTimeRangeChange = { selectedTimeRange = it; currentPage = 1; loadData(it, silent = true) },
+                                onCustomClick = { showCustomRange = true },
                                 isReloading = isReloadingRange)
                             2 -> AnalyticsTab(
                                 monthlyStats, categorySpending, mealTimeStats, weekdayWeekend,
                                 activeCampusDays, selectedTimeRange,
-                                onTimeRangeChange = { selectedTimeRange = it; loadData(it, silent = true) },
+                                customChipLabel = customChipLabel,
+                                rangeDays = rangeDays,
+                                onTimeRangeChange = { selectedTimeRange = it; currentPage = 1; loadData(it, silent = true) },
+                                onCustomClick = { showCustomRange = true },
                                 isReloading = isReloadingRange
                             )
                         }
@@ -651,7 +719,9 @@ private fun TransactionTab(
     onSearchChange: (String) -> Unit,
     onLoadMore: () -> Unit,
     selectedTimeRange: TimeRange,
+    customChipLabel: String? = null,
     onTimeRangeChange: (TimeRange) -> Unit,
+    onCustomClick: () -> Unit = {},
     isReloading: Boolean = false
 ) {
     val filtered = remember(transactions, searchQuery) {
@@ -681,6 +751,8 @@ private fun TransactionTab(
                     TimeRangeSelector(
                         selectedTimeRange,
                         onTimeRangeChange,
+                        customChipLabel = customChipLabel,
+                        onCustomClick = onCustomClick,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                     )
                     if (isReloading) {
@@ -810,17 +882,40 @@ private fun AnalyticsTab(
     weekdayWeekend: Pair<DayTypeStats, DayTypeStats>?,
     activeCampusDays: Int,
     selectedTimeRange: TimeRange,
+    customChipLabel: String? = null,
+    rangeDays: Long = 30,
     onTimeRangeChange: (TimeRange) -> Unit,
+    onCustomClick: () -> Unit = {},
     isReloading: Boolean = false
 ) {
+    val showMonthly = rangeDays >= 45
+    val showWeekday = rangeDays >= 14
+    val showMeal = rangeDays >= 7
     LazyColumn(
         modifier = Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(vertical = 12.dp)
     ) {
-        item { TimeRangeSelector(selectedTimeRange, onTimeRangeChange) }
+        item {
+            TimeRangeSelector(
+                selectedTimeRange,
+                onTimeRangeChange,
+                customChipLabel = customChipLabel,
+                onCustomClick = onCustomClick
+            )
+        }
         if (isReloading) {
             item { LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), height = 2.dp) }
+        }
+        if (rangeDays < 14) {
+            item {
+                Text(
+                    "区间较短，只展示总额和类别",
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                )
+            }
         }
         if (categorySpending.isEmpty() && monthlyStats.isEmpty() && mealTimeStats.isEmpty()) {
             item {
@@ -832,27 +927,110 @@ private fun AnalyticsTab(
             }
         } else {
             if (categorySpending.isNotEmpty()) { item { CategoryCard(categorySpending) } }
-            if (monthlyStats.isNotEmpty()) { item { MonthlyTrendCard(monthlyStats) } }
-            if (mealTimeStats.isNotEmpty()) { item { MealAnalysisCard(mealTimeStats) } }
-            if (weekdayWeekend != null) { item { WeekdayWeekendCard(weekdayWeekend) } }
-            if (monthlyStats.isNotEmpty()) { item { TopMerchantsCard(monthlyStats) } }
-            item { SpendingInsightsCard(monthlyStats, categorySpending, mealTimeStats, weekdayWeekend, activeCampusDays) }
+            if (showMonthly && monthlyStats.isNotEmpty()) { item { MonthlyTrendCard(monthlyStats) } }
+            if (showMeal && mealTimeStats.isNotEmpty()) { item { MealAnalysisCard(mealTimeStats) } }
+            if (showWeekday && weekdayWeekend != null) { item { WeekdayWeekendCard(weekdayWeekend) } }
+            if (showMonthly && monthlyStats.isNotEmpty()) { item { TopMerchantsCard(monthlyStats) } }
+            if (showMeal) {
+                item { SpendingInsightsCard(monthlyStats, categorySpending, mealTimeStats, weekdayWeekend, activeCampusDays) }
+            }
         }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TimeRangeSelector(
     selected: TimeRange,
     onChange: (TimeRange) -> Unit,
     modifier: Modifier = Modifier,
+    customChipLabel: String? = null,
+    onCustomClick: () -> Unit = {},
 ) {
-    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        TimeRange.entries.forEach { range ->
-            AppFilterChip(selected = range == selected, onClick = { onChange(range) },
-                label = range.label, modifier = Modifier.weight(1f))
+    FlowRow(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        TimeRange.entries.filter { it != TimeRange.CUSTOM }.forEach { range ->
+            AppFilterChip(
+                selected = range == selected,
+                onClick = { onChange(range) },
+                label = range.label
+            )
+        }
+        AppFilterChip(
+            selected = selected == TimeRange.CUSTOM,
+            onClick = onCustomClick,
+            label = customChipLabel ?: TimeRange.CUSTOM.label
+        )
+    }
+}
+
+@Composable
+private fun CustomRangeDialog(
+    show: Boolean,
+    initialStart: LocalDate,
+    initialEnd: LocalDate,
+    onDismiss: () -> Unit,
+    onConfirm: (LocalDate, LocalDate) -> Unit,
+) {
+    var draftStart by remember(show, initialStart) { mutableStateOf(initialStart) }
+    var draftEnd by remember(show, initialEnd) { mutableStateOf(initialEnd) }
+    var picking by remember(show) { mutableStateOf<String?>(null) }
+    val today = remember { LocalDate.now() }
+    val earliest = remember { today.minusYears(3) }
+
+    BackHandler(enabled = show && picking == null) { onDismiss() }
+    OverlayDialog(
+        show = show,
+        title = "自定义时间段",
+        summary = "流水和分析共用这一段。",
+        onDismissRequest = onDismiss
+    ) {
+        ArrowPreference(
+            title = "开始",
+            summary = draftStart.format(CardDateFmt),
+            onClick = { picking = "start" }
+        )
+        ArrowPreference(
+            title = "结束",
+            summary = draftEnd.format(CardDateFmt),
+            onClick = { picking = "end" }
+        )
+        if (draftStart.isAfter(draftEnd)) {
+            Text(
+                "开始日晚于结束日时，确定后会自动对调。",
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+            )
+        }
+        Row(Modifier.fillMaxWidth()) {
+            TextButton(text = "取消", onClick = onDismiss, modifier = Modifier.weight(1f))
+            Spacer(Modifier.width(20.dp))
+            TextButton(
+                text = "确定",
+                onClick = {
+                    if (draftStart.isAfter(draftEnd)) onConfirm(draftEnd, draftStart)
+                    else onConfirm(draftStart, draftEnd)
+                },
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.textButtonColorsPrimary()
+            )
         }
     }
+    AppDatePickerDialog(
+        show = picking != null,
+        title = if (picking == "end") "结束日期" else "开始日期",
+        date = if (picking == "end") draftEnd else draftStart,
+        minDate = earliest,
+        maxDate = today,
+        onDismiss = { picking = null },
+        onConfirm = { picked ->
+            if (picking == "end") draftEnd = picked else draftStart = picked
+            picking = null
+        }
+    )
 }
 
 @Composable

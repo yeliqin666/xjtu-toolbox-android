@@ -20,8 +20,8 @@ android {
         applicationId = "com.xjtu.toolbox"
         minSdk = 31
         targetSdk = 36
-        versionCode = 49
-        versionName = "4.71"
+        versionCode = 50
+        versionName = "4.72"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -92,6 +92,7 @@ dependencies {
     implementation(libs.okhttp.brotli)
     implementation(libs.okhttp.urlconnection)
     implementation(libs.jsoup)
+    implementation(libs.flexmark.html2md)
     implementation(libs.gson)
     implementation(libs.coroutines.android)
     implementation(libs.navigation.compose)

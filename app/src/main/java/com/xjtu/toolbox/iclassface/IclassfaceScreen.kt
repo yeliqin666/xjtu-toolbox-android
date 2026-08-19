@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.iclassface
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,7 +23,6 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -34,7 +34,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.LocalAppLoginState
@@ -44,6 +43,7 @@ import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.handleAuthExpired
 import com.xjtu.toolbox.ui.components.AppCardColor
+import com.xjtu.toolbox.ui.components.AppDatePickerDialog
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
@@ -55,11 +55,14 @@ import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
+import top.yukonga.miuix.kmp.basic.PullToRefresh
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.utils.overScrollVertical
 import java.time.LocalDate
 
 /**
@@ -79,12 +82,15 @@ fun IclassfaceScreen(
     val scope = rememberCoroutineScope()
 
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
+    var showDatePicker by remember { mutableStateOf(false) }
     var records by remember { mutableStateOf<List<IclassfaceApi.CheckinRecord>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+    var isRefreshing by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    fun load(date: LocalDate) {
-        loading = true; error = null
+    fun load(date: LocalDate, silent: Boolean = false) {
+        if (silent) isRefreshing = true else loading = true
+        error = null
         scope.launch {
             try {
                 records = withContext(Dispatchers.IO) { api.fetchRecords(date) }
@@ -92,13 +98,17 @@ fun IclassfaceScreen(
                 appLoginState.handleAuthExpired(LoginType.ICLASSFACE, Routes.ICLASSFACE, onBack)
             } catch (e: Exception) {
                 error = e.message ?: "查询失败"
-            } finally { loading = false }
+            } finally {
+                loading = false
+                isRefreshing = false
+            }
         }
     }
 
     LaunchedEffect(Unit) { load(selectedDate) }
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val pullToRefreshState = rememberPullToRefreshState()
     val isToday = selectedDate == LocalDate.now()
 
     Scaffold(
@@ -111,27 +121,50 @@ fun IclassfaceScreen(
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
-                },
-                actions = {
-                    IconButton(onClick = { load(selectedDate) }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "刷新")
-                    }
                 }
             )
         }
     ) { padding ->
+        val today = LocalDate.now()
+        AppDatePickerDialog(
+            show = showDatePicker,
+            title = "选择日期",
+            date = selectedDate,
+            minDate = today.minusYears(3),
+            maxDate = today,
+            onDismiss = { showDatePicker = false },
+            onConfirm = {
+                selectedDate = it
+                showDatePicker = false
+                load(it, silent = true)
+            }
+        )
+        PullToRefresh(
+            isRefreshing = isRefreshing,
+            onRefresh = { load(selectedDate, silent = true) },
+            pullToRefreshState = pullToRefreshState,
+            topAppBarScrollBehavior = scrollBehavior,
+            modifier = Modifier.fillMaxSize().padding(padding)
+        ) {
         when {
-            loading -> LoadingState(message = "查询签到记录...", modifier = Modifier.fillMaxSize().padding(padding))
-            error != null -> ErrorState(
-                message = error!!,
-                onRetry = { load(selectedDate) },
-                modifier = Modifier.fillMaxSize().padding(padding)
-            )
+            loading -> LazyColumn(Modifier.fillMaxSize()) {
+                item { Box(Modifier.fillParentMaxSize()) { LoadingState(message = "查询签到记录...", modifier = Modifier.fillMaxSize()) } }
+            }
+            error != null && records.isEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
+                item {
+                    Box(Modifier.fillParentMaxSize()) {
+                        ErrorState(
+                            message = error!!,
+                            onRetry = { load(selectedDate) },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
+            }
             else -> LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(padding)
-                    .nestedScroll(scrollBehavior.nestedScrollConnection),
+                    .overScrollVertical(),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
@@ -139,7 +172,8 @@ fun IclassfaceScreen(
                     DateSwitchRow(
                         date = selectedDate,
                         isToday = isToday,
-                        onDateChange = { selectedDate = it; load(it) }
+                        onDateChange = { selectedDate = it; load(it, silent = true) },
+                        onPickDate = { showDatePicker = true }
                     )
                 }
                 item {
@@ -168,6 +202,7 @@ fun IclassfaceScreen(
                 }
             }
         }
+        }
     }
 }
 
@@ -177,15 +212,14 @@ fun IclassfaceScreen(
  * 用 Card 包住，与同页的 StatusHero / RecordCard 保持同一套卡片语言——原来是个裸 Row，
  * 没有任何边界，夹在两张卡之间像是浮在外面的。
  *
- * 交互也补齐了：原来只有「昨天」（每点一次退一天）和「今天」，**没有前进一天的入口**，
- * 退多了只能一次跳回今天再重退。现在改成左右对称的箭头，未来的日期没有记录可查，
- * 所以右箭头在今天时禁用。
+ * 左右箭头按天步进；中间日期可点开选择器，一次跳到任意一天。未来日期没有记录，右箭头到今天禁用。
  */
 @Composable
 private fun DateSwitchRow(
     date: LocalDate,
     isToday: Boolean,
     onDateChange: (LocalDate) -> Unit,
+    onPickDate: () -> Unit,
 ) {
     val today = remember { LocalDate.now() }
     val relative = when (date) {
@@ -214,7 +248,9 @@ private fun DateSwitchRow(
                 )
             }
             Column(
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable(onClick = onPickDate),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Row(
