@@ -11,7 +11,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 0
 
       - name: Push announce to Gitee
         env:
@@ -20,6 +20,9 @@ jobs:
           if [ -z "$GITEE_TOKEN" ]; then
             echo "::error::GITEE_ACCESS_TOKEN missing"
             exit 1
+          fi
+          if [ -f .git/shallow ]; then
+            git fetch --unshallow
           fi
           git remote add gitee "https://yeliqin666:${GITEE_TOKEN}@gitee.com/yeliqin666/xjtu-toolbox-android.git" 2>/dev/null || \
             git remote set-url gitee "https://yeliqin666:${GITEE_TOKEN}@gitee.com/yeliqin666/xjtu-toolbox-android.git"
