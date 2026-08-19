@@ -17,7 +17,11 @@ jobs:
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_ACCESS_TOKEN }}
         run: |
+          if [ -z "$GITEE_TOKEN" ]; then
+            echo "::error::GITEE_ACCESS_TOKEN missing"
+            exit 1
+          fi
           git remote add gitee "https://yeliqin666:${GITEE_TOKEN}@gitee.com/yeliqin666/xjtu-toolbox-android.git" 2>/dev/null || \
             git remote set-url gitee "https://yeliqin666:${GITEE_TOKEN}@gitee.com/yeliqin666/xjtu-toolbox-android.git"
-          git push gitee HEAD:announce
+          git push gitee HEAD:announce --force
           echo "announce branch synced to Gitee"
