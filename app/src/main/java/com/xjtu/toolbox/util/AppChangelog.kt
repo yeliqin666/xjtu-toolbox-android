@@ -26,6 +26,13 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "4.7.4" to VersionChangelog(
+            items = listOf(
+                "⬆️" to "强制更新点立即更新会直接拉安装包，不再误报暂未查到",
+                "📡" to "登录前后都会探测校园网，切网会重探",
+                "💬" to "反馈改为去 GitHub 提 Issue 或到博客留言"
+            )
+        ),
         "4.7.3" to VersionChangelog(
             items = listOf(
                 "📢" to "首页上方可看应用通知，维护和重要消息打开就能看到",

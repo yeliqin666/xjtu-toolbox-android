@@ -1364,7 +1364,7 @@ fun AppNavigation(
         showAutoUpdateDialog.value = true
     }
 
-    fun openPendingUpdate() {
+    fun openPendingUpdate(fallbackUrl: String? = null) {
         val ready = pendingUpdate
         if (ready != null) {
             presentUpdate(ready)
@@ -1372,26 +1372,30 @@ fun AppNavigation(
         }
         mainScope.launch {
             val result = runCatching {
-                com.xjtu.toolbox.util.AppUpdater.check(credentialStore.updateChannel)
+                com.xjtu.toolbox.util.AppUpdater.fetchLatest(credentialStore.updateChannel)
             }
             result.fold(
                 onSuccess = { update ->
-                    if (update != null) {
-                        presentUpdate(update)
-                    } else {
+                    presentUpdate(update)
+                },
+                onFailure = {
+                    val page = fallbackUrl
+                        ?: com.xjtu.toolbox.util.AppUpdater.releasesPageUrl(credentialStore.updateChannel)
+                    val opened = runCatching {
+                        context.startActivity(
+                            android.content.Intent(
+                                android.content.Intent.ACTION_VIEW,
+                                android.net.Uri.parse(page),
+                            ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    }.isSuccess
+                    if (!opened) {
                         android.widget.Toast.makeText(
                             context,
-                            "暂未查到新版本，请到设置里手动检查",
+                            "检查更新失败：${it.message}",
                             android.widget.Toast.LENGTH_SHORT,
                         ).show()
                     }
-                },
-                onFailure = {
-                    android.widget.Toast.makeText(
-                        context,
-                        "检查更新失败：${it.message}",
-                        android.widget.Toast.LENGTH_SHORT,
-                    ).show()
                 }
             )
         }
@@ -1412,7 +1416,7 @@ fun AppNavigation(
             bulletin.level == BulletinLevel.UPDATE ||
             bulletin.synthesized
         ) {
-            openPendingUpdate()
+            openPendingUpdate(bulletin.url)
             return
         }
         val url = bulletin.url
@@ -1482,7 +1486,7 @@ fun AppNavigation(
                     showBulletinDialog.value = false
                     launchDialogBulletin = null
                     if (dialogBulletin.level == BulletinLevel.FORCE_UPDATE) {
-                        openPendingUpdate()
+                        openPendingUpdate(dialogBulletin.url)
                     }
                 },
             )

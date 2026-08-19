@@ -60,10 +60,39 @@ object AppUpdater {
         return channelLabels.getOrElse(idx) { "Gitee（推荐）" }
     }
 
-    suspend fun check(channel: String): AppUpdateInfo? = withContext(Dispatchers.IO) {
+    fun releasesPageUrl(channel: String): String =
+        if (normalizeChannel(channel) == CHANNEL_GITHUB) {
+            "https://github.com/yeliqin666/xjtu-toolbox-android/releases/latest"
+        } else {
+            "https://gitee.com/yeliqin666/xjtu-toolbox-android/releases"
+        }
+
+    /**
+     * 拉当前渠道的最新 Release，不跟本机版本比。
+     * 强制更新点「立即更新」必须走这条：公告已经认定要升，再过滤一次会误报「暂未查到」。
+     */
+    suspend fun fetchLatest(channel: String): AppUpdateInfo = withContext(Dispatchers.IO) {
         val normalizedChannel = normalizeChannel(channel)
-        val github = normalizedChannel == CHANNEL_GITHUB
-        // 统一取“最新发布”（官方 /releases/latest 端点，自动跳过 draft/prerelease）。
+        val primary = fetchRelease(normalizedChannel)
+        if (!primary.hasApkAsset && normalizedChannel == CHANNEL_GITEE) {
+            val github = runCatching { fetchRelease(CHANNEL_GITHUB) }.getOrNull()
+            if (github?.hasApkAsset == true) {
+                return@withContext primary.info.copy(downloadUrl = github.info.downloadUrl)
+            }
+        }
+        primary.info
+    }
+
+    /** 仅当远端版本比本机新时返回，给设置里「检查更新」用。 */
+    suspend fun check(channel: String): AppUpdateInfo? {
+        val latest = fetchLatest(channel)
+        return latest.takeIf {
+            MainActivity.compareVersionStrings(BuildConfig.VERSION_NAME, it.version) < 0
+        }
+    }
+
+    private suspend fun fetchRelease(channel: String): ParsedRelease {
+        val github = channel == CHANNEL_GITHUB
         val url = if (github) {
             "https://api.github.com/repos/yeliqin666/xjtu-toolbox-android/releases/latest"
         } else {
@@ -79,10 +108,7 @@ object AppUpdater {
             if (!response.isSuccessful) error("服务器响应 ${response.code}")
             response.body?.string() ?: error("服务器没有返回内容")
         }
-        val release = JsonParser.parseString(body).asJsonObject
-        release.toUpdateInfo(normalizedChannel).takeIf {
-            MainActivity.compareVersionStrings(BuildConfig.VERSION_NAME, it.version) < 0
-        }
+        return JsonParser.parseString(body).asJsonObject.toParsedRelease(channel)
     }
 
     suspend fun download(
@@ -151,7 +177,12 @@ object AppUpdater {
         )
     }
 
-    private fun JsonObject.toUpdateInfo(channel: String): AppUpdateInfo {
+    private data class ParsedRelease(
+        val info: AppUpdateInfo,
+        val hasApkAsset: Boolean,
+    )
+
+    private fun JsonObject.toParsedRelease(channel: String): ParsedRelease {
         val version = get("tag_name")?.asString?.removePrefix("v")
             ?: error("版本信息缺失")
         val assets = getAsJsonArray("assets")
@@ -166,13 +197,16 @@ object AppUpdater {
             } else {
                 "https://gitee.com/yeliqin666/xjtu-toolbox-android/releases/download/v$version/app-release.apk"
             }
-        return AppUpdateInfo(
-            version = version,
-            notes = get("body")?.asString.orEmpty(),
-            downloadUrl = downloadUrl,
-            releaseUrl = get("html_url")?.asString.orEmpty(),
-            channel = channel,
-            channelLabel = channelLabel(channel),
+        return ParsedRelease(
+            info = AppUpdateInfo(
+                version = version,
+                notes = get("body")?.asString.orEmpty(),
+                downloadUrl = downloadUrl,
+                releaseUrl = get("html_url")?.asString.orEmpty(),
+                channel = channel,
+                channelLabel = channelLabel(channel),
+            ),
+            hasApkAsset = apkAsset != null,
         )
     }
 }
