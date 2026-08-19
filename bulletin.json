@@ -1,12 +1,13 @@
 {
   "bulletins": [
     {
-      "id": "2026-08-19-force-4.7.3-compat",
+      "id": "2026-08-19-force-4.7.4",
       "level": "force_update",
-      "title": "请更新到 4.7.3",
-      "body": "前面攒的问题这版基本修完了，功能也是目前最完整的一版。低于 4.7.3 的先更新，再继续用。",
-      "targetVersion": "4.73",
-      "targetVersionCode": 51,
+      "title": "请更新到 4.7.4",
+      "body": "点立即更新会直接拉安装包。上一版点了会误报没有新版本，这版修掉了。低于 4.7.4 的先更新。",
+      "url": "https://github.com/yeliqin666/xjtu-toolbox-android/releases/latest",
+      "targetVersion": "4.74",
+      "targetVersionCode": 52,
       "mustAck": false,
       "block": false
     },
