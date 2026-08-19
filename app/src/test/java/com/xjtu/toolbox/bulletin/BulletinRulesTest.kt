@@ -139,6 +139,21 @@ class BulletinRulesTest {
     }
 
     @Test
+    fun visible_stacksByLevelThenNewerId() {
+        val items = listOf(
+            sample(id = "2026-08-01-a", level = BulletinLevel.WARN),
+            sample(id = "2026-08-19-b", level = BulletinLevel.INFO),
+            sample(id = "2026-08-10-c", level = BulletinLevel.CRITICAL),
+            sample(id = "2026-08-18-d", level = BulletinLevel.CRITICAL),
+        )
+        val visible = BulletinRules.visible(items, now, "4.71", emptySet(), emptySet(), emptySet())
+        assertEquals(
+            listOf("2026-08-18-d", "2026-08-10-c", "2026-08-01-a", "2026-08-19-b"),
+            visible.map { it.id },
+        )
+    }
+
+    @Test
     fun pick_skipsDismissedInfo() {
         val items = listOf(sample(id = "gone", level = BulletinLevel.INFO))
         val picked = BulletinRules.pick(items, now, "4.71", setOf("gone"), emptySet(), emptySet())
@@ -166,6 +181,16 @@ class BulletinRulesTest {
         assertTrue(BulletinRules.shouldShowLaunchDialog(sample(level = BulletinLevel.INFO, block = true)))
         assertFalse(BulletinRules.shouldShowLaunchDialog(sample(level = BulletinLevel.WARN)))
         assertFalse(BulletinRules.shouldShowLaunchDialog(sample(level = BulletinLevel.UPDATE)))
+    }
+
+    @Test
+    fun compareVersions_compactEqualsDotted() {
+        assertEquals(0, BulletinRules.compareVersions("4.72", "4.7.2"))
+        assertEquals(0, BulletinRules.compareVersions("4.71", "4.7.1"))
+        assertEquals(0, BulletinRules.compareVersions("4.61", "4.6.1"))
+        assertTrue(BulletinRules.compareVersions("4.72", "4.7.3") < 0)
+        assertTrue(BulletinRules.compareVersions("4.71", "4.7.3") < 0)
+        assertTrue(BulletinRules.compareVersions("4.7.3", "4.7") > 0)
     }
 
     @Test

@@ -151,17 +151,8 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_LAUNCH_PROMPT = "extra_launch_prompt"
 
         /** 版本号比较函数：v1 > v2 返回正数，v1 == v2 返回 0，v1 < v2 返回负数 */
-        fun compareVersionStrings(v1: String, v2: String): Int {
-            val parts1 = v1.split(".").map { it.toIntOrNull() ?: 0 }
-            val parts2 = v2.split(".").map { it.toIntOrNull() ?: 0 }
-            val maxLen = maxOf(parts1.size, parts2.size)
-            for (i in 0 until maxLen) {
-                val p1 = parts1.getOrElse(i) { 0 }
-                val p2 = parts2.getOrElse(i) { 0 }
-                if (p1 != p2) return p1.compareTo(p2)
-            }
-            return 0
-        }
+        fun compareVersionStrings(v1: String, v2: String): Int =
+            BulletinRules.compareVersions(v1, v2)
     }
 
     /** 标记应用是否准备好（登录恢复完成后为 true），供 SplashScreen 决定何时消失 */
@@ -1315,7 +1306,7 @@ fun AppNavigation(
 
     // ── 启动必检：公告 + 更新（不再看「启动时检查更新」开关）──
     val bulletinStore = remember { BulletinStore(context) }
-    var heroBulletin by remember { mutableStateOf<Bulletin?>(null) }
+    var heroBulletins by remember { mutableStateOf<List<Bulletin>>(emptyList()) }
     var pendingUpdate by remember { mutableStateOf<com.xjtu.toolbox.util.AppUpdateInfo?>(null) }
     var bulletinDialogShown by remember { mutableStateOf(false) }
     val showBulletinDialog = remember { mutableStateOf(false) }
@@ -1336,7 +1327,7 @@ fun AppNavigation(
             val syn = BulletinRules.syntheticUpdate(info.version, info.channel)
             if (credentialStore.isUpdateNoticeSeen(syn.id)) null else syn
         }
-        heroBulletin = BulletinRules.pick(
+        heroBulletins = BulletinRules.visible(
             items = remote + listOfNotNull(synthetic),
             now = java.time.Instant.now(),
             currentVersion = BuildConfig.VERSION_NAME,
@@ -1425,10 +1416,8 @@ fun AppNavigation(
         if (autoUpdateCheckDone.value) return@LaunchedEffect
         autoUpdateCheckDone.value = true
         applyHeroBulletin(bulletinStore.peekCached(), null)
-        val cached = heroBulletin
-        if (!bulletinDialogShown && cached != null &&
-            !cached.synthesized && BulletinRules.shouldShowLaunchDialog(cached)
-        ) {
+        val cached = heroBulletins.firstOrNull { !it.synthesized && BulletinRules.shouldShowLaunchDialog(it) }
+        if (!bulletinDialogShown && cached != null) {
             showBulletinDialog.value = true
             bulletinDialogShown = true
         }
@@ -1449,16 +1438,14 @@ fun AppNavigation(
         }
         if (update != null) pendingUpdate = update
         applyHeroBulletin(remoteItems, update)
-        val picked = heroBulletin
-        if (!bulletinDialogShown && picked != null &&
-            !picked.synthesized && BulletinRules.shouldShowLaunchDialog(picked)
-        ) {
+        val picked = heroBulletins.firstOrNull { !it.synthesized && BulletinRules.shouldShowLaunchDialog(it) }
+        if (!bulletinDialogShown && picked != null) {
             showBulletinDialog.value = true
             bulletinDialogShown = true
         }
         if (update != null &&
             !credentialStore.isUpdateNoticeSeen("auto_${update.channel}_${update.version}") &&
-            heroBulletin?.level != BulletinLevel.FORCE_UPDATE
+            heroBulletins.none { it.level == BulletinLevel.FORCE_UPDATE }
         ) {
             presentUpdate(update)
         }
@@ -1480,7 +1467,9 @@ fun AppNavigation(
         )
     }
 
-    val dialogBulletin = heroBulletin
+    val dialogBulletin = heroBulletins.firstOrNull {
+        !it.synthesized && BulletinRules.shouldShowLaunchDialog(it)
+    }
     if (showBulletinDialog.value && dialogBulletin != null) {
         BulletinLaunchDialog(
             bulletin = dialogBulletin,
@@ -1559,7 +1548,7 @@ fun AppNavigation(
                 onWarmupRequest = { startBackgroundLoginWarmup(mainScope, force = true) },
                 homeTheme = homeTheme,
                 showQuickActions = showQuickActions,
-                heroBulletin = heroBulletin,
+                heroBulletins = heroBulletins,
                 onHeroBulletinTap = ::onHeroBulletinTap,
                 onHeroBulletinDismiss = ::dismissHeroBulletin,
             )
@@ -2003,7 +1992,7 @@ private fun MainScreen(
     onWarmupRequest: () -> Unit = {},
     homeTheme: String = CredentialStore.THEME_CARD,
     showQuickActions: Boolean = true,
-    heroBulletin: Bulletin? = null,
+    heroBulletins: List<Bulletin> = emptyList(),
     onHeroBulletinTap: (Bulletin) -> Unit = {},
     onHeroBulletinDismiss: (Bulletin) -> Unit = {},
 ) {
@@ -2448,7 +2437,7 @@ private fun MainScreen(
                                         navBarStyle = navBarStyle,
                                         homeTheme = homeTheme,
                                         showQuickActions = showQuickActions,
-                                        bulletin = heroBulletin,
+                                        bulletins = heroBulletins,
                                         onBulletinTap = onHeroBulletinTap,
                                         onBulletinDismiss = onHeroBulletinDismiss,
                                     )
@@ -2876,31 +2865,33 @@ private fun HomeHero(
     }
 }
 
+private fun bulletinAccent(level: BulletinLevel) = when (level) {
+    BulletinLevel.WARN -> Color(0xFFE65100)
+    BulletinLevel.CRITICAL, BulletinLevel.FORCE_UPDATE -> Color(0xFFC62828)
+    BulletinLevel.UPDATE -> Color(0xFF1565C0)
+    BulletinLevel.INFO -> null
+}
+
+private fun bulletinLevelLabel(level: BulletinLevel) = when (level) {
+    BulletinLevel.FORCE_UPDATE -> "必须更新"
+    BulletinLevel.UPDATE -> "可更新"
+    BulletinLevel.CRITICAL -> "重要"
+    BulletinLevel.WARN -> "维护"
+    BulletinLevel.INFO -> "通知"
+}
+
 @Composable
 private fun BulletinNoticePanel(
-    bulletin: Bulletin,
-    onTap: () -> Unit,
-    onDismiss: () -> Unit,
+    bulletins: List<Bulletin>,
+    onTap: (Bulletin) -> Unit,
+    onDismiss: (Bulletin) -> Unit,
 ) {
-    val accent = when (bulletin.level) {
-        BulletinLevel.WARN -> Color(0xFFE65100)
-        BulletinLevel.CRITICAL, BulletinLevel.FORCE_UPDATE -> Color(0xFFC62828)
-        BulletinLevel.UPDATE -> Color(0xFF1565C0)
-        BulletinLevel.INFO -> MiuixTheme.colorScheme.primary
-    }
-    val levelLabel = when (bulletin.level) {
-        BulletinLevel.FORCE_UPDATE -> "必须更新"
-        BulletinLevel.UPDATE -> "可更新"
-        BulletinLevel.CRITICAL -> "重要"
-        BulletinLevel.WARN -> "维护"
-        BulletinLevel.INFO -> "通知"
-    }
-    var expanded by remember(bulletin.id) {
-        mutableStateOf(
-            bulletin.level == BulletinLevel.CRITICAL ||
-                bulletin.level == BulletinLevel.FORCE_UPDATE ||
-                bulletin.level == BulletinLevel.UPDATE
-        )
+    if (bulletins.isEmpty()) return
+    var expandedId by remember { mutableStateOf<String?>(bulletins.first().id) }
+    LaunchedEffect(bulletins.map { it.id }) {
+        if (expandedId != null && bulletins.none { it.id == expandedId }) {
+            expandedId = bulletins.first().id
+        }
     }
 
     Card(
@@ -2909,127 +2900,139 @@ private fun BulletinNoticePanel(
         colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = AppCardColor),
     ) {
         Column(Modifier.fillMaxWidth()) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = SinkFeedback(),
-                        onClick = { expanded = !expanded },
-                    )
-                    .padding(start = 14.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(
-                    Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(accent),
-                )
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        levelLabel,
-                        style = MiuixTheme.textStyles.footnote2,
-                        color = accent,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        bulletin.title,
-                        style = MiuixTheme.textStyles.body2,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+            bulletins.forEachIndexed { index, bulletin ->
+                if (index > 0) {
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 14.dp),
+                        color = MiuixTheme.colorScheme.outline.copy(alpha = 0.18f),
                     )
                 }
-                Icon(
-                    imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                    contentDescription = if (expanded) "收起" else "展开",
-                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.size(22.dp),
-                )
-                if (bulletin.level == BulletinLevel.INFO ||
-                    bulletin.level == BulletinLevel.WARN ||
-                    bulletin.level == BulletinLevel.UPDATE
-                ) {
-                    IconButton(onClick = onDismiss) {
+                val accent = bulletinAccent(bulletin.level) ?: MiuixTheme.colorScheme.primary
+                val expanded = expandedId == bulletin.id
+                Column(Modifier.fillMaxWidth()) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = SinkFeedback(),
+                                onClick = {
+                                    expandedId = if (expanded) null else bulletin.id
+                                },
+                            )
+                            .padding(start = 14.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(accent),
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                bulletinLevelLabel(bulletin.level),
+                                style = MiuixTheme.textStyles.footnote2,
+                                color = accent,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                bulletin.title,
+                                style = MiuixTheme.textStyles.body2,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                         Icon(
-                            Icons.Default.Close,
-                            contentDescription = "关闭",
+                            imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = if (expanded) "收起" else "展开",
                             tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            modifier = Modifier.size(16.dp),
+                            modifier = Modifier.size(22.dp),
                         )
+                        if (bulletin.level == BulletinLevel.INFO ||
+                            bulletin.level == BulletinLevel.WARN ||
+                            bulletin.level == BulletinLevel.UPDATE
+                        ) {
+                            IconButton(onClick = { onDismiss(bulletin) }) {
+                                Icon(
+                                    Icons.Default.Close,
+                                    contentDescription = "关闭",
+                                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+                        }
                     }
-                }
-            }
-            AnimatedVisibility(visible = expanded) {
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(start = 32.dp, end = 14.dp, bottom = 14.dp)
-                ) {
-                    if (bulletin.body.isNotBlank()) {
-                        Text(
-                            bulletin.body,
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        )
-                        Spacer(Modifier.height(12.dp))
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        when (bulletin.level) {
-                            BulletinLevel.FORCE_UPDATE -> {
+                    AnimatedVisibility(visible = expanded) {
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(start = 32.dp, end = 14.dp, bottom = 14.dp)
+                        ) {
+                            if (bulletin.body.isNotBlank()) {
                                 Text(
-                                    "立即更新",
-                                    style = MiuixTheme.textStyles.body2,
-                                    fontWeight = FontWeight.Bold,
-                                    color = accent,
-                                    modifier = Modifier.clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = SinkFeedback(),
-                                        onClick = onTap,
-                                    ),
+                                    bulletin.body,
+                                    style = MiuixTheme.textStyles.footnote1,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                 )
+                                Spacer(Modifier.height(12.dp))
                             }
-                            BulletinLevel.UPDATE -> {
-                                Text(
-                                    "去更新",
-                                    style = MiuixTheme.textStyles.body2,
-                                    fontWeight = FontWeight.Bold,
-                                    color = accent,
-                                    modifier = Modifier.clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = SinkFeedback(),
-                                        onClick = onTap,
-                                    ),
-                                )
-                            }
-                            BulletinLevel.CRITICAL -> {
-                                Text(
-                                    "知道了",
-                                    style = MiuixTheme.textStyles.body2,
-                                    fontWeight = FontWeight.Bold,
-                                    color = accent,
-                                    modifier = Modifier.clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = SinkFeedback(),
-                                        onClick = onDismiss,
-                                    ),
-                                )
-                            }
-                            BulletinLevel.INFO, BulletinLevel.WARN -> {
-                                if (!bulletin.url.isNullOrBlank()) {
+                            when (bulletin.level) {
+                                BulletinLevel.FORCE_UPDATE -> {
                                     Text(
-                                        "查看详情",
+                                        "立即更新",
                                         style = MiuixTheme.textStyles.body2,
                                         fontWeight = FontWeight.Bold,
                                         color = accent,
                                         modifier = Modifier.clickable(
                                             interactionSource = remember { MutableInteractionSource() },
                                             indication = SinkFeedback(),
-                                            onClick = onTap,
+                                            onClick = { onTap(bulletin) },
                                         ),
                                     )
+                                }
+                                BulletinLevel.UPDATE -> {
+                                    Text(
+                                        "去更新",
+                                        style = MiuixTheme.textStyles.body2,
+                                        fontWeight = FontWeight.Bold,
+                                        color = accent,
+                                        modifier = Modifier.clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = SinkFeedback(),
+                                            onClick = { onTap(bulletin) },
+                                        ),
+                                    )
+                                }
+                                BulletinLevel.CRITICAL -> {
+                                    Text(
+                                        "知道了",
+                                        style = MiuixTheme.textStyles.body2,
+                                        fontWeight = FontWeight.Bold,
+                                        color = accent,
+                                        modifier = Modifier.clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = SinkFeedback(),
+                                            onClick = { onDismiss(bulletin) },
+                                        ),
+                                    )
+                                }
+                                BulletinLevel.INFO, BulletinLevel.WARN -> {
+                                    if (!bulletin.url.isNullOrBlank()) {
+                                        Text(
+                                            "查看详情",
+                                            style = MiuixTheme.textStyles.body2,
+                                            fontWeight = FontWeight.Bold,
+                                            color = accent,
+                                            modifier = Modifier.clickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = SinkFeedback(),
+                                                onClick = { onTap(bulletin) },
+                                            ),
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -3048,8 +3051,9 @@ private fun BulletinLaunchDialog(
     onPrimary: () -> Unit,
 ) {
     BackHandler(enabled = show.value) { onDismiss() }
+    val isForceUpdate = bulletin.level == BulletinLevel.FORCE_UPDATE
     val title = when (bulletin.level) {
-        BulletinLevel.FORCE_UPDATE -> "需要更新"
+        BulletinLevel.FORCE_UPDATE -> "必须更新"
         BulletinLevel.UPDATE -> "发现新版本"
         BulletinLevel.CRITICAL -> "重要通知"
         BulletinLevel.WARN -> "维护通知"
@@ -3072,29 +3076,35 @@ private fun BulletinLaunchDialog(
             )
             if (bulletin.body.isNotBlank()) {
                 Spacer(Modifier.height(8.dp))
-                Text(bulletin.body, style = MiuixTheme.textStyles.body2)
+                Text(
+                    bulletin.body,
+                    style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
             }
             Spacer(Modifier.height(16.dp))
-            Row(Modifier.fillMaxWidth()) {
-                if (bulletin.level == BulletinLevel.FORCE_UPDATE) {
-                    TextButton(
-                        text = "稍后",
-                        onClick = onDismiss,
-                        modifier = Modifier.weight(1f),
-                    )
-                    TextButton(
-                        text = "立即更新",
-                        onClick = onPrimary,
-                        modifier = Modifier.weight(1f),
-                    )
-                } else {
-                    TextButton(
-                        text = "知道了",
-                        onClick = onDismiss,
-                        modifier = Modifier.weight(1f),
-                    )
+            if (isForceUpdate) {
+                Button(
+                    onClick = onPrimary,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("立即更新")
                 }
+                Spacer(Modifier.height(8.dp))
+                TextButton(
+                    text = "稍后",
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                TextButton(
+                    text = "知道了",
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
+            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
         }
     }
 }
@@ -3111,7 +3121,7 @@ private fun HomeTab(
     navBarStyle: String = "floating",
     homeTheme: String = CredentialStore.THEME_CARD,
     showQuickActions: Boolean = true,
-    bulletin: Bulletin? = null,
+    bulletins: List<Bulletin> = emptyList(),
     onBulletinTap: (Bulletin) -> Unit = {},
     onBulletinDismiss: (Bulletin) -> Unit = {},
 ) {
@@ -3254,11 +3264,11 @@ private fun HomeTab(
             val weekDay = today.dayOfWeek.getDisplayName(
                 java.time.format.TextStyle.FULL, java.util.Locale.CHINESE
             )
-            if (bulletin != null) {
+            if (bulletins.isNotEmpty()) {
                 BulletinNoticePanel(
-                    bulletin = bulletin,
-                    onTap = { onBulletinTap(bulletin) },
-                    onDismiss = { onBulletinDismiss(bulletin) },
+                    bulletins = bulletins,
+                    onTap = onBulletinTap,
+                    onDismiss = onBulletinDismiss,
                 )
                 Spacer(Modifier.height(10.dp))
             }

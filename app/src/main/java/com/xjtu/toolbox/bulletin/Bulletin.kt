@@ -40,7 +40,7 @@ data class Bulletin(
     val endsAt: Instant? = null,
     val minVersion: String? = null,
     val maxVersion: String? = null,
-    /** 当前版本 >= 此值则不展示。用来发「请升到 4.72」时让已更新的人自动消失。 */
+    /** 当前版本 >= 此值则不展示。用来发「请升到 4.7.3」时让已更新的人自动消失。 */
     val targetVersion: String? = null,
     /** 当前版本 < 此值时，把 update 升级成 force_update。 */
     val forceBelow: String? = null,
@@ -128,6 +128,24 @@ object BulletinRules {
         return false
     }
 
+    fun visible(
+        items: List<Bulletin>,
+        now: Instant,
+        currentVersion: String,
+        dismissedIds: Set<String>,
+        ackedIds: Set<String>,
+        snoozedIds: Set<String>,
+    ): List<Bulletin> {
+        return items
+            .filter { isActive(it, now, currentVersion) }
+            .filterNot { isHidden(it, dismissedIds, ackedIds, snoozedIds) }
+            .map { resolveForVersion(it, currentVersion) }
+            .sortedWith(
+                compareByDescending<Bulletin> { it.level.rank }
+                    .thenByDescending { it.id },
+            )
+    }
+
     fun pick(
         items: List<Bulletin>,
         now: Instant,
@@ -135,13 +153,14 @@ object BulletinRules {
         dismissedIds: Set<String>,
         ackedIds: Set<String>,
         snoozedIds: Set<String>,
-    ): Bulletin? {
-        return items
-            .filter { isActive(it, now, currentVersion) }
-            .filterNot { isHidden(it, dismissedIds, ackedIds, snoozedIds) }
-            .map { resolveForVersion(it, currentVersion) }
-            .maxWithOrNull(compareBy<Bulletin> { it.level.rank }.thenBy { it.id })
-    }
+    ): Bulletin? = visible(
+        items,
+        now,
+        currentVersion,
+        dismissedIds,
+        ackedIds,
+        snoozedIds,
+    ).firstOrNull()
 
     fun shouldShowLaunchDialog(bulletin: Bulletin): Boolean =
         bulletin.block ||
@@ -165,8 +184,8 @@ object BulletinRules {
     }
 
     fun compareVersions(v1: String, v2: String): Int {
-        val parts1 = v1.split(".", "-").mapNotNull { it.toIntOrNull() }
-        val parts2 = v2.split(".", "-").mapNotNull { it.toIntOrNull() }
+        val parts1 = versionParts(v1)
+        val parts2 = versionParts(v2)
         val maxLen = maxOf(parts1.size, parts2.size)
         for (i in 0 until maxLen) {
             val p1 = parts1.getOrElse(i) { 0 }
@@ -174,6 +193,18 @@ object BulletinRules {
             if (p1 != p2) return p1.compareTo(p2)
         }
         return 0
+    }
+
+    /**
+     * 兼容旧写法：`4.72` / `4.71` / `4.61` 分别当成 `4.7.2` / `4.7.1` / `4.6.1`。
+     * 已经带第三段的（如 `4.7.3`、`4.5.3`）原样比较。
+     */
+    private fun versionParts(raw: String): List<Int> {
+        val parts = raw.split(".", "-").mapNotNull { it.toIntOrNull() }
+        if (parts.size == 2 && parts[1] >= 10) {
+            return listOf(parts[0], parts[1] / 10, parts[1] % 10)
+        }
+        return parts
     }
 
     fun syntheticUpdate(version: String, channel: String): Bulletin = Bulletin(

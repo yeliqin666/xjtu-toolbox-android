@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.util
 
 import com.xjtu.toolbox.BuildConfig
+import com.xjtu.toolbox.bulletin.BulletinRules
 
 /**
  * 全应用更新日志的唯一数据源。
@@ -25,10 +26,11 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
-        "4.72" to VersionChangelog(
+        "4.7.3" to VersionChangelog(
             items = listOf(
                 "📢" to "首页上方可看应用通知，维护和重要消息打开就能看到",
-                "⬆️" to "有新版本会在首页提示，过低版本会要求更新"
+                "⬆️" to "有新版本会在首页提示，过低版本会要求更新",
+                "🪟" to "重整各种弹窗和刷新等 UI"
             )
         ),
         "4.71" to VersionChangelog(
@@ -414,16 +416,6 @@ object AppChangelog {
         }
     }
 
-    /** 简单的语义版本比较（按点分段，逐段数字比较）。 */
-    private fun compareVersions(a: String, b: String): Int {
-        val pa = a.split(".").map { it.toIntOrNull() ?: 0 }
-        val pb = b.split(".").map { it.toIntOrNull() ?: 0 }
-        val n = maxOf(pa.size, pb.size)
-        for (i in 0 until n) {
-            val va = pa.getOrElse(i) { 0 }
-            val vb = pb.getOrElse(i) { 0 }
-            if (va != vb) return va.compareTo(vb)
-        }
-        return 0
-    }
+    private fun compareVersions(a: String, b: String): Int =
+        BulletinRules.compareVersions(a, b)
 }
