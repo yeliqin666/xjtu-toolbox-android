@@ -1292,23 +1292,13 @@ fun AppNavigation(
     val showUpdateNotice = remember {
         mutableStateOf(pendingChangelog.isNotEmpty() && !isFreshInstall)
     }
-    if (showUpdateNotice.value) {
-        UpdateNoticeDialog(
-            entries = pendingChangelog,
-            show = showUpdateNotice,
-            fromVersion = previousRunVersion?.takeIf { it != BuildConfig.VERSION_NAME },
-            onDismiss = {
-                credentialStore.lastSeenChangelogVersion = BuildConfig.VERSION_NAME
-                showUpdateNotice.value = false
-            }
-        )
-    }
 
     // ── 启动必检：公告 + 更新（不再看「启动时检查更新」开关）──
     val bulletinStore = remember { BulletinStore(context) }
     var heroBulletins by remember { mutableStateOf<List<Bulletin>>(emptyList()) }
     var pendingUpdate by remember { mutableStateOf<com.xjtu.toolbox.util.AppUpdateInfo?>(null) }
-    var bulletinDialogShown by remember { mutableStateOf(false) }
+    var launchDialogBulletin by remember { mutableStateOf<Bulletin?>(null) }
+    var bulletinCheckFinished by remember { mutableStateOf(false) }
     val showBulletinDialog = remember { mutableStateOf(false) }
     val autoUpdateCheckDone = remember { mutableStateOf(false) }
     var autoUpdateVersion by remember { mutableStateOf("") }
@@ -1416,11 +1406,6 @@ fun AppNavigation(
         if (autoUpdateCheckDone.value) return@LaunchedEffect
         autoUpdateCheckDone.value = true
         applyHeroBulletin(bulletinStore.peekCached(), null)
-        val cached = heroBulletins.firstOrNull { !it.synthesized && BulletinRules.shouldShowLaunchDialog(it) }
-        if (!bulletinDialogShown && cached != null) {
-            showBulletinDialog.value = true
-            bulletinDialogShown = true
-        }
 
         val fetched = runCatching { BulletinApi.fetch() }.getOrNull()
         if (fetched != null) bulletinStore.cachedJson = fetched.rawJson
@@ -1438,56 +1423,69 @@ fun AppNavigation(
         }
         if (update != null) pendingUpdate = update
         applyHeroBulletin(remoteItems, update)
-        val picked = heroBulletins.firstOrNull { !it.synthesized && BulletinRules.shouldShowLaunchDialog(it) }
-        if (!bulletinDialogShown && picked != null) {
+        val picked = BulletinRules.pickLaunchDialog(heroBulletins)
+        if (picked != null) {
+            launchDialogBulletin = picked
             showBulletinDialog.value = true
-            bulletinDialogShown = true
-        }
-        if (update != null &&
-            !credentialStore.isUpdateNoticeSeen("auto_${update.channel}_${update.version}") &&
-            heroBulletins.none { it.level == BulletinLevel.FORCE_UPDATE }
+        } else if (update != null &&
+            !credentialStore.isUpdateNoticeSeen("auto_${update.channel}_${update.version}")
         ) {
             presentUpdate(update)
         }
+        bulletinCheckFinished = true
     }
 
-    // ── 自动更新弹窗 ──
-    if (showAutoUpdateDialog.value) {
-        AutoUpdateDialog(
-            version = autoUpdateVersion,
-            body = autoUpdateBody,
-            downloadUrl = autoUpdateDownloadUrl,
-            releaseUrl = autoUpdateReleaseUrl,
-            channelLabel = autoUpdateChannel,
-            onDismiss = {
-                credentialStore.markUpdateNoticeSeen("auto_${autoUpdateChannelKey}_${autoUpdateVersion}")
-                showAutoUpdateDialog.value = false
-                applyHeroBulletin(bulletinStore.peekCached(), pendingUpdate)
-            }
-        )
-    }
-
-    val dialogBulletin = heroBulletins.firstOrNull {
-        !it.synthesized && BulletinRules.shouldShowLaunchDialog(it)
-    }
-    if (showBulletinDialog.value && dialogBulletin != null) {
-        BulletinLaunchDialog(
-            bulletin = dialogBulletin,
-            show = showBulletinDialog,
-            onDismiss = {
-                if (dialogBulletin.level == BulletinLevel.FORCE_UPDATE) {
-                    bulletinStore.snooze(dialogBulletin.id)
+    // WindowBottomSheet 同时只能稳妥挂一个。冷启动若强制更新和重要通知各弹一层，
+    // 后开的会把先开的顶掉。首页堆叠条照常全显示，框只弹优先级最高的那条。
+    val showingBulletinDialog = showBulletinDialog.value && launchDialogBulletin != null
+    when {
+        showingBulletinDialog -> {
+            val dialogBulletin = launchDialogBulletin!!
+            BulletinLaunchDialog(
+                bulletin = dialogBulletin,
+                show = showBulletinDialog,
+                onDismiss = {
+                    if (dialogBulletin.level == BulletinLevel.FORCE_UPDATE) {
+                        bulletinStore.snooze(dialogBulletin.id)
+                        applyHeroBulletin(bulletinStore.peekCached(), pendingUpdate)
+                    }
+                    showBulletinDialog.value = false
+                    launchDialogBulletin = null
+                },
+                onPrimary = {
+                    showBulletinDialog.value = false
+                    launchDialogBulletin = null
+                    if (dialogBulletin.level == BulletinLevel.FORCE_UPDATE) {
+                        openPendingUpdate()
+                    }
+                },
+            )
+        }
+        showAutoUpdateDialog.value -> {
+            AutoUpdateDialog(
+                version = autoUpdateVersion,
+                body = autoUpdateBody,
+                downloadUrl = autoUpdateDownloadUrl,
+                releaseUrl = autoUpdateReleaseUrl,
+                channelLabel = autoUpdateChannel,
+                onDismiss = {
+                    credentialStore.markUpdateNoticeSeen("auto_${autoUpdateChannelKey}_${autoUpdateVersion}")
+                    showAutoUpdateDialog.value = false
                     applyHeroBulletin(bulletinStore.peekCached(), pendingUpdate)
                 }
-                showBulletinDialog.value = false
-            },
-            onPrimary = {
-                showBulletinDialog.value = false
-                if (dialogBulletin.level == BulletinLevel.FORCE_UPDATE) {
-                    openPendingUpdate()
+            )
+        }
+        bulletinCheckFinished && showUpdateNotice.value -> {
+            UpdateNoticeDialog(
+                entries = pendingChangelog,
+                show = showUpdateNotice,
+                fromVersion = previousRunVersion?.takeIf { it != BuildConfig.VERSION_NAME },
+                onDismiss = {
+                    credentialStore.lastSeenChangelogVersion = BuildConfig.VERSION_NAME
+                    showUpdateNotice.value = false
                 }
-            },
-        )
+            )
+        }
     }
 
     CompositionLocalProvider(LocalAppLoginState provides loginState) {

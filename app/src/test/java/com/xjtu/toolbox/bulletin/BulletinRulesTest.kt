@@ -184,6 +184,24 @@ class BulletinRulesTest {
     }
 
     @Test
+    fun pickLaunchDialog_onlyHighestWhenForceAndCriticalBothPresent() {
+        val visible = BulletinRules.visible(
+            items = listOf(
+                sample(id = "c", level = BulletinLevel.CRITICAL),
+                sample(id = "f", level = BulletinLevel.FORCE_UPDATE),
+            ),
+            now = now,
+            currentVersion = "4.71",
+            dismissedIds = emptySet(),
+            ackedIds = emptySet(),
+            snoozedIds = emptySet(),
+        )
+        val picked = BulletinRules.pickLaunchDialog(visible)
+        assertEquals("f", picked?.id)
+        assertEquals(BulletinLevel.FORCE_UPDATE, picked?.level)
+    }
+
+    @Test
     fun compareVersions_compactEqualsDotted() {
         assertEquals(0, BulletinRules.compareVersions("4.72", "4.7.2"))
         assertEquals(0, BulletinRules.compareVersions("4.71", "4.7.1"))

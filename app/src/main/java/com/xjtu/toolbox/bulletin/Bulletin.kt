@@ -167,6 +167,10 @@ object BulletinRules {
             bulletin.level == BulletinLevel.CRITICAL ||
             bulletin.level == BulletinLevel.FORCE_UPDATE
 
+    /** 冷启动只弹一条：已按等级排好的列表里，取第一条需要弹窗的。 */
+    fun pickLaunchDialog(items: List<Bulletin>): Bulletin? =
+        items.firstOrNull { !it.synthesized && shouldShowLaunchDialog(it) }
+
     fun parseInstant(raw: String?): Instant? {
         val text = raw?.trim().orEmpty()
         if (text.isEmpty()) return null
