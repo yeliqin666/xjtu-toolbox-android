@@ -78,3 +78,7 @@ tools/
 
 # 开发期抓取的页面样本，不入库
 .probe-notices/
+.companion/
+
+# announce 分支的 worktree（公告 bulletin.json），git worktree 管理，勿手动删除
+/announce/
