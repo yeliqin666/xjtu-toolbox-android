@@ -1,7 +1,13 @@
 package com.xjtu.toolbox.agent
 
 import android.content.Context
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -15,6 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -28,10 +35,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
@@ -43,23 +50,19 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
- * 屁岱的主动提醒。
+ * 屁岱主动提醒。
  *
- * 设计原则（与 PLAN-PIDAI-PROACTIVE.md 一致）：
- * - **全部不调用 AI**：文案是本地模板，成本与延迟为零，也不可能胡说；
- *   但呈现上是屁岱在说话，点进去时这条提醒会作为**真实的开场消息**进入对话，
- *   不是假装——用户顺着追问时才真正调模型。
- * - **一次只说一件事**：多条同时满足按优先级取一条，排队冒泡是灾难。
- * - **数据全部来自本地缓存**：不为提醒额外发请求，抓取由 HomeStatsRefresher 统一负责，
- *   一次抓取两处消费。
+ * - 全部本地模板，不调模型。
+ * - 一次只说一件事。
+ * - 闲话只填空：没有可行动提醒时才说，单独冷却，不挡上课/余额。
+ * - 闲话全文必须露出来，不许省略号。
  */
 data class ProactiveMessage(
-    /** 规则 id，用于冷却与"关掉几次"统计 */
     val id: String,
-    /** 气泡文案，硬性 [MAX_CHARS] 字上限 */
     val text: String,
-    /** 点击后送进对话的开场白 */
     val prompt: String,
+    val fullReveal: Boolean = false,
+    val chatterLineId: String? = null,
 ) {
     companion object {
         const val MAX_CHARS = 24
@@ -68,37 +71,23 @@ data class ProactiveMessage(
 
 object ProactiveRules {
 
+    private const val GLOBAL_COOLDOWN_MS = 15 * 60 * 1000L
+    private const val RULE_COOLDOWN_MS = 60 * 60 * 1000L
+
     /**
-     * 冷却：同一条提醒多久内不重复。
-     *
-     * **当前是测试配置，非常激进**（见 [TESTING]）。上线前必须调回注释里的正式值，
-     * 否则会把用户烦走——这正是方案里反复强调的风险点。
+     * 闲话冷却。原来是 6 分钟，太密了：气泡只活 8 秒，6 分钟一句在使用期间就是不停地冒。
+     * 拉到 25 分钟，一次使用最多撞上一两句。
      */
-    private const val TESTING = false
+    private const val CHATTER_COOLDOWN_MS = 25 * 60 * 1000L
 
-    /** 全局：两次冒泡的最小间隔。正式值 2 小时。 */
-    private val GLOBAL_COOLDOWN_MS = if (TESTING) 20_000L else 2 * 60 * 60 * 1000L
+    const val CHATTER_ID = "chatter"
 
-    /** 单条规则的冷却。正式值 12 小时。 */
-    private val RULE_COOLDOWN_MS = if (TESTING) 30_000L else 12 * 60 * 60 * 1000L
-
-    /** 冷启动后延迟多久才冒第一个。正式值 3 秒。 */
-    val FIRST_DELAY_MS = if (TESTING) 1_500L else 3_000L
-
-    /** 多久重新评估一次是否该冒泡。正式值 60 秒。 */
-    val EVAL_INTERVAL_MS = if (TESTING) 10_000L else 60_000L
-
-    /** 无操作多久自动消失。 */
+    const val FIRST_DELAY_MS = 3_000L
+    const val EVAL_INTERVAL_MS = 60_000L
     const val AUTO_DISMISS_MS = 8_000L
 
-    /**
-     * 余额提醒阈值。测试期调到 1000 以便用真实数据触发（真机余额 ¥146.49，
-     * 按正式阈值 50 永远不会冒泡，也就无从验证气泡本身）。上线前改回 50。
-     */
-    private val LOW_BALANCE = if (TESTING) 1000.0 else 50.0
-
-    /** 上课提醒的提前量。测试期放宽到 12 小时，短学期没有临近课程时也能触发。 */
-    private val CLASS_AHEAD_MIN = if (TESTING) 720L else 30L
+    private const val LOW_BALANCE = 50.0
+    private const val CLASS_AHEAD_MIN = 30L
 
     private const val PREFS = "pidai_proactive"
 
@@ -106,44 +95,70 @@ object ProactiveRules {
 
     fun lastShownAt(ctx: Context, id: String): Long = prefs(ctx).getLong("shown_$id", 0L)
     fun lastAnyAt(ctx: Context): Long = prefs(ctx).getLong("shown_any", 0L)
+    private fun lastChatterAt(ctx: Context): Long = prefs(ctx).getLong("shown_chatter_at", 0L)
 
+    /**
+     * 记下"自动冒过一次"。
+     *
+     * 关键改动：闲话现在**也**写 `shown_any`。原来只写 `shown_chatter_at`，
+     * 于是闲话完全绕开了 15 分钟的全局冷却——正事气泡刚收，闲话立刻能接上，
+     * 用户看到的就是它自顾自连着蹦。现在两条线共用同一个全局节流，
+     * 「上次说话到现在」不够 15 分钟就一句都不说。
+     */
     fun markShown(ctx: Context, id: String) {
         val now = System.currentTimeMillis()
-        prefs(ctx).edit().putLong("shown_$id", now).putLong("shown_any", now).apply()
+        val e = prefs(ctx).edit().putLong("shown_$id", now).putLong("shown_any", now)
+        if (id == CHATTER_ID) e.putLong("shown_chatter_at", now)
+        e.apply()
     }
 
-    /** 用户手动关掉一条提醒。只累计次数，用于放缓频率——**不会禁用**，见 [cooldownFor]。 */
+    fun markShown(ctx: Context, message: ProactiveMessage) {
+        markShown(ctx, message.id)
+        message.chatterLineId?.let { rememberChatterLine(ctx, it) }
+    }
+
+    /**
+     * 记下"用户戳了一下，它回了一句"。
+     *
+     * 和 [markShown] 的区别是**不写 `shown_any`**：主动逗它不该把正事气泡憋回去
+     * 15 分钟。只推进闲话自己的时间戳，并记住这句话别马上重复。
+     */
+    fun markTapped(ctx: Context, message: ProactiveMessage) {
+        val now = System.currentTimeMillis()
+        prefs(ctx).edit()
+            .putLong("shown_${message.id}", now)
+            .putLong("shown_chatter_at", now)
+            .apply()
+        message.chatterLineId?.let { rememberChatterLine(ctx, it) }
+    }
+
+    private fun chatterRecent(ctx: Context): List<String> =
+        prefs(ctx).getString("chatter_recent", "")
+            .orEmpty()
+            .split(',')
+            .filter { it.isNotBlank() }
+
+    fun rememberChatterLine(ctx: Context, lineId: String) {
+        val next = (listOf(lineId) + chatterRecent(ctx)).distinct().take(12)
+        prefs(ctx).edit().putString("chatter_recent", next.joinToString(",")).apply()
+    }
+
     fun markDismissed(ctx: Context, id: String) {
         val n = prefs(ctx).getInt("dismiss_$id", 0) + 1
         prefs(ctx).edit().putInt("dismiss_$id", n).apply()
     }
 
-    /**
-     * 被关掉后**放缓**该规则，而不是禁用它。
-     *
-     * 关掉往往只表示"我看到了"，不表示"别再提"——比如余额提醒，用户看完随手关掉，
-     * 但下周余额还是低的时候他仍然想知道。所以每关一次冷却翻倍（上限 8 倍），
-     * 既能让烦人的提醒迅速稀释，又不会因为几次顺手关闭就永久失去一类提醒。
-     * 用户真不想要，设置里有开关。
-     */
     private fun cooldownFor(ctx: Context, id: String): Long {
         val dismissed = prefs(ctx).getInt("dismiss_$id", 0)
-        val factor = (1 shl dismissed.coerceAtMost(3)).toLong()   // 1,2,4,8
-        return RULE_COOLDOWN_MS * factor
+        val factor = (1 shl dismissed.coerceAtMost(3)).toLong()
+        val base = if (id == CHATTER_ID) CHATTER_COOLDOWN_MS else RULE_COOLDOWN_MS
+        return base * factor
     }
 
-    /** 用户点开过（说明这条有用），清零关闭计数、恢复正常频率。 */
     fun markUseful(ctx: Context, id: String) {
-        prefs(ctx).edit().putInt("dismiss_${id}", 0).apply()
+        prefs(ctx).edit().putInt("dismiss_$id", 0).apply()
     }
 
-    /**
-     * 挑出当前最该说的一件事。没有就返回 null（**没事就一句都不说**，
-     * 不做"今天没课哦"这种无行动价值的寒暄）。
-     *
-     * @param nextCourseName 下一节课名，null 表示近期无课
-     * @param minutesToClass 距上课分钟数
-     */
     fun pick(
         ctx: Context,
         balance: Double?,
@@ -151,18 +166,48 @@ object ProactiveRules {
         minutesToClass: Long?,
         newGradeCount: Int,
         latestNotice: String?,
+        libraryPendingAction: String? = null,
     ): ProactiveMessage? {
         val now = System.currentTimeMillis()
+        val alert = pickAlert(
+            ctx, now, balance, nextCourseName, minutesToClass, newGradeCount, latestNotice,
+            libraryPendingAction,
+        )
+        if (alert != null) return alert
         if (now - lastAnyAt(ctx) < GLOBAL_COOLDOWN_MS) return null
+        return pickChatter(ctx, now, nextCourseName, minutesToClass)
+    }
 
-        // 优先级：余额 > 成绩 > 上课 > 通知。同时满足只说最重要的一条。
+    private fun pickAlert(
+        ctx: Context,
+        now: Long,
+        balance: Double?,
+        nextCourseName: String?,
+        minutesToClass: Long?,
+        newGradeCount: Int,
+        latestNotice: String?,
+        libraryPendingAction: String?,
+    ): ProactiveMessage? {
+        if (now - lastAnyAt(ctx) < GLOBAL_COOLDOWN_MS) return null
         val candidates = buildList {
+            // 图书馆排在最前：这两个动作**有时限**，不做就丢座位，比余额和成绩都急。
+            // 传进来的是 LibraryApi.classifyActionLabel 归一化后的 label（入馆签到 / 中途返回），
+            // 直接就是要用户做的事，不用再翻译一次。
+            if (libraryPendingAction != null) {
+                add(
+                    ProactiveMessage(
+                        "library",
+                        "图书馆座位该${libraryPendingAction}了",
+                        "我的图书馆预约现在什么状态？要做什么？",
+                    )
+                )
+            }
             if (balance != null && balance < LOW_BALANCE) {
                 add(
                     ProactiveMessage(
                         "balance",
                         "校园卡只剩 ¥${"%.2f".format(balance)} 了，记得充",
-                        "我的校园卡余额还有多少？最近都花在哪了？"
+                        "我的校园卡余额还有多少？最近都花在哪了？",
                     )
                 )
             }
@@ -171,7 +216,7 @@ object ProactiveRules {
                     ProactiveMessage(
                         "grade",
                         "有 $newGradeCount 门新成绩出了",
-                        "帮我看看新出的成绩"
+                        "帮我看看新出的成绩",
                     )
                 )
             }
@@ -180,7 +225,7 @@ object ProactiveRules {
                     ProactiveMessage(
                         "class",
                         "${minutesToClass}分钟后上$nextCourseName",
-                        "我今天还有哪些课？在哪上？"
+                        "我今天还有哪些课？在哪上？",
                     )
                 )
             }
@@ -188,20 +233,65 @@ object ProactiveRules {
                 add(ProactiveMessage("notice", "教务处新通知：$latestNotice", "教务处最近有什么通知？"))
             }
         }
-
         return candidates.firstOrNull { m ->
             now - lastShownAt(ctx, m.id) >= cooldownFor(ctx, m.id)
         }?.let { it.copy(text = it.text.take(ProactiveMessage.MAX_CHARS)) }
     }
+
+    /**
+     * 用户**主动点**屁岱时的闲话，和自动冒泡走两套规则。
+     *
+     * 这里刻意绕开闲话冷却：冷却是给"它自己突然开口"用的，防打扰；
+     * 而用户戳它一下却不吭声，看起来就是坏了。但仍然避开最近说过的句子，
+     * 免得连点两下讲同一句。
+     *
+     * 课程信息拿不到（那份状态在首页），情境句会自动落选，不影响其余句子。
+     */
+    fun pickOnTap(ctx: Context): ProactiveMessage? {
+        val line = ChatterPool.pick(
+            java.time.LocalDateTime.now(),
+            chatterRecent(ctx),
+            null,
+            null,
+        ) ?: return null
+        return ProactiveMessage(
+            id = CHATTER_ID,
+            text = line.text,
+            prompt = "",
+            fullReveal = true,
+            chatterLineId = line.id,
+        )
+    }
+
+    private fun pickChatter(
+        ctx: Context,
+        nowMs: Long,
+        nextCourseName: String?,
+        minutesToClass: Long?,
+    ): ProactiveMessage? {
+        if (nowMs - lastChatterAt(ctx) < cooldownFor(ctx, CHATTER_ID)) return null
+        val line = ChatterPool.pick(
+            java.time.LocalDateTime.now(),
+            chatterRecent(ctx),
+            nextCourseName,
+            minutesToClass,
+        ) ?: return null
+        return ProactiveMessage(
+            id = CHATTER_ID,
+            text = line.text,
+            prompt = "",
+            fullReveal = true,
+            chatterLineId = line.id,
+        )
+    }
 }
 
 /**
- * 带尖角的气泡形状。
- *
- * 尖角位置用**绝对距离**（距气泡左边缘多少 dp）而不是百分比：气泡宽度随文案长短变化，
- * 用百分比的话文案一长尖角就偏走了；而它要对准的那个图标位置是固定的。
+ * 气泡外形。[arrowFromStart] 为 null 时尖角取气泡**自身**水平中心。
+ * 挂在底栏正中的气泡必须走这一支：锚点固定在屏幕中线，尖角要随气泡宽度走，
+ * 用固定 dp 的话文案一长一短尖角就偏出锚点了。
  */
-private class BubbleShape(private val arrowFromStart: androidx.compose.ui.unit.Dp) : Shape {
+private class BubbleShape(private val arrowFromStart: androidx.compose.ui.unit.Dp?) : Shape {
     override fun createOutline(
         size: androidx.compose.ui.geometry.Size,
         layoutDirection: LayoutDirection,
@@ -211,13 +301,13 @@ private class BubbleShape(private val arrowFromStart: androidx.compose.ui.unit.D
         val arrowW = with(density) { 12.dp.toPx() }
         val r = with(density) { 14.dp.toPx() }
         val bodyBottom = size.height - arrowH
-        val cx = with(density) { arrowFromStart.toPx() }
-            .coerceIn(r + arrowW, size.width - r - arrowW)
+        val cx = (arrowFromStart?.let { with(density) { it.toPx() } } ?: (size.width / 2f))
+            .coerceIn(arrowW, (size.width - arrowW).coerceAtLeast(arrowW))
         val path = Path().apply {
             addRoundRect(
                 androidx.compose.ui.geometry.RoundRect(
                     left = 0f, top = 0f, right = size.width, bottom = bodyBottom,
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r)
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r),
                 )
             )
             moveTo(cx - arrowW / 2, bodyBottom)
@@ -229,42 +319,89 @@ private class BubbleShape(private val arrowFromStart: androidx.compose.ui.unit.D
     }
 }
 
-/**
- * 气泡本体。调用方负责定位（通常绝对定位在屁岱入口正上方）。
- *
- * @param onOpen 点击气泡：进入屁岱对话，并把 [ProactiveMessage.prompt] 作为开场消息
- * @param onDismiss 手动关闭
- */
 @Composable
 fun ProactiveBubbleView(
     message: ProactiveMessage,
     onOpen: () -> Unit,
     onDismiss: () -> Unit,
     onTimeout: () -> Unit,
-    /** 尖角距气泡左边缘的距离，由调用方按锚点图标的实际位置算出 */
-    arrowFromStart: androidx.compose.ui.unit.Dp = 32.dp,
+    arrowFromStart: androidx.compose.ui.unit.Dp? = null,
+    maxWidth: androidx.compose.ui.unit.Dp = 280.dp,
     modifier: Modifier = Modifier,
 ) {
-    var visible by remember(message.id) { mutableStateOf(false) }
-    LaunchedEffect(message.id) {
+    // visible 只管"气泡在不在"，**不跟着文案走**。
+    //
+    // 之前它 remember(id, text)：换一条闲话时先被重置成 false 再由下面的 effect 置回 true，
+    // 但这两次赋值发生在同一帧内，AnimatedVisibility 根本觉察不到变化，
+    // 于是连点屁岱时气泡只是原地换字，一点动静没有——它是"活的"这件事就没了。
+    //
+    // 现在拆成两层：外层 AnimatedVisibility 负责整体出现/消失，
+    // 内层 AnimatedContent 负责一条换一条，每次换都从尖角重新弹一遍。
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(message.id, message.text) {
         visible = true
         delay(ProactiveRules.AUTO_DISMISS_MS)
         visible = false
         delay(200)
-        // 自动淡出走 onTimeout 而**不是** onDismiss：用户没点 ×，只是没理它，
-        // 这不构成"不想要"。混用的话每次超时都记一次拒绝，退避倍数飞涨，
-        // 混用会让退避倍数快速涨到上限，几分钟后就不再冒泡。
         onTimeout()
     }
+    // 缩放锚点跟着尖角走：尖角在哪，气泡就从哪「长出来」。
+    val pivot = if (arrowFromStart == null) TransformOrigin(0.5f, 1f) else TransformOrigin(0.12f, 1f)
     AnimatedVisibility(
         visible = visible,
-        enter = fadeIn() + scaleIn(initialScale = 0.85f),
-        exit = fadeOut() + scaleOut(targetScale = 0.9f),
-        modifier = modifier,
+        // 从尖角那一点**弹出来**，而不是淡入。初始缩放压到 0.35 再用欠阻尼 spring 回弹，
+        // 观感上就是"从屁岱头顶长出来"；tween 做不出这个过冲，只会像一张图渐显。
+        // 淡入要比缩放快得多收尾，否则半透明的放大过程会显得糊。
+        enter = fadeIn(animationSpec = tween(90)) +
+            scaleIn(
+                initialScale = 0.35f,
+                transformOrigin = pivot,
+                animationSpec = spring(
+                    dampingRatio = 0.52f,
+                    stiffness = Spring.StiffnessMediumLow,
+                ),
+            ),
+        // 收回去也回到同一点，别原地淡出。
+        exit = fadeOut(animationSpec = tween(140)) +
+            scaleOut(
+                targetScale = 0.6f,
+                transformOrigin = pivot,
+                animationSpec = tween(160),
+            ),
+        modifier = modifier.wrapContentWidth(),
     ) {
+        AnimatedContent(
+            targetState = message,
+            transitionSpec = {
+                // 新的一条从尖角弹出来，旧的一条同时缩回尖角。两者叠在一起，
+                // 看着就是"它又说了一句"，而不是"文字被替换了"。
+                (
+                    fadeIn(animationSpec = tween(90)) +
+                        scaleIn(
+                            initialScale = 0.5f,
+                            transformOrigin = pivot,
+                            animationSpec = spring(
+                                dampingRatio = 0.5f,
+                                stiffness = Spring.StiffnessMedium,
+                            ),
+                        )
+                    ).togetherWith(
+                    fadeOut(animationSpec = tween(90)) +
+                        scaleOut(
+                            targetScale = 0.7f,
+                            transformOrigin = pivot,
+                            animationSpec = tween(110),
+                        )
+                // 尺寸变化不裁剪：长短不一的两条在交叉淡入淡出时不该被对方的框切掉。
+                ) using SizeTransform(clip = false)
+            },
+            contentAlignment = Alignment.BottomCenter,
+            label = "proactiveBubbleSwap",
+        ) { shown ->
         Row(
             Modifier
-                .widthIn(max = 260.dp)
+                .wrapContentWidth()
+                .widthIn(max = maxWidth)
                 .clip(BubbleShape(arrowFromStart))
                 .background(MiuixTheme.colorScheme.primary)
                 .clickable(onClick = onOpen)
@@ -272,12 +409,13 @@ fun ProactiveBubbleView(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                message.text,
+                shown.text,
+                modifier = Modifier.wrapContentWidth(),
                 style = MiuixTheme.textStyles.body2,
                 fontWeight = FontWeight.Medium,
                 color = MiuixTheme.colorScheme.onPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                maxLines = if (shown.fullReveal) 2 else 1,
+                overflow = if (shown.fullReveal) TextOverflow.Clip else TextOverflow.Ellipsis,
             )
             Spacer(Modifier.width(6.dp))
             Box(
@@ -295,22 +433,36 @@ fun ProactiveBubbleView(
                 )
             }
         }
+        }
     }
 }
 
 /**
- * 主动提醒点开后要送进对话的开场白。
- *
- * 用一个进程内的临时槽传递，而不是给导航加参数：路由是纯字符串的，塞长文本要编码转义，
- * 且这条内容只在"从气泡跳进去"的一瞬间有意义，没有持久化价值。
- *
- * **取用即清空**（[consume]），避免下次进屁岱又莫名其妙自己发一条。
+ * 气泡的**产生位**和**展示位**不在同一棵子树：文案要靠余额、下节课、新成绩算出来，
+ * 这些状态都在首页 HomeTab 里；而气泡现在挂在底栏屁岱头顶，属于 Scaffold 层。
+ * 两边之间只差一个 message，为它把首页那一大坨状态提升到 Scaffold 不划算，
+ * 用一个进程内单例中转。
  */
+object ProactiveBubbleHost {
+    var message by mutableStateOf<ProactiveMessage?>(null)
+
+    /**
+     * 自动冒泡的抑制开关。用户正待在屁岱这一页时置 true。
+     *
+     * 人都已经在跟它聊天了，再让它从底栏探出头说句不相干的闲话，既遮挡输入框也很怪。
+     * 只挡自动的那一路；用户主动点按钮逗它照常回应。
+     */
+    var autoSuppressed by mutableStateOf(false)
+
+    fun clear() {
+        message = null
+    }
+}
+
 object AgentPendingPrompt {
     @Volatile
     private var pending: String? = null
 
-    /** Compose 观察此值，才能在 Agent 已打开时收到第二次深链 / 搜索。 */
     var generation by mutableIntStateOf(0)
         private set
 

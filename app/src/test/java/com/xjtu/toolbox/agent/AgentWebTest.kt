@@ -2,6 +2,7 @@ package com.xjtu.toolbox.agent
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -71,20 +72,6 @@ class AgentWebTest {
     }
 
     @Test
-    fun parseJinaSearch_json() {
-        val body = """
-            {"code":200,"data":[
-              {"title":"西安交通大学校历","url":"https://dean.xjtu.edu.cn/calendar","description":"本科校历"}
-            ]}
-        """.trimIndent()
-        val rows = AgentWeb.parseJinaSearch(body, 5)
-        assertEquals(1, rows.size)
-        assertEquals("西安交通大学校历", rows[0].first)
-        assertEquals("https://dean.xjtu.edu.cn/calendar", rows[0].second)
-        assertTrue(rows[0].third.contains("校历"))
-    }
-
-    @Test
     fun parseDuckDuckGoHtml_cn() {
         val html = """
             <div class="result">
@@ -118,7 +105,56 @@ class AgentWebTest {
     @Test
     fun looksLikeCaptcha_challengePage() {
         assertTrue(AgentWeb.looksLikeCaptcha("<html>请完成验证 geetest</html>"))
+        assertTrue(AgentWeb.looksLikeCaptcha("<html>sogou.com/antispider 访问过于频繁</html>"))
         assertFalse(AgentWeb.looksLikeCaptcha("<html><h1>西安交通大学</h1></html>"))
+    }
+
+    @Test
+    fun wechatMarkdown_readsJsContent() {
+        val md = AgentWeb.htmlToMarkdown(
+            """
+            <html><body>
+            <div class="rich_media_title">壳标题</div>
+            <div id="js_content" style="visibility:hidden">
+              <p>校历已发布，详见教务处通知。秋季学期从九月开始，请同学们及时查看学院安排以及各学院通知。</p>
+            </div>
+            </body></html>
+            """.trimIndent(),
+            "https://mp.weixin.qq.com/s/abc",
+        )
+        assertTrue(md.contains("校历已发布"))
+        assertFalse(md.contains("壳标题"))
+    }
+
+    @Test
+    fun sogouClickParams_appendsKH() {
+        val url = "https://weixin.sogou.com/link?url=" + "x".repeat(40)
+        val out = AgentWeb.withSogouClickParams(url, k = 3, extraOffset = 15)
+        assertTrue(out.contains("&k=3&h="))
+        assertEquals(out, AgentWeb.withSogouClickParams(out, k = 3))
+    }
+
+    @Test
+    fun jinaReaderUrl_prefixesOnce() {
+        assertEquals(
+            "https://r.jina.ai/https://mp.weixin.qq.com/s/a",
+            AgentWeb.jinaReaderUrl("https://mp.weixin.qq.com/s/a"),
+        )
+        assertEquals(
+            "https://r.jina.ai/https://example.com",
+            AgentWeb.jinaReaderUrl("https://r.jina.ai/https://example.com"),
+        )
+    }
+
+    @Test
+    fun wechatBlock_emptyJsContent() {
+        assertTrue(AgentWeb.looksLikeWeChatBlock("<html>环境异常</html>"))
+        assertTrue(
+            AgentWeb.looksLikeWeChatBlock(
+                """<div id="js_content"></div>""",
+            ),
+        )
+        assertFalse(AgentWeb.looksLikeWeChatBlock("<html><p>普通网页</p></html>"))
     }
 
     @Test
@@ -126,5 +162,45 @@ class AgentWebTest {
         val cut = AgentWeb.truncateMarkdown("abcd", 2)
         assertTrue(cut.startsWith("ab"))
         assertTrue(cut.contains("truncated"))
+    }
+
+    @Test
+    fun parseWikiOpenSearch_jsonArray() {
+        val body = """["交大",["西安交通大学"],["中国高校"],["https://zh.wikipedia.org/wiki/西安交通大学"]]"""
+        val rows = AgentWeb.parseWikiOpenSearch(body, 5)
+        assertEquals(1, rows.size)
+        assertEquals("西安交通大学", rows[0].first)
+        assertTrue(rows[0].second.contains("wikipedia.org"))
+        assertTrue(rows[0].third.contains("高校"))
+    }
+
+    @Test
+    fun capToolResult_keepsHeadAndTail() {
+        val long = "HEAD" + "x".repeat(5000) + "TAIL"
+        val cut = AgentRunner.capToolResult(long)
+        assertTrue(cut.startsWith("HEAD"))
+        assertTrue(cut.endsWith("TAIL"))
+        assertTrue(cut.contains("中间已省略") || cut.contains("省略"))
+        assertTrue(cut.length < long.length)
+    }
+
+    @Test
+    fun capToolResult_fetchKeepsMoreThanDefault() {
+        val long = "HEAD" + "m".repeat(9000) + "TAIL"
+        val asList = AgentRunner.capToolResult(long, "get_notifications")
+        val asFetch = AgentRunner.capToolResult(long, "web_fetch")
+        assertTrue(asList.contains("中间已省略") || asList.contains("省略"))
+        assertEquals(long, asFetch)
+        assertTrue(AgentRunner.toolResultCap("web_search") > AgentRunner.toolResultCap("get_grades"))
+    }
+
+    @Test
+    fun remainingToolHint_onlyWhenLow() {
+        assertNull(AgentRunner.remainingToolHint(0, 3))
+        assertNull(AgentRunner.remainingToolHint(8, 3))
+        val low = AgentRunner.remainingToolHint(8, 6)!!
+        assertTrue(low.contains("还剩 2 次"))
+        assertTrue(!low.contains("web_fetch"))
+        assertTrue(AgentRunner.remainingToolHint(8, 8)!!.contains("已用尽"))
     }
 }

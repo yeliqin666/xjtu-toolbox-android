@@ -76,6 +76,16 @@ internal object AgentWeb {
      */
     fun htmlToMarkdown(html: String, baseUrl: String = ""): String {
         val doc = if (baseUrl.isBlank()) Jsoup.parse(html) else Jsoup.parse(html, baseUrl)
+        val wechat = doc.selectFirst("#js_content, #page-content, .rich_media_content")
+        if (wechat != null && wechat.text().trim().length >= 40) {
+            wechat.select("img[data-src]").forEach { img ->
+                val src = img.attr("data-src").ifBlank { img.attr("src") }
+                if (src.isNotBlank()) img.attr("src", src)
+            }
+            wechat.select("script, style").remove()
+            val markdown = FlexmarkHtmlConverter.builder().build().convert(wechat.outerHtml()).trim()
+            return markdown.replace(Regex("\n{3,}"), "\n\n")
+        }
         doc.select("script, style, nav, footer, header, noscript").remove()
         val markdown = FlexmarkHtmlConverter.builder().build().convert(doc.html()).trim()
         return markdown.replace(Regex("\n{3,}"), "\n\n")
@@ -125,46 +135,6 @@ internal object AgentWeb {
         }
     }
 
-    /**
-     * Jina Search `s.jina.ai`：给模型用的检索，中文比 Bing RSS 稳，也不走搜狗验证码页。
-     * 同时认 JSON（`Accept: application/json`）和默认 Markdown。
-     */
-    fun parseJinaSearch(body: String, limit: Int): List<Triple<String, String, String>> {
-        val trimmed = body.trim()
-        if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-            val parsed = runCatching { com.google.gson.JsonParser.parseString(trimmed) }.getOrNull()
-            val arr = when {
-                parsed == null -> null
-                parsed.isJsonArray -> parsed.asJsonArray
-                parsed.isJsonObject -> parsed.asJsonObject.getAsJsonArray("data")
-                    ?: parsed.asJsonObject.getAsJsonArray("results")
-                else -> null
-            }
-            if (arr != null) {
-                return arr.asSequence().mapNotNull { el ->
-                    val obj = el.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
-                    val title = obj.get("title")?.takeUnless { it.isJsonNull }?.asString?.trim().orEmpty()
-                    val link = (obj.get("url") ?: obj.get("link"))?.takeUnless { it.isJsonNull }?.asString?.trim().orEmpty()
-                    val snippet = (obj.get("description") ?: obj.get("content") ?: obj.get("snippet"))
-                        ?.takeUnless { it.isJsonNull }?.asString?.trim().orEmpty()
-                    if (title.isBlank() || !link.startsWith("http")) null
-                    else Triple(title, link, snippet)
-                }.take(limit.coerceAtLeast(1)).toList()
-            }
-        }
-        val blocks = Regex(
-            """Title:\s*(.+?)\s*\nURL Source:\s*(\S+)\s*(?:\nDescription:\s*(.+?))?(?=\nTitle:|\z)""",
-            RegexOption.DOT_MATCHES_ALL
-        )
-        return blocks.findAll(trimmed).mapNotNull { m ->
-            val title = m.groupValues[1].trim()
-            val link = m.groupValues[2].trim()
-            val snippet = m.groupValues.getOrNull(3)?.trim().orEmpty()
-            if (title.isBlank() || !link.startsWith("http")) null
-            else Triple(title, link, snippet)
-        }.take(limit.coerceAtLeast(1)).toList()
-    }
-
     /** DuckDuckGo html 版（`html.duckduckgo.com/html/`），可带 `kl=cn-zh`。 */
     fun parseDuckDuckGoHtml(html: String, limit: Int): List<Triple<String, String, String>> {
         val doc = Jsoup.parse(html)
@@ -179,22 +149,6 @@ internal object AgentWeb {
                 ?.text()?.trim().orEmpty()
             Triple(title, link, snippet)
         }.take(limit.coerceAtLeast(1)).toList()
-    }
-
-    /** Brave SERP 网页结果。 */
-    fun parseBraveHtml(html: String, limit: Int): List<Triple<String, String, String>> {
-        val doc = Jsoup.parse(html)
-        return doc.select(
-            "div.snippet[data-type=web], div.snippet[data-sn-type=web], div#results div.snippet, div.fdb"
-        ).asSequence().mapNotNull { el ->
-            val a = el.selectFirst("a[href^=http], a.heading-serpresult, a.h") ?: return@mapNotNull null
-            val title = a.text().trim()
-            val link = a.absUrl("href").ifBlank { a.attr("href") }
-            if (title.isBlank() || !link.startsWith("http")) return@mapNotNull null
-            if (link.contains("brave.com/search", ignoreCase = true)) return@mapNotNull null
-            val snippet = el.selectFirst(".snippet-description, .snippet-content, p")?.text()?.trim().orEmpty()
-            Triple(title, link, snippet)
-        }.distinctBy { it.second }.take(limit.coerceAtLeast(1)).toList()
     }
 
     /** 360 搜索（so.com），国内可访问、比搜狗少弹验证码。 */
@@ -217,11 +171,81 @@ internal object AgentWeb {
         return t.contains("captcha") ||
             t.contains("geetest") ||
             t.contains("recaptcha") ||
+            t.contains("antispider") ||
+            t.contains("sg_anti") ||
             t.contains("验证码") ||
             t.contains("滑动验证") ||
             t.contains("请完成验证") ||
+            t.contains("访问过于频繁") ||
             t.contains("unusual traffic") ||
             (t.contains("enable javascript") && t.contains("challenge"))
+    }
+
+    fun looksLikeWeChatBlock(html: String): Boolean {
+        val t = html.lowercase()
+        if (t.contains("环境异常") || t.contains("请在微信客户端打开链接") || t.contains("该内容已被发布者删除")) {
+            return true
+        }
+        if (!t.contains("js_content") && !t.contains("rich_media")) return false
+        val text = Jsoup.parse(html).selectFirst("#js_content, #page-content, .rich_media_content")
+            ?.text()?.trim().orEmpty()
+        return text.length < 40
+    }
+
+    fun isWeChatUrl(raw: String): Boolean {
+        val host = runCatching { URI(raw.trim()).host.orEmpty().lowercase() }.getOrDefault("")
+        return host.contains("mp.weixin.qq.com")
+    }
+
+    fun isSogouJumpUrl(raw: String): Boolean {
+        val uri = runCatching { URI(raw.trim()) }.getOrNull() ?: return false
+        val host = uri.host.orEmpty().lowercase()
+        if (!host.contains("sogou.com")) return false
+        val path = uri.path.orEmpty().lowercase()
+        val q = uri.query.orEmpty()
+        return path.contains("/link") || q.contains("url=")
+    }
+
+    /**
+     * 搜狗微信结果页点击时会给 `/link?url=` 补 `k`/`h`（WechatSogou #235）。
+     * 偏移随页面脚本偶尔改；缺省按公开的 `url=` 后 15+k。
+     */
+    fun withSogouClickParams(url: String, k: Int? = null, extraOffset: Int = 15): String {
+        if (url.contains("&k=") || !url.contains("url=")) return url
+        val a = url.indexOf("url=")
+        val b = (k ?: ((1..100).random())).coerceIn(1, 100)
+        val idx = a + extraOffset + b
+        if (idx !in url.indices) return url
+        return "$url&k=$b&h=${url[idx]}"
+    }
+
+    fun jinaReaderUrl(target: String): String {
+        val u = target.trim()
+        if (u.contains("r.jina.ai")) return u
+        return "https://r.jina.ai/$u"
+    }
+
+    fun looksLikeJinaMarkdown(body: String): Boolean {
+        val t = body.trimStart()
+        return t.startsWith("Title:") || t.contains("Markdown Content:") || t.startsWith("# ")
+    }
+
+    /** 中文维基 OpenSearch：`[query, titles[], descs[], urls[]]`，无验证码。 */
+    fun parseWikiOpenSearch(body: String, limit: Int): List<Triple<String, String, String>> {
+        val arr = runCatching { com.google.gson.JsonParser.parseString(body).asJsonArray }.getOrNull()
+            ?: return emptyList()
+        if (arr.size() < 4) return emptyList()
+        val titles = arr[1].takeIf { it.isJsonArray }?.asJsonArray ?: return emptyList()
+        val descs = arr[2].takeIf { it.isJsonArray }?.asJsonArray ?: return emptyList()
+        val urls = arr[3].takeIf { it.isJsonArray }?.asJsonArray ?: return emptyList()
+        val n = minOf(titles.size(), descs.size(), urls.size(), limit.coerceAtLeast(1))
+        return (0 until n).mapNotNull { i ->
+            val title = runCatching { titles[i].asString.trim() }.getOrDefault("")
+            val url = runCatching { urls[i].asString.trim() }.getOrDefault("")
+            val desc = runCatching { descs[i].asString.trim() }.getOrDefault("")
+            if (title.isBlank() || !url.startsWith("http")) null
+            else Triple(title, url, desc)
+        }
     }
 
     private fun normalizeDdgRedirect(href: String): String {

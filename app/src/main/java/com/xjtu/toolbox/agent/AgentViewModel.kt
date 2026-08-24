@@ -87,6 +87,51 @@ class AgentViewModel : ViewModel() {
     /** 停止正在进行的生成。 */
     fun stop() { currentJob?.cancel() }
 
+    fun lastUserText(): String? = messages.lastOrNull { it.role == "user" }?.content
+
+    fun replaceLastUserAndSend(
+        newText: String,
+        config: AgentConfig,
+        loginState: AppLoginState,
+        context: Context,
+    ) {
+        val text = newText.trim()
+        if (text.isBlank()) return
+        currentJob?.cancel()
+        isLoading = false
+        dropLastUserTurn()
+        sendMessage(text, config, loginState, context)
+    }
+
+    private fun dropLastUserTurn() {
+        val uiIdx = messages.indexOfLast { it.role == "user" }
+        if (uiIdx >= 0) {
+            while (messages.size > uiIdx) messages.removeAt(messages.lastIndex)
+        }
+        val items = (0 until llmHistory.size()).map { llmHistory[it].asJsonObject }
+        val lastUser = items.indexOfLast { it.get("role")?.asString == "user" }
+        if (lastUser >= 0) {
+            llmHistory = JsonArray().apply { items.take(lastUser).forEach { add(it) } }
+        }
+        persist()
+    }
+
+    private fun completeToolLabel(running: String): String {
+        val base = running.trimEnd('…', '.', '。', ' ')
+        return if (base.startsWith("已")) base else "已$base"
+    }
+
+    private fun settleToolAt(index: Int, success: Boolean, err: String?) {
+        if (index !in messages.indices) return
+        val bubble = messages[index]
+        if (bubble.role != "tool_event") return
+        messages[index] = bubble.copy(
+            isToolCall = false,
+            content = if (success) completeToolLabel(bubble.content) else bubble.content,
+            toolError = if (success) null else (err ?: bubble.toolError),
+        )
+    }
+
     /**
      * 修复历史完整性：丢弃"带 tool_calls 却没有(完整) tool 回应"的 assistant 残体，以及孤儿 tool 消息。
      * 用于自愈此前因取消/掉线/后台中断而损坏的会话（否则会永久报 must be followed by tool messages）。
@@ -153,8 +198,9 @@ class AgentViewModel : ViewModel() {
                 navSuggestions = m.nav.mapNotNull { if (it.size >= 2) it[0] to it[1] else null },
                 widgets = m.widgets.orEmpty().mapNotNull { storedToWidget(it, gson) },
                 reasoningContent = m.reasoningContent.orEmpty(),
-                // 加载历史时用持久化的时间，否则用「加载时刻」会让所有历史消息时间戳一样
                 timestamp = m.timestamp ?: System.currentTimeMillis(),
+                isToolCall = false,
+                toolError = m.toolError,
             ))
         }
         llmHistory = runCatching { JsonParser.parseString(convo.llmHistory).asJsonArray }.getOrDefault(JsonArray())
@@ -199,6 +245,7 @@ class AgentViewModel : ViewModel() {
                 it.widgets.map { widget -> widget.toStored(gson) }.filter { widget -> widget.type.isNotEmpty() },
                 it.reasoningContent.takeIf { reasoning -> reasoning.isNotBlank() },
                 it.timestamp,
+                it.toolError,
             )
         }
         val title = if (store.isLocked(id))
@@ -265,6 +312,7 @@ class AgentViewModel : ViewModel() {
 
         val turnSid = currentSessionId   // 本轮所属会话；切走后不再写当前 messages，避免串台
         var streamIdx = -1   // 流式回答气泡的下标，首个 delta 到达时创建
+        val toolBubbleIndices = mutableListOf<Int>()
         currentJob = viewModelScope.launch {
             try {
                 // 首次调用时初始化，此后复用（loginFailedAt 冷却状态得以保留）
@@ -301,7 +349,9 @@ class AgentViewModel : ViewModel() {
                             assistantName = config.effectiveName,
                             userContext = registry.userContext(),
                             maxToolCalls = config.maxToolCalls,
-                            responseStyle = config.responseStyle
+                            responseStyle = config.responseStyle,
+                            modelId = config.effectiveModel,
+                            providerLabel = AgentConfig.providerPromptLabel(config.provider)
                         ))
                     })
                     systemPromptAdded = true
@@ -316,7 +366,6 @@ class AgentViewModel : ViewModel() {
                 sanitizeHistory()   // 自愈：清掉上一次中断留下的 tool_calls 残体
 
                 val calledTools = mutableListOf<String>()
-                val toolBubbleIndices = mutableListOf<Int>()
 
                 // MFA 提示：监控 SessionManager 的 activeMfaRequest，弹窗期间在对话列表追加一条
                 // "需要登录验证" tool_event，让用户知道为什么对话卡住——不是 AI 在慢，是在校验。
@@ -414,24 +463,11 @@ class AgentViewModel : ViewModel() {
                             toolBubbleIndices.add(messages.lastIndex)
                         }
                     },
-                    onToolResult = { name, success, errMsg ->
+                    onToolResult = { _, success, errMsg ->
                         if (currentSessionId == turnSid && toolBubbleIndices.isNotEmpty()) {
                             val lastIdx = toolBubbleIndices.last()
-                            if (lastIdx in messages.indices) {
-                                val bubble = messages[lastIdx]
-                                if (success) {
-                                    // 正常收尾（runner.run 结束后会把所有 isToolCall=false，下面会再做）
-                                } else {
-                                    messages[lastIdx] = bubble.copy(
-                                        isToolCall = false,
-                                        toolError = errMsg ?: "工具调用失败",
-                                    )
-                                }
-                            }
-                            // 失败时不再依赖 run() 结束后的批量关闭——避免用户多看几秒"加载中"
-                            if (!success) {
-                                toolBubbleIndices.remove(lastIdx)
-                            }
+                            settleToolAt(lastIdx, success, errMsg ?: "工具调用失败")
+                            toolBubbleIndices.remove(lastIdx)
                         }
                     },
                     onUsage = { totalTokens ->
@@ -447,9 +483,8 @@ class AgentViewModel : ViewModel() {
                     }
                 )
 
-                toolBubbleIndices.forEach { idx ->
-                    if (idx in messages.indices) messages[idx] = messages[idx].copy(isToolCall = false)
-                }
+                toolBubbleIndices.forEach { settleToolAt(it, true, null) }
+                toolBubbleIndices.clear()
                 mfaJob?.cancel()
                 mfaJob = null
                 // MFA 还挂起时退出 run 的极端情况下，标记 mfaBubble 完成避免残留加载图标
@@ -493,11 +528,14 @@ class AgentViewModel : ViewModel() {
                     maybeAutoTitle(config)   // 首轮结束后用 AI 总结一个会话标题（仿 opencode）
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
-                // 用户点了"停止"/切换会话：保留已生成的部分（仅当仍在本会话）
-                if (currentSessionId == turnSid && streamIdx >= 0)
-                    messages[streamIdx] = messages[streamIdx].copy(
-                        content = messages[streamIdx].content.ifBlank { "（已停止）" }
-                    )
+                if (currentSessionId == turnSid) {
+                    toolBubbleIndices.forEach { settleToolAt(it, false, "已中断") }
+                    toolBubbleIndices.clear()
+                    if (streamIdx >= 0)
+                        messages[streamIdx] = messages[streamIdx].copy(
+                            content = messages[streamIdx].content.ifBlank { "（已停止）" }
+                        )
+                }
                 throw e
             } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
                 if (currentSessionId == turnSid)

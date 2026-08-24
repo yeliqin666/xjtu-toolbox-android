@@ -42,20 +42,40 @@ class AgentRunner(private val tools: AgentToolRegistry) {
         private const val SAME_SITE_MIN_INTERVAL_MS = 800L
 
         /**
-         * 单条工具结果的字符上限。
-         *
-         * 这是上下文爆掉的真正来源：`AgentViewModel.truncateHistory()` 按**条数**裁剪，
-         * 而一条 get_notifications 可能几千字——条数远没超，token 早就爆了。
-         * 与其引入分词器精确算 token（要按模型分，代价和收益不匹配），
-         * 不如直接堵住单条巨物，这一条就能覆盖绝大多数情况。
+         * 单条工具结果默认上限。课表/通知列表用这个就够；
+         * 搜索列表和网页正文另开更高预算，避免搜到了却读不了中间段落。
          */
-        private const val MAX_TOOL_RESULT_CHARS = 4000
+        private const val DEFAULT_TOOL_RESULT_CHARS = 4000
+        private const val SEARCH_TOOL_RESULT_CHARS = 8000
+        private const val FETCH_TOOL_RESULT_CHARS = 12_000
 
-        internal fun capToolResult(result: String): String {
-            if (result.length <= MAX_TOOL_RESULT_CHARS) return result
-            return result.take(MAX_TOOL_RESULT_CHARS) +
-                "\n…（结果过长已截断，共 ${result.length} 字。需要更多请缩小查询范围，" +
-                "例如指定日期、学期或关键词后重新调用。）"
+        internal fun toolResultCap(toolName: String): Int = when (toolName) {
+            "web_fetch" -> FETCH_TOOL_RESULT_CHARS
+            "web_search", "search_school_courses" -> SEARCH_TOOL_RESULT_CHARS
+            else -> DEFAULT_TOOL_RESULT_CHARS
+        }
+
+        internal fun capToolResult(result: String, toolName: String = ""): String {
+            val maxChars = toolResultCap(toolName)
+            if (result.length <= maxChars) return result
+            val marker = "\n…（中间已省略，共 ${result.length} 字；保留开头和结尾。需要更多请缩小查询范围。）…\n"
+            val budget = maxChars - marker.length
+            val head = (budget * 0.6).toInt().coerceAtLeast(200)
+            val tail = (budget - head).coerceAtLeast(200)
+            return result.take(head) + marker + result.takeLast(tail)
+        }
+
+        /** 快用尽才提醒，避免一上来倒数把模型吓回去。 */
+        internal fun remainingToolHint(maxToolCalls: Int, used: Int): String? {
+            if (maxToolCalls <= 0) return null
+            val left = (maxToolCalls - used).coerceAtLeast(0)
+            return when {
+                left == 0 ->
+                    "\n（本问工具次数已用尽，下一轮直接作答。）"
+                left <= 2 ->
+                    "\n（本问还剩 $left 次工具。）"
+                else -> null
+            }
         }
     }
 
@@ -96,6 +116,8 @@ class AgentRunner(private val tools: AgentToolRegistry) {
     ): String {
         val toolDefs = JsonParser.parseString(tools.toolDefinitions).asJsonArray
         var toolCallCount = 0
+        val assembled = StringBuilder()
+        var lengthContinues = 0
 
         while (true) {
             // maxToolCalls <= 0 表示不限次数；否则预算用尽后这一轮不带 tools，逼模型直接作答
@@ -158,8 +180,19 @@ class AgentRunner(private val tools: AgentToolRegistry) {
             // 兼容 OpenAI-compatible 后端：有些会在存在 tool_calls 时仍返回 finish_reason=stop，
             // 因此只看实体 toolCalls 是否非空，不迷信 finishReason。
             if (!allowTools || sr.toolCalls.isEmpty()) {
+                assembled.append(sr.content)
+                // 有正文却被 length 截断时，把已写部分入历史并续写，尽量拿到完整结尾。
+                if (sr.finishReason == "length" && sr.content.isNotBlank() && lengthContinues < 2) {
+                    messages.add(assistantMsg)
+                    messages.add(JsonObject().apply {
+                        addProperty("role", "user")
+                        addProperty("content", "（系统）上一则回复因长度限制被截断。请紧接着未写完的内容继续写完，不要重复已写部分，不要解释截断。")
+                    })
+                    lengthContinues++
+                    continue
+                }
                 messages.add(assistantMsg)
-                return sr.content.ifBlank { "（无回复）" }
+                return assembled.toString().ifBlank { "（无回复）" }
             }
 
             // 原子提交：先把所有 tool 结果算好，再「assistant(tool_calls) + 全部 tool」一起入历史。
@@ -198,8 +231,12 @@ class AgentRunner(private val tools: AgentToolRegistry) {
                 toolResults.add(JsonObject().apply {
                     addProperty("role", "tool")
                     addProperty("tool_call_id", tc.id)
-                    addProperty("content", capToolResult(result))
+                    addProperty("content", capToolResult(result, tc.name))
                 })
+            }
+            remainingToolHint(config.maxToolCalls, toolCallCount)?.let { hint ->
+                val last = toolResults.lastOrNull() ?: return@let
+                last.addProperty("content", last.get("content").asString + hint)
             }
             messages.add(assistantMsg)
             toolResults.forEach { messages.add(it) }

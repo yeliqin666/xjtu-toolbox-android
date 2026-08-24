@@ -51,19 +51,43 @@ data class AgentConfig(
         const val REASONING_MAX = "max"
         const val SEARCH_AUTO = "auto"
         const val SEARCH_BING = "bing"
-        const val SEARCH_SOGOU = "sogou"
         const val SEARCH_WECHAT = "wechat"
         const val SEARCH_DDG = "duckduckgo"
-        const val SEARCH_JINA = "jina"
         const val SEARCH_SO360 = "so360"
-        const val SEARCH_BRAVE = "brave"
+        const val SEARCH_WIKI = "wiki"
+
+        /**
+         * 已下线的搜索源。实测（2026-08，国内网络，三条中文查询 + 连发六次）：
+         * - jina：`s.jina.ai` 匿名访问返回 401，要 API Key，调用必然失败。
+         * - brave：429 + 验证码页，拿不到结果。
+         * - sogou：`/web` 直接 302 到 `sogou.com/antispider`，一条都取不到。
+         *
+         * 留着它们只会白占一次并发和一轮超时。保留常量名是为了老配置能识别并迁回自动。
+         */
+        val RETIRED_SEARCH_ENGINES = setOf("jina", "brave", "sogou")
         const val STYLE_FRIENDLY = "friendly"
         const val STYLE_PROFESSIONAL = "professional"
 
         val PROVIDERS = listOf(PROVIDER_DEEPSEEK, PROVIDER_OPENAI, PROVIDER_CUSTOM)
         val REASONING_EFFORTS = listOf(REASONING_AUTO, REASONING_HIGH, REASONING_MAX)
-        val SEARCH_ENGINES = listOf(SEARCH_AUTO, SEARCH_SO360, SEARCH_DDG, SEARCH_WECHAT, SEARCH_SOGOU)
+        // 顺序即推荐度，实测中文相关性从高到低。
+        val SEARCH_ENGINES = listOf(
+            SEARCH_AUTO, SEARCH_DDG, SEARCH_SO360, SEARCH_BING, SEARCH_WECHAT, SEARCH_WIKI
+        )
         val RESPONSE_STYLES = listOf(STYLE_FRIENDLY, STYLE_PROFESSIONAL)
+
+        /**
+         * 给 system prompt 用的接入方式说明。
+         *
+         * 不复用 [providerLabel]：那是设置页的下拉选项文案，带着「（推荐）」这种
+         * 面向用户的修饰词，塞进 prompt 里只会让模型莫名其妙。
+         */
+        fun providerPromptLabel(p: String) = when (p) {
+            PROVIDER_DEEPSEEK -> "DeepSeek 官方 API"
+            PROVIDER_OPENAI -> "OpenAI 官方 API"
+            PROVIDER_CUSTOM -> "用户自填的兼容端点（可能是中转）"
+            else -> p
+        }
 
         fun providerLabel(p: String) = when (p) {
             PROVIDER_DEEPSEEK -> "DeepSeek（推荐）"
@@ -73,14 +97,12 @@ data class AgentConfig(
         }
 
         fun searchEngineLabel(engine: String) = when (engine) {
-            SEARCH_AUTO -> "自动（推荐）"
-            SEARCH_SO360 -> "360 搜索"
-            SEARCH_SOGOU -> "搜狗网页"
-            SEARCH_WECHAT -> "搜狗微信"
-            SEARCH_DDG -> "DuckDuckGo"
-            SEARCH_JINA -> "Jina"
-            SEARCH_BRAVE -> "Brave"
-            SEARCH_BING -> "Bing"
+            SEARCH_AUTO -> "自动（DuckDuckGo → 360 → Bing）"
+            SEARCH_DDG -> "DuckDuckGo（中文最准，推荐）"
+            SEARCH_SO360 -> "360 搜索（最快，但页面很大）"
+            SEARCH_BING -> "Bing（最稳，但常跑题）"
+            SEARCH_WECHAT -> "搜狗微信（只搜公众号）"
+            SEARCH_WIKI -> "维基百科（只查词条）"
             else -> "自动"
         }
 
@@ -155,10 +177,10 @@ private val prefs: SharedPreferences
             .toSet(),
         searchEngine = prefs.getString("search_engine", AgentConfig.SEARCH_AUTO)
             ?.let { raw ->
-                when (raw) {
-                    AgentConfig.SEARCH_BING, AgentConfig.SEARCH_JINA, AgentConfig.SEARCH_BRAVE ->
-                        AgentConfig.SEARCH_AUTO
-                    in AgentConfig.SEARCH_ENGINES -> raw
+                when {
+                    // 老配置里存着已下线的源，静默迁回自动，别让用户卡在一个必然失败的引擎上。
+                    raw in AgentConfig.RETIRED_SEARCH_ENGINES -> AgentConfig.SEARCH_AUTO
+                    raw in AgentConfig.SEARCH_ENGINES -> raw
                     else -> AgentConfig.SEARCH_AUTO
                 }
             }
