@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.auth
 
 import android.util.Log
+import com.xjtu.toolbox.card.CampusCardContract
 import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
@@ -135,11 +136,15 @@ class CampusCardLogin(
         return try {
             val resp = client.newCall(makeAuthRequest(USER_URL)).execute()
             val bodyStr = resp.body?.use { it.string() } ?: return false
+            if (!resp.isSuccessful) return false
             val json = bodyStr.safeParseJsonObject()
+            if (CampusCardContract.businessCode(json) != null &&
+                CampusCardContract.businessCode(json) != "200"
+            ) return false
             val data = json.getAsJsonObject("data") ?: return false
-            cardAccount = data.get("cardAccount")?.asString
-            userName = data.get("name")?.asString?.trim() ?: ""
-            studentNo = data.get("sno")?.asString ?: ""
+            cardAccount = CampusCardContract.requiredText(data, "cardAccount", "校园卡用户资料")
+            userName = CampusCardContract.requiredText(data, "name", "校园卡用户资料")
+            studentNo = CampusCardContract.requiredText(data, "sno", "校园卡用户资料")
             systemReady = true
             Log.d(TAG, "fetchUserInfo: cardAccount=$cardAccount, name=$userName, sno=$studentNo")
             true

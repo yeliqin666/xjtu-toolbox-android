@@ -70,9 +70,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
-import java.time.YearMonth
 import java.time.format.DateTimeFormatter
-import java.time.temporal.ChronoUnit
 import kotlin.math.abs
 
 // ==================== 时间范围枚举 ====================
@@ -142,6 +140,12 @@ fun CampusCardScreen(
     // 搜索
     var searchQuery by rememberSaveable { mutableStateOf("") }
 
+    fun currentRangeDates(): Pair<LocalDate, LocalDate> {
+        val start = runCatching { LocalDate.parse(customStart) }.getOrDefault(LocalDate.now().minusMonths(1))
+        val end = runCatching { LocalDate.parse(customEnd) }.getOrDefault(LocalDate.now())
+        return selectedTimeRange.resolve(start, end)
+    }
+
     fun applyTransactions(allTx: List<Transaction>) {
         transactions = allTx
         totalRecords = allTx.size
@@ -170,19 +174,14 @@ fun CampusCardScreen(
             .apply()
         com.xjtu.toolbox.widget.CampusCardWidgetUpdater.requestUpdate(context)
 
-        val stats = api.calculateMonthlyStats(allTx)
+        val (startDate, endDate) = currentRangeDates()
+        val stats = api.calculateMonthlyStats(allTx, startDate, endDate)
         monthlyStats = stats
         categorySpending = api.categorizeSpending(allTx)
         val (meals, campusDays) = api.analyzeMealTimes(allTx)
         mealTimeStats = meals
         activeCampusDays = campusDays
         weekdayWeekend = api.analyzeWeekdayVsWeekend(allTx)
-    }
-
-    fun currentRangeDates(): Pair<LocalDate, LocalDate> {
-        val start = runCatching { LocalDate.parse(customStart) }.getOrDefault(LocalDate.now().minusMonths(1))
-        val end = runCatching { LocalDate.parse(customEnd) }.getOrDefault(LocalDate.now())
-        return selectedTimeRange.resolve(start, end)
     }
 
     fun loadData(range: TimeRange = selectedTimeRange, silent: Boolean = false) {
@@ -211,16 +210,14 @@ fun CampusCardScreen(
                     val cachedStart = cached?.rangeStart?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
                     if (cached != null && cachedStart != null && !cachedStart.isAfter(startDate)) {
                         val refreshStart = endDate.minusDays(7).coerceAtLeast(startDate)
-                        val fresh = api.getAllTransactions(refreshStart, endDate, maxPages = 20)
+                        val fresh = api.getAllTransactions(refreshStart, endDate, maxPages = 20, allowIncomplete = true)
                         (fresh + cached.transactions.filter {
                             val date = runCatching { LocalDate.parse(it.time.substringBefore(" ")) }.getOrNull()
                             date != null && date in startDate..endDate
                         }).distinctBy { "${it.time}|${it.merchant}|${it.amount}|${it.balance}|${it.description}" }
                             .sortedByDescending { it.time }
                     } else {
-                        // 冷启动（无缓存）不做全量拉取：12 页（600 条）足够覆盖常规区间的
-                        // 分析与展示，更早出内容；更久远的流水由"加载更多"按需分页。
-                        api.getAllTransactions(startDate, endDate, maxPages = 12)
+                        api.getAllTransactions(startDate, endDate, maxPages = 12, allowIncomplete = true)
                     }
                 }
                 if (myGeneration != loadGeneration) return@launch
@@ -261,7 +258,7 @@ fun CampusCardScreen(
                     if (txList.isNotEmpty()) {
                         transactions = transactions + txList
                         currentPage++
-                        monthlyStats = api.calculateMonthlyStats(transactions)
+                        monthlyStats = api.calculateMonthlyStats(transactions, startDate, endDate)
                         categorySpending = api.categorizeSpending(transactions)
                         val (mealStats4, campusDays4) = api.analyzeMealTimes(transactions)
                         mealTimeStats = mealStats4
@@ -286,7 +283,16 @@ fun CampusCardScreen(
     LaunchedEffect(Unit) {
         CampusCardCache.load(context)?.let { cached ->
             cardInfo = cached.cardInfo
-            applyTransactions(cached.transactions)
+            // 缓存覆盖的区间可能比当前选中的时间范围宽得多。整份铺上去，首屏会按更宽的
+            // 数据算统计（「早午餐分析」这类面板因此出现），等网络结果按当前范围回来又
+            // 整块消失——用户看到的就是一闪而过。先裁到当前范围，首屏与最终结果一致。
+            val (cacheStart, cacheEnd) = currentRangeDates()
+            applyTransactions(
+                cached.transactions.filter { tx ->
+                    runCatching { LocalDate.parse(tx.time.substringBefore(" ")) }
+                        .getOrNull()?.let { it in cacheStart..cacheEnd } == true
+                }
+            )
             isLoading = false
         }
         loadData(silent = transactions.isNotEmpty())
@@ -314,7 +320,6 @@ fun CampusCardScreen(
         val customChipLabel = if (selectedTimeRange == TimeRange.CUSTOM) {
             formatRangeChip(rangeDates.first, rangeDates.second)
         } else null
-        val rangeDays = ChronoUnit.DAYS.between(rangeDates.first, rangeDates.second) + 1
         CustomRangeDialog(
             show = showCustomRange,
             initialStart = rangeDates.first,
@@ -341,6 +346,23 @@ fun CampusCardScreen(
                         selectedTabIndex = selectedTab,
                         onTabSelected = { selectedTab = it },
                     )
+                    TimeRangeSelector(
+                        selectedTimeRange,
+                        onChange = {
+                            selectedTimeRange = it
+                            currentPage = 1
+                            loadData(it, silent = true)
+                        },
+                        customChipLabel = customChipLabel,
+                        onCustomClick = { showCustomRange = true },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                    if (isReloadingRange) {
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                            height = 2.dp,
+                        )
+                    }
                     var isPullRefreshing by remember { mutableStateOf(false) }
                     LaunchedEffect(isLoading, isReloadingRange) {
                         if (!isLoading && !isReloadingRange) isPullRefreshing = false
@@ -366,22 +388,17 @@ fun CampusCardScreen(
                         label = "campusCardTab"
                     ) { tab ->
                         when (tab) {
-                            0 -> OverviewTab(cardInfo, monthlyStats, transactions.take(5), mealTimeStats)
-                            1 -> TransactionTab(transactions, totalRecords, isLoadingMore, searchQuery,
+                            0 -> OverviewTab(
+                                cardInfo, monthlyStats, transactions.take(5), mealTimeStats,
+                                rangeDates.first, rangeDates.second,
+                            )
+                            1 -> TransactionTab(
+                                transactions, totalRecords, isLoadingMore, searchQuery,
                                 onSearchChange = { searchQuery = it }, onLoadMore = ::loadMore,
-                                selectedTimeRange = selectedTimeRange,
-                                customChipLabel = customChipLabel,
-                                onTimeRangeChange = { selectedTimeRange = it; currentPage = 1; loadData(it, silent = true) },
-                                onCustomClick = { showCustomRange = true },
-                                isReloading = isReloadingRange)
+                            )
                             2 -> AnalyticsTab(
                                 monthlyStats, categorySpending, mealTimeStats, weekdayWeekend,
-                                activeCampusDays, selectedTimeRange,
-                                customChipLabel = customChipLabel,
-                                rangeDays = rangeDays,
-                                onTimeRangeChange = { selectedTimeRange = it; currentPage = 1; loadData(it, silent = true) },
-                                onCustomClick = { showCustomRange = true },
-                                isReloading = isReloadingRange
+                                activeCampusDays, rangeDates.first, rangeDates.second,
                             )
                         }
                     }
@@ -399,7 +416,9 @@ private fun OverviewTab(
     cardInfo: CardInfo?,
     monthlyStats: List<MonthlyStats>,
     recentTransactions: List<Transaction>,
-    mealTimeStats: Map<String, MealTimeStats>
+    mealTimeStats: Map<String, MealTimeStats>,
+    rangeStart: LocalDate,
+    rangeEnd: LocalDate,
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
@@ -408,14 +427,10 @@ private fun OverviewTab(
     ) {
         item { cardInfo?.let { BalanceCard(it) } }
         item {
-            val thisMonth = monthlyStats.find { it.month == YearMonth.now() }
-            val lastMonth = monthlyStats.find { it.month == YearMonth.now().minusMonths(1) }
-            ThisMonthCard(thisMonth, lastMonth)
+            RangeSpendCard(CampusCardAnalysis.summarizeRange(monthlyStats, rangeStart, rangeEnd))
         }
         item { cardInfo?.let { CardStatusPanel(it) } }
-        if (mealTimeStats.isNotEmpty()) {
-            item { MealQuickView(mealTimeStats) }
-        }
+        item { MealQuickView(mealTimeStats) }
         if (recentTransactions.isNotEmpty()) {
             item {
                 Card(
@@ -515,15 +530,22 @@ private fun InfoPill(text: String, color: Color) {
 }
 
 @Composable
-private fun ThisMonthCard(stats: MonthlyStats?, lastMonth: MonthlyStats?) {
+private fun RangeSpendCard(summary: RangeSpendSummary) {
     top.yukonga.miuix.kmp.basic.Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
         Column(Modifier.padding(20.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically) {
-                Text("本月消费", style = MiuixTheme.textStyles.subtitle,
-                    fontWeight = FontWeight.Medium)
-                if (stats != null && lastMonth != null && lastMonth.totalSpend > 0) {
-                    val change = (stats.totalSpend - lastMonth.totalSpend) / lastMonth.totalSpend * 100
+                Column(Modifier.weight(1f)) {
+                    Text(summary.title, style = MiuixTheme.textStyles.subtitle,
+                        fontWeight = FontWeight.Medium)
+                    summary.subtitle?.let {
+                        Spacer(Modifier.height(2.dp))
+                        Text(it, style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                    }
+                }
+                if (summary.changePercent != null && summary.changeCaption != null) {
+                    val change = summary.changePercent
                     val isUp = change > 0
                     Surface(
                         shape = RoundedCornerShape(8.dp),
@@ -539,27 +561,29 @@ private fun ThisMonthCard(stats: MonthlyStats?, lastMonth: MonthlyStats?) {
                                 tint = if (isUp) MiuixTheme.colorScheme.onErrorContainer
                                 else MiuixTheme.colorScheme.onSecondaryContainer)
                             Spacer(Modifier.width(2.dp))
-                            Text("%.0f%%".format(abs(change)),
+                            Text(
+                                "${summary.changeCaption} %.0f%%".format(abs(change)),
                                 style = MiuixTheme.textStyles.footnote1,
                                 fontWeight = FontWeight.Bold,
                                 color = if (isUp) MiuixTheme.colorScheme.onErrorContainer
-                                else MiuixTheme.colorScheme.onSecondaryContainer)
+                                else MiuixTheme.colorScheme.onSecondaryContainer
+                            )
                         }
                     }
                 }
             }
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                StatColumn("总支出", "¥%.2f".format(stats?.totalSpend ?: 0.0),
+                StatColumn("总支出", "¥%.2f".format(summary.totalSpend),
                     MiuixTheme.colorScheme.error)
-                StatColumn("总收入", "¥%.2f".format(stats?.totalIncome ?: 0.0),
+                StatColumn("总收入", "¥%.2f".format(summary.totalIncome),
                     MiuixTheme.colorScheme.primary)
-                StatColumn("笔数", "${stats?.transactionCount ?: 0}",
+                StatColumn("笔数", "${summary.transactionCount}",
                     MiuixTheme.colorScheme.primaryVariant)
-                StatColumn("日均", "¥%.1f".format(stats?.avgDailySpend ?: 0.0),
+                StatColumn("日均", "¥%.1f".format(summary.avgDailySpend),
                     MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
-            if (stats != null && stats.peakDay.isNotEmpty()) {
+            if (summary.peakDay.isNotEmpty()) {
                 Spacer(Modifier.height(12.dp))
                 HorizontalDivider()
                 Spacer(Modifier.height(8.dp))
@@ -568,19 +592,20 @@ private fun ThisMonthCard(stats: MonthlyStats?, lastMonth: MonthlyStats?) {
                         tint = MiuixTheme.colorScheme.error.copy(alpha = 0.7f),
                         modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("消费最多: ${formatDateShort(stats.peakDay)} ¥%.0f".format(stats.peakDayAmount),
+                    Text(
+                        "消费最多: ${CampusCardAnalysis.formatPeakDay(summary.peakDay, spanYears = true)} ¥%.0f".format(summary.peakDayAmount),
                         style = MiuixTheme.textStyles.footnote1,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 }
             }
-            if (stats != null && stats.topMerchants.isNotEmpty()) {
+            if (summary.topMerchants.isNotEmpty()) {
                 Spacer(Modifier.height(12.dp))
                 HorizontalDivider()
                 Spacer(Modifier.height(12.dp))
                 Text("消费去向", style = MiuixTheme.textStyles.body2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 Spacer(Modifier.height(8.dp))
-                stats.topMerchants.take(3).forEach { merchant ->
+                summary.topMerchants.forEach { merchant ->
                     Row(Modifier.fillMaxWidth().padding(vertical = 2.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically) {
@@ -718,11 +743,6 @@ private fun TransactionTab(
     searchQuery: String,
     onSearchChange: (String) -> Unit,
     onLoadMore: () -> Unit,
-    selectedTimeRange: TimeRange,
-    customChipLabel: String? = null,
-    onTimeRangeChange: (TimeRange) -> Unit,
-    onCustomClick: () -> Unit = {},
-    isReloading: Boolean = false
 ) {
     val filtered = remember(transactions, searchQuery) {
         if (searchQuery.isBlank()) transactions
@@ -748,16 +768,6 @@ private fun TransactionTab(
                 colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
             ) {
                 Column(Modifier.padding(vertical = 8.dp)) {
-                    TimeRangeSelector(
-                        selectedTimeRange,
-                        onTimeRangeChange,
-                        customChipLabel = customChipLabel,
-                        onCustomClick = onCustomClick,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                    )
-                    if (isReloading) {
-                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp), height = 2.dp)
-                    }
                     com.xjtu.toolbox.ui.components.AppSearchBar(
                         query = searchQuery,
                         onQueryChange = onSearchChange,
@@ -881,42 +891,14 @@ private fun AnalyticsTab(
     mealTimeStats: Map<String, MealTimeStats>,
     weekdayWeekend: Pair<DayTypeStats, DayTypeStats>?,
     activeCampusDays: Int,
-    selectedTimeRange: TimeRange,
-    customChipLabel: String? = null,
-    rangeDays: Long = 30,
-    onTimeRangeChange: (TimeRange) -> Unit,
-    onCustomClick: () -> Unit = {},
-    isReloading: Boolean = false
+    rangeStart: LocalDate,
+    rangeEnd: LocalDate,
 ) {
-    val showMonthly = rangeDays >= 45
-    val showWeekday = rangeDays >= 14
-    val showMeal = rangeDays >= 7
     LazyColumn(
         modifier = Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(vertical = 12.dp)
     ) {
-        item {
-            TimeRangeSelector(
-                selectedTimeRange,
-                onTimeRangeChange,
-                customChipLabel = customChipLabel,
-                onCustomClick = onCustomClick
-            )
-        }
-        if (isReloading) {
-            item { LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), height = 2.dp) }
-        }
-        if (rangeDays < 14) {
-            item {
-                Text(
-                    "区间较短，只展示总额和类别",
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.padding(horizontal = 4.dp)
-                )
-            }
-        }
         if (categorySpending.isEmpty() && monthlyStats.isEmpty() && mealTimeStats.isEmpty()) {
             item {
                 EmptyState(
@@ -927,13 +909,11 @@ private fun AnalyticsTab(
             }
         } else {
             if (categorySpending.isNotEmpty()) { item { CategoryCard(categorySpending) } }
-            if (showMonthly && monthlyStats.isNotEmpty()) { item { MonthlyTrendCard(monthlyStats) } }
-            if (showMeal && mealTimeStats.isNotEmpty()) { item { MealAnalysisCard(mealTimeStats) } }
-            if (showWeekday && weekdayWeekend != null) { item { WeekdayWeekendCard(weekdayWeekend) } }
-            if (showMonthly && monthlyStats.isNotEmpty()) { item { TopMerchantsCard(monthlyStats) } }
-            if (showMeal) {
-                item { SpendingInsightsCard(monthlyStats, categorySpending, mealTimeStats, weekdayWeekend, activeCampusDays) }
-            }
+            if (monthlyStats.isNotEmpty()) { item { MonthlyTrendCard(monthlyStats, rangeStart, rangeEnd) } }
+            if (mealTimeStats.isNotEmpty()) { item { MealAnalysisCard(mealTimeStats) } }
+            if (weekdayWeekend != null) { item { WeekdayWeekendCard(weekdayWeekend) } }
+            if (monthlyStats.isNotEmpty()) { item { TopMerchantsCard(monthlyStats) } }
+            item { SpendingInsightsCard(monthlyStats, categorySpending, mealTimeStats, weekdayWeekend, activeCampusDays, rangeStart, rangeEnd) }
         }
     }
 }
@@ -979,7 +959,7 @@ private fun CustomRangeDialog(
     var draftEnd by remember(show, initialEnd) { mutableStateOf(initialEnd) }
     var picking by remember(show) { mutableStateOf<String?>(null) }
     val today = remember { LocalDate.now() }
-    val earliest = remember { today.minusYears(3) }
+    val earliest = remember { today.minusYears(6) }
 
     BackHandler(enabled = show && picking == null) { onDismiss() }
     OverlayDialog(
@@ -1091,12 +1071,21 @@ private fun CategoryCard(categories: Map<String, Double>) {
 }
 
 @Composable
-private fun MonthlyTrendCard(stats: List<MonthlyStats>) {
+private fun MonthlyTrendCard(stats: List<MonthlyStats>, rangeStart: LocalDate, rangeEnd: LocalDate) {
     val maxValue = stats.maxOfOrNull { maxOf(it.totalSpend, it.totalIncome) } ?: 1.0
+    val spanYears = CampusCardAnalysis.spansYears(rangeStart, rangeEnd)
     top.yukonga.miuix.kmp.basic.Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
         Column(Modifier.padding(20.dp)) {
             Text("月度趋势", style = MiuixTheme.textStyles.subtitle,
                 fontWeight = FontWeight.Medium)
+            CampusCardAnalysis.periodSubtitle(rangeStart, rangeEnd)?.let { subtitle ->
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    subtitle,
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                )
+            }
             Spacer(Modifier.height(4.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1116,7 +1105,7 @@ private fun MonthlyTrendCard(stats: List<MonthlyStats>) {
             }
             Spacer(Modifier.height(12.dp))
             stats.sortedBy { it.month }.forEach { monthStat ->
-                val monthLabel = "${monthStat.month.monthValue}月"
+                val monthLabel = CampusCardAnalysis.monthLabel(monthStat.month, spanYears)
                 val spendBar = (monthStat.totalSpend / maxValue).toFloat().coerceIn(0f, 1f)
                 val incomeBar = (monthStat.totalIncome / maxValue).toFloat().coerceIn(0f, 1f)
                 Column(Modifier.padding(vertical = 4.dp)) {
@@ -1318,10 +1307,12 @@ private fun SpendingInsightsCard(
     categories: Map<String, Double>,
     mealStats: Map<String, MealTimeStats>,
     weekdayWeekend: Pair<DayTypeStats, DayTypeStats>?,
-    activeCampusDays: Int
+    activeCampusDays: Int,
+    rangeStart: LocalDate,
+    rangeEnd: LocalDate,
 ) {
-    val insights = remember(stats, categories, mealStats, weekdayWeekend, activeCampusDays) {
-        generateInsights(stats, categories, mealStats, weekdayWeekend, activeCampusDays)
+    val insights = remember(stats, categories, mealStats, weekdayWeekend, activeCampusDays, rangeStart, rangeEnd) {
+        generateInsights(stats, categories, mealStats, weekdayWeekend, activeCampusDays, rangeStart, rangeEnd)
     }
     if (insights.isEmpty()) return
 
@@ -1357,7 +1348,7 @@ private fun getTransactionIcon(tx: Transaction): ImageVector {
     return when {
         m.contains("浴室") || m.contains("澡堂") -> Icons.Default.Shower
         m.contains("能源") || d.contains("电费") || m.contains("电控") -> Icons.Default.ElectricBolt
-        m.contains("超市") || m.contains("商店") || m.contains("便利") -> Icons.Default.ShoppingCart
+        m.contains("超市") || m.contains("超级市场") || m.contains("商店") || m.contains("便利") || m.contains("卖场") -> Icons.Default.ShoppingCart
         m.contains("图书") || m.contains("打印") || m.contains("复印") -> Icons.Default.MenuBook
         m.contains("洗衣") || m.contains("洗涤") -> Icons.Default.LocalLaundryService
         m.contains("医院") || m.contains("药") -> Icons.Default.LocalHospital
@@ -1381,22 +1372,18 @@ private fun formatDateHeader(dateStr: String): String {
     } catch (_: Exception) { dateStr }
 }
 
-private fun formatDateShort(dateStr: String): String {
-    return try {
-        val date = LocalDate.parse(dateStr)
-        "${date.monthValue}/${date.dayOfMonth}"
-    } catch (_: Exception) { dateStr }
-}
-
 private fun generateInsights(
     stats: List<MonthlyStats>,
     categories: Map<String, Double>,
     mealStats: Map<String, MealTimeStats>,
     weekdayWeekend: Pair<DayTypeStats, DayTypeStats>?,
-    activeCampusDays: Int
+    activeCampusDays: Int,
+    rangeStart: LocalDate,
+    rangeEnd: LocalDate,
 ): List<Pair<ImageVector, String>> {
     val insights = mutableListOf<Pair<ImageVector, String>>()
     val total = categories.values.sum()
+    val spanYears = CampusCardAnalysis.spansYears(rangeStart, rangeEnd)
 
     // 1. 餐饮消费占比 + 每餐均价
     val foodSpend = categories["餐饮"] ?: 0.0
@@ -1421,19 +1408,24 @@ private fun generateInsights(
         }
     }
 
-    // 3. 月度趋势
-    if (stats.size >= 2) {
-        val sorted = stats.sortedByDescending { it.month }
-        val latest = sorted.first()
-        val prev = sorted[1]
-        if (prev.totalSpend > 0) {
-            val change = (latest.totalSpend - prev.totalSpend) / prev.totalSpend * 100
-            val direction = if (change > 0) "增长" else "减少"
-            val icon = if (change > 0) Icons.AutoMirrored.Filled.TrendingUp
-            else Icons.AutoMirrored.Filled.TrendingDown
-            insights.add(icon to
-                    "本月消费比上月${direction} %.0f%%（¥%.0f → ¥%.0f）".format(
-                        abs(change), prev.totalSpend, latest.totalSpend))
+    CampusCardAnalysis.monthChangeInsight(stats, rangeStart, rangeEnd)?.let { line ->
+        val up = "增长" in line
+        insights.add(
+            (if (up) Icons.AutoMirrored.Filled.TrendingUp else Icons.AutoMirrored.Filled.TrendingDown) to line
+        )
+    }
+
+    val spendingMonths = stats.filter { it.totalSpend > 0 }
+    if (spendingMonths.size >= 3) {
+        val high = spendingMonths.maxBy { it.totalSpend }
+        val low = spendingMonths.minBy { it.totalSpend }
+        if (high.month != low.month) {
+            insights.add(
+                Icons.Default.Leaderboard to
+                    "所选区间内${CampusCardAnalysis.monthLabel(high.month, spanYears)}支出最多（¥%.0f），${CampusCardAnalysis.monthLabel(low.month, spanYears)}最少（¥%.0f）".format(
+                        high.totalSpend, low.totalSpend
+                    )
+            )
         }
     }
 
@@ -1463,16 +1455,13 @@ private fun generateInsights(
     val peakMonth = stats.maxByOrNull { it.peakDayAmount }
     if (peakMonth != null && peakMonth.peakDayAmount > 0) {
         insights.add(Icons.Default.LocalFireDepartment to
-                "单日最高消费: ${formatDateShort(peakMonth.peakDay)} 花了 ¥%.0f".format(peakMonth.peakDayAmount))
+                "单日最高消费: ${CampusCardAnalysis.formatPeakDay(peakMonth.peakDay, spanYears)} 花了 ¥%.0f".format(peakMonth.peakDayAmount))
     }
 
     // 7. 早餐频率（用"在校天数"做分母，即至少有一顿正餐的自然日）
     val breakfast = mealStats["早餐"]
-    // 如果没有在校天数（全部是零食或少于数据），则退化为日历天数
-    val denominator = if (activeCampusDays > 3) activeCampusDays else stats.sumOf {
-        if (it.month == YearMonth.now()) LocalDate.now().dayOfMonth
-        else it.month.lengthOfMonth()
-    }.coerceAtLeast(1)
+    val calendarDays = CampusCardAnalysis.calendarDays(rangeStart, rangeEnd)
+    val denominator = if (activeCampusDays > 3) activeCampusDays else calendarDays
     if (breakfast != null && denominator > 3) {
         val breakfastRate = (breakfast.count.toDouble() / denominator * 100).coerceAtMost(100.0)
         insights.add(Icons.Default.WbSunny to
@@ -1486,11 +1475,8 @@ private fun generateInsights(
         insights.add(Icons.Default.ElectricBolt to "水电费支出 ¥%.0f，记得关注余额".format(utilitySpend))
     }
 
-    // 9. 日均消费
-    if (total > 0 && denominator > 7) {
-        insights.add(Icons.Default.Timeline to
-                "统计期间日均消费 ¥%.1f，月均 ¥%.0f".format(
-                    total / denominator, total / stats.size.coerceAtLeast(1)))
+    CampusCardAnalysis.dailyInsight(total, rangeStart, rangeEnd, stats.size)?.let { line ->
+        insights.add(Icons.Default.Timeline to line)
     }
 
     return insights

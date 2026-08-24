@@ -229,6 +229,7 @@ fun ScheduleGrid(
     holidayNames: Map<java.time.LocalDate, String> = emptyMap(),
     enableCompression: Boolean = false,  // 空时段是否纵向压缩（学期视图禁用）
     weekKey: Any? = null,  // 切换周时触发"先恢复均匀"动画
+    bottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
     onSlotClick: (ScheduleSlot) -> Unit = {}
 ) {
     val scrollState = rememberScrollState()
@@ -494,6 +495,7 @@ fun ScheduleGrid(
                 )
             }
         }
+        if (bottomPadding > 0.dp) Spacer(Modifier.height(bottomPadding))
     }
 }
 

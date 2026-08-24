@@ -69,7 +69,6 @@ import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.EventAvailable
 import com.xjtu.toolbox.account.AccountContext
-import com.xjtu.toolbox.util.XjtuTime
 import com.xjtu.toolbox.ui.components.AppDropdownMenu
 import com.xjtu.toolbox.ui.components.AppDropdownMenuItem
 import com.xjtu.toolbox.ui.components.AppTopBar
@@ -162,13 +161,12 @@ fun ScheduleScreen(
     val windowSize: WindowSize = currentWindowSize()
     val appLoginState = LocalAppLoginState.current
     var activeSite by remember(site) { mutableStateOf(site) }
-    val api = remember(activeSite) { activeSite?.let { ScheduleApi(it) } }
-    fun termLabel(code: String): String =
-        if (code.isBlank()) "" else api?.termDisplayName(code) ?: XjtuTime.displayTerm(code)
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
     val dataCache = remember { com.xjtu.toolbox.util.DataCache(context) }
     val gson = remember { com.google.gson.Gson() }
+    val api = remember(activeSite) { activeSite?.let { ScheduleApi(it) } }
+    fun termLabel(code: String): String = ScheduleTermStore.display(code, dataCache, gson, api)
     val snackbarHostState = remember { SnackbarHostState() }
     val disk = remember { readScheduleDiskSnapshot(dataCache, gson) }
 
@@ -448,6 +446,7 @@ fun ScheduleScreen(
                                 }
                             }
                             val availableTerms = (termListDeferred.await() + readCachedTerms()).distinct()
+                            try { ScheduleTermStore.merge(dataCache, gson, api.termNames()) } catch (_: Exception) {}
                             if (availableTerms.isNotEmpty()) {
                                 termList = availableTerms
                                 try { dataCache.put("schedule_term_list", gson.toJson(availableTerms)) } catch (_: Exception) {}
@@ -500,8 +499,8 @@ fun ScheduleScreen(
     }
 
     /**
-     * 手动刷新：从缓存读取拉到网络强制刷新，避免依赖下拉手势（页面顶部不一定能下拉）。
-     * [force] = true 时跳过缓存直接走网络；为 false 时仍然走在线路径但允许后台先展示缓存。
+     * 手动刷新：刷新**正在看的学期**，不要去拉「当前学期」再把视图切回去。
+     * 人已经翻到历史学期了，下拉却弹回本学期，等于白切。
      */
     fun refreshSchedule(force: Boolean = true) {
         if (api == null) return
@@ -510,17 +509,22 @@ fun ScheduleScreen(
         scope.launch {
             try {
                 withContext(Dispatchers.IO) {
-                    val termCode = try {
+                    val viewing = selectedTermCode
+                    val actualCurrent = try {
                         api.getCurrentTerm()
                     } catch (e: Exception) {
-                        val cachedTermList = dataCache.get("schedule_term_list", Long.MAX_VALUE)
-                        val cachedTerms = if (cachedTermList != null) {
-                            try { gson.fromJson(cachedTermList, Array<String>::class.java).toList() } catch (_: Exception) { emptyList() }
-                        } else emptyList()
-                        cachedTerms.firstOrNull() ?: throw e
+                        viewing.ifEmpty {
+                            val cachedTermList = dataCache.get("schedule_term_list", Long.MAX_VALUE)
+                            val cachedTerms = if (cachedTermList != null) {
+                                try { gson.fromJson(cachedTermList, Array<String>::class.java).toList() } catch (_: Exception) { emptyList() }
+                            } else emptyList()
+                            cachedTerms.firstOrNull() ?: throw e
+                        }
                     }
-                    selectedTermCode = termCode
-                    currentTermCode = termCode
+                    if (actualCurrent.isNotEmpty()) currentTermCode = actualCurrent
+                    try { ScheduleTermStore.merge(dataCache, gson, api.termNames()) } catch (_: Exception) {}
+                    val termCode = viewing.ifEmpty { actualCurrent }
+                    if (viewing.isEmpty() && termCode.isNotEmpty()) selectedTermCode = termCode
                     val apiCourses = try {
                         api.getSchedule(termCode)
                     } catch (e: Exception) {
@@ -912,17 +916,21 @@ fun ScheduleScreen(
                             showExportMenu = false
                             val st = startOfTerm
                             if (st == null) {
-                                scope.launch { snackbarHostState.showSnackbar("无法获取开学日期，ICS 导出不可用") }
+                                android.widget.Toast.makeText(context, "无法获取开学日期，ICS 导出不可用", android.widget.Toast.LENGTH_SHORT).show()
                                 return@ScheduleMenuRow
                             }
                             scope.launch {
-                                snackbarHostState.showSnackbar("正在获取法定节假日信息并导出...", duration = SnackbarDuration.Short)
+                                android.widget.Toast.makeText(context, "正在导出日历…", android.widget.Toast.LENGTH_SHORT).show()
                                 try {
                                     val holidays = HolidayApi.getHolidayDates(context).keys
                                     val ics = ScheduleExport.generateIcs(filteredMergedCourses, st, selectedTermCode, holidays)
                                     ScheduleExport.shareTextFile(context, ics, "${selectedTermCode}_日程.ics", "text/calendar")
                                 } catch (e: Exception) {
-                                    snackbarHostState.showSnackbar("节假日获取失败，退回普通导出: ${e.message}", duration = SnackbarDuration.Short)
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "节假日获取失败，已按普通课表导出",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
                                     val ics = ScheduleExport.generateIcs(filteredMergedCourses, st, selectedTermCode, emptySet())
                                     ScheduleExport.shareTextFile(context, ics, "${selectedTermCode}_日程.ics", "text/calendar")
                                 }
@@ -979,7 +987,11 @@ fun ScheduleScreen(
     }
 
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = {
+            Box(Modifier.padding(bottom = contentBottomPadding)) {
+                SnackbarHost(snackbarHostState)
+            }
+        },
         topBar = {
             if (showTopBar) {
                 val weekDateLabel = remember(startOfTerm, currentWeek) {
@@ -1065,7 +1077,7 @@ fun ScheduleScreen(
                             onClick = {
                                 val st = startOfTerm
                                 if (st == null) {
-                                    scope.launch { snackbarHostState.showSnackbar("无法获取开学日期，ICS 导出不可用") }
+                                    android.widget.Toast.makeText(context, "无法获取开学日期，ICS 导出不可用", android.widget.Toast.LENGTH_SHORT).show()
                                     return@IconButton
                                 }
                                 val ics = ScheduleExport.generateIcs(filteredMergedCourses, st, selectedTermCode)
@@ -1250,7 +1262,8 @@ fun ScheduleScreen(
                                     onToggleMode = { showAllWeeks = !showAllWeeks },
                                     holidayDates = holidayDates,
                                     customCourses = customCourses,
-                                    onEditCustomCourse = { editingCourse = it }
+                                    onEditCustomCourse = { editingCourse = it },
+                                    bottomPadding = contentBottomPadding,
                                 )
                             }
                         }
@@ -1320,7 +1333,8 @@ private fun ScheduleTabContent(
     onWeekChange: (Int) -> Unit, onToggleMode: () -> Unit, onAddSchedule: () -> Unit = {},
     customCourses: List<CustomCourseEntity> = emptyList(),
     holidayDates: Map<java.time.LocalDate, String> = emptyMap(),
-    onEditCustomCourse: (CustomCourseEntity) -> Unit = {}
+    onEditCustomCourse: (CustomCourseEntity) -> Unit = {},
+    bottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
 ) {
     val allNames = remember(courses) { courses.map { it.courseName }.distinct().sorted() }
     var selectedCourse by remember { mutableStateOf<CourseItem?>(null) }
@@ -1376,7 +1390,7 @@ private fun ScheduleTabContent(
                     EmptyState(
                         title = "本周无日程",
                         subtitle = "第${weekN}周还没有安排",
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxSize().padding(bottom = bottomPadding)
                     )
                 } else {
                     ScheduleGrid(
@@ -1386,6 +1400,7 @@ private fun ScheduleTabContent(
                         holidayNames = holidayDates,
                         enableCompression = true,
                         weekKey = weekN,
+                        bottomPadding = bottomPadding,
                         onSlotClick = { item ->
                             val course = item as? CourseItem ?: return@ScheduleGrid
                             val customEntity = customCourses.find { it.toCourseItem().courseCode == course.courseCode }
@@ -1401,6 +1416,7 @@ private fun ScheduleTabContent(
                 courses, allNames,
                 showWeeks = true,
                 enableCompression = true,
+                bottomPadding = bottomPadding,
                 onSlotClick = { item ->
                     val course = item as? CourseItem ?: return@ScheduleGrid
                     val customEntity = customCourses.find { it.toCourseItem().courseCode == course.courseCode }

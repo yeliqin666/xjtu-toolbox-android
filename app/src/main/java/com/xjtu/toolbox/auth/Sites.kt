@@ -284,51 +284,7 @@ class CouponSession : CasSiteSession("coupon", "餐券系统", mustUseWebVpn = f
     }
 }
 
-// mustUseWebVpn=true：跟随全局网络检测在 NORMAL/WEBVPN 间切换，校外走 WebVPN 代理。
-// 产品决策（非技术判定）：superapp.xjtu.edu.cn 主域名在此前一次真机测试里校外
-// 直连本身是通的（能拿到 200 + ticket），但站内子服务（如 jwapp）的二次 CAS 接力
-// 在校外出现 404，为保证整站体验一致改为统一走 WebVPN。
-class SuperAppSession : CasSiteSession("super_app", "移动交大", mustUseWebVpn = true) {
-    override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
-        SuperAppLogin(session = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
-
-    override fun onLoginSuccess(login: XJTULogin) {
-        val superApp = login as? SuperAppLogin ?: return
-        // WebVPN 模式下 launchUrl 是加密后的 webvpn.xjtu.edu.cn/... 地址，域名部分被加密，
-        // 不能再用字符串 contains("superapp.xjtu.edu.cn") 判断，需用 isAtTargetSite 兼容两种模式。
-        fun isValidLaunchUrl(url: String) =
-            com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(url, "superapp.xjtu.edu.cn") && url.contains("ticket=")
-        val launchUrl = superApp.launchUrl
-            .takeIf(::isValidLaunchUrl)
-            ?: SuperAppLogin.lastSuccessfulLaunchUrl.takeIf(::isValidLaunchUrl)
-            ?: superApp.launchUrl
-        android.util.Log.d(
-            "SuperAppSession",
-            "onLoginSuccess launchUrlHasTicket=${launchUrl.contains("ticket=")} valid=${superApp.isLaunchValid()}"
-        )
-        launchUrl.takeIf { it.isNotBlank() }?.let {
-            localToken["launch_url"] = it
-        }
-        localToken["launch_valid"] = launchUrl.contains("ticket=").toString()
-    }
-
-    override suspend fun validateLogin(): Boolean = withIo {
-        val response = client.newCall(
-            Request.Builder().url(SuperAppLogin.HOME_URL).get().build()
-        ).execute()
-        try {
-            // WebVPN 模式下失效会跳到 webvpn.xjtu.edu.cn/https/{加密login.xjtu.edu.cn}/...，
-            // host 字面上不是 "login.xjtu.edu.cn"，仅凭 host 字符串排除判断不出来，
-            // 用 isAtTargetSite 才能兼容两种模式正确判断是否仍停留在登录页。
-            response.code == 200 &&
-                com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(
-                    response.request.url.toString(), "superapp.xjtu.edu.cn"
-                )
-        } finally {
-            response.close()
-        }
-    }
-}
+// ── 体测查询 ─────────────────────────────────────────────────────────
 
 /**
  * 体测查询。钉死直连（`mustUseWebVpn = false`），与 jwxt/jwapp/lms/class 同策略——
@@ -348,9 +304,15 @@ class FitnessSession : CasSiteSession("fitness", "体测查询", mustUseWebVpn =
         )
 
     override fun onLoginSuccess(login: XJTULogin) {
-        (login as? com.xjtu.toolbox.fitness.FitnessLogin)?.refererUrl?.takeIf { it.isNotBlank() }?.let {
-            localToken["referer_url"] = it
-        }
+        val fitness = login as? com.xjtu.toolbox.fitness.FitnessLogin ?: return
+        val launch = fitness.launch ?: return
+        com.xjtu.toolbox.fitness.FitnessProtocol.writeTokens(localToken, launch)
+    }
+
+    override suspend fun validateLogin(): Boolean = withIo {
+        val session = com.xjtu.toolbox.fitness.FitnessProtocol.sessionFromTokens(localToken) ?: return@withIo false
+        val referer = localToken["referer_url"] ?: com.xjtu.toolbox.fitness.FitnessProtocol.H5_HOME_URL
+        com.xjtu.toolbox.fitness.FitnessProtocol.requestUserInfo(client, session, referer) != null
     }
 }
 
@@ -475,15 +437,61 @@ class CampusCardSession : CasSiteSession("campus_card", "校园卡", mustUseWebV
 
     override fun decorateRequest(builder: Request.Builder): Request.Builder {
         localToken["access_token"]?.let { builder.header("Synjones-Auth", "bearer $it") }
+        builder.header("synAccessSource", "h5")
         return builder
     }
 
     override fun isAuthFailureResponse(response: Response, bodyPreview: String?): Boolean {
         if (super.isAuthFailureResponse(response, bodyPreview)) return true
         val body = bodyPreview ?: return false
-        return """"code"\s*:\s*401""".toRegex().containsMatchIn(body) ||
-            body.contains("Unauthorized", ignoreCase = true) ||
-            body.contains("token", ignoreCase = true) && body.contains("过期")
+        return com.xjtu.toolbox.card.CampusCardContract.isAuthFailureBody(body)
+    }
+
+    override suspend fun validateLogin(): Boolean = withIo {
+        val token = localToken["access_token"] ?: return@withIo false
+        val resp = client.newCall(
+            Request.Builder()
+                .url("https://ncard.xjtu.edu.cn/berserker-app/ykt/tsm/queryCard?synAccessSource=h5")
+                .header("Synjones-Auth", "bearer $token")
+                .header("synAccessSource", "h5")
+                .get()
+                .build()
+        ).execute()
+        try {
+            if (!resp.isSuccessful) return@withIo false
+            val body = resp.body?.string() ?: return@withIo false
+            if (isAuthFailureResponse(resp, body)) return@withIo false
+            val root = runCatching { body.safeParseJsonObject() }.getOrNull() ?: return@withIo false
+            if (com.xjtu.toolbox.card.CampusCardContract.businessCode(root) != "200") return@withIo false
+            if (listOf("user_name", "student_no", "card_account").any { localToken[it].isNullOrBlank() }) {
+                runCatching { reloadCampusCardProfile() }.getOrElse { return@withIo false }
+            }
+            true
+        } finally {
+            resp.close()
+        }
+    }
+
+    private fun reloadCampusCardProfile() {
+        val token = localToken["access_token"] ?: return
+        val resp = client.newCall(
+            Request.Builder()
+                .url("https://ncard.xjtu.edu.cn/berserker-base/user?synAccessSource=h5")
+                .header("Synjones-Auth", "bearer $token")
+                .header("synAccessSource", "h5")
+                .get()
+                .build()
+        ).execute()
+        resp.use {
+            val body = it.body?.string() ?: throw RuntimeException("校园卡用户资料请求失败")
+            if (!it.isSuccessful) throw RuntimeException("校园卡用户资料请求失败")
+            val root = body.safeParseJsonObject()
+            com.xjtu.toolbox.card.CampusCardContract.requireSuccess(root, "校园卡用户资料")
+            val data = com.xjtu.toolbox.card.CampusCardContract.requireDataObject(root, "校园卡用户资料")
+            localToken["user_name"] = com.xjtu.toolbox.card.CampusCardContract.requiredText(data, "name", "校园卡用户资料")
+            localToken["student_no"] = com.xjtu.toolbox.card.CampusCardContract.requiredText(data, "sno", "校园卡用户资料")
+            localToken["card_account"] = com.xjtu.toolbox.card.CampusCardContract.requiredText(data, "cardAccount", "校园卡用户资料")
+        }
     }
 }
 

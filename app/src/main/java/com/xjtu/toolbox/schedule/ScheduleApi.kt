@@ -81,17 +81,15 @@ class ScheduleApi(private val site: SiteSession) {
     private var cachedTermCode: String? = null
     private val termNameCache = mutableMapOf<String, String>()
 
+    fun termNames(): Map<String, String> = termNameCache.toMap()
+
     /** 可读学期名。优先接口 `MC`，否则把代码译成秋季/春季/短学期/暑假。 */
-    fun termDisplayName(code: String): String {
-        if (code.isBlank()) return code
-        val named = termNameCache[code]
-        if (!named.isNullOrBlank() && named != code) return named
-        return XjtuTime.displayTerm(code)
-    }
+    fun termDisplayName(code: String): String =
+        ScheduleTermStore.display(code, termNameCache, emptyMap())
 
     private fun rememberTermName(code: String, row: JsonObject) {
-        val mc = row.get("MC")?.asString?.trim().orEmpty()
-        if (code.isNotBlank() && mc.isNotBlank()) termNameCache[code] = mc
+        val mc = ScheduleTermStore.usableName(code, row.get("MC")?.asString)
+        if (mc != null) termNameCache[code] = mc
     }
 
     private fun execute(request: Request): String =

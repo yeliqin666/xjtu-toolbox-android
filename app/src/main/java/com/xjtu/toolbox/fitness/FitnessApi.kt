@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.fitness
 
+import com.google.gson.JsonObject
 import com.xjtu.toolbox.auth.AuthExpiredException
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
@@ -82,24 +83,25 @@ fun pickFitnessYear(
 }
 
 class FitnessApi(private val site: SiteSession) {
-    private val apiRoot = "https://tyxylp.xjtu.edu.cn/bdlp_h5_fitness_test/public/index.php/index"
-    private val origin = "https://tyxylp.xjtu.edu.cn"
-    private val refererUrl get() = site.localToken["referer_url"]
-        ?: "https://tyxylp.xjtu.edu.cn/bdlp_h5_fitness_test/view/h5xajt/#/pages/index/index"
+    private val refererUrl
+        get() = site.localToken["referer_url"] ?: FitnessProtocol.H5_HOME_URL
 
     fun getYears(): List<FitnessYear> {
-        val root = post(
-            "$apiRoot/fitness/fitnessYear",
-            FormBody.Builder().add("from", "1").build()
+        val data = fetchData(
+            v3Path = "fitness/fitnessYear",
+            extra = mapOf("from" to 1),
+            phpPath = "${FitnessProtocol.LEGACY_API_ROOT}/fitness/fitnessYear",
+            phpForm = FormBody.Builder().add("from", "1").build(),
+            accept = { it.get("list")?.isJsonArray == true },
         )
-        val list = root.getAsJsonObject("data")?.getAsJsonArray("list")
-            ?: return emptyList()
+        val list = data.getAsJsonArray("list") ?: return emptyList()
         return list.mapNotNull { element ->
+            if (!element.isJsonObject) return@mapNotNull null
             val item = element.asJsonObject
-            val yearNum = item.get("year_num")?.asString ?: return@mapNotNull null
+            val yearNum = text(item, "year_num").ifBlank { return@mapNotNull null }
             FitnessYear(
                 yearNum = yearNum,
-                name = item.get("name")?.asString ?: yearNum,
+                name = text(item, "name").ifBlank { yearNum },
                 checked = item.get("checked")?.let {
                     runCatching { it.asBoolean }.getOrDefault(false)
                 } ?: false
@@ -108,29 +110,21 @@ class FitnessApi(private val site: SiteSession) {
     }
 
     fun getScore(yearNum: String): FitnessScore {
-        val root = post(
-            "$apiRoot/Report/getStudentScore",
-            FormBody.Builder().add("year_num", yearNum).build()
+        val data = fetchData(
+            v3Path = "Report/getStudentScore",
+            extra = mapOf("year_num" to yearNum),
+            phpPath = "${FitnessProtocol.LEGACY_API_ROOT}/Report/getStudentScore",
+            phpForm = FormBody.Builder().add("year_num", yearNum).build(),
+            accept = { it.has("student_num") || it.has("total_score") || it.has("bmi_score") || it.has("bmi_grade") },
         )
-        val dataElement = root.get("data")?.takeUnless { it.isJsonNull }
-            ?: throw RuntimeException(root.get("info")?.asString ?: "暂无体测数据")
-        if (!dataElement.isJsonObject) {
-            val info = root.get("info")?.asString.orEmpty()
-            throw RuntimeException(info.takeIf { it.isNotBlank() && it != "查询成功" } ?: "该学年暂无体测数据")
-        }
-        val data = dataElement.asJsonObject
-
-        fun value(key: String): String =
-            data.get(key)?.takeUnless { it.isJsonNull }?.asString.orEmpty()
+        fun value(key: String): String = text(data, key)
         fun formatScore(raw: String): String =
             raw.trim().toDoubleOrNull()?.let { String.format(java.util.Locale.US, "%.2f", it) }
                 ?: raw
-        fun scoreValue(key: String): String =
-            formatScore(value(key))
         fun item(name: String, key: String, display: String = value("${key}_score")) = FitnessItem(
             name = name,
             value = formatScore(display).ifBlank { "未测" },
-            grade = scoreValue("${key}_grade").ifBlank { "缺项" },
+            grade = value("${key}_grade").ifBlank { "缺项" },
             tone = value("${key}_class")
         )
 
@@ -141,7 +135,7 @@ class FitnessApi(private val site: SiteSession) {
         return FitnessScore(
             studentNumber = value("student_num"),
             studentName = value("student_name"),
-            totalScore = scoreValue("total_score").ifBlank { "--" },
+            totalScore = formatScore(value("total_score")).ifBlank { "--" },
             totalGrade = value("total_grade").ifBlank { "未测" },
             reportType = value("report_type"),
             reportStatus = value("report_status"),
@@ -159,16 +153,46 @@ class FitnessApi(private val site: SiteSession) {
         )
     }
 
-    private fun post(url: String, body: FormBody) =
+    private fun fetchData(
+        v3Path: String,
+        extra: Map<String, Any>,
+        phpPath: String,
+        phpForm: FormBody,
+        accept: (JsonObject) -> Boolean,
+    ): JsonObject {
+        if (FitnessProtocol.sessionFromTokens(site.localToken) == null) {
+            throw AuthExpiredException("体测查询", "体测会话未初始化")
+        }
+        val v3Body = try {
+            FitnessProtocol.postEncrypted(site, v3Path, extra, refererUrl)
+        } catch (e: AuthExpiredException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
+        val v3Data = v3Body?.let { FitnessProtocol.parseEnvelope(it) }
+        if (v3Data != null && accept(v3Data)) return v3Data
+
+        val phpRoot = postLegacy(phpPath, phpForm)
+        val dataElement = phpRoot.get("data")?.takeUnless { it.isJsonNull }
+            ?: throw RuntimeException(phpRoot.get("info")?.asString ?: "暂无体测数据")
+        if (!dataElement.isJsonObject) {
+            val info = phpRoot.get("info")?.asString.orEmpty()
+            throw RuntimeException(info.takeIf { it.isNotBlank() && it != "查询成功" } ?: "该学年暂无体测数据")
+        }
+        return dataElement.asJsonObject
+    }
+
+    private fun postLegacy(url: String, body: FormBody) =
         runBlocking {
             site.executeWithReAuth(
                 Request.Builder()
-                .url(url)
-                .header("Origin", origin)
-                .header("Referer", refererUrl)
-                .header("X-Requested-With", "XMLHttpRequest")
-                .post(body)
-                .build()
+                    .url(url)
+                    .header("Origin", FitnessProtocol.ORIGIN)
+                    .header("Referer", refererUrl)
+                    .header("X-Requested-With", "XMLHttpRequest")
+                    .post(body)
+                    .build()
             )
         }.use { response ->
             val text = response.body?.string().orEmpty()
@@ -183,4 +207,10 @@ class FitnessApi(private val site: SiteSession) {
             }
             root
         }
+
+    private fun text(data: JsonObject, key: String): String {
+        val el = data.get(key) ?: return ""
+        if (el.isJsonNull) return ""
+        return runCatching { el.asString }.getOrDefault(el.toString().trim('"'))
+    }
 }

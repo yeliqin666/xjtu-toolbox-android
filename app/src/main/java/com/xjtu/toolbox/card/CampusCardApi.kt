@@ -44,9 +44,10 @@ data class MonthlyStats(
     val totalIncome: Double,     // 总收入
     val transactionCount: Int,   // 交易笔数
     val topMerchants: List<MerchantStat>,  // 商户消费排行
-    val avgDailySpend: Double = 0.0,       // 日均消费
+    val avgDailySpend: Double = 0.0,       // 按该月落在统计区间内的天数摊
     val peakDay: String = "",              // 消费最多的一天
-    val peakDayAmount: Double = 0.0        // 该天消费额
+    val peakDayAmount: Double = 0.0,       // 该天消费额
+    val daysCovered: Int = 0               // 该月与查询区间重叠的天数
 )
 
 /** 商户消费统计 */
@@ -78,31 +79,27 @@ class CampusCardApi(private val site: SiteSession) {
     private fun getCardInfoInternal(allowRetry: Boolean): CardInfo {
         val url = "$baseUrl/berserker-app/ykt/tsm/queryCard?synAccessSource=h5"
         val responseBody = execute(Request.Builder().url(url).get().build())
-
         Log.d(TAG, "getCardInfo: bodyLen=${responseBody.length}")
-
+        if (CampusCardContract.looksLikeMobileRequired(responseBody)) {
+            throw RuntimeException("查询校园卡要求使用移动端模式")
+        }
         val root = try {
             responseBody.safeParseJsonObject()
         } catch (e: Exception) {
             throw RuntimeException("校园卡返回了非JSON数据: ${responseBody.take(100)}")
         }
-
-        val code = root.get("code")?.asInt ?: 0
-        if (code == 401) {
+        if (CampusCardContract.businessCode(root) == "401") {
             throw com.xjtu.toolbox.auth.AuthExpiredException("校园卡")
         }
-        if (code != 200) {
-            throw RuntimeException("获取卡信息失败: ${root.get("message")?.asString ?: "未知错误"}")
-        }
-
-        val data = root.getAsJsonObject("data")
-            ?: throw RuntimeException("校园卡响应格式异常")
-        val cardArr = data.getAsJsonArray("card")
-        if (cardArr == null || cardArr.size() == 0) throw RuntimeException("未找到校园卡信息")
-
-        val card = cardArr.get(0).asJsonObject
-        val elecAmt = card.get("elec_accamt")?.asLong ?: 0L
-        val unsettled = card.get("unsettle_amount")?.asLong ?: 0L
+        CampusCardContract.requireSuccess(root, "查询校园卡")
+        val data = CampusCardContract.requireDataObject(root, "查询校园卡")
+        val cardArr = CampusCardContract.requireArray(data, "card", "查询校园卡")
+        if (cardArr.size() == 0) throw RuntimeException("查询校园卡返回了空卡片数据")
+        val cardEl = cardArr.get(0)
+        if (!cardEl.isJsonObject) throw RuntimeException("查询校园卡返回的卡片数据格式错误")
+        val card = cardEl.asJsonObject
+        val elecAmt = CampusCardContract.requireLong(card.get("elec_accamt"), "余额", "查询校园卡")
+        val unsettled = CampusCardContract.requireLong(card.get("unsettle_amount"), "未结算金额", "查询校园卡")
 
         return CardInfo(
             account = site.localToken["card_account"].orEmpty(),
@@ -114,6 +111,22 @@ class CampusCardApi(private val site: SiteSession) {
             frozenFlag = card.get("freezeflag")?.asInt == 1,
             expireDate = formatExpDate(card.get("expdate")?.asString ?: ""),
             cardType = card.get("cardname")?.asString?.trim() ?: ""
+        )
+    }
+
+    companion object {
+        /** 食堂档口/品牌名碎片。顺序不重要；「超市」类必须在 classify 里先判。 */
+        private val FOOD_MERCHANT_KEYS = arrayOf(
+            "食", "餐", "食堂", "面", "饭", "粥", "菜", "吧台", "咖啡",
+            "饮", "小面", "米线", "饸络", "凉皮", "卤", "削筋", "称量",
+            "自助", "档口", "窗口", "烧烤", "奶茶", "豆浆", "包子", "饺子",
+            "炒", "烩", "煮", "蒸", "时光", "美食", "小吃", "麻辣", "烤", "煎",
+            "馒头", "饼", "糕", "果汁", "茶", "鸡", "鱼", "肉", "蛋",
+            // 2026-08 缓存里漏进「其他」的档口
+            "苑", "粉", "粉丝", "瓦罐", "寿司", "日料", "小笼", "馄饨", "汤包",
+            "自选", "豆花", "豆苗", "江记", "旧迹", "丸子", "肠粉",
+            "迈德思客", "麦当劳", "肯德基", "汉堡", "披萨", "必胜客",
+            "风味", "拉面", "米皮", "凉粉", "胡辣汤", "砂锅", "麻食",
         )
     }
 
@@ -139,6 +152,9 @@ class CampusCardApi(private val site: SiteSession) {
         pageSize: Int,
         allowRetry: Boolean
     ): Pair<Int, List<Transaction>> {
+        if (page <= 0 || pageSize <= 0) {
+            throw RuntimeException("查询校园卡流水的分页参数必须为正数")
+        }
         val url = "$baseUrl/berserker-search/search/personal/turnover" +
             "?size=$pageSize&current=$page" +
             "&timeFrom=${startDate.format(dateFormat)}&timeTo=${endDate.format(dateFormat)}" +
@@ -147,38 +163,40 @@ class CampusCardApi(private val site: SiteSession) {
         val responseBody = execute(Request.Builder().url(url).get().build())
 
         Log.d(TAG, "getTransactions: page=$page, bodyLen=${responseBody.length}")
+        if (CampusCardContract.looksLikeMobileRequired(responseBody)) {
+            throw RuntimeException("查询校园卡流水要求使用移动端模式")
+        }
 
         val root = try {
             responseBody.safeParseJsonObject()
         } catch (e: Exception) {
             throw RuntimeException("交易记录返回了非JSON数据: ${responseBody.take(100)}")
         }
-
-        val code = root.get("code")?.asInt ?: 0
-        if (code == 401) {
+        if (CampusCardContract.businessCode(root) == "401") {
             throw com.xjtu.toolbox.auth.AuthExpiredException("校园卡")
         }
-        if (code != 200) throw RuntimeException("获取流水失败: ${root.get("message")?.asString ?: "未知错误"}")
+        CampusCardContract.requireSuccess(root, "查询校园卡流水")
+        val data = CampusCardContract.requireDataObject(root, "查询校园卡流水")
+        val total = CampusCardContract.requireLong(data.get("total"), "流水总数", "查询校园卡流水").toInt()
+        if (total < 0) throw RuntimeException("查询校园卡流水返回的流水总数格式错误")
+        val records = CampusCardContract.requireArray(data, "records", "查询校园卡流水")
 
-        val data = root.getAsJsonObject("data") ?: return 0 to emptyList()
-        val total = data.get("total")?.asInt ?: 0
-        val records = data.getAsJsonArray("records") ?: return total to emptyList()
-
-        val transactions = records.map { it.asJsonObject }.map { rec ->
-            val tranAmt = rec.get("tranamt")?.asLong ?: 0L
+        val transactions = records.map { recEl ->
+            if (!recEl.isJsonObject) throw RuntimeException("查询校园卡流水返回的流水记录格式错误")
+            val rec = recEl.asJsonObject
+            val tranAmt = CampusCardContract.requireLong(rec.get("tranamt"), "流水金额", "查询校园卡流水")
             val icon = rec.get("icon")?.asString ?: ""
             val turnoverType = rec.get("turnoverType")?.asString?.trim() ?: ""
-            // 只有充值/圈存类是收入，其余（consume、qrcode、空等）都是支出
-            val isIncome = icon == "recharge" || turnoverType.contains("充值") || turnoverType.contains("圈存")
+            val resume = rec.get("resume")?.asString?.trim() ?: ""
             val merchant = rec.get("toMerchant")?.asString?.trim()
-                ?: rec.get("resume")?.asString?.substringBefore("-")?.trim() ?: ""
+                ?: resume.substringBefore("-").trim()
             Transaction(
                 time = rec.get("jndatetimeStr")?.asString ?: "",
                 merchant = merchant,
-                amount = if (isIncome) tranAmt / 100.0 else -tranAmt / 100.0,
-                balance = (rec.get("cardBalance")?.asLong ?: 0L) / 100.0,
+                amount = CampusCardContract.signedAmountCents(tranAmt, turnoverType, icon) / 100.0,
+                balance = CampusCardContract.requireLong(rec.get("cardBalance"), "流水余额", "查询校园卡流水") / 100.0,
                 type = turnoverType,
-                description = rec.get("resume")?.asString?.trim() ?: ""
+                description = resume
             )
         }
 
@@ -186,62 +204,111 @@ class CampusCardApi(private val site: SiteSession) {
     }
 
     /**
-     * 获取所有交易（并行分页）
+     * 按服务端总数拉全部分页。任一页失败或出现残页、重复页、总数变化时抛错，
+     * 不再静默丢掉中间页还当成查询成功。
+     *
+     * @param allowIncomplete 首页冷启动可以先拿前几页，其余走“加载更多”。
      */
     fun getAllTransactions(
         startDate: LocalDate = LocalDate.now().minusMonths(3),
         endDate: LocalDate = LocalDate.now(),
-        maxPages: Int = 20
+        maxPages: Int = 80,
+        pageSize: Int = 50,
+        allowIncomplete: Boolean = false,
     ): List<Transaction> {
-        val (total, firstPage) = getTransactions(startDate, endDate, 1, 50)
-        if (total <= 50 || firstPage.isEmpty()) return firstPage
+        if (maxPages <= 0 || pageSize <= 0) {
+            throw RuntimeException("查询校园卡流水的分页参数必须为正数")
+        }
+        val (total, firstPage) = getTransactions(startDate, endDate, 1, pageSize)
+        if (total == 0) return emptyList()
+        if (firstPage.isEmpty()) {
+            if (allowIncomplete) return emptyList()
+            throw RuntimeException("查询校园卡流水返回了残缺流水数据")
+        }
 
-        val totalPages = minOf((total + 49) / 50, maxPages)
-        if (totalPages <= 1) return firstPage
+        val records = firstPage.toMutableList()
+        val seenPages = mutableSetOf(pageSignature(firstPage))
+        val computedPages = maxOf(1, (total + pageSize - 1) / pageSize)
+        val totalPages = minOf(computedPages, maxPages)
+        if (records.size > total) {
+            throw RuntimeException("查询校园卡流水返回的流水记录超过总数")
+        }
+        if (records.size == total || totalPages <= 1) return records
 
-        // 真正的并行请求（OkHttp 线程池 + Future）
-        val executor = java.util.concurrent.Executors.newFixedThreadPool(
-            minOf(totalPages - 1, 3)
-        )
+        val remaining = (2..totalPages).toList()
+        val executor = java.util.concurrent.Executors.newFixedThreadPool(minOf(remaining.size, 3))
         try {
-            val futures = (2..totalPages).map { page ->
-                executor.submit<List<Transaction>> {
-                    getTransactions(startDate, endDate, page, 50).second
+            val futures = remaining.map { page ->
+                page to executor.submit<Pair<Int, List<Transaction>>> {
+                    getTransactions(startDate, endDate, page, pageSize)
                 }
             }
-            // 单页失败（瞬时网络/会话抖动）只丢该页，不拖垮整次加载——
-            // 首页已成功，部分数据可用远好于整页"卡死→报错"。
-            return firstPage + futures.flatMap { future ->
-                try {
+            for ((page, future) in futures) {
+                val (pageTotal, batch) = try {
                     future.get(45, java.util.concurrent.TimeUnit.SECONDS)
                 } catch (e: Exception) {
-                    Log.w(TAG, "getAllTransactions: page fetch dropped: ${e.message}")
-                    emptyList()
+                    throw RuntimeException("查询校园卡流水第${page}页失败：${e.message ?: "网络异常"}", e)
+                }
+                if (pageTotal != total) {
+                    throw RuntimeException("查询校园卡流水返回的总数在分页过程中发生变化")
+                }
+                if (batch.isNotEmpty()) {
+                    val signature = pageSignature(batch)
+                    if (!seenPages.add(signature)) {
+                        throw RuntimeException("查询校园卡流水返回了重复分页数据")
+                    }
+                    records += batch
+                }
+                if (records.size > total) {
+                    throw RuntimeException("查询校园卡流水返回的流水记录超过总数")
                 }
             }
         } finally {
             executor.shutdownNow()
         }
+        if (records.size == total) return records
+        if (allowIncomplete) return records
+        throw RuntimeException("查询校园卡流水返回了残缺流水数据")
     }
 
+    private fun pageSignature(batch: List<Transaction>): String =
+        batch.joinToString("\n") { "${it.time}|${it.merchant}|${it.amount}|${it.balance}|${it.description}" }
+
     /**
-     * 计算月度统计（增强版：含日均消费、峰值日等）
+     * 按月汇总。传入查询起止日后：日均按该月落在区间内的天数摊，
+     * 区间内没有流水的月份也会占一位（支出为 0），避免跨年趋势把空月藏掉。
      */
-    fun calculateMonthlyStats(transactions: List<Transaction>): List<MonthlyStats> {
-        val byMonth = transactions.groupBy { tx ->
-            try {
-                val date = LocalDate.parse(tx.time.substringBefore(" "), dateFormat)
-                YearMonth.of(date.year, date.month)
-            } catch (_: Exception) {
-                YearMonth.now()
-            }
+    fun calculateMonthlyStats(
+        transactions: List<Transaction>,
+        rangeStart: LocalDate? = null,
+        rangeEnd: LocalDate? = null,
+    ): List<MonthlyStats> {
+        val byMonth = linkedMapOf<YearMonth, MutableList<Transaction>>()
+        for (tx in transactions) {
+            val date = runCatching {
+                LocalDate.parse(tx.time.substringBefore(" "), dateFormat)
+            }.getOrNull() ?: continue
+            byMonth.getOrPut(YearMonth.from(date)) { mutableListOf() }.add(tx)
         }
 
-        return byMonth.map { (month, txList) ->
+        val inferredStart = rangeStart
+            ?: byMonth.keys.minOrNull()?.atDay(1)
+            ?: return emptyList()
+        val inferredEnd = rangeEnd
+            ?: byMonth.keys.maxOrNull()?.atEndOfMonth()
+            ?: inferredStart
+        val startMonth = YearMonth.from(inferredStart)
+        val endMonth = YearMonth.from(inferredEnd)
+
+        val months = generateSequence(startMonth) { current ->
+            val next = current.plusMonths(1)
+            if (next.isAfter(endMonth)) null else next
+        }
+
+        return months.map { month ->
+            val txList = byMonth[month].orEmpty()
             val spending = txList.filter { it.amount < 0 }
             val income = txList.filter { it.amount > 0 }
-
-            // 商户消费排行
             val merchantStats = spending.groupBy { it.merchant }
                 .map { (name, txs) ->
                     MerchantStat(
@@ -252,31 +319,26 @@ class CampusCardApi(private val site: SiteSession) {
                 }
                 .sortedByDescending { it.totalAmount }
                 .take(10)
-
-            // 日均消费
             val totalSpend = -spending.sumOf { it.amount }
-            val daysInMonth = month.lengthOfMonth()
-            val daysPassed = if (month == YearMonth.now()) {
-                LocalDate.now().dayOfMonth.coerceAtLeast(1)
-            } else daysInMonth
-            val avgDaily = if (daysPassed > 0) totalSpend / daysPassed else 0.0
-
-            // 峰值日（消费最多的一天）
+            val overlapStart = maxOf(month.atDay(1), inferredStart)
+            val overlapEnd = minOf(month.atEndOfMonth(), inferredEnd)
+            val daysCovered = java.time.temporal.ChronoUnit.DAYS.between(overlapStart, overlapEnd).toInt() + 1
+            val safeDays = daysCovered.coerceAtLeast(1)
             val dailySpend = spending.groupBy { it.time.substringBefore(" ") }
                 .mapValues { (_, txs) -> -txs.sumOf { it.amount } }
             val peakEntry = dailySpend.maxByOrNull { it.value }
-
             MonthlyStats(
                 month = month,
                 totalSpend = totalSpend,
                 totalIncome = income.sumOf { it.amount },
                 transactionCount = txList.size,
                 topMerchants = merchantStats,
-                avgDailySpend = avgDaily,
+                avgDailySpend = totalSpend / safeDays,
                 peakDay = peakEntry?.key ?: "",
-                peakDayAmount = peakEntry?.value ?: 0.0
+                peakDayAmount = peakEntry?.value ?: 0.0,
+                daysCovered = safeDays
             )
-        }.sortedByDescending { it.month }
+        }.toList().sortedByDescending { it.month }
     }
 
     /**
@@ -385,39 +447,19 @@ class CampusCardApi(private val site: SiteSession) {
     private fun classifyMerchant(merchant: String, description: String): String {
         val m = merchant.lowercase()
         val d = description.lowercase()
+        fun hit(haystack: String, keys: Array<String>): Boolean = keys.any { haystack.contains(it) }
         return when {
-            // 洗浴
-            m.contains("浴室") || m.contains("澡堂") || m.contains("淋浴") || m.contains("浴池") -> "洗浴"
-            // 水电能源
-            m.contains("能源") || m.contains("电控") || d.contains("电费") || d.contains("水费")
-                || m.contains("水控") || m.contains("电量") || d.contains("能源") -> "水电"
-            // 超市/商店
-            m.contains("超市") || m.contains("便利") || m.contains("商店") || m.contains("售卖")
-                || m.contains("小卖") || m.contains("便民") || m.contains("百货") -> "超市"
-            // 学习/打印
-            m.contains("图书") || m.contains("打印") || m.contains("复印") || m.contains("文印")
-                || m.contains("书店") || m.contains("文具") -> "学习"
-            // 洗衣
-            m.contains("洗衣") || m.contains("洗涤") || m.contains("干洗") || m.contains("洗鞋") -> "洗衣"
-            // 交通
-            m.contains("班车") || m.contains("通勤") || m.contains("校车") -> "交通"
-            // 餐饮（最大的分类，尽可能多匹配）
-            m.contains("食") || m.contains("餐") || m.contains("面") || m.contains("饭")
-                || m.contains("粥") || m.contains("菜") || m.contains("吧台") || m.contains("咖啡")
-                || m.contains("饮") || m.contains("小面") || m.contains("米线") || m.contains("饸络")
-                || m.contains("凉皮") || m.contains("卤") || m.contains("削筋") || m.contains("称量")
-                || m.contains("自助") || m.contains("档口") || m.contains("窗口") || m.contains("烧烤")
-                || m.contains("奶茶") || m.contains("豆浆") || m.contains("包子") || m.contains("饺子")
-                || m.contains("炒") || m.contains("烩") || m.contains("煮") || m.contains("蒸")
-                || m.contains("时光") || m.contains("美食") || m.contains("小吃")
-                || m.contains("麻辣") || m.contains("烤") || m.contains("煎")
-                || m.contains("馒头") || m.contains("饼") || m.contains("糕")
-                || m.contains("果汁") || m.contains("茶") || m.contains("鸡")
-                || m.contains("鱼") || m.contains("肉") || m.contains("蛋") -> "餐饮"
-            // 医疗
-            m.contains("医院") || m.contains("药") || m.contains("诊所") || m.contains("卫生") -> "医疗"
-            // 充值/圈存通常是收入，但也可能是转账费用
-            d.contains("圈存") || d.contains("充值") || d.contains("转账") -> "充值"
+            hit(m, arrayOf("浴室", "澡堂", "淋浴", "浴池")) -> "洗浴"
+            hit(m, arrayOf("能源", "电控", "水控", "电量")) ||
+                hit(d, arrayOf("电费", "水费", "能源")) -> "水电"
+            // 「超级市场」不含连续「超市」二字（松林超级市场曾漏进其他）
+            hit(m, arrayOf("超市", "超级市场", "便利", "商店", "售卖", "小卖", "便民", "百货", "卖场")) -> "超市"
+            hit(m, arrayOf("图书", "打印", "复印", "文印", "书店", "文具")) -> "学习"
+            hit(m, arrayOf("洗衣", "洗涤", "干洗", "洗鞋")) -> "洗衣"
+            hit(m, arrayOf("班车", "通勤", "校车")) -> "交通"
+            hit(m, FOOD_MERCHANT_KEYS) -> "餐饮"
+            hit(m, arrayOf("医院", "药", "诊所", "卫生")) -> "医疗"
+            hit(d, arrayOf("圈存", "充值", "转账")) -> "充值"
             else -> "其他"
         }
     }
