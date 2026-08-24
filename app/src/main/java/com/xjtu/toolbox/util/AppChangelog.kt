@@ -26,6 +26,16 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "4.8" to VersionChangelog(
+            items = listOf(
+                "🏃" to "体测改走学校新接口",
+                "💳" to "校园卡流水正负号和分析对了",
+                "💬" to "屁岱学期名跟日程页，搜索和读网页稳一些",
+                "📷" to "支持扫码登录",
+                "📝" to "反馈可在应用里提交",
+                "📱" to "去掉移动交大"
+            )
+        ),
         "4.7.4" to VersionChangelog(
             items = listOf(
                 "⬆️" to "强制更新点立即更新会直接拉安装包，不再误报暂未查到",
