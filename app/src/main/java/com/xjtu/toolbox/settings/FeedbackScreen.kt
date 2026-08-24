@@ -2,6 +2,7 @@ package com.xjtu.toolbox.settings
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -188,6 +189,7 @@ fun FeedbackScreen(
         Column(
             Modifier
                 .fillMaxSize()
+                .background(MiuixTheme.colorScheme.surface)
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
                 .overScrollVertical()
                 .verticalScroll(rememberScrollState())
@@ -427,7 +429,13 @@ fun FeedbackScreen(
                 ) {
                     Column(Modifier.padding(16.dp)) {
                         Text(
-                            "不用写在 App 里时，去 GitHub 提 Issue。",
+                            "这个安装包没有应用内反馈",
+                            style = MiuixTheme.textStyles.subtitle,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "构建时没带上反馈后端，没法在这里直接发送。去 GitHub 提 Issue 就行，效果一样。",
                             style = MiuixTheme.textStyles.body2,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         )

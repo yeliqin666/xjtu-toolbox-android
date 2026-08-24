@@ -26,17 +26,27 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // 反馈后端（飞书多维表格）的凭据。优先读环境变量（CI），否则读
-        // feedback.properties（已 gitignore）。两者都没有时留空字符串——
-        // FeedbackApi.isConfigured 为 false，反馈页自动降级回 GitHub/博客外链，
-        // 别人 clone 下来照样能编译出可用的包。
+        // 仓库根目录 feedback.properties（已 gitignore）。两者都没有时留空字符串——
+        // FeedbackApi.isConfigured 为 false，反馈页降级成 GitHub Issue。
+        //
+        // CI 用 GitHub Actions secrets，名字与 BuildConfig 字段一致：
+        // FEEDBACK_APP_ID / FEEDBACK_APP_SECRET / FEEDBACK_BASE_TOKEN /
+        // FEEDBACK_TABLE_SUBMIT / FEEDBACK_TABLE_REPLY。
+        // 也认旧写法 FEEDBACK_APPID（camelCase 键直接大写、没有下划线）。
         //
         // app_secret 终究是打进 APK 的，无法真正保密。安全性靠"这对凭据能干什么"来兜：
         // 应用只被授权写反馈表 + 读回复表，回复表里不含用户原文。详见 FeedbackApi 注释。
         run {
             val fp = rootProject.file("feedback.properties")
             val props = Properties().apply { if (fp.exists()) fp.inputStream().use { load(it) } }
-            fun cfg(key: String): String =
-                System.getenv("FEEDBACK_" + key.uppercase()) ?: props.getProperty(key) ?: ""
+            fun cfg(key: String): String {
+                val underscored = key.replace(Regex("([a-z])([A-Z])"), "$1_$2").uppercase()
+                val glued = key.uppercase()
+                listOf("FEEDBACK_$underscored", "FEEDBACK_$glued").distinct().forEach { name ->
+                    System.getenv(name)?.takeIf { it.isNotBlank() }?.let { return it }
+                }
+                return props.getProperty(key)?.trim().orEmpty()
+            }
             buildConfigField("String", "FEEDBACK_APP_ID", "\"${cfg("appId")}\"")
             buildConfigField("String", "FEEDBACK_APP_SECRET", "\"${cfg("appSecret")}\"")
             buildConfigField("String", "FEEDBACK_BASE_TOKEN", "\"${cfg("baseToken")}\"")
