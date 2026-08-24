@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -45,6 +46,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -82,12 +84,14 @@ import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.squircle.squircleBorder
 import top.yukonga.miuix.kmp.squircle.squircleSurface
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.window.WindowDialog
 import top.yukonga.miuix.kmp.utils.SinkFeedback
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
@@ -106,7 +110,7 @@ fun Jiaocai1Screen(
     val appLoginState = LocalAppLoginState.current
     val vm: Jiaocai1ViewModel = viewModel()
     vm.bind(context, site)
-    Jiaocai1UsageNotice()
+    Jiaocai1UsageNotice(onDecline = onBack)
 
     LaunchedEffect(initialKeyword) {
         if (initialKeyword.isNotBlank() && vm.result == null) {
@@ -228,6 +232,36 @@ private fun ShelfTab(
 ) {
     val scope = rememberCoroutineScope()
     val listState = rememberRetainedLazyListState("jiaocai1_shelf")
+    // 移出书架会连阅读进度一起丢，先确认再删
+    var pendingRemove by remember { mutableStateOf<Jiaocai1ShelfEntity?>(null) }
+
+    pendingRemove?.let { target ->
+        WindowDialog(
+            show = true,
+            title = "移出书架",
+            summary = "将「${target.title.ifBlank { "未命名教材" }}」移出书架，阅读进度会一并清除。书本身仍可通过检索重新打开。",
+            onDismissRequest = { pendingRemove = null },
+        ) {
+            Row(Modifier.fillMaxWidth()) {
+                TextButton(
+                    text = "取消",
+                    onClick = { pendingRemove = null },
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(20.dp))
+                TextButton(
+                    text = "移出",
+                    onClick = {
+                        val ssno = target.ssno
+                        pendingRemove = null
+                        scope.launch { onRemove(ssno) }
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                )
+            }
+        }
+    }
 
     if (items.isEmpty()) {
         EmptyState(
@@ -258,7 +292,7 @@ private fun ShelfTab(
                 row = row,
                 loader = loader,
                 onOpen = { onOpen(row) },
-                onRemove = { scope.launch { onRemove(row.ssno) } },
+                onRemove = { pendingRemove = row },
             )
         }
         item { Spacer(Modifier.height(60.dp)) }
@@ -338,9 +372,11 @@ private fun ShelfCard(
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
             }
+            // 48dp 触摸目标：紧挨着整卡点击区，小了极易误触进阅读器
             Box(
                 Modifier
-                    .size(32.dp)
+                    .size(48.dp)
+                    .clip(CircleShape)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = SinkFeedback(),
@@ -351,8 +387,8 @@ private fun ShelfCard(
                 Icon(
                     Icons.Outlined.Delete,
                     contentDescription = "移出书架",
-                    modifier = Modifier.size(18.dp),
-                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.size(20.dp),
+                    tint = MiuixTheme.colorScheme.onSurfaceVariantActions,
                 )
             }
         }

@@ -135,7 +135,7 @@ abstract class CasSiteSession(
                         ?: throw IOException("$siteName 未返回 MFA 上下文")
                     // 静默流程（后台预热/保活）到此为止：不弹窗、不发短信，交回给用户下次主动进入时处理。
                     if (silentLogin) {
-                        throw IOException("$siteName 需要验证码，后台静默流程已跳过")
+                        throw MfaRequiredException(siteName)
                     }
                     // SAFETY_VERIFY：落到 Safety Verify 页时 CAS 已经下发过短信，
                     // 再调 sendVerifyCode 会重复发。MFA_DETECT 才需要主动 POST /send。

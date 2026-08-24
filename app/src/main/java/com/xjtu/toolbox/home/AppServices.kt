@@ -56,7 +56,6 @@ object AppServices {
         AppService(Routes.YELLOW_PAGE, "校园黄页", "校内电话与机构", ServiceCategory.LIFE, listOf("黄页", "电话", "分机")),
 
         AppService(Routes.WEBVPN_CONVERTER, "WebVPN", "校外访问转换", ServiceCategory.TOOL, listOf("vpn", "webvpn")),
-        AppService(Routes.MOBILE_JIAODA, "移动交大", "官方超级 App 入口", ServiceCategory.TOOL, listOf("超级app", "交大app")),
         AppService(Routes.JIAOXIAOZHI, "交晓智", "学校智能问答", ServiceCategory.TOOL, listOf("晓智")),
         AppService(Routes.AGENT, "屁岱", "校园 AI 助手", ServiceCategory.TOOL, listOf("问屁岱", "ai", "助手")),
 
@@ -64,7 +63,7 @@ object AppServices {
         AppService(Routes.DOWNLOAD_MANAGER, "下载管理", "课件与回放下载", ServiceCategory.TOOL, listOf("下载", "已下载"), showOnHome = false),
         AppService(Routes.SETTINGS, "设置", "外观、校园网与通知", ServiceCategory.TOOL, listOf("偏好", "主题"), showOnHome = false),
         AppService(Routes.ACCOUNTS, "账号管理", "切换或添加统一认证账号", ServiceCategory.TOOL, listOf("切换账号", "多账号"), showOnHome = false),
-        AppService(Routes.FEEDBACK, "意见反馈", "GitHub 提 Issue 或博客留言", ServiceCategory.TOOL, listOf("反馈", "bug", "issue"), showOnHome = false),
+        AppService(Routes.FEEDBACK, "反馈与建议", "说说哪儿不好用，或想加什么", ServiceCategory.TOOL, listOf("反馈", "bug", "issue"), showOnHome = false),
     )
 
     val home: List<AppService> = all.filter { it.showOnHome }

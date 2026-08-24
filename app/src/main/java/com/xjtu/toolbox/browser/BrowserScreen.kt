@@ -43,6 +43,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.xjtu.toolbox.auth.SiteSession
+import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import okhttp3.OkHttpClient
 import java.net.URI
 
@@ -52,6 +53,12 @@ private const val TAG = "BrowserScreen"
  * 将 OkHttp CookieJar 中的 cookies 同步到 Android WebView CookieManager
  * 兼容 PersistentCookieJar 和 java.net.CookieManager
  */
+/** Set-Cookie 的 Expires 要求 RFC 1123 GMT 格式。 */
+private fun httpDate(epochMillis: Long): String =
+    java.text.SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss 'GMT'", java.util.Locale.US)
+        .apply { timeZone = java.util.TimeZone.getTimeZone("GMT") }
+        .format(java.util.Date(epochMillis))
+
 internal fun syncCookiesToWebView(
     site: SiteSession?,
     extraDomains: List<String> = emptyList()
@@ -79,14 +86,19 @@ internal fun syncCookiesToWebView(
             ) + extraDomains).distinct()
             var count = 0
             for (domain in domains) {
-                val url = okhttp3.HttpUrl.Builder()
-                    .scheme("https").host(domain).build()
-                val cookies = jar.loadForRequest(url)
+                // 用 loadAllForHost 而不是 loadForRequest：后者会按请求路径过滤，而这里只能
+                // 构造一个路径为 "/" 的 URL，结果是所有 Path 更深的 cookie（WebVPN 网关大量
+                // 使用）被静默丢弃——注入看着成功，实际残缺。详见 PersistentCookieJar 里的说明。
+                val cookies = jar.loadAllForHost(domain)
                 for (cookie in cookies) {
                     val cookieStr = buildString {
                         append("${cookie.name}=${cookie.value}")
                         append("; Domain=${cookie.domain}")
                         append("; Path=${cookie.path}")
+                        // 带上到期时间，否则注进 WebView 会退化成会话 cookie，进程一死就没了
+                        if (cookie.persistent) {
+                            append("; Expires=${httpDate(cookie.expiresAt)}")
+                        }
                         if (cookie.secure) append("; Secure")
                     }
                     webCookieManager.setCookie("https://$domain/", cookieStr)
@@ -95,7 +107,7 @@ internal fun syncCookiesToWebView(
                 }
             }
             webCookieManager.flush()
-            Log.d(TAG, "Cookie sync (PersistentCookieJar) complete, total: $count")
+            Log.d(TAG, "Cookie sync complete, total: $count")
         } else {
             Log.d(TAG, "Cookie sync skipped: unsupported jar ${jar.javaClass.name}")
         }
@@ -121,6 +133,12 @@ fun BrowserScreen(
     var canGoBack by remember { mutableStateOf(false) }
     var canGoForward by remember { mutableStateOf(false) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    val isDark = LocalIsDarkTheme.current
+    val darkState = rememberUpdatedState(isDark)
+
+    LaunchedEffect(isDark, webViewRef) {
+        webViewRef?.let { WebViewNightMode.apply(it, isDark) }
+    }
 
     val initialHost = remember(initialUrl) { hostOf(initialUrl) }
     val cookieDomains = remember(initialHost, extraCookieDomains) {
@@ -254,6 +272,7 @@ fun BrowserScreen(
                                 currentUrl = it
                                 editingUrl = it
                             }
+                            view?.let { WebViewNightMode.apply(it, darkState.value) }
                         }
 
                         override fun shouldOverrideUrlLoading(

@@ -19,11 +19,7 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <!--
-        移动交大内嵌页面会用到相机（扫码、人脸核验等）。WebView 里要真正拿到相机，
-        三件事缺一不可：这里声明权限、运行时向用户申请、以及在 WebChromeClient 的
-        onPermissionRequest 里放行 RESOURCE_VIDEO_CAPTURE——只声明不放行，
-        网页侧的 getUserMedia 依然会被拒。
-        用 required="false" 声明特性，避免无相机设备在应用市场被过滤掉。
+        扫码登录需要相机。用 required="false" 声明特性，避免无相机设备在应用市场被过滤掉。
     -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />

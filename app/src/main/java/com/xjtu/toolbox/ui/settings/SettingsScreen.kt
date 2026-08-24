@@ -53,7 +53,6 @@ import top.yukonga.miuix.kmp.icon.extended.Update
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.icon.extended.Recent
 import top.yukonga.miuix.kmp.icon.extended.Forward
-import top.yukonga.miuix.kmp.icon.extended.Report
 import top.yukonga.miuix.kmp.icon.extended.File
 import top.yukonga.miuix.kmp.icon.extended.Info
 import androidx.compose.runtime.Composable
@@ -122,7 +121,6 @@ fun SettingsScreen(
     onHomeThemeChanged: (String) -> Unit = {},
     showQuickActions: Boolean = true,
     onShowQuickActionsChanged: (Boolean) -> Unit = {},
-    onOpenFeedback: () -> Unit = {},
     onAccountTypeChanged: (AccountType) -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
@@ -214,10 +212,11 @@ fun SettingsScreen(
         CredentialStore.NAV_STYLE_FLOATING,
         CredentialStore.NAV_STYLE_CLASSIC
     )
-    val tabOptions = listOf("首页", "日程", "学辅", "我的")
+    val tabOptions = listOf("首页", "日程", "屁岱", "学辅", "我的")
     val tabValues = listOf(
         CredentialStore.TAB_HOME,
         CredentialStore.TAB_COURSES,
+        CredentialStore.TAB_PIDAI,
         CredentialStore.TAB_TOOLS,
         CredentialStore.TAB_PROFILE
     )
@@ -611,12 +610,6 @@ fun SettingsScreen(
                     title = "版本号",
                     summary = versionText,
                     startAction = { SettingsIcon(MiuixIcons.Info, cGreen) }
-                )
-                ArrowPreference(
-                    title = "反馈与建议",
-                    summary = "GitHub 提 Issue，或到博客留言",
-                    startAction = { SettingsIcon(MiuixIcons.Report, cPink) },
-                    onClick = { onOpenFeedback() }
                 )
                 ArrowPreference(
                     title = "更新日志",

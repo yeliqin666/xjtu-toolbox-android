@@ -86,6 +86,24 @@ object CasGate {
         }
     }
 
+    /**
+     * 当前是否被闸门挡着，被挡的话给出人话原因；没被挡返回 null。
+     *
+     * 和 [checkAllowed] 的区别是**不抛异常**。给后台批量任务用：与其让它们一个个去撞锁、
+     * 每个等满间隔、最后全部失败，不如开跑前先问一句，被挡就整轮不跑。
+     */
+    fun blockedReason(): String? {
+        if (passwordLatch?.invoke() == true) return "密码已失效，自动登录已暂停"
+        lock.lock()
+        try {
+            val remain = backoffUntil - SystemClock.elapsedRealtime()
+            if (remain > 0) return "登录退避中，还需 ${(remain + 999) / 1000} 秒"
+        } finally {
+            lock.unlock()
+        }
+        return null
+    }
+
     private fun checkAllowed() {
         if (passwordLatch?.invoke() == true) {
             throw ThrottledException("密码已失效，已暂停自动登录以保护账号")

@@ -127,6 +127,31 @@ class PersistentCookieJar(context: Context, prefsName: String = PREFS_NAME) : Co
         return result
     }
 
+    /**
+     * 取出某 host 下**全部** cookie，不做路径过滤。
+     *
+     * [loadForRequest] 会按 `pathMatch(url.encodedPath, cookie.path)` 过滤，这对发请求是对的，
+     * 但把 cookie 同步进 WebView 时不能用：同步方只能构造一个路径为 `/` 的 URL，于是所有
+     * Path 比 `/` 深的 cookie（WebVPN 网关大量使用）都会被静默丢掉，表现就是"注入不完全"。
+     * 同步场景要的是"这个域下我有哪些 cookie"，路径信息由各 cookie 自身的 Path 属性带走。
+     */
+    fun loadAllForHost(host: String): List<Cookie> {
+        ensureLoaded()
+        val now = System.currentTimeMillis()
+        val result = mutableListOf<Cookie>()
+        for ((domain, cookies) in cookieStore) {
+            if (!domainMatch(host, domain)) continue
+            synchronized(cookies) {
+                val iter = cookies.iterator()
+                while (iter.hasNext()) {
+                    val c = iter.next()
+                    if (c.expiresAt <= now) iter.remove() else result.add(c)
+                }
+            }
+        }
+        return result
+    }
+
     /** 清空所有 cookie（登出时使用） */
     fun clear() {
         saveHandler.removeCallbacksAndMessages(null)

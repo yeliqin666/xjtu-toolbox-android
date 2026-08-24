@@ -515,8 +515,7 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                             }
                         }
                     }
-                    val expiredStatuses = setOf("已取消", "已完成", "已过期", "已失效", "已违约", "超时取消", "超时未入馆", "超时", "已离馆")
-                    val isExpiredBooking = myBooking?.statusText in expiredStatuses
+                    val isExpiredBooking = myBooking?.statusText in LibraryApi.INACTIVE_STATUSES
                     val actions = if (isExpiredBooking) null else myBooking?.actionUrls
                     if (!actions.isNullOrEmpty()) {
                         Spacer(Modifier.height(8.dp))

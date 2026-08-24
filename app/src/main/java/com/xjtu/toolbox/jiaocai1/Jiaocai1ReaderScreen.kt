@@ -86,7 +86,7 @@ fun Jiaocai1ReaderScreen(
     val appLoginState = LocalAppLoginState.current
     val vm: Jiaocai1ReaderViewModel = viewModel()
     vm.bind(context, site, ssno, fallbackTitle)
-    Jiaocai1UsageNotice()
+    Jiaocai1UsageNotice(onDecline = onBack)
 
     if (vm.authExpired) {
         LaunchedEffect(ssno) {

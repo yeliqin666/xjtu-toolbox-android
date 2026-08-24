@@ -1,0 +1,40 @@
+name: 功能建议
+description: 新能力、交互改进、某个学校服务想接进盒子
+title: "[功能] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        说清楚「谁在什么场景下缺什么」比罗列功能名更有用。
+
+        不要贴账号、Cookie、密钥或带个人信息的截图。
+  - type: textarea
+    id: problem
+    attributes:
+      label: 想解决什么
+      placeholder: 现在怎么别扭，或学校里哪件事还要跳出 App 才能办
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 期望怎么用
+      placeholder: 入口放哪、点进去看到什么、成功/失败时怎样提示
+    validations:
+      required: true
+  - type: textarea
+    id: workaround
+    attributes:
+      label: 现在怎么凑合
+      placeholder: 没有也没关系
+  - type: dropdown
+    id: scope
+    attributes:
+      label: 大致范围
+      options:
+        - 现有页面改进
+        - 接入已有学校服务
+        - 全新模块
+        - 不确定
+    validations:
+      required: true

@@ -1,5 +1,10 @@
+@file:OptIn(ExperimentalFoundationApi::class)
+
 package com.xjtu.toolbox.jiaoxiaozhi
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
@@ -26,6 +31,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Stop
+import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -60,10 +66,13 @@ import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
+import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 private val JiaozhiBlue = Color(0xFF315FD4)
@@ -82,6 +91,7 @@ fun JiaoxiaozhiScreen(
     LaunchedEffect(Unit) { vm.bind(store) }
 
     var drawerOpen by rememberSaveable { mutableStateOf(false) }
+    var deleteTarget by remember { mutableStateOf<JiaoxiaozhiSession?>(null) }
     var showModels by rememberSaveable { mutableStateOf(false) }
     var networkEnabled by rememberSaveable { mutableStateOf(true) }
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
@@ -92,6 +102,8 @@ fun JiaoxiaozhiScreen(
     val currentModel = JiaoxiaozhiModels.byId(
         vm.currentSession?.modelId ?: JiaoxiaozhiModels.DEFAULT_ID
     )
+
+    BackHandler(enabled = drawerOpen) { drawerOpen = false }
 
     Box(Modifier.fillMaxSize()) {
         Scaffold(
@@ -123,11 +135,11 @@ fun JiaoxiaozhiScreen(
                 onOpenModels = { showModels = true },
                 onNetworkEnabledChange = { networkEnabled = it },
                 onSend = { vm.sendMessage(it, sessionManager, networkEnabled) },
+                onReplaceLast = { vm.replaceLastUserAndSend(it, sessionManager, networkEnabled) },
                 onRetry = {
-                    val lastUser = vm.messages.lastOrNull { it.role == "user" }?.content
+                    val lastUser = vm.lastUserText()
                     if (!lastUser.isNullOrBlank()) {
-                        vm.trimTrailingEmptyAssistant()
-                        vm.sendMessage(lastUser, sessionManager, networkEnabled)
+                        vm.replaceLastUserAndSend(lastUser, sessionManager, networkEnabled)
                     }
                 },
                 onOpenLink = onOpenLink,
@@ -182,6 +194,33 @@ fun JiaoxiaozhiScreen(
                     }
                 }
             }
+
+            deleteTarget?.let { target ->
+                OverlayDialog(
+                    show = true,
+                    title = "删除对话？",
+                    summary = "「${target.title}」将被彻底清除，无法恢复。",
+                    onDismissRequest = { deleteTarget = null },
+                ) {
+                    Row(Modifier.fillMaxWidth()) {
+                        TextButton(
+                            text = "取消",
+                            onClick = { deleteTarget = null },
+                            modifier = Modifier.weight(1f),
+                        )
+                        Spacer(Modifier.width(20.dp))
+                        TextButton(
+                            text = "删除",
+                            onClick = {
+                                vm.deleteSession(target.id)
+                                deleteTarget = null
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.textButtonColorsPrimary(),
+                        )
+                    }
+                }
+            }
         }
 
         JiaoxiaozhiDrawer(
@@ -191,7 +230,10 @@ fun JiaoxiaozhiScreen(
             onClose = { drawerOpen = false },
             onNew = { vm.newSession(); drawerOpen = false },
             onSelect = { vm.switchSession(it); drawerOpen = false },
-            onDelete = vm::deleteSession,
+            onRequestDelete = {
+                deleteTarget = it
+                drawerOpen = false
+            },
         )
     }
 }
@@ -206,18 +248,25 @@ private fun JiaoxiaozhiChatPanel(
     onOpenModels: () -> Unit,
     onNetworkEnabledChange: (Boolean) -> Unit,
     onSend: (String) -> Unit,
+    onReplaceLast: (String) -> Unit,
     onRetry: () -> Unit,
     onOpenLink: (String) -> Unit,
 ) {
     val keyboard = LocalSoftwareKeyboardController.current
     var input by rememberSaveable { mutableStateOf("") }
+    var editingLast by rememberSaveable { mutableStateOf(false) }
 
     fun send() {
         val value = input.trim()
         if (value.isBlank()) return
         input = ""
         keyboard?.hide()
-        onSend(value)
+        if (editingLast) {
+            editingLast = false
+            onReplaceLast(value)
+        } else {
+            onSend(value)
+        }
     }
 
     Column(
@@ -225,7 +274,6 @@ private fun JiaoxiaozhiChatPanel(
             .fillMaxSize()
             .padding(top = padding.calculateTopPadding())
             .background(MiuixTheme.colorScheme.surface)
-            .clipToBounds()
     ) {
         Box(Modifier.weight(1f).clipToBounds()) {
             key(vm.currentSessionId) {
@@ -241,63 +289,50 @@ private fun JiaoxiaozhiChatPanel(
                     modifier = Modifier
                         .fillMaxSize()
                         .nestedScroll(nestedScrollConnection),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
             if (vm.messages.isEmpty()) {
                 item {
-                    Column(
-                        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Icon(
-                            Icons.Default.AutoAwesome,
-                            contentDescription = null,
-                            tint = JiaozhiPurple,
-                            modifier = Modifier.size(42.dp),
-                        )
-                        Spacer(Modifier.height(12.dp))
+                    Column(Modifier.fillMaxWidth().padding(top = 12.dp)) {
                         Text(
-                            "可以问我校园政策、办事流程和通用问题",
-                            style = MiuixTheme.textStyles.body1,
-                            fontWeight = FontWeight.Medium,
+                            "你好",
+                            style = MiuixTheme.textStyles.title2,
+                            fontWeight = FontWeight.SemiBold,
                         )
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            "对话由学校交晓智服务处理，可能被上游记录。",
-                            style = MiuixTheme.textStyles.footnote1,
+                            "政策、流程、校历都可以问。对话会经过学校交晓智。",
+                            style = MiuixTheme.textStyles.body2,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         )
-                        Spacer(Modifier.height(20.dp))
+                        Spacer(Modifier.height(22.dp))
                         val suggestions = remember {
-                            listOf(
-                                "研究生复试成绩如何复议？",
-                                "如何办理休学？",
-                                "校历本学期怎么安排的？",
-                                "教务处联系电话？",
-                            )
+                            listOf("复试成绩复议", "办理休学", "本学期校历", "教务处电话")
                         }
-                        suggestions.forEach { q ->
-                            Surface(
-                                shape = RoundedCornerShape(20.dp),
-                                color = JiaozhiPurple.copy(alpha = 0.08f),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp)
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null,
-                                    ) {
-                                        android.os.Handler(android.os.Looper.getMainLooper())
-                                            .post { onSend(q) }
-                                    },
-                            ) {
-                                Text(
-                                    q,
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                    style = MiuixTheme.textStyles.body2,
-                                    color = JiaozhiPurple,
-                                )
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            suggestions.chunked(2).forEach { pair ->
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    pair.forEach { q ->
+                                        Surface(
+                                            shape = RoundedCornerShape(18.dp),
+                                            color = MiuixTheme.colorScheme.surfaceVariant,
+                                            modifier = Modifier.clickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null,
+                                            ) {
+                                                android.os.Handler(android.os.Looper.getMainLooper())
+                                                    .post { onSend(q) }
+                                            },
+                                        ) {
+                                            Text(
+                                                q,
+                                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                                style = MiuixTheme.textStyles.footnote1,
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -311,11 +346,33 @@ private fun JiaoxiaozhiChatPanel(
                     message = message,
                     onOpenLink = onOpenLink,
                     onRetry = if (isLastAssistant && message.content.isNotBlank()) onRetry else null,
+                    canEdit = !vm.isLoading && message === vm.messages.lastOrNull { it.role == "user" },
+                    onEdit = {
+                        input = message.content
+                        editingLast = true
+                    },
                 )
             }
             if (vm.isLoading && vm.messages.lastOrNull()?.content.isNullOrBlank()) {
                 item {
-                    ThinkingIndicator()
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MiuixTheme.colorScheme.surfaceVariant,
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                "思考",
+                                style = MiuixTheme.textStyles.footnote1,
+                                fontWeight = FontWeight.Bold,
+                                color = JiaozhiPurple,
+                            )
+                            ThinkingIndicator()
+                        }
+                    }
                 }
             }
             vm.errorMessage?.let { error ->
@@ -367,36 +424,58 @@ private fun JiaoxiaozhiChatPanel(
             }
         }
 
-        Surface(color = MiuixTheme.colorScheme.surfaceVariant) {
+        if (editingLast) {
             Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
-                    .navigationBarsPadding()
-                    .imePadding(),
-                verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextField(
-                    value = input,
-                    onValueChange = { input = it },
-                    label = "问问交晓智…",
+                Text(
+                    "改上一条",
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = JiaozhiPurple,
                     modifier = Modifier.weight(1f),
-                    maxLines = 4,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                    keyboardActions = KeyboardActions(onSend = { send() }),
                 )
-                IconButton(
-                    onClick = if (vm.isLoading) vm::stop else ::send,
-                    enabled = vm.isLoading || input.isNotBlank(),
-                ) {
-                    Icon(
-                        if (vm.isLoading) Icons.Default.Stop else Icons.AutoMirrored.Filled.Send,
-                        contentDescription = if (vm.isLoading) "停止生成" else "发送",
-                        tint = if (vm.isLoading || input.isNotBlank()) JiaozhiPurple
-                        else MiuixTheme.colorScheme.outline,
-                    )
-                }
+                Text(
+                    "取消",
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.clickable {
+                        editingLast = false
+                        input = ""
+                    },
+                )
+            }
+        }
+        val canSend = input.isNotBlank()
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .background(MiuixTheme.colorScheme.surface)
+                .navigationBarsPadding()
+                .imePadding()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            TextField(
+                value = input,
+                onValueChange = { input = it },
+                label = "问一句…",
+                modifier = Modifier.weight(1f),
+                maxLines = 4,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                keyboardActions = KeyboardActions(onSend = { send() }),
+            )
+            IconButton(
+                onClick = { if (vm.isLoading) vm.stop() else send() },
+                enabled = vm.isLoading || canSend,
+            ) {
+                Icon(
+                    if (vm.isLoading) Icons.Default.Stop else Icons.AutoMirrored.Filled.Send,
+                    contentDescription = if (vm.isLoading) "停止" else "发送",
+                    tint = if (vm.isLoading || canSend) JiaozhiPurple
+                    else MiuixTheme.colorScheme.outline,
+                )
             }
         }
     }
@@ -406,7 +485,7 @@ private fun JiaoxiaozhiChatPanel(
 private fun ThinkingIndicator() {
     val transition = androidx.compose.animation.core.rememberInfiniteTransition()
     Row(
-        Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+        Modifier.padding(vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -430,11 +509,6 @@ private fun ThinkingIndicator() {
                     ),
             )
         }
-        Text(
-            "正在连接交晓智…",
-            style = MiuixTheme.textStyles.footnote1,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        )
     }
 }
 
@@ -444,12 +518,22 @@ private fun JiaoxiaozhiBubble(
     onOpenLink: (String) -> Unit,
     onCopy: (String) -> Unit = {},
     onRetry: (() -> Unit)? = null,
+    canEdit: Boolean = false,
+    onEdit: () -> Unit = {},
 ) {
     // [LocalClipboard] 取代已废弃的 [LocalClipboardManager]：suspend setClip。
     val clipboard = androidx.compose.ui.platform.LocalClipboard.current
     val coroutineScope = rememberCoroutineScope()
-    val timestamp = remember(message.createdAt) {
-        java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(message.createdAt))
+    val context = androidx.compose.ui.platform.LocalContext.current
+    fun copyText() {
+        coroutineScope.launch {
+            clipboard.setClipEntry(
+                androidx.compose.ui.platform.ClipEntry(
+                    android.content.ClipData.newPlainText("message", message.content)
+                )
+            )
+            Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
+        }
     }
     if (message.role == "user") {
         Column(
@@ -457,9 +541,14 @@ private fun JiaoxiaozhiBubble(
             horizontalAlignment = Alignment.End,
         ) {
             Surface(
-                shape = RoundedCornerShape(18.dp, 4.dp, 18.dp, 18.dp),
+                shape = RoundedCornerShape(20.dp, 6.dp, 20.dp, 20.dp),
                 color = JiaozhiBlue,
-                modifier = Modifier.widthIn(max = 286.dp),
+                modifier = Modifier
+                    .widthIn(max = 300.dp)
+                    .then(
+                        if (canEdit) Modifier.combinedClickable(onClick = {}, onLongClick = onEdit)
+                        else Modifier
+                    ),
             ) {
                 Text(
                     message.content,
@@ -468,69 +557,29 @@ private fun JiaoxiaozhiBubble(
                     style = MiuixTheme.textStyles.body1,
                 )
             }
-            Text(
-                timestamp,
-                style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.padding(end = 4.dp, top = 2.dp),
-            )
         }
     } else if (message.content.isNotBlank()) {
-        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.Start) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
             MarkdownText(
                 text = message.content,
                 color = MiuixTheme.colorScheme.onSurface,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .combinedClickable(
+                        onClick = {},
+                        onLongClick = { copyText() },
+                    ),
                 onLink = onOpenLink,
             )
-            // 操作栏：复制 + 时间 + 可选重试
-            Row(
-                Modifier.padding(start = 4.dp, top = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
+            if (onRetry != null) {
                 Text(
-                    timestamp,
+                    "重试",
                     style = MiuixTheme.textStyles.footnote1,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                )
-                androidx.compose.foundation.layout.Box(
                     modifier = Modifier
-                        .height(20.dp)
-                        .clickable {
-                            coroutineScope.launch {
-                                clipboard.setClipEntry(
-                                    androidx.compose.ui.platform.ClipEntry(
-                                        android.content.ClipData.newPlainText("message", message.content)
-                                    )
-                                )
-                                onCopy("已复制")
-                            }
-                        }
-                        .padding(horizontal = 6.dp, vertical = 0.dp),
-                    contentAlignment = androidx.compose.ui.Alignment.Center,
-                ) {
-                    Text(
-                        "复制",
-                        style = MiuixTheme.textStyles.footnote1,
-                        color = MiuixTheme.colorScheme.primary,
-                    )
-                }
-                if (onRetry != null) {
-                    androidx.compose.foundation.layout.Box(
-                        modifier = Modifier
-                            .height(20.dp)
-                            .clickable { onRetry() }
-                            .padding(horizontal = 6.dp, vertical = 0.dp),
-                        contentAlignment = androidx.compose.ui.Alignment.Center,
-                    ) {
-                        Text(
-                            "重试",
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.primary,
-                        )
-                    }
-                }
+                        .padding(top = 6.dp)
+                        .clickable { onRetry() },
+                )
             }
         }
     }
@@ -544,7 +593,7 @@ private fun JiaoxiaozhiDrawer(
     onClose: () -> Unit,
     onNew: () -> Unit,
     onSelect: (String) -> Unit,
-    onDelete: (String) -> Unit,
+    onRequestDelete: (JiaoxiaozhiSession) -> Unit,
 ) {
 
     AnimatedVisibility(
@@ -638,7 +687,7 @@ private fun JiaoxiaozhiDrawer(
                                 CompactJiaoxiaozhiAction(
                                     icon = Icons.Default.Delete,
                                     contentDescription = "删除",
-                                    onClick = { onDelete(session.id) },
+                                    onClick = { onRequestDelete(session) },
                                     tint = MiuixTheme.colorScheme.error,
                                 )
                             }

@@ -3,6 +3,8 @@ package com.xjtu.toolbox.hello
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
+import android.net.Uri
 import android.util.Log
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.auth.SessionManager
@@ -118,11 +120,13 @@ object HelloProfileStore {
         return File(context.cacheDir, "avatar$suffix.jpg")
     }
 
-    fun cachedAvatar(context: Context): Bitmap? = decode(avatarFile(context))
+    /** 自定义头像优先于学工证件照；都没有则返回 null，调用方退回首字母。 */
+    fun cachedAvatar(context: Context): Bitmap? =
+        decode(customAvatarFile(context)) ?: decode(avatarFile(context))
 
     /** 指定账号的头像；没有缓存返回 null（调用方退回首字母）。 */
     fun cachedAvatarFor(context: Context, accountId: String?): Bitmap? =
-        decode(avatarFileFor(context, accountId))
+        decode(customAvatarFileFor(context, accountId)) ?: decode(avatarFileFor(context, accountId))
 
     private fun decode(f: File): Bitmap? {
         if (!f.exists() || f.length() == 0L) return null
@@ -164,10 +168,79 @@ object HelloProfileStore {
         }
     }
 
+    // ── 自定义头像 ────────────────────────
+
+    /** 头像最长边上限。界面上最大也就 72dp，512 结结实实够用，再大只是白占内存和磁盘。 */
+    private const val CUSTOM_AVATAR_MAX_PX = 512
+
+    /**
+     * 用户自选的头像。放 [Context.getFilesDir] 而不是 cacheDir——用户特意设的东西，
+     * 不该在系统清缓存时被默默抹掉。后缀规则与 [avatarFileFor] 一致。
+     */
+    private fun customAvatarFileFor(context: Context, accountId: String?): File {
+        val suffix = accountId
+            ?.takeIf { it.isNotBlank() }
+            ?.let { "_" + it.replace(Regex("[^a-zA-Z0-9]"), "_") }
+            ?: "default"
+        return File(context.filesDir, "avatar_custom$suffix.jpg")
+    }
+
+    private fun customAvatarFile(context: Context): File =
+        File(context.filesDir, "avatar_custom${AccountContext.safeSuffix()}.jpg")
+
+    /** 当前账号是否已设自定义头像（决定要不要展示「恢复默认」）。 */
+    fun hasCustomAvatar(context: Context): Boolean =
+        customAvatarFile(context).let { it.exists() && it.length() > 0 }
+
+    /**
+     * 保存用户选的图片为头像。
+     *
+     * 用 [ImageDecoder] 而不是 [BitmapFactory]：前者会自动应用 EXIF 旋转，
+     * 否则相机直出的照片会歪着显示。解码时就降采样，不把原图全尺寸读进内存。
+     *
+     * @return 成功与否；失败已记日志，调用方只需提示用户。
+     */
+    suspend fun saveCustomAvatar(context: Context, uri: Uri): Boolean =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val source = ImageDecoder.createSource(context.contentResolver, uri)
+                val bitmap = ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+                    // 硬件 Bitmap 不能 compress，必须要软件分配
+                    decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                    val longest = maxOf(info.size.width, info.size.height)
+                    if (longest > CUSTOM_AVATAR_MAX_PX) {
+                        decoder.setTargetSampleSize(
+                            Integer.highestOneBit(longest / CUSTOM_AVATAR_MAX_PX).coerceAtLeast(1)
+                        )
+                    }
+                }
+                val target = customAvatarFile(context)
+                // 先写临时文件再改名，与证件照一致，避免写到一半被读
+                val tmp = File(target.absolutePath + ".tmp")
+                tmp.outputStream().use { out ->
+                    check(bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)) { "compress failed" }
+                }
+                bitmap.recycle()
+                if (target.exists()) target.delete()
+                check(tmp.renameTo(target)) { "rename failed" }
+                true
+            }.getOrElse {
+                Log.w(TAG, "save custom avatar failed: ${it.message}")
+                runCatching { File(customAvatarFile(context).absolutePath + ".tmp").delete() }
+                false
+            }
+        }
+
+    /** 恢复默认：删掉自定义头像，自然回退到学工证件照。 */
+    fun clearCustomAvatar(context: Context) {
+        runCatching { customAvatarFile(context).delete() }
+    }
+
     /** 切换/注销账号时清掉，避免上一个账号的头像与档案泄露给下一个人。 */
     fun clear(context: Context) {
         runCatching { DataCache(context).invalidate(CACHE_KEY) }
         runCatching { avatarFile(context).delete() }
         runCatching { File(context.cacheDir, "avatar${AccountContext.safeSuffix()}.url").delete() }
+        // 自定义头像不清：同一台设备上按账号隔离已经足够，抹掉只会让用户白设一次。
     }
 }

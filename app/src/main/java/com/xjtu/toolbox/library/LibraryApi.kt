@@ -154,6 +154,29 @@ class LibraryApi(private val site: SiteSession) {
          */
         val SEAT_ID_REGEX = Regex("""(?:[A-Z]\d{2,4}|\b\d{3}\b)""")
 
+        /**
+         * 「这条预约已经没用了」的状态文本。
+         *
+         * 状态是从预约页面 `预约状态：X` 里正则抓的**原文**，不是枚举，所以不可能列全
+         * "有效"的那一侧；能穷举的只有失效这一侧。判定一律用"不在这个集合里就是活的"。
+         *
+         * 原先这份集合在 [parseActiveBooking] 和 LibraryScreen 里各硬编码了一模一样的一份，
+         * 改一处漏一处。收到这里做唯一来源。
+         */
+        val INACTIVE_STATUSES = setOf(
+            "已取消", "已完成", "已过期", "已失效", "已违约",
+            "超时取消", "超时未入馆", "超时", "已离馆",
+        )
+
+        /**
+         * 需要用户立刻动手、不做就会丢座位的操作。
+         *
+         * 判据取 [classifyActionLabel] 归一化后的 label 而不是状态原文：label 只有五个固定值，
+         * 稳定；状态文本随学校页面措辞变化。「中途离开」「取消预约」「我想换座」是常驻按钮，
+         * 不构成催办。
+         */
+        val URGENT_ACTIONS = setOf("入馆签到", "中途返回")
+
         fun filterScount(raw: Map<String, AreaStats>): Map<String, AreaStats> =
             raw.filterKeys { it in VALID_AREA_CODES }
 
@@ -520,8 +543,6 @@ class LibraryApi(private val site: SiteSession) {
         doc: org.jsoup.nodes.Document, bodyText: String,
         html: String, finalUrl: String
     ): MyBookingInfo? {
-        val inactiveStatuses = setOf("已取消", "已完成", "已过期", "已失效", "已违约", "超时取消", "超时未入馆", "超时", "已离馆")
-
         // 按"预约状态"分割文本，找到活跃预约的文本块
         val statusRegex = Regex("""预约状态[:：]\s*(\S+)""")
         val statusMatches = statusRegex.findAll(bodyText).toList()
@@ -541,7 +562,7 @@ class LibraryApi(private val site: SiteSession) {
             val blockEnd = statusMatch.range.last + 1
             val blockText = bodyText.substring(blockStart, blockEnd)
 
-            if (status in inactiveStatuses) {
+            if (status in INACTIVE_STATUSES) {
                 blockStart = blockEnd
                 continue
             }

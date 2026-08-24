@@ -301,6 +301,7 @@ class CredentialStore(context: Context) {
         const val THEME_ICON = "icon"
         const val TAB_HOME = "HOME"
         const val TAB_COURSES = "COURSES"
+        const val TAB_PIDAI = "PIDAI"
         const val TAB_TOOLS = "TOOLS"
         const val TAB_PROFILE = "PROFILE"
         const val NETWORK_AUTO = "auto"

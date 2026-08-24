@@ -6,6 +6,7 @@ import android.os.Bundle
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.res.painterResource
 import com.xjtu.toolbox.util.safeParseJsonObject
 import kotlinx.coroutines.async
@@ -13,6 +14,9 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.*
@@ -121,6 +125,8 @@ import com.xjtu.toolbox.notification.NotificationScreen
 import com.xjtu.toolbox.library.LibraryScreen
 import com.xjtu.toolbox.judge.JudgeScreen
 import com.xjtu.toolbox.score.ScoreReportScreen
+import com.xjtu.toolbox.browser.WebViewNightMode
+import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import com.xjtu.toolbox.ui.theme.XJTUToolBoxTheme
 import com.xjtu.toolbox.ui.theme.serviceColor
 import com.xjtu.toolbox.ui.settings.SettingsScreen
@@ -258,7 +264,6 @@ object Routes {
     const val SCHOOL_COURSE = "school_course"
     const val SCHOOL_CALENDAR = "school_calendar"
     const val YELLOW_PAGE = "yellow_page"
-    const val MOBILE_JIAODA = "mobile_jiaoda"
     const val FITNESS = "fitness"
     const val VIDEO_PLAYER = "video_player/{activityId}"
     const val DOWNLOAD_MANAGER = "download_manager"
@@ -292,7 +297,6 @@ fun loginTypeForRoute(route: String): LoginType? = when (route) {
     Routes.LMS -> LoginType.LMS
     Routes.JIAOCAI, Routes.JIAOCAI1 -> LoginType.JIAOCAI
     Routes.COUPON -> LoginType.COUPON
-    Routes.MOBILE_JIAODA -> LoginType.SUPER_APP
     Routes.FITNESS -> LoginType.FITNESS
     Routes.JIAOXIAOZHI -> LoginType.JIAOXIAOZHI
     Routes.ICLASSFACE -> LoginType.ICLASSFACE
@@ -317,9 +321,22 @@ enum class BottomTab(
 ) {
     HOME("首页", Icons.Filled.Home, Icons.Outlined.Home),
     COURSES("日程", Icons.Filled.CalendarMonth, Icons.Outlined.CalendarMonth),
+
+    /**
+     * 屁岱。它是**正经的 0 级页**，不是 push 出来的子页——底栏常驻、有自己的返回语义，
+     * 和其他四个 tab 完全对等。
+     *
+     * 但它在底栏里不走 NavigationBarItem：渲染成一颗会动的机器人（见 PidaiNavButton），
+     * 所以下面这两个 icon 其实用不上，仅为满足枚举形状。位置固定在正中，
+     * 前后各两个标签——这是它区别于其他 tab 的全部理由。
+     */
+    PIDAI("屁岱", Icons.Default.SmartToy, Icons.Default.SmartToy),
     TOOLS("学辅", Icons.Filled.MenuBook, Icons.Outlined.MenuBook),
     PROFILE("我的", Icons.Filled.Person, Icons.Outlined.Person)
 }
+
+/** 悬浮底栏胶囊本体的最小高度，对齐 miuix FloatingNavigationBar 的 defaultMinSize。 */
+private val FLOATING_BAR_HEIGHT = 52.dp
 
 // ── 登录状态 ──────────────────────────────
 
@@ -817,7 +834,6 @@ class AppLoginStateViewModel(application: android.app.Application) : androidx.li
             register(com.xjtu.toolbox.auth.AttendanceSession(isPostgraduate = false))
             register(com.xjtu.toolbox.auth.AttendanceSession(isPostgraduate = true))
             register(com.xjtu.toolbox.auth.CampusCardSession())
-            register(com.xjtu.toolbox.auth.SuperAppSession())
             register(com.xjtu.toolbox.auth.FitnessSession())
             register(com.xjtu.toolbox.auth.IclassfaceSession())
             register(com.xjtu.toolbox.auth.HelloSession())
@@ -881,7 +897,14 @@ class AppLoginStateViewModel(application: android.app.Application) : androidx.li
     }
 }
 
-private suspend fun refreshCampusCardCache(
+/**
+ * 抓一次校园卡余额与今日流水写进缓存。
+ *
+ * internal 而非 private：[com.xjtu.toolbox.home.HomeStatsRefresher] 现在也调它，
+ * 好让校园卡和别的首页数据源共用同一套 TTL / 退避 / 串行节奏，
+ * 而不是像以前那样在 ON_RESUME 里另起一条只有 60 秒节流的独立路径。
+ */
+internal suspend fun refreshCampusCardCache(
     context: android.content.Context,
     site: com.xjtu.toolbox.auth.SiteSession
 ): Boolean = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -1850,14 +1873,6 @@ fun AppNavigation(
                 onBack = { navController.popBackStack() }
             )
         }
-        composable(Routes.MOBILE_JIAODA) {
-            loginState.sessionManager?.getSiteOrNull("super_app")?.let {
-                com.xjtu.toolbox.superapp.MobileJiaodaScreen(
-                    site = it,
-                    onClose = { navController.popBackStack() }
-                )
-            } ?: LaunchedEffect(Unit) { navController.popBackStack() }
-        }
         composable(Routes.FITNESS) {
             loginState.sessionManager?.getSiteOrNull("fitness")?.let {
                 com.xjtu.toolbox.fitness.FitnessScreen(
@@ -1932,7 +1947,6 @@ fun AppNavigation(
                     showQuickActions = v
                     credentialStore.showQuickActions = v
                 },
-                onOpenFeedback = { navController.navigate(Routes.FEEDBACK) },
                 onAccountTypeChanged = { type ->
                     loginState.accountType = type
                     loginState.sessionManager?.accountType =
@@ -1992,12 +2006,10 @@ fun AppNavigation(
                 }
             )
         }
-        composable(Routes.AGENT) {
-            com.xjtu.toolbox.agent.AgentScreen(
-                onBack = { navController.popBackStack() },
-                onNavigate = { route -> navController.navigate(route) { launchSingleTop = true } }
-            )
-        }
+        // [已移除] composable(Routes.AGENT)。屁岱升级成底栏 0 级 tab 后，
+        // 再留一条 push 路由就会出现"带返回箭头的子页"和"tab"两副面孔，
+        // 返回行为还不一致。所有指向 AGENT 的入口（深链、快捷方式、全局搜索、
+        // 首页服务列表、提醒气泡）统一由 navigateToTarget 转成切 tab。
     }
     }  // CompositionLocalProvider
 }
@@ -2043,6 +2055,7 @@ private fun MainScreen(
     val context = LocalContext.current
     var lastBackPressTime by remember { mutableLongStateOf(0L) }
     var showGlobalSearch by remember { mutableStateOf(false) }
+    var showQrLogin by remember { mutableStateOf(false) }
 
     LaunchedEffect(pendingTab) {
         val tabName = pendingTab ?: return@LaunchedEffect
@@ -2055,6 +2068,7 @@ private fun MainScreen(
 
     BackHandler {
         when {
+            showQrLogin -> showQrLogin = false
             showGlobalSearch -> showGlobalSearch = false
             selectedTab != BottomTab.HOME -> selectedTabOrdinal = BottomTab.HOME.ordinal
             else -> {
@@ -2081,10 +2095,13 @@ private fun MainScreen(
     }
 
     fun navigateToTarget(target: String) {
-        if (target == Routes.SCHEDULE) {
-            switchToTab(BottomTab.COURSES)
-        } else {
-            navController.navigate(target) { launchSingleTop = true }
+        // 有独立 tab 的功能一律切 tab，不 push 子页——否则同一个页面会存在
+        // "带返回箭头的子页"和"底栏 tab"两副面孔，返回行为还不一致。
+        // 深链、启动器快捷方式、全局搜索、首页服务列表全都汇流到这里。
+        when (target) {
+            Routes.SCHEDULE -> switchToTab(BottomTab.COURSES)
+            Routes.AGENT -> switchToTab(BottomTab.PIDAI)
+            else -> navController.navigate(target) { launchSingleTop = true }
         }
     }
 
@@ -2118,18 +2135,6 @@ private fun MainScreen(
         fun siteReady(t: LoginType): Boolean =
             loginState.sessionManager?.getSiteOrNull(t.siteKey())?.hasLogin == true
 
-        // 移动交大的 ticket 只给 WebView 用：入口处再 ensureSite 一次会先吃掉一张，
-        // 进页 force 登录又登一遍。网关是否还活着交给页面里的 ensureWebVpnLogin。
-        if (type == LoginType.SUPER_APP) {
-            if (loginState.hasCredentials) {
-                navigateToTarget(target)
-            } else {
-                scope.launch {
-                    snackbarHostState.showSnackbar("请先登录后使用${type.label}", duration = SnackbarDuration.Short)
-                }
-            }
-            return
-        }
         val forceEnsureOnEnter = type == LoginType.JIAOXIAOZHI
         if (siteReady(type) && !forceEnsureOnEnter) {
             navigateToTarget(target)
@@ -2140,7 +2145,6 @@ private fun MainScreen(
             autoLoginMessage = "正在连接${type.label}…"
             val autoLoginTimeoutMs = when (type) {
                 LoginType.COUPON,
-                LoginType.SUPER_APP,
                 LoginType.FITNESS,
                 LoginType.JIAOXIAOZHI -> 180_000L
                 // 场馆/电子凭证等走「CAS OAuth → org 中转 → 业务站」多跳链路，
@@ -2250,29 +2254,204 @@ private fun MainScreen(
     val coursesScrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     val toolsScrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     val profileScrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val agentScrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
 
     // 大屏适配：宽度 ≥ 840dp（Material expanded breakpoint，平板/桌面）启用侧边 NavigationRail
     // 手机横屏/折叠屏内屏（600-839dp）继续用底栏
     val isWideScreen = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 840
+
+    // 悬浮胶囊底栏的总占位高度，取自 miuix FloatingNavigationBar 的实现：
+    // 胶囊本体最小 52dp，外加底部留白（有系统导航条时 26dp + inset，否则 36dp）。
+    val floatingBarReserve = if (!isWideScreen && navBarStyle == "floating") {
+        val navInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        FLOATING_BAR_HEIGHT + (if (navInset > 0.dp) 26.dp + navInset else 36.dp)
+    } else {
+        0.dp
+    }
 
     // COURSES tab 副标题 + actions slot + bottomContent slot
     var courseSubtitle by remember { mutableStateOf("") }
     var courseHeaderActions by remember { mutableStateOf<(@Composable androidx.compose.foundation.layout.RowScope.() -> Unit)?>(null) }
     var courseHeaderBottomContent by remember { mutableStateOf<(@Composable () -> Unit)?>(null) }
 
+    // PIDAI tab 的标题与顶栏按钮。屁岱作为 0 级页不再自带 Scaffold/TopAppBar，
+    // 标题（助手名字可改）和「会话列表 / 设置」两个按钮由它反向送上来，
+    // 走的是 COURSES tab 已有的同一套 slot 机制。
+    var agentTitle by remember { mutableStateOf("屁岱") }
+    var agentHeaderActions by remember { mutableStateOf<(@Composable androidx.compose.foundation.layout.RowScope.() -> Unit)?>(null) }
+    var agentHeaderNavIcon by remember { mutableStateOf<(@Composable () -> Unit)?>(null) }
+
+    // ── 首页数据的主动拉取 ──
+    //
+    // 挂在 MainScreen 而不是 HomeTab：tab 是懒加载的（`composedTabs` 只在选中过之后才加），
+    // 而默认启动 Tab 允许设成日程/学辅/我的。挂在 HomeTab 上就意味着
+    // **用户不点一次首页，主动拉取一次都不会跑**——校园卡余额、成绩、图书馆状态全是空的，
+    // 依赖它们的屁岱提醒自然也永远不触发。
+    LaunchedEffect(loginState.accountId, loginState.campusCardCacheVersion) {
+        if (loginState.accountId.isEmpty()) return@LaunchedEffect
+        com.xjtu.toolbox.home.HomeStatsRefresher.refreshDue(
+            context,
+            loginState.sessionManager,
+            loginState.accountType,
+        )
+        com.xjtu.toolbox.home.HomeSignals.bumpStatsVersion()
+    }
+
+    // ── 屁岱主动提醒：只算文案，不管展示 ──
+    //
+    // 算完塞进 ProactiveBubbleHost，展示位是底栏正中那颗屁岱头顶的气泡。
+    // 数据全部读本地缓存，不为提醒额外发任何请求。
+    //
+    // 同样提到了 MainScreen 层，理由和上面那个循环一样。它早先还有过一次搬家：
+    // 原本长在首页「卡片主题」的 else 分支里，图标主题下永远不执行。
+    //
+    // 循环评估而不是只算一次：余额变化、临近上课、新成绩落盘都在运行期发生，
+    // 只在冷启动算一次的话表现就是"冒过一次以后再也不冒了"。
+    // 真正的节流交给 ProactiveRules.pick() 里的冷却判断。
+    LaunchedEffect(loginState.accountId, loginState.isLoggedIn) {
+        kotlinx.coroutines.delay(com.xjtu.toolbox.agent.ProactiveRules.FIRST_DELAY_MS)
+        val cardPrefs = com.xjtu.toolbox.card.CampusCardCache.cardPrefs(context)
+        while (true) {
+            // 余额直接读校园卡缓存，不再依赖首页把它算好递过来。
+            val balance = cardPrefs.getFloat("card_balance_cache", -1f)
+                .takeIf { it >= 0f }?.toDouble()
+            val focus = com.xjtu.toolbox.home.HomeSignals.scheduleReminder
+            val minutes = focus?.let {
+                java.time.Duration.between(java.time.LocalDateTime.now(), it.startAt).toMinutes()
+            }
+            // 成绩与通知由 HomeStatsRefresher 抓取后留下游标，这里只读不抓——
+            // 「一次抓取、两处消费」，气泡不为自己额外发请求。图书馆同理。
+            val pendingScores = com.xjtu.toolbox.home.HomeStats.pendingNewScores(context)
+            val unseenNotice = com.xjtu.toolbox.home.HomeStats.unseenNoticeTitle(context)
+            val libraryTodo = com.xjtu.toolbox.home.HomeSignals.libraryUrgentAction
+            val msg = com.xjtu.toolbox.agent.ProactiveRules.pick(
+                ctx = context,
+                balance = balance,
+                nextCourseName = focus?.name,
+                minutesToClass = minutes,
+                newGradeCount = pendingScores,
+                latestNotice = unseenNotice,
+                libraryPendingAction = libraryTodo,
+            )
+            android.util.Log.d(
+                "Proactive",
+                "evaluate: loggedIn=${loginState.isLoggedIn} balance=$balance " +
+                    "nextCourse=${focus?.name} minutes=$minutes " +
+                    "newScores=$pendingScores notice=${unseenNotice?.take(12)} " +
+                    "libraryTodo=$libraryTodo -> ${msg?.text ?: "无"}"
+            )
+            if (msg != null &&
+                com.xjtu.toolbox.agent.ProactiveBubbleHost.message == null &&
+                !com.xjtu.toolbox.agent.ProactiveBubbleHost.autoSuppressed
+            ) {
+                com.xjtu.toolbox.agent.ProactiveRules.markShown(context, msg)
+                // 冒过就消费掉，避免同一条反复提醒。冷却只管"多久不再说"，
+                // 不负责"这件事已经说过了"——两者混用会导致冷却一过又推一遍旧消息。
+                when (msg.id) {
+                    "grade" -> com.xjtu.toolbox.home.HomeStats.setPendingNewScores(context, 0)
+                    "notice" -> com.xjtu.toolbox.home.HomeStats.clearUnseenNotice(context)
+                }
+                com.xjtu.toolbox.agent.ProactiveBubbleHost.message = msg
+            }
+            kotlinx.coroutines.delay(com.xjtu.toolbox.agent.ProactiveRules.EVAL_INTERVAL_MS)
+        }
+    }
+
+    // 点屁岱：切到它的 tab，同时让它说句闲话。
+    // 两种底栏各渲染一次按钮，行为必须一致，所以提到这里共用一份。
+    // 待在屁岱这一页时不让它自动冒泡：人已经在跟它聊了，从底栏探头说闲话既遮输入框也很怪。
+    LaunchedEffect(selectedTab) {
+        com.xjtu.toolbox.agent.ProactiveBubbleHost.autoSuppressed = selectedTab == BottomTab.PIDAI
+    }
+
+    val onPidaiTap: () -> Unit = {
+        selectedTabOrdinal = BottomTab.PIDAI.ordinal
+        // 正事气泡（余额不足、要上课了）优先级高于闲话，不许被戳一下就顶掉。
+        val current = com.xjtu.toolbox.agent.ProactiveBubbleHost.message
+        if (current == null || current.id == com.xjtu.toolbox.agent.ProactiveRules.CHATTER_ID) {
+            com.xjtu.toolbox.agent.ProactiveRules.pickOnTap(context)?.let { line ->
+                com.xjtu.toolbox.agent.ProactiveRules.markTapped(context, line)
+                com.xjtu.toolbox.agent.ProactiveBubbleHost.message = line
+            }
+        }
+    }
+
+    // ── 屁岱主动提醒气泡 ──
+    //
+    // 挂在**底栏自己身上**，不再挂 Scaffold 内容层。上一版靠"底栏高度 = 项高 + 导航条 inset"
+    // 手算 offset，换成胶囊底栏就错位；而且内容层先于底栏绘制，气泡会被胶囊压住半截。
+    // 现在气泡和导航栏是同一个 Column 里的上下邻居——位置由布局自己得出，绘制层级也自然在最上。
+    //
+    // 气泡外面套了个"零高度"的 layout：照常测量、往上溢出绘制，但对外宣称高度为 0。
+    // 不这么做的话，气泡一出现就会把 bottomBar 撑高，Scaffold 重算 contentPadding，
+    // 整页内容跟着往上跳一下。
+    val proactiveBubbleSlot: @Composable () -> Unit = {
+        val msg = com.xjtu.toolbox.agent.ProactiveBubbleHost.message
+        if (msg != null) {
+            val screenWidth = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .layout { measurable, constraints ->
+                        val placeable = measurable.measure(constraints)
+                        layout(placeable.width, 0) { placeable.place(0, -placeable.height) }
+                    },
+                contentAlignment = Alignment.TopCenter,
+            ) {
+                com.xjtu.toolbox.agent.ProactiveBubbleView(
+                    message = msg,
+                    maxWidth = (screenWidth - 32.dp).coerceAtLeast(200.dp),
+                    onOpen = {
+                        com.xjtu.toolbox.agent.ProactiveRules.markUseful(context, msg.id)
+                        if (msg.prompt.isNotBlank()) {
+                            AgentPendingPrompt.set(msg.prompt)
+                        }
+                        com.xjtu.toolbox.agent.ProactiveBubbleHost.clear()
+                        selectedTabOrdinal = BottomTab.PIDAI.ordinal
+                    },
+                    onDismiss = {
+                        com.xjtu.toolbox.agent.ProactiveRules.markDismissed(context, msg.id)
+                        com.xjtu.toolbox.agent.ProactiveBubbleHost.clear()
+                    },
+                    onTimeout = { com.xjtu.toolbox.agent.ProactiveBubbleHost.clear() },
+                )
+            }
+        }
+    }
+
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = {
+            Box(Modifier.padding(bottom = floatingBarReserve)) {
+                SnackbarHost(snackbarHostState)
+            }
+        },
         topBar = {
+            // 屁岱和学辅这两页永远用折叠态标题。
+            // 大标题适合"一屏内容从头往下读"的页面；这两页一个是从下往上长的聊天、
+            // 一个标题本身就长（仲英学辅资料站），大标题只会挤占内容并随滚动忽大忽小。
+            // miuix 的 SmallTopAppBar 就是钉死在折叠态的版本。
+            if (selectedTab == BottomTab.PIDAI || selectedTab == BottomTab.TOOLS) {
+                val pidai = selectedTab == BottomTab.PIDAI
+                top.yukonga.miuix.kmp.basic.SmallTopAppBar(
+                    title = if (pidai) agentTitle else "仲英学辅资料站",
+                    color = MiuixTheme.colorScheme.surface,
+                    scrollBehavior = if (pidai) agentScrollBehavior else toolsScrollBehavior,
+                    navigationIcon = { if (pidai) agentHeaderNavIcon?.invoke() },
+                    actions = { if (pidai) agentHeaderActions?.invoke(this) },
+                )
+            } else {
             TopAppBar(
                 title = when (selectedTab) {
                     BottomTab.HOME -> "岱宗盒子"
                     BottomTab.COURSES -> "日程"
+                    BottomTab.PIDAI -> agentTitle
                     BottomTab.TOOLS -> "仲英学辅资料站"
                     BottomTab.PROFILE -> "我的"
                 },
                 largeTitle = when (selectedTab) {
                     BottomTab.HOME -> "岱宗盒子"
                     BottomTab.COURSES -> "日程"
+                    BottomTab.PIDAI -> agentTitle
                     BottomTab.TOOLS -> "仲英学辅资料站"
                     BottomTab.PROFILE -> "我的"
                 },
@@ -2280,12 +2459,32 @@ private fun MainScreen(
                 scrollBehavior = when (selectedTab) {
                     BottomTab.HOME -> homeScrollBehavior
                     BottomTab.COURSES -> coursesScrollBehavior
+                    BottomTab.PIDAI -> agentScrollBehavior
                     BottomTab.TOOLS -> toolsScrollBehavior
                     BottomTab.PROFILE -> profileScrollBehavior
+                },
+                navigationIcon = {
+                    // 屁岱左上角：会话列表（抽屉从左滑出，触发它的按钮就该在左边）
+                    if (selectedTab == BottomTab.PIDAI) {
+                        agentHeaderNavIcon?.invoke()
+                    }
+                    // 首页左上角：扫码登录入口
+                    if (selectedTab == BottomTab.HOME) {
+                        IconButton(onClick = { showQrLogin = true }) {
+                            Icon(
+                                androidx.compose.material.icons.Icons.Default.QrCodeScanner,
+                                contentDescription = "扫码登录",
+                                tint = MiuixTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
                 },
                 actions = {
                     if (selectedTab == BottomTab.COURSES) {
                         courseHeaderActions?.invoke(this)
+                    }
+                    if (selectedTab == BottomTab.PIDAI) {
+                        agentHeaderActions?.invoke(this)
                     }
                     // 首页全局搜索入口
                     if (selectedTab == BottomTab.HOME) {
@@ -2304,13 +2503,30 @@ private fun MainScreen(
                     }
                 }
             )
+            }
         },
         bottomBar = if (!isWideScreen && navBarStyle == "classic") {
             {
+              Column {
+                proactiveBubbleSlot()
                 NavigationBar(
                     mode = NavigationBarDisplayMode.IconAndText
                 ) {
+                    // 5 个 tab（miuix 两种底栏都支持 2–5 项），屁岱在正中。
+                    // 它和其他四个一样是 0 级页、一样切 selectedTab，只是**长得不一样**：
+                    // 渲染成会动的机器人而不是灰度线性图标 + 文字。
                     BottomTab.entries.forEach { tab ->
+                        if (tab == BottomTab.PIDAI) {
+                            com.xjtu.toolbox.agent.PidaiNavButton(
+                                onClick = onPidaiTap,
+                                excited = com.xjtu.toolbox.agent.ProactiveBubbleHost.message != null,
+                                selected = selectedTab == tab,
+                                diameter = 38.dp,
+                                liftUp = 8.dp,
+                                modifier = Modifier.weight(1f),
+                            )
+                            return@forEach
+                        }
                         NavigationBarItem(
                             selected = selectedTab == tab,
                             onClick = { selectedTabOrdinal = tab.ordinal },
@@ -2320,17 +2536,29 @@ private fun MainScreen(
                         )
                     }
                 }
+              }
             }
         } else {
             {}
         },
         floatingToolbar = if (!isWideScreen && navBarStyle == "floating") {
             {
+              Column {
+                proactiveBubbleSlot()
                 FloatingNavigationBar(
                     color = MiuixTheme.colorScheme.surfaceContainerHigh,
                     modifier = Modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(50)),
                 ) {
                     BottomTab.entries.forEach { tab ->
+                        if (tab == BottomTab.PIDAI) {
+                            com.xjtu.toolbox.agent.PidaiNavButton(
+                                onClick = onPidaiTap,
+                                excited = com.xjtu.toolbox.agent.ProactiveBubbleHost.message != null,
+                                selected = selectedTab == tab,
+                                diameter = 40.dp,
+                            )
+                            return@forEach
+                        }
                         FloatingNavigationBarItem(
                             selected = selectedTab == tab,
                             onClick = { selectedTabOrdinal = tab.ordinal },
@@ -2340,6 +2568,7 @@ private fun MainScreen(
                         )
                     }
                 }
+              }
             }
         } else {
             {}
@@ -2361,6 +2590,8 @@ private fun MainScreen(
                 expandContentDescription = "展开导航栏",
                 collapseContentDescription = "收起导航栏"
             ) {
+                // 侧栏不做特殊造型：宽屏没有"底栏正中"这个位置，硬塞一颗机器人只会破坏
+                // 侧栏的等距节奏。这里退回成普通条目，保证宽屏也进得去屁岱。
                 BottomTab.entries.forEach { tab ->
                     top.yukonga.miuix.kmp.basic.NavigationRailItem(
                         selected = selectedTab == tab,
@@ -2383,6 +2614,10 @@ private fun MainScreen(
             val onNavigateWithNetCheck: (String) -> Unit = { route ->
                 if (route == Routes.SCHEDULE) {
                     switchToTab(BottomTab.COURSES)
+                } else if (route == Routes.AGENT) {
+                    // 屁岱现在是 0 级 tab，没网也能进（进去看到的是空对话 + 提示），
+                    // 不该像子页那样被联网检查拦在门外。
+                    switchToTab(BottomTab.PIDAI)
                 } else if (route in networkRequiredRoutes) {
                     val cm2 = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
                     val online = cm2?.activeNetwork != null && cm2.getNetworkCapabilities(cm2.activeNetwork)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
@@ -2469,7 +2704,23 @@ private fun MainScreen(
                                         onBulletinTap = onHeroBulletinTap,
                                         onBulletinDismiss = onHeroBulletinDismiss,
                                     )
-                                    BottomTab.COURSES -> CoursesTab(loginState, ::navigateWithLogin, onNavigateWithNetCheck, scrollBehavior = coursesScrollBehavior, navBarStyle = navBarStyle, onSubtitleChange = { courseSubtitle = it }, onActionsChange = { courseHeaderActions = it }, onBottomContentChange = { courseHeaderBottomContent = it })
+                                    BottomTab.PIDAI -> com.xjtu.toolbox.agent.AgentScreen(
+                                        // 悬浮胶囊底栏是**浮在内容上**的，不占 Scaffold 的
+                                        // contentPadding。别的 tab 是滚动列表，底部被盖住无所谓；
+                                        // 屁岱有个钉在底边的输入栏，不补这段高度就会被胶囊压住。
+                                        // 经典底栏本身占位，无需额外补。
+                                        extraBottomPadding = floatingBarReserve,
+                                        hostBottomPadding = padding.calculateBottomPadding(),
+                                        // 0 级页：不自带 Scaffold/TopAppBar，也没有返回箭头。
+                                        // 返回键的语义由 MainScreen 统一管（非首页 tab → 回首页）。
+                                        asTab = true,
+                                        scrollBehavior = agentScrollBehavior,
+                                        onTitleChange = { agentTitle = it },
+                                        onActionsChange = { agentHeaderActions = it },
+                                        onNavIconChange = { agentHeaderNavIcon = it },
+                                        onNavigate = onNavigateWithNetCheck,
+                                    )
+                                    BottomTab.COURSES -> CoursesTab(loginState, ::navigateWithLogin, onNavigateWithNetCheck, scrollBehavior = coursesScrollBehavior, extraBottomPadding = floatingBarReserve, onSubtitleChange = { courseSubtitle = it }, onActionsChange = { courseHeaderActions = it }, onBottomContentChange = { courseHeaderBottomContent = it })
                                     BottomTab.TOOLS -> ToolsTab(loginState, ::navigateWithLogin, onNavigateWithNetCheck, scrollBehavior = toolsScrollBehavior, navBarStyle = navBarStyle)
                                     BottomTab.PROFILE -> ProfileTab(
                                         loginState,
@@ -2479,6 +2730,7 @@ private fun MainScreen(
                                         scrollBehavior = profileScrollBehavior,
                                         onNavigateToDownloads = { navController.navigate(Routes.DOWNLOAD_MANAGER) },
                                         onNavigateToSettings = { navController.navigate(Routes.SETTINGS) { launchSingleTop = true } },
+                                        onNavigateToFeedback = { navController.navigate(Routes.FEEDBACK) { launchSingleTop = true } },
                                         onNavigateToAccounts = { navController.navigate(com.xjtu.toolbox.Routes.ACCOUNTS) { launchSingleTop = true } },
                                         navBarStyle = navBarStyle,
                                         onWarmupRequest = onWarmupRequest
@@ -2550,6 +2802,10 @@ private fun MainScreen(
                     )
                 }
             }
+
+            com.xjtu.toolbox.feedback.FeedbackPromptSheet(
+                onOpenFeedback = { navController.navigate(Routes.FEEDBACK) },
+            )
 
             // ── 新会话架构 MFA 对话框（来自 SessionManager.askMfaCode）──
             val sessionMfaState = loginState.sessionManager?.activeMfaRequest?.collectAsState()
@@ -2674,9 +2930,17 @@ private fun MainScreen(
             onAskAgent = { prompt ->
                 showGlobalSearch = false
                 AgentPendingPrompt.set(prompt)
-                navController.navigate(Routes.AGENT) { launchSingleTop = true }
+                switchToTab(BottomTab.PIDAI)
             },
             accountType = loginState.accountType,
+        )
+    }
+
+    // 扫码登录覆盖层（首页左上角入口）
+    if (showQrLogin) {
+        com.xjtu.toolbox.qrlogin.QrLoginScreen(
+            sessionManager = accountManager.sessionManager,
+            onBack = { showQrLogin = false },
         )
     }
 }
@@ -3272,6 +3536,10 @@ private fun HomeTab(
         scheduleReminderState = loadedFocus.first
         currentWeekNumber = loadedFocus.second
         isScheduleReminderLoaded = true
+        // 提醒评估在 MainScreen 层跑，够不到这里的状态，用共享信号带过去。
+        com.xjtu.toolbox.home.HomeSignals.scheduleReminder = loadedFocus.first?.let {
+            com.xjtu.toolbox.home.HomeSignals.ScheduleFocus(it.name, it.startAt)
+        }
     }
 
     Column(
@@ -3474,7 +3742,6 @@ private fun HomeTab(
             Routes.FITNESS to Icons.AutoMirrored.Filled.DirectionsRun,
             Routes.YELLOW_PAGE to Icons.Default.ContactPhone,
             Routes.WEBVPN_CONVERTER to Icons.Default.VpnKey,
-            Routes.MOBILE_JIAODA to Icons.Default.PhoneAndroid,
             Routes.JIAOXIAOZHI to Icons.Default.AutoAwesome,
             Routes.AGENT to Icons.Default.SmartToy,
         )
@@ -3559,12 +3826,6 @@ private fun HomeTab(
             else -> {
                 val usedKeys = mutableSetOf<String>()
 
-                // ── 屁岱主动提醒 ──
-                // 数据全部取自本地缓存与 Hero 已算好的日程，不为提醒额外发请求。
-                var proactiveMessage by remember {
-                    mutableStateOf<com.xjtu.toolbox.agent.ProactiveMessage?>(null)
-                }
-
                 val quickCandidateKeys = listOf(
                     Routes.CAMPUS_CARD,
                     Routes.EMPTY_ROOM,
@@ -3579,17 +3840,16 @@ private fun HomeTab(
                 ).filterNot { it in usedKeys }
                 val quickKeys = if (showQuickActions && quickCandidateKeys.isNotEmpty()) {
                     remember(quickCandidateKeys) {
-                        // 屁岱**钉死在第 0 位**：它是主动提醒气泡的锚点，位置必须稳定，
-                        // 否则气泡会跟着频率排序左右横跳。做法是先把它从频率候选里剔除，
-                        // 再单独插到最前——直接参与排序的话，用得少时会被挤掉。
-                        val rest = com.xjtu.toolbox.util.ServiceUsageTracker.topKeys(
+                        // 屁岱曾经被钉死在第 0 位，为的是给主动提醒气泡一个稳定锚点。
+                        // 现在气泡改挂底栏正中的屁岱按钮上，这里就没有理由再搞特殊了——
+                        // 它回到频率排序里正常参与竞争，四格全部按使用频率给。
+                        com.xjtu.toolbox.util.ServiceUsageTracker.topKeys(
                             ctx,
-                            quickCandidateKeys.filterNot { it == Routes.AGENT },
-                            n = 3,
+                            quickCandidateKeys,
+                            n = 4,
                             fallback = listOf(Routes.CAMPUS_CARD, Routes.EMPTY_ROOM, Routes.NOTIFICATION)
                                 .filter { it in quickCandidateKeys } + quickCandidateKeys
-                        ).filter { it in quickCandidateKeys && it != Routes.AGENT }.distinct().take(3)
-                        listOf(Routes.AGENT) + rest
+                        ).filter { it in quickCandidateKeys }.distinct().take(4)
                     }
                 } else {
                     emptyList()
@@ -3599,55 +3859,24 @@ private fun HomeTab(
                     // 不再把快捷入口从下方分类里剔除：「常用功能」是**额外**多一个入口，
                     // 不是把功能搬走。原来会 usedKeys += 之后在分类里过滤掉，
                     // 表现为"某个功能从它所属的分类里凭空消失了"，找不到。
+                    // 气泡搬走后这里不再需要测量图标坐标，整块退回成一个朴素的等分 Row。
                     Column(Modifier.padding(horizontal = 16.dp)) {
                         HomeSectionHeader("常用功能", Modifier.padding(start = 4.dp, bottom = 12.dp))
-                        Box(Modifier.fillMaxWidth()) {
-                            Row(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .squircleClip(CARD_RADIUS)
-                                    .background(AppCardColor)
-                                    .padding(vertical = 10.dp),
-                            ) {
-                                quickShown.forEach { service ->
-                                    HomeQuickAction(
-                                        service.icon,
-                                        service.title,
-                                        service.color,
-                                        onClick = trackedAction(service),
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                }
-                            }
-                            // 主动提醒气泡：锚在第 0 个入口（钉死的屁岱）正上方，尖角朝下。
-                            //
-                            // 气泡左对齐，由**尖角位置**去对准图标，而不是移动整个气泡。
-                            // 居中到第 0 格会溢出：那格中心距左边仅约 1/8 屏宽，装不下 260dp。
-                            // 尖角横向偏移按锚点真实中心算：SpaceEvenly 下第 i 格中心为
-                            // 宽度 × (2i+1) / 2n，第 0 格即 宽度 / 2n。
-                            // 这样加减快捷入口或换屏幕宽度都不会跑偏。
-                            proactiveMessage?.let { msg ->
-                                BoxWithConstraints(
-                                    Modifier.fillMaxWidth().offset(y = (-52).dp),
-                                    contentAlignment = Alignment.TopStart
-                                ) {
-                                    val anchorCenter = maxWidth / (2 * quickShown.size)
-                                    com.xjtu.toolbox.agent.ProactiveBubbleView(
-                                        message = msg,
-                                        onOpen = {
-                                            com.xjtu.toolbox.agent.ProactiveRules.markUseful(ctx, msg.id)
-                                            com.xjtu.toolbox.agent.AgentPendingPrompt.set(msg.prompt)
-                                            proactiveMessage = null
-                                            onNavigate(Routes.AGENT)
-                                        },
-                                        onDismiss = {
-                                            com.xjtu.toolbox.agent.ProactiveRules.markDismissed(ctx, msg.id)
-                                            proactiveMessage = null
-                                        },
-                                        onTimeout = { proactiveMessage = null },
-                                        arrowFromStart = anchorCenter,
-                                    )
-                                }
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .squircleClip(CARD_RADIUS)
+                                .background(AppCardColor)
+                                .padding(vertical = 10.dp),
+                        ) {
+                            quickShown.forEach { service ->
+                                HomeQuickAction(
+                                    service.icon,
+                                    service.title,
+                                    service.color,
+                                    onClick = trackedAction(service),
+                                    modifier = Modifier.weight(1f),
+                                )
                             }
                         }
                     }
@@ -3669,48 +3898,15 @@ private fun HomeTab(
                 // （详见 HomeStats）。拿不到就是 null，该功能退回纯入口。
                 val statsCtx = LocalContext.current
 
-                // 循环评估：只在冷启动算一次的话，回到首页、余额变化、临近上课都不会再触发，
-                // 表现就是"冒过一次以后再也不冒了"。真正的节流交给 pick() 里的冷却判断。
-                LaunchedEffect(loginState.accountId, loginState.isLoggedIn) {
-                    if (!loginState.isLoggedIn) return@LaunchedEffect
-                    kotlinx.coroutines.delay(com.xjtu.toolbox.agent.ProactiveRules.FIRST_DELAY_MS)
-                    while (true) {
-                    val minutes = scheduleReminderState?.let {
-                        java.time.Duration.between(java.time.LocalDateTime.now(), it.startAt).toMinutes()
-                    }
-                    // 成绩与通知由 HomeStatsRefresher 抓取后留下游标，这里只读不抓——
-                    // 「一次抓取、两处消费」，气泡不为自己额外发请求。
-                    val pendingScores = com.xjtu.toolbox.home.HomeStats.pendingNewScores(statsCtx)
-                    val unseenNotice = com.xjtu.toolbox.home.HomeStats.unseenNoticeTitle(statsCtx)
-                    val msg = com.xjtu.toolbox.agent.ProactiveRules.pick(
-                        ctx = statsCtx,
-                        balance = cachedBalance.takeIf { it >= 0f }?.toDouble(),
-                        nextCourseName = scheduleReminderState?.name,
-                        minutesToClass = minutes,
-                        newGradeCount = pendingScores,
-                        latestNotice = unseenNotice,
-                    )
-                    android.util.Log.d(
-                        "Proactive",
-                        "evaluate: loggedIn=${loginState.isLoggedIn} balance=$cachedBalance " +
-                            "nextCourse=${scheduleReminderState?.name} minutes=$minutes " +
-                            "newScores=$pendingScores notice=${unseenNotice?.take(12)} -> ${msg?.text ?: "无"}"
-                    )
-                    if (msg != null && proactiveMessage == null) {
-                        com.xjtu.toolbox.agent.ProactiveRules.markShown(statsCtx, msg.id)
-                        // 冒过就消费掉，避免同一条反复提醒。冷却只管"多久不再说"，
-                        // 不负责"这件事已经说过了"——两者混用会导致冷却一过又推一遍旧消息。
-                        when (msg.id) {
-                            "grade" -> com.xjtu.toolbox.home.HomeStats.setPendingNewScores(statsCtx, 0)
-                            "notice" -> com.xjtu.toolbox.home.HomeStats.clearUnseenNotice(statsCtx)
-                        }
-                        proactiveMessage = msg
-                    }
-                    kotlinx.coroutines.delay(com.xjtu.toolbox.agent.ProactiveRules.EVAL_INTERVAL_MS)
-                    }
-                }
                 var homeStats by remember { mutableStateOf<Map<String, com.xjtu.toolbox.home.HomeStat>>(emptyMap()) }
-                LaunchedEffect(loginState.accountId, loginState.campusCardCacheVersion) {
+                // 只负责**读**，不再自己触发刷新——那一步已经提到 MainScreen 层，
+                // 好让它与"用户有没有点过首页"解耦。这里跟着 statsVersion 走：
+                // MainScreen 每跑完一轮就自增，于是首页拿到的永远是刚落盘的那份。
+                LaunchedEffect(
+                    loginState.accountId,
+                    loginState.campusCardCacheVersion,
+                    com.xjtu.toolbox.home.HomeSignals.statsVersion,
+                ) {
                     val term = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                         runCatching {
                             val dc = com.xjtu.toolbox.util.DataCache(statsCtx)
@@ -3720,14 +3916,10 @@ private fun HomeTab(
                         }.getOrNull()
                     }
                     homeStats = com.xjtu.toolbox.home.HomeStats.collect(statsCtx, term)
-                    // 再跑一轮主动刷新：只拉过期的源，源之间串行留间隔（见 HomeStatsRefresher），
-                    // 拉完重新读一次缓存把新值显示出来。全程静默，失败不打扰用户。
-                    com.xjtu.toolbox.home.HomeStatsRefresher.refreshDue(
-                        statsCtx,
-                        loginState.sessionManager,
-                        loginState.accountType,
-                    )
-                    homeStats = com.xjtu.toolbox.home.HomeStats.collect(statsCtx, term)
+                    // 校园卡由 refresher 写进 CampusCardCache 的 prefs，不经过 homeStats，
+                    // 所以要单独重读一次，否则 Hero 区的余额要等到下次账号切换才更新。
+                    cachedBalance = cardPrefs.getFloat("card_balance_cache", -1f)
+                    cachedTodaySpend = cardPrefs.getFloat("card_today_spend_cache", -1f)
                 }
 
                 val statOf: (String) -> Pair<String, String?>? = { key ->
@@ -3789,12 +3981,11 @@ private fun CoursesTab(
     onNavigateWithLogin: (String, LoginType) -> Unit,
     onNavigate: (String) -> Unit = {},
     scrollBehavior: ScrollBehavior? = null,
-    navBarStyle: String = "floating",
+    extraBottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
     onSubtitleChange: (String) -> Unit = {},
     onActionsChange: ((@Composable androidx.compose.foundation.layout.RowScope.() -> Unit)?) -> Unit = {},
     onBottomContentChange: ((@Composable () -> Unit)?) -> Unit = {},
 ) {
-    val bottomReserve = if (navBarStyle == "floating") 96.dp else 0.dp
     Box(
         Modifier
             .fillMaxSize()
@@ -3808,7 +3999,7 @@ private fun CoursesTab(
             onSubtitleChange = onSubtitleChange,
             onActionsChange = onActionsChange,
             onBottomContentChange = onBottomContentChange,
-            contentBottomPadding = bottomReserve,
+            contentBottomPadding = extraBottomPadding,
         )
     }
 }
@@ -3835,6 +4026,12 @@ private fun ToolsTab(
     var loadError by remember { mutableStateOf<String?>(null) }
     val ctx = LocalContext.current
     val dlScope = rememberCoroutineScope()
+    val isDark = LocalIsDarkTheme.current
+    val darkState = rememberUpdatedState(isDark)
+
+    LaunchedEffect(isDark, webViewRef) {
+        webViewRef?.let { WebViewNightMode.apply(it, isDark) }
+    }
 
     // blob: 下载桥。
     //
@@ -3957,6 +4154,7 @@ private fun ToolsTab(
                                 """.trimIndent(),
                                 null
                             )
+                            view?.let { WebViewNightMode.apply(it, darkState.value) }
                         }
                         override fun onReceivedError(
                             view: android.webkit.WebView?,
@@ -4134,7 +4332,6 @@ private fun ToolsTab(
 @Composable
 private fun ProfileInfoCard(p: com.xjtu.toolbox.hello.HelloProfile) {
     var expanded by rememberSaveable { mutableStateOf(false) }
-    val summary = p.professionName.ifBlank { p.departmentName }.ifBlank { p.className }
     Card(
         modifier = Modifier.fillMaxWidth(),
         cornerRadius = 20.dp,
@@ -4156,14 +4353,6 @@ private fun ProfileInfoCard(p: com.xjtu.toolbox.hello.HelloProfile) {
                     contentDescription = if (expanded) "收起" else "展开",
                     tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.size(22.dp)
-                )
-            }
-            if (!expanded && summary.isNotBlank()) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    summary,
-                    style = MiuixTheme.textStyles.body2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                 )
             }
             AnimatedVisibility(visible = expanded) {
@@ -4274,6 +4463,7 @@ private fun ProfileTab(
     scrollBehavior: ScrollBehavior? = null,
     onNavigateToDownloads: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
+    onNavigateToFeedback: () -> Unit = {},
     onNavigateToAccounts: () -> Unit = {},
     navBarStyle: String = "floating",
     onWarmupRequest: () -> Unit = {}
@@ -4298,6 +4488,29 @@ private fun ProfileTab(
     var helloAvatar by remember {
         mutableStateOf(com.xjtu.toolbox.hello.HelloProfileStore.cachedAvatar(ctx))
     }
+    // ── 自定义头像 ──
+    // 默认仍是学工证件照，用户点头像可换成自己的图；换完只刷新这一处 state，不动档案缓存。
+    var showAvatarSheet by remember { mutableStateOf(false) }
+    var hasCustomAvatar by remember {
+        mutableStateOf(com.xjtu.toolbox.hello.HelloProfileStore.hasCustomAvatar(ctx))
+    }
+    var avatarSaving by remember { mutableStateOf(false) }
+    val avatarPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        avatarSaving = true
+        scope.launch {
+            val ok = com.xjtu.toolbox.hello.HelloProfileStore.saveCustomAvatar(ctx, uri)
+            if (ok) {
+                helloAvatar = com.xjtu.toolbox.hello.HelloProfileStore.cachedAvatar(ctx)
+                hasCustomAvatar = true
+            }
+            avatarSaving = false
+            showAvatarSheet = false
+        }
+    }
+
     LaunchedEffect(loginState.isLoggedIn, loginState.activeUsername) {
         if (!loginState.isLoggedIn) {
             helloProfile = null
@@ -4307,6 +4520,7 @@ private fun ProfileTab(
         // 切账号后缓存目录随之变化，这里重新读一次本账号的
         helloProfile = com.xjtu.toolbox.hello.HelloProfileStore.cached(ctx)
         helloAvatar = com.xjtu.toolbox.hello.HelloProfileStore.cachedAvatar(ctx)
+        hasCustomAvatar = com.xjtu.toolbox.hello.HelloProfileStore.hasCustomAvatar(ctx)
         com.xjtu.toolbox.hello.HelloProfileStore
             .ensure(ctx, loginState.sessionManager)
             ?.let {
@@ -4384,6 +4598,52 @@ private fun ProfileTab(
                         .ensure(ctx, loginState.sessionManager, force = true)
                     helloAvatar = com.xjtu.toolbox.hello.HelloProfileStore.cachedAvatar(ctx)
                 } catch (_: Exception) { }
+            }
+        }
+    }
+
+    // ── 换头像弹窗 ──
+    if (showAvatarSheet) {
+        BackHandler { if (!avatarSaving) showAvatarSheet = false }
+        OverlayDialog(
+            show = true,
+            title = "更换头像",
+            summary = if (hasCustomAvatar) "当前使用自定义头像。可重新选择，或恢复为学工系统证件照。"
+                      else "默认使用学工系统证件照，可换成自己的图片。",
+            onDismissRequest = { if (!avatarSaving) showAvatarSheet = false }
+        ) {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                TextButton(
+                    text = if (avatarSaving) "处理中..." else "从相册选择",
+                    onClick = {
+                        if (!avatarSaving) {
+                            avatarPicker.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.textButtonColorsPrimary()
+                )
+                if (hasCustomAvatar) {
+                    TextButton(
+                        text = "恢复默认头像",
+                        onClick = {
+                            if (!avatarSaving) {
+                                com.xjtu.toolbox.hello.HelloProfileStore.clearCustomAvatar(ctx)
+                                helloAvatar = com.xjtu.toolbox.hello.HelloProfileStore.cachedAvatar(ctx)
+                                hasCustomAvatar = false
+                                showAvatarSheet = false
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                TextButton(
+                    text = "取消",
+                    onClick = { if (!avatarSaving) showAvatarSheet = false },
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
     }
@@ -4494,8 +4754,14 @@ private fun ProfileTab(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     // Avatar：登录后显示姓名首字母，未登录显示通用 Icon
+                    // 点头像 = 换头像；点头像以外的区域仍是进账号管理（内层 clickable 会吃掉事件）
                     Surface(
-                        modifier = Modifier.size(72.dp),
+                        modifier = Modifier
+                            .size(72.dp)
+                            .then(
+                                if (loginState.isLoggedIn) Modifier.clickable { showAvatarSheet = true }
+                                else Modifier
+                            ),
                         shape = CircleShape,
                         color = MiuixTheme.colorScheme.primary
                     ) {
@@ -4527,12 +4793,19 @@ private fun ProfileTab(
                                 fontWeight = FontWeight.Bold
                             )
                             Spacer(Modifier.height(2.dp))
-                            // 学号。班级/专业放在下面学籍卡里，这里不再重复。
                             Text(
                                 loginState.activeUsername,
                                 style = MiuixTheme.textStyles.body2,
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                             )
+                            helloProfile?.professionName?.takeIf { it.isNotBlank() }?.let { major ->
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    major,
+                                    style = MiuixTheme.textStyles.footnote1,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                                )
+                            }
                         } else {
                             Text("岱宗盒子", style = MiuixTheme.textStyles.title2, fontWeight = FontWeight.Bold)
                             Text("登录以使用全部功能", style = MiuixTheme.textStyles.body1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
@@ -4655,6 +4928,56 @@ private fun ProfileTab(
                             textAlign = TextAlign.Center,
                             modifier = Modifier.fillMaxWidth()
                         )
+                    }
+                }
+
+                Spacer(Modifier.height(16.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    cornerRadius = 20.dp,
+                    colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
+                ) {
+                    Column {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .pressOverlay { onNavigateToSettings() }
+                                .padding(horizontal = 20.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(shape = CircleShape, color = MiuixTheme.colorScheme.primary.copy(alpha = 0.1f), modifier = Modifier.size(36.dp)) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.Settings, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.primary)
+                                }
+                            }
+                            Spacer(Modifier.width(14.dp))
+                            Text("设置", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f))
+                        }
+                        HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MiuixTheme.colorScheme.outline.copy(alpha = 0.3f))
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .pressOverlay { onNavigateToFeedback() }
+                                .padding(horizontal = 20.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(shape = CircleShape, color = MiuixTheme.colorScheme.primary.copy(alpha = 0.1f), modifier = Modifier.size(36.dp)) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Outlined.ChatBubbleOutline, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.primary)
+                                }
+                            }
+                            Spacer(Modifier.width(14.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text("反馈与建议", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium)
+                                Text(
+                                    "说说哪儿不好用，或想加什么",
+                                    style = MiuixTheme.textStyles.footnote2,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                                )
+                            }
+                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f))
+                        }
                     }
                 }
             }
@@ -4788,6 +5111,32 @@ private fun ProfileTab(
                             }
                             Spacer(Modifier.width(14.dp))
                             Text("设置", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f))
+                        }
+
+                        HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MiuixTheme.colorScheme.outline.copy(alpha = 0.3f))
+
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .pressOverlay { onNavigateToFeedback() }
+                                .padding(horizontal = 20.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(shape = CircleShape, color = MiuixTheme.colorScheme.primary.copy(alpha = 0.1f), modifier = Modifier.size(36.dp)) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Outlined.ChatBubbleOutline, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.primary)
+                                }
+                            }
+                            Spacer(Modifier.width(14.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text("反馈与建议", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium)
+                                Text(
+                                    "说说哪儿不好用，或想加什么",
+                                    style = MiuixTheme.textStyles.footnote2,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                                )
+                            }
                             Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f))
                         }
 
@@ -5273,6 +5622,8 @@ private fun HomeQuickAction(
             )
             .padding(horizontal = 8.dp, vertical = 8.dp)
     ) {
+        // 唯一的调用方是首页「常用功能」，气泡搬到底栏后这里不再需要向外报告图标坐标，
+        // 那个 onIconGloballyPositioned 参数已随之删掉。
         ExpressiveIcon(icon = icon, color = color)
         Spacer(Modifier.height(8.dp))
         Text(label, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium)
@@ -5847,10 +6198,6 @@ private fun siteKeyForBrowserUrl(url: String): String {
         .getOrDefault("")
     return when {
         "assistant.xjtu.edu.cn" in host -> "jiaoxiaozhi"
-        "superapp.xjtu.edu.cn" in host ||
-            "transaction-service.xjtu.edu.cn" in host ||
-            "message-service.xjtu.edu.cn" in host ||
-            "reservation-service.xjtu.edu.cn" in host -> "super_app"
         "tyxylp.xjtu.edu.cn" in host -> "fitness"
         "rg.lib.xjtu.edu.cn" in host -> "library"
         "jwapp.xjtu.edu.cn" in host -> "jwapp"

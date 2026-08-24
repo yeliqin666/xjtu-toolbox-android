@@ -1,0 +1,51 @@
+name: 校园系统状态
+description: 学校某系统挂了、在维护、已恢复——热心同学用来通知大家，不是报盒子自己的 Bug
+title: "[系统] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        盒子能连上，但学校那边异常时，用这一张表。维护者会改成应用内公告。
+
+        盒子闪退、页面错乱请走「缺陷反馈」。不要贴密码、验证码、Cookie、完整学号。
+  - type: dropdown
+    id: system
+    attributes:
+      label: 哪个系统
+      options:
+        - 统一认证 / CAS / 扫码登录
+        - WebVPN / 校外访问
+        - 教务（课表、成绩、考试、评教）
+        - 校园卡 / 消费
+        - 图书馆
+        - 思源学堂
+        - 电费 / 水控
+        - 其它（下面写清）
+    validations:
+      required: true
+  - type: dropdown
+    id: status
+    attributes:
+      label: 现在怎样
+      options:
+        - 打不开 / 一直转圈 / 报错
+        - 学校公告维护中
+        - 部分功能不行（请在下面写清）
+        - 已经恢复，可以撤提示了
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 你怎么确认的
+      description: 大致时间、校内还是校外、网页和盒子是否一样。有官方维护通知可以贴链接，不要贴自己的登录过程。
+      placeholder: |
+        例如：今晚 18:30 起校外 WebVPN 进教务 502，校内网页同样进不去
+        例如：信息化通知说统一认证今晚检修到 22:00
+    validations:
+      required: true
+  - type: textarea
+    id: suggest
+    attributes:
+      label: 希望大家看到什么（可选）
+      placeholder: 一两句人话即可，文案和维护者一起定。没有就空着。

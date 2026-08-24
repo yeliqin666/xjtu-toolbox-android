@@ -17,7 +17,6 @@ enum class LoginType(val label: String, val description: String) {
     LMS("思源学堂", "课程 · 作业 · 回放"),
     JIAOCAI("教材中心", "教材查询"),
     COUPON("加餐券", "电子券 · 余额与有效期"),
-    SUPER_APP("移动交大", "校园移动门户"),
     FITNESS("体测查询", "体质健康测试成绩"),
     JIAOXIAOZHI("交晓智", "校园官方智能问答服务"),
     ICLASSFACE("快速考勤流水", "今日签到/刷卡记录快速查询")

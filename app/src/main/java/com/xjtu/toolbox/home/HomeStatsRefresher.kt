@@ -26,7 +26,15 @@ import kotlinx.coroutines.withContext
  * ## 三条硬约束
  *
  * 1. **不与登录风控冲突**：每个源之间强制 [GAP_MS] 间隔串行执行，绝不并发登录。
- *    CAS 侧的全局串行/失败退避由 `CasGate` 兜底，这里只保证不主动制造并发洪峰。
+ *    并且与 `CasGate` 双向对齐（此前是各管各的）：
+ *    - 开跑前先问 [CasGate.blockedReason]，被挡就**整轮不跑**。原来不问，
+ *      于是熔断期间十个源挨个去撞公平锁、每个等满 4 秒，最后全部失败——
+ *      既拖时间又把失败时间戳写了一地。
+ *    - 单源抛出闸门类异常（退避 / 站点冷却 / 密码失效）时**不算这个源失败**，
+ *      不写重试戳并立即中止整轮：这不是源的问题，后面的源同样过不去。
+ * 1.5 **后台一律静默登录**（`silent = true`）：撞上短信验证直接跳过。
+ *    此前用的是默认 silent=false，也就是说首页在后台刷新时**可能弹出 MFA 对话框、
+ *    给用户发一条他没要过的验证码短信**。
  * 2. **按源分级 TTL**：评教/体测一周一次，考勤两天一次，打开即时的（快速流水、
  *    图书馆座位）TTL 为 0 —— 由各自页面自行触发，不在这里定时拉。
  * 3. **静默失败**：任何一个源失败都不影响其他源，也不弹任何提示。首页状态是锦上添花，
@@ -171,6 +179,61 @@ object HomeStatsRefresher {
             }
         },
 
+        // 校园卡：30 分钟一次。
+        //
+        // 收编进来之前，校园卡走的是 MainActivity 里一条完全独立的路：只在 ON_RESUME、
+        // 且 `getSiteOrNull("campus_card")?.hasLogin == true` 时才刷——**从不主动登录**。
+        // 后果是只要用户没手动进过校园卡页，余额缓存永远是空的，
+        // 首页余额位常年空白，屁岱那条"余额不足"提醒也永远触发不了（balance 恒为 null）。
+        // 收进来后自动获得串行、间隔、失败退避、冷启动重试这一整套。
+        Source(Routes.CAMPUS_CARD, 30 * 60 * 1000L, LoginType.CAMPUS_CARD) { ctx, site ->
+            site ?: return@Source null
+            withContext(Dispatchers.IO) {
+                val ok = com.xjtu.toolbox.refreshCampusCardCache(ctx, site)
+                if (!ok) return@withContext null
+                val prefs = com.xjtu.toolbox.card.CampusCardCache.cardPrefs(ctx)
+                val balance = prefs.getFloat("card_balance_cache", -1f)
+                if (balance < 0f) return@withContext null
+                val spend = prefs.getFloat("card_today_spend_cache", -1f)
+                Log.d(TAG, "campus_card: balance=$balance todaySpend=$spend")
+                HomeStat(
+                    "¥%.2f".format(balance),
+                    if (spend > 0f) "今日已花 ¥%.2f".format(spend) else "余额",
+                )
+            }
+        },
+
+        // 图书馆：15 分钟一次。
+        //
+        // TTL 比别的源短，因为这里的状态**是有时效的**——"待入馆"要在限定时间内签到，
+        // "临时离馆"超时会被释放座位。半小时才刷一次的话，等首页显示出来往往已经过期了。
+        Source(Routes.LIBRARY, 15 * 60 * 1000L, LoginType.LIBRARY) { _, site ->
+            site ?: return@Source null
+            withContext(Dispatchers.IO) {
+                val b = com.xjtu.toolbox.library.LibraryApi(site).getMyBooking()
+                if (b == null) {
+                    HomeSignals.libraryUrgentAction = null
+                    return@withContext null
+                }
+                // 待办判据取归一化后的操作按钮，不去猜状态文本（那是页面原文）。
+                HomeSignals.libraryUrgentAction = b.actionUrls.keys
+                    .firstOrNull { it in com.xjtu.toolbox.library.LibraryApi.URGENT_ACTIONS }
+                Log.d(
+                    TAG,
+                    "library: seat=${b.seatId} area=${b.area} status=${b.statusText} " +
+                        "actions=${b.actionUrls.keys} urgent=${HomeSignals.libraryUrgentAction}",
+                )
+                // 首页这两行照搬图书馆页「当前预约」卡片的排版：主行座位号，副行「区域 · 状态」。
+                HomeStat(
+                    b.seatId?.takeIf { it.isNotBlank() } ?: "已预约",
+                    listOfNotNull(
+                        b.area?.takeIf { it.isNotBlank() },
+                        b.statusText?.takeIf { it.isNotBlank() },
+                    ).joinToString(" · ").ifBlank { null },
+                )
+            }
+        },
+
         // 教务通知：来源跟用户在设置里勾的一致，小组件和系统通知共用。
         // 不需要登录，4 小时一次；真正抓取和去重交给 NoticeWatchSync。
         Source(Routes.NOTIFICATION, 4 * 60 * 60 * 1000L, null) { ctx, _ ->
@@ -295,6 +358,11 @@ object HomeStatsRefresher {
             return
         }
         try {
+            // 闸门在熔断/退避里就整轮别跑。不写任何时间戳，等它放行后下一次进首页照常重试。
+            com.xjtu.toolbox.auth.CasGate.blockedReason()?.let { why ->
+                Log.d(TAG, "skip: CasGate blocked ($why)")
+                return
+            }
             val stamps = HomeStats.stamps(context)
             val now = System.currentTimeMillis()
             var first = true
@@ -302,7 +370,10 @@ object HomeStatsRefresher {
             firstRunInProcess = false
             val existing = HomeStats.collect(context, null).keys
             Log.d(TAG, "start; coldStart=$coldStart 已有内容=$existing stamps=${stamps.mapValues { (now - it.value) / 60000 }} (分钟前)")
-            for (s in sources) {
+            // 短 TTL 的先跑。整轮是串行 + 1.5s 间隔，源多了一轮要走十几秒；
+            // 把"经常到期"的（校园卡 30min、图书馆 15min、刷卡记录 10min）排在
+            // 一周才刷一次的评教/体测后面，等于让最该新鲜的数据等最不着急的。
+            for (s in sources.sortedBy { it.ttlMs }) {
                 if (s.loginType == LoginType.ATTENDANCE && accountType != AccountType.UNDERGRADUATE) continue
                 if (s.loginType == LoginType.ICLASSFACE && accountType != AccountType.UNDERGRADUATE) continue
                 val last = stamps[s.routeKey] ?: 0L
@@ -317,12 +388,27 @@ object HomeStatsRefresher {
                 if (!first) delay(GAP_MS)
                 first = false
                 try {
-                    val site = s.loginType?.let { manager.ensureSite(it.siteKey()) }
+                    // silent = true：后台绝不弹 MFA、不发短信，撞上就抛 MfaRequiredException。
+                    val site = s.loginType?.let { manager.ensureSite(it.siteKey(), silent = true) }
                     val stat = s.fetch(context, site)
                     HomeStats.push(context, s.routeKey, stat?.value, stat?.detail)
                     if (stat == null) HomeStats.markEmpty(context, s.routeKey, s.ttlMs)
                     else HomeStats.markFetched(context, s.routeKey)
-                    Log.d(TAG, "${s.routeKey} -> ${stat?.value ?: "无数据（6 小时后重试）"}")
+                    Log.d(TAG, "${s.routeKey} -> ${stat?.value ?: "无数据（1 小时后重试）"}")
+                } catch (e: com.xjtu.toolbox.auth.CasGate.ThrottledException) {
+                    Log.d(TAG, "abort round: CasGate throttled (${e.message})")
+                    return
+                } catch (e: com.xjtu.toolbox.auth.PasswordInvalidatedException) {
+                    Log.d(TAG, "abort round: password invalidated")
+                    return
+                } catch (e: com.xjtu.toolbox.auth.LoginCooldownException) {
+                    // 站点级 60 秒冷却：只是这个源暂时进不去，别的源照跑，也别写失败戳
+                    // （60 秒后本来就能重试，写成 30 分钟反而更糟）。
+                    Log.d(TAG, "${s.routeKey}: 站点冷却中，跳过不计失败")
+                } catch (e: com.xjtu.toolbox.auth.MfaRequiredException) {
+                    // 需要短信验证。后台不碰，等用户主动进那个功能页时自然会走完整流程。
+                    // 同样不写失败戳：这不是故障，是"现在不该由我来做"。
+                    Log.d(TAG, "${s.routeKey}: 需短信验证，后台跳过")
                 } catch (e: Exception) {
                     // 半小时后重试，不按正常 TTL 锁死——故障多是暂时的（网关抖动、系统维护），
                     // 按 2 天/7 天锁住会让"修好了却还是不显示"。

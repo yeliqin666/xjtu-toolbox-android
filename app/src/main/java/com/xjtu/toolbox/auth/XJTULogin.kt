@@ -23,6 +23,17 @@ import java.security.MessageDigest
  * 调用方需捕获此异常，调用 `AppLoginState.handleAuthExpired(...)` 静默触发
  * 重新登录（含 MFA）；不要直接将 message 展示给用户。
  */
+/**
+ * 静默登录撞上短信验证。
+ *
+ * 后台预热、首页刷新、屁岱的工具调用都走静默路径：**绝不在用户没意识到的情况下发短信**。
+ * 撞上就抛这个，交回用户下次主动进入对应功能时处理。
+ * 独立成类而不是塞进 IOException 的 message，是为了让调用方能据此给出准确提示，
+ * 而不是把"要验证码"和"网络抖动"混成一句"登录失败"。
+ */
+class MfaRequiredException(val siteName: String) :
+    java.io.IOException("$siteName 需要短信验证码")
+
 class AuthExpiredException(
     val siteName: String = "",
     message: String = if (siteName.isEmpty()) "登录态已失效" else "${siteName}登录态已失效"

@@ -1,0 +1,65 @@
+name: 缺陷反馈
+description: 功能异常、闪退、登录失败、数据对不上等
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请尽量写清复现步骤。学校统一认证、教务、校园卡等**本身**挂了或在维护，请改用「校园系统状态」。
+
+        **不要**在 Issue 里粘贴：密码、验证码、Cookie、完整学号、付款码、HAR、校园卡流水导出、API Key。截图请打码身份信息。
+  - type: dropdown
+    id: module
+    attributes:
+      label: 相关模块
+      options:
+        - 登录 / 扫码登录
+        - 课表 / 成绩 / 考试
+        - 校园卡
+        - 图书馆
+        - 教材 / 资料
+        - 屁岱
+        - 其它
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 实际现象
+      placeholder: 点了什么之后出现了什么（报错原文可贴，去掉账号相关内容）
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果
+      placeholder: 你认为应该怎样
+  - type: input
+    id: version
+    attributes:
+      label: 应用版本
+      placeholder: 例如 4.7.4 或构建号
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: 机型与系统
+      placeholder: 例如 OnePlus PKG110，Android 15
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: 其它信息
+      placeholder: 校内/校外、是否刚改过密码、是否可稳定复现等

@@ -1,6 +1,4 @@
 *.iml
-.gradle
-/local.properties
 /.idea/
 .DS_Store
 /build
@@ -24,7 +22,6 @@ keystore.properties
 .gradle/
 /.gradle-user-home/
 build/
-/docs/quan/
 # APK
 *.apk
 *.ap_
@@ -34,9 +31,6 @@ build/
 # Generated files
 output.json
 output-metadata.json
-
-# Local config
-local.properties
 
 # 跨平台迁移的两次历史尝试（XJTUTOOLBOX_CMP / XJTUTOOLBOX_CMPS）现已纳入版本控制，
 # 见各自目录下的 README。构建产物仍然排除：
@@ -54,9 +48,6 @@ XJTUTOOLBOX_CMPS/local.properties
 # miuix reference source (read-only, not part of this repo)
 miuix-ref/
 
-# Upstream Python reference (local only)
-.upstream-ref/
-
 # Misc local artifacts
 build_output.txt
 
@@ -66,14 +57,9 @@ PROGRESS*.md
 NOTES*.md
 TODO*.md
 plan.md
-tools/
-
-# Reference clone of upstream
-.upstream-ref/yan-xiaoo/
+/tools/
 
 # 不纳入 App 仓库（保留本地）
-/website/
-/demo/
 /update_api.py
 
 # 开发期抓取的页面样本，不入库
@@ -82,3 +68,6 @@ tools/
 
 # announce 分支的 worktree（公告 bulletin.json），git worktree 管理，勿手动删除
 /announce/
+
+# 反馈后端（飞书多维表格）凭据，不入库
+feedback.properties

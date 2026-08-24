@@ -53,6 +53,19 @@ class AccountManager(
      * 切换到目标账号。幂等：若已是当前账号则仅更新 lastUsedAt。
      * @return 切换后的 [Account]；目标不存在则返回 null。
      */
+    /**
+     * 清空 WebView 的 localStorage / sessionStorage / IndexedDB。
+     *
+     * [android.webkit.WebStorage] 必须在主线程调用；[switchToLocked] 跑在 IO 上，所以这里
+     * 自己切一次。失败只记日志不抛——切账号本身不该因为清缓存失败而中断。
+     */
+    private fun clearWebViewStorage() {
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            runCatching { android.webkit.WebStorage.getInstance().deleteAllData() }
+                .onFailure { Log.w(TAG, "clear WebStorage failed: ${it.message}") }
+        }
+    }
+
     suspend fun switchTo(accountId: String): Account? = switchLock.withLock {
         switchToLocked(accountId)
     }
@@ -71,6 +84,12 @@ class AccountManager(
         Log.i(TAG, "Switching account: ${AccountContext.activeAccountId} -> $accountId")
         // 1) 清旧账号内存态
         holder.clearInMemorySessionState()
+        // 1.5) 清 WebView 的本地存储。
+        // 移动交大等页面把登录令牌存在 localStorage（键 idToken），**cookie 清理清不掉它**。
+        // 尤其 WebVPN 模式下所有被代理站点共用 webvpn.xjtu.edu.cn 这一个 origin，也就共用
+        // 一份 localStorage：不清的话，切过去的账号会捡到上一个账号残留的令牌，且该令牌在
+        // 有效期内（实测 8 小时）足以代表上一个人的身份。属于越权，必须清。
+        clearWebViewStorage()
         // 2) 重建 SessionManager backends（旧 cookieJar 磁盘保留以便切回）
         val suffix = "_" + accountId.replace(Regex("[^a-zA-Z0-9]"), "_")
         sessionManager.reconfigureForAccount(suffix)

@@ -45,8 +45,8 @@ class JiaoxiaozhiViewModel : ViewModel() {
     }
 
     fun newSession() {
-        if (isLoading) return
         val store = store ?: return
+        stopAndPersistCurrent()
         val previousModel = currentSession?.modelId ?: JiaoxiaozhiModels.DEFAULT_ID
         val session = store.create(modelId = previousModel)
         currentSessionId = session.id
@@ -56,8 +56,9 @@ class JiaoxiaozhiViewModel : ViewModel() {
     }
 
     fun switchSession(id: String) {
-        if (isLoading) return
         val store = store ?: return
+        if (id == currentSessionId && !isLoading) return
+        stopAndPersistCurrent()
         val conversation = store.load(id) ?: return
         currentSessionId = id
         messages.clear()
@@ -71,8 +72,8 @@ class JiaoxiaozhiViewModel : ViewModel() {
     }
 
     fun deleteSession(id: String) {
-        if (isLoading) return
         val store = store ?: return
+        if (id == currentSessionId) stopAndPersistCurrent()
         store.delete(id)
         refreshSessions()
         if (id == currentSessionId) {
@@ -81,7 +82,10 @@ class JiaoxiaozhiViewModel : ViewModel() {
     }
 
     fun selectModel(modelId: String) {
-        if (isLoading) return
+        if (isLoading) {
+            currentJob?.cancel()
+            isLoading = false
+        }
         val id = currentSessionId ?: return
         store?.updateModel(id, modelId)
         refreshSessions()
@@ -89,6 +93,30 @@ class JiaoxiaozhiViewModel : ViewModel() {
 
     fun stop() {
         currentJob?.cancel()
+    }
+
+    private fun stopAndPersistCurrent() {
+        currentJob?.cancel()
+        currentJob = null
+        isLoading = false
+        persist()
+    }
+
+    fun lastUserText(): String? = messages.lastOrNull { it.role == "user" }?.content
+
+    fun replaceLastUserAndSend(
+        text: String,
+        sessionManager: SessionManager,
+        networkEnabled: Boolean = true,
+    ) {
+        currentJob?.cancel()
+        isLoading = false
+        while (messages.isNotEmpty() && messages.last().role == "assistant") {
+            messages.removeAt(messages.lastIndex)
+        }
+        if (messages.lastOrNull()?.role == "user") messages.removeAt(messages.lastIndex)
+        persist()
+        sendMessage(text, sessionManager, networkEnabled)
     }
 
     /**
@@ -157,9 +185,11 @@ class JiaoxiaozhiViewModel : ViewModel() {
                 }
                 errorMessage = e.message ?: "交晓智请求失败"
             } finally {
-                isLoading = false
+                if (currentSessionId == conversationId) {
+                    isLoading = false
+                    persist()
+                }
                 currentJob = null
-                persist()
             }
         }
     }
