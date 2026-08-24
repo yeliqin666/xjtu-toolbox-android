@@ -1,13 +1,22 @@
 {
   "bulletins": [
     {
-      "id": "2026-08-19-force-4.7.4",
+      "id": "2026-08-24-force-4.8",
       "level": "force_update",
-      "title": "请更新到 4.7.4",
-      "body": "点立即更新会直接拉安装包。上一版点了会误报没有新版本，这版修掉了。低于 4.7.4 的先更新。",
+      "title": "请更新到 4.8",
+      "body": "体测、校园卡和屁岱有一波修复。点立即更新会拉最新安装包。",
       "url": "https://github.com/yeliqin666/xjtu-toolbox-android/releases/latest",
-      "targetVersion": "4.74",
-      "targetVersionCode": 52,
+      "targetVersion": "4.8",
+      "targetVersionCode": 53,
+      "mustAck": false,
+      "block": false
+    },
+    {
+      "id": "2026-08-24-feedback-mine",
+      "level": "info",
+      "title": "反馈入口在「我的」",
+      "body": "现在可以在应用里提交反馈，入口在「我的」页。",
+      "minVersion": "4.8",
       "mustAck": false,
       "block": false
     },
