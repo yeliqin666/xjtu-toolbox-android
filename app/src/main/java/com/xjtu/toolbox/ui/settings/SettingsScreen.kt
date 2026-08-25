@@ -100,6 +100,7 @@ import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
@@ -762,6 +763,7 @@ private fun NoticeSourceSheet(
     var selected by remember(show) {
         mutableStateOf(NoticeWatchStore.sources(context))
     }
+    var keywords by remember(show) { mutableStateOf(NoticeWatchStore.keywordsRaw(context)) }
     BackHandler(enabled = show) { onDismiss() }
     OverlayBottomSheet(
         show = show,
@@ -815,6 +817,30 @@ private fun NoticeSourceSheet(
                     }
                 }
             }
+
+            // ── 关键词过滤 ──
+            Text(
+                "只推含关键词的",
+                style = MiuixTheme.textStyles.subtitle,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
+            )
+            Text(
+                "逗号分隔，留空则全推。只影响系统推送，抓取次数不变，列表和小部件照常显示全部。",
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+            TextField(
+                value = keywords,
+                onValueChange = {
+                    keywords = it
+                    NoticeWatchStore.setKeywords(context, it)
+                },
+                label = "如：保研, 奖学金, 补考, 停电",
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+            )
             Spacer(Modifier.height(8.dp))
         }
     }

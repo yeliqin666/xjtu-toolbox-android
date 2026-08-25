@@ -17,6 +17,7 @@ internal object NoticeWatchStore {
     private const val KEY_BASELINED = "baselined_sources"
     private const val KEY_LAST_SYNC = "last_sync_at"
     private const val KEY_LAST_TITLES = "last_titles"
+    private const val KEY_KEYWORDS = "push_keywords"
 
     const val DEFAULT_ENABLED = true
     val DEFAULT_SOURCES: Set<NotificationSource> = setOf(NotificationSource.JWC)
@@ -76,6 +77,26 @@ internal object NoticeWatchStore {
 
     fun setBaselinedSources(context: Context, names: Set<String>) {
         prefs(context).edit().putStringSet(KEY_BASELINED, names).apply()
+    }
+
+    /**
+     * 推送关键词，逗号 / 空格 / 顿号分隔。留空 = 不过滤，全推。
+     *
+     * 只过滤**推送**，不过滤列表和小组件：抓取一次照旧，抓回来的东西也照旧全都记进
+     * seenLinks。所以它不增加任何请求，只减少推送条数——不匹配的公告仍然算"已见过"，
+     * 不会攒着等某天关掉过滤时一次性糊你一脸。
+     */
+    fun keywords(context: Context): List<String> =
+        prefs(context).getString(KEY_KEYWORDS, "").orEmpty()
+            .split(Regex("""[,，、\s]+"""))
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+
+    fun keywordsRaw(context: Context): String =
+        prefs(context).getString(KEY_KEYWORDS, "").orEmpty()
+
+    fun setKeywords(context: Context, raw: String) {
+        prefs(context).edit().putString(KEY_KEYWORDS, raw).apply()
     }
 
     fun lastSyncAt(context: Context): Long =

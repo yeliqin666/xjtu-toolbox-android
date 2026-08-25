@@ -205,11 +205,6 @@ class CredentialStore(context: Context) {
         get() = appPrefs.getBoolean(KEY_SCHEDULE_ATTENDANCE_BADGE, false)
         set(value) { appPrefs.edit().putBoolean(KEY_SCHEDULE_ATTENDANCE_BADGE, value).apply() }
 
-    /** 通知推送的关键词过滤，逗号分隔；留空 = 不过滤，全推。 */
-    var noticeKeywords: String
-        get() = appPrefs.getString(KEY_NOTICE_KEYWORDS, "") ?: ""
-        set(value) { appPrefs.edit().putString(KEY_NOTICE_KEYWORDS, value).apply() }
-
     var darkMode: String
         get() = appPrefs.getString(KEY_DARK_MODE, DARK_MODE_SYSTEM) ?: DARK_MODE_SYSTEM
         set(value) { appPrefs.edit().putString(KEY_DARK_MODE, value).apply() }
@@ -318,7 +313,6 @@ class CredentialStore(context: Context) {
         private const val KEY_VENUE_AUTO_SOLVE_CAPTCHA = "venue_auto_solve_captcha"
         private const val KEY_SCHEDULE_LAYOUT = "schedule_layout"
         private const val KEY_SCHEDULE_ATTENDANCE_BADGE = "schedule_attendance_badge"
-        private const val KEY_NOTICE_KEYWORDS = "notice_keywords"
 
         // ── 设置值常量 ──
         const val SCHEDULE_LAYOUT_CLASSIC = "classic"
