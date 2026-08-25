@@ -208,6 +208,34 @@ fun ScheduleScreen(
     var realCurrentWeek by remember { mutableIntStateOf(initialWeek) }  // 实际当前周（0=未知），用于时间线显示判断
     val totalWeeks = 20
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+
+    /**
+     * 分级布局（今日 / 本周 / 学期）还是经典布局（日程 / 考试 / 教材）。
+     *
+     * 只在进入页面时读一次，不做实时响应：中途换布局会让 selectedTab 的含义突然变掉
+     * （第 2 页从"教材"变成"学期"），不如等下次进来干净。
+     *
+     * 这是**纯布局开关**。课程详情下钻、考勤角标、考试倒计时两边都有，切回旧版不丢功能。
+     */
+    /** 分级布局的今日 / 学期两级点课后要弹的详情。周视图有自己那份，见 ScheduleTabContent。 */
+    var unifiedSelectedCourse by remember { mutableStateOf<CourseItem?>(null) }
+
+    val unifiedLayout = remember {
+        com.xjtu.toolbox.util.CredentialStore(context).scheduleLayout ==
+            com.xjtu.toolbox.util.CredentialStore.SCHEDULE_LAYOUT_UNIFIED
+    }
+
+    /**
+     * tab 序号 → 这一页放什么。两套布局的三格指向不同内容，页面里凡是要问
+     * "现在是不是在课表页"的地方都走这个函数，别再去比 selectedTab == 0——
+     * 那个等式只在经典布局下成立。
+     */
+    fun contentOf(tab: Int): String = if (unifiedLayout) {
+        when (tab) { 0 -> "today"; 1 -> "week"; else -> "semester" }
+    } else {
+        when (tab) { 0 -> "week"; 1 -> "exam"; else -> "book" }
+    }
+    val currentContent = contentOf(selectedTab)
     var weekNote by remember { mutableStateOf<String?>(null) } // "距开学X周" / "学期已结束"
 
     // 学期相关
@@ -235,7 +263,7 @@ fun ScheduleScreen(
     LaunchedEffect(selectedTab, selectedTermCode, currentWeek, showAllWeeks, weekNote, termList) {
         val name = termLabel(selectedTermCode)
         val subtitle = when {
-            selectedTab != 0 -> name
+            contentOf(selectedTab) != "week" -> name
             weekNote != null -> name
             showAllWeeks -> name.takeIf { it.isNotEmpty() }?.let { "$it · 全学期" } ?: "全学期"
             name.isNotEmpty() -> "$name · 第 $currentWeek 周"
@@ -616,9 +644,10 @@ fun ScheduleScreen(
     }
 
     fun refreshActiveTab() {
-        when (selectedTab) {
-            1 -> refreshExams()
-            2 -> if (selectedTermCode.isNotEmpty()) {
+        when (contentOf(selectedTab)) {
+            "exam" -> refreshExams()
+            // 学期一级的教材是每行一条，刷新的还是同一份数据。
+            "book", "semester" -> if (selectedTermCode.isNotEmpty()) {
                 loadTextbooks(selectedTermCode, silent = textbooksLoaded)
             }
             else -> refreshSchedule(true)
@@ -754,7 +783,8 @@ fun ScheduleScreen(
     // 让 api 从 null 变 non-null，LaunchedEffect 因 key 没变也不会重启 → 教材永远不刷新。
     // 只有关闭 App 重开（jwxtLogin 启动时已就绪）才能首次成功——这就是「关掉重开就好」的根因。
     LaunchedEffect(selectedTab, selectedTermCode, textbooksLoaded, api) {
-        if (selectedTab == 2 && api != null && !textbooksLoaded && !textbooksLoading && selectedTermCode.isNotEmpty()) {
+        val wantsTextbooks = contentOf(selectedTab) in setOf("book", "semester")
+        if (wantsTextbooks && api != null && !textbooksLoaded && !textbooksLoading && selectedTermCode.isNotEmpty()) {
             android.util.Log.d("ScheduleUI", "LaunchedEffect auto-loading textbooks: term=$selectedTermCode (api just became ready)")
             // api 刚变非空时之前可能设了「尚未登录」错误，要清掉再加载
             textbooksError = null
@@ -879,7 +909,7 @@ fun ScheduleScreen(
     // 注入 TopAppBar actions：[+] [⋮] 两个独立按钮
     val headerActionsContent: (@Composable androidx.compose.foundation.layout.RowScope.() -> Unit) = {
         // 添加日程（独立按钮）
-        if (selectedTab == 0) {
+        if (currentContent == "week") {
             IconButton(
                 onClick = { showAddCourseDialog = true },
                 enabled = selectedTermCode.isNotEmpty()
@@ -898,7 +928,7 @@ fun ScheduleScreen(
                 onDismissRequest = { showExportMenu = false }
             ) {
                 ListPopupColumn {
-                    if (selectedTab == 0) {
+                    if (currentContent == "week") {
                         ScheduleMenuRow(
                             icon = if (showAllWeeks) Icons.Default.DateRange else Icons.Default.CalendarMonth,
                             text = if (showAllWeeks) "切到每周视图" else "切到全学期总览",
@@ -968,12 +998,16 @@ fun ScheduleScreen(
     }
     val headerBottomContent: (@Composable () -> Unit) = {
         AppSegmentedTabs(
-            tabs = listOf("日程", "考试", "教材"),
+            // 分级布局按"看多远"分，经典布局按"看什么"分。两套都是三格，切换时
+            // 位置感不变，只是含义换了一套。
+            tabs = if (unifiedLayout) listOf("今日", "本周", "学期") else listOf("日程", "考试", "教材"),
             selectedTabIndex = selectedTab,
             onTabSelected = { tab ->
                 selectedTab = tab
-                if (tab == 2) {
-                    if (!textbooksLoaded && !textbooksLoading && selectedTermCode.isNotEmpty()) loadTextbooks(selectedTermCode)
+                // 两套布局里教材的落点不同：经典在第 2 页整页，分级在第 2 页每行一条。
+                // 触发加载的时机一样，都是第一次翻到那一页。
+                if (tab == 2 && !textbooksLoaded && !textbooksLoading && selectedTermCode.isNotEmpty()) {
+                    loadTextbooks(selectedTermCode)
                 }
             },
         )
@@ -1006,7 +1040,7 @@ fun ScheduleScreen(
                     } else null
                 }
                 val computedSubtitle = when {
-                    selectedTab != 0 -> termLabel(selectedTermCode)
+                    currentContent != "week" -> termLabel(selectedTermCode)
                     weekNote != null -> termLabel(selectedTermCode)
                     showAllWeeks -> "${termLabel(selectedTermCode)} · 全学期"
                     weekDateLabel != null -> "${termLabel(selectedTermCode)} · 第 $currentWeek 周 · $weekDateLabel"
@@ -1066,8 +1100,8 @@ fun ScheduleScreen(
                                 }
                             }
                         }
-                        // 模式切换（仅日程 tab）
-                        if (selectedTab == 0) {
+                        // 模式切换（仅课表那一级）
+                        if (currentContent == "week") {
                             IconButton(onClick = { showAllWeeks = !showAllWeeks }) {
                                 Icon(
                                     if (showAllWeeks) Icons.Default.DateRange else Icons.Default.CalendarMonth,
@@ -1229,10 +1263,34 @@ fun ScheduleScreen(
                     modifier = Modifier.fillMaxSize()
                 )
             } else {
-                if (selectedTab == 0 && isSwitching) {
+                if (currentContent == "week" && isSwitching) {
                     LinearProgressIndicator(
                         modifier = Modifier.fillMaxWidth(),
                         height = 2.dp
+                    )
+                }
+                // 分级布局下考试不再有独立 tab，改成常驻横幅——功能不能因为换布局而消失。
+                // 点开是完整考试列表。
+                var showExamSheet by remember { mutableStateOf(false) }
+                if (unifiedLayout) {
+                    val nextExam = remember(exams) { ExamCountdown.next(exams) }
+                    nextExam?.let { n ->
+                        ExamCountdownBanner(
+                            n,
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 6.dp)
+                                .clickable { showExamSheet = true },
+                        )
+                    }
+                }
+                if (showExamSheet) {
+                    val examSheetShow = remember { mutableStateOf(true) }
+                    ExamListSheet(
+                        show = examSheetShow,
+                        exams = exams,
+                        windowSize = windowSize,
+                        onDismiss = { showExamSheet = false },
                     )
                 }
                 AnimatedContent(
@@ -1242,8 +1300,8 @@ fun ScheduleScreen(
                                 fadeOut() + slideOutHorizontally { if (targetState > initialState) -it else it }
                     }, label = "tabSwitch"
                 ) { tab ->
-                    when (tab) {
-                        0 -> {
+                    when (contentOf(tab)) {
+                        "week" -> {
                             val schedulePull = rememberPullToRefreshState()
                             PullToRefresh(
                                 isRefreshing = isRefreshingFromNetwork,
@@ -1277,7 +1335,7 @@ fun ScheduleScreen(
                                 )
                             }
                         }
-                        1 -> {
+                        "exam" -> {
                             val examPull = rememberPullToRefreshState()
                             PullToRefresh(
                                 isRefreshing = examsRefreshing,
@@ -1288,7 +1346,7 @@ fun ScheduleScreen(
                                 ExamTabContent(exams, contentBottomPadding, windowSize)
                             }
                         }
-                        2 -> {
+                        "book" -> {
                             val bookPull = rememberPullToRefreshState()
                             PullToRefresh(
                                 isRefreshing = textbooksRefreshing,
@@ -1328,9 +1386,89 @@ fun ScheduleScreen(
                                 )
                             }
                         }
+                        "today" -> {
+                            val todayPull = rememberPullToRefreshState()
+                            PullToRefresh(
+                                isRefreshing = isRefreshingFromNetwork,
+                                onRefresh = { if (api != null) refreshSchedule(true) },
+                                pullToRefreshState = todayPull,
+                                modifier = Modifier.fillMaxSize(),
+                            ) {
+                                TodayTimeline(
+                                    courses = remember(filteredMergedCourses, realCurrentWeek) {
+                                        filteredMergedCourses.filter { it.isInWeek(realCurrentWeek) }
+                                    },
+                                    exams = exams,
+                                    today = java.time.LocalDate.now(),
+                                    allCourseNames = remember(filteredMergedCourses) {
+                                        filteredMergedCourses.map { it.courseName }.distinct().sorted()
+                                    },
+                                    onCourseClick = { unifiedSelectedCourse = it },
+                                    bottomPadding = contentBottomPadding,
+                                )
+                            }
+                        }
+                        "semester" -> {
+                            val semPull = rememberPullToRefreshState()
+                            PullToRefresh(
+                                isRefreshing = textbooksRefreshing,
+                                onRefresh = {
+                                    if (selectedTermCode.isNotEmpty()) {
+                                        loadTextbooks(selectedTermCode, silent = textbooksLoaded)
+                                    }
+                                },
+                                pullToRefreshState = semPull,
+                                modifier = Modifier.fillMaxSize(),
+                            ) {
+                                SemesterCourseList(
+                                    courses = filteredMergedCourses,
+                                    textbooks = textbooks,
+                                    onCourseClick = { unifiedSelectedCourse = it },
+                                    bottomPadding = contentBottomPadding,
+                                )
+                            }
+                        }
                     }
                 }
             }
+        }
+    }
+
+    // 今日 / 学期两级点课打开的详情，用的是跟周视图完全同一个弹窗——
+    // 下钻能力不能因为从哪一级点进来而不同。
+    unifiedSelectedCourse?.let { course ->
+        val showDetail = remember(course) { mutableStateOf(true) }
+        CourseDetailDialog(
+            show = showDetail,
+            course = course,
+            onDismiss = { unifiedSelectedCourse = null },
+            textbooks = textbooks,
+            onRequestTextbooks = {
+                if (!textbooksLoaded && !textbooksLoading && selectedTermCode.isNotEmpty()) {
+                    loadTextbooks(selectedTermCode, silent = true)
+                }
+            },
+            onNavigate = onNavigate,
+        )
+    }
+}
+
+/** 分级布局下考试没有独立 tab，全列表从倒计时横幅点开。内容与经典布局的考试页一致。 */
+@Composable
+private fun ExamListSheet(
+    show: MutableState<Boolean>,
+    exams: List<ExamItem>,
+    windowSize: WindowSize,
+    onDismiss: () -> Unit,
+) {
+    BackHandler(enabled = show.value) { show.value = false; onDismiss() }
+    OverlayBottomSheet(
+        show = show.value,
+        title = "考试安排",
+        onDismissRequest = { show.value = false; onDismiss() },
+    ) {
+        Box(Modifier.fillMaxWidth().heightIn(max = 520.dp)) {
+            ExamTabContent(exams = exams, windowSize = windowSize)
         }
     }
 }
