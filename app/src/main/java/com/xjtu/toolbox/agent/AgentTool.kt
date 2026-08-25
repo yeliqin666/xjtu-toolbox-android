@@ -94,6 +94,7 @@ class AgentToolRegistry(
         "read_lms_attachment" to "lms",
         "get_fitness_score" to "fitness",
         "find_faculty" to "faculty",
+        "compose_email" to "device_write",
         "remember_preference" to "memory",
         "forget_preference" to "memory",
         "ask_jiaoxiaozhi" to "jiaoxiaozhi",
@@ -354,6 +355,15 @@ class AgentToolRegistry(
                 "category" to strProp("机构分类：党群机构/行政机构/直属单位/附属单位/其它。"),
                 "limit" to intProp("返回条数，默认10，最多20。")
             )))
+        arr.add(tool("compose_email",
+            "打开系统邮件应用，填好收件人、主题和正文，**由用户自己按发送**。" +
+                "适合「帮我给 XX 老师写封邮件问 XX」——你负责起草，发不发是用户的事。" +
+                "收件人地址请先用 find_faculty 查准，不要凭印象拼。",
+            params(
+                "to" to strProp("收件人邮箱地址。"),
+                "subject" to strProp("邮件主题。"),
+                "body" to strProp("邮件正文。写成学生给老师的正式邮件：称呼、自我介绍（姓名+课程/班级）、事由、致谢落款。")
+            )))
         arr.add(tool("remember_preference",
             "记住一条用户偏好，长期保存在本机。适合「我一般在兴庆校区」「叫我小王」「我不吃辣」这类" +
                 "会反复用到的信息。**只用来决定表达方式和查询顺序，不能用来决定查不查**——" +
@@ -549,6 +559,11 @@ class AgentToolRegistry(
                 query = args["query"] as? String,
                 category = args["category"] as? String,
                 limit = (args["limit"] as? Double)?.toInt() ?: 10
+            )
+            "compose_email" -> composeEmail(
+                to = args["to"] as? String ?: "",
+                subject = args["subject"] as? String ?: "",
+                body = args["body"] as? String ?: "",
             )
             "remember_preference" -> AgentMemory.remember(
                 context,
@@ -2113,6 +2128,31 @@ class AgentToolRegistry(
             "已打开系统闹钟创建 ${"%02d:%02d".format(h, m)} 的闹钟${message?.takeIf { it.isNotBlank() }?.let { "（$it）" }.orEmpty()}。"
         } catch (e: Exception) {
             "设置闹钟失败：${e.message ?: "系统没有可用闹钟应用"}"
+        }
+    }
+
+    /**
+     * 起草一封邮件并交给系统邮件应用。
+     *
+     * **只起草，不发送**：用 ACTION_SENDTO + mailto，落在用户的收件箱编辑界面上，
+     * 发送键由他自己按。给老师发信这件事不该由一个助手代劳——措辞是否得体、
+     * 该不该现在打扰，只有本人判断得了。
+     */
+    private fun composeEmail(to: String, subject: String, body: String): String {
+        if (to.isBlank()) return "缺少收件人邮箱。可以先用 find_faculty 查到老师的邮箱。"
+        return try {
+            val intent = Intent(Intent.ACTION_SENDTO).apply {
+                data = android.net.Uri.parse("mailto:" + android.net.Uri.encode(to.trim()))
+                putExtra(Intent.EXTRA_SUBJECT, subject)
+                putExtra(Intent.EXTRA_TEXT, body)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+            "已打开邮件应用，收件人 $to，草稿写好了。看一遍没问题再按发送。"
+        } catch (e: Exception) {
+            // 没装邮件客户端很常见，这时候把草稿原样交回去，用户还能自己复制。
+            "打不开邮件应用（${e.message ?: "设备上没有邮件客户端"}）。草稿在这里，你可以自己复制：\n\n" +
+                "收件人：$to\n主题：$subject\n\n$body"
         }
     }
 
