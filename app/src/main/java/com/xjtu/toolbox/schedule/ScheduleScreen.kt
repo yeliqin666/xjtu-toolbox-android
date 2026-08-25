@@ -1662,6 +1662,7 @@ private fun ExamTabContent(
 ) {
     // 去重（同一门课+同一天只显示一次）
     val uniqueExams = exams.distinctBy { "${it.courseName}_${it.examDate}" }
+    val next = remember(uniqueExams) { ExamCountdown.next(uniqueExams) }
     Box(
         Modifier.fillMaxSize(),
         contentAlignment = Alignment.TopCenter,
@@ -1704,7 +1705,64 @@ private fun ExamTabContent(
                     }
                 }
             } else {
+                // 倒计时置顶。整页都是卡片时，"最近的那场是哪场、还有几天"是最先要看的，
+                // 不该让人自己在日期里比一遍。
+                next?.let { n ->
+                    item {
+                        ExamCountdownBanner(n, Modifier.fillMaxWidth())
+                    }
+                }
                 items(uniqueExams) { exam -> ExamCard(exam) }
+            }
+        }
+    }
+}
+
+/**
+ * 下一场考试的倒计时条。
+ *
+ * 经典布局放在考试列表顶部，分级布局做常驻横幅——两处共用这一个，
+ * 免得同一件事在两套布局里长成两个样子。
+ */
+@Composable
+fun ExamCountdownBanner(next: ExamCountdown.Next, modifier: Modifier = Modifier) {
+    // 三天以内才转成警示色。整学期都红着，红色就不再是信号了。
+    val urgent = next.daysLeft <= 3
+    val accent = if (urgent) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.primary
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        color = accent.copy(alpha = 0.12f),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Default.Schedule, null, Modifier.size(18.dp), tint = accent)
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "${next.label} · ${next.exam.courseName}",
+                    style = MiuixTheme.textStyles.body2,
+                    fontWeight = FontWeight.Bold,
+                    color = accent,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
+                val detail = listOfNotNull(
+                    next.exam.examDate.takeIf { it.isNotBlank() },
+                    next.exam.examTime.takeIf { it.isNotBlank() },
+                    next.exam.location.takeIf { it.isNotBlank() },
+                ).joinToString("  ")
+                if (detail.isNotBlank()) {
+                    Text(
+                        detail,
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
     }

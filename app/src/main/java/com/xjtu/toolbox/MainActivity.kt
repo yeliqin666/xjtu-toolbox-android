@@ -2352,6 +2352,11 @@ private fun MainScreen(
             val pendingScores = com.xjtu.toolbox.home.HomeStats.pendingNewScores(context)
             val unseenNotice = com.xjtu.toolbox.home.HomeStats.unseenNoticeTitle(context)
             val libraryTodo = com.xjtu.toolbox.home.HomeSignals.libraryUrgentAction
+            // 考试同样是"只读不抓"：日程页每次加载都会把考试表写进 DataCache，
+            // 这里直接读那份。为了提醒单独去拉一次教务是不值得的。
+            val nextExam = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                com.xjtu.toolbox.schedule.ExamCountdown.fromCache(context)
+            }
             val msg = com.xjtu.toolbox.agent.ProactiveRules.pick(
                 ctx = context,
                 balance = balance,
@@ -2360,13 +2365,15 @@ private fun MainScreen(
                 newGradeCount = pendingScores,
                 latestNotice = unseenNotice,
                 libraryPendingAction = libraryTodo,
+                examCountdown = nextExam,
             )
             android.util.Log.d(
                 "Proactive",
                 "evaluate: loggedIn=${loginState.isLoggedIn} balance=$balance " +
                     "nextCourse=${focus?.name} minutes=$minutes " +
                     "newScores=$pendingScores notice=${unseenNotice?.take(12)} " +
-                    "libraryTodo=$libraryTodo -> ${msg?.text ?: "无"}"
+                    "libraryTodo=$libraryTodo exam=${nextExam?.exam?.courseName}/${nextExam?.daysLeft} " +
+                    "-> ${msg?.text ?: "无"}"
             )
             if (msg != null &&
                 com.xjtu.toolbox.agent.ProactiveBubbleHost.message == null &&

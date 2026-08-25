@@ -86,6 +86,9 @@ object ProactiveRules {
     const val EVAL_INTERVAL_MS = 60_000L
     const val AUTO_DISMISS_MS = 8_000L
 
+    /** 考试提前几天开始提醒。三天是"还来得及做点什么"和"提早焦虑"的分界。 */
+    private const val EXAM_AHEAD_DAYS = 3
+
     private const val LOW_BALANCE = 50.0
     private const val CLASS_AHEAD_MIN = 30L
 
@@ -151,7 +154,13 @@ object ProactiveRules {
     private fun cooldownFor(ctx: Context, id: String): Long {
         val dismissed = prefs(ctx).getInt("dismiss_$id", 0)
         val factor = (1 shl dismissed.coerceAtMost(3)).toLong()
-        val base = if (id == CHATTER_ID) CHATTER_COOLDOWN_MS else RULE_COOLDOWN_MS
+        val base = when (id) {
+            CHATTER_ID -> CHATTER_COOLDOWN_MS
+            // 考试倒计时的窗口有三天，用一小时的通用冷却会在这三天里反复念叨同一件事。
+            // 半天一次已经足够：这是"别忘了"，不是"马上去做"。
+            "exam" -> 12 * 60 * 60 * 1000L
+            else -> RULE_COOLDOWN_MS
+        }
         return base * factor
     }
 
@@ -167,11 +176,12 @@ object ProactiveRules {
         newGradeCount: Int,
         latestNotice: String?,
         libraryPendingAction: String? = null,
+        examCountdown: com.xjtu.toolbox.schedule.ExamCountdown.Next? = null,
     ): ProactiveMessage? {
         val now = System.currentTimeMillis()
         val alert = pickAlert(
             ctx, now, balance, nextCourseName, minutesToClass, newGradeCount, latestNotice,
-            libraryPendingAction,
+            libraryPendingAction, examCountdown,
         )
         if (alert != null) return alert
         if (now - lastAnyAt(ctx) < GLOBAL_COOLDOWN_MS) return null
@@ -187,9 +197,21 @@ object ProactiveRules {
         newGradeCount: Int,
         latestNotice: String?,
         libraryPendingAction: String?,
+        examCountdown: com.xjtu.toolbox.schedule.ExamCountdown.Next?,
     ): ProactiveMessage? {
         if (now - lastAnyAt(ctx) < GLOBAL_COOLDOWN_MS) return null
         val candidates = buildList {
+            // 考试排在图书馆之后、余额之前：不像座位那样过号就没，但比钱急。
+            // 只在三天内提，更早提没有行动意义，只是让人焦虑。
+            if (examCountdown != null && examCountdown.daysLeft <= EXAM_AHEAD_DAYS) {
+                add(
+                    ProactiveMessage(
+                        "exam",
+                        "${examCountdown.exam.courseName}${examCountdown.label}",
+                        "${examCountdown.exam.courseName}什么时候考、在哪考？帮我排一下复习",
+                    )
+                )
+            }
             // 图书馆排在最前：这两个动作**有时限**，不做就丢座位，比余额和成绩都急。
             // 传进来的是 LibraryApi.classifyActionLabel 归一化后的 label（入馆签到 / 中途返回），
             // 直接就是要用户做的事，不用再翻译一次。
