@@ -156,6 +156,8 @@ fun ScheduleScreen(
     onActionsChange: ((@Composable androidx.compose.foundation.layout.RowScope.() -> Unit)?) -> Unit = {},
     onBottomContentChange: ((@Composable () -> Unit)?) -> Unit = {},
     contentBottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
+    /** 课程详情面板里的下钻入口（教材全文 / 课程回放 / 考勤）要能跳到别的功能页。 */
+    onNavigate: (String) -> Unit = {},
 ) {
     // 大屏适配由屏内 Composable 自己根据 currentWindowSize() 判断，调用方不再透传
     val windowSize: WindowSize = currentWindowSize()
@@ -1264,6 +1266,13 @@ fun ScheduleScreen(
                                     customCourses = customCourses,
                                     onEditCustomCourse = { editingCourse = it },
                                     bottomPadding = contentBottomPadding,
+                                    textbooks = textbooks,
+                                    onRequestTextbooks = {
+                                        if (!textbooksLoaded && !textbooksLoading && selectedTermCode.isNotEmpty()) {
+                                            loadTextbooks(selectedTermCode, silent = true)
+                                        }
+                                    },
+                                    onNavigate = onNavigate,
                                 )
                             }
                         }
@@ -1335,6 +1344,9 @@ private fun ScheduleTabContent(
     holidayDates: Map<java.time.LocalDate, String> = emptyMap(),
     onEditCustomCourse: (CustomCourseEntity) -> Unit = {},
     bottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
+    textbooks: List<TextbookItem> = emptyList(),
+    onRequestTextbooks: () -> Unit = {},
+    onNavigate: (String) -> Unit = {},
 ) {
     val allNames = remember(courses) { courses.map { it.courseName }.distinct().sorted() }
     var selectedCourse by remember { mutableStateOf<CourseItem?>(null) }
@@ -1431,7 +1443,14 @@ private fun ScheduleTabContent(
     // 课程详情弹窗（仅普通课程；自定义课程已在点击时分流到编辑弹窗）
     selectedCourse?.let { course ->
         val showCourseDetail = remember(course) { mutableStateOf(true) }
-        CourseDetailDialog(show = showCourseDetail, course = course, onDismiss = { selectedCourse = null })
+        CourseDetailDialog(
+            show = showCourseDetail,
+            course = course,
+            onDismiss = { selectedCourse = null },
+            textbooks = textbooks,
+            onRequestTextbooks = onRequestTextbooks,
+            onNavigate = onNavigate,
+        )
     }
 }
 
@@ -1455,7 +1474,14 @@ private fun ScheduleMenuRow(
 }
 
 @Composable
-private fun CourseDetailDialog(show: MutableState<Boolean>, course: CourseItem, onDismiss: () -> Unit) {
+private fun CourseDetailDialog(
+    show: MutableState<Boolean>,
+    course: CourseItem,
+    onDismiss: () -> Unit,
+    textbooks: List<TextbookItem> = emptyList(),
+    onRequestTextbooks: () -> Unit = {},
+    onNavigate: (String) -> Unit = {},
+) {
     BackHandler(enabled = show.value) { show.value = false; onDismiss() }
     val isAgenda = course.courseType == "日程"
     OverlayBottomSheet(
@@ -1558,6 +1584,13 @@ private fun CourseDetailDialog(show: MutableState<Boolean>, course: CourseItem, 
                     Text("类型: ${course.courseType}", style = MiuixTheme.textStyles.body2)
                 }
             }
+            // 下钻区：教材 → 全文、课程回放、本课考勤。两套日程布局共用，见 CourseLinkSections。
+            CourseLinkSections(
+                course = course,
+                textbooks = textbooks,
+                onRequestTextbooks = onRequestTextbooks,
+                onNavigate = { route -> show.value = false; onDismiss(); onNavigate(route) },
+            )
         }
         Spacer(Modifier.height(16.dp))
         Button(

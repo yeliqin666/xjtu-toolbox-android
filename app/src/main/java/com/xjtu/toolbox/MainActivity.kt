@@ -257,6 +257,12 @@ object Routes {
     const val TRANSCRIPT = "transcript"
     const val VENUE = "venue"
     const val CLASS_REPLAY = "class_replay"
+
+    /**
+     * 课程回放的实际注册路由。带一个有默认值的可选参数，于是导航到裸的
+     * [CLASS_REPLAY] 一样能匹配上——已有的快捷方式、服务列表、深链都不用改。
+     */
+    const val CLASS_REPLAY_PATTERN = "class_replay?courseCode={courseCode}"
     const val LMS = "lms"
     const val JIAOCAI = "jiaocai"
     const val JIAOCAI1 = "jiaocai1"
@@ -279,6 +285,10 @@ object Routes {
 
     fun browser(url: String = "") = "browser?url=${java.net.URLEncoder.encode(url, "UTF-8")}"
     fun videoPlayer(activityId: Int) = "video_player/$activityId"
+    /** 直接落在某门课的回放列表上，courseCode 用教务的课程号。 */
+    fun classReplay(courseCode: String) =
+        "class_replay?courseCode=${java.net.URLEncoder.encode(courseCode, "UTF-8")}"
+
     fun jiaocai1Reader(ssno: String, title: String = "") =
         "jiaocai1_reader/$ssno?title=${java.net.URLEncoder.encode(title, "UTF-8")}"
 }
@@ -300,7 +310,12 @@ fun loginTypeForRoute(route: String): LoginType? = when (route) {
     Routes.FITNESS -> LoginType.FITNESS
     Routes.JIAOXIAOZHI -> LoginType.JIAOXIAOZHI
     Routes.ICLASSFACE -> LoginType.ICLASSFACE
-    else -> if (route.startsWith("jiaocai1_reader")) LoginType.JIAOCAI else null
+    else -> when {
+        // 带参深链 class_replay?courseCode=... 和裸路由要同样先登录。
+        route.startsWith("class_replay") -> LoginType.CLASS
+        route.startsWith("jiaocai1_reader") -> LoginType.JIAOCAI
+        else -> null
+    }
 }
 
 // ── 维护中（学校系统）服务清单 ────────────────────────────
@@ -1719,11 +1734,24 @@ fun AppNavigation(
                 )
             } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
-        composable(Routes.CLASS_REPLAY) {
+        composable(
+            Routes.CLASS_REPLAY_PATTERN,
+            arguments = listOf(
+                navArgument("courseCode") { type = NavType.StringType; defaultValue = "" },
+            )
+        ) { backStackEntry ->
+            val initialCourseCode = try {
+                java.net.URLDecoder.decode(
+                    backStackEntry.arguments?.getString("courseCode") ?: "", "UTF-8"
+                )
+            } catch (_: Exception) {
+                backStackEntry.arguments?.getString("courseCode").orEmpty()
+            }
             loginState.sessionManager?.getSiteOrNull("class")?.let { classSite ->
                 val context = androidx.compose.ui.platform.LocalContext.current
                 com.xjtu.toolbox.classreplay.ClassScreen(
                     site = classSite,
+                    initialCourseCode = initialCourseCode,
                     onBack = { navController.popBackStack() },
                     onDownloadReplay = { activityIds, videoSources ->
                         // 启动下载流程
@@ -4000,6 +4028,12 @@ private fun CoursesTab(
             onActionsChange = onActionsChange,
             onBottomContentChange = onBottomContentChange,
             contentBottomPadding = extraBottomPadding,
+            // 详情面板的下钻目标（教材全文 / 课程回放 / 考勤）都在别的子系统里，
+            // 走带登录的跳转，免得落地页自己再弹一次未登录。
+            onNavigate = { route ->
+                val type = loginTypeForRoute(route)
+                if (type != null) onNavigateWithLogin(route, type) else onNavigate(route)
+            },
         )
     }
 }

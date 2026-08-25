@@ -96,11 +96,27 @@ private val CLASS_VIDEO_HEADERS = mapOf(
 fun ClassScreen(
     site: SiteSession,
     onBack: () -> Unit,
+    /**
+     * 从课表点「课程回放」进来时带的教务课程号。命中就直接落在那门课的回放列表上，
+     * 省掉在几十门课里再找一遍。匹配不上（这门课没开回放）就退回课程列表，
+     * 不报错——用户至少还在正确的功能页里。
+     */
+    initialCourseCode: String = "",
     onDownloadReplay: (activityIds: List<Int>, videoSources: Set<String>) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
     var currentPage by remember { mutableStateOf<ClassPage>(ClassPage.CourseList) }
     val cache = remember { ClassPageCache() }
+
+    val appLoginState = com.xjtu.toolbox.LocalAppLoginState.current
+    LaunchedEffect(initialCourseCode) {
+        if (initialCourseCode.isBlank()) return@LaunchedEffect
+        // 复用 CourseLinks 的课程列表缓存：详情面板刚刚已经拉过一次并匹配成功，
+        // 这里通常是直接命中缓存，不会再打一次请求。
+        val hit = com.xjtu.toolbox.schedule.CourseLinks
+            .replayFor(appLoginState.sessionManager, initialCourseCode)
+        if (hit != null) currentPage = ClassPage.ReplayList(hit)
+    }
 
     // 首次使用提醒
     val prefs = remember { context.getSharedPreferences("feature_hints", Context.MODE_PRIVATE) }

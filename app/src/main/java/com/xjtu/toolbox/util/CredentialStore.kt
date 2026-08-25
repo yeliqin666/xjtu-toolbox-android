@@ -184,6 +184,32 @@ class CredentialStore(context: Context) {
         get() = appPrefs.getString(KEY_NAV_BAR_STYLE, NAV_STYLE_CLASSIC) ?: NAV_STYLE_CLASSIC
         set(value) { appPrefs.edit().putString(KEY_NAV_BAR_STYLE, value).apply() }
 
+    /**
+     * 日程页用哪套布局：[SCHEDULE_LAYOUT_CLASSIC] 三 tab（日程/考试/教材），
+     * 或 [SCHEDULE_LAYOUT_UNIFIED] 粒度分级（今日/本周/学期）。
+     *
+     * 这是**纯布局开关**，不是功能开关：课程详情下钻、考勤角标、考试倒计时
+     * 两套布局都有。切回旧版只是换个摆法，不会丢功能。
+     */
+    var scheduleLayout: String
+        get() = appPrefs.getString(KEY_SCHEDULE_LAYOUT, SCHEDULE_LAYOUT_CLASSIC) ?: SCHEDULE_LAYOUT_CLASSIC
+        set(value) { appPrefs.edit().putString(KEY_SCHEDULE_LAYOUT, value).apply() }
+
+    /**
+     * 课表格子上叠考勤角标。**默认关**。
+     *
+     * 拉考勤是额外一次登录 + 一次请求，对只想看课表的人是纯负担；而且考勤站点比教务慢，
+     * 绝不能让它拖住课表渲染——加载是异步旁路的，失败或超时就当没有角标。
+     */
+    var scheduleAttendanceBadge: Boolean
+        get() = appPrefs.getBoolean(KEY_SCHEDULE_ATTENDANCE_BADGE, false)
+        set(value) { appPrefs.edit().putBoolean(KEY_SCHEDULE_ATTENDANCE_BADGE, value).apply() }
+
+    /** 通知推送的关键词过滤，逗号分隔；留空 = 不过滤，全推。 */
+    var noticeKeywords: String
+        get() = appPrefs.getString(KEY_NOTICE_KEYWORDS, "") ?: ""
+        set(value) { appPrefs.edit().putString(KEY_NOTICE_KEYWORDS, value).apply() }
+
     var darkMode: String
         get() = appPrefs.getString(KEY_DARK_MODE, DARK_MODE_SYSTEM) ?: DARK_MODE_SYSTEM
         set(value) { appPrefs.edit().putString(KEY_DARK_MODE, value).apply() }
@@ -290,8 +316,13 @@ class CredentialStore(context: Context) {
         private const val MAX_RECENT_SITES = 4
         private const val KEY_SHOW_QUICK_ACTIONS = "show_quick_actions"
         private const val KEY_VENUE_AUTO_SOLVE_CAPTCHA = "venue_auto_solve_captcha"
+        private const val KEY_SCHEDULE_LAYOUT = "schedule_layout"
+        private const val KEY_SCHEDULE_ATTENDANCE_BADGE = "schedule_attendance_badge"
+        private const val KEY_NOTICE_KEYWORDS = "notice_keywords"
 
         // ── 设置值常量 ──
+        const val SCHEDULE_LAYOUT_CLASSIC = "classic"
+        const val SCHEDULE_LAYOUT_UNIFIED = "unified"
         const val NAV_STYLE_FLOATING = "floating"
         const val NAV_STYLE_CLASSIC = "classic"
         const val DARK_MODE_SYSTEM = "system"
