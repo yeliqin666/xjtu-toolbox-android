@@ -2385,6 +2385,9 @@ private fun MainScreen(
                 when (msg.id) {
                     "grade" -> com.xjtu.toolbox.home.HomeStats.setPendingNewScores(context, 0)
                     "notice" -> com.xjtu.toolbox.home.HomeStats.clearUnseenNotice(context)
+                    "schedule_change" ->
+                        com.xjtu.toolbox.schedule.ScheduleDiff.setPending(context, null)
+                    "attendance" -> com.xjtu.toolbox.home.HomeSignals.attendanceAlert = null
                 }
                 com.xjtu.toolbox.agent.ProactiveBubbleHost.message = msg
             }

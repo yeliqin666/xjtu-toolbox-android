@@ -36,6 +36,14 @@ object HomeSignals {
      */
     var libraryUrgentAction by mutableStateOf<String?>(null)
 
+    /**
+     * 本周考勤新出现的异常，没有则为 null。
+     *
+     * 判据是异常数**增加**，不是"有异常"：一次缺勤会挂在本周统计里一整周，
+     * 每轮刷新都当新事报一遍就成了骚扰。冒过气泡后由 MainActivity 清掉。
+     */
+    var attendanceAlert by mutableStateOf<String?>(null)
+
     /** [HomeStatsRefresher.refreshDue] 跑完一轮就自增，首页据此重新读缓存刷新展示。 */
     var statsVersion by mutableIntStateOf(0)
         private set

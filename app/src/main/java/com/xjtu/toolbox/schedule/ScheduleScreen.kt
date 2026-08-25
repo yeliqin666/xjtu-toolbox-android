@@ -425,6 +425,16 @@ fun ScheduleScreen(
                                 if (contentChanged && cachedOptimizedJson != null) {
                                     scope.launch { snackbarHostState.showSnackbar("日程有更新", duration = SnackbarDuration.Short) }
                                 }
+                                // 变更检测放在这个漏斗里：paintCourses 是网络课表落地的唯一入口，
+                                // 读缓存的路径不经过它。缓存和快照本来就是同一份，比了也永远无变化。
+                                // 用未过滤节假日的 freshCourses 比，否则放假会被误判成"课被取消了"。
+                                val changes = ScheduleDiff.diffAndStore(context, termCode, freshCourses)
+                                ScheduleDiff.summarize(changes)?.let { msg ->
+                                    ScheduleDiff.setPending(context, msg)
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar(msg, duration = SnackbarDuration.Long)
+                                    }
+                                }
                             }
 
                             val prefetched = schedulePrefetch?.await()

@@ -143,9 +143,9 @@ object HomeStatsRefresher {
         },
 
         // 考勤：两天一次。
-        Source(Routes.ATTENDANCE, 2 * DAY, LoginType.ATTENDANCE) { _, site ->
+        Source(Routes.ATTENDANCE, 2 * DAY, LoginType.ATTENDANCE) { ctx, site ->
             site ?: return@Source null
-            withContext(Dispatchers.IO) { attendanceWeeklyRate(site) }
+            withContext(Dispatchers.IO) { attendanceWeeklyRate(ctx, site) }
         },
 
         // 成绩：一天一次。成绩出分是低频事件，但"出了没出"用户很在意，一天一查是平衡点。
@@ -425,7 +425,7 @@ object HomeStatsRefresher {
      * 本周出勤率。直接用考勤系统自己的「本周考勤统计」接口，不自己按日期聚合——
      * 学校对"本周"的定义（教学周、跨周考试等）以它为准。
      */
-    private fun attendanceWeeklyRate(site: SiteSession): HomeStat? {
+    private fun attendanceWeeklyRate(ctx: android.content.Context, site: SiteSession): HomeStat? {
         val stats = runCatching {
             com.xjtu.toolbox.attendance.AttendanceApi(site).getKqtjCurrentWeek()
         }.getOrNull().orEmpty()
@@ -437,6 +437,22 @@ object HomeStatsRefresher {
         val ok = stats.sumOf { it.actualCount }
         val abnormal = stats.sumOf { it.abnormalCount }
         val rate = ok * 100 / total
+
+        // 异常数**增加**才提醒，不是"有异常"就提醒：一次缺勤会挂在统计里一整周，
+        // 每轮刷新都当新事报一遍就成了骚扰。游标只在成功取到数据时前移，
+        // 否则一次失败会把基线冲掉，之后永远判不出增量。
+        val prefs = ctx.getSharedPreferences("attendance_watch", android.content.Context.MODE_PRIVATE)
+        val seen = prefs.getInt("abnormal_seen", -1)
+        if (seen >= 0 && abnormal > seen) {
+            val worst = stats.filter { it.abnormalCount > 0 }.maxByOrNull { it.abnormalCount }
+            HomeSignals.attendanceAlert = if (worst != null) {
+                "${worst.subjectName}的考勤有异常了"
+            } else {
+                "本周考勤多了 ${abnormal - seen} 次异常"
+            }
+        }
+        prefs.edit().putInt("abnormal_seen", abnormal).apply()
+
         return HomeStat(
             "$rate%",
             if (abnormal > 0) "本周 $ok/$total 次正常 · $abnormal 次异常" else "本周 $ok/$total 次正常"

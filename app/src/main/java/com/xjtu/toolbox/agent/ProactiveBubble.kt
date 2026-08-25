@@ -182,6 +182,8 @@ object ProactiveRules {
         val alert = pickAlert(
             ctx, now, balance, nextCourseName, minutesToClass, newGradeCount, latestNotice,
             libraryPendingAction, examCountdown,
+            com.xjtu.toolbox.schedule.ScheduleDiff.pending(ctx),
+            com.xjtu.toolbox.home.HomeSignals.attendanceAlert,
         )
         if (alert != null) return alert
         if (now - lastAnyAt(ctx) < GLOBAL_COOLDOWN_MS) return null
@@ -198,9 +200,21 @@ object ProactiveRules {
         latestNotice: String?,
         libraryPendingAction: String?,
         examCountdown: com.xjtu.toolbox.schedule.ExamCountdown.Next?,
+        scheduleChange: String?,
+        attendanceAlert: String?,
     ): ProactiveMessage? {
         if (now - lastAnyAt(ctx) < GLOBAL_COOLDOWN_MS) return null
         val candidates = buildList {
+            // 课表变更排最前：调课停课换教室不知道就会白跑一趟，
+            // 而学校改课表是不通知的，App 是唯一可能告诉他的地方。
+            if (scheduleChange != null) {
+                add(ProactiveMessage("schedule_change", scheduleChange, "我的课表最近有什么变动？"))
+            }
+            // 只在异常**新增**时才有值（见 HomeStatsRefresher），所以到这里就直接报。
+            // 措辞保持中性——按用户要求，成绩、体测、考勤这类事一律不调侃。
+            if (attendanceAlert != null) {
+                add(ProactiveMessage("attendance", attendanceAlert, "我最近的考勤情况怎么样？"))
+            }
             // 考试排在图书馆之后、余额之前：不像座位那样过号就没，但比钱急。
             // 只在三天内提，更早提没有行动意义，只是让人焦虑。
             if (examCountdown != null && examCountdown.daysLeft <= EXAM_AHEAD_DAYS) {
