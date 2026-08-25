@@ -142,6 +142,16 @@ object HomeStatsRefresher {
             }
         },
 
+        // 加餐券：6 小时一次。
+        //
+        // 两件事有时限、错过就作废：**待领取**（不领就没有）和**即将到期**（不用就浪费）。
+        // 这也是为什么它值得主动拉——不像成绩那样"早晚会知道"，这个过期就真没了。
+        // 一天多次但不至于太频，6 小时足够在到期前那几天提醒到人。
+        Source(Routes.COUPON, 6 * 60 * 60 * 1000L, LoginType.COUPON) { ctx, site ->
+            site ?: return@Source null
+            withContext(Dispatchers.IO) { couponStatus(ctx, site) }
+        },
+
         // 考勤：两天一次。
         Source(Routes.ATTENDANCE, 2 * DAY, LoginType.ATTENDANCE) { ctx, site ->
             site ?: return@Source null
@@ -425,6 +435,59 @@ object HomeStatsRefresher {
      * 本周出勤率。直接用考勤系统自己的「本周考勤统计」接口，不自己按日期聚合——
      * 学校对"本周"的定义（教学周、跨周考试等）以它为准。
      */
+    /**
+     * 加餐券：待领取张数 + 最近到期日。
+     *
+     * 待领取排在到期前面：没领的券点一下就有，是纯白捡；快到期的券要专门跑一趟去花，
+     * 优先级本来就低一档。
+     *
+     * 到期只在 [COUPON_EXPIRY_WARN_DAYS] 天内才写提醒信号——一个月后到期的券天天念叨，
+     * 到真该用的时候人已经免疫了。
+     */
+    private fun couponStatus(ctx: android.content.Context, site: SiteSession): HomeStat? {
+        val api = com.xjtu.toolbox.coupon.CouponApi(site)
+        val available = runCatching {
+            api.queryCoupons(com.xjtu.toolbox.coupon.CouponFilter.AVAILABLE, pageSize = 20)
+        }.getOrNull()
+        val usable = runCatching {
+            api.queryCoupons(com.xjtu.toolbox.coupon.CouponFilter.USABLE, pageSize = 20)
+        }.getOrNull()
+        if (available == null && usable == null) return null
+
+        val pending = available?.records?.size ?: 0
+        val today = java.time.LocalDate.now()
+        // endDate 是 "2026-01-31" 这类文本，解析不出就不参与到期判断——
+        // 猜错日期去催用户用券，比不催更糟。
+        val soonest = usable?.records.orEmpty()
+            .mapNotNull { r -> runCatching { java.time.LocalDate.parse(r.endDate.take(10)) }.getOrNull() }
+            .filter { !it.isBefore(today) }
+            .minOrNull()
+        val daysLeft = soonest?.let {
+            java.time.temporal.ChronoUnit.DAYS.between(today, it).toInt()
+        }
+        Log.d(TAG, "coupon: 待领取 $pending 张，可用 ${usable?.records?.size ?: 0} 张，最近到期 $soonest")
+
+        HomeSignals.couponAlert = when {
+            pending > 0 -> "有 $pending 张加餐券没领"
+            daysLeft != null && daysLeft <= COUPON_EXPIRY_WARN_DAYS ->
+                if (daysLeft == 0) "有加餐券今天就到期了" else "有加餐券还有 $daysLeft 天到期"
+            else -> null
+        }
+
+        val usableCount = usable?.records?.size ?: 0
+        if (pending == 0 && usableCount == 0) return HomeStat("暂无", "没有可领或可用的券")
+        return HomeStat(
+            if (pending > 0) "$pending 张待领" else "$usableCount 张可用",
+            listOfNotNull(
+                if (pending > 0 && usableCount > 0) "另有 $usableCount 张可用" else null,
+                daysLeft?.let { if (it == 0) "今天到期" else "最近 $it 天后到期" },
+            ).joinToString(" · ").ifBlank { null },
+        )
+    }
+
+    /** 到期提醒的提前量。太早提醒等于没提醒，到真该用的时候人已经免疫了。 */
+    private const val COUPON_EXPIRY_WARN_DAYS = 3
+
     private fun attendanceWeeklyRate(ctx: android.content.Context, site: SiteSession): HomeStat? {
         val stats = runCatching {
             com.xjtu.toolbox.attendance.AttendanceApi(site).getKqtjCurrentWeek()

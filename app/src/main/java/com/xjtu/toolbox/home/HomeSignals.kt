@@ -44,6 +44,13 @@ object HomeSignals {
      */
     var attendanceAlert by mutableStateOf<String?>(null)
 
+    /**
+     * 加餐券里有时限的那件事：待领取，或即将到期。没有则为 null。
+     *
+     * 待领取优先于到期——没领的券点一下就有，快到期的券要专门跑一趟去花。
+     */
+    var couponAlert by mutableStateOf<String?>(null)
+
     /** [HomeStatsRefresher.refreshDue] 跑完一轮就自增，首页据此重新读缓存刷新展示。 */
     var statsVersion by mutableIntStateOf(0)
         private set

@@ -184,6 +184,7 @@ object ProactiveRules {
             libraryPendingAction, examCountdown,
             com.xjtu.toolbox.schedule.ScheduleDiff.pending(ctx),
             com.xjtu.toolbox.home.HomeSignals.attendanceAlert,
+            com.xjtu.toolbox.home.HomeSignals.couponAlert,
         )
         if (alert != null) return alert
         if (now - lastAnyAt(ctx) < GLOBAL_COOLDOWN_MS) return null
@@ -202,6 +203,7 @@ object ProactiveRules {
         examCountdown: com.xjtu.toolbox.schedule.ExamCountdown.Next?,
         scheduleChange: String?,
         attendanceAlert: String?,
+        couponAlert: String?,
     ): ProactiveMessage? {
         if (now - lastAnyAt(ctx) < GLOBAL_COOLDOWN_MS) return null
         val candidates = buildList {
@@ -237,6 +239,10 @@ object ProactiveRules {
                         "我的图书馆预约现在什么状态？要做什么？",
                     )
                 )
+            }
+            // 加餐券排在余额前面：券不领不用就作废，而余额低了随时能充。
+            if (couponAlert != null) {
+                add(ProactiveMessage("coupon", couponAlert, "我的加餐券现在什么情况？"))
             }
             if (balance != null && balance < LOW_BALANCE) {
                 add(

@@ -2388,6 +2388,7 @@ private fun MainScreen(
                     "schedule_change" ->
                         com.xjtu.toolbox.schedule.ScheduleDiff.setPending(context, null)
                     "attendance" -> com.xjtu.toolbox.home.HomeSignals.attendanceAlert = null
+                    "coupon" -> com.xjtu.toolbox.home.HomeSignals.couponAlert = null
                 }
                 com.xjtu.toolbox.agent.ProactiveBubbleHost.message = msg
             }
