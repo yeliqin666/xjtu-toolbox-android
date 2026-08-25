@@ -64,6 +64,7 @@ fun MatchScreen(onBack: () -> Unit) {
     var diningCounts by remember { mutableStateOf<Map<Int, Int>>(emptyMap()) }
     var loading by remember { mutableStateOf(true) }
 
+    var profile by remember { mutableStateOf<com.xjtu.toolbox.hello.HelloProfile?>(null) }
     var theirCode by remember { mutableStateOf("") }
     var result by remember { mutableStateOf<MatchProfile.Result?>(null) }
     var theirName by remember { mutableStateOf("") }
@@ -86,16 +87,20 @@ fun MatchScreen(onBack: () -> Unit) {
             }.getOrDefault(emptyList())
             diningCounts = runCatching { DiningHabit.readCachedHourCounts(context) }
                 .getOrDefault(emptyMap())
+            // 只读缓存，不为这个功能触发登录。
+            profile = runCatching { com.xjtu.toolbox.hello.HelloProfileStore.cached(context) }
+                .getOrNull()
         }
         loading = false
     }
 
-    val myProfile = remember(nickname, courses, diningCounts, dietInput, dims) {
+    val myProfile = remember(nickname, courses, diningCounts, dietInput, profile, dims) {
         MatchProfile.build(
             nickname = nickname,
             courses = courses,
             diningHourCounts = diningCounts,
             dietTags = dietInput.split(Regex("""[,，、\s]+""")).filter { it.isNotBlank() }.toSet(),
+            profile = profile,
             dims = dims,
         )
     }
@@ -156,6 +161,13 @@ fun MatchScreen(onBack: () -> Unit) {
                         dims.sameCourses,
                         courses.isNotEmpty(),
                     ) { dims = dims.copy(sameCourses = it) }
+                    DimRow(
+                        "年级 · 专业 · 校区",
+                        if (profile == null) "没读到个人信息，先去首页看一次"
+                        else "不含学号本身，只有年级、专业、书院、校区",
+                        dims.identity,
+                        profile != null,
+                    ) { dims = dims.copy(identity = it) }
                     DimRow(
                         "作息（早八 / 晚课）",
                         "只分享最早和最晚的节次",
@@ -242,6 +254,24 @@ fun MatchScreen(onBack: () -> Unit) {
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             )
                         } else {
+                            // 校区不同先摆最上面：共同空闲再高也约不上，这时百分比是误导。
+                            r.blocker?.let { b ->
+                                Text(
+                                    b,
+                                    style = MiuixTheme.textStyles.body2,
+                                    color = MiuixTheme.colorScheme.error,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                                Spacer(Modifier.height(8.dp))
+                            }
+                            if (r.notes.isNotEmpty()) {
+                                Text(
+                                    r.notes.joinToString("  ·  "),
+                                    style = MiuixTheme.textStyles.footnote1,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                )
+                                Spacer(Modifier.height(6.dp))
+                            }
                             Text(
                                 "${r.overall}%",
                                 style = MiuixTheme.textStyles.title1,

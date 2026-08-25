@@ -231,15 +231,12 @@ fun ScheduleGrid(
     weekKey: Any? = null,  // 切换周时触发"先恢复均匀"动画
     bottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
     /**
-     * 这一格右上角要不要点一个标记，点什么颜色。返回 null = 不点。
+     * 这一格右上角要不要点标记，null = 不点。
      *
-     * 做成回调而不是把考勤索引传进来：网格是通用组件，不该知道考勤这回事。
-     * 调用方（日程页）自己决定标记的来源和含义，网格只负责画那个点。
-     *
-     * 调用方还要保证它是**纯读内存**的：它在每一格的组合里被调用，
-     * 不能在这里做任何 IO，否则就把课表渲染绑在考勤站点的响应时间上了。
+     * 做成回调是因为网格是通用组件，不该知道考勤这回事。调用方必须保证它纯读内存——
+     * 它在每一格的组合里被调用，做 IO 就等于把课表渲染绑在别的站点上。
      */
-    slotBadge: (ScheduleSlot) -> Color? = { null },
+    slotBadge: (ScheduleSlot) -> SlotMark? = { null },
     onSlotClick: (ScheduleSlot) -> Unit = {}
 ) {
     val scrollState = rememberScrollState()
@@ -434,7 +431,7 @@ fun ScheduleGrid(
                                 weekInfo = formatWeekInfo(slot, showWeeks),
                                 spanSections = ceil(slotDuration).toInt().coerceAtLeast(1),
                                 color = courseColor(slot.slotName, allCourseNames),
-                                badgeColor = slotBadge(slot.sourceSlot),
+                                badge = slotBadge(slot.sourceSlot),
                                 onClick = { onSlotClick(slot.sourceSlot) }
                             )
                         }
@@ -584,7 +581,7 @@ private fun FlippableCourseCell(
     yOf: (Float) -> Dp,
     allCourseNames: List<String>,
     showWeeks: Boolean,
-    slotBadge: (ScheduleSlot) -> Color? = { null },
+    slotBadge: (ScheduleSlot) -> SlotMark? = { null },
     onSlotClick: (ScheduleSlot) -> Unit
 ) {
     val pagerState = rememberPagerState(pageCount = { slots.size })
@@ -614,7 +611,7 @@ private fun FlippableCourseCell(
                         weekInfo = formatWeekInfo(slot, showWeeks),
                         spanSections = ceil(slotDuration).toInt().coerceAtLeast(1),
                         color = courseColor(slot.slotName, allCourseNames),
-                        badgeColor = slotBadge(slot.sourceSlot),
+                        badge = slotBadge(slot.sourceSlot),
                         onClick = { onSlotClick(slot.sourceSlot) }
                     )
                 }
@@ -645,6 +642,12 @@ private fun FlippableCourseCell(
     }
 }
 
+/**
+ * 课格右上角的标记。[color] 为 null = 中性，由课格挑一个跟底色对比的颜色；
+ * 给了颜色就是警示，按给的画。网格不知道点代表什么，含义由调用方定义。
+ */
+data class SlotMark(val color: Color? = null)
+
 // ── 课程卡片 ──
 
 @Composable
@@ -654,8 +657,8 @@ fun CourseCell(
     weekInfo: String = "",
     spanSections: Int,
     color: Color,
-    /** 右上角小圆点的颜色，null = 不画。目前只有考勤异常会用到，见 ScheduleGrid.slotBadge。 */
-    badgeColor: Color? = null,
+    /** 右上角小圆点，null = 不画。见 [SlotMark]。 */
+    badge: SlotMark? = null,
     onClick: () -> Unit = {}
 ) {
     val textColor = if (color.luminance() > 0.5f) Color.Black else Color.White
@@ -667,8 +670,7 @@ fun CourseCell(
         pressFeedbackType = top.yukonga.miuix.kmp.utils.PressFeedbackType.Sink,
         colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = color.copy(alpha = 0.85f))
     ) {
-        // Card 的 content 是 ColumnScope，而角标要用 align 叠在右上角，
-        // 所以这里补一层 Box 建立 BoxScope。
+        // Card 的 content 是 ColumnScope，角标要 align，补一层 Box。
         Box(Modifier.fillMaxSize()) {
         Column(
             Modifier
@@ -712,17 +714,24 @@ fun CourseCell(
                 )
             }
         }
-        // 角标叠在最上层、不占布局：格子已经很挤，不能让它把课名挤掉一行。
-        // 描一圈文字色，免得点和课程色撞在一起看不出来。
-        badgeColor?.let { bc ->
+        // 叠在最上层不占布局，格子已经很挤。描一圈免得跟课程色撞在一起。
+        badge?.let { mark ->
+            // 中性标记用课格自己的文字色：深浅底都看得见，又不抢眼。
+            val dot = mark.color ?: textColor.copy(alpha = 0.9f)
+            val ring = if (mark.color == null) {
+                if (textColor == Color.White) Color.Black.copy(alpha = 0.35f)
+                else Color.White.copy(alpha = 0.55f)
+            } else {
+                textColor.copy(alpha = 0.55f)
+            }
             Box(
                 Modifier
                     .align(Alignment.TopEnd)
                     .padding(3.dp)
-                    .size(7.dp)
-                    .background(textColor.copy(alpha = 0.55f), CircleShape)
+                    .size(if (mark.color == null) 6.dp else 7.dp)
+                    .background(ring, CircleShape)
                     .padding(1.dp)
-                    .background(bc, CircleShape)
+                    .background(dot, CircleShape)
             )
         }
         }

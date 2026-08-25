@@ -102,5 +102,11 @@ class EmptyRoomCache(context: Context) {
         const val CODE_TTL_DAYS = 7
         const val DIRECT_RESULT_TTL_DAYS = 7
         const val CDN_RESULT_TTL_DAYS = 1
+
+        /** 教室名 → 座位数的缓存键。容量不随日期变，长期留着。 */
+        const val SEAT_CACHE_KEY = "room_seat_sizes"
+
+        /** 一年。教室容量只在改造、并班时才变，比一天一失效合理得多。 */
+        const val SEAT_TTL_DAYS = 365
     }
 }

@@ -201,12 +201,21 @@ fun ScheduleScreen(
         try {
             val daysBetween = ChronoUnit.DAYS.between(startDate, LocalDate.now())
             val w = ((daysBetween / 7) + 1).toInt()
-            if (w in 1..20) w else 0
+            // 这里还拿不到 totalWeeks（依赖 courses），先用磁盘快照估一次。
+            val diskWeeks = disk.courses.maxOfOrNull { it.weekBits.length }?.takeIf { it > 0 } ?: 30
+            if (w in 1..diskWeeks) w else 0
         } catch (_: Exception) { 0 }
     }
     var currentWeek by rememberSaveable { mutableIntStateOf(if (initialWeek > 0) initialWeek else 1) }
     var realCurrentWeek by remember { mutableIntStateOf(initialWeek) }  // 实际当前周（0=未知），用于时间线显示判断
-    val totalWeeks = 20
+    /**
+     * 学期周数。取 `weekBits` 的长度——那是教务下发的周次位串，长度就是周数。
+     * 原来写死 20，于是暑假、短学期也能滑到第 20 周，后面全是空网格。
+     * 为 0 表示这学期没课，由 [ScheduleTabContent] 落空状态。
+     */
+    val totalWeeks = remember(courses) {
+        courses.maxOfOrNull { it.weekBits.length }?.takeIf { it > 0 } ?: 0
+    }
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
 
     /**
@@ -219,6 +228,9 @@ fun ScheduleScreen(
      */
     /** 分级布局的今日 / 学期两级点课后要弹的详情。周视图有自己那份，见 ScheduleTabContent。 */
     var unifiedSelectedCourse by remember { mutableStateOf<CourseItem?>(null) }
+
+    /** 今日那一级点课时带上今天；学期那一级说不出是哪一次，保持 null。 */
+    var unifiedOccurrence by remember { mutableStateOf<Occurrence?>(null) }
 
     val unifiedLayout = remember {
         com.xjtu.toolbox.util.CredentialStore(context).scheduleLayout ==
@@ -837,8 +849,14 @@ fun ScheduleScreen(
                         }
                     }
 
+                    // 已结束且本地是全的：一个请求都不发，想强制重拉走下拉刷新。
+                    val sealed = ScheduleCache.isSealed(dataCache, gson, newTermCode)
+                    if (sealed) {
+                        android.util.Log.d("ScheduleUI", "学期 $newTermCode 已封存，直接用缓存")
+                    }
+
                     // 在线时更新
-                    if (api != null) {
+                    if (api != null && !sealed) {
                         try {
                             val freshCourses = api.getSchedule(newTermCode)
                             exams = api.getExamSchedule(newTermCode)
@@ -863,13 +881,13 @@ fun ScheduleScreen(
                             showingStaleData = true
                             scope.launch { snackbarHostState.showSnackbar("网络异常，显示缓存数据", duration = SnackbarDuration.Short) }
                         }
-                    } else {
+                    } else if (api == null) {
                         showingStaleData = true
                     }
 
                     // 计算当前周
                     try {
-                        val startDate = if (api != null) {
+                        val startDate = if (api != null && !sealed) {
                             try { api.getStartOfTerm(newTermCode) } catch (_: Exception) { null }
                         } else {
                             val cs = dataCache.get("start_date_$newTermCode", Long.MAX_VALUE)
@@ -1413,7 +1431,12 @@ fun ScheduleScreen(
                                     allCourseNames = remember(filteredMergedCourses) {
                                         filteredMergedCourses.map { it.courseName }.distinct().sorted()
                                     },
-                                    onCourseClick = { unifiedSelectedCourse = it },
+                                    onCourseClick = {
+                                        unifiedOccurrence = Occurrence(
+                                            java.time.LocalDate.now(), realCurrentWeek,
+                                        )
+                                        unifiedSelectedCourse = it
+                                    },
                                     bottomPadding = contentBottomPadding,
                                 )
                             }
@@ -1433,7 +1456,12 @@ fun ScheduleScreen(
                                 SemesterCourseList(
                                     courses = filteredMergedCourses,
                                     textbooks = textbooks,
-                                    onCourseClick = { unifiedSelectedCourse = it },
+                                    // 学期一级一行代表整学期，说不出是哪一次课，
+                                    // 所以不给回放也不给本次考勤。
+                                    onCourseClick = {
+                                        unifiedOccurrence = null
+                                        unifiedSelectedCourse = it
+                                    },
                                     bottomPadding = contentBottomPadding,
                                 )
                             }
@@ -1453,6 +1481,8 @@ fun ScheduleScreen(
             course = course,
             onDismiss = { unifiedSelectedCourse = null },
             textbooks = textbooks,
+            termCode = selectedTermCode,
+            occurrence = unifiedOccurrence,
             onRequestTextbooks = {
                 if (!textbooksLoaded && !textbooksLoading && selectedTermCode.isNotEmpty()) {
                     loadTextbooks(selectedTermCode, silent = true)
@@ -1499,35 +1529,46 @@ private fun ScheduleTabContent(
 ) {
     val allNames = remember(courses) { courses.map { it.courseName }.distinct().sorted() }
     var selectedCourse by remember { mutableStateOf<CourseItem?>(null) }
+    var selectedOccurrence by remember { mutableStateOf<Occurrence?>(null) }
 
-    // ── 考勤角标 ──
-    //
-    // 三条硬约束，都是"别因为考勤把课表拖坏"的不同侧面：
-    // 1. 默认关。拉考勤要单独登录一次考勤站点，只想看课表的人不该付这个代价。
-    // 2. 旁路加载。索引没回来时 badge 一律 null，课表照常渲染；失败也只是永远没角标。
-    // 3. 只标异常。正常出勤不点点——满屏绿点等于没有信息，而且会盖住课名。
+    // 考勤角标。三条约束都是"别因为考勤把课表拖坏"：默认关、旁路加载、失败即无角标。
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val loginStateForBadge = LocalAppLoginState.current
     val badgeEnabled = remember { com.xjtu.toolbox.util.CredentialStore(ctx).scheduleAttendanceBadge }
     var attendanceIndex by remember { mutableStateOf<CourseLinks.AttendanceIndex?>(null) }
-    LaunchedEffect(badgeEnabled, selectedTermCode) {
+    LaunchedEffect(badgeEnabled, selectedTermCode, startOfTerm, totalWeeks) {
         if (!badgeEnabled) { attendanceIndex = null; return@LaunchedEffect }
+        // 告诉 CourseLinks 这个学期结没结束——那一层没有教务会话，自己判断不了。
+        // 用学期自己的起止判断而不是跟 currentTermCode 比：后者在冷启动阶段会被
+        // paintCache 覆盖成正在画的学期。
+        CourseLinks.attachContext(
+            ctx,
+            listOfNotNull(
+                selectedTermCode.takeIf {
+                    ScheduleCache.isFinishedByDate(startOfTerm, totalWeeks)
+                },
+            ),
+        )
         attendanceIndex = CourseLinks.attendanceIndex(
             loginStateForBadge.sessionManager,
             loginStateForBadge.accountType,
+            selectedTermCode,
         )
     }
     val absenceColor = Color(0xFFE5484D)
     val lateColor = Color(0xFFF5A524)
     val leaveColor = Color(0xFF9BA1A6)
-    fun badgeOf(slot: com.xjtu.toolbox.ui.ScheduleSlot, week: Int): Color? {
+    fun badgeOf(slot: com.xjtu.toolbox.ui.ScheduleSlot, week: Int): com.xjtu.toolbox.ui.SlotMark? {
         val idx = attendanceIndex ?: return null
         return when (idx.statusOf(week, slot.slotDayOfWeek, slot.slotStartSection)) {
-            com.xjtu.toolbox.attendance.WaterType.ABSENCE -> absenceColor
-            com.xjtu.toolbox.attendance.WaterType.LATE -> lateColor
-            com.xjtu.toolbox.attendance.WaterType.LEAVE -> leaveColor
-            // 正常出勤和查无此格都不标。
-            else -> null
+            com.xjtu.toolbox.attendance.WaterType.ABSENCE -> com.xjtu.toolbox.ui.SlotMark(absenceColor)
+            com.xjtu.toolbox.attendance.WaterType.LATE -> com.xjtu.toolbox.ui.SlotMark(lateColor)
+            com.xjtu.toolbox.attendance.WaterType.LEAVE -> com.xjtu.toolbox.ui.SlotMark(leaveColor)
+            // 正常出勤也标，用中性色。只标异常的话，全勤的人整学期一个点都看不到；
+            // 而这个点本身有信息——这节课已经上过且记了考勤，没点的就是还没上。
+            com.xjtu.toolbox.attendance.WaterType.NORMAL -> com.xjtu.toolbox.ui.SlotMark()
+            // 查无此格（未来的课、或没有考勤的课）不标。
+            null -> null
         }
     }
 
@@ -1546,6 +1587,16 @@ private fun ScheduleTabContent(
                     color = MiuixTheme.colorScheme.onTertiaryContainer
                 )
             }
+        }
+
+        // 一节课都没有（暑假、还没选课）。0 页 Pager 会崩，20 页空网格是原来的毛病。
+        if (totalWeeks <= 0) {
+            EmptyState(
+                title = "本学期没有课程",
+                subtitle = "换个学期看看，或下拉刷新",
+                modifier = Modifier.fillMaxSize().padding(bottom = bottomPadding)
+            )
+            return@Column
         }
 
         // 主体：每周用 Pager 横滑切周；总览单页
@@ -1598,7 +1649,12 @@ private fun ScheduleTabContent(
                             val course = item as? CourseItem ?: return@ScheduleGrid
                             val customEntity = customCourses.find { it.toCourseItem().courseCode == course.courseCode }
                             if (customEntity != null) onEditCustomCourse(customEntity)
-                            else selectedCourse = course
+                            else {
+                                // 周视图知道是第几周、哪一天，详情面板据此只给这一次的数据。
+                                selectedOccurrence = weekDates?.getOrNull(course.dayOfWeek - 1)
+                                    ?.let { Occurrence(it, weekN) }
+                                selectedCourse = course
+                            }
                         }
                     )
                 }
@@ -1614,7 +1670,11 @@ private fun ScheduleTabContent(
                     val course = item as? CourseItem ?: return@ScheduleGrid
                     val customEntity = customCourses.find { it.toCourseItem().courseCode == course.courseCode }
                     if (customEntity != null) onEditCustomCourse(customEntity)
-                    else selectedCourse = course
+                    else {
+                        // 全学期总览一格代表很多周，说不出是哪一次。
+                        selectedOccurrence = null
+                        selectedCourse = course
+                    }
                 }
             )
         }
@@ -1629,6 +1689,8 @@ private fun ScheduleTabContent(
             course = course,
             onDismiss = { selectedCourse = null },
             textbooks = textbooks,
+            termCode = selectedTermCode,
+            occurrence = selectedOccurrence,
             onRequestTextbooks = onRequestTextbooks,
             onNavigate = onNavigate,
         )
@@ -1660,6 +1722,9 @@ private fun CourseDetailDialog(
     course: CourseItem,
     onDismiss: () -> Unit,
     textbooks: List<TextbookItem> = emptyList(),
+    termCode: String = "",
+    /** 这一次课是哪天、第几周；学期总览给不出，传 null。 */
+    occurrence: Occurrence? = null,
     onRequestTextbooks: () -> Unit = {},
     onNavigate: (String) -> Unit = {},
 ) {
@@ -1687,88 +1752,85 @@ private fun CourseDetailDialog(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(bottom = 4.dp)
             )
-            if (course.teacher.isNotEmpty()) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Person, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.primary)
-                    Spacer(Modifier.width(8.dp))
-                    Text(if (isAgenda) "参与人: ${course.teacher}" else "教师: ${course.teacher}", style = MiuixTheme.textStyles.body2)
-                }
+            // 压成两行：谁在哪、什么时候。原来五行图标各占一行，一加下钻区就爆。
+            val dayName = when (course.dayOfWeek) {
+                1 -> "一"; 2 -> "二"; 3 -> "三"; 4 -> "四"
+                5 -> "五"; 6 -> "六"; 7 -> "日"; else -> "?"
             }
-            if (course.location.isNotEmpty()) {
+            val timeText = if (isAgenda) {
+                val startMinutes = if (course.startMinuteOfDay >= DAY_START_HOUR * 60) {
+                    course.startMinuteOfDay
+                } else {
+                    (DAY_START_HOUR + course.startSection - 1) * 60
+                }
+                val endMinutes = if (course.endMinuteOfDay > startMinutes) {
+                    course.endMinuteOfDay
+                } else {
+                    (DAY_START_HOUR + course.endSection) * 60
+                }
+                val endHourRaw = endMinutes / 60
+                val endLabel = if (endHourRaw >= 24) "次日00:00"
+                else "%02d:%02d".format(endHourRaw, endMinutes % 60)
+                "星期$dayName %02d:%02d-$endLabel".format(
+                    (startMinutes / 60).coerceIn(0, 23), (startMinutes % 60).coerceIn(0, 59),
+                )
+            } else {
+                "星期$dayName 第${course.startSection}-${course.endSection}节"
+            }
+            // 具体到某一次时直接报日期，比让人自己数第几周有用。
+            val dateText = occurrence?.let {
+                "${it.date.monthValue}/${it.date.dayOfMonth} · 第${it.week}周"
+            } ?: course.getWeeks().takeIf { it.isNotEmpty() }?.let { "${formatWeeks(it)}周" }
+
+            if (course.teacher.isNotEmpty() || course.location.isNotEmpty()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Place, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.secondary)
+                    Icon(
+                        if (course.location.isNotEmpty()) Icons.Default.Place else Icons.Default.Person,
+                        null, Modifier.size(17.dp), tint = MiuixTheme.colorScheme.primary,
+                    )
                     Spacer(Modifier.width(8.dp))
                     SelectionContainer {
-                        Text(if (isAgenda) "地点: ${course.location}" else "教室: ${course.location}", style = MiuixTheme.textStyles.body2)
+                        Text(
+                            listOfNotNull(
+                                course.location.takeIf { it.isNotEmpty() },
+                                course.teacher.takeIf { it.isNotEmpty() },
+                            ).joinToString("  ·  "),
+                            style = MiuixTheme.textStyles.body2,
+                        )
                     }
                     if (seatCount != null) {
                         Spacer(Modifier.width(8.dp))
                         Surface(
                             shape = RoundedCornerShape(4.dp),
-                            color = MiuixTheme.colorScheme.secondaryContainer
+                            color = MiuixTheme.colorScheme.secondaryContainer,
                         ) {
                             Text(
                                 "${seatCount}座",
                                 Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                style = MiuixTheme.textStyles.footnote1,
-                                color = MiuixTheme.colorScheme.onSecondaryContainer
+                                style = MiuixTheme.textStyles.footnote2,
+                                color = MiuixTheme.colorScheme.onSecondaryContainer,
                             )
                         }
                     }
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.CalendarMonth, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.primaryVariant)
+                Icon(
+                    Icons.Default.CalendarMonth, null, Modifier.size(17.dp),
+                    tint = MiuixTheme.colorScheme.primaryVariant,
+                )
                 Spacer(Modifier.width(8.dp))
-                val dayName = when (course.dayOfWeek) {
-                    1 -> "一"; 2 -> "二"; 3 -> "三"; 4 -> "四"
-                    5 -> "五"; 6 -> "六"; 7 -> "日"; else -> "?"
-                }
-                if (isAgenda) {
-                    val startMinutes = if (course.startMinuteOfDay >= DAY_START_HOUR * 60) {
-                        course.startMinuteOfDay
-                    } else {
-                        (DAY_START_HOUR + course.startSection - 1) * 60
-                    }
-                    val endMinutes = if (course.endMinuteOfDay > startMinutes) {
-                        course.endMinuteOfDay
-                    } else {
-                        (DAY_START_HOUR + course.endSection) * 60
-                    }
-                    val startHour = (startMinutes / 60).coerceIn(0, 23)
-                    val startMinute = (startMinutes % 60).coerceIn(0, 59)
-                    val endHourRaw = endMinutes / 60
-                    val endMinuteRaw = endMinutes % 60
-                    val endHour = if (endHourRaw >= 24) 0 else endHourRaw
-                    val endMinute = if (endHourRaw >= 24) 0 else endMinuteRaw
-                    val endLabel = if (endHourRaw >= 24) "次日00:00" else "%02d:%02d".format(endHour, endMinute)
-                    Text(
-                        "星期$dayName  %02d:%02d-$endLabel".format(startHour, startMinute),
-                        style = MiuixTheme.textStyles.body2
-                    )
-                } else {
-                    Text("星期$dayName  第${course.startSection}-${course.endSection}节", style = MiuixTheme.textStyles.body2)
-                }
-            }
-            val weeks = course.getWeeks()
-            if (weeks.isNotEmpty()) {
-                Row(verticalAlignment = Alignment.Top) {
-                    Icon(Icons.Default.DateRange, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.primary)
-                    Spacer(Modifier.width(8.dp))
-                    Text("周次: ${formatWeeks(weeks)}", style = MiuixTheme.textStyles.body2)
-                }
-            }
-            if (course.courseType.isNotEmpty()) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Info, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                    Spacer(Modifier.width(8.dp))
-                    Text("类型: ${course.courseType}", style = MiuixTheme.textStyles.body2)
-                }
+                Text(
+                    listOfNotNull(timeText, dateText).joinToString("  ·  "),
+                    style = MiuixTheme.textStyles.body2,
+                )
             }
             // 下钻区：教材 → 全文、课程回放、本课考勤。两套日程布局共用，见 CourseLinkSections。
             CourseLinkSections(
                 course = course,
                 textbooks = textbooks,
+                termCode = termCode,
+                occurrence = occurrence,
                 onRequestTextbooks = onRequestTextbooks,
                 onNavigate = { route -> show.value = false; onDismiss(); onNavigate(route) },
             )

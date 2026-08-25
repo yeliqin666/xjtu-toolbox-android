@@ -23,7 +23,7 @@ import java.util.zip.Inflater
 object MatchProfile {
 
     /** 分享码版本。改了字段布局就加一，解码端据此拒绝旧码而不是解出乱数据。 */
-    private const val VERSION = 1
+    private const val VERSION = 2
 
     /** 一周 7 天 × 12 节的占用位图，用 84 个字符的 0/1 串表示。 */
     const val DAYS = 7
@@ -32,6 +32,7 @@ object MatchProfile {
     data class Dimensions(
         val schedule: Boolean = true,
         val sameCourses: Boolean = true,
+        val identity: Boolean = true,
         val routine: Boolean = false,
         val diningHours: Boolean = false,
         val dietTags: Boolean = false,
@@ -49,6 +50,14 @@ object MatchProfile {
         /** 一天 24 小时里在食堂消费过的小时，0/1 串；空表示没分享。 */
         val diningHours: String = "",
         val dietTags: Set<String> = emptySet(),
+        /** 入学年份，如 2023。0 表示没分享。 */
+        val grade: Int = 0,
+        val profession: String = "",
+        val department: String = "",
+        val academy: String = "",
+        /** 校区。是硬门槛而不是加分项，见 [compare]。 */
+        val campus: String = "",
+        val className: String = "",
     )
 
     // ── 构建 ────────────────────────────────────────────────
@@ -64,6 +73,7 @@ object MatchProfile {
         courses: List<CourseItem>,
         diningHourCounts: Map<Int, Int>,
         dietTags: Set<String>,
+        profile: com.xjtu.toolbox.hello.HelloProfile?,
         dims: Dimensions,
     ): Profile {
         val grid = CharArray(DAYS * SECTIONS) { '0' }
@@ -91,6 +101,13 @@ object MatchProfile {
             } else "",
             dietTags = if (dims.dietTags) dietTags.map { it.trim() }.filter { it.isNotEmpty() }.toSet()
             else emptySet(),
+            // 学号本身不进码：数字相邻只说明报到顺序。进去的是它派生出的有含义的那面。
+            grade = if (dims.identity) profile?.grade ?: 0 else 0,
+            profession = if (dims.identity) profile?.professionName.orEmpty() else "",
+            department = if (dims.identity) profile?.departmentName.orEmpty() else "",
+            academy = if (dims.identity) profile?.academyName.orEmpty() else "",
+            campus = if (dims.identity) profile?.campusName.orEmpty() else "",
+            className = if (dims.identity) profile?.className.orEmpty() else "",
         )
     }
 
@@ -109,6 +126,12 @@ object MatchProfile {
             p.latestSection.toString(),
             p.diningHours,
             p.dietTags.sorted().joinToString(","),
+            p.grade.toString(),
+            p.profession,
+            p.department,
+            p.academy,
+            p.campus,
+            p.className,
         ).joinToString("|")
         val input = raw.toByteArray(Charsets.UTF_8)
         val deflater = Deflater(Deflater.BEST_COMPRESSION)
@@ -135,7 +158,7 @@ object MatchProfile {
         val n = inflater.inflate(buf)
         inflater.end()
         val parts = String(buf, 0, n, Charsets.UTF_8).split("|")
-        if (parts.size < 8 || parts[0].toIntOrNull() != VERSION) {
+        if (parts.size < 14 || parts[0].toIntOrNull() != VERSION) {
             null
         } else {
             Profile(
@@ -146,6 +169,12 @@ object MatchProfile {
                 latestSection = parts[5].toIntOrNull() ?: 0,
                 diningHours = parts[6].takeIf { it.length == 24 }.orEmpty(),
                 dietTags = parts[7].split(",").filter { it.isNotBlank() }.toSet(),
+                grade = parts[8].toIntOrNull() ?: 0,
+                profession = parts[9],
+                department = parts[10],
+                academy = parts[11],
+                campus = parts[12],
+                className = parts[13],
             )
         }
     } catch (_: Exception) {
@@ -156,7 +185,17 @@ object MatchProfile {
 
     data class Facet(val label: String, val score: Int, val detail: String)
 
-    data class Result(val overall: Int, val facets: List<Facet>)
+    data class Result(
+        val overall: Int,
+        val facets: List<Facet>,
+        /**
+         * 拦路的硬条件，比如不同校区。不并进百分比——共同空闲 90% 但一个兴庆一个创新港，
+         * 该说的是"约不上"，不是给这个数打个折。
+         */
+        val blocker: String? = null,
+        /** 不打分、只陈述的事实：同专业、同书院、差几届。 */
+        val notes: List<String> = emptyList(),
+    )
 
     /**
      * 逐维打分再取平均。
@@ -228,7 +267,34 @@ object MatchProfile {
                 )
             }
         }
+        // 身份只陈述不打分："同专业"是事实不是契合度，折算成百分比只会稀释有用的那几维。
+        val notes = buildList {
+            if (mine.className.isNotBlank() && mine.className == theirs.className) {
+                add("同班（${mine.className}）")
+            } else if (mine.profession.isNotBlank() && mine.profession == theirs.profession) {
+                add("同专业（${mine.profession}）")
+            } else if (mine.department.isNotBlank() && mine.department == theirs.department) {
+                add("同学院（${mine.department}）")
+            }
+            if (mine.academy.isNotBlank() && mine.academy == theirs.academy) {
+                add("同书院（${mine.academy}）")
+            }
+            if (mine.grade > 0 && theirs.grade > 0) {
+                val d = kotlin.math.abs(mine.grade - theirs.grade)
+                add(if (d == 0) "同级（${mine.grade} 级）" else "差 $d 届")
+            }
+        }
+
+ // 校区：硬门槛。
+        val blocker = if (
+            mine.campus.isNotBlank() && theirs.campus.isNotBlank() && mine.campus != theirs.campus
+        ) {
+            "你在${mine.campus}，${theirs.nickname.ifBlank { "对方" }}在${theirs.campus}，约起来不方便"
+        } else {
+            null
+        }
+
         val overall = if (facets.isEmpty()) 0 else facets.sumOf { it.score } / facets.size
-        return Result(overall, facets)
+        return Result(overall, facets, blocker, notes)
     }
 }

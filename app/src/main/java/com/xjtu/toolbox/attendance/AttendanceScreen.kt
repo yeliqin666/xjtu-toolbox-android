@@ -152,7 +152,13 @@ fun AttendanceScreen(
                     val isCurrentTerm = termBh == null || bh == currentTermBh
                     val termInfo = termList.firstOrNull { it.bh == bh }
                     val cachedSnapshot = AttendanceCache.load(context, isPostgraduate)
-                    val canAppendCurrent = isCurrentTerm &&
+                    // 老师改考勤没有时间限制，期末回头补第 3 周是常事。只做增量会永远
+                    // 看不到那种修改，所以每隔 FULL_RESCAN_MS 强制整学期重扫一次，
+                    // 下拉刷新同样走全量。判据与课表角标共用，见 AttendanceRecordStore。
+                    val lastFull = AttendanceRecordStore.lastFullScanAt(context, isPostgraduate, bh)
+                    val needFullRescan = fromPull ||
+                        System.currentTimeMillis() - lastFull > AttendanceRecordStore.FULL_RESCAN_MS
+                    val canAppendCurrent = isCurrentTerm && !needFullRescan &&
                         cachedSnapshot?.selectedTermBh == bh &&
                         cachedSnapshot.records.isNotEmpty()
                     val fetchedRecords = if (canAppendCurrent) {
@@ -176,6 +182,9 @@ fun AttendanceScreen(
                     }
                     ensureLatest()
                     records = fetchedRecords
+                    if (!canAppendCurrent) {
+                        AttendanceRecordStore.markFullScan(context, isPostgraduate, bh)
+                    }
 
                     // 课程统计：当前学期用 getKqtjCurrentWeek，历史学期用 getKqtjByTime + 回退
                     val fetchedStats = if (isCurrentTerm) {

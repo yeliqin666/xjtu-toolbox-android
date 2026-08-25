@@ -69,6 +69,11 @@ data class AttendanceWaterRecord(
     val week: Int,
     val location: String,
     val courseName: String,
+    /**
+     * 学校课程号，与教务课表的 `courseCode` 是同一个编码（实测 `PHYS405309` 两边逐字相同）。
+     * 用它跟课表关联比用课程名可靠：课名带「（甲）」「(实验)」后缀时两边写法未必一致。
+     */
+    val courseCode: String,
     val teacher: String,
     val status: WaterType,
     val date: String
@@ -312,6 +317,8 @@ class AttendanceApi(private val site: SiteSession) {
                 location = "${build?.get("name").safeStr}-${room?.get("roomnum").safeStr}",
                 courseName = subject?.get("sName").safeStr
                     .ifEmpty { subject?.get("subjectname").safeStr },
+                courseCode = subject?.get("sCode").safeStr
+                    .ifEmpty { subject?.get("subjectCode").safeStr },
                 teacher = obj.get("teachNameList").safeStr,
                 status = WaterType.fromValue(classWater?.get("status").safeInt.let { if (it == 0) 1 else it }),
                 date = account?.get("checkdate").safeStr

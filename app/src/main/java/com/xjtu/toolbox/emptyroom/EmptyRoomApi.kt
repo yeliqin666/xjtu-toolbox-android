@@ -65,6 +65,9 @@ class EmptyRoomApi(context: Context? = null) {
     private var cachedData: com.google.gson.JsonObject? = null
     private val cache = context?.let { EmptyRoomCache(it) }
 
+    /** 教室名 → 座位数。value 为 null 表示"查过了，没有这个教室的容量数据"。 */
+    private val seatCache = mutableMapOf<String, Int?>()
+
     /**
      * 获取指定日期的空闲教室数据
      * @param date 日期，格式 YYYY-MM-DD
@@ -190,6 +193,18 @@ class EmptyRoomApi(context: Context? = null) {
      */
     fun getRoomSeatCount(location: String): Int? {
         if (location.isBlank()) return null
+        // 容量跟日期无关，却是从"某一天的空教室数据"里顺带读的，而那份数据一天一失效——
+        // 于是每天第一次点开详情都要重拉全校整天的数据只为取一个数字。按教室名单独缓存。
+        seatCache[location]?.let { return it }
+        cache?.readJson(EmptyRoomCache.SEAT_CACHE_KEY, EmptyRoomCache.SEAT_TTL_DAYS)?.let { raw ->
+            runCatching {
+                raw.safeParseJsonObject().entrySet().forEach { (k, v) ->
+                    seatCache[k] = if (v.isJsonNull) null else v.asInt
+                }
+            }
+            if (seatCache.containsKey(location)) return seatCache[location]
+        }
+
         val date = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
         val data = try { fetchDayData(date) } catch (_: Exception) { return null }
 
@@ -203,18 +218,31 @@ class EmptyRoomApi(context: Context? = null) {
                     if (roomPart.isNotBlank() && buildingObj.has(roomPart)) {
                         val size = buildingObj.getAsJsonObject(roomPart).get("size")
                             ?.let { if (it.isJsonNull) null else it.asInt }
-                        if (size != null && size > 0) return size
+                        if (size != null && size > 0) return rememberSeat(location, size)
                     }
                 }
                 // 尝试2: location 直接就是 room key
                 if (buildingObj.has(location)) {
                     val size = buildingObj.getAsJsonObject(location).get("size")
                         ?.let { if (it.isJsonNull) null else it.asInt }
-                    if (size != null && size > 0) return size
+                    if (size != null && size > 0) return rememberSeat(location, size)
                 }
             }
         }
-        return null
+        // 查不到也记：不记的话每次点开都要再拉一次全校数据。
+        return rememberSeat(location, null)
+    }
+
+    private fun rememberSeat(location: String, size: Int?): Int? {
+        seatCache[location] = size
+        cache?.let { c ->
+            runCatching {
+                val obj = com.google.gson.JsonObject()
+                seatCache.forEach { (k, v) -> if (v == null) obj.add(k, com.google.gson.JsonNull.INSTANCE) else obj.addProperty(k, v) }
+                c.writeJson(EmptyRoomCache.SEAT_CACHE_KEY, obj.toString())
+            }
+        }
+        return size
     }
 }
 
