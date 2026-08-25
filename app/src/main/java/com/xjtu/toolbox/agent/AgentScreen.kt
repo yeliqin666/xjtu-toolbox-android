@@ -752,6 +752,10 @@ private fun ChatPanel(
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             listOf(
+                                // 「去哪自习」放第一个：它是这里唯一需要**综合**几个来源才能答的问题
+                                // （空教室 + 图书馆座位 + 当前时段 + 你下节课在哪），
+                                // 也最能说明这个助手和一个查询入口的区别。
+                                "现在想找个地方自习，去哪合适？",
                                 "这周考试",
                                 "明天空教室",
                                 "最近成绩",
@@ -1479,6 +1483,7 @@ private fun ConfigPanel(
                 "card" to "校园卡",
                 "notifications" to "通知公告",
                 "yellow_page" to "校园黄页",
+                "faculty" to "教师主页",
                 "library" to "图书馆",
                 "lms" to "思源学堂",
                 "fitness" to "体测查询",

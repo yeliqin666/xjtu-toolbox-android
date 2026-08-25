@@ -90,6 +90,7 @@ class AgentToolRegistry(
         "get_lms_activity_detail" to "lms",
         "read_lms_attachment" to "lms",
         "get_fitness_score" to "fitness",
+        "find_faculty" to "faculty",
         "ask_jiaoxiaozhi" to "jiaoxiaozhi",
         "set_app_setting" to "settings_write",
         "set_alarm" to "device_write",
@@ -348,6 +349,14 @@ class AgentToolRegistry(
                 "category" to strProp("机构分类：党群机构/行政机构/直属单位/附属单位/其它。"),
                 "limit" to intProp("返回条数，默认10，最多20。")
             )))
+        arr.add(tool("find_faculty",
+            "按姓名查教师主页信息：所在学院、职称、研究方向、办公地点、邮箱、个人主页地址。" +
+                "无需登录。适合「XX 老师是研究什么的」「XX 老师办公室在哪」「想联系 XX 老师」这类问题。",
+            params(
+                "name" to strProp("教师姓名，支持模糊匹配。"),
+                "college" to strProp("可选，学院名，用于重名时缩小范围。"),
+                "limit" to intProp("返回条数，默认 3，最多 8。")
+            )))
         arr.add(tool("web_search",
             "联网搜索互联网。用于校历、政策、报名通知、通用知识等本地工具无法回答的问题。返回结构化标题、URL、摘要；随后可用 web_fetch 读取某个 URL。",
             params(
@@ -525,6 +534,11 @@ class AgentToolRegistry(
                 category = args["category"] as? String,
                 limit = (args["limit"] as? Double)?.toInt() ?: 10
             )
+            "find_faculty" -> findFaculty(
+                name = args["name"] as? String ?: "",
+                college = args["college"] as? String,
+                limit = (args["limit"] as? Double)?.toInt() ?: 3
+            )
             "web_search" -> webSearch(
                 query = args["query"] as? String ?: "",
                 limit = (args["limit"] as? Double)?.toInt() ?: 8,
@@ -568,6 +582,77 @@ class AgentToolRegistry(
     }
 
     // ── 实现 ──────────────────────────────────────────────────────────────
+
+    /**
+     * 查教师主页。
+     *
+     * 不需要任何登录——faculty.xjtu.edu.cn 是公开站点。
+     *
+     * 结果按精确同名优先重排：服务端的 `teacherName` 是模糊匹配且规则不可推断
+     * （实测「刘」255 条、「刘进军」234 条，加字反而变多），直接取前几条经常
+     * 给出的是别人。同名的按点击量排，通常是用户想找的那位。
+     *
+     * 只回文本字段，不回头像；联系方式照原样给出——这是学校公开发布的信息，
+     * 不做二次加工也不猜哪个电话是私人的。
+     */
+    private suspend fun findFaculty(name: String, college: String?, limit: Int): String {
+        if (name.isBlank()) return "请提供教师姓名。"
+        val n = limit.coerceIn(1, 8)
+        val all = try {
+            com.xjtu.toolbox.faculty.FacultyApi().searchAll(
+                query = com.xjtu.toolbox.faculty.FacultySearchQuery(name = name),
+                limit = 60,
+            )
+        } catch (e: Exception) {
+            return "教师检索失败：${e.message?.take(60) ?: "网络异常"}。"
+        }
+        // 学院只能在客户端筛：检索接口的学院参数要的是数字 id，而模型手上只有名字。
+        // 筛空了就退回不筛，宁可多给几条也别因为学院名写法不同（"电信学部"/"电信学院"）
+        // 把正确结果全滤掉。
+        val members = college?.takeIf { it.isNotBlank() }
+            ?.let { c -> all.filter { it.collegeName.contains(c) }.ifEmpty { all } }
+            ?: all
+        if (members.isEmpty()) return "没找到叫「$name」的老师。确认一下姓名，或补充学院再试。"
+
+        val exact = members.filter { it.name == name }
+        val picked = (if (exact.isNotEmpty()) exact else members)
+            .sortedByDescending { it.clickTimes }
+            .take(n)
+
+        return buildString {
+            if (exact.isEmpty()) {
+                append("没有完全同名的，以下是相近结果：\n")
+            } else if (exact.size > 1) {
+                append("有 ${exact.size} 位同名老师：\n")
+            }
+            picked.forEachIndexed { i, m ->
+                if (i > 0) append("\n")
+                append("【${m.name}】")
+                listOfNotNull(
+                    m.collegeName.takeIf { it.isNotBlank() },
+                    m.proRank.takeIf { it.isNotBlank() },
+                    m.tutorLabel.takeIf { it.isNotBlank() },
+                ).takeIf { it.isNotEmpty() }?.let { append(" " + it.joinToString(" · ")) }
+                append("\n")
+                m.researchDirections.takeIf { it.isNotEmpty() }?.let {
+                    append("研究方向：${it.joinToString("、")}\n")
+                }
+                m.officeLocation.takeIf { it.isNotBlank() }?.let { append("办公地点：$it\n") }
+                m.email.takeIf { it.isNotBlank() }?.let { append("邮箱：$it\n") }
+                listOfNotNull(
+                    m.phone.takeIf { it.isNotBlank() },
+                    m.mobilePhone.takeIf { it.isNotBlank() },
+                    m.contact.takeIf { it.isNotBlank() },
+                ).distinct().takeIf { it.isNotEmpty() }?.let {
+                    append("电话：${it.joinToString(" / ")}\n")
+                }
+                m.homepageUrl.takeIf { it.isNotBlank() }?.let { append("主页：$it\n") }
+                m.profile.takeIf { it.isNotBlank() }?.let {
+                    append("简介：${it.replace(Regex("\\s+"), " ").take(200)}\n")
+                }
+            }
+        }.trim()
+    }
 
     private suspend fun askJiaoxiaozhi(question: String, model: String?): String {
         if (question.isBlank()) return "请提供要向交晓智提问的问题。"
