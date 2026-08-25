@@ -1476,6 +1476,51 @@ private fun ConfigPanel(
             }
         }
         item {
+            // 记住的偏好必须**可见可删**：模型往本机写了东西，用户有权知道写了什么。
+            // 放在能力开关上面，因为看见内容才谈得上决定要不要关掉这个能力。
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            var memories by remember { mutableStateOf(AgentMemory.all(ctx)) }
+            if (memories.isNotEmpty()) {
+                Card(colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("记住的偏好", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold)
+                        Text(
+                            "只存在这台设备上，不上传。最多 ${AgentMemory.MAX_ITEMS} 条。",
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                        )
+                        memories.forEach { (k, v) ->
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(k, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium)
+                                    Text(
+                                        v,
+                                        style = MiuixTheme.textStyles.footnote1,
+                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                                    )
+                                }
+                                TextButton(
+                                    text = "删除",
+                                    onClick = {
+                                        AgentMemory.forget(ctx, k)
+                                        memories = AgentMemory.all(ctx)
+                                    },
+                                )
+                            }
+                        }
+                        TextButton(
+                            text = "全部清空",
+                            onClick = {
+                                AgentMemory.clear(ctx)
+                                memories = AgentMemory.all(ctx)
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+            }
+        }
+        item {
             val capabilities = listOf(
                 "schedule" to "课表、校历、全校课程与空教室",
                 "grades" to "成绩",
@@ -1484,6 +1529,7 @@ private fun ConfigPanel(
                 "notifications" to "通知公告",
                 "yellow_page" to "校园黄页",
                 "faculty" to "教师主页",
+                "memory" to "记住我的偏好",
                 "library" to "图书馆",
                 "lms" to "思源学堂",
                 "fitness" to "体测查询",

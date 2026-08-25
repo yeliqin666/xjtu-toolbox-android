@@ -330,7 +330,11 @@ class AgentViewModel : ViewModel() {
                 ).also { tools = it }
                 registry.drainWidgets()   // 丢弃上一轮残留，确保本轮控件干净
                 val runner = AgentRunner(registry)
-                val currentPromptSignature = "${config.effectiveName}|${config.responseStyle}|${config.maxToolCalls}|${LocalDate.now()}"
+                // 偏好也要进签名：模型刚 remember 了一条，下一轮系统提示就得带上它，
+                // 否则要等到改名字或跨天才生效——表现就是"说记住了，但下一句就忘了"。
+                val currentPromptSignature =
+                    "${config.effectiveName}|${config.responseStyle}|${config.maxToolCalls}|" +
+                        "${LocalDate.now()}|${registry.memoryBlock().hashCode()}"
                 if (promptSignature != null && promptSignature != currentPromptSignature) {
                     val kept = (0 until llmHistory.size())
                         .map { llmHistory[it].asJsonObject }
@@ -351,7 +355,8 @@ class AgentViewModel : ViewModel() {
                             maxToolCalls = config.maxToolCalls,
                             responseStyle = config.responseStyle,
                             modelId = config.effectiveModel,
-                            providerLabel = AgentConfig.providerPromptLabel(config.provider)
+                            providerLabel = AgentConfig.providerPromptLabel(config.provider),
+                            memoryBlock = registry.memoryBlock()
                         ))
                     })
                     systemPromptAdded = true

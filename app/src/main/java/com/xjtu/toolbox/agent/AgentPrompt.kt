@@ -14,7 +14,9 @@ object AgentPrompt {
         maxToolCalls: Int = 4,
         responseStyle: String = AgentConfig.STYLE_FRIENDLY,
         modelId: String = "",
-        providerLabel: String = ""
+        providerLabel: String = "",
+        /** 见 [AgentMemory.promptBlock]。没有偏好时为空串。 */
+        memoryBlock: String = ""
     ): String {
         val userBlock = if (userContext.isBlank()) "（暂未获取到用户画像。）" else userContext
         val runtimeBlock = if (modelId.isBlank()) {
@@ -59,6 +61,7 @@ $userBlock
 今天 $today。日期以用户消息头 `[现在：…]` 为准。节次或学期周才用 `get_current_time`。
 
 $styleBlock
+$memoryBlock
 $runtimeBlock
 
 # 工具

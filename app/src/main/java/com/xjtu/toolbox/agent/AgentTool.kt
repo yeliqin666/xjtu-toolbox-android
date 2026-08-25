@@ -66,6 +66,9 @@ class AgentToolRegistry(
      */
     fun rateLimitKeyOf(toolName: String): String? = toolCaps[toolName]
 
+    /** 记住的用户偏好，拼进系统提示。走注册表是因为 ViewModel 手上没有 Context。 */
+    fun memoryBlock(): String = AgentMemory.promptBlock(context)
+
     private val toolCaps = mapOf(
         "get_schedule" to "schedule",
         "get_exam_schedule" to "schedule",
@@ -91,6 +94,8 @@ class AgentToolRegistry(
         "read_lms_attachment" to "lms",
         "get_fitness_score" to "fitness",
         "find_faculty" to "faculty",
+        "remember_preference" to "memory",
+        "forget_preference" to "memory",
         "ask_jiaoxiaozhi" to "jiaoxiaozhi",
         "set_app_setting" to "settings_write",
         "set_alarm" to "device_write",
@@ -349,6 +354,17 @@ class AgentToolRegistry(
                 "category" to strProp("机构分类：党群机构/行政机构/直属单位/附属单位/其它。"),
                 "limit" to intProp("返回条数，默认10，最多20。")
             )))
+        arr.add(tool("remember_preference",
+            "记住一条用户偏好，长期保存在本机。适合「我一般在兴庆校区」「叫我小王」「我不吃辣」这类" +
+                "会反复用到的信息。**只用来决定表达方式和查询顺序，不能用来决定查不查**——" +
+                "用户明确问的事永远照查。别记一次性的东西（这周的作业、某次考试时间）。",
+            params(
+                "key" to strProp("偏好名，简短，如「常用校区」「称呼」。同名会覆盖。"),
+                "value" to strProp("偏好内容，一句话。")
+            )))
+        arr.add(tool("forget_preference",
+            "删掉一条已记住的偏好。用户说「别记着 X 了」时用。",
+            params("key" to strProp("要删掉的偏好名。"))))
         arr.add(tool("find_faculty",
             "按姓名查教师主页信息：所在学院、职称、研究方向、办公地点、邮箱、个人主页地址。" +
                 "无需登录。适合「XX 老师是研究什么的」「XX 老师办公室在哪」「想联系 XX 老师」这类问题。",
@@ -534,6 +550,12 @@ class AgentToolRegistry(
                 category = args["category"] as? String,
                 limit = (args["limit"] as? Double)?.toInt() ?: 10
             )
+            "remember_preference" -> AgentMemory.remember(
+                context,
+                args["key"] as? String ?: "",
+                args["value"] as? String ?: "",
+            )
+            "forget_preference" -> AgentMemory.forget(context, args["key"] as? String ?: "")
             "find_faculty" -> findFaculty(
                 name = args["name"] as? String ?: "",
                 college = args["college"] as? String,
