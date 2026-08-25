@@ -282,6 +282,7 @@ object Routes {
     const val JIAOXIAOZHI = "jiaoxiaozhi"
     const val FACULTY = "faculty"
     const val ICLASSFACE = "iclassface"
+    const val MATCH = "schedule_match"
 
     fun browser(url: String = "") = "browser?url=${java.net.URLEncoder.encode(url, "UTF-8")}"
     fun videoPlayer(activityId: Int) = "video_player/$activityId"
@@ -1883,6 +1884,10 @@ fun AppNavigation(
                     onBack = { navController.popBackStack() },
                 )
             } ?: LaunchedEffect(Unit) { navController.popBackStack() }
+        }
+        composable(Routes.MATCH) {
+            // 不在 loginTypeForRoute 里：全程读本地缓存，不碰任何校园系统。
+            com.xjtu.toolbox.social.MatchScreen(onBack = { navController.popBackStack() })
         }
         composable(Routes.SCHOOL_COURSE) {
             com.xjtu.toolbox.schedule.SchoolCourseScreen(
@@ -3765,6 +3770,7 @@ private fun HomeTab(
             Routes.ATTENDANCE to Icons.Default.EventAvailable,
             Routes.POSTGRADUATE_ATTENDANCE to Icons.AutoMirrored.Filled.FactCheck,
             Routes.ICLASSFACE to Icons.Default.Face,
+            Routes.MATCH to Icons.Default.Groups,
             Routes.JWAPP_SCORE to Icons.Default.Assessment,
             Routes.JUDGE to Icons.Default.RateReview,
             Routes.JIAOCAI to Icons.AutoMirrored.Filled.MenuBook,
