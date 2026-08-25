@@ -230,6 +230,16 @@ fun ScheduleGrid(
     enableCompression: Boolean = false,  // 空时段是否纵向压缩（学期视图禁用）
     weekKey: Any? = null,  // 切换周时触发"先恢复均匀"动画
     bottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
+    /**
+     * 这一格右上角要不要点一个标记，点什么颜色。返回 null = 不点。
+     *
+     * 做成回调而不是把考勤索引传进来：网格是通用组件，不该知道考勤这回事。
+     * 调用方（日程页）自己决定标记的来源和含义，网格只负责画那个点。
+     *
+     * 调用方还要保证它是**纯读内存**的：它在每一格的组合里被调用，
+     * 不能在这里做任何 IO，否则就把课表渲染绑在考勤站点的响应时间上了。
+     */
+    slotBadge: (ScheduleSlot) -> Color? = { null },
     onSlotClick: (ScheduleSlot) -> Unit = {}
 ) {
     val scrollState = rememberScrollState()
@@ -424,6 +434,7 @@ fun ScheduleGrid(
                                 weekInfo = formatWeekInfo(slot, showWeeks),
                                 spanSections = ceil(slotDuration).toInt().coerceAtLeast(1),
                                 color = courseColor(slot.slotName, allCourseNames),
+                                badgeColor = slotBadge(slot.sourceSlot),
                                 onClick = { onSlotClick(slot.sourceSlot) }
                             )
                         }
@@ -434,6 +445,7 @@ fun ScheduleGrid(
                             yOf = ::yOf,
                             allCourseNames = allCourseNames,
                             showWeeks = showWeeks,
+                            slotBadge = slotBadge,
                             onSlotClick = onSlotClick
                         )
                     }
@@ -572,6 +584,7 @@ private fun FlippableCourseCell(
     yOf: (Float) -> Dp,
     allCourseNames: List<String>,
     showWeeks: Boolean,
+    slotBadge: (ScheduleSlot) -> Color? = { null },
     onSlotClick: (ScheduleSlot) -> Unit
 ) {
     val pagerState = rememberPagerState(pageCount = { slots.size })
@@ -601,6 +614,7 @@ private fun FlippableCourseCell(
                         weekInfo = formatWeekInfo(slot, showWeeks),
                         spanSections = ceil(slotDuration).toInt().coerceAtLeast(1),
                         color = courseColor(slot.slotName, allCourseNames),
+                        badgeColor = slotBadge(slot.sourceSlot),
                         onClick = { onSlotClick(slot.sourceSlot) }
                     )
                 }
@@ -640,6 +654,8 @@ fun CourseCell(
     weekInfo: String = "",
     spanSections: Int,
     color: Color,
+    /** 右上角小圆点的颜色，null = 不画。目前只有考勤异常会用到，见 ScheduleGrid.slotBadge。 */
+    badgeColor: Color? = null,
     onClick: () -> Unit = {}
 ) {
     val textColor = if (color.luminance() > 0.5f) Color.Black else Color.White
@@ -651,6 +667,9 @@ fun CourseCell(
         pressFeedbackType = top.yukonga.miuix.kmp.utils.PressFeedbackType.Sink,
         colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = color.copy(alpha = 0.85f))
     ) {
+        // Card 的 content 是 ColumnScope，而角标要用 align 叠在右上角，
+        // 所以这里补一层 Box 建立 BoxScope。
+        Box(Modifier.fillMaxSize()) {
         Column(
             Modifier
                 .fillMaxSize()
@@ -692,6 +711,20 @@ fun CourseCell(
                     textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
             }
+        }
+        // 角标叠在最上层、不占布局：格子已经很挤，不能让它把课名挤掉一行。
+        // 描一圈文字色，免得点和课程色撞在一起看不出来。
+        badgeColor?.let { bc ->
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(3.dp)
+                    .size(7.dp)
+                    .background(textColor.copy(alpha = 0.55f), CircleShape)
+                    .padding(1.dp)
+                    .background(bc, CircleShape)
+            )
+        }
         }
     }
 }

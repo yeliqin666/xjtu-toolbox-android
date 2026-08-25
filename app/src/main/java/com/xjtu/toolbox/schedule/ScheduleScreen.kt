@@ -77,6 +77,7 @@ import top.yukonga.miuix.kmp.basic.SnackbarHost
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.graphics.Color
 import com.xjtu.toolbox.LocalAppLoginState
 import com.xjtu.toolbox.Routes
 import com.xjtu.toolbox.auth.AuthExpiredException
@@ -1351,6 +1352,37 @@ private fun ScheduleTabContent(
     val allNames = remember(courses) { courses.map { it.courseName }.distinct().sorted() }
     var selectedCourse by remember { mutableStateOf<CourseItem?>(null) }
 
+    // ── 考勤角标 ──
+    //
+    // 三条硬约束，都是"别因为考勤把课表拖坏"的不同侧面：
+    // 1. 默认关。拉考勤要单独登录一次考勤站点，只想看课表的人不该付这个代价。
+    // 2. 旁路加载。索引没回来时 badge 一律 null，课表照常渲染；失败也只是永远没角标。
+    // 3. 只标异常。正常出勤不点点——满屏绿点等于没有信息，而且会盖住课名。
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val loginStateForBadge = LocalAppLoginState.current
+    val badgeEnabled = remember { com.xjtu.toolbox.util.CredentialStore(ctx).scheduleAttendanceBadge }
+    var attendanceIndex by remember { mutableStateOf<CourseLinks.AttendanceIndex?>(null) }
+    LaunchedEffect(badgeEnabled, selectedTermCode) {
+        if (!badgeEnabled) { attendanceIndex = null; return@LaunchedEffect }
+        attendanceIndex = CourseLinks.attendanceIndex(
+            loginStateForBadge.sessionManager,
+            loginStateForBadge.accountType,
+        )
+    }
+    val absenceColor = Color(0xFFE5484D)
+    val lateColor = Color(0xFFF5A524)
+    val leaveColor = Color(0xFF9BA1A6)
+    fun badgeOf(slot: com.xjtu.toolbox.ui.ScheduleSlot, week: Int): Color? {
+        val idx = attendanceIndex ?: return null
+        return when (idx.statusOf(week, slot.slotDayOfWeek, slot.slotStartSection)) {
+            com.xjtu.toolbox.attendance.WaterType.ABSENCE -> absenceColor
+            com.xjtu.toolbox.attendance.WaterType.LATE -> lateColor
+            com.xjtu.toolbox.attendance.WaterType.LEAVE -> leaveColor
+            // 正常出勤和查无此格都不标。
+            else -> null
+        }
+    }
+
     Column(Modifier.fillMaxSize().overScrollVertical()) {
         // 学期状态提示（未开学/已结束）
         if (weekNote != null) {
@@ -1413,6 +1445,7 @@ private fun ScheduleTabContent(
                         enableCompression = true,
                         weekKey = weekN,
                         bottomPadding = bottomPadding,
+                        slotBadge = { badgeOf(it, weekN) },
                         onSlotClick = { item ->
                             val course = item as? CourseItem ?: return@ScheduleGrid
                             val customEntity = customCourses.find { it.toCourseItem().courseCode == course.courseCode }

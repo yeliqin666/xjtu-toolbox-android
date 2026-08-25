@@ -39,6 +39,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SpaceBar
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.FactCheck
 import androidx.compose.material.icons.filled.Tab
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Palette
@@ -207,6 +209,13 @@ fun SettingsScreen(
         CredentialStore.THEME_CARD,
         CredentialStore.THEME_ICON
     )
+    val scheduleLayoutOptions = listOf("经典三栏", "分级视图")
+    val scheduleLayoutValues = listOf(
+        CredentialStore.SCHEDULE_LAYOUT_CLASSIC,
+        CredentialStore.SCHEDULE_LAYOUT_UNIFIED,
+    )
+    var scheduleLayout by remember { mutableStateOf(credentialStore.scheduleLayout) }
+    var attendanceBadge by remember { mutableStateOf(credentialStore.scheduleAttendanceBadge) }
     val navStyleOptions = listOf("悬浮胶囊", "经典底栏")
     val navStyleValues = listOf(
         CredentialStore.NAV_STYLE_FLOATING,
@@ -312,6 +321,37 @@ fun SettingsScreen(
                         navBarStyle = v
                         credentialStore.navBarStyle = v
                         onNavBarStyleChanged(v)
+                    }
+                )
+                OverlayDropdownPreference(
+                    title = "日程页布局",
+                    summary = if (scheduleLayout == CredentialStore.SCHEDULE_LAYOUT_UNIFIED) {
+                        "今日 / 本周 / 学期，考试并进时间轴"
+                    } else {
+                        "日程 / 考试 / 教材 三个标签页"
+                    },
+                    items = scheduleLayoutOptions,
+                    selectedIndex = scheduleLayoutValues.indexOf(scheduleLayout).coerceAtLeast(0),
+                    startAction = { SettingsIcon(Icons.Default.CalendarMonth, cOrange) },
+                    onSelectedIndexChange = { idx ->
+                        val v = scheduleLayoutValues[idx]
+                        scheduleLayout = v
+                        credentialStore.scheduleLayout = v
+                    }
+                )
+                SwitchPreference(
+                    title = "课表显示考勤",
+                    // 说清代价，因为它确实有代价：多一次登录、多一次请求。
+                    summary = if (attendanceBadge) {
+                        "周视图标出迟到/缺勤/请假，课程详情显示本课出勤"
+                    } else {
+                        "需额外登录考勤系统，默认关闭"
+                    },
+                    checked = attendanceBadge,
+                    startAction = { SettingsIcon(Icons.Default.FactCheck, cGreen) },
+                    onCheckedChange = {
+                        attendanceBadge = it
+                        credentialStore.scheduleAttendanceBadge = it
                     }
                 )
                 OverlayDropdownPreference(
