@@ -17,12 +17,18 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Checkout Miuix main source
+      - name: Checkout Miuix source
         run: |
-          git clone --depth 1 https://github.com/miuix-kotlin-multiplatform/miuix.git miuix-ref
-          # 不再把 miuix 降到 SDK 36：本项目 compileSdk 已跟随 miuix 升到 37，
-          # composite build 要求消费方 compileSdk 不低于依赖方，降级会让
-          # CheckAarMetadata 直接失败。下一步装 SDK 37 与之匹配。
+          # 钉死提交，不要跟 miuix main。
+          # main 已把 AGP 升到 9.4.0，本仓库仍是 9.3.1；composite build 里两套 AGP
+          # 会直接失败。这份提交（2026-08-14）与本地 miuix-ref 一致，仍是 9.3.1。
+          # 整仓 AGP 跟到 9.4 并核对 NavigationBarItem 新 API 之后再解开。
+          MIUIX_SHA=3d19c71f1ac56de37f6f1c84bfa58f25d6ad1cb0
+          git init miuix-ref
+          git -C miuix-ref remote add origin https://github.com/miuix-kotlin-multiplatform/miuix.git
+          git -C miuix-ref fetch --depth 1 origin "$MIUIX_SHA"
+          git -C miuix-ref checkout --detach FETCH_HEAD
+          # compileSdk 已跟随当时的 miuix 升到 37，下一步装 SDK 37 与之匹配。
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
