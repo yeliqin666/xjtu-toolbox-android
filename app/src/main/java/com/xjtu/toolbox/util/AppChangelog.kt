@@ -26,6 +26,15 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "4.8.5" to VersionChangelog(
+            items = listOf(
+                "📅" to "日程按今日、本周、学期分层，可切回三栏",
+                "📚" to "课程详情可下钻教材、回放和本次考勤",
+                "🔔" to "调课停课换教室、考勤异常、加餐券到期会提醒",
+                "💬" to "屁岱记住偏好，可起草给老师的邮件",
+                "🔗" to "课表匹配度用离线分享码"
+            )
+        ),
         "4.8" to VersionChangelog(
             items = listOf(
                 "🏃" to "体测改走学校新接口",
