@@ -298,7 +298,9 @@ class AgentViewModel : ViewModel() {
         userText: String,
         config: AgentConfig,
         loginState: AppLoginState,
-        context: Context
+        context: Context,
+        /** 不进聊天气泡，只进发给模型的 user 消息。见屁岱提醒快照。 */
+        llmAnnex: String? = null,
     ) {
         if (userText.isBlank() || isLoading) return
         if (contextExhausted) {
@@ -363,10 +365,23 @@ class AgentViewModel : ViewModel() {
                     promptSignature = currentPromptSignature
                 }
 
-                // 每条 user 消息携带实时时间，杜绝"今天/明天"按会话起始日的陈旧判断
+                // 每条 user 消息携带实时时间，杜绝"今天/明天"按会话起始日的陈旧判断。
+                // 提醒快照只给模型看：对准「点的是哪件事」，不当完整事实，也不进气泡。
+                val llmUser = buildString {
+                    append(nowTag())
+                    append('\n')
+                    if (!llmAnnex.isNullOrBlank()) {
+                        append("[本地提醒快照]\n")
+                        append("用户从 App 提醒点进来。快照只说明点的是哪件事，不是完整数据。")
+                        append("缺的字段不要编；要完整、最新或清单仍调工具。\n")
+                        append(llmAnnex.trim())
+                        append("\n\n")
+                    }
+                    append(userText)
+                }
                 llmHistory.add(JsonObject().apply {
                     addProperty("role", "user")
-                    addProperty("content", "${nowTag()}\n$userText")
+                    addProperty("content", llmUser)
                 })
                 sanitizeHistory()   // 自愈：清掉上一次中断留下的 tool_calls 残体
 

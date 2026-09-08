@@ -45,6 +45,8 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.AccountType
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -60,9 +62,19 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 data class ProactiveMessage(
     val id: String,
     val text: String,
-    val prompt: String,
+    val prompt: String = "",
     val fullReveal: Boolean = false,
     val chatterLineId: String? = null,
+    /**
+     * 非空则点击打开此路由，不进屁岱。
+     * 气泡在说一件 App 里已经有页面的事（通知原文、加餐券、签到）时走这一支。
+     */
+    val openRoute: String? = null,
+    /**
+     * 进屁岱时附给模型的本地快照（不进聊天气泡）。
+     * 只说明「用户点的是哪件事」以及当时已知字段；缺的不要编，完整数据仍调工具。
+     */
+    val eventSnapshot: String? = null,
 ) {
     companion object {
         const val MAX_CHARS = 24
@@ -177,6 +189,8 @@ object ProactiveRules {
         latestNotice: String?,
         libraryPendingAction: String? = null,
         examCountdown: com.xjtu.toolbox.schedule.ExamCountdown.Next? = null,
+        latestNoticeLink: String? = null,
+        accountType: AccountType? = null,
     ): ProactiveMessage? {
         val now = System.currentTimeMillis()
         val alert = pickAlert(
@@ -185,6 +199,8 @@ object ProactiveRules {
             com.xjtu.toolbox.schedule.ScheduleDiff.pending(ctx),
             com.xjtu.toolbox.home.HomeSignals.attendanceAlert,
             com.xjtu.toolbox.home.HomeSignals.couponAlert,
+            latestNoticeLink,
+            accountType,
         )
         if (alert != null) return alert
         if (now - lastAnyAt(ctx) < GLOBAL_COOLDOWN_MS) return null
@@ -204,75 +220,109 @@ object ProactiveRules {
         scheduleChange: String?,
         attendanceAlert: String?,
         couponAlert: String?,
+        latestNoticeLink: String?,
+        accountType: AccountType?,
     ): ProactiveMessage? {
         if (now - lastAnyAt(ctx) < GLOBAL_COOLDOWN_MS) return null
+        val attendanceRoute =
+            if (accountType == AccountType.POSTGRADUATE) Routes.POSTGRADUATE_ATTENDANCE
+            else Routes.ATTENDANCE
         val candidates = buildList {
             // 课表变更排最前：调课停课换教室不知道就会白跑一趟，
             // 而学校改课表是不通知的，App 是唯一可能告诉他的地方。
             if (scheduleChange != null) {
-                add(ProactiveMessage("schedule_change", scheduleChange, "我的课表最近有什么变动？"))
+                add(ProactiveMessage("schedule_change", scheduleChange, openRoute = Routes.SCHEDULE))
             }
             // 只在异常**新增**时才有值（见 HomeStatsRefresher），所以到这里就直接报。
             // 措辞保持中性——按用户要求，成绩、体测、考勤这类事一律不调侃。
             if (attendanceAlert != null) {
-                add(ProactiveMessage("attendance", attendanceAlert, "我最近的考勤情况怎么样？"))
+                add(ProactiveMessage("attendance", attendanceAlert, openRoute = attendanceRoute))
             }
-            // 考试排在图书馆之后、余额之前：不像座位那样过号就没，但比钱急。
-            // 只在三天内提，更早提没有行动意义，只是让人焦虑。
+            // 考试：新版分级布局没有独立考试页，点日程也落不到那层 sheet。
+            // 进屁岱，并把这场考试的缓存字段当快照——对准「点的是哪场」，缺的仍调工具。
             if (examCountdown != null && examCountdown.daysLeft <= EXAM_AHEAD_DAYS) {
+                val exam = examCountdown.exam
                 add(
                     ProactiveMessage(
-                        "exam",
-                        "${examCountdown.exam.courseName}${examCountdown.label}",
-                        "${examCountdown.exam.courseName}什么时候考、在哪考？帮我排一下复习",
+                        id = "exam",
+                        text = "${exam.courseName}${examCountdown.label}",
+                        prompt = "${exam.courseName}什么时候考、在哪考？帮我排一下复习",
+                        eventSnapshot = eventFields(
+                            "kind" to "exam",
+                            "course" to exam.courseName,
+                            "code" to exam.courseCode,
+                            "date" to exam.examDate,
+                            "time" to exam.examTime,
+                            "location" to exam.location,
+                            "seat" to exam.seatNumber,
+                            "daysLeft" to examCountdown.daysLeft.toString(),
+                        ),
                     )
                 )
             }
-            // 图书馆排在最前：这两个动作**有时限**，不做就丢座位，比余额和成绩都急。
-            // 传进来的是 LibraryApi.classifyActionLabel 归一化后的 label（入馆签到 / 中途返回），
-            // 直接就是要用户做的事，不用再翻译一次。
+            // 图书馆：这两个动作有时限，不做就丢座位。点气泡去图书馆页，别再问一遍状态。
             if (libraryPendingAction != null) {
                 add(
                     ProactiveMessage(
-                        "library",
-                        "图书馆座位该${libraryPendingAction}了",
-                        "我的图书馆预约现在什么状态？要做什么？",
+                        id = "library",
+                        text = "图书馆座位该${libraryPendingAction}了",
+                        openRoute = Routes.LIBRARY,
                     )
                 )
             }
             // 加餐券排在余额前面：券不领不用就作废，而余额低了随时能充。
             if (couponAlert != null) {
-                add(ProactiveMessage("coupon", couponAlert, "我的加餐券现在什么情况？"))
+                add(ProactiveMessage("coupon", couponAlert, openRoute = Routes.COUPON))
             }
             if (balance != null && balance < LOW_BALANCE) {
                 add(
                     ProactiveMessage(
-                        "balance",
-                        "校园卡只剩 ¥${"%.2f".format(balance)} 了，记得充",
-                        "我的校园卡余额还有多少？最近都花在哪了？",
+                        id = "balance",
+                        text = "校园卡只剩 ¥${"%.2f".format(balance)} 了，记得充",
+                        prompt = "我的校园卡余额还有多少？最近都花在哪了？",
+                        eventSnapshot = eventFields(
+                            "kind" to "campus_card",
+                            "balance" to "%.2f".format(balance),
+                            "note" to "余额来自本地缓存，流水和是否最新需查工具",
+                        ),
                     )
                 )
             }
             if (newGradeCount > 0) {
                 add(
                     ProactiveMessage(
-                        "grade",
-                        "有 $newGradeCount 门新成绩出了",
-                        "帮我看看新出的成绩",
+                        id = "grade",
+                        text = "有 $newGradeCount 门新成绩出了",
+                        prompt = "帮我看看新出的成绩",
+                        eventSnapshot = eventFields(
+                            "kind" to "grades",
+                            "newCount" to newGradeCount.toString(),
+                            "note" to "快照只有门数，没有科目和分数",
+                        ),
                     )
                 )
             }
             if (nextCourseName != null && minutesToClass != null && minutesToClass in 0..CLASS_AHEAD_MIN) {
                 add(
                     ProactiveMessage(
-                        "class",
-                        "${minutesToClass}分钟后上$nextCourseName",
-                        "我今天还有哪些课？在哪上？",
+                        id = "class",
+                        text = "${minutesToClass}分钟后上$nextCourseName",
+                        openRoute = Routes.SCHEDULE,
                     )
                 )
             }
             if (!latestNotice.isNullOrBlank()) {
-                add(ProactiveMessage("notice", "教务处新通知：$latestNotice", "教务处最近有什么通知？"))
+                add(
+                    ProactiveMessage(
+                        id = "notice",
+                        text = "教务处新通知：$latestNotice",
+                        openRoute = if (!latestNoticeLink.isNullOrBlank()) {
+                            Routes.browser(latestNoticeLink)
+                        } else {
+                            Routes.NOTIFICATION
+                        },
+                    )
+                )
             }
         }
         return candidates.firstOrNull { m ->
@@ -326,6 +376,11 @@ object ProactiveRules {
             chatterLineId = line.id,
         )
     }
+
+    /** 气泡事件快照：只写非空字段，给模型当「点的是哪件事」。 */
+    private fun eventFields(vararg fields: Pair<String, String?>): String =
+        fields.mapNotNull { (k, v) -> v?.takeIf { it.isNotBlank() }?.let { "$k: $it" } }
+            .joinToString("\n")
 }
 
 /**
@@ -502,18 +557,24 @@ object ProactiveBubbleHost {
 }
 
 object AgentPendingPrompt {
+    data class Pending(
+        val text: String,
+        /** 不进聊天气泡，只进发给模型的 user 消息。 */
+        val snapshot: String? = null,
+    )
+
     @Volatile
-    private var pending: String? = null
+    private var pending: Pending? = null
 
     var generation by mutableIntStateOf(0)
         private set
 
-    fun set(text: String) {
-        pending = text
+    fun set(text: String, snapshot: String? = null) {
+        pending = Pending(text, snapshot)
         generation++
     }
 
-    fun consume(): String? {
+    fun consume(): Pending? {
         val v = pending
         pending = null
         return v

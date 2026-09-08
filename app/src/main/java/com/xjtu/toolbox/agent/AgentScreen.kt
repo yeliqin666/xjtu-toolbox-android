@@ -140,7 +140,7 @@ fun AgentScreen(
         val pending = AgentPendingPrompt.consume() ?: return@LaunchedEffect
         showConfig = false
         vm.newSession()
-        vm.sendMessage(pending, config, loginState, context)
+        vm.sendMessage(pending.text, config, loginState, context, llmAnnex = pending.snapshot)
     }
 
     // 上下文耗尽主动弹窗：避免"输入框禁用 + label 文字里藏一句"的隐晦提示

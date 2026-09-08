@@ -2356,6 +2356,7 @@ private fun MainScreen(
             // 「一次抓取、两处消费」，气泡不为自己额外发请求。图书馆同理。
             val pendingScores = com.xjtu.toolbox.home.HomeStats.pendingNewScores(context)
             val unseenNotice = com.xjtu.toolbox.home.HomeStats.unseenNoticeTitle(context)
+            val unseenNoticeLink = com.xjtu.toolbox.home.HomeStats.unseenNoticeLink(context)
             val libraryTodo = com.xjtu.toolbox.home.HomeSignals.libraryUrgentAction
             // 考试同样是"只读不抓"：日程页每次加载都会把考试表写进 DataCache，
             // 这里直接读那份。为了提醒单独去拉一次教务是不值得的。
@@ -2371,6 +2372,8 @@ private fun MainScreen(
                 latestNotice = unseenNotice,
                 libraryPendingAction = libraryTodo,
                 examCountdown = nextExam,
+                latestNoticeLink = unseenNoticeLink,
+                accountType = loginState.accountType,
             )
             android.util.Log.d(
                 "Proactive",
@@ -2447,11 +2450,18 @@ private fun MainScreen(
                     maxWidth = (screenWidth - 32.dp).coerceAtLeast(200.dp),
                     onOpen = {
                         com.xjtu.toolbox.agent.ProactiveRules.markUseful(context, msg.id)
-                        if (msg.prompt.isNotBlank()) {
-                            AgentPendingPrompt.set(msg.prompt)
-                        }
+                        val route = msg.openRoute
                         com.xjtu.toolbox.agent.ProactiveBubbleHost.clear()
-                        selectedTabOrdinal = BottomTab.PIDAI.ordinal
+                        if (!route.isNullOrBlank()) {
+                            val type = loginTypeForRoute(route)
+                            if (type != null) navigateWithLogin(route, type)
+                            else navigateToTarget(route)
+                        } else if (msg.prompt.isNotBlank()) {
+                            AgentPendingPrompt.set(msg.prompt, msg.eventSnapshot)
+                            selectedTabOrdinal = BottomTab.PIDAI.ordinal
+                        } else {
+                            selectedTabOrdinal = BottomTab.PIDAI.ordinal
+                        }
                     },
                     onDismiss = {
                         com.xjtu.toolbox.agent.ProactiveRules.markDismissed(context, msg.id)

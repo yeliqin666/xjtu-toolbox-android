@@ -163,12 +163,18 @@ object HomeStats {
         context: Context,
         title: String,
         markUnseen: Boolean = true,
+        unseenLink: String? = null,
     ): Boolean = runCatching {
         val prefs = context.getSharedPreferences("home_stats_cursor", Context.MODE_PRIVATE)
         val prev = prefs.getString(KEY_LATEST_NOTICE, null)
         if (prev == title) return@runCatching false
         val editor = prefs.edit().putString(KEY_LATEST_NOTICE, title)
-        if (markUnseen) editor.putString("proactive_notice_unseen", title)
+        if (markUnseen) {
+            editor.putString("proactive_notice_unseen", title)
+            val link = unseenLink
+            if (link.isNullOrBlank()) editor.remove("proactive_notice_unseen_link")
+            else editor.putString("proactive_notice_unseen_link", link)
+        }
         editor.apply()
         // 首次记录不算"新通知"：这是基线，报出来等于把一条老通知当新的推一次
         prev != null
@@ -180,11 +186,21 @@ object HomeStats {
             .getString("proactive_notice_unseen", null)
     }.getOrNull()
 
+    /** 未读通知的原文链接；没有就返回 null，气泡退回打开通知列表。 */
+    fun unseenNoticeLink(context: Context): String? = runCatching {
+        context.getSharedPreferences("home_stats_cursor", Context.MODE_PRIVATE)
+            .getString("proactive_notice_unseen_link", null)
+            ?.takeIf { it.isNotBlank() }
+    }.getOrNull()
+
     /** 提醒已经冒过，清掉待提醒标记，避免重复推同一条。 */
     fun clearUnseenNotice(context: Context) {
         runCatching {
             context.getSharedPreferences("home_stats_cursor", Context.MODE_PRIVATE)
-                .edit().remove("proactive_notice_unseen").apply()
+                .edit()
+                .remove("proactive_notice_unseen")
+                .remove("proactive_notice_unseen_link")
+                .apply()
         }
     }
 

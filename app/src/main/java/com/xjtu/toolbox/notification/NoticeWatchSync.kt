@@ -96,9 +96,6 @@ internal object NoticeWatchSync {
         NoticeWidgetUpdater.publishTitles(app, titles)
 
         val newest = items.firstOrNull()?.title
-        // 关键词只筛"推哪些"，不筛"抓哪些"、也不筛"记哪些已读"——上面 fresh 已经
-        // 全部写进 seenLinks 了。于是它不增加任何请求，纯粹减少打扰；关掉过滤时
-        // 也不会有一堆积压的旧公告突然涌出来。
         val keywords = NoticeWatchStore.keywords(app)
         val toPush = if (keywords.isEmpty()) fresh else fresh.filter { n ->
             keywords.any { k -> n.title.contains(k, ignoreCase = true) }
@@ -111,9 +108,16 @@ internal object NoticeWatchSync {
             posted = NoticeNotifier.canPost(app)
             if (posted) NoticeNotifier.notifyNew(app, toPush)
         }
-        if (!newest.isNullOrBlank()) {
-            // 首页/气泡的"未读"标记跟推送同口径：被关键词滤掉的公告不该在别处再冒一次。
-            HomeStats.putLatestNoticeTitle(app, newest, markUnseen = notify && toPush.isNotEmpty() && !posted)
+        val bubble = toPush.firstOrNull()
+        if (bubble != null && notify && !posted) {
+            HomeStats.putLatestNoticeTitle(
+                app,
+                bubble.title,
+                markUnseen = true,
+                unseenLink = bubble.link,
+            )
+        } else if (!newest.isNullOrBlank()) {
+            HomeStats.putLatestNoticeTitle(app, newest, markUnseen = false)
         }
 
         Result(titles, newest, fresh.size, usedCache = false)
