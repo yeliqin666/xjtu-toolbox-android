@@ -66,6 +66,7 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.NavigationBar
+import top.yukonga.miuix.kmp.basic.NavigationBarDefaults
 import top.yukonga.miuix.kmp.basic.NavigationBarItem
 import top.yukonga.miuix.kmp.basic.NavigationBarDisplayMode
 import top.yukonga.miuix.kmp.basic.FloatingNavigationBar
@@ -2122,6 +2123,11 @@ private fun MainScreen(
     var autoLoginJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
     val snackbarHostState = remember { SnackbarHostState() }
+    // miuix：底栏条目可单独设选中色。选中跟主题色（含取色），未选中仍走容器字色。
+    val navItemColors = NavigationBarDefaults.navigationBarItemColors(
+        selectedContentColor = MiuixTheme.colorScheme.primary,
+        unselectedContentColor = MiuixTheme.colorScheme.onSurfaceContainer,
+    )
 
     fun switchToTab(tab: BottomTab) {
         selectedTabOrdinal = tab.ordinal
@@ -2586,6 +2592,7 @@ private fun MainScreen(
                             onClick = { selectedTabOrdinal = tab.ordinal },
                             icon = if (selectedTab == tab) tab.selectedIcon else tab.unselectedIcon,
                             label = tab.label,
+                            colors = navItemColors,
                             badge = bottomTabBadge(tab, loginState.isLoggedIn, navAccountCount)
                         )
                     }
@@ -2618,6 +2625,7 @@ private fun MainScreen(
                             onClick = { selectedTabOrdinal = tab.ordinal },
                             icon = if (selectedTab == tab) tab.selectedIcon else tab.unselectedIcon,
                             label = tab.label,
+                            colors = navItemColors,
                             badge = bottomTabBadge(tab, loginState.isLoggedIn, navAccountCount)
                         )
                     }
