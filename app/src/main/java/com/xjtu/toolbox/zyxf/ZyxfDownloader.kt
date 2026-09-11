@@ -39,6 +39,7 @@ object ZyxfDownloader {
      * 下载并保存。
      *
      * @param fallbackName WebView 猜的文件名，仅在响应头没给时使用
+     * @param referer 来源页。教务处附件下载要带，缺了会回到验证码 HTML。
      * @return 成功时返回最终保存的文件名，失败返回 null
      */
     fun download(
@@ -47,6 +48,8 @@ object ZyxfDownloader {
         fallbackName: String,
         userAgent: String?,
         cookie: String?,
+        referer: String? = "https://zyxf.top/",
+        category: String = LmsDownloadStore.CATEGORY_ZYXF,
     ): String? {
         return try {
             val req = Request.Builder()
@@ -57,7 +60,7 @@ object ZyxfDownloader {
                 .apply {
                     userAgent?.takeIf { it.isNotBlank() }?.let { header("User-Agent", it) }
                     cookie?.takeIf { it.isNotBlank() }?.let { header("Cookie", it) }
-                    header("Referer", "https://zyxf.top/")
+                    referer?.takeIf { it.isNotBlank() }?.let { header("Referer", it) }
                 }
                 .get()
                 .build()
@@ -75,14 +78,19 @@ object ZyxfDownloader {
 
                 val name = fileNameOf(disposition, url, fallbackName)
                 val bytes = resp.body?.bytes() ?: return null
+                // 验证码页 / 挑战页也是 200。存成「附件.docx」用户只会看到打不开。
+                if (isHtmlDisguisedAsFile(mime, disposition, bytes)) {
+                    Log.w(TAG, "refusing html body as file: $url")
+                    return null
+                }
                 Log.d(TAG, "downloaded name=$name mime=$mime size=${bytes.size}")
 
                 LmsDownloadStore.saveBytes(
                     context = context,
                     fileName = name,
-                    mimeType = mime,
+                    mimeType = mime.ifBlank { "application/octet-stream" },
                     bytes = bytes,
-                    category = LmsDownloadStore.CATEGORY_ZYXF,
+                    category = category,
                 )?.let { name }
             }
         } catch (e: Exception) {
@@ -119,4 +127,33 @@ object ZyxfDownloader {
 
     private fun String.sanitized(): String =
         replace(Regex("""[\\/:*?"<>|]"""), "_").trim().ifBlank { "download" }
+}
+
+internal fun isHtmlDisguisedAsFile(
+    mime: String,
+    disposition: String?,
+    bytes: ByteArray,
+): Boolean {
+    val disp = disposition.orEmpty()
+    if (disp.contains("attachment", ignoreCase = true) ||
+        disp.contains("filename", ignoreCase = true)
+    ) {
+        return false
+    }
+    if (mime.contains("text/html", ignoreCase = true) ||
+        mime.contains("application/xhtml", ignoreCase = true)
+    ) {
+        return true
+    }
+    val head = bytes.decodeToString(endIndex = minOf(bytes.size, 256)).trimStart()
+        .lowercase()
+    return head.startsWith("<!doctype html") || head.startsWith("<html")
+}
+
+/** 教务处 CMS：验证码通过后会给 download.jsp 加上一次性 codeValue。 */
+internal fun isCmsOneShotDownload(url: String): Boolean {
+    val query = url.substringAfter('?', "").lowercase()
+    if ("codevalue=" !in query) return false
+    val path = url.substringBefore('?').lowercase()
+    return "download.jsp" in path || "downloadattach" in query
 }

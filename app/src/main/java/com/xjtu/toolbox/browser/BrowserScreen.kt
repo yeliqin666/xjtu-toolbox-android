@@ -15,17 +15,12 @@ import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
 
 import android.annotation.SuppressLint
-import android.app.DownloadManager
-import android.content.Context
 import android.graphics.Bitmap
-import android.net.Uri
-import android.os.Environment
 import android.util.Log
 import android.view.ViewGroup
 import android.webkit.*
 import android.widget.Toast
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -39,11 +34,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.xjtu.toolbox.auth.SiteSession
+import com.xjtu.toolbox.lms.LmsDownloadStore
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
+import com.xjtu.toolbox.zyxf.ZyxfDownloader
+import com.xjtu.toolbox.zyxf.isCmsOneShotDownload
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import java.net.URI
 
@@ -135,6 +135,34 @@ fun BrowserScreen(
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     val isDark = LocalIsDarkTheme.current
     val darkState = rememberUpdatedState(isDark)
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val currentUrlState = rememberUpdatedState(currentUrl)
+
+    val saveHttpDownload = rememberUpdatedState { url: String, fallbackName: String, userAgent: String? ->
+        if (!url.startsWith("http://") && !url.startsWith("https://")) return@rememberUpdatedState
+        val cookie = runCatching { CookieManager.getInstance().getCookie(url) }.getOrNull()
+        val referer = currentUrlState.value.ifBlank { url }
+        scope.launch {
+            Toast.makeText(context, "开始下载 ${fallbackName.ifBlank { "文件" }}", Toast.LENGTH_SHORT).show()
+            val ok = withContext(Dispatchers.IO) {
+                ZyxfDownloader.download(
+                    context = context,
+                    url = url,
+                    fallbackName = fallbackName,
+                    userAgent = userAgent,
+                    cookie = cookie,
+                    referer = referer,
+                    category = LmsDownloadStore.CATEGORY_OTHER,
+                )
+            }
+            Toast.makeText(
+                context,
+                if (ok != null) "已保存 $ok" else "下载失败",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
 
     LaunchedEffect(isDark, webViewRef) {
         webViewRef?.let { WebViewNightMode.apply(it, isDark) }
@@ -239,6 +267,9 @@ fun BrowserScreen(
                     ) // 去掉 wv 标记，某些网站会拒绝 WebView
                     // 在 UA 末尾追加 XJTU-WX-MP 标识，方便服务端识别来自本 App
                     settings.userAgentString = settings.userAgentString + " XJTU-WX-MP/1.0"
+                    // 教务处附件是 target="_blank"。不开的话点击会被吞掉；开了必须自己接 onCreateWindow。
+                    settings.setSupportMultipleWindows(true)
+                    settings.javaScriptCanOpenWindowsAutomatically = true
 
                     android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
 
@@ -279,12 +310,16 @@ fun BrowserScreen(
                             view: WebView?,
                             request: WebResourceRequest?
                         ): Boolean {
-                            // 拦截外部链接 scheme (tel:, mailto:, intent:)
                             val url = request?.url?.toString() ?: return false
-                            if (url.startsWith("http://") || url.startsWith("https://")) {
-                                return false // 正常加载
+                            // 验证码一次性地址：拦在 WebView 发出 GET 之前，只由 App 请求一次。
+                            if (isCmsOneShotDownload(url)) {
+                                val name = URLUtil.guessFileName(url, null, null)
+                                saveHttpDownload.value(url, name, view?.settings?.userAgentString)
+                                return true
                             }
-                            // 尝试用外部 intent 打开
+                            if (url.startsWith("http://") || url.startsWith("https://")) {
+                                return false
+                            }
                             try {
                                 val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
                                 context.startActivity(intent)
@@ -301,43 +336,49 @@ fun BrowserScreen(
                         override fun onReceivedTitle(view: WebView?, title: String?) {
                             title?.let { pageTitle = it }
                         }
+
+                        override fun onCreateWindow(
+                            view: WebView?,
+                            isDialog: Boolean,
+                            isUserGesture: Boolean,
+                            resultMsg: android.os.Message?
+                        ): Boolean {
+                            val transport = resultMsg?.obj as? WebView.WebViewTransport ?: return false
+                            val parent = view ?: return false
+                            val tmp = WebView(parent.context)
+                            tmp.webViewClient = object : WebViewClient() {
+                                override fun shouldOverrideUrlLoading(
+                                    v: WebView?,
+                                    req: WebResourceRequest?
+                                ): Boolean {
+                                    val u = req?.url?.toString() ?: return true
+                                    if (isCmsOneShotDownload(u)) {
+                                        val name = URLUtil.guessFileName(u, null, null)
+                                        saveHttpDownload.value(u, name, parent.settings.userAgentString)
+                                    } else {
+                                        parent.loadUrl(u)
+                                    }
+                                    tmp.destroy()
+                                    return true
+                                }
+                            }
+                            transport.webView = tmp
+                            resultMsg.sendToTarget()
+                            return true
+                        }
                     }
 
                     webViewRef = this
 
-                    // 文件下载处理
-                    setDownloadListener { url, userAgent, contentDisposition, mimeType, contentLength ->
-                        try {
-                            val fileName = URLUtil.guessFileName(url, contentDisposition, mimeType)
-                            val request = DownloadManager.Request(Uri.parse(url)).apply {
-                                setMimeType(mimeType)
-                                addRequestHeader("User-Agent", userAgent)
-                                // 同步 WebView cookies 到下载请求
-                                val cookies = CookieManager.getInstance().getCookie(url)
-                                if (!cookies.isNullOrEmpty()) {
-                                    addRequestHeader("Cookie", cookies)
-                                }
-                                setTitle(fileName)
-                                setDescription("正在下载…")
-                                setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                                setDestinationInExternalPublicDir(
-                                    Environment.DIRECTORY_DOWNLOADS,
-                                    "XJTUToolBox/$fileName"
-                                )
-                            }
-                            val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-                            dm.enqueue(request)
-                            Toast.makeText(context, "开始下载: $fileName", Toast.LENGTH_SHORT).show()
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Download failed", e)
-                            // 回退：用系统浏览器打开
-                            try {
-                                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(url))
-                                context.startActivity(intent)
-                            } catch (_: Exception) {
-                                Toast.makeText(context, "下载失败: ${e.message}", Toast.LENGTH_SHORT).show()
-                            }
+                    setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
+                        if (url.startsWith("blob:")) {
+                            Toast.makeText(context, "无法保存此链接，请用系统浏览器打开", Toast.LENGTH_SHORT).show()
+                            return@setDownloadListener
                         }
+                        val name = runCatching {
+                            URLUtil.guessFileName(url, contentDisposition, mimeType)
+                        }.getOrNull().orEmpty()
+                        saveHttpDownload.value(url, name, userAgent)
                     }
 
                     // 加载 URL

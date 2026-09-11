@@ -20,8 +20,8 @@ android {
         applicationId = "com.xjtu.toolbox"
         minSdk = 31
         targetSdk = 36
-        versionCode = 54
-        versionName = "4.8.5"
+        versionCode = 55
+        versionName = "4.8.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
