@@ -16,6 +16,14 @@ import com.xjtu.toolbox.bulletin.BulletinRules
  */
 data class VersionChangelog(
     val items: List<Pair<String, String>>,
+    /**
+     * 发版时**仍然存在**的问题，每条写成一句用户看得懂的话
+     * （「入馆后可能仍显示『取消预约』」）。
+     *
+     * 不是 issue 号：这个列表原样渲染在 What's New 弹窗的「已知问题」下面，
+     * 填 `"39"` 用户看到的就是一个光秃秃的「39」。也不要把这个版本**修好**的
+     * issue 写进来——那是 [items] 的事。
+     */
     val issues: List<String> = emptyList()
 )
 
@@ -26,12 +34,22 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "4.9.0" to VersionChangelog(
+            items = listOf(
+                "🖼️" to "屁岱能看图了，发课表截图、通知照片直接问",
+                "📚" to "屁岱可以搜仲英学辅资料，结果成卡片，点一下就下载",
+                "🧩" to "4×2 小部件改成今天／明天两栏，一屏看六节课；2×2 不再把「日程」裁成「日」",
+                "📅" to "修好开学前夕日程页误报「学期已结束」",
+                "🏛️" to "图书馆支持雁塔和创新港，可切换校区",
+                "💬" to "屁岱思考强度补上「低」档，换模型后不再自称上一个模型",
+                "🗓️" to "校历在假期里不再默认翻到几年前的学期"
+            )
+        ),
         "4.8.6" to VersionChangelog(
             items = listOf(
                 "📎" to "教务通知附件可以下载了",
                 "🌐" to "内置浏览器下载改由应用自己保存，不再被系统下载器打回验证码页"
-            ),
-            issues = listOf("39")
+            )
         ),
         "4.8.5" to VersionChangelog(
             items = listOf(
