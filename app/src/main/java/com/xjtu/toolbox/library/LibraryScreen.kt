@@ -87,6 +87,24 @@ private fun loadFavorites(ctx: Context): Set<String> =
 private fun saveFavorites(ctx: Context, favs: Set<String>) =
     ctx.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).edit().putStringSet(KEY_FAVORITES, favs).apply()
 
+// ══════ 校区偏好 ══════
+
+private const val KEY_CAMPUS = "library_campus"
+
+/**
+ * 上次用的校区。仅作首屏的乐观展示——真正以账号里的 `rplace` 为准，
+ * 进页面后会用 [LibraryApi.getCurrentCampus] 校一次。
+ */
+private fun loadPreferredCampus(ctx: Context): LibraryCampus =
+    LibraryCampus.byId(
+        ctx.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).getString(KEY_CAMPUS, null)
+    ) ?: LibraryCampus.DEFAULT
+
+private fun savePreferredCampus(ctx: Context, campus: LibraryCampus) {
+    ctx.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        .edit().putString(KEY_CAMPUS, campus.id).apply()
+}
+
 // ══════ LibraryScreen ══════
 
 @Composable
@@ -130,43 +148,38 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
     // 收藏
     var favorites by remember { mutableStateOf(loadFavorites(context)) }
 
-    // ── 楼层/区域选择 ──
-    val allFloors = remember { LibraryApi.FLOORS.keys.toList() }
-    val floors = remember(allFloors, areaStatsMap) {
-        if (areaStatsMap.isEmpty()) allFloors
-        else allFloors.filter { floor ->
-            val floorAreas = LibraryApi.FLOORS[floor] ?: emptyList()
-            floorAreas.any { area ->
-                val code = LibraryApi.AREA_MAP[area] ?: return@any false
-                areaStatsMap[code]?.isOpen == true
-            }
-        }
-    }
-    var selectedFloor by remember { mutableStateOf(allFloors.first()) }
-    LaunchedEffect(floors) {
-        if (selectedFloor !in floors && floors.isNotEmpty()) selectedFloor = floors.first()
-    }
+    // ── 校区/楼层/区域选择 ──
+    //
+    // 三级都是运行时定的：校区来自账号设置，楼层来自 [LibraryCampus]，
+    // 区域来自 `/qspace` 现拉。原来这里挂的是兴庆那张写死的表，
+    // 雁塔和创新港的区域码一个都对不上，两个校区的列表永远空着（issue #42）。
+    var campus by remember { mutableStateOf(loadPreferredCampus(context)) }
+    var campusSwitching by remember { mutableStateOf(false) }
+    var selectedFloorCode by remember(campus) { mutableStateOf(campus.floorCodes.first()) }
 
-    val allAreas = remember(selectedFloor) { LibraryApi.FLOORS[selectedFloor] ?: emptyList() }
-    // scount 未加载时不显示区域，避免未开放区域闪烁
-    val areas = remember(allAreas, areaStatsMap) {
-        if (areaStatsMap.isEmpty()) emptyList()
-        else allAreas.filter { area ->
-            val code = LibraryApi.AREA_MAP[area] ?: return@filter false
-            areaStatsMap[code]?.isOpen == true
-        }
-    }
-    var selectedArea by remember(selectedFloor) { mutableStateOf(areas.firstOrNull() ?: "") }
-    LaunchedEffect(areas) {
-        if (selectedArea !in areas) selectedArea = areas.firstOrNull() ?: ""
+    /** 当前楼层的「区域码 → 中文名」，顺序即学校给的顺序。 */
+    var floorAreas by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var selectedAreaCode by remember { mutableStateOf("") }
+    val selectedArea = floorAreas[selectedAreaCode] ?: api.areaNameOf(selectedAreaCode)
+
+    val floors = remember(campus) { campus.floorCodes.map { campus.floorLabel(it) } }
+
+    /**
+     * 可选区域。
+     *
+     * 只把**明确关闭**（scount 里有这个区域且 total=0）的滤掉。原来的写法是反过来的：
+     * 只留明确开放的，于是统计还没到、或者学校压根没给这个区域统计时，列表是空的——
+     * 那正是另外两个校区看到的样子。
+     */
+    val areaCodes = remember(floorAreas, areaStatsMap) {
+        floorAreas.keys.filter { code -> areaStatsMap[code]?.isOpen != false }
     }
 
     // 智能推荐座位
-    val recommendedSeats by remember(seats, selectedArea) {
+    val recommendedSeats by remember(seats, selectedAreaCode) {
         derivedStateOf {
-            val areaCode = LibraryApi.AREA_MAP[selectedArea] ?: return@derivedStateOf emptyList()
-            if (seats.isEmpty()) return@derivedStateOf emptyList()
-            api.recommendSeats(seats, areaCode, topN = 5)
+            if (selectedAreaCode.isEmpty() || seats.isEmpty()) return@derivedStateOf emptyList()
+            api.recommendSeats(seats, selectedAreaCode, topN = 5)
         }
     }
 
@@ -200,26 +213,95 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
     }
 
     fun loadSeats(force: Boolean = false) {
-        LibraryApi.AREA_MAP[selectedArea]?.let { loadSeatsFor(it, force) }
+        selectedAreaCode.takeIf { it.isNotEmpty() }?.let { loadSeatsFor(it, force) }
     }
 
-    // 区域变化 → 自动加载（与首次 bootstrap 去重，同一区域不打第二枪）
-    LaunchedEffect(selectedArea) {
-        if (selectedArea.isNotEmpty()) {
-            LibraryApi.AREA_MAP[selectedArea]?.let { loadSeatsFor(it) }
+    /** 拉一层的区域列表并选中第一个可用区域。换校区、换楼层都走这里。 */
+    fun loadFloor(floorCode: String) {
+        selectedFloorCode = floorCode
+        isLoading = true
+        scope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) { api.getFloorAreas(floorCode) }
+                floorAreas = result
+                errorMessage = if (result.isEmpty()) "这一层没有可选区域" else null
+                val code = result.keys.firstOrNull { api.cachedAreaStats[it]?.isOpen != false }
+                    ?: result.keys.firstOrNull().orEmpty()
+                selectedAreaCode = code
+                if (code.isEmpty()) {
+                    // 没有区域可选，这一枪到此为止——否则转圈永远不停。
+                    seats = emptyList()
+                    isLoading = false
+                } else {
+                    // 直接拉，不等 LaunchedEffect(selectedAreaCode)：换走一层再换回来时
+                    // code 和上次相同，那个 effect 根本不会重跑，isLoading 就吊在 true 上。
+                    // 这里 force 拉一次并占住 lastLoadedAreaCode，effect 真跑起来也会被去重挡掉。
+                    loadSeatsFor(code, force = true)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.LIBRARY, Routes.LIBRARY, onBack)
+                isLoading = false
+            } catch (e: Exception) {
+                floorAreas = emptyMap()
+                seats = emptyList()
+                errorMessage = "楼层信息加载失败: ${e.message}"
+                isLoading = false
+            }
         }
     }
 
-    // 首次 bootstrap：加载 scount + 预约信息
+    // 区域变化 → 自动加载（与首次 bootstrap 去重，同一区域不打第二枪）
+    LaunchedEffect(selectedAreaCode) {
+        if (selectedAreaCode.isNotEmpty()) loadSeatsFor(selectedAreaCode)
+    }
+
+    // 首次 bootstrap：认账号当前校区 → 拉第一层的区域 → 拉预约信息
     LaunchedEffect(Unit) {
-        val bootstrapCode = allAreas.firstOrNull()?.let { LibraryApi.AREA_MAP[it] }
-        if (bootstrapCode != null) loadSeatsFor(bootstrapCode)
+        // 以账号在图书馆系统里实际选的校区为准。本地记的那个可能是上次装机时的，
+        // 也可能用户在网页端改过；不问一声就按本地的画，会画出一个空列表。
+        val actual = withContext(Dispatchers.IO) { runCatching { api.getCurrentCampus() }.getOrNull() }
+        if (actual != null && actual != campus) {
+            campus = actual
+            savePreferredCampus(context, actual)
+        }
+        loadFloor((actual ?: campus).floorCodes.first())
         try { myBooking = withContext(Dispatchers.IO) { api.getMyBooking() } } catch (_: Exception) {}
+    }
+
+    /**
+     * 换校区。
+     *
+     * 这一步会改用户在图书馆系统里的个人资料（`rplace`），所以只在用户点校区标签时做，
+     * 不在后台自动切——见 [LibraryApi.switchCampus]。
+     */
+    fun switchCampus(target: LibraryCampus) {
+        if (target == campus || campusSwitching) return
+        campusSwitching = true
+        scope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                runCatching { api.switchCampus(target) }.getOrDefault(false)
+            }
+            if (ok) {
+                campus = target
+                savePreferredCampus(context, target)
+                floorAreas = emptyMap()
+                selectedAreaCode = ""
+                seats = emptyList()
+                areaStatsMap = emptyMap()
+                lastLoadedAreaCode = null
+                loadFloor(target.floorCodes.first())
+            } else {
+                errorMessage = "切换到" + target.displayName + "失败，请稍后重试"
+            }
+            campusSwitching = false
+        }
     }
 
     // 预约/换座/取消后只刷新一轮：座位 + 我的预约并行，不再各走一遍
     suspend fun refreshAfterBooking() = coroutineScope {
-        val areaCode = LibraryApi.AREA_MAP[selectedArea]
+        val areaCode = selectedAreaCode.takeIf { it.isNotEmpty() }
         val seatsDeferred = if (areaCode != null) {
             lastLoadedAreaCode = areaCode
             async(Dispatchers.IO) { api.getSeats(areaCode) }
@@ -239,7 +321,7 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
 
     // ── 预约 ──
     fun doBookSeat(seatId: String) {
-        val areaCode = LibraryApi.AREA_MAP[selectedArea]
+        val areaCode = selectedAreaCode.takeIf { it.isNotEmpty() }
             ?: LibraryApi.guessAreaCode(seatId)
             ?: run { bookingResult = BookResult(false, "无法确定区域"); return }
         isBooking = true; bookingResult = null
@@ -258,7 +340,7 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
 
     // 直接换座（已知有现有预约时使用）
     fun doSwapSeat(seatId: String) {
-        val areaCode = LibraryApi.AREA_MAP[selectedArea]
+        val areaCode = selectedAreaCode.takeIf { it.isNotEmpty() }
             ?: LibraryApi.guessAreaCode(seatId)
             ?: run { bookingResult = BookResult(false, "无法确定区域"); return }
         isBooking = true; bookingResult = null
@@ -323,7 +405,7 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
     // 地图/列表视图切换
     var showMapView by remember { mutableStateOf(false) }
     var seatScope by rememberSaveable { mutableStateOf("可用") }
-    val currentAreaCode = LibraryApi.AREA_MAP[selectedArea] ?: ""
+    val currentAreaCode = selectedAreaCode
     val mapAvailable = currentAreaCode in MAP_SUPPORTED_AREAS
 
     val availableCount = seats.count { it.available }
@@ -545,42 +627,63 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                 }
             }
 
-            // ── 楼层/区域选择器 (一体化) ──
-            if (floors.isNotEmpty() || areas.isNotEmpty()) {
-                Card(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-                    colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)
-                ) {
-                    Column {
-                        if (floors.isNotEmpty()) {
-                            AppSegmentedTabs(
-                                tabs = floors,
-                                selectedTabIndex = (floors.indexOf(selectedFloor)).coerceAtLeast(0),
-                                onTabSelected = { selectedFloor = floors.getOrElse(it) { floors.first() } },
-                                embedded = true,
+            // ── 校区/楼层/区域选择器 (一体化) ──
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)
+            ) {
+                Column {
+                    // 校区。切换会写回账号资料（rplace），所以切换期间禁用整排，
+                    // 避免用户连点两下把请求打叉。
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        LibraryCampus.entries.forEach { c ->
+                            com.xjtu.toolbox.ui.components.AppFilterChip(
+                                selected = campus == c,
+                                onClick = { if (!campusSwitching) switchCampus(c) },
+                                label = c.displayName
                             )
                         }
-                        if (floors.isNotEmpty() && areas.isNotEmpty()) {
-                            HorizontalDivider(
-                                modifier = Modifier.padding(horizontal = 16.dp),
-                                color = MiuixTheme.colorScheme.outline.copy(alpha = 0.08f)
-                            )
+                        if (campusSwitching) {
+                            CircularProgressIndicator(size = 14.dp, strokeWidth = 2.dp)
                         }
-                        if (areas.isNotEmpty()) {
-                            Row(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState())
-                                    .padding(horizontal = 16.dp, vertical = 6.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                areas.forEach { area ->
-                                    com.xjtu.toolbox.ui.components.AppFilterChip(
-                                        selected = selectedArea == area,
-                                        onClick = { selectedArea = area },
-                                        label = area
-                                    )
-                                }
+                    }
+                    if (floors.isNotEmpty()) {
+                        AppSegmentedTabs(
+                            tabs = floors,
+                            selectedTabIndex = campus.floorCodes.indexOf(selectedFloorCode).coerceAtLeast(0),
+                            onTabSelected = { index ->
+                                campus.floorCodes.getOrNull(index)?.let { loadFloor(it) }
+                            },
+                            embedded = true,
+                        )
+                    }
+                    if (floors.isNotEmpty() && areaCodes.isNotEmpty()) {
+                        HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            color = MiuixTheme.colorScheme.outline.copy(alpha = 0.08f)
+                        )
+                    }
+                    if (areaCodes.isNotEmpty()) {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                                .padding(horizontal = 16.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            areaCodes.forEach { code ->
+                                com.xjtu.toolbox.ui.components.AppFilterChip(
+                                    selected = selectedAreaCode == code,
+                                    onClick = { selectedAreaCode = code },
+                                    label = floorAreas[code] ?: code
+                                )
                             }
                         }
                     }
