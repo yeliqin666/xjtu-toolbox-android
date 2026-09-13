@@ -110,7 +110,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
-import java.time.temporal.ChronoUnit
 
 private data class ScheduleDiskSnapshot(
     val termList: List<String> = emptyList(),
@@ -199,8 +198,7 @@ fun ScheduleScreen(
     val initialWeek = remember(disk.startDate) {
         val startDate = disk.startDate ?: return@remember 0
         try {
-            val daysBetween = ChronoUnit.DAYS.between(startDate, LocalDate.now())
-            val w = ((daysBetween / 7) + 1).toInt()
+            val w = TermWeeks.weekOf(startDate)
             // 这里还拿不到 totalWeeks（依赖 courses），先用磁盘快照估一次。
             val diskWeeks = disk.courses.maxOfOrNull { it.weekBits.length }?.takeIf { it > 0 } ?: 30
             if (w in 1..diskWeeks) w else 0
@@ -216,6 +214,15 @@ fun ScheduleScreen(
     val totalWeeks = remember(courses) {
         courses.maxOfOrNull { it.weekBits.length }?.takeIf { it > 0 } ?: 0
     }
+
+    /**
+     * 现算一遍学期周数，不走 [totalWeeks] 那个 remember。
+     *
+     * 加载流程里"先赋值 courses，紧接着算周次"是同一帧内的事，而 `totalWeeks` 是本次
+     * 组合期间算好的 val，那一刻还是旧值（冷启动时就是 0）。0 会被当成"学期只有 0 周"，
+     * 于是任何周次都 > 0，页面报"学期已结束"。这里直接读 state，拿到的永远是最新的。
+     */
+    fun knownTotalWeeks(): Int = courses.maxOfOrNull { it.weekBits.length }?.takeIf { it > 0 } ?: 0
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
 
     /**
@@ -292,27 +299,18 @@ fun ScheduleScreen(
     fun applyTermStart(startDate: LocalDate) {
         startOfTerm = startDate
         try {
-            val today = LocalDate.now()
-            val daysBetween = ChronoUnit.DAYS.between(startDate, today)
-            val rawWeek = ((daysBetween / 7) + 1).toInt()
-            if (rawWeek in 1..totalWeeks) realCurrentWeek = rawWeek
-            val firstTeachWeek = courses.flatMap { c ->
-                c.weekBits.indices.filter { c.weekBits[it] == '1' }.map { it + 1 }
-            }.minOrNull()
-            val notStarted = rawWeek in 1..totalWeeks &&
-                    firstTeachWeek != null && rawWeek < firstTeachWeek
-            currentWeek = when {
-                rawWeek <= 0 -> 1
-                rawWeek > totalWeeks -> { showAllWeeks = true; 1 }
-                notStarted -> firstTeachWeek
-                else -> rawWeek
-            }
-            weekNote = when {
-                rawWeek <= 0 -> "距开学还有 ${1 - rawWeek} 周"
-                rawWeek > totalWeeks -> "学期已结束"
-                notStarted -> "尚未开课 · 第${firstTeachWeek}周开始上课"
-                else -> null
-            }
+            // totalWeeks 取自 courses，这一帧里 courses 可能刚被赋值而它还是旧的；
+            // 直接现算一遍，别让"课表已经到了但周数还是 0"的中间态判成学期结束。
+            val weeks = knownTotalWeeks()
+            val status = TermWeeks.statusOf(
+                startOfTerm = startDate,
+                totalWeeks = weeks,
+                firstTeachWeek = TermWeeks.firstTeachWeekOf(courses),
+            )
+            if (status is TermWeeks.Status.InTerm) realCurrentWeek = status.week
+            if (status is TermWeeks.Status.AfterTerm) showAllWeeks = true
+            currentWeek = TermWeeks.displayWeekOf(status)
+            weekNote = TermWeeks.noteOf(status)
         } catch (_: Exception) {
             currentWeek = 1
             weekNote = null
@@ -896,26 +894,14 @@ fun ScheduleScreen(
                         if (startDate != null) {
                             startOfTerm = startDate
                             if (api != null) try { dataCache.put("start_date_$newTermCode", gson.toJson(startDate.toString())) } catch (_: Exception) {}
-                            val today = LocalDate.now()
-                            val daysBetween = ChronoUnit.DAYS.between(startDate, today)
-                            val rawWeek = ((daysBetween / 7) + 1).toInt()
-                            val firstTeachWeek = courses.flatMap { c ->
-                                c.weekBits.indices.filter { c.weekBits[it] == '1' }.map { it + 1 }
-                            }.minOrNull()
-                            val notStarted = rawWeek in 1..totalWeeks &&
-                                    firstTeachWeek != null && rawWeek < firstTeachWeek
-                            currentWeek = when {
-                                rawWeek <= 0 -> 1
-                                rawWeek > totalWeeks -> { showAllWeeks = true; 1 }
-                                notStarted -> firstTeachWeek
-                                else -> rawWeek
-                            }
-                            weekNote = when {
-                                rawWeek <= 0 -> "距开学还有 ${1 - rawWeek} 周"
-                                rawWeek > totalWeeks -> "学期已结束"
-                                notStarted -> "尚未开课 · 第${firstTeachWeek}周开始上课"
-                                else -> null
-                            }
+                            val status = TermWeeks.statusOf(
+                                startOfTerm = startDate,
+                                totalWeeks = knownTotalWeeks(),
+                                firstTeachWeek = TermWeeks.firstTeachWeekOf(courses),
+                            )
+                            if (status is TermWeeks.Status.AfterTerm) showAllWeeks = true
+                            currentWeek = TermWeeks.displayWeekOf(status)
+                            weekNote = TermWeeks.noteOf(status)
                         } else {
                             currentWeek = 1; weekNote = null
                         }

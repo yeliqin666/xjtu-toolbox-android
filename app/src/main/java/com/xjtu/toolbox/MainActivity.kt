@@ -3526,7 +3526,7 @@ private fun HomeTab(
                 val startDate = if (!startDateStr.isNullOrBlank()) runCatching { java.time.LocalDate.parse(startDateStr) }.getOrNull() else null
                 val today = java.time.LocalDate.now()
                 val weekNumber = if (startDate != null) {
-                    ((java.time.temporal.ChronoUnit.DAYS.between(startDate, today) / 7) + 1).toInt()
+                    com.xjtu.toolbox.schedule.TermWeeks.weekOf(startDate, today)
                         .takeIf { it in 1..25 } ?: 0
                 } else {
                     0
@@ -3545,7 +3545,7 @@ private fun HomeTab(
                     val targetDate = today.plusDays(offset.toLong())
                     if (holidayDates.containsKey(targetDate)) continue
 
-                    val targetWeek = ((java.time.temporal.ChronoUnit.DAYS.between(startDate, targetDate) / 7) + 1).toInt()
+                    val targetWeek = com.xjtu.toolbox.schedule.TermWeeks.weekOf(startDate, targetDate)
                     if (targetWeek <= 0) continue
                     val daySchedules = allSchedules
                         .filter { it.dayOfWeek == targetDate.dayOfWeek.value && it.isInWeek(targetWeek) }
