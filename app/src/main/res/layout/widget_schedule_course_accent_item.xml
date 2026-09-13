@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  4x2「今天 / 明天」两栏里的单条课程。
+
+  和 2x2 那版的整块浅色底不同，这里是**左侧色条 + 两行文字**：色块底会把本来就只有
+  半栏宽的格子挤得更窄，而色条只占 3dp，剩下的宽度全留给课名和地点。
+  样式对齐 issue #41 里给的参考（校园集市）。
+
+  色条用 TextView 而不是 View：RemoteViews 只接受固定的一组控件类型，View 不在其中。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_course_item_root"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:baselineAligned="false">
+
+    <TextView
+        android:id="@+id/widget_course_accent"
+        android:layout_width="3dp"
+        android:layout_height="match_parent"
+        android:layout_marginTop="1dp"
+        android:layout_marginBottom="1dp"
+        android:background="@drawable/bg_widget_accent_1" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="7dp"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/widget_course_desc"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="@color/widget_on_surface"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/widget_course_time"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="@color/widget_on_surface_secondary"
+            android:textSize="11sp" />
+
+    </LinearLayout>
+
+</LinearLayout>

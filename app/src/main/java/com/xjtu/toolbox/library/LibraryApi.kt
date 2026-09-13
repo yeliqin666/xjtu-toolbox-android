@@ -132,8 +132,14 @@ class LibraryApi(private val site: SiteSession) {
             }
         }
 
-        /** 从 scount 原始数据中只保留和 AREA_MAP value 匹配的独立区域 code */
-        private val VALID_AREA_CODES = AREA_MAP.values.toSet()
+        /**
+         * 兴庆的区域码。
+         *
+         * 以前它叫 VALID_AREA_CODES，是 `filterScount` 的白名单——于是雁塔、创新港的
+         * 区域码一律被当成"无效"滤掉，两个校区的区域列表永远是空的（issue #42）。
+         * 现在白名单由 [knownAreaCodes] 在运行时从 `/qspace` 学，这份只当兴庆的兜底。
+         */
+        private val XINGQING_AREA_CODES = AREA_MAP.values.toSet()
 
         /** 反向映射：areaCode → 区域显示名 */
         val AREA_MAP_REVERSE = AREA_MAP.entries.associate { (name, code) -> code to name }
@@ -177,8 +183,19 @@ class LibraryApi(private val site: SiteSession) {
          */
         val URGENT_ACTIONS = setOf("入馆签到", "中途返回")
 
-        fun filterScount(raw: Map<String, AreaStats>): Map<String, AreaStats> =
-            raw.filterKeys { it in VALID_AREA_CODES }
+        /**
+         * scount 里混着区域码和一些非区域的键（楼层汇总之类），要挑出真正的区域。
+         *
+         * @param known 本次已从 `/qspace` 学到的区域码。为空（还没拉到楼层信息）时
+         *              退回兴庆那张静态表——否则首屏会连兴庆都滤没。
+         */
+        fun filterScount(
+            raw: Map<String, AreaStats>,
+            known: Set<String> = emptySet(),
+        ): Map<String, AreaStats> {
+            val allow = if (known.isEmpty()) XINGQING_AREA_CODES else known + XINGQING_AREA_CODES
+            return raw.filterKeys { it in allow }
+        }
 
         fun guessAreaCode(seatId: String): String? {
             val prefix = seatId.firstOrNull()?.uppercaseChar() ?: return null
@@ -203,6 +220,124 @@ class LibraryApi(private val site: SiteSession) {
     @Volatile
     var cachedAreaStats: Map<String, AreaStats> = emptyMap()
         private set
+
+    /**
+     * 运行时学到的「区域码 → 中文名」，来源是 `/qspace?floor=…` 的 `sp` 字段。
+     *
+     * 兴庆那张 [AREA_MAP] 是手抄的，抄不到雁塔和创新港；这份跟着用户翻到哪层就学到哪层，
+     * 三个校区一视同仁，学校改名也不用发版。
+     */
+    private val learnedAreaNames = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    /** 区域码 → 所在楼层码。`qseat` 之前要先 `qspace` 定位楼层，这张表就是给它用的。 */
+    private val learnedAreaFloors = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    /** 已知区域码：学到的 + 兴庆静态表。 */
+    fun knownAreaCodes(): Set<String> = learnedAreaNames.keys + AREA_MAP.values
+
+    /** 已知区域中文名，用于从预约页面文本里认出「我预约在哪个区」。 */
+    fun knownAreaNames(): Set<String> = learnedAreaNames.values.toSet() + AREA_MAP.keys
+
+    fun areaNameOf(areaCode: String): String =
+        learnedAreaNames[areaCode] ?: AREA_MAP_REVERSE[areaCode] ?: areaCode
+
+    private fun floorCodeOf(areaCode: String): String? =
+        learnedAreaFloors[areaCode] ?: AREA_FLOOR_CODES[areaCode]
+
+    /**
+     * 拉一层的区域列表（码 → 中文名），顺带把 scount 更新掉。
+     *
+     * `qspace` **跟着账号当前校区走**：查别的校区之前必须先 [switchCampus]，
+     * 否则拿回来的还是当前校区那几层。
+     */
+    fun getFloorAreas(floorCode: String): Map<String, String> {
+        val (response, body) = executeWithReAuth(
+            buildRequest("$BASE_URL/qspace?lang=zh&floor=$floorCode", ajax = true, referer = "$BASE_URL/seat/")
+        )
+        response.close()
+        if (!response.isSuccessful) throw RuntimeException("楼层信息加载失败: HTTP ${response.code}")
+        if (!looksLikeJson(body)) {
+            Log.e(TAG, "qspace(floor=$floorCode) not JSON: ${body.take(300)}")
+            throw RuntimeException("图书馆楼层信息接口返回异常（非 JSON 响应）")
+        }
+        val json = org.json.JSONObject(body)
+        val result = linkedMapOf<String, String>()
+        json.optJSONObject("sp")?.let { sp ->
+            val keys = sp.keys()
+            while (keys.hasNext()) {
+                val code = keys.next()
+                if (code.isBlank()) continue
+                val name = sp.optString(code).takeIf { it.isNotBlank() } ?: continue
+                result[code] = name
+                learnedAreaNames[code] = name
+                learnedAreaFloors[code] = floorCode
+            }
+        }
+        parseAreaStats(json.optJSONObject("scount")).let { stats ->
+            cachedAreaStats = filterScount(stats, knownAreaCodes()).ifEmpty { cachedAreaStats }
+        }
+        Log.d(TAG, "getFloorAreas($floorCode): ${result.size} areas")
+        return result
+    }
+
+    /**
+     * 账号当前所在校区。解析 `/modify` 页 `select#rplace` 的选中项，认不出返回 null。
+     */
+    fun getCurrentCampus(): LibraryCampus? = try {
+        val (response, body) = executeWithReAuth(buildRequest("$BASE_URL/modify"))
+        response.close()
+        val selected = Jsoup.parse(body).select("select#rplace option[selected]").firstOrNull()?.attr("value")
+        LibraryCampus.byId(selected)
+    } catch (e: Exception) {
+        Log.w(TAG, "getCurrentCampus failed", e)
+        null
+    }
+
+    /**
+     * 切换账号校区。
+     *
+     * **这会改用户在图书馆系统里的个人资料**（`rplace` 是账号级字段，不是一次查询的参数），
+     * 所以只能由用户在校区选择器里主动触发，不要在后台自动切。表单要把邮箱、电话原样回填
+     * 再提交，少一个字段服务端会把它清空——切个校区顺手抹掉联系方式，用户是不会想到的。
+     */
+    fun switchCampus(campus: LibraryCampus): Boolean = try {
+        val (formResp, formHtml) = executeWithReAuth(buildRequest("$BASE_URL/modify"))
+        formResp.close()
+        val doc = Jsoup.parse(formHtml)
+        val csrf = doc.select("input[name=csrf_token]").firstOrNull()?.attr("value").orEmpty()
+        val email = doc.select("#email").firstOrNull()?.attr("value").orEmpty()
+        val tel = doc.select("#tel").firstOrNull()?.attr("value").orEmpty()
+        if (csrf.isBlank()) {
+            Log.w(TAG, "switchCampus: no csrf_token in /modify")
+            false
+        } else {
+            val form = okhttp3.FormBody.Builder()
+                .add("csrf_token", csrf)
+                .add("email", email)
+                .add("tel", tel)
+                .add("rplace", campus.id)
+                .add("subit", "确认")
+                .build()
+            val req = Request.Builder().url("$BASE_URL/modify")
+                .header("Referer", "$BASE_URL/modify")
+                .post(form)
+                .build()
+            val resp = runBlocking { site.executeWithReAuth(req) }
+            val ok = resp.isSuccessful
+            resp.close()
+            // 提交完清掉学到的区域：换校区后区域码整套都变了，留着会把上个校区的
+            // 区域混进列表。
+            if (ok) {
+                learnedAreaNames.clear()
+                learnedAreaFloors.clear()
+                cachedAreaStats = emptyMap()
+            }
+            ok
+        }
+    } catch (e: Exception) {
+        Log.w(TAG, "switchCampus failed", e)
+        false
+    }
 
     /**
      * 带有界超时的派生 client：复用底层 cookieJar / interceptor（含 WebVPN），
@@ -240,7 +375,7 @@ class LibraryApi(private val site: SiteSession) {
     // ── 座位查询 ──
 
     private fun loadFloorContext(areaCode: String): Map<String, AreaStats> {
-        val floorCode = AREA_FLOOR_CODES[areaCode] ?: return emptyMap()
+        val floorCode = floorCodeOf(areaCode) ?: return emptyMap()
         val qspaceUrl = "$BASE_URL/qspace?lang=zh&floor=$floorCode"
         val (response, body) = executeWithReAuth(
             buildRequest(qspaceUrl, ajax = true, referer = "$BASE_URL/seat/")
@@ -257,7 +392,7 @@ class LibraryApi(private val site: SiteSession) {
         }
         val json = org.json.JSONObject(body)
         val stats = parseAreaStats(json.optJSONObject("scount"))
-        cachedAreaStats = filterScount(stats)
+        cachedAreaStats = filterScount(stats, knownAreaCodes())
         return cachedAreaStats
     }
 
@@ -283,7 +418,7 @@ class LibraryApi(private val site: SiteSession) {
             // The site stores the selected floor in session state. Mirror the browser's
             // HAR sequence: qspace(floor) -> qseat(area).
             loadFloorContext(areaCode)
-            val floorCode = AREA_FLOOR_CODES[areaCode]
+            val floorCode = floorCodeOf(areaCode)
             val referer = if (floorCode != null) "$BASE_URL/qspace?lang=zh&floor=$floorCode"
                 else "$BASE_URL/seat/"
             // 走 executeWithReAuth：命中登录页会自动 reAuthenticate，
@@ -325,7 +460,7 @@ class LibraryApi(private val site: SiteSession) {
 
             // 解析 scount（全局区域统计）
             val statsMap = parseAreaStats(json.optJSONObject("scount"))
-            cachedAreaStats = filterScount(statsMap).ifEmpty { cachedAreaStats }
+            cachedAreaStats = filterScount(statsMap, knownAreaCodes()).ifEmpty { cachedAreaStats }
             Log.d(TAG, "scount: ${cachedAreaStats.size} areas open")
 
             // 解析 seat 对象
@@ -550,7 +685,7 @@ class LibraryApi(private val site: SiteSession) {
         if (statusMatches.isEmpty()) {
             // 无明确状态标记，回退：找第一个座位号
             val seatId = SEAT_ID_REGEX.find(bodyText)?.value ?: return null
-            val area = AREA_MAP.keys.firstOrNull { it in bodyText }
+            val area = knownAreaNames().firstOrNull { it in bodyText }
             val actionUrls = parseActionsFromHtml(doc, html)
             Log.d(TAG, "getMyBooking (no status): seatId=$seatId, area=$area")
             return MyBookingInfo(seatId, area, null, actionUrls)
@@ -574,7 +709,7 @@ class LibraryApi(private val site: SiteSession) {
                 continue
             }
 
-            val area = AREA_MAP.keys.firstOrNull { it in blockText }
+            val area = knownAreaNames().firstOrNull { it in blockText }
             val actionUrls = parseActionsFromHtml(doc, html)
 
             Log.d(TAG, "getMyBooking: seatId=$seatId, area=$area, status=$status, actions=${actionUrls.keys}")

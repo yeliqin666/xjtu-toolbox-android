@@ -1,11 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  2x2 日程小部件。
+
+  这一版的取舍：2x2 大约只有 110~150dp 见方，标题行原来塞了「日程 + ‹ + 周次 + ›」四件，
+  固定宽度就吃掉近 90dp，留给标题的空间不够显示两个汉字——于是"日程"被裁成"日"。
+
+  所以：
+  - **周次前后翻页按钮在这里隐藏**。左右翻天的按钮本来就会跨周滚（见
+    `adjustSelectedDayOfWeek`），2x2 上多一对周按钮纯属重复。id 保留，`bindCommonViews`
+    照样往上挂 PendingIntent，不用为小尺寸分叉。
+  - **「更新 HH:mm」隐藏**。9sp 的时间戳是典型的无效信息占位。
+  这两样让出来的空间全给课程列表。
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@drawable/bg_schedule_widget"
     android:orientation="vertical"
-    android:padding="10dp">
+    android:padding="8dp">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -15,61 +28,36 @@
 
         <TextView
             android:id="@+id/widget_title"
-            android:layout_width="0dp"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
             android:maxLines="1"
             android:textColor="@color/widget_on_surface"
-            android:textSize="14sp"
+            android:textSize="13sp"
             android:textStyle="bold" />
 
         <TextView
             android:id="@+id/widget_week_prev"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:background="@drawable/bg_widget_action_pill"
-            android:gravity="center"
-            android:text="‹"
-            android:textColor="@color/widget_on_surface_secondary"
-            android:textSize="12sp"
-            android:textStyle="bold" />
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:visibility="gone" />
 
         <TextView
             android:id="@+id/widget_week"
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginLeft="4dp"
-            android:layout_marginRight="4dp"
-            android:background="@drawable/bg_widget_chip"
-            android:paddingLeft="6dp"
-            android:paddingRight="6dp"
-            android:paddingTop="2dp"
-            android:paddingBottom="2dp"
+            android:layout_weight="1"
+            android:layout_marginLeft="6dp"
+            android:gravity="end"
             android:maxLines="1"
             android:textColor="@color/widget_on_surface_secondary"
             android:textSize="11sp" />
 
         <TextView
             android:id="@+id/widget_week_next"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:background="@drawable/bg_widget_action_pill"
-            android:gravity="center"
-            android:text="›"
-            android:textColor="@color/widget_on_surface_secondary"
-            android:textSize="12sp"
-            android:textStyle="bold" />
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:visibility="gone" />
     </LinearLayout>
-
-    <TextView
-        android:id="@+id/widget_status"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:ellipsize="end"
-        android:maxLines="1"
-        android:textColor="@color/widget_on_surface_secondary"
-        android:textSize="11sp" />
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -80,8 +68,8 @@
 
         <TextView
             android:id="@+id/widget_day_prev"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
             android:background="@drawable/bg_widget_action_pill"
             android:gravity="center"
             android:text="‹"
@@ -94,20 +82,23 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:gravity="center"
+            android:layout_marginLeft="4dp"
+            android:layout_marginRight="4dp"
             android:background="@drawable/bg_widget_chip"
-            android:paddingLeft="6dp"
-            android:paddingRight="6dp"
+            android:gravity="center"
+            android:paddingLeft="4dp"
+            android:paddingRight="4dp"
             android:paddingTop="2dp"
             android:paddingBottom="2dp"
             android:maxLines="1"
+            android:ellipsize="end"
             android:textColor="@color/widget_on_surface"
             android:textSize="11sp" />
 
         <TextView
             android:id="@+id/widget_day_next"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
             android:background="@drawable/bg_widget_action_pill"
             android:gravity="center"
             android:text="›"
@@ -116,16 +107,26 @@
             android:textStyle="bold" />
     </LinearLayout>
 
+    <TextView
+        android:id="@+id/widget_status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="3dp"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:textColor="@color/widget_on_surface_secondary"
+        android:textSize="10sp" />
+
     <ListView
         android:id="@+id/widget_course_list"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_marginTop="6dp"
+        android:layout_marginTop="4dp"
         android:layout_weight="1"
         android:divider="@android:color/transparent"
-        android:dividerHeight="6dp"
+        android:dividerHeight="4dp"
         android:fastScrollEnabled="false"
-        android:scrollbars="vertical" />
+        android:scrollbars="none" />
 
     <TextView
         android:id="@+id/widget_empty"
@@ -134,16 +135,14 @@
         android:layout_weight="1"
         android:gravity="center"
         android:textColor="@color/widget_on_surface_secondary"
-        android:textSize="12sp"
+        android:textSize="11sp"
         android:visibility="gone" />
 
+    <!-- 更新时间：2x2 放不下，隐藏但保留 id，绑定逻辑不分叉。 -->
     <TextView
         android:id="@+id/widget_update"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="end"
-        android:maxLines="1"
-        android:textColor="@color/widget_on_surface_secondary"
-        android:textSize="9sp" />
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="gone" />
 
 </LinearLayout>

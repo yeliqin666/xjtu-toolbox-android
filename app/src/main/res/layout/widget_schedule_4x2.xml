@@ -1,149 +1,154 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  4x2 日程小部件 —— 「今天 | 明天」两栏。
+
+  改版前这个文件和 2x2 逐字节相同：竖排 ListView + 四行固定头部（标题、状态、周次翻页、
+  日期翻页、更新时间）。4x2 的高度和 2x2 一样，头部就吃掉近 90dp，一屏只剩一条课的位置，
+  而宽出来的两格完全没用上——issue #41 里那张截图，三节课只显示了一节。
+
+  这一版照 issue 里给的参考（校园集市）重做：
+  - **左栏今天、右栏明天**，一眼看完两天，正好 3 + 3 节；
+  - 左上角一个大日期块代替「日程」标题；
+  - **去掉全部翻页按钮和「更新 HH:mm」**。4x2 的价值是扫一眼就知道接下来干嘛，
+    翻周翻天是"操作"，留在 2x2 和应用里；把那几个 pill 去掉才换得出这两栏。
+
+  两个 ListView 各自挂适配器（day_offset 0 / 1），刷新时两个都要
+  notifyAppWidgetViewDataChanged，只刷一个会让明天那栏停在旧数据上。
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@drawable/bg_schedule_widget"
-    android:orientation="vertical"
+    android:orientation="horizontal"
+    android:baselineAligned="false"
     android:padding="10dp">
 
+    <!-- ── 今天 ── -->
     <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:orientation="vertical">
 
-        <TextView
-            android:id="@+id/widget_title"
-            android:layout_width="0dp"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:baselineAligned="false"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/widget_date_day"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textColor="@color/widget_on_surface"
+                android:textSize="26sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="6dp"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/widget_date_month"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:textColor="@color/widget_on_surface_secondary"
+                    android:textSize="11sp" />
+
+                <TextView
+                    android:id="@+id/widget_date_dow"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:textColor="@color/widget_on_surface_secondary"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/widget_week"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:maxLines="1"
+                android:textColor="@color/widget_on_surface_secondary"
+                android:textSize="10sp" />
+        </LinearLayout>
+
+        <ListView
+            android:id="@+id/widget_course_list"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="6dp"
             android:layout_weight="1"
-            android:maxLines="1"
-            android:textColor="@color/widget_on_surface"
-            android:textSize="14sp"
-            android:textStyle="bold" />
+            android:divider="@android:color/transparent"
+            android:dividerHeight="7dp"
+            android:fastScrollEnabled="false"
+            android:scrollbars="none" />
 
         <TextView
-            android:id="@+id/widget_week_prev"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:background="@drawable/bg_widget_action_pill"
-            android:gravity="center"
-            android:text="‹"
+            android:id="@+id/widget_empty"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:gravity="center_vertical"
+            android:maxLines="2"
+            android:ellipsize="end"
             android:textColor="@color/widget_on_surface_secondary"
-            android:textSize="12sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/widget_week"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginLeft="4dp"
-            android:layout_marginRight="4dp"
-            android:background="@drawable/bg_widget_chip"
-            android:paddingLeft="6dp"
-            android:paddingRight="6dp"
-            android:paddingTop="2dp"
-            android:paddingBottom="2dp"
-            android:maxLines="1"
-            android:textColor="@color/widget_on_surface_secondary"
-            android:textSize="11sp" />
-
-        <TextView
-            android:id="@+id/widget_week_next"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:background="@drawable/bg_widget_action_pill"
-            android:gravity="center"
-            android:text="›"
-            android:textColor="@color/widget_on_surface_secondary"
-            android:textSize="12sp"
-            android:textStyle="bold" />
+            android:textSize="11sp"
+            android:visibility="gone" />
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/widget_status"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:ellipsize="end"
-        android:maxLines="1"
-        android:textColor="@color/widget_on_surface_secondary"
-        android:textSize="11sp" />
-
+    <!-- ── 明天 ── -->
     <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:layout_marginStart="12dp"
+        android:orientation="vertical">
 
         <TextView
-            android:id="@+id/widget_day_prev"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:background="@drawable/bg_widget_action_pill"
-            android:gravity="center"
-            android:text="‹"
-            android:textColor="@color/widget_on_surface_secondary"
-            android:textSize="12sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/widget_day_text"
-            android:layout_width="0dp"
+            android:id="@+id/widget_title_next"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:gravity="center"
-            android:background="@drawable/bg_widget_chip"
-            android:paddingLeft="6dp"
-            android:paddingRight="6dp"
-            android:paddingTop="2dp"
-            android:paddingBottom="2dp"
+            android:includeFontPadding="false"
             android:maxLines="1"
-            android:textColor="@color/widget_on_surface"
-            android:textSize="11sp" />
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp"
+            android:text="明天"
+            android:textColor="@color/widget_on_surface_secondary"
+            android:textSize="14sp" />
+
+        <ListView
+            android:id="@+id/widget_course_list_next"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="6dp"
+            android:layout_weight="1"
+            android:divider="@android:color/transparent"
+            android:dividerHeight="7dp"
+            android:fastScrollEnabled="false"
+            android:scrollbars="none" />
 
         <TextView
-            android:id="@+id/widget_day_next"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:background="@drawable/bg_widget_action_pill"
-            android:gravity="center"
-            android:text="›"
+            android:id="@+id/widget_empty_next"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:gravity="center_vertical"
+            android:maxLines="2"
+            android:ellipsize="end"
             android:textColor="@color/widget_on_surface_secondary"
-            android:textSize="12sp"
-            android:textStyle="bold" />
+            android:textSize="11sp"
+            android:visibility="gone" />
     </LinearLayout>
-
-    <ListView
-        android:id="@+id/widget_course_list"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_marginTop="6dp"
-        android:layout_weight="1"
-        android:divider="@android:color/transparent"
-        android:dividerHeight="6dp"
-        android:fastScrollEnabled="false"
-        android:scrollbars="vertical" />
-
-    <TextView
-        android:id="@+id/widget_empty"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:gravity="center"
-        android:textColor="@color/widget_on_surface_secondary"
-        android:textSize="12sp"
-        android:visibility="gone" />
-
-    <TextView
-        android:id="@+id/widget_update"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="end"
-        android:maxLines="1"
-        android:textColor="@color/widget_on_surface_secondary"
-        android:textSize="9sp" />
 
 </LinearLayout>

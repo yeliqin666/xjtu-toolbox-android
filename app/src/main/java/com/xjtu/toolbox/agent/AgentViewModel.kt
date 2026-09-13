@@ -29,6 +29,8 @@ data class ChatMessage(
     val navSuggestions: List<Pair<String, String>> = emptyList(),
     val widgets: List<AgentWidget> = emptyList(),
     val reasoningContent: String = "",
+    /** 随这条消息发出的图片，存的是应用私有目录里的压缩件路径。见 [AgentVision]。 */
+    val images: List<String> = emptyList(),
     val timestamp: Long = System.currentTimeMillis(),
     /**
      * 工具调用失败信息：非 null 时 UI 上对应气泡标红并显示原因。
@@ -97,10 +99,13 @@ class AgentViewModel : ViewModel() {
     ) {
         val text = newText.trim()
         if (text.isBlank()) return
+        // 改的是文字，图片跟着这条消息一起重发：用户点"改上一条"是想换个问法，
+        // 不是想把图撤回——丢掉图会让新问题突然没了上下文。
+        val keptImages = messages.lastOrNull { it.role == "user" }?.images.orEmpty()
         currentJob?.cancel()
         isLoading = false
         dropLastUserTurn()
-        sendMessage(text, config, loginState, context)
+        sendMessage(text, config, loginState, context, images = keptImages)
     }
 
     private fun dropLastUserTurn() {
@@ -198,6 +203,9 @@ class AgentViewModel : ViewModel() {
                 navSuggestions = m.nav.mapNotNull { if (it.size >= 2) it[0] to it[1] else null },
                 widgets = m.widgets.orEmpty().mapNotNull { storedToWidget(it, gson) },
                 reasoningContent = m.reasoningContent.orEmpty(),
+                // 图片文件可能已被清掉（清缓存、换账号），这里只过滤掉不存在的，
+                // 气泡少显示一张图，比留个破图标好。
+                images = m.images.orEmpty().filter { path -> java.io.File(path).isFile },
                 timestamp = m.timestamp ?: System.currentTimeMillis(),
                 isToolCall = false,
                 toolError = m.toolError,
@@ -246,6 +254,7 @@ class AgentViewModel : ViewModel() {
                 it.reasoningContent.takeIf { reasoning -> reasoning.isNotBlank() },
                 it.timestamp,
                 it.toolError,
+                it.images.takeIf { images -> images.isNotEmpty() },
             )
         }
         val title = if (store.isLocked(id))
@@ -301,15 +310,18 @@ class AgentViewModel : ViewModel() {
         context: Context,
         /** 不进聊天气泡，只进发给模型的 user 消息。见屁岱提醒快照。 */
         llmAnnex: String? = null,
+        /** 随消息发送的图片路径，见 [AgentVision.attach]。 */
+        images: List<String> = emptyList(),
     ) {
-        if (userText.isBlank() || isLoading) return
+        // 只发图不打字是合理的（「这是什么」），所以有图时允许正文为空。
+        if ((userText.isBlank() && images.isEmpty()) || isLoading) return
         if (contextExhausted) {
             errorMessage = CONTEXT_EXHAUSTED_MESSAGE
             return
         }
         if (currentSessionId == null) newSession()
         errorMessage = null
-        messages.add(ChatMessage("user", userText))
+        messages.add(ChatMessage("user", userText, images = images))
         isLoading = true
 
         val turnSid = currentSessionId   // 本轮所属会话；切走后不再写当前 messages，避免串台
@@ -334,8 +346,13 @@ class AgentViewModel : ViewModel() {
                 val runner = AgentRunner(registry)
                 // 偏好也要进签名：模型刚 remember 了一条，下一轮系统提示就得带上它，
                 // 否则要等到改名字或跨天才生效——表现就是"说记住了，但下一句就忘了"。
+                // 模型与接入方式也要进签名：system prompt 里写着「`<模型 ID>`……禁止自称其他模型」，
+                // 签名不带它，换完模型这句还是旧的，屁岱会一口咬定自己是上一个模型。
+                // 思考强度**不**进签名——它不进 system prompt，改档不该把历史前缀推倒重来
+                // （那才是真丢缓存）。
                 val currentPromptSignature =
                     "${config.effectiveName}|${config.responseStyle}|${config.maxToolCalls}|" +
+                        "${config.effectiveModel}|${config.provider}|" +
                         "${LocalDate.now()}|${registry.memoryBlock().hashCode()}"
                 if (promptSignature != null && promptSignature != currentPromptSignature) {
                     val kept = (0 until llmHistory.size())
@@ -377,13 +394,17 @@ class AgentViewModel : ViewModel() {
                         append(llmAnnex.trim())
                         append("\n\n")
                     }
-                    append(userText)
+                    append(userText.ifBlank { "（见图）" })
                 }
                 llmHistory.add(JsonObject().apply {
                     addProperty("role", "user")
-                    addProperty("content", llmUser)
+                    // 无图时这里仍是纯字符串，历史结构和以前完全一致。
+                    add("content", AgentVision.userContent(llmUser, images))
                 })
                 sanitizeHistory()   // 自愈：清掉上一次中断留下的 tool_calls 残体
+                // 只留最近两轮的图：整段历史每轮都要重发一遍，不裁剪的话
+                // 贴过图的长对话会一直在重传同几张图。
+                AgentVision.pruneOldImages(llmHistory)
 
                 val calledTools = mutableListOf<String>()
 

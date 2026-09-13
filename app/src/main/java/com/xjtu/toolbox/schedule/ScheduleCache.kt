@@ -90,9 +90,7 @@ object ScheduleCache {
             val newBits = StringBuilder(course.weekBits)
             for (i in newBits.indices) {
                 if (newBits[i] == '1') {
-                    val courseDate = startOfTerm
-                        .plusWeeks(i.toLong())
-                        .plusDays((course.dayOfWeek - 1).toLong())
+                    val courseDate = TermWeeks.dateOf(startOfTerm, i + 1, course.dayOfWeek)
                     if (holidayDates.containsKey(courseDate)) {
                         newBits.setCharAt(i, '0')
                         changed = true
@@ -121,7 +119,7 @@ object ScheduleCache {
     fun isFinishedByDate(startOfTerm: LocalDate?, weeks: Int, today: LocalDate = LocalDate.now()): Boolean {
         if (startOfTerm == null || weeks <= 0) return false
         // 多留一周缓冲：最后一周还可能补录考勤、传回放。
-        return today.isAfter(startOfTerm.plusWeeks((weeks + 1).toLong()))
+        return TermWeeks.weekOf(startOfTerm, today) > weeks + 1
     }
 
     /**

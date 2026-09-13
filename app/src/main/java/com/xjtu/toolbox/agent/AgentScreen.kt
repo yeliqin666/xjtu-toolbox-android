@@ -50,6 +50,7 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Key
@@ -60,7 +61,14 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.Color
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.graphics.asImageBitmap
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -690,19 +698,68 @@ private fun ChatPanel(
     var editingLast by rememberSaveable { mutableStateOf(false) }
     val keyboard = LocalSoftwareKeyboardController.current
 
+    // ── 图片附件 ──
+    //
+    // 只在模型认图片时给入口（见 AgentVision.supportsVision）。换模型会实时生效：
+    // 从视觉模型切到非视觉模型时，已经挑好的图要清掉，否则发出去必被服务端拒。
+    var attachments by remember { mutableStateOf<List<String>>(emptyList()) }
+    val attachScope = rememberCoroutineScope()
+    val visionEnabled = remember(config.provider, config.effectiveModel) {
+        AgentVision.supportsVision(config)
+    }
+    LaunchedEffect(visionEnabled) {
+        if (!visionEnabled && attachments.isNotEmpty()) attachments = emptyList()
+    }
+
+    val pickImages = rememberLauncherForActivityResult(
+        // PickMultipleVisualMedia 走系统相册选择器，**不需要读存储权限**——
+        // 用户在系统 UI 里挑哪张就授权哪张，比申请 READ_MEDIA_IMAGES 干净得多。
+        androidx.activity.result.contract.ActivityResultContracts.PickMultipleVisualMedia(
+            AgentVision.MAX_IMAGES_PER_MESSAGE
+        )
+    ) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        attachScope.launch {
+            val room = AgentVision.MAX_IMAGES_PER_MESSAGE - attachments.size
+            val added = withContext(Dispatchers.IO) {
+                uris.take(room).mapNotNull { AgentVision.attach(context, it) }
+            }
+            if (added.isEmpty()) {
+                Toast.makeText(context, "图片读取失败", Toast.LENGTH_SHORT).show()
+            } else {
+                attachments = attachments + added
+            }
+        }
+    }
+
     fun send() {
         val text = input.trim()
-        if (text.isBlank() || vm.contextExhausted) return
+        val images = attachments
+        if ((text.isBlank() && images.isEmpty()) || vm.contextExhausted) return
         // 没有 key 时点发送，直接把人送到配置页，而不是让消息石沉大海
         if (!config.isConfigured) { onOpenConfig(); return }
         input = ""
+        attachments = emptyList()
         keyboard?.hide()
         if (editingLast) {
             editingLast = false
             vm.replaceLastUserAndSend(text, config, loginState, context)
         } else {
-            vm.sendMessage(text, config, loginState, context)
+            vm.sendMessage(text, config, loginState, context, images = images)
         }
+    }
+
+    /**
+     * 卡片替用户发一句。
+     *
+     * 走的是和手打完全一样的路径（同一个 vm.sendMessage），所以历史、工具预算、限流
+     * 都照常；这条消息也会像用户自己打的那样出现在对话里，不会凭空多出一段回复。
+     */
+    fun askFromWidget(text: String) {
+        if (text.isBlank() || vm.isLoading || vm.contextExhausted) return
+        if (!config.isConfigured) { onOpenConfig(); return }
+        keyboard?.hide()
+        vm.sendMessage(text, config, loginState, context)
     }
 
     Column(
@@ -803,6 +860,7 @@ private fun ChatPanel(
                         showReasoning = config.showReasoning,
                         onNavigate = onNavigate,
                         toolEvents = row.tools,
+                        onAskFromWidget = ::askFromWidget,
                     )
                 }
             }
@@ -890,6 +948,21 @@ private fun ChatPanel(
             isLoading = vm.isLoading,
             contextExhausted = vm.contextExhausted,
             bottomReserve = bottomReserve,
+            attachments = attachments,
+            visionEnabled = visionEnabled,
+            onPickImage = {
+                pickImages.launch(
+                    androidx.activity.result.PickVisualMediaRequest(
+                        androidx.activity.result.contract.ActivityResultContracts
+                            .PickVisualMedia.ImageOnly
+                    )
+                )
+            },
+            onRemoveAttachment = { path ->
+                attachments = attachments - path
+                // 还没发出去就撤了，压缩件留着没用。
+                AgentVision.deleteAll(listOf(path))
+            },
         )
     }
 }
@@ -907,8 +980,15 @@ private fun AgentComposer(
     isLoading: Boolean,
     contextExhausted: Boolean,
     bottomReserve: Dp,
+    /** 待发送的图片路径。空列表表示这个模型不支持图片，连按钮都不显示。 */
+    attachments: List<String> = emptyList(),
+    /** 模型认不认图片。不认就不给入口——贴了也只会被服务端拒掉。 */
+    visionEnabled: Boolean = false,
+    onPickImage: () -> Unit = {},
+    onRemoveAttachment: (String) -> Unit = {},
 ) {
-    val canSend = input.isNotBlank() && !contextExhausted
+    // 只发图不打字是合理的（「这是什么」「帮我看看这张课表」）。
+    val canSend = (input.isNotBlank() || attachments.isNotEmpty()) && !contextExhausted
     val actionEnabled = isLoading || canSend
     var focused by remember { mutableStateOf(false) }
 
@@ -949,22 +1029,80 @@ private fun AgentComposer(
         WindowInsets.navigationBars.add(WindowInsets(bottom = bottomReserve))
     )
 
-    Box(
+    Column(
         Modifier
             .fillMaxWidth()
             .background(MiuixTheme.colorScheme.surface)
             .windowInsetsPadding(bottomInsets)
             .padding(horizontal = 12.dp, vertical = 8.dp),
     ) {
+        // 待发送的图片：贴在输入框上方，每张右上角一个叉。
+        if (attachments.isNotEmpty()) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(start = 4.dp, end = 4.dp, bottom = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                attachments.forEach { path ->
+                    Box {
+                        AttachmentThumb(path)
+                        Box(
+                            Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(3.dp)
+                                .size(18.dp)
+                                .clip(CircleShape)
+                                .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.55f))
+                                .clickable { onRemoveAttachment(path) },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Default.Clear,
+                                contentDescription = "移除",
+                                tint = MiuixTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(11.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        }
         Row(
             Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(24.dp))
                 .background(MiuixTheme.colorScheme.surfaceVariant)
                 .border(1.dp, borderColor, RoundedCornerShape(24.dp))
-                .padding(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                .padding(start = 6.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.Bottom,
         ) {
+            if (visionEnabled) {
+                Box(
+                    Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .clickable(
+                            enabled = !contextExhausted &&
+                                attachments.size < AgentVision.MAX_IMAGES_PER_MESSAGE
+                        ) { onPickImage() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Default.Image,
+                        contentDescription = "添加图片",
+                        tint = if (attachments.size < AgentVision.MAX_IMAGES_PER_MESSAGE) {
+                            MiuixTheme.colorScheme.onSurfaceVariantSummary
+                        } else {
+                            MiuixTheme.colorScheme.onSurface.copy(alpha = 0.25f)
+                        },
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            } else {
+                Spacer(Modifier.width(10.dp))
+            }
             Box(
                 Modifier
                     .weight(1f)
@@ -1015,6 +1153,46 @@ private fun AgentComposer(
                     modifier = Modifier.size(18.dp),
                 )
             }
+        }
+    }
+}
+
+/**
+ * 本地图片缩略图。
+ *
+ * 自己 decode 而不是引第三方图片库：这些文件是 [AgentVision] 压过的，最长边 1300、
+ * 一二百 KB，数量上限 4 张，为它们拖进一整个加载框架不划算。
+ * `remember(path)` 保证同一张只解一次，重组不会反复读盘。
+ */
+@Composable
+private fun AttachmentThumb(path: String, size: Dp = 62.dp) {
+    val bitmap = remember(path) {
+        runCatching {
+            android.graphics.BitmapFactory.decodeFile(path)?.asImageBitmap()
+        }.getOrNull()
+    }
+    Box(
+        Modifier
+            .size(size)
+            .clip(RoundedCornerShape(10.dp))
+            .background(MiuixTheme.colorScheme.surfaceVariant),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (bitmap != null) {
+            androidx.compose.foundation.Image(
+                bitmap = bitmap,
+                contentDescription = "图片",
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            // 文件被清掉了（清缓存 / 换账号）。给个占位比留个空白格子清楚。
+            Icon(
+                Icons.Default.Image,
+                contentDescription = null,
+                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.size(20.dp),
+            )
         }
     }
 }
@@ -1237,6 +1415,8 @@ private fun MessageBubble(
     canEdit: Boolean = false,
     onEdit: () -> Unit = {},
     toolEvents: List<ChatMessage> = emptyList(),
+    /** 卡片替用户问一句（如资料卡上点"打开目录"）。 */
+    onAskFromWidget: (String) -> Unit = {},
 ) {
     // [LocalClipboard] 取代已废弃的 [LocalClipboardManager]：suspend setClip，跨进程兼容。
     val clipboard = androidx.compose.ui.platform.LocalClipboard.current
@@ -1255,24 +1435,35 @@ private fun MessageBubble(
     when (msg.role) {
         "user" -> {
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
-                Surface(
-                    shape = RoundedCornerShape(20.dp, 6.dp, 20.dp, 20.dp),
-                    color = MiuixTheme.colorScheme.primary,
-                    modifier = Modifier
-                        .widthIn(max = 300.dp)
-                        .then(
-                            if (canEdit) Modifier.combinedClickable(
-                                onClick = {},
-                                onLongClick = onEdit,
-                            ) else Modifier
-                        ),
-                ) {
-                    Text(
-                        msg.content,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                        style = MiuixTheme.textStyles.body1,
-                        color = MiuixTheme.colorScheme.onPrimary
-                    )
+                if (msg.images.isNotEmpty()) {
+                    Row(
+                        Modifier.padding(bottom = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        msg.images.forEach { AttachmentThumb(it, size = 76.dp) }
+                    }
+                }
+                // 只发图不打字时不画空气泡——一个空的蓝色圆角块看着像渲染坏了。
+                if (msg.content.isNotBlank()) {
+                    Surface(
+                        shape = RoundedCornerShape(20.dp, 6.dp, 20.dp, 20.dp),
+                        color = MiuixTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .widthIn(max = 300.dp)
+                            .then(
+                                if (canEdit) Modifier.combinedClickable(
+                                    onClick = {},
+                                    onLongClick = onEdit,
+                                ) else Modifier
+                            ),
+                    ) {
+                        Text(
+                            msg.content,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                            style = MiuixTheme.textStyles.body1,
+                            color = MiuixTheme.colorScheme.onPrimary
+                        )
+                    }
                 }
             }
         }
@@ -1308,6 +1499,9 @@ private fun MessageBubble(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = if (msg.content.isNotBlank()) 10.dp else 0.dp),
+                        // 卡片上点"打开目录"等于替用户问一句，直接走正常发送路径，
+                        // 历史、限流、工具预算全都照常。
+                        onAsk = onAskFromWidget,
                     )
                 }
                 if (msg.navSuggestions.isNotEmpty()) {
@@ -1531,6 +1725,7 @@ private fun ConfigPanel(
                 "faculty" to "教师主页",
                 "memory" to "记住我的偏好",
                 "library" to "图书馆",
+                "zyxf" to "仲英学辅资料站",
                 "lms" to "思源学堂",
                 "fitness" to "体测查询",
                 "textbook" to "教材",
@@ -1703,11 +1898,12 @@ private fun ConfigPanel(
                             OverlaySpinnerPreference(
                                 title = "思考强度",
                                 summary = when (reasoningEffort) {
-                                    AgentConfig.REASONING_HIGH -> "高"
-                                    AgentConfig.REASONING_MAX -> "最大"
-                                    else -> "自动（Agent 请求通常使用最大）"
+                                    AgentConfig.REASONING_AUTO -> "自动（由服务端按模型默认档）"
+                                    else -> AgentConfig.reasoningEffortLabel(reasoningEffort)
                                 },
-                                items = listOf("自动", "高", "最大").map { DropdownItem(text = it) },
+                                // 选项文案从 efforts 现推，别再手写一份平行列表——
+                                // 两边靠下标对齐，档位一多就会错位成"选高得到最大"。
+                                items = efforts.map { DropdownItem(text = AgentConfig.reasoningEffortLabel(it)) },
                                 selectedIndex = efforts.indexOf(reasoningEffort).coerceAtLeast(0),
                                 onSelectedIndexChange = {
                                     reasoningEffort = efforts[it]

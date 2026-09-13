@@ -33,6 +33,8 @@ data class StoredMessage(
     val reasoningContent: String? = null,
     val timestamp: Long? = null,
     val toolError: String? = null,
+    /** 图片附件的本地路径。老会话没有这个字段，反序列化得到 null。 */
+    val images: List<String>? = null,
 )
 
 /** 一个会话的完整内容：UI 消息 + 供续聊的 LLM 历史（JsonArray 的字符串形式）。 */
