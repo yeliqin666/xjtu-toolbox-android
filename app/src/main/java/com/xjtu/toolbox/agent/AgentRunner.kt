@@ -128,12 +128,23 @@ class AgentRunner(private val tools: AgentToolRegistry) {
                 addProperty("stream", true)
                 if (config.provider == AgentConfig.PROVIDER_DEEPSEEK) {
                     add("stream_options", JsonObject().apply { addProperty("include_usage", true) })
+                    // DeepSeek 新版思考参数族：档位是 none / low / high / max，
+                    // 而且 `reasoning_effort` **两处都能放**——顶层，或 `thinking` 对象里。
+                    // 官方示例两处都给，这里照做：中转服务商往往只认其中一处，
+                    // 只写一处就会出现"调了档但没生效"。
+                    //
+                    // 关思考走 `none`，不只是 `type=disabled`：新参数族里"不思考"是一个档位，
+                    // 只给 type 的旧写法在部分端点上被忽略。
+                    val effort = when {
+                        !config.thinkingEnabled -> "none"
+                        config.reasoningEffort != AgentConfig.REASONING_AUTO -> config.reasoningEffort
+                        else -> null
+                    }
                     add("thinking", JsonObject().apply {
                         addProperty("type", if (config.thinkingEnabled) "enabled" else "disabled")
+                        effort?.let { addProperty("reasoning_effort", it) }
                     })
-                    if (config.thinkingEnabled && config.reasoningEffort != AgentConfig.REASONING_AUTO) {
-                        addProperty("reasoning_effort", config.reasoningEffort)
-                    }
+                    effort?.let { addProperty("reasoning_effort", it) }
                 }
                 if (allowTools) {
                     add("tools", toolDefs)

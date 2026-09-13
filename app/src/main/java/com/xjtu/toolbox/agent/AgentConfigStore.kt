@@ -6,6 +6,20 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKeys
 import com.xjtu.toolbox.account.AccountContext
 
+/**
+ * 把存下来的思考强度收敛到本地支持的档位。
+ *
+ * DeepSeek 的别名（`minimal`→low、`medium`/`xhigh`→high）也认：用户可能在别处见过这些
+ * 写法，或者以后服务端改口径。认不出的一律回落到「自动」——下发一个服务端不认的值，
+ * 整个请求会 400，表现是屁岱一句话都不说。
+ */
+internal fun normalizeReasoningEffort(raw: String?): String = when (raw?.trim()?.lowercase()) {
+    "minimal", AgentConfig.REASONING_LOW -> AgentConfig.REASONING_LOW
+    "medium", "xhigh", AgentConfig.REASONING_HIGH -> AgentConfig.REASONING_HIGH
+    AgentConfig.REASONING_MAX -> AgentConfig.REASONING_MAX
+    else -> AgentConfig.REASONING_AUTO
+}
+
 data class AgentConfig(
     val provider: String = PROVIDER_DEEPSEEK,
     val apiKey: String = "",
@@ -35,7 +49,9 @@ data class AgentConfig(
         get() = model.ifBlank {
             when (provider) {
                 PROVIDER_OPENAI -> "gpt-4o-mini"
-                else -> "deepseek-v4-flash"
+                // `deepseek-v4-flash` 是旧名，模型已退役，请求被转到 V4.1-Flash 计费。
+                // 直接用现名，免得日后旧名真的下线。
+                else -> "deepseek-flash"
             }
         }
 
@@ -46,7 +62,9 @@ data class AgentConfig(
         const val PROVIDER_DEEPSEEK = "deepseek"
         const val PROVIDER_OPENAI = "openai"
         const val PROVIDER_CUSTOM = "custom"
+        /** 不下发 `reasoning_effort`，由服务端按模型默认档跑。不是 DeepSeek 的合法取值。 */
         const val REASONING_AUTO = "auto"
+        const val REASONING_LOW = "low"
         const val REASONING_HIGH = "high"
         const val REASONING_MAX = "max"
         const val SEARCH_AUTO = "auto"
@@ -69,7 +87,19 @@ data class AgentConfig(
         const val STYLE_PROFESSIONAL = "professional"
 
         val PROVIDERS = listOf(PROVIDER_DEEPSEEK, PROVIDER_OPENAI, PROVIDER_CUSTOM)
-        val REASONING_EFFORTS = listOf(REASONING_AUTO, REASONING_HIGH, REASONING_MAX)
+        /**
+         * DeepSeek 新版思考参数族是 `none / low / high / max`（`minimal`→low，
+         * `medium`、`xhigh`→high）。这里少了 `low`，用户只能在「高」和「最大」之间选，
+         * 想省钱省时间没有档位；`none` 不进列表，它等价于关掉思考开关。
+         */
+        val REASONING_EFFORTS = listOf(REASONING_AUTO, REASONING_LOW, REASONING_HIGH, REASONING_MAX)
+
+        fun reasoningEffortLabel(effort: String) = when (effort) {
+            REASONING_LOW -> "低"
+            REASONING_HIGH -> "高"
+            REASONING_MAX -> "最大"
+            else -> "自动"
+        }
         // 顺序即推荐度，实测中文相关性从高到低。
         val SEARCH_ENGINES = listOf(
             SEARCH_AUTO, SEARCH_DDG, SEARCH_SO360, SEARCH_BING, SEARCH_WECHAT, SEARCH_WIKI
@@ -189,9 +219,9 @@ private val prefs: SharedPreferences
             ?.takeIf { it in AgentConfig.RESPONSE_STYLES }
             ?: AgentConfig.STYLE_FRIENDLY,
         thinkingEnabled = prefs.getBoolean("thinking_enabled", true),
-        reasoningEffort = prefs.getString("reasoning_effort", AgentConfig.REASONING_AUTO)
-            ?.takeIf { it in AgentConfig.REASONING_EFFORTS }
-            ?: AgentConfig.REASONING_AUTO,
+        reasoningEffort = normalizeReasoningEffort(
+            prefs.getString("reasoning_effort", AgentConfig.REASONING_AUTO)
+        ),
         showReasoning = prefs.getBoolean("show_reasoning", true)
     )
 

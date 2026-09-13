@@ -1,12 +1,14 @@
 package com.xjtu.toolbox.agent
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -24,6 +26,9 @@ import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -52,6 +57,24 @@ data class GradeWidget(val grades: List<ReportedGrade>, val gpa: Double?, val to
 /** 校园卡信息。 */
 data class CardWidget(val info: CardInfo) : AgentWidget
 
+/**
+ * 仲英学辅资料站的检索结果。
+ *
+ * 和其它卡片不同，这张是**可操作**的：点文件就下载，点目录就让屁岱继续往里翻。
+ * 检索结果天然是"给你一串候选，你挑一个"，纯文本把文件名和 ID 抄一遍再让用户
+ * 复述给屁岱，中间那几步毫无意义。
+ */
+data class ZyxfWidget(val query: String, val items: List<ZyxfEntryRef>) : AgentWidget
+
+/** 卡片里的一条。字段全是可序列化的原始类型，卡片要随会话一起存盘。 */
+data class ZyxfEntryRef(
+    val id: Int,
+    val name: String,
+    val path: String,
+    val sizeText: String,
+    val isFolder: Boolean,
+)
+
 fun AgentWidget.toStored(gson: Gson): StoredWidget =
     StoredWidget(javaClass.simpleName, gson.toJson(this))
 
@@ -63,6 +86,7 @@ fun storedToWidget(stored: StoredWidget, gson: Gson): AgentWidget? = runCatching
         "AttendanceWidget" -> gson.fromJson(stored.json, AttendanceWidget::class.java)
         "GradeWidget" -> gson.fromJson(stored.json, GradeWidget::class.java)
         "CardWidget" -> gson.fromJson(stored.json, CardWidget::class.java)
+        "ZyxfWidget" -> gson.fromJson(stored.json, ZyxfWidget::class.java)
         else -> null
     }
 }.getOrNull()
@@ -71,8 +95,16 @@ private val DAY_NAMES = listOf("", "周一", "周二", "周三", "周四", "周�
 
 // ── 渲染入口 ─────────────────────────────────────────────────────────────
 
+/**
+ * @param onAsk 卡片想替用户问屁岱一句（比如点目录 → "打开目录 12"）。
+ *              默认丢弃：历史消息重绘时没有可用的输入通道。
+ */
 @Composable
-fun AgentWidgetView(widget: AgentWidget, modifier: Modifier = Modifier) {
+fun AgentWidgetView(
+    widget: AgentWidget,
+    modifier: Modifier = Modifier,
+    onAsk: (String) -> Unit = {},
+) {
     when (widget) {
         is ScheduleWidget   -> ScheduleWidgetView(widget, modifier)
         is ExamWidget       -> ExamWidgetView(widget, modifier)
@@ -80,6 +112,7 @@ fun AgentWidgetView(widget: AgentWidget, modifier: Modifier = Modifier) {
         is AttendanceWidget -> AttendanceWidgetView(widget, modifier)
         is GradeWidget      -> GradeWidgetView(widget, modifier)
         is CardWidget       -> CardWidgetView(widget, modifier)
+        is ZyxfWidget       -> ZyxfWidgetView(widget, modifier, onAsk)
     }
 }
 
@@ -316,6 +349,111 @@ private fun CardWidgetView(w: CardWidget, modifier: Modifier) {
             Spacer(Modifier.height(2.dp))
             Text(flags.joinToString(" · "), style = MiuixTheme.textStyles.footnote1,
                 color = MiuixTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+
+// ── 仲英学辅资料卡 ───────────────────────────────────────────────────────
+
+private const val ZYXF_DOWNLOADING = "下载中…"
+
+/**
+ * 资料检索结果卡。
+ *
+ * 下载直接在卡片里做，不经过屁岱再转一轮：模型手上没有 Context，也不该由它替用户
+ * 决定"要不要往手机里写文件"。点一下就开始下，结果标在这一行上。
+ * 点目录则把"继续翻这一层"交回给屁岱（[onAsk]），因为那本来就是它该接着做的事。
+ */
+@Composable
+private fun ZyxfWidgetView(w: ZyxfWidget, modifier: Modifier, onAsk: (String) -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    // 每行的下载状态，key 是文件 ID；滚动离屏再回来也不会丢。
+    val states = androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateMapOf<Int, String>()
+    }
+    val shown = w.items.take(12)
+
+    WidgetCard(
+        title = "仲英学辅资料",
+        accent = MiuixTheme.colorScheme.primary,
+        subtitle = w.query.takeIf { it.isNotBlank() },
+        modifier = modifier,
+    ) {
+        shown.forEach { item ->
+            val state = states[item.id]
+            val busy = state == ZYXF_DOWNLOADING
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(enabled = !busy) {
+                        if (item.isFolder) {
+                            onAsk("打开仲英学辅资料站的目录 ${item.id}（${item.name}）")
+                        } else {
+                            states[item.id] = ZYXF_DOWNLOADING
+                            scope.launch {
+                                val saved = withContext(Dispatchers.IO) {
+                                    runCatching {
+                                        com.xjtu.toolbox.zyxf.ZyxfApi.download(context, item.id)
+                                    }.getOrNull()
+                                }
+                                states[item.id] = if (saved != null) "已保存到下载" else "下载失败，稍后再试"
+                            }
+                        }
+                    }
+                    .padding(horizontal = 2.dp, vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    if (item.isFolder) "📁" else "📄",
+                    style = MiuixTheme.textStyles.footnote1,
+                )
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        item.name,
+                        style = MiuixTheme.textStyles.body2,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    val sub = listOfNotNull(
+                        item.path.takeIf { it.isNotBlank() },
+                        item.sizeText.takeIf { it.isNotBlank() },
+                        state,
+                    ).joinToString(" · ")
+                    if (sub.isNotBlank()) {
+                        Text(
+                            sub,
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = if (state != null && state != ZYXF_DOWNLOADING) {
+                                MiuixTheme.colorScheme.primary
+                            } else {
+                                MiuixTheme.colorScheme.onSurfaceVariantSummary
+                            },
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    if (item.isFolder) "打开" else if (busy) "…" else "下载",
+                    style = MiuixTheme.textStyles.footnote1,
+                    fontWeight = FontWeight.Medium,
+                    color = MiuixTheme.colorScheme.primary,
+                )
+            }
+        }
+        if (w.items.size > shown.size) {
+            Text(
+                "…还有 ${w.items.size - shown.size} 条，换个更具体的关键词能更快找到",
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.padding(top = 4.dp),
+            )
         }
     }
 }

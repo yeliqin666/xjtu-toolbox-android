@@ -85,6 +85,9 @@ class AgentToolRegistry(
         "web_fetch" to "web",
         "get_library_booking" to "library",
         "get_library_seats" to "library",
+        "search_zyxf" to "zyxf",
+        "browse_zyxf" to "zyxf",
+        "read_zyxf_file" to "zyxf",
         "get_textbooks" to "textbook",
         "get_coupons" to "coupon",
         "get_lms_courses" to "lms",
@@ -415,6 +418,21 @@ class AgentToolRegistry(
         arr.add(tool("get_library_seats",
             "查询图书馆某区域的空闲座位数。需要图书馆系统登录。area 传区域名（模糊匹配，如「北楼二层外文库」），不填则列出所有可选区域名称。",
             params("area" to strProp("区域名称，不填返回区域列表。"))))
+        arr.add(tool("search_zyxf",
+            "检索仲英学辅资料站（zyxf.top）的公开共享资料：课件、历年卷、笔记、习题解答等，按文件名和目录名模糊匹配。无需登录。用于「有没有XX的复习资料/历年题」这类问题。",
+            params(
+                "keyword" to strProp("检索关键词，如「高等数学 历年」「大物 期中」。建议用课程名，别太长。")
+            )))
+        arr.add(tool("browse_zyxf",
+            "浏览仲英学辅资料站的目录。folder_id 不填或填 0 列出根目录（即全部课程/分类），填 search_zyxf 或本工具返回的目录 ID 进入下一级。无需登录。不知道该搜什么词时先用它看看有哪些课程。",
+            params(
+                "folder_id" to intProp("目录 ID；不填或 0 表示根目录。")
+            )))
+        arr.add(tool("read_zyxf_file",
+            "读取仲英学辅资料站的一份资料。file_id 来自 search_zyxf / browse_zyxf。纯文本（txt/csv/md 等）直接返回正文；PDF、Word、PPT 等只返回下载直链与大小，不解析内容。",
+            params(
+                "file_id" to intProp("文件 ID。")
+            )))
         arr.add(tool("get_textbooks",
             "查询日程/课表里的本人教材信息，来自教务系统教材报表，可按课程名筛选。需要教务系统登录；成功后会写入缓存。",
             params(
@@ -595,6 +613,9 @@ class AgentToolRegistry(
                 location = args["location"] as? String,
                 description = args["description"] as? String
             )
+            "search_zyxf" -> searchZyxf(args["keyword"] as? String ?: "")
+            "browse_zyxf" -> browseZyxf((args["folder_id"] as? Double)?.toInt() ?: 0)
+            "read_zyxf_file" -> readZyxfFile((args["file_id"] as? Double)?.toInt() ?: 0)
             "get_library_booking" -> getLibraryBooking()
             "get_library_seats" -> getLibrarySeats(args["area"] as? String)
             "get_textbooks" -> getTextbooks(args["course"] as? String, args["term"] as? String)
@@ -744,7 +765,7 @@ class AgentToolRegistry(
             val startDate = startStr?.let { s -> runCatching { LocalDate.parse(s) }.getOrNull() }
             startDate?.let { sd ->
                 val daysSince = java.time.temporal.ChronoUnit.DAYS.between(sd, today).toInt()
-                val w = (daysSince / 7) + 1
+                val w = com.xjtu.toolbox.schedule.TermWeeks.weekOf(sd, today)
                 // 含起始日与已过天数，便于推算"整学期"区间（如校园卡整学期账单天数）
                 if (w in 1..25) "第${w}周（起始 $startStr，开学至今 $daysSince 天）" else null
             }
@@ -1022,7 +1043,7 @@ class AgentToolRegistry(
 
         if (dateStr != null) {
             val targetDate = runCatching { LocalDate.parse(dateStr) }.getOrElse { LocalDate.now() }
-            val weekNum = ((java.time.temporal.ChronoUnit.DAYS.between(startDate, targetDate) / 7) + 1).toInt()
+            val weekNum = com.xjtu.toolbox.schedule.TermWeeks.weekOf(startDate, targetDate)
             val dayCourses = courses.filter { it.dayOfWeek == targetDate.dayOfWeek.value && it.isInWeek(weekNum) }
                 .sortedBy { it.startSection }
             if (dayCourses.isEmpty()) return "${targetDate}（第${weekNum}周 ${dayNames[targetDate.dayOfWeek.value]}）没有课。"
@@ -1035,7 +1056,7 @@ class AgentToolRegistry(
             }
         } else {
             val today = LocalDate.now()
-            val weekNum = ((java.time.temporal.ChronoUnit.DAYS.between(startDate, today) / 7) + 1).toInt()
+            val weekNum = com.xjtu.toolbox.schedule.TermWeeks.weekOf(startDate, today)
             if (weekNum <= 0) return "当前不在学期内。"
             val weekCourses = courses.filter { it.isInWeek(weekNum) }
                 .sortedWith(compareBy({ it.dayOfWeek }, { it.startSection }))
@@ -1624,21 +1645,140 @@ class AgentToolRegistry(
         }
     }
 
+    // ── 仲英学辅资料站 ────────────────────────────────────────────────────
+    //
+    // 资料站是**公开站点**，不带任何校内凭据，所以这三个工具不走 ensureSite。
+    // 返回里一律带上 ID，模型才接得下去：search → read，或 browse → browse → read。
+
+    /** 一行条目的统一写法，目录和文件在同一份列表里要能一眼分清。 */
+    private fun zyxfLine(e: com.xjtu.toolbox.zyxf.ZyxfApi.Entry): String = buildString {
+        if (e.isFolder) {
+            append("📁 ${e.name}（目录 ID ${e.id}）")
+        } else {
+            append("📄 ${e.name}（文件 ID ${e.id}")
+            e.sizeText.takeIf { it.isNotBlank() }?.let { append("，$it") }
+            if (!e.readable) append("，不可直接阅读")
+            append("）")
+        }
+        e.path.takeIf { it.isNotBlank() }?.let { append("  ← $it") }
+    }
+
+    /** 把条目转成卡片。只带 UI 要用的字段，卡片得随会话一起存盘。 */
+    private fun zyxfWidgetOf(
+        query: String,
+        entries: List<com.xjtu.toolbox.zyxf.ZyxfApi.Entry>,
+    ) = ZyxfWidget(
+        query = query,
+        items = entries.take(20).map {
+            ZyxfEntryRef(
+                id = it.id,
+                name = it.name,
+                path = it.path,
+                sizeText = it.sizeText,
+                isFolder = it.isFolder,
+            )
+        },
+    )
+
+    private suspend fun searchZyxf(keyword: String): String = withContext(Dispatchers.IO) {
+        if (keyword.isBlank()) return@withContext "请给出检索关键词，比如课程名。"
+        try {
+            val r = com.xjtu.toolbox.zyxf.ZyxfApi.search(keyword)
+            if (r.entries.isEmpty()) {
+                return@withContext "仲英学辅资料站没有匹配「$keyword」的资料。换个更短的关键词（比如只留课程名），或用 browse_zyxf 看看有哪些分类。"
+            }
+            pendingWidgets.add(zyxfWidgetOf(keyword, r.entries))
+            buildString {
+                append("仲英学辅资料站「$keyword」检索结果（共 ${r.entries.size} 条")
+                if (r.truncated) append("，服务端已截断，关键词再具体些能看到更多")
+                append("）：\n")
+                r.entries.take(25).forEach { append("• ${zyxfLine(it)}\n") }
+                // 卡片已经把「下载」做成一次点击了，别再让模型复述文件名劝用户去哪儿下。
+                append("\n以上已在卡片中列出，用户点文件即可下载，无需你再给链接或复述文件名。")
+                append("要看正文用 read_zyxf_file(file_id)，进目录用 browse_zyxf(folder_id)。")
+            }.trimEnd()
+        } catch (e: Exception) {
+            "检索仲英学辅资料站失败：${e.message?.take(60) ?: "网络异常"}"
+        }
+    }
+
+    private suspend fun browseZyxf(folderId: Int): String = withContext(Dispatchers.IO) {
+        try {
+            val entries = com.xjtu.toolbox.zyxf.ZyxfApi.listFolder(folderId.coerceAtLeast(0))
+            val where = if (folderId <= 0) "根目录"
+                else com.xjtu.toolbox.zyxf.ZyxfApi.breadcrumb(folderId).ifBlank { "目录 $folderId" }
+            if (entries.isEmpty()) return@withContext "仲英学辅资料站 $where 是空的。"
+            pendingWidgets.add(zyxfWidgetOf(where, entries))
+            buildString {
+                append("仲英学辅资料站 · $where（${entries.size} 项）：\n")
+                entries.take(40).forEach { append("• ${zyxfLine(it)}\n") }
+                if (entries.size > 40) append("…（还有 ${entries.size - 40} 项）\n")
+                append("\n以上已在卡片中列出，用户点文件即可下载。")
+            }.trimEnd()
+        } catch (e: Exception) {
+            "浏览仲英学辅资料站失败：${e.message?.take(60) ?: "网络异常"}"
+        }
+    }
+
+    private suspend fun readZyxfFile(fileId: Int): String = withContext(Dispatchers.IO) {
+        if (fileId <= 0) return@withContext "请提供 file_id，可先用 search_zyxf 或 browse_zyxf 查到。"
+        try {
+            val link = com.xjtu.toolbox.zyxf.ZyxfApi.fileLink(fileId)
+            val ext = link.ext.lowercase().removePrefix(".")
+            val entry = com.xjtu.toolbox.zyxf.ZyxfApi.Entry(
+                id = fileId, name = link.name, isFolder = false,
+                sizeBytes = link.sizeBytes, ext = ext,
+            )
+            // 二进制文档不在 App 里解析：PDF/Office 的文本抽取要拖进一整套解析库，
+            // 而资料站服务端本来就有 WebOffice 预览。这里给链接，让用户去看。
+            if (!entry.readable) {
+                return@withContext buildString {
+                    append("「${link.name}」是 ${ext.uppercase().ifBlank { "二进制" }} 文件")
+                    entry.sizeText.takeIf { it.isNotBlank() }?.let { append("（$it）") }
+                    append("，屁岱不解析它的内容。")
+                    append("可以在资料站页面预览或下载：${link.url}")
+                    append("\n（该直链约 30 分钟后失效。）")
+                }
+            }
+            val text = com.xjtu.toolbox.zyxf.ZyxfApi.readText(entry)
+                ?: return@withContext "读取「${link.name}」失败，稍后再试。"
+            buildString {
+                append("「${link.name}」内容：\n")
+                append(text.take(4000))
+                if (text.length > 4000) append("\n…（已截断，只给了开头 4000 字）")
+            }
+        } catch (e: Exception) {
+            "读取仲英学辅资料失败：${e.message?.take(60) ?: "网络异常"}"
+        }
+    }
+
     private suspend fun getLibrarySeats(area: String?): String {
         val site = ensureSite(LoginType.LIBRARY)
             ?: return loginHint(LoginType.LIBRARY)
-        val areaMap = com.xjtu.toolbox.library.LibraryApi.AREA_MAP
+        val api = com.xjtu.toolbox.library.LibraryApi(site)
+        // 区域按校区各不相同，不能拿兴庆那张写死的表当全集——雁塔/创新港的同学问
+        // 「哪个区有空位」，会被告知一串他们根本去不了的兴庆区域（issue #42）。
+        // 这里按账号当前校区逐层现拉；拉不到（网络异常）才退回兴庆表。
+        val campus = runCatching { api.getCurrentCampus() }.getOrNull()
+            ?: com.xjtu.toolbox.library.LibraryCampus.DEFAULT
+        val discovered = linkedMapOf<String, String>()   // 中文名 → 区域码
+        campus.floorCodes.forEach { floorCode ->
+            runCatching { api.getFloorAreas(floorCode) }.getOrNull()
+                ?.forEach { (code, name) -> discovered[name] = code }
+        }
+        val areaMap = discovered.ifEmpty { com.xjtu.toolbox.library.LibraryApi.AREA_MAP }
+        val where = "${campus.displayName}校区"
         if (area.isNullOrBlank()) {
-            return "可查询的图书馆区域：\n" + areaMap.keys.joinToString("、")
+            return "$where 可查询的图书馆区域：\n" + areaMap.keys.joinToString("、")
         }
         val entry = areaMap.entries.firstOrNull {
             it.key == area || it.key.contains(area) || area.contains(it.key)
-        } ?: return "未找到区域「$area」。可选：${areaMap.keys.joinToString("、")}"
+        } ?: return "$where 未找到区域「$area」。可选：${areaMap.keys.joinToString("、")}"
         return try {
-            when (val r = com.xjtu.toolbox.library.LibraryApi(site).getSeats(entry.value)) {
+            when (val r = api.getSeats(entry.value)) {
                 is com.xjtu.toolbox.library.SeatResult.Success -> {
                     val free = r.seats.count { it.available }
-                    "${entry.key}：空闲 $free / 共 ${r.seats.size} 座"
+                    "$where ${entry.key}：空闲 $free / 共 ${r.seats.size} 座"
                 }
                 is com.xjtu.toolbox.library.SeatResult.AuthError ->
                     "图书馆登录失效，请重新进入图书馆页面。"
