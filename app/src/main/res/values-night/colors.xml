@@ -12,4 +12,11 @@
     <color name="widget_course_tone_4">#FF3B2B4A</color>
     <color name="widget_course_tone_5">#FF23424A</color>
     <color name="widget_course_tone_6">#FF4A2B2B</color>
+
+    <color name="widget_course_accent_1">#FF8AA5FF</color>
+    <color name="widget_course_accent_2">#FF5FD49B</color>
+    <color name="widget_course_accent_3">#FFF5B963</color>
+    <color name="widget_course_accent_4">#FFBE95FF</color>
+    <color name="widget_course_accent_5">#FF5FCBD8</color>
+    <color name="widget_course_accent_6">#FFFF8A8A</color>
 </resources>

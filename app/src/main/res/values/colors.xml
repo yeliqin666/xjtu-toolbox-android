@@ -27,4 +27,11 @@
     <color name="shortcut_campus_card_bg">#FF2E7D32</color>
     <color name="shortcut_empty_room_bg">#FF283593</color>
     <color name="shortcut_payment_bg">#FF00796B</color>
+
+    <color name="widget_course_accent_1">#FF6C8CFF</color>
+    <color name="widget_course_accent_2">#FF3FBF7F</color>
+    <color name="widget_course_accent_3">#FFF0A23C</color>
+    <color name="widget_course_accent_4">#FFA76EFF</color>
+    <color name="widget_course_accent_5">#FF35B6C4</color>
+    <color name="widget_course_accent_6">#FFEF6B6B</color>
 </resources>

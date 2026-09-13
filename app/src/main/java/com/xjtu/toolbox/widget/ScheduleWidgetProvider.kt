@@ -34,6 +34,25 @@ internal data class WidgetCourse(
     val endSection: Int
 )
 
+/**
+ * 4x2「今天 / 明天」两栏要的数据。
+ *
+ * 和 [WidgetScheduleData] 分开：那个带着周次偏移、选中星期这些**浏览状态**，
+ * 是 2x2 的翻页交互要用的；4x2 改版后没有翻页，只认真实的今天和明天，
+ * 混用会让"明天"跟着用户在 2x2 上翻到的那一天跑。
+ */
+internal data class WidgetTwoDayData(
+    val dayNumber: String,
+    val monthText: String,
+    val dowText: String,
+    val weekText: String,
+    val today: List<WidgetCourse>,
+    val tomorrow: List<WidgetCourse>,
+    val todayEmptyText: String,
+    val tomorrowEmptyText: String,
+    val hasCache: Boolean,
+)
+
 internal data class WidgetScheduleData(
     val weekText: String,
     val dayText: String,
@@ -50,6 +69,9 @@ object ScheduleWidgetUpdater {
     const val ACTION_WEEK_NEXT = "com.xjtu.toolbox.widget.ACTION_SCHEDULE_WIDGET_WEEK_NEXT"
     const val ACTION_DAY_PREV = "com.xjtu.toolbox.widget.ACTION_SCHEDULE_WIDGET_DAY_PREV"
     const val ACTION_DAY_NEXT = "com.xjtu.toolbox.widget.ACTION_SCHEDULE_WIDGET_DAY_NEXT"
+
+    /** 适配器要取哪一天：0=今天，1=明天。只有 4x2 用。 */
+    const val EXTRA_DAY_OFFSET = "widget_day_offset"
 
     private const val PREFS_NAME = "schedule_widget_prefs"
     private const val KEY_WEEK_OFFSET = "week_offset"
@@ -119,15 +141,21 @@ object ScheduleWidgetUpdater {
         size: WidgetSize
     ) {
         if (appWidgetIds.isEmpty()) return
-        val data = loadScheduleData(context)
+        // 只有 2x2 用得上它，而它要读缓存、查 Room、拉节假日；4x2 走
+        // loadTwoDayData 自己那套，别为它白跑一遍。
+        val data = if (size == WidgetSize.SMALL) loadScheduleData(context) else null
         appWidgetIds.forEach { widgetId ->
             val views = when (size) {
-                WidgetSize.SMALL -> buildSmallViews(context, data, widgetId)
-                WidgetSize.LARGE -> buildLargeViews(context, data, widgetId)
+                WidgetSize.SMALL -> buildSmallViews(context, data!!, widgetId)
+                WidgetSize.LARGE -> buildLargeViews(context, widgetId)
             }
             appWidgetManager.updateAppWidget(widgetId, views)
         }
         appWidgetManager.notifyAppWidgetViewDataChanged(appWidgetIds, R.id.widget_course_list)
+        // 4x2 有第二个集合视图（明天那栏）。漏了它，明天的课会一直停在上次的数据上。
+        if (size == WidgetSize.LARGE) {
+            appWidgetManager.notifyAppWidgetViewDataChanged(appWidgetIds, R.id.widget_course_list_next)
+        }
     }
 
     private fun buildLaunchPendingIntent(context: Context, requestCode: Int): PendingIntent {
@@ -159,10 +187,21 @@ object ScheduleWidgetUpdater {
         )
     }
 
-    private fun buildCourseListAdapterIntent(context: Context, appWidgetId: Int, size: WidgetSize): Intent {
+    /**
+     * @param dayOffset 0=今天，1=明天。会进 Intent 的 data（[Intent.toUri] 把 extra 也编了进去），
+     *                  两栏因此拿到两个不同的 Intent —— 系统按 filterEquals 复用
+     *                  RemoteViewsFactory，data 一样的话两栏会共用同一个工厂、显示同一天。
+     */
+    private fun buildCourseListAdapterIntent(
+        context: Context,
+        appWidgetId: Int,
+        size: WidgetSize,
+        dayOffset: Int = 0,
+    ): Intent {
         return Intent(context, ScheduleWidgetRemoteViewsService::class.java).apply {
             putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
             putExtra("widget_size", size.name)
+            putExtra(EXTRA_DAY_OFFSET, dayOffset)
             data = Uri.parse(toUri(Intent.URI_INTENT_SCHEME))
         }
     }
@@ -243,24 +282,152 @@ object ScheduleWidgetUpdater {
         )
     }
 
-    private fun buildLargeViews(context: Context, data: WidgetScheduleData, appWidgetId: Int): RemoteViews {
-        return bindCommonViews(
-            context = context,
-            data = data,
-            appWidgetId = appWidgetId,
-            size = WidgetSize.LARGE,
-            providerClass = ScheduleWidget4x2Provider::class.java,
-            rootRequestCode = 1002,
-            weekRequestOffset = 2100,
-            dayRequestOffset = 2200,
-            listTemplateBase = 4000,
-            layoutRes = R.layout.widget_schedule_4x2
+    /**
+     * 4x2：今天 | 明天 两栏，没有任何翻页控件。
+     *
+     * 不走 [bindCommonViews]——那套是围绕 2x2 的浏览状态（周次偏移、选中星期）建的，
+     * 而这里要的恰恰是"不受浏览状态影响的真实今天"。
+     */
+    private fun buildLargeViews(context: Context, appWidgetId: Int): RemoteViews {
+        val data = loadTwoDayData(context)
+        val views = RemoteViews(context.packageName, R.layout.widget_schedule_4x2)
+        views.setTextViewText(R.id.widget_date_day, data.dayNumber)
+        views.setTextViewText(R.id.widget_date_month, data.monthText)
+        views.setTextViewText(R.id.widget_date_dow, data.dowText)
+        views.setTextViewText(R.id.widget_week, data.weekText)
+        views.setOnClickPendingIntent(R.id.widget_root, buildLaunchPendingIntent(context, 1002))
+
+        listOf(
+            Triple(R.id.widget_course_list, R.id.widget_empty, 0),
+            Triple(R.id.widget_course_list_next, R.id.widget_empty_next, 1),
+        ).forEach { (listId, emptyId, dayOffset) ->
+            views.setRemoteAdapter(
+                listId,
+                buildCourseListAdapterIntent(context, appWidgetId, WidgetSize.LARGE, dayOffset)
+            )
+            views.setEmptyView(listId, emptyId)
+            views.setPendingIntentTemplate(
+                listId,
+                buildLaunchPendingIntent(context, 4000 + dayOffset * 1000 + appWidgetId)
+            )
+        }
+
+        val todayEmpty = data.today.isEmpty()
+        val tomorrowEmpty = data.tomorrow.isEmpty()
+        views.setViewVisibility(R.id.widget_empty, if (todayEmpty) View.VISIBLE else View.GONE)
+        views.setViewVisibility(R.id.widget_empty_next, if (tomorrowEmpty) View.VISIBLE else View.GONE)
+        views.setTextViewText(R.id.widget_empty, data.todayEmptyText)
+        views.setTextViewText(R.id.widget_empty_next, data.tomorrowEmptyText)
+        return views
+    }
+
+    /**
+     * 今天和明天的课，外加左上角那个日期块。
+     *
+     * 明确**不读** [PREFS_NAME] 里的周次/星期偏移：那是 2x2 翻页留下的浏览状态，
+     * 4x2 要的是"现在"。
+     */
+    internal fun loadTwoDayData(context: Context): WidgetTwoDayData {
+        ensureAccountContext(context)
+        val today = LocalDate.now()
+        val tomorrow = today.plusDays(1)
+        val header = { d: LocalDate ->
+            Triple(
+                d.dayOfMonth.toString(),
+                "${d.monthValue}月",
+                "周${weekdayLabel(d.dayOfWeek.value)}",
+            )
+        }
+        val (dayNumber, monthText, dowText) = header(today)
+
+        val cache = DataCache(context)
+        val termCode = resolveTermCode(context, cache)
+            ?: return WidgetTwoDayData(
+                dayNumber, monthText, dowText, "",
+                today = emptyList(), tomorrow = emptyList(),
+                todayEmptyText = "暂无日程缓存\n请先打开日程页同步",
+                tomorrowEmptyText = "",
+                hasCache = false,
+            )
+
+        val startDate = readStartDate(cache, termCode)
+        val weekText = startDate
+            ?.let { com.xjtu.toolbox.schedule.TermWeeks.weekOf(it, today) }
+            ?.takeIf { it >= 1 }
+            ?.let { "第${it}周" }
+            .orEmpty()
+
+        return WidgetTwoDayData(
+            dayNumber = dayNumber,
+            monthText = monthText,
+            dowText = dowText,
+            weekText = weekText,
+            today = coursesOn(context, cache, termCode, startDate, today),
+            tomorrow = coursesOn(context, cache, termCode, startDate, tomorrow),
+            todayEmptyText = "今天没有课",
+            tomorrowEmptyText = "明天没有课",
+            hasCache = true,
         )
     }
 
-    internal fun loadScheduleData(context: Context): WidgetScheduleData {
-        // Widget 进程入口可能未经 MainActivity，AccountContext 未初始化；
-        // 从 AccountStore 恢复激活账号，保证 DataCache/Room 命名空间正确。
+    /** 某一天的课，按节次排序。节假日返回空。 */
+    private fun coursesOn(
+        context: Context,
+        cache: DataCache,
+        termCode: String,
+        startDate: LocalDate?,
+        date: LocalDate,
+    ): List<WidgetCourse> {
+        val holidays = runCatching {
+            runBlocking { com.xjtu.toolbox.schedule.HolidayApi.getHolidayDates(context) }
+        }.getOrDefault(emptyMap())
+        if (holidays.containsKey(date)) return emptyList()
+
+        val all = allCoursesOf(context, cache, termCode)
+        // 没有开学日期就算不出周次；这时按星期给出全部同星期的课，
+        // 总好过一片空白（用户至少能看出"周三大概有什么"）。
+        val week = startDate?.let { com.xjtu.toolbox.schedule.TermWeeks.weekOf(it, date) }
+        return all.asSequence()
+            .filter { it.dayOfWeek == date.dayOfWeek.value }
+            .filter { week == null || it.isInWeek(week) }
+            .sortedBy { it.startSection }
+            .map {
+                WidgetCourse(
+                    name = it.courseName,
+                    location = it.location,
+                    startSection = it.startSection,
+                    endSection = it.endSection,
+                )
+            }
+            .toList()
+    }
+
+    private fun allCoursesOf(context: Context, cache: DataCache, termCode: String): List<CourseItem> {
+        val apiCourses = ScheduleCache.readOptimizedCourses(cache, gson, termCode)
+            ?: ScheduleCache.readRawCourses(cache, gson, termCode)
+            ?: emptyList()
+        val customCourses = runCatching {
+            runBlocking {
+                AppDatabase.getInstance(context)
+                    .customCourseDao()
+                    .getByTerm(com.xjtu.toolbox.account.AccountContext.activeAccountId ?: "", termCode)
+                    .map { it.toCourseItem() }
+            }
+        }.getOrDefault(emptyList())
+        return apiCourses + customCourses
+    }
+
+    private fun readStartDate(cache: DataCache, termCode: String): LocalDate? {
+        val raw = cache.get("start_date_$termCode", Long.MAX_VALUE)
+        if (raw.isNullOrBlank()) return null
+        return runCatching { LocalDate.parse(gson.fromJson(raw, String::class.java)) }.getOrNull()
+    }
+
+    /**
+     * Widget 进程入口可能未经 MainActivity，AccountContext 未初始化；
+     * 从 AccountStore 恢复激活账号，保证 DataCache/Room 命名空间正确。
+     */
+    private fun ensureAccountContext(context: Context) {
         if (com.xjtu.toolbox.account.AccountContext.activeAccountId == null) {
             runCatching {
                 com.xjtu.toolbox.account.AccountStore(context).activeAccountId()?.let {
@@ -268,6 +435,10 @@ object ScheduleWidgetUpdater {
                 }
             }
         }
+    }
+
+    internal fun loadScheduleData(context: Context): WidgetScheduleData {
+        ensureAccountContext(context)
         val now = LocalTime.now()
         val nowDate = LocalDate.now()
         val todayDow = nowDate.dayOfWeek.value
@@ -310,8 +481,7 @@ object ScheduleWidgetUpdater {
         }
 
         val baseWeek = startDate?.let {
-            val days = java.time.temporal.ChronoUnit.DAYS.between(it, nowDate)
-            ((days / 7) + 1).toInt()
+            com.xjtu.toolbox.schedule.TermWeeks.weekOf(it, nowDate)
         }
 
         val maxWeek = allCourses.maxOfOrNull { it.weekBits.length }?.coerceAtLeast(1) ?: 20
@@ -345,7 +515,7 @@ object ScheduleWidgetUpdater {
         val shouldFilterByWeek = baseWeek != null || weekOffset != 0
 
         val selectedDate = if (startDate != null) {
-            startDate.plusDays(((effectiveWeek - 1) * 7L) + (selectedDayOfWeek - 1L))
+            com.xjtu.toolbox.schedule.TermWeeks.dateOf(startDate, effectiveWeek, selectedDayOfWeek)
         } else {
             val relativeWeekDelta = effectiveWeek - (displayBaseWeek ?: 1)
             nowDate.plusDays(relativeWeekDelta * 7L + (selectedDayOfWeek - todayDow).toLong())

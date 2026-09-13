@@ -51,9 +51,7 @@ fun SchoolCalendarScreen(site: SiteSession?, onBack: () -> Unit) {
         try {
             val result = withContext(Dispatchers.IO) { api.getTerms() }
             terms = result
-            // 默认选中当前学期
-            val currentIdx = result.indexOfFirst { it.currentWeek(today) > 0 }
-            selectedTermIndex = if (currentIdx >= 0) currentIdx else 0
+            selectedTermIndex = defaultTermIndex(result, today)
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -133,6 +131,21 @@ fun SchoolCalendarScreen(site: SiteSession?, onBack: () -> Unit) {
             }
         }
     }
+}
+
+/**
+ * 进来先看哪个学期：正在进行的 → 最近要开始的 → 最后一个。
+ *
+ * 原来只找"正在进行"，找不到就落回 `terms[0]`。而 [SchoolCalendarApi.getTerms] 是按
+ * 开学日期升序排的，`terms[0]` 是**最老**的那个学期——于是寒暑假、开学前这些不在任何
+ * 学期区间内的日子，校历页一打开显示的是好几年前的校历，看着就像"新校历没加进来"。
+ * 学校其实早就发了（这个页面本来就是实时拉的门户数据，没有任何本地写死的年份）。
+ */
+internal fun defaultTermIndex(terms: List<SchoolTerm>, today: LocalDate): Int {
+    if (terms.isEmpty()) return 0
+    terms.indexOfFirst { it.currentWeek(today) > 0 }.takeIf { it >= 0 }?.let { return it }
+    terms.indexOfFirst { today < it.startDate }.takeIf { it >= 0 }?.let { return it }
+    return terms.lastIndex
 }
 
 @Composable

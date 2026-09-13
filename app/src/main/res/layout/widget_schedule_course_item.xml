@@ -1,14 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  2x2 竖排列表的单条课程。比原来紧一圈（padding 8→6，行距 2→1），
+  一屏从 2 条变 3 条——小部件的空间要花在课上，不是花在留白上。
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_course_item_root"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:background="@drawable/bg_schedule_course_item"
     android:orientation="vertical"
-    android:paddingLeft="10dp"
-    android:paddingRight="10dp"
-    android:paddingTop="8dp"
-    android:paddingBottom="8dp">
+    android:paddingLeft="8dp"
+    android:paddingRight="8dp"
+    android:paddingTop="6dp"
+    android:paddingBottom="6dp">
 
     <TextView
         android:id="@+id/widget_course_desc"
@@ -24,11 +28,10 @@
         android:id="@+id/widget_course_time"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
+        android:layout_marginTop="1dp"
         android:ellipsize="end"
         android:maxLines="1"
         android:textColor="@color/widget_on_surface_secondary"
         android:textSize="10sp" />
 
 </LinearLayout>
-
