@@ -1,8 +1,10 @@
 package com.xjtu.toolbox.perf
 
+import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.xjtu.toolbox.agent.ChatMessage
 import com.xjtu.toolbox.agent.groupAgentRows
+import com.xjtu.toolbox.agent.streamFlushDue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -100,5 +102,64 @@ class PerfChatStreamTest {
             repeat(60) { append("这是一段用于测量流式累积成本的回答文本，长度接近真实回复。") }
         }
         return text.chunked(3)
+    }
+
+    /* ------------------------- 端到端：一条回复收完的总开销 ------------------------- */
+
+    /**
+     * 这是本块最贴近现实的指标：**一条回复从首字到末字，累计花掉了多少**。
+     *
+     * 两种做法都跑同一串增量、同一个会话规模，逐 token 计时求和：
+     * - 旧：每个 token 都 copy 全文（O(n²) 字符串复制）+ 重排整个会话列表一次；
+     * - 新：累积到缓冲、每帧最多写一次，列表只在写入时派生重算。
+     *
+     * token 到达速率是关键前提，取 **4ms 一个**（约 250 token/s）——快模型（如
+     * deepseek-flash）实测能到这个量级，此时一帧内会挤进 4–5 个 token。若按
+     * 16.67ms/token（一帧一个）模拟，节流根本触发不了，测不出任何差别，那是因为
+     * 那种速率下本来就不需要节流。
+     */
+    @Test
+    fun endToEnd_turnCost() {
+        val frags = fragments()
+        val perTokenNs = 4_000_000L   // 约 250 token/s
+
+        // 旧做法：逐 token copy + 逐 token 重排
+        val oldStats = Perf.measureMedian(warmup = 5, iterations = 40, rounds = 5) {
+            val msgs = conversation(turns = 50, fenced = false).toMutableList()
+            val idx = msgs.size.also { msgs.add(ChatMessage("assistant", "")) }
+            for (f in frags) {
+                msgs[idx] = msgs[idx].copy(content = msgs[idx].content + f)
+                groupAgentRows(msgs)   // 每 token 一次列表重排
+            }
+            msgs.size
+        }
+        Perf.report("turn cost (old: per-token)", oldStats)
+
+        // 新做法：累积 + 每帧最多写一次 + 只在写入时重排
+        val newStats = Perf.measureMedian(warmup = 5, iterations = 40, rounds = 5) {
+            val msgs = conversation(turns = 50, fenced = false).toMutableList()
+            val idx = msgs.size.also { msgs.add(ChatMessage("assistant", "")) }
+            val sb = StringBuilder()
+            var lastFlush = 0L
+            var t = 0L
+            var rows = 0
+            for (f in frags) {
+                sb.append(f)
+                t += perTokenNs
+                if (streamFlushDue(t, lastFlush, force = false)) {
+                    lastFlush = t
+                    msgs[idx] = msgs[idx].copy(content = sb.toString())
+                    rows += groupAgentRows(msgs).size   // 仅写入时重排
+                }
+            }
+            // 收尾强制写回
+            msgs[idx] = msgs[idx].copy(content = sb.toString())
+            rows += groupAgentRows(msgs).size
+            rows
+        }
+        Perf.report("turn cost (new: per-frame)", newStats)
+
+        val ratio = oldStats.bytesPerOp / newStats.bytesPerOp.coerceAtLeast(1.0)
+        Log.i(Perf.TAG, "  -> turn-cost allocation reduced %.1fx".format(ratio))
     }
 }
