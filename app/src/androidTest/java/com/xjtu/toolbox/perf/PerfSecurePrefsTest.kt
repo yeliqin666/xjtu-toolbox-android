@@ -3,7 +3,6 @@ package com.xjtu.toolbox.perf
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.xjtu.toolbox.startup.StorePreloader
 import com.xjtu.toolbox.util.SecurePrefs
 import org.junit.Assert.assertTrue
 import org.junit.Test

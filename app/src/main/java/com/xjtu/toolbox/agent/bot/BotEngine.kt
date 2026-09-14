@@ -370,14 +370,22 @@ class BotEngine(
         }
 
         // --- 装饰 ------------------------------------------------------------
-        val dots = pose.dots
-            .filter { it.opacity > 0.01 && it.r > 0.0005 }
-            .map { DotDraw((it.x + offX) * R, (it.y + offY) * R, it.r * R, it.opacity, it.depth) }
+        // buildList 单趟走完，替代 filter{}.map{}：后者每次都多分配一个中间 List
+        // （这一帧路径上每个分配都要乘以每秒 30–60 帧）。
+        val dots = buildList(pose.dots.size) {
+            for (d in pose.dots) {
+                if (d.opacity > 0.01 && d.r > 0.0005) {
+                    add(DotDraw((d.x + offX) * R, (d.y + offY) * R, d.r * R, d.opacity, d.depth))
+                }
+            }
+        }
 
         // 弧线（彗星彩带）：状态声明球半径单位，引擎统一光栅化
-        val arcs = pose.arcs
-            .filter { it.opacity > 0.01 }
-            .map { arcRender(it.seed, it.t, R, it.opacity) }
+        val arcs = buildList(pose.arcs.size) {
+            for (a in pose.arcs) {
+                if (a.opacity > 0.01) add(arcRender(a.seed, a.t, R, a.opacity))
+            }
+        }
 
         // 通知点贴在轮廓上：跟随形状
         var notif: NotifDraw? = null

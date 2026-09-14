@@ -364,4 +364,18 @@ fun eyeOffsetFor(radii: DoubleArray?, state: String): Pair<Double, Double> {
     return par[state] ?: NUL
 }
 
+/**
+ * 提前触发 [DECALAGES] 的构建。
+ *
+ * 这张表在类加载时一次性算出（8 形状 × 3 静息状态 × 4 个漂移角），实测在模拟器上约
+ * **80ms**。而 `BotEngine.sample()` 会无条件经 `decalageAtTime` 调到这里，底栏又是
+ * 首帧就渲染的——也就是说这 80ms 原本结结实实地压在冷启动首帧上。
+ *
+ * 由冷启动预热线程在后台调用它，前台首帧就只剩读表。
+ */
+fun warmUpEyeFit() {
+    // 触发类初始化即可，取哪个状态、哪个形状都无所谓
+    eyeOffsetFor(BOT_SHAPES.first().radii, "idle")
+}
+
 private val PI = kotlin.math.PI
