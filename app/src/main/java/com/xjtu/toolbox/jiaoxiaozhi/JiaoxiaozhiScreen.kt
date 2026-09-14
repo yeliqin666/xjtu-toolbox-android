@@ -78,6 +78,16 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 private val JiaozhiBlue = Color(0xFF315FD4)
 private val JiaozhiPurple = Color(0xFF6750A4)
 
+/**
+ * 会话时间格式化器，缓存实例。
+ *
+ * 构造 `SimpleDateFormat` 要解析 pattern、建 `Calendar`，比 `format()` 本身贵约一个
+ * 数量级；而这段代码在会话抽屉的每一行里，随每次重组都会执行。只在主线程（组合期）
+ * 使用，无并发问题。
+ */
+private val JIAOXIAOZHI_TIME_FMT =
+    java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.CHINA)
+
 @Composable
 fun JiaoxiaozhiScreen(
     onBack: () -> Unit,
@@ -675,10 +685,7 @@ private fun JiaoxiaozhiDrawer(
                                     )
                                     Text(
                                         "${JiaoxiaozhiModels.byId(session.modelId).label} · ${
-                                            java.text.SimpleDateFormat(
-                                                "MM-dd HH:mm",
-                                                java.util.Locale.CHINA
-                                            ).format(java.util.Date(session.updatedAt))
+                                            JIAOXIAOZHI_TIME_FMT.format(java.util.Date(session.updatedAt))
                                         }",
                                         style = MiuixTheme.textStyles.footnote1,
                                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,

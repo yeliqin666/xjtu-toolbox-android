@@ -198,7 +198,10 @@ fun IclassfaceScreen(
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                         )
                     }
-                    items(records) { record -> RecordCard(record) }
+                    // 同一人同一天可能有多条（刷脸 + 刷卡），把时间也纳入 key 才能唯一。
+                    items(records, key = { "${it.studentNo}_${it.time}_${it.type}" }) { record ->
+                        RecordCard(record)
+                    }
                 }
             }
         }

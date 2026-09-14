@@ -281,29 +281,40 @@ fun AttendanceScreen(
     val maxWeek = remember(records) { records.maxOfOrNull { it.week } ?: 0 }
 
     val filteredRecords = remember(records, selectedWeek, selectedStatus, searchQuery, drilldownSubject) {
+        // 小写化一次就够：原来每条记录都要重复 lower 三次（三个字段各一次）。
+        val q = searchQuery.lowercase()
         records.asSequence()
             .let { seq -> if (selectedWeek != null) seq.filter { it.week == selectedWeek } else seq }
             .let { seq -> if (selectedStatus != null) seq.filter { it.status == selectedStatus } else seq }
             .let { seq ->
                 if (drilldownSubject != null) seq.filter { it.courseName == drilldownSubject }
-                else if (searchQuery.isNotBlank()) seq.filter {
-                    searchQuery.lowercase() in it.courseName.lowercase() ||
-                            searchQuery.lowercase() in it.location.lowercase() ||
-                            searchQuery.lowercase() in it.teacher.lowercase()
+                else if (q.isNotBlank()) seq.filter {
+                    q in it.courseName.lowercase() ||
+                            q in it.location.lowercase() ||
+                            q in it.teacher.lowercase()
                 } else seq
             }
             .sortedByDescending { it.date }
             .toList()
     }
 
-    // 全局统计
-    val displayRecords = if (selectedWeek != null) records.filter { it.week == selectedWeek } else records
-    val totalNormal = displayRecords.count { it.status == WaterType.NORMAL }
-    val totalLate = displayRecords.count { it.status == WaterType.LATE }
-    val totalAbsence = displayRecords.count { it.status == WaterType.ABSENCE }
-    val totalLeave = displayRecords.count { it.status == WaterType.LEAVE }
-    val attendanceRate = if (displayRecords.isNotEmpty())
-        (totalNormal + totalLeave) * 100 / displayRecords.size else 100
+    // 全局统计。必须 remember：这几行跑在 composable 主体里，不缓存的话每次重组
+    // （含搜索框每敲一个字）都要把 records 过滤并扫描 5 遍。
+    val attendanceTotals = remember(records, selectedWeek) {
+        val display = if (selectedWeek != null) records.filter { it.week == selectedWeek } else records
+        val normal = display.count { it.status == WaterType.NORMAL }
+        val late = display.count { it.status == WaterType.LATE }
+        val absence = display.count { it.status == WaterType.ABSENCE }
+        val leave = display.count { it.status == WaterType.LEAVE }
+        val rate = if (display.isNotEmpty()) (normal + leave) * 100 / display.size else 100
+        AttendanceTotals(normal, late, absence, leave, rate, display.size)
+    }
+    val totalNormal = attendanceTotals.normal
+    val totalLate = attendanceTotals.late
+    val totalAbsence = attendanceTotals.absence
+    val totalLeave = attendanceTotals.leave
+    val attendanceRate = attendanceTotals.rate
+    val displayRecordCount = attendanceTotals.count
     val termItems = remember(termList) { termList.map { DropdownItem(text = it.name) } }
     val selectedTermIndex = termList.indexOfFirst { it.bh == selectedTermBh }.coerceAtLeast(0)
     val weekItems = remember(maxWeek) {
@@ -373,7 +384,7 @@ fun AttendanceScreen(
                             summary = if (selectedWeek == null) {
                                 "查看整个学期"
                             } else {
-                                "${displayRecords.size} 条记录"
+                                "${displayRecordCount} 条记录"
                             },
                             items = weekItems,
                             selectedIndex = selectedWeekIndex,
@@ -419,7 +430,7 @@ fun AttendanceScreen(
                             { drilldownSubject = it },
                             { searchQuery = "" },
                             { selectedTab = 1 })
-                        1 -> RecordFlowTab(filteredRecords, selectedStatus, displayRecords.size,
+                        1 -> RecordFlowTab(filteredRecords, selectedStatus, displayRecordCount,
                             searchQuery, { searchQuery = it }, { selectedStatus = it },
                             drilldownSubject, { drilldownSubject = null })
                     }
@@ -429,6 +440,16 @@ fun AttendanceScreen(
         }
     }
 }
+
+/** 考勤全局统计。整块缓存，避免每次重组重扫 records。 */
+private class AttendanceTotals(
+    val normal: Int,
+    val late: Int,
+    val absence: Int,
+    val leave: Int,
+    val rate: Int,
+    val count: Int,
+)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -442,9 +463,13 @@ private fun OverviewTab(
     onClearSearch: () -> Unit,
     onSwitchToRecordTab: () -> Unit,
 ) {
-    val filtered = courseStats
-        .filter { searchQuery.isBlank() || searchQuery.lowercase() in it.subjectName.lowercase() }
-        .sortedByDescending { it.abnormalCount }
+    // 搜索框每敲一个字都会重组到这里，过滤+排序不缓存就是每键重排一遍全表。
+    val filtered = remember(courseStats, searchQuery) {
+        val q = searchQuery.lowercase()
+        courseStats
+            .filter { searchQuery.isBlank() || q in it.subjectName.lowercase() }
+            .sortedByDescending { it.abnormalCount }
+    }
     LazyColumn(
         Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
         contentPadding = PaddingValues(vertical = 8.dp)
@@ -629,7 +654,9 @@ private fun RecordFlowTab(
     drilldownSubject: String? = null,
     onClearDrilldown: () -> Unit = {},
 ) {
-    val groupedByDate = filteredRecords.groupBy { it.date }
+    // 按日期分组：只依赖 filteredRecords（它已按输入缓存），但分组本身也要缓存，
+    // 否则列表每次重组都会重新建一遍分组 Map。
+    val groupedByDate = remember(filteredRecords) { filteredRecords.groupBy { it.date } }
     LazyColumn(
         Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),

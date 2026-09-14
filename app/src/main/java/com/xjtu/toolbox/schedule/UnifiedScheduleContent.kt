@@ -134,7 +134,9 @@ fun TodayTimeline(
         ),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        items(entries) { e ->
+        // 用「起始分钟 + 标题 + 地点」做 key：这块每次重组都会重排（过去/当前的判定
+        // 依赖 nowMinute），没有 key 时行会按位置错配。
+        items(entries, key = { "${it.startMinute}_${it.title}_${it.place}" }) { e ->
             // 已经过去的条目压暗。今天这一级的价值就是"接下来干什么"，
             // 上午的课到了下午还跟没上过一样醒目，等于每次都要自己再筛一遍。
             val past = e.endMinute in 1 until nowMinute

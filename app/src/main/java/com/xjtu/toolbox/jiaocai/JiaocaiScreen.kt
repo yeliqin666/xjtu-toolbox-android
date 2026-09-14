@@ -184,7 +184,12 @@ private fun JiaocaiSearchScreen(
                                 )
                             }
                         }
-                        items(books) { book ->
+                        // id 缺省为空串（老数据/解析异常），那时退回书目号 + 书名做 key，
+                        // 免得整列都成了空 key 而互相撞车。
+                        items(
+                            books,
+                            key = { it.id.ifBlank { "${it.ssno}_${it.title}_${it.author}" } },
+                        ) { book ->
                             BookCard(book = book, onClick = { vm.selected = book })
                         }
                         item { Spacer(Modifier.height(80.dp)) }

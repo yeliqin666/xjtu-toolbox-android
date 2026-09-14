@@ -257,7 +257,9 @@ private fun TermContent(
             )
         }
 
-        itemsIndexed(currentTerm.events) { index, event ->
+        // key 用事件自身的 id：切学期/刷新时若沿用下标，条目会被按位置错配到新数据上，
+        // 行内状态（展开、动画）就跟着串了。
+        itemsIndexed(currentTerm.events, key = { _, event -> event.id }) { index, event ->
             val isPast = today > event.endDate
             val isCurrent = today >= event.startDate && today <= event.endDate
             EventTimelineItem(

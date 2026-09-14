@@ -229,7 +229,7 @@ fun FitnessScreen(
                         contentPadding = PaddingValues(horizontal = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        items(years) { year ->
+                        items(years, key = { it.toString() }) { year ->
                             YearChip(
                                 year = year,
                                 selected = year == selectedYear,

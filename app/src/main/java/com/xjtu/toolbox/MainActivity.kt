@@ -3818,8 +3818,16 @@ private fun HomeTab(
                 },
             )
         }
+        // 预建索引：servicesByKeys 会被调用多次，原来每次都对 allServices 做一遍线性
+        // 查找（O(键数 × 服务数)）。这里一次建表，后续都是 O(1)。
+        //
+        // 刻意**不**把 allServices 整个 remember 起来：它内部的 onClick 闭包捕获了
+        // onNavigate 等参数，缓存会留下陈旧闭包。而 n≈28 时重建本身只是几微秒，
+        // 不值得为它引入这类隐藏状态。
+        val servicesByKey = allServices.associateBy { it.key }
+
         fun servicesByKeys(keys: List<String>): List<MoreSvc> =
-            keys.mapNotNull { key -> allServices.firstOrNull { it.key == key } }
+            keys.mapNotNull { key -> servicesByKey[key] }
 
         fun trackedAction(service: MoreSvc): () -> Unit = {
             com.xjtu.toolbox.util.ServiceUsageTracker.record(ctx, service.key)

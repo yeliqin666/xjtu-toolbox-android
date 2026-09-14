@@ -1246,13 +1246,17 @@ private fun DayTypeColumn(
 
 @Composable
 private fun TopMerchantsCard(monthlyStats: List<MonthlyStats>) {
-    val allMerchants = monthlyStats.flatMap { it.topMerchants }
-        .groupBy { it.name }
-        .map { (name, stats) -> MerchantStat(name, stats.sumOf { it.totalAmount }, stats.sumOf { it.count }) }
-        .sortedByDescending { it.totalAmount }
-        .take(10)
+    // groupBy + 两次 sumOf + 排序在 composable 主体里，不缓存就是每次重组重算一遍
+    // （切 tab、下拉刷新、任何兄弟状态变化都会触发）。
+    val allMerchants = remember(monthlyStats) {
+        monthlyStats.flatMap { it.topMerchants }
+            .groupBy { it.name }
+            .map { (name, stats) -> MerchantStat(name, stats.sumOf { it.totalAmount }, stats.sumOf { it.count }) }
+            .sortedByDescending { it.totalAmount }
+            .take(10)
+    }
     if (allMerchants.isEmpty()) return
-    val maxAmount = allMerchants.maxOfOrNull { it.totalAmount } ?: 1.0
+    val maxAmount = remember(allMerchants) { allMerchants.maxOfOrNull { it.totalAmount } ?: 1.0 }
 
     top.yukonga.miuix.kmp.basic.Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
         Column(Modifier.padding(20.dp)) {

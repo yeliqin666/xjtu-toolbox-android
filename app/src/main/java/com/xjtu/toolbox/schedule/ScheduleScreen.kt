@@ -1981,7 +1981,11 @@ private fun ExamTabContent(
                         ExamCountdownBanner(n, Modifier.fillMaxWidth())
                     }
                 }
-                items(uniqueExams) { exam -> ExamCard(exam) }
+                // 同一门课可能有多场考试（不同日期/地点），key 要拼上这几项才唯一。
+                items(
+                    uniqueExams,
+                    key = { "${it.courseCode}_${it.examDate}_${it.examTime}_${it.location}" },
+                ) { exam -> ExamCard(exam) }
             }
         }
     }
@@ -2214,7 +2218,11 @@ private fun TextbookTabContent(
                                 Text("本学期可能未录入教材数据，可下拉再试", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.outline)
                             }
                         }
-                        else -> items(textbooks) { item -> TextbookCard(item) }
+                        else -> items(
+                            textbooks,
+                            // 同一门课可能有多本教材，key 要带上书名才唯一。
+                            key = { "${it.courseCode}_${it.courseName}_${it.textbookName}_${it.isbn}" },
+                        ) { item -> TextbookCard(item) }
                     }
                 }
             }

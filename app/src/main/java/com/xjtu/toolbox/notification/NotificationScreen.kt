@@ -421,7 +421,14 @@ fun NotificationScreen(
                         ) {
                             items(
                                 filteredNotifications.size,
-                                key = { index -> "${filteredNotifications[index].source.name}_${index}_${filteredNotifications[index].link.hashCode()}" }
+                                // key 里**不能**带下标：下拉刷新会把 currentPage 重置回 1、
+                                // 前面插入新条目，下标一变所有 key 跟着变，等于没有 key
+                                // （全部可见行都被当新行重建，丢失行内状态与动画身份）。
+                                // 来源 + 链接已能唯一标识一条通知。
+                                key = { index ->
+                                    val n = filteredNotifications[index]
+                                    "${n.source.name}_${n.link}"
+                                }
                             ) { index ->
                                 val notification = filteredNotifications[index]
                                 NotificationCard(

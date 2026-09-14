@@ -908,6 +908,10 @@ private fun accountAccent(account: Account, isActive: Boolean): Color {
     return palette[index]
 }
 
+/** 账号列表的「很久以前」日期格式，缓存实例（见 AgentScreen 里同类说明）。 */
+private val LAST_USED_DATE_FMT =
+    java.text.SimpleDateFormat("MM-dd", java.util.Locale.CHINA)
+
 private fun lastUsedText(ts: Long): String {
     if (ts <= 0L) return "未使用"
     val delta = System.currentTimeMillis() - ts
@@ -917,6 +921,6 @@ private fun lastUsedText(ts: Long): String {
         min < 60 -> "${min} 分钟前"
         min < 60 * 24 -> "${min / 60} 小时前"
         min < 60 * 24 * 30 -> "${min / (60 * 24)} 天前"
-        else -> java.text.SimpleDateFormat("MM-dd", java.util.Locale.CHINA).format(java.util.Date(ts))
+        else -> LAST_USED_DATE_FMT.format(java.util.Date(ts))
     }
 }
