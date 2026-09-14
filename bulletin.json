@@ -1,31 +1,11 @@
 {
   "bulletins": [
     {
-      "id": "2026-08-24-force-4.8",
-      "level": "force_update",
-      "title": "请更新到 4.8",
-      "body": "体测、校园卡和屁岱有一波修复。点立即更新会拉最新安装包。",
-      "url": "https://github.com/yeliqin666/xjtu-toolbox-android/releases/latest",
-      "targetVersion": "4.8",
-      "targetVersionCode": 53,
+      "id": "2026-09-14-attendance-kq-mismatch",
+      "level": "warn",
+      "title": "新考勤系统数据可能有误",
+      "body": "有同学反馈新考勤系统（kq.xjtu.edu.cn）的数据和旧系统（bkkq.xjtu.edu.cn）不一致，人脸签到后新系统仍可能显示缺勤。这不是本应用的问题，建议留意学校官方通知，别急着找辅导员对线。",
       "mustAck": false,
-      "block": false
-    },
-    {
-      "id": "2026-08-24-feedback-mine",
-      "level": "info",
-      "title": "反馈入口在「我的」",
-      "body": "现在可以在应用里提交反馈，入口在「我的」页。",
-      "minVersion": "4.8",
-      "mustAck": false,
-      "block": false
-    },
-    {
-      "id": "2026-08-19-author-note",
-      "level": "critical",
-      "title": "作者是大四老登，重大更新到此为止",
-      "body": "很多东西抓不到接口，精力也有限。后面不再计划大改，能修的小问题再说。",
-      "mustAck": true,
       "block": false
     }
   ]
