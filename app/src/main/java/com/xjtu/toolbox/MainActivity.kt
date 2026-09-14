@@ -1228,17 +1228,25 @@ fun AppNavigation(
     var restoreStep by remember { mutableStateOf("") }
     val restoreScope = rememberCoroutineScope()
     val view = LocalView.current
+    // 本次启动之前的版本号（"升级前是什么版本"）。下面的小组件刷新与更新公告都要用，
+    // 必须在任何写 lastRunVersion 的 effect 之前捕获——否则会读到自己刚写进去的新值。
+    val previousRunVersion = remember { credentialStore.lastRunVersion }
     LaunchedEffect(Unit) {
         // 等待首帧实际绘制到屏幕后再解除 Splash（避免白屏闪烁）
         kotlinx.coroutines.suspendCancellableCoroutine<Unit> { cont ->
             view.post { cont.resume(Unit, null) }
         }
 
-        // 强制刷新桌面小组件（修复升级后旧实例点击行为滞后，需要重建才能生效的问题）
-        runCatching {
-            ScheduleWidgetUpdater.requestUpdate(context, resetToToday = false)
-            CampusCardWidgetUpdater.requestUpdate(context)
-            com.xjtu.toolbox.widget.NoticeWidgetUpdater.requestUpdate(context)
+        // 升级后强制刷新桌面小组件：重建 RemoteViews 才能让旧实例的点击行为跟上
+        // 新版代码。这件事**只需要在版本变化时做一次**——原来每次冷启动都无条件广播，
+        // 而接收方（ScheduleWidgetProvider）会在主线程 runBlocking 拉节假日、查 Room，
+        // 等于每次开 App 都白跑一遍重活。previousRunVersion 就是升级前的版本号。
+        if (previousRunVersion != BuildConfig.VERSION_NAME) {
+            runCatching {
+                ScheduleWidgetUpdater.requestUpdate(context, resetToToday = false)
+                CampusCardWidgetUpdater.requestUpdate(context)
+                com.xjtu.toolbox.widget.NoticeWidgetUpdater.requestUpdate(context)
+            }
         }
 
         onReady()
@@ -1323,7 +1331,6 @@ fun AppNavigation(
         }
     }
 
-    val previousRunVersion = remember { credentialStore.lastRunVersion }
     LaunchedEffect(Unit) {
         if (credentialStore.lastRunVersion != BuildConfig.VERSION_NAME) {
             credentialStore.lastRunVersion = BuildConfig.VERSION_NAME

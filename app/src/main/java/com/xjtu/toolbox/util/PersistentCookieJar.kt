@@ -3,8 +3,6 @@ package com.xjtu.toolbox.util
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKeys
 import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.HttpUrl
@@ -31,19 +29,19 @@ class PersistentCookieJar(context: Context, prefsName: String = PREFS_NAME) : Co
     private val appContext = context.applicationContext
     private val prefsFileName = prefsName
 
-    private val prefs: SharedPreferences by lazy {
-        try {
-            EncryptedSharedPreferences.create(
-                prefsFileName,
-                MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC),
-                appContext,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-            )
-        } catch (_: Exception) {
-            appContext.getSharedPreferences("${prefsFileName}_fallback", Context.MODE_PRIVATE)
+    /**
+     * 走进程级共享的加密 prefs（见 [SecurePrefs]）。
+     *
+     * 这里收益最大：同一份 cookies 文件会被多次实例化（迁移时建过、账号切换时重建
+     * backends、工具里再 new 一个），原来每个实例各自 create 一次。
+     *
+     * 也更**正确**：两个 jar 实例若各自持有一份 prefs 内存映射，写入会互相覆盖、
+     * 把对方刚写的 cookie 抹掉。共享同一实例后这类分叉不存在了。
+     */
+    private val prefs: SharedPreferences
+        get() = SecurePrefs.get(appContext, prefsFileName) { ctx, name ->
+            ctx.getSharedPreferences("${name}_fallback", Context.MODE_PRIVATE)
         }
-    }
 
     // domain -> list of cookies（内存缓存）
     private val cookieStore = ConcurrentHashMap<String, MutableList<Cookie>>()

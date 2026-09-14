@@ -2,8 +2,6 @@ package com.xjtu.toolbox.util
 
 import android.content.Context
 import android.content.SharedPreferences
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKeys
 import com.xjtu.toolbox.auth.AccountType
 
 /**
@@ -14,36 +12,17 @@ class CredentialStore(context: Context) {
 
     private val appContext = context.applicationContext
 
-    private val prefs: SharedPreferences by lazy {
-        try {
-            EncryptedSharedPreferences.create(
-                "xjtu_credentials",
-                MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC),
-                appContext,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-            )
-        } catch (e: Exception) {
-            // 加密失败：尝试清除损坏文件后重建
-            android.util.Log.e("CredentialStore", "EncryptedSharedPreferences init failed, attempting recovery", e)
-            try {
-                // 删除可能损坏的文件
-                val prefsDir = java.io.File(appContext.applicationInfo.dataDir, "shared_prefs")
-                prefsDir.listFiles()?.filter { it.name.startsWith("xjtu_credentials") }?.forEach { it.delete() }
-                EncryptedSharedPreferences.create(
-                    "xjtu_credentials",
-                    MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC),
-                    appContext,
-                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-                )
-            } catch (_: Exception) {
-                // 最终兆底：仅内存 SharedPreferences，不写磁盘，避免明文存储密码
-                android.util.Log.e("CredentialStore", "Recovery failed, using in-memory prefs (credentials will not persist)")
-                InMemorySharedPreferences()
-            }
-        }
-    }
+    /**
+     * 凭据走进程级共享的加密 prefs（见 [SecurePrefs]）。
+     *
+     * 全项目有十几处 `CredentialStore(...)` 构造点，若每个实例各自 create 一次，
+     * 同一份文件就要反复支付 Keystore 密钥派生（实测首次约 137ms、之后每次约 20ms）。
+     *
+     * 兜底刻意是**内存**实现而非普通 prefs：加密失败时宁可这次不持久化，也绝不把
+     * 密码落成明文。这条安全属性不能为了省事和别的 store 统一掉。
+     */
+    private val prefs: SharedPreferences
+        get() = SecurePrefs.get(appContext, FILE_NAME) { _, _ -> InMemorySharedPreferences() }
 
     fun save(username: String, password: String) {
         prefs.edit()
@@ -247,6 +226,8 @@ class CredentialStore(context: Context) {
         set(value) { appPrefs.edit().putBoolean(KEY_VENUE_AUTO_SOLVE_CAPTCHA, value).apply() }
 
     companion object {
+        /** 加密 prefs 文件名（与历史一致，改动会让老用户凭据失联）。 */
+        private const val FILE_NAME = "xjtu_credentials"
         private const val KEY_USERNAME = "username"
         private const val KEY_PASSWORD = "password"
         private const val KEY_FP_VISITOR_ID = "fp_visitor_id"

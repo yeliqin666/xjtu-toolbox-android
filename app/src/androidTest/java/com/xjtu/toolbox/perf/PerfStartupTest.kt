@@ -43,6 +43,37 @@ class PerfStartupTest {
         Perf.reportFirstTouch("bot eyeFit table build", ns)
     }
 
+    /**
+     * 首帧课表磁盘快照：`File.exists()` + `readText()` + Gson 一轮的成本。
+     *
+     * `ScheduleScreen` 在 `remember` 里同步跑 4–6 次这种读取，而默认 tab 恰好是「日程」，
+     * 所以它落在冷启动首帧上。先量清楚再决定要不要为它做异步化重构——如果只是几毫秒，
+     * 那重构一个复杂页面的风险就不划算。
+     */
+    @Test
+    fun scheduleDiskSnapshot_cost() {
+        val gson = Gson()
+        val type = object : TypeToken<List<Map<String, Any>>>() {}.type
+        // 约 40KB：一学期 40 门课的量级
+        val json = (1..40).joinToString(",", "[", "]") { i ->
+            """{"courseName":"课程名称第${i}门","courseCode":"C$i","teacher":"教师$i",
+                "location":"中3-230$i","weekBits":"${"1".repeat(20)}","startSection":${i % 6 + 1},
+                "endSection":${i % 6 + 2},"dayOfWeek":${i % 7 + 1}}"""
+        }
+        val f = java.io.File(ctx.cacheDir, "perf_probe_schedule.json")
+        f.writeText(json)
+        Perf.sink = f.length()
+
+        val stats = Perf.measureMedian(warmup = 20, iterations = 200, rounds = 5) {
+            // 5 次读取：贴近期刊页冷启动时真实读的文件个数
+            repeat(5) {
+                if (f.exists()) gson.fromJson<List<Map<String, Any>>>(f.readText(), type)
+            }
+        }
+        Perf.report("schedule disk 5 files ($json KB)".let { "schedule disk snapshot x5" }, stats)
+        f.delete()
+    }
+
     /** 加密 prefs 首建：Keystore 密钥派生，项目自注 50–200ms。 */
     @Test
     fun encryptedPrefs_create() {
@@ -56,6 +87,32 @@ class PerfStartupTest {
             )
         }
         Perf.reportFirstTouch("EncryptedSharedPreferences.create", ns)
+
+        // 同一文件的**第二次** create：这是关键数据。项目里 CredentialStore/AccountStore/
+        // PersistentCookieJar 都被反复 new（十几处调用点），而每个实例的 prefs 各自
+        // lazy 初始化，所以这段成本会被重复支付很多次。
+        val key = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
+        val ns2 = Perf.measureFirstTouch {
+            EncryptedSharedPreferences.create(
+                "perf_probe_secure",
+                key,
+                ctx,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+            )
+        }
+        Perf.reportFirstTouch("  same-file create (2nd)", ns2)
+
+        val ns3 = Perf.measureFirstTouch {
+            EncryptedSharedPreferences.create(
+                "perf_probe_secure",
+                key,
+                ctx,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+            )
+        }
+        Perf.reportFirstTouch("  same-file create (3rd)", ns3)
     }
 
     /** 已建实例上的读取（热路径），对照首建成本。 */

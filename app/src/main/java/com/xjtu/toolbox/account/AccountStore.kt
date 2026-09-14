@@ -3,11 +3,10 @@ package com.xjtu.toolbox.account
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKeys
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.xjtu.toolbox.auth.AccountType
+import com.xjtu.toolbox.util.SecurePrefs
 
 /**
  * 多账号持久化存储。
@@ -23,33 +22,18 @@ class AccountStore(context: Context) {
 
     private val appContext = context.applicationContext
 
-    private val prefs: SharedPreferences by lazy {
-        try {
-            EncryptedSharedPreferences.create(
-                FILE_NAME,
-                MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC),
-                appContext,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-            )
-        } catch (e: Exception) {
-            Log.e(TAG, "EncryptedSharedPreferences init failed, attempting recovery", e)
-            try {
-                val prefsDir = java.io.File(appContext.applicationInfo.dataDir, "shared_prefs")
-                prefsDir.listFiles()?.filter { it.name.startsWith(FILE_NAME) }?.forEach { it.delete() }
-                EncryptedSharedPreferences.create(
-                    FILE_NAME,
-                    MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC),
-                    appContext,
-                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-                )
-            } catch (_: Exception) {
-                Log.e(TAG, "Recovery failed, using in-memory prefs (accounts will not persist)")
-                appContext.getSharedPreferences("${FILE_NAME}_fallback", Context.MODE_PRIVATE)
-            }
+    /**
+     * 走进程级共享的加密 prefs（见 [SecurePrefs]）：全项目多处构造 AccountStore
+     * （启动、账号页、两个桌面小组件），各自 create 会重复支付 Keystore 派生。
+     *
+     * 兜底用普通 prefs：账号记录不含密码（密码在凭据存储里），退到明文可接受。
+     * 这与 [com.xjtu.toolbox.util.CredentialStore] 必须退到内存的处理刻意不同——
+     * 把这条差异统一掉会变成安全问题。
+     */
+    private val prefs: SharedPreferences
+        get() = SecurePrefs.get(appContext, FILE_NAME) { ctx, name ->
+            ctx.getSharedPreferences("${name}_fallback", Context.MODE_PRIVATE)
         }
-    }
 
     private val gson = Gson()
 

@@ -2,9 +2,8 @@ package com.xjtu.toolbox.agent
 
 import android.content.Context
 import android.content.SharedPreferences
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKeys
 import com.xjtu.toolbox.account.AccountContext
+import com.xjtu.toolbox.util.SecurePrefs
 
 /**
  * 把存下来的思考强度收敛到本地支持的档位。
@@ -155,33 +154,25 @@ class AgentConfigStore(context: Context) {
     private val appContext = context.applicationContext
 
 /**
- * EncryptedSharedPreferences 按账号缓存。
+ * Agent 配置的存储缓存。
  *
  * **为什么需要缓存**：
  * - `EncryptedSharedPreferences.create()` 每次都做 keystore 密钥派生（一次 ~50–200ms），
  *   在 `ConfigPanel` 每次按键都触发 `save()` 的场景下会让 UI 卡顿数秒。
- * - 用 `lazy` 一次性建好后，按账号缓存；切账号时新建。
+ * - 缓存后切账号再切回来不必重建。
  *
- * **为什么不用 `lazy {}` 全局**：
- * - 全局 lazy 会导致切账号后还读到旧账号的 prefs，违反账号隔离。
- *   所以必须按 `safeSuffix()` 分别缓存。
+ * **为什么 key 要带账号后缀**：
+ * - 不带后缀的全局单例会导致切账号后还读到旧账号的 prefs，违反账号隔离。
+ *   所以文件名里必须带 `safeSuffix()`。
+ *
+ * 加密 prefs 走 [SecurePrefs] 的进程级缓存（key = 带后缀的文件名，账号隔离不受影响）；
+ * 普通 prefs 交给系统自己缓存即可。
  */
-private val securePrefsCache = java.util.concurrent.ConcurrentHashMap<String, SharedPreferences>()
 private val prefsCache = java.util.concurrent.ConcurrentHashMap<String, SharedPreferences>()
 
 private val securePrefs: SharedPreferences
-    get() = securePrefsCache.getOrPut(AccountContext.safeSuffix()) {
-        try {
-            EncryptedSharedPreferences.create(
-                "agent_config_secure${AccountContext.safeSuffix()}",
-                MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC),
-                appContext,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-            )
-        } catch (_: Exception) {
-            appContext.getSharedPreferences("agent_config_fallback${AccountContext.safeSuffix()}", Context.MODE_PRIVATE)
-        }
+    get() = SecurePrefs.get(appContext, "agent_config_secure${AccountContext.safeSuffix()}") { ctx, name ->
+        ctx.getSharedPreferences("${name}_fallback", Context.MODE_PRIVATE)
     }
 
 private val prefs: SharedPreferences
