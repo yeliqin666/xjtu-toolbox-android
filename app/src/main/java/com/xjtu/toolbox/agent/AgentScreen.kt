@@ -789,11 +789,16 @@ private fun ChatPanel(
         Box(Modifier.weight(1f).clipToBounds()) {
             key(vm.currentSessionId) {
                 val listState = rememberLazyListState()
-                val chatRows = groupAgentRows(vm.messages)
+                // 必须包裹成派生状态：groupAgentRows 要遍历整轮对话、对每条 assistant
+                // 消息做一次 copy，而流式输出时这条组合随每个增量都会重组一遍。
+                // 直接调用它是每次重组重算一次；包起来后只在 messages 真变化时重算。
+                val chatRows by remember { derivedStateOf { groupAgentRows(vm.messages) } }
                 LaunchedEffect(chatRows.size, vm.isLoading) {
                     if (chatRows.isNotEmpty()) listState.scrollToItem(chatRows.lastIndex)
                 }
-                val lastUser = vm.messages.lastOrNull { it.role == "user" }
+                val lastUser by remember {
+                    derivedStateOf { vm.messages.lastOrNull { it.role == "user" } }
+                }
                 LazyColumn(
                     state = listState,
                     modifier = Modifier

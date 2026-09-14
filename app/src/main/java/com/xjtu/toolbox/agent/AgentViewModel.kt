@@ -48,10 +48,28 @@ object AgentThinkingHost {
     var isThinking by mutableStateOf(false)
 }
 
+/**
+ * 流式写入的节流判定。
+ *
+ * 抽成纯函数是为了让这个契约可测——它同时承担两个相反的责任：够稀（别每 token
+ * 重排一次列表）又够密（收尾时不能把最后一段文字漏掉）。
+ *
+ * [lastFlushNs] 为 0 表示本段还没写过任何东西，此时必须放行：首个增量要立即上屏，
+ * 否则用户会先盯着一个空气泡等一帧。
+ */
+internal fun streamFlushDue(nowNs: Long, lastFlushNs: Long, force: Boolean): Boolean =
+    force || lastFlushNs == 0L || nowNs - lastFlushNs >= AgentViewModel.STREAM_FLUSH_INTERVAL_NS
+
 class AgentViewModel : ViewModel() {
     companion object {
         private const val CONTEXT_TOKEN_LIMIT = 800_000L
         const val CONTEXT_EXHAUSTED_MESSAGE = "本对话上下文已达到上限，请新建对话后继续。"
+
+        /**
+         * 流式写入的最小间隔。约一帧（60fps），肉眼与逐 token 刷新无异，
+         * 但把「每 token 一次列表重排」压到「每帧最多一次」。
+         */
+        internal const val STREAM_FLUSH_INTERVAL_NS = 16_000_000L
     }
 
     val messages = mutableStateListOf<ChatMessage>()
@@ -343,6 +361,31 @@ class AgentViewModel : ViewModel() {
         val turnSid = currentSessionId   // 本轮所属会话；切走后不再写当前 messages，避免串台
         var streamIdx = -1   // 流式回答气泡的下标，首个 delta 到达时创建
         val toolBubbleIndices = mutableListOf<Int>()
+
+        // ── 流式节流 ──
+        // 模型每个 token 都会回调一次 onDelta。若每次都 `messages[i] = copy(...)`，
+        // 整条对话列表就跟着重组一次：既做 O(长度) 的字符串重建（累计 O(n²)），
+        // 又触发一次列表重排。而中途这些中间态纯粹是观感——本轮结束时会用完整
+        // 的 reply 覆盖正文，所以按时间片合并写入即可。
+        // 编排细节（换段/收尾必须强制写回）见 StreamWriter 的类注释，那里有测试。
+        val writer = StreamWriter(write = { content, reasoning ->
+            val idx = streamIdx
+            if (idx in messages.indices) {
+                messages[idx] = messages[idx].copy(
+                    content = content,
+                    reasoningContent = reasoning,
+                )
+            }
+        })
+
+        /** 首个增量到达时建气泡。 */
+        fun ensureStreamBubble() {
+            if (streamIdx < 0) {
+                messages.add(ChatMessage("assistant", ""))
+                streamIdx = messages.lastIndex
+            }
+        }
+
         currentJob = viewModelScope.launch {
             try {
                 // 首次调用时初始化，此后复用（loginFailedAt 冷却状态得以保留）
@@ -458,29 +501,21 @@ class AgentViewModel : ViewModel() {
                     config = config,
                     onDelta = { frag ->
                         if (currentSessionId == turnSid) {   // 已切走则不再写，防串台
-                            if (streamIdx < 0) {
-                                messages.add(ChatMessage("assistant", ""))
-                                streamIdx = messages.lastIndex
-                            }
-                            messages[streamIdx] = messages[streamIdx].copy(
-                                content = messages[streamIdx].content + frag
-                            )
+                            ensureStreamBubble()
+                            writer.appendContent(frag)
                         }
                     },
                     onReasoningDelta = { frag ->
                         if (currentSessionId == turnSid) {
-                            if (streamIdx < 0) {
-                                messages.add(ChatMessage("assistant", ""))
-                                streamIdx = messages.lastIndex
-                            }
-                            messages[streamIdx] = messages[streamIdx].copy(
-                                reasoningContent = messages[streamIdx].reasoningContent + frag
-                            )
+                            ensureStreamBubble()
+                            writer.appendReasoning(frag)
                         }
                     },
                     onToolCall = { name ->
                         calledTools.add(name)
                         // 本轮模型可能先输出思考/短回复，再请求工具；工具执行后下一次模型回复应新开气泡。
+                        // 换段前先强制写回，否则缓冲里那半句会随 streamIdx 归零一起丢掉。
+                        writer.endSegment()
                         streamIdx = -1
                         val label = when (name) {
                             "get_current_time"      -> "获取当前时间…"
@@ -576,6 +611,9 @@ class AgentViewModel : ViewModel() {
                 val widgets = registry.drainWidgets()
                 if (currentSessionId == turnSid) {   // 仍在本会话才写 UI
                     if (streamIdx >= 0) {
+                        // 先把缓冲里最后一段（尤其是思考文字，它不会被下面的 reply 覆盖）
+                        // 落盘，再写正文。否则尾部那部分会随缓冲被丢弃。
+                        writer.flush(force = true)
                         messages[streamIdx] = messages[streamIdx].copy(
                             content = reply, navSuggestions = navSuggestions, widgets = widgets
                         )
@@ -588,21 +626,28 @@ class AgentViewModel : ViewModel() {
                 if (currentSessionId == turnSid) {
                     toolBubbleIndices.forEach { settleToolAt(it, false, "已中断") }
                     toolBubbleIndices.clear()
-                    if (streamIdx >= 0)
+                    if (streamIdx >= 0) {
+                        // 用户主动停止时也要保住已经收到的文字
+                        writer.flush(force = true)
                         messages[streamIdx] = messages[streamIdx].copy(
                             content = messages[streamIdx].content.ifBlank { "（已停止）" }
                         )
+                    }
                 }
                 throw e
             } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
-                if (currentSessionId == turnSid)
+                if (currentSessionId == turnSid) {
+                    // 保住中断前已收到的文字，别留一个空气泡在那
+                    writer.flush(force = true)
                     messages.add(ChatMessage("assistant", "登录已失效，请返回并重新进入对应功能页面完成认证后再试。"))
+                }
             } catch (e: Exception) {
                 // 兜底文案：异常 message 可能为 null（如某些 IO/解析异常），避免直接显示「出错了：null」
                 val detail = e.message?.takeIf { it.isNotBlank() }
                     ?: e::class.simpleName?.let { "请求异常（$it）" }
                     ?: "未知错误"
                 if (currentSessionId == turnSid) {
+                    writer.flush(force = true)
                     errorMessage = detail
                     messages.add(ChatMessage("assistant", "出错了：$detail"))
                 }
