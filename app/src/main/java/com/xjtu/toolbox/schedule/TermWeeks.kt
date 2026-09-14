@@ -22,6 +22,12 @@ import java.time.temporal.ChronoUnit
 object TermWeeks {
 
     /**
+     * 拿不到课表时的学期默认周数。只用于「必须有个数」的地方——添加日程的周选择、
+     * 周视图翻页——不参与 [statusOf] 的判断，那里 0 就该是"不知道"。
+     */
+    const val DEFAULT_TOTAL_WEEKS = 20
+
+    /**
      * 从开学日期算周次。开学当周为 1，开学前为 0、-1、……
      *
      * @param startOfTerm 教务下发的学期开始日期

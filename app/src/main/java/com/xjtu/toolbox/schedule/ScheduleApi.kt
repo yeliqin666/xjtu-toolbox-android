@@ -126,7 +126,10 @@ class ScheduleApi(private val site: SiteSession) {
         val row = json.getAsJsonObject("datas")
             .getAsJsonObject("dqxnxq")
             .getAsJsonArray("rows")[0].asJsonObject
-        val code = row.get("DM").asString
+        val code = row.get("DM").safeString().trim()
+        // 接口偶发给回空行：不能把空串当学期代码传下去，那样课表、考试、开学日期
+        // 全按空学期去查，页面一片空白还没有任何报错。抛出去让调用方走兜底。
+        if (code.isEmpty()) throw IllegalStateException("教务未返回当前学期代码")
         rememberTermName(code, row)
         cachedTermCode = code
         return code

@@ -90,13 +90,17 @@ class AgentViewModel : ViewModel() {
     // LLM 多轮历史（含 system prompt + 所有轮次），与 messages（UI 专用）独立维护。
     // 保持历史稳定以利用 provider 端 prefix cache：system prompt 只在首轮写入一次。
     private var llmHistory = JsonArray()
-    private var systemPromptAdded = false
 
     // AgentToolRegistry 保持在 ViewModel 级别，使 loginFailedAt 冷却状态跨消息保留
     private var tools: AgentToolRegistry? = null
     private var toolsDisabledCaps: Set<String>? = null
     private var toolsSearchEngine: String? = null
-    private var promptSignature: String? = null
+
+    /**
+     * 上一次为补全用户画像联网时的登录态。登录态没变就不再重试，
+     * 免得没登录的人每条消息都先干等一轮网络超时。见 [sendMessage]。
+     */
+    private var userContextProbe: String? = null
     private val gson = Gson()
 
     // 当前生成任务，供"停止生成"取消
@@ -200,7 +204,7 @@ class AgentViewModel : ViewModel() {
         currentJob?.cancel(); applyLoading(false)   // 取消进行中的生成，避免写入新会话造成错乱
         val s = store.create()
         currentSessionId = s.id
-        messages.clear(); llmHistory = JsonArray(); systemPromptAdded = false; tools = null; errorMessage = null
+        messages.clear(); llmHistory = JsonArray(); tools = null; errorMessage = null
         lastTotalTokens = null; contextExhausted = false; contextExhaustedJustTriggered = false
         refreshSessions()
     }
@@ -231,9 +235,7 @@ class AgentViewModel : ViewModel() {
         lastTotalTokens = convo.lastTotalTokens
         contextExhausted = convo.contextExhausted
         contextExhaustedJustTriggered = false
-        systemPromptAdded = llmHistory.any {
-            runCatching { it.asJsonObject.get("role")?.asString == "system" }.getOrDefault(false)
-        }
+        // 落盘的 system prompt 是哪一版不可知，下一轮按当前配置比一次内容，变了才换。
         tools = null; errorMessage = null
     }
 
@@ -360,42 +362,52 @@ class AgentViewModel : ViewModel() {
                 ).also { tools = it }
                 registry.drainWidgets()   // 丢弃上一轮残留，确保本轮控件干净
                 val runner = AgentRunner(registry)
-                // 偏好也要进签名：模型刚 remember 了一条，下一轮系统提示就得带上它，
-                // 否则要等到改名字或跨天才生效——表现就是"说记住了，但下一句就忘了"。
-                // 模型与接入方式也要进签名：system prompt 里写着「`<模型 ID>`……禁止自称其他模型」，
-                // 签名不带它，换完模型这句还是旧的，屁岱会一口咬定自己是上一个模型。
-                // 思考强度**不**进签名——它不进 system prompt，改档不该把历史前缀推倒重来
-                // （那才是真丢缓存）。
-                val currentPromptSignature =
-                    "${config.effectiveName}|${config.responseStyle}|${config.maxToolCalls}|" +
-                        "${config.effectiveModel}|${config.provider}|" +
-                        "${LocalDate.now()}|${registry.memoryBlock().hashCode()}"
-                if (promptSignature != null && promptSignature != currentPromptSignature) {
-                    val kept = (0 until llmHistory.size())
-                        .map { llmHistory[it].asJsonObject }
-                        .filterNot { it.get("role")?.asString == "system" }
-                    llmHistory = JsonArray().apply { kept.forEach { add(it) } }
-                    systemPromptAdded = false
-                }
 
-                // system prompt 只在会话首轮写入，后续请求复用同一历史前缀，
-                // 让 DeepSeek/OpenAI 的 prefix cache 命中。
-                if (!systemPromptAdded) {
-                    llmHistory.add(JsonObject().apply {
+                // 画像每轮重算：全是本地存储读，登录完成、学籍档案补齐当场反映到下一句。
+                // 联网补齐姓名/学院只在本会话第一次、以及登录态变过之后再试一次——
+                // 没登录时每轮都去撞一次网络，只会让每条消息都先干等一轮超时。
+                val loginKey = "${loginState.isLoggedIn}|${loginState.activeUsername}"
+                val allowProfileNetwork = userContextProbe != loginKey
+                if (allowProfileNetwork) userContextProbe = loginKey
+
+                // 直接比渲染结果，不再维护一份"签名"。签名要手工跟 AgentPrompt.build 的入参
+                // 保持同步，漏一个就是一类 bug（改名不生效、换模型仍自称旧模型都是这么来的）。
+                // 比成品则天然覆盖全部入参，以后往 prompt 里加东西也不必记得改这里。
+                val systemPrompt = AgentPrompt.build(
+                    today = LocalDate.now(),
+                    assistantName = config.effectiveName,
+                    userContext = registry.userContext(allowNetwork = allowProfileNetwork),
+                    maxToolCalls = config.maxToolCalls,
+                    responseStyle = config.responseStyle,
+                    modelId = config.effectiveModel,
+                    providerLabel = AgentConfig.providerPromptLabel(config.provider),
+                    memoryBlock = registry.memoryBlock()
+                )
+                // system 必须待在第 0 位：整段历史是 provider 端 prefix cache 的比对前缀，
+                // 把它挪到末尾等于第一个 token 就对不上，之后每一轮都是全量重算。
+                // （旧代码重建时是"过滤掉 system 再 append"，正是这个毛病。）
+                val systemIdx = (0 until llmHistory.size()).firstOrNull { i ->
+                    runCatching { llmHistory[i].asJsonObject.get("role")?.asString == "system" }
+                        .getOrDefault(false)
+                }
+                val systemUpToDate = systemIdx == 0 && runCatching {
+                    llmHistory[0].asJsonObject.get("content")?.asString == systemPrompt
+                }.getOrDefault(false)
+                // 内容没变就一个字节都不动，前缀缓存照常命中；真变了才付这一次重算。
+                if (!systemUpToDate) {
+                    val rebuilt = JsonArray()
+                    rebuilt.add(JsonObject().apply {
                         addProperty("role", "system")
-                        addProperty("content", AgentPrompt.build(
-                            today = LocalDate.now(),
-                            assistantName = config.effectiveName,
-                            userContext = registry.userContext(),
-                            maxToolCalls = config.maxToolCalls,
-                            responseStyle = config.responseStyle,
-                            modelId = config.effectiveModel,
-                            providerLabel = AgentConfig.providerPromptLabel(config.provider),
-                            memoryBlock = registry.memoryBlock()
-                        ))
+                        addProperty("content", systemPrompt)
                     })
-                    systemPromptAdded = true
-                    promptSignature = currentPromptSignature
+                    (0 until llmHistory.size())
+                        .map { llmHistory[it] }
+                        .filterNot { el ->
+                            runCatching { el.asJsonObject.get("role")?.asString == "system" }
+                                .getOrDefault(false)
+                        }
+                        .forEach { rebuilt.add(it) }
+                    llmHistory = rebuilt
                 }
 
                 // 每条 user 消息携带实时时间，杜绝"今天/明天"按会话起始日的陈旧判断。
@@ -619,7 +631,6 @@ class AgentViewModel : ViewModel() {
     fun clearMessages() {
         messages.clear()
         llmHistory = JsonArray()
-        systemPromptAdded = false
         errorMessage = null
         lastTotalTokens = null
         contextExhausted = false

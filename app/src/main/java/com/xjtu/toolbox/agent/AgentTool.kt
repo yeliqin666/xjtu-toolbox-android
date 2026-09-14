@@ -126,13 +126,26 @@ class AgentToolRegistry(
         "65" to "新疆", "71" to "台湾", "81" to "香港", "82" to "澳门"
     )
 
+    /** 一网通办拉到的身份。姓名、学院都是死数据，记下来免得为它反复联网。 */
+    private data class YwtbIdentity(val name: String = "", val college: String = "")
+
+    /** 见 [YwtbIdentity]。缓存目录本身按账号隔离，键不必再带账号。 */
+    private val YWTB_IDENTITY_KEY = "agent_ywtb_identity"
+
     /**
      * 组装用户画像，注入首条 system prompt：姓名、学号（解析入学年/年级·学期、生源地）、学院。
      * 姓名/学院优先读缓存（昵称、校园卡），缺失则在线拉一网通办个人信息并缓存。
+     *
+     * **不缓存拼好的结果。** 这段话是从昵称、校园卡、学籍档案几处**本地**存储拼出来的，
+     * 重算一次只是几个磁盘读。缓存成品反而要在每个上游变化点手动失效，而以前一处都没有：
+     * 先用屁岱、后进「我的」页把学籍档案补上，画像里就一直缺校区、专业、班级，
+     * 要等 TTL 到期才换——期间屁岱会拿兴庆的教室回答创新港的学生，正是校区字段要防的事。
+     * 现在每次重算，档案补上、登录完成都当场反映到下一句。
+     *
+     * @param allowNetwork 本地补不齐姓名/学院时，是否允许联网拉一网通办。没登录时每轮都去
+     *   撞一次网络只会白等，所以由调用方控制节奏（见 AgentViewModel）。
      */
-    suspend fun userContext(): String = withContext(Dispatchers.IO) {
-        dataCache.get("agent_user_context_v2", com.xjtu.toolbox.util.DataCache.USER_CONTEXT_TTL_MS)?.let { return@withContext it }
-
+    suspend fun userContext(allowNetwork: Boolean = true): String = withContext(Dispatchers.IO) {
         val sid = loginState.activeUsername
         var name = runCatching { com.xjtu.toolbox.util.CredentialStore(context).loadNickname() }
             .getOrNull()?.takeIf { it.isNotBlank() }
@@ -141,12 +154,31 @@ class AgentToolRegistry(
             if (name.isNullOrBlank()) name = ci.name.takeIf { it.isNotBlank() }
             college = ci.department.takeIf { it.isNotBlank() }
         }
-        // 仍缺姓名或学院 → 在线拉一网通办
+        // 一网通办那一趟是这里唯一的网络开销，所以单独把结果记下来：姓名和学院是死数据，
+        // 记住了就不必再为它联网。缓存目录本身按账号隔离，不会串到别的账号。
         if (name.isNullOrBlank() || college.isNullOrBlank()) {
+            dataCache.get(YWTB_IDENTITY_KEY, com.xjtu.toolbox.util.DataCache.TERM_TTL_MS)?.let { json ->
+                runCatching { gson.fromJson(json, YwtbIdentity::class.java) }.getOrNull()?.let { id ->
+                    if (name.isNullOrBlank()) name = id.name.takeIf { it.isNotBlank() }
+                    if (college.isNullOrBlank()) college = id.college.takeIf { it.isNotBlank() }
+                }
+            }
+        }
+        if (allowNetwork && (name.isNullOrBlank() || college.isNullOrBlank())) {
             ensureSite(LoginType.YWTB)?.let { ywtbSite ->
                 runCatching { com.xjtu.toolbox.ywtb.YwtbApi(ywtbSite).getUserInfo() }.getOrNull()?.let { ui ->
                     if (name.isNullOrBlank()) name = ui.userName.takeIf { it.isNotBlank() }
                     if (college.isNullOrBlank()) college = ui.organizationName.takeIf { it.isNotBlank() }
+                    val fetchedName = name.orEmpty()
+                    val fetchedCollege = college.orEmpty()
+                    if (fetchedName.isNotBlank() || fetchedCollege.isNotBlank()) {
+                        runCatching {
+                            dataCache.put(
+                                YWTB_IDENTITY_KEY,
+                                gson.toJson(YwtbIdentity(fetchedName, fetchedCollege)),
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -188,10 +220,7 @@ class AgentToolRegistry(
         val isShandong = sid.length >= 5 && sid.substring(3, 5) == "37"
         if (isShandong) lines.add("（注：该用户是山东人——交流中记得调侃一句\"沙东人太狠了\"😎）")
 
-        val result = lines.joinToString("\n")
-        // 只在姓名+学院都拿到时缓存（避免把"半成品"长期固化）
-        if (name != null && college != null) dataCache.put("agent_user_context_v2", result)
-        result
+        lines.joinToString("\n")
     }
 
     /** 把毫秒年龄转成人话，供回退缓存时如实标注新鲜度。 */

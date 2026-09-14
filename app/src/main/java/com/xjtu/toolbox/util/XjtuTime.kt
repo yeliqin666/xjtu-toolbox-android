@@ -89,6 +89,22 @@ object XjtuTime {
         if (today.monthValue >= 9) today.year else today.year - 1
 
     /**
+     * 按日期推算「此刻应该在哪个学期」的教务代码，如 `2026-2027-1`。
+     *
+     * 9–1 月是秋季学期（1 月归上一学年），2–6 月是春季学期；7、8 月短学期和暑假
+     * 分不清，返回 null。只当兜底：教务的「当前学期」接口在换季那几周常常还指着
+     * 上一学期，或者干脆失败。
+     */
+    fun expectedTermCode(today: java.time.LocalDate = java.time.LocalDate.now()): String? {
+        val year = currentAcademicYear(today)
+        return when (today.monthValue) {
+            9, 10, 11, 12, 1 -> "$year-${year + 1}-1"
+            2, 3, 4, 5, 6 -> "$year-${year + 1}-2"
+            else -> null
+        }
+    }
+
+    /**
      * 把教务学年学期代码（如 `2025-2026-4`）译成可读名称。
      * 末位：1 秋、2 春、3 短学期、4 暑假。接口没给 MC 时用这个，不必再登 JWAPP。
      */

@@ -223,6 +223,15 @@ fun ScheduleScreen(
      * 于是任何周次都 > 0，页面报"学期已结束"。这里直接读 state，拿到的永远是最新的。
      */
     fun knownTotalWeeks(): Int = courses.maxOfOrNull { it.weekBits.length }?.takeIf { it > 0 } ?: 0
+
+    /**
+     * 添加/编辑日程弹窗用的周数。教务课表为空时 [totalWeeks] 是 0，弹窗里一格周都
+     * 选不了、「添加」按钮永远灰着——表现就是「点加号没反应」。空的时候退到
+     * 自定义日程里最长的周数，再退到学期默认周数。
+     */
+    fun editableWeeks(): Int = totalWeeks.takeIf { it > 0 }
+        ?: customCourses.maxOfOrNull { it.weekBits.length }?.takeIf { it > 0 }
+        ?: TermWeeks.DEFAULT_TOTAL_WEEKS
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
 
     /**
@@ -271,6 +280,8 @@ fun ScheduleScreen(
      * 不然开学后会永远停在上学期。
      */
     var userPickedTerm by rememberSaveable { mutableStateOf(false) }
+    /** 当前学期课表为空、但按日期推算的学期有课时，要自动切过去的学期代码。见 loadInitialData。 */
+    var autoTermSuggestion by remember { mutableStateOf<String?>(null) }
     var termDropdownExpanded by remember { mutableStateOf(false) }
 
     // 周视图 vs 总览（每次启动默认周视图，不保存状态）
@@ -391,7 +402,12 @@ fun ScheduleScreen(
                                     throw e
                                 } catch (e: Exception) {
                                     android.util.Log.w("ScheduleUI", "getCurrentTerm failed, trying cache", e)
-                                    lastTerm.ifEmpty { throw RuntimeException("网络不可用且无缓存学期数据，请连网后重试") }
+                                    // 没缓存学期也别直接报错：按日期推一个学期代码去拉课表。
+                                    // 教务的「当前学期」接口偶发返回空行或超时，不该把整页拖成错误页。
+                                    lastTerm.ifEmpty {
+                                        com.xjtu.toolbox.util.XjtuTime.expectedTermCode()
+                                            ?: throw RuntimeException("网络不可用且无缓存学期数据，请连网后重试")
+                                    }
                                 }
                             }
                             val schedulePrefetch = lastTerm.takeIf { it.isNotEmpty() }?.let { cached ->
@@ -516,6 +532,16 @@ fun ScheduleScreen(
                                 exams = freshExams
                                 if (freshExams.isNotEmpty()) {
                                     try { dataCache.put("exams_$viewTerm", gson.toJson(freshExams)) } catch (_: Exception) {}
+                                }
+                            }
+                            // 换季那几周教务的「当前学期」常常还指着短学期/暑假，课表是空的，
+                            // 而新学期的课其实已经能查到。此时页面只剩一句「本学期没有课程」，
+                            // 用户并不知道要去切学期。按日期推一个该在的学期探一下，有课就切过去。
+                            if (!keepUserTerm && courses.isEmpty()) {
+                                val expected = com.xjtu.toolbox.util.XjtuTime.expectedTermCode()
+                                if (expected != null && expected != termCode) {
+                                    val probe = try { api.getSchedule(expected) } catch (_: Exception) { emptyList() }
+                                    if (probe.isNotEmpty()) autoTermSuggestion = expected
                                 }
                             }
                             val availableTerms = (termListDeferred.await() + readCachedTerms()).distinct()
@@ -795,7 +821,7 @@ fun ScheduleScreen(
         CustomCourseDialog(
             show = showAddCourseState,
             termCode = selectedTermCode,
-            totalWeeks = totalWeeks,
+            totalWeeks = editableWeeks(),
             draft = addScheduleDraft,
             onAutoSave = { addScheduleDraft = it },
             onSave = {
@@ -811,7 +837,7 @@ fun ScheduleScreen(
             show = showEditCourseState,
             existing = entity,
             termCode = selectedTermCode,
-            totalWeeks = totalWeeks,
+            totalWeeks = editableWeeks(),
             onSave = ::saveCustomCourse,
             onDelete = ::deleteCustomCourse,
             onDismiss = { editingCourse = null }
@@ -953,13 +979,40 @@ fun ScheduleScreen(
         }
     }
 
+    LaunchedEffect(autoTermSuggestion) {
+        val target = autoTermSuggestion ?: return@LaunchedEffect
+        autoTermSuggestion = null
+        if (target == selectedTermCode) return@LaunchedEffect
+        switchTerm(target)
+        snackbarHostState.showSnackbar(
+            "教务的当前学期还没有课表，已切到${termLabel(target)}",
+            duration = SnackbarDuration.Long,
+        )
+    }
+
     // 注入 TopAppBar actions：[+] [⋮] 两个独立按钮
     val headerActionsContent: (@Composable androidx.compose.foundation.layout.RowScope.() -> Unit) = {
         // 添加日程（独立按钮）
         if (currentContent == "week") {
+            // 一直可点。学期代码还没拿到时（教务接口失败、首装无缓存）别灰掉——用户
+            // 只看到一个按不动的加号，不知道为什么；先按日期推一个学期，实在推不出再说明。
             IconButton(
-                onClick = { showAddCourseDialog = true },
-                enabled = selectedTermCode.isNotEmpty()
+                onClick = {
+                    if (selectedTermCode.isEmpty()) {
+                        val fallback = currentTermCode.ifEmpty {
+                            termList.firstOrNull()
+                                ?: com.xjtu.toolbox.util.XjtuTime.expectedTermCode().orEmpty()
+                        }
+                        if (fallback.isEmpty()) {
+                            scope.launch {
+                                snackbarHostState.showSnackbar("还没拿到学期信息，下拉刷新后再添加", duration = SnackbarDuration.Short)
+                            }
+                            return@IconButton
+                        }
+                        selectedTermCode = fallback
+                    }
+                    showAddCourseDialog = true
+                },
             ) {
                 Icon(Icons.Default.Add, contentDescription = "添加日程")
             }
@@ -1072,7 +1125,10 @@ fun ScheduleScreen(
             },
         )
     }
-    DisposableEffect(showTopBar) {
+    // 顶栏按钮是一段 lambda 交给外层 Scaffold 拿着的，闭包里 currentContent / api 这类
+    // 普通 val 是发布那一刻的值：只发布一次的话，切到考试页加号还在、登录晚到 api 仍是 null。
+    // 这两个变了就重发一份，别用 SideEffect 每帧发——外层重组会再重组这里，转起来没头。
+    DisposableEffect(showTopBar, currentContent, api) {
         if (!showTopBar) {
             onActionsChange(headerActionsContent)
             onBottomContentChange(headerBottomContent)
@@ -1625,23 +1681,29 @@ private fun ScheduleTabContent(
         }
 
         // 一节课都没有（暑假、还没选课）。0 页 Pager 会崩，20 页空网格是原来的毛病。
-        if (totalWeeks <= 0) {
+        // 判的是 courses（含自定义日程）而不是 totalWeeks：后者只数教务课表，
+        // 教务为空时用户自己加的日程也会被这一句挡住，加了等于没加。
+        if (courses.isEmpty()) {
             EmptyState(
                 title = "本学期没有课程",
-                subtitle = "换个学期看看，或下拉刷新",
+                subtitle = "教务还没排课或还没选课。可以下拉刷新、在右上角「更多」里切换学期，或点 + 添加自己的日程",
                 modifier = Modifier.fillMaxSize().padding(bottom = bottomPadding)
             )
             return@Column
         }
+        // 教务课表为空、只有自定义日程时 totalWeeks 是 0，翻页器得有页可翻。
+        val pageWeeks = totalWeeks.takeIf { it > 0 }
+            ?: courses.maxOfOrNull { it.weekBits.length }?.takeIf { it > 0 }
+            ?: TermWeeks.DEFAULT_TOTAL_WEEKS
 
         // 主体：每周用 Pager 横滑切周；总览单页
         if (!showAllWeeks) {
             // realCurrentWeek 加载完后重建 Pager，让 initialPage 正确停在当前周
             key(realCurrentWeek) {
-            val pagerState = rememberPagerState(initialPage = (currentWeek - 1).coerceAtLeast(0), pageCount = { totalWeeks })
+            val pagerState = rememberPagerState(initialPage = (currentWeek - 1).coerceIn(0, pageWeeks - 1), pageCount = { pageWeeks })
             // currentWeek -> pager（仅在用户没正在拖拽时同步）
             LaunchedEffect(currentWeek) {
-                val target = (currentWeek - 1).coerceIn(0, totalWeeks - 1)
+                val target = (currentWeek - 1).coerceIn(0, pageWeeks - 1)
                 if (pagerState.currentPage != target && !pagerState.isScrollInProgress) {
                     pagerState.scrollToPage(target)
                 }
