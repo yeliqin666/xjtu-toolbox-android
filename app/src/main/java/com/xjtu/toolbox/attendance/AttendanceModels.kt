@@ -53,7 +53,23 @@ data class AttendanceWaterRecord(
     val teacher: String,
     val status: WaterType,
     val date: String
-)
+) {
+    /**
+     * 磁盘缓存反序列化兜底，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。
+     * 这条路径的消费点（[com.xjtu.toolbox.schedule.CourseLinks]）没有任何 try/catch，
+     * 缺字段的旧缓存一读就是未捕获 NPE，风险高于其它同类场景。
+     */
+    fun sanitized(): AttendanceWaterRecord = copy(
+        sbh = (sbh as String?) ?: "",
+        termString = (termString as String?) ?: "",
+        location = (location as String?) ?: "",
+        courseName = (courseName as String?) ?: "",
+        courseCode = (courseCode as String?) ?: "",
+        teacher = (teacher as String?) ?: "",
+        status = (status as WaterType?) ?: WaterType.NORMAL,
+        date = (date as String?) ?: "",
+    )
+}
 
 /**
  * 学期信息

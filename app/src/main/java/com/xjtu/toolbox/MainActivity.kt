@@ -286,7 +286,6 @@ object Routes {
     const val WEBVPN_CONVERTER = "webvpn_converter"
     const val AGENT = "agent"
     const val FEEDBACK = "feedback"
-    const val JIAOXIAOZHI = "jiaoxiaozhi"
     const val FACULTY = "faculty"
     const val ICLASSFACE = "iclassface"
     const val MATCH = "schedule_match"
@@ -315,7 +314,6 @@ fun loginTypeForRoute(route: String): LoginType? = when (route) {
     Routes.JIAOCAI, Routes.JIAOCAI1 -> LoginType.JIAOCAI
     Routes.COUPON -> LoginType.COUPON
     Routes.FITNESS -> LoginType.FITNESS
-    Routes.JIAOXIAOZHI -> LoginType.JIAOXIAOZHI
     Routes.ICLASSFACE -> LoginType.ICLASSFACE
     else -> when {
         // 带参深链 class_replay?courseCode=... 和裸路由要同样先登录。
@@ -860,7 +858,6 @@ class AppLoginStateViewModel(application: android.app.Application) : androidx.li
             register(com.xjtu.toolbox.auth.FitnessSession())
             register(com.xjtu.toolbox.auth.IclassfaceSession())
             register(com.xjtu.toolbox.auth.HelloSession())
-            register(com.xjtu.toolbox.jiaoxiaozhi.JiaoxiaozhiSiteSession())
         }
         // 绑定 AccountManager 到 sessionManager + loginState
         accountManager.sessionManager = sessionManager
@@ -1933,12 +1930,6 @@ fun AppNavigation(
                 )
             } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
-        composable(Routes.JIAOXIAOZHI) {
-            com.xjtu.toolbox.jiaoxiaozhi.JiaoxiaozhiScreen(
-                onBack = { navController.popBackStack() },
-                onOpenLink = { url -> navController.navigate(Routes.browser(url)) }
-            )
-        }
         composable(
             Routes.VIDEO_PLAYER,
             arguments = listOf(navArgument("activityId") { type = NavType.IntType })
@@ -2170,8 +2161,7 @@ private fun MainScreen(
         fun siteReady(t: LoginType): Boolean =
             loginState.sessionManager?.getSiteOrNull(t.siteKey())?.hasLogin == true
 
-        val forceEnsureOnEnter = type == LoginType.JIAOXIAOZHI
-        if (siteReady(type) && !forceEnsureOnEnter) {
+        if (siteReady(type)) {
             navigateToTarget(target)
         } else if (loginState.hasCredentials) {
             // 用户主动点击：永远允许立即登录（即使刚才取消过 MFA），由用户自己决定再次取消还是验证。
@@ -2181,8 +2171,7 @@ private fun MainScreen(
             val autoLoginTimeoutMs = when (type) {
                 LoginType.COUPON,
                 LoginType.FITNESS,
-                LoginType.NEW_ATTENDANCE,
-                LoginType.JIAOXIAOZHI -> 180_000L
+                LoginType.NEW_ATTENDANCE -> 180_000L
                 // 场馆/电子凭证等走「CAS OAuth → org 中转 → 业务站」多跳链路，
                 // 叠加 CasGate 限频与 WebVPN 改写后 25s 常不够用，超时即表现为"打不开"。
                 else -> 60_000L
@@ -3817,7 +3806,6 @@ private fun HomeTab(
             Routes.FITNESS to Icons.AutoMirrored.Filled.DirectionsRun,
             Routes.YELLOW_PAGE to Icons.Default.ContactPhone,
             Routes.WEBVPN_CONVERTER to Icons.Default.VpnKey,
-            Routes.JIAOXIAOZHI to Icons.Default.AutoAwesome,
             Routes.AGENT to Icons.Default.SmartToy,
         )
         val allServices = AppServices.homeFor(loginState.accountType).map { svc ->
@@ -3911,7 +3899,6 @@ private fun HomeTab(
                     Routes.LIBRARY,
                     Routes.LMS,
                     Routes.AGENT,
-                    Routes.JIAOXIAOZHI,
                 ).filterNot { it in usedKeys }
                 val quickKeys = if (showQuickActions && quickCandidateKeys.isNotEmpty()) {
                     remember(quickCandidateKeys) {
@@ -5885,7 +5872,6 @@ private fun siteKeyForBrowserUrl(url: String): String {
     val host = runCatching { android.net.Uri.parse(url).host?.lowercase().orEmpty() }
         .getOrDefault("")
     return when {
-        "assistant.xjtu.edu.cn" in host -> "jiaoxiaozhi"
         "tyxylp.xjtu.edu.cn" in host -> "fitness"
         "rg.lib.xjtu.edu.cn" in host -> "library"
         "jwapp.xjtu.edu.cn" in host -> "jwapp"

@@ -103,6 +103,7 @@ fun ScoreReportScreen(
                 val cached = dataCache.get(cacheKey, com.xjtu.toolbox.util.DataCache.DEFAULT_TTL_MS)
                 if (cached != null) {
                     val cachedGrades = gson.fromJson(cached, Array<ReportedGrade>::class.java).toList()
+                        .map { it.sanitized() }
                     if (cachedGrades.isNotEmpty()) {
                         allGrades = cachedGrades
                         termGroups = cachedGrades.groupBy { it.term }.toSortedMap(compareByDescending { it })

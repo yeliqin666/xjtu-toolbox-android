@@ -152,7 +152,7 @@ internal suspend fun loadCategoryTree(
     val gson = Gson()
     cache.get(CATEGORY_CACHE_KEY, CATEGORY_TTL_MS)?.let { json ->
         runCatching {
-            gson.fromJson(json, Array<Jiaocai1Category>::class.java).toList()
+            gson.fromJson(json, Array<Jiaocai1Category>::class.java).toList().map { it.sanitized() }
         }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { return@withContext it }
     }
     val fresh = Jiaocai1Api(site).classifyTree()

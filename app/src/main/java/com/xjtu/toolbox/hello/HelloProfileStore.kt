@@ -42,10 +42,16 @@ object HelloProfileStore {
 
     private val gson = com.google.gson.Gson()
 
-    /** DataCache 只存字符串，这里自己做 JSON 序列化；解析失败当作无缓存。 */
+    /**
+     * DataCache 只存字符串，这里自己做 JSON 序列化；解析失败当作无缓存。
+     *
+     * 落盘反序列化后就地 [HelloProfile.sanitized]：旧版本/半截缓存缺字段时，
+     * Gson 会把声明成非空 String 的属性实际置为 null，[hasContent] 和
+     * `ProfileInfoCard` 直接读这些字段又没有 try/catch，会踩 NPE 崩溃。
+     */
     private fun DataCache.readProfile(): HelloProfile? =
         get(CACHE_KEY, CACHE_TTL_MS)?.let {
-            runCatching { gson.fromJson(it, HelloProfile::class.java) }.getOrNull()
+            runCatching { gson.fromJson(it, HelloProfile::class.java)?.sanitized() }.getOrNull()
         }
 
     private fun DataCache.writeProfile(profile: HelloProfile) =

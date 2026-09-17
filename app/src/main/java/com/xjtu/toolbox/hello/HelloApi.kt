@@ -59,6 +59,26 @@ data class HelloProfile(
     /** 辅导员/班主任任一有名字才值得单独成卡。 */
     fun hasMentor(): Boolean =
         counselorName.isNotBlank() || classTeacherName.isNotBlank()
+
+    /** 磁盘缓存反序列化兜底，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。 */
+    fun sanitized(): HelloProfile = copy(
+        name = (name as String?) ?: "",
+        sno = (sno as String?) ?: "",
+        birthdate = (birthdate as String?) ?: "",
+        campusName = (campusName as String?) ?: "",
+        academyName = (academyName as String?) ?: "",
+        departmentName = (departmentName as String?) ?: "",
+        professionName = (professionName as String?) ?: "",
+        className = (className as String?) ?: "",
+        enterSchoolDate = (enterSchoolDate as String?) ?: "",
+        cardId = (cardId as String?) ?: "",
+        pictureUrl = (pictureUrl as String?) ?: "",
+        classTeacherName = (classTeacherName as String?) ?: "",
+        classTeacherPhone = (classTeacherPhone as String?) ?: "",
+        counselorName = (counselorName as String?) ?: "",
+        counselorPhone = (counselorPhone as String?) ?: "",
+        counselorOffice = (counselorOffice as String?) ?: "",
+    )
 }
 
 /**

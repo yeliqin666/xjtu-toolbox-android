@@ -25,7 +25,17 @@ data class CardInfo(
     val expireDate: String,      // 过期日期
     val cardType: String,        // 卡类型名称
     val department: String = ""  // 学院（从 HTML 提取）
-)
+) {
+    /** 磁盘缓存反序列化兜底，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。 */
+    fun sanitized(): CardInfo = copy(
+        account = (account as String?) ?: "",
+        name = (name as String?) ?: "",
+        studentNo = (studentNo as String?) ?: "",
+        expireDate = (expireDate as String?) ?: "",
+        cardType = (cardType as String?) ?: "",
+        department = (department as String?) ?: "",
+    )
+}
 
 /** 单笔交易记录 */
 data class Transaction(
@@ -35,7 +45,15 @@ data class Transaction(
     val balance: Double,         // 交易后余额
     val type: String,            // 交易类型
     val description: String      // 详细描述
-)
+) {
+    /** 磁盘缓存反序列化兜底，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。 */
+    fun sanitized(): Transaction = copy(
+        time = (time as String?) ?: "",
+        merchant = (merchant as String?) ?: "",
+        type = (type as String?) ?: "",
+        description = (description as String?) ?: "",
+    )
+}
 
 /** 月度统计 */
 data class MonthlyStats(

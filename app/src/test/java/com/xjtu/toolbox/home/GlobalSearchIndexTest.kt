@@ -32,8 +32,7 @@ class GlobalSearchIndexTest {
 
     @Test
     fun caseInsensitiveOnLatin() {
-        // 索引里有 title 为 "GPA" 的英文条目（ask_jiaoxiaozhi prompt），但 GPA 是别名
-        // —— 命中说明大小写不敏感工作
+        // "GPA" 是「成绩」条目的别名，纯英文 —— 命中说明大小写不敏感工作
         val upper = GlobalSearchIndex.search("GPA")
         val lower = GlobalSearchIndex.search("gpa")
         assertEquals(upper.size, lower.size)
