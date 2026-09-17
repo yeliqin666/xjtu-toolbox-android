@@ -125,13 +125,14 @@ fun PidaiAppearancePanel(modifier: Modifier = Modifier) {
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 TextButton(
-                    text = if (loading) "读取中…" else "从文件导入",
+                    text = if (loading) "读取中…" else "文件导入",
                     enabled = !loading,
                     onClick = { filePicker.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
                     modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
                 )
                 TextButton(
-                    text = "从 GitHub 导入",
+                    text = "GitHub 导入",
                     enabled = !loading,
                     onClick = { showGithubDialog = true },
                     modifier = Modifier.weight(1f),

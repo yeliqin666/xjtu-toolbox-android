@@ -1627,51 +1627,21 @@ private fun ConfigPanel(
                 }
             }
         }
-        item {
-            Card(colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)) {
-                OverlaySpinnerPreference(
-                    title = "服务商",
-                    summary = AgentConfig.providerLabel(provider),
-                    items = providerItems,
-                    selectedIndex = providerIndex,
-                    onSelectedIndexChange = { 
-                        provider = AgentConfig.PROVIDERS[it]
-                        saveNow()
-                    }
-                )
-            }
-        }
-        item {
-            Card(colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)) {
-                OverlaySpinnerPreference(
-                    title = "联网搜索引擎",
-                    summary = AgentConfig.searchEngineLabel(searchEngine),
-                    items = searchEngineItems,
-                    selectedIndex = searchEngineIndex,
-                    onSelectedIndexChange = { 
-                        searchEngine = AgentConfig.SEARCH_ENGINES[it]
-                        saveNow()
-                    }
-                )
-            }
-        }
-        item {
-            Card(colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)) {
-                OverlaySpinnerPreference(
-                    title = "回复风格",
-                    summary = AgentConfig.responseStyleLabel(responseStyle),
-                    items = responseStyleItems,
-                    selectedIndex = responseStyleIndex,
-                    onSelectedIndexChange = { 
-                        responseStyle = AgentConfig.RESPONSE_STYLES[it]
-                        saveNow()
-                    }
-                )
-            }
-        }
+        // 服务商 + 助手名字/API Key/模型 + 思考参数：都是"怎么接到哪个模型、这个模型
+        // 怎么想问题"这一件事，原来拆成三张卡片，合并成一张放最前面，改起来不用来回滚动。
         item {
             Card(colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OverlaySpinnerPreference(
+                        title = "服务商",
+                        summary = AgentConfig.providerLabel(provider),
+                        items = providerItems,
+                        selectedIndex = providerIndex,
+                        onSelectedIndexChange = {
+                            provider = AgentConfig.PROVIDERS[it]
+                            saveNow()
+                        }
+                    )
                     TextField(
                         value = assistantName,
                         onValueChange = {
@@ -1784,9 +1754,101 @@ private fun ConfigPanel(
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                         )
                     }
+                    if (provider == AgentConfig.PROVIDER_DEEPSEEK) {
+                        Text("思考", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold)
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text("思考模式", style = MiuixTheme.textStyles.body1)
+                                Text(
+                                    "提升复杂查询和多步工具调用的准确性",
+                                    style = MiuixTheme.textStyles.footnote1,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                                )
+                            }
+                            Switch(
+                                checked = thinkingEnabled,
+                                onCheckedChange = {
+                                    thinkingEnabled = it
+                                    saveNow()
+                                }
+                            )
+                        }
+                        if (thinkingEnabled) {
+                            val efforts = AgentConfig.REASONING_EFFORTS
+                            OverlaySpinnerPreference(
+                                title = "思考强度",
+                                summary = when (reasoningEffort) {
+                                    AgentConfig.REASONING_AUTO -> "自动（由服务端按模型默认档）"
+                                    else -> AgentConfig.reasoningEffortLabel(reasoningEffort)
+                                },
+                                // 选项文案从 efforts 现推，别再手写一份平行列表——
+                                // 两边靠下标对齐，档位一多就会错位成"选高得到最大"。
+                                items = efforts.map { DropdownItem(text = AgentConfig.reasoningEffortLabel(it)) },
+                                selectedIndex = efforts.indexOf(reasoningEffort).coerceAtLeast(0),
+                                onSelectedIndexChange = {
+                                    reasoningEffort = efforts[it]
+                                    saveNow()
+                                }
+                            )
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("显示思考过程", style = MiuixTheme.textStyles.body1)
+                                    Text(
+                                        "在回答上方以折叠栏展示",
+                                        style = MiuixTheme.textStyles.footnote1,
+                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                                    )
+                                }
+                                Switch(
+                                    checked = showReasoning,
+                                    onCheckedChange = {
+                                        showReasoning = it
+                                        saveNow()
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
+        item {
+            Card(colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)) {
+                OverlaySpinnerPreference(
+                    title = "联网搜索引擎",
+                    summary = AgentConfig.searchEngineLabel(searchEngine),
+                    items = searchEngineItems,
+                    selectedIndex = searchEngineIndex,
+                    onSelectedIndexChange = {
+                        searchEngine = AgentConfig.SEARCH_ENGINES[it]
+                        saveNow()
+                    }
+                )
+            }
+        }
+        // 回复风格和皮肤都是"agent 表现出来的样子"，放一起。
+        item {
+            Card(colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)) {
+                OverlaySpinnerPreference(
+                    title = "回复风格",
+                    summary = AgentConfig.responseStyleLabel(responseStyle),
+                    items = responseStyleItems,
+                    selectedIndex = responseStyleIndex,
+                    onSelectedIndexChange = {
+                        responseStyle = AgentConfig.RESPONSE_STYLES[it]
+                        saveNow()
+                    }
+                )
+            }
+        }
+        // 形象选择：形状 + 颜色。即时生效、设备级持久化，不参与 AgentConfig 的存取（见 PidaiAppearanceHost）。
+        item { PidaiAppearancePanel() }
         item {
             // 记住的偏好必须**可见可删**：模型往本机写了东西，用户有权知道写了什么。
             // 放在能力开关上面，因为看见内容才谈得上决定要不要关掉这个能力。
@@ -1829,6 +1891,30 @@ private fun ConfigPanel(
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
+                }
+            }
+        }
+        // 最多调用次数和能力开关都是"agent 这次能做多少事"，放一起。
+        item {
+            Card(colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // 0 = 不限制；1..12 为具体上限（每次提问独立计数）
+                    val options = listOf(0) + (1..12).toList()
+                    Text(
+                        "每次提问最多工具调用：" + if (maxToolCalls <= 0) "不限制" else "$maxToolCalls 次",
+                        style = MiuixTheme.textStyles.body1
+                    )
+                    val sliderItems = options.map { DropdownItem(text = if (it == 0) "不限制" else "$it 次") }
+                    OverlaySpinnerPreference(
+                        title = "上限",
+                        summary = if (maxToolCalls <= 0) "不限制" else "$maxToolCalls 次",
+                        items = sliderItems,
+                        selectedIndex = options.indexOf(maxToolCalls).coerceAtLeast(0),
+                        onSelectedIndexChange = {
+                            maxToolCalls = options[it]
+                            saveNow()
+                        }
+                    )
                 }
             }
         }
@@ -1878,98 +1964,6 @@ private fun ConfigPanel(
                 }
             }
         }
-        if (provider == AgentConfig.PROVIDER_DEEPSEEK) {
-            item {
-                Card(colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(Modifier.weight(1f)) {
-                                Text("思考模式", style = MiuixTheme.textStyles.body1)
-                                Text(
-                                    "提升复杂查询和多步工具调用的准确性",
-                                    style = MiuixTheme.textStyles.footnote1,
-                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                                )
-                            }
-                            Switch(
-                                checked = thinkingEnabled,
-                                onCheckedChange = { 
-                                    thinkingEnabled = it
-                                    saveNow()
-                                }
-                            )
-                        }
-                        if (thinkingEnabled) {
-                            val efforts = AgentConfig.REASONING_EFFORTS
-                            OverlaySpinnerPreference(
-                                title = "思考强度",
-                                summary = when (reasoningEffort) {
-                                    AgentConfig.REASONING_AUTO -> "自动（由服务端按模型默认档）"
-                                    else -> AgentConfig.reasoningEffortLabel(reasoningEffort)
-                                },
-                                // 选项文案从 efforts 现推，别再手写一份平行列表——
-                                // 两边靠下标对齐，档位一多就会错位成"选高得到最大"。
-                                items = efforts.map { DropdownItem(text = AgentConfig.reasoningEffortLabel(it)) },
-                                selectedIndex = efforts.indexOf(reasoningEffort).coerceAtLeast(0),
-                                onSelectedIndexChange = {
-                                    reasoningEffort = efforts[it]
-                                    saveNow()
-                                }
-                            )
-                            Row(
-                                Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(Modifier.weight(1f)) {
-                                    Text("显示思考过程", style = MiuixTheme.textStyles.body1)
-                                    Text(
-                                        "在回答上方以折叠栏展示",
-                                        style = MiuixTheme.textStyles.footnote1,
-                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                                    )
-                                }
-                                Switch(
-                                    checked = showReasoning,
-                                    onCheckedChange = { 
-                                        showReasoning = it
-                                        saveNow()
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        item {
-            Card(colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // 0 = 不限制；1..12 为具体上限（每次提问独立计数）
-                    val options = listOf(0) + (1..12).toList()
-                    Text(
-                        "每次提问最多工具调用：" + if (maxToolCalls <= 0) "不限制" else "$maxToolCalls 次",
-                        style = MiuixTheme.textStyles.body1
-                    )
-                    val sliderItems = options.map { DropdownItem(text = if (it == 0) "不限制" else "$it 次") }
-                    OverlaySpinnerPreference(
-                        title = "上限",
-                        summary = if (maxToolCalls <= 0) "不限制" else "$maxToolCalls 次",
-                        items = sliderItems,
-                        selectedIndex = options.indexOf(maxToolCalls).coerceAtLeast(0),
-                        onSelectedIndexChange = {
-                            maxToolCalls = options[it]
-                            saveNow()
-                        }
-                    )
-                }
-            }
-        }
-        // 形象选择：形状 + 颜色。即时生效、设备级持久化，不参与 AgentConfig 的存取
-        // （见 PidaiAppearanceHost），所以放在配置列表靠后，和 API 相关项分开。
-        item { PidaiAppearancePanel() }
         // 所有配置已改为即时保存，无需底部按钮
     }
 }

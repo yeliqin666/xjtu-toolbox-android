@@ -127,12 +127,12 @@ data class AgentConfig(
         }
 
         fun searchEngineLabel(engine: String) = when (engine) {
-            SEARCH_AUTO -> "自动（DuckDuckGo → 360 → Bing）"
-            SEARCH_DDG -> "DuckDuckGo（中文最准，推荐）"
-            SEARCH_SO360 -> "360 搜索（最快，但页面很大）"
-            SEARCH_BING -> "Bing（最稳，但常跑题）"
-            SEARCH_WECHAT -> "搜狗微信（只搜公众号）"
-            SEARCH_WIKI -> "维基百科（只查词条）"
+            SEARCH_AUTO -> "自动"
+            SEARCH_DDG -> "DuckDuckGo"
+            SEARCH_SO360 -> "360 搜索"
+            SEARCH_BING -> "Bing"
+            SEARCH_WECHAT -> "搜狗微信"
+            SEARCH_WIKI -> "维基百科"
             else -> "自动"
         }
 
