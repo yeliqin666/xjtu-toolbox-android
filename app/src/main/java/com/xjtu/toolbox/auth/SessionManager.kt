@@ -425,6 +425,12 @@ class SessionManager(context: Context) {
     /**
      * SiteSession.runLogin 在 [LoginState.REQUIRE_MFA] 时调用。锁内更新 [_activeMfaRequest]
      * 触发 UI 弹窗，挂起等待用户提交或取消；同一时刻仅一个 MFA 询问在挂起。
+     *
+     * 有超时兜底：调用方可能在没有 [MfaDialogHost] 挂载的页面（比如成绩页后台重认证触发的
+     * MFA）静默发起这次询问，弹窗根本没地方渲染，用户永远看不到、更不可能提交/取消。
+     * `runLogin` 现在整段都在全局 [CasSiteSession] 登录锁里（见其上注释），这类询问若无限期
+     * 挂起，会连带把其余站点的登录一起锁死。超时后按用户主动取消处理，释放锁，把 IOException
+     * 交回给调用方按正常失败路径处理。
      */
     suspend fun askMfaCode(siteKey: String, siteName: String, ctx: MFAContext): String? {
         return mfaMutex.withLock {
@@ -432,7 +438,7 @@ class SessionManager(context: Context) {
             val req = MfaRequest(siteKey, siteName, ctx, deferred)
             _activeMfaRequest.value = req
             try {
-                deferred.await()
+                kotlinx.coroutines.withTimeoutOrNull(MFA_WAIT_TIMEOUT_MS) { deferred.await() }
             } finally {
                 _activeMfaRequest.value = null
             }
@@ -536,5 +542,8 @@ class SessionManager(context: Context) {
         private const val TAG = "SessionManager"
         private const val WEBVPN_TICKET_COOKIE = "wengine_vpn_ticketwebvpn_xjtu_edu_cn"
         private const val WEBVPN_VALIDATE_TTL_MS = 120_000L
+
+        /** [askMfaCode] 的最长挂起时间，见其上注释。留够用户看到弹窗、收短信、输入的时间。 */
+        private const val MFA_WAIT_TIMEOUT_MS = 150_000L
     }
 }

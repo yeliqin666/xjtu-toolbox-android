@@ -44,6 +44,22 @@ data class CourseItem(
         val idx = week - 1
         return idx in weekBits.indices && weekBits[idx] == '1'
     }
+
+    /**
+     * Gson 反射反序列化不认 Kotlin 的非空约束：磁盘缓存里的旧版本/半截 JSON
+     * 一旦缺了某个字段，这里几个声明成非空 String 的属性会在运行时实际是 null。
+     * 后面 [getWeeks]/[isInWeek] 等在 Composable 的 remember{} 里被直接调用，不在任何
+     * try/catch 里，一踩到 null 就是未捕获 NPE 崩全局——所有从缓存反序列化出来的
+     * [CourseItem] 读完就地调用本函数兜底，而不是指望每个消费点自己判空。
+     */
+    fun sanitized(): CourseItem = copy(
+        courseName = (courseName as String?) ?: "",
+        teacher = (teacher as String?) ?: "",
+        location = (location as String?) ?: "",
+        weekBits = (weekBits as String?) ?: "",
+        courseCode = (courseCode as String?) ?: "",
+        courseType = (courseType as String?) ?: "",
+    )
 }
 
 data class ExamItem(
@@ -53,7 +69,17 @@ data class ExamItem(
     val examTime: String,
     val location: String,
     val seatNumber: String
-)
+) {
+    /** 磁盘缓存反序列化兜底，原理见 [CourseItem.sanitized]。 */
+    fun sanitized(): ExamItem = copy(
+        courseName = (courseName as String?) ?: "",
+        courseCode = (courseCode as String?) ?: "",
+        examDate = (examDate as String?) ?: "",
+        examTime = (examTime as String?) ?: "",
+        location = (location as String?) ?: "",
+        seatNumber = (seatNumber as String?) ?: "",
+    )
+}
 
 data class TextbookItem(
     val courseName: String,
@@ -82,6 +108,12 @@ data class TextbookItem(
                 && (textbookName.trim().length >= 2
                     || isbn.any { it.isDigit() }
                     || author.trim().length >= 2)
+
+    /** 磁盘缓存反序列化兜底，原理见 [CourseItem.sanitized]。 */
+    fun sanitized(): TextbookItem = copy(
+        courseName = (courseName as String?) ?: "",
+        textbookName = (textbookName as String?) ?: "",
+    )
 }
 
 class ScheduleApi(private val site: SiteSession) {

@@ -50,7 +50,16 @@ object AttendanceRecordStore {
     fun load(ctx: Context, postgraduate: Boolean, termCode: String): Shard? {
         if (termCode.isBlank()) return null
         val raw = prefs(ctx, postgraduate).getString(termCode, null) ?: return null
-        return runCatching { gson.fromJson(raw, Shard::class.java) }.getOrNull()
+        // 消费点（CourseLinks.fetchAttendanceIndex 的 NONE 分支）没有 try/catch，
+        // 缺字段的旧缓存必须在这里就地兜底，而不是指望调用方判空。
+        return runCatching {
+            gson.fromJson(raw, Shard::class.java)?.let { shard ->
+                val records = (shard.records as List<AttendanceWaterRecord>?)
+                    ?.map { it.sanitized() }
+                    ?: emptyList()
+                shard.copy(records = records)
+            }
+        }.getOrNull()
             ?.takeIf { it.records.isNotEmpty() }
     }
 

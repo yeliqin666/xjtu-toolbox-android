@@ -16,7 +16,13 @@ data class RoomInfo(
     val name: String,      // 教室名称，如 "主楼A-101"
     val size: Int,         // 座位数
     val status: List<Int>  // 11 个元素，对应 1-11 节课的占用情况：0=空闲, 1=占用
-)
+) {
+    /** 磁盘缓存反序列化兜底，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。 */
+    fun sanitized(): RoomInfo = copy(
+        name = (name as String?) ?: "",
+        status = (status as List<Int>?) ?: emptyList(),
+    )
+}
 
 /**
  * 校区-教学楼映射（来自 XJTUToolBox）

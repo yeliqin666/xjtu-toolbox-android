@@ -23,7 +23,18 @@ object CampusCardCache {
     fun load(context: Context): CampusCardSnapshot? {
         val raw = context.getSharedPreferences(prefsName(), Context.MODE_PRIVATE)
             .getString(KEY, null) ?: return null
-        return runCatching { gson.fromJson(raw, CampusCardSnapshot::class.java) }.getOrNull()
+        return runCatching {
+            gson.fromJson(raw, CampusCardSnapshot::class.java)?.let { snapshot ->
+                // cardInfo 本身也可能因缺字段被 Gson 置空；整份快照没有卡信息就没意义，当无缓存处理。
+                val cardInfo = (snapshot.cardInfo as CardInfo?)?.sanitized() ?: return@let null
+                snapshot.copy(
+                    cardInfo = cardInfo,
+                    transactions = (snapshot.transactions as List<Transaction>?)
+                        ?.map { it.sanitized() }
+                        ?: emptyList(),
+                )
+            }
+        }.getOrNull()
     }
 
     fun save(

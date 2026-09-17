@@ -18,7 +18,10 @@ data class YellowPageCategory(
     @SerializedName("name") val name: String,
     @SerializedName("status") val status: Int,
     @SerializedName("sort") val sort: Int
-)
+) {
+    /** 磁盘缓存反序列化兜底，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。 */
+    fun sanitized(): YellowPageCategory = copy(name = (name as String?) ?: "")
+}
 
 data class YellowPageDepartment(
     @SerializedName("id") val id: Int,
@@ -35,13 +38,26 @@ data class YellowPageDepartment(
 
     fun dialNumber(item: String): String =
         Regex("""\d{7,}""").find(item)?.value.orEmpty()
+
+    /** 磁盘缓存反序列化兜底，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。 */
+    fun sanitized(): YellowPageDepartment = copy(
+        name = (name as String?) ?: "",
+        phone = (phone as String?) ?: "",
+    )
 }
 
 data class YellowPageData(
     val categories: List<YellowPageCategory>,
     val departments: List<YellowPageDepartment>,
     val updateTime: String = ""
-)
+) {
+    /** 磁盘缓存反序列化兜底，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。 */
+    fun sanitized(): YellowPageData = copy(
+        categories = (categories as List<YellowPageCategory>?)?.map { it.sanitized() } ?: emptyList(),
+        departments = (departments as List<YellowPageDepartment>?)?.map { it.sanitized() } ?: emptyList(),
+        updateTime = (updateTime as String?) ?: "",
+    )
+}
 
 class YellowPageApi(context: Context) {
     private val gson = Gson()
@@ -54,7 +70,7 @@ class YellowPageApi(context: Context) {
     fun getData(forceRefresh: Boolean = false): YellowPageData {
         if (!forceRefresh) {
             cache.get(CACHE_KEY, CACHE_TTL_MS)?.let { cached ->
-                runCatching { gson.fromJson(cached, YellowPageData::class.java) }.getOrNull()
+                runCatching { gson.fromJson(cached, YellowPageData::class.java)?.sanitized() }.getOrNull()
                     ?.let { return it }
             }
         }
@@ -88,7 +104,7 @@ class YellowPageApi(context: Context) {
             }
         } catch (e: Exception) {
             cache.getStale(CACHE_KEY)?.let { stale ->
-                runCatching { gson.fromJson(stale, YellowPageData::class.java) }.getOrNull()
+                runCatching { gson.fromJson(stale, YellowPageData::class.java)?.sanitized() }.getOrNull()
                     ?.let { return it }
             }
             throw e

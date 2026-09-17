@@ -29,7 +29,7 @@ object ScheduleCache {
         if (termCode.isBlank()) return null
         val json = cache.get(optimizedScheduleKey(termCode), ttlMs) ?: return null
         return runCatching {
-            gson.fromJson(json, Array<CourseItem>::class.java)?.toList().orEmpty()
+            gson.fromJson(json, Array<CourseItem>::class.java)?.toList().orEmpty().map { it.sanitized() }
         }.getOrNull()
     }
 
@@ -52,7 +52,7 @@ object ScheduleCache {
         if (termCode.isBlank()) return null
         val json = cache.get(textbookKey(termCode), ttlMs) ?: return null
         return runCatching {
-            gson.fromJson(json, Array<TextbookItem>::class.java)?.toList().orEmpty()
+            gson.fromJson(json, Array<TextbookItem>::class.java)?.toList().orEmpty().map { it.sanitized() }
         }.getOrNull()
     }
 
@@ -75,7 +75,7 @@ object ScheduleCache {
         if (termCode.isBlank()) return null
         val json = cache.get("schedule_$termCode", ttlMs) ?: return null
         return runCatching {
-            gson.fromJson(json, Array<CourseItem>::class.java)?.toList().orEmpty()
+            gson.fromJson(json, Array<CourseItem>::class.java)?.toList().orEmpty().map { it.sanitized() }
         }.getOrNull()
     }
 
@@ -134,7 +134,7 @@ object ScheduleCache {
             ?.let { runCatching { LocalDate.parse(it.trim('"')) }.getOrNull() } ?: return false
         val courses = readOptimizedCourses(dataCache, gson, term)
             ?: dataCache.get("schedule_$term", Long.MAX_VALUE)?.let {
-                runCatching { gson.fromJson(it, Array<CourseItem>::class.java).toList() }.getOrNull()
+                runCatching { gson.fromJson(it, Array<CourseItem>::class.java).toList().map { c -> c.sanitized() } }.getOrNull()
             } ?: return false
         val weeks = courses.maxOfOrNull { it.weekBits.length } ?: 0
         return isFinishedByDate(start, weeks)

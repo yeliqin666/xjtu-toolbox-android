@@ -24,7 +24,17 @@ data class Jiaocai1Category(
     val parentId: Int,
     val nodeId: Int,
     val children: List<Jiaocai1Category> = emptyList(),
-)
+) {
+    /**
+     * 磁盘缓存反序列化兜底，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。
+     * 树形结构，子节点也是同一批反序列化出来的，必须递归处理，不能只兜底顶层。
+     */
+    fun sanitized(): Jiaocai1Category = copy(
+        id = (id as String?) ?: "",
+        name = (name as String?) ?: "",
+        children = (children as List<Jiaocai1Category>?)?.map { it.sanitized() } ?: emptyList(),
+    )
+}
 
 /** [ssno] 是全文库主键，jiaocai.lib 的「本地全文」链接里带的就是它。 */
 data class Jiaocai1Book(

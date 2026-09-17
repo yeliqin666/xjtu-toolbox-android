@@ -70,6 +70,7 @@ object MatchData {
             runCatching {
                 dc.get("schedule_textbooks_$t", Long.MAX_VALUE)?.let { json ->
                     gson.fromJson(json, Array<TextbookItem>::class.java)
+                        .map { it.sanitized() }
                         .filter { it.hasSubstantiveTextbook }
                         .map { it.textbookName.trim() }
                         .filter { it.isNotEmpty() }
@@ -81,7 +82,7 @@ object MatchData {
         val exams = current?.let { t ->
             runCatching {
                 dc.get("exams_$t", Long.MAX_VALUE)?.let { json ->
-                    gson.fromJson(json, Array<ExamItem>::class.java).toList()
+                    gson.fromJson(json, Array<ExamItem>::class.java).toList().map { it.sanitized() }
                 }
             }.getOrNull()
         }.orEmpty()
@@ -103,7 +104,7 @@ object MatchData {
     private fun readCourses(dc: DataCache, gson: Gson, term: String): List<CourseItem> =
         runCatching {
             dc.get("schedule_$term", Long.MAX_VALUE)?.let { json ->
-                gson.fromJson(json, Array<CourseItem>::class.java).toList()
+                gson.fromJson(json, Array<CourseItem>::class.java).toList().map { it.sanitized() }
             }
         }.getOrNull().orEmpty()
 }

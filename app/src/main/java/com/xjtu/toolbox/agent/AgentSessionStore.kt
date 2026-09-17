@@ -17,7 +17,13 @@ data class AgentSession(
     val updatedAt: Long,
     /** true=标题已由用户改名或 AI 总结锁定，不再被首条消息自动覆盖。 */
     val locked: Boolean = false
-)
+) {
+    /** 磁盘缓存反序列化兜底，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。 */
+    fun sanitized(): AgentSession = copy(
+        id = (id as String?) ?: "",
+        title = (title as String?) ?: "",
+    )
+}
 
 data class StoredWidget(
     val type: String,
@@ -119,6 +125,7 @@ class AgentSessionStore(context: Context) {
         if (!indexFile.exists()) emptyList()
         else runCatching {
             gson.fromJson(indexFile.readText(), Array<AgentSession>::class.java)?.toList().orEmpty()
+                .map { it.sanitized() }
         }.getOrDefault(emptyList())
 
     private fun writeIndex(list: List<AgentSession>) {

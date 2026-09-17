@@ -73,20 +73,56 @@ data class ZyxfEntryRef(
     val path: String,
     val sizeText: String,
     val isFolder: Boolean,
-)
+) {
+    /** 磁盘缓存反序列化兜底，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。 */
+    fun sanitized(): ZyxfEntryRef = copy(
+        name = (name as String?) ?: "",
+        path = (path as String?) ?: "",
+        sizeText = (sizeText as String?) ?: "",
+    )
+}
 
 fun AgentWidget.toStored(gson: Gson): StoredWidget =
     StoredWidget(javaClass.simpleName, gson.toJson(this))
 
+/**
+ * 会话记录随磁盘缓存整体落盘，旧版本/半截写入的会话一样会踩 Gson 非空约束不生效的坑
+ * （原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]）。这些控件直接在
+ * [AgentWidgetView] 的 Composable 里渲染，没有 try/catch，反序列化后必须就地兜底，
+ * 不能指望各个 *WidgetView 自己判空。
+ */
 fun storedToWidget(stored: StoredWidget, gson: Gson): AgentWidget? = runCatching {
     when (stored.type) {
-        "ScheduleWidget" -> gson.fromJson(stored.json, ScheduleWidget::class.java)
-        "ExamWidget" -> gson.fromJson(stored.json, ExamWidget::class.java)
-        "RoomWidget" -> gson.fromJson(stored.json, RoomWidget::class.java)
-        "AttendanceWidget" -> gson.fromJson(stored.json, AttendanceWidget::class.java)
-        "GradeWidget" -> gson.fromJson(stored.json, GradeWidget::class.java)
-        "CardWidget" -> gson.fromJson(stored.json, CardWidget::class.java)
-        "ZyxfWidget" -> gson.fromJson(stored.json, ZyxfWidget::class.java)
+        "ScheduleWidget" -> gson.fromJson(stored.json, ScheduleWidget::class.java)?.let { w ->
+            w.copy(
+                title = (w.title as String?) ?: "",
+                courses = (w.courses as List<CourseItem>?)?.map { it.sanitized() } ?: emptyList(),
+            )
+        }
+        "ExamWidget" -> gson.fromJson(stored.json, ExamWidget::class.java)?.let { w ->
+            w.copy(exams = (w.exams as List<ExamItem>?)?.map { it.sanitized() } ?: emptyList())
+        }
+        "RoomWidget" -> gson.fromJson(stored.json, RoomWidget::class.java)?.let { w ->
+            w.copy(
+                condition = (w.condition as String?) ?: "",
+                rooms = (w.rooms as List<RoomInfo>?)?.map { it.sanitized() } ?: emptyList(),
+            )
+        }
+        "AttendanceWidget" -> gson.fromJson(stored.json, AttendanceWidget::class.java)?.let { w ->
+            w.copy(records = (w.records as List<AttendanceWaterRecord>?)?.map { it.sanitized() } ?: emptyList())
+        }
+        "GradeWidget" -> gson.fromJson(stored.json, GradeWidget::class.java)?.let { w ->
+            w.copy(grades = (w.grades as List<ReportedGrade>?)?.map { it.sanitized() } ?: emptyList())
+        }
+        "CardWidget" -> gson.fromJson(stored.json, CardWidget::class.java)?.let { w ->
+            (w.info as CardInfo?)?.let { w.copy(info = it.sanitized()) }
+        }
+        "ZyxfWidget" -> gson.fromJson(stored.json, ZyxfWidget::class.java)?.let { w ->
+            w.copy(
+                query = (w.query as String?) ?: "",
+                items = (w.items as List<ZyxfEntryRef>?)?.map { it.sanitized() } ?: emptyList(),
+            )
+        }
         else -> null
     }
 }.getOrNull()

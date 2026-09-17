@@ -157,7 +157,13 @@ fun JwappScoreScreen(
                 val ttl = if (api != null) com.xjtu.toolbox.util.DataCache.DEFAULT_TTL_MS else Long.MAX_VALUE
                 val cached = dataCache.get(cacheKey, ttl)
                 if (cached != null) {
+                    // Gson 反序列化不认 Kotlin 的非空约束：磁盘上的旧版本/半截缓存里
+                    // 一旦某个学期缺了 scoreList 字段，这里会得到运行时为 null、编译期类型
+                    // 却是 List<ScoreItem> 的脏对象——下面 sumOf{}/后面 flatMap{} 一读它就是
+                    // NPE，且 flatMap 那几处在 Composable 主体里，不在任何 try/catch 里，
+                    // 直接把 App 崩掉。落盘反序列化处就地兜底，后面全部按非空缓存消费。
                     val cachedGrades = gson.fromJson(cached, Array<TermScore>::class.java).toList()
+                        .map { ts -> ts.copy(scoreList = (ts.scoreList as List<ScoreItem>?) ?: emptyList()) }
                     if (cachedGrades.isNotEmpty()) {
                         allTermScores = cachedGrades
                         termList = cachedGrades.map { it.termCode to it.termName }

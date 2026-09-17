@@ -46,7 +46,7 @@ object ExamCountdown {
             ?.let { gson.fromJson(it, Array<String>::class.java)?.firstOrNull() }
         term?.let { t ->
             dc.get("exams_$t", Long.MAX_VALUE)?.let { json ->
-                next(gson.fromJson(json, Array<ExamItem>::class.java).toList())
+                next(gson.fromJson(json, Array<ExamItem>::class.java).toList().map { it.sanitized() })
             }
         }
     } catch (_: Exception) {
