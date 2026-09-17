@@ -25,6 +25,8 @@ dependencyResolutionManagement {
 rootProject.name = "XJTUToolBox"
 include(":app")
 include(":wear")
+// 只在本地/CI 手动跑 generateBaselineProfile 时用到；日常 assemble 不会构建它的测试代码
+include(":baselineprofile")
 
 includeBuild("miuix-ref") {
     dependencySubstitution {

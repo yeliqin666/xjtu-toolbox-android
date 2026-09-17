@@ -4,6 +4,9 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
+    // 消费 :baselineprofile 生成的 profile，并自动建出采集/压测用的
+    // nonMinifiedRelease、benchmarkRelease 两个变体
+    alias(libs.plugins.baselineprofile)
 }
 
 android {
@@ -124,6 +127,14 @@ android {
     }
 }
 
+// 插件只会把 profile 打进非 debuggable 变体（release），debug 不做 AOT、拿它没用。
+baselineProfile {
+    // 每次构建都重新采集会要求构建机常驻真机——本项目的 CI 没有设备，
+    // 所以用「生成的 profile 提交进仓库」的模式，靠手动跑 generateBaselineProfile 刷新。
+    automaticGenerationDuringBuild = false
+    saveInSrc = true
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.core.splashscreen)
@@ -156,6 +167,12 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     implementation(libs.androidx.work.runtime.ktx)
+    // 本应用靠 GitHub/Gitee Release 侧载分发，走不到 Play 的安装期 AOT。
+    // profileinstaller 在首启时把包里的 baseline-prof.txt 交给 ART 编译，
+    // 少了它 profile 等于没打。
+    implementation(libs.androidx.profileinstaller)
+    // profile 的来源模块；只是数据依赖，不进 APK
+    baselineProfile(project(":baselineprofile"))
     ksp(libs.androidx.room.compiler)
     // 版本号仅为占位：settings.gradle.kts 的 dependencySubstitution 会把这三个坐标
     // 替换成 includeBuild("miuix-ref") 里的本地工程，实际编译的永远是源码树当前状态。
