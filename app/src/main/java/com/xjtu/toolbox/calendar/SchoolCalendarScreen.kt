@@ -25,7 +25,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.xjtu.toolbox.LocalAppLoginState
+import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.AuthExpiredException
+import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.SiteSession
+import com.xjtu.toolbox.auth.handleAuthExpired
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.*
@@ -36,6 +41,7 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun SchoolCalendarScreen(site: SiteSession?, onBack: () -> Unit) {
     val api = remember(site) { SchoolCalendarApi(site) }
+    val appLoginState = LocalAppLoginState.current
 
     var terms by remember { mutableStateOf<List<SchoolTerm>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
@@ -54,6 +60,9 @@ fun SchoolCalendarScreen(site: SiteSession?, onBack: () -> Unit) {
             selectedTermIndex = defaultTermIndex(result, today)
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
+        } catch (e: AuthExpiredException) {
+            appLoginState.handleAuthExpired(LoginType.JWXT, Routes.SCHOOL_CALENDAR, onBack)
+            return@LaunchedEffect
         } catch (e: Exception) {
             errorMessage = "加载失败：${e.message}"
         }

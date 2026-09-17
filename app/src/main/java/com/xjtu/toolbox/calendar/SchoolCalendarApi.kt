@@ -3,6 +3,7 @@ package com.xjtu.toolbox.calendar
 import android.util.Log
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import com.xjtu.toolbox.auth.AuthExpiredException
 import com.xjtu.toolbox.auth.SiteSession
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
@@ -111,7 +112,17 @@ class SchoolCalendarApi(private val site: SiteSession? = null) {
         val code = json.get("code")?.asInt ?: -1
         if (code != 200) throw RuntimeException("校历接口返回 code=$code: ${json.get("msg")?.asString}")
 
-        return json.getAsJsonArray("data")
+        val data = json.getAsJsonArray("data")
+        // EIP 门户没建立会话时这个接口也答 code=200 data=[]（不是 401，也不是 CAS 登录页，
+        // 直接拿裸请求测过），跟"学校真的还没发校历"长得一模一样，站点通用的认证失效判断
+        // （看状态码 / 识别登录页 HTML）压根抓不住这种"假成功"。已登录却拿到空数组时，
+        // 按认证失效处理，交给标准的 AuthExpiredException 重登流程，而不是静默显示
+        // "暂无校历数据"——那样用户会以为是学校没发校历，而不是登录态的问题。
+        if (data.size() == 0 && site != null) {
+            throw AuthExpiredException(site.siteName, "${site.siteName}登录态已失效（校历接口返回空数据）")
+        }
+
+        return data
             .map { parseTerm(it.asJsonObject) }
             .sortedBy { it.startDate }
     }
