@@ -228,9 +228,6 @@ object ProactiveRules {
         accountType: AccountType?,
     ): ProactiveMessage? {
         if (now - lastAnyAt(ctx) < GLOBAL_COOLDOWN_MS) return null
-        val attendanceRoute =
-            if (accountType == AccountType.POSTGRADUATE) Routes.POSTGRADUATE_ATTENDANCE
-            else Routes.ATTENDANCE
         val candidates = buildList {
             // 课表变更排最前：调课停课换教室不知道就会白跑一趟，
             // 而学校改课表是不通知的，App 是唯一可能告诉他的地方。
@@ -240,7 +237,7 @@ object ProactiveRules {
             // 只在异常**新增**时才有值（见 HomeStatsRefresher），所以到这里就直接报。
             // 措辞保持中性——按用户要求，成绩、体测、考勤这类事一律不调侃。
             if (attendanceAlert != null) {
-                add(ProactiveMessage("attendance", attendanceAlert, openRoute = attendanceRoute))
+                add(ProactiveMessage("attendance", attendanceAlert, openRoute = Routes.NEW_ATTENDANCE))
             }
             // 考试：新版分级布局没有独立考试页，点日程也落不到那层 sheet。
             // 进屁岱，并把这场考试的缓存字段当快照——对准「点的是哪场」，缺的仍调工具。

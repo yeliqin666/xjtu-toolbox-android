@@ -4,8 +4,6 @@ package com.xjtu.toolbox.auth
  * 业务登录类型。运行时会通过 [SessionManager] / [SiteSession] 转换为 siteKey。
  */
 enum class LoginType(val label: String, val description: String) {
-    ATTENDANCE("考勤系统", "本科生考勤查询"),
-    POSTGRADUATE_ATTENDANCE("研究生考勤", "研究生考勤查询"),
     JWXT("教务系统", "日程/考试/评教"),
     JWAPP("移动教务", "成绩查询"),
     YWTB("一网通办", "个人信息/学期"),

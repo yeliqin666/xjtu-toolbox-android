@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.newattendance
 
 import com.google.gson.JsonObject
+import com.xjtu.toolbox.attendance.AttendanceProvider
 import com.xjtu.toolbox.attendance.AttendanceWaterRecord
 import com.xjtu.toolbox.attendance.CourseAttendanceStat
 import com.xjtu.toolbox.attendance.TermInfo
@@ -17,7 +18,7 @@ import java.time.LocalTime
 import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
 
-class NewAttendanceApi(private val site: SiteSession) {
+class NewAttendanceApi(private val site: SiteSession) : AttendanceProvider {
 
     private val jsonType = "application/json".toMediaType()
     @Volatile private var cachedTerms: List<TermInfo> = emptyList()
@@ -48,7 +49,7 @@ class NewAttendanceApi(private val site: SiteSession) {
         )
     }
 
-    fun getTermList(): List<TermInfo> {
+    override fun getTermList(): List<TermInfo> {
         val root = getJson("/student/service/timetable/semesters")
         val rows = KqHttp.rows(root.get("data")).ifEmpty { KqHttp.rows(root) }
         val terms = rows.mapNotNull { row ->
@@ -73,7 +74,7 @@ class NewAttendanceApi(private val site: SiteSession) {
         return terms
     }
 
-    fun getTermBh(): String {
+    override fun getTermBh(): String {
         val terms = cachedTerms.ifEmpty { getTermList() }
         if (terms.isEmpty()) return ""
         runCatching {
@@ -95,7 +96,7 @@ class NewAttendanceApi(private val site: SiteSession) {
             ?: terms.first().bh
     }
 
-    fun getWaterRecords(termBh: String? = null, startDate: String = "", endDate: String = ""): List<AttendanceWaterRecord> {
+    override fun getWaterRecords(termBh: String?, startDate: String, endDate: String): List<AttendanceWaterRecord> {
         val terms = cachedTerms.ifEmpty { runCatching { getTermList() }.getOrDefault(emptyList()) }
         val bh = termBh ?: getTermBh()
         val term = terms.firstOrNull { it.bh == bh }
@@ -130,7 +131,7 @@ class NewAttendanceApi(private val site: SiteSession) {
         }.sortedWith(compareByDescending<AttendanceWaterRecord> { it.date }.thenByDescending { it.startTime })
     }
 
-    fun getKqtjCurrentWeek(): List<CourseAttendanceStat> {
+    override fun getKqtjCurrentWeek(): List<CourseAttendanceStat> {
         return try {
             val root = getJson("/student/pc/home/attendance-statistics")
             parseCourseStats(root.get("data")).ifEmpty { parseCourseStats(root) }
@@ -146,7 +147,7 @@ class NewAttendanceApi(private val site: SiteSession) {
         }
     }
 
-    fun getKqtjByTime(startDate: String, endDate: String): List<CourseAttendanceStat> {
+    override fun getKqtjByTime(startDate: String, endDate: String): List<CourseAttendanceStat> {
         val bh = getTermBh()
         val rows = try {
             fetchAttendanceRecords(bh, normalizeDate(startDate), normalizeDate(endDate))

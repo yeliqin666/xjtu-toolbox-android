@@ -46,10 +46,25 @@ data class Bulletin(
     val targetVersionCode: Int? = null,
     /** 当前版本 < 此值时，把 update 升级成 force_update。 */
     val forceBelow: String? = null,
+    /**
+     * mustAck 原来只管"确认过之后还要不要再弹"，poll 用它多一层含义：
+     * 弹窗本身不可跳过（没有返回键/点外部关闭），只有提交答案才能关掉，
+     * 见 MainActivity 里 BulletinLaunchDialog 对 [options] 非空 + mustAck 的处理。
+     */
     val mustAck: Boolean,
     val block: Boolean,
     val synthesized: Boolean = false,
-)
+    /** 作废开关：改这个不用等时间窗过期，remote 配置里直接置 false 立刻不再展示。 */
+    val active: Boolean = true,
+    /** 非空即投票：渲染成选项列表而不是纯文字通知。 */
+    val options: List<String> = emptyList(),
+    /** 投票是否允许多选；单选时选中一项自动替换上一次选择。 */
+    val allowMultiple: Boolean = false,
+    /** 附加一个"其他（自己填）"文本框；填了就作为额外一条选项一起提交。 */
+    val allowOther: Boolean = false,
+) {
+    val isPoll: Boolean get() = options.isNotEmpty()
+}
 
 object BulletinRules {
     private val beijing = ZoneId.of("Asia/Shanghai")
@@ -90,6 +105,13 @@ object BulletinRules {
                 forceBelow = obj.get("forceBelow")?.takeIf { it.isJsonPrimitive }?.asString?.trim()?.ifBlank { null },
                 mustAck = mustAck,
                 block = obj.get("block")?.takeIf { it.isJsonPrimitive }?.asBoolean ?: false,
+                active = obj.get("active")?.takeIf { it.isJsonPrimitive }?.asBoolean ?: true,
+                options = obj.get("options")?.takeIf { it.isJsonArray }
+                    ?.asJsonArray
+                    ?.mapNotNull { o -> o.takeIf { it.isJsonPrimitive }?.asString?.trim()?.ifBlank { null } }
+                    .orEmpty(),
+                allowMultiple = obj.get("allowMultiple")?.takeIf { it.isJsonPrimitive }?.asBoolean ?: false,
+                allowOther = obj.get("allowOther")?.takeIf { it.isJsonPrimitive }?.asBoolean ?: false,
             )
         }
     }
@@ -100,6 +122,7 @@ object BulletinRules {
         currentVersion: String,
         currentVersionCode: Int? = null,
     ): Boolean {
+        if (!bulletin.active) return false
         if (bulletin.startsAt != null && now.isBefore(bulletin.startsAt)) return false
         if (bulletin.endsAt != null && !now.isBefore(bulletin.endsAt)) return false
         val min = bulletin.minVersion
@@ -137,6 +160,8 @@ object BulletinRules {
         if (bulletin.level == BulletinLevel.CRITICAL && !bulletin.mustAck && bulletin.id in ackedIds) {
             return true
         }
+        // 投票答过一次就不再问，跟 level 无关（CRITICAL 之外的等级也能是投票）。
+        if (bulletin.isPoll && bulletin.id in ackedIds) return true
         return false
     }
 
@@ -177,6 +202,11 @@ object BulletinRules {
         currentVersionCode,
     ).firstOrNull()
 
+    /**
+     * 投票故意不在这里返回 true：不想在冷启动就顶一个强制弹窗糊用户一脸，
+     * 而是跟 INFO/WARN 一样先在首页顶部堆叠条里露面，用户点开才弹真正的答题框
+     * （那个框本身在 mustAck 时才是真不可跳过的，见 MainActivity 的 BulletinLaunchDialog）。
+     */
     fun shouldShowLaunchDialog(bulletin: Bulletin): Boolean =
         bulletin.block ||
             bulletin.level == BulletinLevel.CRITICAL ||

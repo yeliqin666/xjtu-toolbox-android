@@ -1,7 +1,6 @@
 package com.xjtu.toolbox.schedule
 
 import android.util.Log
-import com.xjtu.toolbox.attendance.AttendanceApi
 import com.xjtu.toolbox.attendance.AttendanceRecordStore
 import com.xjtu.toolbox.attendance.AttendanceWaterRecord
 import com.xjtu.toolbox.attendance.WaterType
@@ -454,15 +453,10 @@ object CourseLinks {
         shard: AttendanceRecordStore.Shard?,
         plan: AttendanceRecordStore.Plan,
     ): AttendanceIndex? {
-        val type = if (accountType == AccountType.POSTGRADUATE) {
-            LoginType.POSTGRADUATE_ATTENDANCE
-        } else {
-            LoginType.ATTENDANCE
-        }
-        val site = manager.siteOrNull(type, userInitiated) ?: return null
+        val site = manager.siteOrNull(LoginType.NEW_ATTENDANCE, userInitiated) ?: return null
         return withContext(Dispatchers.IO) {
             val index = runCatching {
-                val api = AttendanceApi(site)
+                val api = com.xjtu.toolbox.attendance.attendanceProvider(site)
                 // 必须显式指定学期，不能用 getWaterRecords() 的默认值。
                 // 默认走 getNearTerm，暑假期间它返回的是还没有任何流水的新学期，
                 // 结果就是稳定拉到 0 条——这正是"考勤那一行始终不显示"的原因。

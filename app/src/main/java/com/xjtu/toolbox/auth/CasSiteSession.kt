@@ -91,20 +91,20 @@ abstract class CasSiteSession(
     }
 
     /**
-     * TGC 引导：cookie jar 里还没有 TGC 时，全局只放一个站点去做「带密码的首次登录」，
-     * 其余站点在此排队。等第一个建好 TGC 后，排队者各自的 [XJTULogin] init 会直接 SSO 直通
-     * ——既不重复提交密码（风控上更干净），也不必再去等 [CasGate] 的间隔平滑。
+     * 全局串行：所有站点的 CAS 登录（含 TGC 已建好后的纯 SSO 直通）都排在同一把锁后面。
      *
-     * 之前的行为：N 个站点并发首登时都在 TGC 建立前抓到了 CAS 登录表单，于是 N 次密码 POST
-     * 在闸门里逐个排队，每个还要 +4s 平滑 —— 首次进任何功能都要等好几秒的根源。
+     * 本来只有"TGC 还没建好"这一段才排队，TGC 建好后的 SSO 直通被认为是无密码的轻量
+     * 操作，各站点各自的 service ticket 互不相干，理论上可以并发。但实测（真机日志）
+     * 证伪了这个假设：首次登录/重新登录时 jwxt、library、campus_card、lms 等好几个站点
+     * 的登录挤在同一个几十秒窗口内并发跑，考勤（attendance）的登录在这个窗口里两次拿不到
+     * 重定向回来的 token（AttendanceLogin.postLogin 报 "无法获取考勤 Token"），且服务端
+     * 对短时间内多次 CAS 验证的风控也会体现为连续弹出好几条独立的 MFA 短信验证——用户
+     * 反馈的正是这两个症状。跟 TGC 引导锁本来要防的是同一类问题（服务端把并发 CAS 请求
+     * 当异常），干脆把整段 CAS 登录都纳入这把锁，牺牲一点"多站点登录能并发"的理论速度，
+     * 换正确性：同一时刻全局只有一个站点在真正跟 CAS/各子系统的登录端点打交道。
      */
     override suspend fun runLogin(username: String, password: String) {
-        val jar = checkNotNull(backend) { "[$siteKey] backend not bound" }.cookieJar
-        if (jar.findCookieByName("TGC") == null) {
-            tgcBootstrapLock.withLock { runCasLogin(username, password) }
-        } else {
-            runCasLogin(username, password)
-        }
+        casLoginLock.withLock { runCasLogin(username, password) }
     }
 
     private suspend fun runCasLogin(username: String, password: String) {
@@ -173,7 +173,7 @@ abstract class CasSiteSession(
             msg.contains("401")
 
     companion object {
-        /** 全局唯一：所有 CAS 站点共用的 TGC 引导锁。 */
-        private val tgcBootstrapLock = Mutex()
+        /** 全局唯一：所有 CAS 站点共用的登录锁，见 [runLogin] 上的说明。 */
+        private val casLoginLock = Mutex()
     }
 }

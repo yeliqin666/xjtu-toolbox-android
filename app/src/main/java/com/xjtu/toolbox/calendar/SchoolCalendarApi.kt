@@ -1,18 +1,13 @@
 package com.xjtu.toolbox.calendar
 
-import android.util.Log
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
-import com.xjtu.toolbox.auth.AuthExpiredException
-import com.xjtu.toolbox.auth.SiteSession
-import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
+import java.time.DayOfWeek
 import java.time.LocalDate
 
-private const val TAG = "SchoolCalendarApi"
-private const val BASE_URL = "http://one2020.xjtu.edu.cn"
+private const val CALENDAR_URL = "https://workflow.xjtu.edu.cn/selectpage/site/calendar/getData"
 
 /** 校历事件（假期/重要节点） */
 data class CalendarEvent(
@@ -73,88 +68,88 @@ data class SchoolTerm(
     }
 }
 
-class SchoolCalendarApi(private val site: SiteSession? = null) {
-    private val client: OkHttpClient = site?.client ?: OkHttpClient()
+/**
+ * 校历数据源：`workflow.xjtu.edu.cn` 的工作流门户首页小组件用的公开接口，不需要登录、
+ * 不需要 CAS/SSO——这也是它被选中的原因：原来那套走 EIP 门户（one2020.xjtu.edu.cn）
+ * 的方案，实测证明 jwxt 的登录态没法 SSO 到 EIP，接口没会话时也照样答 code=200 data=[]，
+ * 逼用户重登完全没用（详见 git log 里这个文件的历史）。这个接口从抓包直接对上：
+ * `GET /selectpage/site/calendar/getData`，响应外层是 `{e, d, m}`（e=0 成功），
+ * `d.semesters[]` 每项一个学期，`holidays[]` 是有起止日期的假期/节点，`specialEvents[]`
+ * 是按标题对应的详细说明文字（不是所有 holiday 都有对应的 specialEvent）。
+ */
+class SchoolCalendarApi {
+    private val client = OkHttpClient()
 
-    /**
-     * 获取全部学期校历列表
-     * 先访问 showCalendar.htm 建立 EIP 门户 Session（利用 CAS TGC 自动完成 SSO），
-     * 再调用 terms.htm 获取结构化数据
-     */
     fun getTerms(): List<SchoolTerm> {
-        // 建立 EIP portal JSESSIONID（CAS SSO 自动走）
-        val initReq = Request.Builder()
-            .url("$BASE_URL/EIP/edu/education/schoolcalendar/showCalendar.htm")
-            .get()
-            .build()
-        try {
-            execute(initReq).use { resp ->
-                Log.d(TAG, "init page: ${resp.code} -> ${resp.request.url}")
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "init page failed (continuing): ${e.message}")
-        }
-
-        val request = Request.Builder()
-            .url("$BASE_URL/EIP/schoolcalendar/terms.htm")
-            .post("".toRequestBody())
-            .header("X-Requested-With", "XMLHttpRequest")
-            .header("Origin", BASE_URL)
-            .header("Referer", "$BASE_URL/EIP/edu/education/schoolcalendar/showCalendar.htm")
-            .build()
-
-        val body = execute(request).use { resp ->
+        val request = Request.Builder().url(CALENDAR_URL).get().build()
+        val body = client.newCall(request).execute().use { resp ->
             resp.body?.string() ?: throw RuntimeException("校历接口无响应")
         }
-        Log.d(TAG, "terms response (${body.length}): ${body.take(200)}")
-
         val json = JsonParser.parseString(body).asJsonObject
-        val code = json.get("code")?.asInt ?: -1
-        if (code != 200) throw RuntimeException("校历接口返回 code=$code: ${json.get("msg")?.asString}")
-
-        val data = json.getAsJsonArray("data")
-        // EIP 门户没建立会话时这个接口也答 code=200 data=[]（不是 401，也不是 CAS 登录页，
-        // 直接拿裸请求测过），跟"学校真的还没发校历"长得一模一样，站点通用的认证失效判断
-        // （看状态码 / 识别登录页 HTML）压根抓不住这种"假成功"。已登录却拿到空数组时，
-        // 按认证失效处理，交给标准的 AuthExpiredException 重登流程，而不是静默显示
-        // "暂无校历数据"——那样用户会以为是学校没发校历，而不是登录态的问题。
-        if (data.size() == 0 && site != null) {
-            throw AuthExpiredException(site.siteName, "${site.siteName}登录态已失效（校历接口返回空数据）")
-        }
-
-        return data
-            .map { parseTerm(it.asJsonObject) }
+        val code = json.get("e")?.asInt ?: -1
+        if (code != 0) throw RuntimeException("校历接口返回异常：${json.get("m")?.asString}")
+        val data = json.getAsJsonObject("d") ?: throw RuntimeException("校历接口缺少数据")
+        val semesters = data.getAsJsonArray("semesters") ?: return emptyList()
+        return semesters.mapNotNull { runCatching { parseSemester(it.asJsonObject) }.getOrNull() }
             .sortedBy { it.startDate }
     }
 
-    private fun execute(request: Request) =
-        site?.let { runBlocking { it.executeWithReAuth(request) } }
-            ?: client.newCall(request).execute()
+    private fun parseSemester(obj: JsonObject): SchoolTerm? {
+        val start = obj.get("start_date")?.asString?.let { parseDateOrNull(it) } ?: return null
+        // 学期"结束"取考试周结束日（含教学+考试），没有就退到教学结束日，
+        // 再没有才用 end_date（那个其实是到下学期开学前，含整个寒暑假，会把"进度条"拉得没意义）。
+        val end = firstValidDate(obj, "exam_end", "term_end_date", "end_date") ?: return null
 
-    private fun parseTerm(obj: JsonObject): SchoolTerm {
-        val events = obj.getAsJsonArray("holidays")
-            ?.mapNotNull { runCatching { parseEvent(it.asJsonObject) }.getOrNull() }
-            ?.sortedBy { it.startDate }
-            ?: emptyList()
+        val specialByTitle = obj.getAsJsonArray("specialEvents")?.associate { el ->
+            val e = el.asJsonObject
+            e.get("title")?.asString.orEmpty() to e.get("content")?.asString.orEmpty()
+        }.orEmpty()
+
+        val events = obj.getAsJsonArray("holidays")?.mapNotNull { el ->
+            val h = el.asJsonObject
+            val hStart = h.get("start_date")?.asString?.let { parseDateOrNull(it) } ?: return@mapNotNull null
+            val hEnd = h.get("end_date")?.asString?.let { parseDateOrNull(it) } ?: hStart
+            val title = h.get("title")?.asString.orEmpty()
+            CalendarEvent(
+                id = "$title-$hStart",
+                startDate = hStart,
+                endDate = hEnd,
+                name = title,
+                remark = specialByTitle[title].orEmpty(),
+                days = (hEnd.toEpochDay() - hStart.toEpochDay() + 1).toInt(),
+                colorHex = "#196dd0",
+            )
+        }.orEmpty().sortedBy { it.startDate }
+
+        val totalWeeks = ((end.toEpochDay() - start.toEpochDay()) / 7).toInt().coerceAtLeast(0)
+        val workDays = generateSequence(start) { it.plusDays(1) }
+            .takeWhile { !it.isAfter(end) }
+            .count { it.dayOfWeek != DayOfWeek.SATURDAY && it.dayOfWeek != DayOfWeek.SUNDAY }
+
+        val year = obj.get("year")?.asString.orEmpty()
+        val semesterName = obj.get("name")?.asString.orEmpty()
         return SchoolTerm(
-            id = obj.get("id")?.asString ?: "",
-            startDate = LocalDate.parse(obj.get("start_date").asString),
-            endDate = LocalDate.parse(obj.get("end_date").asString),
-            termName = obj.get("term_num")?.asString ?: "",
-            yearName = obj.get("year_num")?.asString ?: "",
-            totalWeeks = obj.get("week_number")?.asString?.toIntOrNull() ?: 0,
-            workDays = obj.get("work_days")?.asInt ?: 0,
-            events = events
+            id = obj.get("id")?.asString.orEmpty(),
+            startDate = start,
+            endDate = end,
+            termName = "${year}学年$semesterName",
+            yearName = year,
+            totalWeeks = totalWeeks,
+            workDays = workDays,
+            events = events,
         )
     }
 
-    private fun parseEvent(obj: JsonObject) = CalendarEvent(
-        id = obj.get("id")?.asString ?: "",
-        startDate = LocalDate.parse(obj.get("start_date").asString),
-        endDate = LocalDate.parse(obj.get("end_date").asString),
-        name = obj.get("holiday_name")?.asString ?: "",
-        remark = obj.get("holiday_remark")?.asString ?: "",
-        days = obj.get("holiday_days")?.asString?.toIntOrNull() ?: 0,
-        colorHex = obj.get("holiday_color")?.asString ?: "#196dd0"
-    )
+    private fun firstValidDate(obj: JsonObject, vararg keys: String): LocalDate? {
+        for (key in keys) {
+            obj.get(key)?.asString?.let { parseDateOrNull(it) }?.let { return it }
+        }
+        return null
+    }
+
+    /** 接口用 "0000-00-00" 表示字段没填，不是合法日期。 */
+    private fun parseDateOrNull(value: String): LocalDate? {
+        if (value.isBlank() || value == "0000-00-00") return null
+        return runCatching { LocalDate.parse(value) }.getOrNull()
+    }
 }

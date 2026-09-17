@@ -426,66 +426,6 @@ class VenueSession : CasSiteSession("venue", "场馆预订", mustUseWebVpn = fal
         VenueLogin(session = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
 }
 
-// ── ATTENDANCE 考勤系统（本科 / 研究生） ──────────────────────────────
-
-/**
- * 考勤系统会话。登录后将 Synjones-Auth token 写入 [localToken]，业务请求自动注入 header。
- * 通过 [isPostgraduate] 区分本科（bkkq）/ 研究生（yjskq）。
- */
-class AttendanceSession(
-    private val isPostgraduate: Boolean,
-) : CasSiteSession(
-    siteKey = if (isPostgraduate) "pg_attendance" else "attendance",
-    siteName = if (isPostgraduate) "研究生考勤" else "本科考勤",
-    mustUseWebVpn = true,
-) {
-    val attendanceDomain: String
-        get() = if (isPostgraduate) "yjskq.xjtu.edu.cn" else "bkkq.xjtu.edu.cn"
-
-    override val accountType: XJTULogin.AccountType
-        get() = if (isPostgraduate) XJTULogin.AccountType.POSTGRADUATE
-                else XJTULogin.AccountType.UNDERGRADUATE
-
-    override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin {
-        val useWebVpn = currentAccessMode == AccessMode.WEBVPN
-        return AttendanceLogin(
-            session = client,
-            visitorId = visitorId,
-            useWebVpn = useWebVpn,
-            isPostgraduate = isPostgraduate,
-        )
-    }
-
-    override fun onLoginSuccess(login: XJTULogin) {
-        (login as? AttendanceLogin)?.authToken?.takeIf { it.isNotEmpty() }?.let {
-            localToken["synjones_auth"] = it
-        }
-    }
-
-    override fun decorateRequest(builder: Request.Builder): Request.Builder {
-        localToken["synjones_auth"]?.let { builder.header("Synjones-Auth", "bearer $it") }
-        return builder
-    }
-
-    override suspend fun validateLogin(): Boolean = withIo {
-        val token = localToken["synjones_auth"] ?: return@withIo false
-        val url = "https://$attendanceDomain/attendance-student/global/getStuInfo"
-        val resp = client.newCall(
-            Request.Builder()
-                .url(url)
-                .header("Synjones-Auth", "bearer $token")
-                .post("".toRequestBody(null))
-                .build()
-        ).execute()
-        try {
-            if (resp.code != 200) return@withIo false
-            val body = resp.body?.string() ?: return@withIo false
-            if (XJTULogin.isAuthFailureResponse(body)) return@withIo false
-            body.safeParseJsonObject().get("success")?.asBoolean == true
-        } finally { resp.close() }
-    }
-}
-
 // ── CAMPUS CARD 校园卡 ───────────────────────────────────────────────
 
 /**

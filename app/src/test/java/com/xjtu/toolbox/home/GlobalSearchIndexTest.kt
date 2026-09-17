@@ -82,36 +82,26 @@ class GlobalSearchIndexTest {
     }
 
     @Test
-    fun postgraduateAttendance_isSearchableForPostgraduates() {
+    fun newAttendance_isSearchableForBothUndergradAndPostgrad() {
+        // 新版考勤（kq.xjtu.edu.cn）本研统一，取代了旧版按学籍分开的两个入口，
+        // 两边都应该搜得到、首页都应该看得见。
         assertTrue(
-            AppServices.all.any { it.route == Routes.POSTGRADUATE_ATTENDANCE && it.showOnHome },
+            AppServices.all.any { it.route == Routes.NEW_ATTENDANCE && it.showOnHome },
         )
-        val results = GlobalSearchIndex.search("研究生考勤", AccountType.POSTGRADUATE)
-        assertTrue(
-            "expected 研考勤 screen, got ${results.map { it.title }}",
-            results.any { it is SearchEntry.Screen && it.route == Routes.POSTGRADUATE_ATTENDANCE },
-        )
+        for (accountType in listOf(AccountType.UNDERGRADUATE, AccountType.POSTGRADUATE)) {
+            val homeRoutes = AppServices.homeFor(accountType).map { it.route }
+            assertTrue("$accountType 首页应包含新版考勤", Routes.NEW_ATTENDANCE in homeRoutes)
+            val results = GlobalSearchIndex.search("考勤", accountType)
+            assertTrue(
+                "$accountType 搜索「考勤」应命中新版考勤，got ${results.map { it.title }}",
+                results.any { it is SearchEntry.Screen && it.route == Routes.NEW_ATTENDANCE },
+            )
+        }
     }
 
     @Test
-    fun undergraduate_cannotSeePostgraduateAttendance() {
-        val homeRoutes = AppServices.homeFor(AccountType.UNDERGRADUATE).map { it.route }
-        assertFalse(Routes.POSTGRADUATE_ATTENDANCE in homeRoutes)
-        assertTrue(Routes.ATTENDANCE in homeRoutes)
-        val results = GlobalSearchIndex.search("研究生考勤", AccountType.UNDERGRADUATE)
-        assertFalse(
-            results.any { it is SearchEntry.Screen && it.route == Routes.POSTGRADUATE_ATTENDANCE },
-        )
-    }
-
-    @Test
-    fun postgraduate_cannotSeeUndergraduateAttendance() {
+    fun postgraduate_cannotSeeUndergraduateOnlyIclassface() {
         val homeRoutes = AppServices.homeFor(AccountType.POSTGRADUATE).map { it.route }
-        assertFalse(Routes.ATTENDANCE in homeRoutes)
         assertFalse(Routes.ICLASSFACE in homeRoutes)
-        assertTrue(Routes.POSTGRADUATE_ATTENDANCE in homeRoutes)
-        val results = GlobalSearchIndex.search("考勤", AccountType.POSTGRADUATE)
-        assertFalse(results.any { it is SearchEntry.Screen && it.route == Routes.ATTENDANCE })
-        assertTrue(results.any { it is SearchEntry.Screen && it.route == Routes.POSTGRADUATE_ATTENDANCE })
     }
 }

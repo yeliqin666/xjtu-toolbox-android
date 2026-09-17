@@ -152,8 +152,8 @@ object HomeStatsRefresher {
             withContext(Dispatchers.IO) { couponStatus(ctx, site) }
         },
 
-        // 考勤：两天一次。
-        Source(Routes.ATTENDANCE, 2 * DAY, LoginType.ATTENDANCE) { ctx, site ->
+        // 考勤：两天一次。新版考勤本研统一，不再像旧版那样只覆盖本科生。
+        Source(Routes.NEW_ATTENDANCE, 2 * DAY, LoginType.NEW_ATTENDANCE) { ctx, site ->
             site ?: return@Source null
             withContext(Dispatchers.IO) { attendanceWeeklyRate(ctx, site) }
         },
@@ -387,7 +387,6 @@ object HomeStatsRefresher {
             // 把"经常到期"的（校园卡 30min、图书馆 15min、刷卡记录 10min）排在
             // 一周才刷一次的评教/体测后面，等于让最该新鲜的数据等最不着急的。
             for (s in sources.sortedBy { it.ttlMs }) {
-                if (s.loginType == LoginType.ATTENDANCE && accountType != AccountType.UNDERGRADUATE) continue
                 if (s.loginType == LoginType.ICLASSFACE && accountType != AccountType.UNDERGRADUATE) continue
                 val last = stamps[s.routeKey] ?: 0L
                 val hasContent = s.routeKey in existing
@@ -493,7 +492,7 @@ object HomeStatsRefresher {
 
     private fun attendanceWeeklyRate(ctx: android.content.Context, site: SiteSession): HomeStat? {
         val stats = runCatching {
-            com.xjtu.toolbox.attendance.AttendanceApi(site).getKqtjCurrentWeek()
+            com.xjtu.toolbox.attendance.attendanceProvider(site).getKqtjCurrentWeek()
         }.getOrNull().orEmpty()
         Log.d(TAG, "attendance: 本周统计 ${stats.size} 门课")
         if (stats.isEmpty()) return null

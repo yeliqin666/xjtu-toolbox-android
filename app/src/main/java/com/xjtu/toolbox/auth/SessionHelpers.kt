@@ -1,8 +1,6 @@
 package com.xjtu.toolbox.auth
 
 fun LoginType.siteKey(): String = when (this) {
-    LoginType.ATTENDANCE -> "attendance"
-    LoginType.POSTGRADUATE_ATTENDANCE -> "pg_attendance"
     LoginType.JWXT -> "jwxt"
     LoginType.JWAPP -> "jwapp"
     LoginType.YWTB -> "ywtb"

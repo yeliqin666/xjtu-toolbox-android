@@ -3,7 +3,6 @@ package com.xjtu.toolbox.schedule
 import android.content.Context
 import android.util.Log
 import com.google.gson.Gson
-import com.xjtu.toolbox.attendance.AttendanceScheduleApi
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.SessionManager
@@ -166,26 +165,22 @@ object ScheduleSourceRouter {
         return SourceResult(result.courses, result.changeEvents)
     }
 
-    private suspend fun fromBkkq(
+    /**
+     * 考勤系统课表源暂时禁用。
+     *
+     * 旧版考勤（bkkq/yjskq.xjtu.edu.cn）域名已经停用，迁到了新版考勤（kq.xjtu.edu.cn +
+     * bk-kq/yjs-kq.xjtu.edu.cn）。新版考勤只确认了考勤记录接口（[com.xjtu.toolbox.attendance.AttendanceProvider]），
+     * 按周查排课的接口没有任何抓包证据——kq.xjtu.edu.cn 匿名访问直接被 302 到 CAS 登录页，
+     * 连公开 JS bundle 都拿不到，没法像 jwapp 那样反查接口。宁可这个源先失效（路由器本来就
+     * 会自动退回教务源，用户无感知），也不瞎猜一个接口结构上去——猜错了是静默拉错课表，
+     * 比"这个源暂时不能用"糟得多。
+     */
+    private fun fromBkkq(
         manager: SessionManager,
         accountType: AccountType,
         termCode: String,
         userInitiated: Boolean,
-    ): SourceResult? {
-        val type = if (accountType == AccountType.POSTGRADUATE) {
-            LoginType.POSTGRADUATE_ATTENDANCE
-        } else {
-            LoginType.ATTENDANCE
-        }
-        val site = manager.siteOrNull(type, userInitiated) ?: return null
-        val api = AttendanceScheduleApi(site)
-        val term = api.nearTerm()
-        if (!sameTerm(term.name, termCode)) {
-            Log.d(TAG, "考勤系统当前学期是 ${term.name}，要查的是 $termCode，走教务")
-            return null
-        }
-        return SourceResult(api.getSchedule(term.bh, term.weeks))
-    }
+    ): SourceResult? = null
 
     /**
      * 两个学期标识是不是同一个学期。

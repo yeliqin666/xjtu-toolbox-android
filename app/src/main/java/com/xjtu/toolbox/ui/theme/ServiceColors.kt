@@ -48,10 +48,8 @@ private const val R_EMPTY_ROOM = "empty_room"
 private const val R_LMS = "lms"
 private const val R_CLASS_REPLAY = "class_replay"
 private const val R_SCHOOL_COURSE = "school_course"
-private const val R_ATTENDANCE = "attendance"
 private const val R_NEW_ATTENDANCE = "new_attendance"
 private const val R_ICLASSFACE = "iclassface"
-private const val R_POSTGRADUATE_ATTENDANCE = "postgraduate_attendance"
 private const val R_JWAPP_SCORE = "jwapp_score"
 private const val R_JUDGE = "judge"
 private const val R_JIAOCAI = "jiaocai"
@@ -83,10 +81,8 @@ fun legacyColor(key: String): Color = when (key) {
     R_LMS -> Color(0xFF1565C0)
     R_CLASS_REPLAY -> Color(0xFF512DA8)
     R_SCHOOL_COURSE -> Color(0xFF00838F)
-    R_ATTENDANCE -> Color(0xFF4E342E)
     R_NEW_ATTENDANCE -> Color(0xFF37474F)
     R_ICLASSFACE -> Color(0xFF00695C)
-    R_POSTGRADUATE_ATTENDANCE -> Color(0xFF4E342E)
     // 学业
     R_JWAPP_SCORE -> Color(0xFF7B1FA2)
     R_JUDGE -> Color(0xFF6A1B9A)

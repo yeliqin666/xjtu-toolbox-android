@@ -42,9 +42,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * 延迟弹出，给启动公告 / 更新框先走，避免两层叠在一起。
  */
 @Composable
-fun FeedbackPromptSheet(
-    onOpenFeedback: () -> Unit,
-) {
+fun FeedbackPromptSheet() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -59,7 +57,6 @@ fun FeedbackPromptSheet(
     }
     if (!armed) return
 
-    var answered by remember { mutableStateOf<String?>(null) }
     var note by remember { mutableStateOf("") }
     var sent by remember { mutableStateOf(false) }
 
@@ -119,56 +116,41 @@ fun FeedbackPromptSheet(
                 return@Column
             }
 
+            // 原来是"选好用/有问题 → 换一屏填备注 → 再点发送"两步；合并成一步：
+            // 备注框和评价按钮一开始就都在，点评价按钮直接带上当前备注一并提交。
             Text(
                 "一句话就行，不用注册。划掉就不会再问。",
                 style = MiuixTheme.textStyles.body2,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
             Spacer(Modifier.height(16.dp))
-
-            if (answered == null) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(
-                        text = "挺好",
-                        onClick = { answered = "好用" },
-                        colors = ButtonDefaults.textButtonColorsPrimary(),
-                        modifier = Modifier.weight(1f),
-                    )
-                    TextButton(
-                        text = "有问题",
-                        onClick = { answered = "有问题" },
-                        modifier = Modifier.weight(1f),
-                    )
-                    TextButton(
-                        text = "别问了",
-                        onClick = { close() },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-            } else {
-                TextField(
-                    value = note,
-                    onValueChange = { note = it },
-                    label = if (answered == "有问题") "哪儿不对？" else "有什么想加的功能吗？（选填）",
-                    singleLine = false,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 96.dp),
+            TextField(
+                value = note,
+                onValueChange = { note = it },
+                label = "有什么想说的？（选填）",
+                singleLine = false,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 96.dp),
+            )
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(
+                    text = "挺好",
+                    onClick = { send("好用", note.trim()) },
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                    modifier = Modifier.weight(1f),
                 )
-                Spacer(Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(
-                        text = "发送",
-                        onClick = { send(answered.orEmpty(), note.trim()) },
-                        colors = ButtonDefaults.textButtonColorsPrimary(),
-                        modifier = Modifier.weight(1f),
-                    )
-                    TextButton(
-                        text = "写详细点",
-                        onClick = { close(); onOpenFeedback() },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
+                TextButton(
+                    text = "有问题",
+                    onClick = { send("有问题", note.trim()) },
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(
+                    text = "别问了",
+                    onClick = { close() },
+                    modifier = Modifier.weight(1f),
+                )
             }
         }
     }

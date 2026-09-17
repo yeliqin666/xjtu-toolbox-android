@@ -8,7 +8,6 @@ import com.google.gson.Gson
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.xjtu.toolbox.AppLoginState
-import com.xjtu.toolbox.attendance.AttendanceApi
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.SiteSession
@@ -810,7 +809,7 @@ class AgentToolRegistry(
 
     private suspend fun getSchoolCalendar(term: String?): String {
         return try {
-            val terms = com.xjtu.toolbox.calendar.SchoolCalendarApi(ensureSite(LoginType.JWXT)).getTerms()
+            val terms = com.xjtu.toolbox.calendar.SchoolCalendarApi().getTerms()
             if (terms.isEmpty()) return "暂无校历数据。"
             val today = LocalDate.now()
             val selected = if (term.isNullOrBlank()) {
@@ -1208,11 +1207,10 @@ class AgentToolRegistry(
     }
 
     private suspend fun getAttendance(limit: Int): String {
-        val site = ensureSite(LoginType.ATTENDANCE)
-            ?: ensureSite(LoginType.POSTGRADUATE_ATTENDANCE)
-            ?: return loginHint(LoginType.ATTENDANCE)
+        val site = ensureSite(LoginType.NEW_ATTENDANCE)
+            ?: return loginHint(LoginType.NEW_ATTENDANCE)
         return try {
-            val api = AttendanceApi(site)
+            val api = com.xjtu.toolbox.attendance.attendanceProvider(site)
             val termBh = runCatching { api.getTermBh() }.getOrNull()
             val termStartDate = termBh?.let {
                 runCatching { api.getTermList().firstOrNull { t -> t.bh == it }?.startDate }.getOrNull()

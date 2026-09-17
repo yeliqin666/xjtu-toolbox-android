@@ -63,6 +63,9 @@ import top.yukonga.miuix.kmp.basic.Badge
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.Checkbox
+import top.yukonga.miuix.kmp.basic.RadioButton
+import androidx.compose.ui.state.ToggleableState
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.NavigationBar
@@ -118,7 +121,6 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.xjtu.toolbox.auth.*
-import com.xjtu.toolbox.attendance.AttendanceScreen
 import com.xjtu.toolbox.emptyroom.EmptyRoomScreen
 import com.xjtu.toolbox.jwapp.JwappScoreScreen
 import com.xjtu.toolbox.schedule.ScheduleScreen
@@ -247,9 +249,7 @@ object Routes {
     const val MAIN = "main"
     const val EMPTY_ROOM = "empty_room"
     const val NOTIFICATION = "notification"
-    const val ATTENDANCE = "attendance"
     const val NEW_ATTENDANCE = "new_attendance"
-    const val POSTGRADUATE_ATTENDANCE = "postgraduate_attendance"
     const val SCHEDULE = "schedule"
     const val JUDGE = "judge"
     const val JWAPP_SCORE = "jwapp_score"
@@ -303,9 +303,7 @@ object Routes {
 
 /** shortcut / 搜索 / 深链进功能页时，对应要先登录的站点。null = 无需登录可直达。 */
 fun loginTypeForRoute(route: String): LoginType? = when (route) {
-    Routes.ATTENDANCE -> LoginType.ATTENDANCE
     Routes.NEW_ATTENDANCE -> LoginType.NEW_ATTENDANCE
-    Routes.POSTGRADUATE_ATTENDANCE -> LoginType.POSTGRADUATE_ATTENDANCE
     Routes.LIBRARY -> LoginType.LIBRARY
     Routes.CAMPUS_CARD, Routes.PAYMENT_CODE -> LoginType.CAMPUS_CARD
     Routes.JWAPP_SCORE -> LoginType.JWAPP
@@ -857,8 +855,6 @@ class AppLoginStateViewModel(application: android.app.Application) : androidx.li
             register(com.xjtu.toolbox.auth.CouponSession())
             register(com.xjtu.toolbox.auth.DzpzSession())
             register(com.xjtu.toolbox.auth.VenueSession())
-            register(com.xjtu.toolbox.auth.AttendanceSession(isPostgraduate = false))
-            register(com.xjtu.toolbox.auth.AttendanceSession(isPostgraduate = true))
             register(com.xjtu.toolbox.auth.NewAttendanceSession())
             register(com.xjtu.toolbox.auth.CampusCardSession())
             register(com.xjtu.toolbox.auth.FitnessSession())
@@ -1438,6 +1434,11 @@ fun AppNavigation(
     }
 
     fun onHeroBulletinTap(bulletin: Bulletin) {
+        if (bulletin.isPoll) {
+            launchDialogBulletin = bulletin
+            showBulletinDialog.value = true
+            return
+        }
         if (bulletin.level == BulletinLevel.FORCE_UPDATE ||
             bulletin.level == BulletinLevel.UPDATE ||
             bulletin.synthesized
@@ -1514,6 +1515,25 @@ fun AppNavigation(
                     if (dialogBulletin.level == BulletinLevel.FORCE_UPDATE) {
                         openPendingUpdate(dialogBulletin.url)
                     }
+                },
+                onSubmitPoll = { selectedOptions ->
+                    // 跟 FeedbackPromptSheet 一个原则：失败静默丢弃，不为这一下额外打扰用户。
+                    // 本地先标记已答，不等网络结果——避免提交失败时反复重弹同一条投票。
+                    mainScope.launch {
+                        runCatching {
+                            com.xjtu.toolbox.feedback.FeedbackApi.submit(
+                                ticket = com.xjtu.toolbox.feedback.FeedbackStore.newTicket(),
+                                category = "投票·${dialogBulletin.id}",
+                                content = selectedOptions.joinToString("、"),
+                                contact = "",
+                                anonId = com.xjtu.toolbox.feedback.FeedbackStore.anonId(context),
+                            )
+                        }
+                    }
+                    bulletinStore.ack(dialogBulletin.id)
+                    applyHeroBulletin(bulletinStore.peekCached(), pendingUpdate)
+                    showBulletinDialog.value = false
+                    launchDialogBulletin = null
                 },
             )
         }
@@ -1627,16 +1647,10 @@ fun AppNavigation(
                 }
             )
         }
-        composable(Routes.ATTENDANCE) {
-            loginState.sessionManager?.getSiteOrNull("attendance")?.let { AttendanceScreen(site = it, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
-        }
         composable(Routes.NEW_ATTENDANCE) {
             loginState.sessionManager?.getSiteOrNull("new_attendance")?.let {
                 com.xjtu.toolbox.newattendance.NewAttendanceScreen(site = it, onBack = { navController.popBackStack() })
             } ?: LaunchedEffect(Unit) { navController.popBackStack() }
-        }
-        composable(Routes.POSTGRADUATE_ATTENDANCE) {
-            loginState.sessionManager?.getSiteOrNull("pg_attendance")?.let { AttendanceScreen(site = it, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
         composable(Routes.SCHEDULE) {
             LaunchedEffect(Unit) {
@@ -1895,7 +1909,6 @@ fun AppNavigation(
         }
         composable(Routes.SCHOOL_CALENDAR) {
             com.xjtu.toolbox.calendar.SchoolCalendarScreen(
-                site = loginState.sessionManager?.getSiteOrNull("jwxt"),
                 onBack = { navController.popBackStack() }
             )
         }
@@ -2862,85 +2875,12 @@ private fun MainScreen(
                 }
             }
 
-            com.xjtu.toolbox.feedback.FeedbackPromptSheet(
-                onOpenFeedback = { navController.navigate(Routes.FEEDBACK) },
-            )
+            com.xjtu.toolbox.feedback.FeedbackPromptSheet()
 
             // ── 新会话架构 MFA 对话框（来自 SessionManager.askMfaCode）──
-            val sessionMfaState = loginState.sessionManager?.activeMfaRequest?.collectAsState()
-            sessionMfaState?.value?.let { req ->
-                var phone by remember(req) { mutableStateOf("") }
-                var codeInput by remember(req) { mutableStateOf("") }
-                var sending by remember(req) { mutableStateOf(false) }
-                var codeSent by remember(req) { mutableStateOf(false) }
-                var verifying by remember(req) { mutableStateOf(false) }
-                var err by remember(req) { mutableStateOf<String?>(null) }
-                LaunchedEffect(req) {
-                    sending = true
-                    try {
-                        phone = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                            req.mfaContext.getPhoneNumber()
-                        }
-                        codeSent = true
-                    } catch (e: Exception) {
-                        err = "获取验证手机号失败：${e.message}"
-                    }
-                    sending = false
-                }
-                BackHandler(enabled = true) { req.cancel() }
-                OverlayDialog(
-                    show = true,
-                    title = "两步验证",
-                    summary = "登录「${req.siteName}」需要短信验证码",
-                    onDismissRequest = { req.cancel() }
-                ) {
-                    Column(
-                        Modifier.fillMaxWidth().imePadding(),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Text(
-                            if (phone.isNotEmpty()) "验证码已发送至 $phone" else "正在获取手机号…",
-                            style = MiuixTheme.textStyles.body1,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        )
-                        if (codeSent) {
-                            TextField(
-                                value = codeInput,
-                                onValueChange = { codeInput = it.take(6); err = null },
-                                label = "6位验证码",
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            )
-                        }
-                        err?.let {
-                            Text(it, color = MiuixTheme.colorScheme.error, style = MiuixTheme.textStyles.footnote1)
-                        }
-                        if (codeSent) {
-                            TextButton(
-                                text = if (verifying) "验证中…" else "验证并登录",
-                                onClick = {
-                                    if (codeInput.length != 6) { err = "请输入6位验证码"; return@TextButton }
-                                    verifying = true; err = null
-                                    if (!req.submit(codeInput)) {
-                                        err = "提交失败"
-                                        verifying = false
-                                    }
-                                },
-                                enabled = !verifying,
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = ButtonDefaults.textButtonColorsPrimary()
-                            )
-                        } else if (sending) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                CircularProgressIndicator(size = 18.dp, strokeWidth = 2.dp)
-                                Spacer(Modifier.width(8.dp))
-                                Text("准备中…", style = MiuixTheme.textStyles.body1)
-                            }
-                        }
-                    }
-                }
-            }
+            // 实现见 com.xjtu.toolbox.auth.MfaDialogHost：同一个弹窗还需要在账号管理页的
+            // Scaffold content 里再调一次，NavHost 平级目的地之间不共享 MainScreen 的渲染位置。
+            com.xjtu.toolbox.auth.MfaDialogHost(loginState.sessionManager)
 
             // ── 密码失效弹窗 ─────────────────────────────────────────
             if (loginState.passwordInvalidatedDialogVisible) {
@@ -3283,7 +3223,7 @@ private fun BulletinNoticePanel(
                         Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
                             Text(
-                                bulletinLevelLabel(bulletin.level),
+                                if (bulletin.isPoll) "调查" else bulletinLevelLabel(bulletin.level),
                                 style = MiuixTheme.textStyles.footnote2,
                                 color = accent,
                                 fontWeight = FontWeight.Bold,
@@ -3302,9 +3242,11 @@ private fun BulletinNoticePanel(
                             tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             modifier = Modifier.size(22.dp),
                         )
-                        if (bulletin.level == BulletinLevel.INFO ||
-                            bulletin.level == BulletinLevel.WARN ||
-                            bulletin.level == BulletinLevel.UPDATE
+                        if (!bulletin.isPoll && (
+                            bulletin.level == BulletinLevel.INFO ||
+                                bulletin.level == BulletinLevel.WARN ||
+                                bulletin.level == BulletinLevel.UPDATE
+                            )
                         ) {
                             IconButton(onClick = { onDismiss(bulletin) }) {
                                 Icon(
@@ -3329,6 +3271,20 @@ private fun BulletinNoticePanel(
                                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                 )
                                 Spacer(Modifier.height(12.dp))
+                            }
+                            if (bulletin.isPoll) {
+                                Text(
+                                    "去答题",
+                                    style = MiuixTheme.textStyles.body2,
+                                    fontWeight = FontWeight.Bold,
+                                    color = accent,
+                                    modifier = Modifier.clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = SinkFeedback(),
+                                        onClick = { onTap(bulletin) },
+                                    ),
+                                )
+                                return@AnimatedVisibility
                             }
                             when (bulletin.level) {
                                 BulletinLevel.FORCE_UPDATE -> {
@@ -3400,20 +3356,29 @@ private fun BulletinLaunchDialog(
     show: MutableState<Boolean>,
     onDismiss: () -> Unit,
     onPrimary: () -> Unit,
+    onSubmitPoll: (List<String>) -> Unit = {},
 ) {
-    BackHandler(enabled = show.value) { onDismiss() }
+    // 投票且 mustAck 时真正不可跳过：没有返回键关闭，WindowBottomSheet 本身也不许
+    // 手势下拉/点外部关掉（allowDismiss=false）。mustAck 以外的普通通知/更新提示
+    // 保留原来"能关掉，只是关了首页还会再看见"的行为，不动它。
+    val forceAnswer = bulletin.isPoll && bulletin.mustAck
+    BackHandler(enabled = show.value && !forceAnswer) { onDismiss() }
     val isForceUpdate = bulletin.level == BulletinLevel.FORCE_UPDATE
-    val title = when (bulletin.level) {
-        BulletinLevel.FORCE_UPDATE -> "必须更新"
-        BulletinLevel.UPDATE -> "发现新版本"
-        BulletinLevel.CRITICAL -> "重要通知"
-        BulletinLevel.WARN -> "维护通知"
-        BulletinLevel.INFO -> "通知"
+    val title = when {
+        bulletin.isPoll -> "小调查"
+        bulletin.level == BulletinLevel.FORCE_UPDATE -> "必须更新"
+        bulletin.level == BulletinLevel.UPDATE -> "发现新版本"
+        bulletin.level == BulletinLevel.CRITICAL -> "重要通知"
+        bulletin.level == BulletinLevel.WARN -> "维护通知"
+        else -> "通知"
     }
+    val selected = remember(bulletin.id) { mutableStateListOf<String>() }
+    var otherText by remember(bulletin.id) { mutableStateOf("") }
     WindowBottomSheet(
         show = show.value,
         title = title,
-        onDismissRequest = onDismiss,
+        onDismissRequest = if (forceAnswer) null else onDismiss,
+        allowDismiss = !forceAnswer,
     ) {
         Column(
             Modifier
@@ -3434,7 +3399,58 @@ private fun BulletinLaunchDialog(
                 )
             }
             Spacer(Modifier.height(16.dp))
-            if (isForceUpdate) {
+            if (bulletin.isPoll) {
+                bulletin.options.forEach { option ->
+                    val isChecked = option in selected
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                if (bulletin.allowMultiple) {
+                                    if (isChecked) selected.remove(option) else selected.add(option)
+                                } else {
+                                    selected.clear()
+                                    selected.add(option)
+                                }
+                            }
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (bulletin.allowMultiple) {
+                            Checkbox(
+                                state = if (isChecked) ToggleableState.On else ToggleableState.Off,
+                                onClick = null,
+                            )
+                        } else {
+                            RadioButton(selected = isChecked, onClick = null)
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Text(option, style = MiuixTheme.textStyles.body1)
+                    }
+                }
+                if (bulletin.allowOther) {
+                    Spacer(Modifier.height(8.dp))
+                    TextField(
+                        value = otherText,
+                        onValueChange = { otherText = it },
+                        label = "其他（选填）",
+                        singleLine = false,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Button(
+                    onClick = {
+                        val answers = selected.toList() +
+                            listOfNotNull(otherText.trim().ifBlank { null }?.let { "其他：$it" })
+                        onSubmitPoll(answers)
+                    },
+                    enabled = selected.isNotEmpty() || otherText.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("提交")
+                }
+            } else if (isForceUpdate) {
                 Button(
                     onClick = onPrimary,
                     modifier = Modifier.fillMaxWidth(),
@@ -3782,9 +3798,7 @@ private fun HomeTab(
             Routes.LMS to Icons.Default.School,
             Routes.CLASS_REPLAY to Icons.Default.OndemandVideo,
             Routes.SCHOOL_COURSE to Icons.Default.TravelExplore,
-            Routes.ATTENDANCE to Icons.Default.EventAvailable,
             Routes.NEW_ATTENDANCE to Icons.Default.AssignmentTurnedIn,
-            Routes.POSTGRADUATE_ATTENDANCE to Icons.AutoMirrored.Filled.FactCheck,
             Routes.ICLASSFACE to Icons.Default.Face,
             Routes.MATCH to Icons.Default.Groups,
             Routes.JWAPP_SCORE to Icons.Default.Assessment,
