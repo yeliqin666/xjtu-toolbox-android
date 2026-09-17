@@ -90,7 +90,7 @@ $runtimeBlock
 - 空教室 `get_empty_rooms`；考勤 `get_attendance`；校园卡 `get_card_info`
 - 通知 `get_notifications`（可指定学院/部门；详情可 `web_fetch` 链接）；电话 `search_yellow_page`
 - 图书馆 `get_library_booking` `get_library_seats`（只查；预约/换座/取消去图书馆页）
-- 思源 `get_lms_courses` `get_lms_activities` `get_lms_assignments`；交晓智 `ask_jiaoxiaozhi`（须核验）
+- 思源 `get_lms_courses` `get_lms_activities` `get_lms_assignments`
 - 仲英学辅资料站（课件/历年卷/笔记，公开站点免登录）`search_zyxf` `browse_zyxf` `read_zyxf_file`。问复习资料、历年题先搜这里；搜不到才 `web_search`。资料是同学上传的共享件，转述要说明来源，别当官方标准答案。
 - 加餐券 `get_coupons`；设置 `get_app_settings` `set_app_setting` `check_update`
 - 闹钟 `set_alarm`、日历 `create_calendar_event`（交系统 App 确认）；登录诊断 `get_login_diagnostics`

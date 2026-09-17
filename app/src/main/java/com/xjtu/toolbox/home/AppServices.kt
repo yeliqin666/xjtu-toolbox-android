@@ -56,7 +56,6 @@ object AppServices {
         AppService(Routes.YELLOW_PAGE, "校园黄页", "校内电话与机构", ServiceCategory.LIFE, listOf("黄页", "电话", "分机")),
 
         AppService(Routes.WEBVPN_CONVERTER, "WebVPN", "校外访问转换", ServiceCategory.TOOL, listOf("vpn", "webvpn")),
-        AppService(Routes.JIAOXIAOZHI, "交晓智", "学校智能问答", ServiceCategory.TOOL, listOf("晓智")),
         AppService(Routes.AGENT, "屁岱", "校园 AI 助手", ServiceCategory.TOOL, listOf("问屁岱", "ai", "助手")),
 
         AppService(Routes.SCORE_REPORT, "成绩报表", "历年成绩明细", ServiceCategory.STUDY, listOf("报表", "历年成绩"), showOnHome = false),

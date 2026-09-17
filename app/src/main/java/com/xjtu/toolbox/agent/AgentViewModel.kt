@@ -522,7 +522,6 @@ class AgentViewModel : ViewModel() {
                             "get_lms_courses"       -> "查询课程…"
                             "get_lms_activities"    -> "查询课程活动…"
                             "get_lms_assignments"   -> "汇总作业…"
-                            "ask_jiaoxiaozhi"       -> "询问交晓智…"
                             "get_app_settings"      -> "读取设置…"
                             "get_login_diagnostics" -> "读取登录诊断…"
                             "set_app_setting"       -> "修改设置…"

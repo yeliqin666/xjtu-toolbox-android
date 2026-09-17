@@ -133,11 +133,11 @@ private fun readScheduleDiskSnapshot(
     if (termCode.isEmpty()) return ScheduleDiskSnapshot(termList = termList)
     val courses = ScheduleCache.readOptimizedCourses(dataCache, gson, termCode)
         ?: dataCache.get("schedule_$termCode", Long.MAX_VALUE)?.let { json ->
-            try { gson.fromJson(json, Array<CourseItem>::class.java).toList() } catch (_: Exception) { null }
+            try { gson.fromJson(json, Array<CourseItem>::class.java).toList().map { it.sanitized() } } catch (_: Exception) { null }
         }
         ?: emptyList()
     val exams = dataCache.get("exams_$termCode", Long.MAX_VALUE)?.let { json ->
-        try { gson.fromJson(json, Array<ExamItem>::class.java).toList() } catch (_: Exception) { emptyList() }
+        try { gson.fromJson(json, Array<ExamItem>::class.java).toList().map { it.sanitized() } } catch (_: Exception) { emptyList() }
     }.orEmpty()
     val startDate = dataCache.get("start_date_$termCode", Long.MAX_VALUE)?.let { json ->
         try { LocalDate.parse(json.trim('"')) } catch (_: Exception) { null }
@@ -364,11 +364,11 @@ fun ScheduleScreen(
         } else {
             val cached = dataCache.get("schedule_$termCode", Long.MAX_VALUE)
             if (cached != null) {
-                try { courses = gson.fromJson(cached, Array<CourseItem>::class.java).toList() } catch (_: Exception) {}
+                try { courses = gson.fromJson(cached, Array<CourseItem>::class.java).toList().map { it.sanitized() } } catch (_: Exception) {}
             }
         }
         dataCache.get("exams_$termCode", Long.MAX_VALUE)?.let { json ->
-            try { exams = gson.fromJson(json, Array<ExamItem>::class.java).toList() } catch (_: Exception) {}
+            try { exams = gson.fromJson(json, Array<ExamItem>::class.java).toList().map { it.sanitized() } } catch (_: Exception) {}
         }
         dataCache.get("start_date_$termCode", Long.MAX_VALUE)?.let { json ->
             try { applyTermStart(LocalDate.parse(json.trim('"'))) } catch (_: Exception) { currentWeek = 1 }
@@ -900,15 +900,15 @@ fun ScheduleScreen(
                     if (cachedOptimizedCourses != null) {
                         courses = cachedOptimizedCourses
                         if (cachedExams != null) {
-                            try { exams = gson.fromJson(cachedExams, Array<ExamItem>::class.java).toList() } catch (_: Exception) {}
+                            try { exams = gson.fromJson(cachedExams, Array<ExamItem>::class.java).toList().map { it.sanitized() } } catch (_: Exception) {}
                         }
                         android.util.Log.d("ScheduleUI", "Optimized term from cache: $newTermCode")
                     } else {
                         val cachedCourses = dataCache.get("schedule_$newTermCode", Long.MAX_VALUE)
                         if (cachedCourses != null) {
                         try {
-                            courses = gson.fromJson(cachedCourses, Array<CourseItem>::class.java).toList()
-                            if (cachedExams != null) exams = gson.fromJson(cachedExams, Array<ExamItem>::class.java).toList()
+                            courses = gson.fromJson(cachedCourses, Array<CourseItem>::class.java).toList().map { it.sanitized() }
+                            if (cachedExams != null) exams = gson.fromJson(cachedExams, Array<ExamItem>::class.java).toList().map { it.sanitized() }
                             android.util.Log.d("ScheduleUI", "Term from cache: $newTermCode")
                         } catch (_: Exception) {}
                         }
@@ -1348,7 +1348,6 @@ fun ScheduleScreen(
                                 .padding(horizontal = 8.dp, vertical = 2.dp),
                             contentAlignment = androidx.compose.ui.Alignment.Center,
                         ) {
-                            // 与 AttendanceScreen「清除」、Jiaoxiaozhi「复制」风格统一：primary 色。
                             Text("重试", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.primary)
                         }
                     }

@@ -99,7 +99,6 @@ class AgentToolRegistry(
         "compose_email" to "device_write",
         "remember_preference" to "memory",
         "forget_preference" to "memory",
-        "ask_jiaoxiaozhi" to "jiaoxiaozhi",
         "set_app_setting" to "settings_write",
         "set_alarm" to "device_write",
         "create_calendar_event" to "device_write"
@@ -401,7 +400,7 @@ class AgentToolRegistry(
                 "limit" to intProp("返回条数，默认 3，最多 8。")
             )))
         arr.add(tool("web_search",
-            "联网搜索互联网，用于本地工具和 ask_jiaoxiaozhi 都答不上的问题。返回标题、URL、摘要列表，用 web_fetch 读取具体网页正文。",
+            "联网搜索互联网，用于本地工具答不上的问题。返回标题、URL、摘要列表，用 web_fetch 读取具体网页正文。",
             params(
                 "query" to strProp("搜索关键词。"),
                 "engine" to strProp("搜索引擎：auto / duckduckgo / so360 / bing / wechat / wiki。不填即用用户设置。auto 按 DuckDuckGo→360→Bing 顺序换源，通常不必指定。wechat 只搜微信公众号，wiki 只查百科词条名。"),
@@ -479,12 +478,6 @@ class AgentToolRegistry(
         arr.add(tool("get_fitness_score",
             "查询本人体测成绩（总分、等级、各项目）。体测按学年计，不是学期。year 传 2025 表示 2025-2026 学年。需要体测系统登录。",
             params("year" to strProp("学年起始年，如 2025 表示 2025-2026 学年。不要传 2025-2026-1 这种学期代码；不填查当前已开测学年。"))))
-        arr.add(tool("ask_jiaoxiaozhi",
-            "向学校交晓智知识服务提问，查校园政策、办事流程等知识库内容。回答来自另一个 AI，速度较慢、可能不准确，告知用户需自行核验；不能替代课表、成绩、余额等专用工具查询的数据。",
-            params(
-                "question" to strProp("要交给交晓智回答的完整问题。"),
-                "model" to strProp("可选模型：qwen-plus / qwen-max / deepseek-r1 / doubao-pro；默认 qwen-plus。")
-            )))
         arr.add(tool("get_app_settings",
             "读取本应用可调设置（深色模式 / 动态取色 / 首页主题 / 底栏 / 启动页 / 网络模式 / 账号类型 / 常用功能 / 场馆验证码 / 更新通道）当前值与可选项。无需登录。"))
         arr.add(tool("get_login_diagnostics",
@@ -639,10 +632,6 @@ class AgentToolRegistry(
             "get_lms_activity_detail" -> getLmsActivityDetail(args["course"] as? String, args["activity"] as? String)
             "read_lms_attachment" -> readLmsAttachment(args["course"] as? String, args["activity"] as? String, args["file"] as? String)
             "get_fitness_score" -> getFitnessScore(args["year"] as? String)
-            "ask_jiaoxiaozhi" -> askJiaoxiaozhi(
-                question = args["question"] as? String ?: "",
-                model = args["model"] as? String
-            )
             "get_app_settings" -> getAppSettings()
             "get_login_diagnostics" -> getLoginDiagnostics((args["limit"] as? Double)?.toInt() ?: 30)
             "set_app_setting" -> setAppSetting(args["key"] as? String ?: "", args["value"] as? String ?: "")
@@ -723,30 +712,6 @@ class AgentToolRegistry(
                 }
             }
         }.trim()
-    }
-
-    private suspend fun askJiaoxiaozhi(question: String, model: String?): String {
-        if (question.isBlank()) return "请提供要向交晓智提问的问题。"
-        val manager = loginState.sessionManager ?: return "交晓智会话管理器尚未初始化。"
-        val modelId = when (model?.trim()?.lowercase()) {
-            null, "", "qwen-plus" -> "qwen-plus"
-            "qwen-max" -> "qwen-max"
-            "deepseek-r1", "deepseek" -> "ep-20250207092149-pvc95"
-            "doubao-pro", "doubao1.5-pro", "doubao" -> "ep-20250219175323-5mvmg"
-            else -> "qwen-plus"
-        }
-        return runCatching {
-            com.xjtu.toolbox.jiaoxiaozhi.JiaoxiaozhiCompat(manager).ask(
-                question = """
-                    你是一个供另一位校园助手参考的知识子代理。
-                    请直接回答问题，区分已确认事实与不确定信息，不要声称你能访问未实际提供的数据。
-
-                    问题：$question
-                """.trimIndent(),
-                modelId = modelId,
-                networkEnabled = true,
-            )
-        }.getOrElse { "交晓智查询失败：${it.message ?: "服务暂不可用"}" }
     }
 
     private fun getCurrentTime(): String {

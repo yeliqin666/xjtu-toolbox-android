@@ -66,7 +66,6 @@ private const val R_VENUE = "venue"
 private const val R_FITNESS = "fitness"
 private const val R_YELLOW_PAGE = "yellow_page"
 private const val R_WEBVPN_CONVERTER = "webvpn_converter"
-private const val R_JIAOXIAOZHI = "jiaoxiaozhi"
 private const val R_AGENT = "agent"
 
 /**
@@ -102,7 +101,6 @@ fun legacyColor(key: String): Color = when (key) {
     R_YELLOW_PAGE -> Color(0xFF1565C0)
     // 工具与助手
     R_WEBVPN_CONVERTER -> Color(0xFF4E342E)
-    R_JIAOXIAOZHI -> Color(0xFF6750A4)
     R_AGENT -> Color(0xFF00695C)
     else -> Color(0xFF757575)
 }

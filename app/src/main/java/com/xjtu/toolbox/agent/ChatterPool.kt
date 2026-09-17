@@ -211,7 +211,6 @@ internal object ChatterPool {
         ChatterLine("app_pay", "付款码就在这儿", hours = 7..13),
         ChatterLine("app_pay2", "付款码就在这儿", hours = 17..19),
         ChatterLine("app_teacher", "按方向能搜老师"),
-        ChatterLine("app_jxz", "交晓智也会办事"),
         ChatterLine("app_ask", "搜索栏直接问我"),
         ChatterLine("app_replay", "回放能下到本地"),
         ChatterLine("app_acct", "多账号互不串号"),
