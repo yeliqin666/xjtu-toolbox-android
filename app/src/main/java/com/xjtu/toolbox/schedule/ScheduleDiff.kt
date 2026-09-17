@@ -32,7 +32,7 @@ object ScheduleDiff {
     private fun fingerprintOf(c: CourseItem) =
         "${c.location}|${c.weekBits}|${c.endSection}|${c.teacher}"
 
-    data class Change(val kind: Kind, val courseName: String, val detail: String) {
+    data class Change(val kind: Kind, val courseName: String, val detail: String, val reason: String? = null) {
         enum class Kind { ADDED, REMOVED, MOVED }
     }
 
@@ -43,7 +43,10 @@ object ScheduleDiff {
     fun diffAndStore(ctx: Context, termCode: String, courses: List<CourseItem>): List<Change> {
         if (termCode.isBlank() || courses.isEmpty()) return emptyList()
         val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val storeKey = "snap_$termCode"
+        // 快照按来源分开存。三个系统给的周次位串长度、教室写法都不完全一样，
+        // 用同一份快照去比会在换来源（设置里改、或非教务源失败退回教务）的那一次
+        // 把每一门课都报成"变了"。分开存的代价只是换来源后重建一次基线。
+        val storeKey = "snap_${termCode}_${ScheduleSourceRouter.servedSource(ctx).key}"
         val old = prefs.getStringSet(storeKey, null)
 
         val now = courses.associate { keyOf(it) to fingerprintOf(it) }
@@ -61,18 +64,25 @@ object ScheduleDiff {
             if (i <= 0) null else entry.substring(0, i) to entry.substring(i + 2)
         }.toMap()
 
+        // 课程号 -> 官方调课备注。只有 jwapp 这次实际服务了才有内容；结构性 diff
+        // 本身猜不出"为什么"，能对上号时就用这份官方原话代替猜测。
+        val reasons = ScheduleSourceRouter.changeEvents(ctx, termCode)
+            .filter { it.reason.isNotBlank() }
+            .associate { it.courseCode to it.reason }
+
         val changes = buildList {
             for ((k, fp) in now) {
                 val prev = oldMap[k]
                 val name = nameOf[k] ?: continue
+                val reason = reasons[k.substringBefore('|')]
                 when {
-                    prev == null -> add(Change(Change.Kind.ADDED, name, describeKey(k)))
-                    prev != fp -> add(Change(Change.Kind.MOVED, name, describeDelta(prev, fp)))
+                    prev == null -> add(Change(Change.Kind.ADDED, name, describeKey(k), reason))
+                    prev != fp -> add(Change(Change.Kind.MOVED, name, describeDelta(prev, fp), reason))
                 }
             }
             for (k in oldMap.keys - now.keys) {
                 // 停掉的课在新表里已经没有名字了，只能报位置。
-                add(Change(Change.Kind.REMOVED, "有课停了", describeKey(k)))
+                add(Change(Change.Kind.REMOVED, "有课停了", describeKey(k), reasons[k.substringBefore('|')]))
             }
         }
         if (changes.isNotEmpty()) Log.d(TAG, "$termCode 检出 ${changes.size} 处变更")
@@ -105,7 +115,9 @@ object ScheduleDiff {
             Change.Kind.MOVED -> "${first.courseName}变了：${first.detail}"
             Change.Kind.ADDED -> "课表新增了${first.courseName}（${first.detail}）"
         }
-        return if (changes.size > 1) "$head，共 ${changes.size} 处改动" else head
+        // 结构性 diff 只能报"变了什么"，报不出"为什么"；能对上官方备注时补一句原话。
+        val withReason = first.reason?.takeIf { it.isNotBlank() }?.let { "$head，原因：$it" } ?: head
+        return if (changes.size > 1) "$withReason，共 ${changes.size} 处改动" else withReason
     }
 
     private val DAY_NAMES = listOf("", "一", "二", "三", "四", "五", "六", "日")

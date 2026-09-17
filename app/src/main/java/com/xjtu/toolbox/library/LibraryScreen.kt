@@ -145,6 +145,12 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
     // 我的预约
     var myBooking by remember { mutableStateOf<MyBookingInfo?>(null) }
 
+    // 预约状态一变就重排后台提醒。挂在这里而不是挂在预约/换座/中途离开各自的回调上：
+    // 那几处最后都会刷新 myBooking，盯着结果比盯着动作少漏一条路径。
+    LaunchedEffect(myBooking?.actionUrls?.keys, myBooking?.seatId) {
+        com.xjtu.toolbox.notification.LibraryReminderScheduler.sync(context, myBooking)
+    }
+
     // 收藏
     var favorites by remember { mutableStateOf(loadFavorites(context)) }
 

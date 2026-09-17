@@ -56,11 +56,19 @@ internal object KqHttp {
 
     fun buildUrl(site: SiteSession, path: String, query: Map<String, String> = emptyMap()): String {
         val base = baseOf(site) + path
-        if (query.isEmpty()) return base
-        val q = query.entries.joinToString("&") { (k, v) ->
-            "${URLEncoder.encode(k, "UTF-8")}=${URLEncoder.encode(v, "UTF-8")}"
+        val plain = if (query.isEmpty()) base else {
+            val q = query.entries.joinToString("&") { (k, v) ->
+                "${URLEncoder.encode(k, "UTF-8")}=${URLEncoder.encode(v, "UTF-8")}"
+            }
+            "$base?$q"
         }
-        return "$base?$q"
+        // 基址存的是原始域名；校外要经网关才够得着，在这里统一改写。
+        // 漏掉这一步的话登录走了网关、业务请求还在直连，照样连不上。
+        return if (site.currentAccessMode == com.xjtu.toolbox.auth.AccessMode.WEBVPN) {
+            com.xjtu.toolbox.util.WebVpnUtil.getVpnUrl(plain)
+        } else {
+            plain
+        }
     }
 
     fun first(obj: JsonObject, vararg keys: String): JsonElement? =

@@ -171,9 +171,12 @@ class IclassfaceSession : CasSiteSession("iclassface", "快速考勤流水", mus
 
 // ── NEW ATTENDANCE 新版考勤 kq.xjtu.edu.cn ──────────────────────────────
 
-class NewAttendanceSession : CasSiteSession("new_attendance", "新版考勤", mustUseWebVpn = false) {
+// mustUseWebVpn=true：考勤这几个域名只在校内网络可达，校外直连连不上（443 端口
+// 连超时都不给，卡满 12 秒）。写成 false 会被 SessionManager 永久锁死在直连，
+// 校外必然打不开——旧考勤一直是走网关的，这里跟齐。
+class NewAttendanceSession : CasSiteSession("new_attendance", "新版考勤", mustUseWebVpn = true) {
 
-    /** 当前账号所属的考勤站点根地址（本科 bk-kq / 研究生 kq），登录成功时写入。 */
+    /** 当前账号所属的考勤站点根地址（本科 bk-kq / 研究生 yjs-kq），登录成功时写入。原始域名，不含网关。 */
     fun baseUrl(): String =
         localToken[BASE_URL_KEY] ?: com.xjtu.toolbox.newattendance.NewAttendanceLogin.BASE_URL
 
@@ -182,6 +185,7 @@ class NewAttendanceSession : CasSiteSession("new_attendance", "新版考勤", mu
             session = client,
             visitorId = visitorId,
             cachedRsaKey = cachedRsaKey,
+            useWebVpn = currentAccessMode == AccessMode.WEBVPN,
         )
 
     override fun onLoginSuccess(login: XJTULogin) {
@@ -194,6 +198,11 @@ class NewAttendanceSession : CasSiteSession("new_attendance", "新版考勤", mu
 
     override fun decorateRequest(builder: Request.Builder): Request.Builder {
         localToken["business_token"]?.let { builder.header(com.xjtu.toolbox.newattendance.NewAttendanceLogin.TOKEN_HEADER, it) }
+        // 网页端每个业务请求都带这一条，跟着带上，免得日后服务端开始校验。
+        builder.header(
+            com.xjtu.toolbox.newattendance.NewAttendanceLogin.SYSTEM_HEADER,
+            com.xjtu.toolbox.newattendance.NewAttendanceLogin.SYSTEM_VALUE,
+        )
         return builder
     }
 

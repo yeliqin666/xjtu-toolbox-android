@@ -16,6 +16,10 @@ import okhttp3.RequestBody.Companion.toRequestBody
 
 private const val TAG = "JwappGPA"
 
+/** jwapp 网关按 UA 拦非浏览器请求，所有 jwapp 请求统一顶这个头。 */
+internal const val BROWSER_UA =
+    "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
+
 // ── 数据类 ──────────────────────────────
 
 enum class ScoreSource { JWAPP, REPORT }
@@ -128,14 +132,13 @@ class JwappApi(private val site: SiteSession) {
     // WebVPN 模式下因为请求经 webvpn.xjtu.edu.cn（https 一跳到位）而能正常工作。
     private val baseUrl = "https://jwapp.xjtu.edu.cn"
     private val gson = Gson()
-    private val browserUa = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
 
-    private fun authenticatedRequest(url: String): okhttp3.Request.Builder =
+    internal fun authenticatedRequest(url: String): okhttp3.Request.Builder =
         okhttp3.Request.Builder()
             .url(url)
-            .header("User-Agent", browserUa)
+            .header("User-Agent", BROWSER_UA)
 
-    private fun execute(request: okhttp3.Request.Builder): String =
+    internal fun execute(request: okhttp3.Request.Builder): String =
         runBlocking { site.executeWithReAuth(request.build()) }.use { response ->
             response.body?.string() ?: throw RuntimeException("空响应")
         }

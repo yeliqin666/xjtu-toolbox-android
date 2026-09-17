@@ -1,8 +1,10 @@
 package com.xjtu.toolbox.ui.settings
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -39,7 +41,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SpaceBar
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Assignment
+import androidx.compose.material.icons.filled.BatteryAlert
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.EventSeat
 import androidx.compose.material.icons.filled.FactCheck
 import androidx.compose.material.icons.filled.Tab
 import androidx.compose.material.icons.filled.DarkMode
@@ -78,8 +84,13 @@ import com.xjtu.toolbox.BuildConfig
 import com.xjtu.toolbox.AutoUpdateDialog
 import com.xjtu.toolbox.util.AppUpdateInfo
 import com.xjtu.toolbox.util.AppUpdater
+import com.xjtu.toolbox.notification.LibraryReminderScheduler
+import com.xjtu.toolbox.notification.LmsDeadlineScheduler
 import com.xjtu.toolbox.notification.NoticeWatchScheduler
 import com.xjtu.toolbox.notification.NoticeWatchStore
+import com.xjtu.toolbox.notification.ReminderKind
+import com.xjtu.toolbox.notification.ReminderStore
+import com.xjtu.toolbox.notification.ScheduleWatchScheduler
 import com.xjtu.toolbox.notification.NoticeWatchSync
 import com.xjtu.toolbox.notification.NotificationSource
 import com.xjtu.toolbox.notification.SourceCategory
@@ -159,6 +170,61 @@ fun SettingsScreen(
         }
     }
 
+    var reminderLibrary by remember { mutableStateOf(ReminderStore.isEnabled(context, ReminderKind.LIBRARY)) }
+    var reminderSchedule by remember { mutableStateOf(ReminderStore.isEnabled(context, ReminderKind.SCHEDULE)) }
+    var reminderLms by remember { mutableStateOf(ReminderStore.isEnabled(context, ReminderKind.LMS)) }
+    /** 打开某类提醒后待补的通知权限申请；授权回调里再落盘排程。 */
+    var pendingReminder by remember { mutableStateOf<ReminderKind?>(null) }
+
+    fun commitReminder(kind: ReminderKind, enabled: Boolean) {
+        ReminderStore.setEnabled(context, kind, enabled)
+        when (kind) {
+            ReminderKind.LIBRARY -> {
+                reminderLibrary = enabled
+                // 关掉就把已排的一次性任务撤了；开着时等图书馆页下次拿到预约状态再排。
+                if (!enabled) LibraryReminderScheduler.sync(context, null)
+            }
+            ReminderKind.SCHEDULE -> {
+                reminderSchedule = enabled
+                ScheduleWatchScheduler.apply(context)
+            }
+            ReminderKind.LMS -> {
+                reminderLms = enabled
+                LmsDeadlineScheduler.apply(context)
+            }
+        }
+    }
+
+    val reminderPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        val kind = pendingReminder ?: return@rememberLauncherForActivityResult
+        pendingReminder = null
+        commitReminder(kind, true)
+        if (!granted) {
+            Toast.makeText(context, "未授予通知权限，提醒发不出来", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /** 开提醒前先问通知权限：这几项除了发通知没有别的表现形式，没权限等于开了个寂寞。 */
+    fun applyReminder(kind: ReminderKind, enabled: Boolean) {
+        if (!enabled) {
+            commitReminder(kind, false)
+            return
+        }
+        val needAsk = Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED
+        if (needAsk) {
+            pendingReminder = kind
+            reminderPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            commitReminder(kind, true)
+        }
+    }
+
     val noticePermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -214,6 +280,8 @@ fun SettingsScreen(
     )
     var scheduleLayout by remember { mutableStateOf(credentialStore.scheduleLayout) }
     var attendanceBadge by remember { mutableStateOf(credentialStore.scheduleAttendanceBadge) }
+    val scheduleSources = com.xjtu.toolbox.schedule.ScheduleSource.entries
+    var scheduleSource by remember { mutableStateOf(com.xjtu.toolbox.schedule.ScheduleSource.fromKey(credentialStore.scheduleSource)) }
     val navStyleOptions = listOf("悬浮胶囊", "经典底栏")
     val navStyleValues = listOf(
         CredentialStore.NAV_STYLE_FLOATING,
@@ -335,6 +403,18 @@ fun SettingsScreen(
                         credentialStore.scheduleLayout = v
                     }
                 )
+                OverlayDropdownPreference(
+                    title = "当前学期课表来源",
+                    summary = "${scheduleSource.label} · ${scheduleSource.summary}。历史学期始终查教务，选的来源取不到时也自动退回教务",
+                    items = scheduleSources.map { it.label },
+                    selectedIndex = scheduleSources.indexOf(scheduleSource).coerceAtLeast(0),
+                    startAction = { SettingsIcon(Icons.Default.CloudSync, cBlue) },
+                    onSelectedIndexChange = { idx ->
+                        val v = scheduleSources[idx]
+                        scheduleSource = v
+                        credentialStore.scheduleSource = v.key
+                    }
+                )
                 SwitchPreference(
                     title = "课表显示考勤",
                     // 说清代价，因为它确实有代价：多一次登录、多一次请求。
@@ -414,6 +494,59 @@ fun SettingsScreen(
                     summary = "$noticeWatchSummary · 小组件与提醒共用",
                     startAction = { SettingsIcon(MiuixIcons.Folder, cTeal) },
                     onClick = { showNoticeSources = true }
+                )
+            }
+
+            // ── 后台提醒 ──
+            SmallTitle("后台提醒")
+            SettingsCard {
+                SwitchPreference(
+                    title = ReminderKind.LIBRARY.title,
+                    summary = if (reminderLibrary) {
+                        "预约后快到签到时限、以及中途离开后还没返座时提醒"
+                    } else {
+                        "需在后台登录图书馆查预约状态，默认关闭"
+                    },
+                    checked = reminderLibrary,
+                    startAction = { SettingsIcon(Icons.Default.EventSeat, cOrange) },
+                    onCheckedChange = { on -> applyReminder(ReminderKind.LIBRARY, on) }
+                )
+                SwitchPreference(
+                    title = ReminderKind.SCHEDULE.title,
+                    summary = if (reminderSchedule) {
+                        "课被调了、停了，或考试临近 3 天时提醒"
+                    } else {
+                        "需在后台登录教务系统，默认关闭"
+                    },
+                    checked = reminderSchedule,
+                    startAction = { SettingsIcon(Icons.Default.CalendarMonth, cPurple) },
+                    onCheckedChange = { on -> applyReminder(ReminderKind.SCHEDULE, on) }
+                )
+                SwitchPreference(
+                    title = ReminderKind.LMS.title,
+                    summary = if (reminderLms) {
+                        "作业距截止不到 48 小时且还没提交时提醒一次"
+                    } else {
+                        "需在后台登录思源学堂逐课查作业，默认关闭"
+                    },
+                    checked = reminderLms,
+                    startAction = { SettingsIcon(Icons.Default.Assignment, cGreen) },
+                    onCheckedChange = { on -> applyReminder(ReminderKind.LMS, on) }
+                )
+                ArrowPreference(
+                    title = "提醒不准时？",
+                    summary = "后台检查按系统省电策略排队，厂商省电模式下可能被推迟很久。" +
+                        "点这里到系统设置里把本应用设为不受限制，可提高送达率。不改也能用",
+                    startAction = { SettingsIcon(Icons.Default.BatteryAlert, cBlueGray) },
+                    onClick = {
+                        // 只跳系统的电池优化列表，不申请 REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+                        // 直接弹窗：那个权限要在清单里声明，且上架审核会追问用途。
+                        val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                        val opened = runCatching { context.startActivity(intent) }.isSuccess
+                        if (!opened) {
+                            Toast.makeText(context, "这台设备没有电池优化设置页", Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 )
             }
 

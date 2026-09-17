@@ -21,6 +21,7 @@ import com.xjtu.toolbox.emptyroom.EmptyRoomDirectQuery
 import com.xjtu.toolbox.fitness.orderedFitnessYears
 import com.xjtu.toolbox.fitness.pickFitnessYear
 import com.xjtu.toolbox.fitness.yearValue
+import com.xjtu.toolbox.schedule.CourseItem
 import com.xjtu.toolbox.schedule.ScheduleApi
 import com.xjtu.toolbox.schedule.ScheduleCache
 import com.xjtu.toolbox.score.ScoreReportApi
@@ -77,8 +78,7 @@ class AgentToolRegistry(
         "get_empty_rooms" to "schedule",
         "get_attendance" to "attendance",
         "get_grades" to "grades",
-        "get_card_balance" to "card",
-        "get_card_transactions" to "card",
+        "get_card_info" to "card",
         "get_notifications" to "notifications",
         "search_yellow_page" to "yellow_page",
         "web_search" to "web",
@@ -326,18 +326,18 @@ class AgentToolRegistry(
         arr.add(tool("get_current_time",
             "获取当前日期、时间、星期、学期代码与学期名、学期周数、当前/下一节次。学期名与日程页相同，来自教务返回的名称。无需登录。"))
         arr.add(tool("get_schedule",
-            "查询课表（含用户手动添加的日程）。date填yyyy-MM-dd查当天，不填返回本周；term填学期代码(如2024-2025-1)查历史学期整学期课表。未缓存会自动联网拉取。",
+            "查询课表（含用户手动添加的日程）。未缓存会自动联网拉取。",
             params(
-                "date" to strProp("查询日期，格式yyyy-MM-dd，不填则返回本周（或整学期，当指定了 term）。"),
+                "date" to strProp("查询日期，格式yyyy-MM-dd，只返回当天；不填则返回本周，指定了 term 时返回该学期整学期课表。"),
                 "term" to strProp("学期代码如2024-2025-1，查历史学期用；不填为当前学期。可先用 get_current_time/get_school_calendar 推算学期代码。")
             )))
         arr.add(tool("get_exam_schedule",
             "查询考试安排，含日期、时间、地点、座位号。需要教务系统登录。"))
         arr.add(tool("get_school_calendar",
-            "查询西安交通大学校历，含学期起止日期、总周数、当前周、假期、考试周等重要事件。term可填学年或学期关键词，不填返回当前学期。",
-            params("term" to strProp("学期关键词，如2025-2026、第一学期；不填查当前学期。"))))
+            "查询西安交通大学校历，含学期起止日期、总周数、当前周、假期、考试周等重要事件。",
+            params("term" to strProp("学年或学期关键词，如2025-2026、第一学期；不填查当前学期。"))))
         arr.add(tool("search_school_courses",
-            "查询全校开课信息，可按课程名、教师、课程号、班级、院系、校区、星期、节次范围、校公选类别、学期筛选，返回教师、学分、容量、班级、时间地点等。需要教务系统登录。至少提供一个条件，避免无边界查询。",
+            "查询全校开课信息，可按课程名、教师、课程号、班级、院系、校区、星期、节次范围、校公选类别、学期筛选，返回教师、学分、容量、班级、时间地点等。需要教务系统登录。至少提供一个条件。",
             params(
                 "course_name" to strProp("课程名称，模糊匹配。"),
                 "teacher" to strProp("教师姓名，模糊匹配。"),
@@ -363,17 +363,15 @@ class AgentToolRegistry(
                 "date"     to strProp("查询日期：今天/明天/today/tomorrow/yyyy-MM-dd；不填则查今天。")
             )))
         arr.add(tool("get_attendance",
-            "查询本学期考勤记录（正常/迟到/缺勤/请假）。需要考勤系统登录。要统计整学期出勤就把 limit 调大。",
+            "查询本学期考勤记录（正常/迟到/缺勤/请假）。需要考勤系统登录。统计整学期出勤时调大 limit。",
             params("limit" to intProp("返回条数，默认20，最多200。"))))
         arr.add(tool("get_grades",
             "查询本人课程成绩与加权平均学分绩点（GPA）。需要教务系统登录。term可选，传形如「2024-2025-1」只看该学期，不传返回全部成绩。",
             params("term" to strProp("学期代码，如2024-2025-1，不填返回全部。"))))
-        arr.add(tool("get_card_balance",
-            "查询校园卡（一卡通）电子钱包余额与状态（挂失/冻结）。需要校园卡系统登录。"))
-        arr.add(tool("get_card_transactions",
-            "查询校园卡最近若干天的消费流水（商户、金额、余额），并给出支出/收入汇总。需要校园卡系统登录。" +
-                "整月填 days=30；整学期：先用 get_current_time 拿\"开学至今 N 天\"再把 N 填进来，别硬编死天数（学期可能刚开始）。",
-            params("days" to intProp("最近几天，默认7，最多180。"))))
+        arr.add(tool("get_card_info",
+            "查询校园卡（一卡通）余额与状态（挂失/冻结）。传 days 时一并返回最近几天的消费流水（商户、金额、余额）与支出/收入汇总。需要校园卡系统登录。" +
+                "整月填 days=30；整学期用 get_current_time 查开学至今天数再填入。",
+            params("days" to intProp("最近几天的流水，1-180；不传则只查余额，不查流水。"))))
         arr.add(tool("get_notifications",
             "查询校内最新通知公告，含标题、来源、日期、链接。无需登录。可指定来源（某学院/部门）；不指定则看核心来源（教务处+研究生院+学生处+实践教学中心+OA 通知）。",
             params(
@@ -381,7 +379,7 @@ class AgentToolRegistry(
                 "limit" to intProp("返回条数，默认10，最多20。")
             )))
         arr.add(tool("search_yellow_page",
-            "查询西安交通大学校园黄页中的机构联系电话。可按机构名称、电话号码或机构分类搜索，无需登录。",
+            "查询西安交通大学校园黄页中的机构联系电话。可按机构名称、电话号码或机构分类搜索，只收录机构总机，不含个人手机或教师私人联系方式。无需登录。",
             params(
                 "query" to strProp("机构名或电话号码关键词，如教务处、保卫处、82665623；可留空配合category列出分类。"),
                 "category" to strProp("机构分类：党群机构/行政机构/直属单位/附属单位/其它。"),
@@ -389,7 +387,7 @@ class AgentToolRegistry(
             )))
         arr.add(tool("compose_email",
             "打开系统邮件应用，填好收件人、主题和正文，**由用户自己按发送**。" +
-                "适合「帮我给 XX 老师写封邮件问 XX」——你负责起草，发不发是用户的事。" +
+                "适合「帮我给 XX 老师写封邮件问 XX」。" +
                 "收件人地址请先用 find_faculty 查准，不要凭印象拼。",
             params(
                 "to" to strProp("收件人邮箱地址。"),
@@ -398,8 +396,8 @@ class AgentToolRegistry(
             )))
         arr.add(tool("remember_preference",
             "记住一条用户偏好，长期保存在本机。适合「我一般在兴庆校区」「叫我小王」「我不吃辣」这类" +
-                "会反复用到的信息。**只用来决定表达方式和查询顺序，不能用来决定查不查**——" +
-                "用户明确问的事永远照查。别记一次性的东西（这周的作业、某次考试时间）。",
+                "会反复用到的信息。**偏好只决定表达方式和查询顺序，不决定查不查**，用户明确问的事永远照查。" +
+                "别记一次性的东西（这周的作业、某次考试时间）。",
             params(
                 "key" to strProp("偏好名，简短，如「常用校区」「称呼」。同名会覆盖。"),
                 "value" to strProp("偏好内容，一句话。")
@@ -409,14 +407,14 @@ class AgentToolRegistry(
             params("key" to strProp("要删掉的偏好名。"))))
         arr.add(tool("find_faculty",
             "按姓名查教师主页信息：所在学院、职称、研究方向、办公地点、邮箱、个人主页地址。" +
-                "无需登录。适合「XX 老师是研究什么的」「XX 老师办公室在哪」「想联系 XX 老师」这类问题。",
+                "仅限本校在职教师，学生、行政人员、校外人士查不到，不要用它凑答案。无需登录。",
             params(
                 "name" to strProp("教师姓名，支持模糊匹配。"),
                 "college" to strProp("可选，学院名，用于重名时缩小范围。"),
                 "limit" to intProp("返回条数，默认 3，最多 8。")
             )))
         arr.add(tool("web_search",
-            "联网搜索互联网。用于校历、政策、报名通知、通用知识等本地工具无法回答的问题。返回结构化标题、URL、摘要；随后可用 web_fetch 读取某个 URL。",
+            "联网搜索互联网，用于本地工具和 ask_jiaoxiaozhi 都答不上的问题。返回标题、URL、摘要列表，用 web_fetch 读取具体网页正文。",
             params(
                 "query" to strProp("搜索关键词。"),
                 "engine" to strProp("搜索引擎：auto / duckduckgo / so360 / bing / wechat / wiki。不填即用用户设置。auto 按 DuckDuckGo→360→Bing 顺序换源，通常不必指定。wechat 只搜微信公众号，wiki 只查百科词条名。"),
@@ -453,7 +451,7 @@ class AgentToolRegistry(
                 "keyword" to strProp("检索关键词，如「高等数学 历年」「大物 期中」。建议用课程名，别太长。")
             )))
         arr.add(tool("browse_zyxf",
-            "浏览仲英学辅资料站的目录。folder_id 不填或填 0 列出根目录（即全部课程/分类），填 search_zyxf 或本工具返回的目录 ID 进入下一级。无需登录。不知道该搜什么词时先用它看看有哪些课程。",
+            "浏览仲英学辅资料站的目录。folder_id 不填或填 0 列出根目录（即全部课程/分类），填 search_zyxf 或本工具返回的目录 ID 进入下一级。无需登录。不知道搜什么关键词时，先用它列出有哪些课程。",
             params(
                 "folder_id" to intProp("目录 ID；不填或 0 表示根目录。")
             )))
@@ -495,7 +493,7 @@ class AgentToolRegistry(
             "查询本人体测成绩（总分、等级、各项目）。体测按学年计，不是学期。year 传 2025 表示 2025-2026 学年。需要体测系统登录。",
             params("year" to strProp("学年起始年，如 2025 表示 2025-2026 学年。不要传 2025-2026-1 这种学期代码；不填查当前已开测学年。"))))
         arr.add(tool("ask_jiaoxiaozhi",
-            "向学校交晓智知识服务提问。适合查询校园政策、办事流程、校内知识库内容；返回内容仍需核验，不应用于课表、成绩、余额等已有专用工具可查询的数据。",
+            "向学校交晓智知识服务提问，查校园政策、办事流程等知识库内容。回答来自另一个 AI，速度较慢、可能不准确，告知用户需自行核验；不能替代课表、成绩、余额等专用工具查询的数据。",
             params(
                 "question" to strProp("要交给交晓智回答的完整问题。"),
                 "model" to strProp("可选模型：qwen-plus / qwen-max / deepseek-r1 / doubao-pro；默认 qwen-plus。")
@@ -512,7 +510,7 @@ class AgentToolRegistry(
                 "value" to strProp("取值，可先用 get_app_settings 查看每项的可选值。")
             )))
         arr.add(tool("calculate",
-            "计算数学表达式（四则运算、括号、幂 ^）。算 GPA、排除课程后重算均分、累加金额等务必用它，别心算以免出错。",
+            "计算数学表达式（四则运算、括号、幂 ^）。算 GPA、排除课程后重算均分、累加金额等务必用它算，不要心算。",
             params("expression" to strProp("表达式，如 (3.7*4+4.0*3)/(4+3) 或 92*0.4+88*0.6。"))))
         arr.add(tool("check_update",
             "检查 App 是否有新版本（对比当前版本与发布渠道的最新版）。无需登录。"))
@@ -599,8 +597,7 @@ class AgentToolRegistry(
                 limit = (args["limit"] as? Double)?.toInt() ?: 20
             )
             "get_grades" -> getGrades(args["term"] as? String)
-            "get_card_balance" -> getCardBalance()
-            "get_card_transactions" -> getCardTransactions((args["days"] as? Double)?.toInt() ?: 7)
+            "get_card_info" -> getCardInfo((args["days"] as? Double)?.toInt())
             "get_notifications" -> getNotifications(args["source"] as? String, (args["limit"] as? Double)?.toInt() ?: 10)
             "search_yellow_page" -> searchYellowPage(
                 query = args["query"] as? String,
@@ -1017,7 +1014,14 @@ class AgentToolRegistry(
             }
             if ((ScheduleCache.readOptimizedCourses(dataCache, gson, term)
                     ?: ScheduleCache.readRawCourses(dataCache, gson, term)) == null) {
-                ScheduleCache.writeOptimizedCourses(dataCache, gson, term, api.getSchedule(term))
+                val fresh = com.xjtu.toolbox.schedule.ScheduleSourceRouter.getSchedule(
+                    context = context,
+                    jwxt = api,
+                    termCode = term,
+                    manager = loginState.sessionManager,
+                    accountType = loginState.accountType,
+                )
+                ScheduleCache.writeOptimizedCourses(dataCache, gson, term, fresh)
             }
             if (cachedStartDate(term) == null) {
                 dataCache.put("start_date_$term", gson.toJson(api.getStartOfTerm(term).toString()))
@@ -1050,6 +1054,7 @@ class AgentToolRegistry(
                 .map { it.toCourseItem() }
         }.getOrDefault(emptyList())
         val courses = cachedCourses + customCourses
+        val changeNote = scheduleChangeNote(termCode, courses)
 
         val dayNames = listOf("", "周一", "周二", "周三", "周四", "周五", "周六", "周日")
 
@@ -1063,7 +1068,7 @@ class AgentToolRegistry(
                     .forEach { (day, cs) ->
                         append("${dayNames.getOrElse(day) { "" }}：${cs.joinToString("；") { "${it.courseName}（${it.startSection}-${it.endSection}节，${it.location}）" }}\n")
                     }
-            }
+            }.withChangeNote(changeNote)
         }
 
         val startDate = runCatching {
@@ -1082,7 +1087,7 @@ class AgentToolRegistry(
                 dayCourses.forEach { c ->
                     append("• ${c.courseName}，第${c.startSection}-${c.endSection}节（${XjtuTime.getClassStartStr(c.startSection)}起），${c.location}，${c.teacher}\n")
                 }
-            }
+            }.withChangeNote(changeNote)
         } else {
             val today = LocalDate.now()
             val weekNum = com.xjtu.toolbox.schedule.TermWeeks.weekOf(startDate, today)
@@ -1096,9 +1101,25 @@ class AgentToolRegistry(
                 weekCourses.groupBy { it.dayOfWeek }.forEach { (day, cs) ->
                     append("${dayNames[day]}：${cs.joinToString("；") { "${it.courseName}（${it.startSection}-${it.endSection}节，${it.location}）" }}\n")
                 }
-            }
+            }.withChangeNote(changeNote)
         }
     }
+
+    /**
+     * 官方调课备注（`bz`），只有课表源选 jwapp 时才有。对不上号（换过源、这门课没有
+     * 变更记录）就不提；报太多反而像凑数，最多挑 3 条。
+     */
+    private fun scheduleChangeNote(termCode: String, courses: List<CourseItem>): String? {
+        val events = com.xjtu.toolbox.schedule.ScheduleSourceRouter.changeEvents(context, termCode)
+            .filter { it.reason.isNotBlank() }
+        if (events.isEmpty()) return null
+        val codes = courses.map { it.courseCode }.toSet()
+        val relevant = events.filter { it.courseCode.isBlank() || it.courseCode in codes }.take(3)
+        if (relevant.isEmpty()) return null
+        return "近期调课：" + relevant.joinToString("；") { "${it.courseName}${it.describe()}，原因：${it.reason}" }
+    }
+
+    private fun String.withChangeNote(note: String?): String = if (note.isNullOrBlank()) this else "$this\n$note"
 
     private suspend fun getExamSchedule(): String {
         val site = ensureSite(LoginType.JWXT)
@@ -1273,7 +1294,7 @@ class AgentToolRegistry(
         }
     }
 
-    private suspend fun getCardBalance(): String {
+    private suspend fun getCardInfo(days: Int?): String {
         val site = ensureSite(LoginType.CAMPUS_CARD)
             ?: return loginHint(LoginType.CAMPUS_CARD)
         return try {
@@ -1284,43 +1305,38 @@ class AgentToolRegistry(
                 if (info.pendingAmount > 0) append("，待入账¥%.2f".format(info.pendingAmount))
                 if (info.lostFlag) append("（已挂失）")
                 if (info.frozenFlag) append("（已冻结）")
-            }
+                if (days != null) {
+                    val d = days.coerceIn(1, 180)   // 放宽：用户可能要看整月/整学期账单
+                    runCatching {
+                        CampusCardApi(site).getAllTransactions(
+                            startDate = LocalDate.now().minusDays(d.toLong()),
+                            endDate = LocalDate.now(),
+                            maxPages = 80,
+                            allowIncomplete = false,
+                        )
+                    }.onSuccess { txs ->
+                        if (txs.isEmpty()) {
+                            append("\n最近${d}天无消费记录。")
+                        } else {
+                            // 全量给模型：它可能要按整月统计、分类汇总、找最大笔等，需要完整流水
+                            val spend = txs.filter { it.amount < 0 }.sumOf { -it.amount }
+                            val income = txs.filter { it.amount > 0 }.sumOf { it.amount }
+                            append("\n最近${d}天流水（共${txs.size}笔，支出¥${"%.2f".format(spend)}，充值/收入¥${"%.2f".format(income)}）：\n")
+                            txs.forEach { t ->
+                                append("• ${t.time} ${t.merchant} ${"%+.2f".format(t.amount)}元，余额${"%.2f".format(t.balance)}\n")
+                            }
+                        }
+                    }.onFailure {
+                        append("\n获取最近${d}天流水失败：${it.message ?: "网络异常"}")
+                    }
+                }
+            }.trimEnd()
             dataCache.put("agent_card", text)
             text
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
             throw e
         } catch (e: Exception) {
-            staleOr("agent_card", "获取校园卡余额失败：${e.message ?: "网络异常"}")
-        }
-    }
-
-    private suspend fun getCardTransactions(days: Int): String {
-        val site = ensureSite(LoginType.CAMPUS_CARD)
-            ?: return loginHint(LoginType.CAMPUS_CARD)
-        val d = days.coerceIn(1, 180)   // 放宽：用户可能要看整月/整学期账单
-        return try {
-            val txs = CampusCardApi(site).getAllTransactions(
-                startDate = LocalDate.now().minusDays(d.toLong()),
-                endDate = LocalDate.now(),
-                maxPages = 80,
-                allowIncomplete = false,
-            )
-            if (txs.isEmpty()) return "最近${d}天无校园卡消费记录。"
-            // 全量给模型：它可能要按整月统计、分类汇总、找最大笔等，需要完整流水
-            val spend = txs.filter { it.amount < 0 }.sumOf { -it.amount }
-            val income = txs.filter { it.amount > 0 }.sumOf { it.amount }
-            val text = buildString {
-                append("校园卡最近${d}天流水（共${txs.size}笔，支出¥${"%.2f".format(spend)}，充值/收入¥${"%.2f".format(income)}）：\n")
-                txs.forEach { t ->
-                    append("• ${t.time} ${t.merchant} ${"%+.2f".format(t.amount)}元，余额${"%.2f".format(t.balance)}\n")
-                }
-            }
-            dataCache.put("agent_card_tx", text)
-            text
-        } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
-            throw e
-        } catch (e: Exception) {
-            staleOr("agent_card_tx", "获取校园卡流水失败：${e.message ?: "网络异常"}")
+            staleOr("agent_card", "获取校园卡信息失败：${e.message ?: "网络异常"}")
         }
     }
 

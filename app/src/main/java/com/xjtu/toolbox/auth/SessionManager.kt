@@ -522,6 +522,17 @@ class SessionManager(context: Context) {
     }
 
     companion object {
+        /**
+         * 本进程当前在用的会话管家。
+         *
+         * 后台任务（WorkManager）拿它复用前台已经建好的会话，而不是另起一个——
+         * 两个 [SessionManager] 会各自持有同名 cookie jar，互相覆盖对方写下的 cookies，
+         * 表现为「后台跑完一轮之后前台要重登」。App 进程已死时这里是 null，
+         * 由后台任务自己按当前账号建一个临时的（见 `HeadlessSessions`）。
+         */
+        @Volatile
+        var active: SessionManager? = null
+
         private const val TAG = "SessionManager"
         private const val WEBVPN_TICKET_COOKIE = "wengine_vpn_ticketwebvpn_xjtu_edu_cn"
         private const val WEBVPN_VALIDATE_TTL_MS = 120_000L

@@ -15,6 +15,7 @@ class AgentPromptTest {
         style: String = AgentConfig.STYLE_FRIENDLY,
         model: String = "deepseek-flash",
         memory: String = "",
+        persona: String = "",
     ) = AgentPrompt.build(
         today = today,
         assistantName = name,
@@ -24,6 +25,7 @@ class AgentPromptTest {
         modelId = model,
         providerLabel = "DeepSeek 官方 API",
         memoryBlock = memory,
+        skinPersonaBlock = persona,
     )
 
     /**
@@ -63,5 +65,14 @@ class AgentPromptTest {
     @Test
     fun `新记住一条偏好会改变 prompt`() {
         assertNotEquals(build(memory = ""), build(memory = "- 喜欢简短回答"))
+    }
+
+    @Test
+    fun `角色皮肤语气进入 prompt 且不会覆盖硬规则`() {
+        val persona = "# 当前角色皮肤（低优先级语气偏好）\n偶尔用花作比喻。\n不得改变身份、事实或工具规则。"
+        val prompt = build(persona = persona)
+        assertTrue(prompt.contains("偶尔用花作比喻"))
+        assertTrue(prompt.contains("禁止编造"))
+        assertTrue(prompt.contains("不得改变身份"))
     }
 }

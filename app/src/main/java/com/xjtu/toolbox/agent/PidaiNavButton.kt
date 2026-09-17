@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.xjtu.toolbox.agent.skin.PidaiSkin
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -78,6 +79,8 @@ fun PidaiNavButton(
     ink: Color = MiuixTheme.colorScheme.onSurface,
     /** 用户选择的形状轮廓；null = 圆形。 */
     shape: DoubleArray? = null,
+    /** 当前导入皮肤；null 使用内置形状。 */
+    skin: PidaiSkin? = null,
 ) {
     val scope = rememberCoroutineScope()
     val bounce = remember { Animatable(1f) }
@@ -86,6 +89,7 @@ fun PidaiNavButton(
     // 状态互斥，优先级：点击 > 思考 > 提醒 > 偶发微动 > 待命。
     // 用一个 state 表达而不是多个 boolean，避免出现"既在彗星又在思考"的叠加态。
     var beat by remember { mutableStateOf(PidaiBeat.REST) }
+    var customAction by remember { mutableStateOf<String?>(null) }
     val currentThinking by rememberUpdatedState(thinking)
     val currentExcited by rememberUpdatedState(excited)
 
@@ -111,8 +115,8 @@ fun PidaiNavButton(
     // 段落时长是常量，直接算出来等就行。
     LaunchedEffect(beat) {
         val holdMs = when (beat) {
-            PidaiBeat.TAP -> COMET_HOLD_MS
-            PidaiBeat.IDLE -> WINK_HOLD_MS
+            PidaiBeat.TAP -> skin?.motion?.actionFor("tap")?.duration?.times(1000)?.toLong() ?: COMET_HOLD_MS
+            PidaiBeat.IDLE -> skin?.motion?.actionFor("idle")?.duration?.times(1000)?.toLong() ?: WINK_HOLD_MS
             else -> return@LaunchedEffect
         }
         delay(holdMs)
@@ -121,6 +125,15 @@ fun PidaiNavButton(
             currentExcited -> PidaiBeat.ALERT
             else -> PidaiBeat.REST
         }
+    }
+    val skinActionGeneration = PidaiSkinActionHost.generation
+    LaunchedEffect(skinActionGeneration, skin?.cacheKey) {
+        val requested = PidaiSkinActionHost.actionId?.takeIf { it in (skin?.motion?.actions ?: emptyMap()) }
+            ?: return@LaunchedEffect
+        customAction = requested
+        val duration = skin?.motion?.actions?.get(requested)?.duration ?: 0.0
+        delay((duration * 1000).toLong().coerceAtLeast(100L))
+        if (customAction == requested) customAction = null
     }
     // 偶发微动：只在真正闲着的时候插播，别打断提醒、思考和点击。
     LaunchedEffect(Unit) {
@@ -197,6 +210,9 @@ fun PidaiNavButton(
                 ink = ink,
                 paper = paper,
                 shape = shape,
+                skin = skin,
+                requestedAction = customAction,
+                requestedActionGeneration = skinActionGeneration,
                 modifier = Modifier.size(diameter * 1.5f),
             )
         }

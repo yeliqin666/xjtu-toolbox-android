@@ -1,0 +1,4 @@
+interface:
+  display_name: "屁岱动作皮肤工坊"
+  short_description: "Create importable Pidai motion and persona skins"
+  default_prompt: "使用 $pidai-skin-maker 把我的创意做成一套包含连贯动作、口头禅和闲话的屁岱皮肤，同时交付 GitHub 可用的标准目录与 ZIP 包；没有图像生成工具时直接用矢量几何完成。"

@@ -1,0 +1,948 @@
+{
+  "actions": [
+    {
+      "duration": 2.2,
+      "frames": [
+        {
+          "ease": "ease-in-out",
+          "layers": [
+            {
+              "cy": 0.0,
+              "key": "bottom",
+              "rot_deg": 0.0,
+              "shape": "shell_bottom",
+              "sx": 1.0,
+              "sy": 1.0
+            },
+            {
+              "cy": 0.0,
+              "key": "top",
+              "rot_deg": 0.0,
+              "shape": "shell_top",
+              "sx": 1.0,
+              "sy": 1.0
+            }
+          ],
+          "t": 0.0
+        },
+        {
+          "ease": "ease-in-out",
+          "layers": [
+            {
+              "cy": -0.02,
+              "key": "bottom",
+              "rot_deg": -2.5,
+              "shape": "shell_bottom",
+              "sx": 0.955,
+              "sy": 1.085
+            },
+            {
+              "cy": -0.02,
+              "key": "top",
+              "rot_deg": -2.5,
+              "shape": "shell_top",
+              "sx": 0.955,
+              "sy": 1.085
+            }
+          ],
+          "t": 0.75
+        },
+        {
+          "ease": "ease-in-out",
+          "layers": [
+            {
+              "cy": 0.03,
+              "key": "bottom",
+              "rot_deg": 2.0,
+              "shape": "shell_bottom",
+              "sx": 1.035,
+              "sy": 0.955
+            },
+            {
+              "cy": 0.03,
+              "key": "top",
+              "rot_deg": 2.0,
+              "shape": "shell_top",
+              "sx": 1.035,
+              "sy": 0.955
+            }
+          ],
+          "t": 1.5
+        },
+        {
+          "layers": [
+            {
+              "cy": 0.0,
+              "key": "bottom",
+              "rot_deg": 0.0,
+              "shape": "shell_bottom",
+              "sx": 1.0,
+              "sy": 1.0
+            },
+            {
+              "cy": 0.0,
+              "key": "top",
+              "rot_deg": 0.0,
+              "shape": "shell_top",
+              "sx": 1.0,
+              "sy": 1.0
+            }
+          ],
+          "t": 2.2
+        }
+      ],
+      "id": "idle",
+      "loop": true
+    },
+    {
+      "duration": 1.25,
+      "frames": [
+        {
+          "ease": "ease-out",
+          "layers": [
+            {
+              "key": "bottom",
+              "shape": "shell_bottom"
+            },
+            {
+              "alpha": 0.0,
+              "cy": 0.5,
+              "key": "chick",
+              "shape": "chick"
+            },
+            {
+              "alpha": 0.0,
+              "cy": 0.5,
+              "key": "beak",
+              "shape": "beak"
+            },
+            {
+              "alpha": 0.0,
+              "cx": -0.17,
+              "cy": 0.24,
+              "key": "eye_l",
+              "shape": "eye"
+            },
+            {
+              "alpha": 0.0,
+              "cx": 0.19,
+              "cy": 0.24,
+              "key": "eye_r",
+              "shape": "eye"
+            },
+            {
+              "key": "top",
+              "shape": "shell_top"
+            },
+            {
+              "alpha": 0.0,
+              "key": "crack",
+              "shape": "crack"
+            },
+            {
+              "alpha": 0.0,
+              "key": "fluff_a",
+              "shape": "fluff"
+            },
+            {
+              "alpha": 0.0,
+              "key": "fluff_b",
+              "shape": "fluff"
+            },
+            {
+              "alpha": 0.0,
+              "key": "fluff_c",
+              "shape": "fluff"
+            }
+          ],
+          "t": 0.0
+        },
+        {
+          "ease": "ease-out",
+          "layers": [
+            {
+              "key": "bottom",
+              "shape": "shell_bottom",
+              "sx": 1.06,
+              "sy": 0.94
+            },
+            {
+              "alpha": 0.0,
+              "cy": 0.5,
+              "key": "chick",
+              "shape": "chick"
+            },
+            {
+              "alpha": 0.0,
+              "cy": 0.5,
+              "key": "beak",
+              "shape": "beak"
+            },
+            {
+              "alpha": 0.0,
+              "cx": -0.17,
+              "cy": 0.24,
+              "key": "eye_l",
+              "shape": "eye"
+            },
+            {
+              "alpha": 0.0,
+              "cx": 0.19,
+              "cy": 0.24,
+              "key": "eye_r",
+              "shape": "eye"
+            },
+            {
+              "cy": -0.04,
+              "key": "top",
+              "shape": "shell_top",
+              "sx": 1.06,
+              "sy": 0.94
+            },
+            {
+              "alpha": 1.0,
+              "key": "crack",
+              "shape": "crack"
+            },
+            {
+              "alpha": 0.0,
+              "key": "fluff_a",
+              "shape": "fluff"
+            },
+            {
+              "alpha": 0.0,
+              "key": "fluff_b",
+              "shape": "fluff"
+            },
+            {
+              "alpha": 0.0,
+              "key": "fluff_c",
+              "shape": "fluff"
+            }
+          ],
+          "t": 0.1
+        },
+        {
+          "ease": "ease-out",
+          "layers": [
+            {
+              "key": "bottom",
+              "shape": "shell_bottom"
+            },
+            {
+              "alpha": 1.0,
+              "cy": 0.24,
+              "key": "chick",
+              "shape": "chick"
+            },
+            {
+              "alpha": 1.0,
+              "cy": 0.24,
+              "key": "beak",
+              "shape": "beak"
+            },
+            {
+              "alpha": 1.0,
+              "cx": -0.17,
+              "cy": -0.020000000000000018,
+              "key": "eye_l",
+              "shape": "eye"
+            },
+            {
+              "alpha": 1.0,
+              "cx": 0.19,
+              "cy": -0.020000000000000018,
+              "key": "eye_r",
+              "shape": "eye"
+            },
+            {
+              "cx": 0.06,
+              "cy": -0.3,
+              "key": "top",
+              "pivot_y": 0.0,
+              "rot_deg": -14,
+              "shape": "shell_top"
+            },
+            {
+              "alpha": 0.0,
+              "key": "crack",
+              "shape": "crack"
+            },
+            {
+              "alpha": 1.0,
+              "cx": -0.42,
+              "cy": -0.4,
+              "key": "fluff_a",
+              "shape": "fluff"
+            },
+            {
+              "alpha": 1.0,
+              "cx": 0.4,
+              "cy": -0.46,
+              "key": "fluff_b",
+              "shape": "fluff"
+            },
+            {
+              "alpha": 1.0,
+              "cx": 0.02,
+              "cy": -0.6,
+              "key": "fluff_c",
+              "shape": "fluff"
+            }
+          ],
+          "t": 0.32
+        },
+        {
+          "ease": "ease-out",
+          "layers": [
+            {
+              "key": "bottom",
+              "shape": "shell_bottom"
+            },
+            {
+              "alpha": 1.0,
+              "cy": 0.02,
+              "key": "chick",
+              "shape": "chick"
+            },
+            {
+              "alpha": 1.0,
+              "cy": 0.02,
+              "key": "beak",
+              "shape": "beak"
+            },
+            {
+              "alpha": 1.0,
+              "cx": -0.17,
+              "cy": -0.24000000000000002,
+              "key": "eye_l",
+              "shape": "eye"
+            },
+            {
+              "alpha": 1.0,
+              "cx": 0.19,
+              "cy": -0.24000000000000002,
+              "key": "eye_r",
+              "shape": "eye"
+            },
+            {
+              "alpha": 0.55,
+              "cx": 0.52,
+              "cy": -0.74,
+              "key": "top",
+              "rot_deg": -44,
+              "shape": "shell_top"
+            },
+            {
+              "alpha": 0.0,
+              "key": "crack",
+              "shape": "crack"
+            },
+            {
+              "alpha": 0.5,
+              "cx": -0.78,
+              "cy": -0.8,
+              "key": "fluff_a",
+              "shape": "fluff",
+              "sx": 0.7,
+              "sy": 0.7
+            },
+            {
+              "alpha": 0.5,
+              "cx": 0.76,
+              "cy": -0.88,
+              "key": "fluff_b",
+              "shape": "fluff",
+              "sx": 0.7,
+              "sy": 0.7
+            },
+            {
+              "alpha": 0.5,
+              "cx": 0.06,
+              "cy": -1.02,
+              "key": "fluff_c",
+              "shape": "fluff",
+              "sx": 0.7,
+              "sy": 0.7
+            }
+          ],
+          "t": 0.62
+        },
+        {
+          "layers": [
+            {
+              "key": "bottom",
+              "shape": "shell_bottom"
+            },
+            {
+              "alpha": 1.0,
+              "cy": 0.1,
+              "key": "chick",
+              "shape": "chick"
+            },
+            {
+              "alpha": 1.0,
+              "cy": 0.1,
+              "key": "beak",
+              "shape": "beak"
+            },
+            {
+              "alpha": 1.0,
+              "cx": -0.17,
+              "cy": -0.16,
+              "key": "eye_l",
+              "shape": "eye"
+            },
+            {
+              "alpha": 1.0,
+              "cx": 0.19,
+              "cy": -0.16,
+              "key": "eye_r",
+              "shape": "eye"
+            },
+            {
+              "alpha": 0.0,
+              "cx": 0.92,
+              "cy": -1.05,
+              "key": "top",
+              "rot_deg": -72,
+              "shape": "shell_top"
+            },
+            {
+              "alpha": 0.0,
+              "key": "crack",
+              "shape": "crack"
+            },
+            {
+              "alpha": 0.0,
+              "cx": -1.0,
+              "cy": -1.0,
+              "key": "fluff_a",
+              "shape": "fluff",
+              "sx": 0.4,
+              "sy": 0.4
+            },
+            {
+              "alpha": 0.0,
+              "cx": 0.98,
+              "cy": -1.08,
+              "key": "fluff_b",
+              "shape": "fluff",
+              "sx": 0.4,
+              "sy": 0.4
+            },
+            {
+              "alpha": 0.0,
+              "cx": 0.08,
+              "cy": -1.2,
+              "key": "fluff_c",
+              "shape": "fluff",
+              "sx": 0.4,
+              "sy": 0.4
+            }
+          ],
+          "t": 1.25
+        }
+      ],
+      "id": "hatch"
+    },
+    {
+      "duration": 2.4,
+      "frames": [
+        {
+          "ease": "linear",
+          "layers": [
+            {
+              "cy": 0.0,
+              "key": "bottom",
+              "rot_deg": -5.0,
+              "shape": "shell_bottom",
+              "sx": 1.0,
+              "sy": 1.0
+            },
+            {
+              "cy": 0.0,
+              "key": "top",
+              "rot_deg": -5.0,
+              "shape": "shell_top",
+              "sx": 1.0,
+              "sy": 1.0
+            },
+            {
+              "alpha": 0.9,
+              "cx": 0.0,
+              "cy": -0.95,
+              "key": "dot",
+              "shape": "dot"
+            }
+          ],
+          "t": 0.0
+        },
+        {
+          "ease": "linear",
+          "layers": [
+            {
+              "cy": 0.0,
+              "key": "bottom",
+              "rot_deg": -3.536,
+              "shape": "shell_bottom",
+              "sx": 1.0,
+              "sy": 1.0
+            },
+            {
+              "cy": 0.0,
+              "key": "top",
+              "rot_deg": -3.536,
+              "shape": "shell_top",
+              "sx": 1.0,
+              "sy": 1.0
+            },
+            {
+              "alpha": 0.9,
+              "cx": 0.6718,
+              "cy": -0.6718,
+              "key": "dot",
+              "shape": "dot"
+            }
+          ],
+          "t": 0.3
+        },
+        {
+          "ease": "linear",
+          "layers": [
+            {
+              "cy": 0.0,
+              "key": "bottom",
+              "rot_deg": -0.0,
+              "shape": "shell_bottom",
+              "sx": 1.0,
+              "sy": 1.0
+            },
+            {
+              "cy": 0.0,
+              "key": "top",
+              "rot_deg": -0.0,
+              "shape": "shell_top",
+              "sx": 1.0,
+              "sy": 1.0
+            },
+            {
+              "alpha": 0.9,
+              "cx": 0.95,
+              "cy": 0.0,
+              "key": "dot",
+              "shape": "dot"
+            }
+          ],
+          "t": 0.6
+        },
+        {
+          "ease": "linear",
+          "layers": [
+            {
+              "cy": 0.0,
+              "key": "bottom",
+              "rot_deg": 3.536,
+              "shape": "shell_bottom",
+              "sx": 1.0,
+              "sy": 1.0
+            },
+            {
+              "cy": 0.0,
+              "key": "top",
+              "rot_deg": 3.536,
+              "shape": "shell_top",
+              "sx": 1.0,
+              "sy": 1.0
+            },
+            {
+              "alpha": 0.9,
+              "cx": 0.6718,
+              "cy": 0.6718,
+              "key": "dot",
+              "shape": "dot"
+            }
+          ],
+          "t": 0.9
+        },
+        {
+          "ease": "linear",
+          "layers": [
+            {
+              "cy": 0.0,
+              "key": "bottom",
+              "rot_deg": 5.0,
+              "shape": "shell_bottom",
+              "sx": 1.0,
+              "sy": 1.0
+            },
+            {
+              "cy": 0.0,
+              "key": "top",
+              "rot_deg": 5.0,
+              "shape": "shell_top",
+              "sx": 1.0,
+              "sy": 1.0
+            },
+            {
+              "alpha": 0.9,
+              "cx": 0.0,
+              "cy": 0.95,
+              "key": "dot",
+              "shape": "dot"
+            }
+          ],
+          "t": 1.2
+        },
+        {
+          "ease": "linear",
+          "layers": [
+            {
+              "cy": 0.0,
+              "key": "bottom",
+              "rot_deg": 3.536,
+              "shape": "shell_bottom",
+              "sx": 1.0,
+              "sy": 1.0
+            },
+            {
+              "cy": 0.0,
+              "key": "top",
+              "rot_deg": 3.536,
+              "shape": "shell_top",
+              "sx": 1.0,
+              "sy": 1.0
+            },
+            {
+              "alpha": 0.9,
+              "cx": -0.6718,
+              "cy": 0.6718,
+              "key": "dot",
+              "shape": "dot"
+            }
+          ],
+          "t": 1.5
+        },
+        {
+          "ease": "linear",
+          "layers": [
+            {
+              "cy": 0.0,
+              "key": "bottom",
+              "rot_deg": 0.0,
+              "shape": "shell_bottom",
+              "sx": 1.0,
+              "sy": 1.0
+            },
+            {
+              "cy": 0.0,
+              "key": "top",
+              "rot_deg": 0.0,
+              "shape": "shell_top",
+              "sx": 1.0,
+              "sy": 1.0
+            },
+            {
+              "alpha": 0.9,
+              "cx": -0.95,
+              "cy": 0.0,
+              "key": "dot",
+              "shape": "dot"
+            }
+          ],
+          "t": 1.8
+        },
+        {
+          "ease": "linear",
+          "layers": [
+            {
+              "cy": 0.0,
+              "key": "bottom",
+              "rot_deg": -3.536,
+              "shape": "shell_bottom",
+              "sx": 1.0,
+              "sy": 1.0
+            },
+            {
+              "cy": 0.0,
+              "key": "top",
+              "rot_deg": -3.536,
+              "shape": "shell_top",
+              "sx": 1.0,
+              "sy": 1.0
+            },
+            {
+              "alpha": 0.9,
+              "cx": -0.6718,
+              "cy": -0.6718,
+              "key": "dot",
+              "shape": "dot"
+            }
+          ],
+          "t": 2.1
+        },
+        {
+          "layers": [
+            {
+              "cy": 0.0,
+              "key": "bottom",
+              "rot_deg": -5.0,
+              "shape": "shell_bottom",
+              "sx": 1.0,
+              "sy": 1.0
+            },
+            {
+              "cy": 0.0,
+              "key": "top",
+              "rot_deg": -5.0,
+              "shape": "shell_top",
+              "sx": 1.0,
+              "sy": 1.0
+            },
+            {
+              "alpha": 0.9,
+              "cx": -0.0,
+              "cy": -0.95,
+              "key": "dot",
+              "shape": "dot"
+            }
+          ],
+          "t": 2.4
+        }
+      ],
+      "id": "think",
+      "loop": true
+    },
+    {
+      "duration": 0.85,
+      "frames": [
+        {
+          "ease": "ease-out",
+          "layers": [
+            {
+              "cy": 0.0,
+              "key": "bottom",
+              "rot_deg": 0.0,
+              "shape": "shell_bottom",
+              "sx": 1.0,
+              "sy": 1.0
+            },
+            {
+              "cy": 0.0,
+              "key": "top",
+              "rot_deg": 0.0,
+              "shape": "shell_top",
+              "sx": 1.0,
+              "sy": 1.0
+            }
+          ],
+          "t": 0.0
+        },
+        {
+          "ease": "ease-out",
+          "layers": [
+            {
+              "cy": 0.06,
+              "key": "bottom",
+              "rot_deg": 0.0,
+              "shape": "shell_bottom",
+              "sx": 1.1,
+              "sy": 0.88
+            },
+            {
+              "cy": 0.06,
+              "key": "top",
+              "rot_deg": 0.0,
+              "shape": "shell_top",
+              "sx": 1.1,
+              "sy": 0.88
+            }
+          ],
+          "t": 0.09
+        },
+        {
+          "ease": "ease-in-out",
+          "layers": [
+            {
+              "cy": -0.24,
+              "key": "bottom",
+              "rot_deg": 0.0,
+              "shape": "shell_bottom",
+              "sx": 0.93,
+              "sy": 1.12
+            },
+            {
+              "cy": -0.24,
+              "key": "top",
+              "rot_deg": 0.0,
+              "shape": "shell_top",
+              "sx": 0.93,
+              "sy": 1.12
+            }
+          ],
+          "t": 0.26
+        },
+        {
+          "ease": "ease-in-out",
+          "layers": [
+            {
+              "cy": 0.04,
+              "key": "bottom",
+              "rot_deg": 0.0,
+              "shape": "shell_bottom",
+              "sx": 1.05,
+              "sy": 0.94
+            },
+            {
+              "cy": 0.04,
+              "key": "top",
+              "rot_deg": 0.0,
+              "shape": "shell_top",
+              "sx": 1.05,
+              "sy": 0.94
+            }
+          ],
+          "t": 0.48
+        },
+        {
+          "layers": [
+            {
+              "cy": 0.0,
+              "key": "bottom",
+              "rot_deg": 0.0,
+              "shape": "shell_bottom",
+              "sx": 1.0,
+              "sy": 1.0
+            },
+            {
+              "cy": 0.0,
+              "key": "top",
+              "rot_deg": 0.0,
+              "shape": "shell_top",
+              "sx": 1.0,
+              "sy": 1.0
+            }
+          ],
+          "t": 0.85
+        }
+      ],
+      "id": "alert"
+    }
+  ],
+  "bindings": {
+    "alert": "alert",
+    "idle": "idle",
+    "rest": "idle",
+    "tap": "hatch",
+    "thinking": "think"
+  },
+  "color": "#F7EDD4",
+  "shapes": {
+    "beak": {
+      "fill": "#EF8C22",
+      "kind": "polygon",
+      "points": [
+        [
+          0.48,
+          -0.12
+        ],
+        [
+          0.8,
+          0.0
+        ],
+        [
+          0.48,
+          0.1
+        ]
+      ]
+    },
+    "chick": {
+      "d": "M 0 -0.60 C 0.34 -0.60 0.56 -0.36 0.56 -0.06 C 0.56 0.22 0.32 0.42 0 0.42 C -0.32 0.42 -0.56 0.22 -0.56 -0.06 C -0.56 -0.36 -0.34 -0.60 0 -0.60 Z",
+      "fill": "#FFD248",
+      "kind": "path"
+    },
+    "crack": {
+      "kind": "polyline",
+      "points": [
+        [
+          -0.64,
+          0.05
+        ],
+        [
+          -0.42,
+          -0.13
+        ],
+        [
+          -0.16,
+          0.05
+        ],
+        [
+          0.1,
+          -0.15
+        ],
+        [
+          0.36,
+          0.05
+        ],
+        [
+          0.58,
+          -0.13
+        ]
+      ],
+      "stroke": "#6A5433",
+      "stroke_width": 0.06
+    },
+    "dot": {
+      "fill": "#F7EDD4",
+      "kind": "circle",
+      "r": 0.115
+    },
+    "eye": {
+      "fill": "#33291B",
+      "kind": "circle",
+      "r": 0.085
+    },
+    "fluff": {
+      "fill": "#FFE9A6",
+      "kind": "circle",
+      "r": 0.105
+    },
+    "shell_bottom": {
+      "d": "M -0.84 0.00 C -0.84 0.72 -0.46 1.04 0 1.04 C 0.46 1.04 0.84 0.72 0.84 0.00 L 0.58 -0.13 L 0.36 0.05 L 0.10 -0.15 L -0.16 0.05 L -0.42 -0.13 L -0.64 0.05 Z",
+      "fill": "#E3CFA4",
+      "kind": "path"
+    },
+    "shell_top": {
+      "d": "M -0.84 0.00 L -0.64 0.05 L -0.42 -0.13 L -0.16 0.05 L 0.10 -0.15 L 0.36 0.05 L 0.58 -0.13 L 0.84 0.00 C 0.84 -0.48 0.52 -1.06 0 -1.06 C -0.52 -1.06 -0.84 -0.48 -0.84 0.00 Z",
+      "fill": "#F7EDD4",
+      "kind": "path"
+    }
+  },
+  "skin_id": "chick",
+  "transitions": [
+    {
+      "duration": 0.1,
+      "ease": "ease-out",
+      "from": "idle",
+      "to": "hatch"
+    },
+    {
+      "duration": 0.45,
+      "ease": "ease-in-out",
+      "from": "hatch",
+      "to": "idle"
+    },
+    {
+      "duration": 0.3,
+      "ease": "ease-in-out",
+      "from": "idle",
+      "to": "think"
+    },
+    {
+      "duration": 0.08,
+      "ease": "ease-out",
+      "from": "idle",
+      "to": "alert"
+    }
+  ]
+}

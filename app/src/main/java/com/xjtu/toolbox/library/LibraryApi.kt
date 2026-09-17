@@ -643,7 +643,7 @@ class LibraryApi(private val site: SiteSession) {
 
     private fun parseBookingFailure(html: String): String {
         val doc = Jsoup.parse(html)
-        val alertText = doc.select(".alert, .error, .msg, .message, .warn, .notice, #msg, .tip").text()
+        val alertText = extractAlertText(doc, ".alert, .error, .msg, .message, .warn, .notice, #msg, .tip")
         if (alertText.isNotBlank()) return alertText
 
         val bodyText = doc.body()?.text() ?: ""
@@ -656,6 +656,17 @@ class LibraryApi(private val site: SiteSession) {
             isRedirectedToLogin(html, "") -> "登录状态已失效"
             else -> "预约失败（未知原因）"
         }
+    }
+
+    /**
+     * 学校页面的提示框是 Bootstrap 风格：`<div class="alert"><button class="close">×</button>正文</div>`。
+     * 直接对整个容器 `.text()` 会把关闭按钮上的 "×" 也拼进来，签到成功也会显示成
+     * "×入馆签到成功！"——先把关闭按钮摘掉再取文字。
+     */
+    private fun extractAlertText(doc: org.jsoup.nodes.Document, selector: String): String {
+        val elements = doc.select(selector)
+        elements.select(".close, [data-dismiss], button").remove()
+        return elements.text().trim().trimStart('×', '✕', '✗').trim()
     }
 
     // ── 我的预约 ──
@@ -1056,7 +1067,7 @@ class LibraryApi(private val site: SiteSession) {
 
             val doc = Jsoup.parse(html)
             val bodyText = doc.body()?.text() ?: ""
-            val msg = doc.select(".alert, .msg, .message, .success, .error").text()
+            val msg = extractAlertText(doc, ".alert, .msg, .message, .success, .error")
 
             // 取消预约：以「我的预约是否已消失」为准判定，最可靠
             if ("cancel" in actionUrl.lowercase()) {

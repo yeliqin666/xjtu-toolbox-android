@@ -132,7 +132,7 @@ class NewAttendanceApi(private val site: SiteSession) {
 
     fun getKqtjCurrentWeek(): List<CourseAttendanceStat> {
         return try {
-            val root = getJson("/student/home/attendance-statistics")
+            val root = getJson("/student/pc/home/attendance-statistics")
             parseCourseStats(root.get("data")).ifEmpty { parseCourseStats(root) }
                 .ifEmpty {
                     val monday = LocalDate.now().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
@@ -176,6 +176,14 @@ class NewAttendanceApi(private val site: SiteSession) {
             }
     }
 
+    /**
+     * 考勤流水分页。
+     *
+     * 路径里的 `pc` 那一段不能省：网页端 PC 版实测走的是
+     * `/sa/student/pc/attendance-records/page`，而 `profile`、`service/timetable`
+     * 这类跨端共用的接口才没有这一段。我们登录时申请的就是 `student-pc` 终端，
+     * 路径也要对上同一个终端。
+     */
     private fun fetchAttendanceRecords(term: String, startDate: String, endDate: String): List<JsonObject> {
         val data = JsonObject().apply {
             addProperty("startDate", startDate)
@@ -186,10 +194,10 @@ class NewAttendanceApi(private val site: SiteSession) {
             if (term.isNotBlank()) addProperty("semesterId", term)
         }
         val req = Request.Builder()
-            .url(KqHttp.buildUrl(site, "/student/attendance-records/page"))
+            .url(KqHttp.buildUrl(site, "/student/pc/attendance-records/page"))
             .post(KqHttp.pagePayload(data).toString().toRequestBody(jsonType))
             .build()
-        val root = KqHttp.execute(site, req, "/student/attendance-records/page", retryable = true)
+        val root = KqHttp.execute(site, req, "/student/pc/attendance-records/page", retryable = true)
         val rows = KqHttp.rows(root.get("data")).ifEmpty { KqHttp.rows(root) }
         return rows.filter { row ->
             KqHttp.str(row, "attendanceStatus", "status").uppercase() != "NOT_REQUIRED"

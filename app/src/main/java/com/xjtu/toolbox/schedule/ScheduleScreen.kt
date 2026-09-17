@@ -169,6 +169,21 @@ fun ScheduleScreen(
     val gson = remember { com.google.gson.Gson() }
     val api = remember(activeSite) { activeSite?.let { ScheduleApi(it) } }
     fun termLabel(code: String): String = ScheduleTermStore.display(code, dataCache, gson, api)
+
+    // 课表走用户选的来源；历史学期、以及非教务源取不到时都退回教务，见 ScheduleSourceRouter。
+    // 考试、教材、学期表这些只有教务有，照旧直接用 api。
+    suspend fun fetchSchedule(
+        scheduleApi: ScheduleApi,
+        term: String,
+        userInitiated: Boolean = false,
+    ): List<CourseItem> = ScheduleSourceRouter.getSchedule(
+        context = context,
+        jwxt = scheduleApi,
+        termCode = term,
+        manager = appLoginState.sessionManager,
+        accountType = appLoginState.accountType,
+        userInitiated = userInitiated,
+    )
     val snackbarHostState = remember { SnackbarHostState() }
     val disk = remember { readScheduleDiskSnapshot(dataCache, gson) }
 
@@ -413,7 +428,7 @@ fun ScheduleScreen(
                             val schedulePrefetch = lastTerm.takeIf { it.isNotEmpty() }?.let { cached ->
                                 async {
                                     try {
-                                        api.getSchedule(cached)
+                                        fetchSchedule(api, cached)
                                     } catch (e: AuthExpiredException) {
                                         throw e
                                     } catch (_: Exception) {
@@ -499,7 +514,7 @@ fun ScheduleScreen(
                                 schedulePrefetch?.cancel()
                                 examsDeferred.cancel()
                                 startDateDeferred.cancel()
-                                val freshCourses = api.getSchedule(termCode)
+                                val freshCourses = fetchSchedule(api, termCode)
                                 val startDate = try { api.getStartOfTerm(termCode) } catch (_: Exception) { startOfTerm }
                                 paintCourses(termCode, freshCourses, startDate)
                                 if (startDate != null) {
@@ -516,7 +531,7 @@ fun ScheduleScreen(
                                 // examsDeferred / startDateDeferred / prefetched 本来就是按
                                 // lastTerm 发的，只有这里的标签之前写成了 termCode。
                                 val viewTerm = if (keepUserTerm) lastTerm else termCode
-                                val freshCourses = prefetched ?: api.getSchedule(viewTerm)
+                                val freshCourses = prefetched ?: fetchSchedule(api, viewTerm)
                                 if (prefetched == null) {
                                     paintCourses(viewTerm, freshCourses, startOfTerm)
                                 }
@@ -540,7 +555,7 @@ fun ScheduleScreen(
                             if (!keepUserTerm && courses.isEmpty()) {
                                 val expected = com.xjtu.toolbox.util.XjtuTime.expectedTermCode()
                                 if (expected != null && expected != termCode) {
-                                    val probe = try { api.getSchedule(expected) } catch (_: Exception) { emptyList() }
+                                    val probe = try { fetchSchedule(api, expected) } catch (_: Exception) { emptyList() }
                                     if (probe.isNotEmpty()) autoTermSuggestion = expected
                                 }
                             }
@@ -625,7 +640,7 @@ fun ScheduleScreen(
                     val termCode = viewing.ifEmpty { actualCurrent }
                     if (viewing.isEmpty() && termCode.isNotEmpty()) selectedTermCode = termCode
                     val apiCourses = try {
-                        api.getSchedule(termCode)
+                        fetchSchedule(api, termCode, userInitiated = true)
                     } catch (e: Exception) {
                         android.util.Log.w("ScheduleUI", "refreshSchedule getSchedule failed", e)
                         return@withContext
@@ -908,7 +923,7 @@ fun ScheduleScreen(
                     // 在线时更新
                     if (api != null && !sealed) {
                         try {
-                            val freshCourses = api.getSchedule(newTermCode)
+                            val freshCourses = fetchSchedule(api, newTermCode, userInitiated = true)
                             exams = api.getExamSchedule(newTermCode)
                             val freshStartDate = try { api.getStartOfTerm(newTermCode) } catch (_: Exception) { null }
                             val freshHolidays = try { HolidayApi.getHolidayDates(context, forceRefresh = true) } catch (_: Exception) { emptyMap() }

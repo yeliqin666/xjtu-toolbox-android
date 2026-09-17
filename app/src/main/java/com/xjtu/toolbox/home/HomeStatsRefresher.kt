@@ -217,10 +217,13 @@ object HomeStatsRefresher {
         //
         // TTL 比别的源短，因为这里的状态**是有时效的**——"待入馆"要在限定时间内签到，
         // "临时离馆"超时会被释放座位。半小时才刷一次的话，等首页显示出来往往已经过期了。
-        Source(Routes.LIBRARY, 15 * 60 * 1000L, LoginType.LIBRARY) { _, site ->
+        Source(Routes.LIBRARY, 15 * 60 * 1000L, LoginType.LIBRARY) { ctx, site ->
             site ?: return@Source null
             withContext(Dispatchers.IO) {
                 val b = com.xjtu.toolbox.library.LibraryApi(site).getMyBooking()
+                // 顺手排后台提醒：在图书馆自助机上约的座位不会经过本 App 的图书馆页，
+                // 首页这一轮是唯一能发现它的地方。
+                com.xjtu.toolbox.notification.LibraryReminderScheduler.sync(ctx, b)
                 if (b == null) {
                     HomeSignals.libraryUrgentAction = null
                     return@withContext null

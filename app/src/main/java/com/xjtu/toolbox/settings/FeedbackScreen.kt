@@ -28,7 +28,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -240,66 +246,23 @@ fun FeedbackScreen(
                             fontWeight = FontWeight.SemiBold,
                         )
                         Spacer(Modifier.height(6.dp))
+                        val linkColor = MiuixTheme.colorScheme.primary
                         Text(
-                            "不用注册，版本和机型会自动带上。虽然这个界面很漂亮，还是希望你去 GitHub 提 Issue，更方便项目维护~",
+                            buildAnnotatedString {
+                                append("会附带机型与版本号，如果你有更多细节需要提交，请前往 ")
+                                withLink(
+                                    LinkAnnotation.Clickable(
+                                        tag = FEEDBACK_GITHUB_ISSUE_URL,
+                                        styles = TextLinkStyles(
+                                            SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline)
+                                        ),
+                                        linkInteractionListener = { open(FEEDBACK_GITHUB_ISSUE_URL) },
+                                    )
+                                ) { append("GitHub Issues") }
+                            },
                             style = MiuixTheme.textStyles.body2,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         )
-                    }
-                }
-
-                if (publicQa.isNotEmpty()) {
-                    SmallTitle("大家在问")
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        cornerRadius = 16.dp,
-                        colors = CardDefaults.defaultColors(color = AppCardColor)
-                    ) {
-                        publicQa.forEachIndexed { index, qa ->
-                            val open = index in expandedQa
-                            if (index > 0) {
-                                HorizontalDivider(
-                                    Modifier.padding(horizontal = 14.dp),
-                                    color = MiuixTheme.colorScheme.outline.copy(alpha = 0.25f),
-                                )
-                            }
-                            Column(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        expandedQa = if (open) expandedQa - index else expandedQa + index
-                                    }
-                                    .padding(horizontal = 14.dp, vertical = 12.dp)
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        qa.question,
-                                        style = MiuixTheme.textStyles.body1,
-                                        fontWeight = FontWeight.Medium,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                }
-                                if (qa.category.isNotBlank()) {
-                                    Spacer(Modifier.height(2.dp))
-                                    Text(
-                                        qa.category,
-                                        style = MiuixTheme.textStyles.footnote2,
-                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.7f),
-                                    )
-                                }
-                                if (open) {
-                                    Spacer(Modifier.height(8.dp))
-                                    Text(qa.answer, style = MiuixTheme.textStyles.body2)
-                                } else {
-                                    Spacer(Modifier.height(4.dp))
-                                    Text(
-                                        "点开看回复",
-                                        style = MiuixTheme.textStyles.footnote1,
-                                        color = MiuixTheme.colorScheme.primary,
-                                    )
-                                }
-                            }
-                        }
                     }
                 }
 
@@ -372,6 +335,61 @@ fun FeedbackScreen(
                     colors = ButtonDefaults.textButtonColorsPrimary(),
                     modifier = Modifier.fillMaxWidth(),
                 )
+
+                if (publicQa.isNotEmpty()) {
+                    SmallTitle("大家在问")
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        cornerRadius = 16.dp,
+                        colors = CardDefaults.defaultColors(color = AppCardColor)
+                    ) {
+                        publicQa.forEachIndexed { index, qa ->
+                            val open = index in expandedQa
+                            if (index > 0) {
+                                HorizontalDivider(
+                                    Modifier.padding(horizontal = 14.dp),
+                                    color = MiuixTheme.colorScheme.outline.copy(alpha = 0.25f),
+                                )
+                            }
+                            Column(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        expandedQa = if (open) expandedQa - index else expandedQa + index
+                                    }
+                                    .padding(horizontal = 14.dp, vertical = 12.dp)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        qa.question,
+                                        style = MiuixTheme.textStyles.body1,
+                                        fontWeight = FontWeight.Medium,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                                if (qa.category.isNotBlank()) {
+                                    Spacer(Modifier.height(2.dp))
+                                    Text(
+                                        qa.category,
+                                        style = MiuixTheme.textStyles.footnote2,
+                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.7f),
+                                    )
+                                }
+                                if (open) {
+                                    Spacer(Modifier.height(8.dp))
+                                    Text(qa.answer, style = MiuixTheme.textStyles.body2)
+                                } else {
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        "点开看回复",
+                                        style = MiuixTheme.textStyles.footnote1,
+                                        color = MiuixTheme.colorScheme.primary,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
 
                 if (tickets.isNotEmpty()) {
                     SmallTitle("我提过的")

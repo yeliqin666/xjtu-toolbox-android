@@ -373,15 +373,19 @@ class AgentViewModel : ViewModel() {
                 // 直接比渲染结果，不再维护一份"签名"。签名要手工跟 AgentPrompt.build 的入参
                 // 保持同步，漏一个就是一类 bug（改名不生效、换模型仍自称旧模型都是这么来的）。
                 // 比成品则天然覆盖全部入参，以后往 prompt 里加东西也不必记得改这里。
+                // 皮肤在时用皮肤的名字覆盖用户设置的名字；两处必须用同一个值，否则
+                // 免责声明里报的名字和上文「你是」用的名字对不上，等于又制造一次身份分裂。
+                val resolvedAssistantName = PidaiAppearanceHost.effectiveAssistantName(config.effectiveName)
                 val systemPrompt = AgentPrompt.build(
                     today = LocalDate.now(),
-                    assistantName = config.effectiveName,
+                    assistantName = resolvedAssistantName,
                     userContext = registry.userContext(allowNetwork = allowProfileNetwork),
                     maxToolCalls = config.maxToolCalls,
                     responseStyle = config.responseStyle,
                     modelId = config.effectiveModel,
                     providerLabel = AgentConfig.providerPromptLabel(config.provider),
-                    memoryBlock = registry.memoryBlock()
+                    memoryBlock = registry.memoryBlock(),
+                    skinPersonaBlock = PidaiAppearanceHost.personaPromptBlock(resolvedAssistantName),
                 )
                 // system 必须待在第 0 位：整段历史是 provider 端 prefix cache 的比对前缀，
                 // 把它挪到末尾等于第一个 token 就对不上，之后每一轮都是全量重算。
@@ -504,8 +508,7 @@ class AgentViewModel : ViewModel() {
                             "get_attendance"        -> "查询考勤记录…"
                             "get_grades"            -> "查询成绩…"
                             "get_fitness_score"     -> "查询体测成绩…"
-                            "get_card_balance"      -> "查询校园卡余额…"
-                            "get_card_transactions" -> "查询校园卡流水…"
+                            "get_card_info"         -> "查询校园卡信息…"
                             "get_notifications"     -> "查询通知公告…"
                             "search_yellow_page"    -> "查询校园黄页…"
                             "web_search"            -> "联网搜索…"
@@ -573,7 +576,7 @@ class AgentViewModel : ViewModel() {
                         "get_empty_rooms"                   -> "空闲教室"   to "empty_room"
                         "get_attendance"                    -> "查看考勤"   to attendanceRoute
                         "get_grades"                        -> "成绩查询"   to "jwapp_score"
-                        "get_card_balance", "get_card_transactions" -> "校园卡" to "campus_card"
+                        "get_card_info"                      -> "校园卡"     to "campus_card"
                         "get_notifications"                 -> "通知公告"   to "notification"
                         "search_yellow_page"                -> "校园黄页"   to "yellow_page"
                         "get_library_booking", "get_library_seats" -> "图书馆" to "library"

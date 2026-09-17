@@ -172,6 +172,16 @@ class CredentialStore(context: Context) {
         get() = appPrefs.getBoolean(KEY_SCHEDULE_ATTENDANCE_BADGE, false)
         set(value) { appPrefs.edit().putBoolean(KEY_SCHEDULE_ATTENDANCE_BADGE, value).apply() }
 
+    /**
+     * 当前学期课表从哪个系统拉，取值见 `ScheduleSource.key`。
+     *
+     * 只影响**当前学期**：历史学期只有教务查得到，任何设置下都走教务，
+     * 非教务源取不到时也自动退回教务。详见 `ScheduleSourceRouter`。
+     */
+    var scheduleSource: String
+        get() = appPrefs.getString(KEY_SCHEDULE_SOURCE, null) ?: SCHEDULE_SOURCE_JWAPP
+        set(value) { appPrefs.edit().putString(KEY_SCHEDULE_SOURCE, value).apply() }
+
     var darkMode: String
         get() = appPrefs.getString(KEY_DARK_MODE, DARK_MODE_SYSTEM) ?: DARK_MODE_SYSTEM
         set(value) { appPrefs.edit().putString(KEY_DARK_MODE, value).apply() }
@@ -276,10 +286,14 @@ class CredentialStore(context: Context) {
         private const val KEY_VENUE_AUTO_SOLVE_CAPTCHA = "venue_auto_solve_captcha"
         private const val KEY_SCHEDULE_LAYOUT = "schedule_layout"
         private const val KEY_SCHEDULE_ATTENDANCE_BADGE = "schedule_attendance_badge"
+        private const val KEY_SCHEDULE_SOURCE = "schedule_source"
 
         // ── 设置值常量 ──
         const val SCHEDULE_LAYOUT_CLASSIC = "classic"
         const val SCHEDULE_LAYOUT_UNIFIED = "unified"
+        const val SCHEDULE_SOURCE_JWXT = "jwxt"
+        const val SCHEDULE_SOURCE_JWAPP = "jwapp"
+        const val SCHEDULE_SOURCE_BKKQ = "bkkq"
         const val NAV_STYLE_FLOATING = "floating"
         const val NAV_STYLE_CLASSIC = "classic"
         const val DARK_MODE_SYSTEM = "system"

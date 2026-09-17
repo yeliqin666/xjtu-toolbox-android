@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.agent
 
+import android.graphics.BitmapFactory
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -14,7 +15,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Matrix
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
@@ -22,7 +29,14 @@ import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.lerp
 import com.xjtu.toolbox.agent.bot.BotEngine
 import com.xjtu.toolbox.agent.bot.BotFrame
+import com.xjtu.toolbox.agent.bot.ImportedMotionEngine
 import com.xjtu.toolbox.agent.bot.NOTIF_BLUE
+import com.xjtu.toolbox.agent.bot.SkinOutline
+import com.xjtu.toolbox.agent.bot.transformedBy
+import com.xjtu.toolbox.agent.bot.SkinTransform
+import com.xjtu.toolbox.agent.skin.PidaiDraw
+import com.xjtu.toolbox.agent.skin.PidaiPaint
+import com.xjtu.toolbox.agent.skin.PidaiSkin
 
 /**
  * bloub 机器人的 Compose 渲染器：把 [BotEngine] 采出的帧画到一块小画布上。
@@ -43,6 +57,10 @@ internal fun BloubBotIcon(
     modifier: Modifier = Modifier,
     /** 用户选择的形状轮廓（见 [com.xjtu.toolbox.agent.bot.BOT_SHAPES]）；null = 圆形。 */
     shape: DoubleArray? = null,
+    /** 非空时改用导入皮肤的数据驱动动作；导入形象默认不叠加眼睛。 */
+    skin: PidaiSkin? = null,
+    requestedAction: String? = null,
+    requestedActionGeneration: Int = 0,
     /**
      * 非空 = 冻结在这个时刻的画面（设置页缩略图用），此时不启动帧循环、只采一帧。
      * 缩略图必须是静止的：一排会各自跑 rAF 的缩略图是没有意义的开销。
@@ -50,39 +68,70 @@ internal fun BloubBotIcon(
     frozenAt: Double? = null,
 ) {
     val engine = remember { BotEngine() }
+    val importedEngine = remember(skin?.cacheKey) { skin?.let { ImportedMotionEngine(it.motion) } }
+    // 包内位图解码一次；解不开的图直接当作缺图，不让一张坏图拖垮整张皮肤。
+    val images = remember(skin?.cacheKey) {
+        skin?.images.orEmpty().mapNotNull { (name, bytes) ->
+            runCatching { BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap() }
+                .getOrNull()?.let { name to it }
+        }.toMap()
+    }
     val clock = remember { BotClock() }
     val currentBeat by rememberUpdatedState(beat)
 
-    val stateId = when (beat) {
+    val builtInStateId = when (beat) {
         PidaiBeat.REST -> "idle"
         PidaiBeat.IDLE -> "wink"
         PidaiBeat.THINKING -> "orbit"
         PidaiBeat.ALERT -> "notify"
         PidaiBeat.TAP -> "comet"
     }
+    val beatName = when (beat) {
+        PidaiBeat.REST -> "rest"
+        PidaiBeat.IDLE -> "idle"
+        PidaiBeat.THINKING -> "thinking"
+        PidaiBeat.ALERT -> "alert"
+        PidaiBeat.TAP -> "tap"
+    }
+    val stateId = requestedAction?.takeIf { it in (skin?.motion?.actions ?: emptyMap()) }
+        ?: skin?.motion?.actionFor(beatName)?.id
+        ?: builtInStateId
 
     var frame by remember { mutableStateOf<BotFrame?>(null) }
 
     if (frozenAt != null) {
         // 冻结缩略图：状态与形状都摆到 0 时刻，再按 [frozenAt] 采一帧。
-        LaunchedEffect(stateId, shape, frozenAt) {
+        LaunchedEffect(stateId, shape, skin?.cacheKey, frozenAt) {
             clock.stateChangedAt = 0.0
-            engine.setShape(shape, 0.0)
-            engine.reset(stateId, 0.0)
-            frame = engine.sample(frozenAt)
+            if (importedEngine != null) {
+                importedEngine.reset(stateId, 0.0)
+                frame = importedEngine.sample(frozenAt)
+            } else {
+                engine.setShape(shape, 0.0)
+                engine.reset(stateId, 0.0)
+                frame = engine.sample(frozenAt)
+            }
         }
     } else {
         // 状态切换用与帧循环相同的时钟，保证 setState 的时刻与采样时刻同源。
-        LaunchedEffect(stateId) {
+        LaunchedEffect(stateId, requestedActionGeneration, skin?.cacheKey) {
             val now = clock.now()
             clock.stateChangedAt = now
-            engine.setState(stateId, now)
+            if (importedEngine != null) {
+                importedEngine.setAction(stateId, now, restart = requestedAction != null)
+            } else {
+                engine.setState(stateId, now)
+            }
         }
         // 形状跟着用户选择走：设置页就在底栏旁边，换形状要立刻在底栏看到 morph。
-        LaunchedEffect(shape) {
-            engine.setShape(shape, clock.now())
+        // 也要跟着 importedEngine：从皮肤切回内置形象时，这个效果必须重跑，
+        // 否则内置屁岱会退回圆形，无视用户选的形状。
+        LaunchedEffect(shape, importedEngine) {
+            if (importedEngine == null) engine.setShape(shape, clock.now())
         }
-        LaunchedEffect(Unit) {
+        // key 必须带上 importedEngine：LaunchedEffect 的 block 在首次组合时就固定了，
+        // 换皮肤后若不重启，循环会一直采样旧引擎（底栏因此永远不切换）。
+        LaunchedEffect(importedEngine) {
             var lastSampleAt = 0.0
             while (true) {
                 withFrameNanos { nanos ->
@@ -93,7 +142,7 @@ internal fun BloubBotIcon(
                         if (currentBeat == PidaiBeat.REST && sinceChange > 0.6) 0.033 else 0.0
                     if (now - lastSampleAt >= minInterval) {
                         lastSampleAt = now
-                        frame = engine.sample(now)
+                        frame = importedEngine?.sample(now) ?: engine.sample(now)
                     }
                 }
             }
@@ -114,12 +163,23 @@ internal fun BloubBotIcon(
             translate(size.width / 2f, size.height / 2f)
             scale(unitPx, unitPx, pivot = Offset.Zero)
         }) {
-            drawFrame(f, ink, paper)
+            drawFrame(f, ink, paper, images)
         }
     }
 }
 
-private fun DrawScope.drawFrame(f: BotFrame, ink: Color, paper: Color) {
+private fun DrawScope.drawFrame(
+    f: BotFrame,
+    ink: Color,
+    paper: Color,
+    images: Map<String, ImageBitmap>,
+) {
+    // 导入皮肤：任意条自由图层，下标即 z 序，没有内置身体也没有眼洞。
+    if (f.bodyPath == null) {
+        f.layers.forEach { drawSkinLayer(it, ink, paper, images) }
+        return
+    }
+
     fun drawDots() {
         for (d in f.dots) {
             val color = if (d.depth < 0.0) ink else lerp(paper, ink, d.depth.toFloat())
@@ -185,6 +245,96 @@ private fun DrawScope.drawFrame(f: BotFrame, ink: Color, paper: Color) {
     // 彩带前半段：最后画，压在身体上
     drawArcs()
 }
+
+private fun DrawScope.drawSkinLayer(
+    d: PidaiDraw,
+    ink: Color,
+    paper: Color,
+    images: Map<String, ImageBitmap>,
+) {
+    val alpha = d.alpha.toFloat().coerceIn(0f, 1f)
+    if (alpha <= 0.002f) return
+    val image = d.imageSrc?.let(images::get)
+    if (image != null) {
+        if (image.width <= 0 || image.height <= 0) return
+        // 位图按自然像素画，由矩阵把它铺进以原点为中心的 w × h 框，避免整数 dstSize 取整。
+        val box = SkinTransform(
+            d.imageW / image.width, 0.0,
+            0.0, d.imageH / image.height,
+            -d.imageW / 2.0, -d.imageH / 2.0,
+        )
+        withTransform({ transform(d.transform.times(box).toMatrix()) }) {
+            drawImage(image, topLeft = Offset.Zero, alpha = alpha)
+        }
+        return
+    }
+    val outline = d.outline ?: return
+    // 仿射保持三次贝塞尔，所以直接变换控制点：几何留在纯 Kotlin 里，可被单测断言。
+    val path = outline.transformedBy(d.transform).toComposePath(d.evenOdd)
+    d.fill.resolve(ink, paper)?.let { drawPath(path, it, alpha = alpha) }
+    val strokeColor = d.stroke.resolve(ink, paper)
+    if (strokeColor != null && d.strokeWidth > 0.0) {
+        drawPath(
+            path,
+            strokeColor,
+            alpha = alpha,
+            style = Stroke(
+                width = (d.strokeWidth * d.transform.lineScale).toFloat(),
+                cap = when (d.cap) {
+                    "butt" -> StrokeCap.Butt
+                    "square" -> StrokeCap.Square
+                    else -> StrokeCap.Round
+                },
+                join = when (d.join) {
+                    "miter" -> StrokeJoin.Miter
+                    "bevel" -> StrokeJoin.Bevel
+                    else -> StrokeJoin.Round
+                },
+            ),
+        )
+    }
+}
+
+private fun PidaiPaint.resolve(ink: Color, paper: Color): Color? = when (this) {
+    PidaiPaint.None -> null
+    PidaiPaint.Ink -> ink
+    PidaiPaint.Paper -> paper
+    is PidaiPaint.Solid -> Color(argb.toInt())
+}
+
+private fun SkinOutline.toComposePath(evenOdd: Boolean): Path {
+    val path = Path()
+    if (evenOdd) path.fillType = PathFillType.EvenOdd
+    subpaths.forEach { sub ->
+        val p = sub.pts
+        path.moveTo(p[0].toFloat(), p[1].toFloat())
+        var i = 2
+        while (i < p.size) {
+            path.cubicTo(
+                p[i].toFloat(), p[i + 1].toFloat(),
+                p[i + 2].toFloat(), p[i + 3].toFloat(),
+                p[i + 4].toFloat(), p[i + 5].toFloat(),
+            )
+            i += 6
+        }
+        if (sub.closed) path.close()
+    }
+    return path
+}
+
+/**
+ * Compose 的 [Matrix] 是列主序数组，且 `get(row, column)` 实际取的是 `values[row*4+column]`
+ * ——第一个参数是列不是行。按下标赋值极易把平移写进透视位（会让每个点被除以一个过零的 w，
+ * 图形炸成楔形）。这里直接给出数组，并由 BloubBotIconMatrixTest 钉住。
+ */
+internal fun SkinTransform.toMatrix(): Matrix = Matrix(
+    floatArrayOf(
+        a.toFloat(), b.toFloat(), 0f, 0f,
+        c.toFloat(), d.toFloat(), 0f, 0f,
+        0f, 0f, 1f, 0f,
+        e.toFloat(), f.toFloat(), 0f, 1f,
+    )
+)
 
 /** 引擎时钟：以组合时刻为零点，帧回调和状态切换共用同一时间原点。 */
 private class BotClock {

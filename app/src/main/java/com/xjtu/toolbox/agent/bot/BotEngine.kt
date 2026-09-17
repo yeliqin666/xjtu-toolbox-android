@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.agent.bot
 
 import androidx.compose.ui.graphics.Path
+import com.xjtu.toolbox.agent.skin.PidaiDraw
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -34,7 +35,8 @@ class DotDraw(
 class NotifDraw(val x: Double, val y: Double, val r: Double, val notchR: Double)
 
 class BotFrame(
-    val bodyPath: Path,
+    /** 内置屁岱的单轮廓身体；导入皮肤走 [layers]，这里为 null。 */
+    val bodyPath: Path?,
     val bodyAlpha: Double,
     val eyes: List<RenderedEye>,
     val dots: List<DotDraw>,
@@ -42,6 +44,8 @@ class BotFrame(
     val dotsBehind: Boolean,
     val arcs: List<ArcRender>,
     val notif: NotifDraw?,
+    /** 导入皮肤的自由图层，下标即 z 序。 */
+    val layers: List<PidaiDraw> = emptyList(),
 )
 
 /** 两姿态的插值。装饰按透明度交叉淡入淡出，不做几何交叉。 */

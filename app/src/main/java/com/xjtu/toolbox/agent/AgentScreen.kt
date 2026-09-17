@@ -217,8 +217,8 @@ fun AgentScreen(
     }
 
     if (asTab) {
-        // 标题跟着助手名字走（用户可改名），进配置面板时换成「配置」。
-        val hostTitle = if (showConfig) "配置" else config.effectiveName
+        // 标题跟着助手名字走（用户可改名，皮肤可覆盖），进配置面板时换成「配置」。
+        val hostTitle = if (showConfig) "配置" else PidaiAppearanceHost.effectiveAssistantName(config.effectiveName)
         LaunchedEffect(hostTitle) { onTitleChange(hostTitle) }
         DisposableEffect(Unit) {
             onActionsChange(headerActions)
@@ -350,8 +350,8 @@ fun AgentScreen(
             Scaffold(
                 topBar = {
                     TopAppBar(
-                        title = config.effectiveName,
-                        largeTitle = if (showConfig) "配置" else config.effectiveName,
+                        title = PidaiAppearanceHost.effectiveAssistantName(config.effectiveName),
+                        largeTitle = if (showConfig) "配置" else PidaiAppearanceHost.effectiveAssistantName(config.effectiveName),
                         color = MiuixTheme.colorScheme.surface,
                         scrollBehavior = effectiveScrollBehavior,
                         navigationIcon = {
@@ -1684,6 +1684,15 @@ private fun ConfigPanel(
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                         keyboardActions = KeyboardActions(onDone = { saveNow() })
                     )
+                    // 当前皮肤设了自己的名字时，这里填的名字不生效——说明白，
+                    // 免得用户改名字没反应还以为是 bug。
+                    PidaiAppearanceHost.activeSkin?.persona?.displayName?.takeIf { it.isNotBlank() }?.let { skinName ->
+                        Text(
+                            "当前皮肤把助手改叫「${sanitizeAgentTitle(skinName)}」，这里填的名字暂时不生效；换一个没设名字的皮肤或取消皮肤即可用回这里的名字。",
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        )
+                    }
                     TextField(
                         value = apiKey,
                         onValueChange = {

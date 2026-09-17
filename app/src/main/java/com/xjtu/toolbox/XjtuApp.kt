@@ -21,5 +21,7 @@ class XjtuApp : Application() {
         AppNotificationChannels.ensureChannels(this)
         ErrorReporting.install(FileErrorReporter(this))
         com.xjtu.toolbox.notification.NoticeWatchScheduler.apply(this)
+        com.xjtu.toolbox.notification.ScheduleWatchScheduler.apply(this)
+        com.xjtu.toolbox.notification.LmsDeadlineScheduler.apply(this)
     }
 }

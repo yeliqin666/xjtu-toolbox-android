@@ -94,7 +94,9 @@ data class TermInfo(
     val bh: String,
     val name: String,
     val startDate: String = "",
-    val endDate: String = ""
+    val endDate: String = "",
+    /** 学期总周数。0 表示接口没给，按周拉课表时不能用。 */
+    val weeks: Int = 0,
 )
 
 /**
@@ -115,11 +117,11 @@ data class CourseAttendanceStat(
 }
 
 /** JsonElement 安全取 String（处理 JsonNull / 非字符串类型） */
-private val JsonElement?.safeStr: String
+internal val JsonElement?.safeStr: String
     get() = if (this == null || this.isJsonNull) "" else try { asString } catch (_: Exception) { "" }
 
 /** JsonElement 安全取 Int（处理 JsonNull / 非数字类型） */
-private val JsonElement?.safeInt: Int
+internal val JsonElement?.safeInt: Int
     get() = if (this == null || this.isJsonNull) 0 else try { asInt } catch (_: Exception) { 0 }
 
 /**
@@ -141,7 +143,7 @@ class AttendanceApi(private val site: SiteSession) {
      * 自动处理 token 过期并重新认证。
      * 考勤后端不稳定（瞬时 5xx / 超时 / 空响应常见），对可重试错误做有界重试。
      */
-    private fun post(path: String, jsonBody: String? = null): String {
+    internal fun post(path: String, jsonBody: String? = null): String {
         val url = "$baseUrl$path"
         var lastError: Exception? = null
         for (attempt in 0..2) {
@@ -210,6 +212,25 @@ class AttendanceApi(private val site: SiteSession) {
     }
 
     /**
+     * 当前学期完整信息（编号、学期名、起止日期、总周数）。
+     * [getTermBh] 只要编号，按周拉课表还需要 `weeks`。
+     */
+    fun getNearTerm(): TermInfo {
+        val result = post("/attendance-student/global/getNearTerm")
+        val json = result.safeParseJsonObject()
+        val dataEl = json.get("data")
+        val data = if (dataEl != null && dataEl.isJsonObject) dataEl.asJsonObject
+            else throw RuntimeException("getNearTerm: data 为空, response=$result")
+        return TermInfo(
+            bh = data.get("bh").safeStr,
+            name = data.get("name").safeStr,
+            startDate = data.get("startdate").safeStr.ifEmpty { data.get("startDate").safeStr },
+            endDate = data.get("enddate").safeStr.ifEmpty { data.get("endDate").safeStr },
+            weeks = data.get("weeks").safeInt,
+        )
+    }
+
+    /**
      * 获取所有学期列表
      * Python 端点: /attendance-student/global/getBeforeTodayTerm
      */
@@ -230,7 +251,8 @@ class AttendanceApi(private val site: SiteSession) {
                     .ifEmpty { obj.get("startTime").safeStr },
                 endDate = obj.get("endDate").safeStr
                     .ifEmpty { obj.get("jssj").safeStr }
-                    .ifEmpty { obj.get("endTime").safeStr }
+                    .ifEmpty { obj.get("endTime").safeStr },
+                weeks = obj.get("weeks").safeInt,
             )
         }
     }

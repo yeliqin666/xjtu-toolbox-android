@@ -190,10 +190,14 @@ class CampusCardApi(private val site: SiteSession) {
             val resume = rec.get("resume")?.asString?.trim() ?: ""
             val merchant = rec.get("toMerchant")?.asString?.trim()
                 ?: resume.substringBefore("-").trim()
+            val typeFrom = rec.get("typeFrom")?.asString?.trim()
+            val toAccount = rec.get("toAccount")
+                ?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asLong
+            val fromAccount = rec.get("fromAccount")?.asString?.trim()?.toLongOrNull()
             Transaction(
                 time = rec.get("jndatetimeStr")?.asString ?: "",
                 merchant = merchant,
-                amount = CampusCardContract.signedAmountCents(tranAmt, turnoverType, icon) / 100.0,
+                amount = CampusCardContract.signedAmountCents(tranAmt, turnoverType, icon, typeFrom, toAccount, fromAccount) / 100.0,
                 balance = CampusCardContract.requireLong(rec.get("cardBalance"), "流水余额", "查询校园卡流水") / 100.0,
                 type = turnoverType,
                 description = resume

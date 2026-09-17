@@ -1,0 +1,13 @@
+{
+  "author": "pidai-skin-maker",
+  "description": "待命时呼吸，点击破壳探头飞毛，思考时绕着转一圈",
+  "files": {
+    "motion.json": "sha256:d85303dfa2db5c654e837d487b5d35b12b50318ceaa4fd4938d422c229d6c573",
+    "persona.json": "sha256:d924ec232bf99f3b07a5689bcae8359b3acab1f0cf3fbf502660a6c577155dbb"
+  },
+  "format_version": 2,
+  "id": "chick",
+  "name": "鸡蛋小鸡",
+  "renderer": "free-motion-v2",
+  "version": "2.0.0"
+}

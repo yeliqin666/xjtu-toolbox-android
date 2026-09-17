@@ -843,6 +843,8 @@ class AppLoginStateViewModel(application: android.app.Application) : androidx.li
     init {
         // 注入会话管家（无需 LaunchedEffect，ViewModel 创建时即完成）
         loginState.sessionManager = sessionManager
+        // 后台任务复用这一份，别另起一个抢同一批 cookie 文件
+        com.xjtu.toolbox.auth.SessionManager.active = sessionManager
         // 注册所有业务子系统
         with(sessionManager) {
             register(com.xjtu.toolbox.auth.JwxtSession())
@@ -2385,6 +2387,9 @@ private fun MainScreen(
                         com.xjtu.toolbox.schedule.ScheduleDiff.setPending(context, null)
                     "attendance" -> com.xjtu.toolbox.home.HomeSignals.attendanceAlert = null
                     "coupon" -> com.xjtu.toolbox.home.HomeSignals.couponAlert = null
+                    // 清空而非重查：待办是否还在只有图书馆服务端知道，这里现拉一次会给冒泡加一次网络等待。
+                    // 下一轮 HomeStatsRefresher 会按最新状态重新填上，签完到则不再填。
+                    "library" -> com.xjtu.toolbox.home.HomeSignals.libraryUrgentAction = null
                 }
                 com.xjtu.toolbox.agent.ProactiveBubbleHost.message = msg
             }
@@ -2557,7 +2562,7 @@ private fun MainScreen(
                     // 渲染成会动的机器人而不是灰度线性图标 + 文字。
                     BottomTab.entries.forEach { tab ->
                         if (tab == BottomTab.PIDAI) {
-                            val (pidaiShape, pidaiInk) = com.xjtu.toolbox.agent.pidaiNavAppearance()
+                            val pidaiStyle = com.xjtu.toolbox.agent.pidaiNavAppearance()
                             com.xjtu.toolbox.agent.PidaiNavButton(
                                 onClick = onPidaiTap,
                                 excited = com.xjtu.toolbox.agent.ProactiveBubbleHost.message != null,
@@ -2566,8 +2571,9 @@ private fun MainScreen(
                                 diameter = 38.dp,
                                 liftUp = 8.dp,
                                 paper = MiuixTheme.colorScheme.surface,
-                                ink = pidaiInk,
-                                shape = pidaiShape,
+                                ink = pidaiStyle.ink,
+                                shape = pidaiStyle.shape,
+                                skin = pidaiStyle.skin,
                                 modifier = Modifier.weight(1f),
                             )
                             return@forEach
@@ -2597,7 +2603,7 @@ private fun MainScreen(
                 ) {
                     BottomTab.entries.forEach { tab ->
                         if (tab == BottomTab.PIDAI) {
-                            val (pidaiShape, pidaiInk) = com.xjtu.toolbox.agent.pidaiNavAppearance()
+                            val pidaiStyle = com.xjtu.toolbox.agent.pidaiNavAppearance()
                             com.xjtu.toolbox.agent.PidaiNavButton(
                                 onClick = onPidaiTap,
                                 excited = com.xjtu.toolbox.agent.ProactiveBubbleHost.message != null,
@@ -2605,8 +2611,9 @@ private fun MainScreen(
                                 selected = selectedTab == tab,
                                 diameter = 40.dp,
                                 paper = MiuixTheme.colorScheme.surfaceContainerHigh,
-                                ink = pidaiInk,
-                                shape = pidaiShape,
+                                ink = pidaiStyle.ink,
+                                shape = pidaiStyle.shape,
+                                skin = pidaiStyle.skin,
                             )
                             return@forEach
                         }

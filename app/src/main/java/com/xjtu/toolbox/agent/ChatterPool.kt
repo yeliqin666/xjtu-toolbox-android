@@ -14,6 +14,8 @@ internal data class ChatterLine(
     val hours: IntRange? = null,
     val months: IntRange? = null,
     val weekdays: Set<DayOfWeek>? = null,
+    val weight: Double = 1.0,
+    val action: String? = null,
 )
 
 internal object ChatterPool {
@@ -403,13 +405,28 @@ internal object ChatterPool {
         recentIds: List<String>,
         nextCourseName: String?,
         minutesToClass: Long?,
+        skinLines: List<ChatterLine> = emptyList(),
+        skinMix: Double = 0.0,
     ): ChatterLine? {
-        val pool = eligible(now) + situational(now, nextCourseName, minutesToClass)
-        if (pool.isEmpty()) return null
         val recent = recentIds.toSet()
-        val fresh = pool.filter { it.id !in recent }.ifEmpty { pool }
+        val builtInPool = eligible(now) + situational(now, nextCourseName, minutesToClass)
+        val eligibleSkin = skinLines.filter { line ->
+            (line.hours == null || now.hour in line.hours) &&
+                (line.months == null || now.monthValue in line.months) &&
+                (line.weekdays == null || now.dayOfWeek in line.weekdays)
+        }
+        val builtIn = builtInPool.filter { it.id !in recent }.ifEmpty { builtInPool }
+        val skin = eligibleSkin.filter { it.id !in recent }.ifEmpty { eligibleSkin }
+        if (builtIn.isEmpty() && skin.isEmpty()) return null
 
-        val (promo, life) = fresh.partition { it.id.startsWith(PROMO_PREFIX) }
+        val chooseSkin = when {
+            builtIn.isEmpty() -> true
+            skin.isEmpty() -> false
+            else -> Math.random() < skinMix.coerceIn(0.0, 1.0)
+        }
+        if (chooseSkin) return weightedPick(skin)
+
+        val (promo, life) = builtIn.partition { it.id.startsWith(PROMO_PREFIX) }
         // 想抽的那组空了就退回另一组，别因为限额把话说没了。
         val group = when {
             life.isEmpty() -> promo
@@ -422,6 +439,18 @@ internal object ChatterPool {
         // 原来是 slot = (hour*60+min)/3 取模的**确定性**索引：同一个三分钟窗口里
         // 反复触发只会沿着列表顺序往下走，相邻的句子会连着蹦出来，很容易被看出规律。
         // 换成真随机；防重复交给上面的 recent 过滤，那才是它该负责的事。
-        return group.random()
+        return weightedPick(group)
+    }
+
+    private fun weightedPick(lines: List<ChatterLine>): ChatterLine? {
+        if (lines.isEmpty()) return null
+        val total = lines.sumOf { it.weight.coerceAtLeast(0.0) }
+        if (total <= 0.0) return lines.random()
+        var slot = Math.random() * total
+        for (line in lines) {
+            slot -= line.weight.coerceAtLeast(0.0)
+            if (slot <= 0.0) return line
+        }
+        return lines.last()
     }
 }

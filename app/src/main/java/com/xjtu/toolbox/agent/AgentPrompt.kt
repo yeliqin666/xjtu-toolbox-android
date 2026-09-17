@@ -16,7 +16,9 @@ object AgentPrompt {
         modelId: String = "",
         providerLabel: String = "",
         /** 见 [AgentMemory.promptBlock]。没有偏好时为空串。 */
-        memoryBlock: String = ""
+        memoryBlock: String = "",
+        /** 当前皮肤提供的低优先级角色语气；内容已由导入器校验。 */
+        skinPersonaBlock: String = "",
     ): String {
         val userBlock = if (userContext.isBlank()) "（暂未获取到用户画像。）" else userContext
         val runtimeBlock = if (modelId.isBlank()) {
@@ -62,6 +64,7 @@ $userBlock
 
 $styleBlock
 $memoryBlock
+$skinPersonaBlock
 $runtimeBlock
 
 # 图片
@@ -84,7 +87,7 @@ $runtimeBlock
 # 路由
 - 时间/课表：`get_current_time` `get_schedule` `get_exam_schedule` `get_school_calendar` `search_school_courses` `get_textbooks`
 - 成绩：`get_grades`；排除某课重算 GPA 用 `calculate`。体测：`get_fitness_score`
-- 空教室 `get_empty_rooms`；考勤 `get_attendance`；校园卡 `get_card_balance` `get_card_transactions`
+- 空教室 `get_empty_rooms`；考勤 `get_attendance`；校园卡 `get_card_info`
 - 通知 `get_notifications`（可指定学院/部门；详情可 `web_fetch` 链接）；电话 `search_yellow_page`
 - 图书馆 `get_library_booking` `get_library_seats`（只查；预约/换座/取消去图书馆页）
 - 思源 `get_lms_courses` `get_lms_activities` `get_lms_assignments`；交晓智 `ask_jiaoxiaozhi`（须核验）
