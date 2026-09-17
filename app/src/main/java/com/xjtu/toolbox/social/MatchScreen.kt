@@ -40,8 +40,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -80,6 +78,8 @@ import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
@@ -94,7 +94,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 /**
- * 课表匹配度。
+ * 匹配交友。
  *
  * 全程离线：把自己的档案压成一张二维码给朋友扫（或者一段文字让他粘），
  * 算契合度这一步在本机完成。没有服务器、没有账号，我们一条数据都不经手——
@@ -210,13 +210,13 @@ fun MatchScreen(onBack: () -> Unit) {
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = "课表匹配",
-                    largeTitle = "课表匹配",
+                    title = "匹配交友",
+                    largeTitle = "匹配交友",
                     color = MiuixTheme.colorScheme.surface,
                     scrollBehavior = scrollBehavior,
                     navigationIcon = {
                         IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回")
+                            Icon(MiuixIcons.Back, "返回")
                         }
                     },
                 )
@@ -342,7 +342,7 @@ private fun MyCodeCard(
                 } else {
                     Image(
                         bitmap = bitmap.asImageBitmap(),
-                        contentDescription = "我的课表匹配二维码",
+                        contentDescription = "我的匹配交友二维码",
                         modifier = Modifier
                             .size(232.dp)
                             .clip(RoundedCornerShape(12.dp))
@@ -597,9 +597,9 @@ private fun ShareSettingsDialog(
 
                 GroupLabel("人")
                 DimRow(
-                    "年级 专业 校区",
+                    "年级 专业 校区 生源地",
                     if (local.profile == null) "还没读到个人信息，回首页看一眼"
-                    else "不带学号，只有年级、专业、书院和校区",
+                    else "不带学号，只有年级、专业、书院、校区和生源地省份",
                     dims.identity, local.profile != null,
                 ) { onDims(dims.copy(identity = it)) }
             }

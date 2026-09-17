@@ -115,17 +115,6 @@ class AgentToolRegistry(
     /** 取走并清空本轮收集的控件。 */
     fun drainWidgets(): List<AgentWidget> = pendingWidgets.toList().also { pendingWidgets.clear() }
 
-    // 学号省码（GB/T 2260 前两位）→ 省份
-    private val provinceMap = mapOf(
-        "11" to "北京", "12" to "天津", "13" to "河北", "14" to "山西", "15" to "内蒙古",
-        "21" to "辽宁", "22" to "吉林", "23" to "黑龙江", "31" to "上海", "32" to "江苏",
-        "33" to "浙江", "34" to "安徽", "35" to "福建", "36" to "江西", "37" to "山东",
-        "41" to "河南", "42" to "湖北", "43" to "湖南", "44" to "广东", "45" to "广西",
-        "46" to "海南", "50" to "重庆", "51" to "四川", "52" to "贵州", "53" to "云南",
-        "54" to "西藏", "61" to "陕西", "62" to "甘肃", "63" to "青海", "64" to "宁夏",
-        "65" to "新疆", "71" to "台湾", "81" to "香港", "82" to "澳门"
-    )
-
     /** 一网通办拉到的身份。姓名、学院都是死数据，记下来免得为它反复联网。 */
     private data class YwtbIdentity(val name: String = "", val college: String = "")
 
@@ -187,13 +176,12 @@ class AgentToolRegistry(
         name?.let { lines.add("- 姓名：$it") }
         if (sid.isNotBlank()) {
             val enrollYear = sid.getOrNull(1)?.let { a -> sid.getOrNull(2)?.let { b -> "20$a$b" } }
-            val provCode = if (sid.length >= 5) sid.substring(3, 5) else null
-            val province = provCode?.let { provinceMap[it] }
+            val province = com.xjtu.toolbox.util.ProvinceCode.of(sid)
             lines.add(buildString {
                 append("- 学号：$sid")
                 enrollYear?.let { append("（${it}级，即 $it 年秋季入学；$it 秋为大一上学期，请据当前日期推算其当前年级与学期）") }
             })
-            province?.let { lines.add("- 生源地：${it}省（学号省码$provCode）") }
+            province?.let { lines.add("- 生源地：${it}省（学号省码${sid.substring(3, 5)}）") }
         }
         college?.let { lines.add("- 学院：$it") }
 

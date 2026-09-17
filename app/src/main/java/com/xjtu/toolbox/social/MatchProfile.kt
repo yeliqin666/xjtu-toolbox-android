@@ -6,7 +6,7 @@ import java.util.zip.Deflater
 import java.util.zip.Inflater
 
 /**
- * 课表匹配：把自己的作息压成一段分享码，跟朋友交换后在本地算契合度。
+ * 匹配交友：把自己的作息压成一段分享码，跟朋友交换后在本地算契合度。
  *
  * ## 为什么是分享码而不是服务器
  *
@@ -41,7 +41,7 @@ import java.util.zip.Inflater
 object MatchProfile {
 
     /** 分享码版本。改了字段布局就加一，解码端据此拒绝旧码而不是解出乱数据。 */
-    private const val VERSION = 4
+    private const val VERSION = 5
 
     /** 一周 7 天 × 11 节的占用位图，用 77 个字符的 0/1 串表示。 */
     const val DAYS = 7
@@ -119,6 +119,8 @@ object MatchProfile {
         /** 校区。是硬门槛而不是加分项，见 [compare]。 */
         val campus: String = "",
         val className: String = "",
+        /** 生源地省份，从学号推——见 [com.xjtu.toolbox.util.ProvinceCode]，跟屁岱画像同一份映射。 */
+        val province: String = "",
     ) {
         val courseCodes: Set<String> get() = courses.map { it.code }.toSet()
 
@@ -140,7 +142,7 @@ object MatchProfile {
                 diningHours.isNotEmpty(),
                 canteens.isNotEmpty(),
                 dietTags.isNotEmpty(),
-                grade > 0 || campus.isNotEmpty() || profession.isNotEmpty(),
+                grade > 0 || campus.isNotEmpty() || profession.isNotEmpty() || province.isNotEmpty(),
             ).count { it }
     }
 
@@ -260,6 +262,9 @@ object MatchProfile {
             academy = if (dims.identity) clean(local.profile?.academyName.orEmpty()) else "",
             campus = if (dims.identity) clean(local.profile?.campusName.orEmpty()) else "",
             className = if (dims.identity) clean(local.profile?.className.orEmpty()) else "",
+            province = if (dims.identity) {
+                local.profile?.sno?.let { com.xjtu.toolbox.util.ProvinceCode.of(it) }.orEmpty()
+            } else "",
         )
     }
 
@@ -298,6 +303,7 @@ object MatchProfile {
             p.academy,
             p.campus,
             p.className,
+            p.province,
         ).joinToString("|")
         return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(deflate(raw))
     }
@@ -307,7 +313,7 @@ object MatchProfile {
         // 聊天软件会给长串自动折行，粘回来带换行和空格。先全部去掉再解。
         val compact = code.filterNot { it.isWhitespace() }
         val parts = inflate(java.util.Base64.getUrlDecoder().decode(compact)).split("|")
-        if (parts.size < 19 || parts[0].toIntOrNull() != VERSION) {
+        if (parts.size < 20 || parts[0].toIntOrNull() != VERSION) {
             null
         } else {
             val buildings = parts[5].split(",").filter { it.isNotBlank() }
@@ -342,6 +348,7 @@ object MatchProfile {
                 academy = parts[16],
                 campus = parts[17],
                 className = parts[18],
+                province = parts[19],
             )
         }
     } catch (_: Exception) {
@@ -627,6 +634,9 @@ object MatchProfile {
                 val d = kotlin.math.abs(mine.grade - theirs.grade)
                 add(if (d == 0) "同级 · ${mine.grade} 级" else "差 $d 届")
             }
+            if (mine.province.isNotBlank() && mine.province == theirs.province) {
+                add("老乡 · ${mine.province}")
+            }
         }
 
         // 校区：硬门槛。
@@ -789,7 +799,7 @@ object MatchProfile {
     /** 可以直接粘进聊天框的一段战报。 */
     fun summaryText(theirName: String, r: Result): String = buildString {
         if (r.scored) {
-            appendLine("我和${theirName}的课表匹配 ${r.overall} 分：${r.verdict}")
+            appendLine("我和${theirName}的匹配度 ${r.overall} 分：${r.verdict}")
         } else {
             appendLine("我和${theirName}的课表交集")
         }

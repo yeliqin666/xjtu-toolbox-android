@@ -10,7 +10,7 @@ import com.xjtu.toolbox.schedule.TextbookItem
 import com.xjtu.toolbox.util.DataCache
 
 /**
- * 课表匹配的取数层。
+ * 匹配交友的取数层。
  *
  * 这个功能一条请求都不发，只把别的页面已经落盘的缓存捡起来。所以能比什么，
  * 完全取决于用户逛过哪些页面——没进过校园卡页就没有食堂数据，界面会直说，
