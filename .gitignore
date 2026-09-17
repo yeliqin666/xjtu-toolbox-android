@@ -73,3 +73,8 @@ plan.md
 
 # 反馈后端（飞书多维表格）凭据，不入库
 feedback.properties
+
+# 屁岱皮肤制作 Skill：独立维护在 yeliqin666/pidai-skin-maker，本仓库不再内嵌一份拷贝
+# （曾经嵌过，两边一改就容易分叉）。本地想用就 clone 到这两个路径，不会被 git 跟踪。
+/.agents/skills/pidai-skin-maker/
+/.claude/skills/pidai-skin-maker/
