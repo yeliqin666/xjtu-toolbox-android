@@ -3,6 +3,7 @@ package com.xjtu.toolbox.yellowpage
 import android.content.Context
 import com.google.gson.Gson
 import com.google.gson.JsonParser
+import com.google.gson.annotations.SerializedName
 import com.xjtu.toolbox.util.DataCache
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -10,20 +11,22 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.TimeUnit
 
+// 字段名直接对服务器 JSON 反射取值（getData() 里 gson.fromJson 吃的是接口原始数组），
+// 不是本地缓存自产自销——@SerializedName 锁死字段名，R8 改名不会让这两个类静默变空。
 data class YellowPageCategory(
-    val id: Int,
-    val name: String,
-    val status: Int,
-    val sort: Int
+    @SerializedName("id") val id: Int,
+    @SerializedName("name") val name: String,
+    @SerializedName("status") val status: Int,
+    @SerializedName("sort") val sort: Int
 )
 
 data class YellowPageDepartment(
-    val id: Int,
-    val categoryId: Int,
-    val name: String,
-    val phone: String,
-    val sort: Int,
-    val status: Int
+    @SerializedName("id") val id: Int,
+    @SerializedName("categoryId") val categoryId: Int,
+    @SerializedName("name") val name: String,
+    @SerializedName("phone") val phone: String,
+    @SerializedName("sort") val sort: Int,
+    @SerializedName("status") val status: Int
 ) {
     val phoneItems: List<String>
         get() = phone.split("/")
