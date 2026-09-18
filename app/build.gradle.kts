@@ -125,6 +125,23 @@ android {
         compose = true
         buildConfig = true
     }
+    packaging {
+        // minSdk≥28 时 AGP 默认把 dex 不压缩、按页对齐存进 APK，好让 ART 直接 mmap。
+        // 本应用 dex 约 8.8MB，占 APK 八成，用户却是整包下载（Gitee/GitHub Release），
+        // 压缩后下载体积约 10.8→6.4MB。代价是安装时 ART 把 dex 解到 vdex、多占约 9MB
+        // 存储；运行时跑的是 AOT/JIT 产物，启动速度不受影响（同机交替 A/B 各 18 次冷启动，
+        // 压缩 ~335ms vs 不压缩 ~332ms，差异在噪声内）。
+        dex { useLegacyPackaging = true }
+    }
+}
+
+androidComponents {
+    // 正式发布包只带 ARM 的 so（CameraX、graphics-path 各一份 x86/x86_64，约 110KB）：
+    // 手机与平板都是 ARM。只作用于 `release` 这一个构建类型——baseline profile 插件派生的
+    // nonMinifiedRelease 跑在 x86_64 托管模拟器上，必须保留 x86_64，否则采集时加载 so 失败。
+    onVariants(selector().withBuildType("release")) { variant ->
+        variant.packaging.jniLibs.excludes.addAll("lib/x86/**", "lib/x86_64/**")
+    }
 }
 
 // 插件只会把 profile 打进非 debuggable 变体（release），debug 不做 AOT、拿它没用。

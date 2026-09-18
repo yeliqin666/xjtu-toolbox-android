@@ -1,0 +1,20 @@
+# 手写基线配置，与 src/release/generated/baselineProfiles/ 下自动生成的那份合并打包，
+# 重新生成时不会被覆盖。
+#
+# 为什么需要：自动生成的那份是在全新模拟器上采的，首屏是用户协议页，登录后才会用到的
+# 首页 / 底栏 / 「我的」从来没进过配置；MainActivity.kt 拆分后，原先挂在 MainActivityKt
+# 上的协议页等条目也跟着失效了。这里按文件整类标成热点，真实用户冷启动后看到的界面
+# 都能在安装时 AOT 编译，不必等 JIT 预热。
+HSPLcom/xjtu/toolbox/AppLoginStateKt*;->**(**)**
+HSPLcom/xjtu/toolbox/MainScreenKt*;->**(**)**
+HSPLcom/xjtu/toolbox/ComposableSingletons$MainScreenKt*;->**(**)**
+HSPLcom/xjtu/toolbox/HomeTabKt*;->**(**)**
+HSPLcom/xjtu/toolbox/ComposableSingletons$HomeTabKt*;->**(**)**
+HSPLcom/xjtu/toolbox/BulletinUiKt*;->**(**)**
+HSPLcom/xjtu/toolbox/ComposableSingletons$BulletinUiKt*;->**(**)**
+HSPLcom/xjtu/toolbox/AppDialogsKt*;->**(**)**
+HSPLcom/xjtu/toolbox/ComposableSingletons$AppDialogsKt*;->**(**)**
+HSPLcom/xjtu/toolbox/ProfileTabKt*;->**(**)**
+HSPLcom/xjtu/toolbox/ComposableSingletons$ProfileTabKt*;->**(**)**
+HSPLcom/xjtu/toolbox/MainActivityKt*;->**(**)**
+HSPLcom/xjtu/toolbox/ComposableSingletons$MainActivityKt*;->**(**)**
