@@ -1892,6 +1892,10 @@ class AgentToolRegistry(
         com.xjtu.toolbox.lms.LmsActivityType.MATERIAL -> "课件"
         com.xjtu.toolbox.lms.LmsActivityType.LESSON -> "课程/回放"
         com.xjtu.toolbox.lms.LmsActivityType.LECTURE_LIVE -> "直播/回放"
+        com.xjtu.toolbox.lms.LmsActivityType.PAGE -> "页面"
+        com.xjtu.toolbox.lms.LmsActivityType.FORUM -> "讨论区"
+        com.xjtu.toolbox.lms.LmsActivityType.QUESTIONNAIRE -> "问卷"
+        com.xjtu.toolbox.lms.LmsActivityType.ONLINE_VIDEO -> "在线视频"
         else -> "其他"
     }
 
