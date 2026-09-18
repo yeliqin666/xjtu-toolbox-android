@@ -54,12 +54,11 @@ class JwappScheduleApi(site: SiteSession) {
         // 调休合并整段包起来：这套字段是从学校前端 bundle 反推的，本学期还没遇上过真正的
         // 调课，没有任何真实样本验证过。合并出岔子时宁可退回原始课表（等于没有调休信息），
         // 也不能让一个没验证过的算法把整张课表搞乱。
-        val merged = runCatching { weekly.map { (week, raw) -> week to applyChanges(week, raw) } }
+        val merged = runCatching { mergeWeeks(weekly, maxWeekNum) }
             .getOrElse { e ->
                 Log.w(TAG, "调休合并失败，退回未合并课表", e)
                 null
             }
-            ?.takeIf { result -> result.all { (_, merge) -> merge.courses.all { it.looksSane() } } }
 
         if (merged == null) {
             if (weekly.any { it.second.changes.size() > 0 }) {
@@ -68,16 +67,12 @@ class JwappScheduleApi(site: SiteSession) {
             val fallback = aggregate(weekly.map { (week, raw) -> week to raw.theory }, maxWeekNum)
             return JwappScheduleResult(fallback, emptyList())
         }
-
-        val courses = aggregate(merged.map { (week, merge) -> week to merge.courses }, maxWeekNum)
-        // 同一条变更在多周查询里会重复出现，按内容去重成一条。
-        val events = merged.flatMap { (_, merge) -> merge.events }.distinct()
-        return JwappScheduleResult(courses, events)
+        return merged
     }
 
     // ── 单周查询 ────────────────────────────────────────────
 
-    private class WeekRaw(val theory: List<Occurrence>, val changes: JsonArray)
+    internal data class WeekRaw(val theory: List<Occurrence>, val changes: JsonArray)
 
     /**
      * 整学期十几到二十个请求，串着发要等好几秒。小批量并发拉，够快又不至于
@@ -112,7 +107,40 @@ class JwappScheduleApi(site: SiteSession) {
 
     // ── 调休合并 ────────────────────────────────────────────
 
-    private class WeekMerge(val courses: List<Occurrence>, val events: List<ScheduleChangeEvent>)
+    private data class WeekMerge(val courses: List<Occurrence>, val events: List<ScheduleChangeEvent>)
+
+    private data class ObservedChange(val row: JsonObject, val observedWeeks: Set<Int>)
+
+    /**
+     * 先汇总所有周响应里的变更，再把它们分别应用到原周和目标周。
+     *
+     * 跨周调课记录可能只随原周响应返回。旧实现逐周只看该周响应，因此能删掉原课，
+     * 却无法在目标周补上课程。这里保留记录出现过的周次，供缺失/陌生周次字段安全回退；
+     * 字段明确写了原周或目标周时，则不依赖记录随哪一周返回。
+     */
+    internal fun mergeWeeks(
+        weekly: List<Pair<Int, WeekRaw>>,
+        maxWeekNum: Int,
+    ): JwappScheduleResult {
+        val observed = LinkedHashMap<String, Pair<JsonObject, MutableSet<Int>>>()
+        for ((week, raw) in weekly) {
+            for (element in raw.changes) {
+                val row = element.takeIf { it.isJsonObject }?.asJsonObject ?: continue
+                val entry = observed.getOrPut(row.toString()) { row to linkedSetOf() }
+                entry.second += week
+            }
+        }
+        val changes = observed.values.map { (row, weeks) -> ObservedChange(row, weeks) }
+        val merged = weekly.map { (week, raw) ->
+            week to applyChanges(week, raw.theory, changes)
+        }
+        check(merged.all { (_, merge) -> merge.courses.all { it.looksSane() } }) {
+            "调休合并后出现无效课程"
+        }
+        val courses = aggregate(merged.map { (week, merge) -> week to merge.courses }, maxWeekNum)
+        val events = merged.flatMap { (_, merge) -> merge.events }.distinct()
+        return JwappScheduleResult(courses, events)
+    }
 
     /**
      * 把这一周的调课记录合到这一周的原始课表上，同时收集人可读的变更事件（含官方备注）。
@@ -125,12 +153,16 @@ class JwappScheduleApi(site: SiteSession) {
      * `xksjc`/`xjsjc`/`xjasmc`——这三个字段名是从官方 App 自己的合并逻辑核实的，
      * 早前版本把 `ksjc`/`jsjc` 兼当新节次用是错的，同天换节次或换教室会显示原节次/原教室。
      */
-    private fun applyChanges(week: Int, raw: WeekRaw): WeekMerge {
-        if (raw.changes.size() == 0) return WeekMerge(raw.theory, emptyList())
-        var result = raw.theory
+    private fun applyChanges(
+        week: Int,
+        theory: List<Occurrence>,
+        changes: List<ObservedChange>,
+    ): WeekMerge {
+        if (changes.isEmpty()) return WeekMerge(theory, emptyList())
+        var result = theory
         val events = mutableListOf<ScheduleChangeEvent>()
-        for (element in raw.changes) {
-            val row = element.takeIf { it.isJsonObject }?.asJsonObject ?: continue
+        for (change in changes) {
+            val row = change.row
             val type = row.get("tklxdm").safeString().trim().trimStart('0').ifEmpty { "0" }
             val kbid = row.get("kbid").safeString()
             val fromDay = row.get("skxq").safeInt(0)
@@ -142,30 +174,29 @@ class JwappScheduleApi(site: SiteSession) {
             val toEndSection = row.get("xjsjc").safeInt(0)
             val toLocation = row.get("xjasmc").safeString()
             val reason = row.get("bz").safeString().trim()
-            val hitsOrigin = weekMarked(row.get("skzc"), week)
-            val hitsTarget = weekMarked(row.get("xskzc"), week)
+            val hitsOrigin = weekMarked(row.get("skzc"), week, change.observedWeeks)
+            val hitsTarget = weekMarked(row.get("xskzc"), week, change.observedWeeks)
 
             val origin = result.firstOrNull { it.matches(kbid, fromDay, originStartSection, originEndSection) }
             val name = origin?.courseName ?: row.get("kcm").safeString()
             val code = origin?.courseCode ?: row.get("kch").safeString()
 
             if (type == "1" || type == "2") {
-                if (hitsOrigin && origin != null) {
-                    result = result - origin
-                    events += ScheduleChangeEvent(
-                        courseName = name,
-                        courseCode = code,
-                        kind = if (type == "1") ScheduleChangeEvent.Kind.MOVED else ScheduleChangeEvent.Kind.CANCELLED,
-                        fromDay = fromDay,
-                        fromStartSection = originStartSection,
-                        fromEndSection = originEndSection,
-                        toDay = if (type == "1") toDay else 0,
-                        toStartSection = if (type == "1") toStartSection else 0,
-                        toEndSection = if (type == "1") toEndSection else 0,
-                        toLocation = if (type == "1") toLocation else "",
-                        reason = reason,
-                    )
-                }
+                if (hitsOrigin && origin != null) result = result - origin
+                // 有些响应的 theorySchedule 已经先删掉原课；此时仍保留官方变更事件和备注。
+                if (hitsOrigin && name.isNotBlank()) events += ScheduleChangeEvent(
+                    courseName = name,
+                    courseCode = code,
+                    kind = if (type == "1") ScheduleChangeEvent.Kind.MOVED else ScheduleChangeEvent.Kind.CANCELLED,
+                    fromDay = fromDay,
+                    fromStartSection = originStartSection,
+                    fromEndSection = originEndSection,
+                    toDay = if (type == "1") toDay else 0,
+                    toStartSection = if (type == "1") toStartSection else 0,
+                    toEndSection = if (type == "1") toEndSection else 0,
+                    toLocation = if (type == "1") toLocation else "",
+                    reason = reason,
+                )
             }
             if (type == "1" || type == "3") {
                 if (!hitsTarget) continue
@@ -173,12 +204,19 @@ class JwappScheduleApi(site: SiteSession) {
                     Log.w(TAG, "第${week}周新增课缺少课程信息，跳过：$row")
                     continue
                 }
-                result = result + template.copy(
+                val effectiveStart = toStartSection.takeIf { it > 0 } ?: template.startSection
+                val effectiveEnd = toEndSection.takeIf { it > 0 } ?: template.endSection
+                val sectionsChanged = effectiveStart != template.startSection || effectiveEnd != template.endSection
+                val added = template.copy(
                     dayOfWeek = toDay.takeIf { it > 0 } ?: template.dayOfWeek,
-                    startSection = toStartSection.takeIf { it > 0 } ?: template.startSection,
-                    endSection = toEndSection.takeIf { it > 0 } ?: template.endSection,
+                    startSection = effectiveStart,
+                    endSection = effectiveEnd,
                     location = toLocation.ifBlank { template.location },
+                    // 变更记录只给目标节次，不给可靠的目标钟点；清空旧钟点，让 UI 按新节次换算。
+                    startMinute = if (sectionsChanged) -1 else template.startMinute,
+                    endMinute = if (sectionsChanged) -1 else template.endMinute,
                 )
+                result = result + added
                 if (type == "3") {
                     events += ScheduleChangeEvent(
                         courseName = name,
@@ -187,10 +225,10 @@ class JwappScheduleApi(site: SiteSession) {
                         fromDay = 0,
                         fromStartSection = 0,
                         fromEndSection = 0,
-                        toDay = toDay,
-                        toStartSection = toStartSection,
-                        toEndSection = toEndSection,
-                        toLocation = toLocation.ifBlank { template.location },
+                        toDay = added.dayOfWeek,
+                        toStartSection = added.startSection,
+                        toEndSection = added.endSection,
+                        toLocation = added.location,
                         reason = reason,
                     )
                 }
@@ -203,12 +241,12 @@ class JwappScheduleApi(site: SiteSession) {
      * 这条调课记录管不管第 [week] 周。
      *
      * 周次字段的写法没有实样可依：可能是 `000100…` 位串、单个周次数字，也可能是
-     * `3,5` / `3-5` 这样的枚举。都认；认不出（字段缺失或格式陌生）就当它管——
-     * 查询本来就是按周发的，服务端没理由把别的周的记录塞进这一周的响应里。
+     * `3,5` / `3-5` 这样的枚举。都认；认不出（字段缺失或格式陌生）时，仅应用到
+     * 服务端实际返回这条记录的周，避免汇总所有周后把一条无周次记录扩散到整学期。
      */
-    private fun weekMarked(element: JsonElement?, week: Int): Boolean {
+    private fun weekMarked(element: JsonElement?, week: Int, observedWeeks: Set<Int>): Boolean {
         val raw = element.safeString().trim()
-        if (raw.isEmpty()) return true
+        if (raw.isEmpty()) return week in observedWeeks
         if (raw.length > 4 && raw.all { it == '0' || it == '1' }) {
             return raw.getOrNull(week - 1) == '1'
         }
@@ -224,7 +262,7 @@ class JwappScheduleApi(site: SiteSession) {
                 else -> listOfNotNull(part.trim().toIntOrNull())
             }
         }
-        return if (parsed.isEmpty()) true else week in parsed
+        return if (parsed.isEmpty()) week in observedWeeks else week in parsed
     }
 
     // ── 聚合成 CourseItem ───────────────────────────────────
@@ -232,8 +270,9 @@ class JwappScheduleApi(site: SiteSession) {
     /**
      * 同一节课在多周出现，合成一条 [CourseItem]，周次落到 `weekBits`。
      *
-     * 身份取「课程号 + 星期 + 起止节次」，不含教室：期中换教室应当是同一节课换了地方，
-     * 而不是删一节加一节——这与 `ScheduleDiff` 的判定口径一致。
+     * 身份取「课程号 + 星期 + 起止节次 + 教室」。教室必须参与聚合：若只有某一周换教室，
+     * 排除教室会把两个地点压成一条，并沿用最早一周的地点，导致临时换教室完全不可见。
+     * `ScheduleDiff` 仍可用较宽松的身份口径把它识别成同一节课的位置变化。
      */
     private fun aggregate(weekly: List<Pair<Int, List<Occurrence>>>, maxWeekNum: Int): List<CourseItem> {
         val bits = LinkedHashMap<String, CharArray>()
@@ -264,7 +303,7 @@ class JwappScheduleApi(site: SiteSession) {
 
     // ── 单次上课 ────────────────────────────────────────────
 
-    private data class Occurrence(
+    internal data class Occurrence(
         val courseName: String,
         val teacher: String,
         val location: String,
@@ -277,7 +316,8 @@ class JwappScheduleApi(site: SiteSession) {
         val endMinute: Int,
         val kbid: String,
     ) {
-        fun identity() = "${courseCode.ifBlank { courseName }}|$dayOfWeek|$startSection|$endSection"
+        fun identity() =
+            "${courseCode.ifBlank { courseName }}|$dayOfWeek|$startSection|$endSection|${location.trim()}"
 
         fun matches(kbid: String, day: Int, start: Int, end: Int): Boolean =
             if (kbid.isNotBlank() && this.kbid.isNotBlank()) this.kbid == kbid
