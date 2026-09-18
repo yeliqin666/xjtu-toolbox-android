@@ -28,11 +28,18 @@ class XjtuApp : Application() {
 
     /**
      * 已下线功能留在本机的数据。功能删了，数据留着既无用处也不该留（交晓智会话里是
-     * 用户和学校 AI 的对话原文），每次启动顺手清掉，目录不存在时只是一次 listFiles。
+     * 用户和学校 AI 的对话原文，旧考勤快照里是考勤记录），每次启动顺手清掉；
+     * 都不存在时只是一次 listFiles 加两次 exists。
      */
     private fun removeRetiredFeatureData() {
         filesDir.listFiles { f -> f.isDirectory && f.name.startsWith("jiaoxiaozhi_sessions") }
             ?.forEach { dir -> runCatching { dir.deleteRecursively() } }
+        // 旧版考勤快照（AttendanceCache，已随旧考勤系统移除）
+        listOf("attendance_cache_undergraduate", "attendance_cache_postgraduate").forEach { name ->
+            if (java.io.File(java.io.File(applicationInfo.dataDir, "shared_prefs"), "$name.xml").exists()) {
+                runCatching { deleteSharedPreferences(name) }
+            }
+        }
     }
 
     override fun attachBaseContext(base: Context) {
@@ -49,8 +56,12 @@ class XjtuApp : Application() {
         appScope.launch { removeRetiredFeatureData() }
         AppNotificationChannels.ensureChannels(this)
         ErrorReporting.install(FileErrorReporter(this))
-        com.xjtu.toolbox.notification.NoticeWatchScheduler.apply(this)
-        com.xjtu.toolbox.notification.ScheduleWatchScheduler.apply(this)
-        com.xjtu.toolbox.notification.LmsDeadlineScheduler.apply(this)
+        // 后台调度要读账号（AccountStore → 加密存储首次打开要走 keystore），不占主线程。
+        // 顺带预热了 SecurePrefs 的缓存，首帧里界面再取账号时直接命中。
+        appScope.launch {
+            com.xjtu.toolbox.notification.NoticeWatchScheduler.apply(this@XjtuApp)
+            com.xjtu.toolbox.notification.ScheduleWatchScheduler.apply(this@XjtuApp)
+            com.xjtu.toolbox.notification.LmsDeadlineScheduler.apply(this@XjtuApp)
+        }
     }
 }

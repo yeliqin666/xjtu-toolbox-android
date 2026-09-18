@@ -138,6 +138,7 @@ import com.xjtu.toolbox.bulletin.BulletinApi
 import com.xjtu.toolbox.bulletin.BulletinLevel
 import com.xjtu.toolbox.bulletin.BulletinRules
 import com.xjtu.toolbox.bulletin.BulletinStore
+import com.xjtu.toolbox.card.putTodaySummary
 import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.ExpressiveIcon
 import com.xjtu.toolbox.agent.AgentPendingPrompt
@@ -934,32 +935,12 @@ internal suspend fun refreshCampusCardCache(
     val api = com.xjtu.toolbox.card.CampusCardApi(site)
     val info = api.getCardInfo()
     val (_, recentTx) = api.getTransactions(page = 1, pageSize = 50)
-    val todayStr = java.time.LocalDate.now().toString()
-    val todaySpend = recentTx
-        .filter { tx -> tx.time.startsWith(todayStr) && tx.amount < 0 }
-        .sumOf { tx -> -tx.amount }
-    val todayBreakfast = recentTx.filter { tx ->
-        tx.time.startsWith(todayStr) && tx.amount < 0 &&
-            tx.time.substringAfter(" ").substringBefore(":").toIntOrNull()?.let { h -> h in 5..10 } == true
-    }.sumOf { tx -> -tx.amount }
-    val todayLunch = recentTx.filter { tx ->
-        tx.time.startsWith(todayStr) && tx.amount < 0 &&
-            tx.time.substringAfter(" ").substringBefore(":").toIntOrNull()?.let { h -> h in 11..14 } == true
-    }.sumOf { tx -> -tx.amount }
-    val todayDinner = recentTx.filter { tx ->
-        tx.time.startsWith(todayStr) && tx.amount < 0 &&
-            tx.time.substringAfter(" ").substringBefore(":").toIntOrNull()?.let { h -> h in 17..21 } == true
-    }.sumOf { tx -> -tx.amount }
 
     com.xjtu.toolbox.card.CampusCardCache.cardPrefs(appContext).edit()
         .putFloat("card_balance_cache", info.balance.toFloat())
         .putString("card_name_cache", info.name)
         .putLong("card_cache_time", System.currentTimeMillis())
-        .putString("card_recent_tx_cache", com.google.gson.Gson().toJson(recentTx.take(5)))
-        .putFloat("card_today_spend_cache", todaySpend.toFloat())
-        .putFloat("card_today_breakfast_cache", todayBreakfast.toFloat())
-        .putFloat("card_today_lunch_cache", todayLunch.toFloat())
-        .putFloat("card_today_dinner_cache", todayDinner.toFloat())
+        .putTodaySummary(com.xjtu.toolbox.card.todaySummaryOf(recentTx))
         .apply()
     CampusCardWidgetUpdater.requestUpdate(appContext)
     true

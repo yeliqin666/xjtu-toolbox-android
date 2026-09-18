@@ -19,11 +19,23 @@ import java.io.File
  * 3. 仍失败只用进程内内存，不落盘，重启后要重新登录——宁可麻烦也不明文存凭据。
  *
  * 历史遗留的 `legacyFallbackName` 明文文件：能加密时把内容迁进来，然后无论如何都删掉。
+ *
+ * **按文件名做进程级缓存**：`EncryptedSharedPreferences.create()` 每次都要向 keystore2
+ * 取主密钥、解密钥集，是一串跨进程 binder 调用。CredentialStore/AccountStore 在各处被
+ * 反复 new，以前每个实例各 create 一次——实测冷启动首帧里主线程因此向 keystore2 发了
+ * 146 次 binder、干等约 300ms。实例本身线程安全，全进程共用一份即可；内存兜底模式下
+ * 共用也保证了各处读到的是同一份数据。
  */
 object SecurePrefs {
     private const val TAG = "SecurePrefs"
 
-    fun open(context: Context, name: String, legacyFallbackName: String = "${name}_fallback"): SharedPreferences {
+    private val opened = java.util.concurrent.ConcurrentHashMap<String, SharedPreferences>()
+
+    fun open(context: Context, name: String, legacyFallbackName: String = "${name}_fallback"): SharedPreferences =
+        // computeIfAbsent：并发首次打开同一文件时只 create 一次，后到的线程等它完成
+        opened.computeIfAbsent(name) { openUncached(context, name, legacyFallbackName) }
+
+    private fun openUncached(context: Context, name: String, legacyFallbackName: String): SharedPreferences {
         val app = context.applicationContext
         val secure = runCatching { create(app, name) }.recoverCatching { e ->
             Log.e(TAG, "$name: init failed, recreating", e)

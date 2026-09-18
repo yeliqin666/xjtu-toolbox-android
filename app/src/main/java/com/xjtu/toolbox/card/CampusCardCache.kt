@@ -5,6 +5,43 @@ import com.google.gson.Gson
 import com.xjtu.toolbox.account.AccountContext
 import java.time.LocalDate
 
+/** 今日消费汇总：总支出与早（5–10 点）中（11–14 点）晚（17–21 点）三餐，单位元。 */
+data class TodaySpendSummary(
+    val total: Double,
+    val breakfast: Double,
+    val lunch: Double,
+    val dinner: Double,
+)
+
+/**
+ * 从流水里算今天的消费汇总。流水时间形如 `2026-09-18 12:03:45`，支出金额为负。
+ *
+ * 首页卡片刷新（refreshCampusCardCache）和校园卡页各算一遍、各写一遍同一组缓存 key，
+ * 以前是两段一字不差的复制粘贴，改一处漏一处小组件就对不上，现在都走这里。
+ */
+fun todaySummaryOf(transactions: List<Transaction>, today: LocalDate = LocalDate.now()): TodaySpendSummary {
+    val todayStr = today.toString()
+    val spends = transactions.filter { it.time.startsWith(todayStr) && it.amount < 0 }
+    fun sumInHours(hours: IntRange) = spends.filter { tx ->
+        tx.time.substringAfter(" ").substringBefore(":").toIntOrNull()?.let { it in hours } == true
+    }.sumOf { -it.amount }
+    return TodaySpendSummary(
+        total = spends.sumOf { -it.amount },
+        breakfast = sumInHours(5..10),
+        lunch = sumInHours(11..14),
+        dinner = sumInHours(17..21),
+    )
+}
+
+/** 写入 [CampusCardCache.cardPrefs] 里首页卡片与校园卡小组件读取的那组 key。 */
+fun android.content.SharedPreferences.Editor.putTodaySummary(s: TodaySpendSummary): android.content.SharedPreferences.Editor =
+    putFloat("card_today_spend_cache", s.total.toFloat())
+        .putFloat("card_today_breakfast_cache", s.breakfast.toFloat())
+        .putFloat("card_today_lunch_cache", s.lunch.toFloat())
+        .putFloat("card_today_dinner_cache", s.dinner.toFloat())
+        // 以前还写一份最近 5 条流水的 JSON，全仓没有任何地方读，顺手清掉旧值
+        .remove("card_recent_tx_cache")
+
 data class CampusCardSnapshot(
     val cardInfo: CardInfo,
     val transactions: List<Transaction>,

@@ -254,9 +254,15 @@ class SessionManager(context: Context) {
      *
      * 进程活很久时 [SessionBackend.webvpnSelfLoggedIn] 仍可能是 true，但 ticket 早已失效。
      * 这里先看 cookie / 新鲜窗口，过期再探活，探活失败才重登——别的直连站点不受影响。
+     *
+     * 主线程安全：整个流程切到 IO。调用方（SiteSession.ensureLogin）常在界面协程里、也就是
+     * 主线程上调用，而开头的票据检查要读 cookie——首次读会打开加密存储、走 keystore。
+     * 以前这段跑在主线程，实测冷启动首帧里有一次 cookies_webvpn 加密文件就是这样在主线程打开的。
      */
     @Throws(IOException::class, PasswordInvalidatedException::class)
-    suspend fun ensureWebVpnLogin() {
+    suspend fun ensureWebVpnLogin() = withContext(Dispatchers.IO) { ensureWebVpnLoginOnIo() }
+
+    private suspend fun ensureWebVpnLoginOnIo() {
         val backend = backend(AccessMode.WEBVPN)
         if (isWebVpnGatewayFresh(backend)) return
         if (hasLiveWebVpnTicket(backend) && probeWebVpnGateway(backend)) {

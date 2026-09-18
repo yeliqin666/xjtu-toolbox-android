@@ -25,7 +25,12 @@ class PersistentCookieJar(context: Context, prefsName: String = PREFS_NAME) : Co
      * HeadlessSessions、账号迁移都会各自 new 同名的 jar，以前每个实例一份内存表，
      * 谁最后防抖写盘谁覆盖别人刚拿到的 TGC，表现为偶发掉登录。
      */
-    private class Shared(val prefs: SharedPreferences) {
+    private class Shared(openPrefs: () -> SharedPreferences) {
+        /**
+         * 懒打开：SessionManager 在首帧组合时（主线程）就会构造 jar，而打开加密存储要走
+         * keystore。第一次真正读写 cookie 都在 IO 线程（ensureLoaded / 防抖写盘），挪到那时。
+         */
+        val prefs: SharedPreferences by lazy(openPrefs)
         val cookieStore = ConcurrentHashMap<String, MutableList<Cookie>>()
         @Volatile var loaded = false
         @Volatile var savePending = false
@@ -49,7 +54,8 @@ class PersistentCookieJar(context: Context, prefsName: String = PREFS_NAME) : Co
     }
 
     private val state: Shared = shared.getOrPut(prefsName) {
-        Shared(SecurePrefs.open(context.applicationContext, prefsName)).also { st ->
+        val app = context.applicationContext
+        Shared { SecurePrefs.open(app, prefsName) }.also { st ->
             st.saveTask = Runnable {
                 st.savePending = false
                 saveToDisk(st)

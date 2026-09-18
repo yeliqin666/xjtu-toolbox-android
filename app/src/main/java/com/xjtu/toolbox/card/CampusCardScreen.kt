@@ -150,27 +150,8 @@ fun CampusCardScreen(
         transactions = allTx
         totalRecords = allTx.size
         currentPage = (allTx.size + 49) / 50
-        val recentJson = com.google.gson.Gson().toJson(allTx.take(5))
-        val todayStr = LocalDate.now().toString()
-        val todaySpend = allTx.filter { it.time.startsWith(todayStr) && it.amount < 0 }.sumOf { -it.amount }
-        val todayBreakfast = allTx.filter { tx ->
-            tx.time.startsWith(todayStr) && tx.amount < 0 &&
-                tx.time.substringAfter(" ").substringBefore(":").toIntOrNull()?.let { it in 5..10 } == true
-        }.sumOf { -it.amount }
-        val todayLunch = allTx.filter { tx ->
-            tx.time.startsWith(todayStr) && tx.amount < 0 &&
-                tx.time.substringAfter(" ").substringBefore(":").toIntOrNull()?.let { it in 11..14 } == true
-        }.sumOf { -it.amount }
-        val todayDinner = allTx.filter { tx ->
-            tx.time.startsWith(todayStr) && tx.amount < 0 &&
-                tx.time.substringAfter(" ").substringBefore(":").toIntOrNull()?.let { it in 17..21 } == true
-        }.sumOf { -it.amount }
-        com.xjtu.toolbox.card.CampusCardCache.cardPrefs(context).edit()
-            .putString("card_recent_tx_cache", recentJson)
-            .putFloat("card_today_spend_cache", todaySpend.toFloat())
-            .putFloat("card_today_breakfast_cache", todayBreakfast.toFloat())
-            .putFloat("card_today_lunch_cache", todayLunch.toFloat())
-            .putFloat("card_today_dinner_cache", todayDinner.toFloat())
+        CampusCardCache.cardPrefs(context).edit()
+            .putTodaySummary(todaySummaryOf(allTx))
             .apply()
         com.xjtu.toolbox.widget.CampusCardWidgetUpdater.requestUpdate(context)
 

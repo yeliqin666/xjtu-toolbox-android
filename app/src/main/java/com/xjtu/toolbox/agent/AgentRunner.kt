@@ -233,6 +233,8 @@ class AgentRunner(private val tools: AgentToolRegistry) {
                     toolErrorMsg = null
                 } else {
                     val e = toolResult.exceptionOrNull()
+                    // 用户点了停止：取消不是工具出错，不能记成一次失败塞进历史，原样往上抛
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     if (e is com.xjtu.toolbox.auth.AuthExpiredException) throw e
                     result = "工具调用出错：${e?.message ?: "未知异常"}"
                     toolErrorMsg = e?.message ?: "未知异常"

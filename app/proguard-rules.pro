@@ -96,7 +96,6 @@
 -keepclassmembers class com.xjtu.toolbox.card.Transaction { <fields>; }
 
 -keepclassmembers class com.xjtu.toolbox.attendance.AttendanceRecordStore$Shard { <fields>; }
--keepclassmembers class com.xjtu.toolbox.attendance.AttendanceSnapshot { <fields>; }
 -keepclassmembers class com.xjtu.toolbox.attendance.AttendanceWaterRecord { <fields>; }
 -keepclassmembers class com.xjtu.toolbox.attendance.TermInfo { <fields>; }
 -keepclassmembers class com.xjtu.toolbox.attendance.CourseAttendanceStat { <fields>; }
