@@ -1,6 +1,15 @@
 {
   "bulletins": [
     {
+      "id": "2026-09-18-crash-reinstall",
+      "level": "warn",
+      "title": "更新后仍闪退？请卸载重装",
+      "body": "如果更新到 4.9.5 后仍然闪退，请彻底卸载后从 GitHub Release 重新下载安装。",
+      "url": "https://github.com/yeliqin666/xjtu-toolbox-android/releases/latest",
+      "mustAck": false,
+      "block": false
+    },
+    {
       "id": "2026-09-14-attendance-kq-mismatch",
       "level": "warn",
       "title": "新考勤系统数据可能有误",
@@ -9,13 +18,13 @@
       "block": false
     },
     {
-      "id": "2026-09-17-recommend-4.9.4",
+      "id": "2026-09-18-recommend-4.9.5",
       "level": "force_update",
-      "title": "请更新到 4.9.4",
-      "body": "性能大幅优化，接入新版考勤，修复验证码、校历、图书馆等多种 bug，新增屁岱皮肤和匹配交友等。",
+      "title": "请更新到 4.9.5",
+      "body": "修复 4.9.4 点击「我的」等页面闪退的问题。性能大幅优化，接入新版考勤，修复验证码、校历、图书馆等多种 bug，新增屁岱皮肤和匹配交友等。",
       "url": "https://github.com/yeliqin666/xjtu-toolbox-android/releases/latest",
-      "targetVersion": "4.9.4",
-      "targetVersionCode": 60,
+      "targetVersion": "4.9.5",
+      "targetVersionCode": 61,
       "mustAck": false,
       "block": false
     },
@@ -27,10 +36,21 @@
       "mustAck": true,
       "block": false,
       "options": [
-        "匹配交友", "校园黄页", "教师主页", "教材全文", "课程查询",
-        "屁岱-皮肤", "屁岱-灵动气泡", "版本弹窗与问卷调研", "学辅资料站",
-        "各类提醒（图书馆签到、课表变更、考试、作业截止等）", "扫码登录",
-        "校园卡-消费分析", "快速考勤流水", "class课程回放（非思源学堂）", "电子成绩单"
+        "匹配交友",
+        "校园黄页",
+        "教师主页",
+        "教材全文",
+        "课程查询",
+        "屁岱-皮肤",
+        "屁岱-灵动气泡",
+        "版本弹窗与问卷调研",
+        "学辅资料站",
+        "各类提醒（图书馆签到、课表变更、考试、作业截止等）",
+        "扫码登录",
+        "校园卡-消费分析",
+        "快速考勤流水",
+        "class课程回放（非思源学堂）",
+        "电子成绩单"
       ],
       "allowMultiple": true,
       "allowOther": true
