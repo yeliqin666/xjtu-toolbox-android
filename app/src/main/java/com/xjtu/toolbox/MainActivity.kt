@@ -594,6 +594,9 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
      * 仅设置内存态；磁盘 cookies 由 SessionManager.reconfigureForAccount 处理。
      */
     override fun loadIdentityFromAccount(account: com.xjtu.toolbox.account.Account) {
+        // 先改全局账号、再改可观察的 accountId：界面按 accountId 重建 DataCache 等按账号绑定的
+        // 对象时，全局上下文必须已经是新账号（本函数可能在后台线程执行，中间可能插进一次重组）。
+        com.xjtu.toolbox.account.AccountContext.activeAccountId = account.accountId
         accountId = account.accountId
         savedUsername = account.accountId
         savedPassword = account.password
@@ -602,7 +605,6 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
         cachedNickname = account.nickname
         firstVisitorId = account.fpVisitorId
         cachedRsaKey = account.rsaPublicKey
-        com.xjtu.toolbox.account.AccountContext.activeAccountId = account.accountId
         sessionManager?.let {
             it.setCredentials(account.accountId, account.password)
             it.accountType = selectedCasAccountType()

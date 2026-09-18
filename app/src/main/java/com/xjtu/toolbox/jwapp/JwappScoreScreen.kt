@@ -112,7 +112,10 @@ fun JwappScoreScreen(
     val api = remember(site) { site?.let { JwappApi(it) } }
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
-    val dataCache = remember { com.xjtu.toolbox.util.DataCache(context) }
+    // DataCache 构造时绑定账号，切账号后必须换新实例，见 DataCache 类注释
+    val dataCache = remember(appLoginState.accountId) {
+        com.xjtu.toolbox.util.DataCache(context, appLoginState.accountId.ifEmpty { null })
+    }
     val gson = remember { com.google.gson.Gson() }
     val snackbarHostState = remember { SnackbarHostState() }
 

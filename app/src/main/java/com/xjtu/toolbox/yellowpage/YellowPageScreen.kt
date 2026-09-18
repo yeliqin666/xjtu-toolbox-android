@@ -45,6 +45,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.xjtu.toolbox.LocalAppLoginState
 import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
@@ -70,7 +71,8 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
 @Composable
 fun YellowPageScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-    val api = remember { YellowPageApi(context) }
+    // YellowPageApi 内部持有按账号绑定的 DataCache，切账号后换新实例
+    val api = remember(LocalAppLoginState.current.accountId) { YellowPageApi(context) }
     val scope = rememberCoroutineScope()
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     val pullToRefreshState = rememberPullToRefreshState()

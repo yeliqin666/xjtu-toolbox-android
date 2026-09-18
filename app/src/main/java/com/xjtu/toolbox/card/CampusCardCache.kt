@@ -18,7 +18,8 @@ object CampusCardCache {
     private const val KEY = "snapshot"
     private val gson = Gson()
 
-    private fun prefsName(): String = PREFS_PREFIX + AccountContext.safeSuffix()
+    private fun prefsName(accountId: String? = AccountContext.activeAccountId): String =
+        PREFS_PREFIX + AccountContext.suffixFor(accountId)
 
     fun load(context: Context): CampusCardSnapshot? {
         val raw = context.getSharedPreferences(prefsName(), Context.MODE_PRIVATE)
@@ -57,9 +58,9 @@ object CampusCardCache {
             .apply()
     }
 
-    /** 删除当前账号的校园卡缓存（切换/删除账号时调用）。 */
-    fun clear(context: Context) {
-        context.getSharedPreferences(prefsName(), Context.MODE_PRIVATE).edit().clear().apply()
+    /** 删除指定账号（默认当前账号）的校园卡缓存。删除账号时传被删的那个。 */
+    fun clear(context: Context, accountId: String? = AccountContext.activeAccountId) {
+        context.getSharedPreferences(prefsName(accountId), Context.MODE_PRIVATE).edit().clear().apply()
     }
 
     /** 当前账号命名空间下的校园卡余额/流水缓存 SharedPreferences。 */

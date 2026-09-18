@@ -12,22 +12,29 @@ private const val TAG = "DataCache"
  * [RC] 轻量级 JSON 文件缓存（线程安全 + 原子写入）
  * 用于缓存日程、成绩等学期内稳定的数据，二次打开 0ms
  *
- * 缓存目录: `context.cacheDir/data_cache${AccountContext.safeSuffix()}/`
+ * 缓存目录: `context.cacheDir/data_cache${AccountContext.suffixFor(accountId)}/`
  * 文件名: `{key}.json`
  * 过期策略: 手动失效 + TTL（默认 7 天）
  *
- * 账号隔离：缓存目录随 [AccountContext.activeAccountId] 变化，
- * 切换账号后 get/put 自动落到新账号目录，旧账号数据不会被读到。
+ * 账号隔离：账号在**构造时**定下（默认取当前激活账号），之后不再变。
+ * 以前每次 get/put 都现读 [AccountContext.activeAccountId]，一个请求发出去时是账号 A、
+ * 回来时已切到账号 B，结果就被写进了 B 的目录（串号）。现在调用方在发请求前建好实例，
+ * 写回时自然落在发起时的账号下。长期持有实例的地方（页面 remember、ViewModel）
+ * 必须在账号变化时重建实例，否则会一直读写旧账号。
  *
  * 线程安全: per-key 锁，不同 key 之间无竞争
  * 原子写入: 先写 .tmp 再 rename，避免写入中途 crash 损坏文件
  */
-class DataCache(context: Context) {
+class DataCache(
+    context: Context,
+    accountId: String? = AccountContext.activeAccountId,
+) {
     private val appContext = context.applicationContext
+    private val dirName = "data_cache${AccountContext.suffixFor(accountId)}"
 
-    /** 当前账号对应的缓存目录，每次调用动态解析以响应账号切换。 */
+    /** 本实例所属账号的缓存目录。每次都 mkdirs：「清除缓存」或换包清理可能已把它删掉。 */
     private val cacheDir: File
-        get() = File(appContext.cacheDir, "data_cache${AccountContext.safeSuffix()}").apply { mkdirs() }
+        get() = File(appContext.cacheDir, dirName).apply { mkdirs() }
 
     /** 兼容旧调用：返回账号无关的默认目录，仅迁移时使用。 */
     private val legacyCacheDir: File

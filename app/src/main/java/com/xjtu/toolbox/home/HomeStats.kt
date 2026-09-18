@@ -36,9 +36,16 @@ object HomeStats {
      * 传 null 表示"这个功能当前没有值得展示的状态"，会清掉旧摘要，
      * 避免首页长期显示一条早已不成立的信息（比如券已经领完了还写着"3 个待领取"）。
      */
-    fun push(context: Context, routeKey: String, value: String?, detail: String? = null) {
+    fun push(
+        context: Context,
+        routeKey: String,
+        value: String?,
+        detail: String? = null,
+        /** 这条摘要属于哪个账号。异步拉取的调用方应传发起时的账号，见 [DataCache] 类注释。 */
+        accountId: String? = com.xjtu.toolbox.account.AccountContext.activeAccountId,
+    ) {
         runCatching {
-            val cache = DataCache(context)
+            val cache = DataCache(context, accountId)
             val k = PUSHED_PREFIX + routeKey
             if (value.isNullOrBlank()) cache.invalidate(k)
             else cache.put(k, gson.toJson(HomeStat(value, detail)))
@@ -50,8 +57,8 @@ object HomeStats {
     // （升版号是让设备上已有的退避戳失效的唯一手段——戳存在 DataCache 里，重装不清。）
     private const val STAMP_PREFIX = "home_stat_at4_"
 
-    fun stamps(context: Context): Map<String, Long> {
-        val cache = DataCache(context)
+    fun stamps(context: Context, accountId: String? = com.xjtu.toolbox.account.AccountContext.activeAccountId): Map<String, Long> {
+        val cache = DataCache(context, accountId)
         return PUSHED_KEYS.associateWith { k ->
             cache.get(STAMP_PREFIX + k, Long.MAX_VALUE)?.toLongOrNull() ?: 0L
         }
@@ -63,8 +70,8 @@ object HomeStats {
     /** 「拉成功但没数据」的重试间隔。见 [markEmpty]。 */
     const val EMPTY_RETRY_MS = 1L * 60 * 60 * 1000L
 
-    fun markFetched(context: Context, routeKey: String) {
-        runCatching { DataCache(context).put(STAMP_PREFIX + routeKey, System.currentTimeMillis().toString()) }
+    fun markFetched(context: Context, routeKey: String, accountId: String? = com.xjtu.toolbox.account.AccountContext.activeAccountId) {
+        runCatching { DataCache(context, accountId).put(STAMP_PREFIX + routeKey, System.currentTimeMillis().toString()) }
     }
 
     /**
@@ -75,10 +82,10 @@ object HomeStats {
      * 但也不能完全不打戳，否则某个系统长期挂掉时每次进首页都要重试一轮。
      * 折中：失败按半小时重试。
      */
-    fun markFailed(context: Context, routeKey: String, ttlMs: Long) {
+    fun markFailed(context: Context, routeKey: String, ttlMs: Long, accountId: String? = com.xjtu.toolbox.account.AccountContext.activeAccountId) {
         runCatching {
             val fakeLast = System.currentTimeMillis() - ttlMs + FAILURE_RETRY_MS
-            DataCache(context).put(STAMP_PREFIX + routeKey, fakeLast.toString())
+            DataCache(context, accountId).put(STAMP_PREFIX + routeKey, fakeLast.toString())
         }
     }
 
@@ -89,10 +96,10 @@ object HomeStats {
      * 修好后仍要等整个周期才会重试。空结果与软失败在外部无法区分，
      * 几小时后重试的代价远小于一周不显示。
      */
-    fun markEmpty(context: Context, routeKey: String, ttlMs: Long) {
+    fun markEmpty(context: Context, routeKey: String, ttlMs: Long, accountId: String? = com.xjtu.toolbox.account.AccountContext.activeAccountId) {
         runCatching {
             val fakeLast = System.currentTimeMillis() - ttlMs + EMPTY_RETRY_MS
-            DataCache(context).put(STAMP_PREFIX + routeKey, fakeLast.toString())
+            DataCache(context, accountId).put(STAMP_PREFIX + routeKey, fakeLast.toString())
         }
     }
 

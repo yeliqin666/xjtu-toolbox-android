@@ -41,15 +41,21 @@ object AttendanceRecordStore {
 
     private val gson = Gson()
 
-    private fun prefs(ctx: Context, postgraduate: Boolean) = ctx.getSharedPreferences(
+    /** [accountId] 由调用方在发起拉取时定下，避免结果回来时已切账号而写错命名空间。 */
+    private fun prefs(ctx: Context, postgraduate: Boolean, accountId: String?) = ctx.getSharedPreferences(
         (if (postgraduate) "attendance_records_pg" else "attendance_records_ug") +
-            AccountContext.safeSuffix(),
+            AccountContext.suffixFor(accountId),
         Context.MODE_PRIVATE,
     )
 
-    fun load(ctx: Context, postgraduate: Boolean, termCode: String): Shard? {
+    fun load(
+        ctx: Context,
+        postgraduate: Boolean,
+        termCode: String,
+        accountId: String? = AccountContext.activeAccountId,
+    ): Shard? {
         if (termCode.isBlank()) return null
-        val raw = prefs(ctx, postgraduate).getString(termCode, null) ?: return null
+        val raw = prefs(ctx, postgraduate, accountId).getString(termCode, null) ?: return null
         // 消费点（CourseLinks.fetchAttendanceIndex 的 NONE 分支）没有 try/catch，
         // 缺字段的旧缓存必须在这里就地兜底，而不是指望调用方判空。
         return runCatching {
@@ -63,9 +69,14 @@ object AttendanceRecordStore {
             ?.takeIf { it.records.isNotEmpty() }
     }
 
-    fun save(ctx: Context, postgraduate: Boolean, shard: Shard) {
+    fun save(
+        ctx: Context,
+        postgraduate: Boolean,
+        shard: Shard,
+        accountId: String? = AccountContext.activeAccountId,
+    ) {
         runCatching {
-            prefs(ctx, postgraduate).edit()
+            prefs(ctx, postgraduate, accountId).edit()
                 .putString(shard.termCode, gson.toJson(shard))
                 .apply()
         }
@@ -115,11 +126,21 @@ object AttendanceRecordStore {
      * 考勤页的全量重扫时间戳，按考勤自己的 `bh` 存。
      * 跟 [Shard] 分开是因为两边的键对不上，共用的只是重扫节奏这条策略。
      */
-    fun lastFullScanAt(ctx: Context, postgraduate: Boolean, bh: String): Long =
-        prefs(ctx, postgraduate).getLong("full_scan_$bh", 0L)
+    fun lastFullScanAt(
+        ctx: Context,
+        postgraduate: Boolean,
+        bh: String,
+        accountId: String? = AccountContext.activeAccountId,
+    ): Long =
+        prefs(ctx, postgraduate, accountId).getLong("full_scan_$bh", 0L)
 
-    fun markFullScan(ctx: Context, postgraduate: Boolean, bh: String) {
-        prefs(ctx, postgraduate).edit()
+    fun markFullScan(
+        ctx: Context,
+        postgraduate: Boolean,
+        bh: String,
+        accountId: String? = AccountContext.activeAccountId,
+    ) {
+        prefs(ctx, postgraduate, accountId).edit()
             .putLong("full_scan_$bh", System.currentTimeMillis())
             .apply()
     }

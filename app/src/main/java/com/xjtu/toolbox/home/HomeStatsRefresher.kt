@@ -376,7 +376,11 @@ object HomeStatsRefresher {
                 Log.d(TAG, "skip: CasGate blocked ($why)")
                 return
             }
-            val stamps = HomeStats.stamps(context)
+            // 整轮绑定发起时的账号。SessionManager 切账号是原地重配而不是换实例，
+            // 一轮十几秒里若切了账号，后面拉到的是新账号的数据；此时整轮作废、什么都不写。
+            val roundAccount = com.xjtu.toolbox.account.AccountContext.activeAccountId
+            fun accountChanged() = com.xjtu.toolbox.account.AccountContext.activeAccountId != roundAccount
+            val stamps = HomeStats.stamps(context, roundAccount)
             val now = System.currentTimeMillis()
             var first = true
             val coldStart = firstRunInProcess
@@ -399,13 +403,21 @@ object HomeStatsRefresher {
                 }
                 if (!first) delay(GAP_MS)
                 first = false
+                if (accountChanged()) {
+                    Log.d(TAG, "abort round: account switched")
+                    return
+                }
                 try {
                     // silent = true：后台绝不弹 MFA、不发短信，撞上就抛 MfaRequiredException。
                     val site = s.loginType?.let { manager.ensureSite(it.siteKey(), silent = true) }
                     val stat = s.fetch(context, site)
-                    HomeStats.push(context, s.routeKey, stat?.value, stat?.detail)
-                    if (stat == null) HomeStats.markEmpty(context, s.routeKey, s.ttlMs)
-                    else HomeStats.markFetched(context, s.routeKey)
+                    if (accountChanged()) {
+                        Log.d(TAG, "abort round: account switched during ${s.routeKey}")
+                        return
+                    }
+                    HomeStats.push(context, s.routeKey, stat?.value, stat?.detail, roundAccount)
+                    if (stat == null) HomeStats.markEmpty(context, s.routeKey, s.ttlMs, roundAccount)
+                    else HomeStats.markFetched(context, s.routeKey, roundAccount)
                     Log.d(TAG, "${s.routeKey} -> ${stat?.value ?: "无数据（1 小时后重试）"}")
                 } catch (e: com.xjtu.toolbox.auth.CasGate.ThrottledException) {
                     Log.d(TAG, "abort round: CasGate throttled (${e.message})")
@@ -424,7 +436,7 @@ object HomeStatsRefresher {
                 } catch (e: Exception) {
                     // 半小时后重试，不按正常 TTL 锁死——故障多是暂时的（网关抖动、系统维护），
                     // 按 2 天/7 天锁住会让"修好了却还是不显示"。
-                    HomeStats.markFailed(context, s.routeKey, s.ttlMs)
+                    if (!accountChanged()) HomeStats.markFailed(context, s.routeKey, s.ttlMs, roundAccount)
                     Log.w(TAG, "${s.routeKey} refresh failed (retry in 30min): ${e.message}")
                 }
             }

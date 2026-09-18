@@ -165,7 +165,10 @@ fun ScheduleScreen(
     var activeSite by remember(site) { mutableStateOf(site) }
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
-    val dataCache = remember { com.xjtu.toolbox.util.DataCache(context) }
+    // DataCache 构造时绑定账号，切账号后必须换新实例，见 DataCache 类注释
+    val dataCache = remember(appLoginState.accountId) {
+        com.xjtu.toolbox.util.DataCache(context, appLoginState.accountId.ifEmpty { null })
+    }
     val gson = remember { com.google.gson.Gson() }
     val api = remember(activeSite) { activeSite?.let { ScheduleApi(it) } }
     fun termLabel(code: String): String = ScheduleTermStore.display(code, dataCache, gson, api)
@@ -385,6 +388,16 @@ fun ScheduleScreen(
         isRefreshingFromNetwork = false
         showingStaleData = false
         val gen = loadGen.incrementAndGet()
+        // 本次加载属于哪个账号。切账号时 SessionManager 是原地重配、api 背后的站点会被
+        // 换成新账号的会话；本任务虽会被 LaunchedEffect(accountId) 取消，但取消只在挂起点
+        // 生效，恰好在那之前拿到的结果可能已是新账号的数据。每次联网结果落地前核对一次，
+        // 账号变了就按取消处理，既不刷界面也不写缓存（dataCache 绑定的是本任务的账号）。
+        val jobAccount = AccountContext.activeAccountId
+        fun ensureSameAccount() {
+            if (AccountContext.activeAccountId != jobAccount) {
+                throw kotlinx.coroutines.CancellationException("account switched during schedule load")
+            }
+        }
         loadJob = scope.launch {
             try {
                 withContext(Dispatchers.IO) {
@@ -458,6 +471,7 @@ fun ScheduleScreen(
                             }
 
                             fun paintCourses(termCode: String, freshCourses: List<CourseItem>, startDate: LocalDate?) {
+                                ensureSameAccount()
                                 val holidays = holidayDates.ifEmpty { HolidayApi.peekCached(context) }
                                 if (holidays.isNotEmpty()) holidayDates = holidays
                                 val optimized = ScheduleCache.filterByHolidays(freshCourses, startDate, holidays)
@@ -494,6 +508,7 @@ fun ScheduleScreen(
                             }
 
                             val termCode = termDeferred.await()
+                            ensureSameAccount()
                             currentTermCode = termCode
                             // 用户本次进来主动切过学期时，不要再把视图拽回"当前学期"。
                             // 这段以前是无条件执行的：从课程详情跳去思源学堂再返回，
@@ -522,6 +537,7 @@ fun ScheduleScreen(
                                     try { dataCache.put("start_date_$termCode", gson.toJson(startDate.toString())) } catch (_: Exception) {}
                                 }
                                 val freshExams = try { api.getExamSchedule(termCode) } catch (_: Exception) { exams }
+                                ensureSameAccount()
                                 exams = freshExams
                                 if (freshExams.isNotEmpty()) {
                                     try { dataCache.put("exams_$termCode", gson.toJson(freshExams)) } catch (_: Exception) {}
@@ -536,6 +552,7 @@ fun ScheduleScreen(
                                     paintCourses(viewTerm, freshCourses, startOfTerm)
                                 }
                                 val startDate = startDateDeferred.await() ?: startOfTerm
+                                ensureSameAccount()
                                 if (startDate != null) {
                                     applyTermStart(startDate)
                                     try { dataCache.put("start_date_$viewTerm", gson.toJson(startDate.toString())) } catch (_: Exception) {}
@@ -544,6 +561,7 @@ fun ScheduleScreen(
                                     }
                                 }
                                 val freshExams = examsDeferred.await()
+                                ensureSameAccount()
                                 exams = freshExams
                                 if (freshExams.isNotEmpty()) {
                                     try { dataCache.put("exams_$viewTerm", gson.toJson(freshExams)) } catch (_: Exception) {}
@@ -560,6 +578,7 @@ fun ScheduleScreen(
                                 }
                             }
                             val availableTerms = (termListDeferred.await() + readCachedTerms()).distinct()
+                            ensureSameAccount()
                             try { ScheduleTermStore.merge(dataCache, gson, api.termNames()) } catch (_: Exception) {}
                             if (availableTerms.isNotEmpty()) {
                                 termList = availableTerms
