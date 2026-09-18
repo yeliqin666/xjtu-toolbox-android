@@ -786,7 +786,7 @@ private fun ActivityDetailPage(
                         // 基本信息卡
                         item(key = "info") { ActivityInfoCard(d) }
 
-                        // 作业描述（HTML 去标签后展示）
+                        // 正文（HTML 去标签后展示）
                         if (!d.description.isNullOrBlank()) {
                             item(key = "desc") {
                                 val plainText = remember(d.description) {
@@ -796,7 +796,7 @@ private fun ActivityDetailPage(
                                     doc.body()?.wholeOwnText()?.trim()?.ifBlank { null }
                                         ?: doc.text()
                                 }
-                                SectionHeader("作业描述")
+                                SectionHeader(if (d.type == LmsActivityType.HOMEWORK) "作业描述" else "内容")
                                 Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                                     Text(
                                         plainText,

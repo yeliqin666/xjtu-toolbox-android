@@ -32,6 +32,15 @@ private fun JsonElement?.safeArray(): JsonArray =
 private fun JsonElement?.safeObject(): JsonObject? =
     if (this == null || this.isJsonNull || !this.isJsonObject) null else this.asJsonObject
 
+/**
+ * 活动正文：作业/课件在 `data.description`，页面型（课程简介、教学进度、课程考核构成、
+ * 平时成绩细则）在 `data.content`。两处都试一次——实测页面型的 description 长度是 0，
+ * 正文只在 content 里；讨论区的说明则在 description 里。
+ */
+internal fun lmsActivityBody(data: JsonObject?): String? =
+    data?.get("description").safeString()?.takeIf { it.isNotBlank() }
+        ?: data?.get("content").safeString()?.takeIf { it.isNotBlank() }
+
 // ════════════════════════════════════════
 //  LmsApi — 思源学堂 API 封装
 // ════════════════════════════════════════
@@ -537,11 +546,15 @@ class LmsApi(private val site: SiteSession) {
             try { extractUpload(elem.asJsonObject).copy(activityId = activityId, courseId = courseId) } catch (_: Exception) { null }
         }
 
+        // 正文：作业/课件在 description，页面型在 content（见 lmsActivityBody）
+        val body = lmsActivityBody(dataObj)
+
         val common = LmsActivity(
             id = activityId,
             courseId = courseId,
             type = type,
             title = obj.get("title").safeString() ?: "",
+            description = body,
             moduleId = obj.get("module_id")?.let { if (it.isJsonNull) null else it.safeInt() },
             startTime = obj.get("start_time").safeString(),
             endTime = obj.get("end_time").safeString(),
@@ -558,7 +571,6 @@ class LmsApi(private val site: SiteSession) {
                 groupId = obj.get("group_id")?.let { if (it.isJsonNull) null else it.safeInt() },
                 groupSetName = obj.get("group_set_name").safeString(),
                 userSubmitCount = obj.get("user_submit_count").safeInt(),
-                description = dataObj?.get("description").safeString(),
                 averageScore = obj.get("average_score")?.let { if (it.isJsonNull) null else it.asDouble },
                 highestScore = obj.get("highest_score")?.let { if (it.isJsonNull) null else it.asDouble },
                 lowestScore = obj.get("lowest_score")?.let { if (it.isJsonNull) null else it.asDouble },
@@ -569,9 +581,8 @@ class LmsApi(private val site: SiteSession) {
                 nonSubmitTimes = obj.get("non_submit_times").safeBoolean(),
             )
 
-            LmsActivityType.MATERIAL -> common.copy(
-                description = dataObj?.get("description").safeString()
-            )
+            // 正文已经在 common 里取好（description ?: content）
+            LmsActivityType.MATERIAL -> common
 
             LmsActivityType.LESSON -> {
                 // 提取 replay_code（多处备选）

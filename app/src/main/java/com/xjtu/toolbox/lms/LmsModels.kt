@@ -155,7 +155,8 @@ data class LmsActivity(
     val submitByGroup: Boolean = false,
     val uploads: List<LmsUpload> = emptyList(),
 
-    // homework 专有
+    // 正文与作业字段
+    /** 正文：作业/课件是作业说明（`data.description`），页面型是页面正文（`data.content`） */
     val description: String? = null,
     val groupId: Int? = null,
     val groupSetName: String? = null,
