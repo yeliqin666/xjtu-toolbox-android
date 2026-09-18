@@ -233,8 +233,11 @@ class CredentialStore(context: Context) {
         private const val KEY_RSA_KEY_TIME = "rsa_key_time"
         private const val KEY_NICKNAME = "cached_nickname"
         private const val KEY_EULA_VERSION = "eula_accepted_version"
-        /** 用户协议版本号，更新协议内容时递增 */
-        const val CURRENT_EULA_VERSION = 3
+        /**
+         * 用户协议版本号，更新协议内容时递增。
+         * 4：新增崩溃日志匿名上报的说明（[com.xjtu.toolbox.error.CrashReporter]）。
+         */
+        const val CURRENT_EULA_VERSION = 4
 
         // ── 设置页键 ──
         private const val KEY_NAV_BAR_STYLE = "nav_bar_style"

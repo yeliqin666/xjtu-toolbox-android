@@ -25,7 +25,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * 是另外手写的两段摘要。两边措辞、范围都不一样——用户在设置里读到的并不是他当初
  * 同意的那份，改一处漏一处。现在两个入口都渲染这里。
  *
- * 改条款时记得同步递增 `CredentialStore.EULA_VERSION`，否则老用户不会被要求重新同意。
+ * 改条款时记得同步递增 `CredentialStore.CURRENT_EULA_VERSION`，否则老用户不会被要求重新同意。
  */
 object Eula {
 

@@ -21,6 +21,7 @@ import java.util.Locale
  * - 崩溃当下进程已经不可靠，只做一件事：同步写一个文件到 filesDir（不进 cacheDir，
  *   免得换包清缓存或系统清理时把还没报的日志一起清掉），然后交还给系统默认处理器。
  * - 上报放到下次启动，走 [FeedbackApi]；成功才删文件，失败留到再下次。
+ *   未同意当前版本用户协议（v4 起写明了本功能）之前不上报，见 [uploadPending]。
  * - 堆栈里异常 message 可能带 URL 参数、学号、token，落盘前统一脱敏，见 [redact]。
  * - 堆栈是 R8 混淆后的，需要用 CI 上传的对应 run 的 mapping.txt 做 retrace。
  * - 设置里可关（[isEnabled]），关掉后既不落盘也不上报。
@@ -85,9 +86,15 @@ object CrashReporter {
         .replace(Regex("""\d{6,}"""), "#")
         .replace(Regex("""[A-Za-z0-9+/_\-]{32,}={0,2}"""), "<redacted>")
 
-    /** 启动后在后台线程调用：把上次留下的崩溃日志报掉。 */
+    /**
+     * 启动后在后台线程调用：把上次留下的崩溃日志报掉。
+     *
+     * 必须先同意了**当前版本**的用户协议（含崩溃上报条款）才上传。还没同意时日志
+     * 留在本地不动，同意后的下一次启动再报——不能在用户看到条款之前就把数据送出去。
+     */
     suspend fun uploadPending(context: Context) {
         if (!FeedbackApi.isConfigured || !isEnabled(context)) return
+        if (!com.xjtu.toolbox.util.CredentialStore(context).isEulaAccepted()) return
         val files = dir(context).listFiles()?.sortedBy { it.name } ?: return
         for (f in files.take(MAX_UPLOAD_PER_LAUNCH)) {
             val content = runCatching { f.readText() }.getOrNull()
