@@ -32,13 +32,11 @@ class DataCache(
     private val appContext = context.applicationContext
     private val dirName = "data_cache${AccountContext.suffixFor(accountId)}"
 
-    /** 本实例所属账号的缓存目录。每次都 mkdirs：「清除缓存」或换包清理可能已把它删掉。 */
-    private val cacheDir: File
-        get() = File(appContext.cacheDir, dirName).apply { mkdirs() }
-
-    /** 兼容旧调用：返回账号无关的默认目录，仅迁移时使用。 */
-    private val legacyCacheDir: File
-        get() = File(appContext.cacheDir, "data_cache")
+    /**
+     * 本实例所属账号的缓存目录。读路径不建目录（不存在即未命中）；只有 [put] 写之前
+     * 才 mkdirs——「清除缓存」或换包清理随时可能把它删掉，所以每次写都要确认一次。
+     */
+    private val cacheDir: File = File(appContext.cacheDir, dirName)
 
     /** per-key 锁对象，不同 key 之间互不阻塞 */
     private val locks = ConcurrentHashMap<String, Any>()
@@ -53,6 +51,7 @@ class DataCache(
 
         private const val META_PREFS = "data_cache_meta"
         private const val KEY_INSTALL_STAMP = "install_stamp"
+        private val UNSAFE_FILE_CHARS = Regex("[^a-zA-Z0-9_-]")
 
         /**
          * 安装包变了（升级、同版本号重新发包后覆盖安装）就把全部账号的 `data_cache*` 目录清空，
@@ -137,6 +136,7 @@ class DataCache(
         synchronized(lockFor(key)) {
             try {
                 val sanitized = key.sanitize()
+                cacheDir.mkdirs()
                 val file = File(cacheDir, "${sanitized}.json")
                 val tmpFile = File(cacheDir, "${sanitized}.json.tmp")
                 // 先写临时文件
@@ -207,5 +207,5 @@ class DataCache(
     }
 
     /** 安全化文件名 */
-    private fun String.sanitize(): String = this.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+    private fun String.sanitize(): String = replace(UNSAFE_FILE_CHARS, "_")
 }

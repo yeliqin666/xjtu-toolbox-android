@@ -99,7 +99,7 @@ class AccountStore(context: Context) {
 
     companion object {
         private const val TAG = "AccountStore"
-        private const val FILE_NAME = "xjtu_accounts"
+        internal const val FILE_NAME = "xjtu_accounts"
         private const val KEY_ACCOUNTS = "accounts"
         private const val KEY_ACTIVE = "active_account"
         private const val KEY_MIGRATION_DONE = "migration_done"

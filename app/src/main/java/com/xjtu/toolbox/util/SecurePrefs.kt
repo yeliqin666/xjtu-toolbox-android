@@ -35,8 +35,26 @@ object SecurePrefs {
         // computeIfAbsent：并发首次打开同一文件时只 create 一次，后到的线程等它完成
         opened.computeIfAbsent(name) { openUncached(context, name, legacyFallbackName) }
 
+    /**
+     * 在后台线程提前打开几个首帧必读的加密文件。
+     *
+     * 从 `Application.attachBaseContext` 调：之后系统还要装 ContentProvider（WorkManager 等），
+     * 这段时间 keystore 的主密钥获取、钥集解密就在后台做完了。主线程稍后 [open] 同名文件时
+     * 要么直接命中缓存，要么在 computeIfAbsent 上等这次打开结束——不会重复打开，也不会
+     * 比不预热更慢。只是提前，不改变任何加密参数和失败兜底。
+     */
+    fun prewarm(context: Context, vararg names: String) {
+        Thread({
+            for (name in names) {
+                runCatching { open(context, name) }.onFailure { Log.w(TAG, "prewarm $name failed", it) }
+            }
+        }, "secure-prefs-prewarm").apply { priority = Thread.NORM_PRIORITY }.start()
+    }
+
     private fun openUncached(context: Context, name: String, legacyFallbackName: String): SharedPreferences {
-        val app = context.applicationContext
+        // attachBaseContext 阶段 applicationContext 还是 null（LoadedApk 尚未登记 Application），
+        // 此时 base ContextImpl 本身就能读写 shared_prefs
+        val app = context.applicationContext ?: context
         val secure = runCatching { create(app, name) }.recoverCatching { e ->
             Log.e(TAG, "$name: init failed, recreating", e)
             File(app.applicationInfo.dataDir, "shared_prefs")

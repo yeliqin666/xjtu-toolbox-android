@@ -932,11 +932,13 @@ internal suspend fun refreshCampusCardCache(
     site: com.xjtu.toolbox.auth.SiteSession
 ): Boolean = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
     val appContext = context.applicationContext
+    // 请求发出前定下账号：结果回来时可能已切到别的账号
+    val accountId = com.xjtu.toolbox.account.AccountContext.activeAccountId
     val api = com.xjtu.toolbox.card.CampusCardApi(site)
     val info = api.getCardInfo()
     val (_, recentTx) = api.getTransactions(page = 1, pageSize = 50)
 
-    com.xjtu.toolbox.card.CampusCardCache.cardPrefs(appContext).edit()
+    com.xjtu.toolbox.card.CampusCardCache.cardPrefs(appContext, accountId).edit()
         .putFloat("card_balance_cache", info.balance.toFloat())
         .putString("card_name_cache", info.name)
         .putLong("card_cache_time", System.currentTimeMillis())

@@ -58,8 +58,8 @@ object CampusCardCache {
     private fun prefsName(accountId: String? = AccountContext.activeAccountId): String =
         PREFS_PREFIX + AccountContext.suffixFor(accountId)
 
-    fun load(context: Context): CampusCardSnapshot? {
-        val raw = context.getSharedPreferences(prefsName(), Context.MODE_PRIVATE)
+    fun load(context: Context, accountId: String? = AccountContext.activeAccountId): CampusCardSnapshot? {
+        val raw = context.getSharedPreferences(prefsName(accountId), Context.MODE_PRIVATE)
             .getString(KEY, null) ?: return null
         return runCatching {
             gson.fromJson(raw, CampusCardSnapshot::class.java)?.let { snapshot ->
@@ -80,7 +80,8 @@ object CampusCardCache {
         cardInfo: CardInfo,
         transactions: List<Transaction>,
         rangeStart: LocalDate,
-        rangeEnd: LocalDate
+        rangeEnd: LocalDate,
+        accountId: String? = AccountContext.activeAccountId,
     ) {
         val snapshot = CampusCardSnapshot(
             cardInfo = cardInfo,
@@ -89,7 +90,7 @@ object CampusCardCache {
             rangeEnd = rangeEnd.toString(),
             savedAt = System.currentTimeMillis()
         )
-        context.getSharedPreferences(prefsName(), Context.MODE_PRIVATE)
+        context.getSharedPreferences(prefsName(accountId), Context.MODE_PRIVATE)
             .edit()
             .putString(KEY, gson.toJson(snapshot))
             .apply()
@@ -100,8 +101,13 @@ object CampusCardCache {
         context.getSharedPreferences(prefsName(accountId), Context.MODE_PRIVATE).edit().clear().apply()
     }
 
-    /** 当前账号命名空间下的校园卡余额/流水缓存 SharedPreferences。 */
-    fun cardPrefs(context: Context): android.content.SharedPreferences {
-        return context.getSharedPreferences("campus_card" + AccountContext.safeSuffix(), Context.MODE_PRIVATE)
-    }
+    /**
+     * 指定账号（默认当前账号）命名空间下的校园卡余额/流水缓存 SharedPreferences。
+     * 联网刷新要在发起请求时定下账号传进来，理由见 [AccountContext.suffixFor]。
+     */
+    fun cardPrefs(
+        context: Context,
+        accountId: String? = AccountContext.activeAccountId,
+    ): android.content.SharedPreferences =
+        context.getSharedPreferences("campus_card" + AccountContext.suffixFor(accountId), Context.MODE_PRIVATE)
 }

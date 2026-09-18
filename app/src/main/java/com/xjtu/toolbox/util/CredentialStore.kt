@@ -12,7 +12,7 @@ class CredentialStore(context: Context) {
 
     private val appContext = context.applicationContext
 
-    private val prefs: SharedPreferences by lazy { SecurePrefs.open(appContext, "xjtu_credentials") }
+    private val prefs: SharedPreferences by lazy { SecurePrefs.open(appContext, FILE_NAME) }
 
     fun save(username: String, password: String) {
         prefs.edit()
@@ -226,6 +226,7 @@ class CredentialStore(context: Context) {
         set(value) { appPrefs.edit().putBoolean(KEY_VENUE_AUTO_SOLVE_CAPTCHA, value).apply() }
 
     companion object {
+        internal const val FILE_NAME = "xjtu_credentials"
         private const val KEY_USERNAME = "username"
         private const val KEY_PASSWORD = "password"
         private const val KEY_FP_VISITOR_ID = "fp_visitor_id"
