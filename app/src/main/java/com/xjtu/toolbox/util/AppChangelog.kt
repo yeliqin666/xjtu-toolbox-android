@@ -34,6 +34,13 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "4.9.5" to VersionChangelog(
+            items = listOf(
+                "🩹" to "修复 4.9.4 点击「我的」、成绩、日程等页面闪退的问题",
+                "🔐" to "短信验证码等待加超时兜底，不会一直卡住",
+                "🧹" to "移除已失效的交晓智集成"
+            )
+        ),
         "4.9.4" to VersionChangelog(
             items = listOf(
                 "🎭" to "新增屁岱自定义皮肤及配套 Skill，可关注开源仓库 issue",
