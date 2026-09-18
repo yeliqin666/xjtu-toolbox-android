@@ -52,6 +52,23 @@
 # 后果是用户账号被清空，而这个库只有十来个类，删了也省不出体积，不值当冒这个险。
 -keep class androidx.security.crypto.** { *; }
 
+# ── 集合字段的泛型签名：所有 Gson 模型类都要，一律保留 ──
+#
+# R8 full mode（AGP 8 起默认）下 `-keepattributes Signature` 只对**被 keep 规则命中**的
+# 类/成员生效。没被 keep 的缓存模型（TermScore、YellowPageData、Jiaocai1Category…）里
+# `List<X>` 字段的泛型签名会被整个抹掉，Gson 只看到裸 List，元素一律读成 LinkedTreeMap：
+# 同一次构建写进去的缓存，读回来就类型不对。4.9.5 成绩页第二次打开闪退（#60）就是这个——
+# 缓存里的 scoreList 被当成 List<ScoreItem> 交给界面，flatMap 时才 ClassCastException。
+#
+# allowobfuscation + allowshrinking：只为留住签名，字段照样改名、没用照样删，不妨碍优化体积。
+# 按字段类型匹配而不是逐类列举：以后新加的缓存模型自动受保护，不会再漏。
+-keepclassmembers,allowobfuscation,allowshrinking class com.xjtu.toolbox.** {
+    java.util.List *;
+    java.util.Map *;
+    java.util.Set *;
+    java.util.Collection *;
+}
+
 # ── 项目数据类：Gson 读写字段名/枚举常量名不能被 R8 改 ──
 #
 # cacheDir 下 DataCache 缓存的模型类（HomeStat/TermScore/ReportedGrade/HelloProfile/
