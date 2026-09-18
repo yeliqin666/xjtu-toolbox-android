@@ -32,6 +32,22 @@ private fun JsonElement?.safeArray(): JsonArray =
 private fun JsonElement?.safeObject(): JsonObject? =
     if (this == null || this.isJsonNull || !this.isJsonObject) null else this.asJsonObject
 
+
+/**
+ * 把列表级的字段并进详情：只补详情缺的，不覆盖详情已有的。
+ *
+ * `deadline` 上游只在列表里给（详情 79 个键里没有），只能这样拿。合并不到时才退回
+ * [LmsActivity.endTime]——它和真截止最多差 20 天，但总比显示"未设置截止时间"强。
+ */
+internal fun LmsActivity.mergeBrief(brief: LmsActivity?): LmsActivity {
+    val start = startTime?.takeIf { it.isNotBlank() } ?: brief?.startTime?.takeIf { it.isNotBlank() }
+    val visibleStart = visibleStartAt?.takeIf { it.isNotBlank() } ?: brief?.visibleStartAt?.takeIf { it.isNotBlank() }
+    val end = endTime?.takeIf { it.isNotBlank() } ?: brief?.endTime?.takeIf { it.isNotBlank() }
+    val due = deadline?.takeIf { it.isNotBlank() }
+        ?: brief?.deadline?.takeIf { it.isNotBlank() }
+        ?: end
+    return copy(startTime = start, visibleStartAt = visibleStart, endTime = end, deadline = due)
+}
 // ════════════════════════════════════════
 //  LmsApi — 思源学堂 API 封装
 // ════════════════════════════════════════
@@ -145,8 +161,11 @@ class LmsApi(private val site: SiteSession) {
      * 获取活动详细信息
      * - homework 类型自动注入 submissionList
      * - lesson 类型自动注入 replayVideos + replayDownloadUrls
+     *
+     * [brief] 传列表里那条（[getCourseActivities] 的返回值）：**详情接口不返回 `deadline`**
+     * （实测 79 个键里没有，只有列表有），不传就只能退回 `endTime`。
      */
-    fun getActivityDetail(activityId: Int): LmsActivity {
+    fun getActivityDetail(activityId: Int, brief: LmsActivity? = null): LmsActivity {
         val data = getJson("$baseUrl/api/activities/$activityId")
             ?: throw RuntimeException("获取活动详情失败")
         var detail = extractActivityDetail(data)
@@ -162,7 +181,7 @@ class LmsApi(private val site: SiteSession) {
             }
         }
 
-        return detail
+        return detail.mergeBrief(brief)
     }
 
     // ── 内部方法 ──────────────────────
@@ -498,7 +517,9 @@ class LmsApi(private val site: SiteSession) {
             title = obj.get("title").safeString() ?: "",
             moduleId = obj.get("module_id")?.let { if (it.isJsonNull) null else it.safeInt() },
             startTime = obj.get("start_time").safeString(),
+            visibleStartAt = obj.get("visible_start_at").safeString(),
             endTime = obj.get("end_time").safeString(),
+            deadline = obj.get("deadline").safeString(),
             submitByGroup = obj.get("submit_by_group").safeBoolean(),
             published = obj.get("published").safeBoolean(),
             createdAt = obj.get("created_at").safeString() ?: "",
@@ -544,6 +565,7 @@ class LmsApi(private val site: SiteSession) {
             title = obj.get("title").safeString() ?: "",
             moduleId = obj.get("module_id")?.let { if (it.isJsonNull) null else it.safeInt() },
             startTime = obj.get("start_time").safeString(),
+            visibleStartAt = obj.get("visible_start_at").safeString(),
             endTime = obj.get("end_time").safeString(),
             published = obj.get("published").safeBoolean(),
             createdAt = obj.get("created_at").safeString() ?: "",
@@ -563,8 +585,7 @@ class LmsApi(private val site: SiteSession) {
                 highestScore = obj.get("highest_score")?.let { if (it.isJsonNull) null else it.asDouble },
                 lowestScore = obj.get("lowest_score")?.let { if (it.isJsonNull) null else it.asDouble },
                 hasScoreCount = obj.get("has_score_count")?.let { if (it.isJsonNull) null else it.safeInt() },
-                // 截止时间与提交规则：学生最关心的信息，之前完全没解析
-                deadline = obj.get("deadline").safeString() ?: obj.get("end_time").safeString(),
+                // deadline 不在这里读：详情接口不返回它，由 mergeBrief 从列表并进来（见 LmsModels）
                 submitTimes = dataObj?.get("submit_times")?.let { if (it.isJsonNull) null else it.safeInt() },
                 nonSubmitTimes = obj.get("non_submit_times").safeBoolean(),
             )
