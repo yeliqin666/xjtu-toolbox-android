@@ -7,6 +7,7 @@ import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.net.Proxy
 import java.net.Socket
 import java.net.SocketAddress
 import java.net.URI
@@ -108,7 +109,8 @@ internal object AgentWeb {
      * 内网的域名、DNS 重绑定）、URL 里的字面 IP，还是重定向后的新地址，都绕不过去。
      * 以前只在 URL 字符串上判断，域名一律放行，响应回来后才复查——那时请求早已发出。
      *
-     * 走 HTTP 代理时连接的是代理本身，由用户的代理决定能去哪，这里不干预。
+     * 使用它的客户端必须同时通过 [applyPublicNetworkPolicy] 禁用系统 HTTP 代理；否则这里看到的
+     * 可能只是代理地址，既会误拒本机代理，也无法验证代理最终连接的目标。
      */
     val publicOnlySocketFactory: SocketFactory = object : SocketFactory() {
         override fun createSocket(): Socket = GuardedSocket()
@@ -131,6 +133,15 @@ internal object AgentWeb {
             super.connect(endpoint, timeout)
         }
     }
+
+    /**
+     * 给接收不可信 URL 的客户端应用完整公网访问策略。
+     * 禁用系统 HTTP 代理后，[publicOnlySocketFactory] 检查的一定是目标站点实际 IP。
+     */
+    fun applyPublicNetworkPolicy(builder: okhttp3.OkHttpClient.Builder): okhttp3.OkHttpClient.Builder =
+        builder
+            .proxy(Proxy.NO_PROXY)
+            .socketFactory(publicOnlySocketFactory)
 
     fun isBinaryContentType(contentType: String?): Boolean {
         val t = contentType?.substringBefore(';')?.trim()?.lowercase().orEmpty()

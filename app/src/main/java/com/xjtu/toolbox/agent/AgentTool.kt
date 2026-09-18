@@ -1351,9 +1351,7 @@ class AgentToolRegistry(
     }
 
     private val webClient by lazy {
-        okhttp3.OkHttpClient.Builder()
-            // 建连时拒绝内网/回环地址，SSRF 的实际防线，见 AgentWeb.publicOnlySocketFactory
-            .socketFactory(AgentWeb.publicOnlySocketFactory)
+        AgentWeb.applyPublicNetworkPolicy(okhttp3.OkHttpClient.Builder())
             .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
             .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
             .followRedirects(true)

@@ -271,11 +271,9 @@ internal fun ProfileTab(
         isLoggingIn = true
         loginError = null
         loginProgress = 0f
-        loginState.saveCredentials(user, pwd)
+        loginState.prepareCredentialsForLogin(user, pwd)
 
         scope.launch {
-            val startMs = System.currentTimeMillis()
-
             loginStage = "认证中..."
             loginProgress = 0.1f
             try {
@@ -291,11 +289,10 @@ internal fun ProfileTab(
 
             loginProgress = 0.8f
 
-            loginProgress = 0.8f
-
             // ── 完成核心登录 ──
             loginProgress = 1f
             isLoggingIn = false
+            loginState.saveCredentials(user, pwd)
             // 落库到 AccountStore（多账号架构），同时兼容旧 CredentialStore 单值
             accountManager.persistCurrentLogin(user, pwd, loginState.accountType)
             loginState.persistCredentials(credentialStore)

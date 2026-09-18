@@ -291,12 +291,13 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
         }
     }
 
-    fun saveCredentials(username: String, password: String) {
+    /**
+     * 把一次登录尝试的凭据交给会话层，但不把 UI 提前切成“已登录”。
+     * 只有认证真正成功后才由 [saveCredentials] 提交身份。
+     */
+    fun prepareCredentialsForLogin(username: String, password: String) {
         // 凭据变更视为用户已知晓并响应，清除密码失效熔断
         val credentialsChanged = (username != savedUsername || password != savedPassword)
-        savedUsername = username
-        savedPassword = password
-        activeUsername = username
         if (credentialsChanged && passwordInvalidatedLatch) {
             passwordInvalidatedLatch = false
             passwordInvalidatedSiteName = ""
@@ -307,6 +308,13 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
             it.setCredentials(username, password)
             it.accountType = selectedCasAccountType()
         }
+    }
+
+    fun saveCredentials(username: String, password: String) {
+        prepareCredentialsForLogin(username, password)
+        savedUsername = username
+        savedPassword = password
+        activeUsername = username
     }
 
     /** 从 EncryptedSharedPreferences 恢复凭据和缓存 */

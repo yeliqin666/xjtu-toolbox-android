@@ -1,10 +1,13 @@
 package com.xjtu.toolbox.agent
 
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.net.Proxy
 
 class AgentWebAddressTest {
 
@@ -40,5 +43,13 @@ class AgentWebAddressTest {
         AgentWeb.publicOnlySocketFactory.createSocket().use {
             it.connect(InetSocketAddress(ip("127.0.0.1"), 9), 1000)
         }
+    }
+
+    @Test
+    fun publicNetworkPolicyDisablesProxyAndKeepsSocketGuard() {
+        val client = AgentWeb.applyPublicNetworkPolicy(okhttp3.OkHttpClient.Builder()).build()
+
+        assertEquals(Proxy.NO_PROXY, client.proxy)
+        assertSame(AgentWeb.publicOnlySocketFactory, client.socketFactory)
     }
 }
