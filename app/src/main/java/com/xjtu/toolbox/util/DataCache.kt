@@ -56,7 +56,9 @@ class DataCache(
 
         /**
          * 安装包变了（升级、同版本号重新发包后覆盖安装）就把全部账号的 `data_cache*` 目录清空，
-         * 必须在任何读缓存之前调用（[com.xjtu.toolbox.XjtuApp.onCreate]）。
+         * 必须在任何读缓存之前调用，放在 [com.xjtu.toolbox.XjtuApp.attachBaseContext]：
+         * 它早于所有 ContentProvider（含 WorkManager 的自动初始化）执行，升级后重新调度的
+         * Worker 不可能抢在清理之前跑起来；放 onCreate 则有这个窗口。
          *
          * 缓存里的模型类没在 proguard 里 keep，字段名由 R8 每次构建各自决定。换了安装包
          * 还按新名字去读老文件，Gson 会把对不上的非空字段悄悄置成 null，4.9.4 就这样崩过
@@ -70,7 +72,8 @@ class DataCache(
          * （账号、会话、考勤、校园卡、课表变更快照）已 keep，不受影响。
          */
         fun clearIfPackageChanged(context: Context) {
-            val app = context.applicationContext
+            // attachBaseContext 阶段 applicationContext 还是 null，直接用传进来的 base context
+            val app = context.applicationContext ?: context
             val prefs = app.getSharedPreferences(META_PREFS, Context.MODE_PRIVATE)
             val installedAt = runCatching {
                 app.packageManager.getPackageInfo(app.packageName, 0).lastUpdateTime

@@ -1,6 +1,7 @@
 package com.xjtu.toolbox
 
 import android.app.Application
+import android.content.Context
 import com.xjtu.toolbox.error.CrashReporter
 import com.xjtu.toolbox.error.ErrorReporting
 import com.xjtu.toolbox.error.FileErrorReporter
@@ -34,13 +35,18 @@ class XjtuApp : Application() {
             ?.forEach { dir -> runCatching { dir.deleteRecursively() } }
     }
 
+    override fun attachBaseContext(base: Context) {
+        super.attachBaseContext(base)
+        // 进程里最早的钩子，早于所有 ContentProvider（WorkManager 自动初始化后可能立刻
+        // 跑 Worker）和 onCreate。换包后的旧格式缓存必须在任何代码读到它之前清掉，见方法注释。
+        com.xjtu.toolbox.util.DataCache.clearIfPackageChanged(base)
+    }
+
     override fun onCreate() {
         super.onCreate()
         CrashReporter.install(this)
         appScope.launch { CrashReporter.uploadPending(this@XjtuApp) }
         appScope.launch { removeRetiredFeatureData() }
-        // 先于一切读缓存的代码（含下面的后台调度），见方法注释
-        com.xjtu.toolbox.util.DataCache.clearIfPackageChanged(this)
         AppNotificationChannels.ensureChannels(this)
         ErrorReporting.install(FileErrorReporter(this))
         com.xjtu.toolbox.notification.NoticeWatchScheduler.apply(this)

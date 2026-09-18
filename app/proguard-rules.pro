@@ -82,6 +82,13 @@
 -keep class com.xjtu.toolbox.agent.GradeWidget { *; }
 -keep class com.xjtu.toolbox.agent.CardWidget { *; }
 -keep class com.xjtu.toolbox.agent.ZyxfWidget { *; }
+# 上面这些卡片里装的元素类型。它们本身也是 cacheDir 缓存的模型（CourseItem 等），但卡片
+# 随 Agent 会话存进 filesDir，换包不清——字段名一变，升级后旧对话里的卡片内容就全成空串。
+-keepclassmembers class com.xjtu.toolbox.schedule.CourseItem { <fields>; }
+-keepclassmembers class com.xjtu.toolbox.schedule.ExamItem { <fields>; }
+-keepclassmembers class com.xjtu.toolbox.emptyroom.RoomInfo { <fields>; }
+-keepclassmembers class com.xjtu.toolbox.score.ReportedGrade { <fields>; }
+-keepclassmembers class com.xjtu.toolbox.agent.ZyxfEntryRef { <fields>; }
 -keepclassmembers class com.xjtu.toolbox.agent.AgentToolRegistry$YwtbIdentity { <fields>; }
 
 -keepclassmembers class com.xjtu.toolbox.card.CampusCardSnapshot { <fields>; }
