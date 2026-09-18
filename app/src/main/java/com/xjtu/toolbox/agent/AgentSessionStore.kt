@@ -28,7 +28,14 @@ data class AgentSession(
 data class StoredWidget(
     val type: String,
     val json: String
-)
+) {
+    /** 落盘反序列化兜底，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。 */
+    fun sanitized(): StoredWidget? {
+        val t = (type as String?) ?: return null
+        val j = (json as String?) ?: return null
+        return copy(type = t, json = j)
+    }
+}
 
 /** 持久化用的精简消息。 */
 data class StoredMessage(
@@ -41,7 +48,15 @@ data class StoredMessage(
     val toolError: String? = null,
     /** 图片附件的本地路径。老会话没有这个字段，反序列化得到 null。 */
     val images: List<String>? = null,
-)
+) {
+    /** 落盘反序列化兜底，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。 */
+    fun sanitized(): StoredMessage = copy(
+        role = (role as String?) ?: "assistant",
+        content = (content as String?) ?: "",
+        nav = (nav as List<List<String>?>?)?.filterNotNull() ?: emptyList(),
+        widgets = widgets?.mapNotNull { it?.sanitized() },
+    )
+}
 
 /** 一个会话的完整内容：UI 消息 + 供续聊的 LLM 历史（JsonArray 的字符串形式）。 */
 data class StoredConversation(
@@ -49,7 +64,13 @@ data class StoredConversation(
     val llmHistory: String = "[]",
     val lastTotalTokens: Long? = null,
     val contextExhausted: Boolean = false
-)
+) {
+    /** 落盘反序列化兜底，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。 */
+    fun sanitized(): StoredConversation = copy(
+        messages = (messages as List<StoredMessage?>?)?.mapNotNull { it?.sanitized() } ?: emptyList(),
+        llmHistory = (llmHistory as String?) ?: "[]",
+    )
+}
 
 /**
  * Agent 多会话持久化存储。
@@ -99,7 +120,7 @@ class AgentSessionStore(context: Context) {
     fun load(id: String): StoredConversation? {
         val f = convoFile(id)
         if (!f.exists()) return null
-        return runCatching { gson.fromJson(f.readText(), StoredConversation::class.java) }.getOrNull()
+        return runCatching { gson.fromJson(f.readText(), StoredConversation::class.java)?.sanitized() }.getOrNull()
     }
 
     /** 保存会话内容，并把 title/updatedAt 同步进 index（不存在则补登记）。保留已有 locked 标志。 */

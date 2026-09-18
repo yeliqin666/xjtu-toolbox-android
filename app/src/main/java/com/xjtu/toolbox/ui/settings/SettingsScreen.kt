@@ -38,6 +38,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SpaceBar
 import androidx.compose.material.icons.filled.Star
@@ -280,6 +281,7 @@ fun SettingsScreen(
     )
     var scheduleLayout by remember { mutableStateOf(credentialStore.scheduleLayout) }
     var attendanceBadge by remember { mutableStateOf(credentialStore.scheduleAttendanceBadge) }
+    var crashReportEnabled by remember { mutableStateOf(com.xjtu.toolbox.error.CrashReporter.isEnabled(context)) }
     val scheduleSources = com.xjtu.toolbox.schedule.ScheduleSource.entries
     var scheduleSource by remember { mutableStateOf(com.xjtu.toolbox.schedule.ScheduleSource.fromKey(credentialStore.scheduleSource)) }
     val navStyleOptions = listOf("悬浮胶囊", "经典底栏")
@@ -651,6 +653,20 @@ fun SettingsScreen(
                     summary = "GitHub · yeliqin666/xjtu-toolbox-android",
                     startAction = { SettingsIcon(MiuixIcons.Forward, cBlue) },
                     onClick = { uriHandler.openUri("https://github.com/yeliqin666/xjtu-toolbox-android") }
+                )
+                SwitchPreference(
+                    title = "自动上报崩溃日志",
+                    summary = if (crashReportEnabled) {
+                        "闪退后下次启动匿名上报堆栈与机型，已去除网址参数、学号等"
+                    } else {
+                        "已关闭，闪退只能靠你手动反馈"
+                    },
+                    checked = crashReportEnabled,
+                    startAction = { SettingsIcon(Icons.Default.BugReport, cRed) },
+                    onCheckedChange = {
+                        crashReportEnabled = it
+                        com.xjtu.toolbox.error.CrashReporter.setEnabled(context, it)
+                    }
                 )
                 ArrowPreference(
                     title = "用户协议与隐私政策",

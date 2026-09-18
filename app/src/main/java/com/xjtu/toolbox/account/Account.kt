@@ -22,4 +22,18 @@ data class Account(
     val rsaKeyTime: Long = 0L,
     /** 上次切换到此账号的时间，用于账号管理页排序。 */
     val lastUsedAt: Long = 0L,
-)
+) {
+    /**
+     * 落盘反序列化兜底：Gson 不认 Kotlin 非空约束，也不走默认参数。以后给这个类加
+     * 非空字段时，老数据里没有它，读出来就是 null——新字段要么可空，要么在这里补默认值。
+     * accountId 缺失的条目没法用，返回 null 由调用方丢弃。
+     */
+    fun sanitized(): Account? {
+        val id = (accountId as String?)?.takeIf { it.isNotBlank() } ?: return null
+        return copy(
+            accountId = id,
+            password = (password as String?) ?: "",
+            accountType = (accountType as AccountType?) ?: AccountType.UNDERGRADUATE,
+        )
+    }
+}

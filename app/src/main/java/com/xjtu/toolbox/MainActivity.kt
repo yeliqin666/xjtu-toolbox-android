@@ -1562,6 +1562,9 @@ fun AppNavigation(
     }
 
     CompositionLocalProvider(LocalAppLoginState provides loginState) {
+    // MFA 短信验证弹窗全应用只挂这一处：WindowDialog 自带窗口，不依赖页面 Scaffold，
+    // 放在 NavHost 外层才能覆盖所有子页面触发的重认证，见 MfaDialogHost 注释。
+    com.xjtu.toolbox.auth.MfaDialogHost(loginState.sessionManager)
     // 注意：不要在这里套一层 Scaffold 来给 overlay 弹窗提供宿主。
     //
     // 背景：miuix 0.9.3 起 OverlayDialog/OverlayBottomSheet/OverlayListPopup 默认
@@ -2865,11 +2868,6 @@ private fun MainScreen(
             }
 
             com.xjtu.toolbox.feedback.FeedbackPromptSheet()
-
-            // ── 新会话架构 MFA 对话框（来自 SessionManager.askMfaCode）──
-            // 实现见 com.xjtu.toolbox.auth.MfaDialogHost：同一个弹窗还需要在账号管理页的
-            // Scaffold content 里再调一次，NavHost 平级目的地之间不共享 MainScreen 的渲染位置。
-            com.xjtu.toolbox.auth.MfaDialogHost(loginState.sessionManager)
 
             // ── 密码失效弹窗 ─────────────────────────────────────────
             if (loginState.passwordInvalidatedDialogVisible) {

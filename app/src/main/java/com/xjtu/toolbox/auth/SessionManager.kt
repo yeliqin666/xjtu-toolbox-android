@@ -422,6 +422,16 @@ class SessionManager(context: Context) {
 
     private val mfaMutex = Mutex()
 
+    /** 当前挂着的 [MfaDialogHost] 数，0 表示没有 UI 能接住 MFA 询问。 */
+    private val mfaHosts = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /** [MfaDialogHost] 挂载时登记，返回的函数在卸载时调用。 */
+    fun attachMfaHost(): () -> Unit {
+        mfaHosts.incrementAndGet()
+        val detached = java.util.concurrent.atomic.AtomicBoolean(false)
+        return { if (detached.compareAndSet(false, true)) mfaHosts.decrementAndGet() }
+    }
+
     /**
      * SiteSession.runLogin 在 [LoginState.REQUIRE_MFA] 时调用。锁内更新 [_activeMfaRequest]
      * 触发 UI 弹窗，挂起等待用户提交或取消；同一时刻仅一个 MFA 询问在挂起。
@@ -433,6 +443,11 @@ class SessionManager(context: Context) {
      * 交回给调用方按正常失败路径处理。
      */
     suspend fun askMfaCode(siteKey: String, siteName: String, ctx: MFAContext): String? {
+        if (mfaHosts.get() == 0) {
+            // 没有任何页面能弹框（Activity 已销毁/纯后台），等下去只会占着全局登录锁。
+            Log.w("SessionManager", "askMfaCode($siteKey): no MFA host mounted, treat as cancelled")
+            return null
+        }
         return mfaMutex.withLock {
             val deferred = CompletableDeferred<String?>()
             val req = MfaRequest(siteKey, siteName, ctx, deferred)

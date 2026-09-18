@@ -2,8 +2,6 @@ package com.xjtu.toolbox.util
 
 import android.content.Context
 import android.content.SharedPreferences
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKeys
 import com.xjtu.toolbox.auth.AccountType
 
 /**
@@ -14,36 +12,7 @@ class CredentialStore(context: Context) {
 
     private val appContext = context.applicationContext
 
-    private val prefs: SharedPreferences by lazy {
-        try {
-            EncryptedSharedPreferences.create(
-                "xjtu_credentials",
-                MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC),
-                appContext,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-            )
-        } catch (e: Exception) {
-            // 加密失败：尝试清除损坏文件后重建
-            android.util.Log.e("CredentialStore", "EncryptedSharedPreferences init failed, attempting recovery", e)
-            try {
-                // 删除可能损坏的文件
-                val prefsDir = java.io.File(appContext.applicationInfo.dataDir, "shared_prefs")
-                prefsDir.listFiles()?.filter { it.name.startsWith("xjtu_credentials") }?.forEach { it.delete() }
-                EncryptedSharedPreferences.create(
-                    "xjtu_credentials",
-                    MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC),
-                    appContext,
-                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-                )
-            } catch (_: Exception) {
-                // 最终兆底：仅内存 SharedPreferences，不写磁盘，避免明文存储密码
-                android.util.Log.e("CredentialStore", "Recovery failed, using in-memory prefs (credentials will not persist)")
-                InMemorySharedPreferences()
-            }
-        }
-    }
+    private val prefs: SharedPreferences by lazy { SecurePrefs.open(appContext, "xjtu_credentials") }
 
     fun save(username: String, password: String) {
         prefs.edit()
@@ -312,39 +281,4 @@ class CredentialStore(context: Context) {
         const val CHANNEL_GITEE = AppUpdater.CHANNEL_GITEE
         const val CHANNEL_GITHUB = AppUpdater.CHANNEL_GITHUB
     }
-}
-
-/**
- * 仅内存的 SharedPreferences 实现（不写磁盘，用作加密存储彻底失败时的兜底）
- * 凭据仅在当前进程生命周期内有效，重启后需重新登录
- */
-private class InMemorySharedPreferences : SharedPreferences {
-    private val map = mutableMapOf<String, Any?>()
-
-    override fun getAll(): MutableMap<String, *> = map.toMutableMap()
-    override fun getString(key: String?, defValue: String?): String? = map[key] as? String ?: defValue
-    override fun getLong(key: String?, defValue: Long): Long = map[key] as? Long ?: defValue
-    override fun getStringSet(key: String?, defValues: MutableSet<String>?): MutableSet<String>? = defValues
-    override fun getInt(key: String?, defValue: Int): Int = map[key] as? Int ?: defValue
-    override fun getBoolean(key: String?, defValue: Boolean): Boolean = map[key] as? Boolean ?: defValue
-    override fun getFloat(key: String?, defValue: Float): Float = map[key] as? Float ?: defValue
-    override fun contains(key: String?): Boolean = map.containsKey(key)
-
-    override fun edit(): SharedPreferences.Editor = object : SharedPreferences.Editor {
-        private val pending = mutableMapOf<String, Any?>()
-        private var clear = false
-        override fun putString(key: String?, value: String?) = apply { if (key != null) pending[key] = value }
-        override fun putLong(key: String?, value: Long) = apply { if (key != null) pending[key] = value }
-        override fun putStringSet(key: String?, value: MutableSet<String>?) = this
-        override fun putInt(key: String?, value: Int) = apply { if (key != null) pending[key] = value }
-        override fun putBoolean(key: String?, value: Boolean) = apply { if (key != null) pending[key] = value }
-        override fun putFloat(key: String?, value: Float) = apply { if (key != null) pending[key] = value }
-        override fun remove(key: String?) = apply { pending.remove(key) }
-        override fun clear() = apply { clear = true }
-        override fun commit(): Boolean { if (clear) map.clear(); map.putAll(pending); return true }
-        override fun apply() { commit() }
-    }
-
-    override fun registerOnSharedPreferenceChangeListener(l: SharedPreferences.OnSharedPreferenceChangeListener?) {}
-    override fun unregisterOnSharedPreferenceChangeListener(l: SharedPreferences.OnSharedPreferenceChangeListener?) {}
 }

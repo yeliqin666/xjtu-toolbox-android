@@ -95,6 +95,15 @@ jobs:
             app/build/outputs/apk/release/app-release.apk
             wear/build/outputs/apk/release/wear-release.apk
 
+      # 崩溃上报回来的堆栈是 R8 混淆过的，要靠这份 mapping 用 retrace 还原。
+      # 同一个 versionName 可能重新发包（mapping 随之变），所以按 run id 区分。
+      - name: Upload R8 mapping
+        uses: actions/upload-artifact@v4
+        with:
+          name: mapping-${{ steps.version.outputs.version }}-run${{ github.run_id }}
+          path: app/build/outputs/mapping/release/mapping.txt
+          retention-days: 90
+
       - name: Delete existing tag (if any)
         run: |
           git tag -d ${{ steps.version.outputs.tag }} 2>/dev/null || true

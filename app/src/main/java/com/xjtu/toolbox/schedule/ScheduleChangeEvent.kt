@@ -28,6 +28,18 @@ data class ScheduleChangeEvent(
 ) {
     enum class Kind { MOVED, CANCELLED, ADDED }
 
+    /** 落盘反序列化兜底，原理见 [CourseItem.sanitized]。kind 缺失的条目无法描述，返回 null。 */
+    fun sanitized(): ScheduleChangeEvent? {
+        val k = (kind as Kind?) ?: return null
+        return copy(
+            courseName = (courseName as String?) ?: "",
+            courseCode = (courseCode as String?) ?: "",
+            kind = k,
+            toLocation = (toLocation as String?) ?: "",
+            reason = (reason as String?) ?: "",
+        )
+    }
+
     /** 一句话人话描述，不含课程名（调用方按需拼在课程名后面）。 */
     fun describe(): String {
         fun slot(day: Int, start: Int, end: Int): String? =
