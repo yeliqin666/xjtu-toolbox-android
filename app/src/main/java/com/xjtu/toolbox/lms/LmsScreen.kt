@@ -733,7 +733,8 @@ private fun ActivityDetailPage(
             isLoading = true
             errorMsg = null
             try {
-                cache.details[activity.id] = withContext(Dispatchers.IO) { api.getActivityDetail(activity.id) }
+                // 详情接口不返回 deadline，得把列表里那条一起传进去（见 LmsApi.mergeBrief）
+                cache.details[activity.id] = withContext(Dispatchers.IO) { api.getActivityDetail(activity.id, activity) }
             } catch (e: AuthExpiredException) {
                 appLoginState.handleAuthExpired(LoginType.LMS, Routes.LMS, onBack)
             } catch (e: Exception) {
@@ -1015,16 +1016,15 @@ private fun ActivityInfoCard(activity: LmsActivity) {
             Spacer(Modifier.height(8.dp))
             Text(activity.title, fontSize = 18.sp, fontWeight = FontWeight.Bold)
 
-            if (activity.startTime != null || activity.endTime != null) {
+            val timeLine = lmsActivityTimeLine(activity)
+            if (timeLine.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Schedule, null, Modifier.size(14.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     Spacer(Modifier.width(4.dp))
                     Text(
-                        buildString {
-                            activity.startTime?.let { append(formatLmsTime(it)) }
-                            activity.endTime?.let { append(" ~ "); append(formatLmsTime(it)) }
-                        },
+                        timeLine,
+                        modifier = Modifier.weight(1f),
                         fontSize = 13.sp,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                     )
@@ -1643,6 +1643,34 @@ private fun fileTypeIcon(type: String): ImageVector = when {
     type.contains("audio", true) -> Icons.Default.AudioFile
     type.contains("zip", true) || type.contains("rar", true) -> Icons.Default.FolderZip
     else -> Icons.Default.InsertDriveFile
+}
+
+/**
+ * 活动时间行（详情页信息卡）。
+ *
+ * 作业：`开始/可见 <begin> ~ 截止 <deadline>`
+ * - 「可见」（`visible_start_at`）与「开始作答」（`start_time`）不是一回事，实测 65 份作业里
+ *   32 份只有一个字段有值，所以缺哪个就用另一个顶上，别渲染成空的
+ * - 「截止」取真 `deadline`（列表级字段，见 [com.xjtu.toolbox.lms.mergeBrief]）：`end_time` 是
+ *   学堂关门时间，实测 4.6% 与 deadline 不同。下面 HomeworkMetaCard 也显示 deadline，
+ *   两处取同一个值，才不会同屏出现两个不一样的「截止」
+ *
+ * 其余类型：只给 `start_time ~ end_time`，不加标签——课堂/直播的 endTime 是下课时间，
+ * 叫「截止」是错的。
+ */
+internal fun lmsActivityTimeLine(activity: LmsActivity): String {
+    val isHomework = activity.type == LmsActivityType.HOMEWORK
+    val begin = activity.startTime ?: activity.visibleStartAt
+    val beginLabel = if (!isHomework) "" else if (activity.startTime == null) "可见 " else "开始 "
+    val endLabel = if (isHomework) "截止 " else ""
+    val end = if (isHomework) (activity.deadline ?: activity.endTime) else activity.endTime
+    return buildString {
+        begin?.let { append(beginLabel).append(formatLmsTime(it)) }
+        end?.let {
+            if (isNotEmpty()) append(" ~ ")
+            append(endLabel).append(formatLmsTime(it))
+        }
+    }
 }
 
 /**

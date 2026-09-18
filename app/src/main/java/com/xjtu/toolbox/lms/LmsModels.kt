@@ -148,6 +148,8 @@ data class LmsActivity(
     val title: String = "",
     val moduleId: Int? = null,
     val startTime: String? = null,
+    /** 可见起始（UTC）。与 [startTime]「能开始作答」不是一回事：实测两条作业里各只有一个字段有值 */
+    val visibleStartAt: String? = null,
     val endTime: String? = null,
     val published: Boolean = false,
     val createdAt: String = "",
@@ -165,7 +167,13 @@ data class LmsActivity(
     val highestScore: Double? = null,
     val lowestScore: Double? = null,
     val hasScoreCount: Int? = null,
-    /** 截止时间（UTC）。上游 deadline，与 endTime 多数一致但以此为准 */
+    /**
+     * 截止时间（UTC）。上游 `deadline`，与 [endTime] 多数一致但**以此为准**：实测 65 份作业里
+     * 3 份不同，方向都是 endTime 更早（最多差 20 天）。
+     *
+     * 注意：**只有列表接口返回该字段**（详情 79 个键里没有），所以详情页显示的是调用方
+     * 从列表合并进来的值（见 [LmsApi.mergeBrief]），合并不到时才退回 [endTime]。
+     */
     val deadline: String? = null,
     /** 允许提交次数；[nonSubmitTimes] 为 true 表示不限次 */
     val submitTimes: Int? = null,
