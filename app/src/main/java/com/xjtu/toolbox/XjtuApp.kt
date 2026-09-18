@@ -25,10 +25,20 @@ import kotlinx.coroutines.launch
 class XjtuApp : Application() {
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    /**
+     * 已下线功能留在本机的数据。功能删了，数据留着既无用处也不该留（交晓智会话里是
+     * 用户和学校 AI 的对话原文），每次启动顺手清掉，目录不存在时只是一次 listFiles。
+     */
+    private fun removeRetiredFeatureData() {
+        filesDir.listFiles { f -> f.isDirectory && f.name.startsWith("jiaoxiaozhi_sessions") }
+            ?.forEach { dir -> runCatching { dir.deleteRecursively() } }
+    }
+
     override fun onCreate() {
         super.onCreate()
         CrashReporter.install(this)
         appScope.launch { CrashReporter.uploadPending(this@XjtuApp) }
+        appScope.launch { removeRetiredFeatureData() }
         // 先于一切读缓存的代码（含下面的后台调度），见方法注释
         com.xjtu.toolbox.util.DataCache.clearIfPackageChanged(this)
         AppNotificationChannels.ensureChannels(this)

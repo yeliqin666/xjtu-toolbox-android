@@ -81,10 +81,7 @@ object AccountMigration {
             // 3) Agent 会话目录迁移
             migrateDir(File(appContext.filesDir, "agent_sessions"), File(appContext.filesDir, "agent_sessions$suffix"))
 
-            // 4) 交晓智会话目录迁移
-            migrateDir(File(appContext.filesDir, "jiaoxiaozhi_sessions"), File(appContext.filesDir, "jiaoxiaozhi_sessions$suffix"))
-
-            // 5) Room custom_courses.accountId 回填（关键：失败则旧自定义课程将永远查不到）
+            // 4) Room custom_courses.accountId 回填（关键：失败则旧自定义课程将永远查不到）
             try {
                 AppDatabase.getInstance(appContext).openHelper.writableDatabase
                     .execSQL("UPDATE custom_courses SET accountId = ? WHERE accountId = ''", arrayOf(accountId))

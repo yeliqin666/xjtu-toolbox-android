@@ -77,11 +77,19 @@ class DataCache(
             }.getOrDefault(0L)
             val stamp = "${com.xjtu.toolbox.BuildConfig.VERSION_CODE}@$installedAt"
             if (prefs.getString(KEY_INSTALL_STAMP, null) == stamp) return
-            app.cacheDir.listFiles { f -> f.isDirectory && f.name.startsWith("data_cache") }
-                ?.forEach { dir ->
-                    runCatching { dir.deleteRecursively() }
-                        .onFailure { Log.w(TAG, "clear ${dir.name} failed", it) }
-                }
+            // listFiles 返回 null 表示 cacheDir 本身读不了（I/O 错误），不能当"没有目录"处理
+            val dirs = app.cacheDir.listFiles { f -> f.isDirectory && f.name.startsWith("data_cache") }
+            // deleteRecursively 失败只返回 false、不一定抛异常，必须看返回值
+            val allCleared = dirs != null && dirs.all { dir ->
+                runCatching { dir.deleteRecursively() }
+                    .onFailure { Log.w(TAG, "clear ${dir.name} failed", it) }
+                    .getOrDefault(false)
+            }
+            if (!allCleared) {
+                // 不写标记：旧格式缓存还在，下次启动再清一次，而不是就此放过
+                Log.w(TAG, "package changed -> $stamp, data_cache NOT fully cleared, will retry next launch")
+                return
+            }
             Log.i(TAG, "package changed -> $stamp, data_cache cleared")
             prefs.edit().putString(KEY_INSTALL_STAMP, stamp).apply()
         }

@@ -48,6 +48,17 @@ data class ScoreItem(
     val courseCode: String? = null,
     val courseGroup: CourseGroup? = null,
 ) {
+    /** 磁盘缓存反序列化兜底，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。 */
+    fun sanitized(): ScoreItem = copy(
+        id = (id as String?) ?: "",
+        termCode = (termCode as String?) ?: "",
+        courseName = (courseName as String?) ?: "",
+        score = (score as String?) ?: "",
+        examType = (examType as String?) ?: "",
+        examProp = (examProp as String?) ?: "",
+        source = (source as ScoreSource?) ?: ScoreSource.JWAPP,
+    )
+
     fun asEmptyDetail(): ScoreDetail = ScoreDetail(
         courseName = courseName,
         coursePoint = coursePoint,
@@ -92,7 +103,14 @@ data class TermScore(
     val termCode: String,
     val termName: String,
     val scoreList: List<ScoreItem>
-)
+) {
+    /** 磁盘缓存反序列化兜底，连同每门课一起处理，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。 */
+    fun sanitized(): TermScore = copy(
+        termCode = (termCode as String?) ?: "",
+        termName = (termName as String?) ?: "",
+        scoreList = (scoreList as List<ScoreItem?>?)?.mapNotNull { it?.sanitized() } ?: emptyList(),
+    )
+}
 
 data class ScoreRank(
     val defeatPercent: Double?,

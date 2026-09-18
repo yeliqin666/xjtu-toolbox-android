@@ -84,10 +84,6 @@
 -keep class com.xjtu.toolbox.agent.ZyxfWidget { *; }
 -keepclassmembers class com.xjtu.toolbox.agent.AgentToolRegistry$YwtbIdentity { <fields>; }
 
--keepclassmembers class com.xjtu.toolbox.jiaoxiaozhi.JiaoxiaozhiSession { <fields>; }
--keepclassmembers class com.xjtu.toolbox.jiaoxiaozhi.JiaoxiaozhiConversation { <fields>; }
--keepclassmembers class com.xjtu.toolbox.jiaoxiaozhi.JiaoxiaozhiMessage { <fields>; }
-
 -keepclassmembers class com.xjtu.toolbox.card.CampusCardSnapshot { <fields>; }
 -keepclassmembers class com.xjtu.toolbox.card.CardInfo { <fields>; }
 -keepclassmembers class com.xjtu.toolbox.card.Transaction { <fields>; }
