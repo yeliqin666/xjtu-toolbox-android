@@ -1567,6 +1567,10 @@ private fun LmsActivityType.displayName(): String = when (this) {
     LmsActivityType.MATERIAL -> "资料"
     LmsActivityType.LESSON -> "课堂"
     LmsActivityType.LECTURE_LIVE -> "直播"
+    LmsActivityType.PAGE -> "页面"
+    LmsActivityType.FORUM -> "讨论区"
+    LmsActivityType.QUESTIONNAIRE -> "问卷"
+    LmsActivityType.ONLINE_VIDEO -> "在线视频"
     LmsActivityType.UNKNOWN -> "其他"
 }
 
@@ -1575,6 +1579,10 @@ private fun activityTypeVisual(type: LmsActivityType): Pair<ImageVector, Color> 
     LmsActivityType.MATERIAL -> Icons.Default.Description to Color(0xFF1565C0)
     LmsActivityType.LESSON -> Icons.Default.OndemandVideo to Color(0xFF512DA8)
     LmsActivityType.LECTURE_LIVE -> Icons.Default.LiveTv to Color(0xFFC62828)
+    LmsActivityType.PAGE -> Icons.Default.Article to Color(0xFF00796B)
+    LmsActivityType.FORUM -> Icons.Default.Forum to Color(0xFF6D4C41)
+    LmsActivityType.QUESTIONNAIRE -> Icons.Default.Quiz to Color(0xFFAD1457)
+    LmsActivityType.ONLINE_VIDEO -> Icons.Default.PlayCircle to Color(0xFF00838F)
     LmsActivityType.UNKNOWN -> Icons.Default.HelpOutline to Color(0xFF757575)
 }
 

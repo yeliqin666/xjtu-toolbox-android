@@ -109,6 +109,14 @@ enum class LmsActivityType(val value: String) {
     MATERIAL("material"),
     LESSON("lesson"),
     LECTURE_LIVE("lecture_live"),
+    /** 页面型内容：课程简介、教学进度、课程考核构成、平时成绩细则 */
+    PAGE("page"),
+    /** 讨论区 */
+    FORUM("forum"),
+    /** 问卷 */
+    QUESTIONNAIRE("questionnaire"),
+    /** 在线视频 */
+    ONLINE_VIDEO("online_video"),
     UNKNOWN("unknown");
 
     companion object {
