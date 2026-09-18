@@ -45,30 +45,38 @@ class DataCache(context: Context) {
         const val TERM_TTL_MS = 90L * 24 * 60 * 60 * 1000L
 
         private const val META_PREFS = "data_cache_meta"
-        private const val KEY_VERSION_CODE = "version_code"
+        private const val KEY_INSTALL_STAMP = "install_stamp"
 
         /**
-         * versionCode 变了就把全部账号的 `data_cache*` 目录清空，必须在任何读缓存之前调用
-         * （[com.xjtu.toolbox.XjtuApp.onCreate]）。
+         * 安装包变了（升级、同版本号重新发包后覆盖安装）就把全部账号的 `data_cache*` 目录清空，
+         * 必须在任何读缓存之前调用（[com.xjtu.toolbox.XjtuApp.onCreate]）。
          *
-         * 缓存里的模型类没在 proguard 里 keep，字段名由 R8 每次构建各自决定。换了版本
+         * 缓存里的模型类没在 proguard 里 keep，字段名由 R8 每次构建各自决定。换了安装包
          * 还按新名字去读老文件，Gson 会把对不上的非空字段悄悄置成 null，4.9.4 就这样崩过
          * 一轮（#51）。`sanitized()` 只能逐个类补，漏一个就又是 NPE；缓存本来就能重新拉，
-         * 换版本时整体丢掉最省心。只动 cacheDir 里的 DataCache，SharedPreferences 与
-         * filesDir 里的持久状态（账号、会话、考勤、校园卡）已 keep，不受影响。
+         * 换包时整体丢掉最省心。
+         *
+         * 判据用 versionCode + lastUpdateTime 而不是只看 versionCode：同一个版本号重新打包
+         * 发布（4.9.4、4.9.5 都发生过）时 mapping 也可能变，只有安装时间能区分。
+         *
+         * 只动 cacheDir 里的 DataCache，SharedPreferences 与 filesDir 里的持久状态
+         * （账号、会话、考勤、校园卡、课表变更快照）已 keep，不受影响。
          */
-        fun clearIfVersionChanged(context: Context) {
+        fun clearIfPackageChanged(context: Context) {
             val app = context.applicationContext
             val prefs = app.getSharedPreferences(META_PREFS, Context.MODE_PRIVATE)
-            val current = com.xjtu.toolbox.BuildConfig.VERSION_CODE
-            if (prefs.getInt(KEY_VERSION_CODE, -1) == current) return
+            val installedAt = runCatching {
+                app.packageManager.getPackageInfo(app.packageName, 0).lastUpdateTime
+            }.getOrDefault(0L)
+            val stamp = "${com.xjtu.toolbox.BuildConfig.VERSION_CODE}@$installedAt"
+            if (prefs.getString(KEY_INSTALL_STAMP, null) == stamp) return
             app.cacheDir.listFiles { f -> f.isDirectory && f.name.startsWith("data_cache") }
                 ?.forEach { dir ->
                     runCatching { dir.deleteRecursively() }
                         .onFailure { Log.w(TAG, "clear ${dir.name} failed", it) }
                 }
-            Log.i(TAG, "versionCode -> $current, data_cache cleared")
-            prefs.edit().putInt(KEY_VERSION_CODE, current).apply()
+            Log.i(TAG, "package changed -> $stamp, data_cache cleared")
+            prefs.edit().putString(KEY_INSTALL_STAMP, stamp).apply()
         }
     }
 

@@ -19,7 +19,7 @@ class XjtuApp : Application() {
     override fun onCreate() {
         super.onCreate()
         // 先于一切读缓存的代码（含下面的后台调度），见方法注释
-        com.xjtu.toolbox.util.DataCache.clearIfVersionChanged(this)
+        com.xjtu.toolbox.util.DataCache.clearIfPackageChanged(this)
         AppNotificationChannels.ensureChannels(this)
         ErrorReporting.install(FileErrorReporter(this))
         com.xjtu.toolbox.notification.NoticeWatchScheduler.apply(this)
