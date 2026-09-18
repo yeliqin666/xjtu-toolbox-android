@@ -7,6 +7,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
@@ -33,6 +34,9 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 @Composable
 fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier, onLink: (String) -> Unit = {}) {
     val blocks = remember(text) { parseBlocks(text) }
+    // 链接回调做成稳定引用，否则每次重组 onLink 是新 lambda，下面按块缓存的 AnnotatedString 全部失效
+    val currentOnLink = rememberUpdatedState(onLink)
+    val linkHandler = remember { { url: String -> currentOnLink.value(url) } }
     val linkColor = MiuixTheme.colorScheme.primary
     val errorColor = MiuixTheme.colorScheme.error
     val codeBg = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f)
@@ -42,7 +46,7 @@ fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier, onLi
         blocks.forEach { block ->
             when (block) {
                 is MdBlock.Heading -> Text(
-                    inline(block.text, linkColor, codeBg, errorColor, onLink),
+                    rememberInline(block.text, linkColor, codeBg, errorColor, linkHandler),
                     color = color,
                     fontWeight = FontWeight.Bold,
                     style = when (block.level) {
@@ -53,12 +57,12 @@ fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier, onLi
                     }
                 )
                 is MdBlock.Bullet -> ListRow(block.indent, "•") {
-                    Text(inline(block.text, linkColor, codeBg, errorColor, onLink), color = color,
+                    Text(rememberInline(block.text, linkColor, codeBg, errorColor, linkHandler), color = color,
                         style = MiuixTheme.textStyles.body1, modifier = Modifier.weight(1f))
                 }
                 is MdBlock.Task -> ListRow(block.indent, if (block.checked) "☑" else "☐") {
                     Text(
-                        inline(block.text, linkColor, codeBg, errorColor, onLink),
+                        rememberInline(block.text, linkColor, codeBg, errorColor, linkHandler),
                         color = if (block.checked) MiuixTheme.colorScheme.onSurfaceVariantSummary else color,
                         style = MiuixTheme.textStyles.body1,
                         textDecoration = if (block.checked) TextDecoration.LineThrough else null,
@@ -66,14 +70,14 @@ fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier, onLi
                     )
                 }
                 is MdBlock.Numbered -> ListRow(block.indent, "${block.num}.") {
-                    Text(inline(block.text, linkColor, codeBg, errorColor, onLink), color = color,
+                    Text(rememberInline(block.text, linkColor, codeBg, errorColor, linkHandler), color = color,
                         style = MiuixTheme.textStyles.body1, modifier = Modifier.weight(1f))
                 }
                 is MdBlock.Quote -> Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
                     Box(Modifier.width(3.dp).fillMaxHeight()
                         .background(quoteColor.copy(alpha = 0.5f), RoundedCornerShape(2.dp)))
                     Spacer(Modifier.width(8.dp))
-                    Text(inline(block.text, linkColor, codeBg, errorColor, onLink), color = quoteColor,
+                    Text(rememberInline(block.text, linkColor, codeBg, errorColor, linkHandler), color = quoteColor,
                         style = MiuixTheme.textStyles.body2)
                 }
                 is MdBlock.Code -> Box(
@@ -97,7 +101,7 @@ fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier, onLi
                     val cols = block.headers.size.coerceAtLeast(1)
                     Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 5.dp)) {
                         block.headers.forEach { h ->
-                            Text(inline(h, linkColor, codeBg, errorColor, onLink), color = color, fontWeight = FontWeight.Bold,
+                            Text(rememberInline(h, linkColor, codeBg, errorColor, linkHandler), color = color, fontWeight = FontWeight.Bold,
                                 style = MiuixTheme.textStyles.footnote1,
                                 modifier = Modifier.weight(1f).padding(horizontal = 4.dp))
                         }
@@ -106,14 +110,14 @@ fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier, onLi
                     block.rows.forEach { row ->
                         Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp)) {
                             for (ci in 0 until cols) {
-                                Text(inline(row.getOrElse(ci) { "" }, linkColor, codeBg, errorColor, onLink), color = color,
+                                Text(rememberInline(row.getOrElse(ci) { "" }, linkColor, codeBg, errorColor, linkHandler), color = color,
                                     style = MiuixTheme.textStyles.footnote1,
                                     modifier = Modifier.weight(1f).padding(horizontal = 4.dp))
                             }
                         }
                     }
                 }
-                is MdBlock.Para -> Text(inline(block.text, linkColor, codeBg, errorColor, onLink), color = color,
+                is MdBlock.Para -> Text(rememberInline(block.text, linkColor, codeBg, errorColor, linkHandler), color = color,
                     style = MiuixTheme.textStyles.body1)
             }
         }
@@ -141,8 +145,10 @@ private sealed interface MdBlock {
     data class Para(val text: String) : MdBlock
 }
 
+private val tableSepCharsRe = Regex("""[\s|:-]""")
+
 private fun isTableSep(line: String): Boolean =
-    line.contains("-") && line.replace(Regex("""[\s|:-]"""), "").isEmpty()
+    line.contains("-") && line.replace(tableSepCharsRe, "").isEmpty()
 
 private fun splitCells(line: String): List<String> =
     line.trim().trim('|').split("|").map { it.trim() }
@@ -236,6 +242,21 @@ private fun isSafeLinkScheme(url: String): Boolean {
         "http", "https", "mailto", "tel" -> true
         else -> false
     }
+}
+
+/**
+ * 行内样式按文本缓存。流式输出时每次只有最后一两个块在变，前面已经定型的块
+ * 直接复用上次构建的 AnnotatedString，不再每次重组都整段重跑行内正则。
+ */
+@Composable
+private fun rememberInline(
+    s: String,
+    linkColor: Color,
+    codeBg: Color,
+    errorColor: Color,
+    onLink: (String) -> Unit,
+): AnnotatedString = remember(s, linkColor, codeBg, errorColor, onLink) {
+    inline(s, linkColor, codeBg, errorColor, onLink)
 }
 
 private fun inline(s: String, linkColor: Color, codeBg: Color, errorColor: Color, onLink: (String) -> Unit): AnnotatedString = buildAnnotatedString {

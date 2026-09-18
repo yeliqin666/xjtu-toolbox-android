@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.faculty
 
 import android.util.Log
+import com.xjtu.toolbox.util.HttpClients
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -30,17 +31,22 @@ import java.util.concurrent.TimeUnit
  * 4. 约 1% 的老师主页不可用，一律走 [HomepageResult] 降级，不抛异常。
  */
 class FacultyApi(
-    private val client: OkHttpClient = OkHttpClient.Builder()
-        .addInterceptor(BrotliInterceptor)
-        .followRedirects(true)
-        .followSslRedirects(true)
-        .connectTimeout(8, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .build()
+    private val client: OkHttpClient = defaultClient
 ) {
 
     companion object {
         private const val TAG = "FacultyApi"
+
+        /** 全进程一份，见 [HttpClients]。Agent 每次调工具都会 new 一个 FacultyApi。 */
+        private val defaultClient: OkHttpClient by lazy {
+            HttpClients.base.newBuilder()
+                .addInterceptor(BrotliInterceptor)
+                .followRedirects(true)
+                .followSslRedirects(true)
+                .connectTimeout(8, TimeUnit.SECONDS)
+                .readTimeout(20, TimeUnit.SECONDS)
+                .build()
+        }
 
         const val FACULTY_HOST = "https://faculty.xjtu.edu.cn"
         const val HOMEPAGE_HOST = "https://gr.xjtu.edu.cn"

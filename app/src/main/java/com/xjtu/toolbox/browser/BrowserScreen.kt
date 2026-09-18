@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.browser
 
+import com.xjtu.toolbox.util.releaseSafely
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -388,6 +389,10 @@ fun BrowserScreen(
                         loadUrl(normalizedInitialUrl)
                     }
                 }
+            },
+            onRelease = { view ->
+                if (webViewRef === view) webViewRef = null
+                view.releaseSafely()
             },
             modifier = Modifier
                 .fillMaxSize()

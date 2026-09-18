@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.xjtu.toolbox.util.releaseSafely
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -270,10 +271,9 @@ private fun WebOfficeView(
                     }
                 }
 
-                addJavascriptInterface(
-                    Bridge(fileId, this, onReady, onError),
-                    "ZyxfBridge",
-                )
+                val bridge = Bridge(fileId, this, onReady, onError)
+                tag = bridge
+                addJavascriptInterface(bridge, BRIDGE_NAME)
 
                 loadDataWithBaseURL(
                     "https://zyxf.top/",
@@ -284,8 +284,14 @@ private fun WebOfficeView(
                 )
             }
         },
+        onRelease = { view ->
+            (view.tag as? Bridge)?.released = true
+            view.releaseSafely(listOf(BRIDGE_NAME))
+        },
     )
 }
+
+private const val BRIDGE_NAME = "ZyxfBridge"
 
 /**
  * 壳页与原生之间的通道。
@@ -299,14 +305,20 @@ private class Bridge(
     private val onReady: () -> Unit,
     private val onError: (String) -> Unit,
 ) {
+    /** WebView 已释放。JS 线程上晚到的回调不再碰已离开组合的 Compose 状态，也不再联网续期。 */
+    @Volatile
+    var released = false
+
     @JavascriptInterface
     fun ready() {
-        webView.post { onReady() }
+        if (released) return
+        webView.post { if (!released) onReady() }
     }
 
     @JavascriptInterface
     fun failed(message: String) {
-        webView.post { onError(message.ifBlank { "预览加载失败" }) }
+        if (released) return
+        webView.post { if (!released) onError(message.ifBlank { "预览加载失败" }) }
     }
 
     /**
@@ -315,6 +327,7 @@ private class Bridge(
      */
     @JavascriptInterface
     fun refresh(accessToken: String, refreshToken: String): String {
+        if (released) return "{}"
         val next = runBlocking(Dispatchers.IO) {
             ZyxfApi.webofficeRefresh(fileId, accessToken, refreshToken)
         } ?: return "{}"
