@@ -20,6 +20,8 @@ import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
+import top.yukonga.miuix.kmp.window.WindowDialog
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.overlay.OverlayListPopup
 import top.yukonga.miuix.kmp.basic.ListPopupColumn
 import top.yukonga.miuix.kmp.basic.DropdownImpl
@@ -815,27 +817,84 @@ fun ScheduleScreen(
     }
 
     // 自定义课程操作
+    //
+    // 冲突不再自动删旧的：以前只比星期和节次、不比周次，第 4 周和第 8 周同一时段的实验
+    // 会被判成冲突，旧的被静默删掉且无法恢复。现在只有周次、星期、时间都重叠才算冲突，
+    // 而且交给用户选：替换 / 都保留 / 取消。
+    var pendingSave by remember { mutableStateOf<Pair<CustomCourseEntity, List<CustomCourseEntity>>?>(null) }
+
+    fun commitCustomCourse(entity: CustomCourseEntity, replacing: List<CustomCourseEntity>) {
+        scope.launch {
+            val accountId = entity.accountId
+            replacing.forEach { customCourseDao.delete(it) }
+            if (entity.id == 0L) {
+                customCourseDao.insert(entity)
+                addScheduleDraft = CustomCourseDraft()
+            } else {
+                customCourseDao.update(entity)
+            }
+            customCourses = customCourseDao.getByTerm(accountId, selectedTermCode)
+            ScheduleWidgetUpdater.requestUpdate(context)
+            val verb = if (entity.id == 0L) "已添加日程" else "已更新日程"
+            val msg = if (replacing.isEmpty()) verb
+                else "$verb，并替换了「${replacing.joinToString("、") { it.courseName }}」"
+            snackbarHostState.showSnackbar(msg, duration = SnackbarDuration.Short)
+        }
+    }
+
     fun saveCustomCourse(entity: CustomCourseEntity) {
         scope.launch {
             val accountId = AccountContext.activeAccountId ?: ""
             val withAccount = if (entity.accountId.isBlank()) entity.copy(accountId = accountId) else entity
-            // ★ 修改前排查冲突排查
-            val conflicts = customCourseDao.getConflicts(accountId, withAccount.termCode, withAccount.dayOfWeek, withAccount.startSection, withAccount.endSection)
-            val realConflicts = conflicts.filter { it.id != withAccount.id } // 排除自己自身
-            if (realConflicts.isNotEmpty()) {
-                val conflictNames = realConflicts.joinToString("、") { it.courseName }
-                // 为了简单展示，我们这里直接先将碰撞的旧课程删除
-                android.util.Log.d("ScheduleUI", "Deleting conflicts: $conflictNames")
-                realConflicts.forEach {
-                    customCourseDao.delete(it)
-                }
-                snackbarHostState.showSnackbar("已自动清除时间冲突的课程($conflictNames)", duration = SnackbarDuration.Short)
+            // DAO 只按星期和节次粗筛，周次与分钟级时间在这里精判。
+            val conflicts = customCourseDao
+                .getConflicts(accountId, withAccount.termCode, withAccount.dayOfWeek, withAccount.startSection, withAccount.endSection)
+                .filter { it.id != withAccount.id && CustomCourseConflicts.conflicts(withAccount, it) }
+            if (conflicts.isEmpty()) {
+                commitCustomCourse(withAccount, emptyList())
+            } else {
+                pendingSave = withAccount to conflicts
             }
+        }
+    }
 
-            if (withAccount.id == 0L) customCourseDao.insert(withAccount) else customCourseDao.update(withAccount)
-            customCourses = customCourseDao.getByTerm(accountId, selectedTermCode)
-            ScheduleWidgetUpdater.requestUpdate(context)
-            snackbarHostState.showSnackbar(if (withAccount.id == 0L) "已添加日程" else "已更新日程", duration = SnackbarDuration.Short)
+    pendingSave?.let { (entity, conflicts) ->
+        val lines = conflicts.joinToString("\n") { other ->
+            val weeks = CustomCourseConflicts.sharedWeeks(entity.weekBits, other.weekBits)
+            "「${other.courseName}」：${CustomCourseConflicts.describeWeeks(weeks)}"
+        }
+        // Window* 自带窗口，不依赖外层 Scaffold 宿主（同 CustomCourseDialog 的删除确认）。
+        BackHandler { pendingSave = null }
+        WindowDialog(
+            show = true,
+            title = "时间冲突",
+            summary = "「${entity.courseName}」与以下日程在同一时段重叠：\n$lines",
+            onDismissRequest = { pendingSave = null },
+        ) {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(
+                    text = "都保留",
+                    onClick = {
+                        pendingSave = null
+                        commitCustomCourse(entity, emptyList())
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                )
+                TextButton(
+                    text = "替换原有日程",
+                    onClick = {
+                        pendingSave = null
+                        commitCustomCourse(entity, conflicts)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                TextButton(
+                    text = "取消",
+                    onClick = { pendingSave = null },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
     }
     fun deleteCustomCourse(entity: CustomCourseEntity) {
@@ -858,10 +917,9 @@ fun ScheduleScreen(
             totalWeeks = editableWeeks(),
             draft = addScheduleDraft,
             onAutoSave = { addScheduleDraft = it },
-            onSave = {
-                saveCustomCourse(it)
-                addScheduleDraft = CustomCourseDraft()
-            },
+            // 草稿等真正写库后再清（commitCustomCourse）：撞上冲突选「取消」时，
+            // 重新打开添加弹窗还能看到刚才填的内容。
+            onSave = { saveCustomCourse(it) },
             onDismiss = { showAddCourseDialog = false }
         )
     }
