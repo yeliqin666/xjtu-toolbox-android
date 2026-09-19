@@ -1915,7 +1915,7 @@ class AgentToolRegistry(
 
     /**
      * 活动的时间尾巴：作业报"截止"（优先上游 `deadline`，它才是老师设的那个时间，实测 4.6%
-     * 与 `end_time` 不同且方向都是提前），其余类型报"结束"（下课/回放结束，不是截止）。
+     * 与 `end_time` 不同，且都是 `end_time` 比它早），其余类型报"结束"（下课/回放结束，不是截止）。
      */
     private fun lmsTimeSuffix(a: com.xjtu.toolbox.lms.LmsActivity): String {
         val isHw = a.type == com.xjtu.toolbox.lms.LmsActivityType.HOMEWORK

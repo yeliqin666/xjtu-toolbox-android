@@ -42,9 +42,14 @@ internal fun LmsActivity.mergeBrief(brief: LmsActivity?): LmsActivity {
     val start = startTime?.takeIf { it.isNotBlank() } ?: brief?.startTime?.takeIf { it.isNotBlank() }
     val visibleStart = visibleStartAt?.takeIf { it.isNotBlank() } ?: brief?.visibleStartAt?.takeIf { it.isNotBlank() }
     val end = endTime?.takeIf { it.isNotBlank() } ?: brief?.endTime?.takeIf { it.isNotBlank() }
-    val due = deadline?.takeIf { it.isNotBlank() }
-        ?: brief?.deadline?.takeIf { it.isNotBlank() }
-        ?: end
+    // 截止时间只对作业有意义；课堂、页面的 end_time 是"结束"，别把它存成"截止"
+    val due = if (type != LmsActivityType.HOMEWORK) {
+        deadline?.takeIf { it.isNotBlank() } ?: brief?.deadline?.takeIf { it.isNotBlank() }
+    } else {
+        deadline?.takeIf { it.isNotBlank() }
+            ?: brief?.deadline?.takeIf { it.isNotBlank() }
+            ?: end
+    }
     return copy(startTime = start, visibleStartAt = visibleStart, endTime = end, deadline = due)
 }
 

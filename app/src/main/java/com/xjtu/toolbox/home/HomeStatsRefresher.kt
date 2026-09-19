@@ -328,9 +328,11 @@ object HomeStatsRefresher {
 
         // 排序时间要逐级兜底：**部分作业既没有 updated_at 也没有 created_at**
         // （用户实测遇到过），只用这两个字段的话它们会以空串排到最后，永远选不中。
-        // 作业还有截止/开始时间可用，最后才退回空串。
+        // 作业还有截止/开始时间可用，最后才退回空串。截止优先读列表里的 deadline，
+        // 与详情页、截止提醒同一口径（end_time 可能比真截止早）。
         val latest = acts.sortedByDescending { (_, a) ->
             a.updatedAt.ifBlank { a.createdAt }
+                .ifBlank { a.deadline.orEmpty() }
                 .ifBlank { a.endTime.orEmpty() }
                 .ifBlank { a.startTime.orEmpty() }
         }.take(2)

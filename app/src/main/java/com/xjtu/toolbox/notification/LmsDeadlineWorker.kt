@@ -87,7 +87,7 @@ class LmsDeadlineWorker(
 
     /**
      * 上游给的是带时区的 UTC 串。列表接口带 `deadline`，优先用它——它才是老师设的截止，
-     * 实测 4.6% 与 `endTime` 不同、方向都是提前；缺失才退回 `endTime`，认不出就当没有截止时间。
+     * 实测 4.6% 与 `endTime` 不同，且都是 `endTime` 比它早；缺失才退回 `endTime`，认不出就当没有截止时间。
      */
     private fun LmsActivity.deadlineInstant(): Instant? {
         val raw = deadline?.takeIf { it.isNotBlank() } ?: endTime?.takeIf { it.isNotBlank() } ?: return null

@@ -9,7 +9,7 @@ import org.junit.Test
  *
  * 上游 `/api/activities/{id}` 的 79 个键里**没有 `deadline`**，只有列表
  * `/api/courses/{id}/activities` 有——所以详情页的截止时间必须靠 [mergeBrief] 从列表并进来，
- * 否则只能退回 `endTime`（实测 65 份作业里 3 份与真截止不同，方向都是提前）。
+ * 否则只能退回 `endTime`（实测 65 份作业里 3 份与真截止不同，都是 `endTime` 比真截止早）。
  */
 class LmsActivityMergeBriefTest {
 
@@ -64,6 +64,14 @@ class LmsActivityMergeBriefTest {
         val merged = detail.mergeBrief(listItem.copy(deadline = "  ", visibleStartAt = ""))
         assertEquals("2026-06-10T15:59:00Z", merged.deadline)
         assertNull(merged.visibleStartAt)
+    }
+
+    @Test
+    fun merge_nonHomework_doesNotTurnEndTimeIntoDeadline() {
+        // 课堂的 end_time 是下课/回放结束，不是截止
+        val lesson = detail.copy(type = LmsActivityType.LESSON)
+        assertNull(lesson.mergeBrief(null).deadline)
+        assertEquals("2026-06-10T15:59:00Z", lesson.mergeBrief(null).endTime)
     }
 
     @Test

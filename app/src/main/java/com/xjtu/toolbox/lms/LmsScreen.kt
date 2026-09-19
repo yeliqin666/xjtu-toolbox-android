@@ -23,6 +23,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
@@ -1579,7 +1580,7 @@ private fun activityTypeVisual(type: LmsActivityType): Pair<ImageVector, Color> 
     LmsActivityType.MATERIAL -> Icons.Default.Description to Color(0xFF1565C0)
     LmsActivityType.LESSON -> Icons.Default.OndemandVideo to Color(0xFF512DA8)
     LmsActivityType.LECTURE_LIVE -> Icons.Default.LiveTv to Color(0xFFC62828)
-    LmsActivityType.PAGE -> Icons.Default.Article to Color(0xFF00796B)
+    LmsActivityType.PAGE -> Icons.AutoMirrored.Filled.Article to Color(0xFF00796B)
     LmsActivityType.FORUM -> Icons.Default.Forum to Color(0xFF6D4C41)
     LmsActivityType.QUESTIONNAIRE -> Icons.Default.Quiz to Color(0xFFAD1457)
     LmsActivityType.ONLINE_VIDEO -> Icons.Default.PlayCircle to Color(0xFF00838F)
