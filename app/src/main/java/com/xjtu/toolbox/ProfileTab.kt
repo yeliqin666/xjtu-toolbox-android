@@ -230,6 +230,17 @@ internal fun ProfileTab(
     var helloAvatar by remember {
         mutableStateOf(com.xjtu.toolbox.hello.HelloProfileStore.cachedAvatar(ctx))
     }
+
+    /**
+     * 学工档案拿到的姓名同时记成账号昵称。档案缓存在 cacheDir，会被系统清理、升级清缓存
+     * 抹掉；昵称以前只从一网通办来，而一网通办经常登不上，两头都落空时"我的"页就只剩学号。
+     */
+    fun rememberRealName(name: String?) {
+        if (name.isNullOrBlank() || name == loginState.cachedNickname) return
+        loginState.cachedNickname = name
+        credentialStore.saveNickname(name)
+        loginState.accountId.takeIf { it.isNotEmpty() }?.let { accountManager.updateNickname(it, name) }
+    }
     // ── 自定义头像 ──
     // 默认仍是学工证件照，用户点头像可换成自己的图；换完只刷新这一处 state，不动档案缓存。
     var showAvatarSheet by remember { mutableStateOf(false) }
@@ -262,6 +273,7 @@ internal fun ProfileTab(
             ?.let {
                 helloProfile = it
                 helloAvatar = com.xjtu.toolbox.hello.HelloProfileStore.cachedAvatar(ctx)
+                rememberRealName(it.name)
             }
     }
 
@@ -326,6 +338,7 @@ internal fun ProfileTab(
                     helloProfile = com.xjtu.toolbox.hello.HelloProfileStore
                         .ensure(ctx, loginState.sessionManager, force = true)
                     helloAvatar = com.xjtu.toolbox.hello.HelloProfileStore.cachedAvatar(ctx)
+                    rememberRealName(helloProfile?.name)
                 } catch (_: Exception) { }
             }
         }
