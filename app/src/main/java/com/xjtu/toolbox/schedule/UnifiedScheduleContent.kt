@@ -261,7 +261,9 @@ fun SemesterCourseList(
             .values
             .map { group ->
                 SemesterRow(
-                    course = group.first(),
+                    // 临时换教室会让同一门课多出只上一两周的几条；代表行取上课周数最多的那条，
+                    // 别让"第 5 周借用的教室"冒充这门课的教室。
+                    course = group.maxBy { it.getWeeks().size },
                     weeks = group.flatMap { it.getWeeks() }.distinct().sorted(),
                     // 一门课一周可能上两次（周一 1-2 节、周三 3-4 节）。只取 first()
                     // 会把另一次悄悄丢掉，整学期视图里本来就该看得到全部时段。

@@ -285,7 +285,9 @@ internal fun ProfileTab(
                 loginState.discardPreparedCredentials()
                 isLoggingIn = false
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                loginError = "登录异常: ${e.message}"
+                // 熔断已上＝CAS 明确判了密码错（包括原样重试被熔断拦下），直接说人话
+                loginError = if (loginState.passwordInvalidatedLatch) "学号或密码错误，请检查后再试"
+                else "登录异常: ${e.message}"
                 return@launch
             }
 

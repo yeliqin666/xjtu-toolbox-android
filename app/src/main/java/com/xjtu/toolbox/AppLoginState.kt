@@ -61,12 +61,17 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
         private set
     var passwordInvalidatedDialogVisible by mutableStateOf(false)
 
-    /** 子系统检测到明确凭据无效时调用。重复调用幂等。 */
+    /**
+     * 子系统检测到明确凭据无效时调用。重复调用幂等。
+     *
+     * 还没登录时（登录页输错密码）只上熔断、不弹"密码可能已变更"：登录页自己会显示错误，
+     * 那个弹窗叫人"去设置里更新密码"，对刚输错一次的人没有意义。
+     */
     fun reportPasswordInvalidated(siteName: String) {
         if (passwordInvalidatedLatch) return
         passwordInvalidatedLatch = true
         passwordInvalidatedSiteName = siteName
-        passwordInvalidatedDialogVisible = true
+        passwordInvalidatedDialogVisible = isLoggedIn
         android.util.Log.w("AppLoginState", "password invalidated by site=$siteName")
     }
 
@@ -241,6 +246,7 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
         passwordInvalidatedLatch = false
         passwordInvalidatedSiteName = ""
         passwordInvalidatedDialogVisible = false
+        rejectedCredentials = null
         com.xjtu.toolbox.pay.PaymentCodeApi.clearCachedJwt()
         campusCardCacheVersion++  // 触发首页校园卡卡片重读（切到新账号命名空间缓存）
     }
@@ -294,14 +300,24 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
     /** [prepareCredentialsForLogin] 之前会话层的凭据与账号类型，失败时由 [discardPreparedCredentials] 还原。 */
     private var credentialsBeforeAttempt: Pair<Pair<String, String>?, XJTULogin.AccountType>? = null
 
+    /** 正在尝试的那组凭据；失败且被判密码错时转存到 [rejectedCredentials]。 */
+    private var attemptedCredentials: Pair<String, String>? = null
+
+    /** 最近一次被 CAS 明确拒绝的凭据，见 [prepareCredentialsForLogin]。 */
+    private var rejectedCredentials: Pair<String, String>? = null
+
     /**
      * 把一次登录尝试的凭据交给会话层，但不把 UI 提前切成“已登录”。
      * 认证成功后由 [saveCredentials] 提交身份；失败必须调 [discardPreparedCredentials]。
      */
     fun prepareCredentialsForLogin(username: String, password: String) {
         sessionManager?.let { credentialsBeforeAttempt = it.credentials to it.accountType }
-        // 凭据变更视为用户已知晓并响应，清除密码失效熔断
-        val credentialsChanged = (username != savedUsername || password != savedPassword)
+        attemptedCredentials = username to password
+        // 凭据变更视为用户已知晓并响应，清除密码失效熔断。刚被 CAS 拒掉的那一组不算"变更"：
+        // 凭据只在登录成功后才写进 saved*，不单独比对的话，原样再点一次登录就会解开熔断，
+        // 同一个错密码可以无限次提交给 CAS。
+        val credentialsChanged = (username != savedUsername || password != savedPassword) &&
+            (username to password) != rejectedCredentials
         if (credentialsChanged && passwordInvalidatedLatch) {
             passwordInvalidatedLatch = false
             passwordInvalidatedSiteName = ""
@@ -321,6 +337,9 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
      * 首页统计都拿会话层凭据自动登录，会反复用错密码撞 CAS，招来限流甚至锁号。
      */
     fun discardPreparedCredentials() {
+        // 这次失败若是 CAS 明确判了密码错（熔断已上），记下这组凭据，原样重试时不解熔断
+        if (passwordInvalidatedLatch) rejectedCredentials = attemptedCredentials
+        attemptedCredentials = null
         val (previous, previousType) = credentialsBeforeAttempt ?: return
         credentialsBeforeAttempt = null
         val sm = sessionManager ?: return
@@ -331,6 +350,8 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
     fun saveCredentials(username: String, password: String) {
         prepareCredentialsForLogin(username, password)
         credentialsBeforeAttempt = null
+        attemptedCredentials = null
+        rejectedCredentials = null
         savedUsername = username
         savedPassword = password
         activeUsername = username
@@ -475,24 +496,8 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
         }
     }
 
-
-    /**
-     * 兼容兜底登出。多账号架构下请优先用 [com.xjtu.toolbox.account.AccountManager.logoutCurrent]，
-     * 它会额外切换到 default 命名空间并清 AccountStore 激活指针。此方法仅在无 AccountManager 引用时使用。
-     */
-    fun logout(store: CredentialStore? = null) {
-        // 停止后台保活循环
-        com.xjtu.toolbox.auth.SessionKeepAlive.stop()
-        // 清当前账号命名空间的 cookies（SessionManager 的 backends 已绑定当前账号 jar）
-        runCatching {
-            sessionManager?.backend(com.xjtu.toolbox.auth.AccessMode.NORMAL)?.clearAuth()
-            sessionManager?.backend(com.xjtu.toolbox.auth.AccessMode.WEBVPN)?.clearAuth()
-        }
-        clearInMemorySessionState()
-        com.xjtu.toolbox.account.AccountContext.activeAccountId = null
-        // 兼容：清旧单值凭据（迁移期向后兼容）
-        store?.clear()
-    }
+    // 登出只走 AccountManager.logoutCurrent：它会把会话层切到 default 命名空间并清掉凭据。
+    // 这里原有的一个兼容 logout() 不清会话层凭据，已无调用方，删除以免被误用。
 }
 
 /**

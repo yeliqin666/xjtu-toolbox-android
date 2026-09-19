@@ -25,6 +25,10 @@ data class ScheduleChangeEvent(
     val toLocation: String,
     /** 官方调课备注（`bz`）。可能为空——不是每条变更都会填。 */
     val reason: String,
+    /** 原时段在哪几周被停/被调走；新增课为空。旧版本落盘的数据没有这个字段。 */
+    val weeks: List<Int> = emptyList(),
+    /** 新时段落在哪几周；停课为空。调课可以跨周（第 4 周的课挪到第 6 周周末补）。 */
+    val toWeeks: List<Int> = emptyList(),
 ) {
     enum class Kind { MOVED, CANCELLED, ADDED }
 
@@ -37,6 +41,8 @@ data class ScheduleChangeEvent(
             kind = k,
             toLocation = (toLocation as String?) ?: "",
             reason = (reason as String?) ?: "",
+            weeks = (weeks as List<Int>?).orEmpty(),
+            toWeeks = (toWeeks as List<Int>?).orEmpty(),
         )
     }
 
@@ -44,14 +50,38 @@ data class ScheduleChangeEvent(
     fun describe(): String {
         fun slot(day: Int, start: Int, end: Int): String? =
             if (day in 1..7 && start > 0 && end > 0) "${DAY_NAMES[day]}第${start}-${end}节" else null
+        val fromWeeks = weekLabel(weeks)
+        val targetWeeks = weekLabel(toWeeks)
         val from = slot(fromDay, fromStartSection, fromEndSection)
         val to = slot(toDay, toStartSection, toEndSection)
         val place = toLocation.takeIf { it.isNotBlank() }
         return when (kind) {
-            Kind.CANCELLED -> "停课（${from ?: "原安排"}）"
-            Kind.ADDED -> "新增" + (to?.let { "，$it" } ?: "") + (place?.let { "，$it" } ?: "")
-            Kind.MOVED -> "由${from ?: "原安排"}调至${to ?: "新安排"}" + (place?.let { "，$it" } ?: "")
+            Kind.CANCELLED -> "${fromWeeks}停课（${from ?: "原安排"}）"
+            Kind.ADDED -> "${targetWeeks}新增" + (to?.let { "，$it" } ?: "") + (place?.let { "，$it" } ?: "")
+            Kind.MOVED -> {
+                // 同一周内挪动只说一次周次；跨周时两头各说各的
+                val sameWeeks = weeks == toWeeks || toWeeks.isEmpty()
+                val head = if (sameWeeks) fromWeeks else ""
+                val fromPart = (if (sameWeeks) "" else fromWeeks) + (from ?: "原安排")
+                val toPart = (if (sameWeeks) "" else targetWeeks) + (to ?: "新安排")
+                "${head}由${fromPart}调至${toPart}" + (place?.let { "，$it" } ?: "")
+            }
         }
+    }
+
+    /** `[4, 6, 7, 8]` → `第4、6-8周`；空表返回空串。 */
+    private fun weekLabel(list: List<Int>): String {
+        if (list.isEmpty()) return ""
+        val sorted = list.distinct().sorted()
+        val parts = mutableListOf<String>()
+        var i = 0
+        while (i < sorted.size) {
+            var j = i
+            while (j + 1 < sorted.size && sorted[j + 1] == sorted[j] + 1) j++
+            parts += if (j > i) "${sorted[i]}-${sorted[j]}" else "${sorted[i]}"
+            i = j + 1
+        }
+        return "第${parts.joinToString("、")}周"
     }
 
     private companion object {

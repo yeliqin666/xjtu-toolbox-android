@@ -1015,10 +1015,12 @@ class AgentToolRegistry(
             if (courses.isEmpty()) return "${termCode}学期没有课程记录。"
             pendingWidgets.add(ScheduleWidget("${termCode}学期课表", courses))
             return buildString {
-                append("${termCode}学期课表（共${courses.size}门，含手动添加${customCourses.size}）：\n")
+                // 一门课一周上几次、临时换过教室，都会是好几条；"共几门"按课程数，不按条数
+                val courseCount = courses.map { it.courseCode.ifBlank { it.courseName } }.distinct().size
+                append("${termCode}学期课表（共${courseCount}门，含手动添加${customCourses.size}）：\n")
                 courses.sortedWith(compareBy({ it.dayOfWeek }, { it.startSection })).groupBy { it.dayOfWeek }
                     .forEach { (day, cs) ->
-                        append("${dayNames.getOrElse(day) { "" }}：${cs.joinToString("；") { "${it.courseName}（${it.startSection}-${it.endSection}节，${it.location}）" }}\n")
+                        append("${dayNames.getOrElse(day) { "" }}：${cs.joinToString("；") { "${it.courseName}（${weekRange(it)}${it.startSection}-${it.endSection}节，${it.location}）" }}\n")
                     }
             }.withChangeNote(changeNote)
         }
@@ -1036,8 +1038,12 @@ class AgentToolRegistry(
             pendingWidgets.add(ScheduleWidget("${targetDate} 第${weekNum}周${dayNames[targetDate.dayOfWeek.value]}", dayCourses))
             return buildString {
                 append("${targetDate} 第${weekNum}周${dayNames[targetDate.dayOfWeek.value]}课程：\n")
+                // 作息按所问那天的月份定（夏令/冬令），不是按今天
+                val summer = XjtuTime.isSummerTime(targetDate.monthValue)
                 dayCourses.forEach { c ->
-                    append("• ${c.courseName}，第${c.startSection}-${c.endSection}节（${XjtuTime.getClassStartStr(c.startSection)}起），${c.location}，${c.teacher}\n")
+                    val startsAt = c.startMinuteOfDay.takeIf { it >= 0 }?.let { "%02d:%02d".format(it / 60, it % 60) }
+                        ?: XjtuTime.getClassStartStr(c.startSection, summer)
+                    append("• ${c.courseName}，第${c.startSection}-${c.endSection}节（${startsAt}起），${c.location}，${c.teacher}\n")
                 }
             }.withChangeNote(changeNote)
         } else {
@@ -1069,6 +1075,21 @@ class AgentToolRegistry(
         val relevant = events.filter { it.courseCode.isBlank() || it.courseCode in codes }.take(3)
         if (relevant.isEmpty()) return null
         return "近期调课：" + relevant.joinToString("；") { "${it.courseName}${it.describe()}，原因：${it.reason}" }
+    }
+
+    /** 整学期列表里给每条标上周次：`第1-4、6-16周 `。周次拿不到就不标。 */
+    private fun weekRange(c: CourseItem): String {
+        val weeks = c.getWeeks()
+        if (weeks.isEmpty()) return ""
+        val parts = mutableListOf<String>()
+        var i = 0
+        while (i < weeks.size) {
+            var j = i
+            while (j + 1 < weeks.size && weeks[j + 1] == weeks[j] + 1) j++
+            parts += if (j > i) "${weeks[i]}-${weeks[j]}" else "${weeks[i]}"
+            i = j + 1
+        }
+        return "第${parts.joinToString("、")}周 "
     }
 
     private fun String.withChangeNote(note: String?): String = if (note.isNullOrBlank()) this else "$this\n$note"

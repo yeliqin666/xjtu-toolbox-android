@@ -1,13 +1,17 @@
 package com.xjtu.toolbox.agent
 
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.IOException
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Proxy
+import java.net.ProxySelector
+import java.net.SocketAddress
+import java.net.URI
 
 class AgentWebAddressTest {
 
@@ -46,10 +50,31 @@ class AgentWebAddressTest {
     }
 
     @Test
-    fun publicNetworkPolicyDisablesProxyAndKeepsSocketGuard() {
+    fun publicNetworkPolicyKeepsSystemProxyAndSocketGuard() {
         val client = AgentWeb.applyPublicNetworkPolicy(okhttp3.OkHttpClient.Builder()).build()
 
-        assertEquals(Proxy.NO_PROXY, client.proxy)
+        // 不强制直连：开着代理的人要靠它访问外网搜索引擎
+        assertNull(client.proxy)
         assertSame(AgentWeb.publicOnlySocketFactory, client.socketFactory)
+    }
+
+    @Test
+    fun fakeIpRangeUsedByVpnTunModeIsAllowed() {
+        // Clash/Surge 的 fake-ip 把所有域名解析到 198.18.0.0/15
+        assertFalse(AgentWeb.isNonPublicAddress(ip("198.18.0.5")))
+        assertFalse(AgentWeb.isNonPublicAddress(ip("198.19.255.1")))
+    }
+
+    @Test
+    fun onlyTheConfiguredSystemProxyIsExemptFromTheLoopbackBlock() {
+        val selector = object : ProxySelector() {
+            override fun select(uri: URI?): List<Proxy> =
+                listOf(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", 7890)))
+            override fun connectFailed(uri: URI?, sa: SocketAddress?, ioe: IOException?) = Unit
+        }
+        assertTrue(AgentWeb.isSystemProxyEndpoint(InetSocketAddress(ip("127.0.0.1"), 7890), selector))
+        assertFalse(AgentWeb.isSystemProxyEndpoint(InetSocketAddress(ip("127.0.0.1"), 8080), selector))
+        assertFalse(AgentWeb.isSystemProxyEndpoint(InetSocketAddress(ip("192.168.1.1"), 7890), selector))
+        assertFalse(AgentWeb.isSystemProxyEndpoint(InetSocketAddress(ip("127.0.0.1"), 7890), null))
     }
 }
