@@ -69,7 +69,8 @@ object CrashReporter {
         val ts = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
         val text = buildString {
             append("time=").append(ts).append('\n')
-            append("build=").append(BuildConfig.VERSION_NAME).append(" (").append(BuildConfig.VERSION_CODE).append(")\n")
+            append("build=").append(BuildConfig.VERSION_NAME).append(" (").append(BuildConfig.VERSION_CODE).append(if (BuildConfig.IS_PREVIEW) " [preview]" else "").append(")\n")
+            append("preview=").append(BuildConfig.IS_PREVIEW).append('\n')
             append("thread=").append(thread.name).append('\n')
             append(redact(sw.toString()))
         }.take(MAX_CONTENT_CHARS)

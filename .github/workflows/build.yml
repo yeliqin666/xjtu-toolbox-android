@@ -2,8 +2,12 @@ name: Build & Release
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, dev ]
   workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref == 'refs/heads/dev' }}
 
 jobs:
   build:
@@ -67,6 +71,7 @@ jobs:
           "
 
       - name: Build Release APK
+        if: github.ref == 'refs/heads/main'
         env:
           KEYSTORE_PATH: ${{ runner.temp }}/release.jks
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
@@ -84,6 +89,7 @@ jobs:
       # :wear 已配置与 :app 相同的 signingConfig，读的是上一步同一批环境变量，
       # 因此产物是 wear-release.apk（未配签名时才会是 wear-release-unsigned.apk）。
       - name: Verify wear APK is signed
+        if: github.ref == 'refs/heads/main'
         run: |
           if [ ! -f wear/build/outputs/apk/release/wear-release.apk ]; then
             echo "::error::wear-release.apk 不存在——签名配置未生效，请检查 keystore secrets"
@@ -93,6 +99,7 @@ jobs:
           echo "wear APK: $(wc -c < wear/build/outputs/apk/release/wear-release.apk) bytes"
 
       - name: Upload artifact
+        if: github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v4
         with:
           name: app-release
@@ -103,6 +110,7 @@ jobs:
       # 崩溃上报回来的堆栈是 R8 混淆过的，要靠这份 mapping 用 retrace 还原。
       # 同一个 versionName 可能重新发包（mapping 随之变），所以按 run id 区分。
       - name: Upload R8 mapping
+        if: github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v4
         with:
           name: mapping-${{ steps.version.outputs.version }}-run${{ github.run_id }}
@@ -110,11 +118,13 @@ jobs:
           retention-days: 90
 
       - name: Delete existing tag (if any)
+        if: github.ref == 'refs/heads/main'
         run: |
           git tag -d ${{ steps.version.outputs.tag }} 2>/dev/null || true
           git push origin :refs/tags/${{ steps.version.outputs.tag }} 2>/dev/null || true
 
       - name: Create GitHub Release
+        if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
@@ -127,6 +137,7 @@ jobs:
           prerelease: ${{ contains(steps.version.outputs.version, 'alpha') || contains(steps.version.outputs.version, 'beta') }}
 
       - name: Generate release notes from AppChangelog.kt
+        if: github.ref == 'refs/heads/main'
         id: notes
         run: |
           python3 - <<'PY' > /tmp/release_body.md
@@ -179,6 +190,7 @@ jobs:
           echo "body_json_path=/tmp/release_body.json" >> $GITHUB_OUTPUT
 
       - name: Sync to Gitee (code + tag + release)
+        if: github.ref == 'refs/heads/main'
         continue-on-error: true
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_ACCESS_TOKEN }}
@@ -278,3 +290,87 @@ jobs:
           else
             echo "Skip missing $WEAR_APK_PATH"
           fi
+
+      # ── dev 专属步骤：构建预览包并发布 GitHub Pre-release ──
+      - name: Compute preview version
+        if: github.ref == 'refs/heads/dev'
+        id: preview
+        run: |
+          BASE="${{ steps.version.outputs.version }}"
+          # dev 上的 versionName 必须是「下一个正式版」号且不能已带后缀
+          case "$BASE" in *-*) echo "::error::dev 的 versionName 不应带后缀: $BASE"; exit 1;; esac
+          # 防呆：dev 版本号必须大于最新正式 tag，否则预览版比已发布正式版还"旧"，没人收得到
+          LATEST=$(git tag -l 'v*' --sort=-v:refname | head -1 | sed 's/^v//')
+          if [ -n "$LATEST" ] && [ "$(printf '%s\n%s\n' "$LATEST" "$BASE" | sort -V | tail -1)" != "$BASE" -o "$LATEST" = "$BASE" ]; then
+            echo "::error::dev 的 versionName ($BASE) 必须大于最新正式版 ($LATEST)，请先在 dev 上升版本号"
+            exit 1
+          fi
+          # 防呆：AppChangelog 启动时 require 当前版本（预览版按 X.Y.Z 匹配）有条目，
+          # 缺了的话构建照样成功，但每个装上预览版的人一打开就崩。
+          if ! grep -qE "\"${BASE//./\\.}\"[[:space:]]*to[[:space:]]*VersionChangelog" app/src/main/java/com/xjtu/toolbox/util/AppChangelog.kt; then
+            echo "::error::AppChangelog.kt 缺少 \"$BASE\" 条目，预览包会启动即崩。升版本号时请同时在 ENTRIES 顶部加一个条目（可先占位）"
+            exit 1
+          fi
+          VER="${BASE}-dev.${GITHUB_RUN_NUMBER}"
+          echo "version=$VER" >> $GITHUB_OUTPUT
+          echo "tag=dev-${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
+
+      - name: Build Preview APK
+        if: github.ref == 'refs/heads/dev'
+        env:
+          KEYSTORE_PATH: ${{ runner.temp }}/release.jks
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          FEEDBACK_APP_ID: ${{ secrets.FEEDBACK_APP_ID }}
+          FEEDBACK_APP_SECRET: ${{ secrets.FEEDBACK_APP_SECRET }}
+          FEEDBACK_BASE_TOKEN: ${{ secrets.FEEDBACK_BASE_TOKEN }}
+          FEEDBACK_TABLE_SUBMIT: ${{ secrets.FEEDBACK_TABLE_SUBMIT }}
+          FEEDBACK_TABLE_REPLY: ${{ secrets.FEEDBACK_TABLE_REPLY }}
+        # 只构建 :app，:wear 没有 preview 构建类型
+        run: ./gradlew :app:assemblePreview
+
+      - name: Verify preview APK
+        if: github.ref == 'refs/heads/dev'
+        run: |
+          APK=app/build/outputs/apk/preview/app-preview.apk
+          test -f "$APK" || { echo "::error::app-preview.apk 不存在"; ls -la app/build/outputs/apk/preview/ || true; exit 1; }
+          # 必须是正式签名（未签名时文件名会是 app-preview-unsigned.apk，上面已拦）
+          BT=$ANDROID_HOME/build-tools/37.0.0
+          $BT/aapt dump badging "$APK" | grep -E "package:|application-debuggable" || true
+          if $BT/aapt dump badging "$APK" | grep -q application-debuggable; then
+            echo "::error::预览包不应是 debuggable"; exit 1
+          fi
+          $BT/aapt dump badging "$APK" | grep -q "versionName='${{ steps.preview.outputs.version }}'" \
+            || { echo "::error::APK 内 versionName 与预期 ${{ steps.preview.outputs.version }} 不一致"; exit 1; }
+          cp "$APK" "xjtu-toolbox-${{ steps.preview.outputs.version }}.apk"
+
+      - name: Create GitHub Pre-release
+        if: github.ref == 'refs/heads/dev'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.preview.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          # 客户端从 name 读完整版本号（tag 是 dev-N，不含版本）
+          name: ${{ steps.preview.outputs.version }}
+          prerelease: true
+          make_latest: false
+          body: |
+            预览版 ${{ steps.preview.outputs.version }}（提交 ${{ github.sha }}）
+
+            这是尚在测试的版本，仅推送给在设置中开启「接收预览版更新」的用户。
+
+            rollout: ${{ vars.PREVIEW_DEFAULT_ROLLOUT || 20 }}
+          files: xjtu-toolbox-${{ steps.preview.outputs.version }}.apk
+
+      - name: Prune old previews
+        if: github.ref == 'refs/heads/dev'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 只保留最近 5 个预览版，连同 tag 一起删
+          gh release list --limit 100 --json tagName,isPrerelease,createdAt \
+            --jq '[.[] | select(.isPrerelease and (.tagName|startswith("dev-")))] | sort_by(.createdAt) | reverse | .[5:] | .[].tagName' \
+          | while read -r t; do
+              echo "delete $t"; gh release delete "$t" --yes --cleanup-tag || true
+            done

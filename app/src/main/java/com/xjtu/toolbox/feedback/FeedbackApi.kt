@@ -83,7 +83,7 @@ object FeedbackApi {
             .put("内容", content)
             .put("联系方式", contact)
             .put("匿名ID", anonId)
-            .put("版本", "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+            .put("版本", "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})${if (BuildConfig.IS_PREVIEW) " [preview]" else ""}")
             .put("机型", "${Build.MANUFACTURER} ${Build.MODEL}")
             .put("系统", "Android ${Build.VERSION.RELEASE} / API ${Build.VERSION.SDK_INT}")
         val req = Request.Builder()

@@ -240,15 +240,51 @@ object BulletinRules {
     }
 
     fun compareVersions(v1: String, v2: String): Int {
-        val parts1 = versionParts(v1)
-        val parts2 = versionParts(v2)
+        val s1 = v1.trim()
+        val s2 = v2.trim()
+        if (s1 == s2) return 0
+
+        val idx1 = s1.indexOf('-')
+        val core1 = if (idx1 >= 0) s1.substring(0, idx1) else s1
+        val pre1 = if (idx1 >= 0) s1.substring(idx1 + 1) else null
+
+        val idx2 = s2.indexOf('-')
+        val core2 = if (idx2 >= 0) s2.substring(0, idx2) else s2
+        val pre2 = if (idx2 >= 0) s2.substring(idx2 + 1) else null
+
+        val parts1 = versionParts(core1)
+        val parts2 = versionParts(core2)
         val maxLen = maxOf(parts1.size, parts2.size)
         for (i in 0 until maxLen) {
             val p1 = parts1.getOrElse(i) { 0 }
             val p2 = parts2.getOrElse(i) { 0 }
             if (p1 != p2) return p1.compareTo(p2)
         }
-        return 0
+
+        // 核心版本相同，比较预发布标识
+        if (pre1 == null && pre2 == null) return 0
+        // 有 pre 的比没有 pre 的小（例如 4.9.8-dev.12 < 4.9.8）
+        if (pre1 != null && pre2 == null) return -1
+        if (pre1 == null && pre2 != null) return 1
+
+        // 两者都有 pre，按 '.' 分段逐段比较
+        val segs1 = pre1!!.split('.')
+        val segs2 = pre2!!.split('.')
+        val minSegs = minOf(segs1.size, segs2.size)
+        for (i in 0 until minSegs) {
+            val seg1 = segs1[i]
+            val seg2 = segs2[i]
+            val n1 = seg1.toLongOrNull()
+            val n2 = seg2.toLongOrNull()
+            if (n1 != null && n2 != null) {
+                val cmp = n1.compareTo(n2)
+                if (cmp != 0) return cmp
+            } else {
+                val cmp = seg1.compareTo(seg2)
+                if (cmp != 0) return cmp
+            }
+        }
+        return segs1.size.compareTo(segs2.size)
     }
 
     /**
@@ -256,7 +292,7 @@ object BulletinRules {
      * 已经带第三段的（如 `4.7.3`、`4.5.3`）原样比较。
      */
     private fun versionParts(raw: String): List<Int> {
-        val parts = raw.split(".", "-").mapNotNull { it.toIntOrNull() }
+        val parts = raw.split('.').mapNotNull { it.toIntOrNull() }
         if (parts.size == 2 && parts[1] >= 10) {
             return listOf(parts[0], parts[1] / 10, parts[1] % 10)
         }

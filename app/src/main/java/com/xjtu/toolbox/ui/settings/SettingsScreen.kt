@@ -146,6 +146,8 @@ fun SettingsScreen(
     var defaultTab by remember { mutableStateOf(credentialStore.defaultTab) }
     var networkMode by remember { mutableStateOf(credentialStore.networkMode) }
     var updateChannel by remember { mutableStateOf(credentialStore.updateChannel) }
+    var receivePreviewUpdates by remember { mutableStateOf(credentialStore.receivePreviewUpdates) }
+    var showPreviewConfirmDialog by remember { mutableStateOf(false) }
     var venueAutoSolveCaptcha by remember { mutableStateOf(credentialStore.venueAutoSolveCaptchaEnabled) }
     var theme by remember { mutableStateOf(homeTheme) }
     var cacheSizeText by remember { mutableStateOf("计算中...") }
@@ -261,7 +263,7 @@ fun SettingsScreen(
     val cPink = Color(0xFFEC407A)
     val cLime = Color(0xFF9CCC65)
 
-    val versionText = "v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
+    val versionText = "v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})${if (BuildConfig.IS_PREVIEW) "（预览版）" else ""}"
     // ── 选项数据 ──
     val darkModeOptions = listOf("跟随系统", "始终浅色", "始终深色")
     val darkModeValues = listOf(
@@ -602,16 +604,42 @@ fun SettingsScreen(
                         credentialStore.updateChannel = v
                     }
                 )
+                SwitchPreference(
+                    title = "接收预览版更新",
+                    summary = when {
+                        !receivePreviewUpdates -> "只接收正式版"
+                        updateChannel == AppUpdater.CHANNEL_GITHUB -> "会分批收到尚在测试的新版本，可能不稳定"
+                        else -> "预览版只在 GitHub 发布，请把更新通道切到 GitHub"
+                    },
+                    checked = receivePreviewUpdates,
+                    startAction = { SettingsIcon(Icons.Default.CloudSync, cPink) },
+                    onCheckedChange = { checked ->
+                        if (checked) {
+                            showPreviewConfirmDialog = true
+                        } else {
+                            receivePreviewUpdates = false
+                            credentialStore.receivePreviewUpdates = false
+                        }
+                    }
+                )
                 var checkingUpdate by remember { mutableStateOf(false) }
                 ArrowPreference(
                     title = "立即检查更新",
-                    summary = if (checkingUpdate) "正在检查..." else "手动从 ${AppUpdater.channelLabel(updateChannel)} 拉取最新版本",
+                    summary = if (checkingUpdate) "正在检查..."
+                    else if (receivePreviewUpdates && updateChannel == AppUpdater.CHANNEL_GITHUB) "手动从 GitHub 拉取最新版本（含预览）"
+                    else "手动从 ${AppUpdater.channelLabel(updateChannel)} 拉取最新版本",
                     startAction = { SettingsIcon(Icons.Default.Refresh, cTeal) },
                     onClick = {
                         if (checkingUpdate) return@ArrowPreference
                         checkingUpdate = true
                         scope.launch {
-                            val result = runCatching { AppUpdater.check(updateChannel) }
+                            val result = runCatching {
+                                AppUpdater.check(
+                                    channel = updateChannel,
+                                    includePreview = receivePreviewUpdates,
+                                    rolloutId = credentialStore.rolloutId,
+                                )
+                            }
                             checkingUpdate = false
                             result.fold(
                                 onSuccess = { update ->
@@ -734,6 +762,33 @@ fun SettingsScreen(
                 }
             }
         }
+        if (showPreviewConfirmDialog) {
+            OverlayDialog(
+                show = showPreviewConfirmDialog,
+                title = "开启预览版更新",
+                summary = "预览版包含正在测试的新功能，可能存在未预料的问题或崩溃。\n\n• 采用分批灰度推送，开启后不一定会立即收到预览版\n• 想回到正式版只需随时关闭此开关，下一个正式版发布时会自动覆盖回归，不会降级应用",
+                onDismissRequest = { showPreviewConfirmDialog = false }
+            ) {
+                Row(Modifier.fillMaxWidth()) {
+                    TextButton(
+                        text = "取消",
+                        onClick = { showPreviewConfirmDialog = false },
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(Modifier.width(20.dp))
+                    TextButton(
+                        text = "开启",
+                        onClick = {
+                            showPreviewConfirmDialog = false
+                            receivePreviewUpdates = true
+                            credentialStore.receivePreviewUpdates = true
+                        },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.textButtonColorsPrimary()
+                    )
+                }
+            }
+        }
         pendingUpdate?.let { update ->
             AutoUpdateDialog(
                 version = update.version,
@@ -741,6 +796,7 @@ fun SettingsScreen(
                 downloadUrl = update.downloadUrl,
                 releaseUrl = update.releaseUrl,
                 channelLabel = update.channelLabel,
+                isPreview = update.isPreview,
                 onDismiss = { pendingUpdate = null }
             )
         }

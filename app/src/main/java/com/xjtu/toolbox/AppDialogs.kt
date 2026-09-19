@@ -205,6 +205,7 @@ fun AutoUpdateDialog(
     downloadUrl: String,
     releaseUrl: String,
     channelLabel: String = "",
+    isPreview: Boolean = false,
     onDismiss: () -> Unit
 ) {
     val show = remember { mutableStateOf(true) }
@@ -225,7 +226,7 @@ fun AutoUpdateDialog(
     // 后果是「发现新版本」和「更新说明」用户根本看不到。改用自带独立 Window 的变体。
     WindowBottomSheet(
         show = show.value,
-        title = "发现新版本 v$version",
+        title = if (isPreview) "发现预览版 $version" else "发现新版本 v$version",
         onDismissRequest = {
             show.value = false
             onDismiss()
