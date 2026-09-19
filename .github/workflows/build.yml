@@ -19,7 +19,12 @@ jobs:
 
       - name: Checkout Miuix main source
         run: |
-          git clone --depth 1 https://github.com/miuix-kotlin-multiplatform/miuix.git miuix-ref
+          # 固定到已验证的提交，不追 main：上游自动升依赖（如 AGP 9.4.0→9.4.1）会让
+          # composite build 出现两套 AGP 直接失败。升级 miuix 时连同本仓库 AGP 一起改这里。
+          MIUIX_REF=63529058dc5cbbb450707547090544f33f1a66ef
+          git init -q miuix-ref
+          git -C miuix-ref fetch -q --depth 1 https://github.com/miuix-kotlin-multiplatform/miuix.git "$MIUIX_REF"
+          git -C miuix-ref checkout -q FETCH_HEAD
           # 本仓库 AGP 跟随 miuix（9.4.0）。composite build 不允许两套 AGP。
           # compileSdk 已跟随 miuix 升到 37，下一步装 SDK 37 与之匹配。
 
