@@ -125,7 +125,8 @@ interface CustomCourseDao {
     suspend fun getAll(accountId: String): List<CustomCourseEntity>
 
     /**
-     * 查询同一学期内、同星期、且时间段有交集的课程（粗略排课冲突检测）
+     * 查询同一学期内、同星期、且节次有交集的课程。**只是粗筛**：不看周次，
+     * 结果必须再经 [CustomCourseConflicts.conflicts] 精判，否则不同周的同一时段会被误判为冲突。
      */
     @Query("""
         SELECT * FROM custom_courses
