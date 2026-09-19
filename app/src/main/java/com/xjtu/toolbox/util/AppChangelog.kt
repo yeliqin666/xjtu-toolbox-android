@@ -36,7 +36,8 @@ object AppChangelog {
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
         "4.9.6" to VersionChangelog(
             items = listOf(
-                "🩹" to "修复第二次打开成绩查询闪退的问题；成绩、黄页、教材分类的缓存恢复可用",
+                "🩹" to "修复第二次打开成绩查询、打开屁岱时闪退的问题；成绩、黄页、教材分类的缓存恢复可用",
+                "🗓️" to "调课、停课、补课跨周时也能正确合并进课表，临时换教室的那几周单独显示",
                 "🚀" to "冷启动提速约 2 成，首屏更快出现",
                 "📦" to "安装包缩小近一半（约 10.8MB → 5.7MB）",
                 "🔐" to "从任意页面触发的短信验证码都能正常弹出，不再卡住登录",
