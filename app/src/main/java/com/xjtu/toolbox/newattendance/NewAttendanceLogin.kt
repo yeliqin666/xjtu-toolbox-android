@@ -35,7 +35,17 @@ class NewAttendanceLogin(
      * 被永久锁在直连，于是校外「死活打不开」。旧考勤一直是走网关的。
      */
     private val useWebVpn: Boolean = false,
-) : XJTULogin(proxied(LOGIN_URL, useWebVpn), session, visitorId, cachedRsaKey) {
+    /**
+     * 已知的账号类型（本科/研究生）时，直接去对应业务站（bk-kq / yjs-kq）的 CAS
+     * 入口登录，跳过"先登门户、门户答复 systemSelectionRequired、再选子系统重登
+     * 一遍"这三次往返。故意不存成子类属性——本类 postLogin 在 super() 构造期间
+     * 就会被调用，那时子类属性初始化器还没跑（见 [authToken] 处的说明），只能在
+     * 这里、也就是能确定被用来拼 super() 入参的这一次，用一次就完。之后是否走了
+     * 直连、走的是哪个 host，postLogin 改从 response 的原始请求 URL 反查
+     * （见 [initialHost]），不依赖这个参数本身。
+     */
+    knownAccountType: XJTULogin.AccountType? = null,
+) : XJTULogin(proxied(entryUrlFor(knownAccountType), useWebVpn), session, visitorId, cachedRsaKey) {
 
     /** 本实例的地址改写。网关地址只在发请求时拼，存下来的基址始终是原始域名。 */
     private fun via(url: String): String = proxied(url, useWebVpn)
@@ -68,17 +78,53 @@ class NewAttendanceLogin(
     private val reAuthLock = Any()
 
     override fun postLogin(response: Response) {
-        if (consumeLanding(response.request.url, lastResponseBody)) return
-        // 重来一次只为了「这一轮压根没拿到票」的情况。
+        // 这一轮到底打的是直连业务站还是门户，从 response 的原始请求链反查——
+        // 不能读构造参数（此刻子类属性初始化器还没跑，见类头 knownAccountType 的说明）。
+        val intendedHost = initialHost(response)
+        val wasDirect = intendedHost != null && !intendedHost.equals(HOST, ignoreCase = true)
+        try {
+            if (consumeLanding(response.request.url, lastResponseBody, intendedHost = intendedHost)) return
+        } catch (e: Exception) {
+            if (!wasDirect) throw e
+            // 直连猜错了账号类型（比如本科账号被当成研究生去敲 yjs-kq）最常见的表现
+            // 就是交换直接报错——门户会自己认出真实身份，退回去让它选。
+            Log.w(TAG, "直连业务站($intendedHost)登录失败，退回门户流程：${e.message}")
+            fallbackToPortal()
+            return
+        }
+        if (wasDirect) {
+            // 落地了但没给票据：同样退回门户，让它自己判断该进哪个子系统。
+            Log.w(TAG, "直连业务站($intendedHost)未取得 CAS 回调票据，退回门户流程")
+            fallbackToPortal()
+            return
+        }
+        // 门户流程：重来一次只为了「这一轮压根没拿到票」的情况。
         // 拿到票但交换失败时 consumeLanding 会直接抛，不会走到这里——
         // 那种情况下再跑一遍会带着已经被消费掉的 ticket，
         // 换回一句「CAS登录浏览器绑定无效或已失效」，把真正的失败原因盖掉。
+        fallbackToPortal()
+    }
+
+    private fun fallbackToPortal() {
         client.newCall(Request.Builder().url(via(LOGIN_URL)).get().build()).execute().use { retry ->
             val body = retry.body?.string().orEmpty()
             if (!consumeLanding(retry.request.url, body)) {
                 throw RuntimeException("考勤系统登录失败：未取得 CAS 回调票据")
             }
         }
+    }
+
+    /**
+     * 沿着 OkHttp 的 [Response.priorResponse] 链条找回这一轮最初打的是哪个 host
+     * （WebVPN 网关地址会先还原成明文域名）。用来判断走的是直连业务站还是门户，
+     * 不依赖任何子类属性。
+     */
+    private fun initialHost(response: Response): String? {
+        var r = response
+        while (r.priorResponse != null) r = r.priorResponse!!
+        val url = r.request.url
+        val plain = com.xjtu.toolbox.util.WebVpnUtil.getOriginalUrl(url.toString())?.toHttpUrlOrNull() ?: url
+        return plain.host.takeIf { it.isNotBlank() }
     }
 
     override fun validateLogin(): Boolean {
@@ -127,12 +173,18 @@ class NewAttendanceLogin(
         !authToken.isNullOrBlank()
     }
 
-    private fun consumeLanding(url: HttpUrl, body: String, hops: Int = 0): Boolean {
+    /**
+     * @param intendedHost 已知这一轮 CAS 就是打给这个业务站时传入（[loginAt] 直连、
+     * 或 [postLogin] 判断出这轮是直连业务站），[rememberBase]/[normalizeRedirect]
+     * 就不用再去猜落地页的 host——落地页有时会变成内网 IP（202.117.22.36），猜的话
+     * 只会猜回门户，而门户不签业务令牌，交换必然失败。
+     */
+    private fun consumeLanding(url: HttpUrl, body: String, hops: Int = 0, intendedHost: String? = null): Boolean {
         if (hops > 2) return false
-        val normalized = normalizeRedirect(url)
+        val normalized = normalizeRedirect(url, intendedHost)
         val loginRequestId = normalized.queryParameter("loginRequestId")?.trim()
         val ticket = normalized.queryParameter("ticket")?.trim()
-        rememberBase(normalized)
+        rememberBase(normalized, intendedHost)
         if (!loginRequestId.isNullOrBlank() && !ticket.isNullOrBlank()) {
             applyExchange(loginRequestId, ticket, hops)
             return !authToken.isNullOrBlank()
@@ -147,10 +199,16 @@ class NewAttendanceLogin(
     /**
      * 记下落地页所在的考勤站。
      *
-     * 只认 `*.xjtu.edu.cn` 下带 `kq` 的主机——落地页可能是 CAS 自己的域名或别的中转，
+     * [intendedHost] 已知时直接采信、不看落地页——这是"力"而非"猜"，专治落地页
+     * 变成内网 IP、看不出 host 的情况。没有 [intendedHost] 时才退回旧逻辑：只认
+     * `*.xjtu.edu.cn` 下带 `kq` 的主机，落地页可能是 CAS 自己的域名或别的中转，
      * 照单全收会把令牌打到不相干的地方去。
      */
-    private fun rememberBase(url: HttpUrl) {
+    private fun rememberBase(url: HttpUrl, intendedHost: String? = null) {
+        if (!intendedHost.isNullOrBlank()) {
+            resolvedBaseUrl = "https://$intendedHost/sa"
+            return
+        }
         // WebVPN 模式下落地页的 host 是网关，真实域名藏在路径里，先还原再判。
         // 不还原的话这里认不出 kq，基址会停在默认值，业务请求又打回直连。
         val plain = com.xjtu.toolbox.util.WebVpnUtil.getOriginalUrl(url.toString())
@@ -251,13 +309,19 @@ class NewAttendanceLogin(
         }
     }
 
-    /** 去某个业务站重走一遍 CAS 并消费落地页。拿到令牌返回 true。 */
+    /**
+     * 去某个业务站重走一遍 CAS 并消费落地页。拿到令牌返回 true。
+     *
+     * 交换必须打到 `host` 本身，不能指望从落地页猜——落地页偶尔会是内网 IP
+     * （202.117.22.36），猜的话会退回门户，门户不签业务令牌，交换必然失败。
+     * 显式把 `host` 当 intendedHost 传下去，强制 base/exchange 落在这里。
+     */
     private fun loginAt(host: String, target: String, hops: Int): Boolean {
         val entry = via("https://$host/sa/auth/cas/login/$target")
         val pair = casAuthenticate(entry) ?: return false
         val landed = pair.second.toHttpUrlOrNull() ?: return false
         return try {
-            consumeLanding(landed, pair.first, hops + 1)
+            consumeLanding(landed, pair.first, hops + 1, intendedHost = host)
         } catch (e: Exception) {
             // 某一侧没开通会在这里抛（104 之类），不该连累还没试的另一侧。
             Log.w(TAG, "loginAt $host failed: ${e.message}")
@@ -347,16 +411,26 @@ class NewAttendanceLogin(
         path == "/sa/auth/cas/handoff/graduate-student-pc" ||
             path == "/sa/auth/cas/handoff/graduate-student-h5"
 
-    private fun normalizeRedirect(url: HttpUrl): HttpUrl {
+    /**
+     * 把落地页里出现的内网 IP（202.117.22.36）改写回域名。
+     *
+     * 以前这里不管三七二十一都改写成门户 [HOST]，可这段代码在研究生直连
+     * （[loginAt] 打 [GRADUATE_HOST]）时一样会跑到——把研究生的落地页硬改成门户
+     * 域名，后面 [rememberBase] 就会把 base 定成门户，交换必然失败。改写目标
+     * 优先用 [intendedHost]（调用方已经知道这一轮打的是哪个 host），只有两边都
+     * 不知道时才退回门户（兼容原来的门户流程）。
+     */
+    private fun normalizeRedirect(url: HttpUrl, intendedHost: String? = null): HttpUrl {
+        val fallbackHost = intendedHost ?: HOST
         var next = url
         if (next.host.equals(LEGACY_INTERNAL_HOST, ignoreCase = true)) {
-            next = next.newBuilder().scheme("https").host(HOST).port(443).build()
+            next = next.newBuilder().scheme("https").host(fallbackHost).port(443).build()
         }
         val service = next.queryParameter("service") ?: return next
         if (LEGACY_INTERNAL_HOST !in service) return next
         val rewritten = service
-            .replace("https://$LEGACY_INTERNAL_HOST", "https://$HOST")
-            .replace("http://$LEGACY_INTERNAL_HOST", "https://$HOST")
+            .replace("https://$LEGACY_INTERNAL_HOST", "https://$fallbackHost")
+            .replace("http://$LEGACY_INTERNAL_HOST", "https://$fallbackHost")
         return next.newBuilder().setQueryParameter("service", rewritten).build()
     }
 
@@ -394,6 +468,17 @@ class NewAttendanceLogin(
          */
         fun proxied(url: String, useWebVpn: Boolean): String =
             if (useWebVpn) com.xjtu.toolbox.util.WebVpnUtil.getVpnUrl(url) else url
+
+        /**
+         * 主构造器的入口 URL：账号类型已知就直接打对应业务站的 `student-pc` 入口，
+         * 未知则退回门户通用入口（原来唯一的行为）。纯函数，不依赖任何实例状态，
+         * 因为要在 super() 的参数位置上用，那时候 `this` 还不存在。
+         */
+        fun entryUrlFor(accountType: XJTULogin.AccountType?): String = when (accountType) {
+            XJTULogin.AccountType.UNDERGRADUATE -> "https://$UNDERGRAD_HOST/sa/auth/cas/login/student-pc"
+            XJTULogin.AccountType.POSTGRADUATE -> "https://$GRADUATE_HOST/sa/auth/cas/login/student-pc"
+            null -> LOGIN_URL
+        }
         private const val LEGACY_INTERNAL_HOST = "202.117.22.36"
         private const val MAX_HOPS = 8
     }

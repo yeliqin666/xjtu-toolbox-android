@@ -160,6 +160,36 @@ class NewAttendanceApi(private val site: SiteSession) : AttendanceProvider {
         return aggregateCourseStats(rows)
     }
 
+    /**
+     * 按学期取整学期课表（`/student/service/timetable/weekly`，尽管路径带 weekly，
+     * 实测不传周次也会把整学期的行一次性返回，同一门课跨越的不同周段会拆成多行，
+     * 靠 weekRanges 区分，如 "1-8,10-16"）。调用方（[com.xjtu.toolbox.schedule.ScheduleSourceRouter]）
+     * 负责按 (name, teacher, room, day, start, end) 合并这些行。
+     */
+    fun getWeeklyTimetable(semesterId: String): List<KqTimetableRow> {
+        val root = getJson("/student/service/timetable/weekly", mapOf("semesterId" to semesterId))
+        val data = KqHttp.obj(root.get("data"))
+        val courseRows = data?.get("courses")?.let { KqHttp.rows(it) } ?: KqHttp.rows(root.get("data"))
+        return courseRows.mapNotNull { row ->
+            val name = KqHttp.str(row, "courseName", "course")
+            if (name.isBlank()) return@mapNotNull null
+            val day = KqHttp.int(row, "dayOfWeek", "day")
+            val start = KqHttp.int(row, "startSection", "startJc")
+            val end = KqHttp.int(row, "endSection", "endJc").takeIf { it > 0 } ?: start
+            if (day !in 1..7 || start <= 0) return@mapNotNull null
+            KqTimetableRow(
+                courseName = name,
+                teacherName = KqHttp.str(row, "teacherName", "teacher"),
+                classroomName = KqHttp.str(row, "classroomName", "classroom", "location"),
+                courseCode = KqHttp.str(row, "courseCode", "courseNo"),
+                dayOfWeek = day,
+                startSection = start,
+                endSection = end,
+                weekRanges = KqHttp.str(row, "weekRanges", "weeks"),
+            )
+        }
+    }
+
     fun computeCourseStatsFromRecords(records: List<AttendanceWaterRecord>): List<CourseAttendanceStat> {
         if (records.isEmpty()) return emptyList()
         return records.groupBy { it.courseName }
