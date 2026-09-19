@@ -15,8 +15,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.FactCheck
 import androidx.compose.material.icons.filled.School
-import androidx.compose.material.icons.filled.OndemandVideo
-import androidx.compose.material.icons.filled.PlayCircleOutline
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -46,11 +44,11 @@ import java.time.LocalDate
 data class Occurrence(val date: LocalDate, val week: Int)
 
 /**
- * 课程详情的下钻区：教材 → 全文、这一次课的回放、这一次课的考勤。
+ * 课程详情的下钻区：教材 → 全文、思源学堂、这一次课的考勤。
  * 两套日程布局共用，布局开关只换摆法不换能力。
  *
  * [occurrence] 决定给多少东西：有具体日期时只给那一天的，
- * 没有日期时（学期总览）不给回放和考勤——那两样离开某一次就没有意义。
+ * 没有日期时（学期总览）不给考勤——离开某一次就没有意义。
  * 每一项各自异步、各自失败。
  */
 @Composable
@@ -64,7 +62,7 @@ fun CourseLinkSections(
     onRequestTextbooks: () -> Unit,
     onNavigate: (String) -> Unit,
 ) {
-    // 自定义日程没有课程号、也不在教务的教材/回放/考勤里，整块跳过。
+    // 自定义日程没有课程号、也不在教务的教材/考勤里，整块跳过。
     if (course.courseType == "日程") return
 
     val loginState = LocalAppLoginState.current
@@ -93,21 +91,6 @@ fun CourseLinkSections(
         }
     }
 
-    // ── 这一次课的回放 ──
-    var replay by remember(course.courseCode) {
-        mutableStateOf<com.xjtu.toolbox.classreplay.Course?>(null)
-    }
-    var sessions by remember(course.courseCode, occurrence?.date) {
-        mutableStateOf<List<com.xjtu.toolbox.classreplay.LiveActivity>>(emptyList())
-    }
-    LaunchedEffect(course.courseCode, occurrence?.date, termCode) {
-        val date = occurrence?.date ?: return@LaunchedEffect
-        CourseLinks.replaySessionsOn(manager, course, termCode, date)?.let { (c, list) ->
-            replay = c
-            sessions = list
-        }
-    }
-
     // 考勤跟角标共用开关：要单独登录一次考勤站点，没开的人不该为点开一门课付这个代价。
     val store = remember { CredentialStore(context) }
     val attendanceEnabled = remember { store.scheduleAttendanceBadge }
@@ -133,8 +116,7 @@ fun CourseLinkSections(
     }
 
     val hasBook = mine.isNotEmpty()
-    val hasReplay = replay != null && occurrence != null
-    if (!hasBook && !hasReplay && record == null && lmsCourse == null) return
+    if (!hasBook && record == null && lmsCourse == null) return
 
     Spacer(Modifier.height(6.dp))
     HorizontalDivider(color = MiuixTheme.colorScheme.dividerLine, thickness = 0.5.dp)
@@ -182,7 +164,7 @@ fun CourseLinkSections(
         }
     }
 
-    // 思源学堂。放在回放前面：作业和公告比录播更常被翻。
+    // 思源学堂：活动、作业、课件，以及思源自己的回放，都从这里进。
     lmsCourse?.let { lc ->
         LinkRow(
             icon = Icons.Default.School,
@@ -194,24 +176,6 @@ fun CourseLinkSections(
             ).joinToString("  ·  ").ifBlank { "活动、作业与课件" },
             onClick = { onNavigate(Routes.lmsCourse(lc.id)) },
         )
-    }
-
-    // 本次回放。连堂两节常各录一段，所以可能不止一条。
-    if (hasReplay) {
-        val c = replay!!
-        LinkRow(
-            icon = Icons.Default.OndemandVideo,
-            tint = MiuixTheme.colorScheme.primary,
-            title = "课程回放",
-            subtitle = if (sessions.isEmpty()) "本次没有录播，点进去看全部" else "本次 ${sessions.size} 段",
-            onClick = { onNavigate(Routes.classReplay(c.courseCode)) },
-        )
-        sessions.forEach { a ->
-            SubRow(
-                label = CourseLinks.prettyLocalTime(a.startTime),
-                onClick = { onNavigate(Routes.videoPlayer(a.id)) },
-            )
-        }
     }
 }
 
@@ -286,26 +250,4 @@ private fun LinkRow(
         }
     }
     Spacer(Modifier.height(5.dp))
-}
-
-/** 挂在 [LinkRow] 下面的子项，缩进一级表示从属关系。 */
-@Composable
-private fun SubRow(label: String, onClick: () -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(start = 28.dp, bottom = 5.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .clickable { onClick() }
-            .background(MiuixTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.45f))
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            Icons.Default.PlayCircleOutline, null, Modifier.size(14.dp),
-            tint = MiuixTheme.colorScheme.primary,
-        )
-        Spacer(Modifier.width(8.dp))
-        Text(label, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurface)
-    }
 }

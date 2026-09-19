@@ -1,4 +1,4 @@
-package com.xjtu.toolbox.classreplay
+package com.xjtu.toolbox.media
 
 import androidx.room.*
 

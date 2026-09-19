@@ -564,7 +564,6 @@ internal fun HomeTab(
             Routes.SCHEDULE to Icons.Default.CalendarMonth,
             Routes.EMPTY_ROOM to Icons.Default.MeetingRoom,
             Routes.LMS to Icons.Default.School,
-            Routes.CLASS_REPLAY to Icons.Default.OndemandVideo,
             Routes.SCHOOL_COURSE to Icons.Default.TravelExplore,
             Routes.NEW_ATTENDANCE to Icons.Default.AssignmentTurnedIn,
             Routes.ICLASSFACE to Icons.Default.Face,

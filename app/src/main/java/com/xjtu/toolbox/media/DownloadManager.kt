@@ -1,4 +1,4 @@
-package com.xjtu.toolbox.classreplay
+package com.xjtu.toolbox.media
 
 import android.content.Context
 import android.os.Environment
@@ -52,6 +52,8 @@ class DownloadManager private constructor(private val context: Context) {
     private val downloadDir: File by lazy {
         val base = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
             ?: File(context.filesDir, "Download")
+        // 目录名沿用 class 课程回放时代的 ClassReplay：改名会让用户已下载的文件「消失」，
+        // file_provider_paths.xml 里的路径也要跟着对上。
         File(base, "ClassReplay").also { it.mkdirs() }
     }
 
@@ -99,9 +101,8 @@ class DownloadManager private constructor(private val context: Context) {
     /**
      * 一条待下载的视频。
      *
-     * 用中立类型而非 [ReplayVideo]，是为了让 class 与思源学堂两个模块共用下载队列：
-     * 前者的地址要先经 resolveVideoUrl 解析，后者的 download_url 本身就是直链，
-     * 差异留在各自的调用方，下载管理这边只认「机位 + 直链」。
+     * 用中立类型（机位 + 直链），调用方负责拿到可下载的直链。原先 class 课程回放也共用这条队列，
+     * class 平台已移除，现在只有思源学堂在用。
      */
     data class DownloadItem(
         /** "instructor" / "encoder"，用于命名与分类 */

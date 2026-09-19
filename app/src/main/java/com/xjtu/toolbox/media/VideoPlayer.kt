@@ -1,9 +1,8 @@
-package com.xjtu.toolbox.classreplay
+package com.xjtu.toolbox.media
 
 import android.app.Activity
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
-import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
@@ -20,12 +19,6 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import com.xjtu.toolbox.LocalAppLoginState
-import com.xjtu.toolbox.Routes
-import com.xjtu.toolbox.auth.AuthExpiredException
-import com.xjtu.toolbox.auth.LoginType
-import com.xjtu.toolbox.auth.SiteSession
-import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -49,7 +42,6 @@ import kotlinx.coroutines.*
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-private const val TAG = "VideoPlayer"
 
 /** 双画面漂移超过这个值才纠，避免每几秒都 seek 一次造成顿挫 */
 private const val SYNC_DRIFT_MS = 300L
@@ -80,119 +72,7 @@ enum class AudioSource(val label: String) {
 }
 
 // ════════════════════════════════════════
-//  入口 1 — CLASS 回放（从 activityId 加载）
-// ════════════════════════════════════════
-
-@OptIn(UnstableApi::class)
-@Composable
-fun VideoPlayerScreen(
-    site: SiteSession,
-    activityId: Int,
-    onBack: () -> Unit
-) {
-    val appLoginState = LocalAppLoginState.current
-    val context = LocalContext.current
-    val activity = context as? Activity
-
-    var replayDetail by remember { mutableStateOf<ReplayDetail?>(null) }
-    var isLoading by remember { mutableStateOf(true) }
-    var errorMsg by remember { mutableStateOf<String?>(null) }
-    var instructorUrl by remember { mutableStateOf<String?>(null) }
-    var encoderUrl by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
-
-    // 记录进入前的原始 orientation，退出时恢复
-    val prevOrientation = remember {
-        activity?.requestedOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-    }
-    // 首次默认横屏
-    LaunchedEffect(Unit) {
-        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-    }
-    // 退出页面时恢复原始 orientation
-    DisposableEffect(Unit) {
-        onDispose {
-            activity?.requestedOrientation = prevOrientation
-        }
-    }
-
-    // 系统返回键
-    BackHandler { onBack() }
-
-    // 加载数据
-    LaunchedEffect(activityId) {
-        scope.launch {
-            isLoading = true
-            errorMsg = null
-            try {
-                val detail = withContext(Dispatchers.IO) {
-                    fetchReplayDetail(site, activityId)
-                }
-                if (detail == null || detail.replayVideos.isEmpty()) {
-                    errorMsg = "未找到回放视频"
-                    isLoading = false
-                    return@launch
-                }
-                replayDetail = detail
-
-                withContext(Dispatchers.IO) {
-                    val instrVid = detail.replayVideos.find { it.cameraType == "instructor" }
-                    val encVid = detail.replayVideos.find { it.cameraType == "encoder" }
-
-                    val dInstr = async { instrVid?.let { resolveVideoUrl(site, it.url) } }
-                    val dEnc = async { encVid?.let { resolveVideoUrl(site, it.url) } }
-                    instructorUrl = dInstr.await()
-                    encoderUrl = dEnc.await()
-                }
-
-                if (instructorUrl == null && encoderUrl == null) {
-                    errorMsg = "无法获取视频播放地址"
-                }
-            } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(LoginType.CLASS, Routes.CLASS_REPLAY, onBack)
-            } catch (e: Exception) {
-                Log.e(TAG, "load replay error", e)
-                errorMsg = "加载失败: ${e.message}"
-            } finally {
-                isLoading = false
-            }
-        }
-    }
-
-    when {
-        isLoading -> {
-            Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator()
-                    Spacer(Modifier.height(8.dp))
-                    Text("加载回放...", color = Color.White, fontSize = 14.sp)
-                    Spacer(Modifier.height(16.dp))
-                    TextButton(text = "取消", onClick = onBack)
-                }
-            }
-        }
-        errorMsg != null -> {
-            Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(errorMsg ?: "", color = Color(0xFFEF5350), fontSize = 15.sp)
-                    Spacer(Modifier.height(12.dp))
-                    TextButton(text = "返回", onClick = onBack)
-                }
-            }
-        }
-        else -> {
-            DualVideoPlayer(
-                instructorUrl = instructorUrl,
-                encoderUrl = encoderUrl,
-                title = replayDetail?.title ?: "回放",
-                onBack = onBack
-            )
-        }
-    }
-}
-
-// ════════════════════════════════════════
-//  入口 2 — 通用（直接传入 URL，支持 HLS/MP4）
+//  入口 — 直接传入 URL（支持 HLS/MP4）
 // ════════════════════════════════════════
 
 /**

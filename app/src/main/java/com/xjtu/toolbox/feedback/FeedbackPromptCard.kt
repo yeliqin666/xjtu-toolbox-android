@@ -159,5 +159,5 @@ fun FeedbackPromptSheet() {
 // 只是用来估算"这人用了多少"，不需要跟服务列表严格同步
 private val TRACKED_KEYS = listOf(
     "schedule", "score", "card", "library", "emptyroom",
-    "lms", "attendance", "classreplay", "jiaocai1", "agent",
+    "lms", "attendance", "jiaocai1", "agent",
 )
