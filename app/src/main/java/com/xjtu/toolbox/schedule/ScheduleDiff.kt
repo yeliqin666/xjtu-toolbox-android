@@ -32,6 +32,34 @@ object ScheduleDiff {
     private fun fingerprintOf(c: CourseItem) =
         "${c.location}|${c.weekBits}|${c.endSection}|${c.teacher}"
 
+    /**
+     * 同一身份下可能有多条：某几周临时换教室时，数据源会按教室拆成几条（周次互不重叠）。
+     * 只有一条时与 [fingerprintOf] 完全相同，老快照不会因此误报。多条时把它们合成一份：
+     * 教室按「教室[周次]」列全，周次取并集——临时换教室换到了哪一周也能比出来，而不是
+     * 像 `associate` 那样只留下最后一条、把其余几条的变化悄悄吞掉。
+     */
+    internal fun groupFingerprint(group: List<CourseItem>): String {
+        if (group.size == 1) return fingerprintOf(group.single())
+        val sorted = group.sortedBy { it.getWeeks().firstOrNull() ?: Int.MAX_VALUE }
+        val location = sorted.joinToString("、") { "${it.location}[${compactWeeks(it.getWeeks())}]" }
+        val len = group.maxOf { it.weekBits.length }
+        val bits = CharArray(len) { i -> if (group.any { it.weekBits.getOrNull(i) == '1' }) '1' else '0' }
+        val ends = group.map { it.endSection }.distinct().sorted().joinToString(",")
+        val teachers = group.map { it.teacher }.distinct().sorted().joinToString("、")
+        return "$location|${String(bits)}|$ends|$teachers"
+    }
+
+    /** `[1,2,3,5]` → `1-3,5`。 */
+    private fun compactWeeks(weeks: List<Int>): String = buildList {
+        var i = 0
+        while (i < weeks.size) {
+            var j = i
+            while (j + 1 < weeks.size && weeks[j + 1] == weeks[j] + 1) j++
+            add(if (j > i) "${weeks[i]}-${weeks[j]}" else "${weeks[i]}")
+            i = j + 1
+        }
+    }.joinToString(",")
+
     data class Change(val kind: Kind, val courseName: String, val detail: String, val reason: String? = null) {
         enum class Kind { ADDED, REMOVED, MOVED }
     }
@@ -49,9 +77,10 @@ object ScheduleDiff {
         val storeKey = "snap_${termCode}_${ScheduleSourceRouter.servedSource(ctx).key}"
         val old = prefs.getStringSet(storeKey, null)
 
-        val now = courses.associate { keyOf(it) to fingerprintOf(it) }
+        val groups = courses.groupBy(::keyOf)
+        val now = groups.mapValues { (_, group) -> groupFingerprint(group) }
         val nowFlat = now.map { "${it.key}=>${it.value}" }.toSet()
-        val nameOf = courses.associate { keyOf(it) to it.courseName }
+        val nameOf = groups.mapValues { (_, group) -> group.first().courseName }
 
         prefs.edit().putStringSet(storeKey, nowFlat).apply()
         if (old == null) {

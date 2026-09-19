@@ -291,11 +291,15 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
         }
     }
 
+    /** [prepareCredentialsForLogin] 之前会话层的凭据与账号类型，失败时由 [discardPreparedCredentials] 还原。 */
+    private var credentialsBeforeAttempt: Pair<Pair<String, String>?, XJTULogin.AccountType>? = null
+
     /**
      * 把一次登录尝试的凭据交给会话层，但不把 UI 提前切成“已登录”。
-     * 只有认证真正成功后才由 [saveCredentials] 提交身份。
+     * 认证成功后由 [saveCredentials] 提交身份；失败必须调 [discardPreparedCredentials]。
      */
     fun prepareCredentialsForLogin(username: String, password: String) {
+        sessionManager?.let { credentialsBeforeAttempt = it.credentials to it.accountType }
         // 凭据变更视为用户已知晓并响应，清除密码失效熔断
         val credentialsChanged = (username != savedUsername || password != savedPassword)
         if (credentialsChanged && passwordInvalidatedLatch) {
@@ -310,8 +314,23 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
         }
     }
 
+    /**
+     * 登录失败时撤销 [prepareCredentialsForLogin]：会话层退回尝试之前的凭据（之前没有就清空）。
+     *
+     * 不撤销的话，UI 这边仍是旧身份，会话层却留着这次输错的密码——后台保活、定时刷新、
+     * 首页统计都拿会话层凭据自动登录，会反复用错密码撞 CAS，招来限流甚至锁号。
+     */
+    fun discardPreparedCredentials() {
+        val (previous, previousType) = credentialsBeforeAttempt ?: return
+        credentialsBeforeAttempt = null
+        val sm = sessionManager ?: return
+        if (previous != null) sm.setCredentials(previous.first, previous.second) else sm.clearCredentials()
+        sm.accountType = previousType
+    }
+
     fun saveCredentials(username: String, password: String) {
         prepareCredentialsForLogin(username, password)
+        credentialsBeforeAttempt = null
         savedUsername = username
         savedPassword = password
         activeUsername = username

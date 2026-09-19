@@ -282,7 +282,9 @@ internal fun ProfileTab(
                     loginState.sessionManager?.ensureSite(LoginType.JWXT)
                 }
             } catch (e: Exception) {
+                loginState.discardPreparedCredentials()
                 isLoggingIn = false
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 loginError = "登录异常: ${e.message}"
                 return@launch
             }
