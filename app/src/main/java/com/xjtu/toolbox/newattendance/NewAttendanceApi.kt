@@ -226,9 +226,17 @@ class NewAttendanceApi(private val site: SiteSession) : AttendanceProvider {
             if (term.isNotBlank()) addProperty("semesterId", term)
         }
         val rows = fetchAllPages("/student/pc/attendance-records/page", data)
+        // 服务端状态全集（上游 PR #72 取自前端状态标签）：PENDING / NORMAL / LATE / ABSENT / LEAVE / NOT_REQUIRED。
+        // PENDING（待考勤，课还没上完或还没出结果）和 NOT_REQUIRED（不考勤）都不是考勤结果，丢掉；
+        // 留着的话 PENDING 会落进 WaterType.UNKNOWN，课表角标按「最坏」标红，今天还没上的课全是红的。
+        // 已出结果的记录由增量/全量刷新补上。
         return rows.filter { row ->
-            KqHttp.str(row, "attendanceStatus", "status").uppercase() != "NOT_REQUIRED"
+            KqHttp.str(row, "attendanceStatus", "status").uppercase() !in NON_RESULT_STATUSES
         }
+    }
+
+    private companion object {
+        val NON_RESULT_STATUSES = setOf("NOT_REQUIRED", "PENDING")
     }
 
     /**
