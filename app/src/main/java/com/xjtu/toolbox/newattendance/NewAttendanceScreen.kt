@@ -440,7 +440,8 @@ private fun StreamList(streams: List<AttendanceStream>) {
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        items(streams, key = { it.id.ifBlank { it.collectTime + it.location } }) { stream ->
+        // 不给 key：id 可能缺失，同一台设备同一秒刷两次时拼出来的 key 会重复，Compose 直接崩。
+        items(streams) { stream ->
             Card(colors = CardDefaults.defaultColors(color = AppCardColor)) {
                 Row(
                     Modifier.padding(16.dp).fillMaxWidth(),

@@ -269,7 +269,8 @@ class NewAttendanceApi(private val site: SiteSession) : AttendanceProvider {
             val rows = KqHttp.rows(root.get("data")).ifEmpty { KqHttp.rows(root) }
             result += rows
             val total = KqHttp.total(root)
-            if (rows.isEmpty() || result.size >= total || rows.size < pageSize) break
+            // total 取不到时是 0，不能拿它当"已经取完"——只靠不满一页来判断结束。
+            if (rows.isEmpty() || (total > 0 && result.size >= total) || rows.size < pageSize) break
             page++
         }
         return result

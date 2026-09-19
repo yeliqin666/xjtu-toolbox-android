@@ -115,16 +115,24 @@ class NewAttendanceLogin(
     }
 
     /**
-     * 沿着 OkHttp 的 [Response.priorResponse] 链条找回这一轮最初打的是哪个 host
-     * （WebVPN 网关地址会先还原成明文域名）。用来判断走的是直连业务站还是门户，
+     * 找回这一轮 CAS 是替哪个考勤站走的，用来判断走的是直连业务站还是门户，
      * 不依赖任何子类属性。
+     *
+     * 不能只看链条起点：账号密码登录时传进来的是 POST `login.xjtu.edu.cn/cas/login`
+     * 的响应，起点是 CAS 自己。所以沿 [Response.priorResponse] 把每一跳的地址和它的
+     * `service` 参数都看一遍（WebVPN 网关地址先还原），认出已知考勤域名才算数；
+     * 一个都认不出（比如回调落在内网 IP）返回 null，按门户流程处理。
      */
     private fun initialHost(response: Response): String? {
-        var r = response
-        while (r.priorResponse != null) r = r.priorResponse!!
-        val url = r.request.url
-        val plain = com.xjtu.toolbox.util.WebVpnUtil.getOriginalUrl(url.toString())?.toHttpUrlOrNull() ?: url
-        return plain.host.takeIf { it.isNotBlank() }
+        val known = listOf(UNDERGRAD_HOST, GRADUATE_HOST, HOST)
+        fun kqHostOf(raw: String?): String? {
+            val url = raw?.toHttpUrlOrNull() ?: return null
+            val plain = com.xjtu.toolbox.util.WebVpnUtil.getOriginalUrl(url.toString())?.toHttpUrlOrNull() ?: url
+            plain.host.lowercase().takeIf { it in known }?.let { return it }
+            return plain.queryParameter("service")?.let { kqHostOf(it) }
+        }
+        val chain = generateSequence(response) { it.priorResponse }.toList().reversed()
+        return chain.firstNotNullOfOrNull { kqHostOf(it.request.url.toString()) }
     }
 
     override fun validateLogin(): Boolean {
