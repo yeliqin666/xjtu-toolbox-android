@@ -9,8 +9,6 @@ import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.SessionManager
 import com.xjtu.toolbox.auth.ensureSite
-import com.xjtu.toolbox.classreplay.Course as ReplayCourse
-import com.xjtu.toolbox.classreplay.fetchCourses
 import com.xjtu.toolbox.jiaocai1.Jiaocai1Api
 import com.xjtu.toolbox.jiaocai1.Jiaocai1Book
 import com.xjtu.toolbox.jiaocai1.Jiaocai1SearchField
@@ -24,7 +22,7 @@ import java.util.concurrent.ConcurrentHashMap
 private const val TAG = "CourseLinks"
 
 /**
- * 把教材、回放、考勤挂回一门课上。
+ * 把教材、思源学堂、考勤挂回一门课上。
  *
  * 只管解析，不管展示——两套日程布局共用同一份结果。每一项独立可失败，调用方按项渲染。
  * 所有登录都走 `silent = true`：点开课程详情不该让用户收到短信验证码。
@@ -140,75 +138,6 @@ object CourseLinks {
         }
     }
 
-    // ── 课程回放 ──────────────────────────────────────────
-
-    /**
-     * 教务课程号 → TronClass 的同一门课。
-     *
-     * 两边的 code 不是同一个串，TronClass 在外面包了一层：
-     * `202520262` + `PHYS405309` + `01`（学年学期 + 教务课程号 + 教学班号）。
-     * 所以判据是包含，不是等值。同一门课跨学期重修会有多条，优先取学期前缀相符的。
-     */
-    suspend fun replayFor(
-        manager: SessionManager?,
-        courseCode: String,
-        /** 教务学期码，如 `2025-2026-2`；用于在同名多学期时挑对的那一门。 */
-        termCode: String = "",
-    ): ReplayCourse? {
-        val code = courseCode.trim()
-        if (code.isEmpty()) return null
-        val all = replayCourses(manager) ?: return null
-        val candidates = all.filter { it.courseCode.contains(code, ignoreCase = true) }
-        if (candidates.isEmpty()) {
-            Log.d(
-                TAG,
-                "replay 未命中 code=$code；对方 ${all.size} 门，样本 codes=" +
-                    all.take(5).joinToString { "${it.courseCode}(${it.name})" },
-            )
-            return null
-        }
-        // 学期前缀就是教务学期码去掉分隔符：2025-2026-2 -> 202520262
-        val prefix = termCode.filter { it.isDigit() }
-        val hit = candidates.firstOrNull { prefix.isNotEmpty() && it.courseCode.startsWith(prefix) }
-            ?: candidates.first()
-        Log.d(TAG, "replay 命中 $code -> ${hit.courseCode}(${hit.name}) 候选 ${candidates.size} 门")
-        return hit
-    }
-
-    private suspend fun replayCourses(manager: SessionManager?): List<ReplayCourse>? {
-        val c = caches()
-        c.replay?.let { return it.value }
-        // 注意：这里**不按学期过滤**。TronClass 的 my-courses 用 classify_type
-        // "recently_started"，一次返回多个学期（课程回放页的学期筛选器就是这么来的），
-        // 所以历史学期的课也在列表里，按课程号匹配即可，不需要额外的学期参数。
-        val site = manager.siteOrNull(LoginType.CLASS) ?: return null
-        return withContext(Dispatchers.IO) {
-            val list = runCatching {
-                // 接口是分页的，一页 50。翻到取空或够 5 页为止：一个学生一学期不可能有
-                // 250 门课，封顶只是防服务端 total 字段不可信时无限翻页。
-                val acc = ArrayList<ReplayCourse>()
-                var page = 1
-                while (page <= 5) {
-                    val (items, _) = fetchCourses(site, page = page, pageSize = 50)
-                    acc += items
-                    if (items.size < 50) break
-                    page++
-                }
-                acc.toList()
-            }.rethrowCancellation().getOrElse {
-                Log.w(TAG, "fetchCourses failed", it)
-                null
-            }
-            // 失败不写缓存：网络抖一下不该让整个会话都查不到回放。
-            if (list != null && c.isCurrent()) c.replay = Box(list)
-            list
-        }
-    }
-
-    /**
-     * 指定某一天的回放场次，不是"这个课格在整学期的所有周"——
-     * 按星期几筛会把 7 天后、14 天后的全带进来。同一天多场是正常的（连堂各录一段）。
-     */
     /**
      * 这门课在思源学堂对应哪门。
      *
@@ -249,74 +178,6 @@ object CourseLinks {
         val target = course.courseName.normalizedCourseName()
         if (target.isEmpty()) return null
         return all.firstOrNull { it.name.normalizedCourseName() == target }
-    }
-
-    suspend fun replaySessionsOn(
-        manager: SessionManager?,
-        course: CourseItem,
-        termCode: String,
-        date: LocalDate,
-    ): Pair<ReplayCourse, List<com.xjtu.toolbox.classreplay.LiveActivity>>? {
-        val target = replayFor(manager, course.courseCode, termCode) ?: return null
-        val activities = replaySessions(manager, target) ?: return null
-        val mine = activities.filter { it.startTime.parseDateTime()?.toLocalDate() == date }
-        Log.d(
-            TAG,
-            "replay 场次 ${target.name} @$date：共 ${activities.size} 场，命中 ${mine.size} 场",
-        )
-        // 那一天没有录播就一场不给。摆别的日子的出来比不摆更糟——
-        // 用户会以为那就是这次课的。想看全部走"课程回放"那一行进回放页。
-        return target to mine.sortedBy { it.startTime }
-    }
-
-    private suspend fun replaySessions(
-        manager: SessionManager?,
-        target: ReplayCourse,
-    ): List<com.xjtu.toolbox.classreplay.LiveActivity>? {
-        val c = caches()
-        c.sessions[target.id]?.let { return it.value }
-        val site = manager.siteOrNull(LoginType.CLASS) ?: return null
-        return withContext(Dispatchers.IO) {
-            runCatching {
-                val acc = ArrayList<com.xjtu.toolbox.classreplay.LiveActivity>()
-                var page = 1
-                while (page <= 5) {
-                    val (items, _) = com.xjtu.toolbox.classreplay
-                        .fetchLiveActivities(site, target.id, page = page, pageSize = 50)
-                    acc += items
-                    if (items.size < 50) break
-                    page++
-                }
-                acc.toList()
-            }.rethrowCancellation().getOrElse {
-                Log.w(TAG, "fetchLiveActivities failed", it)
-                null
-            }?.also { if (c.isCurrent()) c.sessions[target.id] = Box(it) }
-        }
-    }
-
-    private const val SESSION_SLACK_MIN = 45
-
-    /** 走 [parseDateTime] 而不是截字符串：原始值是 UTC，直接截会显示成 02:10。 */
-    fun prettyLocalTime(raw: String): String =
-        raw.parseDateTime()?.format(java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm"))
-            ?: raw
-
-    /**
-     * TronClass 的时间戳是 UTC（`2026-06-15T02:10:00Z`），必须按时区换算。
-     * 不能用 `OffsetDateTime.toLocalDateTime()`——那是丢掉偏移而不是换算，
-     * 小时和星期会一起算错。
-     */
-    private fun String.parseDateTime(): java.time.LocalDateTime? {
-        val t = trim()
-        if (t.isEmpty()) return null
-        runCatching {
-            java.time.OffsetDateTime.parse(t)
-                .atZoneSameInstant(java.time.ZoneId.systemDefault())
-                .toLocalDateTime()
-        }.getOrNull()?.let { return it }
-        return runCatching { java.time.LocalDateTime.parse(t) }.getOrNull()
-            ?: runCatching { java.time.LocalDateTime.parse(t.replace(' ', 'T')) }.getOrNull()
     }
 
     // ── 考勤 ──────────────────────────────────────────────
@@ -571,8 +432,6 @@ object CourseLinks {
      */
     private class Caches(val accountId: String?) {
         val fulltext = ConcurrentHashMap<String, Box<Jiaocai1Book?>>()
-        val sessions = ConcurrentHashMap<Int, Box<List<com.xjtu.toolbox.classreplay.LiveActivity>>>()
-        @Volatile var replay: Box<List<ReplayCourse>>? = null
         @Volatile var lmsCourses: Box<List<com.xjtu.toolbox.lms.LmsCourseSummary>>? = null
         @Volatile var attendance: Pair<String, Box<AttendanceIndex>>? = null
 

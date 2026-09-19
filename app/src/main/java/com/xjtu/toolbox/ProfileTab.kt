@@ -705,11 +705,11 @@ internal fun ProfileTab(
                 Spacer(Modifier.height(12.dp))
 
                 // ━━ 下载管理入口卡片 ━━
-                var downloadStats by remember { mutableStateOf<com.xjtu.toolbox.classreplay.DownloadManager.DownloadStats?>(null) }
+                var downloadStats by remember { mutableStateOf<com.xjtu.toolbox.media.DownloadManager.DownloadStats?>(null) }
                 var lmsDownloadCount by remember { mutableIntStateOf(0) }
                 LaunchedEffect(Unit) {
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        val downloadManager = com.xjtu.toolbox.classreplay.DownloadManager.getInstance(context)
+                        val downloadManager = com.xjtu.toolbox.media.DownloadManager.getInstance(context)
                         downloadStats = downloadManager.getDownloadStats()
                         lmsDownloadCount = com.xjtu.toolbox.lms.LmsDownloadStore.getAll(context).size
                     }

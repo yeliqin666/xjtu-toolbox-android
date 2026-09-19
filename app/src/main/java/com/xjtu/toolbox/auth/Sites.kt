@@ -154,14 +154,6 @@ class LmsSession : CasSiteSession("lms", "思源学堂", mustUseWebVpn = false) 
     }
 }
 
-// ── CLASS 课程回放 ────────────────────────────────────────────────────
-
-// mustUseWebVpn=false：永远直连原域名，公网可达性未逐一验证，取决于学校当前网络策略。
-class ClassSession : CasSiteSession("class", "课程回放", mustUseWebVpn = false) {
-    override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
-        com.xjtu.toolbox.classreplay.ClassLogin(session = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
-}
-
 // ── ICLASSFACE 人脸识别签到 ──────────────────────────────────────────────
 
 class IclassfaceSession : CasSiteSession("iclassface", "快速考勤流水", mustUseWebVpn = true) {

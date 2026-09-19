@@ -37,6 +37,7 @@ object AppChangelog {
         "4.9.8" to VersionChangelog(
             items = listOf(
                 "🧪" to "预览版：新版考勤对齐（学期码修复、直连登录、考勤课表源、打卡流水）",
+                "🧹" to "移除课程回放（class 平台）；思源学堂的回放播放与下载不受影响",
             )
         ),
         "4.9.7" to VersionChangelog(

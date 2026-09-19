@@ -538,7 +538,6 @@ class AppLoginStateViewModel(application: android.app.Application) : androidx.li
             register(com.xjtu.toolbox.auth.YwtbSession())
             register(com.xjtu.toolbox.auth.LibrarySession())
             register(com.xjtu.toolbox.auth.LmsSession())
-            register(com.xjtu.toolbox.auth.ClassSession())
             register(com.xjtu.toolbox.auth.JiaocaiSession())
             register(com.xjtu.toolbox.auth.CouponSession())
             register(com.xjtu.toolbox.auth.DzpzSession())

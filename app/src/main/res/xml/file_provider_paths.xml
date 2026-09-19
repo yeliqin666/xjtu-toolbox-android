@@ -2,7 +2,7 @@
 <paths>
     <cache-path name="exports" path="exports/" />
     <cache-path name="apk_cache" path="updates/" />
-    <!-- 课程回放：应用专属 Download/ClassReplay，不是公共 Download/ -->
+    <!-- 视频下载（思源学堂回放）：应用专属 Download/ClassReplay，不是公共 Download/。目录与 name 沿用原 class 课程回放，改了会让已下载文件失联 -->
     <external-files-path name="class_replay" path="Download/ClassReplay/" />
     <files-path name="class_replay_internal" path="Download/ClassReplay/" />
 </paths>

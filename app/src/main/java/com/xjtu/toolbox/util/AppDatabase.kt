@@ -6,8 +6,8 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
-import com.xjtu.toolbox.classreplay.DownloadTaskDao
-import com.xjtu.toolbox.classreplay.DownloadTaskEntity
+import com.xjtu.toolbox.media.DownloadTaskDao
+import com.xjtu.toolbox.media.DownloadTaskEntity
 import com.xjtu.toolbox.jiaocai1.Jiaocai1ShelfDao
 import com.xjtu.toolbox.jiaocai1.Jiaocai1ShelfEntity
 import com.xjtu.toolbox.schedule.CustomCourseDao

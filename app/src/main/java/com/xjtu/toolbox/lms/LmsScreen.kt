@@ -201,7 +201,7 @@ fun LmsScreen(
     // 视频播放器独立渲染（全屏，不参与 AnimatedContent）
     val videoPage = currentPage as? LmsPage.VideoPlayer
     if (videoPage != null) {
-        com.xjtu.toolbox.classreplay.DirectVideoPlayerScreen(
+        com.xjtu.toolbox.media.DirectVideoPlayerScreen(
             instructorUrl = videoPage.instructorUrl,
             encoderUrl = videoPage.encoderUrl,
             title = videoPage.title,
@@ -694,9 +694,8 @@ private fun ActivityDetailPage(
     var errorMsg by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
-
-    // 思源学堂回放下载：复用 classreplay 的 DownloadManager 队列。
-    // 与 class 的差别是这里 download_url 已是直链，不必再解析一次。
+    // 思源学堂回放下载：走 media.DownloadManager 队列。
+    // download_url 本身就是直链，不必再解析。
     // 直播流（HLS/m3u8）不提供下载——它不是单文件，按分片下载另属一套实现。
     fun enqueueDownload(video: LmsReplayVideo, title: String) {
         val url = video.downloadUrl
@@ -707,13 +706,13 @@ private fun ActivityDetailPage(
         scope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
-                    com.xjtu.toolbox.classreplay.DownloadManager.getInstance(context.applicationContext)
+                    com.xjtu.toolbox.media.DownloadManager.getInstance(context.applicationContext)
                         .enqueueDownloads(
                             courseName = course.name,
                             activityTitle = title,
                             activityId = activity.id,
                             videos = listOf(
-                                com.xjtu.toolbox.classreplay.DownloadManager.DownloadItem(
+                                com.xjtu.toolbox.media.DownloadManager.DownloadItem(
                                     cameraType = if (video.label.contains("instructor", true)) "instructor" else "encoder",
                                     url = url,
                                 )

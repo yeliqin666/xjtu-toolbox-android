@@ -46,7 +46,6 @@ fun serviceColor(index: Int, total: Int): Color {
 private const val R_SCHEDULE = "schedule"
 private const val R_EMPTY_ROOM = "empty_room"
 private const val R_LMS = "lms"
-private const val R_CLASS_REPLAY = "class_replay"
 private const val R_SCHOOL_COURSE = "school_course"
 private const val R_NEW_ATTENDANCE = "new_attendance"
 private const val R_ICLASSFACE = "iclassface"
@@ -78,7 +77,6 @@ fun legacyColor(key: String): Color = when (key) {
     R_SCHEDULE -> Color(0xFF315FD4)
     R_EMPTY_ROOM -> Color(0xFF283593)
     R_LMS -> Color(0xFF1565C0)
-    R_CLASS_REPLAY -> Color(0xFF512DA8)
     R_SCHOOL_COURSE -> Color(0xFF00838F)
     R_NEW_ATTENDANCE -> Color(0xFF37474F)
     R_ICLASSFACE -> Color(0xFF00695C)

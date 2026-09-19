@@ -32,7 +32,6 @@ object AppServices {
         AppService(Routes.SCHEDULE, "日程", "本学期课表与考试", ServiceCategory.CLASS, listOf("课表", "课程", "schedule", "今天", "明天")),
         AppService(Routes.EMPTY_ROOM, "空闲教室", "查找自习空教室", ServiceCategory.CLASS, listOf("空教室", "自习", "教室")),
         AppService(Routes.LMS, "思源", "课程作业与资料", ServiceCategory.CLASS, listOf("思源学堂", "lms", "作业", "课件")),
-        AppService(Routes.CLASS_REPLAY, "课程回放", "课堂录像回放", ServiceCategory.CLASS, listOf("回放", "录像", "录播")),
         AppService(Routes.SCHOOL_COURSE, "课程查询", "全校开课查询", ServiceCategory.CLASS, listOf("开课", "选课", "查课")),
         AppService(Routes.NEW_ATTENDANCE, "新版考勤", "本研统一，流水、统计与请假", ServiceCategory.CLASS, listOf("考勤", "考勤查询", "出勤", "迟到", "缺勤", "新考勤", "请假", "病假", "私事假", "销假", "kq")),
         AppService(Routes.ICLASSFACE, "快速考勤流水", "课堂人脸考勤记录", ServiceCategory.CLASS, listOf("人脸考勤", "刷脸", "iclassface"), audience = AccountType.UNDERGRADUATE),

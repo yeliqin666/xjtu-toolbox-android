@@ -164,13 +164,6 @@ object Routes {
     const val COUPON = "coupon"
     const val TRANSCRIPT = "transcript"
     const val VENUE = "venue"
-    const val CLASS_REPLAY = "class_replay"
-
-    /**
-     * 课程回放的实际注册路由。带一个有默认值的可选参数，于是导航到裸的
-     * [CLASS_REPLAY] 一样能匹配上——已有的快捷方式、服务列表、深链都不用改。
-     */
-    const val CLASS_REPLAY_PATTERN = "class_replay?courseCode={courseCode}"
     const val LMS = "lms"
 
     /** 直接落到思源学堂的某门课。courseId 是 LMS 自己的课程 ID。 */
@@ -182,7 +175,6 @@ object Routes {
     const val SCHOOL_CALENDAR = "school_calendar"
     const val YELLOW_PAGE = "yellow_page"
     const val FITNESS = "fitness"
-    const val VIDEO_PLAYER = "video_player/{activityId}"
     const val DOWNLOAD_MANAGER = "download_manager"
     const val BROWSER = "browser?url={url}"
     const val SETTINGS = "settings"
@@ -195,10 +187,6 @@ object Routes {
     const val MATCH = "schedule_match"
 
     fun browser(url: String = "") = "browser?url=${java.net.URLEncoder.encode(url, "UTF-8")}"
-    fun videoPlayer(activityId: Int) = "video_player/$activityId"
-    /** 直接落在某门课的回放列表上，courseCode 用教务的课程号。 */
-    fun classReplay(courseCode: String) =
-        "class_replay?courseCode=${java.net.URLEncoder.encode(courseCode, "UTF-8")}"
 
     fun jiaocai1Reader(ssno: String, title: String = "") =
         "jiaocai1_reader/$ssno?title=${java.net.URLEncoder.encode(title, "UTF-8")}"
@@ -213,15 +201,12 @@ fun loginTypeForRoute(route: String): LoginType? = when (route) {
     Routes.SCORE_REPORT, Routes.JUDGE, Routes.SCHOOL_COURSE, Routes.EMPTY_ROOM, Routes.SCHEDULE -> LoginType.JWXT
     Routes.TRANSCRIPT -> LoginType.DZPZ
     Routes.VENUE -> LoginType.VENUE
-    Routes.CLASS_REPLAY -> LoginType.CLASS
     Routes.LMS -> LoginType.LMS
     Routes.JIAOCAI, Routes.JIAOCAI1 -> LoginType.JIAOCAI
     Routes.COUPON -> LoginType.COUPON
     Routes.FITNESS -> LoginType.FITNESS
     Routes.ICLASSFACE -> LoginType.ICLASSFACE
     else -> when {
-        // 带参深链 class_replay?courseCode=... 和裸路由要同样先登录。
-        route.startsWith("class_replay") -> LoginType.CLASS
         route.startsWith("jiaocai1_reader") -> LoginType.JIAOCAI
         else -> null
     }
@@ -408,7 +393,10 @@ fun AppNavigation(
                 // 只预热「上次用过的几个」，串行 + 静默（撞 MFA 即退出，不弹窗不发短信）。
                 // 与 2026-05 那次被风控的做法的区别：那次是一股脑 11 个站点各自提交密码
                 //（11 次 mfa/detect）；这里一次密码都不提交，且只覆盖用户真正会用的少数几个。
-                val recent = credentialStore.recentSiteKeys
+                // 已下线的站点（如移除的 class 课程回放）会一直占着「最近」名额，顺手清掉。
+                val stored = credentialStore.recentSiteKeys
+                val recent = stored.filter { loginState.sessionManager?.getSiteOrNull(it) != null }
+                if (recent.size != stored.size) credentialStore.recentSiteKeys = recent
                 if (recent.isNotEmpty()) {
                     android.util.Log.d("Warmup", "prewarm recent sites: $recent")
                     runCatching { loginState.sessionManager?.prewarmSites(recent) }
@@ -1048,100 +1036,8 @@ fun AppNavigation(
                 )
             } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
-        composable(
-            Routes.CLASS_REPLAY_PATTERN,
-            arguments = listOf(
-                navArgument("courseCode") { type = NavType.StringType; defaultValue = "" },
-            )
-        ) { backStackEntry ->
-            val initialCourseCode = try {
-                java.net.URLDecoder.decode(
-                    backStackEntry.arguments?.getString("courseCode") ?: "", "UTF-8"
-                )
-            } catch (_: Exception) {
-                backStackEntry.arguments?.getString("courseCode").orEmpty()
-            }
-            loginState.sessionManager?.getSiteOrNull("class")?.let { classSite ->
-                val context = androidx.compose.ui.platform.LocalContext.current
-                com.xjtu.toolbox.classreplay.ClassScreen(
-                    site = classSite,
-                    initialCourseCode = initialCourseCode,
-                    onBack = { navController.popBackStack() },
-                    onDownloadReplay = { activityIds, videoSources ->
-                        // 启动下载流程
-                        val appContext = context.applicationContext
-                        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO)
-                        scope.launch {
-                            try {
-                                val downloadManager = com.xjtu.toolbox.classreplay.DownloadManager.getInstance(appContext)
-                                
-                                // 获取课程名称和回放详情
-                                val activities = activityIds.mapNotNull { id ->
-                                    try {
-                                        val detail = com.xjtu.toolbox.classreplay.fetchReplayDetail(classSite, id)
-                                        detail?.let { id to it }
-                                    } catch (e: Exception) {
-                                        android.util.Log.e("MainActivity", "Failed to fetch detail for $id", e)
-                                        null
-                                    }
-                                }
-                                
-                                val courseName = "课程回放"
-                                
-                                // 为每个活动创建下载任务
-                                for ((activityId, detail) in activities) {
-                                    if (detail.replayVideos.isNotEmpty()) {
-                                        // 只下用户勾选的机位。videoSources 为空时才退回全部，
-                                        // 避免上游万一没传导致一个都下不到。
-                                        val wanted = detail.replayVideos.filter {
-                                            videoSources.isEmpty() || it.cameraType in videoSources
-                                        }
-                                        val videos = wanted.mapNotNull { video ->
-                                            val realUrl = com.xjtu.toolbox.classreplay.resolveVideoUrl(classSite, video.url)
-                                            realUrl?.let {
-                                                com.xjtu.toolbox.classreplay.DownloadManager.DownloadItem(
-                                                    cameraType = video.cameraType,
-                                                    url = it,
-                                                )
-                                            }
-                                        }
-                                        
-                                        if (videos.isNotEmpty()) {
-                                            downloadManager.enqueueDownloads(
-                                                courseName = courseName,
-                                                activityTitle = detail.title,
-                                                activityId = activityId,
-                                                videos = videos
-                                            )
-                                        }
-                                    }
-                                }
-                                
-                                // 显示提示
-                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                    android.widget.Toast.makeText(
-                                        appContext,
-                                        "已开始下载 ${activities.size} 个回放",
-                                        android.widget.Toast.LENGTH_SHORT
-                                    ).show()
-                                }
-                            } catch (e: Exception) {
-                                android.util.Log.e("MainActivity", "Download error", e)
-                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                    android.widget.Toast.makeText(
-                                        context.applicationContext,
-                                        "下载失败: ${e.message}",
-                                        android.widget.Toast.LENGTH_SHORT
-                                    ).show()
-                                }
-                            }
-                        }
-                    }
-                )
-            } ?: LaunchedEffect(Unit) { navController.popBackStack() }
-        }
         composable(Routes.DOWNLOAD_MANAGER) {
-            com.xjtu.toolbox.classreplay.DownloadManagerScreen(
+            com.xjtu.toolbox.media.DownloadManagerScreen(
                 onBack = { navController.popBackStack() }
             )
         }
@@ -1236,19 +1132,6 @@ fun AppNavigation(
             loginState.sessionManager?.getSiteOrNull("iclassface")?.let {
                 com.xjtu.toolbox.iclassface.IclassfaceScreen(
                     site = it,
-                    onBack = { navController.popBackStack() }
-                )
-            } ?: LaunchedEffect(Unit) { navController.popBackStack() }
-        }
-        composable(
-            Routes.VIDEO_PLAYER,
-            arguments = listOf(navArgument("activityId") { type = NavType.IntType })
-        ) { backStackEntry ->
-            val activityId = backStackEntry.arguments?.getInt("activityId") ?: 0
-            loginState.sessionManager?.getSiteOrNull("class")?.let { classSite ->
-                com.xjtu.toolbox.classreplay.VideoPlayerScreen(
-                    site = classSite,
-                    activityId = activityId,
                     onBack = { navController.popBackStack() }
                 )
             } ?: LaunchedEffect(Unit) { navController.popBackStack() }
