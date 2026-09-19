@@ -186,6 +186,11 @@ class NewAttendanceSession : CasSiteSession("new_attendance", "新版考勤", mu
             visitorId = visitorId,
             cachedRsaKey = cachedRsaKey,
             useWebVpn = currentAccessMode == AccessMode.WEBVPN,
+            // 账号类型来自一网通办身份判断（见 AccountType.fromIdentityName），跟
+            // ScheduleSourceRouter 挑 kq 部署用的是同一个信号。已知的话直接登对应
+            // 业务站，省掉门户那三次往返；NewAttendanceLogin.postLogin 里若直连失败
+            // 会自动退回门户流程，不会因为猜错身份就登不上。
+            knownAccountType = accountType,
         )
 
     override fun onLoginSuccess(login: XJTULogin) {
@@ -217,10 +222,17 @@ class NewAttendanceSession : CasSiteSession("new_attendance", "新版考勤", mu
 
     override suspend fun validateLogin(): Boolean = withIo {
         val token = localToken["business_token"] ?: return@withIo false
+        // 走跟正常业务请求一样的 KqHttp.buildUrl：校外经 WebVPN 网关改写地址，
+        // 直连域名探活必然超时；同时补上网页端每个请求都带的 X-System 头，
+        // 免得服务端哪天开始校验就把探活单独漏掉。
         val resp = client.newCall(
             Request.Builder()
-                .url("${baseUrl()}/student/home")
+                .url(com.xjtu.toolbox.newattendance.KqHttp.buildUrl(this@NewAttendanceSession, "/student/home"))
                 .header(com.xjtu.toolbox.newattendance.NewAttendanceLogin.TOKEN_HEADER, token)
+                .header(
+                    com.xjtu.toolbox.newattendance.NewAttendanceLogin.SYSTEM_HEADER,
+                    com.xjtu.toolbox.newattendance.NewAttendanceLogin.SYSTEM_VALUE,
+                )
                 .get()
                 .build()
         ).execute()

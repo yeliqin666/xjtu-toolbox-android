@@ -39,6 +39,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.LocalAppLoginState
 import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.attendance.AttendanceStream
 import com.xjtu.toolbox.attendance.AttendanceWaterRecord
 import com.xjtu.toolbox.attendance.CourseAttendanceStat
 import com.xjtu.toolbox.attendance.TermInfo
@@ -91,6 +92,7 @@ private data class NewAttendanceSnapshot(
     val terms: List<TermInfo>,
     val termBh: String,
     val records: List<AttendanceWaterRecord>,
+    val streams: List<AttendanceStream>,
     val stats: List<CourseAttendanceStat>,
     val window: LeaveSemesterWindow?,
     val leaves: List<LeaveRecord>,
@@ -112,6 +114,7 @@ fun NewAttendanceScreen(
     var termList by remember { mutableStateOf<List<TermInfo>>(emptyList()) }
     var selectedTermBh by rememberSaveable { mutableStateOf("") }
     var records by remember { mutableStateOf<List<AttendanceWaterRecord>>(emptyList()) }
+    var streams by remember { mutableStateOf<List<AttendanceStream>>(emptyList()) }
     var courseStats by remember { mutableStateOf<List<CourseAttendanceStat>>(emptyList()) }
     var leaves by remember { mutableStateOf<List<LeaveRecord>>(emptyList()) }
     var semesterWindow by remember { mutableStateOf<LeaveSemesterWindow?>(null) }
@@ -142,11 +145,20 @@ fun NewAttendanceScreen(
                     } catch (_: Exception) {
                         api.computeCourseStatsFromRecords(fetched)
                     }
+                    // 打卡流水只是原始刷卡数据，拉不到不影响其它 tab，单独兜底成空表。
+                    val streamRows = try {
+                        api.getStreams(term?.startDate.orEmpty(), term?.endDate.orEmpty())
+                    } catch (e: AuthExpiredException) {
+                        throw e
+                    } catch (_: Exception) {
+                        emptyList()
+                    }
                     NewAttendanceSnapshot(
                         studentName = name,
                         terms = terms,
                         termBh = bh,
                         records = fetched,
+                        streams = streamRows,
                         stats = stats,
                         window = runCatching { leaveApi.getSemesterWindow() }.getOrNull(),
                         leaves = leaveApi.getLeavePage().records,
@@ -188,7 +200,7 @@ fun NewAttendanceScreen(
                     }
                 },
                 actions = {
-                    if (selectedTab == 2) {
+                    if (selectedTab == 3) {
                         IconButton(onClick = { showForm = true }) {
                             Icon(Icons.Default.Add, contentDescription = "新建请假")
                         }
@@ -226,12 +238,12 @@ fun NewAttendanceScreen(
                             colors = CardDefaults.defaultColors(color = AppCardColor)
                         ) {
                             AppSegmentedTabs(
-                                tabs = listOf("流水", "统计", "请假"),
+                                tabs = listOf("流水", "打卡流水", "统计", "请假"),
                                 selectedTabIndex = selectedTab,
                                 onTabSelected = { selectedTab = it },
                                 embedded = true,
                             )
-                            if (termList.isNotEmpty() && selectedTab != 2) {
+                            if (termList.isNotEmpty() && selectedTab != 3) {
                                 HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                                 OverlaySpinnerPreference(
                                     title = "学期",
@@ -247,7 +259,8 @@ fun NewAttendanceScreen(
                         }
                         when (selectedTab) {
                             0 -> RecordList(records)
-                            1 -> StatList(courseStats)
+                            1 -> StreamList(streams)
+                            2 -> StatList(courseStats)
                             else -> LeaveList(
                                 leaves = leaves,
                                 onOpen = { detail = it },
@@ -406,6 +419,57 @@ private fun RecordList(records: List<AttendanceWaterRecord>) {
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 打卡流水：原始刷卡记录，跟"流水"（考勤结果）不是一回事——这里没有课程、
+ * 没有考勤状态，只有"什么时候在哪台设备刷了一下、这次刷卡算不算数"。
+ */
+@Composable
+private fun StreamList(streams: List<AttendanceStream>) {
+    if (streams.isEmpty()) {
+        EmptyState(title = "暂无打卡流水", modifier = Modifier.fillMaxSize())
+        return
+    }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().overScrollVertical(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        // 不给 key：id 可能缺失，同一台设备同一秒刷两次时拼出来的 key 会重复，Compose 直接崩。
+        items(streams) { stream ->
+            Card(colors = CardDefaults.defaultColors(color = AppCardColor)) {
+                Row(
+                    Modifier.padding(16.dp).fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            stream.collectTime.ifBlank { "时间未知" },
+                            style = MiuixTheme.textStyles.body1,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        if (stream.location.isNotBlank()) {
+                            Text(
+                                stream.location,
+                                style = MiuixTheme.textStyles.body2,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            )
+                        }
+                    }
+                    Text(
+                        if (stream.effective) "有效" else "无效",
+                        style = MiuixTheme.textStyles.body2,
+                        color = if (stream.effective) {
+                            MiuixTheme.colorScheme.primary
+                        } else {
+                            MiuixTheme.colorScheme.onSurfaceVariantSummary
+                        },
+                    )
                 }
             }
         }
