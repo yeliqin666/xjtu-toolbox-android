@@ -127,9 +127,10 @@ android {
             isMinifyEnabled = false
             isShrinkResources = false
             isDebuggable = false
-            signingConfigs.getByName("release")
-                .takeIf { it.storeFile != null }
-                ?.let { signingConfig = it }
+            // initWith 已把 release 的签名配置抄过来；本地没有 keystore 时要显式清掉，
+            // 否则 validateSigningPreview 直接失败，而不是产出未签名包。
+            // CI 上一定有 keystore，Verify preview APK 会拦住未签名的情况。
+            signingConfig = signingConfigs.getByName("release").takeIf { it.storeFile != null }
             // 依赖库只有 debug/release 两种变体，preview 找不到时回落到 release。
             matchingFallbacks += listOf("release")
             buildConfigField("boolean", "IS_PREVIEW", "true")
