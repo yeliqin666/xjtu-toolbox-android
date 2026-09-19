@@ -3,7 +3,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Android-green?logo=android" alt="Android" />
   <img src="https://img.shields.io/badge/minSdk-31%20(Android%2012)-blue" alt="minSdk 31" />
-  <img src="https://img.shields.io/badge/version-4.9.0-orange" alt="version 4.9.0" />
+  <img src="https://img.shields.io/badge/version-4.9.6-orange" alt="version 4.9.0" />
   <img src="https://img.shields.io/badge/license-MIT-lightgrey" alt="MIT License" />
 </p>
 
