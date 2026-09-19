@@ -109,6 +109,14 @@ enum class LmsActivityType(val value: String) {
     MATERIAL("material"),
     LESSON("lesson"),
     LECTURE_LIVE("lecture_live"),
+    /** 页面型内容：课程简介、教学进度、课程考核构成、平时成绩细则 */
+    PAGE("page"),
+    /** 讨论区 */
+    FORUM("forum"),
+    /** 问卷 */
+    QUESTIONNAIRE("questionnaire"),
+    /** 在线视频 */
+    ONLINE_VIDEO("online_video"),
     UNKNOWN("unknown");
 
     companion object {
@@ -148,6 +156,8 @@ data class LmsActivity(
     val title: String = "",
     val moduleId: Int? = null,
     val startTime: String? = null,
+    /** 可见起始（UTC）。与 [startTime]「能开始作答」不是一回事：实测两条作业里各只有一个字段有值 */
+    val visibleStartAt: String? = null,
     val endTime: String? = null,
     val published: Boolean = false,
     val createdAt: String = "",
@@ -155,7 +165,8 @@ data class LmsActivity(
     val submitByGroup: Boolean = false,
     val uploads: List<LmsUpload> = emptyList(),
 
-    // homework 专有
+    // 正文与作业字段
+    /** 正文：作业/课件是作业说明（`data.description`），页面型是页面正文（`data.content`） */
     val description: String? = null,
     val groupId: Int? = null,
     val groupSetName: String? = null,
@@ -165,7 +176,13 @@ data class LmsActivity(
     val highestScore: Double? = null,
     val lowestScore: Double? = null,
     val hasScoreCount: Int? = null,
-    /** 截止时间（UTC）。上游 deadline，与 endTime 多数一致但以此为准 */
+    /**
+     * 截止时间（UTC）。上游 `deadline`，与 [endTime] 多数一致但**以此为准**：实测 65 份作业里
+     * 3 份不同，方向都是 endTime 更早（最多差 20 天）。
+     *
+     * 注意：**只有列表接口返回该字段**（详情 79 个键里没有），所以详情页显示的是调用方
+     * 从列表合并进来的值（见 [LmsApi.mergeBrief]），合并不到时才退回 [endTime]。
+     */
     val deadline: String? = null,
     /** 允许提交次数；[nonSubmitTimes] 为 true 表示不限次 */
     val submitTimes: Int? = null,

@@ -1913,6 +1913,10 @@ class AgentToolRegistry(
         com.xjtu.toolbox.lms.LmsActivityType.MATERIAL -> "课件"
         com.xjtu.toolbox.lms.LmsActivityType.LESSON -> "课程/回放"
         com.xjtu.toolbox.lms.LmsActivityType.LECTURE_LIVE -> "直播/回放"
+        com.xjtu.toolbox.lms.LmsActivityType.PAGE -> "页面"
+        com.xjtu.toolbox.lms.LmsActivityType.FORUM -> "讨论区"
+        com.xjtu.toolbox.lms.LmsActivityType.QUESTIONNAIRE -> "问卷"
+        com.xjtu.toolbox.lms.LmsActivityType.ONLINE_VIDEO -> "在线视频"
         else -> "其他"
     }
 
@@ -1928,6 +1932,17 @@ class AgentToolRegistry(
         } catch (e: Exception) {
             "获取思源学堂课程失败：${e.message ?: "网络异常"}"
         }
+    }
+
+    /**
+     * 活动的时间尾巴：作业报"截止"（优先上游 `deadline`，它才是老师设的那个时间，实测 4.6%
+     * 与 `end_time` 不同，且都是 `end_time` 比它早），其余类型报"结束"（下课/回放结束，不是截止）。
+     */
+    private fun lmsTimeSuffix(a: com.xjtu.toolbox.lms.LmsActivity): String {
+        val isHw = a.type == com.xjtu.toolbox.lms.LmsActivityType.HOMEWORK
+        val raw = if (isHw) (a.deadline ?: a.endTime) else a.endTime
+        if (raw.isNullOrBlank()) return ""
+        return if (isHw) "（截止 $raw）" else "（结束 $raw）"
     }
 
     private suspend fun getLmsActivities(course: String?): String {
@@ -1947,7 +1962,7 @@ class AgentToolRegistry(
                     append("【${lmsTypeName(t)}】\n")
                     list.take(15).forEach { a ->
                         append("• ${a.title}")
-                        a.endTime?.let { append("（截止 $it）") }
+                        append(lmsTimeSuffix(a))
                         append("\n")
                     }
                 }
@@ -1973,12 +1988,12 @@ class AgentToolRegistry(
                 }
             }
             if (homeworks.isEmpty()) return "思源学堂暂无作业。"
-            val sorted = homeworks.sortedBy { it.second.endTime ?: "9999" }
+            val sorted = homeworks.sortedBy { it.second.deadline ?: it.second.endTime ?: "9999" }
             buildString {
                 append("思源学堂作业（${sorted.size}项）：\n")
                 sorted.take(25).forEach { (cn, a) ->
                     append("• [$cn] ${a.title}")
-                    a.endTime?.let { append("，截止 $it") }
+                    append(lmsTimeSuffix(a))
                     append("\n")
                 }
             }
@@ -2020,11 +2035,16 @@ class AgentToolRegistry(
             val c = findLmsCourse(api, course) ?: return "请提供有效课程名；可先用 get_lms_courses 查看课程列表。"
             val brief = findLmsActivity(api, c.id, activity)
                 ?: return "未找到「${c.name}」中的活动「${activity.orEmpty()}」。可先用 get_lms_activities 查看活动列表。"
-            val a = api.getActivityDetail(brief.id)
+            val a = api.getActivityDetail(brief.id, brief)
             buildString {
                 append("「${c.name}」${lmsTypeName(a.type)}详情：${a.title}\n")
                 a.startTime?.let { append("开始：$it\n") }
-                a.endTime?.let { append("截止：$it\n") }
+                a.visibleStartAt?.let { append("可见：$it\n") }
+                if (a.type == com.xjtu.toolbox.lms.LmsActivityType.HOMEWORK) {
+                    (a.deadline ?: a.endTime)?.let { append("截止：$it\n") }
+                } else {
+                    a.endTime?.let { append("结束：$it\n") }
+                }
                 if (!a.description.isNullOrBlank()) append("说明：${org.jsoup.Jsoup.parse(a.description).text().take(1200)}\n")
                 if (a.uploads.isNotEmpty()) {
                     append("附件：\n")
@@ -2057,7 +2077,7 @@ class AgentToolRegistry(
             val c = findLmsCourse(api, course) ?: return "请提供有效课程名；可先用 get_lms_courses 查看课程列表。"
             val brief = findLmsActivity(api, c.id, activity)
                 ?: return "未找到「${c.name}」中的活动「${activity.orEmpty()}」。"
-            val detail = api.getActivityDetail(brief.id)
+            val detail = api.getActivityDetail(brief.id, brief)
             val uploads = detail.uploads + detail.submissionList?.list.orEmpty().flatMap { it.uploads }
             val key = file?.trim().orEmpty()
             val upload = uploads.firstOrNull { key.isBlank() || it.name.contains(key, ignoreCase = true) }

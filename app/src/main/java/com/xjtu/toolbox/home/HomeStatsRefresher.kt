@@ -11,6 +11,7 @@ import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.auth.siteKey
 import com.xjtu.toolbox.fitness.hasUsableTotal
 import com.xjtu.toolbox.fitness.orderedFitnessYears
+import com.xjtu.toolbox.lms.LmsCourseSummary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
@@ -291,8 +292,8 @@ object HomeStatsRefresher {
      *
      * 两个坑：
      * 1. **学期要自己挑最新的**。思源里 2025-2026 春季学期比秋季更"新"，但课程列表并不
-     *    按此排序，直接遍历全部课程会把上学年的旧作业也捞进来。这里按
-     *    `academicYear.sort` + `semester.sort` 选出最大的一档，只看该学期的课。
+     *    按此排序，直接遍历全部课程会把上学年的旧作业也捞进来。这里按 [lmsTermOrder]
+     *    选出最大的那一档，只看该学期的课。
      * 2. **活动确实带时间戳**（`LmsActivity.updatedAt` / `createdAt`），所以能排序取最新——
      *    此前不确定有没有时间字段，看模型确认是有的。
      *
@@ -307,12 +308,9 @@ object HomeStatsRefresher {
         Log.d(TAG, "lms: 课程 ${courses.size} 门")
         if (courses.isEmpty()) return null
 
-        // 最新学期 = (学年 sort, 学期 sort) 字典序最大的那一档
-        val newest = courses.maxOf { it.academicYear.sort.toLong() * 1000 + it.semester.sort }
-        val inTerm = courses.filter {
-            it.academicYear.sort.toLong() * 1000 + it.semester.sort == newest
-        }.take(LMS_MAX_COURSES)
-        Log.d(TAG, "lms: 最新学期 sort=$newest，取 ${inTerm.size} 门：${inTerm.map { it.name }}")
+        // 最新学期 = 学期 code 最大的一档。为什么不能用 sort，见 [lmsTermOrder] 的注释。
+        val inTerm = newestTermCourses(courses, LMS_MAX_COURSES)
+        Log.d(TAG, "lms: 最新学期 ${inTerm.firstOrNull()?.semester?.code}，取 ${inTerm.size} 门：${inTerm.map { it.name }}")
 
         val wanted = setOf(
             com.xjtu.toolbox.lms.LmsActivityType.HOMEWORK,
@@ -330,9 +328,11 @@ object HomeStatsRefresher {
 
         // 排序时间要逐级兜底：**部分作业既没有 updated_at 也没有 created_at**
         // （用户实测遇到过），只用这两个字段的话它们会以空串排到最后，永远选不中。
-        // 作业还有截止/开始时间可用，最后才退回空串。
+        // 作业还有截止/开始时间可用，最后才退回空串。截止优先读列表里的 deadline，
+        // 与详情页、截止提醒同一口径（end_time 可能比真截止早）。
         val latest = acts.sortedByDescending { (_, a) ->
             a.updatedAt.ifBlank { a.createdAt }
+                .ifBlank { a.deadline.orEmpty() }
                 .ifBlank { a.endTime.orEmpty() }
                 .ifBlank { a.startTime.orEmpty() }
         }.take(2)
@@ -535,4 +535,32 @@ object HomeStatsRefresher {
             if (abnormal > 0) "本周 $ok/$total 次正常 · $abnormal 次异常" else "本周 $ok/$total 次正常"
         )
     }
+}
+
+/**
+ * 选出"最新学期"的课程，最多 [max] 门。
+ *
+ * 认不出学期的课（`academic_year` / `semester` 为 null）不参与，也不会被当成最新；
+ * 一门都认不出时退化成不筛——宁可多查几门，也别让首页空着。
+ */
+internal fun newestTermCourses(courses: List<LmsCourseSummary>, max: Int): List<LmsCourseSummary> {
+    fun order(c: LmsCourseSummary) = lmsTermOrder(c.semester.code, c.academicYear.code)
+    val newest = courses.mapNotNull(::order).maxOrNull() ?: return courses.take(max)
+    return courses.filter { order(it) == newest }.take(max)
+}
+
+/**
+ * 思源学期排序键：`2026-1` → `202601`，越大越新；认不出返回 null。
+ *
+ * 为什么不用 `academicYear.sort` + `semester.sort`：实测 `academic_year.sort` 恒为 0
+ * （字段在，值不区分学年），退化后只剩 `semester.sort`，而它的顺序是**越旧越大**
+ * （2025-1=5 > 2025-2=4 > 2026-1=1），于是"最新学期"恰好选中一年前那个。
+ * `semester.name` / `real_name` 实测全是 null，`code` 是唯一单调可比的锚点。
+ */
+internal fun lmsTermOrder(semesterCode: String?, academicYearCode: String?): Int? {
+    val year = semesterCode?.substringBefore('-')?.trim()?.toIntOrNull()
+        ?: academicYearCode?.substringBefore('-')?.trim()?.toIntOrNull()
+        ?: return null
+    val term = semesterCode?.substringAfter('-', "")?.trim()?.toIntOrNull() ?: 0
+    return year * 100 + term
 }
