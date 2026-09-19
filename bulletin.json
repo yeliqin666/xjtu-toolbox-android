@@ -1,13 +1,15 @@
 {
   "bulletins": [
     {
-      "id": "2026-09-18-crash-reinstall",
+      "id": "2026-09-19-crash-reinstall",
       "level": "warn",
-      "title": "更新后仍闪退？请卸载重装",
-      "body": "如果更新到 4.9.5 后仍然闪退，请彻底卸载后从 GitHub Release 重新下载安装。",
+      "title": "4.9.4、4.9.5 闪退？请更新到 4.9.6",
+      "body": "如果 4.9.4、4.9.5 版本使用中闪退，请更新到 4.9.6 及以上版本！",
       "url": "https://github.com/yeliqin666/xjtu-toolbox-android/releases/latest",
       "mustAck": false,
-      "block": false
+      "block": false,
+      "maxVersion": "4.9.5",
+      "endsAt": "2026-09-26T00:00:00+08:00"
     },
     {
       "id": "2026-09-14-attendance-kq-mismatch",
@@ -18,13 +20,13 @@
       "block": false
     },
     {
-      "id": "2026-09-18-recommend-4.9.5",
+      "id": "2026-09-19-recommend-4.9.6",
       "level": "force_update",
-      "title": "请更新到 4.9.5",
-      "body": "修复 4.9.4 点击「我的」等页面闪退的问题。性能大幅优化，接入新版考勤，修复验证码、校历、图书馆等多种 bug，新增屁岱皮肤和匹配交友等。",
+      "title": "请立即更新到 4.9.6",
+      "body": "修复打开成绩查询、屁岱闪退，以及「我的」页姓名头像丢失；安装包缩小近一半，冷启动快约两成；课表调课停课与 10 月后冬令时时间修正；思源学堂截止时间与页面内容修正。",
       "url": "https://github.com/yeliqin666/xjtu-toolbox-android/releases/latest",
-      "targetVersion": "4.9.5",
-      "targetVersionCode": 61,
+      "targetVersion": "4.9.6",
+      "targetVersionCode": 62,
       "mustAck": false,
       "block": false
     },
