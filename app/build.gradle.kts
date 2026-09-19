@@ -23,8 +23,8 @@ android {
         applicationId = "com.xjtu.toolbox"
         minSdk = 31
         targetSdk = 36
-        versionCode = 62
-        versionName = "4.9.6"
+        versionCode = 63
+        versionName = "4.9.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -90,6 +90,7 @@ android {
 
     buildTypes {
         debug {
+            buildConfigField("boolean", "IS_PREVIEW", "false")
             // 用 release 的签名给 debug 包签名。
             // 目的：签名一致才能直接覆盖安装设备上已有的 release 版，不必先卸载——
             // 卸载会连登录态和缓存一起清掉，排查问题时每次都要重登，很折腾。
@@ -108,6 +109,7 @@ android {
             }
         }
         release {
+            buildConfigField("boolean", "IS_PREVIEW", "false")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -115,6 +117,24 @@ android {
                 "proguard-rules.pro"
             )
             signingConfig = signingConfigs.getByName("release")
+        }
+        create("preview") {
+            // 预览渠道包：给愿意尝鲜的用户，也是我们抓问题的主要来源。
+            // - 不混淆不压缩：崩溃堆栈直接可读，proguard 里 -assumenosideeffects 不生效，Log 完整保留。
+            // - 非 debuggable：debug 包的 Compose 明显卡顿，用户会以为新版本变慢。
+            // - 与 release 同签名：可与正式版互相覆盖安装，不丢登录态。
+            initWith(getByName("release"))
+            isMinifyEnabled = false
+            isShrinkResources = false
+            isDebuggable = false
+            // initWith 已把 release 的签名配置抄过来；本地没有 keystore 时要显式清掉，
+            // 否则 validateSigningPreview 直接失败，而不是产出未签名包。
+            // CI 上一定有 keystore，Verify preview APK 会拦住未签名的情况。
+            signingConfig = signingConfigs.getByName("release").takeIf { it.storeFile != null }
+            // 依赖库只有 debug/release 两种变体，preview 找不到时回落到 release。
+            matchingFallbacks += listOf("release")
+            buildConfigField("boolean", "IS_PREVIEW", "true")
+            versionNameSuffix = "-dev.${System.getenv("GITHUB_RUN_NUMBER") ?: "local"}"
         }
     }
     compileOptions {

@@ -2140,7 +2140,7 @@ class AgentToolRegistry(
     private val writableSettingKeys = listOf(
         "dark_mode", "dynamic_color", "home_theme", "nav_bar_style", "show_quick_actions",
         "default_tab", "network_mode", "account_type", "venue_auto_solve_captcha",
-        "update_channel",
+        "update_channel", "receive_preview_updates",
     )
 
     private fun parseBoolSetting(value: String): Boolean? {
@@ -2165,6 +2165,7 @@ class AgentToolRegistry(
             append("• account_type（账号类型）：${cs.accountType.key}　可选 undergraduate/postgraduate\n")
             append("• venue_auto_solve_captcha（场馆验证码自动识别）：${cs.venueAutoSolveCaptchaEnabled}　可选 true/false\n")
             append("• update_channel（更新通道）：${cs.updateChannel}（${com.xjtu.toolbox.util.AppUpdater.channelLabel(cs.updateChannel)}）　可选 ${com.xjtu.toolbox.util.AppUpdater.channelKeys.joinToString("/")}\n")
+            append("• receive_preview_updates（接收预览版更新）：${cs.receivePreviewUpdates}　可选 true/false\n")
             append("（账号、密码、校园网凭据等敏感项不开放修改）")
         }
     }
@@ -2253,19 +2254,27 @@ class AgentToolRegistry(
                     "已将更新通道设为 $v（${com.xjtu.toolbox.util.AppUpdater.channelLabel(v)}）。"
                 }
             }
+            "receive_preview_updates" -> {
+                val b = parseBoolSetting(value) ?: return "receive_preview_updates 只能是 true 或 false。"
+                cs.receivePreviewUpdates = b
+                "已将「接收预览版更新」设为 $b。"
+            }
             else -> "不支持修改「$key」。仅允许：${writableSettingKeys.joinToString(" / ")}；账号密码等敏感项不可改。"
         }
     }
 
     private suspend fun checkUpdate(): String {
         val cur = com.xjtu.toolbox.BuildConfig.VERSION_NAME
-        val channel = runCatching { com.xjtu.toolbox.util.CredentialStore(context).updateChannel }
-            .getOrDefault(com.xjtu.toolbox.util.AppUpdater.CHANNEL_GITEE)
+        val cs = runCatching { com.xjtu.toolbox.util.CredentialStore(context) }.getOrNull()
+        val channel = cs?.updateChannel ?: com.xjtu.toolbox.util.AppUpdater.CHANNEL_GITEE
+        val includePreview = cs?.receivePreviewUpdates ?: false
+        val rolloutId = cs?.rolloutId ?: ""
         return try {
-            val info = com.xjtu.toolbox.util.AppUpdater.check(channel)
+            val info = com.xjtu.toolbox.util.AppUpdater.check(channel, includePreview, rolloutId)
                 ?: return "当前版本 v$cur；暂时没查到更新信息。"
+            val typeLabel = if (info.isPreview) "预览版 " else ""
             if (info.version.isNotBlank() && info.version != cur)
-                "发现新版本 v${info.version}（你当前 v$cur，来源：${info.channelLabel}）。可在「我的 → 检查更新」里下载更新。"
+                "发现新${typeLabel}版本 ${if (info.isPreview) "" else "v"}${info.version}（你当前 v$cur，来源：${info.channelLabel}）。可在「我的 → 检查更新」里下载更新。"
             else "当前已是最新版本 v$cur。"
         } catch (e: Exception) {
             "检查更新失败：${e.message ?: "网络异常"}"

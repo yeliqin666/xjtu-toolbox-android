@@ -5,15 +5,18 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
 import androidx.core.content.FileProvider
+import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.xjtu.toolbox.BuildConfig
 import com.xjtu.toolbox.MainActivity
+import com.xjtu.toolbox.bulletin.BulletinRules
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
+import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
 data class AppUpdateInfo(
@@ -23,6 +26,7 @@ data class AppUpdateInfo(
     val releaseUrl: String,
     val channel: String = AppUpdater.CHANNEL_GITEE,
     val channelLabel: String = AppUpdater.channelLabel(channel),
+    val isPreview: Boolean = false,
 )
 
 object AppUpdater {
@@ -71,8 +75,31 @@ object AppUpdater {
      * 拉当前渠道的最新 Release，不跟本机版本比。
      * 强制更新点「立即更新」必须走这条：公告已经认定要升，再过滤一次会误报「暂未查到」。
      */
-    suspend fun fetchLatest(channel: String): AppUpdateInfo = withContext(Dispatchers.IO) {
+    suspend fun fetchLatest(
+        channel: String,
+        includePreview: Boolean = false,
+        rolloutId: String = "",
+    ): AppUpdateInfo = withContext(Dispatchers.IO) {
         val normalizedChannel = normalizeChannel(channel)
+        if (includePreview && normalizedChannel == CHANNEL_GITHUB) {
+            val url = "https://api.github.com/repos/yeliqin666/xjtu-toolbox-android/releases?per_page=30"
+            val body = client.newCall(
+                Request.Builder()
+                    .url(url)
+                    .header("Accept", "application/json")
+                    .header("User-Agent", "XJTUToolBox/${BuildConfig.VERSION_NAME}")
+                    .build()
+            ).execute().use { response ->
+                if (!response.isSuccessful) error("服务器响应 ${response.code}")
+                response.body?.string() ?: error("服务器没有返回内容")
+            }
+            val array = JsonParser.parseString(body).asJsonArray
+            val picked = pickRelease(array, BuildConfig.VERSION_NAME, includePreview = true, rolloutId = rolloutId)
+            if (picked != null) {
+                return@withContext picked
+            }
+        }
+
         val primary = fetchRelease(normalizedChannel)
         if (!primary.hasApkAsset && normalizedChannel == CHANNEL_GITEE) {
             val github = runCatching { fetchRelease(CHANNEL_GITHUB) }.getOrNull()
@@ -84,11 +111,101 @@ object AppUpdater {
     }
 
     /** 仅当远端版本比本机新时返回，给设置里「检查更新」用。 */
-    suspend fun check(channel: String): AppUpdateInfo? {
-        val latest = fetchLatest(channel)
+    suspend fun check(
+        channel: String,
+        includePreview: Boolean = false,
+        rolloutId: String = "",
+    ): AppUpdateInfo? {
+        val latest = fetchLatest(channel, includePreview, rolloutId)
         return latest.takeIf {
             MainActivity.compareVersionStrings(BuildConfig.VERSION_NAME, it.version) < 0
         }
+    }
+
+    private val ROLLOUT_REGEX = Regex("""(?im)^\s*rollout\s*:\s*(\d{1,3})\s*%?\s*$""")
+
+    fun extractRolloutPercentage(body: String): Int {
+        val match = ROLLOUT_REGEX.find(body) ?: return 100
+        val p = match.groupValues[1].toIntOrNull() ?: 100
+        return p.coerceIn(0, 100)
+    }
+
+    fun isRolloutHit(rolloutId: String, tag: String, rolloutPct: Int): Boolean {
+        if (rolloutPct <= 0) return false
+        if (rolloutPct >= 100) return true
+        val md = MessageDigest.getInstance("SHA-256")
+        val hash = md.digest("$rolloutId:$tag".toByteArray(Charsets.UTF_8))
+        val raw = ((hash[0].toLong() and 0xFFL) shl 24) or
+                ((hash[1].toLong() and 0xFFL) shl 16) or
+                ((hash[2].toLong() and 0xFFL) shl 8) or
+                (hash[3].toLong() and 0xFFL)
+        val bucket = (raw % 100L).toInt()
+        return bucket < rolloutPct
+    }
+
+    fun pickRelease(
+        releases: JsonArray,
+        currentVersion: String,
+        includePreview: Boolean = false,
+        rolloutId: String = "",
+    ): AppUpdateInfo? {
+        val candidates = mutableListOf<AppUpdateInfo>()
+        for (el in releases) {
+            if (!el.isJsonObject) continue
+            val obj = el.asJsonObject
+            val draft = obj.get("draft")?.takeIf { it.isJsonPrimitive }?.asBoolean ?: false
+            if (draft) continue
+
+            val isPrerelease = obj.get("prerelease")?.takeIf { it.isJsonPrimitive }?.asBoolean ?: false
+            val tagName = obj.get("tag_name")?.takeIf { it.isJsonPrimitive }?.asString.orEmpty()
+            val name = obj.get("name")?.takeIf { it.isJsonPrimitive }?.asString?.trim().orEmpty()
+            val body = obj.get("body")?.takeIf { it.isJsonPrimitive }?.asString.orEmpty()
+            val htmlUrl = obj.get("html_url")?.takeIf { it.isJsonPrimitive }?.asString.orEmpty()
+
+            val assets = obj.getAsJsonArray("assets")
+            val apkAsset = assets
+                ?.mapNotNull { item -> item.takeIf { it.isJsonObject }?.asJsonObject }
+                ?.firstOrNull { asset ->
+                    asset.get("name")?.asString?.endsWith(".apk", ignoreCase = true) == true
+                }
+            val downloadUrl = apkAsset?.get("browser_download_url")?.asString
+
+            val version: String
+            if (isPrerelease) {
+                if (!includePreview) continue
+                // 预览版必须有 apk asset
+                if (apkAsset == null || downloadUrl.isNullOrBlank()) continue
+                // 预览版版本号从 name 取（CI 约定 name 为完整版本号，如 4.9.8-dev.12）
+                if (name.isBlank()) continue
+                version = name
+
+                // 灰度判定
+                val rolloutPct = extractRolloutPercentage(body)
+                if (!isRolloutHit(rolloutId, tagName, rolloutPct)) {
+                    continue
+                }
+            } else {
+                // 正式版
+                val ver = tagName.removePrefix("v").trim()
+                if (ver.isBlank()) continue
+                version = ver
+            }
+
+            val finalDownloadUrl = downloadUrl
+                ?: "https://github.com/yeliqin666/xjtu-toolbox-android/releases/download/v$version/app-release.apk"
+
+            candidates += AppUpdateInfo(
+                version = version,
+                notes = body,
+                downloadUrl = finalDownloadUrl,
+                releaseUrl = htmlUrl,
+                channel = CHANNEL_GITHUB,
+                channelLabel = channelLabel(CHANNEL_GITHUB),
+                isPreview = isPrerelease,
+            )
+        }
+
+        return candidates.maxWithOrNull { a, b -> BulletinRules.compareVersions(a.version, b.version) }
     }
 
     private suspend fun fetchRelease(channel: String): ParsedRelease {

@@ -650,6 +650,7 @@ fun AppNavigation(
     var autoUpdateReleaseUrl by remember { mutableStateOf("") }
     var autoUpdateChannelKey by remember { mutableStateOf("") }
     var autoUpdateChannel by remember { mutableStateOf("") }
+    var autoUpdateIsPreview by remember { mutableStateOf(false) }
     val showAutoUpdateDialog = remember { mutableStateOf(false) }
 
     fun applyHeroBulletin(
@@ -679,6 +680,7 @@ fun AppNavigation(
         autoUpdateReleaseUrl = update.releaseUrl
         autoUpdateChannelKey = update.channel
         autoUpdateChannel = update.channelLabel
+        autoUpdateIsPreview = update.isPreview
         showAutoUpdateDialog.value = true
     }
 
@@ -690,6 +692,7 @@ fun AppNavigation(
         }
         mainScope.launch {
             val result = runCatching {
+                // 强制更新是公告指定要升到正式版，不能把开了预览开关的人引到预览版上。
                 com.xjtu.toolbox.util.AppUpdater.fetchLatest(credentialStore.updateChannel)
             }
             result.fold(
@@ -768,7 +771,11 @@ fun AppNavigation(
         val now = System.currentTimeMillis()
         if (now - credentialStore.lastAutoUpdateCheckAt >= com.xjtu.toolbox.util.AppUpdater.AUTO_CHECK_INTERVAL_MS) {
             try {
-                update = com.xjtu.toolbox.util.AppUpdater.check(credentialStore.updateChannel)
+                update = com.xjtu.toolbox.util.AppUpdater.check(
+                    channel = credentialStore.updateChannel,
+                    includePreview = credentialStore.receivePreviewUpdates,
+                    rolloutId = credentialStore.rolloutId,
+                )
                 credentialStore.lastAutoUpdateCheckAt = System.currentTimeMillis()
             } catch (e: Exception) {
                 android.util.Log.w("AppUpdater", "startup update check failed", e)
@@ -840,6 +847,7 @@ fun AppNavigation(
                 downloadUrl = autoUpdateDownloadUrl,
                 releaseUrl = autoUpdateReleaseUrl,
                 channelLabel = autoUpdateChannel,
+                isPreview = autoUpdateIsPreview,
                 onDismiss = {
                     credentialStore.markUpdateNoticeSeen("auto_${autoUpdateChannelKey}_${autoUpdateVersion}")
                     showAutoUpdateDialog.value = false

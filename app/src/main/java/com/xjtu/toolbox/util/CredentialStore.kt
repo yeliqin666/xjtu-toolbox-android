@@ -2,6 +2,7 @@ package com.xjtu.toolbox.util
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.xjtu.toolbox.BuildConfig
 import com.xjtu.toolbox.auth.AccountType
 
 /**
@@ -179,6 +180,22 @@ class CredentialStore(context: Context) {
         get() = AppUpdater.normalizeChannel(appPrefs.getString(KEY_UPDATE_CHANNEL, CHANNEL_GITEE))
         set(value) { appPrefs.edit().putString(KEY_UPDATE_CHANNEL, AppUpdater.normalizeChannel(value)).apply() }
 
+    /** 是否接收预览版更新。预览包自身默认开（否则装了预览包的人收不到下一个预览）。 */
+    var receivePreviewUpdates: Boolean
+        get() = appPrefs.getBoolean(KEY_RECEIVE_PREVIEW, BuildConfig.IS_PREVIEW)
+        set(value) { appPrefs.edit().putBoolean(KEY_RECEIVE_PREVIEW, value).apply() }
+
+    /**
+     * 灰度分桶用的本机随机 ID。只存在本地，不上传、不与账号关联。
+     * 首次读取时生成；清数据/重装会重新生成（等于重新抽签，可以接受）。
+     */
+    val rolloutId: String
+        // 各处都是现场 new 的 CredentialStore，锁实例没用，锁类。
+        get() = synchronized(CredentialStore::class.java) {
+            appPrefs.getString(KEY_ROLLOUT_ID, null) ?: java.util.UUID.randomUUID().toString()
+                .also { appPrefs.edit().putString(KEY_ROLLOUT_ID, it).commit() }
+        }
+
     var accountType: AccountType
         get() = AccountType.fromKey(appPrefs.getString(KEY_ACCOUNT_TYPE, AccountType.UNDERGRADUATE.key))
         set(value) { appPrefs.edit().putString(KEY_ACCOUNT_TYPE, value.key).apply() }
@@ -248,6 +265,8 @@ class CredentialStore(context: Context) {
         private const val KEY_NETWORK_MODE = "network_mode"
         private const val KEY_AUTO_CHECK_UPDATE = "auto_check_update"
         private const val KEY_UPDATE_CHANNEL = "update_channel"
+        private const val KEY_RECEIVE_PREVIEW = "receive_preview_updates"
+        private const val KEY_ROLLOUT_ID = "rollout_id"
         private const val KEY_LAST_RUN_VERSION = "last_run_version"
         private const val KEY_LAST_AUTO_UPDATE_CHECK_AT = "last_auto_update_check_at"
         private const val KEY_ACCOUNT_TYPE = "account_type"

@@ -34,6 +34,12 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "4.9.7" to VersionChangelog(
+            items = listOf(
+                "🧪" to "新增「接收预览版更新」开关，可提前体验新功能",
+                "🔢" to "修正版本号比较规则，支持预发布通道语义",
+            )
+        ),
         "4.9.6" to VersionChangelog(
             items = listOf(
                 "🩹" to "修复第二次打开成绩查询、打开屁岱时闪退的问题；成绩、黄页、教材分类的缓存恢复可用",
@@ -509,7 +515,10 @@ object AppChangelog {
 
     /** 当前版本对应的 changelog（找不到时返回 null）。 */
     val current: VersionChangelog?
-        get() = ENTRIES.firstOrNull { it.first == BuildConfig.VERSION_NAME }?.second
+        get() {
+            val base = BuildConfig.VERSION_NAME.substringBefore('-')
+            return ENTRIES.firstOrNull { it.first == BuildConfig.VERSION_NAME || it.first == base }?.second
+        }
 
     /**
      * 返回 `(lastSeen, current]` 区间内的所有 changelog 条目（最新在前）。
@@ -519,7 +528,8 @@ object AppChangelog {
         val current = BuildConfig.VERSION_NAME
         if (lastSeen == current) return emptyList()
         if (lastSeen == null) {
-            return ENTRIES.firstOrNull { it.first == current }?.let(::listOf).orEmpty()
+            val base = current.substringBefore('-')
+            return ENTRIES.firstOrNull { it.first == current || it.first == base }?.let(::listOf).orEmpty()
         }
         // ENTRIES 已按版本号倒序，截取从最前到 lastSeen（不含）的部分
         val result = mutableListOf<Pair<String, VersionChangelog>>()
@@ -533,9 +543,10 @@ object AppChangelog {
         return result
     }
 
-    /** 编译期校验：当前 versionName 必须存在条目。 */
+    /** 编译期/启动校验：当前 versionName 必须存在条目（预览版匹配基础版本号）。 */
     init {
-        require(ENTRIES.any { it.first == BuildConfig.VERSION_NAME }) {
+        val base = BuildConfig.VERSION_NAME.substringBefore('-')
+        require(ENTRIES.any { it.first == BuildConfig.VERSION_NAME || it.first == base }) {
             "⚠️ 版本 ${BuildConfig.VERSION_NAME} 没有对应的更新日志！请在 AppChangelog.ENTRIES 顶部追加条目。"
         }
     }
