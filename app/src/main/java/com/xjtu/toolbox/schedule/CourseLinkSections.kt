@@ -149,6 +149,7 @@ fun CourseLinkSections(
                 WaterType.LATE -> Color(0xFFF5A524)
                 WaterType.LEAVE -> Color(0xFF9BA1A6)
                 WaterType.NORMAL -> MiuixTheme.colorScheme.primary
+                WaterType.UNKNOWN -> MiuixTheme.colorScheme.onSurfaceVariantSummary
             },
             title = "本次考勤：${r.status.displayName}",
             subtitle = null,

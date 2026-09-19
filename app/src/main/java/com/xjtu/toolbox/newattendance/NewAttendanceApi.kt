@@ -2,6 +2,7 @@ package com.xjtu.toolbox.newattendance
 
 import com.google.gson.JsonObject
 import com.xjtu.toolbox.attendance.AttendanceProvider
+import com.xjtu.toolbox.attendance.AttendanceStream
 import com.xjtu.toolbox.attendance.AttendanceWaterRecord
 import com.xjtu.toolbox.attendance.CourseAttendanceStat
 import com.xjtu.toolbox.attendance.TermInfo
@@ -68,32 +69,32 @@ class NewAttendanceApi(private val site: SiteSession) : AttendanceProvider {
                 name = name,
                 startDate = normalizeDate(KqHttp.str(row, "startDate", "beginDate", "startTime")),
                 endDate = normalizeDate(KqHttp.str(row, "endDate", "finishDate", "endTime")),
+                code = termCodeOf(year, semesterName),
             )
         }.distinctBy { it.bh }.sortedByDescending { it.startDate }
         cachedTerms = terms
         return terms
     }
 
+    private fun termCodeOf(year: String, semesterName: String): String = TermCodeMapper.termCodeOf(year, semesterName)
+
+    /**
+     * 当前学期直接取列表第 0 个——接口按当前学期在前排序，不用再猜 current/isCurrent
+     * 标志位，也不用为此多打一次请求。日期兜底只在列表异常（比如年初还没排出新学期）
+     * 时才用得上。
+     */
     override fun getTermBh(): String {
         val terms = cachedTerms.ifEmpty { getTermList() }
         if (terms.isEmpty()) return ""
-        runCatching {
-            val root = getJson("/student/service/timetable/semesters")
-            val rows = KqHttp.rows(root.get("data")).ifEmpty { KqHttp.rows(root) }
-            val current = rows.firstOrNull { row ->
-                val flag = KqHttp.first(row, "current", "isCurrent", "active", "currentFlag")
-                if (flag != null) {
-                    KqHttp.bool(row, "current", "isCurrent", "active", "currentFlag")
-                } else {
-                    KqHttp.str(row, "status").uppercase() in setOf("CURRENT", "ACTIVE")
-                }
-            }
-            val id = current?.let { KqHttp.str(it, "semesterId", "termId", "id", "semesterCode", "termNo") }
-            if (!id.isNullOrBlank()) return id
-        }
+        val first = terms.first()
         val today = LocalDate.now().toString()
+        if (first.startDate.isBlank() || first.endDate.isBlank() ||
+            (first.startDate <= today && today <= first.endDate)
+        ) {
+            return first.bh
+        }
         return terms.firstOrNull { it.startDate.isNotBlank() && it.endDate.isNotBlank() && it.startDate <= today && today <= it.endDate }?.bh
-            ?: terms.first().bh
+            ?: first.bh
     }
 
     override fun getWaterRecords(termBh: String?, startDate: String, endDate: String): List<AttendanceWaterRecord> {
@@ -117,7 +118,7 @@ class NewAttendanceApi(private val site: SiteSession) : AttendanceProvider {
             }
             AttendanceWaterRecord(
                 sbh = id,
-                termString = term?.name.orEmpty(),
+                termString = term?.code?.ifBlank { term.name }.orEmpty(),
                 startTime = startSection,
                 endTime = endSection,
                 week = weekOf(term?.startDate.orEmpty(), date),
@@ -194,15 +195,54 @@ class NewAttendanceApi(private val site: SiteSession) : AttendanceProvider {
             addProperty("attendanceStatus", "")
             if (term.isNotBlank()) addProperty("semesterId", term)
         }
-        val req = Request.Builder()
-            .url(KqHttp.buildUrl(site, "/student/pc/attendance-records/page"))
-            .post(KqHttp.pagePayload(data).toString().toRequestBody(jsonType))
-            .build()
-        val root = KqHttp.execute(site, req, "/student/pc/attendance-records/page", retryable = true)
-        val rows = KqHttp.rows(root.get("data")).ifEmpty { KqHttp.rows(root) }
+        val rows = fetchAllPages("/student/pc/attendance-records/page", data)
         return rows.filter { row ->
             KqHttp.str(row, "attendanceStatus", "status").uppercase() != "NOT_REQUIRED"
         }
+    }
+
+    /**
+     * 考勤打卡流水分页，跟 [fetchAttendanceRecords] 同一套接口形状，字段不同。
+     */
+    fun getStreams(startDate: String, endDate: String): List<AttendanceStream> {
+        val data = JsonObject().apply {
+            addProperty("startDate", startDate)
+            addProperty("endDate", endDate)
+        }
+        val rows = fetchAllPages("/student/pc/attendance-streams/page", data)
+        return rows.map { row ->
+            AttendanceStream(
+                id = KqHttp.str(row, "id", "streamId"),
+                location = KqHttp.str(row, "classroomName", "classroom", "location"),
+                collectTime = KqHttp.str(row, "collectTime", "time"),
+                effective = KqHttp.bool(row, "effective", "isEffective"),
+            )
+        }
+    }
+
+    /**
+     * 通用分页拉取：每页 50 条，靠 `data.total` 判断是否还有下一页，最多拉 40 页
+     * （2000 条），避免账号数据异常时无限翻页。以前是单页 pageSize=500 硬取，
+     * 数据量一旦超过 500 条（比如整年流水）后面的就直接丢了。
+     */
+    private fun fetchAllPages(path: String, data: JsonObject): List<JsonObject> {
+        val pageSize = 50
+        val maxPages = 40
+        val result = mutableListOf<JsonObject>()
+        var page = 1
+        while (page <= maxPages) {
+            val req = Request.Builder()
+                .url(KqHttp.buildUrl(site, path))
+                .post(KqHttp.pagePayload(data, pageNum = page, pageSize = pageSize).toString().toRequestBody(jsonType))
+                .build()
+            val root = KqHttp.execute(site, req, path, retryable = true)
+            val rows = KqHttp.rows(root.get("data")).ifEmpty { KqHttp.rows(root) }
+            result += rows
+            val total = KqHttp.total(root)
+            if (rows.isEmpty() || result.size >= total || rows.size < pageSize) break
+            page++
+        }
+        return result
     }
 
     private fun aggregateCourseStats(records: List<JsonObject>): List<CourseAttendanceStat> {

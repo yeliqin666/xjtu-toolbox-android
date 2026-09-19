@@ -128,4 +128,10 @@ internal object KqHttp {
             addProperty("pageSize", pageSize.coerceIn(1, 500))
             add("data", data)
         }
+
+    /** 分页响应里的 `data.total`，取不到时返回 0（调用方据此判断是否还有下一页）。 */
+    fun total(root: JsonObject): Int {
+        val data = obj(root.get("data")) ?: return 0
+        return int(data, "total", "totalCount", "count")
+    }
 }

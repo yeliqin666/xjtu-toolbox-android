@@ -474,11 +474,12 @@ object CourseLinks {
                     Log.w(TAG, "getTermList 失败", it)
                     emptyList()
                 }
-                Log.d(TAG, "attendance 学期表：" + terms.joinToString { "${it.bh}=${it.name}" })
+                Log.d(TAG, "attendance 学期表：" + terms.joinToString { "${it.bh}=${it.code}(${it.name})" })
                 // 考勤的 bh（如 646）和教务的学期码（2025-2026-2）是两套编号，
-                // 靠学期名里的数字对齐：两边都抽成纯数字 202520262 再比。
-                val want = termCode.filter { it.isDigit() }
-                val matched = terms.firstOrNull { it.name.filter { c -> c.isDigit() } == want }
+                // 靠 TermInfo.code（"2025-2026-2"，与教务 termCode 同格式）直接对齐，
+                // 不再用人类可读名字里的数字瞎凑——"2025-2026 第二学期"抽出数字
+                // 是"202520262"，跟教务的"2025-2026-2"永远对不上，考勤记录会被整学期丢弃。
+                val matched = terms.firstOrNull { it.code.isNotBlank() && it.code == termCode }
                 // 增量只回看最近几天，全量按学期起止取。
                 // 老师改考勤没有时间限制（期末回头补第 3 周是常事），所以增量之外
                 // 还有定期全量重扫兜底，见 AttendanceRecordStore 的分层说明。
@@ -639,6 +640,8 @@ object CourseLinks {
         WaterType.LATE -> 2
         WaterType.LEAVE -> 1
         WaterType.NORMAL -> 0
+        // 未识别状态不确定好坏，按"最坏"处理，避免被一条正常记录悄悄盖掉。
+        WaterType.UNKNOWN -> 4
     }
 
     /** 考勤的 `checkdate` 形如 `2025-09-15`，可能带时间后缀，取前 10 位解析。 */

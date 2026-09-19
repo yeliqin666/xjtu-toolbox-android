@@ -1691,6 +1691,8 @@ private fun ScheduleTabContent(
             // 正常出勤也标，用中性色。只标异常的话，全勤的人整学期一个点都看不到；
             // 而这个点本身有信息——这节课已经上过且记了考勤，没点的就是还没上。
             com.xjtu.toolbox.attendance.WaterType.NORMAL -> com.xjtu.toolbox.ui.SlotMark()
+            // 未识别状态：标出来但不判定好坏，用中性色提示"有记录但看不懂"。
+            com.xjtu.toolbox.attendance.WaterType.UNKNOWN -> com.xjtu.toolbox.ui.SlotMark(leaveColor)
             // 查无此格（未来的课、或没有考勤的课）不标。
             null -> null
         }
