@@ -59,7 +59,9 @@ PROGRESS*.md
 NOTES*.md
 TODO*.md
 plan.md
-/tools/
+/tools/*
+# R8/Gson 模型检查脚本入库，维护者发版前顺手跑（见脚本头注释）
+!/tools/check_gson_signatures.py
 
 # 不纳入 App 仓库（保留本地）
 /update_api.py

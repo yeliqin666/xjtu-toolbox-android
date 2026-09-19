@@ -3,11 +3,10 @@ package com.xjtu.toolbox.account
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKeys
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.xjtu.toolbox.auth.AccountType
+import com.xjtu.toolbox.util.SecurePrefs
 
 /**
  * 多账号持久化存储。
@@ -23,33 +22,7 @@ class AccountStore(context: Context) {
 
     private val appContext = context.applicationContext
 
-    private val prefs: SharedPreferences by lazy {
-        try {
-            EncryptedSharedPreferences.create(
-                FILE_NAME,
-                MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC),
-                appContext,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-            )
-        } catch (e: Exception) {
-            Log.e(TAG, "EncryptedSharedPreferences init failed, attempting recovery", e)
-            try {
-                val prefsDir = java.io.File(appContext.applicationInfo.dataDir, "shared_prefs")
-                prefsDir.listFiles()?.filter { it.name.startsWith(FILE_NAME) }?.forEach { it.delete() }
-                EncryptedSharedPreferences.create(
-                    FILE_NAME,
-                    MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC),
-                    appContext,
-                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-                )
-            } catch (_: Exception) {
-                Log.e(TAG, "Recovery failed, using in-memory prefs (accounts will not persist)")
-                appContext.getSharedPreferences("${FILE_NAME}_fallback", Context.MODE_PRIVATE)
-            }
-        }
-    }
+    private val prefs: SharedPreferences by lazy { SecurePrefs.open(appContext, FILE_NAME) }
 
     private val gson = Gson()
 
@@ -59,7 +32,7 @@ class AccountStore(context: Context) {
         val raw = prefs.getString(KEY_ACCOUNTS, null) ?: return emptyList()
         return runCatching {
             val type = object : TypeToken<List<Account>>() {}.type
-            gson.fromJson<List<Account>>(raw, type) ?: emptyList()
+            (gson.fromJson<List<Account?>>(raw, type) ?: emptyList()).mapNotNull { it?.sanitized() }
         }.onFailure { Log.w(TAG, "list: parse failed", it) }
             .getOrDefault(emptyList())
     }
@@ -126,7 +99,7 @@ class AccountStore(context: Context) {
 
     companion object {
         private const val TAG = "AccountStore"
-        private const val FILE_NAME = "xjtu_accounts"
+        internal const val FILE_NAME = "xjtu_accounts"
         private const val KEY_ACCOUNTS = "accounts"
         private const val KEY_ACTIVE = "active_account"
         private const val KEY_MIGRATION_DONE = "migration_done"

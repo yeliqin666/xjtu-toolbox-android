@@ -51,6 +51,8 @@ object AgentThinkingHost {
 class AgentViewModel : ViewModel() {
     companion object {
         private const val CONTEXT_TOKEN_LIMIT = 800_000L
+        /** 流式分片合并写入的间隔：约 3 帧，肉眼仍是连续输出，重组和解析次数降一两个数量级。 */
+        private const val STREAM_FLUSH_MS = 50L
         const val CONTEXT_EXHAUSTED_MESSAGE = "本对话上下文已达到上限，请新建对话后继续。"
     }
 
@@ -95,6 +97,8 @@ class AgentViewModel : ViewModel() {
     private var tools: AgentToolRegistry? = null
     private var toolsDisabledCaps: Set<String>? = null
     private var toolsSearchEngine: String? = null
+    /** 工具注册表里的 DataCache 构造时绑定账号，换账号必须重建，否则工具读写的是旧账号缓存。 */
+    private var toolsAccountId: String? = null
 
     /**
      * 上一次为补全用户画像联网时的登录态。登录态没变就不再重试，
@@ -344,18 +348,58 @@ class AgentViewModel : ViewModel() {
 
         val turnSid = currentSessionId   // 本轮所属会话；切走后不再写当前 messages，避免串台
         var streamIdx = -1   // 流式回答气泡的下标，首个 delta 到达时创建
+
+        // 流式分片先攒着，按 STREAM_FLUSH_MS 合并写进 messages。以前每个分片都
+        // `content + frag` 整串拼接一次、触发一次重组、MarkdownText 再把全文重新解析一遍，
+        // 长回复在快模型上是 O(n²)，气泡明显掉帧。全部回调都在主线程，无需加锁。
+        val pendingContent = StringBuilder()
+        val pendingReasoning = StringBuilder()
+        var flushJob: kotlinx.coroutines.Job? = null
+        fun flushStream() {
+            flushJob?.cancel()
+            flushJob = null
+            if (pendingContent.isEmpty() && pendingReasoning.isEmpty()) return
+            if (currentSessionId == turnSid && streamIdx in messages.indices) {
+                val m = messages[streamIdx]
+                messages[streamIdx] = m.copy(
+                    content = m.content + pendingContent,
+                    reasoningContent = m.reasoningContent + pendingReasoning,
+                )
+            }
+            pendingContent.setLength(0)
+            pendingReasoning.setLength(0)
+        }
+        fun scheduleFlush() {
+            if (flushJob != null) return
+            flushJob = viewModelScope.launch {
+                kotlinx.coroutines.delay(STREAM_FLUSH_MS)
+                flushJob = null   // 先置空，flushStream 里的 cancel 不会取消到自己
+                flushStream()
+            }
+        }
+        fun ensureStreamBubble() {
+            if (streamIdx < 0) {
+                messages.add(ChatMessage("assistant", ""))
+                streamIdx = messages.lastIndex
+            }
+        }
         val toolBubbleIndices = mutableListOf<Int>()
         currentJob = viewModelScope.launch {
             try {
                 // 首次调用时初始化，此后复用（loginFailedAt 冷却状态得以保留）
-                if (toolsDisabledCaps != config.disabledCaps || toolsSearchEngine != config.searchEngine) {
+                val accountNow = com.xjtu.toolbox.account.AccountContext.activeAccountId
+                if (toolsDisabledCaps != config.disabledCaps ||
+                    toolsSearchEngine != config.searchEngine ||
+                    toolsAccountId != accountNow
+                ) {
                     tools = null
                     toolsDisabledCaps = config.disabledCaps
                     toolsSearchEngine = config.searchEngine
+                    toolsAccountId = accountNow
                 }
                 val registry = tools ?: AgentToolRegistry(
                     loginState,
-                    DataCache(context),
+                    DataCache(context, accountNow),
                     context,
                     config.disabledCaps,
                     config.searchEngine
@@ -474,29 +518,23 @@ class AgentViewModel : ViewModel() {
                     config = config,
                     onDelta = { frag ->
                         if (currentSessionId == turnSid) {   // 已切走则不再写，防串台
-                            if (streamIdx < 0) {
-                                messages.add(ChatMessage("assistant", ""))
-                                streamIdx = messages.lastIndex
-                            }
-                            messages[streamIdx] = messages[streamIdx].copy(
-                                content = messages[streamIdx].content + frag
-                            )
+                            ensureStreamBubble()
+                            pendingContent.append(frag)
+                            scheduleFlush()
                         }
                     },
                     onReasoningDelta = { frag ->
                         if (currentSessionId == turnSid) {
-                            if (streamIdx < 0) {
-                                messages.add(ChatMessage("assistant", ""))
-                                streamIdx = messages.lastIndex
-                            }
-                            messages[streamIdx] = messages[streamIdx].copy(
-                                reasoningContent = messages[streamIdx].reasoningContent + frag
-                            )
+                            ensureStreamBubble()
+                            pendingReasoning.append(frag)
+                            scheduleFlush()
                         }
                     },
                     onToolCall = { name ->
                         calledTools.add(name)
                         // 本轮模型可能先输出思考/短回复，再请求工具；工具执行后下一次模型回复应新开气泡。
+                        // 换气泡前先把攒着的分片落到旧气泡上。
+                        flushStream()
                         streamIdx = -1
                         val label = when (name) {
                             "get_current_time"      -> "获取当前时间…"
@@ -588,6 +626,7 @@ class AgentViewModel : ViewModel() {
                 }.distinctBy { it.second }
 
                 val widgets = registry.drainWidgets()
+                flushStream()
                 if (currentSessionId == turnSid) {   // 仍在本会话才写 UI
                     if (streamIdx >= 0) {
                         messages[streamIdx] = messages[streamIdx].copy(
@@ -599,6 +638,7 @@ class AgentViewModel : ViewModel() {
                     maybeAutoTitle(config)   // 首轮结束后用 AI 总结一个会话标题（仿 opencode）
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
+                flushStream()
                 if (currentSessionId == turnSid) {
                     toolBubbleIndices.forEach { settleToolAt(it, false, "已中断") }
                     toolBubbleIndices.clear()
@@ -621,6 +661,7 @@ class AgentViewModel : ViewModel() {
                     messages.add(ChatMessage("assistant", "出错了：$detail"))
                 }
             } finally {
+                flushStream()   // 出错路径上已收到的部分也要落到气泡里再持久化
                 if (currentSessionId == turnSid) {
                     applyLoading(false)
                     persist(turnSid)   // 仅当仍在本会话才落盘，避免把新会话内容写到旧 id

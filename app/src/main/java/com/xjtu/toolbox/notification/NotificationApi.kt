@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.notification
 
 import android.util.Log
+import com.xjtu.toolbox.util.HttpClients
 import com.xjtu.toolbox.util.safeParseJsonObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -828,14 +829,19 @@ private fun parseDateSafe(dateStr: String): LocalDate {
 
 // ==================== API 类 ====================
 
-class NotificationApi(
-    private val client: OkHttpClient = OkHttpClient.Builder()
+/** 全进程一份，见 [HttpClients]。后台通知检查每轮都会 new 一个 NotificationApi。 */
+private val notificationClient: OkHttpClient by lazy {
+    HttpClients.base.newBuilder()
         .addInterceptor(BrotliInterceptor)
         .followRedirects(true)
         .followSslRedirects(true)
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
         .build()
+}
+
+class NotificationApi(
+    private val client: OkHttpClient = notificationClient
 ) {
     private val crawlers: Map<NotificationSource, NotificationCrawler> = buildMap {
         NotificationSource.entries.forEach { source ->

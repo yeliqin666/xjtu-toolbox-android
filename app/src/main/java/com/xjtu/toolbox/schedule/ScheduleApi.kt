@@ -113,6 +113,12 @@ data class TextbookItem(
     fun sanitized(): TextbookItem = copy(
         courseName = (courseName as String?) ?: "",
         textbookName = (textbookName as String?) ?: "",
+        author = (author as String?) ?: "",
+        publisher = (publisher as String?) ?: "",
+        isbn = (isbn as String?) ?: "",
+        price = (price as String?) ?: "",
+        edition = (edition as String?) ?: "",
+        courseCode = (courseCode as String?) ?: "",
     )
 }
 

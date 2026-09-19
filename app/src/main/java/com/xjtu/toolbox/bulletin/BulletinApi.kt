@@ -10,8 +10,8 @@ import java.util.concurrent.TimeUnit
 
 object BulletinApi {
     private const val TAG = "BulletinApi"
-    const val GITEE_URL =
-        "https://gitee.com/api/v5/repos/yeliqin666/xjtu-toolbox-android/raw/bulletin.json?ref=announce"
+    // Gitee 的 api/v5 raw 接口现在对未登录请求一律 401（实测 2026-09-18），不再使用；
+    // 网页 raw 地址会 302 到 raw.giteeusercontent.com，仍可匿名访问，国内优先走它。
     const val GITEE_PAGE_URL =
         "https://gitee.com/yeliqin666/xjtu-toolbox-android/raw/announce/bulletin.json"
     const val GITHUB_URL =
@@ -30,7 +30,7 @@ object BulletinApi {
     )
 
     suspend fun fetch(): FetchResult? = withContext(Dispatchers.IO) {
-        fetchUrl(GITEE_URL) ?: fetchUrl(GITEE_PAGE_URL) ?: fetchUrl(GITHUB_URL)
+        fetchUrl(GITEE_PAGE_URL) ?: fetchUrl(GITHUB_URL)
     }
 
     private fun fetchUrl(url: String): FetchResult? {

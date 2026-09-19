@@ -31,9 +31,6 @@ object HelloProfileStore {
     private const val TAG = "HelloProfile"
     private const val CACHE_KEY = "hello_profile"
 
-    /** 档案缓存有效期：30 天。学籍信息在学期内基本不变。 */
-    private const val CACHE_TTL_MS = 30L * 24 * 60 * 60 * 1000L
-
     /** 超过 12 小时才值得后台再拉一次。 */
     private const val REFRESH_AFTER_MS = 12L * 60 * 60 * 1000L
 
@@ -50,7 +47,9 @@ object HelloProfileStore {
      * `ProfileInfoCard` 直接读这些字段又没有 try/catch，会踩 NPE 崩溃。
      */
     private fun DataCache.readProfile(): HelloProfile? =
-        get(CACHE_KEY, CACHE_TTL_MS)?.let {
+        // 显示用不设过期：学籍信息一学期都不变，过了 30 天就当没有，页面只剩学号，
+        // 反而比旧数据更糟。要不要重新拉由 fetchedAt 与 [REFRESH_AFTER_MS] 决定。
+        get(CACHE_KEY, Long.MAX_VALUE)?.let {
             runCatching { gson.fromJson(it, HelloProfile::class.java)?.sanitized() }.getOrNull()
         }
 
@@ -108,9 +107,19 @@ object HelloProfileStore {
 
     /**
      * 头像文件路径（按账号隔离）。头像是二进制，不适合塞进 JSON 缓存，单独落盘。
+     *
+     * 放 filesDir：以前放 cacheDir，系统清理、手机管家"一键加速"都会清掉它，
+     * 头像随之消失，要等下次进"我的"页、学工系统还登得上才补得回来。
+     * 旧位置的文件仍会读（[legacyAvatarFile]），下次下载时写到新位置。
      */
     private fun avatarFile(context: Context): File =
+        File(context.filesDir, "avatar${AccountContext.safeSuffix()}.jpg")
+
+    private fun legacyAvatarFile(context: Context): File =
         File(context.cacheDir, "avatar${AccountContext.safeSuffix()}.jpg")
+
+    private fun avatarMarker(context: Context): File =
+        File(context.filesDir, "avatar${AccountContext.safeSuffix()}.url")
 
     /**
      * 按账号 id 定位头像文件。账号管理页要同时显示**其他**账号的头像，
@@ -122,12 +131,13 @@ object HelloProfileStore {
             ?.takeIf { it.isNotBlank() }
             ?.let { "_" + it.replace(Regex("[^a-zA-Z0-9]"), "_") }
             ?: "default"
-        return File(context.cacheDir, "avatar$suffix.jpg")
+        return File(context.filesDir, "avatar$suffix.jpg").takeIf { it.exists() }
+            ?: File(context.cacheDir, "avatar$suffix.jpg")
     }
 
     /** 自定义头像优先于学工证件照；都没有则返回 null，调用方退回首字母。 */
     fun cachedAvatar(context: Context): Bitmap? =
-        decode(customAvatarFile(context)) ?: decode(avatarFile(context))
+        decode(customAvatarFile(context)) ?: decode(avatarFile(context)) ?: decode(legacyAvatarFile(context))
 
     /** 指定账号的头像；没有缓存返回 null（调用方退回首字母）。 */
     fun cachedAvatarFor(context: Context, accountId: String?): Bitmap? =
@@ -145,7 +155,7 @@ object HelloProfileStore {
     private fun downloadAvatar(context: Context, manager: SessionManager, profile: HelloProfile) {
         val url = profile.pictureUrl
         if (url.isBlank()) return
-        val marker = File(context.cacheDir, "avatar${AccountContext.safeSuffix()}.url")
+        val marker = avatarMarker(context)
         val previous = runCatching { marker.readText() }.getOrNull()
         val target = avatarFile(context)
         if (previous == url && target.exists() && target.length() > 0) return
@@ -230,6 +240,8 @@ object HelloProfileStore {
     fun clear(context: Context) {
         runCatching { DataCache(context).invalidate(CACHE_KEY) }
         runCatching { avatarFile(context).delete() }
+        runCatching { avatarMarker(context).delete() }
+        runCatching { legacyAvatarFile(context).delete() }
         runCatching { File(context.cacheDir, "avatar${AccountContext.safeSuffix()}.url").delete() }
         // 自定义头像不清：同一台设备上按账号隔离已经足够，抹掉只会让用户白设一次。
     }

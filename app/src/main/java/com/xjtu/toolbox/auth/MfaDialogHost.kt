@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.auth
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,6 +9,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -27,22 +27,26 @@ import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
-import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.window.WindowDialog
 
 /**
  * MFA 短信验证弹窗，挂在 [SessionManager.activeMfaRequest] 上。
  *
- * miuix 的 Overlay* 组件要注册进 `LocalDialogStates`，而这个 CompositionLocal 只有
- * Scaffold 自己提供——写在 Scaffold 外部拿到的是静态默认空列表，弹窗静默不显示
- * （AccountManagerScreen.kt 里对同一约定有过记录）。之前这个弹窗只塞进了 `MainScreen`
- * 一个页面，账号管理页是 NavHost 里跟 MainScreen 平级的另一个目的地，MainScreen 一换出
- * 弹窗就没地方渲染——首次登录卡在账号管理页时 MFA 短信发了，弹窗却弹不出来，
- * 正是这个原因。所以这个函数要在**每个会触发登录的页面自己的 Scaffold content 里**
- * 调用一次，而不是只挂在某一个页面上。
+ * 用 [WindowDialog]（自带独立 Window）而不是 Overlay*：Overlay* 只能渲染在页面自己的
+ * Scaffold 里，以前只挂在 MainScreen 和账号管理页，从成绩、考勤等 NavHost 子页面
+ * 触发的重认证弹不出框，只能干等 [SessionManager.askMfaCode] 超时，期间全局 CAS
+ * 登录锁被占着，其余站点一起登不上。现在只在 NavHost 外层挂**一次**，覆盖所有页面。
+ *
+ * 挂载期间向 [SessionManager] 登记为宿主；没有任何宿主时（Activity 已销毁、纯后台）
+ * askMfaCode 直接按取消处理，不再占锁空等。
  */
 @Composable
 fun MfaDialogHost(sessionManager: SessionManager?) {
+    DisposableEffect(sessionManager) {
+        val detach = sessionManager?.attachMfaHost()
+        onDispose { detach?.invoke() }
+    }
     val sessionMfaState = sessionManager?.activeMfaRequest?.collectAsState()
     sessionMfaState?.value?.let { req ->
         var phone by remember(req) { mutableStateOf("") }
@@ -61,8 +65,7 @@ fun MfaDialogHost(sessionManager: SessionManager?) {
             }
             sending = false
         }
-        BackHandler(enabled = true) { req.cancel() }
-        OverlayDialog(
+        WindowDialog(
             show = true,
             title = "两步验证",
             summary = "登录「${req.siteName}」需要短信验证码",

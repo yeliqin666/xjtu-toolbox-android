@@ -3,8 +3,6 @@ package com.xjtu.toolbox.util
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKeys
 import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.HttpUrl
@@ -22,70 +20,76 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class PersistentCookieJar(context: Context, prefsName: String = PREFS_NAME) : CookieJar {
 
+    /**
+     * 同一个 prefs 文件的全部状态。按文件名全进程共享：前台 SessionManager、后台
+     * HeadlessSessions、账号迁移都会各自 new 同名的 jar，以前每个实例一份内存表，
+     * 谁最后防抖写盘谁覆盖别人刚拿到的 TGC，表现为偶发掉登录。
+     */
+    private class Shared(openPrefs: () -> SharedPreferences) {
+        /**
+         * 懒打开：SessionManager 在首帧组合时（主线程）就会构造 jar，而打开加密存储要走
+         * keystore。第一次真正读写 cookie 都在 IO 线程（ensureLoaded / 防抖写盘），挪到那时。
+         */
+        val prefs: SharedPreferences by lazy(openPrefs)
+        val cookieStore = ConcurrentHashMap<String, MutableList<Cookie>>()
+        @Volatile var loaded = false
+        @Volatile var savePending = false
+        lateinit var saveTask: Runnable
+    }
+
     companion object {
         private const val TAG = "PersistentCookieJar"
         private const val PREFS_NAME = "xjtu_cookies"
         private const val KEY_ALL_COOKIES = "all_cookies"
-    }
+        private const val SAVE_DEBOUNCE_MS = 500L
 
-    private val appContext = context.applicationContext
-    private val prefsFileName = prefsName
+        private val shared = ConcurrentHashMap<String, Shared>()
 
-    private val prefs: SharedPreferences by lazy {
-        try {
-            EncryptedSharedPreferences.create(
-                prefsFileName,
-                MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC),
-                appContext,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-            )
-        } catch (_: Exception) {
-            appContext.getSharedPreferences("${prefsFileName}_fallback", Context.MODE_PRIVATE)
+        // [性能] 必须在后台线程写：saveToDisk 会把整个 cookie 表做 AES-256 加密再落盘，
+        // 登录链路上每 500ms 触发一次。挂在主线程 Looper 上会周期性阻塞 UI 帧。
+        // 全进程共用一条线程——以前每个 jar 实例起一条且从不退出，切一次账号漏一条。
+        private val saveHandler by lazy {
+            android.os.Handler(android.os.HandlerThread("cookie-jar-io").apply { start() }.looper)
         }
     }
 
-    // domain -> list of cookies（内存缓存）
-    private val cookieStore = ConcurrentHashMap<String, MutableList<Cookie>>()
+    private val state: Shared = shared.getOrPut(prefsName) {
+        val app = context.applicationContext
+        Shared { SecurePrefs.open(app, prefsName) }.also { st ->
+            st.saveTask = Runnable {
+                st.savePending = false
+                saveToDisk(st)
+            }
+        }
+    }
+    private val prefs: SharedPreferences get() = state.prefs
+    private val cookieStore get() = state.cookieStore
 
     // loadFromDisk 延迟到首次使用时触发
-    @Volatile private var loaded = false
     private fun ensureLoaded() {
-        if (!loaded) {
-            synchronized(this) {
-                if (!loaded) {
+        if (!state.loaded) {
+            synchronized(state) {
+                if (!state.loaded) {
                     loadFromDisk()
-                    loaded = true
+                    state.loaded = true
                 }
             }
         }
     }
 
     // 防抖写盘：避免 CAS 登录链路中 5-10 次重定向每次都触发加密写入。
-    // [性能] 必须在后台线程写：saveToDisk 会把整个 cookie 表做 AES-256 加密再落盘，
-    // 登录链路上每 500ms 触发一次。挂在主线程 Looper 上会周期性阻塞 UI 帧，
-    // 表现为"整个 App 变卡"，而与网络快慢无关。
-    private val saveHandler = android.os.Handler(
-        android.os.HandlerThread("cookie-jar-io").apply { start() }.looper
-    )
-    @Volatile private var savePending = false
-    private val SAVE_DEBOUNCE_MS = 500L
-
     private fun scheduleSaveToDisk() {
-        if (!savePending) {
-            savePending = true
-            saveHandler.postDelayed({
-                savePending = false
-                saveToDisk()
-            }, SAVE_DEBOUNCE_MS)
+        if (!state.savePending) {
+            state.savePending = true
+            saveHandler.postDelayed(state.saveTask, SAVE_DEBOUNCE_MS)
         }
     }
 
     /** 立即写盘（用于 clear / 应用退出前） */
     fun flushToDisk() {
-        saveHandler.removeCallbacksAndMessages(null)
-        savePending = false
-        saveToDisk()
+        saveHandler.removeCallbacks(state.saveTask)
+        state.savePending = false
+        saveToDisk(state)
     }
 
     override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
@@ -154,9 +158,9 @@ class PersistentCookieJar(context: Context, prefsName: String = PREFS_NAME) : Co
 
     /** 清空所有 cookie（登出时使用） */
     fun clear() {
-        saveHandler.removeCallbacksAndMessages(null)
-        savePending = false
-        synchronized(this) {
+        saveHandler.removeCallbacks(state.saveTask)
+        state.savePending = false
+        synchronized(state) {
             cookieStore.clear()
             prefs.edit().clear().commit()
         }
@@ -240,18 +244,21 @@ class PersistentCookieJar(context: Context, prefsName: String = PREFS_NAME) : Co
 
     // ── 序列化/反序列化 ──
 
-    private fun saveToDisk() {
-        synchronized(this) {
+    private fun saveToDisk(st: Shared) {
+        synchronized(st) {
             try {
                 val sb = StringBuilder()
-                for ((_, cookies) in cookieStore) {
-                    for (c in cookies) {
-                        if (c.expiresAt > System.currentTimeMillis()) {
-                            sb.append(encodeCookie(c)).append('\n')
+                for ((_, cookies) in st.cookieStore) {
+                    // 与 saveFromResponse 的并发修改互斥，否则遍历中途可能抛 CME
+                    synchronized(cookies) {
+                        for (c in cookies) {
+                            if (c.expiresAt > System.currentTimeMillis()) {
+                                sb.append(encodeCookie(c)).append('\n')
+                            }
                         }
                     }
                 }
-                prefs.edit().putString(KEY_ALL_COOKIES, sb.toString()).apply()
+                st.prefs.edit().putString(KEY_ALL_COOKIES, sb.toString()).apply()
             } catch (e: Exception) {
                 Log.e(TAG, "saveToDisk failed", e)
             }

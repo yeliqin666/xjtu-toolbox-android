@@ -267,18 +267,14 @@ class AccountManager(
         if (deleteCache) {
             // DataCache 目录
             runCatching { File(appContext.cacheDir, "data_cache$suffix").deleteRecursively() }
-            // Agent / 交晓智 会话目录
+            // Agent 会话目录
             runCatching { File(appContext.filesDir, "agent_sessions$suffix").deleteRecursively() }
-            runCatching { File(appContext.filesDir, "jiaoxiaozhi_sessions$suffix").deleteRecursively() }
-            // 校园卡缓存 prefs：临时把 AccountContext 指向待删账号以让 CampusCardCache.clear 命中正确命名空间，
-            // try-finally 保证无论是否异常都恢复原值，避免 AccountContext 卡在已删除账号上。
-            val prevActive = AccountContext.activeAccountId
+            // 校园卡缓存 prefs：直接按被删账号的命名空间清。以前是临时把全局
+            // AccountContext 指过去再改回来，那段时间里别处的读写都会落到被删账号上。
             runCatching {
-                AccountContext.activeAccountId = accountId
-                CampusCardCache.clear(appContext)
+                CampusCardCache.clear(appContext, accountId)
                 appContext.getSharedPreferences("campus_card$suffix", Context.MODE_PRIVATE).edit().clear().apply()
             }
-            AccountContext.activeAccountId = prevActive
             // Room 自定义课程
             runCatching {
                 AppDatabase.getInstance(appContext).customCourseDao().deleteByAccount(accountId)

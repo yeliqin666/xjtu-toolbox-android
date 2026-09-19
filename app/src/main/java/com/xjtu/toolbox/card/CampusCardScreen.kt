@@ -146,31 +146,15 @@ fun CampusCardScreen(
         return selectedTimeRange.resolve(start, end)
     }
 
-    fun applyTransactions(allTx: List<Transaction>) {
+    fun applyTransactions(
+        allTx: List<Transaction>,
+        accountId: String? = com.xjtu.toolbox.account.AccountContext.activeAccountId,
+    ) {
         transactions = allTx
         totalRecords = allTx.size
         currentPage = (allTx.size + 49) / 50
-        val recentJson = com.google.gson.Gson().toJson(allTx.take(5))
-        val todayStr = LocalDate.now().toString()
-        val todaySpend = allTx.filter { it.time.startsWith(todayStr) && it.amount < 0 }.sumOf { -it.amount }
-        val todayBreakfast = allTx.filter { tx ->
-            tx.time.startsWith(todayStr) && tx.amount < 0 &&
-                tx.time.substringAfter(" ").substringBefore(":").toIntOrNull()?.let { it in 5..10 } == true
-        }.sumOf { -it.amount }
-        val todayLunch = allTx.filter { tx ->
-            tx.time.startsWith(todayStr) && tx.amount < 0 &&
-                tx.time.substringAfter(" ").substringBefore(":").toIntOrNull()?.let { it in 11..14 } == true
-        }.sumOf { -it.amount }
-        val todayDinner = allTx.filter { tx ->
-            tx.time.startsWith(todayStr) && tx.amount < 0 &&
-                tx.time.substringAfter(" ").substringBefore(":").toIntOrNull()?.let { it in 17..21 } == true
-        }.sumOf { -it.amount }
-        com.xjtu.toolbox.card.CampusCardCache.cardPrefs(context).edit()
-            .putString("card_recent_tx_cache", recentJson)
-            .putFloat("card_today_spend_cache", todaySpend.toFloat())
-            .putFloat("card_today_breakfast_cache", todayBreakfast.toFloat())
-            .putFloat("card_today_lunch_cache", todayLunch.toFloat())
-            .putFloat("card_today_dinner_cache", todayDinner.toFloat())
+        CampusCardCache.cardPrefs(context, accountId).edit()
+            .putTodaySummary(todaySummaryOf(allTx))
             .apply()
         com.xjtu.toolbox.widget.CampusCardWidgetUpdater.requestUpdate(context)
 
@@ -189,6 +173,9 @@ fun CampusCardScreen(
         if (silent || hasContent) isReloadingRange = true else isLoading = true
         errorMessage = null
         val myGeneration = ++loadGeneration
+        // 发请求前定下账号，缓存读写都落在它名下；中途切了账号，结果直接丢弃
+        val accountId = com.xjtu.toolbox.account.AccountContext.activeAccountId
+        fun accountSwitched() = com.xjtu.toolbox.account.AccountContext.activeAccountId != accountId
         scope.launch {
             try {
                 val customS = runCatching { LocalDate.parse(customStart) }.getOrDefault(LocalDate.now().minusMonths(1))
@@ -196,17 +183,17 @@ fun CampusCardScreen(
                 val (startDate, endDate) = range.resolve(customS, customE)
 
                 // 先获取卡信息（回填 cardAccount），再并行抓流水
-                cardInfo = withContext(Dispatchers.IO) { api.getCardInfo() }
+                val info = withContext(Dispatchers.IO) { api.getCardInfo() }
+                if (accountSwitched()) return@launch
+                cardInfo = info
                 // 缓存余额 + 姓名 供首页智能卡片使用
-                cardInfo?.let { info ->
-                    com.xjtu.toolbox.card.CampusCardCache.cardPrefs(context).edit()
-                        .putFloat("card_balance_cache", info.balance.toFloat())
-                        .putString("card_name_cache", info.name)
-                        .putLong("card_cache_time", System.currentTimeMillis())
-                        .apply()
-                }
+                CampusCardCache.cardPrefs(context, accountId).edit()
+                    .putFloat("card_balance_cache", info.balance.toFloat())
+                    .putString("card_name_cache", info.name)
+                    .putLong("card_cache_time", System.currentTimeMillis())
+                    .apply()
                 val allTx = withContext(Dispatchers.IO) {
-                    val cached = CampusCardCache.load(context)
+                    val cached = CampusCardCache.load(context, accountId)
                     val cachedStart = cached?.rangeStart?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
                     if (cached != null && cachedStart != null && !cachedStart.isAfter(startDate)) {
                         val refreshStart = endDate.minusDays(7).coerceAtLeast(startDate)
@@ -220,9 +207,9 @@ fun CampusCardScreen(
                         api.getAllTransactions(startDate, endDate, maxPages = 12, allowIncomplete = true)
                     }
                 }
-                if (myGeneration != loadGeneration) return@launch
-                applyTransactions(allTx)
-                cardInfo?.let { CampusCardCache.save(context, it, allTx, startDate, endDate) }
+                if (myGeneration != loadGeneration || accountSwitched()) return@launch
+                applyTransactions(allTx, accountId)
+                CampusCardCache.save(context, info, allTx, startDate, endDate, accountId)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: AuthExpiredException) {

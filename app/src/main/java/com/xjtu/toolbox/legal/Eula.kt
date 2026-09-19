@@ -25,7 +25,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * 是另外手写的两段摘要。两边措辞、范围都不一样——用户在设置里读到的并不是他当初
  * 同意的那份，改一处漏一处。现在两个入口都渲染这里。
  *
- * 改条款时记得同步递增 `CredentialStore.EULA_VERSION`，否则老用户不会被要求重新同意。
+ * 改条款时记得同步递增 `CredentialStore.CURRENT_EULA_VERSION`，否则老用户不会被要求重新同意。
  */
 object Eula {
 
@@ -50,6 +50,7 @@ object Eula {
                 "二、数据来源与使用",
                 buildAnnotatedString {
                     append("本应用通过 HTTPS 协议访问学校各业务系统接口获取数据，校园系统请求均在您的设备上发起。您的账号凭据（用户名和密码）仅加密存储在本地设备中，不会上传至开发者服务器。")
+                    append("应用闪退时，会在下次启动后匿名上报崩溃日志（异常堆栈、应用版本、机型与系统版本，其中的网址参数、长串数字和令牌已预先脱敏），仅用于定位和修复问题，可在「设置 → 关于 → 自动上报崩溃日志」中关闭。")
                     pushStyle(boldStyle); append("请勿将账号、验证码、API Key 等敏感信息交给不可信来源。"); pop()
                 }
             ),

@@ -52,6 +52,23 @@
 # 后果是用户账号被清空，而这个库只有十来个类，删了也省不出体积，不值当冒这个险。
 -keep class androidx.security.crypto.** { *; }
 
+# ── 集合字段的泛型签名：所有 Gson 模型类都要，一律保留 ──
+#
+# R8 full mode（AGP 8 起默认）下 `-keepattributes Signature` 只对**被 keep 规则命中**的
+# 类/成员生效。没被 keep 的缓存模型（TermScore、YellowPageData、Jiaocai1Category…）里
+# `List<X>` 字段的泛型签名会被整个抹掉，Gson 只看到裸 List，元素一律读成 LinkedTreeMap：
+# 同一次构建写进去的缓存，读回来就类型不对。4.9.5 成绩页第二次打开闪退（#60）就是这个——
+# 缓存里的 scoreList 被当成 List<ScoreItem> 交给界面，flatMap 时才 ClassCastException。
+#
+# allowobfuscation + allowshrinking：只为留住签名，字段照样改名、没用照样删，不妨碍优化体积。
+# 按字段类型匹配而不是逐类列举：以后新加的缓存模型自动受保护，不会再漏。
+-keepclassmembers,allowobfuscation,allowshrinking class com.xjtu.toolbox.** {
+    java.util.List *;
+    java.util.Map *;
+    java.util.Set *;
+    java.util.Collection *;
+}
+
 # ── 项目数据类：Gson 读写字段名/枚举常量名不能被 R8 改 ──
 #
 # cacheDir 下 DataCache 缓存的模型类（HomeStat/TermScore/ReportedGrade/HelloProfile/
@@ -82,18 +99,20 @@
 -keep class com.xjtu.toolbox.agent.GradeWidget { *; }
 -keep class com.xjtu.toolbox.agent.CardWidget { *; }
 -keep class com.xjtu.toolbox.agent.ZyxfWidget { *; }
+# 上面这些卡片里装的元素类型。它们本身也是 cacheDir 缓存的模型（CourseItem 等），但卡片
+# 随 Agent 会话存进 filesDir，换包不清——字段名一变，升级后旧对话里的卡片内容就全成空串。
+-keepclassmembers class com.xjtu.toolbox.schedule.CourseItem { <fields>; }
+-keepclassmembers class com.xjtu.toolbox.schedule.ExamItem { <fields>; }
+-keepclassmembers class com.xjtu.toolbox.emptyroom.RoomInfo { <fields>; }
+-keepclassmembers class com.xjtu.toolbox.score.ReportedGrade { <fields>; }
+-keepclassmembers class com.xjtu.toolbox.agent.ZyxfEntryRef { <fields>; }
 -keepclassmembers class com.xjtu.toolbox.agent.AgentToolRegistry$YwtbIdentity { <fields>; }
-
--keepclassmembers class com.xjtu.toolbox.jiaoxiaozhi.JiaoxiaozhiSession { <fields>; }
--keepclassmembers class com.xjtu.toolbox.jiaoxiaozhi.JiaoxiaozhiConversation { <fields>; }
--keepclassmembers class com.xjtu.toolbox.jiaoxiaozhi.JiaoxiaozhiMessage { <fields>; }
 
 -keepclassmembers class com.xjtu.toolbox.card.CampusCardSnapshot { <fields>; }
 -keepclassmembers class com.xjtu.toolbox.card.CardInfo { <fields>; }
 -keepclassmembers class com.xjtu.toolbox.card.Transaction { <fields>; }
 
 -keepclassmembers class com.xjtu.toolbox.attendance.AttendanceRecordStore$Shard { <fields>; }
--keepclassmembers class com.xjtu.toolbox.attendance.AttendanceSnapshot { <fields>; }
 -keepclassmembers class com.xjtu.toolbox.attendance.AttendanceWaterRecord { <fields>; }
 -keepclassmembers class com.xjtu.toolbox.attendance.TermInfo { <fields>; }
 -keepclassmembers class com.xjtu.toolbox.attendance.CourseAttendanceStat { <fields>; }

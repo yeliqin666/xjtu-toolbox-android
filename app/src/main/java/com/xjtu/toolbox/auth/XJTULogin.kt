@@ -359,9 +359,12 @@ open class XJTULogin(
                 android.util.Log.w(TAG, "  hop$i ${r.code} $plain")
                 // Location 原文是判断"谁把我们打回根路径"的唯一证据：是目标站自己 302 到 /，
                 // 还是网关改写 Location 时丢了 /https/{hex} 前缀。二者修法完全不同。
-                r.header("Location")?.let { android.util.Log.w(TAG, "  hop$i Location: $it") }
-                r.header("Set-Cookie")?.let { android.util.Log.w(TAG, "  hop$i Set-Cookie: ${it.take(120)}") }
-                if (i == chain.lastIndex) android.util.Log.w(TAG, "  hop$i rawUrl: $raw")
+                r.header("Location")?.let { android.util.Log.w(TAG, "  hop$i Location: ${it.redactTicket()}") }
+                // 只记 cookie 名：值里就是 TGC/JSESSIONID 本体，Log.w 在 release 不会被裁掉
+                r.headers("Set-Cookie").takeIf { it.isNotEmpty() }?.let { list ->
+                    android.util.Log.w(TAG, "  hop$i Set-Cookie names: ${list.joinToString { it.substringBefore('=') }}")
+                }
+                if (i == chain.lastIndex) android.util.Log.w(TAG, "  hop$i rawUrl: ${raw.redactTicket()}")
             }
         }
 
@@ -1078,3 +1081,6 @@ open class XJTULogin(
         const val JWXT_URL = "https://jwxt.xjtu.edu.cn/jwapp/sys/homeapp/index.do"
     }
 }
+
+/** CAS 重定向 URL 里的一次性票据（ticket=ST-…）不进 release 日志。 */
+private fun String.redactTicket(): String = replace(Regex("""(ticket=)[^&#\s]+"""), "$1…")

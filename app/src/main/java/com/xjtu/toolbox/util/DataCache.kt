@@ -12,26 +12,31 @@ private const val TAG = "DataCache"
  * [RC] 轻量级 JSON 文件缓存（线程安全 + 原子写入）
  * 用于缓存日程、成绩等学期内稳定的数据，二次打开 0ms
  *
- * 缓存目录: `context.cacheDir/data_cache${AccountContext.safeSuffix()}/`
+ * 缓存目录: `context.cacheDir/data_cache${AccountContext.suffixFor(accountId)}/`
  * 文件名: `{key}.json`
  * 过期策略: 手动失效 + TTL（默认 7 天）
  *
- * 账号隔离：缓存目录随 [AccountContext.activeAccountId] 变化，
- * 切换账号后 get/put 自动落到新账号目录，旧账号数据不会被读到。
+ * 账号隔离：账号在**构造时**定下（默认取当前激活账号），之后不再变。
+ * 以前每次 get/put 都现读 [AccountContext.activeAccountId]，一个请求发出去时是账号 A、
+ * 回来时已切到账号 B，结果就被写进了 B 的目录（串号）。现在调用方在发请求前建好实例，
+ * 写回时自然落在发起时的账号下。长期持有实例的地方（页面 remember、ViewModel）
+ * 必须在账号变化时重建实例，否则会一直读写旧账号。
  *
  * 线程安全: per-key 锁，不同 key 之间无竞争
  * 原子写入: 先写 .tmp 再 rename，避免写入中途 crash 损坏文件
  */
-class DataCache(context: Context) {
+class DataCache(
+    context: Context,
+    accountId: String? = AccountContext.activeAccountId,
+) {
     private val appContext = context.applicationContext
+    private val dirName = "data_cache${AccountContext.suffixFor(accountId)}"
 
-    /** 当前账号对应的缓存目录，每次调用动态解析以响应账号切换。 */
-    private val cacheDir: File
-        get() = File(appContext.cacheDir, "data_cache${AccountContext.safeSuffix()}").apply { mkdirs() }
-
-    /** 兼容旧调用：返回账号无关的默认目录，仅迁移时使用。 */
-    private val legacyCacheDir: File
-        get() = File(appContext.cacheDir, "data_cache")
+    /**
+     * 本实例所属账号的缓存目录。读路径不建目录（不存在即未命中）；只有 [put] 写之前
+     * 才 mkdirs——「清除缓存」或换包清理随时可能把它删掉，所以每次写都要确认一次。
+     */
+    private val cacheDir: File = File(appContext.cacheDir, dirName)
 
     /** per-key 锁对象，不同 key 之间互不阻塞 */
     private val locks = ConcurrentHashMap<String, Any>()
@@ -46,10 +51,13 @@ class DataCache(context: Context) {
 
         private const val META_PREFS = "data_cache_meta"
         private const val KEY_INSTALL_STAMP = "install_stamp"
+        private val UNSAFE_FILE_CHARS = Regex("[^a-zA-Z0-9_-]")
 
         /**
          * 安装包变了（升级、同版本号重新发包后覆盖安装）就把全部账号的 `data_cache*` 目录清空，
-         * 必须在任何读缓存之前调用（[com.xjtu.toolbox.XjtuApp.onCreate]）。
+         * 必须在任何读缓存之前调用，放在 [com.xjtu.toolbox.XjtuApp.attachBaseContext]：
+         * 它早于所有 ContentProvider（含 WorkManager 的自动初始化）执行，升级后重新调度的
+         * Worker 不可能抢在清理之前跑起来；放 onCreate 则有这个窗口。
          *
          * 缓存里的模型类没在 proguard 里 keep，字段名由 R8 每次构建各自决定。换了安装包
          * 还按新名字去读老文件，Gson 会把对不上的非空字段悄悄置成 null，4.9.4 就这样崩过
@@ -63,18 +71,27 @@ class DataCache(context: Context) {
          * （账号、会话、考勤、校园卡、课表变更快照）已 keep，不受影响。
          */
         fun clearIfPackageChanged(context: Context) {
-            val app = context.applicationContext
+            // attachBaseContext 阶段 applicationContext 还是 null，直接用传进来的 base context
+            val app = context.applicationContext ?: context
             val prefs = app.getSharedPreferences(META_PREFS, Context.MODE_PRIVATE)
             val installedAt = runCatching {
                 app.packageManager.getPackageInfo(app.packageName, 0).lastUpdateTime
             }.getOrDefault(0L)
             val stamp = "${com.xjtu.toolbox.BuildConfig.VERSION_CODE}@$installedAt"
             if (prefs.getString(KEY_INSTALL_STAMP, null) == stamp) return
-            app.cacheDir.listFiles { f -> f.isDirectory && f.name.startsWith("data_cache") }
-                ?.forEach { dir ->
-                    runCatching { dir.deleteRecursively() }
-                        .onFailure { Log.w(TAG, "clear ${dir.name} failed", it) }
-                }
+            // listFiles 返回 null 表示 cacheDir 本身读不了（I/O 错误），不能当"没有目录"处理
+            val dirs = app.cacheDir.listFiles { f -> f.isDirectory && f.name.startsWith("data_cache") }
+            // deleteRecursively 失败只返回 false、不一定抛异常，必须看返回值
+            val allCleared = dirs != null && dirs.all { dir ->
+                runCatching { dir.deleteRecursively() }
+                    .onFailure { Log.w(TAG, "clear ${dir.name} failed", it) }
+                    .getOrDefault(false)
+            }
+            if (!allCleared) {
+                // 不写标记：旧格式缓存还在，下次启动再清一次，而不是就此放过
+                Log.w(TAG, "package changed -> $stamp, data_cache NOT fully cleared, will retry next launch")
+                return
+            }
             Log.i(TAG, "package changed -> $stamp, data_cache cleared")
             prefs.edit().putString(KEY_INSTALL_STAMP, stamp).apply()
         }
@@ -119,6 +136,7 @@ class DataCache(context: Context) {
         synchronized(lockFor(key)) {
             try {
                 val sanitized = key.sanitize()
+                cacheDir.mkdirs()
                 val file = File(cacheDir, "${sanitized}.json")
                 val tmpFile = File(cacheDir, "${sanitized}.json.tmp")
                 // 先写临时文件
@@ -189,5 +207,5 @@ class DataCache(context: Context) {
     }
 
     /** 安全化文件名 */
-    private fun String.sanitize(): String = this.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+    private fun String.sanitize(): String = replace(UNSAFE_FILE_CHARS, "_")
 }

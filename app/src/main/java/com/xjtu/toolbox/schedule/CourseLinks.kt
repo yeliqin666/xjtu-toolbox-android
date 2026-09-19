@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.schedule
 
 import android.util.Log
+import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.attendance.AttendanceRecordStore
 import com.xjtu.toolbox.attendance.AttendanceWaterRecord
 import com.xjtu.toolbox.attendance.WaterType
@@ -14,9 +15,11 @@ import com.xjtu.toolbox.jiaocai1.Jiaocai1Api
 import com.xjtu.toolbox.jiaocai1.Jiaocai1Book
 import com.xjtu.toolbox.jiaocai1.Jiaocai1SearchField
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
+import java.util.concurrent.ConcurrentHashMap
 
 private const val TAG = "CourseLinks"
 
@@ -95,7 +98,8 @@ object CourseLinks {
     ): Jiaocai1Book? {
         val key = isbn.filter { it.isDigit() || it.equals('X', ignoreCase = true) }
         if (key.length < 10) return null
-        fulltextCache[key]?.let { return it.value }
+        val c = caches()
+        c.fulltext[key]?.let { return it.value }
         val site = manager.siteOrNull(LoginType.JIAOCAI) ?: return null
         return withContext(Dispatchers.IO) {
             // 两种写法都试。教材报表里的 ISBN 常带连字符（978-7-04-039663-9），
@@ -131,7 +135,7 @@ object CourseLinks {
                 null
             }
             // 查不到也缓存：同一个面板反复开合不该反复打这个请求。
-            fulltextCache[key] = Box(hit)
+            if (c.isCurrent()) c.fulltext[key] = Box(hit)
             hit
         }
     }
@@ -172,7 +176,8 @@ object CourseLinks {
     }
 
     private suspend fun replayCourses(manager: SessionManager?): List<ReplayCourse>? {
-        replayCache?.let { return it.value }
+        val c = caches()
+        c.replay?.let { return it.value }
         // 注意：这里**不按学期过滤**。TronClass 的 my-courses 用 classify_type
         // "recently_started"，一次返回多个学期（课程回放页的学期筛选器就是这么来的），
         // 所以历史学期的课也在列表里，按课程号匹配即可，不需要额外的学期参数。
@@ -195,7 +200,7 @@ object CourseLinks {
                 null
             }
             // 失败不写缓存：网络抖一下不该让整个会话都查不到回放。
-            if (list != null) replayCache = Box(list)
+            if (list != null && c.isCurrent()) c.replay = Box(list)
             list
         }
     }
@@ -204,9 +209,6 @@ object CourseLinks {
      * 指定某一天的回放场次，不是"这个课格在整学期的所有周"——
      * 按星期几筛会把 7 天后、14 天后的全带进来。同一天多场是正常的（连堂各录一段）。
      */
-    /** 思源学堂课程列表缓存。一次会话里点开多门课不该反复拉同一份列表。 */
-    private var lmsCoursesCache: Box<List<com.xjtu.toolbox.lms.LmsCourseSummary>>? = null
-
     /**
      * 这门课在思源学堂对应哪门。
      *
@@ -219,15 +221,19 @@ object CourseLinks {
         manager: SessionManager?,
         course: CourseItem,
     ): com.xjtu.toolbox.lms.LmsCourseSummary? {
-        val site = manager.siteOrNull(LoginType.LMS) ?: return null
-        val all = lmsCoursesCache?.value ?: withContext(Dispatchers.IO) {
-            runCatching { com.xjtu.toolbox.lms.LmsApi(site).getMyCourses() }
-                .rethrowCancellation()
-                .getOrElse {
-                    Log.w(TAG, "lms courses failed", it)
-                    emptyList()
-                }
-        }.also { lmsCoursesCache = Box(it) }
+        val c = caches()
+        val all = c.lmsCourses?.value ?: run {
+            val site = manager.siteOrNull(LoginType.LMS) ?: return null
+            withContext(Dispatchers.IO) {
+                runCatching { com.xjtu.toolbox.lms.LmsApi(site).getMyCourses() }
+                    .rethrowCancellation()
+                    .onFailure { Log.w(TAG, "lms courses failed", it) }
+                    .getOrNull()
+            }
+                // 失败不写缓存：以前失败也存一个空列表，整个进程生命周期里都再查不到。
+                ?.also { if (c.isCurrent()) c.lmsCourses = Box(it) }
+                ?: return null
+        }
         if (all.isEmpty()) return null
 
         val code = course.courseCode.trim()
@@ -267,7 +273,8 @@ object CourseLinks {
         manager: SessionManager?,
         target: ReplayCourse,
     ): List<com.xjtu.toolbox.classreplay.LiveActivity>? {
-        sessionCache[target.id]?.let { return it.value }
+        val c = caches()
+        c.sessions[target.id]?.let { return it.value }
         val site = manager.siteOrNull(LoginType.CLASS) ?: return null
         return withContext(Dispatchers.IO) {
             runCatching {
@@ -284,7 +291,7 @@ object CourseLinks {
             }.rethrowCancellation().getOrElse {
                 Log.w(TAG, "fetchLiveActivities failed", it)
                 null
-            }?.also { sessionCache[target.id] = Box(it) }
+            }?.also { if (c.isCurrent()) c.sessions[target.id] = Box(it) }
         }
     }
 
@@ -383,14 +390,16 @@ object CourseLinks {
     ): AttendanceIndex? {
         // 缓存必须带学期：不带的话切到别的学期还会拿到上一个学期的索引，
         // 表现就是"换了学期角标和考勤记录都不动"。
-        attendanceCache?.takeIf { it.first == termCode }?.let { return it.second.value }
-        return attendanceLock.withLock {
-            attendanceCache?.takeIf { it.first == termCode }?.second?.value
-                ?: fetchAttendanceIndex(manager, accountType, termCode, userInitiated)
+        val c = caches()
+        c.attendance?.takeIf { it.first == termCode }?.let { return it.second.value }
+        return c.attendanceLock.withLock {
+            c.attendance?.takeIf { it.first == termCode }?.second?.value
+                ?: fetchAttendanceIndex(c, manager, accountType, termCode, userInitiated)
         }
     }
 
     private suspend fun fetchAttendanceIndex(
+        c: Caches,
         manager: SessionManager?,
         accountType: AccountType,
         termCode: String,
@@ -400,7 +409,7 @@ object CourseLinks {
         // 考勤页和课表角标共用同一份——原来两边各拉各的、各存各的。
         val ctx = appContext
         val pg = accountType == AccountType.POSTGRADUATE
-        val shard = ctx?.let { AttendanceRecordStore.load(it, pg, termCode) }
+        val shard = ctx?.let { AttendanceRecordStore.load(it, pg, termCode, c.accountId) }
         val plan = AttendanceRecordStore.planFor(
             shard = shard,
             sealedTerm = sealedTerms.contains(termCode),
@@ -410,14 +419,14 @@ object CourseLinks {
         if (plan == AttendanceRecordStore.Plan.NONE && shard != null) {
             return indexOf(shard.records)
         }
-        return fetchAttendanceIndexInner(manager, accountType, termCode, userInitiated, shard, plan)
+        return fetchAttendanceIndexInner(c, manager, accountType, termCode, userInitiated, shard, plan)
     }
 
     /**
      * 已结束、不会再变的学期。由日程页灌进来——这一层拿不到教务会话，自己判断不了。
      * 没灌就当所有学期都还活着：最多多拉几次，不会给出过期数据。
      */
-    private val sealedTerms = mutableSetOf<String>()
+    private val sealedTerms: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     /** 落盘缓存要 Context；由日程页在首次调用前设好。 */
     private var appContext: android.content.Context? = null
@@ -446,6 +455,7 @@ object CourseLinks {
     }
 
     private suspend fun fetchAttendanceIndexInner(
+        c: Caches,
         manager: SessionManager?,
         accountType: AccountType,
         termCode: String,
@@ -501,10 +511,16 @@ object CourseLinks {
                 } else {
                     fresh
                 }
-                appContext?.let { c ->
+                if (!c.isCurrent()) {
+                    // SessionManager 切账号是原地重配，跨越切换的请求可能已用上新账号的会话，
+                    // 拿到的数据归属说不清，整份丢弃，既不落盘也不进缓存。
+                    Log.d(TAG, "attendance: account switched mid-fetch, discard")
+                    return@runCatching null
+                }
+                appContext?.let { ctx ->
                     val now = System.currentTimeMillis()
                     AttendanceRecordStore.save(
-                        c,
+                        ctx,
                         accountType == AccountType.POSTGRADUATE,
                         AttendanceRecordStore.Shard(
                             termCode = termCode,
@@ -513,6 +529,7 @@ object CourseLinks {
                             // 增量不推进全量时间戳，否则永远轮不到重扫。
                             fullScanAt = if (incremental) shard?.fullScanAt ?: now else now,
                         ),
+                        c.accountId,
                     )
                 }
                 Log.d(
@@ -529,7 +546,7 @@ object CourseLinks {
                 Log.w(TAG, "attendance index failed", it)
                 null
             }
-            if (index != null) attendanceCache = termCode to Box(index)
+            if (index != null && c.isCurrent()) c.attendance = termCode to Box(index)
             index
         }
     }
@@ -537,29 +554,55 @@ object CourseLinks {
     // ── 缓存 ──────────────────────────────────────────────
     //
     // 进程内存活即可，不落盘：这些都是"打开详情时顺带看一眼"的辅助信息，冷启动重拉一次
-    // 可以接受，而落盘就要跟着学期、账号一起做失效管理。切账号/切学期时调 [invalidate]。
+    // 可以接受，而落盘就要跟着学期、账号一起做失效管理。
 
     private class Box<T>(val value: T)
 
     /**
-     * 同一时刻只允许一次考勤拉取。
+     * 一个账号的全部缓存。
      *
-     * 详情面板和课表角标可能同时想要索引，重组也会让同一个请求重来；没有这把锁的话
-     * 就是几路并发登录同一个站点，既拖慢又容易被判成异常访问。锁内会再查一次缓存，
-     * 所以后到的那几路直接拿现成结果，不会重复发请求。
+     * 账号隔离靠整体替换这个对象：[caches] 发现激活账号变了就换一个新的。每个请求在
+     * **发起时**拿到当时的 [Caches]，结果写回同一个对象——中途切了账号，旧请求只会写进
+     * 已被丢弃的旧对象，不会污染新账号。以前这些是 object 上的裸字段、从不按账号失效
+     * （[invalidate] 没有任何调用方），切账号后会看到上一个人的回放、考勤、思源课程。
+     *
+     * 多张课程卡片的 LaunchedEffect 会并发查询，所以容器必须线程安全。
      */
-    private val attendanceLock = kotlinx.coroutines.sync.Mutex()
+    private class Caches(val accountId: String?) {
+        val fulltext = ConcurrentHashMap<String, Box<Jiaocai1Book?>>()
+        val sessions = ConcurrentHashMap<Int, Box<List<com.xjtu.toolbox.classreplay.LiveActivity>>>()
+        @Volatile var replay: Box<List<ReplayCourse>>? = null
+        @Volatile var lmsCourses: Box<List<com.xjtu.toolbox.lms.LmsCourseSummary>>? = null
+        @Volatile var attendance: Pair<String, Box<AttendanceIndex>>? = null
 
-    private val fulltextCache = HashMap<String, Box<Jiaocai1Book?>>()
-    private var replayCache: Box<List<ReplayCourse>>? = null
-    private val sessionCache = HashMap<Int, Box<List<com.xjtu.toolbox.classreplay.LiveActivity>>>()
-    private var attendanceCache: Pair<String, Box<AttendanceIndex>>? = null
+        /**
+         * 同一时刻只允许一次考勤拉取。
+         *
+         * 详情面板和课表角标可能同时想要索引，重组也会让同一个请求重来；没有这把锁的话
+         * 就是几路并发登录同一个站点，既拖慢又容易被判成异常访问。锁内会再查一次缓存，
+         * 所以后到的那几路直接拿现成结果，不会重复发请求。
+         */
+        val attendanceLock = Mutex()
 
+        /** 激活账号仍是本容器的账号。结果回来时不是了，就不该再写任何地方。 */
+        fun isCurrent() = AccountContext.activeAccountId == accountId
+    }
+
+    @Volatile
+    private var current = Caches(AccountContext.activeAccountId)
+
+    private fun caches(): Caches {
+        val id = AccountContext.activeAccountId
+        current.takeIf { it.accountId == id }?.let { return it }
+        synchronized(this) {
+            if (current.accountId != id) current = Caches(id)
+            return current
+        }
+    }
+
+    /** 丢弃当前账号的全部缓存（如切学期后想强制重拉）。 */
     fun invalidate() {
-        fulltextCache.clear()
-        replayCache = null
-        sessionCache.clear()
-        attendanceCache = null
+        synchronized(this) { current = Caches(AccountContext.activeAccountId) }
     }
 
     // ── 小工具 ────────────────────────────────────────────

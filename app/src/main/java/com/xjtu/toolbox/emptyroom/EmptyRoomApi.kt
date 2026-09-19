@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.emptyroom
 
 import android.content.Context
+import com.xjtu.toolbox.util.HttpClients
 import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -55,15 +56,20 @@ val CAMPUS_BUILDINGS = mapOf(
  * 数据由 XJTUToolBox GitHub Actions 每日自动更新
  * 无需登录，无需校园网
  */
-class EmptyRoomApi(context: Context? = null) {
-
-    private val cdnBaseUrl = "https://gh-release.xjtutoolbox.com/"
-
-    private val client = OkHttpClient.Builder()
+/** 全进程一份，见 [HttpClients]。课程详情、Agent 工具每次都会 new 一个 EmptyRoomApi。 */
+private val sharedClient: OkHttpClient by lazy {
+    HttpClients.base.newBuilder()
         .addInterceptor(BrotliInterceptor)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
+}
+
+class EmptyRoomApi(context: Context? = null) {
+
+    private val cdnBaseUrl = "https://gh-release.xjtutoolbox.com/"
+
+    private val client: OkHttpClient get() = sharedClient
 
     // 缓存：日期 → 完整 JSON 数据
     private var cachedDate: String? = null

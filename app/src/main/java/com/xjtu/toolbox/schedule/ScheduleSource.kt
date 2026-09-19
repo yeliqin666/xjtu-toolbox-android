@@ -132,7 +132,7 @@ object ScheduleSourceRouter {
             .getSharedPreferences(PREFS_CHANGES, Context.MODE_PRIVATE)
             .getString(termCode, null) ?: return emptyList()
         return runCatching {
-            gson.fromJson(json, Array<ScheduleChangeEvent>::class.java)?.toList()
+            gson.fromJson(json, Array<ScheduleChangeEvent?>::class.java)?.mapNotNull { it?.sanitized() }
         }.getOrNull().orEmpty()
     }
 

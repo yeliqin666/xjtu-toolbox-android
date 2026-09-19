@@ -5,6 +5,7 @@ import com.google.gson.Gson
 import com.google.gson.JsonParser
 import com.google.gson.annotations.SerializedName
 import com.xjtu.toolbox.util.DataCache
+import com.xjtu.toolbox.util.HttpClients
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.time.LocalDateTime
@@ -62,10 +63,7 @@ data class YellowPageData(
 class YellowPageApi(context: Context) {
     private val gson = Gson()
     private val cache = DataCache(context.applicationContext)
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
-        .build()
+    private val client: OkHttpClient get() = sharedClient
 
     fun getData(forceRefresh: Boolean = false): YellowPageData {
         if (!forceRefresh) {
@@ -129,6 +127,14 @@ class YellowPageApi(context: Context) {
     }
 
     companion object {
+        /** 全进程一份，见 [HttpClients]。首页刷新、Agent 工具每次都会 new 一个 YellowPageApi。 */
+        private val sharedClient: OkHttpClient by lazy {
+            HttpClients.base.newBuilder()
+                .connectTimeout(10, TimeUnit.SECONDS)
+                .readTimeout(15, TimeUnit.SECONDS)
+                .build()
+        }
+
         private const val BASE_URL = "https://workflow.xjtu.edu.cn/selectpage"
         private const val CACHE_KEY = "yellow_page"
         private const val CACHE_TTL_MS = 24L * 60 * 60 * 1000

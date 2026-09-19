@@ -23,6 +23,7 @@ import java.io.File
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
 enum class WidgetSize { SMALL, LARGE }
@@ -80,6 +81,36 @@ object ScheduleWidgetUpdater {
     private const val MAX_WEEK_OFFSET = 30
 
     private val gson = Gson()
+
+    private val holidayFetchInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /**
+     * 小组件用的节假日表：**只读本地缓存**。
+     *
+     * 这里的调用链跑在 AppWidgetProvider.onUpdate/onReceive 里，也就是主线程。以前直接
+     * runBlocking 调 [com.xjtu.toolbox.schedule.HolidayApi.getHolidayDates]，缓存为空时会在
+     * 主线程同步请求两个外部接口（各 10s 超时），而换包会清空 DataCache，于是每次升级后
+     * 第一次刷新小组件都有 ANR 风险。缓存为空就先按"无节假日"渲染，后台拉到后再刷一次。
+     */
+    private fun widgetHolidays(context: Context): Map<LocalDate, String> {
+        val cached = com.xjtu.toolbox.schedule.HolidayApi.peekCached(context)
+        if (cached.isNotEmpty()) return cached
+        if (holidayFetchInFlight.compareAndSet(false, true)) {
+            val app = context.applicationContext
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                try {
+                    val fetched = runCatching {
+                        com.xjtu.toolbox.schedule.HolidayApi.getHolidayDates(app)
+                    }.getOrDefault(emptyMap())
+                    // 拉不到就别刷新，否则每次刷新又触发一次拉取，形成循环
+                    if (fetched.isNotEmpty()) requestUpdate(app, resetToToday = false)
+                } finally {
+                    holidayFetchInFlight.set(false)
+                }
+            }
+        }
+        return emptyMap()
+    }
 
     fun requestUpdate(context: Context, resetToToday: Boolean = true) {
         context.sendBroadcast(
@@ -378,9 +409,7 @@ object ScheduleWidgetUpdater {
         startDate: LocalDate?,
         date: LocalDate,
     ): List<WidgetCourse> {
-        val holidays = runCatching {
-            runBlocking { com.xjtu.toolbox.schedule.HolidayApi.getHolidayDates(context) }
-        }.getOrDefault(emptyMap())
+        val holidays = widgetHolidays(context)
         if (holidays.containsKey(date)) return emptyList()
 
         val all = allCoursesOf(context, cache, termCode)
@@ -522,9 +551,7 @@ object ScheduleWidgetUpdater {
         }
         val dayText = "${selectedDate.format(DateTimeFormatter.ofPattern("MM-dd"))} 周${weekdayLabel(selectedDayOfWeek)}"
 
-        val holidayDates = runCatching {
-            runBlocking { com.xjtu.toolbox.schedule.HolidayApi.getHolidayDates(context) }
-        }.getOrDefault(emptyMap())
+        val holidayDates = widgetHolidays(context)
         val isHoliday = holidayDates.containsKey(selectedDate)
 
         val todayCourses = if (isHoliday) emptyList() else allCourses

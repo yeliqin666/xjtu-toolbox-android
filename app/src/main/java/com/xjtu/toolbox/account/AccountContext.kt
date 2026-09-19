@@ -16,9 +16,15 @@ object AccountContext {
     @JvmField
     var activeAccountId: String? = null
 
-    /** 用于文件名/SharedPreferences 名的安全化账号后缀。 */
-    fun safeSuffix(): String {
-        val id = activeAccountId ?: return "default"
+    /** 用于文件名/SharedPreferences 名的安全化账号后缀（当前激活账号）。 */
+    fun safeSuffix(): String = suffixFor(activeAccountId)
+
+    /**
+     * 指定账号的后缀。异步任务应在**发起时**用它（或捕获 [activeAccountId]）定下命名空间，
+     * 而不是在结果回来时再读 [safeSuffix]——中途切了账号，结果就写进了别人的目录。
+     */
+    fun suffixFor(accountId: String?): String {
+        val id = accountId ?: return "default"
         return "_" + id.replace(Regex("[^a-zA-Z0-9]"), "_")
     }
 }

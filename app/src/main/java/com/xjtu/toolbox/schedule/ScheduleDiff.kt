@@ -32,6 +32,34 @@ object ScheduleDiff {
     private fun fingerprintOf(c: CourseItem) =
         "${c.location}|${c.weekBits}|${c.endSection}|${c.teacher}"
 
+    /**
+     * 同一身份下可能有多条：某几周临时换教室时，数据源会按教室拆成几条（周次互不重叠）。
+     * 只有一条时与 [fingerprintOf] 完全相同，老快照不会因此误报。多条时把它们合成一份：
+     * 教室按「教室[周次]」列全，周次取并集——临时换教室换到了哪一周也能比出来，而不是
+     * 像 `associate` 那样只留下最后一条、把其余几条的变化悄悄吞掉。
+     */
+    internal fun groupFingerprint(group: List<CourseItem>): String {
+        if (group.size == 1) return fingerprintOf(group.single())
+        val sorted = group.sortedBy { it.getWeeks().firstOrNull() ?: Int.MAX_VALUE }
+        val location = sorted.joinToString("、") { "${it.location}[${compactWeeks(it.getWeeks())}]" }
+        val len = group.maxOf { it.weekBits.length }
+        val bits = CharArray(len) { i -> if (group.any { it.weekBits.getOrNull(i) == '1' }) '1' else '0' }
+        val ends = group.map { it.endSection }.distinct().sorted().joinToString(",")
+        val teachers = group.map { it.teacher }.distinct().sorted().joinToString("、")
+        return "$location|${String(bits)}|$ends|$teachers"
+    }
+
+    /** `[1,2,3,5]` → `1-3,5`。 */
+    private fun compactWeeks(weeks: List<Int>): String = buildList {
+        var i = 0
+        while (i < weeks.size) {
+            var j = i
+            while (j + 1 < weeks.size && weeks[j + 1] == weeks[j] + 1) j++
+            add(if (j > i) "${weeks[i]}-${weeks[j]}" else "${weeks[i]}")
+            i = j + 1
+        }
+    }.joinToString(",")
+
     data class Change(val kind: Kind, val courseName: String, val detail: String, val reason: String? = null) {
         enum class Kind { ADDED, REMOVED, MOVED }
     }
@@ -46,12 +74,19 @@ object ScheduleDiff {
         // 快照按来源分开存。三个系统给的周次位串长度、教室写法都不完全一样，
         // 用同一份快照去比会在换来源（设置里改、或非教务源失败退回教务）的那一次
         // 把每一门课都报成"变了"。分开存的代价只是换来源后重建一次基线。
-        val storeKey = "snap_${termCode}_${ScheduleSourceRouter.servedSource(ctx).key}"
+        //
+        // 键名带格式版本：4.9.6 起同一节课可能拆成几条（临时换教室）、jwapp 的调停课合并也改了，
+        // 拿老快照来比会把没变的课报成"变了"。换版本等于重建一次基线，旧版本的键顺手清掉。
+        val storeKey = "${SNAPSHOT_PREFIX}${termCode}_${ScheduleSourceRouter.servedSource(ctx).key}"
         val old = prefs.getStringSet(storeKey, null)
+        prefs.all.keys.filter { it.startsWith("snap_") }.takeIf { it.isNotEmpty() }?.let { stale ->
+            prefs.edit().apply { stale.forEach(::remove) }.apply()
+        }
 
-        val now = courses.associate { keyOf(it) to fingerprintOf(it) }
+        val groups = courses.groupBy(::keyOf)
+        val now = groups.mapValues { (_, group) -> groupFingerprint(group) }
         val nowFlat = now.map { "${it.key}=>${it.value}" }.toSet()
-        val nameOf = courses.associate { keyOf(it) to it.courseName }
+        val nameOf = groups.mapValues { (_, group) -> group.first().courseName }
 
         prefs.edit().putStringSet(storeKey, nowFlat).apply()
         if (old == null) {
@@ -121,6 +156,8 @@ object ScheduleDiff {
     }
 
     private val DAY_NAMES = listOf("", "一", "二", "三", "四", "五", "六", "日")
+    private const val SNAPSHOT_PREFIX = "snap2_"
+    private val ROOM_WEEKS = Regex("""^(.*)\[([0-9,\-]+)]$""")
 
     private fun describeKey(k: String): String {
         val p = k.split('|')
@@ -134,9 +171,7 @@ object ScheduleDiff {
         val a = oldFp.split('|')
         val b = newFp.split('|')
         val parts = buildList {
-            if (a.getOrNull(0) != b.getOrNull(0)) {
-                add("教室 ${a.getOrNull(0).orEmpty().ifBlank { "?" }} → ${b.getOrNull(0).orEmpty().ifBlank { "?" }}")
-            }
+            if (a.getOrNull(0) != b.getOrNull(0)) add(describeRooms(a.getOrNull(0).orEmpty(), b.getOrNull(0).orEmpty()))
             if (a.getOrNull(1) != b.getOrNull(1)) add("上课周次有调整")
             if (a.getOrNull(2) != b.getOrNull(2)) add("下课节次变了")
             if (a.getOrNull(3) != b.getOrNull(3)) {
@@ -144,5 +179,22 @@ object ScheduleDiff {
             }
         }
         return parts.joinToString("；").ifBlank { "有改动" }
+    }
+
+    /**
+     * 教室那一段的变化。拆成几条的课，教室写成 `主楼A-101[1-4]、主楼B-202[5]`；
+     * 整串甩给用户看不懂，只报新出现的那几段："第5周改在主楼B-202"。
+     */
+    private fun describeRooms(old: String, new: String): String {
+        fun parts(s: String) = s.split("、").filter { it.isNotBlank() }
+        val oldParts = parts(old).toSet()
+        val added = parts(new).filter { it !in oldParts }
+        if ('[' !in old && '[' !in new) return "教室 ${old.ifBlank { "?" }} → ${new.ifBlank { "?" }}"
+        val described = added.map { part ->
+            ROOM_WEEKS.find(part)?.destructured
+                ?.let { (room, weeks) -> "第${weeks.replace(",", "、")}周改在${room.ifBlank { "?" }}" }
+                ?: "教室改为$part"
+        }
+        return described.joinToString("，").ifBlank { "教室安排有调整" }
     }
 }

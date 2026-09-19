@@ -2,9 +2,8 @@ package com.xjtu.toolbox.agent
 
 import android.content.Context
 import android.content.SharedPreferences
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKeys
 import com.xjtu.toolbox.account.AccountContext
+import com.xjtu.toolbox.util.SecurePrefs
 
 /**
  * 把存下来的思考强度收敛到本地支持的档位。
@@ -171,17 +170,11 @@ private val prefsCache = java.util.concurrent.ConcurrentHashMap<String, SharedPr
 
 private val securePrefs: SharedPreferences
     get() = securePrefsCache.getOrPut(AccountContext.safeSuffix()) {
-        try {
-            EncryptedSharedPreferences.create(
-                "agent_config_secure${AccountContext.safeSuffix()}",
-                MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC),
-                appContext,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-            )
-        } catch (_: Exception) {
-            appContext.getSharedPreferences("agent_config_fallback${AccountContext.safeSuffix()}", Context.MODE_PRIVATE)
-        }
+        SecurePrefs.open(
+            appContext,
+            "agent_config_secure${AccountContext.safeSuffix()}",
+            legacyFallbackName = "agent_config_fallback${AccountContext.safeSuffix()}",
+        )
     }
 
 private val prefs: SharedPreferences

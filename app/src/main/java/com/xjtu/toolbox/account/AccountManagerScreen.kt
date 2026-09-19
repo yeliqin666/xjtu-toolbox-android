@@ -194,11 +194,6 @@ fun AccountManagerScreen(
 
             Spacer(Modifier.height(28.dp))
 
-            // 新增/切换账号都会触发 CAS 登录，可能撞上 MFA；这个页面是唯一没有挂
-            // MainScreen 的登录相关页面，同样的"必须在自己 Scaffold content 里"的
-            // 道理（见下面注释）对它也成立，MFA 弹窗必须在这里单独再挂一次。
-            com.xjtu.toolbox.auth.MfaDialogHost(loginState.sessionManager)
-
             // ── 四个账号操作弹窗 ──
             //
             // 必须写在 Scaffold 的 content 内：miuix 0.9.3 起 Overlay* 注册进

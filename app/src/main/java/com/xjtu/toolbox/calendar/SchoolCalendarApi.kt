@@ -2,6 +2,7 @@ package com.xjtu.toolbox.calendar
 
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import com.xjtu.toolbox.util.HttpClients
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.time.DayOfWeek
@@ -78,7 +79,8 @@ data class SchoolTerm(
  * 是按标题对应的详细说明文字（不是所有 holiday 都有对应的 specialEvent）。
  */
 class SchoolCalendarApi {
-    private val client = OkHttpClient()
+    /** 默认配置即可，直接用共享基础客户端，见 [HttpClients]。 */
+    private val client: OkHttpClient = HttpClients.base
 
     fun getTerms(): List<SchoolTerm> {
         val request = Request.Builder().url(CALENDAR_URL).get().build()

@@ -3,7 +3,16 @@ package com.xjtu.toolbox.agent
 import com.vladsch.flexmark.html2md.converter.FlexmarkHtmlConverter
 import org.jsoup.Jsoup
 import org.jsoup.parser.Parser
+import java.net.Inet4Address
+import java.net.Inet6Address
+import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.Proxy
+import java.net.ProxySelector
+import java.net.Socket
+import java.net.SocketAddress
 import java.net.URI
+import javax.net.SocketFactory
 
 /**
  * 联网工具的页面处理，对齐成熟开源 Agent 而不是自研解析器。
@@ -41,21 +50,126 @@ internal object AgentWeb {
         }
     }
 
+    /**
+     * URL 层面的快速预检，只能挡住字面写出来的内网地址，给出友好报错。
+     *
+     * **真正的防线是 [publicOnlySocketFactory]**：域名解析到内网、DNS 重绑定、302 跳到内网，
+     * 这些在 URL 字符串上都看不出来，只有在真正建连时检查目标 IP 才可靠。
+     */
     fun isBlockedHost(host: String): Boolean {
         val h = host.lowercase().trim().trim('.')
         if (h.isEmpty()) return true
         if (h == "localhost" || h.endsWith(".localhost") || h.endsWith(".local")) return true
-        if (h == "0.0.0.0" || h == "::1" || h == "[::1]") return true
         val bare = h.removePrefix("[").removeSuffix("]")
-        if (bare == "::1") return true
-        val ipv4 = parseIpv4(h) ?: return false
-        val a = ipv4[0]
-        val b = ipv4[1]
-        return a == 0 || a == 10 || a == 127 ||
-            (a == 169 && b == 254) ||
-            (a == 172 && b in 16..31) ||
-            (a == 192 && b == 168)
+        val literal = when {
+            parseIpv4(bare) != null -> bare
+            bare.contains(':') -> bare          // IPv6 字面量
+            else -> return false                // 域名：交给建连时检查
+        }
+        // 字面量不会触发 DNS 查询
+        val addr = runCatching { InetAddress.getByName(literal) }.getOrNull() ?: return true
+        return isNonPublicAddress(addr)
     }
+
+    /**
+     * 不允许 Agent 访问的地址：回环、私网、链路本地、组播、未指定地址、CGNAT、IPv6 ULA，
+     * 以及 IPv4 映射/兼容的 IPv6 里包着的这些地址。
+     */
+    fun isNonPublicAddress(addr: InetAddress): Boolean {
+        if (addr.isAnyLocalAddress || addr.isLoopbackAddress || addr.isLinkLocalAddress ||
+            addr.isSiteLocalAddress || addr.isMulticastAddress
+        ) return true
+        val b = addr.address
+        if (addr is Inet4Address) {
+            val a0 = b[0].toInt() and 0xff
+            val a1 = b[1].toInt() and 0xff
+            // 不拦 198.18.0.0/15：Clash/Surge 等 VPN 的"虚拟网卡 + fake-ip"模式把所有域名都解析到
+            // 这个网段，拦了它，开着这类 VPN 的人屁岱就一个网页也打不开。这个网段只用于基准测试，
+            // 不会是谁家的内网服务。
+            return a0 == 0 ||                               // 0.0.0.0/8
+                (a0 == 100 && a1 in 64..127)                // 100.64.0.0/10 运营商级 NAT
+        }
+        if (addr is Inet6Address) {
+            if ((b[0].toInt() and 0xfe) == 0xfc) return true // fc00::/7 ULA
+            // ::ffff:a.b.c.d（映射）与 ::a.b.c.d（兼容）：按里面的 IPv4 判
+            val first10Zero = (0 until 10).all { b[it].toInt() == 0 }
+            if (first10Zero) {
+                val mapped = (b[10].toInt() and 0xff) == 0xff && (b[11].toInt() and 0xff) == 0xff
+                val compat = b[10].toInt() == 0 && b[11].toInt() == 0
+                if (mapped || compat) {
+                    val v4 = InetAddress.getByAddress(b.copyOfRange(12, 16))
+                    return isNonPublicAddress(v4)
+                }
+            }
+        }
+        return false
+    }
+
+    /**
+     * 只允许连公网地址的 SocketFactory，给 Agent 联网工具的 OkHttpClient 用。
+     *
+     * 在 [Socket.connect] 时检查的是**即将连接的真实 IP**：不管它来自 DNS 解析（包括解析到
+     * 内网的域名、DNS 重绑定）、URL 里的字面 IP，还是重定向后的新地址，都绕不过去。
+     * 以前只在 URL 字符串上判断，域名一律放行，响应回来后才复查——那时请求早已发出。
+     *
+     * 走系统 HTTP 代理（Clash 的代理模式等）时，这里连的是代理本身，通常在 127.0.0.1——
+     * 这一个地址放行（见 [isSystemProxyEndpoint]），否则开着代理的人屁岱完全上不了网。
+     * 代理之后连去哪由用户自己的代理决定，这里管不到；URL 里字面写出的内网地址仍由
+     * [isBlockedHost] 预先拦下。
+     */
+    val publicOnlySocketFactory: SocketFactory = object : SocketFactory() {
+        override fun createSocket(): Socket = GuardedSocket()
+        override fun createSocket(host: String?, port: Int): Socket =
+            GuardedSocket().apply { connect(InetSocketAddress(host, port)) }
+        override fun createSocket(host: String?, port: Int, localHost: InetAddress?, localPort: Int): Socket =
+            GuardedSocket().apply { bind(InetSocketAddress(localHost, localPort)); connect(InetSocketAddress(host, port)) }
+        override fun createSocket(host: InetAddress?, port: Int): Socket =
+            GuardedSocket().apply { connect(InetSocketAddress(host, port)) }
+        override fun createSocket(address: InetAddress?, port: Int, localAddress: InetAddress?, localPort: Int): Socket =
+            GuardedSocket().apply { bind(InetSocketAddress(localAddress, localPort)); connect(InetSocketAddress(address, port)) }
+    }
+
+    private class GuardedSocket : Socket() {
+        override fun connect(endpoint: SocketAddress?, timeout: Int) {
+            val target = endpoint as? InetSocketAddress
+            val addr = target?.address
+            if (addr == null || (isNonPublicAddress(addr) && !isSystemProxyEndpoint(target))) {
+                throw java.io.IOException("拒绝访问非公开地址")
+            }
+            super.connect(endpoint, timeout)
+        }
+    }
+
+    /**
+     * [endpoint] 是不是系统当前配置的 HTTP 代理。OkHttp 默认按 [ProxySelector.getDefault] 选代理，
+     * 这里用同一个来源比对，只放行代理自己那个地址和端口。
+     */
+    internal fun isSystemProxyEndpoint(
+        endpoint: InetSocketAddress,
+        selector: ProxySelector? = ProxySelector.getDefault(),
+    ): Boolean {
+        val addr = endpoint.address ?: return false
+        val proxies = selector ?: return false
+        return PROXY_PROBES.asSequence()
+            .flatMap { probe -> runCatching { proxies.select(probe) }.getOrNull().orEmpty().asSequence() }
+            .filter { it.type() != Proxy.Type.DIRECT }
+            .mapNotNull { it.address() as? InetSocketAddress }
+            .any { proxy ->
+                proxy.port == endpoint.port &&
+                    (proxy.address?.let { it == addr }
+                        ?: runCatching { InetAddress.getAllByName(proxy.hostString) }.getOrNull()
+                            .orEmpty().any { it == addr })
+            }
+    }
+
+    private val PROXY_PROBES = listOf(URI("http://example.com/"), URI("https://example.com/"))
+
+    /**
+     * 给接收不可信 URL 的客户端应用公网访问策略：建连时拒绝内网/回环地址（系统代理本身除外）。
+     * 代理沿用系统设置，不强行直连——开着代理的人多半是要靠它访问外网搜索引擎。
+     */
+    fun applyPublicNetworkPolicy(builder: okhttp3.OkHttpClient.Builder): okhttp3.OkHttpClient.Builder =
+        builder.socketFactory(publicOnlySocketFactory)
 
     fun isBinaryContentType(contentType: String?): Boolean {
         val t = contentType?.substringBefore(';')?.trim()?.lowercase().orEmpty()
