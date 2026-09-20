@@ -207,6 +207,9 @@ fun ScheduleScreen(
     var textbooksError by remember { mutableStateOf<String?>(null) }
     var textbooksLoaded by remember { mutableStateOf(false) }
     var textbooksRefreshing by remember { mutableStateOf(false) }
+    // 后台加载（课程详情顺带取教材）的失败原因。跟 textbooksError 分开放：
+    // 那个是教材页自己的提示条，不该被一次后台请求改写，反过来也一样。
+    var textbooksBackgroundError by remember { mutableStateOf<String?>(null) }
     var examsRefreshing by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(disk.courses.isEmpty()) }
     var isSwitching by remember { mutableStateOf(false) }  // 学期切换中（保留旧日程显示）
@@ -703,28 +706,55 @@ fun ScheduleScreen(
         }
     }
 
-    // 懒加载教材（切换到教材 tab 时才加载）
-    fun loadTextbooks(termCode: String, silent: Boolean = false) {
-        if (api == null) { textbooksError = "尚未登录教务系统"; return }
-        android.util.Log.d("ScheduleUI", "loadTextbooks called: studentId='$studentId', termCode='$termCode' silent=$silent")
-        if (studentId.isBlank()) { textbooksError = "未获取到学号"; return }
-        if (silent) {
+    /**
+     * 加载教材。
+     *
+     * [background] 说的是**谁在等这个结果**，而不是"用哪种转圈"：
+     * true 表示没人在等——课程详情面板点开一门课时顺带取的，于是不占页面的
+     * 加载态、不写教材页的提示条、失败也不抢导航。用户自己点刷新时传 false，
+     * 首屏还是空的就铺加载态、已经有内容就走下拉刷新的那一个，由
+     * [textbooksLoaded] 自己决定，调用方不必操心。
+     *
+     * 这两件事以前挤在一个 `silent` 里，于是同时错了两头：课程详情那条路
+     * **跳过了缓存**（缓存是本地的，读它既不慢也不打扰谁），失败又只写进
+     * 教材页才看得到的 [textbooksError]——"教务这次没请求成功"在课程详情里的
+     * 表现就是教材那一行整个不见，不给任何解释；而用户手动刷新一旦变成
+     * `silent = textbooksLoaded`，又反过来被当成了没人在等。最要命的是
+     * AuthExpired 会走 handleAuthExpired → onBack()：点开一门课，人就被弹出
+     * 日程页去重登一次。
+     */
+    fun loadTextbooks(termCode: String, background: Boolean = false) {
+        android.util.Log.d("ScheduleUI", "loadTextbooks called: studentId='$studentId', termCode='$termCode' background=$background")
+        val jw = api
+        val blocked = when {
+            jw == null -> "尚未登录教务系统"
+            studentId.isBlank() -> "未获取到学号"
+            else -> null
+        }
+        if (jw == null || blocked != null) {
+            if (background) textbooksBackgroundError = blocked else textbooksError = blocked
+            return
+        }
+        if (background) {
+            // 后台那条路要防重入：面板反复开合会一直打这个请求。
+            // 用户自己点的刷新不拦——切学期时上一发还没回来，新的那一发必须跑。
             if (textbooksRefreshing) return
             textbooksRefreshing = true
+            textbooksBackgroundError = null
         } else {
-            textbooksLoading = true
+            // 已经有内容了就别把它换成一屏加载态——下拉刷新自己有指示器。
+            if (textbooksLoaded) textbooksRefreshing = true else textbooksLoading = true
+            textbooksError = null
         }
-        textbooksError = null
         scope.launch {
             try {
                 withContext(Dispatchers.IO) {
-                    if (!silent) {
-                        ScheduleCache.readTextbooks(dataCache, gson, termCode, Long.MAX_VALUE)?.let { cached ->
-                            textbooks = cached.sortedBy { item -> if (item.hasSubstantiveTextbook) 0 else 1 }
-                            textbooksLoaded = true
-                        }
+                    // 先上缓存，两条路径一视同仁：网络那一下失败时，手里有什么先给什么。
+                    ScheduleCache.readTextbooks(dataCache, gson, termCode, Long.MAX_VALUE)?.let { cached ->
+                        textbooks = cached.sortedBy { item -> if (item.hasSubstantiveTextbook) 0 else 1 }
+                        textbooksLoaded = true
                     }
-                    val raw = api.getTextbooks(studentId, termCode)
+                    val raw = jw.getTextbooks(studentId, termCode)
                     // 排序：有教材的在前，无教材的在后
                     textbooks = raw.sortedBy { item ->
                         if (item.hasSubstantiveTextbook) 0 else 1
@@ -733,13 +763,19 @@ fun ScheduleScreen(
                 }
                 android.util.Log.d("ScheduleUI", "loadTextbooks done: ${textbooks.size} items")
                 textbooksLoaded = true
+                if (background) textbooksBackgroundError = null
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(LoginType.JWXT, Routes.SCHEDULE, onBack)
+                android.util.Log.w("ScheduleUI", "loadTextbooks 登录过期 background=$background")
+                // 静默路径不抢导航：用户只是点开了一门课，不该因此被弹回登录。
+                // 教务真过期了，页面上任何一个正经操作都会撞到，由那一次去处理。
+                if (background) textbooksBackgroundError = "教务登录已过期，去教材页刷新一次"
+                else appLoginState.handleAuthExpired(LoginType.JWXT, Routes.SCHEDULE, onBack)
             } catch (e: Exception) {
-                android.util.Log.e("ScheduleUI", "loadTextbooks failed", e)
-                textbooksError = com.xjtu.toolbox.util.FriendlyError.of(e, "查询教材")
+                android.util.Log.e("ScheduleUI", "loadTextbooks failed background=$background", e)
+                val msg = com.xjtu.toolbox.util.FriendlyError.of(e, "查询教材")
+                if (background) textbooksBackgroundError = msg else textbooksError = msg
             } finally {
                 textbooksLoading = false
                 textbooksRefreshing = false
@@ -752,7 +788,7 @@ fun ScheduleScreen(
             "exam" -> refreshExams()
             // 学期一级的教材是每行一条，刷新的还是同一份数据。
             "book", "semester" -> if (selectedTermCode.isNotEmpty()) {
-                loadTextbooks(selectedTermCode, silent = textbooksLoaded)
+                loadTextbooks(selectedTermCode)
             }
             else -> refreshSchedule(true)
         }
@@ -1533,9 +1569,10 @@ fun ScheduleScreen(
                                     onEditCustomCourse = { editingCourse = it },
                                     bottomPadding = contentBottomPadding,
                                     textbooks = textbooks,
+                                    textbooksProblem = textbooksBackgroundError,
                                     onRequestTextbooks = {
-                                        if (!textbooksLoaded && !textbooksLoading && selectedTermCode.isNotEmpty()) {
-                                            loadTextbooks(selectedTermCode, silent = true)
+                                        if (!textbooksLoaded && selectedTermCode.isNotEmpty()) {
+                                            loadTextbooks(selectedTermCode, background = true)
                                         }
                                     },
                                     onNavigate = onNavigate,
@@ -1559,7 +1596,7 @@ fun ScheduleScreen(
                                 isRefreshing = textbooksRefreshing,
                                 onRefresh = {
                                     if (selectedTermCode.isNotEmpty()) {
-                                        loadTextbooks(selectedTermCode, silent = textbooksLoaded)
+                                        loadTextbooks(selectedTermCode)
                                     }
                                 },
                                 pullToRefreshState = bookPull,
@@ -1626,7 +1663,7 @@ fun ScheduleScreen(
                                 isRefreshing = textbooksRefreshing,
                                 onRefresh = {
                                     if (selectedTermCode.isNotEmpty()) {
-                                        loadTextbooks(selectedTermCode, silent = textbooksLoaded)
+                                        loadTextbooks(selectedTermCode)
                                     }
                                 },
                                 pullToRefreshState = semPull,
@@ -1663,11 +1700,12 @@ fun ScheduleScreen(
             course = course,
             onDismiss = { unifiedSelectedCourse = null },
             textbooks = textbooks,
+            textbooksProblem = textbooksBackgroundError,
             termCode = selectedTermCode,
             occurrence = unifiedOccurrence,
             onRequestTextbooks = {
-                if (!textbooksLoaded && !textbooksLoading && selectedTermCode.isNotEmpty()) {
-                    loadTextbooks(selectedTermCode, silent = true)
+                if (!textbooksLoaded && selectedTermCode.isNotEmpty()) {
+                    loadTextbooks(selectedTermCode, background = true)
                 }
             },
             onNavigate = onNavigate,
@@ -1706,6 +1744,8 @@ private fun ScheduleTabContent(
     onEditCustomCourse: (CustomCourseEntity) -> Unit = {},
     bottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
     textbooks: List<TextbookItem> = emptyList(),
+    /** 教材没取到时的原因，null 表示没问题。见 CourseLinkSections。 */
+    textbooksProblem: String? = null,
     onRequestTextbooks: () -> Unit = {},
     onNavigate: (String) -> Unit = {},
 ) {
@@ -1879,6 +1919,7 @@ private fun ScheduleTabContent(
             course = course,
             onDismiss = { selectedCourse = null },
             textbooks = textbooks,
+            textbooksProblem = textbooksProblem,
             termCode = selectedTermCode,
             occurrence = selectedOccurrence,
             onRequestTextbooks = onRequestTextbooks,
@@ -1912,6 +1953,8 @@ private fun CourseDetailDialog(
     course: CourseItem,
     onDismiss: () -> Unit,
     textbooks: List<TextbookItem> = emptyList(),
+    /** 教材没取到时的原因，null 表示没问题。 */
+    textbooksProblem: String? = null,
     termCode: String = "",
     /** 这一次课是哪天、第几周；学期总览给不出，传 null。 */
     occurrence: Occurrence? = null,
@@ -2043,6 +2086,7 @@ private fun CourseDetailDialog(
             CourseLinkSections(
                 course = course,
                 textbooks = textbooks,
+                textbooksProblem = textbooksProblem,
                 termCode = termCode,
                 occurrence = occurrence,
                 onRequestTextbooks = onRequestTextbooks,
