@@ -57,6 +57,13 @@ data class Occurrence(val date: LocalDate, val week: Int)
 fun CourseLinkSections(
     course: CourseItem,
     textbooks: List<TextbookItem>,
+    /**
+     * 教材没取到时的原因，null 表示没问题。
+     *
+     * 没有它的话，"这门课没有指定教材"和"教材这次没请求成功"在这里
+     * 长得一模一样——都是不显示教材那一行，而后者是该说一声的。
+     */
+    textbooksProblem: String?,
     /** 当前选中的教务学期码，如 `2025-2026-2`。 */
     termCode: String,
     /** 这一次课是哪一天、第几周；学期总览给不出，传 null。 */
@@ -121,7 +128,9 @@ fun CourseLinkSections(
     }
 
     val hasBook = mine.isNotEmpty()
-    if (!hasBook && record == null && lmsCourse == null) return
+    // 教材没取到时要说一声，所以它也算"这一区有东西"。
+    val bookProblem = textbooksProblem?.takeIf { !hasBook }
+    if (!hasBook && bookProblem == null && record == null && lmsCourse == null) return
 
     Spacer(Modifier.height(6.dp))
     HorizontalDivider(color = MiuixTheme.colorScheme.dividerLine, thickness = 0.5.dp)
@@ -149,6 +158,16 @@ fun CourseLinkSections(
     // 每本都列，且带上作者、出版社、版次、ISBN、定价。
     // 之前这里只显示第一本的书名加一句"等 N 本"，而完整的教材信息只在经典布局的
     // 教材页里有——换到分级布局的用户等于看不到出版社和 ISBN，买书时正需要这两样。
+    bookProblem?.let {
+        LinkRow(
+            icon = Icons.AutoMirrored.Filled.MenuBook,
+            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            title = "教材没取到",
+            subtitle = it,
+            onClick = null,
+        )
+    }
+
     if (hasBook) {
         mine.forEach { book ->
             TextbookRow(
