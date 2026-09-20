@@ -1216,6 +1216,10 @@ fun AppNavigation(
             )
         }
 
+        composable(Routes.GAME_2048) {
+            com.xjtu.toolbox.game.g2048.Gpa2048Screen(onBack = { navController.popBackStack() })
+        }
+
         // ── 账号管理页 ──
         composable(Routes.ACCOUNTS) {
             com.xjtu.toolbox.account.AccountManagerScreen(
