@@ -567,7 +567,6 @@ internal fun HomeTab(
             Routes.SCHOOL_COURSE to Icons.Default.TravelExplore,
             Routes.NEW_ATTENDANCE to Icons.Default.AssignmentTurnedIn,
             Routes.ICLASSFACE to Icons.Default.Face,
-            Routes.MATCH to Icons.Default.Groups,
             Routes.JWAPP_SCORE to Icons.Default.Assessment,
             Routes.JUDGE to Icons.Default.RateReview,
             Routes.JIAOCAI to Icons.AutoMirrored.Filled.MenuBook,
