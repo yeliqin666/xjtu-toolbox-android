@@ -162,17 +162,22 @@ fun ZyxfBrowseScreen(
 
     LaunchedEffect(Unit) { loadFolder(0) }
 
+    val isWide = com.xjtu.toolbox.ui.isWideLayout()
+
     // 目录内返回上一级；已在根目录时交给宿主。
-    BackHandler(enabled = stack.size > 1 || searching) {
+    // 宽屏多一级：右栏正在预览时先关预览（窄屏下预览是 Dialog，它自己接返回）。
+    BackHandler(enabled = (isWide && previewing != null) || stack.size > 1 || searching) {
         when {
+            isWide && previewing != null -> previewing = null
             searching -> { query = ""; searching = false; scope.launch { loadFolder(stack.last().id) } }
             else -> goTo(stack.lastIndex - 1)
         }
     }
 
 
-    // 预览是盖住全屏的浮层（含底部 Tab 栏），所以放在列表之外、由 Dialog 承载。
-    previewing?.let { file ->
+    // 窄屏的预览是盖住全屏的浮层（含底部 Tab 栏），所以放在列表之外、由 Dialog 承载。
+    // 宽屏不走这一支：预览已经长在右栏里。
+    if (!isWide) previewing?.let { file ->
         ZyxfPreviewScreen(
             fileId = file.id,
             fileName = file.name,
@@ -182,6 +187,8 @@ fun ZyxfBrowseScreen(
         )
     }
 
+    // 宽屏：左栏列表、右栏预览。窄屏下 TwoPane 只渲染列表，预览仍走上面那个全屏 Dialog。
+    val listPane: @Composable () -> Unit = {
     Column(
         Modifier
             .fillMaxSize()
@@ -280,6 +287,39 @@ fun ZyxfBrowseScreen(
             }
         }
     }
+    }
+
+    com.xjtu.toolbox.ui.adaptive.TwoPane(
+        list = listPane,
+        detail = {
+            val file = previewing
+            if (file != null) {
+                // 不包 Dialog：它就长在右栏里。
+                PreviewContent(
+                    fileId = file.id,
+                    fileName = file.name,
+                    sizeBytes = file.sizeBytes,
+                    onBack = { previewing = null },
+                    onDownload = { download(file) },
+                    embedded = true,
+                )
+            } else {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(MiuixTheme.colorScheme.surface),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        "选择一个文件预览",
+                        style = MiuixTheme.textStyles.body2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                }
+            }
+        },
+        listWidth = 380.dp,
+    )
 }
 
 private const val DOWNLOADING = "下载中…"

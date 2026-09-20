@@ -89,6 +89,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.ViewModelStoreOwner
 import com.xjtu.toolbox.LocalAppLoginState
 import kotlinx.coroutines.launch
+import com.xjtu.toolbox.ui.adaptive.readableWidth
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
@@ -158,6 +159,8 @@ fun AgentScreen(
             showContextExhaustedDialog = true
         }
     }
+    // 宽屏下会话列表是常驻左栏，根本没有「抽屉开没开」这回事。
+    val isWide = com.xjtu.toolbox.ui.isWideLayout()
     var drawerOpen by rememberSaveable { mutableStateOf(false) }
     var deleteTarget by remember { mutableStateOf<AgentSession?>(null) }
     val keyboard = LocalSoftwareKeyboardController.current
@@ -168,10 +171,11 @@ fun AgentScreen(
     // 宿主给了就用宿主的（顶栏在宿主那儿，折叠状态必须共用同一份），没给才自己建。
     val ownScrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     val effectiveScrollBehavior = scrollBehavior ?: ownScrollBehavior
-    BackHandler(enabled = showConfig || drawerOpen || showContextExhaustedDialog) {
+    // 宽屏不拦抽屉：没有抽屉可关，再拦就是吃掉一次返回。
+    BackHandler(enabled = showConfig || (drawerOpen && !isWide) || showContextExhaustedDialog) {
         when {
             showContextExhaustedDialog -> showContextExhaustedDialog = false
-            drawerOpen -> drawerOpen = false
+            drawerOpen && !isWide -> drawerOpen = false
             else -> showConfig = false
         }
     }
@@ -182,7 +186,9 @@ fun AgentScreen(
     // 这个 lambda 闭包捕获的是 showConfig / drawerOpen 的**委托属性**而不是取到的值，
     // 所以状态变化时读它的宿主会自己重组，不需要在 key 上列出来。
     // 会话列表放最左边：抽屉从左边滑出，触发它的按钮就该在左边。
-    val headerNavIcon: @Composable () -> Unit = {
+    // 宽屏下会话列表已经常驻在左栏，顶栏这颗开关按钮没意义，不送给宿主。
+    val headerNavIcon: (@Composable () -> Unit)? = if (isWide) null else {
+        {
         AnimatedVisibility(
             // 配置面板打开时才收起这颗按钮；抽屉开着时必须留着，用户要靠它收回去。
             visible = !showConfig,
@@ -198,6 +204,7 @@ fun AgentScreen(
                     onClick = { drawerOpen = !drawerOpen },
                 )
             }
+        }
         }
     }
 
@@ -333,6 +340,37 @@ fun AgentScreen(
     }
 
     Box(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxSize()) {
+        if (isWide) {
+            // 常驻会话列表。宽屏上让人点一下按钮才能看到历史对话，
+            // 是把手机上的妥协搬到了放得下的屏幕上。
+            Surface(
+                modifier = Modifier
+                    .width(300.dp)
+                    .fillMaxHeight()
+                    // 列表底部自带 navigationBarsPadding（抽屉需要）。tab 形态下宿主
+                    // Scaffold 已经让过一次底部，不声明消费就会再让一条导航条的高度；
+                    // 独立整页形态下左栏在自带 Scaffold 之外，顶部的状态栏要自己让。
+                    .then(
+                        if (asTab) {
+                            Modifier.consumeWindowInsets(PaddingValues(bottom = hostBottomPadding))
+                        } else {
+                            Modifier.statusBarsPadding()
+                        },
+                    ),
+                color = MiuixTheme.colorScheme.surfaceContainer,
+            ) {
+                SessionListPane(
+                    sessions = vm.sessions,
+                    currentId = vm.currentSessionId,
+                    onNew = { vm.newSession() },
+                    onSelect = { vm.switchSession(it) },
+                    onRequestDelete = { deleteTarget = it },
+                )
+            }
+            VerticalDivider()
+        }
+        Box(Modifier.weight(1f).fillMaxHeight()) {
         if (asTab) {
             // 把"宿主已经让出底部 hostBottomPadding"这件事声明出来。
             // 宿主 Scaffold 只 padding(padding)、没 consumeWindowInsets(padding)，
@@ -361,7 +399,7 @@ fun AgentScreen(
                                 }) {
                                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                                 }
-                                headerNavIcon()
+                                headerNavIcon?.invoke()
                             }
                         },
                         actions = headerActions,
@@ -369,8 +407,11 @@ fun AgentScreen(
                 }
             ) { padding -> body(padding) }
         }
+        }
+        }
 
-        SessionDrawer(
+        // 窄屏的覆盖式抽屉。宽屏已经有常驻左栏，不再挂它。
+        if (!isWide) SessionDrawer(
             open = drawerOpen,
             sessions = vm.sessions,
             currentId = vm.currentSessionId,
@@ -464,107 +505,131 @@ private fun SessionDrawer(
             shape = RoundedCornerShape(topEnd = 24.dp, bottomEnd = 24.dp),
             color = MiuixTheme.colorScheme.surfaceContainer,
         ) {
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    // 不加 statusBarsPadding：抽屉现在活在 Scaffold 的内容区里，
-                    // 顶栏已经把状态栏那段让开了，再加一次就是在「对话」上面白白空出
-                    // 一整条状态栏的高度——那就是之前看着头重脚轻的原因。
-                    .navigationBarsPadding()
-                    .padding(horizontal = 12.dp)
-                    .padding(top = 4.dp, bottom = 12.dp)
-            ) {
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        "对话",
-                        style = MiuixTheme.textStyles.title3,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    if (sessions.isNotEmpty()) {
-                        Text(
-                            sessions.size.toString(),
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        )
-                    }
-                }
-
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.14f))
-                        .clickable(onClick = onNew)
-                        .padding(horizontal = 14.dp, vertical = 11.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        Icons.Default.Add,
-                        contentDescription = null,
-                        tint = MiuixTheme.colorScheme.primary,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        "新建对话",
-                        style = MiuixTheme.textStyles.body2,
-                        fontWeight = FontWeight.Medium,
-                        color = MiuixTheme.colorScheme.primary,
-                    )
-                }
-
-                Spacer(Modifier.height(10.dp))
-
-                LazyColumn(
-                    Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    if (sessions.isEmpty()) {
-                        item {
-                            Column(
-                                Modifier.fillMaxWidth().padding(vertical = 40.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                            ) {
-                                Icon(
-                                    Icons.AutoMirrored.Filled.List,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(32.dp),
-                                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.6f),
-                                )
-                                Spacer(Modifier.height(12.dp))
-                                Text(
-                                    "还没有任何对话",
-                                    style = MiuixTheme.textStyles.body2,
-                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                )
-                                Spacer(Modifier.height(4.dp))
-                                Text(
-                                    "点上面「新建对话」开始",
-                                    style = MiuixTheme.textStyles.footnote1,
-                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.7f),
-                                )
-                            }
-                        }
-                    }
-                    items(sessions, key = { it.id }) { session ->
-                        SessionRow(
-                            session = session,
-                            isCurrent = session.id == currentId,
-                            onSelect = { onSelect(session.id) },
-                            onRequestDelete = { onRequestDelete(session) },
-                        )
-                    }
-                }
-            }
+            SessionListPane(
+                sessions = sessions,
+                currentId = currentId,
+                onNew = onNew,
+                onSelect = onSelect,
+                onRequestDelete = onRequestDelete,
+            )
         }
     }
 
     // 删除确认改由外层 OverlayDialog 处理，保证走 MIUIX 弹窗宿主。
 }
+
+/**
+ * 会话列表本体（新建按钮 + 会话行），不含容器。
+ *
+ * 手机上被 [SessionDrawer] 包在遮罩 + 滑入动画里（行为与抽出前一致），
+ * 宽屏下直接当常驻左栏用。
+ */
+@Composable
+private fun SessionListPane(
+    sessions: List<AgentSession>,
+    currentId: String?,
+    onNew: () -> Unit,
+    onSelect: (String) -> Unit,
+    onRequestDelete: (AgentSession) -> Unit,
+) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                // 不加 statusBarsPadding：抽屉现在活在 Scaffold 的内容区里，
+                // 顶栏已经把状态栏那段让开了，再加一次就是在「对话」上面白白空出
+                // 一整条状态栏的高度——那就是之前看着头重脚轻的原因。
+                .navigationBarsPadding()
+                .padding(horizontal = 12.dp)
+                .padding(top = 4.dp, bottom = 12.dp)
+        ) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "对话",
+                    style = MiuixTheme.textStyles.title3,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(Modifier.width(8.dp))
+                if (sessions.isNotEmpty()) {
+                    Text(
+                        sessions.size.toString(),
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                }
+            }
+
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.14f))
+                    .clickable(onClick = onNew)
+                    .padding(horizontal = 14.dp, vertical = 11.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Default.Add,
+                    contentDescription = null,
+                    tint = MiuixTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "新建对话",
+                    style = MiuixTheme.textStyles.body2,
+                    fontWeight = FontWeight.Medium,
+                    color = MiuixTheme.colorScheme.primary,
+                )
+            }
+
+            Spacer(Modifier.height(10.dp))
+
+            LazyColumn(
+                Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                if (sessions.isEmpty()) {
+                    item {
+                        Column(
+                            Modifier.fillMaxWidth().padding(vertical = 40.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.List,
+                                contentDescription = null,
+                                modifier = Modifier.size(32.dp),
+                                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.6f),
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                "还没有任何对话",
+                                style = MiuixTheme.textStyles.body2,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "点上面「新建对话」开始",
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.7f),
+                            )
+                        }
+                    }
+                }
+                items(sessions, key = { it.id }) { session ->
+                    SessionRow(
+                        session = session,
+                        isCurrent = session.id == currentId,
+                        onSelect = { onSelect(session.id) },
+                        onRequestDelete = { onRequestDelete(session) },
+                    )
+                }
+            }
+        }
+}
+
 
 /** 抽屉里的一条会话。当前会话靠「左侧主色竖条 + 浅色底」区分，其余保持无底。 */
 @Composable
@@ -764,6 +829,8 @@ private fun ChatPanel(
 
     Column(
         modifier
+            // 宽屏下一行聊天横跨平板全宽让人找不到行首，整块（含输入栏）限宽居中。
+            .readableWidth(760.dp)
             .fillMaxSize()
             // 只吃顶部（TopAppBar 高度）；底部由输入栏自己的 navigationBarsPadding + imePadding 处理，
             // 否则会和输入栏的 inset 双重叠加，键盘弹出时把输入框顶飞。

@@ -105,6 +105,9 @@ import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.currentWindowSize
 import com.xjtu.toolbox.ui.adaptive.readableWidth
+import top.yukonga.miuix.kmp.basic.VerticalDivider
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import com.xjtu.toolbox.widget.ScheduleWidgetUpdater
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -164,6 +167,7 @@ fun ScheduleScreen(
 ) {
     // 大屏适配由屏内 Composable 自己根据 currentWindowSize() 判断，调用方不再透传
     val windowSize: WindowSize = currentWindowSize()
+    val isWideLayout = com.xjtu.toolbox.ui.isWideLayout()
     val appLoginState = LocalAppLoginState.current
     var activeSite by remember(site) { mutableStateOf(site) }
     val scope = rememberCoroutineScope()
@@ -1421,12 +1425,15 @@ fun ScheduleScreen(
         }
     ) { padding ->
         val contentPadding = if (showTopBar) padding else PaddingValues(0.dp)
-        Column(
+        // 宽屏：课表区右侧挂一栏常驻详情。窄屏时 Row 里只剩一个 weight(1f) 的孩子，
+        // 等价于改造前那一个 Column。
+        Row(
             Modifier
                 .fillMaxSize()
                 .padding(contentPadding)
                 .background(MiuixTheme.colorScheme.surface)
         ) {
+        Column(Modifier.weight(1f).fillMaxHeight()) {
             // 嵌入式 header 已迁移到 MainScreen TopAppBar.actions / bottomContent slot
 
             // 缓存数据提示：刷新失败但有缓存时，顶部一条小 banner 告知用户「这可能是旧数据」
@@ -1577,6 +1584,16 @@ fun ScheduleScreen(
                                         }
                                     },
                                     onNavigate = onNavigate,
+                                    // 宽屏：周视图点课不再弹窗，写进与今日 / 学期两级同一份选中状态，
+                                    // 由右栏展示。三个入口一个面板。
+                                    onCourseSelected = if (isWideLayout) {
+                                        { course, occurrence ->
+                                            unifiedOccurrence = occurrence
+                                            unifiedSelectedCourse = course
+                                        }
+                                    } else {
+                                        null
+                                    },
                                 )
                             }
                         }
@@ -1690,11 +1707,81 @@ fun ScheduleScreen(
                 }
             }
         }
+
+            // 宽屏常驻详情栏。选中的课来自周视图 / 今日 / 学期三个入口的**同一份**状态，
+            // 没选中时展示「今天的课」，点一下就是选中。
+            if (isWideLayout) {
+                VerticalDivider()
+                Column(
+                    Modifier
+                        .width(360.dp)
+                        .fillMaxHeight()
+                        .background(MiuixTheme.colorScheme.surface),
+                ) {
+                    val picked = unifiedSelectedCourse
+                    if (picked != null) {
+                        Column(
+                            Modifier
+                                .fillMaxSize()
+                                .overScrollVertical()
+                                .verticalScroll(rememberScrollState())
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                        ) {
+                            CourseDetailContent(
+                                course = picked,
+                                textbooks = textbooks,
+                                textbooksProblem = textbooksBackgroundError,
+                                termCode = selectedTermCode,
+                                occurrence = unifiedOccurrence,
+                                onRequestTextbooks = {
+                                    if (!textbooksLoaded && selectedTermCode.isNotEmpty()) {
+                                        loadTextbooks(selectedTermCode, background = true)
+                                    }
+                                },
+                                onNavigate = onNavigate,
+                                // 常驻栏没有「关掉」这回事，不要底部那颗「知道了」。
+                                onCloseAction = null,
+                            )
+                        }
+                    } else {
+                        Text(
+                            "今天的课",
+                            style = MiuixTheme.textStyles.subtitle,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        )
+                        TodayTimeline(
+                            courses = remember(filteredMergedCourses, realCurrentWeek) {
+                                filteredMergedCourses.filter { it.isInWeek(realCurrentWeek) }
+                            },
+                            exams = exams,
+                            today = java.time.LocalDate.now(),
+                            allCourseNames = remember(filteredMergedCourses) {
+                                filteredMergedCourses.map { it.courseName }.distinct().sorted()
+                            },
+                            onCourseClick = {
+                                unifiedOccurrence = Occurrence(
+                                    java.time.LocalDate.now(), realCurrentWeek,
+                                )
+                                unifiedSelectedCourse = it
+                            },
+                            bottomPadding = contentBottomPadding,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    // 宽屏选中的课已经长在右栏里，按返回先清选中，再走页面自己的返回逻辑。
+    BackHandler(enabled = isWideLayout && unifiedSelectedCourse != null) {
+        unifiedSelectedCourse = null
     }
 
     // 今日 / 学期两级点课打开的详情，用的是跟周视图完全同一个弹窗——
     // 下钻能力不能因为从哪一级点进来而不同。
-    unifiedSelectedCourse?.let { course ->
+    // 宽屏不走这一支：右栏已经在展示同一份选中，再弹一次就是两份。
+    if (!isWideLayout) unifiedSelectedCourse?.let { course ->
         val showDetail = remember(course) { mutableStateOf(true) }
         CourseDetailDialog(
             show = showDetail,
@@ -1749,10 +1836,24 @@ private fun ScheduleTabContent(
     textbooksProblem: String? = null,
     onRequestTextbooks: () -> Unit = {},
     onNavigate: (String) -> Unit = {},
+    /**
+     * 宽屏：点课不再弹详情，而是把选中送给课表右侧的常驻详情栏（由调用方持有）。
+     * 窄屏传 null，走下面的本地选中 + 弹窗，行为与改造前一致。
+     */
+    onCourseSelected: ((CourseItem, Occurrence?) -> Unit)? = null,
 ) {
     val allNames = remember(courses) { courses.map { it.courseName }.distinct().sorted() }
     var selectedCourse by remember { mutableStateOf<CourseItem?>(null) }
     var selectedOccurrence by remember { mutableStateOf<Occurrence?>(null) }
+    /** 两个点击入口共用：宽屏交给右栏，窄屏落回本地状态。 */
+    fun selectCourse(course: CourseItem, occurrence: Occurrence?) {
+        if (onCourseSelected != null) {
+            onCourseSelected(course, occurrence)
+        } else {
+            selectedOccurrence = occurrence
+            selectedCourse = course
+        }
+    }
 
     // 考勤角标。三条约束都是"别因为考勤把课表拖坏"：默认关、旁路加载、失败即无角标。
     val ctx = androidx.compose.ui.platform.LocalContext.current
@@ -1882,9 +1983,11 @@ private fun ScheduleTabContent(
                             if (customEntity != null) onEditCustomCourse(customEntity)
                             else {
                                 // 周视图知道是第几周、哪一天，详情面板据此只给这一次的数据。
-                                selectedOccurrence = weekDates?.getOrNull(course.dayOfWeek - 1)
-                                    ?.let { Occurrence(it, weekN) }
-                                selectedCourse = course
+                                selectCourse(
+                                    course,
+                                    weekDates?.getOrNull(course.dayOfWeek - 1)
+                                        ?.let { Occurrence(it, weekN) },
+                                )
                             }
                         }
                     )
@@ -1903,8 +2006,7 @@ private fun ScheduleTabContent(
                     if (customEntity != null) onEditCustomCourse(customEntity)
                     else {
                         // 全学期总览一格代表很多周，说不出是哪一次。
-                        selectedOccurrence = null
-                        selectedCourse = course
+                        selectCourse(course, null)
                     }
                 }
             )
@@ -1948,11 +2050,17 @@ private fun ScheduleMenuRow(
     }
 }
 
+/**
+ * 课程详情的**内容**，不含容器。
+ *
+ * 手机上被 [CourseDetailDialog] 包在 OverlayBottomSheet 里（行为与抽出前一致），
+ * 宽屏下直接长在课表右侧的常驻详情栏里。
+ *
+ * @param onCloseAction 弹窗版底部的「知道了」。分屏右栏不需要这个按钮，传 null。
+ */
 @Composable
-private fun CourseDetailDialog(
-    show: MutableState<Boolean>,
+private fun CourseDetailContent(
     course: CourseItem,
-    onDismiss: () -> Unit,
     textbooks: List<TextbookItem> = emptyList(),
     /** 教材没取到时的原因，null 表示没问题。 */
     textbooksProblem: String? = null,
@@ -1961,13 +2069,9 @@ private fun CourseDetailDialog(
     occurrence: Occurrence? = null,
     onRequestTextbooks: () -> Unit = {},
     onNavigate: (String) -> Unit = {},
+    onCloseAction: (() -> Unit)? = null,
 ) {
-    BackHandler(enabled = show.value) { show.value = false; onDismiss() }
     val isAgenda = course.courseType == "日程"
-    OverlayBottomSheet(
-        show = show.value,
-        onDismissRequest = { show.value = false; onDismiss() }
-    ) {
         // 异步获取教室座位数
         var seatCount by remember { mutableStateOf<Int?>(null) }
         LaunchedEffect(course.location) {
@@ -2091,18 +2195,53 @@ private fun CourseDetailDialog(
                 termCode = termCode,
                 occurrence = occurrence,
                 onRequestTextbooks = onRequestTextbooks,
-                onNavigate = { route -> show.value = false; onDismiss(); onNavigate(route) },
+                onNavigate = onNavigate,
             )
         }
-        Spacer(Modifier.height(16.dp))
-        Button(
-            onClick = { show.value = false; onDismiss() },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("知道了")
+        if (onCloseAction != null) {
+            Spacer(Modifier.height(16.dp))
+            Button(
+                onClick = onCloseAction,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("知道了")
+            }
+            Spacer(Modifier.height(16.dp))
         }
-        Spacer(Modifier.height(16.dp))
         Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+}
+
+@Composable
+private fun CourseDetailDialog(
+    show: MutableState<Boolean>,
+    course: CourseItem,
+    onDismiss: () -> Unit,
+    textbooks: List<TextbookItem> = emptyList(),
+    /** 教材没取到时的原因，null 表示没问题。 */
+    textbooksProblem: String? = null,
+    termCode: String = "",
+    /** 这一次课是哪天、第几周；学期总览给不出，传 null。 */
+    occurrence: Occurrence? = null,
+    onRequestTextbooks: () -> Unit = {},
+    onNavigate: (String) -> Unit = {},
+) {
+    val close = { show.value = false; onDismiss() }
+    BackHandler(enabled = show.value) { close() }
+    OverlayBottomSheet(
+        show = show.value,
+        onDismissRequest = close,
+    ) {
+        CourseDetailContent(
+            course = course,
+            textbooks = textbooks,
+            textbooksProblem = textbooksProblem,
+            termCode = termCode,
+            occurrence = occurrence,
+            onRequestTextbooks = onRequestTextbooks,
+            // 下钻跳转前先关弹窗，行为与抽出前一致。
+            onNavigate = { route -> close(); onNavigate(route) },
+            onCloseAction = close,
+        )
     }
 }
 

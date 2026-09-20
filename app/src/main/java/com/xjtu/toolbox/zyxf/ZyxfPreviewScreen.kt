@@ -115,13 +115,22 @@ fun ZyxfPreviewScreen(
     }
 }
 
+/**
+ * 预览正文。窄屏下由 [ZyxfPreviewScreen] 包一层全屏 Dialog，
+ * 宽屏下直接嵌在列表旁边的右栏里（见 ZyxfBrowseScreen）。
+ *
+ * @param embedded 嵌在页面里（分屏右栏）而不是自带窗口的全屏 Dialog。
+ *   此时状态栏已经由宿主顶栏让过，再让一次就是白空一条；
+ *   返回键也交给宿主统一排序（先关预览 → 退出搜索 → 返回上级），这里不再单独拦。
+ */
 @Composable
-private fun PreviewContent(
+internal fun PreviewContent(
     fileId: Int,
     fileName: String,
     sizeBytes: Long,
     onBack: () -> Unit,
     onDownload: () -> Unit,
+    embedded: Boolean = false,
 ) {
     var token by remember(fileId) { mutableStateOf<ZyxfApi.Weboffice?>(null) }
     var ready by remember(fileId) { mutableStateOf(false) }
@@ -133,10 +142,16 @@ private fun PreviewContent(
         else token = got
     }
 
-    BackHandler { onBack() }
+    if (!embedded) BackHandler { onBack() }
 
     Surface(color = MiuixTheme.colorScheme.surface) {
-        Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars)) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .then(
+                    if (embedded) Modifier else Modifier.windowInsetsPadding(WindowInsets.statusBars),
+                ),
+        ) {
             // 标题栏：文件名一行放不下就省略，不要换行成两行大字。
             Row(
                 Modifier
