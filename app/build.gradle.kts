@@ -201,6 +201,8 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui)
+    // 思源直播是 HLS(m3u8)：ExoPlayer 靠反射加载 HlsMediaSource.Factory，缺这个模块会 ClassNotFound 崩溃
+    implementation(libs.media3.exoplayer.hls)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     implementation(libs.androidx.work.runtime.ktx)
