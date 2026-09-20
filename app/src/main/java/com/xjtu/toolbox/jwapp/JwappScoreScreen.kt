@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.jwapp
 
+import com.xjtu.toolbox.ui.adaptive.readableWidth
 import androidx.activity.compose.BackHandler
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
@@ -521,7 +522,7 @@ fun JwappScoreScreen(
                     modifier = Modifier.fillMaxSize().padding(padding)
                 ) {
                     LazyColumn(
-                        modifier = Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
+                        modifier = Modifier.readableWidth().fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     contentPadding = PaddingValues(vertical = 8.dp)
                 ) {

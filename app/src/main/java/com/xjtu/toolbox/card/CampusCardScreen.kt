@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.card
 
+import com.xjtu.toolbox.ui.adaptive.readableWidth
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -327,7 +328,7 @@ fun CampusCardScreen(
             errorMessage != null && transactions.isEmpty() && cardInfo == null ->
                 ErrorState(errorMessage!!, { loadData() }, Modifier.fillMaxSize().padding(padding))
             else -> {
-                Column(Modifier.fillMaxSize().padding(padding).nestedScroll(scrollBehavior.nestedScrollConnection)) {
+                Column(Modifier.padding(padding).readableWidth().fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection)) {
                     AppSegmentedTabs(
                         tabs = listOf("概览", "流水", "分析"),
                         selectedTabIndex = selectedTab,

@@ -2,6 +2,7 @@
 
 package com.xjtu.toolbox.faculty
 
+import com.xjtu.toolbox.ui.adaptive.readableWidth
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -236,8 +237,9 @@ fun FacultyScreen(
     ) { padding ->
         Column(
             Modifier
-                .fillMaxSize()
                 .padding(padding)
+                .readableWidth()
+                .fillMaxSize()
                 // 少了这一句 largeTitle 不会随滚动折叠——scrollBehavior 只是被创建、
                 // 没有任何滚动源喂给它。项目里其他页面都是挂在内容顶层 Column 上。
                 .nestedScroll(scrollBehavior.nestedScrollConnection)

@@ -70,6 +70,8 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -323,15 +325,11 @@ fun SettingsScreen(
             )
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MiuixTheme.colorScheme.surface)
-                .nestedScroll(scrollBehavior.nestedScrollConnection)
-                .overScrollVertical()
-                .verticalScroll(rememberScrollState())
-                .padding(padding)
-        ) {
+
+        // 九组设置各抽成一个 lambda。状态全在 SettingsScreen 函数体里，
+        // 两种布局捕获的是同一份，弹窗也只有一份（都在下面 Scaffold 的内容层）。
+        // 组内一行没动，窄屏按原顺序依次渲染即与改造前等价。
+        val settingsGroup0: @Composable () -> Unit = {
             // ── 外观 ──
             SmallTitle("外观")
             SettingsCard {
@@ -451,7 +449,8 @@ fun SettingsScreen(
                     }
                 )
             }
-
+        }
+        val settingsGroup1: @Composable () -> Unit = {
             // ── 网络 ──
             SmallTitle("网络")
             SettingsCard {
@@ -467,7 +466,8 @@ fun SettingsScreen(
                     }
                 )
             }
-
+        }
+        val settingsGroup2: @Composable () -> Unit = {
             // ── 教务通知 ──
             SmallTitle("教务通知")
             SettingsCard {
@@ -504,7 +504,8 @@ fun SettingsScreen(
                     onClick = { showNoticeSources = true }
                 )
             }
-
+        }
+        val settingsGroup3: @Composable () -> Unit = {
             // ── 后台提醒 ──
             SmallTitle("后台提醒")
             SettingsCard {
@@ -557,7 +558,8 @@ fun SettingsScreen(
                     }
                 )
             }
-
+        }
+        val settingsGroup4: @Composable () -> Unit = {
             // ── 场馆 ──
             SmallTitle("场馆")
             SettingsCard {
@@ -576,7 +578,8 @@ fun SettingsScreen(
                     }
                 )
             }
-
+        }
+        val settingsGroup5: @Composable () -> Unit = {
             // ── 数据 ──
             SmallTitle("数据")
             SettingsCard {
@@ -592,7 +595,8 @@ fun SettingsScreen(
                     onClick = { showClearCacheDialog = true }
                 )
             }
-
+        }
+        val settingsGroup6: @Composable () -> Unit = {
             // ── 更新 ──
             SmallTitle("更新")
             SettingsCard {
@@ -665,7 +669,8 @@ fun SettingsScreen(
                     }
                 )
             }
-
+        }
+        val settingsGroup7: @Composable () -> Unit = {
             // ── 关于 ──
             SmallTitle("关于")
             SettingsCard {
@@ -706,7 +711,8 @@ fun SettingsScreen(
                     onClick = { showEula = true }
                 )
             }
-
+        }
+        val settingsGroup8: @Composable () -> Unit = {
             // ── 致谢 ──
             SmallTitle("致谢")
             SettingsCard {
@@ -717,9 +723,72 @@ fun SettingsScreen(
                     onClick = { uriHandler.openUri("https://github.com/yan-xiaoo/XJTUToolBox") }
                 )
             }
+        }
+
+        val groupTitles = listOf("外观", "网络", "教务通知", "后台提醒", "场馆", "数据", "更新", "关于", "致谢")
+        val groupIcons = listOf(Icons.Default.Palette, Icons.Default.CloudSync, Icons.Default.Notifications, Icons.Default.BatteryAlert, Icons.Default.EventSeat, MiuixIcons.Delete, Icons.Default.Refresh, MiuixIcons.Info, Icons.Default.Star)
+        val groupColors = listOf(cPurple, cBlue, cOrange, cRed, cTeal, cLime, cGreen, cBlue, cPurple)
+        val groupBodies = listOf<@Composable () -> Unit>(settingsGroup0, settingsGroup1, settingsGroup2, settingsGroup3, settingsGroup4, settingsGroup5, settingsGroup6, settingsGroup7, settingsGroup8)
+
+        // 宽屏：左栏组名列表 + 右栏选中组。选中项 rememberSaveable，跨旋转不丢。
+        var selectedGroup by rememberSaveable { mutableIntStateOf(0) }
+        if (com.xjtu.toolbox.ui.isWideLayout()) {
+            com.xjtu.toolbox.ui.adaptive.TwoPane(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MiuixTheme.colorScheme.surface)
+                    .padding(padding),
+                listWidth = 240.dp,
+                list = {
+                    Column(
+                        Modifier
+                            .fillMaxSize()
+                            .overScrollVertical()
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        Spacer(Modifier.height(8.dp))
+                        SettingsCard {
+                            groupTitles.forEachIndexed { i, title ->
+                                BasicComponent(
+                                    title = title,
+                                    startAction = { SettingsIcon(groupIcons[i], groupColors[i]) },
+                                    holdDownState = selectedGroup == i,
+                                    onClick = { selectedGroup = i },
+                                )
+                            }
+                        }
+                        Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+                    }
+                },
+                detail = {
+                    Column(
+                        Modifier
+                            .fillMaxSize()
+                            .nestedScroll(scrollBehavior.nestedScrollConnection)
+                            .overScrollVertical()
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        groupBodies[selectedGroup.coerceIn(groupBodies.indices)]()
+                        Spacer(Modifier.height(16.dp))
+                        Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+                    }
+                },
+            )
+        } else {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MiuixTheme.colorScheme.surface)
+                .nestedScroll(scrollBehavior.nestedScrollConnection)
+                .overScrollVertical()
+                .verticalScroll(rememberScrollState())
+                .padding(padding)
+        ) {
+            groupBodies.forEach { it() }
 
             Spacer(Modifier.height(16.dp))
             Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+        }
         }
 
         // ── Sheets / Dialogs（必须在 Scaffold 内，MIUIX MiuixPopupHost 才能渲染）──

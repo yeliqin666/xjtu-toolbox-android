@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.account
 
+import com.xjtu.toolbox.ui.adaptive.readableWidth
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -146,6 +147,7 @@ fun AccountManagerScreen(
     ) { padding ->
         Column(
             modifier = Modifier
+                .readableWidth()
                 .fillMaxSize()
                 .background(MiuixTheme.colorScheme.background)
                 .nestedScroll(scrollBehavior.nestedScrollConnection)

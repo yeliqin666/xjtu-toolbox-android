@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.library
 
+import com.xjtu.toolbox.ui.adaptive.readableWidth
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -556,7 +557,7 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
             },
             modifier = Modifier.fillMaxSize().padding(padding)
         ) {
-        Column(Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection)) {
+        Column(Modifier.readableWidth().fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection)) {
             AnimatedVisibility(bookingResult != null) {
                 Card(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),

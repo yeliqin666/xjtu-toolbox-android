@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.media
 
+import com.xjtu.toolbox.ui.adaptive.readableWidth
 import android.content.Context
 import android.content.Intent
 import android.util.Log
@@ -228,7 +229,7 @@ fun DownloadManagerScreen(
             }
         }
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding).nestedScroll(scrollBehavior.nestedScrollConnection)) {
+        Box(Modifier.padding(padding).readableWidth().fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection)) {
             if (allTasks.isEmpty() && lmsDownloads.isEmpty()) {
                 EmptyState(
                     title = "暂无下载内容",

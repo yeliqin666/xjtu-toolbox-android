@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.jiaocai
 
+import com.xjtu.toolbox.ui.adaptive.readableWidth
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.spring
@@ -102,8 +103,9 @@ private fun JiaocaiSearchScreen(
     ) { padding ->
         Column(
             Modifier
-                .fillMaxSize()
                 .padding(padding)
+                .readableWidth()
+                .fillMaxSize()
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
                 .background(MiuixTheme.colorScheme.surface)
         ) {

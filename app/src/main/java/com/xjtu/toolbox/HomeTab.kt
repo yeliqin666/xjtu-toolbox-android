@@ -385,13 +385,100 @@ internal fun HomeTab(
         }
     }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .then(if (scrollBehavior != null) Modifier.nestedScroll(scrollBehavior.nestedScrollConnection) else Modifier)
-            .overScrollVertical()
-            .verticalScroll(rememberScrollState())
-    ) {
+
+    // 服务列表的推导（图标、颜色、点击行为）与布局无关，提到分块之前，
+    // 好让下面三块内容各自捕获同一份数据，宽窄两种摆法共用。
+    //
+    // 分类是数据的一部分，不再是注释 + subList(0,7) 这种靠列表顺序的魔法下标：
+    // 那种写法一旦在中间插入服务，后面所有分组会静默错位。
+    data class MoreSvc(
+        val key: String,
+        val icon: ImageVector,
+        val title: String,
+        val color: androidx.compose.ui.graphics.Color,
+        val category: ServiceCategory,
+        val onClick: () -> Unit
+    )
+    val ctx = LocalContext.current
+    val homeIcons = mapOf(
+        Routes.SCHEDULE to Icons.Default.CalendarMonth,
+        Routes.EMPTY_ROOM to Icons.Default.MeetingRoom,
+        Routes.LMS to Icons.Default.School,
+        Routes.SCHOOL_COURSE to Icons.Default.TravelExplore,
+        Routes.NEW_ATTENDANCE to Icons.Default.AssignmentTurnedIn,
+        Routes.ICLASSFACE to Icons.Default.Face,
+        Routes.JWAPP_SCORE to Icons.Default.Assessment,
+        Routes.JUDGE to Icons.Default.RateReview,
+        Routes.JIAOCAI to Icons.AutoMirrored.Filled.MenuBook,
+        Routes.JIAOCAI1 to Icons.AutoMirrored.Filled.LibraryBooks,
+        Routes.LIBRARY to Icons.Default.Chair,
+        Routes.TRANSCRIPT to Icons.Default.Description,
+        Routes.NOTIFICATION to Icons.Default.Notifications,
+        Routes.FACULTY to Icons.Default.PersonSearch,
+        Routes.CAMPUS_CARD to Icons.Default.CreditCard,
+        Routes.PAYMENT_CODE to Icons.Default.QrCode,
+        Routes.COUPON to Icons.Default.Restaurant,
+        Routes.SCHOOL_CALENDAR to Icons.AutoMirrored.Filled.EventNote,
+        Routes.VENUE to Icons.Default.Stadium,
+        Routes.FITNESS to Icons.AutoMirrored.Filled.DirectionsRun,
+        Routes.YELLOW_PAGE to Icons.Default.ContactPhone,
+        Routes.WEBVPN_CONVERTER to Icons.Default.VpnKey,
+        Routes.AGENT to Icons.Default.SmartToy,
+    )
+    val allServices = AppServices.homeFor(loginState.accountType).map { svc ->
+        MoreSvc(
+            key = svc.route,
+            icon = homeIcons[svc.route] ?: Icons.Default.Apps,
+            title = svc.title,
+            color = com.xjtu.toolbox.ui.theme.legacyColor(svc.route),
+            category = svc.category,
+            onClick = {
+                when (svc.route) {
+                    Routes.SCHEDULE -> onNavigateToCourses()
+                    else -> {
+                        val login = loginTypeForRoute(svc.route)
+                        if (login != null) onNavigateWithLogin(svc.route, login)
+                        else onNavigate(svc.route)
+                    }
+                }
+            },
+        )
+    }
+    fun servicesByKeys(keys: List<String>): List<MoreSvc> =
+        keys.mapNotNull { key -> allServices.firstOrNull { it.key == key } }
+
+    fun trackedAction(service: MoreSvc): () -> Unit = {
+        com.xjtu.toolbox.util.ServiceUsageTracker.record(ctx, service.key)
+        service.onClick()
+    }
+
+    val iconColorByKey = mutableMapOf<String, androidx.compose.ui.graphics.Color>()
+    for (index in allServices.indices) {
+        val service = allServices[index]
+        iconColorByKey[service.key] = serviceColor(index, allServices.size)
+    }
+
+    fun coloredForIconTheme(service: MoreSvc): MoreSvc {
+        return service.copy(color = iconColorByKey[service.key] ?: service.color)
+    }
+
+    // 两个主题共用的分类视觉标识
+    val categoryIcon = mapOf(
+        ServiceCategory.CLASS to Icons.Default.School,
+        ServiceCategory.STUDY to Icons.Default.Assessment,
+        ServiceCategory.LIFE to Icons.Default.Restaurant,
+        ServiceCategory.TOOL to Icons.Default.SmartToy,
+    )
+    val categoryAccentKey = mapOf(
+        ServiceCategory.CLASS to Routes.SCHEDULE,
+        ServiceCategory.STUDY to Routes.JWAPP_SCORE,
+        ServiceCategory.LIFE to Routes.CAMPUS_CARD,
+        ServiceCategory.TOOL to Routes.AGENT,
+    )
+
+    // 首页内容拆成三块。窄屏按原顺序竖排，与改造前逐行等价；
+    // 宽屏左栏放状态区与常用功能、右栏放分类卡（两列）。三块内部一个字没动。
+    val headerSection: @Composable () -> Unit = {
         // ── Zone A: 状态信息行（日期 + 系统状态，大标题已移至 TopAppBar）──
         Column(
             Modifier
@@ -545,97 +632,72 @@ internal fun HomeTab(
                 }
             }
         }
+    }
 
-        Spacer(Modifier.height(24.dp))
+    val quickActionsSection: @Composable () -> Unit = {
+        // 「常用功能」原本长在卡片主题的分支里，图标主题没有这一块——保持原样。
+        if (homeTheme != CredentialStore.THEME_ICON) {
+            val usedKeys = mutableSetOf<String>()
 
-        // ── 服务分类宫格 ──
-        // 分类是数据的一部分，不再是注释 + subList(0,7) 这种靠列表顺序的魔法下标：
-        // 那种写法一旦在中间插入服务，后面所有分组会静默错位。
-        data class MoreSvc(
-            val key: String,
-            val icon: ImageVector,
-            val title: String,
-            val color: androidx.compose.ui.graphics.Color,
-            val category: ServiceCategory,
-            val onClick: () -> Unit
-        )
-        val ctx = LocalContext.current
-        val homeIcons = mapOf(
-            Routes.SCHEDULE to Icons.Default.CalendarMonth,
-            Routes.EMPTY_ROOM to Icons.Default.MeetingRoom,
-            Routes.LMS to Icons.Default.School,
-            Routes.SCHOOL_COURSE to Icons.Default.TravelExplore,
-            Routes.NEW_ATTENDANCE to Icons.Default.AssignmentTurnedIn,
-            Routes.ICLASSFACE to Icons.Default.Face,
-            Routes.JWAPP_SCORE to Icons.Default.Assessment,
-            Routes.JUDGE to Icons.Default.RateReview,
-            Routes.JIAOCAI to Icons.AutoMirrored.Filled.MenuBook,
-            Routes.JIAOCAI1 to Icons.AutoMirrored.Filled.LibraryBooks,
-            Routes.LIBRARY to Icons.Default.Chair,
-            Routes.TRANSCRIPT to Icons.Default.Description,
-            Routes.NOTIFICATION to Icons.Default.Notifications,
-            Routes.FACULTY to Icons.Default.PersonSearch,
-            Routes.CAMPUS_CARD to Icons.Default.CreditCard,
-            Routes.PAYMENT_CODE to Icons.Default.QrCode,
-            Routes.COUPON to Icons.Default.Restaurant,
-            Routes.SCHOOL_CALENDAR to Icons.AutoMirrored.Filled.EventNote,
-            Routes.VENUE to Icons.Default.Stadium,
-            Routes.FITNESS to Icons.AutoMirrored.Filled.DirectionsRun,
-            Routes.YELLOW_PAGE to Icons.Default.ContactPhone,
-            Routes.WEBVPN_CONVERTER to Icons.Default.VpnKey,
-            Routes.AGENT to Icons.Default.SmartToy,
-        )
-        val allServices = AppServices.homeFor(loginState.accountType).map { svc ->
-            MoreSvc(
-                key = svc.route,
-                icon = homeIcons[svc.route] ?: Icons.Default.Apps,
-                title = svc.title,
-                color = com.xjtu.toolbox.ui.theme.legacyColor(svc.route),
-                category = svc.category,
-                onClick = {
-                    when (svc.route) {
-                        Routes.SCHEDULE -> onNavigateToCourses()
-                        else -> {
-                            val login = loginTypeForRoute(svc.route)
-                            if (login != null) onNavigateWithLogin(svc.route, login)
-                            else onNavigate(svc.route)
+            val quickCandidateKeys = listOf(
+                Routes.CAMPUS_CARD,
+                Routes.EMPTY_ROOM,
+                Routes.PAYMENT_CODE,
+                Routes.NOTIFICATION,
+                Routes.JWAPP_SCORE,
+                Routes.COUPON,
+                Routes.LIBRARY,
+                Routes.LMS,
+                Routes.AGENT,
+            ).filterNot { it in usedKeys }
+            val quickKeys = if (showQuickActions && quickCandidateKeys.isNotEmpty()) {
+                remember(quickCandidateKeys) {
+                    // 屁岱曾经被钉死在第 0 位，为的是给主动提醒气泡一个稳定锚点。
+                    // 现在气泡改挂底栏正中的屁岱按钮上，这里就没有理由再搞特殊了——
+                    // 它回到频率排序里正常参与竞争，四格全部按使用频率给。
+                    com.xjtu.toolbox.util.ServiceUsageTracker.topKeys(
+                        ctx,
+                        quickCandidateKeys,
+                        n = 4,
+                        fallback = listOf(Routes.CAMPUS_CARD, Routes.EMPTY_ROOM, Routes.NOTIFICATION)
+                            .filter { it in quickCandidateKeys } + quickCandidateKeys
+                    ).filter { it in quickCandidateKeys }.distinct().take(4)
+                }
+            } else {
+                emptyList()
+            }
+            val quickShown = servicesByKeys(quickKeys)
+            if (quickShown.isNotEmpty()) {
+                // 不再把快捷入口从下方分类里剔除：「常用功能」是**额外**多一个入口，
+                // 不是把功能搬走。原来会 usedKeys += 之后在分类里过滤掉，
+                // 表现为"某个功能从它所属的分类里凭空消失了"，找不到。
+                // 气泡搬走后这里不再需要测量图标坐标，整块退回成一个朴素的等分 Row。
+                Column(Modifier.padding(horizontal = 16.dp)) {
+                    HomeSectionHeader("常用功能", Modifier.padding(start = 4.dp, bottom = 12.dp))
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .squircleClip(CARD_RADIUS)
+                            .background(AppCardColor)
+                            .padding(vertical = 10.dp),
+                    ) {
+                        quickShown.forEach { service ->
+                            HomeQuickAction(
+                                service.icon,
+                                service.title,
+                                service.color,
+                                onClick = trackedAction(service),
+                                modifier = Modifier.weight(1f),
+                            )
                         }
                     }
-                },
-            )
+                }
+                Spacer(Modifier.height(24.dp))
+            }
         }
-        fun servicesByKeys(keys: List<String>): List<MoreSvc> =
-            keys.mapNotNull { key -> allServices.firstOrNull { it.key == key } }
+    }
 
-        fun trackedAction(service: MoreSvc): () -> Unit = {
-            com.xjtu.toolbox.util.ServiceUsageTracker.record(ctx, service.key)
-            service.onClick()
-        }
-
-        val iconColorByKey = mutableMapOf<String, androidx.compose.ui.graphics.Color>()
-        for (index in allServices.indices) {
-            val service = allServices[index]
-            iconColorByKey[service.key] = serviceColor(index, allServices.size)
-        }
-
-        fun coloredForIconTheme(service: MoreSvc): MoreSvc {
-            return service.copy(color = iconColorByKey[service.key] ?: service.color)
-        }
-
-        // 两个主题共用的分类视觉标识
-        val categoryIcon = mapOf(
-            ServiceCategory.CLASS to Icons.Default.School,
-            ServiceCategory.STUDY to Icons.Default.Assessment,
-            ServiceCategory.LIFE to Icons.Default.Restaurant,
-            ServiceCategory.TOOL to Icons.Default.SmartToy,
-        )
-        val categoryAccentKey = mapOf(
-            ServiceCategory.CLASS to Routes.SCHEDULE,
-            ServiceCategory.STUDY to Routes.JWAPP_SCORE,
-            ServiceCategory.LIFE to Routes.CAMPUS_CARD,
-            ServiceCategory.TOOL to Routes.AGENT,
-        )
-
+    val categorySection: @Composable () -> Unit = {
         when (homeTheme) {
             CredentialStore.THEME_ICON -> {
                 // 图标主题 = 分类卡（超椭圆 + 主色渐变 + 细描边）+ 卡内 4 列密集宫格。
@@ -650,7 +712,8 @@ internal fun HomeTab(
                         .map { coloredForIconTheme(it) }
                     if (items.isEmpty()) null else category to items
                 }
-                categories.forEachIndexed { index, (category, items) ->
+                CategoryCards(count = categories.size, spacing = 16.dp) { index ->
+                    val (category, items) = categories[index]
                     HomeCategoryCard(
                         title = category.title,
                         subtitle = category.subtitle,
@@ -660,68 +723,9 @@ internal fun HomeTab(
                             HomeServiceRow(svc.key, svc.icon, svc.title, svc.color, trackedAction(svc))
                         },
                     )
-                    if (index != categories.lastIndex) Spacer(Modifier.height(16.dp))
                 }
             }
             else -> {
-                val usedKeys = mutableSetOf<String>()
-
-                val quickCandidateKeys = listOf(
-                    Routes.CAMPUS_CARD,
-                    Routes.EMPTY_ROOM,
-                    Routes.PAYMENT_CODE,
-                    Routes.NOTIFICATION,
-                    Routes.JWAPP_SCORE,
-                    Routes.COUPON,
-                    Routes.LIBRARY,
-                    Routes.LMS,
-                    Routes.AGENT,
-                ).filterNot { it in usedKeys }
-                val quickKeys = if (showQuickActions && quickCandidateKeys.isNotEmpty()) {
-                    remember(quickCandidateKeys) {
-                        // 屁岱曾经被钉死在第 0 位，为的是给主动提醒气泡一个稳定锚点。
-                        // 现在气泡改挂底栏正中的屁岱按钮上，这里就没有理由再搞特殊了——
-                        // 它回到频率排序里正常参与竞争，四格全部按使用频率给。
-                        com.xjtu.toolbox.util.ServiceUsageTracker.topKeys(
-                            ctx,
-                            quickCandidateKeys,
-                            n = 4,
-                            fallback = listOf(Routes.CAMPUS_CARD, Routes.EMPTY_ROOM, Routes.NOTIFICATION)
-                                .filter { it in quickCandidateKeys } + quickCandidateKeys
-                        ).filter { it in quickCandidateKeys }.distinct().take(4)
-                    }
-                } else {
-                    emptyList()
-                }
-                val quickShown = servicesByKeys(quickKeys)
-                if (quickShown.isNotEmpty()) {
-                    // 不再把快捷入口从下方分类里剔除：「常用功能」是**额外**多一个入口，
-                    // 不是把功能搬走。原来会 usedKeys += 之后在分类里过滤掉，
-                    // 表现为"某个功能从它所属的分类里凭空消失了"，找不到。
-                    // 气泡搬走后这里不再需要测量图标坐标，整块退回成一个朴素的等分 Row。
-                    Column(Modifier.padding(horizontal = 16.dp)) {
-                        HomeSectionHeader("常用功能", Modifier.padding(start = 4.dp, bottom = 12.dp))
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .squircleClip(CARD_RADIUS)
-                                .background(AppCardColor)
-                                .padding(vertical = 10.dp),
-                        ) {
-                            quickShown.forEach { service ->
-                                HomeQuickAction(
-                                    service.icon,
-                                    service.title,
-                                    service.color,
-                                    onClick = trackedAction(service),
-                                    modifier = Modifier.weight(1f),
-                                )
-                            }
-                        }
-                    }
-                    Spacer(Modifier.height(24.dp))
-                }
-
                 // 卡片主题 = Bento（便当盒）不规则网格。
                 //
                 // 与图标主题的区别必须是**结构性**的，不能只是"给宫格套个壳"——那样两个主题
@@ -781,7 +785,8 @@ internal fun HomeTab(
                     val items = allServices.filter { it.category == category }
                     if (items.isEmpty()) null else category to items
                 }
-                categoryCards.forEachIndexed { index, (category, items) ->
+                CategoryCards(count = categoryCards.size, spacing = 14.dp) { index ->
+                    val (category, items) = categoryCards[index]
                     val rows = items.map { svc ->
                         val stat = statOf(svc.key)
                         HomeServiceRow(
@@ -801,12 +806,96 @@ internal fun HomeTab(
                         accent = com.xjtu.toolbox.ui.theme.legacyColor(categoryAccentKey.getValue(category)),
                         rows = rows,
                     )
-                    if (index != categoryCards.lastIndex) Spacer(Modifier.height(14.dp))
                 }
             }
         }
+    }
 
-        if (navBarStyle == "floating") Spacer(Modifier.height(96.dp))
+    val isWide = com.xjtu.toolbox.ui.isWideLayout()
+    if (isWide) {
+        // 宽屏：左栏固定 380dp（状态区本来就不该被拉宽），右栏分类卡两列。
+        // 两栏各自滚动；大标题的折叠由挂在外层 Row 上的 nestedScroll 接住，
+        // 哪一栏在滚都算数。
+        Row(
+            Modifier
+                .fillMaxSize()
+                .then(if (scrollBehavior != null) Modifier.nestedScroll(scrollBehavior.nestedScrollConnection) else Modifier)
+        ) {
+            Column(
+                Modifier
+                    .width(380.dp)
+                    .fillMaxHeight()
+                    .overScrollVertical()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                headerSection()
+                Spacer(Modifier.height(24.dp))
+                quickActionsSection()
+                Spacer(Modifier.height(24.dp))
+            }
+            Column(
+                Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .overScrollVertical()
+                    .verticalScroll(rememberScrollState())
+                    .padding(end = 16.dp)
+            ) {
+                Spacer(Modifier.height(8.dp))
+                categorySection()
+                Spacer(Modifier.height(24.dp))
+            }
+        }
+    } else {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .then(if (scrollBehavior != null) Modifier.nestedScroll(scrollBehavior.nestedScrollConnection) else Modifier)
+                .overScrollVertical()
+                .verticalScroll(rememberScrollState())
+        ) {
+            headerSection()
+            Spacer(Modifier.height(24.dp))
+            quickActionsSection()
+            categorySection()
+            if (navBarStyle == "floating") Spacer(Modifier.height(96.dp))
+        }
+    }
+}
+
+/**
+ * 分类卡的排布。
+ *
+ * 窄屏：一列竖排、卡间留 [spacing]，与改造前的 `forEachIndexed { card; Spacer }` 逐行等价
+ * （这个函数本身不建布局节点，卡片仍然是外层 Column 的直接孩子）。
+ * 宽屏：两列，偶数下标进左列、奇数进右列——按顺序填一列到底会让左边长得离谱。
+ */
+@Composable
+private fun CategoryCards(
+    count: Int,
+    spacing: androidx.compose.ui.unit.Dp,
+    card: @Composable (Int) -> Unit,
+) {
+    if (!com.xjtu.toolbox.ui.isWideLayout()) {
+        for (i in 0 until count) {
+            card(i)
+            if (i != count - 1) Spacer(Modifier.height(spacing))
+        }
+        return
+    }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(spacing)) {
+        for (col in 0..1) {
+            Column(Modifier.weight(1f)) {
+                var first = true
+                var i = col
+                while (i < count) {
+                    if (!first) Spacer(Modifier.height(spacing))
+                    card(i)
+                    first = false
+                    i += 2
+                }
+            }
+        }
     }
 }
 

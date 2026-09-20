@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.newattendance
 
+import com.xjtu.toolbox.ui.adaptive.readableWidth
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -224,7 +225,7 @@ fun NewAttendanceScreen(
                     topAppBarScrollBehavior = scrollBehavior,
                     modifier = Modifier.fillMaxSize().padding(padding)
                 ) {
-                    Column(Modifier.fillMaxSize()) {
+                    Column(Modifier.readableWidth().fillMaxSize()) {
                         if (studentName.isNotBlank()) {
                             Text(
                                 text = studentName + (semesterWindow?.semesterName?.let { " · $it" } ?: ""),

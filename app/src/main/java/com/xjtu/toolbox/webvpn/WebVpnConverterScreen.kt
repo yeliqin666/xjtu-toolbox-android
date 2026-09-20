@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.webvpn
 
+import com.xjtu.toolbox.ui.adaptive.readableWidth
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -71,6 +72,7 @@ fun WebVpnConverterScreen(
     ) { padding ->
         Column(
             Modifier
+                .readableWidth()
                 .fillMaxSize()
                 .padding(padding)
                 .nestedScroll(scrollBehavior.nestedScrollConnection)

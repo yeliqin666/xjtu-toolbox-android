@@ -104,6 +104,7 @@ import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.currentWindowSize
+import com.xjtu.toolbox.ui.adaptive.readableWidth
 import com.xjtu.toolbox.widget.ScheduleWidgetUpdater
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -2237,11 +2238,15 @@ fun ExamCountdownBanner(next: ExamCountdown.Next, modifier: Modifier = Modifier)
 }
 
 /**
- * 大屏（平板 / 折叠屏展开）下给单列卡片列表限宽，避免整行被拉到一两千 dp 宽
- * 导致每张卡片里的文字稀稀拉拉横跨全屏。Compact / Medium 不做限制。
+ * 大屏下给单列卡片列表限宽，避免整行被拉到一两千 dp 宽
+ * 导致每张卡片里的文字稀稀拉拉横跨全屏。
+ *
+ * 实现已统一到 ui/adaptive 的 readableWidth()，全应用用同一个宽屏判断与同一个上限。
+ * 参数保留只为不动两处调用点的签名。
  */
-private fun Modifier.contentMaxWidth(windowSize: WindowSize): Modifier =
-    if (windowSize == WindowSize.Expanded) this.widthIn(max = 720.dp) else this
+@Composable
+private fun Modifier.contentMaxWidth(@Suppress("UNUSED_PARAMETER") windowSize: WindowSize): Modifier =
+    readableWidth()
 
 @Composable
 private fun ExamCard(exam: ExamItem) {

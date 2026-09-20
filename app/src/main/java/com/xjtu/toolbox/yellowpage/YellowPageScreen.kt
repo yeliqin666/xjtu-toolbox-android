@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.yellowpage
 
+import com.xjtu.toolbox.ui.adaptive.readableWidth
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
@@ -134,7 +135,7 @@ fun YellowPageScreen(onBack: () -> Unit) {
             onRefresh = { scope.launch { load(force = true) } },
             pullToRefreshState = pullToRefreshState,
             topAppBarScrollBehavior = scrollBehavior,
-            modifier = Modifier.fillMaxSize().padding(padding)
+            modifier = Modifier.padding(padding).readableWidth().fillMaxSize()
         ) {
         when {
             loading -> LazyColumn(Modifier.fillMaxSize()) {

@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.notification
 
+import com.xjtu.toolbox.ui.adaptive.readableWidth
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -226,8 +227,9 @@ fun NotificationScreen(
     ) { padding ->
         Column(
             modifier = Modifier
-                .fillMaxSize()
                 .padding(padding)
+                .readableWidth()
+                .fillMaxSize()
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
         ) {
             // ═══ 分类选择（文本 Tab 样式，轻量级层级感） ═══

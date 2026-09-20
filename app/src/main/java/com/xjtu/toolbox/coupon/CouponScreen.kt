@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.coupon
 
+import com.xjtu.toolbox.ui.adaptive.readableWidth
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -206,8 +207,9 @@ fun CouponScreen(
     ) { padding ->
         Column(
             Modifier
-                .fillMaxSize()
                 .padding(padding)
+                .readableWidth()
+                .fillMaxSize()
         ) {
             AppSegmentedTabs(
                 tabs = CouponFilter.entries.map { it.label },

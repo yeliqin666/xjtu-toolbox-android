@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.emptyroom
 
+import com.xjtu.toolbox.ui.adaptive.readableWidth
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -614,8 +615,9 @@ fun EmptyRoomScreen(
         val pullToRefreshState = rememberPullToRefreshState()
         Column(
             modifier = Modifier
-                .fillMaxSize()
                 .padding(padding)
+                .readableWidth()
+                .fillMaxSize()
         ) {
             // 网络失败兜底提示：展示磁盘缓存 + 「缓存于 HH:mm」标识。
             // 与下面 errorMessage 的区别：errorMessage 是红字无数据；staleNote 是黄底有数据可看。

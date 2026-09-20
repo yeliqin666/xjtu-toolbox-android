@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.calendar
 
+import com.xjtu.toolbox.ui.adaptive.readableWidth
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -72,7 +73,7 @@ fun SchoolCalendarScreen(onBack: () -> Unit) {
             )
         }
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
+        Box(Modifier.padding(padding).readableWidth().fillMaxSize()) {
             when {
                 isLoading -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.judge
 
+import com.xjtu.toolbox.ui.adaptive.readableWidth
 import androidx.activity.compose.BackHandler
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
@@ -131,8 +132,9 @@ fun JudgeScreen(
     ) { padding ->
         Column(
             Modifier
-                .fillMaxSize()
                 .padding(padding)
+                .readableWidth()
+                .fillMaxSize()
         ) {
             AppSegmentedTabs(
                 tabs = listOf("未评 (${unfinishedList.size})", "已评 (${finishedList.size})"),
