@@ -723,6 +723,35 @@ fun SettingsScreen(
                     onClick = { uriHandler.openUri("https://github.com/yan-xiaoo/XJTUToolBox") }
                 )
             }
+            // 小游戏并入或参考的上游项目。完整的改动说明与许可证全文见仓库根目录的
+            // THIRD_PARTY_NOTICES.md，这里只放跳转，避免在设置页里塞进几千字许可证。
+            SmallTitle("小游戏的上游项目")
+            SettingsCard {
+                ArrowPreference(
+                    title = "suika-game by moonfloof",
+                    summary = "「合成西交大」的玩法与实现基础 · Unlicense",
+                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
+                    onClick = { uriHandler.openUri("https://github.com/moonfloof/suika-game") }
+                )
+                ArrowPreference(
+                    title = "Matter.js by liabru",
+                    summary = "「合成西交大」的物理引擎 · MIT",
+                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
+                    onClick = { uriHandler.openUri("https://github.com/liabru/matter-js") }
+                )
+                ArrowPreference(
+                    title = "chinese-chess-fish-android by zfdang",
+                    summary = "象棋规则引擎 · MIT",
+                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
+                    onClick = { uriHandler.openUri("https://github.com/zfdang/chinese-chess-fish-android") }
+                )
+                ArrowPreference(
+                    title = "blackstone by haslam22",
+                    summary = "五子棋 AI 的思路来源（未并入代码）· MIT",
+                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
+                    onClick = { uriHandler.openUri("https://github.com/haslam22/blackstone") }
+                )
+            }
         }
 
         val groupTitles = listOf("外观", "网络", "教务通知", "后台提醒", "场馆", "数据", "更新", "关于", "致谢")

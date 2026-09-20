@@ -30,22 +30,27 @@ class GoScoringTest {
     }
 
     @Test
-    fun `黑白各占一半_贴子后白胜`() {
-        // 9x9 盘从中线切开，左边 4 列全黑（连子带地正好等于列数×9），右边 5 列全白。
-        // 黑：4*9 = 36 子；白：5*9 = 45 子。中线本身落满子，没有空点可数，双方子数 = 面积。
+    fun `黑白各占一半_只靠贴子分胜负`() {
+        // 9x9 盘，左 4 列全黑、右 4 列全白，中间第 5 列（x=4）空着不下。
+        //
+        // 中间这一列必须留空：如果把全盘填满，黑白各自都成了一整块没气的棋，
+        // 最后落子的一方会直接把对方整块提掉（GoBoard.play 是先提对方再查己方，
+        // 这是正确的围棋行为）——那样数出来一方 0 子、一方满盘，不是想测的局面。
+        //
+        // 空着的中列两侧分别挨着黑白，按中国规则是公气，谁也不算。
+        // 黑：36 子 + 0 目；白：36 子 + 0 目。只差黑贴的 3.75 子，白胜 3.75。
         val b = GoBoard(9)
         for (y in 0 until 9) {
             for (x in 0 until 4) b.play(x, y, Stone.BLACK)
-            for (x in 4 until 9) b.play(x, y, Stone.WHITE)
+            for (x in 5 until 9) b.play(x, y, Stone.WHITE)
         }
         val result = GoScoring.score(b, emptySet())
         assertEquals(36, result.blackArea)
-        assertEquals(45, result.whiteArea)
-        // 黑 36 - 3.75 = 32.25，白 45，白净胜 12.75
+        assertEquals(36, result.whiteArea)
         assertEquals(32.25, result.blackFinal, 0.001)
-        assertEquals(45.0, result.whiteFinal, 0.001)
+        assertEquals(36.0, result.whiteFinal, 0.001)
         assertEquals(Stone.WHITE, result.winner)
-        assertEquals(12.75, result.margin, 0.001)
+        assertEquals(3.75, result.margin, 0.001)
     }
 
     @Test

@@ -1,5 +1,5 @@
 // 合成西交大 —— 基于 moonfloof/suika-game (Unlicense) 改写而来，物理引擎为本地 matter.min.js (MIT)。
-// 完整版权声明见 THIRD_PARTY_NOTICES.merge.md。
+// 完整版权声明见 THIRD_PARTY_NOTICES.md。
 //
 // 相比原版「合成大西瓜」的主要改动：
 //   1. 11 级水果 -> 9 级 C9 校徽（见下方 LEVELS，顺序待仓库主核对）；
@@ -19,7 +19,7 @@
 
   // ------------------------------------------------------------------
   // 等级配置：C9 高校，从小到大。改这一个数组即可调整整条合成链。
-  // key 对应最终素材文件名 img/game_c9_<key>.webp 或 .png（正方形、透明底、512x512）。
+  // key 对应最终素材文件名 img/game_c9_<key>.webp 或 .png（正方形、透明底，尺寸不限）。
   // 顺序（哈工大→中科大→南大→浙大→复旦→上交→北大→清华→西交大）为需求方给定，
   // 待仓库主最终核对是否符合期望的「梗」顺序。
   // ------------------------------------------------------------------
@@ -74,8 +74,8 @@
   }
 
   // ------------------------------------------------------------------
-  // 贴图加载：依次尝试真实素材 img/game_c9_<key>.webp / .png（正式素材是
-  // 512x512 WebP），都找不到就用 canvas 画一个纯色圆 + 校名文字当占位图，
+  // 贴图加载：依次尝试真实素材 img/game_c9_<key>.webp / .png（当前是
+  // 256x256 WebP），都找不到就用 canvas 画一个纯色圆 + 校名文字当占位图，
   // 三种情况下最终都产出一个能直接喂给 Matter.js sprite 的图片地址/dataURL，
   // 业务代码不用关心具体用了哪一种。
   // ------------------------------------------------------------------
@@ -106,7 +106,9 @@
   function tryLoadImage(path) {
     return new Promise((resolve) => {
       const img = new Image();
-      img.onload = () => resolve(path);
+      // 把真实边长一起带出来：素材换成别的尺寸时缩放比例要跟着变，
+      // 写死常量会让 256 的图只画成球的一半大。
+      img.onload = () => resolve({ texture: path, size: img.naturalWidth || TEXTURE_SIZE });
       img.onerror = () => resolve(null);
       img.src = path;
     });
@@ -118,7 +120,7 @@
     if (webp) return webp;
     const png = await tryLoadImage('./img/game_c9_' + level.key + '.png');
     if (png) return png;
-    return drawPlaceholder(level);
+    return { texture: drawPlaceholder(level), size: TEXTURE_SIZE };
   }
 
   // ------------------------------------------------------------------
@@ -217,8 +219,10 @@
 
     makeBody(x, y, levelIndex, extra) {
       const level = LEVELS[levelIndex];
+      const tex = Game.textures[levelIndex];
+      const scale = (level.radius * 2) / tex.size;
       const body = Bodies.circle(x, y, level.radius, Object.assign({}, FRICTION, extra, {
-        render: { sprite: { texture: Game.textures[levelIndex], xScale: (level.radius * 2) / TEXTURE_SIZE, yScale: (level.radius * 2) / TEXTURE_SIZE } },
+        render: { sprite: { texture: tex.texture, xScale: scale, yScale: scale } },
       }));
       body.levelIndex = levelIndex;
       body.merged = false;
@@ -298,7 +302,7 @@
     ctx.clearRect(0, 0, 48, 48);
     const img = new Image();
     img.onload = () => ctx.drawImage(img, 0, 0, 48, 48);
-    img.src = Game.textures[levelIndex];
+    img.src = Game.textures[levelIndex].texture;
   }
 
   // ------------------------------------------------------------------

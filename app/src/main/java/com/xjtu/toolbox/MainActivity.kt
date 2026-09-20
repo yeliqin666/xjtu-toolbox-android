@@ -1220,6 +1220,22 @@ fun AppNavigation(
             com.xjtu.toolbox.game.g2048.Gpa2048Screen(onBack = { navController.popBackStack() })
         }
 
+        composable(Routes.GAME_MERGE) {
+            com.xjtu.toolbox.game.merge.MergeGameScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.GAME_GOMOKU) {
+            com.xjtu.toolbox.game.gomoku.GomokuScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.GAME_GO) {
+            com.xjtu.toolbox.game.go.GoScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.GAME_XIANGQI) {
+            com.xjtu.toolbox.game.xiangqi.XiangqiScreen(onBack = { navController.popBackStack() })
+        }
+
         // ── 账号管理页 ──
         composable(Routes.ACCOUNTS) {
             com.xjtu.toolbox.account.AccountManagerScreen(
