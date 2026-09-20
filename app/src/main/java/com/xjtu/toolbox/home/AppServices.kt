@@ -64,6 +64,7 @@ object AppServices {
         AppService(Routes.AGENT, "屁岱", "校园 AI 助手", ServiceCategory.TOOL, listOf("问屁岱", "ai", "助手")),
 
         AppService(Routes.GAMES, "小游戏", "合成西交大、五子棋、围棋…", ServiceCategory.PLAY, listOf("游戏", "小游戏", "五子棋", "围棋", "象棋", "2048", "合成", "摸鱼")),
+        AppService(Routes.MATCH, "匹配交友", "扫一扫，对一对空课时间", ServiceCategory.PLAY, listOf("匹配", "交友", "契合", "一起自习", "共同空闲", "扫码匹配", "同楼", "偶遇", "同课", "课表匹配")),
 
         AppService(Routes.SCORE_REPORT, "成绩报表", "历年成绩明细", ServiceCategory.STUDY, listOf("报表", "历年成绩"), showOnHome = false),
         AppService(Routes.DOWNLOAD_MANAGER, "下载管理", "课件与回放下载", ServiceCategory.TOOL, listOf("下载", "已下载"), showOnHome = false),

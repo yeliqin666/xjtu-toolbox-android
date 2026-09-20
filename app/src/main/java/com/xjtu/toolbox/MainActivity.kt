@@ -194,6 +194,9 @@ object Routes {
     const val GAME_GOMOKU = "game_gomoku"
     const val GAME_GO = "game_go"
     const val GAME_XIANGQI = "game_xiangqi"
+    // 路由字符串沿用 #72 删掉之前的 "schedule_match"：它是服务表里的键，
+    // 改掉的话老用户固定在首页的入口会对不上。
+    const val MATCH = "schedule_match"
 
     fun browser(url: String = "") = "browser?url=${java.net.URLEncoder.encode(url, "UTF-8")}"
 
@@ -1234,6 +1237,11 @@ fun AppNavigation(
 
         composable(Routes.GAME_XIANGQI) {
             com.xjtu.toolbox.game.xiangqi.XiangqiScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.MATCH) {
+            // 不在 loginTypeForRoute 里：全程读本地缓存，不碰任何校园系统。
+            com.xjtu.toolbox.social.MatchScreen(onBack = { navController.popBackStack() })
         }
 
         // ── 账号管理页 ──
