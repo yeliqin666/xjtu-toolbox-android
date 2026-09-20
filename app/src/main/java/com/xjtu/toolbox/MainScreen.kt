@@ -1,6 +1,12 @@
 package com.xjtu.toolbox
 
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.unit.sp
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateFloatAsState
@@ -304,13 +310,17 @@ internal fun MainScreen(
     val profileScrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     val agentScrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
 
-    // 大屏适配：宽度 ≥ 840dp（Material expanded breakpoint，平板/桌面）启用侧边 NavigationRail
-    // 手机横屏/折叠屏内屏（600-839dp）继续用底栏
-    val isWideScreen = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 840
+    // 大屏适配：宽屏（侧边 NavigationRail）与否由导航根部统一算好向下提供，
+    // 规则见 ui/WindowSize.kt。平板、折叠屏内屏、手机横屏都可能进这一支。
+    val isWide = com.xjtu.toolbox.ui.isWideLayout()
+
+    // 宽屏没有底栏，可底栏风格是一路透传给各 tab 的（它们据此补底部留白）。
+    // 不换成 "rail" 的话，宽屏下底栏已经不渲染了，子页面却照样留 96dp 空白。
+    val effectiveNavStyle = if (isWide) "rail" else navBarStyle
 
     // 悬浮胶囊底栏的总占位高度，取自 miuix FloatingNavigationBar 的实现：
     // 胶囊本体最小 52dp，外加底部留白（有系统导航条时 26dp + inset，否则 36dp）。
-    val floatingBarReserve = if (!isWideScreen && navBarStyle == "floating") {
+    val floatingBarReserve = if (!isWide && navBarStyle == "floating") {
         val navInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         FLOATING_BAR_HEIGHT + (if (navInset > 0.dp) 26.dp + navInset else 36.dp)
     } else {
@@ -450,10 +460,43 @@ internal fun MainScreen(
     // 气泡外面套了个"零高度"的 layout：照常测量、往上溢出绘制，但对外宣称高度为 0。
     // 不这么做的话，气泡一出现就会把 bottomBar 撑高，Scaffold 重算 contentPadding，
     // 整页内容跟着往上跳一下。
+    // 底栏版和侧栏版只差「朝哪个方向、摆在哪」，三个回调（打开/关掉/超时）必须完全一致，
+    // 所以提出来一份，两个展示位各自只负责定位。
+    val bubbleView: @Composable (com.xjtu.toolbox.agent.ProactiveMessage, com.xjtu.toolbox.agent.BubbleArrowSide, androidx.compose.ui.unit.Dp) -> Unit =
+        { msg, arrowSide, maxWidth ->
+            com.xjtu.toolbox.agent.ProactiveBubbleView(
+                message = msg,
+                arrowSide = arrowSide,
+                maxWidth = maxWidth,
+                onOpen = {
+                    com.xjtu.toolbox.agent.ProactiveRules.markUseful(context, msg.id)
+                    val route = msg.openRoute
+                    com.xjtu.toolbox.agent.ProactiveBubbleHost.clear()
+                    if (!route.isNullOrBlank()) {
+                        val type = loginTypeForRoute(route)
+                        if (type != null) navigateWithLogin(route, type)
+                        else navigateToTarget(route)
+                    } else if (msg.prompt.isNotBlank()) {
+                        AgentPendingPrompt.set(msg.prompt, msg.eventSnapshot)
+                        selectedTabOrdinal = BottomTab.PIDAI.ordinal
+                    } else {
+                        selectedTabOrdinal = BottomTab.PIDAI.ordinal
+                    }
+                },
+                onDismiss = {
+                    com.xjtu.toolbox.agent.ProactiveRules.markDismissed(context, msg.id)
+                    com.xjtu.toolbox.agent.ProactiveBubbleHost.clear()
+                },
+                onTimeout = { com.xjtu.toolbox.agent.ProactiveBubbleHost.clear() },
+            )
+        }
+
     val proactiveBubbleSlot: @Composable () -> Unit = {
         val msg = com.xjtu.toolbox.agent.ProactiveBubbleHost.message
         if (msg != null) {
-            val screenWidth = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp
+            val screenWidth = with(androidx.compose.ui.platform.LocalDensity.current) {
+                androidx.compose.ui.platform.LocalWindowInfo.current.containerSize.width.toDp()
+            }
             Box(
                 Modifier
                     .fillMaxWidth()
@@ -463,35 +506,64 @@ internal fun MainScreen(
                     },
                 contentAlignment = Alignment.TopCenter,
             ) {
-                com.xjtu.toolbox.agent.ProactiveBubbleView(
-                    message = msg,
-                    maxWidth = (screenWidth - 32.dp).coerceAtLeast(200.dp),
-                    onOpen = {
-                        com.xjtu.toolbox.agent.ProactiveRules.markUseful(context, msg.id)
-                        val route = msg.openRoute
-                        com.xjtu.toolbox.agent.ProactiveBubbleHost.clear()
-                        if (!route.isNullOrBlank()) {
-                            val type = loginTypeForRoute(route)
-                            if (type != null) navigateWithLogin(route, type)
-                            else navigateToTarget(route)
-                        } else if (msg.prompt.isNotBlank()) {
-                            AgentPendingPrompt.set(msg.prompt, msg.eventSnapshot)
-                            selectedTabOrdinal = BottomTab.PIDAI.ordinal
-                        } else {
-                            selectedTabOrdinal = BottomTab.PIDAI.ordinal
-                        }
-                    },
-                    onDismiss = {
-                        com.xjtu.toolbox.agent.ProactiveRules.markDismissed(context, msg.id)
-                        com.xjtu.toolbox.agent.ProactiveBubbleHost.clear()
-                    },
-                    onTimeout = { com.xjtu.toolbox.agent.ProactiveBubbleHost.clear() },
+                bubbleView(
+                    msg,
+                    com.xjtu.toolbox.agent.BubbleArrowSide.Bottom,
+                    (screenWidth - 32.dp).coerceAtLeast(200.dp),
                 )
             }
         }
     }
 
+    // 侧栏屁岱按钮在根坐标系里的位置，宽屏气泡靠它定位。
+    var pidaiAnchor by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
+    // 覆盖层自己的根坐标。两者相减才是气泡该放的本地偏移：
+    // MainScreen 在 NavHost 里，push 子页的转场动画会把整页横向平移，
+    // 直接拿根坐标当本地坐标用就会在那几帧里偏掉。
+    var overlayOrigin by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+
+    // 骨架：Row 包 Scaffold，不是 Scaffold 包 Row。
+    //
+    // 侧栏原本挂在 Scaffold 的内容区里，外面套着 `.padding(padding)`——而 padding.top
+    // 就是顶栏高度，各 tab 的顶栏又不一样高（屁岱是小标题、别的是会折叠的大标题、
+    // 日程还多一条副标题和 bottomContent）。于是切 tab、滚动列表时侧栏跟着上下跳。
+    // 搬到 Scaffold 外面，侧栏就只受窗口约束，顶栏怎么折叠都跟它无关。
+    // 对照 miuix 示例 example/shared/.../AppContent.kt 的 Row { rail; NavDisplay }。
+    //
+    // 手机上 isWide == false，Row 里只剩 Scaffold 一个孩子，等价于原来的结构。
+    Box(
+        Modifier
+            .fillMaxSize()
+            .onGloballyPositioned { overlayOrigin = it.positionInRoot() },
+    ) {
+    Row(Modifier.fillMaxSize()) {
+    if (isWide) {
+        MainNavigationRail(
+            selectedTab = selectedTab,
+            onSelect = { selectedTabOrdinal = it.ordinal },
+            onPidaiTap = onPidaiTap,
+            isLoggedIn = loginState.isLoggedIn,
+            accountCount = navAccountCount,
+            onPidaiBoundsChange = { pidaiAnchor = it },
+        )
+    }
     Scaffold(
+        modifier = Modifier
+            .weight(1f)
+            .fillMaxHeight()
+            // 宽屏下 tab 切换动画会横向平移内容，不裁剪的话会画到侧栏上。
+            .then(if (isWide) Modifier.clipToBounds() else Modifier),
+        // 宽屏时左侧的刘海/侧边导航条已经被侧栏自己吃掉了（NavigationRail 的
+        // defaultWindowInsetsPadding），这里再留一次就是双重留白。同 miuix 示例 WideScreenContent。
+        contentWindowInsets = if (isWide) {
+            WindowInsets.systemBars.union(
+                WindowInsets.displayCutout.exclude(
+                    WindowInsets.displayCutout.only(WindowInsetsSides.Start),
+                ),
+            )
+        } else {
+            WindowInsets.systemBars.union(WindowInsets.displayCutout)
+        },
         snackbarHost = {
             Box(Modifier.padding(bottom = floatingBarReserve)) {
                 SnackbarHost(snackbarHostState)
@@ -575,7 +647,7 @@ internal fun MainScreen(
             )
             }
         },
-        bottomBar = if (!isWideScreen && navBarStyle == "classic") {
+        bottomBar = if (!isWide && navBarStyle == "classic") {
             {
               Column {
                 proactiveBubbleSlot()
@@ -618,7 +690,7 @@ internal fun MainScreen(
         } else {
             {}
         },
-        floatingToolbar = if (!isWideScreen && navBarStyle == "floating") {
+        floatingToolbar = if (!isWide && navBarStyle == "floating") {
             {
               Column {
                 proactiveBubbleSlot()
@@ -658,36 +730,7 @@ internal fun MainScreen(
             {}
         }
     ) { padding ->
-        Box(
-            Modifier
-                .fillMaxSize()
-        ) {
-        androidx.compose.foundation.layout.Row(Modifier.fillMaxSize().padding(padding)) {
-        if (isWideScreen) {
-            // miuix 0.9.3 起 NavigationRail 去掉了 mode 参数，改为传 state 获得可展开侧栏：
-            // 收起态为图标+小字，展开态为「图标 + 文字」横向排布，顶部自带展开/收起按钮。
-            // 平板/折叠屏展开后主标签一眼可读，状态经 rememberSaveable 跨旋转与进程重建保留。
-            val railState = top.yukonga.miuix.kmp.basic.rememberNavigationRailState()
-            top.yukonga.miuix.kmp.basic.NavigationRail(
-                color = MiuixTheme.colorScheme.surface,
-                state = railState,
-                expandContentDescription = "展开导航栏",
-                collapseContentDescription = "收起导航栏"
-            ) {
-                // 侧栏不做特殊造型：宽屏没有"底栏正中"这个位置，硬塞一颗机器人只会破坏
-                // 侧栏的等距节奏。这里退回成普通条目，保证宽屏也进得去屁岱。
-                BottomTab.entries.forEach { tab ->
-                    top.yukonga.miuix.kmp.basic.NavigationRailItem(
-                        selected = selectedTab == tab,
-                        onClick = { selectedTabOrdinal = tab.ordinal },
-                        icon = if (selectedTab == tab) tab.selectedIcon else tab.unselectedIcon,
-                        label = tab.label,
-                        badge = bottomTabBadge(tab, loginState.isLoggedIn, navAccountCount)
-                    )
-                }
-            }
-        }
-        Box(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize().padding(padding)) {
             // 需要联网的无登录路由（空闲教室、通知公告等纯网络功能）
             val networkRequiredRoutes = setOf(
                 Routes.EMPTY_ROOM,
@@ -781,7 +824,7 @@ internal fun MainScreen(
                                         onNavigateToProfile = { selectedTabOrdinal = BottomTab.PROFILE.ordinal },
                                         onNavigateToCourses = { selectedTabOrdinal = BottomTab.COURSES.ordinal },
                                         scrollBehavior = homeScrollBehavior,
-                                        navBarStyle = navBarStyle,
+                                        navBarStyle = effectiveNavStyle,
                                         homeTheme = homeTheme,
                                         showQuickActions = showQuickActions,
                                         bulletins = heroBulletins,
@@ -805,7 +848,7 @@ internal fun MainScreen(
                                         onNavigate = onNavigateWithNetCheck,
                                     )
                                     BottomTab.COURSES -> CoursesTab(loginState, ::navigateWithLogin, onNavigateWithNetCheck, scrollBehavior = coursesScrollBehavior, extraBottomPadding = floatingBarReserve, onSubtitleChange = { courseSubtitle = it }, onActionsChange = { courseHeaderActions = it }, onBottomContentChange = { courseHeaderBottomContent = it })
-                                    BottomTab.TOOLS -> ToolsTab(loginState, ::navigateWithLogin, onNavigateWithNetCheck, scrollBehavior = toolsScrollBehavior, navBarStyle = navBarStyle)
+                                    BottomTab.TOOLS -> ToolsTab(loginState, ::navigateWithLogin, onNavigateWithNetCheck, scrollBehavior = toolsScrollBehavior, navBarStyle = effectiveNavStyle)
                                     BottomTab.PROFILE -> ProfileTab(
                                         loginState,
                                         ::navigateWithLogin,
@@ -816,7 +859,7 @@ internal fun MainScreen(
                                         onNavigateToSettings = { navController.navigate(Routes.SETTINGS) { launchSingleTop = true } },
                                         onNavigateToFeedback = { navController.navigate(Routes.FEEDBACK) { launchSingleTop = true } },
                                         onNavigateToAccounts = { navController.navigate(com.xjtu.toolbox.Routes.ACCOUNTS) { launchSingleTop = true } },
-                                        navBarStyle = navBarStyle,
+                                        navBarStyle = effectiveNavStyle,
                                         onWarmupRequest = onWarmupRequest
                                     )
                                 }
@@ -920,8 +963,6 @@ internal fun MainScreen(
                 }
             }
         }
-        }
-        }
 
     // 全局搜索覆盖层（跨 tab 共用同一个浮层，渲染优先级高于普通导航）
     if (showGlobalSearch) {
@@ -949,7 +990,123 @@ internal fun MainScreen(
             onBack = { showQrLogin = false },
         )
     }
+    }  // Scaffold content
+    }  // Row
+
+    // 侧栏屁岱的主动提醒气泡。
+    //
+    // 不能放进 NavigationRail：它内部是一个 verticalScroll 的 Column，
+    // 向右溢出的气泡会被裁掉。改成与 Row 并列的覆盖层，按按钮的根坐标定位。
+    val bubbleMsg = com.xjtu.toolbox.agent.ProactiveBubbleHost.message
+    val anchor = pidaiAnchor
+    if (isWide && bubbleMsg != null && anchor != null) {
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        val windowWidthPx = androidx.compose.ui.platform.LocalWindowInfo.current.containerSize.width
+        val bubbleMax = with(density) {
+            (windowWidthPx - anchor.right).toDp() - 24.dp
+        }.coerceIn(180.dp, 360.dp)
+        val gapPx = with(density) { 8.dp.roundToPx() }
+        Box(
+            Modifier.layout { measurable, constraints ->
+                val placeable = measurable.measure(
+                    constraints.copy(minWidth = 0, minHeight = 0),
+                )
+                layout(constraints.maxWidth, constraints.maxHeight) {
+                    val x = ((anchor.right - overlayOrigin.x).toInt() + gapPx)
+                        .coerceAtMost((constraints.maxWidth - placeable.width).coerceAtLeast(0))
+                    val y = (anchor.center.y - overlayOrigin.y - placeable.height / 2f).toInt()
+                        .coerceIn(0, (constraints.maxHeight - placeable.height).coerceAtLeast(0))
+                    placeable.place(x, y)
+                }
+            },
+        ) {
+            bubbleView(bubbleMsg, com.xjtu.toolbox.agent.BubbleArrowSide.Start, bubbleMax)
+        }
+    }
+    }  // 最外层 Box
 }
+
+/**
+ * 宽屏侧栏。整体在 Scaffold **之外**，只受窗口约束，顶栏怎么折叠都跟它无关（见 MainScreen 注释）。
+ *
+ * miuix 0.9.3 起 NavigationRail 去掉了 mode 参数，改为传 state 获得可展开侧栏：
+ * 收起态为图标+小字，展开态为「图标 + 文字」横向排布，顶部自带展开/收起按钮。
+ * 它自己处理状态栏 / 侧边导航条 / 起始侧刘海的 inset（defaultWindowInsetsPadding），
+ * 外面不要再补 padding。
+ */
+@Composable
+private fun MainNavigationRail(
+    selectedTab: BottomTab,
+    onSelect: (BottomTab) -> Unit,
+    onPidaiTap: () -> Unit,
+    isLoggedIn: Boolean,
+    accountCount: Int,
+    onPidaiBoundsChange: (androidx.compose.ui.geometry.Rect) -> Unit,
+) {
+    val railState = top.yukonga.miuix.kmp.basic.rememberNavigationRailState()
+    top.yukonga.miuix.kmp.basic.NavigationRail(
+        color = MiuixTheme.colorScheme.surface,
+        state = railState,
+        expandContentDescription = "展开导航栏",
+        collapseContentDescription = "收起导航栏"
+    ) {
+        BottomTab.entries.forEach { tab ->
+            if (tab == BottomTab.PIDAI) {
+                // 屁岱在侧栏里也是那颗会眨眼、会思考、能换皮肤的机器人，
+                // 不再退化成灰度线性图标——否则宽屏用户看到的是另一个应用。
+                val pidaiStyle = com.xjtu.toolbox.agent.pidaiNavAppearance()
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        // 与 NavigationRailDefaults.ItemVerticalPadding 对齐，
+                        // 保证它和邻居在侧栏里是同一套等距节奏。
+                        .padding(vertical = 12.dp)
+                        .clickable(onClick = onPidaiTap),
+                    horizontalArrangement = if (railState.isExpanded) {
+                        Arrangement.Start
+                    } else {
+                        Arrangement.Center
+                    },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (railState.isExpanded) {
+                        // ExpandedItemHorizontalMargin(12) + ExpandedItemContentHorizontalPadding(14)
+                        Spacer(Modifier.width(26.dp))
+                    }
+                    com.xjtu.toolbox.agent.PidaiNavButton(
+                        onClick = onPidaiTap,
+                        excited = com.xjtu.toolbox.agent.ProactiveBubbleHost.message != null,
+                        thinking = com.xjtu.toolbox.agent.AgentThinkingHost.isThinking,
+                        selected = selectedTab == tab,
+                        diameter = 40.dp,
+                        paper = MiuixTheme.colorScheme.surface,
+                        ink = pidaiStyle.ink,
+                        shape = pidaiStyle.shape,
+                        skin = pidaiStyle.skin,
+                        modifier = Modifier.onGloballyPositioned { onPidaiBoundsChange(it.boundsInRoot()) },
+                    )
+                    if (railState.isExpanded) {
+                        // ExpandedItemIconTextSpacing / ExpandedLabelFontSize，与邻居的展开态对齐。
+                        Spacer(Modifier.width(16.dp))
+                        Text(
+                            tab.label,
+                            color = MiuixTheme.colorScheme.onSurfaceContainer,
+                            fontSize = 16.sp,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                        )
+                    }
+                }
+                return@forEach
+            }
+            top.yukonga.miuix.kmp.basic.NavigationRailItem(
+                selected = selectedTab == tab,
+                onClick = { onSelect(tab) },
+                icon = if (selectedTab == tab) tab.selectedIcon else tab.unselectedIcon,
+                label = tab.label,
+                badge = bottomTabBadge(tab, isLoggedIn, accountCount)
+            )
+        }
+    }
 }
 
 private fun bottomTabBadge(

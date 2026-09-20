@@ -379,18 +379,22 @@ fun SettingsScreen(
                         onCheckedChange = onShowQuickActionsChanged
                     )
                 }
-                OverlayDropdownPreference(
-                    title = "底栏风格",
-                    items = navStyleOptions,
-                    selectedIndex = navStyleValues.indexOf(navBarStyle).coerceAtLeast(0),
-                    startAction = { SettingsIcon(MiuixIcons.Carrier, cBlue) },
-                    onSelectedIndexChange = { idx ->
-                        val v = navStyleValues[idx]
-                        navBarStyle = v
-                        credentialStore.navBarStyle = v
-                        onNavBarStyleChanged(v)
-                    }
-                )
+                // 宽屏（平板横屏 / 折叠屏内屏 / 手机横屏）用的是侧栏，根本没有底栏，
+                // 这一项摆在那里改了也没反应。平板竖屏若不够宽仍走底栏，那时它照常出现。
+                if (!com.xjtu.toolbox.ui.isWideLayout()) {
+                    OverlayDropdownPreference(
+                        title = "底栏风格",
+                        items = navStyleOptions,
+                        selectedIndex = navStyleValues.indexOf(navBarStyle).coerceAtLeast(0),
+                        startAction = { SettingsIcon(MiuixIcons.Carrier, cBlue) },
+                        onSelectedIndexChange = { idx ->
+                            val v = navStyleValues[idx]
+                            navBarStyle = v
+                            credentialStore.navBarStyle = v
+                            onNavBarStyleChanged(v)
+                        }
+                    )
+                }
                 OverlayDropdownPreference(
                     title = "日程页布局",
                     summary = if (scheduleLayout == CredentialStore.SCHEDULE_LAYOUT_UNIFIED) {

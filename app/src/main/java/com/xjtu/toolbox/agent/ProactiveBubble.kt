@@ -408,34 +408,65 @@ object ProactiveRules {
             .joinToString("\n")
 }
 
+/** 气泡尖角朝向。底栏屁岱在气泡正下方 → [Bottom]；侧栏屁岱在气泡左边 → [Start]。 */
+enum class BubbleArrowSide { Bottom, Start }
+
+/** 尖角的伸出深度与底宽，外形与布局内边距都按它算，两处必须一致。 */
+private val ArrowDepth = 7.dp
+private val ArrowBase = 12.dp
+
 /**
- * 气泡外形。[arrowFromStart] 为 null 时尖角取气泡**自身**水平中心。
+ * 气泡外形。[arrowOffset] 为 null 时尖角取气泡**自身**在该轴上的中心
+ * （[BubbleArrowSide.Bottom] 取水平中心，[BubbleArrowSide.Start] 取垂直中心）。
  * 挂在底栏正中的气泡必须走这一支：锚点固定在屏幕中线，尖角要随气泡宽度走，
  * 用固定 dp 的话文案一长一短尖角就偏出锚点了。
  */
-private class BubbleShape(private val arrowFromStart: androidx.compose.ui.unit.Dp?) : Shape {
+private class BubbleShape(
+    private val side: BubbleArrowSide,
+    private val arrowOffset: androidx.compose.ui.unit.Dp?,
+) : Shape {
     override fun createOutline(
         size: androidx.compose.ui.geometry.Size,
         layoutDirection: LayoutDirection,
         density: Density,
     ): Outline {
-        val arrowH = with(density) { 7.dp.toPx() }
-        val arrowW = with(density) { 12.dp.toPx() }
+        val arrowH = with(density) { ArrowDepth.toPx() }
+        val arrowW = with(density) { ArrowBase.toPx() }
         val r = with(density) { 14.dp.toPx() }
-        val bodyBottom = size.height - arrowH
-        val cx = (arrowFromStart?.let { with(density) { it.toPx() } } ?: (size.width / 2f))
-            .coerceIn(arrowW, (size.width - arrowW).coerceAtLeast(arrowW))
+        val offsetPx = arrowOffset?.let { with(density) { it.toPx() } }
         val path = Path().apply {
-            addRoundRect(
-                androidx.compose.ui.geometry.RoundRect(
-                    left = 0f, top = 0f, right = size.width, bottom = bodyBottom,
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r),
-                )
-            )
-            moveTo(cx - arrowW / 2, bodyBottom)
-            lineTo(cx, size.height)
-            lineTo(cx + arrowW / 2, bodyBottom)
-            close()
+            when (side) {
+                BubbleArrowSide.Bottom -> {
+                    val bodyBottom = size.height - arrowH
+                    val cx = (offsetPx ?: (size.width / 2f))
+                        .coerceIn(arrowW, (size.width - arrowW).coerceAtLeast(arrowW))
+                    addRoundRect(
+                        androidx.compose.ui.geometry.RoundRect(
+                            left = 0f, top = 0f, right = size.width, bottom = bodyBottom,
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r),
+                        )
+                    )
+                    moveTo(cx - arrowW / 2, bodyBottom)
+                    lineTo(cx, size.height)
+                    lineTo(cx + arrowW / 2, bodyBottom)
+                    close()
+                }
+                BubbleArrowSide.Start -> {
+                    val bodyLeft = arrowH
+                    val cy = (offsetPx ?: (size.height / 2f))
+                        .coerceIn(arrowW, (size.height - arrowW).coerceAtLeast(arrowW))
+                    addRoundRect(
+                        androidx.compose.ui.geometry.RoundRect(
+                            left = bodyLeft, top = 0f, right = size.width, bottom = size.height,
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r),
+                        )
+                    )
+                    moveTo(bodyLeft, cy - arrowW / 2)
+                    lineTo(0f, cy)
+                    lineTo(bodyLeft, cy + arrowW / 2)
+                    close()
+                }
+            }
         }
         return Outline.Generic(path)
     }
@@ -447,10 +478,19 @@ fun ProactiveBubbleView(
     onOpen: () -> Unit,
     onDismiss: () -> Unit,
     onTimeout: () -> Unit,
+    /** 尖角朝向。默认朝下（底栏屁岱在气泡正下方）。 */
+    arrowSide: BubbleArrowSide = BubbleArrowSide.Bottom,
+    /** [BubbleArrowSide.Bottom] 时尖角距起始边的距离；null = 气泡自身水平中心。 */
     arrowFromStart: androidx.compose.ui.unit.Dp? = null,
+    /** [BubbleArrowSide.Start] 时尖角距顶边的距离；null = 气泡自身垂直中心。 */
+    arrowFromTop: androidx.compose.ui.unit.Dp? = null,
     maxWidth: androidx.compose.ui.unit.Dp = 280.dp,
     modifier: Modifier = Modifier,
 ) {
+    val arrowOffset = when (arrowSide) {
+        BubbleArrowSide.Bottom -> arrowFromStart
+        BubbleArrowSide.Start -> arrowFromTop
+    }
     // visible 只管"气泡在不在"，**不跟着文案走**。
     //
     // 之前它 remember(id, text)：换一条闲话时先被重置成 false 再由下面的 effect 置回 true，
@@ -468,7 +508,11 @@ fun ProactiveBubbleView(
         onTimeout()
     }
     // 缩放锚点跟着尖角走：尖角在哪，气泡就从哪「长出来」。
-    val pivot = if (arrowFromStart == null) TransformOrigin(0.5f, 1f) else TransformOrigin(0.12f, 1f)
+    val pivot = when {
+        arrowSide == BubbleArrowSide.Start -> TransformOrigin(0f, 0.5f)
+        arrowOffset == null -> TransformOrigin(0.5f, 1f)
+        else -> TransformOrigin(0.12f, 1f)
+    }
     AnimatedVisibility(
         visible = visible,
         // 从尖角那一点**弹出来**，而不是淡入。初始缩放压到 0.35 再用欠阻尼 spring 回弹，
@@ -517,17 +561,28 @@ fun ProactiveBubbleView(
                 // 尺寸变化不裁剪：长短不一的两条在交叉淡入淡出时不该被对方的框切掉。
                 ) using SizeTransform(clip = false)
             },
-            contentAlignment = Alignment.BottomCenter,
+            contentAlignment = if (arrowSide == BubbleArrowSide.Start) {
+                Alignment.CenterStart
+            } else {
+                Alignment.BottomCenter
+            },
             label = "proactiveBubbleSwap",
         ) { shown ->
         Row(
             Modifier
                 .wrapContentWidth()
                 .widthIn(max = maxWidth)
-                .clip(BubbleShape(arrowFromStart))
+                .clip(BubbleShape(arrowSide, arrowOffset))
                 .background(MiuixTheme.colorScheme.primary)
                 .clickable(onClick = onOpen)
-                .padding(start = 14.dp, end = 8.dp, top = 10.dp, bottom = 17.dp),
+                // 尖角那一侧要多留出它的伸出深度，否则文字会压到三角上。
+                // 朝下时 10+7=17dp，与改造前的固定值一致。
+                .padding(
+                    start = if (arrowSide == BubbleArrowSide.Start) 14.dp + ArrowDepth else 14.dp,
+                    end = 8.dp,
+                    top = 10.dp,
+                    bottom = if (arrowSide == BubbleArrowSide.Bottom) 10.dp + ArrowDepth else 10.dp,
+                ),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(

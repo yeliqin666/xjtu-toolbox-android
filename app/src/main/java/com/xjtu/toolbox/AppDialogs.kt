@@ -47,12 +47,21 @@ internal fun EulaScreen(onAccept: () -> Unit) {
     var canAccept by remember { mutableStateOf(false) }
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
 
-    // 滚动到底部才可同意
-    LaunchedEffect(scrollState.value, scrollState.maxValue) {
-        if (scrollState.maxValue > 0 && scrollState.value >= scrollState.maxValue - 50) {
-            canAccept = true
+    // 滚动到底部才可同意。
+    //
+    // 平板上协议一屏放得下，`maxValue` 永远是 0 —— 旧的「maxValue > 0」判断于是
+    // 永远不解锁，同意按钮一直是灰的，新装用户直接卡在首启。
+    // 内容一屏放得下时根本没有「滑到底」这回事，视为已读完即可。
+    //
+    // `viewportSize > 0` 是「已经量过一次」的信号：首帧布局前 canScrollForward
+    // 也是 false，不先等布局的话手机上会一进来就解锁。
+    val reachedEnd by remember {
+        derivedStateOf {
+            scrollState.viewportSize > 0 &&
+                (!scrollState.canScrollForward || scrollState.value >= scrollState.maxValue - 50)
         }
     }
+    LaunchedEffect(reachedEnd) { if (reachedEnd) canAccept = true }
 
 
     Scaffold(
@@ -64,10 +73,13 @@ internal fun EulaScreen(onAccept: () -> Unit) {
             )
         }
     ) { padding ->
+        // 宽屏上一行正文横跨整个平板宽度没法读，限宽居中；手机窄于 720dp，布局不变。
+        Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
         Column(
             Modifier
-                .fillMaxSize()
-                .padding(padding)
+                .fillMaxHeight()
+                .widthIn(max = 720.dp)
+                .fillMaxWidth()
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
                 .verticalScroll(scrollState)
                 .padding(horizontal = 16.dp)
@@ -105,6 +117,7 @@ internal fun EulaScreen(onAccept: () -> Unit) {
 
             Spacer(Modifier.height(32.dp))
             Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+        }
         }
     }
 }
