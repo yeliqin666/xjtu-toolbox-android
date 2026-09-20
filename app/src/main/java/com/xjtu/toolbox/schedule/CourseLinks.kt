@@ -32,10 +32,6 @@ object CourseLinks {
     // ── 教材 ──────────────────────────────────────────────
 
     /**
-     * 按课程名匹配——教材接口没有课程号这一列。
-     * 名字带「（甲）」这类后缀时两边未必一致，所以精确优先、包含兜底。
-     */
-    /**
      * 找这门课的教材。
      *
      * 课程号优先：它是教务系统里的主键，两边一致就是同一门课，不用跟课程名的各种
@@ -71,10 +67,6 @@ object CourseLinks {
     }
 
     /**
-     * 只按 ISBN 精确查。书名在两个系统里的写法对不上是常态，按书名搜出来的第一条
-     * 经常是另一本书——给错的书比不给更糟，所以没 ISBN 就放弃，不做模糊回退。
-     */
-    /**
      * 书名归一化：去掉书名号、括注、空白与标点，统一大小写。
      *
      * 两边对同一本书的写法常有出入（《固体物理学》/ 固体物理学（第二版）），
@@ -86,27 +78,54 @@ object CourseLinks {
             .filter { it.isLetterOrDigit() }
             .lowercase()
 
+    /**
+     * 教材全文的查询结局。
+     *
+     * 刻意不折成一个 `Jiaocai1Book?`：四种结局对用户意味着完全不同的事——
+     * 「还在查」该等，「这本书没 ISBN」永远不会有结果，「教材站点这次没登上」
+     * 下次可能就好了，「库里没有」是确定的没有。折成一个可空值，界面就只剩
+     * "那一行点不动"一种表现，用户既不知道该等、该重试还是该死心。
+     */
+    sealed interface Fulltext {
+        data class Found(val book: Jiaocai1Book) : Fulltext
+
+        /** 教材报表里这本书没有能用来检索的 ISBN，书名也兜不住。 */
+        data object NoKey : Fulltext
+
+        /** 全文库确实没有这本书。这是确定的结论，可以缓存。 */
+        data object NotFound : Fulltext
+
+        /** 教材站点这次没登上或请求失败。是暂时的，**不缓存**，下次再来。 */
+        data object SiteUnavailable : Fulltext
+    }
+
+    /**
+     * 查这本教材在全文库里有没有。
+     *
+     * @param byTitle ISBN 查不到时用来兜底的书名；传 null 表示不兜底。
+     * @param byAuthor 同名多版本时用来消歧的作者，可空。
+     */
     suspend fun fulltextByIsbn(
         manager: SessionManager?,
         isbn: String,
-        /** ISBN 查不到时用来兜底的书名；传 null 表示不兜底。 */
         byTitle: String? = null,
-        /** 同名多版本时用来消歧的作者，可空。 */
         byAuthor: String? = null,
-    ): Jiaocai1Book? {
+    ): Fulltext {
         val key = isbn.filter { it.isDigit() || it.equals('X', ignoreCase = true) }
-        if (key.length < 10) return null
+        if (key.length < 10) return Fulltext.NoKey
         val c = caches()
         c.fulltext[key]?.let { return it.value }
-        val site = manager.siteOrNull(LoginType.JIAOCAI) ?: return null
+        // 用户正开着课程详情等这一行，豁免站点级失败冷却——与下面的考勤同一个道理。
+        val site = manager.siteOrNull(LoginType.JIAOCAI, userInitiated = true)
+            ?: return Fulltext.SiteUnavailable
         return withContext(Dispatchers.IO) {
             // 两种写法都试。教材报表里的 ISBN 常带连字符（978-7-04-039663-9），
             // 而全文库存的是哪一种没有保证——之前只发原文，库里存纯数字时就一条也搜不到，
             // 表现就是"明明有 ISBN 却从来匹配不上全文"。
             // 先发规范化的纯数字/X 形态，再退回原文。
             val candidates = listOf(key, isbn.trim()).filter { it.isNotEmpty() }.distinct()
-            val hit = runCatching {
-                candidates.firstNotNullOfOrNull { kw ->
+            val outcome = runCatching {
+                val hit = candidates.firstNotNullOfOrNull { kw ->
                     Jiaocai1Api(site).search(keyword = kw, field = Jiaocai1SearchField.ISBN)
                         .books.firstOrNull()
                 } ?: byTitle?.takeIf { it.isNotBlank() }?.let { title ->
@@ -128,13 +147,17 @@ object CourseLinks {
                             ?: exact.first()
                     }
                 }
+                if (hit != null) Fulltext.Found(hit) else Fulltext.NotFound
             }.rethrowCancellation().getOrElse {
                 Log.w(TAG, "fulltext by isbn=$isbn failed", it)
-                null
+                Fulltext.SiteUnavailable
             }
-            // 查不到也缓存：同一个面板反复开合不该反复打这个请求。
-            if (c.isCurrent()) c.fulltext[key] = Box(hit)
-            hit
+            // 只缓存确定的结论。站点没登上是暂时的，缓存它会让这个面板
+            // 在整个会话里都以为"这本书没有全文"，而其实只是那一下没登上。
+            if (outcome !is Fulltext.SiteUnavailable && c.isCurrent()) {
+                c.fulltext[key] = Box(outcome)
+            }
+            outcome
         }
     }
 
@@ -431,7 +454,7 @@ object CourseLinks {
      * 多张课程卡片的 LaunchedEffect 会并发查询，所以容器必须线程安全。
      */
     private class Caches(val accountId: String?) {
-        val fulltext = ConcurrentHashMap<String, Box<Jiaocai1Book?>>()
+        val fulltext = ConcurrentHashMap<String, Box<Fulltext>>()
         @Volatile var lmsCourses: Box<List<com.xjtu.toolbox.lms.LmsCourseSummary>>? = null
         @Volatile var attendance: Pair<String, Box<AttendanceIndex>>? = null
 

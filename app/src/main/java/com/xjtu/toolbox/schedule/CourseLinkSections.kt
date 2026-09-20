@@ -2,6 +2,7 @@ package com.xjtu.toolbox.schedule
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.filled.School
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -77,17 +79,20 @@ fun CourseLinkSections(
         CourseLinks.textbooksFor(course.courseName, textbooks, course.courseCode)
     }
 
-    // ── 教材全文：只按 ISBN 精确查，查不到就没有这个入口 ──
-    var fulltext by remember(course.courseName) {
-        mutableStateOf<Pair<TextbookItem, Jiaocai1Book>?>(null)
+    // ── 教材全文 ──
+    //
+    // 每本书各自一个状态，而不是"整门课只留第一本查到的"：一门课的三本教材
+    // 各有各的结局，把它们并成一个，另外两本就永远显示成第一本的结论。
+    val fulltext = remember(course.courseName) {
+        mutableStateMapOf<String, CourseLinks.Fulltext>()
     }
     // key 用 ISBN 串而不是 mine：list 每次重组都是新实例，会让协程不停被取消重启。
     val isbnKey = remember(mine) { mine.joinToString(",") { it.isbn } }
     LaunchedEffect(isbnKey) {
         for (t in mine) {
-            val book = CourseLinks.fulltextByIsbn(manager, t.isbn, byTitle = t.textbookName, byAuthor = t.author) ?: continue
-            fulltext = t to book
-            break
+            fulltext[fulltextKey(t)] = CourseLinks.fulltextByIsbn(
+                manager, t.isbn, byTitle = t.textbookName, byAuthor = t.author,
+            )
         }
     }
 
@@ -145,21 +150,13 @@ fun CourseLinkSections(
     // 之前这里只显示第一本的书名加一句"等 N 本"，而完整的教材信息只在经典布局的
     // 教材页里有——换到分级布局的用户等于看不到出版社和 ISBN，买书时正需要这两样。
     if (hasBook) {
-        val ft = fulltext
         mine.forEach { book ->
-            // 按 ISBN 认，不要用引用相等。教材列表刷新后 mine 里是新的 TextbookItem 实例，
-            // 而 fulltext 里存的还是上一批的对象，=== 永远为假——表现就是
-            // 全文明明查到了，那一行却点不动。
-            val readable = ft != null && sameIsbn(ft.first.isbn, book.isbn)
-            LinkRow(
-                icon = Icons.AutoMirrored.Filled.MenuBook,
-                tint = if (readable) MiuixTheme.colorScheme.primary
-                else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                title = book.textbookName.ifBlank { "未命名教材" },
-                subtitle = textbookDetail(book, readable),
-                onClick = if (readable && ft != null) {
-                    { onNavigate(Routes.jiaocai1Reader(ft.second.ssno, ft.second.title)) }
-                } else null,
+            TextbookRow(
+                book = book,
+                // 状态还没写进来就是"正在查"。注意别用 ISBN 以外的东西认：
+                // 教材列表刷新后 mine 里是新的 TextbookItem 实例，按引用认永远为假。
+                fulltext = fulltext[fulltextKey(book)],
+                onRead = { b -> onNavigate(Routes.jiaocai1Reader(b.ssno, b.title)) },
             )
         }
     }
@@ -180,32 +177,117 @@ fun CourseLinkSections(
 }
 
 /**
- * 教材副行：作者 · 出版社 · 版次 · ¥定价，换行再给 ISBN。
+ * 教材缓存键：归一化后的 ISBN，没有 ISBN 的退回书名。
  *
- * 占位数据要滤掉——报表里"无教材"的行会带一串 978000000000 的假 ISBN，
- * 原样显示只会让人以为真有这本书。判据与经典布局的 TextbookCard 保持一致。
+ * 同一本书在两批 [TextbookItem] 里是不同实例，必须按内容认而不是按引用。
  */
-/** 同一本书的判据：ISBN 去掉连字符空格后相同，且不是空串。 */
-private fun sameIsbn(a: String, b: String): Boolean {
-    fun norm(x: String) = x.filter { it.isDigit() || it.equals('X', ignoreCase = true) }
-    val na = norm(a)
-    return na.length >= 10 && na == norm(b)
+private fun fulltextKey(book: TextbookItem): String =
+    book.isbn.filter { it.isDigit() || it.equals('X', ignoreCase = true) }
+        .takeIf { it.length >= 10 } ?: book.textbookName.trim()
+
+/**
+ * 一本教材。
+ *
+ * **点开看详情这件事不依赖任何网络结果**：作者、出版社、版次、ISBN、定价
+ * 全都来自教务的教材报表，已经在手里了。全文只是详情里的一个附加动作。
+ *
+ * 之前这一行是反过来的——只有全文库命中才给 `onClick`，于是"还在查"、
+ * 「没 ISBN」、「教材站点没登上」、「库里没有」四种情况长得一模一样：
+ * 一行点不动的字。用户报上来就是"教材具体信息打不开了"。
+ */
+@Composable
+private fun TextbookRow(
+    book: TextbookItem,
+    /** null = 还在查。 */
+    fulltext: CourseLinks.Fulltext?,
+    onRead: (Jiaocai1Book) -> Unit,
+) {
+    var expanded by remember(fulltextKey(book)) { mutableStateOf(false) }
+
+    LinkRow(
+        icon = Icons.AutoMirrored.Filled.MenuBook,
+        tint = if (fulltext is CourseLinks.Fulltext.Found) MiuixTheme.colorScheme.primary
+        else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        title = book.textbookName.ifBlank { "未命名教材" },
+        subtitle = textbookSummary(book),
+        onClick = { expanded = !expanded },
+    )
+    if (expanded) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(start = 28.dp, end = 4.dp, bottom = 6.dp),
+        ) {
+            // 详情逐项列，不再挤进一行副标题：买书时要抄的就是这几项。
+            textbookFields(book).forEach { (label, value) ->
+                Row(Modifier.fillMaxWidth().padding(bottom = 3.dp)) {
+                    Text(
+                        label,
+                        Modifier.width(52.dp),
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                    SelectionContainer {
+                        Text(
+                            value,
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onSurface,
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            // 全文这一项把话说清楚：在查 / 没 ISBN 没法查 / 这次没连上 / 库里没有 / 能读。
+            when (fulltext) {
+                is CourseLinks.Fulltext.Found -> Text(
+                    "在线阅读全文 ›",
+                    Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable { onRead(fulltext.book) }
+                        .padding(vertical = 3.dp, horizontal = 2.dp),
+                    style = MiuixTheme.textStyles.footnote1,
+                    fontWeight = FontWeight.Medium,
+                    color = MiuixTheme.colorScheme.primary,
+                )
+
+                null -> FulltextNote("正在查全文库…")
+                CourseLinks.Fulltext.NoKey -> FulltextNote("这本教材没有 ISBN，查不了全文")
+                CourseLinks.Fulltext.NotFound -> FulltextNote("全文库里没有这本")
+                CourseLinks.Fulltext.SiteUnavailable ->
+                    FulltextNote("教材库这次没连上，重开一次课程详情再试")
+            }
+        }
+    }
 }
 
-private fun textbookDetail(book: TextbookItem, readable: Boolean): String? {
-    val head = listOfNotNull(
-        book.author.trim().takeIf { it.length >= 2 },
-        book.publisher.trim().takeIf { it.isNotBlank() },
-        book.edition.trim().takeIf { it.isNotBlank() },
-        book.price.trim().takeIf { it.isNotBlank() }?.let { "¥$it" },
-    ).joinToString("  ·  ")
-    val isbn = book.isbn.trim().takeIf { it.isNotBlank() && !it.startsWith("978000000000") }
-    return listOfNotNull(
-        head.takeIf { it.isNotBlank() },
-        isbn?.let { "ISBN $it" },
-        if (readable) "可在线阅读全文" else null,
-    ).joinToString("\n").takeIf { it.isNotBlank() }
+@Composable
+private fun FulltextNote(text: String) {
+    Text(
+        text,
+        Modifier.padding(vertical = 3.dp, horizontal = 2.dp),
+        style = MiuixTheme.textStyles.footnote2,
+        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+    )
 }
+
+/** 报表里"无教材"的行会带一串 978000000000 的假 ISBN，原样显示会让人以为真有这本书。 */
+private fun realIsbn(book: TextbookItem): String? =
+    book.isbn.trim().takeIf { it.isNotBlank() && !it.startsWith("978000000000") }
+
+/** 收起时的副行：作者 · 出版社，其余留给展开后的详情。 */
+private fun textbookSummary(book: TextbookItem): String? = listOfNotNull(
+    book.author.trim().takeIf { it.length >= 2 },
+    book.publisher.trim().takeIf { it.isNotBlank() },
+).joinToString("  ·  ").takeIf { it.isNotBlank() }
+
+/** 展开后逐项列出的教材信息，空字段不占行。 */
+private fun textbookFields(book: TextbookItem): List<Pair<String, String>> = listOfNotNull(
+    book.author.trim().takeIf { it.length >= 2 }?.let { "作者" to it },
+    book.publisher.trim().takeIf { it.isNotBlank() }?.let { "出版社" to it },
+    book.edition.trim().takeIf { it.isNotBlank() }?.let { "版次" to it },
+    realIsbn(book)?.let { "ISBN" to it },
+    book.price.trim().takeIf { it.isNotBlank() }?.let { "定价" to "¥$it" },
+)
 
 @Composable
 private fun LinkRow(
