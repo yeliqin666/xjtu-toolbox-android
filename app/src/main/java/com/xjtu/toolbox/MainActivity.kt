@@ -185,6 +185,16 @@ object Routes {
     const val FACULTY = "faculty"
     const val ICLASSFACE = "iclassface"
 
+    // ── 小游戏 ──
+    // GAMES 是合集页，各游戏自己一条路由：合集页只是最常见的入口，
+    // 不该是唯一入口——全局搜索搜「五子棋」应该能直接进去，而不是先落到合集页。
+    const val GAMES = "games"
+    const val GAME_MERGE = "game_merge"
+    const val GAME_2048 = "game_2048"
+    const val GAME_GOMOKU = "game_gomoku"
+    const val GAME_GO = "game_go"
+    const val GAME_XIANGQI = "game_xiangqi"
+
     fun browser(url: String = "") = "browser?url=${java.net.URLEncoder.encode(url, "UTF-8")}"
 
     fun jiaocai1Reader(ssno: String, title: String = "") =
@@ -1192,6 +1202,17 @@ fun AppNavigation(
             com.xjtu.toolbox.faculty.FacultyScreen(
                 onBack = { navController.popBackStack() },
                 onOpenUrl = { url -> navController.navigate(Routes.browser(url)) },
+            )
+        }
+
+        // ── 小游戏合集 ──
+        //
+        // 各游戏自己的路由在下面单独注册，合集页只是最常见的那个入口：
+        // 全局搜索搜「五子棋」应该能直接进去，而不是先落到合集页再点一次。
+        composable(Routes.GAMES) {
+            com.xjtu.toolbox.game.GamesScreen(
+                onBack = { navController.popBackStack() },
+                onNavigate = { route -> navController.navigate(route) { launchSingleTop = true } },
             )
         }
 

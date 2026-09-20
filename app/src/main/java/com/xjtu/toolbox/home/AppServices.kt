@@ -15,6 +15,13 @@ enum class ServiceCategory(val title: String, val subtitle: String) {
     CLASS("上课", "课表、自习与课程内容"),
     STUDY("学业", "成绩、评教与学习资料"),
     TOOL("工具与助手", "智能助手与连接工具"),
+
+    /**
+     * 单独一类而不是塞进 [TOOL]：「工具与助手」装游戏语义不搭，
+     * 而底栏已经是 5 个 tab（miuix 的上限就是 5），加不了 tab，
+     * 所以走首页分类卡这一层。
+     */
+    PLAY("课余", "小游戏与匹配"),
 }
 
 data class AppService(
@@ -55,6 +62,8 @@ object AppServices {
 
         AppService(Routes.WEBVPN_CONVERTER, "WebVPN", "校外访问转换", ServiceCategory.TOOL, listOf("vpn", "webvpn")),
         AppService(Routes.AGENT, "屁岱", "校园 AI 助手", ServiceCategory.TOOL, listOf("问屁岱", "ai", "助手")),
+
+        AppService(Routes.GAMES, "小游戏", "合成西交大、五子棋、围棋…", ServiceCategory.PLAY, listOf("游戏", "小游戏", "五子棋", "围棋", "象棋", "2048", "合成", "摸鱼")),
 
         AppService(Routes.SCORE_REPORT, "成绩报表", "历年成绩明细", ServiceCategory.STUDY, listOf("报表", "历年成绩"), showOnHome = false),
         AppService(Routes.DOWNLOAD_MANAGER, "下载管理", "课件与回放下载", ServiceCategory.TOOL, listOf("下载", "已下载"), showOnHome = false),

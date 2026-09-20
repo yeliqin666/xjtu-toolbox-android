@@ -424,6 +424,7 @@ internal fun HomeTab(
         Routes.YELLOW_PAGE to Icons.Default.ContactPhone,
         Routes.WEBVPN_CONVERTER to Icons.Default.VpnKey,
         Routes.AGENT to Icons.Default.SmartToy,
+        Routes.GAMES to Icons.Default.SportsEsports,
     )
     val allServices = AppServices.homeFor(loginState.accountType).map { svc ->
         MoreSvc(
