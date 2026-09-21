@@ -278,12 +278,6 @@ fun SettingsScreen(
         CredentialStore.THEME_CARD,
         CredentialStore.THEME_ICON
     )
-    val scheduleLayoutOptions = listOf("经典三栏", "分级视图")
-    val scheduleLayoutValues = listOf(
-        CredentialStore.SCHEDULE_LAYOUT_CLASSIC,
-        CredentialStore.SCHEDULE_LAYOUT_UNIFIED,
-    )
-    var scheduleLayout by remember { mutableStateOf(credentialStore.scheduleLayout) }
     var attendanceBadge by remember { mutableStateOf(credentialStore.scheduleAttendanceBadge) }
     var crashReportEnabled by remember { mutableStateOf(com.xjtu.toolbox.error.CrashReporter.isEnabled(context)) }
     val scheduleSources = com.xjtu.toolbox.schedule.ScheduleSource.entries
@@ -394,22 +388,6 @@ fun SettingsScreen(
                     )
                 }
                 OverlayDropdownPreference(
-                    title = "日程页布局",
-                    summary = if (scheduleLayout == CredentialStore.SCHEDULE_LAYOUT_UNIFIED) {
-                        "今日 / 本周 / 学期，考试并进时间轴"
-                    } else {
-                        "日程 / 考试 / 教材 三个标签页"
-                    },
-                    items = scheduleLayoutOptions,
-                    selectedIndex = scheduleLayoutValues.indexOf(scheduleLayout).coerceAtLeast(0),
-                    startAction = { SettingsIcon(Icons.Default.CalendarMonth, cOrange) },
-                    onSelectedIndexChange = { idx ->
-                        val v = scheduleLayoutValues[idx]
-                        scheduleLayout = v
-                        credentialStore.scheduleLayout = v
-                    }
-                )
-                OverlayDropdownPreference(
                     title = "当前学期课表来源",
                     summary = "${scheduleSource.label} · ${scheduleSource.summary}。历史学期始终查教务，选的来源取不到时也自动退回教务",
                     items = scheduleSources.map { it.label },
@@ -427,7 +405,7 @@ fun SettingsScreen(
                     summary = if (attendanceBadge) {
                         "周视图标出迟到/缺勤/请假，课程详情显示本课出勤"
                     } else {
-                        "需额外登录考勤系统，默认关闭"
+                        "需额外登录考勤系统，已关闭"
                     },
                     checked = attendanceBadge,
                     startAction = { SettingsIcon(Icons.Default.FactCheck, cGreen) },
