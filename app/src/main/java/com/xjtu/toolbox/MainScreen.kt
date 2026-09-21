@@ -712,7 +712,10 @@ internal fun MainScreen(
                 },
                 bottomContent = {
                     if (selectedTab == BottomTab.COURSES) {
-                        courseHeaderBottomContent?.invoke()
+                        // 挂在玻璃顶栏下面的标签行、周胶囊，底色跟着换成半透明
+                        CompositionLocalProvider(com.xjtu.toolbox.ui.glass.LocalOnGlassBar provides coursesGlass) {
+                            courseHeaderBottomContent?.invoke()
+                        }
                     }
                 }
             )
@@ -1209,24 +1212,24 @@ private fun MainNavigationRail(
                 // 屁岱在侧栏里也是那颗会眨眼、会思考、能换皮肤的机器人，
                 // 不再退化成灰度线性图标——否则宽屏用户看到的是另一个应用。
                 val pidaiStyle = com.xjtu.toolbox.agent.pidaiNavAppearance()
-                Row(
+                // 展开 / 收起要和邻居一起平滑地挪。miuix 的 NavigationRailItem 跟着侧栏内部的一条
+                // 0..1 弹簧进度逐帧插值位置，那个进度（LocalNavigationRailExpandInfo）是 internal 的，
+                // 拿不到；这里用同一条弹簧（阻尼 1、响应 0.35s）自己算一份，几何也照它的公式：
+                // 图标从「收起时居中」插值到「展开时左侧 12 + 14dp」，文字跟着淡入。
+                // 以前按 isExpanded 直接在居中和靠左之间硬切，别的格子在滑、只有屁岱跳一下。
+                val railProgress by androidx.compose.animation.core.animateFloatAsState(
+                    targetValue = if (railState.isExpanded) 1f else 0f,
+                    animationSpec = androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 322f),
+                    label = "pidaiRailProgress",
+                )
+                androidx.compose.ui.layout.Layout(
                     modifier = Modifier
                         .fillMaxWidth()
                         // 与 NavigationRailDefaults.ItemVerticalPadding 对齐，
                         // 保证它和邻居在侧栏里是同一套等距节奏。
                         .padding(vertical = 12.dp)
                         .clickable(onClick = onPidaiTap),
-                    horizontalArrangement = if (railState.isExpanded) {
-                        Arrangement.Start
-                    } else {
-                        Arrangement.Center
-                    },
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (railState.isExpanded) {
-                        // ExpandedItemHorizontalMargin(12) + ExpandedItemContentHorizontalPadding(14)
-                        Spacer(Modifier.width(26.dp))
-                    }
+                    content = {
                     com.xjtu.toolbox.agent.PidaiNavButton(
                         onClick = onPidaiTap,
                         excited = com.xjtu.toolbox.agent.ProactiveBubbleHost.message != null,
@@ -1239,15 +1242,32 @@ private fun MainNavigationRail(
                         skin = pidaiStyle.skin,
                         modifier = Modifier.onGloballyPositioned { onPidaiBoundsChange(it.boundsInRoot()) },
                     )
-                    if (railState.isExpanded) {
-                        // ExpandedItemIconTextSpacing / ExpandedLabelFontSize，与邻居的展开态对齐。
-                        Spacer(Modifier.width(16.dp))
-                        Text(
-                            tab.label,
-                            color = MiuixTheme.colorScheme.onSurfaceContainer,
-                            fontSize = 16.sp,
-                            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
-                        )
+                    // ExpandedLabelFontSize，与邻居的展开态对齐；收起时透明，不占位置
+                    Text(
+                        tab.label,
+                        color = MiuixTheme.colorScheme.onSurfaceContainer,
+                        fontSize = 16.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                        maxLines = 1,
+                        modifier = Modifier.graphicsLayer { alpha = railProgress },
+                    )
+                    },
+                ) { measurables, constraints ->
+                    val f = railProgress.coerceIn(0f, 1f)
+                    val icon = measurables[0].measure(constraints.copy(minWidth = 0, minHeight = 0))
+                    val labelMax = (constraints.maxWidth - 26.dp.roundToPx() - icon.width - 16.dp.roundToPx() - 26.dp.roundToPx())
+                        .coerceAtLeast(0)
+                    val label = measurables[1].measure(androidx.compose.ui.unit.Constraints(maxWidth = labelMax))
+                    // 收起：在 80dp（NavigationRailDefaults.MinWidth）宽的侧栏里居中；
+                    // 展开：ExpandedItemHorizontalMargin(12) + ExpandedItemContentHorizontalPadding(14)
+                    val collapsedX = (80.dp.toPx() - icon.width) / 2f
+                    val expandedX = 26.dp.toPx()
+                    val iconX = androidx.compose.ui.util.lerp(collapsedX, expandedX, f).toInt()
+                    val height = maxOf(icon.height, label.height)
+                    layout(constraints.maxWidth, height) {
+                        icon.placeRelative(iconX, (height - icon.height) / 2)
+                        // ExpandedItemIconTextSpacing(16)
+                        if (f > 0f) label.placeRelative(iconX + icon.width + 16.dp.roundToPx(), (height - label.height) / 2)
                     }
                 }
                 return@forEach

@@ -1245,29 +1245,21 @@ fun ScheduleScreen(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(50),
-                        color = MiuixTheme.colorScheme.surfaceVariant,
-                        modifier = Modifier.clickable { showWeekPicker = true },
-                    ) {
-                        Row(
-                            Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                if (showAllWeeks) "全部周叠加 ▾"
-                                else (weekPillDateRange?.let { "第 $currentWeek 周 · $it ▾" } ?: "第 $currentWeek 周 ▾"),
-                                style = MiuixTheme.textStyles.footnote1,
-                                fontWeight = FontWeight.Medium,
-                                color = MiuixTheme.colorScheme.onSurface,
-                            )
-                        }
-                    }
+                    WeekHeaderPill(
+                        text = if (showAllWeeks) "全学期总览"
+                            else (weekPillDateRange?.let { "第 $currentWeek 周 · $it" } ?: "第 $currentWeek 周"),
+                        trailingIcon = Icons.Default.KeyboardArrowDown,
+                        onClick = { showWeekPicker = true },
+                    )
                     Spacer(Modifier.weight(1f))
                     // 当前看的不是本周（或处于叠加模式）时，给个回本周的近道。
+                    // 和左边的周胶囊同一套外观：同高、同圆角、带图标；用主题色浅底表示「这是个动作」。
+                    // 以前直接用 miuix 的 TextButton，比周胶囊高一截、没有图标，放在一行里很突兀。
                     if (showAllWeeks || (realCurrentWeek > 0 && currentWeek != realCurrentWeek)) {
-                        TextButton(
+                        WeekHeaderPill(
                             text = "回本周",
+                            leadingIcon = Icons.Default.Event,
+                            emphasized = true,
                             onClick = {
                                 showAllWeeks = false
                                 if (realCurrentWeek > 0) currentWeek = realCurrentWeek
@@ -1279,7 +1271,7 @@ fun ScheduleScreen(
         }
     }
 
-    // 周选择弹窗（§1.4③）：网格选任意一周，或者切到「全部周叠加」。
+    // 周选择弹窗（§1.4③）：网格选任意一周，或者切到「全学期总览」。
     if (showWeekPicker) {
         val pageWeeksForPicker = totalWeeks.takeIf { it > 0 }
             ?: filteredMergedCourses.maxOfOrNull { it.weekBits.length }?.takeIf { it > 0 }
@@ -1345,7 +1337,7 @@ fun ScheduleScreen(
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("全部周叠加")
+                    Text("全学期总览")
                 }
                 Spacer(Modifier.height(6.dp))
                 Text(
@@ -1353,6 +1345,8 @@ fun ScheduleScreen(
                     style = MiuixTheme.textStyles.footnote1,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
+                // 弹层铺到屏幕底边，最后这行小字会压在系统导航条上；和 AppDialogs 里的弹层一样补一段导航条高度
+                Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
             }
         }
     }
@@ -1625,12 +1619,20 @@ fun ScheduleScreen(
                         onDismiss = { showExamSheet = false },
                     )
                 }
-                AnimatedContent(
-                    targetState = selectedTab,
-                    transitionSpec = {
-                        fadeIn() + slideInHorizontally { if (targetState > initialState) it else -it } togetherWith
-                                fadeOut() + slideOutHorizontally { if (targetState > initialState) -it else it }
-                    }, label = "tabSwitch"
+                // 今日 / 日程 / 学期三栏左右滑动切换（和其他分段标签页一样用 AppTabPager）。
+                // 周视图里原来那个切周的翻页器因此关掉了手滑（见 ScheduleTabContent），
+                // 两个横向手势叠在一起会互相抢；切周走周选择胶囊。
+                com.xjtu.toolbox.ui.components.AppTabPager(
+                    pageCount = 3,
+                    selectedTabIndex = selectedTab,
+                    onTabSelected = { tab ->
+                        selectedTab = tab
+                        // 学期栏第一次打开时才加载教材，别的栏用不上（和点标签行的逻辑一致）
+                        if (tab == 2 && !textbooksLoaded && !textbooksLoading && selectedTermCode.isNotEmpty()) {
+                            loadTextbooks(selectedTermCode)
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize(),
                 ) { tab ->
                     when (contentOf(tab)) {
                         "week" -> {
@@ -1640,6 +1642,8 @@ fun ScheduleScreen(
                                 // 考试倒计时横幅在每个 tab 上都常驻，下拉刷新时顺带把它也刷了。
                                 onRefresh = { if (api != null) { refreshSchedule(true); refreshExams() } },
                                 pullToRefreshState = schedulePull,
+                                // 内容铺到玻璃顶栏下面时，指示器也要从顶栏下面出来，而不是屏幕顶边
+                                contentPadding = PaddingValues(top = listTopPadding),
                                 modifier = Modifier.fillMaxSize(),
                             ) {
                                 ScheduleTabContent(
@@ -1686,6 +1690,8 @@ fun ScheduleScreen(
                                 isRefreshing = isRefreshingFromNetwork,
                                 onRefresh = { if (api != null) { refreshSchedule(true); refreshExams() } },
                                 pullToRefreshState = todayPull,
+                                // 内容铺到玻璃顶栏下面时，指示器也要从顶栏下面出来，而不是屏幕顶边
+                                contentPadding = PaddingValues(top = listTopPadding),
                                 modifier = Modifier.fillMaxSize(),
                             ) {
                                 TodayTimeline(
@@ -1721,6 +1727,8 @@ fun ScheduleScreen(
                                     }
                                 },
                                 pullToRefreshState = semPull,
+                                // 内容铺到玻璃顶栏下面时，指示器也要从顶栏下面出来，而不是屏幕顶边
+                                contentPadding = PaddingValues(top = listTopPadding),
                                 modifier = Modifier.fillMaxSize(),
                             ) {
                                 SemesterCourseList(
@@ -1967,7 +1975,12 @@ private fun ScheduleTabContent(
         }
     }
 
+    // 顶栏是玻璃、盖在内容上时：有「学期已结束 / 距开学」这条提示，就由提示先让出顶栏高度，
+    // 网格不再重复留；没有提示时，留白交给网格的纵向滚动，网格才能从顶栏下面滚过去。
+    // 以前漏了这一条，提示整条被压在玻璃顶栏后面。
+    val gridTopPadding = if (weekNote != null) 0.dp else topPadding
     Column(Modifier.fillMaxSize().overScrollVertical()) {
+        if (weekNote != null && topPadding > 0.dp) Spacer(Modifier.height(topPadding))
         // 学期状态提示（未开学/已结束）
         if (weekNote != null) {
             Surface(
@@ -1991,7 +2004,7 @@ private fun ScheduleTabContent(
             EmptyState(
                 title = "本学期没有课程",
                 subtitle = "教务还没排课或还没选课。可以下拉刷新、在右上角「更多」里切换学期，或点 + 添加自己的日程",
-                modifier = Modifier.fillMaxSize().padding(bottom = bottomPadding)
+                modifier = Modifier.fillMaxSize().padding(top = gridTopPadding, bottom = bottomPadding)
             )
             return@Column
         }
@@ -2024,7 +2037,8 @@ private fun ScheduleTabContent(
                         }
                     }
             }
-            HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
+            // userScrollEnabled = false：左右滑动交给外层的三栏切换，切周走周选择胶囊
+            HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize(), userScrollEnabled = false) { page ->
                 val weekN = page + 1
                 val weekCourses = remember(courses, weekN) { courses.filter { it.isInWeek(weekN) } }
                 val weekDates = remember(startOfTerm, weekN) {
@@ -2037,7 +2051,7 @@ private fun ScheduleTabContent(
                     EmptyState(
                         title = "本周无日程",
                         subtitle = "第${weekN}周还没有安排",
-                        modifier = Modifier.fillMaxSize().padding(top = topPadding, bottom = bottomPadding)
+                        modifier = Modifier.fillMaxSize().padding(top = gridTopPadding, bottom = bottomPadding)
                     )
                 } else {
                     ScheduleGrid(
@@ -2048,7 +2062,7 @@ private fun ScheduleTabContent(
                         enableCompression = true,
                         weekKey = weekN,
                         bottomPadding = bottomPadding,
-                        topPadding = topPadding,
+                        topPadding = gridTopPadding,
                         slotBadge = { badgeOf(it, weekN) },
                         onSlotClick = { item ->
                             val course = item as? CourseItem ?: return@ScheduleGrid
@@ -2073,7 +2087,7 @@ private fun ScheduleTabContent(
                 showWeeks = true,
                 enableCompression = true,
                 bottomPadding = bottomPadding,
-                        topPadding = topPadding,
+                        topPadding = gridTopPadding,
                 onSlotClick = { item ->
                     val course = item as? CourseItem ?: return@ScheduleGrid
                     val customEntity = customCourses.find { it.toCourseItem().courseCode == course.courseCode }
@@ -2379,6 +2393,52 @@ fun ExamCountdownBanner(next: ExamCountdown.Next, modifier: Modifier = Modifier)
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * 日程页顶栏下面那一行的小胶囊：周选择器和「回本周」共用，保证两者同高、同圆角、同字号。
+ * 先裁剪再点击，按下的水波纹才是胶囊形的（以前没裁，按下去是个方块）。
+ */
+@Composable
+private fun WeekHeaderPill(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    leadingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    trailingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    emphasized: Boolean = false,
+) {
+    val content = if (emphasized) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface
+    // 画在玻璃顶栏上时底色半透明（见 LocalOnGlassBar）
+    val onGlass = com.xjtu.toolbox.ui.glass.LocalOnGlassBar.current
+    Row(
+        modifier
+            .clip(RoundedCornerShape(50))
+            .background(
+                if (emphasized) MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)
+                else if (onGlass) MiuixTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                else MiuixTheme.colorScheme.surfaceVariant,
+            )
+            .clickable(onClick = onClick)
+            .padding(start = if (leadingIcon != null) 10.dp else 12.dp, end = if (trailingIcon != null) 8.dp else 12.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (leadingIcon != null) {
+            Icon(leadingIcon, contentDescription = null, tint = content, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(4.dp))
+        }
+        Text(
+            text,
+            style = MiuixTheme.textStyles.footnote1,
+            fontWeight = FontWeight.Medium,
+            color = content,
+            maxLines = 1,
+        )
+        if (trailingIcon != null) {
+            Spacer(Modifier.width(2.dp))
+            Icon(trailingIcon, contentDescription = null, tint = content.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
         }
     }
 }

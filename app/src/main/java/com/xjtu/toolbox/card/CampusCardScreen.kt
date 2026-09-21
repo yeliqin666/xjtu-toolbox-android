@@ -391,7 +391,10 @@ fun CampusCardScreen(
                             isPullRefreshing = true
                             loadData(silent = true)
                         },
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxSize(),
+                        // 内容从顶栏下面穿过以后，这一层铺满整页、从屏幕顶边算起；
+                        // 不告诉它顶栏和标签行有多高，指示器就会从屏幕顶边拉出来，而不是大标题下面。
+                        contentPadding = PaddingValues(top = topContentPadding),
                     ) {
                         // 横滑切栏（概览/流水/分析），用契约组件 AppTabPager；标签行仍由下面的
                         // AppSegmentedTabs 负责点击切换，两者共用同一个 selectedTab。挂上

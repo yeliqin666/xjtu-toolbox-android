@@ -450,6 +450,8 @@ object MatchProfile {
         val blocker: String? = null,
         /** 不打分、只陈述的事实：同专业、同书院、差几届。 */
         val notes: List<String> = emptyList(),
+        /** 两边都分享了的类别数（不含身份）。0 = 压根没有同一类可比。 */
+        val commonDims: Int = 0,
     ) {
         /** 有没有算出分数。只有交集、没有课表时，界面该展示发现而不是一个 0 分的圆环。 */
         val scored: Boolean get() = facets.isNotEmpty()
@@ -648,6 +650,20 @@ object MatchProfile {
             null
         }
 
+        // 两边都放进码里的有几类。结果为空时，靠它区分「压根没分享同一类」和「都分享了，只是没撞上」，
+        // 以前这两种都说成「没有一项是都愿意分享的」，后一种明明勾了还被这么说，像是功能坏了。
+        val commonDims = listOf(
+            mine.busyGrid.isNotEmpty() && theirs.busyGrid.isNotEmpty(),
+            mine.courses.isNotEmpty() && theirs.courses.isNotEmpty(),
+            mine.teachers.isNotEmpty() && theirs.teachers.isNotEmpty(),
+            mine.pastCourseCodes.isNotEmpty() && theirs.pastCourseCodes.isNotEmpty(),
+            mine.exams.isNotEmpty() && theirs.exams.isNotEmpty(),
+            mine.textbooks.isNotEmpty() && theirs.textbooks.isNotEmpty(),
+            mine.diningHours.isNotEmpty() && theirs.diningHours.isNotEmpty(),
+            mine.canteens.isNotEmpty() && theirs.canteens.isNotEmpty(),
+            mine.dietTags.isNotEmpty() && theirs.dietTags.isNotEmpty(),
+        ).count { it }
+
         val totalWeight = facets.sumOf { it.weight }
         val overall = if (totalWeight == 0) 0 else facets.sumOf { it.score * it.weight } / totalWeight
         return Result(
@@ -660,6 +676,7 @@ object MatchProfile {
             encounters = meetings,
             blocker = blocker,
             notes = notes,
+            commonDims = commonDims,
         )
     }
 

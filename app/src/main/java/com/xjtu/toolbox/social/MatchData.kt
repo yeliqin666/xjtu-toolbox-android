@@ -60,13 +60,20 @@ object MatchData {
                 ?.let { gson.fromJson(it, Array<String>::class.java)?.toList() }
                 .orEmpty()
         }.getOrDefault(emptyList())
-        val current = terms.firstOrNull()
+        // 「当前学期」必须和日程页认的是同一个：先看 schedule_last_term（用户实际打开过的那个），
+        // 没有才退回学期列表的第一个。以前直接取列表第一个——教务一开出新学期，列表第一个就是
+        // 还没打开过、本地根本没有课表的那个学期，自己这边的码里就没有课表网格，
+        // 跟谁比都是「你俩没有一项是都愿意分享的」。
+        val lastTerm = runCatching {
+            dc.get("schedule_last_term", Long.MAX_VALUE)?.trim('"')?.takeIf { it.isNotBlank() }
+        }.getOrNull()
+        val current = lastTerm ?: terms.firstOrNull()
 
         val courses = current?.let { readCourses(dc, gson, it) }.orEmpty()
         // 往期只取课程号。逛过几个学期就有几个学期，没逛过的学期缓存里根本没有。
         val past = LinkedHashSet<String>()
         var pastTerms = 0
-        for (t in terms.drop(1)) {
+        for (t in terms.filter { it != current }) {
             val list = readCourses(dc, gson, t)
             if (list.isEmpty()) continue
             pastTerms++
@@ -113,10 +120,15 @@ object MatchData {
         )
     }
 
+    /**
+     * 和日程页读法一致：先读 ScheduleCache 的优化格式，没有再读原始的 schedule_<学期>。
+     * 只读原始格式的话，某些路径只写了优化格式，这边就读成空。
+     */
     private fun readCourses(dc: DataCache, gson: Gson, term: String): List<CourseItem> =
         runCatching {
-            dc.get("schedule_$term", Long.MAX_VALUE)?.let { json ->
-                gson.fromJson(json, Array<CourseItem>::class.java).toList().map { it.sanitized() }
-            }
+            com.xjtu.toolbox.schedule.ScheduleCache.readOptimizedCourses(dc, gson, term, Long.MAX_VALUE)
+                ?: dc.get("schedule_$term", Long.MAX_VALUE)?.let { json ->
+                    gson.fromJson(json, Array<CourseItem>::class.java).toList().map { it.sanitized() }
+                }
         }.getOrNull().orEmpty()
 }

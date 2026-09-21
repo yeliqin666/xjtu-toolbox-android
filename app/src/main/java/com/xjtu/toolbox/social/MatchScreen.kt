@@ -752,10 +752,24 @@ private fun ResultCard(
                 Text("和 $theirName", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "你俩没有一项是都愿意分享的，没得比。让对方多开几项试试。",
+                    if (result.commonDims == 0) {
+                        "你俩没有一项是都分享了的，没得比。常见原因是有一方没进过日程页，本地还没有课表；" +
+                            "让对方先打开一次日程页，或者多开几项再生成一次码。"
+                    } else {
+                        "你俩都分享了一些内容，但课、老师、考试这些都没有撞上，时间表也没能比上。"
+                    },
                     style = MiuixTheme.textStyles.body2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
+                // 同级、同专业、老乡这类身份信息不打分，但也是实打实的交集，没分数时照样列出来
+                result.notes.forEach { note ->
+                    Spacer(Modifier.height(6.dp))
+                    Text(note, style = MiuixTheme.textStyles.body2)
+                }
+                result.blocker?.let {
+                    Spacer(Modifier.height(6.dp))
+                    Text(it, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                }
                 return@Column
             }
 

@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -107,6 +108,15 @@ fun ZyxfBrowseScreen(
     /** 正在预览的文件；非空时盖住整页。 */
     var previewing by remember { mutableStateOf<ZyxfApi.Entry?>(null) }
 
+    /**
+     * 这次预览是不是在宽屏分栏里选的。
+     *
+     * 分栏时点文件只是「右栏换一份内容」，不等于「打开全屏预览」。两者共用 [previewing]，
+     * 以前横屏选了文件、切到别的 tab、再转回竖屏，窄屏那一支一看 previewing 非空，
+     * 立刻把它当成全屏预览弹出来。转成窄屏时，分栏选的那一份直接作废。
+     */
+    var previewFromSplit by remember { mutableStateOf(false) }
+
     suspend fun loadFolder(id: Int) {
         loading = true
         error = null
@@ -175,9 +185,14 @@ fun ZyxfBrowseScreen(
     }
 
 
+    // 宽屏分栏里选的预览，转成窄屏后作废（见 previewFromSplit）。在组合里就判断、不渲染，
+    // 所以不会先闪一下全屏再关掉；状态的清理放到 SideEffect 里，不在组合过程中写状态。
+    val splitPreviewStale = !isWide && previewFromSplit && previewing != null
+    if (splitPreviewStale) SideEffect { previewing = null; previewFromSplit = false }
+
     // 窄屏的预览是盖住全屏的浮层（含底部 Tab 栏），所以放在列表之外、由 Dialog 承载。
     // 宽屏不走这一支：预览已经长在右栏里。
-    if (!isWide) previewing?.let { file ->
+    if (!isWide && !splitPreviewStale) previewing?.let { file ->
         ZyxfPreviewScreen(
             fileId = file.id,
             fileName = file.name,
@@ -277,7 +292,10 @@ fun ZyxfBrowseScreen(
                             state = downloadState[entry.id],
                             onClick = {
                                 if (entry.isFolder) openFolder(entry)
-                                else if (ZyxfApi.previewable(entry.ext)) previewing = entry
+                                else if (ZyxfApi.previewable(entry.ext)) {
+                                    previewing = entry
+                                    previewFromSplit = isWide
+                                }
                                 else download(entry)
                             },
                             onDownload = { download(entry) },

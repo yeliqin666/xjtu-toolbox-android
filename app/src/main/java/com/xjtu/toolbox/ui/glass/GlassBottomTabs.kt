@@ -210,10 +210,17 @@ fun GlassBottomTabs(
         }
 
         // 第一遍：正常显示的那一排，点击、按住拖动都从这里发生。
+        // tintExempt 的格子（屁岱）这里只放空占位，真身画在最上面那一层（见文件末尾的 exemptOverlay）：
+        // 滑块采样的是「页面 + 染色那一遍」，染色那一遍里屁岱是空的，
+        // 屁岱要是画在滑块下面，滑块一经过就把它盖成空白（点屁岱、拖到屁岱都会这样）。
         val realContent: @Composable RowScope.() -> Unit = {
             tabs.forEachIndexed { index, tab ->
-                GlassNavTabSlot(onClick = tabOnClick(index)) {
-                    tab.content(this, index == currentIndex)
+                if (tab.tintExempt) {
+                    GlassNavTabSlot(onClick = null) {}
+                } else {
+                    GlassNavTabSlot(onClick = tabOnClick(index)) {
+                        tab.content(this, index == currentIndex)
+                    }
                 }
             }
         }
@@ -357,6 +364,29 @@ fun GlassBottomTabs(
                         .height(56.dp)
                         .fillMaxWidth(1f / tabsCount),
                 )
+            }
+        }
+
+        // 最上面一层：只画 tintExempt 的格子（屁岱）的真身，其余位置是不接触摸的空占位，
+        // 触摸会落到下面那一排和滑块上。这样屁岱始终只有一份，而且永远在滑块上面。
+        if (tabs.any { it.tintExempt }) {
+            Row(
+                Modifier
+                    .graphicsLayer { translationX = panelOffset }
+                    .height(64.dp)
+                    .fillMaxWidth()
+                    .padding(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                tabs.forEachIndexed { index, tab ->
+                    if (tab.tintExempt) {
+                        GlassNavTabSlot(onClick = tabOnClick(index)) {
+                            tab.content(this, index == currentIndex)
+                        }
+                    } else {
+                        GlassNavTabSlot(onClick = null) {}
+                    }
+                }
             }
         }
     }
