@@ -185,6 +185,19 @@ object Routes {
     const val FACULTY = "faculty"
     const val ICLASSFACE = "iclassface"
 
+    // ── 小游戏 ──
+    // GAMES 是合集页，各游戏自己一条路由：合集页只是最常见的入口，
+    // 不该是唯一入口——全局搜索搜「五子棋」应该能直接进去，而不是先落到合集页。
+    const val GAMES = "games"
+    const val GAME_MERGE = "game_merge"
+    const val GAME_2048 = "game_2048"
+    const val GAME_GOMOKU = "game_gomoku"
+    const val GAME_GO = "game_go"
+    const val GAME_XIANGQI = "game_xiangqi"
+    // 路由字符串沿用 #72 删掉之前的 "schedule_match"：它是服务表里的键，
+    // 改掉的话老用户固定在首页的入口会对不上。
+    const val MATCH = "schedule_match"
+
     fun browser(url: String = "") = "browser?url=${java.net.URLEncoder.encode(url, "UTF-8")}"
 
     fun jiaocai1Reader(ssno: String, title: String = "") =
@@ -1193,6 +1206,42 @@ fun AppNavigation(
                 onBack = { navController.popBackStack() },
                 onOpenUrl = { url -> navController.navigate(Routes.browser(url)) },
             )
+        }
+
+        // ── 小游戏合集 ──
+        //
+        // 各游戏自己的路由在下面单独注册，合集页只是最常见的那个入口：
+        // 全局搜索搜「五子棋」应该能直接进去，而不是先落到合集页再点一次。
+        composable(Routes.GAMES) {
+            com.xjtu.toolbox.game.GamesScreen(
+                onBack = { navController.popBackStack() },
+                onNavigate = { route -> navController.navigate(route) { launchSingleTop = true } },
+            )
+        }
+
+        composable(Routes.GAME_2048) {
+            com.xjtu.toolbox.game.g2048.Gpa2048Screen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.GAME_MERGE) {
+            com.xjtu.toolbox.game.merge.MergeGameScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.GAME_GOMOKU) {
+            com.xjtu.toolbox.game.gomoku.GomokuScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.GAME_GO) {
+            com.xjtu.toolbox.game.go.GoScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.GAME_XIANGQI) {
+            com.xjtu.toolbox.game.xiangqi.XiangqiScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.MATCH) {
+            // 不在 loginTypeForRoute 里：全程读本地缓存，不碰任何校园系统。
+            com.xjtu.toolbox.social.MatchScreen(onBack = { navController.popBackStack() })
         }
 
         // ── 账号管理页 ──

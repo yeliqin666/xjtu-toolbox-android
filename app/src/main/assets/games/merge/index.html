@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>合成西交大</title>
+<style>
+  /*
+   * 说明：本页面完全离线，不引用任何外部字体 / CDN / 图片，
+   * 全部资源均通过 WebViewAssetLoader 从 app 内的 assets 目录读取。
+   */
+  :root {
+    --col-bg: #FFD59D;
+    --col-bg-light: #FFDCAE;
+    --col-bg-lighter: #FFEEDB;
+    --col-primary: #FF5300;
+    --col-primary-dark: #FF2700;
+    --col-shadow: rgba(0, 0, 0, 0.35);
+    --col-white: #fff;
+    --col-line: #FF2222;
+  }
+  * { box-sizing: border-box; padding: 0; margin: 0; }
+  html, body {
+    width: 100%; height: 100%;
+    background-color: var(--col-bg);
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    overflow: hidden;
+    touch-action: none;
+  }
+  .container {
+    width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+  }
+  #game-wrap { position: relative; }
+  #game-canvas { position: relative; display: block; touch-action: none; }
+  #game-ui {
+    position: absolute; left: 0; top: 0; width: 100%; height: 100%;
+    pointer-events: none; user-select: none; font-weight: 700;
+    display: none; transform-origin: top left;
+  }
+  #game-score {
+    position: absolute; width: 100%; text-align: left;
+    font-size: 40px; font-weight: 900; padding: 10px 16px;
+    color: var(--col-primary-dark);
+  }
+  #game-next-wrap {
+    position: absolute; right: 12px; top: 10px; text-align: center;
+    color: var(--col-primary-dark); font-size: 14px;
+  }
+  #game-next-fruit {
+    width: 48px; height: 48px; border-radius: 50%;
+    background: var(--col-white); box-shadow: 0 2px 6px var(--col-shadow);
+    display: block; margin-top: 4px;
+  }
+  #game-end-container {
+    position: absolute; width: 100%; height: 100%; left: 0; top: 0;
+    display: none; align-items: center; justify-content: center;
+    background-color: var(--col-shadow);
+  }
+  #game-end {
+    text-align: center; padding: 28px 40px;
+    background-color: var(--col-bg-lighter);
+    border: 5px solid var(--col-primary);
+    border-radius: 24px;
+    pointer-events: auto; user-select: none;
+  }
+  #game-end-title { font-weight: 900; font-size: 32px; color: var(--col-primary-dark); margin-bottom: 8px; }
+  #game-end-score { font-size: 20px; color: #333; margin-bottom: 16px; }
+  #game-restart {
+    display: inline-block; padding: 10px 28px; border-radius: 999px;
+    background: var(--col-primary); color: var(--col-white);
+    font-size: 18px; font-weight: 700; border: none;
+  }
+  #celebrate {
+    position: absolute; left: 0; top: 0; width: 100%; height: 100%;
+    display: none; align-items: center; justify-content: center;
+    pointer-events: none; z-index: 20;
+  }
+  #celebrate span {
+    font-size: 48px; font-weight: 900; color: var(--col-primary-dark);
+    text-shadow: 0 0 12px #fff, 0 0 24px var(--col-primary);
+    animation: celebrate-pop 0.9s ease-out;
+  }
+  @keyframes celebrate-pop {
+    0% { transform: scale(0.2); opacity: 0; }
+    30% { transform: scale(1.3); opacity: 1; }
+    60% { transform: scale(1.0); }
+    100% { transform: scale(1.1); opacity: 0; }
+  }
+</style>
+</head>
+<body>
+  <div class="container">
+    <div id="game-wrap">
+      <canvas id="game-canvas"></canvas>
+      <div id="game-ui">
+        <div id="game-score">0</div>
+        <div id="game-next-wrap">
+          下一个
+          <canvas id="game-next-fruit" width="48" height="48"></canvas>
+        </div>
+      </div>
+      <div id="celebrate"><span id="celebrate-text">合成西交大！</span></div>
+      <div id="game-end-container">
+        <div id="game-end">
+          <div id="game-end-title">游戏结束</div>
+          <div id="game-end-score">得分：<span id="game-end-score-value">0</span></div>
+          <div id="game-end-score">最高分：<span id="game-highscore-value">0</span></div>
+          <button id="game-restart">再来一局</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Matter.js 物理引擎，MIT 协议，见 THIRD_PARTY_NOTICES.merge.md -->
+  <script src="./matter.min.js"></script>
+  <script src="./index.js"></script>
+</body>
+</html>

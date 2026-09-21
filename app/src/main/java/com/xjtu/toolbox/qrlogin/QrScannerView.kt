@@ -1,9 +1,12 @@
 package com.xjtu.toolbox.qrlogin
 
+import android.util.Size
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.runtime.Composable
@@ -41,7 +44,16 @@ fun QrScannerView(
     val cameraProviderRef = remember { AtomicReference<ProcessCameraProvider?>(null) }
     val reader = remember {
         MultiFormatReader().apply {
-            setHints(mapOf(DecodeHintType.POSSIBLE_FORMATS to listOf(BarcodeFormat.QR_CODE)))
+            setHints(
+                mapOf(
+                    DecodeHintType.POSSIBLE_FORMATS to listOf(BarcodeFormat.QR_CODE),
+                    // 分享码那种上千字的码是 25 版以上，模块密、
+                    // 容错又只有 L 级，不开 TRY_HARDER 基本扫不出来。
+                    // 代价是每帧慢几十毫秒，但 KEEP_ONLY_LATEST 会丢帧，
+                    // 取景不会卡，只是分析帧率低一些。
+                    DecodeHintType.TRY_HARDER to true,
+                )
+            )
         }
     }
 
@@ -70,6 +82,20 @@ fun QrScannerView(
                 }
                 val analysis = ImageAnalysis.Builder()
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    // 不设分辨率的话 CameraX 默认给 640x480。一千多字的分享码
+                    // 是 27 版（125x125 模块），在 480px 取景里每格不到 2.5px，
+                    // 怎么对都扫不出来。要到 1080p 后约 5px/模块，才稳。
+                    // CLOSEST_HIGHER_THEN_LOWER：没有 1080p 的机器先往上找，实在没有再往下。
+                    .setResolutionSelector(
+                        ResolutionSelector.Builder()
+                            .setResolutionStrategy(
+                                ResolutionStrategy(
+                                    Size(1920, 1080),
+                                    ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER,
+                                )
+                            )
+                            .build()
+                    )
                     .build()
                 analysis.setAnalyzer(analysisExecutor) { proxy ->
                     if (decoded.get()) {
