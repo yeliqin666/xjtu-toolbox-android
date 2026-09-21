@@ -37,6 +37,7 @@ import com.xjtu.toolbox.lms.LmsDownloadRecord
 import com.xjtu.toolbox.lms.LmsDownloadStore
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
+import com.xjtu.toolbox.ui.glass.*
 import com.xjtu.toolbox.util.CredentialStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -164,12 +165,17 @@ fun TranscriptScreen(
 
     LaunchedEffect(Unit) { loadForm() }
 
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
+
     // ── UI ──
     Scaffold(
         topBar = {
             TopAppBar(
                 title = "电子成绩单",
                 largeTitle = "电子成绩单",
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -179,15 +185,16 @@ fun TranscriptScreen(
             )
         }
     ) { padding ->
+        val glassTop = padding.glassTop(glass)
         when {
             isLoading -> LoadingState(
                 message = "正在连接成绩单服务...",
-                modifier = Modifier.fillMaxSize().padding(padding)
+                modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass).padding(top = glassTop)
             )
             errorMessage != null -> ErrorState(
                 message = errorMessage!!,
                 onRetry = { loadForm() },
-                modifier = Modifier.fillMaxSize().padding(padding)
+                modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass).padding(top = glassTop)
             )
             else -> {
                 val ctx = formContext ?: return@Scaffold
@@ -204,9 +211,10 @@ fun TranscriptScreen(
                     state = listState,
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(padding)
+                        .padding(padding.withoutTop(glass))
+                        .glassSource(glass)
                         .nestedScroll(scrollBehavior.nestedScrollConnection),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = glassTop + 12.dp, bottom = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     // ── 身份选择：默认按账号类型，校友身份需要手动切换 ──
