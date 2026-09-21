@@ -19,7 +19,8 @@ import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.PullToRefresh
 import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
-import top.yukonga.miuix.kmp.preference.RangeSliderPreference
+import top.yukonga.miuix.kmp.basic.RangeSlider
+import com.xjtu.toolbox.ui.glass.*
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.utils.SinkFeedback
@@ -45,6 +46,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Apartment
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.outlined.CloudOff
@@ -495,10 +497,14 @@ fun EmptyRoomScreen(
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     var showActionsMenu by remember { mutableStateOf(false) }
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
     Scaffold(
         topBar = {
             TopAppBar(
                 title = "空闲教室",
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 largeTitle = "空闲教室",
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
@@ -613,174 +619,12 @@ fun EmptyRoomScreen(
             }
         }
         val pullToRefreshState = rememberPullToRefreshState()
-        Column(
-            modifier = Modifier
-                .padding(padding)
-                .readableWidth()
-                .fillMaxSize()
-        ) {
-            // 网络失败兜底提示：展示磁盘缓存 + 「缓存于 HH:mm」标识。
-            // 与下面 errorMessage 的区别：errorMessage 是红字无数据；staleNote 是黄底有数据可看。
-            staleNote?.let { note ->
-                Surface(
-                    color = MiuixTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 6.dp),
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            androidx.compose.material.icons.Icons.Outlined.CloudOff,
-                            contentDescription = "网络不可用提示",
-                            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            note,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            style = MiuixTheme.textStyles.footnote1,
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                }
-            }
-            val showFilterSheet = remember { mutableStateOf(false) }
-            var buildingQuery by rememberSaveable { mutableStateOf("") }
-            BackHandler(enabled = showFilterSheet.value) {
-                showFilterSheet.value = false
-            }
-
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = SinkFeedback()
-                    ) { showFilterSheet.value = true },
-                colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            selectedBuildings.joinToString("、").ifEmpty { "选择教学楼" },
-                            style = MiuixTheme.textStyles.subtitle,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "${selectedCampus.removeSuffix("校区")}校区 · 点击调整楼栋与校区",
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                        )
-                        if (isLoading && rooms.isNotEmpty()) {
-                            Spacer(Modifier.height(6.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                CircularProgressIndicator(size = 12.dp, strokeWidth = 1.5.dp)
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    directProgress?.let { "直查教务更新中…${it.first}/${it.second}" }
-                                        ?: "正在更新结果",
-                                    style = MiuixTheme.textStyles.footnote1,
-                                    color = MiuixTheme.colorScheme.primary
-                                )
-                            }
-                        }
-                    }
-                    if (isToday && currentPeriod >= 0) {
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)
-                        ) {
-                            Text(
-                                "当前第${currentPeriod + 1}节",
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                style = MiuixTheme.textStyles.footnote1,
-                                color = MiuixTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    Icon(
-                        Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "调整筛选",
-                        modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = 180f },
-                        tint = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                    )
-                }
-            }
-
-            Card(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                cornerRadius = 22.dp,
-                colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
-            ) {
-                Column(Modifier.fillMaxWidth().padding(vertical = 14.dp)) {
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text("什么时候有空？", style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Bold)
-                            Text(
-                                "${PERIOD_TIMES[startPeriod - 1].first} - ${PERIOD_TIMES[endPeriod - 1].second}",
-                                style = MiuixTheme.textStyles.footnote1,
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                            )
-                        }
-                        availableDates.forEachIndexed { index, date ->
-                            AppFilterChip(
-                                selected = selectedDate == date,
-                                onClick = { selectedDate = date },
-                                label = when (index) {
-                                    0 -> "今天"
-                                    1 -> "明天"
-                                    else -> date.takeLast(5).replace("-", "/")
-                                },
-                                modifier = Modifier.padding(start = 6.dp)
-                            )
-                        }
-                    }
-                    RangeSliderPreference(
-                        value = startPeriod.toFloat()..endPeriod.toFloat(),
-                        onValueChange = { range ->
-                            startPeriod = range.start.roundToInt().coerceIn(1, 11)
-                            endPeriod = range.endInclusive.roundToInt().coerceIn(startPeriod, 11)
-                        },
-                        title = "第${startPeriod}-${endPeriod}节",
-                        summary = "拖动两端，直接调整连续空闲区间",
-                        valueText = "${endPeriod - startPeriod + 1} 节",
-                        valueRange = 1f..11f,
-                        steps = 9,
-                        showKeyPoints = true,
-                        insideMargin = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                            .padding(horizontal = 12.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        smartFilters.forEach { filter ->
-                            AppFilterChip(
-                                selected = smartFilter == filter,
-                                onClick = { smartFilter = filter },
-                                label = filter
-                            )
-                        }
-                    }
-                }
-            }
+        val glassTop = padding.glassTop(glass)
+        val showFilterSheet = remember { mutableStateOf(false) }
+        var buildingQuery by rememberSaveable { mutableStateOf("") }
+        BackHandler(enabled = showFilterSheet.value) {
+            showFilterSheet.value = false
+        }
 
             OverlayBottomSheet(
                 show = showFilterSheet.value,
@@ -865,107 +709,255 @@ fun EmptyRoomScreen(
                 }
             }
 
-            Spacer(Modifier.height(4.dp))
 
-            // 筛选卡（含节次滑条）留在下拉刷新外面，避免和纵向手势抢。
-            PullToRefresh(
-                isRefreshing = isLoading && rooms.isNotEmpty(),
-                onRefresh = { refreshNonce.intValue++ },
-                pullToRefreshState = pullToRefreshState,
-                topAppBarScrollBehavior = scrollBehavior,
-                modifier = Modifier.fillMaxSize()
+        // 重排（2026-09-21）：原来列表上面叠着楼栋卡、「什么时候有空」卡、统计行三大块，固定不动，
+        // 占了半屏，真正要看的教室只剩下半截。现在：
+        // - 筛选压成一张紧凑的卡：第一行楼栋胶囊 + 日期，第二行节次和时间，下面一根滑条，最后一行快捷筛选；
+        // - 整块筛选区作为列表的前几项跟着滚，往上一推，教室列表就占满整屏（也才能从玻璃顶栏下面滚过去）。
+        // 滑条是横向拖动，放进纵向列表里不会和滚动、下拉刷新抢手势。
+        PullToRefresh(
+            isRefreshing = isLoading && rooms.isNotEmpty(),
+            onRefresh = { refreshNonce.intValue++ },
+            pullToRefreshState = pullToRefreshState,
+            topAppBarScrollBehavior = scrollBehavior,
+            contentPadding = PaddingValues(top = glassTop),
+            modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
+        ) {
+            val groupedRooms = remember(displayRooms, selectedBuildings) {
+                displayRooms.groupBy { room ->
+                    selectedBuildings
+                        .sortedByDescending { it.length }
+                        .firstOrNull { room.name.startsWith(it) }
+                        ?: room.name.substringBefore("-").substringBefore(" ")
+                }
+            }
+            LazyColumn(
+                modifier = Modifier.readableWidth().fillMaxSize().overScrollVertical(),
+                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = glassTop + 4.dp, bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(7.dp),
             ) {
-            when {
-                isLoading && rooms.isEmpty() -> {
-                    LazyColumn(Modifier.fillMaxSize()) {
-                    item {
-                    Box(Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            CircularProgressIndicator()
-                            Spacer(Modifier.height(8.dp))
-                            val pg = directProgress
-                            Text(
-                                if (pg != null) "直查教务更新中…${pg.first}/${pg.second}" else "正在查询...",
-                                style = MiuixTheme.textStyles.body2
-                            )
-                        }
-                    }
-                    }
-                    }
-                }
-
-                errorMessage != null -> {
-                    LazyColumn(Modifier.fillMaxSize()) {
-                    item {
-                    Box(Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(errorMessage!!, color = MiuixTheme.colorScheme.error, textAlign = TextAlign.Center)
-                            Spacer(Modifier.height(12.dp))
-                            Button(onClick = { refreshNonce.intValue++ }) { Text("重试") }
-                        }
-                    }
-                    }
-                    }
-                }
-
-                rooms.isEmpty() && selectedBuildings.all { it.isEmpty() } -> {
-                    LazyColumn(Modifier.fillMaxSize()) {
-                        item {
-                            Box(Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
-                                Text("选择教学楼后自动查询",
-                                    style = MiuixTheme.textStyles.body1,
-                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                // 网络失败兜底提示：展示磁盘缓存 + 「缓存于 HH:mm」标识。
+                // 与下面 errorMessage 的区别：errorMessage 是红字无数据；staleNote 是黄底有数据可看。
+                staleNote?.let { note ->
+                    item(key = "stale") {
+                        Surface(
+                            color = MiuixTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                            shape = RoundedCornerShape(16.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    androidx.compose.material.icons.Icons.Outlined.CloudOff,
+                                    contentDescription = "网络不可用提示",
+                                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    note,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    style = MiuixTheme.textStyles.footnote1,
+                                    modifier = Modifier.weight(1f),
+                                )
                             }
                         }
                     }
                 }
 
-                displayRooms.isEmpty() -> {
-                    LazyColumn(Modifier.fillMaxSize()) {
-                        item {
-                            Box(Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text("暂无符合条件的教室", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                                    TextButton(text = "查看全部", onClick = { smartFilter = "全部" })
+                item(key = "filters") {
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                        cornerRadius = 20.dp,
+                        colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor),
+                    ) {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
+                            // 第一行：楼栋（点开选校区、选楼）+ 日期
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Row(
+                                    Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(50))
+                                        .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.10f))
+                                        .clickable { showFilterSheet.value = true }
+                                        .padding(start = 10.dp, end = 8.dp, top = 7.dp, bottom = 7.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(
+                                        Icons.Default.Apartment,
+                                        contentDescription = null,
+                                        tint = MiuixTheme.colorScheme.primary,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                    Spacer(Modifier.width(5.dp))
+                                    Text(
+                                        selectedBuildings.joinToString("、").ifEmpty { "选择教学楼" },
+                                        style = MiuixTheme.textStyles.body2,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MiuixTheme.colorScheme.primary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false),
+                                    )
+                                    Text(
+                                        " · ${selectedCampus.removeSuffix("校区")}",
+                                        style = MiuixTheme.textStyles.footnote1,
+                                        color = MiuixTheme.colorScheme.primary.copy(alpha = 0.75f),
+                                        maxLines = 1,
+                                    )
+                                    Icon(
+                                        Icons.Default.KeyboardArrowDown,
+                                        contentDescription = "调整楼栋与校区",
+                                        tint = MiuixTheme.colorScheme.primary,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
+                                availableDates.forEachIndexed { index, date ->
+                                    AppFilterChip(
+                                        selected = selectedDate == date,
+                                        onClick = { selectedDate = date },
+                                        label = when (index) {
+                                            0 -> "今天"
+                                            1 -> "明天"
+                                            else -> date.takeLast(5).replace("-", "/")
+                                        },
+                                        modifier = Modifier.padding(start = 6.dp),
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(12.dp))
+                            // 第二行：要空的节次和对应时间；今天再标出现在是第几节
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    "第${startPeriod}-${endPeriod}节",
+                                    style = MiuixTheme.textStyles.body2,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    "${PERIOD_TIMES[startPeriod - 1].first} - ${PERIOD_TIMES[endPeriod - 1].second}",
+                                    style = MiuixTheme.textStyles.footnote1,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                )
+                                Spacer(Modifier.weight(1f))
+                                if (isToday && currentPeriod >= 0) {
+                                    Text(
+                                        "现在第${currentPeriod + 1}节",
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(50))
+                                            .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.12f))
+                                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                                        style = MiuixTheme.textStyles.footnote2,
+                                        color = MiuixTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+                            }
+                            RangeSlider(
+                                value = startPeriod.toFloat()..endPeriod.toFloat(),
+                                onValueChange = { range ->
+                                    startPeriod = range.start.roundToInt().coerceIn(1, 11)
+                                    endPeriod = range.endInclusive.roundToInt().coerceIn(startPeriod, 11)
+                                },
+                                valueRange = 1f..11f,
+                                steps = 9,
+                                showKeyPoints = true,
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                            )
+                            // 第三行：快捷筛选
+                            Row(
+                                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                smartFilters.forEach { filter ->
+                                    AppFilterChip(
+                                        selected = smartFilter == filter,
+                                        onClick = { smartFilter = filter },
+                                        label = filter,
+                                    )
+                                }
+                            }
+                            if (isLoading && rooms.isNotEmpty()) {
+                                Spacer(Modifier.height(8.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    CircularProgressIndicator(size = 12.dp, strokeWidth = 1.5.dp)
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        directProgress?.let { "直查教务更新中…${it.first}/${it.second}" }
+                                            ?: "正在更新结果",
+                                        style = MiuixTheme.textStyles.footnote1,
+                                        color = MiuixTheme.colorScheme.primary,
+                                    )
                                 }
                             }
                         }
                     }
                 }
 
-                else -> {
-                    Column(Modifier.fillMaxSize()) {
-                    // 统计 + PeriodHeader
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            "${displayRooms.size} 间教室",
-                            style = MiuixTheme.textStyles.body2,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                        )
-                        val totalRooms = rooms.size
-                        if (totalRooms != displayRooms.size) {
+                // 加载中、出错、空：占一块固定高度居中显示（列表里没有「剩余高度」可以撑满）
+                val stateBox: (@Composable () -> Unit) -> Unit = { content ->
+                    item(key = "state") {
+                        Box(Modifier.fillMaxWidth().height(260.dp), contentAlignment = Alignment.Center) { content() }
+                    }
+                }
+                when {
+                    isLoading && rooms.isEmpty() -> stateBox {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator()
+                            Spacer(Modifier.height(8.dp))
+                            val pg = directProgress
                             Text(
-                                " / 共 $totalRooms",
-                                style = MiuixTheme.textStyles.footnote1,
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.6f)
+                                if (pg != null) "直查教务更新中…${pg.first}/${pg.second}" else "正在查询...",
+                                style = MiuixTheme.textStyles.body2,
                             )
                         }
                     }
 
-                    val groupedRooms = displayRooms.groupBy { room ->
-                        selectedBuildings
-                            .sortedByDescending { it.length }
-                            .firstOrNull { room.name.startsWith(it) }
-                            ?: room.name.substringBefore("-").substringBefore(" ")
+                    errorMessage != null -> stateBox {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(errorMessage!!, color = MiuixTheme.colorScheme.error, textAlign = TextAlign.Center)
+                            Spacer(Modifier.height(12.dp))
+                            Button(onClick = { refreshNonce.intValue++ }) { Text("重试") }
+                        }
                     }
-                    LazyColumn(
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                        verticalArrangement = Arrangement.spacedBy(7.dp),
-                        modifier = Modifier.fillMaxSize().overScrollVertical()
-                    ) {
+
+                    rooms.isEmpty() && selectedBuildings.all { it.isEmpty() } -> stateBox {
+                        Text(
+                            "选择教学楼后自动查询",
+                            style = MiuixTheme.textStyles.body1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        )
+                    }
+
+                    displayRooms.isEmpty() -> stateBox {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("暂无符合条件的教室", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                            TextButton(text = "查看全部", onClick = { smartFilter = "全部" })
+                        }
+                    }
+
+                    else -> {
+                        item(key = "count") {
+                            Row(
+                                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    "${displayRooms.size} 间教室",
+                                    style = MiuixTheme.textStyles.body2,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                )
+                                if (rooms.size != displayRooms.size) {
+                                    Text(
+                                        " / 共 ${rooms.size}",
+                                        style = MiuixTheme.textStyles.footnote1,
+                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.6f),
+                                    )
+                                }
+                            }
+                        }
                         groupedRooms.forEach { (building, buildingRooms) ->
                             item(key = "header_$building") {
                                 Row(
@@ -998,9 +990,7 @@ fun EmptyRoomScreen(
                             }
                         }
                     }
-                    }
                 }
-            }
             }
         }
     }
