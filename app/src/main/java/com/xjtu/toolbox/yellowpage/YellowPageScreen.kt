@@ -47,6 +47,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.LocalAppLoginState
+import com.xjtu.toolbox.ui.glass.*
 import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
@@ -116,11 +117,15 @@ fun YellowPageScreen(onBack: () -> Unit) {
     }
     val categoryName = data?.categories?.firstOrNull { it.id == selectedCategory }?.name.orEmpty()
 
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
     Scaffold(
         topBar = {
             TopAppBar(
                 title = "校园黄页",
                 largeTitle = "校园黄页",
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -130,18 +135,20 @@ fun YellowPageScreen(onBack: () -> Unit) {
             )
         }
     ) { padding ->
+        val glassTop = padding.glassTop(glass)
         PullToRefresh(
             isRefreshing = refreshing,
             onRefresh = { scope.launch { load(force = true) } },
             pullToRefreshState = pullToRefreshState,
             topAppBarScrollBehavior = scrollBehavior,
-            modifier = Modifier.padding(padding).readableWidth().fillMaxSize()
+            contentPadding = PaddingValues(top = glassTop),
+            modifier = Modifier.padding(padding.withoutTop(glass)).glassSource(glass).readableWidth().fillMaxSize()
         ) {
         when {
-            loading -> LazyColumn(Modifier.fillMaxSize()) {
+            loading -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
                 item { Box(Modifier.fillParentMaxSize()) { LoadingState("正在加载校园通讯录…", Modifier.fillMaxSize()) } }
             }
-            error != null && data == null -> LazyColumn(Modifier.fillMaxSize()) {
+            error != null && data == null -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
                 item {
                     Box(Modifier.fillParentMaxSize()) {
                         ErrorState(
@@ -156,7 +163,7 @@ fun YellowPageScreen(onBack: () -> Unit) {
                 modifier = Modifier
                     .fillMaxSize()
                     .overScrollVertical(),
-                contentPadding = PaddingValues(bottom = 24.dp),
+                contentPadding = PaddingValues(top = glassTop, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 item {
