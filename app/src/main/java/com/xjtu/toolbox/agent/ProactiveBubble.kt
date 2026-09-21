@@ -45,8 +45,14 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.vibrancy
+import com.kyant.backdrop.highlight.Highlight
 import com.xjtu.toolbox.Routes
 import com.xjtu.toolbox.auth.AccountType
+import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -523,6 +529,16 @@ private class BubbleShape(
     }
 }
 
+/**
+ * 屁岱主动气泡。
+ *
+ * 玻璃只用模糊、色彩增强（vibrancy）和高光，**不开折射**：[BubbleShape] 带尖角，
+ * 是自定义 [Shape]，backdrop 库的 `lens()` 只认圆角类形状（`RoundedRectangularShape`
+ * / `AbsoluteRoundedCornerShape` / `CornerBasedShape`），遇到别的形状会直接
+ * `throwUnsupportedSDFException()` 闪退。真要给气泡开折射，得先把尖角从
+ * [BubbleShape] 里拆出来单独画（气泡主体用圆角矩形折射，尖角保持不透明），
+ * 这里先做「全部不开折射」这一版。
+ */
 @Composable
 fun ProactiveBubbleView(
     message: ProactiveMessage,
@@ -536,6 +552,14 @@ fun ProactiveBubbleView(
     /** [BubbleArrowSide.Start] 时尖角距顶边的距离；null = 气泡自身垂直中心。 */
     arrowFromTop: androidx.compose.ui.unit.Dp? = null,
     maxWidth: androidx.compose.ui.unit.Dp = 280.dp,
+    /**
+     * 玻璃采样源；null（或 [glass] 为 false）时退回原来的不透明样式。由调用方接——
+     * 手机上要采「页面内容 + 底栏」合起来那一层，宽屏侧栏气泡只采页面内容，
+     * 这层合成不归这个组件管，见 [ProactiveBubbleView] 的类注释。
+     */
+    backdrop: Backdrop? = null,
+    /** 「界面风格」选经典时为 false：所有玻璃点统一退回不透明样式。 */
+    glass: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val arrowOffset = when (arrowSide) {
@@ -619,12 +643,35 @@ fun ProactiveBubbleView(
             },
             label = "proactiveBubbleSwap",
         ) { shown ->
+        val bubbleShape = remember(arrowSide, arrowOffset) { BubbleShape(arrowSide, arrowOffset) }
+        val isDark = LocalIsDarkTheme.current
+        val accent = MiuixTheme.colorScheme.primary
+        // 玻璃之上还要叠一层够浓的主色，不然文字在模糊+高光背景上会花。深色模式下
+        // 背景本身更暗，主色不用叠那么浓也能撑住对比度；浅色模式下背景更亮，要叠浓一点。
+        val glassSurfaceTint = accent.copy(alpha = if (isDark) 0.72f else 0.85f)
         Row(
             Modifier
                 .wrapContentWidth()
                 .widthIn(max = maxWidth)
-                .clip(BubbleShape(arrowSide, arrowOffset))
-                .background(MiuixTheme.colorScheme.primary)
+                .clip(bubbleShape)
+                .then(
+                    if (glass && backdrop != null) {
+                        Modifier.drawBackdrop(
+                            backdrop = backdrop,
+                            shape = { bubbleShape },
+                            effects = {
+                                vibrancy()
+                                blur(6.dp.toPx())
+                            },
+                            // 尖角是自定义形状，不能用 lens()——高光走轮廓描边，对任意
+                            // Shape 都安全，只是不折射。
+                            highlight = { Highlight.Default.copy(alpha = 0.7f) },
+                            onDrawSurface = { drawRect(glassSurfaceTint) },
+                        )
+                    } else {
+                        Modifier.background(accent)
+                    },
+                )
                 .clickable(onClick = onOpen)
                 // 尖角那一侧要多留出它的伸出深度，否则文字会压到三角上。
                 // 朝下时 10+7=17dp，与改造前的固定值一致。
