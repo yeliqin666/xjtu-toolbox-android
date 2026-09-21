@@ -72,6 +72,8 @@ fun ScoreReportScreen(
         com.xjtu.toolbox.util.DataCache(context, appLoginState.accountId.ifEmpty { null })
     }
     val gson = remember { com.google.gson.Gson() }
+    // PR T（计划 §11）：成绩加载完成 / 失败的触感反馈。
+    val haptics = com.xjtu.toolbox.ui.rememberHaptics()
 
     var isLoading by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
@@ -128,12 +130,16 @@ fun ScoreReportScreen(
                 if (expandedTerms.isEmpty() && termGroups.isNotEmpty()) {
                     expandedTerms = setOf(termGroups.keys.first())
                 }
+                haptics.success()
                 // 更新缓存
                 try { dataCache.put(cacheKey, gson.toJson(grades)) } catch (_: Exception) {}
             } catch (e: AuthExpiredException) {
                 appLoginState.handleAuthExpired(LoginType.JWXT, Routes.SCORE_REPORT, onBack)
             } catch (e: Exception) {
-                if (allGrades.isEmpty()) errorMessage = "加载失败: ${e.message}"
+                if (allGrades.isEmpty()) {
+                    errorMessage = "加载失败: ${e.message}"
+                    haptics.error()
+                }
             } finally {
                 isLoading = false
                 isRefreshing = false

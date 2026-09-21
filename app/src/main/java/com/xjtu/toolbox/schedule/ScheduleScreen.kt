@@ -166,6 +166,8 @@ fun ScheduleScreen(
     var activeSite by remember(site) { mutableStateOf(site) }
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
+    // PR T（计划 §11）：切周、课表加载完成的触感反馈，见下面 haptics.tick()/success() 调用处。
+    val haptics = com.xjtu.toolbox.ui.rememberHaptics()
     // DataCache 构造时绑定账号，切账号后必须换新实例，见 DataCache 类注释
     val dataCache = remember(appLoginState.accountId) {
         com.xjtu.toolbox.util.DataCache(context, appLoginState.accountId.ifEmpty { null })
@@ -469,6 +471,8 @@ fun ScheduleScreen(
                                 showingStaleData = false
                                 isLoading = false
                                 isRefreshingFromNetwork = false
+                                // PR T：paintCourses 是网络课表落地的唯一入口（见上面的注释），课表加载完成在这里报一次成功触感。
+                                haptics.success()
                                 try { dataCache.put("schedule_$termCode", gson.toJson(freshCourses)) } catch (_: Exception) {}
                                 try { dataCache.put(ScheduleCache.optimizedScheduleKey(termCode), optimizedJson) } catch (_: Exception) {}
                                 if (contentChanged && cachedOptimizedJson != null) {
@@ -1293,6 +1297,7 @@ fun ScheduleScreen(
                                     .weight(1f)
                                     .clip(RoundedCornerShape(10.dp))
                                     .clickable {
+                                        haptics.tick()
                                         showAllWeeks = false
                                         currentWeek = weekN
                                         showWeekPicker = false
@@ -1888,6 +1893,8 @@ private fun ScheduleTabContent(
     val allNames = remember(courses) { courses.map { it.courseName }.distinct().sorted() }
     var selectedCourse by remember { mutableStateOf<CourseItem?>(null) }
     var selectedOccurrence by remember { mutableStateOf<Occurrence?>(null) }
+    // PR T：这是独立于 ScheduleScreen 的私有 Composable，haptics 不能从外层直接闭包过来，本地再取一份。
+    val haptics = com.xjtu.toolbox.ui.rememberHaptics()
     /** 两个点击入口共用：宽屏交给右栏，窄屏落回本地状态。 */
     fun selectCourse(course: CourseItem, occurrence: Occurrence?) {
         if (onCourseSelected != null) {
@@ -1992,7 +1999,10 @@ private fun ScheduleTabContent(
                     .drop(1)
                     .collect { page ->
                         val w = page + 1
-                        if (w != currentWeek) onWeekChange(w)
+                        if (w != currentWeek) {
+                            haptics.tick()
+                            onWeekChange(w)
+                        }
                     }
             }
             HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->

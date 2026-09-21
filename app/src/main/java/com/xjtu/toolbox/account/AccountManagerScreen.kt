@@ -90,6 +90,8 @@ fun AccountManagerScreen(
     onBack: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
+    // PR T（计划 §11）：登录失败的错误触感，见下面 onSubmit 的 onFailure/catch。
+    val haptics = com.xjtu.toolbox.ui.rememberHaptics()
     val activeId = loginState.accountId
     fun orderedAccounts(): List<Account> = accountManager.accountList()
         .sortedWith(
@@ -216,12 +218,16 @@ fun AccountManagerScreen(
                                 refresh()
                                 toast = "已添加 ${accountTitle(it)}"
                             },
-                            onFailure = { toast = "添加失败：${it.message ?: "未知错误"}" },
+                            onFailure = {
+                                toast = "添加失败：${it.message ?: "未知错误"}"
+                                haptics.error()
+                            },
                         )
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
                         toast = "添加失败：${e.message ?: "未知错误"}"
+                        haptics.error()
                     } finally {
                         globalBusy = false
                         refresh()
@@ -714,6 +720,8 @@ private fun AddAccountDialog(
     var password by remember { mutableStateOf("") }
     var pwdVisible by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    // PR T：表单校验失败（学号/密码留空）的错误触感。
+    val haptics = com.xjtu.toolbox.ui.rememberHaptics()
 
     BackHandler { onDismiss() }
     OverlayDialog(
@@ -754,7 +762,9 @@ private fun AddAccountDialog(
                     text = "登录并添加",
                     onClick = {
                         if (username.isBlank() || password.isBlank()) {
-                            error = "请输入学号和密码"; return@TextButton
+                            error = "请输入学号和密码"
+                            haptics.error()
+                            return@TextButton
                         }
                         onSubmit(username.trim(), password, AccountType.UNDERGRADUATE)
                     },
