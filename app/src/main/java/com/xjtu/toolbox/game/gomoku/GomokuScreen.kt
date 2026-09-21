@@ -40,6 +40,12 @@ import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.game.GameIds
 import com.xjtu.toolbox.game.GameResult
 import com.xjtu.toolbox.game.GameStore
+import com.xjtu.toolbox.game.net.GameKind
+import com.xjtu.toolbox.game.net.OnlineConnState
+import com.xjtu.toolbox.game.net.OnlineGameEvent
+import com.xjtu.toolbox.game.net.OnlineGameSession
+import com.xjtu.toolbox.game.net.OnlineLobbyContent
+import com.xjtu.toolbox.game.net.OnlineMove
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.isWideLayout
 import kotlinx.coroutines.Dispatchers
@@ -70,7 +76,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 private val XjtuBlue = Color(0xFF1B3B6F)
 private val SjtuRed = Color(0xFFC8161D)
 
-private enum class GomokuMode { AI, LOCAL }
+private enum class GomokuMode { AI, LOCAL, ONLINE }
 
 private data class GomokuUiState(
     val board: GomokuBoard = GomokuBoard(),
@@ -194,7 +200,11 @@ fun GomokuScreen(onBack: () -> Unit) {
             )
         },
     ) { padding ->
-        if (isWideLayout()) {
+        if (mode == GomokuMode.ONLINE) {
+            Box(Modifier.fillMaxSize().padding(padding)) {
+                GomokuOnlineSection(onExitOnlineMode = { mode = GomokuMode.AI })
+            }
+        } else if (isWideLayout()) {
             Row(
                 Modifier
                     .fillMaxSize()
@@ -260,9 +270,21 @@ private fun GomokuSidePanel(
             Text("对局设置", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold)
 
             AppSegmentedTabs(
-                tabs = listOf("人机对战", "同屏双人"),
-                selectedTabIndex = if (mode == GomokuMode.AI) 0 else 1,
-                onTabSelected = { onModeChange(if (it == 0) GomokuMode.AI else GomokuMode.LOCAL) },
+                tabs = listOf("人机对战", "同屏双人", "联机对战"),
+                selectedTabIndex = when (mode) {
+                    GomokuMode.AI -> 0
+                    GomokuMode.LOCAL -> 1
+                    GomokuMode.ONLINE -> 2
+                },
+                onTabSelected = {
+                    onModeChange(
+                        when (it) {
+                            0 -> GomokuMode.AI
+                            1 -> GomokuMode.LOCAL
+                            else -> GomokuMode.ONLINE
+                        }
+                    )
+                },
                 embedded = true,
             )
 
@@ -372,5 +394,151 @@ private suspend fun PointerInputScope.detectBoardTap(
         val col = ((offset.x / step) + 0.5f).toInt().coerceIn(0, boardSize - 1)
         val row = ((offset.y / step) + 0.5f).toInt().coerceIn(0, boardSize - 1)
         onTap(row, col)
+    }
+}
+
+/**
+ * 联机对战：接入 `game/net` 模块。房主/加入方握手成功之前走 [OnlineLobbyContent]（选创建/
+ * 加入房间、二维码/扫码），握手成功之后本地维护一份 [GomokuBoard]，对方的着法用
+ * [GomokuOnlineAdapter] 校验后重放到这份棋盘上——这就是"双方各自用同一规则引擎校验每一步"。
+ */
+@Composable
+private fun GomokuOnlineSection(onExitOnlineMode: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val adapter = remember { GomokuOnlineAdapter() }
+
+    var session by remember { mutableStateOf<OnlineGameSession?>(null) }
+    var myStone by remember { mutableIntStateOf(GOMOKU_XJTU) }
+    var board by remember { mutableStateOf(GomokuBoard()) }
+    var toMove by remember { mutableIntStateOf(GOMOKU_XJTU) }
+    var outcome by remember { mutableStateOf(GomokuOutcome.ONGOING) }
+    var disconnectedReason by remember { mutableStateOf<String?>(null) }
+    var pendingDrawFromPeer by remember { mutableStateOf(false) }
+
+    fun recordIfFinished(o: GomokuOutcome) {
+        if (o == GomokuOutcome.ONGOING) return
+        val iWon = (o == GomokuOutcome.XJTU_WIN && myStone == GOMOKU_XJTU) ||
+            (o == GomokuOutcome.SJTU_WIN && myStone == GOMOKU_SJTU)
+        val result = when {
+            o == GomokuOutcome.DRAW -> GameResult.DRAW
+            iWon -> GameResult.WIN
+            else -> GameResult.LOSS
+        }
+        GameStore.recordResult(context, GameIds.GOMOKU, "online", result)
+    }
+
+    val activeSession = session
+    if (activeSession == null) {
+        OnlineLobbyContent(
+            kind = GameKind.GOMOKU,
+            ruleParam = null,
+            onSessionReady = { s, isHost, hostFirst, _ ->
+                // 谁先手由房主决定；「我是先手」当且仅当"我是房主"和"房主先手"一致。
+                myStone = if (isHost == hostFirst) GOMOKU_XJTU else GOMOKU_SJTU
+                board = GomokuBoard()
+                toMove = GOMOKU_XJTU
+                outcome = GomokuOutcome.ONGOING
+                disconnectedReason = null
+                session = s
+            },
+            onCancel = onExitOnlineMode,
+        )
+        return
+    }
+
+    LaunchedEffect(activeSession) {
+        launch {
+            activeSession.state.collect { st ->
+                if (st is OnlineConnState.Disconnected) disconnectedReason = st.reason
+            }
+        }
+        activeSession.events.collect { ev ->
+            when (ev) {
+                is OnlineGameEvent.RemoteMove -> {
+                    val peerStone = board.opponentOf(myStone)
+                    val move = adapter.decodeMove(ev.code)
+                    val legal = toMove == peerStone && move != null && adapter.applyIfLegal(board, move, peerStone)
+                    if (!legal) {
+                        activeSession.reportIllegalMoveAndClose()
+                        return@collect
+                    }
+                    val placed = move as OnlineMove.Place
+                    val o = board.outcomeAfter(placed.row, placed.col, peerStone)
+                    toMove = board.opponentOf(peerStone)
+                    outcome = o
+                    recordIfFinished(o)
+                }
+                OnlineGameEvent.Resigned -> {
+                    val o = if (myStone == GOMOKU_XJTU) GomokuOutcome.XJTU_WIN else GomokuOutcome.SJTU_WIN
+                    outcome = o
+                    recordIfFinished(o)
+                }
+                OnlineGameEvent.DrawRequested -> pendingDrawFromPeer = true
+                is OnlineGameEvent.DrawAnswered -> if (ev.accepted) {
+                    outcome = GomokuOutcome.DRAW
+                    recordIfFinished(GomokuOutcome.DRAW)
+                }
+                else -> Unit
+            }
+        }
+    }
+
+    fun onCellTap(row: Int, col: Int) {
+        if (outcome != GomokuOutcome.ONGOING || toMove != myStone) return
+        val move = OnlineMove.Place(row, col)
+        if (!adapter.applyIfLegal(board, move, myStone)) return
+        val o = board.outcomeAfter(row, col, myStone)
+        toMove = board.opponentOf(myStone)
+        outcome = o
+        recordIfFinished(o)
+        scope.launch { activeSession.sendLocalMove(adapter.encodeMove(move)) }
+    }
+
+    val uiState = GomokuUiState(board = board, toMove = toMove, outcome = outcome, thinking = false)
+
+    Column(Modifier.fillMaxSize().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        if (disconnectedReason != null) {
+            Text(disconnectedReason ?: "", color = MiuixTheme.colorScheme.error, style = MiuixTheme.textStyles.body2)
+            Spacer(Modifier.height(8.dp))
+            TextButton(text = "返回", onClick = onExitOnlineMode)
+            return@Column
+        }
+        Text(
+            "我执${if (myStone == GOMOKU_XJTU) "西交" else "上交"}",
+            style = MiuixTheme.textStyles.body2,
+        )
+        GomokuStatusLine(ui = uiState, mode = GomokuMode.ONLINE)
+        if (pendingDrawFromPeer) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("对方提议和棋。", style = MiuixTheme.textStyles.body2)
+                TextButton(text = "同意", onClick = {
+                    pendingDrawFromPeer = false
+                    scope.launch { activeSession.answerDraw(true) }
+                    outcome = GomokuOutcome.DRAW
+                    recordIfFinished(GomokuOutcome.DRAW)
+                })
+                TextButton(text = "拒绝", onClick = {
+                    pendingDrawFromPeer = false
+                    scope.launch { activeSession.answerDraw(false) }
+                })
+            }
+        }
+        Box(Modifier.fillMaxWidth().padding(top = 8.dp), contentAlignment = Alignment.Center) {
+            GomokuBoardView(uiState, onCellTap = ::onCellTap)
+        }
+        if (outcome == GomokuOutcome.ONGOING) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                TextButton(text = "求和", onClick = { scope.launch { activeSession.requestDraw() } })
+                TextButton(text = "认输", onClick = {
+                    scope.launch { activeSession.resign() }
+                    val o = if (myStone == GOMOKU_XJTU) GomokuOutcome.SJTU_WIN else GomokuOutcome.XJTU_WIN
+                    outcome = o
+                    recordIfFinished(o)
+                })
+            }
+        } else {
+            TextButton(text = "退出联机", onClick = onExitOnlineMode)
+        }
     }
 }

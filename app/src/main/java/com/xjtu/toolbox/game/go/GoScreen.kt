@@ -21,7 +21,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,7 +40,15 @@ import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.game.GameIds
 import com.xjtu.toolbox.game.GameResult
 import com.xjtu.toolbox.game.GameStore
+import com.xjtu.toolbox.game.net.GameKind
+import com.xjtu.toolbox.game.net.OnlineConnState
+import com.xjtu.toolbox.game.net.OnlineGameEvent
+import com.xjtu.toolbox.game.net.OnlineGameSession
+import com.xjtu.toolbox.game.net.OnlineLobbyContent
+import com.xjtu.toolbox.game.net.OnlineMove
+import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.isWideLayout
+import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
@@ -63,6 +75,7 @@ import kotlin.math.roundToInt
 fun GoScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val state = remember { GoGameState(9) }
+    var online by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -77,48 +90,63 @@ fun GoScreen(onBack: () -> Unit) {
             )
         },
     ) { padding ->
-        // 宽屏（横屏平板/折叠屏展开）时棋盘和操作面板并排放，窄屏就上下堆叠；
-        // 沿用仓库统一的宽屏判定，好和课表、设置等其他页面在同一个阈值上切换。
-        if (isWideLayout()) {
-            Row(
-                Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .background(MiuixTheme.colorScheme.background)
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                GoBoardCanvas(
-                    state = state,
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .weight(1f),
-                )
-                GoSidePanel(
-                    state = state,
-                    context = context,
-                    modifier = Modifier.width(260.dp).fillMaxHeight(),
-                )
-            }
+        if (online) {
+            GoOnlineSection(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                onExitOnlineMode = { online = false },
+            )
         } else {
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .background(MiuixTheme.colorScheme.background)
-                    .padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                GoStatusBar(state)
-                Spacer(Modifier.height(12.dp))
-                GoBoardCanvas(state = state, modifier = Modifier.fillMaxWidth())
-                Spacer(Modifier.height(12.dp))
-                GoControlRow(state, context)
+            Column(Modifier.fillMaxSize().padding(padding)) {
+                Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    AppSegmentedTabs(
+                        tabs = listOf("同屏双人", "联机对战"),
+                        selectedTabIndex = 0,
+                        onTabSelected = { if (it == 1) online = true },
+                        embedded = true,
+                    )
+                }
+                // 宽屏（横屏平板/折叠屏展开）时棋盘和操作面板并排放，窄屏就上下堆叠；
+                // 沿用仓库统一的宽屏判定，好和课表、设置等其他页面在同一个阈值上切换。
+                if (isWideLayout()) {
+                    Row(
+                        Modifier
+                            .fillMaxSize()
+                            .background(MiuixTheme.colorScheme.background)
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        GoBoardCanvas(
+                            state = state,
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .weight(1f),
+                        )
+                        GoSidePanel(
+                            state = state,
+                            context = context,
+                            modifier = Modifier.width(260.dp).fillMaxHeight(),
+                        )
+                    }
+                } else {
+                    Column(
+                        Modifier
+                            .fillMaxSize()
+                            .background(MiuixTheme.colorScheme.background)
+                            .padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        GoStatusBar(state)
+                        Spacer(Modifier.height(12.dp))
+                        GoBoardCanvas(state = state, modifier = Modifier.fillMaxWidth())
+                        Spacer(Modifier.height(12.dp))
+                        GoControlRow(state, context)
+                    }
+                }
             }
-        }
 
-        if (state.phase == GoPhase.FINISHED) {
-            GoResultDialog(state = state, context = context, onDismiss = { state.newGame() })
+            if (state.phase == GoPhase.FINISHED) {
+                GoResultDialog(state = state, context = context, onDismiss = { state.newGame() })
+            }
         }
     }
 }
@@ -318,6 +346,206 @@ private fun GoBoardCanvas(state: GoGameState, modifier: Modifier = Modifier) {
                     radius = stoneRadius * 0.32f,
                     center = Offset(last.x * cell, last.y * cell),
                 )
+            }
+        }
+    }
+}
+
+/**
+ * 联机对战：接入 `game/net` 模块，逻辑结构跟五子棋那份是同一套（见 `GomokuScreen.kt`）。
+ *
+ * 数子阶段的"点棋子标死活"是同屏双人才有的手动步骤，联机对局不同步这一步——双方棋盘
+ * 保证完全一致，连续两次虚手之后直接按"全部按活子处理"跑一次确定性数子
+ * （[GoScoring.score] 传空的死子集合），两边算出来的结果必然一样，不需要为了同步"点哪块死"
+ * 专门加一种协议消息。这是相对同屏双人体验的一处简化，认输/求和仍然是实时的。
+ */
+@Composable
+private fun GoOnlineSection(modifier: Modifier = Modifier, onExitOnlineMode: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val adapter = remember { GoOnlineAdapter() }
+    val boardSize = 9
+
+    var session by remember { mutableStateOf<OnlineGameSession?>(null) }
+    var myColor by remember { mutableStateOf(Stone.BLACK) }
+    var board by remember { mutableStateOf(GoBoard(boardSize)) }
+    var turn by remember { mutableStateOf(Stone.BLACK) }
+    var consecutivePasses by remember { mutableStateOf(0) }
+    var result by remember { mutableStateOf<ScoreResult?>(null) }
+    var resignedWinner by remember { mutableStateOf<Stone?>(null) }
+    var disconnectedReason by remember { mutableStateOf<String?>(null) }
+    var pendingDrawFromPeer by remember { mutableStateOf(false) }
+
+    fun recordIfFinished(winner: Stone?) {
+        if (winner == null) return
+        GameStore.recordResult(context, GameIds.GO, "online", if (winner == myColor) GameResult.WIN else GameResult.LOSS)
+    }
+
+    val activeSession = session
+    if (activeSession == null) {
+        OnlineLobbyContent(
+            kind = GameKind.GO,
+            ruleParam = "$boardSize",
+            onSessionReady = { s, isHost, hostFirst, _ ->
+                // 围棋固定黑先，谁先手（黑棋）由房主决定，逻辑跟五子棋一致。
+                myColor = if (isHost == hostFirst) Stone.BLACK else Stone.WHITE
+                board = GoBoard(boardSize)
+                turn = Stone.BLACK
+                consecutivePasses = 0
+                result = null
+                resignedWinner = null
+                disconnectedReason = null
+                session = s
+            },
+            onCancel = onExitOnlineMode,
+        )
+        return
+    }
+
+    LaunchedEffect(activeSession) {
+        launch {
+            activeSession.state.collect { st ->
+                if (st is OnlineConnState.Disconnected) disconnectedReason = st.reason
+            }
+        }
+        activeSession.events.collect { ev ->
+            when (ev) {
+                is OnlineGameEvent.RemoteMove -> {
+                    val peerColor = if (myColor == Stone.BLACK) Stone.WHITE else Stone.BLACK
+                    val move = adapter.decodeMove(ev.code)
+                    val legal = turn == peerColor && move != null &&
+                        adapter.applyIfLegal(board, move, peerColor.ordinal)
+                    if (!legal) {
+                        activeSession.reportIllegalMoveAndClose()
+                        return@collect
+                    }
+                    consecutivePasses = if (move is OnlineMove.Pass) consecutivePasses + 1 else 0
+                    turn = if (turn == Stone.BLACK) Stone.WHITE else Stone.BLACK
+                    if (consecutivePasses >= 2) result = GoScoring.score(board, emptySet())
+                }
+                OnlineGameEvent.Resigned -> resignedWinner = myColor
+                OnlineGameEvent.DrawRequested -> pendingDrawFromPeer = true
+                is OnlineGameEvent.DrawAnswered -> if (ev.accepted) result = GoScoring.score(board, emptySet())
+                else -> Unit
+            }
+        }
+    }
+
+    LaunchedEffect(result, resignedWinner) {
+        recordIfFinished(result?.winner ?: resignedWinner)
+    }
+
+    fun sendMove(move: OnlineMove) {
+        scope.launch { activeSession.sendLocalMove(adapter.encodeMove(move)) }
+    }
+
+    fun onIntersectionTap(x: Int, y: Int) {
+        if (result != null || resignedWinner != null || turn != myColor) return
+        val move = OnlineMove.Place(x, y)
+        if (!adapter.applyIfLegal(board, move, myColor.ordinal)) return
+        consecutivePasses = 0
+        turn = if (turn == Stone.BLACK) Stone.WHITE else Stone.BLACK
+        sendMove(move)
+    }
+
+    fun onPassTap() {
+        if (result != null || resignedWinner != null || turn != myColor) return
+        adapter.applyIfLegal(board, OnlineMove.Pass, myColor.ordinal)
+        consecutivePasses += 1
+        turn = if (turn == Stone.BLACK) Stone.WHITE else Stone.BLACK
+        if (consecutivePasses >= 2) result = GoScoring.score(board, emptySet())
+        sendMove(OnlineMove.Pass)
+    }
+
+    Column(modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        if (disconnectedReason != null) {
+            Text(disconnectedReason ?: "", color = MiuixTheme.colorScheme.error, style = MiuixTheme.textStyles.body2)
+            Spacer(Modifier.height(8.dp))
+            TextButton(text = "返回", onClick = onExitOnlineMode)
+            return@Column
+        }
+        Text("我执${if (myColor == Stone.BLACK) "黑棋（西交）" else "白棋（上交）"}", style = MiuixTheme.textStyles.body2)
+        val statusText = when {
+            result != null -> "对局结束：${if (result!!.winner == Stone.BLACK) "黑棋" else "白棋"}胜 ${"%.2f".format(result!!.margin)} 子"
+            resignedWinner != null -> "对局结束：${if (resignedWinner == Stone.BLACK) "黑棋" else "白棋"}胜（对方认输）"
+            turn == myColor -> "轮到你落子"
+            else -> "等待对方落子"
+        }
+        Text(statusText, style = MiuixTheme.textStyles.body1)
+        if (pendingDrawFromPeer) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("对方提议和棋（按双方现有盘面数子定胜负）。", style = MiuixTheme.textStyles.body2)
+                TextButton(text = "同意", onClick = {
+                    pendingDrawFromPeer = false
+                    scope.launch { activeSession.answerDraw(true) }
+                    result = GoScoring.score(board, emptySet())
+                })
+                TextButton(text = "拒绝", onClick = {
+                    pendingDrawFromPeer = false
+                    scope.launch { activeSession.answerDraw(false) }
+                })
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        GoOnlineBoardCanvas(board = board, boardSize = boardSize, onTap = ::onIntersectionTap)
+        Spacer(Modifier.height(8.dp))
+        if (result == null && resignedWinner == null) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                TextButton(text = "虚手", onClick = ::onPassTap)
+                TextButton(text = "求和", onClick = { scope.launch { activeSession.requestDraw() } })
+                TextButton(text = "认输", onClick = {
+                    scope.launch { activeSession.resign() }
+                    resignedWinner = if (myColor == Stone.BLACK) Stone.WHITE else Stone.BLACK
+                })
+            }
+        } else {
+            TextButton(text = "退出联机", onClick = onExitOnlineMode)
+        }
+    }
+}
+
+/** 联机对局用的极简棋盘画布：不需要数子阶段的死子标记交互，比 [GoBoardCanvas] 精简。 */
+@Composable
+private fun GoOnlineBoardCanvas(board: GoBoard, boardSize: Int, onTap: (Int, Int) -> Unit) {
+    val boardColor = Color(0xFFE3C08A)
+    val lineColor = Color(0xFF6B4A26)
+    val blackStone = MiuixTheme.colorScheme.onBackground
+    val whiteStone = MiuixTheme.colorScheme.surface
+
+    Card(
+        modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+        cornerRadius = 12.dp,
+        colors = CardDefaults.defaultColors(color = boardColor),
+    ) {
+        Canvas(
+            Modifier
+                .fillMaxSize()
+                .padding(20.dp)
+                .pointerInput(board) {
+                    detectTapGestures { offset ->
+                        val cell = this.size.width.toFloat() / (boardSize - 1)
+                        val x = (offset.x / cell).roundToInt().coerceIn(0, boardSize - 1)
+                        val y = (offset.y / cell).roundToInt().coerceIn(0, boardSize - 1)
+                        onTap(x, y)
+                    }
+                },
+        ) {
+            val cell = size.width / (boardSize - 1)
+            for (i in 0 until boardSize) {
+                val p = i * cell
+                drawLine(lineColor, Offset(p, 0f), Offset(p, size.height), strokeWidth = 2f)
+                drawLine(lineColor, Offset(0f, p), Offset(size.width, p), strokeWidth = 2f)
+            }
+            val stoneRadius = cell * 0.46f
+            for (y in 0 until boardSize) {
+                for (x in 0 until boardSize) {
+                    val stone = board.stoneAt(x, y)
+                    if (stone == Stone.EMPTY) continue
+                    val center = Offset(x * cell, y * cell)
+                    val color = if (stone == Stone.BLACK) blackStone else whiteStone
+                    drawCircle(color, radius = stoneRadius, center = center)
+                    drawCircle(lineColor, radius = stoneRadius, center = center, style = Stroke(width = 1.5f))
+                }
             }
         }
     }

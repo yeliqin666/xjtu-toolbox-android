@@ -90,21 +90,21 @@ fun GamesScreen(
                 title = "五子棋",
                 summary = "西交执黑，对面是上交 AI",
                 icon = Icons.Default.Dashboard,
-                stat = battleRecord(context, GameIds.GOMOKU, listOf("easy", "hard", "hell", "local")),
+                stat = battleRecord(context, GameIds.GOMOKU, listOf("easy", "hard", "hell", "local", "online")),
             ),
             GameEntry(
                 route = Routes.GAME_GO,
                 title = "围棋",
                 summary = "9/13/19 路，同屏双人",
                 icon = Icons.Default.Casino,
-                stat = battleRecord(context, GameIds.GO, listOf("local")),
+                stat = battleRecord(context, GameIds.GO, listOf("local", "online")),
             ),
             GameEntry(
                 route = Routes.GAME_XIANGQI,
                 title = "象棋",
                 summary = "红方西交、黑方上交，同屏双人",
                 icon = Icons.Default.School,
-                stat = battleRecord(context, GameIds.XIANGQI, listOf("local")),
+                stat = battleRecord(context, GameIds.XIANGQI, listOf("local", "online")),
             ),
         )
     }
