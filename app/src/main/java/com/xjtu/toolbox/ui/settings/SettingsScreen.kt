@@ -414,6 +414,8 @@ fun SettingsScreen(
                         credentialStore.scheduleAttendanceBadge = it
                     }
                 )
+                // 触感开关自带偏好存储，不经 CredentialStore
+                com.xjtu.toolbox.ui.HapticsSettingItem()
                 OverlayDropdownPreference(
                     title = "默认启动 Tab",
                     items = tabOptions,

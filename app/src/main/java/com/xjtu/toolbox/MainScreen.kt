@@ -149,6 +149,14 @@ internal fun MainScreen(
         selectedTabOrdinal = tab.ordinal
     }
 
+    // 富触感（PR T）：只有用户自己点底栏 / 侧栏切 tab 才震一下轻 tick。
+    // 深链、快捷方式、搜索跳 tab 走 switchToTab，不震——那不是手上的动作。
+    val haptics = com.xjtu.toolbox.ui.rememberHaptics()
+    fun userSelectTab(ordinal: Int) {
+        if (ordinal != selectedTabOrdinal) haptics.tick()
+        selectedTabOrdinal = ordinal
+    }
+
     fun navigateToTarget(target: String) {
         // 有独立 tab 的功能一律切 tab，不 push 子页——否则同一个页面会存在
         // "带返回箭头的子页"和"底栏 tab"两副面孔，返回行为还不一致。
@@ -440,7 +448,7 @@ internal fun MainScreen(
     }
 
     val onPidaiTap: () -> Unit = {
-        selectedTabOrdinal = BottomTab.PIDAI.ordinal
+        userSelectTab(BottomTab.PIDAI.ordinal)
         // 正事气泡（余额不足、要上课了）优先级高于闲话，不许被戳一下就顶掉。
         val current = com.xjtu.toolbox.agent.ProactiveBubbleHost.message
         if (current == null || current.id == com.xjtu.toolbox.agent.ProactiveRules.CHATTER_ID) {
@@ -449,6 +457,12 @@ internal fun MainScreen(
                 com.xjtu.toolbox.agent.ProactiveBubbleHost.message = line
             }
         }
+    }
+
+    // 气泡冒出来的那一刻给一下 LOW_TICK（PR T §11.3）：按气泡 id 触发，同一条气泡重组不会重复震
+    val bubbleId = com.xjtu.toolbox.agent.ProactiveBubbleHost.message?.id
+    LaunchedEffect(bubbleId) {
+        if (bubbleId != null) haptics.lowTick()
     }
 
     // ── 屁岱主动提醒气泡 ──
@@ -540,7 +554,7 @@ internal fun MainScreen(
     if (isWide) {
         MainNavigationRail(
             selectedTab = selectedTab,
-            onSelect = { selectedTabOrdinal = it.ordinal },
+            onSelect = { userSelectTab(it.ordinal) },
             onPidaiTap = onPidaiTap,
             isLoggedIn = loginState.isLoggedIn,
             accountCount = navAccountCount,
@@ -677,7 +691,7 @@ internal fun MainScreen(
                         }
                         NavigationBarItem(
                             selected = selectedTab == tab,
-                            onClick = { selectedTabOrdinal = tab.ordinal },
+                            onClick = { userSelectTab(tab.ordinal) },
                             icon = if (selectedTab == tab) tab.selectedIcon else tab.unselectedIcon,
                             label = tab.label,
                             colors = navItemColors,
@@ -716,7 +730,7 @@ internal fun MainScreen(
                         }
                         FloatingNavigationBarItem(
                             selected = selectedTab == tab,
-                            onClick = { selectedTabOrdinal = tab.ordinal },
+                            onClick = { userSelectTab(tab.ordinal) },
                             icon = if (selectedTab == tab) tab.selectedIcon else tab.unselectedIcon,
                             label = tab.label,
                             colors = navItemColors,
