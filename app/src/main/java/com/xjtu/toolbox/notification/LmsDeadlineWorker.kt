@@ -11,14 +11,14 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.xjtu.toolbox.auth.LoginType
-import com.xjtu.toolbox.lms.LmsActivity
 import com.xjtu.toolbox.lms.LmsActivityType
 import com.xjtu.toolbox.lms.LmsApi
+import com.xjtu.toolbox.lms.deadlineInstant
+import com.xjtu.toolbox.lms.remaining
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.time.Duration
 import java.time.Instant
-import java.time.ZonedDateTime
 import java.util.concurrent.TimeUnit
 
 private const val TAG = "LmsDeadline"
@@ -83,20 +83,6 @@ class LmsDeadlineWorker(
             }.onFailure { Log.w(TAG, "课程 ${course.name} 活动拉取失败：${it.message}") }
         }
         return result.sortedBy { it.first }.map { it.second }
-    }
-
-    /**
-     * 上游给的是带时区的 UTC 串。列表接口带 `deadline`，优先用它——它才是老师设的截止，
-     * 实测 4.6% 与 `endTime` 不同，且都是 `endTime` 比它早；缺失才退回 `endTime`，认不出就当没有截止时间。
-     */
-    private fun LmsActivity.deadlineInstant(): Instant? {
-        val raw = deadline?.takeIf { it.isNotBlank() } ?: endTime?.takeIf { it.isNotBlank() } ?: return null
-        return runCatching { ZonedDateTime.parse(raw).toInstant() }.getOrNull()
-    }
-
-    private fun remaining(now: Instant, deadline: Instant): String {
-        val hours = Duration.between(now, deadline).toHours()
-        return if (hours < 1) "不到 1 小时" else "剩 $hours 小时"
     }
 }
 

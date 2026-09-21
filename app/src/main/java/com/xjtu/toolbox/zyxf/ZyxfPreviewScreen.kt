@@ -41,8 +41,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.xjtu.toolbox.util.releaseSafely
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -74,54 +72,70 @@ private const val LARGE_FILE_BYTES = 20L * 1024 * 1024
  * 不在壳页里放占位块——之前那版把 `正在加载预览…` 写死在 HTML 里并留了 40vh 的内边距，
  * SDK 渲染出来之后它还杵在上面，把正文顶下去一大截。
  */
+/**
+ * 窄屏的文件预览：接近全高的底部弹窗。
+ *
+ * 标题就是文件名，下载放在标题右边，关掉靠下拉、点外面或返回——不再有自己那条
+ * 「文件名 / 下载 / ×」标题栏。以前是全屏 Dialog 加这条栏，Dialog 打开时状态栏内边距
+ * 晚一帧才到位，这条栏会跳一下，看着就是「顶栏闪了」。
+ *
+ * [file] 为 null 时弹窗收起。弹窗要一直留在组合里、由 show 从 false 变 true 来打开
+ * （miuix 弹窗的约定，条件式创建会没有打开动画）；收起动画期间保留上一次的文件，内容不会先塌掉。
+ * 预览正文在 WebView 里，WebView 不参与嵌套滚动，所以在正文里滑动只翻页，不会把弹窗拖下来；
+ * 拖动条和标题那一截才负责下拉关闭。
+ */
 @Composable
-fun ZyxfPreviewScreen(
-    fileId: Int,
-    fileName: String,
-    sizeBytes: Long = 0,
-    onBack: () -> Unit,
-    onDownload: () -> Unit,
+fun ZyxfPreviewSheet(
+    file: ZyxfApi.Entry?,
+    onDismiss: () -> Unit,
+    onDownload: (ZyxfApi.Entry) -> Unit,
 ) {
-    Dialog(
-        onDismissRequest = onBack,
-        // 铺满整屏：预览要盖住底部 Tab 栏，否则内容被挤在中间一条里。
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-    ) {
-        // Dialog 自带一个 Window，默认仍按"适配系统窗口"布局：状态栏那块不归它画，
-        // 于是既没有沉浸效果，布局又会在 inset 到位的那一帧把标题栏往下顶一下——
-        // 就是肉眼看到的"闪一下"。关掉 decorFitsSystemWindows 之后由我们自己让位，
-        // 首帧的 inset 就是最终值，不会再跳。
-        val dialogWindow = (androidx.compose.ui.platform.LocalView.current.parent
-            as? androidx.compose.ui.window.DialogWindowProvider)?.window
-        androidx.compose.runtime.SideEffect {
-            dialogWindow?.let { w ->
-                androidx.core.view.WindowCompat.setDecorFitsSystemWindows(w, false)
-                w.setBackgroundDrawableResource(android.R.color.transparent)
-                // 那条黑边有两个来源，缺一不可：
-                // 1) Dialog 默认带 FLAG_DIM_BEHIND，在窗口盖不到的状态栏区域，
-                //    透出来的是被压暗 0.6 的下层界面——看着就是一条黑带；
-                // 2) 窗口本身被限制在状态栏以下，只有 NO_LIMITS 才真正铺满整屏。
-                // 另外这里用整体重设 attributes 而不是 addFlags：窗口已经显示之后，
-                // addFlags 不保证触发重新布局，改 attributes 才会走 updateViewLayout。
-                w.setDimAmount(0f)
-                w.attributes = w.attributes.apply {
-                    width = android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                    height = android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                    flags = flags or android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+    var last by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<ZyxfApi.Entry?>(null) }
+    if (file != null) last = file
+    val shown = last
+    if (file != null) BackHandler { onDismiss() }
+    val sheetHeight = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.86f).dp
+    top.yukonga.miuix.kmp.overlay.OverlayBottomSheet(
+        show = file != null,
+        title = shown?.name,
+        endAction = {
+            shown?.let { f ->
+                IconButton(onClick = { onDownload(f) }) {
+                    Icon(
+                        Icons.Default.Download,
+                        contentDescription = "下载",
+                        tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
                 }
             }
+        },
+        // 默认左右 24dp 内边距，预览是整页文档，贴边显示得更多
+        insideMargin = androidx.compose.ui.unit.DpSize(0.dp, 0.dp),
+        onDismissRequest = onDismiss,
+    ) {
+        Box(Modifier.fillMaxWidth().height(sheetHeight)) {
+            if (shown != null) {
+                PreviewContent(
+                    fileId = shown.id,
+                    fileName = shown.name,
+                    sizeBytes = shown.sizeBytes,
+                    onBack = onDismiss,
+                    onDownload = { onDownload(shown) },
+                    embedded = true,
+                    showHeader = false,
+                )
+            }
         }
-        PreviewContent(fileId, fileName, sizeBytes, onBack, onDownload)
     }
 }
 
 /**
- * 预览正文。窄屏下由 [ZyxfPreviewScreen] 包一层全屏 Dialog，
+ * 预览正文。窄屏下由 [ZyxfPreviewSheet] 包进底部弹窗，
  * 宽屏下直接嵌在列表旁边的右栏里（见 ZyxfBrowseScreen）。
  *
- * @param embedded 嵌在页面里（分屏右栏）而不是自带窗口的全屏 Dialog。
+ * @param embedded 嵌在页面里（分屏右栏、底部弹窗）而不是自带窗口。
  *   此时状态栏已经由宿主顶栏让过，再让一次就是白空一条；
- *   返回键也交给宿主统一排序（先关预览 → 退出搜索 → 返回上级），这里不再单独拦。
+ *   返回键交给宿主（底部弹窗自己关，分屏右栏不算一层），这里不再单独拦。
  */
 @Composable
 internal fun PreviewContent(
@@ -131,6 +145,8 @@ internal fun PreviewContent(
     onBack: () -> Unit,
     onDownload: () -> Unit,
     embedded: Boolean = false,
+    /** false：不画自己的「文件名 / 下载 / ×」标题栏（底部弹窗用它自己的标题和下载按钮）。 */
+    showHeader: Boolean = true,
 ) {
     var token by remember(fileId) { mutableStateOf<ZyxfApi.Weboffice?>(null) }
     var ready by remember(fileId) { mutableStateOf(false) }
@@ -153,7 +169,7 @@ internal fun PreviewContent(
                 ),
         ) {
             // 标题栏：文件名一行放不下就省略，不要换行成两行大字。
-            Row(
+            if (showHeader) Row(
                 Modifier
                     .fillMaxWidth()
                     .padding(start = 16.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
@@ -186,7 +202,7 @@ internal fun PreviewContent(
                     )
                 }
             }
-            HorizontalDivider(color = MiuixTheme.colorScheme.outline.copy(alpha = 0.12f))
+            if (showHeader) HorizontalDivider(color = MiuixTheme.colorScheme.outline.copy(alpha = 0.12f))
 
             if (sizeBytes > LARGE_FILE_BYTES) {
                 Text(

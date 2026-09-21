@@ -6,6 +6,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import com.xjtu.toolbox.ui.glass.glassSource
+import com.xjtu.toolbox.ui.glass.glassTop
+import com.xjtu.toolbox.ui.glass.glassTopBar
+import com.xjtu.toolbox.ui.glass.withoutTop
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
@@ -33,7 +37,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.navigation.compose.NavHost
 import com.xjtu.toolbox.auth.*
 import kotlinx.coroutines.launch
 
@@ -64,17 +67,27 @@ internal fun EulaScreen(onAccept: () -> Unit) {
     LaunchedEffect(reachedEnd) { if (reachedEnd) canAccept = true }
 
 
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = com.xjtu.toolbox.ui.glass.rememberPageGlass()
     Scaffold(
         topBar = {
             top.yukonga.miuix.kmp.basic.TopAppBar(
                 title = "用户协议与免责声明",
                 largeTitle = "用户协议与免责声明",
+                color = com.xjtu.toolbox.ui.glass.glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior
             )
         }
     ) { padding ->
         // 宽屏上一行正文横跨整个平板宽度没法读，限宽居中；手机窄于 720dp，布局不变。
-        Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .padding(padding.withoutTop(glass))
+                .glassSource(glass),
+            contentAlignment = Alignment.TopCenter,
+        ) {
         Column(
             Modifier
                 .fillMaxHeight()
@@ -84,7 +97,7 @@ internal fun EulaScreen(onAccept: () -> Unit) {
                 .verticalScroll(scrollState)
                 .padding(horizontal = 16.dp)
         ) {
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(8.dp + padding.glassTop(glass)))
             Text(
                 "请仔细阅读以下条款。继续使用本应用即表示您同意以下全部内容。",
                 style = MiuixTheme.textStyles.body2,

@@ -29,14 +29,8 @@ class TranscriptApi(private val site: SiteSession) {
     companion object {
         private const val TAG = "TranscriptApi"
         private const val BASE = "https://dzpz.xjtu.edu.cn"
-
-        /** 成绩单服务 → workflowId 映射 */
-        val WORKFLOW_MAP = mapOf(
-            "在校本科生" to 29,
-            "研究生" to 34,
-            "已毕业本科(校友)" to 46,
-            "研究生校友" to 49
-        )
+        // workflowId → 身份的映射改由 DzpzDocuments.kt 按「文件」维护（同一个引擎以后
+        // 还要接别的证明文件），这里不再重复一份。
     }
 
     private val userId get() = site.localToken["user_id"] ?: error("未登录")

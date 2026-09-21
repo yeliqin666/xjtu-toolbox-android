@@ -40,6 +40,7 @@ import java.util.*
 import com.xjtu.toolbox.lms.LmsDownloadRecord
 import com.xjtu.toolbox.lms.LmsDownloadStore
 import com.xjtu.toolbox.ui.components.EmptyState
+import com.xjtu.toolbox.ui.glass.*
 
 private const val TAG = "DownloadManagerScreen"
 
@@ -67,6 +68,9 @@ fun DownloadManagerScreen(
     // 显示下载目录信息弹窗
     val showDirInfo = remember { mutableStateOf(false) }
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt。
+    // 批量管理模式下换成 SmallTopAppBar，同样要玻璃化。
+    val glass = rememberPageGlass()
 
     // 加载任务列表
     fun loadTasks() {
@@ -107,7 +111,8 @@ fun DownloadManagerScreen(
             if (isCleanupMode) {
                 SmallTopAppBar(
                     title = "批量管理",
-                    color = MiuixTheme.colorScheme.surface,
+                    color = glassBarColor(glass),
+                    modifier = Modifier.glassTopBar(glass),
                     navigationIcon = {
                         IconButton(onClick = { isCleanupMode = false }) {
                             Icon(Icons.Default.Close, contentDescription = "取消清理")
@@ -134,7 +139,8 @@ fun DownloadManagerScreen(
                 TopAppBar(
                     title = "下载管理",
                     largeTitle = "下载管理",
-                    color = MiuixTheme.colorScheme.surface,
+                    color = glassBarColor(glass),
+                    modifier = Modifier.glassTopBar(glass),
                     scrollBehavior = scrollBehavior,
                     navigationIcon = {
                         IconButton(onClick = onBack) {
@@ -229,7 +235,8 @@ fun DownloadManagerScreen(
             }
         }
     ) { padding ->
-        Box(Modifier.padding(padding).readableWidth().fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection)) {
+        val glassTop = padding.glassTop(glass)
+        Box(Modifier.padding(padding.withoutTop(glass)).readableWidth().fillMaxSize().glassSource(glass).nestedScroll(scrollBehavior.nestedScrollConnection)) {
             if (allTasks.isEmpty() && lmsDownloads.isEmpty()) {
                 EmptyState(
                     title = "暂无下载内容",
@@ -247,7 +254,7 @@ fun DownloadManagerScreen(
                 )
                 LazyColumn(
                     Modifier.fillMaxSize().overScrollVertical(),
-                    contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 24.dp),
+                    contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = glassTop, bottom = 24.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     if (stats != null && stats!!.activeCount > 0 && !isCleanupMode) {

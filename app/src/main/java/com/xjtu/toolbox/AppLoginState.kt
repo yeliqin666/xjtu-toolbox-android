@@ -2,13 +2,14 @@ package com.xjtu.toolbox
 
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import androidx.compose.animation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.runtime.*
-import androidx.navigation.compose.dialog
 import com.xjtu.toolbox.auth.*
 import com.xjtu.toolbox.card.putTodaySummary
 import com.xjtu.toolbox.util.CredentialStore
@@ -401,28 +402,48 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
     }
 
     /**
-     * 单次探测校园网（向本科考勤系统 bkkq 发一个 HEAD，3 秒超时）。
-     * 不更新缓存、不读缓存，纯函数式。
+     * 单次探测校园网：向几个「只有校内能直连」的地址**并行**发 HEAD（各 3 秒超时），
+     * 任意一个返回 <500 就算在校内。不更新缓存、不读缓存，纯函数式。
      *
-     * 探测点选考勤系统而非教务：护网结束后教务（jwxt）已公网直连，校外也能访问，
-     * 探测恒为 true 无法区分内外网；考勤系统 bkkq 仍仅校内可直连，校外需 WebVPN，
-     * 因此用它判定「是否可直连校内系统」。返回任意 <500 响应即视为可达。
-     * 对齐上游 XJTUToolBox：改用考勤系统作为校内外检测网址。
+     * 探测点必须是校外物理不可达的：护网结束后教务（jwxt）、ehall、lms 都已公网直连，
+     * 拿它们探测恒为 true，分不出内外网。
+     *
+     * 为什么不止一个：过去只探旧考勤 bkkq（上游 XJTUToolBox 的探测点），它停用后
+     * 在校园网 DNS 里整个查不到（XJTU_STU 下 unknown host），探针恒为 false，
+     * 人在宿舍连着校园网，首页却显示「校外 · WebVPN」，所有请求都绕网关。
+     * 单点探针只要那一台下线就全盘误判，所以并行探几台互不相干的内网服务：
+     * - 图书馆座位系统 `rg.lib.xjtu.edu.cn:8086`：非标准端口不对公网开放，
+     *   见 [com.xjtu.toolbox.auth.SiteSession.mustUseWebVpn]；
+     * - 快速考勤流水 iclassface、新版考勤 kq：两个都标了 mustUseWebVpn，校外连不上。
      */
-    private suspend fun probeCampusOnce(): Boolean = try {
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            val testClient = okhttp3.OkHttpClient.Builder()
-                .connectTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
-                .readTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
-                .followRedirects(false)
-                .build()
-            val request = okhttp3.Request.Builder()
-                .url("http://bkkq.xjtu.edu.cn")
-                .head()
-                .build()
-            testClient.newCall(request).execute().use { it.code < 500 }
+    private suspend fun probeCampusOnce(): Boolean = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        kotlinx.coroutines.coroutineScope {
+            CAMPUS_PROBE_URLS.map { url ->
+                async {
+                    try {
+                        val request = okhttp3.Request.Builder().url(url).head().build()
+                        campusProbeClient.newCall(request).execute().use { it.code < 500 }
+                    } catch (_: Exception) {
+                        false
+                    }
+                }
+            }.awaitAll().any { it }
         }
-    } catch (_: Exception) { false }
+    }
+
+    private val campusProbeClient by lazy {
+        okhttp3.OkHttpClient.Builder()
+            .connectTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
+            .followRedirects(false)
+            .build()
+    }
+
+    private val CAMPUS_PROBE_URLS = listOf(
+        "http://rg.lib.xjtu.edu.cn:8086/",
+        "https://iclassface.xjtu.edu.cn/",
+        "https://kq.xjtu.edu.cn/",
+    )
 
     /**
      * 检测是否在校园网内（带 10 分钟缓存）。
@@ -462,7 +483,7 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
         } else {
             first
         }
-        android.util.Log.d("Campus", "detectCampus: final result=$result (bkkq reachable=$first)")
+        android.util.Log.d("Campus", "detectCampus: final result=$result (probe=$first)")
         campusDetectTime = System.currentTimeMillis()
         return result
     }

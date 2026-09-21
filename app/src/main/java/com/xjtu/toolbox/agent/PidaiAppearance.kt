@@ -40,6 +40,13 @@ object PidaiAppearanceHost {
     var activeSkinId by mutableStateOf<String?>(null)
         private set
 
+    /**
+     * 朴素图标：不播动画、没有装饰，只显示一个静态图标。[PidaiNavButton] 自己读这个
+     * 状态（不是走参数），这样底栏、侧栏两处调用都不用改就能自动生效。
+     */
+    var plain by mutableStateOf(false)
+        private set
+
     val activeSkin: PidaiSkin?
         get() = activeSkinId?.let { id -> installedSkins.firstOrNull { it.manifest.id == id } }
 
@@ -50,6 +57,7 @@ object PidaiAppearanceHost {
         colorId = saved.color
         installedSkins = PidaiSkinRepository(context).list()
         activeSkinId = saved.skinId?.takeIf { id -> installedSkins.any { it.manifest.id == id } }
+        plain = saved.plain
     }
 
     /** 选择之后立即落盘 + 更新 host。 */
@@ -57,12 +65,18 @@ object PidaiAppearanceHost {
         if (shape != null) shapeId = shape
         if (color != null) colorId = color
         activeSkinId = null
-        PidaiAppearanceStore(context).save(shapeId, colorId, null)
+        PidaiAppearanceStore(context).save(shapeId, colorId, null, plain)
+    }
+
+    /** 「朴素图标」开关：形状、皮肤仍然保留在存档里，只是暂时不画。 */
+    fun setPlain(context: Context, value: Boolean) {
+        plain = value
+        PidaiAppearanceStore(context).save(shapeId, colorId, activeSkinId, value)
     }
 
     fun selectSkin(context: Context, id: String?) {
         activeSkinId = id?.takeIf { target -> installedSkins.any { it.manifest.id == target } }
-        PidaiAppearanceStore(context).save(shapeId, colorId, activeSkinId)
+        PidaiAppearanceStore(context).save(shapeId, colorId, activeSkinId, plain)
     }
 
     suspend fun previewZip(context: Context, uri: Uri): PidaiSkin = withContext(Dispatchers.IO) {
@@ -166,8 +180,12 @@ class PidaiAppearanceStore(context: Context) {
     private val prefs
         get() = appContext.getSharedPreferences("pidai_appearance", Context.MODE_PRIVATE)
 
-    /** 读出形象，非法/失踪的值一律回落到默认，免得旧版残留把底栏搞成空形状。 */
-    data class Saved(val shape: String, val color: String, val skinId: String?)
+    /**
+     * 读出形象，非法/失踪的值一律回落到默认，免得旧版残留把底栏搞成空形状。
+     * [plain] 旧版本存档里没有这个字段，`getBoolean` 的默认值就是 `false`，
+     * 老用户升级上来不会突然变成朴素图标。
+     */
+    data class Saved(val shape: String, val color: String, val skinId: String?, val plain: Boolean = false)
 
     fun load(): Saved {
         val shape = prefs.getString("shape", DEFAULT_SHAPE_ID)
@@ -176,11 +194,11 @@ class PidaiAppearanceStore(context: Context) {
         val color = prefs.getString("color", DEFAULT_COLOR_ID)
             ?.takeIf { id -> BOT_COLORS.any { it.id == id } }
             ?: DEFAULT_COLOR_ID
-        return Saved(shape, color, prefs.getString("skin", null))
+        return Saved(shape, color, prefs.getString("skin", null), prefs.getBoolean("plain", false))
     }
 
-    fun save(shape: String, color: String, skinId: String?) {
-        prefs.edit().putString("shape", shape).putString("color", color).apply {
+    fun save(shape: String, color: String, skinId: String?, plain: Boolean) {
+        prefs.edit().putString("shape", shape).putString("color", color).putBoolean("plain", plain).apply {
             if (skinId == null) remove("skin") else putString("skin", skinId)
         }.apply()
     }

@@ -51,6 +51,17 @@ class GomokuBoard(val size: Int = GOMOKU_BOARD_SIZE) {
         return last
     }
 
+    /**
+     * 深拷贝。AI 在后台线程搜索时会在棋盘上反复试落、撤回；直接用界面那份的话，
+     * 界面线程同时读 [lastMove] 就会撞上正在增删的历史列表（IndexOutOfBounds 崩溃）。
+     */
+    fun copy(): GomokuBoard {
+        val c = GomokuBoard(size)
+        for (r in 0 until size) cells[r].copyInto(c.cells[r])
+        c.moveHistory.addAll(moveHistory)
+        return c
+    }
+
     fun clear() {
         for (row in cells) row.fill(GOMOKU_EMPTY)
         moveHistory.clear()

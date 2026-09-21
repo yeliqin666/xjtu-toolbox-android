@@ -13,7 +13,13 @@
 | 围棋 | 无 | — |
 | GPA 2048 | 无 | — |
 
-C9 校徽素材的说明见文末。
+界面上的液态玻璃效果：
+
+| 用在哪 | 第三方来源 | 许可证 |
+| --- | --- | --- |
+| 玻璃底栏及各处玻璃 | Kyant0/AndroidLiquidGlass（backdrop 库 + 示例 App） | Apache-2.0 |
+
+玻璃底栏和 C9 校徽素材的说明见文末。
 
 ---
 
@@ -229,6 +235,31 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## 玻璃底栏
+
+手机竖屏的玻璃底栏（`app/src/main/java/com/xjtu/toolbox/ui/glass/`）和其他几处玻璃效果，用到
+[Kyant0/AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)（`kmp` 分支）的两部分内容，
+许可证均为 **Apache License 2.0**（Copyright 2025 Kyant）：
+
+1. **`io.github.kyant0:backdrop:2.0.1`**（及其传递依赖 `io.github.kyant0:shapes-android`）：通过 Maven Central
+   引入的库，未修改，提供 `layerBackdrop` / `drawBackdrop` / `blur` / `lens` / `vibrancy` 等玻璃效果 API。
+2. **示例 App 里的 5 个源文件**，改写后搬进了本项目：
+
+   | Kyant 原路径（`app/src/commonMain/kotlin/com/kyant/backdrop/catalog/...`） | 本项目路径 |
+   | --- | --- |
+   | `components/LiquidBottomTabs.kt` | `ui/glass/GlassBottomTabs.kt` |
+   | `components/LiquidBottomTab.kt` | `ui/glass/GlassNavTabSlot.kt` |
+   | `utils/DampedDragAnimation.kt` | `ui/glass/GlassDampedDragAnimation.kt` |
+   | `utils/InteractiveHighlight.kt` | `ui/glass/GlassInteractiveHighlight.kt` |
+   | `utils/DragGestureInspector.kt` | `ui/glass/GlassDragGestureInspector.kt` |
+
+   改动：强调色从写死的 iOS 蓝改成跟随本应用主题；深色模式跟随本应用的深色模式设置而不是系统设置；
+   胶囊形状从 `com.kyant.shapes.Capsule` 换成 `RoundedCornerShape(50)`（不额外引入依赖，视觉相同）；
+   「滑块经过时染色」改成按格可选（屁岱头像不能被复制出第二份）；选中回调改成显式参数；
+   `awaitFrame()` 换成 `withFrameNanos {}`。每个文件头都保留了出处链接和改动说明。
+
+---
 
 ## C9 校徽素材
 

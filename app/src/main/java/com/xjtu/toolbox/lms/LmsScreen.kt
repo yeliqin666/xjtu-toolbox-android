@@ -14,6 +14,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -49,6 +50,12 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.rememberRetainedLazyListState
+import com.xjtu.toolbox.ui.components.rememberRetainedLazyStaggeredGridState
+import com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid
+import com.xjtu.toolbox.ui.adaptive.fullLineItem
+import com.xjtu.toolbox.ui.adaptive.readableWidth
+import androidx.compose.foundation.lazy.staggeredgrid.items
+import com.xjtu.toolbox.ui.glass.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -213,8 +220,10 @@ fun LmsScreen(
         return
     }
 
+    // 前后两页同时淡入淡出，中途都是半透明——没有底色时会透出导航栈底下的主页。
     AnimatedContent(
         targetState = currentPage,
+        modifier = Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface),
         transitionSpec = {
             val forward = when {
                 targetState is LmsPage.ActivityList && initialState is LmsPage.CourseList -> true
@@ -300,8 +309,10 @@ private fun CourseListPage(
     // 学期筛选也跟着缓存走，返回时保持用户的选择
     LaunchedEffect(selectedSemester) { cache.selectedSemester = selectedSemester }
 
-    val listState = rememberRetainedLazyListState("lms_courses")
+    val listState = rememberRetainedLazyStaggeredGridState("lms_courses")
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
 
     fun loadCourses() {
         scope.launch {
@@ -337,7 +348,8 @@ private fun CourseListPage(
             TopAppBar(
                 title = "思源学堂",
                 largeTitle = "思源学堂",
-                color = MiuixTheme.colorScheme.surface,
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -347,19 +359,23 @@ private fun CourseListPage(
             )
         }
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding).nestedScroll(scrollBehavior.nestedScrollConnection)) {
+        val glassTop = padding.glassTop(glass)
+        Box(Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass).nestedScroll(scrollBehavior.nestedScrollConnection)) {
             when {
                 isLoading && courses.isEmpty() -> LoadingIndicator("加载课程列表…")
                 errorMsg != null && courses.isEmpty() -> ErrorRetry(errorMsg!!) { loadCourses() }
                 courses.isEmpty() -> EmptyState(Icons.Default.School, "没有课程", "暂未加入任何课程")
                 else -> {
-                    LazyColumn(
+                    // 宽屏卡片分两三列（见 AdaptiveCardGrid）；卡片自带外边距，间距给 0
+                    AdaptiveCardGrid(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(bottom = 16.dp)
+                        contentPadding = PaddingValues(top = glassTop, bottom = 16.dp),
+                        spacing = 0.dp,
+                        horizontalSpacing = 0.dp,
                     ) {
                         if (semesters.size > 1) {
-                            item(key = "semester_filter") {
+                            fullLineItem(key = "semester_filter") {
                                 Card(
                                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
                                     cornerRadius = 22.dp,
@@ -394,7 +410,7 @@ private fun CourseListPage(
                                 }
                             }
                         }
-                        item(key = "count") {
+                        fullLineItem(key = "count") {
                             Text(
                                 "共 ${filtered.size} 门课程" + if (selectedSemester != null) " ($selectedSemester)" else "",
                                 fontSize = 12.sp,
@@ -503,8 +519,10 @@ private fun ActivityListPage(
 
     LaunchedEffect(selectedType) { cache.selectedTypes[course.id] = selectedType }
 
-    val listState = rememberRetainedLazyListState("lms_activities_${course.id}")
+    val listState = rememberRetainedLazyStaggeredGridState("lms_activities_${course.id}")
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
 
     fun loadActivities() {
         scope.launch {
@@ -539,7 +557,8 @@ private fun ActivityListPage(
             TopAppBar(
                 title = course.name,
                 largeTitle = course.name,
-                color = MiuixTheme.colorScheme.surface,
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -549,19 +568,23 @@ private fun ActivityListPage(
             )
         }
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding).nestedScroll(scrollBehavior.nestedScrollConnection)) {
+        val glassTop = padding.glassTop(glass)
+        Box(Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass).nestedScroll(scrollBehavior.nestedScrollConnection)) {
             when {
                 isLoading && activities.isEmpty() -> LoadingIndicator("加载活动列表…")
                 errorMsg != null && activities.isEmpty() -> ErrorRetry(errorMsg!!) { loadActivities() }
                 activities.isEmpty() -> EmptyState(Icons.Default.Inbox, "暂无活动", "该课程还没有发布任何活动")
                 else -> {
-                    LazyColumn(
+                    // 宽屏卡片分两三列（见 AdaptiveCardGrid）；卡片自带外边距，间距给 0
+                    AdaptiveCardGrid(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(bottom = 16.dp)
+                        contentPadding = PaddingValues(top = glassTop, bottom = 16.dp),
+                        spacing = 0.dp,
+                        horizontalSpacing = 0.dp,
                     ) {
                         if (types.size > 1) {
-                            item(key = "type_filter") {
+                            fullLineItem(key = "type_filter") {
                                 Card(
                                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
                                     cornerRadius = 22.dp,
@@ -598,7 +621,7 @@ private fun ActivityListPage(
                                 }
                             }
                         }
-                        item(key = "count") {
+                        fullLineItem(key = "count") {
                             Text(
                                 "共 ${filtered.size} 个活动",
                                 fontSize = 12.sp,
@@ -623,8 +646,10 @@ private fun LmsActivityCard(activity: LmsActivity, onClick: () -> Unit) {
         onClick = onClick,
         pressFeedbackType = PressFeedbackType.Sink,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 3.dp),
+        // 和课程卡、其他页面的卡片同一个不透明底色。原来是半透明的 secondaryContainer，
+        // 贴在页面灰底上几乎看不出卡片边界，内容从玻璃顶栏下面穿过时还会透出后面的东西
         colors = CardDefaults.defaultColors(
-            color = MiuixTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+            color = com.xjtu.toolbox.ui.components.AppCardColor
         )
     ) {
         Row(
@@ -749,12 +774,16 @@ private fun ActivityDetailPage(
     LaunchedEffect(Unit) { if (cache.details[activity.id] == null) loadDetail() }
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt；
+    // 播放器另开全屏页（本函数外的 VideoPlayer 分支），不在这里，不受影响。
+    val glass = rememberPageGlass()
     Scaffold(
         topBar = {
             TopAppBar(
                 title = activity.title,
                 largeTitle = activity.title,
-                color = MiuixTheme.colorScheme.surface,
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -764,7 +793,8 @@ private fun ActivityDetailPage(
             )
         }
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding).nestedScroll(scrollBehavior.nestedScrollConnection)) {
+        val glassTop = padding.glassTop(glass)
+        Box(Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass).nestedScroll(scrollBehavior.nestedScrollConnection)) {
             when {
                 isLoading -> LoadingIndicator("加载活动详情…")
                 errorMsg != null -> ErrorRetry(errorMsg!!) { loadDetail() }
@@ -781,8 +811,9 @@ private fun ActivityDetailPage(
                     )
                     LazyColumn(
                         state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
+                        // 活动详情是一篇从上往下读的内容，宽屏限宽居中，不拉满整个平板
+                        modifier = Modifier.fillMaxSize().readableWidth(),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = glassTop + 12.dp, bottom = 12.dp)
                     ) {
                         // 基本信息卡
                         item(key = "info") { ActivityInfoCard(d) }

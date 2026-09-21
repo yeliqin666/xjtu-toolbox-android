@@ -25,13 +25,16 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
-import androidx.navigation.NavType
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.navigation.compose.rememberNavController
-import androidx.navigation.navArgument
+import com.xjtu.toolbox.nav.AppNavigator
+import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.nav.ExpandOrigins
+import com.xjtu.toolbox.nav.expandFromOrigin
+import top.yukonga.miuix.kmp.nav.core.rememberNavSystemCornerRadius
+import top.yukonga.miuix.kmp.nav.transition.NavTransition
+import top.yukonga.miuix.kmp.nav.core.NavDisplay
+import top.yukonga.miuix.kmp.nav.core.rememberNavBackStack
+import top.yukonga.miuix.kmp.nav.transition.NavSwipeDirection
 import com.xjtu.toolbox.auth.*
 import com.xjtu.toolbox.emptyroom.EmptyRoomScreen
 import com.xjtu.toolbox.jwapp.JwappScoreScreen
@@ -77,10 +80,41 @@ class MainActivity : ComponentActivity() {
     private val dynamicColorState = mutableStateOf(false)
     private val deepLinkPrompt = mutableStateOf<String?>(null)
 
+    /**
+     * 手机锁竖屏，平板（含折叠屏展开）随意转。
+     *
+     * 手机和平板按经典分界线分：最短边 ≥ 600dp 才算平板。手机横过来宽也有七八百 dp，
+     * 以前按窗口宽度判断就进了平板的侧栏 + 分栏排布，高度只剩三百多 dp，处处挤。
+     * 折叠屏合上 / 展开时 smallestScreenSize 会变，Manifest 里声明了自己处理，
+     * 这里在 onConfigurationChanged 里重新判断一次。
+     *
+     * 只在「手机 / 平板」这个结论变了时才动 requestedOrientation：视频全屏会临时请求横屏
+     * （VideoPlayer），转过去也会触发 onConfigurationChanged，每次都重设就把它掰回竖屏了。
+     */
+    private var lastIsTablet: Boolean? = null
+
+    private fun applyOrientationPolicy(config: android.content.res.Configuration) {
+        val isTablet = config.smallestScreenWidthDp >= 600
+        if (isTablet == lastIsTablet) return
+        lastIsTablet = isTablet
+        val want = if (isTablet) {
+            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        } else {
+            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
+        if (requestedOrientation != want) requestedOrientation = want
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        applyOrientationPolicy(newConfig)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         val splash = installSplashScreen()
         splash.setKeepOnScreenCondition { !isAppReady }
         super.onCreate(savedInstanceState)
+        applyOrientationPolicy(resources.configuration)
         // 深链优先于 EXTRA_LAUNCH_ROUTE；二者都未设置则交给 navController 自己的默认路由
         val deepLink = DeepLinkRouter.resolve(intent)
         val launchRoute = deepLink?.route ?: intent?.getStringExtra(EXTRA_LAUNCH_ROUTE)
@@ -220,6 +254,7 @@ fun loginTypeForRoute(route: String): LoginType? = when (route) {
     Routes.ICLASSFACE -> LoginType.ICLASSFACE
     else -> when {
         route.startsWith("jiaocai1_reader") -> LoginType.JIAOCAI
+        route.startsWith("lms?") -> LoginType.LMS
         else -> null
     }
 }
@@ -259,6 +294,9 @@ enum class BottomTab(
 /** 悬浮底栏胶囊本体的最小高度，对齐 miuix FloatingNavigationBar 的 defaultMinSize。 */
 internal val FLOATING_BAR_HEIGHT = 52.dp
 
+/** 手机竖屏玻璃底栏本体的高度，对齐 ui/glass/GlassBottomTabs 里写死的 64dp。 */
+internal val GLASS_BAR_HEIGHT = 64.dp
+
 // ── 主导航 ────────────────────────────────
 
 @Composable
@@ -271,7 +309,18 @@ fun AppNavigation(
     onDarkModeChanged: (String) -> Unit = {},
     onDynamicColorChanged: (Boolean) -> Unit = {},
 ) {
-    val navController = rememberNavController()
+    // 返回栈的类型参数必须显式写成父类型 AppRoute：只写 rememberNavBackStack(AppRoute.Main)
+    // 会推断成 AppRoute.Main，推入别的页面以后，切到后台存状态时序列化失败（miuix-nav 文档特别提醒）。
+    val backStack = rememberNavBackStack<AppRoute>(AppRoute.Main)
+    // 付款码原来是一个对话框目的地，盖在当前页上面；miuix-nav 没有对话框目的地，改在导航层外面显示
+    var showPaymentCode by remember { mutableStateOf(false) }
+    val navController = remember(backStack) { AppNavigator(backStack) { showPaymentCode = true } }
+    // 首页格子 → 功能页的放大转场（PR V）。全屏时的圆角对齐屏幕的物理圆角，
+    // 每种页面一份，缓存起来：转场对象每次重组都换新的话，页面的元数据也跟着变
+    val screenCornerPx = with(androidx.compose.ui.platform.LocalDensity.current) { rememberNavSystemCornerRadius().toPx() }
+    val expandTransitions = remember(screenCornerPx) { mutableMapOf<kotlin.reflect.KClass<out AppRoute>, NavTransition>() }
+    fun expand(type: kotlin.reflect.KClass<out AppRoute>): NavTransition =
+        expandTransitions.getOrPut(type) { expandFromOrigin(type, screenCornerPx) }
     // [VM] ViewModel 保证状态跨 Configuration Change 存活
     val viewModel: AppLoginStateViewModel = viewModel()
     val loginState = viewModel.loginState
@@ -315,10 +364,9 @@ fun AppNavigation(
 
     fun navigateToMainTab(tab: BottomTab) {
         pendingMainTab = tab.name
-        navController.navigate(Routes.MAIN) {
-            launchSingleTop = true
-            popUpTo(Routes.MAIN) { inclusive = false }
-        }
+        // 首页马上要切到别的 tab，原来那一格不在原处了，返回动画不能再往那儿缩
+        ExpandOrigins.clear()
+        navController.popUntil { it == AppRoute.Main }
     }
 
     LaunchedEffect(initialTab) {
@@ -353,10 +401,19 @@ fun AppNavigation(
                     ?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
         if (!isOnline) return@LaunchedEffect
 
-        kotlinx.coroutines.withTimeoutOrNull(10_000L) {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                loginState.sessionManager?.ensureSite(LoginType.JWXT)
+        // 只是提前把教务登上，失败了日程页自己会再登、会给出错误态。这里必须把异常吞掉：
+        // 教务偶尔整体返回 404/5xx，ensureSite 抛 IOException，冲出 LaunchedEffect 就是主线程闪退
+        // （4.9.6 线上崩溃「教务系统 登录失败：目标服务返回错误（HTTP 404）」就是这里）。
+        try {
+            kotlinx.coroutines.withTimeoutOrNull(10_000L) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    loginState.sessionManager?.ensureSite(LoginType.JWXT)
+                }
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("Startup", "预登录教务失败，交给日程页处理: ${e.message}")
         }
     }
 
@@ -479,7 +536,7 @@ fun AppNavigation(
                     val modeChanged = loginState.onNetworkChanged()
                     if (loginState.isLoggedIn && modeChanged) {
                         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                            val currentRoute = navController.currentBackStackEntry?.destination?.route
+                            val currentRoute = navController.currentId
                             val activeType = currentRoute?.let(routeToLoginType)
                             if (activeType != null && currentRoute != null) {
                                 android.util.Log.d("Network", "Mode changed while on $currentRoute → markStaleAndRetry($activeType)")
@@ -613,7 +670,7 @@ fun AppNavigation(
         if (!OnboardingStore.needsFirstRunLogin(context)) return@LaunchedEffect
         OnboardingStore.markDone(context)
         if (!loginState.hasCredentials) {
-            navController.navigate(Routes.ACCOUNTS) { launchSingleTop = true }
+            navController.navigate(Routes.ACCOUNTS)
         }
     }
 
@@ -870,9 +927,18 @@ fun AppNavigation(
 
     // 宽屏判断在导航根部算一次向下提供（见 ui/WindowSize.kt）：各页面若各算各的，
     // 同一帧里可能得出不一致的结论（侧栏认为宽屏、内容区认为窄屏），布局就会错位。
+    // 界面风格（玻璃 / 经典）给二级页的玻璃顶栏用（ui/glass/GlassTopBar.kt）。
+    // 监听偏好：设置页里一改，当前页（包括设置页自己）的顶栏立刻跟着换，和主界面底栏同一个时刻。
+    var navStyle by remember { mutableStateOf(credentialStore.navBarStyle) }
+    DisposableEffect(Unit) {
+        val stop = credentialStore.observeNavBarStyle { navStyle = it }
+        onDispose { stop() }
+    }
+    val glassStyle = navStyle == CredentialStore.NAV_STYLE_FLOATING
     CompositionLocalProvider(
         LocalAppLoginState provides loginState,
         com.xjtu.toolbox.ui.LocalIsWideLayout provides com.xjtu.toolbox.ui.calculateIsWideLayout(),
+        com.xjtu.toolbox.ui.glass.LocalGlassStyle provides glassStyle,
     ) {
     // MFA 短信验证弹窗全应用只挂这一处：WindowDialog 自带窗口，不依赖页面 Scaffold，
     // 放在 NavHost 外层才能覆盖所有子页面触发的重认证，见 MfaDialogHost 注释。
@@ -890,31 +956,14 @@ fun AppNavigation(
     //
     // 正确做法是把弹窗写进**各自页面 Scaffold 的 content 里**（miuix 的预期用法），
     // 而不是与 Scaffold 平级放在页面函数体顶层。
-    NavHost(
-        navController = navController,
-        startDestination = Routes.MAIN,
-        enterTransition = {
-            // 正向进入：从右侧滑入
-            slideInHorizontally(spring(dampingRatio = 0.86f, stiffness = 500f)) { it } +
-            fadeIn(animationSpec = spring(dampingRatio = 0.86f, stiffness = 500f))
-        },
-        exitTransition = {
-            // 正向退出：旧页面向左推移并轻微淡出
-            slideOutHorizontally(spring(dampingRatio = 0.86f, stiffness = 500f)) { -it / 4 } +
-            fadeOut(animationSpec = spring(dampingRatio = 0.86f, stiffness = 500f), targetAlpha = 0.5f)
-        },
-        popEnterTransition = {
-            // 返回进入：上一页从左侧恢复
-            slideInHorizontally(spring(dampingRatio = 0.86f, stiffness = 500f)) { -it / 4 } +
-            fadeIn(animationSpec = spring(dampingRatio = 0.86f, stiffness = 500f), initialAlpha = 0.5f)
-        },
-        popExitTransition = {
-            // 返回退出：当前页向右滑出，不含 fadeOut（避免手势拖拽时淡化）
-            slideOutHorizontally(spring(dampingRatio = 0.86f, stiffness = 500f)) { it }
-        }
+    // 转场、跟手侧滑返回、系统预测式返回、圆角裁剪和变暗都用 miuix-nav 的默认值（plan2 §12.4 第 6 条）：
+    // 先在真机上看过再决定要不要调，不要自己再写一套。
+    NavDisplay(
+        backStack = backStack,
+        onBack = { navController.popBackStack() },
     ) {
 
-        composable(Routes.MAIN) {
+        entry<AppRoute.Main> {
             val mainScope = rememberCoroutineScope()
             MainScreen(
                 navController = navController,
@@ -940,36 +989,54 @@ fun AppNavigation(
             )
         }
 
-        composable(Routes.EMPTY_ROOM) {
+        entry<AppRoute.EmptyRoom>(transition = expand(AppRoute.EmptyRoom::class)) {
             val direct = loginState.sessionManager?.getSiteOrNull("jwxt")?.client
             EmptyRoomScreen(
                 onBack = { navController.popBackStack() },
                 directClient = direct,
             )
         }
-        composable(Routes.NOTIFICATION) {
+        entry<AppRoute.Notification>(transition = expand(AppRoute.Notification::class)) {
             NotificationScreen(
                 onBack = { navController.popBackStack() },
                 onNavigate = {
                     if (it == Routes.SCHEDULE) {
                         navigateToMainTab(BottomTab.COURSES)
                     } else {
-                        navController.navigate(it) { launchSingleTop = true }
+                        navController.navigate(it)
                     }
                 }
             )
         }
-        composable(Routes.NEW_ATTENDANCE) {
+        entry<AppRoute.NewAttendance>(transition = expand(AppRoute.NewAttendance::class)) {
             loginState.sessionManager?.getSiteOrNull("new_attendance")?.let {
-                com.xjtu.toolbox.newattendance.NewAttendanceScreen(site = it, onBack = { navController.popBackStack() })
+                com.xjtu.toolbox.newattendance.NewAttendanceScreen(
+                    site = it,
+                    onBack = { navController.popBackStack() },
+                    onOpenIclassface = {
+                        // 做法照搬成绩页的 onOpenReport：已登录直接进，否则先登录再进。
+                        // 多包一层 try/catch：ensureSite 失败时提示一句，不闪退
+                        if (loginState.sessionManager?.getSiteOrNull("iclassface")?.hasLogin == true) navController.navigate(Routes.ICLASSFACE)
+                        else mainScope.launch {
+                            try {
+                                val site = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                    loginState.sessionManager?.ensureSite(LoginType.ICLASSFACE)
+                                }
+                                if (site != null) navController.navigate(Routes.ICLASSFACE)
+                            } catch (e: Exception) {
+                                android.widget.Toast.makeText(context, "打开快速考勤流水失败：${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                )
             } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
-        composable(Routes.SCHEDULE) {
+        entry<AppRoute.Schedule> {
             LaunchedEffect(Unit) {
                 navigateToMainTab(BottomTab.COURSES)
             }
         }
-        composable(Routes.JWAPP_SCORE) {
+        entry<AppRoute.JwappScore>(transition = expand(AppRoute.JwappScore::class)) {
             JwappScoreScreen(
                 site = loginState.sessionManager?.getSiteOrNull("jwapp"),
                 jwxtSite = loginState.sessionManager?.getSiteOrNull("jwxt"),
@@ -979,25 +1046,37 @@ fun AppNavigation(
                     // 成绩报表需 JWXT 登录：已登录直接进，否则走 JWXT 登录后再跳报表
                     if (loginState.sessionManager?.getSiteOrNull("jwxt")?.hasLogin == true) navController.navigate(Routes.SCORE_REPORT)
                     else mainScope.launch {
-                        val site = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                            loginState.sessionManager?.ensureSite(LoginType.JWXT)
+                        // 和上面快速考勤流水的入口一样兜住：教务挂了只提示一句，不闪退
+                        try {
+                            val site = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                loginState.sessionManager?.ensureSite(LoginType.JWXT)
+                            }
+                            if (site != null) navController.navigate(Routes.SCORE_REPORT)
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            android.widget.Toast.makeText(context, "打开成绩报表失败：${e.message}", android.widget.Toast.LENGTH_SHORT).show()
                         }
-                        if (site != null) navController.navigate(Routes.SCORE_REPORT)
                     }
                 }
             )
         }
-        composable(Routes.JUDGE) {
+        entry<AppRoute.Judge>(transition = expand(AppRoute.Judge::class)) {
             loginState.sessionManager?.getSiteOrNull("jwxt")?.let { JudgeScreen(site = it, username = loginState.activeUsername, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
-        composable(Routes.LIBRARY) {
+        entry<AppRoute.Library>(transition = expand(AppRoute.Library::class)) {
             loginState.sessionManager?.getSiteOrNull("library")?.let { LibraryScreen(site = it, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
-        composable(Routes.CAMPUS_CARD) {
+        entry<AppRoute.CampusCard>(transition = expand(AppRoute.CampusCard::class)) {
             var cardSite by remember { mutableStateOf(loginState.sessionManager?.getSiteOrNull("campus_card")) }
             val readyCard = cardSite
             if (readyCard != null) {
-                com.xjtu.toolbox.card.CampusCardScreen(site = readyCard, onBack = { navController.popBackStack() })
+                com.xjtu.toolbox.card.CampusCardScreen(
+                    site = readyCard,
+                    onBack = { navController.popBackStack() },
+                    // 顶栏玻璃跟随「界面风格」（Y1）；进页面时读一次就够，设置页改了再进来就生效
+                    glass = credentialStore.navBarStyle == CredentialStore.NAV_STYLE_FLOATING,
+                )
             } else {
                 LaunchedEffect(Unit) {
                     repeat(12) {
@@ -1012,39 +1091,16 @@ fun AppNavigation(
                 }
             }
         }
-        composable(Routes.COUPON) {
+        entry<AppRoute.Coupon>(transition = expand(AppRoute.Coupon::class)) {
             loginState.sessionManager?.getSiteOrNull("coupon")?.let { com.xjtu.toolbox.coupon.CouponScreen(site = it, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
-        dialog(
-            Routes.PAYMENT_CODE,
-            dialogProperties = DialogProperties(usePlatformDefaultWidth = false)
-        ) {
-            // 付款码必须在校园卡登录后使用（复用 ncard JWT 访问 /berserker-app/authCode）
-            var cardSite by remember { mutableStateOf(loginState.sessionManager?.getSiteOrNull("campus_card")) }
-            val readyCard = cardSite
-            if (readyCard != null) {
-                com.xjtu.toolbox.pay.PaymentCodeDialog(site = readyCard) { navController.popBackStack() }
-            } else {
-                LaunchedEffect(Unit) {
-                    repeat(12) {
-                        kotlinx.coroutines.delay(120)
-                        val found = loginState.sessionManager?.getSiteOrNull("campus_card")
-                        if (found != null) {
-                            cardSite = found
-                            return@LaunchedEffect
-                        }
-                    }
-                    navController.popBackStack()
-                }
-            }
-        }
-        composable(Routes.SCORE_REPORT) {
+        entry<AppRoute.ScoreReport>(transition = expand(AppRoute.ScoreReport::class)) {
             loginState.sessionManager?.getSiteOrNull("jwxt")?.let { ScoreReportScreen(site = it, studentId = loginState.activeUsername, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
-        composable(Routes.TRANSCRIPT) {
+        entry<AppRoute.Transcript>(transition = expand(AppRoute.Transcript::class)) {
             loginState.sessionManager?.getSiteOrNull("dzpz")?.let { com.xjtu.toolbox.dzpz.TranscriptScreen(site = it, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
-        composable(Routes.VENUE) {
+        entry<AppRoute.Venue>(transition = expand(AppRoute.Venue::class)) {
             loginState.sessionManager?.getSiteOrNull("venue")?.let {
                 com.xjtu.toolbox.venue.VenueScreen(
                     site = it,
@@ -1053,26 +1109,21 @@ fun AppNavigation(
                 )
             } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
-        composable(Routes.DOWNLOAD_MANAGER) {
+        entry<AppRoute.DownloadManager>(transition = expand(AppRoute.DownloadManager::class)) {
             com.xjtu.toolbox.media.DownloadManagerScreen(
                 onBack = { navController.popBackStack() }
             )
         }
-        composable(
-            route = "lms?courseId={courseId}",
-            arguments = listOf(
-                navArgument("courseId") { type = NavType.StringType; nullable = true; defaultValue = null }
-            ),
-        ) { entry ->
+        entry<AppRoute.Lms>(transition = expand(AppRoute.Lms::class)) { entry ->
             loginState.sessionManager?.getSiteOrNull("lms")?.let { site ->
                 com.xjtu.toolbox.lms.LmsScreen(
                     site = site,
                     onBack = { navController.popBackStack() },
-                    initialCourseId = entry.arguments?.getString("courseId")?.toIntOrNull(),
+                    initialCourseId = entry.courseId,
                 )
             } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
-        composable(Routes.JIAOCAI) {
+        entry<AppRoute.Jiaocai>(transition = expand(AppRoute.Jiaocai::class)) {
             loginState.sessionManager?.getSiteOrNull("jiaocai")?.let {
                 com.xjtu.toolbox.jiaocai.JiaocaiScreen(
                     site = it,
@@ -1083,7 +1134,7 @@ fun AppNavigation(
                 )
             } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
-        composable(Routes.JIAOCAI1) {
+        entry<AppRoute.Jiaocai1>(transition = expand(AppRoute.Jiaocai1::class)) {
             // 全文库只认 IP、不做 CAS，借 jiaocai 会话是为了拿它的 OkHttp 客户端
             loginState.sessionManager?.getSiteOrNull("jiaocai")?.let {
                 com.xjtu.toolbox.jiaocai1.Jiaocai1Screen(
@@ -1095,19 +1146,10 @@ fun AppNavigation(
                 )
             } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
-        composable(
-            Routes.JIAOCAI1_READER,
-            arguments = listOf(
-                navArgument("ssno") { type = NavType.StringType },
-                navArgument("title") { type = NavType.StringType; defaultValue = "" },
-            )
-        ) { backStackEntry ->
-            val ssno = backStackEntry.arguments?.getString("ssno").orEmpty()
-            val title = try {
-                java.net.URLDecoder.decode(backStackEntry.arguments?.getString("title") ?: "", "UTF-8")
-            } catch (_: Exception) {
-                backStackEntry.arguments?.getString("title").orEmpty()
-            }
+        // 阅读器横向翻页，关掉页内侧滑返回免得抢手势；系统返回手势不受影响
+        entry<AppRoute.Jiaocai1Reader>(transition = expand(AppRoute.Jiaocai1Reader::class), swipeDismiss = NavSwipeDirection.None) { reader ->
+            val ssno = reader.ssno
+            val title = reader.title
             loginState.sessionManager?.getSiteOrNull("jiaocai")?.let {
                 com.xjtu.toolbox.jiaocai1.Jiaocai1ReaderScreen(
                     site = it,
@@ -1117,23 +1159,23 @@ fun AppNavigation(
                 )
             } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
-        composable(Routes.SCHOOL_COURSE) {
+        entry<AppRoute.SchoolCourse>(transition = expand(AppRoute.SchoolCourse::class)) {
             com.xjtu.toolbox.schedule.SchoolCourseScreen(
                 site = loginState.sessionManager?.getSiteOrNull("jwxt"),
                 onBack = { navController.popBackStack() }
             )
         }
-        composable(Routes.SCHOOL_CALENDAR) {
+        entry<AppRoute.SchoolCalendar>(transition = expand(AppRoute.SchoolCalendar::class)) {
             com.xjtu.toolbox.calendar.SchoolCalendarScreen(
                 onBack = { navController.popBackStack() }
             )
         }
-        composable(Routes.YELLOW_PAGE) {
+        entry<AppRoute.YellowPage>(transition = expand(AppRoute.YellowPage::class)) {
             com.xjtu.toolbox.yellowpage.YellowPageScreen(
                 onBack = { navController.popBackStack() }
             )
         }
-        composable(Routes.FITNESS) {
+        entry<AppRoute.Fitness>(transition = expand(AppRoute.Fitness::class)) {
             loginState.sessionManager?.getSiteOrNull("fitness")?.let {
                 com.xjtu.toolbox.fitness.FitnessScreen(
                     site = it,
@@ -1141,7 +1183,7 @@ fun AppNavigation(
                 )
             } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
-        composable(Routes.ICLASSFACE) {
+        entry<AppRoute.Iclassface>(transition = expand(AppRoute.Iclassface::class)) {
             loginState.sessionManager?.getSiteOrNull("iclassface")?.let {
                 com.xjtu.toolbox.iclassface.IclassfaceScreen(
                     site = it,
@@ -1149,10 +1191,9 @@ fun AppNavigation(
                 )
             } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
-        composable(Routes.BROWSER,
-            arguments = listOf(navArgument("url") { type = NavType.StringType; defaultValue = "" })
-        ) { backStackEntry ->
-            val url = try { java.net.URLDecoder.decode(backStackEntry.arguments?.getString("url") ?: "", "UTF-8") } catch (_: Exception) { "" }
+        // WebView 里常有横向滚动，关掉页内侧滑返回；系统返回手势不受影响
+        entry<AppRoute.Browser>(transition = expand(AppRoute.Browser::class), swipeDismiss = NavSwipeDirection.None) { browser ->
+            val url = browser.url
             val browserSite = loginState.sessionManager?.getSiteOrNull(siteKeyForBrowserUrl(url))
                 ?: loginState.sessionManager?.getSiteOrNull("jwxt")
             val host = runCatching { android.net.Uri.parse(url).host?.lowercase() }.getOrNull()
@@ -1170,7 +1211,7 @@ fun AppNavigation(
         }
 
         // ── 设置页 ──
-        composable(Routes.SETTINGS) {
+        entry<AppRoute.Settings>(transition = expand(AppRoute.Settings::class)) {
             SettingsScreen(
                 credentialStore = credentialStore,
                 onBack = { navController.popBackStack() },
@@ -1192,7 +1233,7 @@ fun AppNavigation(
         }
 
         // ── 用户反馈 ──
-        composable(Routes.FEEDBACK) {
+        entry<AppRoute.Feedback>(transition = expand(AppRoute.Feedback::class)) {
             FeedbackScreen(
                 onBack = { navController.popBackStack() }
             )
@@ -1201,7 +1242,7 @@ fun AppNavigation(
         // ── 教师主页检索 ──
         // 无需登录：faculty.xjtu.edu.cn 与 gr.xjtu.edu.cn 都是公开站点，
         // 因此这里不接 SessionManager，也不做 ensureSite。
-        composable(Routes.FACULTY) {
+        entry<AppRoute.Faculty>(transition = expand(AppRoute.Faculty::class)) {
             com.xjtu.toolbox.faculty.FacultyScreen(
                 onBack = { navController.popBackStack() },
                 onOpenUrl = { url -> navController.navigate(Routes.browser(url)) },
@@ -1212,40 +1253,40 @@ fun AppNavigation(
         //
         // 各游戏自己的路由在下面单独注册，合集页只是最常见的那个入口：
         // 全局搜索搜「五子棋」应该能直接进去，而不是先落到合集页再点一次。
-        composable(Routes.GAMES) {
+        entry<AppRoute.Games>(transition = expand(AppRoute.Games::class)) {
             com.xjtu.toolbox.game.GamesScreen(
                 onBack = { navController.popBackStack() },
-                onNavigate = { route -> navController.navigate(route) { launchSingleTop = true } },
+                onNavigate = { route -> navController.navigate(route) },
             )
         }
 
-        composable(Routes.GAME_2048) {
+        entry<AppRoute.Game2048>(transition = expand(AppRoute.Game2048::class)) {
             com.xjtu.toolbox.game.g2048.Gpa2048Screen(onBack = { navController.popBackStack() })
         }
 
-        composable(Routes.GAME_MERGE) {
+        entry<AppRoute.GameMerge>(transition = expand(AppRoute.GameMerge::class), swipeDismiss = NavSwipeDirection.None) {
             com.xjtu.toolbox.game.merge.MergeGameScreen(onBack = { navController.popBackStack() })
         }
 
-        composable(Routes.GAME_GOMOKU) {
+        entry<AppRoute.GameGomoku>(transition = expand(AppRoute.GameGomoku::class), swipeDismiss = NavSwipeDirection.None) {
             com.xjtu.toolbox.game.gomoku.GomokuScreen(onBack = { navController.popBackStack() })
         }
 
-        composable(Routes.GAME_GO) {
+        entry<AppRoute.GameGo>(transition = expand(AppRoute.GameGo::class), swipeDismiss = NavSwipeDirection.None) {
             com.xjtu.toolbox.game.go.GoScreen(onBack = { navController.popBackStack() })
         }
 
-        composable(Routes.GAME_XIANGQI) {
+        entry<AppRoute.GameXiangqi>(transition = expand(AppRoute.GameXiangqi::class), swipeDismiss = NavSwipeDirection.None) {
             com.xjtu.toolbox.game.xiangqi.XiangqiScreen(onBack = { navController.popBackStack() })
         }
 
-        composable(Routes.MATCH) {
+        entry<AppRoute.Match>(transition = expand(AppRoute.Match::class)) {
             // 不在 loginTypeForRoute 里：全程读本地缓存，不碰任何校园系统。
             com.xjtu.toolbox.social.MatchScreen(onBack = { navController.popBackStack() })
         }
 
         // ── 账号管理页 ──
-        composable(Routes.ACCOUNTS) {
+        entry<AppRoute.Accounts>(transition = expand(AppRoute.Accounts::class)) {
             com.xjtu.toolbox.account.AccountManagerScreen(
                 accountManager = viewModel.accountManager,
                 loginState = loginState,
@@ -1254,7 +1295,7 @@ fun AppNavigation(
         }
 
         // ── WebVPN 网址互转 ──
-        composable(Routes.WEBVPN_CONVERTER) {
+        entry<AppRoute.WebVpnConverter>(transition = expand(AppRoute.WebVpnConverter::class)) {
             com.xjtu.toolbox.webvpn.WebVpnConverterScreen(
                 isWebVpnReady = loginState.webVpnClientOrNull != null,
                 onBack = { navController.popBackStack() },
@@ -1273,6 +1314,33 @@ fun AppNavigation(
         // 再留一条 push 路由就会出现"带返回箭头的子页"和"tab"两副面孔，
         // 返回行为还不一致。所有指向 AGENT 的入口（深链、快捷方式、全局搜索、
         // 首页服务列表、提醒气泡）统一由 navigateToTarget 转成切 tab。
+    }
+
+    if (showPaymentCode) {
+        // 和原来的对话框目的地一样：独立窗口、不限宽度，盖在当前页上面。
+        // 付款码必须在校园卡登录后使用（复用 ncard JWT 访问 /berserker-app/authCode）
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { showPaymentCode = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            var cardSite by remember { mutableStateOf(loginState.sessionManager?.getSiteOrNull("campus_card")) }
+            val readyCard = cardSite
+            if (readyCard != null) {
+                com.xjtu.toolbox.pay.PaymentCodeDialog(site = readyCard) { showPaymentCode = false }
+            } else {
+                LaunchedEffect(Unit) {
+                    repeat(12) {
+                        kotlinx.coroutines.delay(120)
+                        val found = loginState.sessionManager?.getSiteOrNull("campus_card")
+                        if (found != null) {
+                            cardSite = found
+                            return@LaunchedEffect
+                        }
+                    }
+                    showPaymentCode = false
+                }
+            }
+        }
     }
     }  // CompositionLocalProvider
 }

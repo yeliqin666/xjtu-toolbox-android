@@ -205,8 +205,10 @@ fun PaymentCodeDialog(
     }
 
     // UI: Card (used inside NavHost dialog() route)
+    // 限宽 480dp：弹窗关掉了平台默认宽度（手机上要贴满屏宽），平板横屏时卡片会横跨整屏，
+    // 条形码按 FillBounds 被拉成一长条，扫码枪反而读不准。
     Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+        modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth().padding(horizontal = 12.dp),
         colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
     ) {
         Column(

@@ -35,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
@@ -45,8 +46,14 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.vibrancy
+import com.kyant.backdrop.highlight.Highlight
 import com.xjtu.toolbox.Routes
 import com.xjtu.toolbox.auth.AccountType
+import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -83,10 +90,21 @@ data class ProactiveMessage(
     }
 }
 
+/**
+ * 主动提醒的三档：关 / 少 / 标准。
+ *
+ * 只决定「要不要生成气泡」「要不要闲聊」「全局冷却多长」，不碰磁盘也不碰时间，
+ * 所以这几条判断都拆成了下面几个纯函数，能直接对着枚举值单测，不用假 Context。
+ */
+enum class ProactiveLevel { OFF, LOW, STANDARD }
+
 object ProactiveRules {
 
     private const val GLOBAL_COOLDOWN_MS = 15 * 60 * 1000L
     private const val RULE_COOLDOWN_MS = 60 * 60 * 1000L
+
+    /** 「少」档下正事提醒之间的全局冷却：从 15 分钟拉到 1 小时，只留真正要紧的事。 */
+    private const val LOW_GLOBAL_COOLDOWN_MS = 60 * 60 * 1000L
 
     /**
      * 闲话冷却。原来是 6 分钟，太密了：气泡只活 8 秒，6 分钟一句在使用期间就是不停地冒。
@@ -100,15 +118,49 @@ object ProactiveRules {
     const val EVAL_INTERVAL_MS = 60_000L
     const val AUTO_DISMISS_MS = 8_000L
 
-    /** 考试提前几天开始提醒。三天是"还来得及做点什么"和"提早焦虑"的分界。 */
-    private const val EXAM_AHEAD_DAYS = 3
+    /**
+     * 考试提前几天开始提醒，直接引用日程页考试卡片变红的同一个阈值——气泡说「快考试了」
+     * 的那一刻，必须和卡片变红的那一刻是同一天，不然用户会觉得两处对不上。
+     */
+    private val EXAM_AHEAD_DAYS = com.xjtu.toolbox.schedule.ExamCountdown.SOON_DAYS
 
     private const val LOW_BALANCE = 50.0
     private const val CLASS_AHEAD_MIN = 30L
 
     private const val PREFS = "pidai_proactive"
+    private const val LEVEL_KEY = "level"
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    /** 当前挡位，给设置面板做即时回显；`pick()` 自己每次都直接从磁盘读，不依赖这份缓存。 */
+    var proactiveLevel by mutableStateOf(ProactiveLevel.STANDARD)
+        private set
+
+    /** 从磁盘读一次并写入上面那份缓存。设置面板打开时调一次即可。 */
+    fun loadProactiveLevel(ctx: Context) {
+        proactiveLevel = readProactiveLevel(ctx)
+    }
+
+    /** 选择之后立即落盘 + 更新缓存。 */
+    fun setProactiveLevel(ctx: Context, level: ProactiveLevel) {
+        proactiveLevel = level
+        prefs(ctx).edit().putString(LEVEL_KEY, level.name).apply()
+    }
+
+    private fun readProactiveLevel(ctx: Context): ProactiveLevel =
+        prefs(ctx).getString(LEVEL_KEY, null)
+            ?.let { raw -> ProactiveLevel.entries.firstOrNull { it.name == raw } }
+            ?: ProactiveLevel.STANDARD
+
+    /** 关档完全不生成；少、标准两档都保留「正事」提醒。 */
+    fun alertsAllowed(level: ProactiveLevel): Boolean = level != ProactiveLevel.OFF
+
+    /** 只有标准档才闲聊；少档只保留下节课、考试、余额这类正事。 */
+    fun chatterAllowed(level: ProactiveLevel): Boolean = level == ProactiveLevel.STANDARD
+
+    /** 少档把正事提醒之间的全局冷却从 15 分钟拉到 1 小时；标准档维持原样。 */
+    fun globalCooldownMs(level: ProactiveLevel): Long =
+        if (level == ProactiveLevel.LOW) LOW_GLOBAL_COOLDOWN_MS else GLOBAL_COOLDOWN_MS
 
     fun lastShownAt(ctx: Context, id: String): Long = prefs(ctx).getLong("shown_$id", 0L)
     fun lastAnyAt(ctx: Context): Long = prefs(ctx).getLong("shown_any", 0L)
@@ -196,7 +248,10 @@ object ProactiveRules {
         latestNoticeLink: String? = null,
         accountType: AccountType? = null,
     ): ProactiveMessage? {
+        val level = readProactiveLevel(ctx)
+        if (!alertsAllowed(level)) return null
         val now = System.currentTimeMillis()
+        val cooldown = globalCooldownMs(level)
         val alert = pickAlert(
             ctx, now, balance, nextCourseName, minutesToClass, newGradeCount, latestNotice,
             libraryPendingAction, examCountdown,
@@ -205,9 +260,11 @@ object ProactiveRules {
             com.xjtu.toolbox.home.HomeSignals.couponAlert,
             latestNoticeLink,
             accountType,
+            cooldown,
         )
         if (alert != null) return alert
-        if (now - lastAnyAt(ctx) < GLOBAL_COOLDOWN_MS) return null
+        if (!chatterAllowed(level)) return null
+        if (now - lastAnyAt(ctx) < cooldown) return null
         return pickChatter(ctx, now, nextCourseName, minutesToClass)
     }
 
@@ -226,8 +283,9 @@ object ProactiveRules {
         couponAlert: String?,
         latestNoticeLink: String?,
         accountType: AccountType?,
+        globalCooldownMs: Long,
     ): ProactiveMessage? {
-        if (now - lastAnyAt(ctx) < GLOBAL_COOLDOWN_MS) return null
+        if (now - lastAnyAt(ctx) < globalCooldownMs) return null
         val candidates = buildList {
             // 课表变更排最前：调课停课换教室不知道就会白跑一趟，
             // 而学校改课表是不通知的，App 是唯一可能告诉他的地方。
@@ -338,9 +396,14 @@ object ProactiveRules {
      * 而用户戳它一下却不吭声，看起来就是坏了。但仍然避开最近说过的句子，
      * 免得连点两下讲同一句。
      *
-     * 课程信息拿不到（那份状态在首页），情境句会自动落选，不影响其余句子。
+     * 「几分钟后上课」拿不到（那份状态在首页），但今天有哪些课、节假日从本地缓存读（[ChatterFactsLoader]），
+     * 情景句照样能出。
+     *
+     * 「关」档连点击也不回话：用户把它关了，就是不想看见任何气泡，
+     * 戳一下只是想切到屁岱 tab。
      */
     fun pickOnTap(ctx: Context): ProactiveMessage? {
+        if (readProactiveLevel(ctx) == ProactiveLevel.OFF) return null
         val (skinLines, skinMix) = activeSkinChatter()
         val line = ChatterPool.pick(
             java.time.LocalDateTime.now(),
@@ -349,6 +412,7 @@ object ProactiveRules {
             null,
             skinLines,
             skinMix,
+            ChatterFactsLoader.load(ctx),
         ) ?: return null
         return ProactiveMessage(
             id = CHATTER_ID,
@@ -375,6 +439,7 @@ object ProactiveRules {
             minutesToClass,
             skinLines,
             skinMix,
+            ChatterFactsLoader.load(ctx),
         ) ?: return null
         return ProactiveMessage(
             id = CHATTER_ID,
@@ -472,6 +537,16 @@ private class BubbleShape(
     }
 }
 
+/**
+ * 屁岱主动气泡。
+ *
+ * 玻璃只用模糊、色彩增强（vibrancy）和高光，**不开折射**：[BubbleShape] 带尖角，
+ * 是自定义 [Shape]，backdrop 库的 `lens()` 只认圆角类形状（`RoundedRectangularShape`
+ * / `AbsoluteRoundedCornerShape` / `CornerBasedShape`），遇到别的形状会直接
+ * `throwUnsupportedSDFException()` 闪退。真要给气泡开折射，得先把尖角从
+ * [BubbleShape] 里拆出来单独画（气泡主体用圆角矩形折射，尖角保持不透明），
+ * 这里先做「全部不开折射」这一版。
+ */
 @Composable
 fun ProactiveBubbleView(
     message: ProactiveMessage,
@@ -485,6 +560,14 @@ fun ProactiveBubbleView(
     /** [BubbleArrowSide.Start] 时尖角距顶边的距离；null = 气泡自身垂直中心。 */
     arrowFromTop: androidx.compose.ui.unit.Dp? = null,
     maxWidth: androidx.compose.ui.unit.Dp = 280.dp,
+    /**
+     * 玻璃采样源；null（或 [glass] 为 false）时退回原来的不透明样式。由调用方接——
+     * 手机上要采「页面内容 + 底栏」合起来那一层，宽屏侧栏气泡只采页面内容，
+     * 这层合成不归这个组件管，见 [ProactiveBubbleView] 的类注释。
+     */
+    backdrop: Backdrop? = null,
+    /** 「界面风格」选经典时为 false：所有玻璃点统一退回不透明样式。 */
+    glass: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val arrowOffset = when (arrowSide) {
@@ -568,12 +651,45 @@ fun ProactiveBubbleView(
             },
             label = "proactiveBubbleSwap",
         ) { shown ->
+        val bubbleShape = remember(arrowSide, arrowOffset) { BubbleShape(arrowSide, arrowOffset) }
+        val isDark = LocalIsDarkTheme.current
+        val accent = MiuixTheme.colorScheme.primary
+        // 玻璃之上还要叠一层够浓的主色，不然文字在模糊+高光背景上会花。深色模式下
+        // 背景本身更暗，主色不用叠那么浓也能撑住对比度；浅色模式下背景更亮，要叠浓一点。
+        val glassSurfaceTint = accent.copy(alpha = if (isDark) 0.72f else 0.85f)
         Row(
             Modifier
                 .wrapContentWidth()
                 .widthIn(max = maxWidth)
-                .clip(BubbleShape(arrowSide, arrowOffset))
-                .background(MiuixTheme.colorScheme.primary)
+                // 气泡是冒出来浮在页面上的，给它一圈和自己同色的柔影：像主色的光晕，
+                // 不是灰黑的投影。写在 clip 前面，不然影子被裁掉。
+                .dropShadow(bubbleShape) {
+                    radius = 14.dp.toPx()
+                    color = accent
+                    alpha = if (isDark) 0.45f else 0.30f
+                    offset = androidx.compose.ui.geometry.Offset(0f, 4.dp.toPx())
+                }
+                .clip(bubbleShape)
+                .then(
+                    if (glass && backdrop != null) {
+                        Modifier.drawBackdrop(
+                            backdrop = backdrop,
+                            shape = { bubbleShape },
+                            effects = {
+                                // 采样范围往外扩一圈，边缘处也有真实内容可混，模糊不会在轮廓边上变弱（见 glassBarSurface）
+                                padding = maxOf(padding, 12.dp.toPx())
+                                vibrancy()
+                                blur(6.dp.toPx())
+                            },
+                            // 尖角是自定义形状，不能用 lens()——高光走轮廓描边，对任意
+                            // Shape 都安全，只是不折射。
+                            highlight = { Highlight.Default.copy(alpha = 0.7f) },
+                            onDrawSurface = { drawRect(glassSurfaceTint) },
+                        )
+                    } else {
+                        Modifier.background(accent)
+                    },
+                )
                 .clickable(onClick = onOpen)
                 // 尖角那一侧要多留出它的伸出深度，否则文字会压到三角上。
                 // 朝下时 10+7=17dp，与改造前的固定值一致。
@@ -630,6 +746,14 @@ object ProactiveBubbleHost {
      * 只挡自动的那一路；用户主动点按钮逗它照常回应。
      */
     var autoSuppressed by mutableStateOf(false)
+
+    /**
+     * 待在屁岱页时点底栏屁岱，闲话不从底栏冒泡（会挡住输入框），而是交给首屏的屁岱说：
+     * 首屏读这一句替换它的问候第二行，[heroPokes] 每戳一次 +1，让它翻个跟头。
+     * 这样首屏问候和底栏气泡也不会同时各说一句，显得重复。
+     */
+    var heroLine by mutableStateOf<String?>(null)
+    var heroPokes by mutableStateOf(0)
 
     fun clear() {
         message = null

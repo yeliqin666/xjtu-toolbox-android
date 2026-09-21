@@ -115,8 +115,47 @@ private fun mergeLine(line: List<Int?>): LineMergeResult {
     return LineMergeResult(padded, moved, scoreGained)
 }
 
+/** 一次移动里某一格的去向：[from]/[to] 是一维下标；[merged] 表示它和另一格合成了。 */
+data class TileMove(val from: Int, val to: Int, val merged: Boolean)
+
 /**
- * 在随机一个空格生成新格：90% 是一级（D-），10% 是二级（D）。
+ * 和 [move] 同一套规则，只是不产出新棋盘，而是记下每个非空格滑到了哪——UI 做滑动动画用。
+ * 合成的两格 [TileMove.to] 相同，排在前面的那个（离目标端近的）是留下来的。
+ */
+fun traceMove(board: Board, direction: Direction): List<TileMove> {
+    val moves = mutableListOf<TileMove>()
+    for (k in 0 until BOARD_SIZE) {
+        val positions = linePositions(k, direction)
+        val occupied = positions.filter { board.cells[it] != null }
+        var target = 0
+        var i = 0
+        while (i < occupied.size) {
+            val current = board.cells[occupied[i]]
+            val next = occupied.getOrNull(i + 1)?.let { board.cells[it] }
+            if (next != null && next == current && current != GpaScale.WIN_INDEX) {
+                moves += TileMove(occupied[i], positions[target], merged = true)
+                moves += TileMove(occupied[i + 1], positions[target], merged = true)
+                i += 2
+            } else {
+                moves += TileMove(occupied[i], positions[target], merged = false)
+                i += 1
+            }
+            target++
+        }
+    }
+    return moves
+}
+
+/** 第 [k] 条线上的格子下标，从压缩的目标端开始排，和 [extractLines] 一致。 */
+private fun linePositions(k: Int, direction: Direction): List<Int> = when (direction) {
+    Direction.LEFT -> (0 until BOARD_SIZE).map { c -> k * BOARD_SIZE + c }
+    Direction.RIGHT -> (0 until BOARD_SIZE).map { c -> k * BOARD_SIZE + (BOARD_SIZE - 1 - c) }
+    Direction.UP -> (0 until BOARD_SIZE).map { r -> r * BOARD_SIZE + k }
+    Direction.DOWN -> (0 until BOARD_SIZE).map { r -> (BOARD_SIZE - 1 - r) * BOARD_SIZE + k }
+}
+
+/**
+ * 在随机一个空格生成新格：90% 是一级（F），10% 是二级（D）。
  * 没有空格时原样返回——调用方应该先判断 [Board.emptyIndices] 是否为空。
  */
 fun spawn(board: Board, random: Random): Board {

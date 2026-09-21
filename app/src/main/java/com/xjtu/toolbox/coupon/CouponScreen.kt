@@ -1,6 +1,8 @@
 package com.xjtu.toolbox.coupon
 
 import com.xjtu.toolbox.ui.adaptive.readableWidth
+import com.xjtu.toolbox.ui.adaptive.fullLineItem
+import androidx.compose.foundation.lazy.staggeredgrid.items
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -27,6 +29,7 @@ import androidx.compose.material.icons.filled.ConfirmationNumber
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.outlined.ConfirmationNumber
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -55,6 +58,7 @@ import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
+import com.xjtu.toolbox.ui.glass.*
 import com.xjtu.toolbox.auth.SiteSession
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -190,34 +194,45 @@ fun CouponScreen(
         loadPage(selectedFilter)
     }
 
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
     Scaffold(
         topBar = {
             TopAppBar(
                 title = "加餐券",
                 largeTitle = "加餐券",
-                color = MiuixTheme.colorScheme.surface,
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回")
                     }
-                }
+                },
+                // 分段标签不跟着滚：挂在顶栏里和顶栏一起做一整块玻璃，券卡从它下面滚过去
+                bottomContent = {
+                    CompositionLocalProvider(LocalOnGlassBar provides (glass != null)) {
+                        AppSegmentedTabs(
+                            tabs = CouponFilter.entries.map { it.label },
+                            selectedTabIndex = CouponFilter.entries.indexOf(selectedFilter),
+                            onTabSelected = { selectedFilter = CouponFilter.entries[it] },
+                            modifier = Modifier.readableWidth(),
+                        )
+                    }
+                },
             )
         }
     ) { padding ->
+        val glassTop = padding.glassTop(glass)
+        // 宽屏不再整页限宽 720：券卡分两三列铺开，只有标签行还限宽居中
         Column(
             Modifier
-                .padding(padding)
-                .readableWidth()
+                .padding(padding.withoutTop(glass))
+                .glassSource(glass)
                 .fillMaxSize()
         ) {
-            AppSegmentedTabs(
-                tabs = CouponFilter.entries.map { it.label },
-                selectedTabIndex = CouponFilter.entries.indexOf(selectedFilter),
-                onTabSelected = { selectedFilter = CouponFilter.entries[it] },
-            )
-
             PullToRefresh(
+                refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
                 isRefreshing = isRefreshing,
                 onRefresh = {
                     isRefreshing = true
@@ -225,13 +240,26 @@ fun CouponScreen(
                 },
                 pullToRefreshState = pullToRefreshState,
                 topAppBarScrollBehavior = scrollBehavior,
+                // 下拉指示器从玻璃顶栏（含标签行）下面出来
+                contentPadding = PaddingValues(top = glassTop),
                 modifier = Modifier.fillMaxSize()
             ) {
+                // 四个分类左右滑动切换，和别的分段标签页一样用 AppTabPager。
+                // 列表只有当前分类那一份（切分类时重新请求），所以滑动途中露出来的相邻页先显示加载中，
+                // 停稳、定下分类以后 LaunchedEffect(selectedFilter) 去拉它的数据。
+                val filterIndex = CouponFilter.entries.indexOf(selectedFilter)
+                com.xjtu.toolbox.ui.components.AppTabPager(
+                    pageCount = CouponFilter.entries.size,
+                    selectedTabIndex = filterIndex,
+                    onTabSelected = { selectedFilter = CouponFilter.entries[it] },
+                    modifier = Modifier.fillMaxSize(),
+                ) { page ->
                 when {
-                    isLoading -> LazyColumn(Modifier.fillMaxSize()) {
+                    page != filterIndex -> LoadingState("正在加载加餐券...", Modifier.fillMaxSize().padding(top = glassTop))
+                    isLoading -> LazyColumn(Modifier.fillMaxSize().padding(top = glassTop)) {
                         item { Box(Modifier.fillParentMaxSize()) { LoadingState("正在加载加餐券...", Modifier.fillMaxSize()) } }
                     }
-                    errorMessage != null -> LazyColumn(Modifier.fillMaxSize()) {
+                    errorMessage != null -> LazyColumn(Modifier.fillMaxSize().padding(top = glassTop)) {
                         item { Box(Modifier.fillParentMaxSize()) {
                             ErrorState(
                                 message = errorMessage ?: "加载失败",
@@ -241,7 +269,7 @@ fun CouponScreen(
                             )
                         } }
                     }
-                    records.isEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
+                    records.isEmpty() -> LazyColumn(Modifier.fillMaxSize().padding(top = glassTop)) {
                         item { Box(Modifier.fillParentMaxSize()) {
                             EmptyState(
                                 title = selectedFilter.emptyTitle,
@@ -262,8 +290,10 @@ fun CouponScreen(
                         isLoadingMore = isLoadingMore,
                         // 翻页失败时停止自动加载，否则会对着挂掉的接口无限重试
                         loadMoreError = loadMoreError,
-                        onLoadMore = { loadPage(selectedFilter, currentPage + 1, append = true) }
+                        onLoadMore = { loadPage(selectedFilter, currentPage + 1, append = true) },
+                        topPadding = glassTop,
                     )
+                }
                 }
             }
         }
@@ -281,18 +311,21 @@ private fun CouponList(
     filter: CouponFilter,
     statusMessage: String?,
     receivingIds: Set<String>,
-    onReceive: (CouponRecord) -> Unit
+    onReceive: (CouponRecord) -> Unit,
+    /** 玻璃顶栏（含标签行）的高度，放进列表顶部留白。 */
+    topPadding: androidx.compose.ui.unit.Dp = 0.dp,
 ) {
     val leftAmount = records.sumOf { it.leftAmountFen }
     val hasMore = records.size < total && loadMoreError == null
-    val listState = rememberLazyListState()
+    val listState = androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState()
 
     // 接近底部（还剩 3 项可见）时自动取下一页，避免用户反复点按钮。
     // hasMore 是普通局部值而非 State，必须作为 key，否则闭包会一直读到首次组合时的旧值。
     val shouldLoadMore by remember(hasMore) {
         derivedStateOf {
             if (!hasMore) return@derivedStateOf false
-            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: return@derivedStateOf false
+            // 瀑布流里可见项不一定按下标排好，取最大的下标
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.maxOfOrNull { it.index } ?: return@derivedStateOf false
             lastVisible >= listState.layoutInfo.totalItemsCount - 3
         }
     }
@@ -300,16 +333,16 @@ private fun CouponList(
         if (shouldLoadMore && !isLoadingMore) onLoadMore()
     }
 
-    LazyColumn(
+    // 宽屏券卡分两三列（见 AdaptiveCardGrid），汇总卡和翻页提示横跨全宽
+    com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid(
         state = listState,
         modifier = Modifier
             .fillMaxSize()
-            .overScrollVertical()
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-        contentPadding = PaddingValues(vertical = 12.dp)
+            .overScrollVertical(),
+        spacing = 10.dp,
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp + topPadding, bottom = 12.dp)
     ) {
-        item {
+        fullLineItem {
             CouponSummaryCard(
                 total = total,
                 filter = filter,
@@ -329,7 +362,7 @@ private fun CouponList(
         // 触底自动加载，不再让用户一页一页点"加载更多"。
         // 正常情况只显示一个轻量指示器；只有翻页失败时才需要用户介入重试。
         if (hasMore) {
-            item {
+            fullLineItem {
                 Box(
                     Modifier
                         .fillMaxWidth()
@@ -340,7 +373,7 @@ private fun CouponList(
                 }
             }
         } else if (loadMoreError != null) {
-            item {
+            fullLineItem {
                 Column(
                     Modifier
                         .fillMaxWidth()

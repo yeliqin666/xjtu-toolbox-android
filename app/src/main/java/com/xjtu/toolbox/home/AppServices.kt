@@ -41,12 +41,13 @@ object AppServices {
         AppService(Routes.LMS, "思源", "课程作业与资料", ServiceCategory.CLASS, listOf("思源学堂", "lms", "作业", "课件")),
         AppService(Routes.SCHOOL_COURSE, "课程查询", "全校开课查询", ServiceCategory.CLASS, listOf("开课", "选课", "查课")),
         AppService(Routes.NEW_ATTENDANCE, "新版考勤", "本研统一，流水、统计与请假", ServiceCategory.CLASS, listOf("考勤", "考勤查询", "出勤", "迟到", "缺勤", "新考勤", "请假", "病假", "私事假", "销假", "kq")),
-        AppService(Routes.ICLASSFACE, "快速考勤流水", "课堂人脸考勤记录", ServiceCategory.CLASS, listOf("人脸考勤", "刷脸", "iclassface"), audience = AccountType.UNDERGRADUATE),
+        AppService(Routes.ICLASSFACE, "快速考勤流水", "课堂人脸考勤记录", ServiceCategory.CLASS, listOf("人脸考勤", "刷脸", "iclassface"), showOnHome = false, audience = AccountType.UNDERGRADUATE),
 
         AppService(Routes.JWAPP_SCORE, "成绩", "本学期成绩与 GPA", ServiceCategory.STUDY, listOf("成绩查询", "分数", "gpa", "绩点")),
         AppService(Routes.JUDGE, "评教", "本科课程评教", ServiceCategory.STUDY, listOf("问卷", "打分", "本科评教")),
-        AppService(Routes.JIAOCAI, "教材", "教材选用信息", ServiceCategory.STUDY, listOf("课本", "教材中心")),
-        AppService(Routes.JIAOCAI1, "教材全文", "教材全文库", ServiceCategory.STUDY, listOf("全文", "电子书", "在线阅读")),
+        AppService(Routes.JIAOCAI, "教材", "查课程教材、读全文", ServiceCategory.STUDY, listOf("课本", "教材中心", "全文", "电子书", "在线阅读")),
+        // 已并进「教材」的全文库栏；首页不单列，全局搜「教材全文」仍能直达那一栏
+        AppService(Routes.JIAOCAI1, "教材全文", "教材全文库", ServiceCategory.STUDY, listOf("全文", "电子书", "在线阅读"), showOnHome = false),
         AppService(Routes.LIBRARY, "图书馆", "借阅与座位", ServiceCategory.STUDY, listOf("图书", "借书", "座位", "自习室")),
         AppService(Routes.TRANSCRIPT, "成绩单", "电子成绩单", ServiceCategory.STUDY, listOf("成绩证明", "打印成绩")),
         AppService(Routes.NOTIFICATION, "通知公告", "教务与学院通知", ServiceCategory.STUDY, listOf("通知", "公告", "教务")),

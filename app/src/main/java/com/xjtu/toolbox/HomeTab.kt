@@ -1,5 +1,6 @@
 package com.xjtu.toolbox
 
+import com.xjtu.toolbox.nav.expandOriginSource
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.activity.compose.BackHandler
@@ -50,6 +51,7 @@ import com.xjtu.toolbox.ui.theme.serviceColor
 import com.xjtu.toolbox.bulletin.Bulletin
 import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.ExpressiveIcon
+import com.xjtu.toolbox.ui.components.appCardShadow
 import com.xjtu.toolbox.util.CredentialStore
 import com.xjtu.toolbox.home.AppServices
 import com.xjtu.toolbox.home.ServiceCategory
@@ -128,20 +130,26 @@ private fun HomeHero(
     Box(
         Modifier
             .fillMaxWidth()
+            // 首页最重要的一张卡：托一层带主题色的柔影，从一排平铺的瓷砖里浮出来一点
+            .appCardShadow(shape = RoundedCornerShape(CARD_RADIUS), strong = true)
             .squircleClip(CARD_RADIUS)
             .background(AppCardColor),
     ) {
         Box(Modifier.matchParentSize()) {
-            Box(
-                Modifier
-                    .align(Alignment.TopEnd)
-                    .offset(x = 56.dp, y = (-64).dp)
-                    .size(260.dp)
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(primary.copy(alpha = 0.20f), Color.Transparent),
-                        ),
-                    ),
+            // 底色是缓慢流动的 Mesh 渐变（plan2 S2）：顶点颜色由主题色按不同浓度混进卡片底色，
+            // 布局沿用原来那两层静态渐变——右上一团光、左上偏浓、往下渐淡——所以静止时和以前一样，
+            // 只是多了一点呼吸。颜色从主题色算，不写死：Monet 取色下也跟着走。
+            val cardBase = AppCardColor
+            val heroMesh = remember(primary, cardBase) {
+                HeroMeshWeights.map { row -> row.map { t -> androidx.compose.ui.graphics.lerp(cardBase, primary, t) } }
+            }
+            com.xjtu.toolbox.ui.components.MeshBackground(
+                modifier = Modifier.matchParentSize(),
+                lightVertexColors = heroMesh,
+                darkVertexColors = heroMesh,
+                // 卡片在玻璃顶栏/底栏的取样范围里：一直流动的话，静止的首页也要每秒重新模糊 30 次，
+                // 实测滑动时掉帧明显。回到首页时流动一小段就停。
+                runForMillis = 6_000L,
             )
             Image(
                 painter = painterResource(R.drawable.home_campus_hero),
@@ -151,19 +159,6 @@ private fun HomeHero(
                     .padding(end = 8.dp, bottom = 12.dp)
                     .size(artSize),
                 contentScale = ContentScale.Fit,
-            )
-            Box(
-                Modifier
-                    .matchParentSize()
-                    .background(
-                        Brush.linearGradient(
-                            listOf(
-                                primary.copy(alpha = 0.14f),
-                                primary.copy(alpha = 0.04f),
-                                Color.Transparent,
-                            ),
-                        ),
-                    ),
             )
         }
         Column(
@@ -259,6 +254,8 @@ internal fun HomeTab(
     bulletins: List<Bulletin> = emptyList(),
     onBulletinTap: (Bulletin) -> Unit = {},
     onBulletinDismiss: (Bulletin) -> Unit = {},
+    /** 玻璃顶栏的高度：内容铺到顶栏下面，这段留白放进滚动内容里。经典风格为 0。 */
+    contentTopPadding: androidx.compose.ui.unit.Dp = 0.dp,
 ) {
     // ── 仪表盘数据：下一节日程 + 校园卡余额缓存（供 Hero 重点信息区使用）──
     val heroContext = LocalContext.current
@@ -694,6 +691,7 @@ internal fun HomeTab(
                                 service.color,
                                 onClick = trackedAction(service),
                                 modifier = Modifier.weight(1f),
+                                originKey = service.key,
                             )
                         }
                     }
@@ -783,6 +781,14 @@ internal fun HomeTab(
                             }
                         }
                         // 日程没有下节课时，退回最近一场考试（HomeStats 把它挂在同一个 key 下）
+                        // 快速考勤流水不再单列在首页，今天刷过卡就借新版考勤这一行露出来
+                        Routes.NEW_ATTENDANCE -> homeStats[Routes.NEW_ATTENDANCE]?.let { att ->
+                            val punch = homeStats[Routes.ICLASSFACE]
+                            val detail = if (punch != null && punch.value != "今日未刷卡") {
+                                "今日已刷 ${punch.value}" + (punch.detail?.takeIf { it.isNotBlank() }?.let { " · $it" } ?: "")
+                            } else att.detail
+                            att.value to detail
+                        }
                         else -> homeStats[key]?.let { it.value to it.detail }
                     }
                 }
@@ -834,6 +840,7 @@ internal fun HomeTab(
                     .overScrollVertical()
                     .verticalScroll(rememberScrollState())
             ) {
+                Spacer(Modifier.height(contentTopPadding))
                 headerSection()
                 Spacer(Modifier.height(24.dp))
                 quickActionsSection()
@@ -847,7 +854,7 @@ internal fun HomeTab(
                     .verticalScroll(rememberScrollState())
                     .padding(end = 16.dp)
             ) {
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(contentTopPadding + 8.dp))
                 categorySection()
                 Spacer(Modifier.height(24.dp))
             }
@@ -860,6 +867,7 @@ internal fun HomeTab(
                 .overScrollVertical()
                 .verticalScroll(rememberScrollState())
         ) {
+            Spacer(Modifier.height(contentTopPadding))
             headerSection()
             Spacer(Modifier.height(24.dp))
             quickActionsSection()
@@ -1093,13 +1101,19 @@ private fun HomeServiceTile(
     row: HomeServiceRow,
     modifier: Modifier = Modifier,
 ) {
+    val origin = com.xjtu.toolbox.nav.rememberExpandOriginSource()
+    val density = androidx.compose.ui.platform.LocalDensity.current
     Column(
         modifier = modifier
+            .expandOriginSource(origin)
             .clip(RoundedCornerShape(14.dp))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = SinkFeedback(),
-                onClick = row.onClick
+                onClick = {
+                    origin.arm(row.key, 14.dp, density)
+                    row.onClick()
+                }
             )
             .padding(horizontal = 2.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -1119,6 +1133,17 @@ private fun HomeServiceTile(
 
 /** 分类卡圆角。超椭圆下这个值可以给得比普通圆角更大而不显得"胀"。 */
 private val CARD_RADIUS = 26.dp
+
+/**
+ * 首页 Hero 卡 Mesh 渐变的 3x3 顶点：每格是「主题色混进卡片底色的比例」。
+ * 右上角最浓（原来那团径向光），左上次之（原来斜向渐变的起点），往下、往中间渐淡，
+ * 底部几乎就是卡片底色，给右下角的主楼插画和下面的文字留出干净的底。
+ */
+private val HeroMeshWeights = listOf(
+    listOf(0.15f, 0.08f, 0.22f),
+    listOf(0.07f, 0.11f, 0.08f),
+    listOf(0.03f, 0.02f, 0.05f),
+)
 
 // ══════════════════════════════════════════
 //  卡片主题：场景大卡
@@ -1204,13 +1229,19 @@ private fun ServiceStatCell(
     accent: androidx.compose.ui.graphics.Color,
     modifier: Modifier = Modifier,
 ) {
+    val origin = com.xjtu.toolbox.nav.rememberExpandOriginSource()
+    val density = androidx.compose.ui.platform.LocalDensity.current
     Column(
         modifier = modifier
+            .expandOriginSource(origin)
             .clip(RoundedCornerShape(10.dp))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = SinkFeedback(),
-                onClick = row.onClick
+                onClick = {
+                    origin.arm(row.key, 10.dp, density)
+                    row.onClick()
+                }
             )
             .padding(vertical = 7.dp, horizontal = 4.dp)
     ) {
@@ -1277,15 +1308,23 @@ private fun HomeQuickAction(
     color: androidx.compose.ui.graphics.Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    /** 点它打开的路由；用来让功能页从这一格放大出来（PR V）。 */
+    originKey: String? = null,
 ) {
+    val origin = com.xjtu.toolbox.nav.rememberExpandOriginSource()
+    val density = androidx.compose.ui.platform.LocalDensity.current
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier
+            .then(if (originKey != null) Modifier.expandOriginSource(origin) else Modifier)
             .clip(RoundedCornerShape(18.dp))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = SinkFeedback(),
-                onClick = onClick
+                onClick = {
+                    originKey?.let { origin.arm(it, 18.dp, density) }
+                    onClick()
+                }
             )
             .padding(horizontal = 8.dp, vertical = 8.dp)
     ) {

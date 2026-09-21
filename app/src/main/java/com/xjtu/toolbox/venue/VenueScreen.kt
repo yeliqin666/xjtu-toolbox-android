@@ -17,6 +17,9 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.staggeredgrid.items
+import com.xjtu.toolbox.ui.adaptive.fullLineItem
+import com.xjtu.toolbox.ui.adaptive.readableWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -39,6 +42,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
+import com.xjtu.toolbox.ui.glass.LocalOnGlassBar
+import com.xjtu.toolbox.ui.components.AppTabPager
+import com.xjtu.toolbox.ui.glass.*
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
@@ -411,6 +417,16 @@ fun VenueScreen(
     }
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
+    // 「场馆预订」「我的订单」两个顶层标签共用的选中回调：标签行点击、
+    // 翻页器滑动停稳都会走这里，切到「我的订单」时顺带首次拉一页。
+    val onSelectTab: (Int) -> Unit = { index ->
+        selectedTab = index
+        if (index == 1 && orders.isEmpty() && !ordersLoading) {
+            loadOrders(reset = true)
+        }
+    }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -422,6 +438,8 @@ fun VenueScreen(
                     VenuePage.VenueList -> "场馆预订"
                     is VenuePage.SlotSelection -> selectedVenue?.name ?: "选择时段"
                 },
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = {
@@ -440,9 +458,38 @@ fun VenueScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
+                // 分段标签、选日期这些不滚动的头部挂在顶栏里，和顶栏一起做一整块玻璃，
+                // 列表从它们下面滚过去（压在玻璃后面的是列表，不是这几行按钮）
+                bottomContent = {
+                    CompositionLocalProvider(LocalOnGlassBar provides (glass != null)) {
+                        Column {
+                            AppSegmentedTabs(
+                                tabs = listOf("场馆预订", "我的订单"),
+                                selectedTabIndex = selectedTab,
+                                onTabSelected = onSelectTab,
+                                // 宽屏限宽居中：两格标签拉满整个平板宽度不好点
+                                modifier = Modifier.readableWidth(),
+                            )
+                            // 选时段时的日期条。放在下拉刷新外面，避免和横向选日抢手势
+                            val venue = selectedVenue
+                            AnimatedVisibility(
+                                visible = selectedTab == 0 && currentPage is VenuePage.SlotSelection && venue != null,
+                            ) {
+                                if (venue != null) {
+                                    DateSelector(
+                                        selectedDate = selectedDate,
+                                        onDateChange = { selectedDate = it },
+                                        advanceDay = venue.advanceDay,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                },
             )
         }
     ) { padding ->
+        val glassTop = padding.glassTop(glass)
 
         // ── 首次使用提示 ──
         //
@@ -480,89 +527,95 @@ fun VenueScreen(
                 }
             }
         }
-        Column(Modifier.fillMaxSize().padding(padding)) {
-            AppSegmentedTabs(
-                tabs = listOf("场馆预订", "我的订单"),
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(padding.withoutTop(glass))
+                .glassSource(glass)
+        ) {
+            // 标签行在顶栏里（bottomContent），这里的列表各自把 glassTop 放进 contentPadding
+            AppTabPager(
+                pageCount = 2,
                 selectedTabIndex = selectedTab,
-                onTabSelected = { index ->
-                    selectedTab = index
-                    if (index == 1 && orders.isEmpty() && !ordersLoading) {
-                        loadOrders(reset = true)
-                    }
-                },
-            )
+                onTabSelected = onSelectTab,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                // 「场馆预订」栏内部还有一层「场馆列表 → 选时段」的子导航；
+                // 只在停在场馆列表时允许横滑切顶层标签，选时段中途横滑容易和
+                // 返回按钮的语义（回到场馆列表）打架，所以关掉。
+                swipeEnabled = currentPage is VenuePage.VenueList,
+            ) { tabPage ->
+                if (tabPage == 1) {
+                    VenueOrdersContent(
+                        orders = orders,
+                        isLoading = ordersLoading,
+                        isLoadingMore = ordersLoadingMore,
+                        error = ordersError,
+                        hasMore = ordersHasMore,
+                        onRetry = { loadOrders(reset = true) },
+                        onRefresh = { loadOrders(reset = true) },
+                        onLoadMore = { loadOrders(reset = false) },
+                        onDetail = { orderDetail = it },
+                        onCancel = { cancelTarget = it },
+                        onPay = { payTarget = it },
+                        modifier = Modifier.fillMaxSize(),
+                        scrollBehavior = scrollBehavior,
+                        topPadding = glassTop,
+                    )
+                } else {
+                    AnimatedContent(
+                        targetState = currentPage,
+                        modifier = Modifier.fillMaxSize(),
+                        transitionSpec = {
+                            if (targetState is VenuePage.SlotSelection) {
+                                (slideInHorizontally { it / 3 } + fadeIn()) togetherWith
+                                        (slideOutHorizontally { -it / 3 } + fadeOut())
+                            } else {
+                                (slideInHorizontally { -it / 3 } + fadeIn()) togetherWith
+                                        (slideOutHorizontally { it / 3 } + fadeOut())
+                            }
+                        },
+                        label = "VenuePage"
+                    ) { page ->
+                        when (page) {
+                            VenuePage.VenueList ->                         VenueListContent(
+                                venues = venues,
+                                isLoading = venueLoading,
+                                isRefreshing = venueRefreshing,
+                                error = venueError,
+                                onRetry = { loadVenues() },
+                                onRefresh = { loadVenues(silent = true) },
+                                onVenueSelected = { venue ->
+                                    selectedVenue = venue
+                                    currentPage = VenuePage.SlotSelection
+                                    loadSlots()
+                                },
+                                favoriteIds = favoriteIds,
+                                onToggleFavorite = { venue ->
+                                    val isFavorite = favoritesManager.toggleFavorite(venue.id)
+                                    showFavoriteToast.value = if (isFavorite) "已收藏 ${venue.name}" else "已取消收藏 ${venue.name}"
+                                },
+                                modifier = Modifier.fillMaxSize(),
+                                scrollBehavior = scrollBehavior,
+                                topPadding = glassTop,
+                            )
 
-            if (selectedTab == 1) {
-                VenueOrdersContent(
-                    orders = orders,
-                    isLoading = ordersLoading,
-                    isLoadingMore = ordersLoadingMore,
-                    error = ordersError,
-                    hasMore = ordersHasMore,
-                    onRetry = { loadOrders(reset = true) },
-                    onRefresh = { loadOrders(reset = true) },
-                    onLoadMore = { loadOrders(reset = false) },
-                    onDetail = { orderDetail = it },
-                    onCancel = { cancelTarget = it },
-                    onPay = { payTarget = it },
-                    modifier = Modifier.weight(1f),
-                    scrollBehavior = scrollBehavior
-                )
-            } else {
-                AnimatedContent(
-                    targetState = currentPage,
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
-                    transitionSpec = {
-                        if (targetState is VenuePage.SlotSelection) {
-                            (slideInHorizontally { it / 3 } + fadeIn()) togetherWith
-                                    (slideOutHorizontally { -it / 3 } + fadeOut())
-                        } else {
-                            (slideInHorizontally { -it / 3 } + fadeIn()) togetherWith
-                                    (slideOutHorizontally { it / 3 } + fadeOut())
+                            is VenuePage.SlotSelection -> SlotSelectionContent(
+                                availableSlots = availableSlots,
+                                selectedSlots = selectedSlots,
+                                onToggleSlot = { slot ->
+                                    selectedSlots = if (slot in selectedSlots) selectedSlots - slot else selectedSlots + slot
+                                },
+                                isLoading = slotsLoading,
+                                isRefreshing = slotsRefreshing,
+                                error = slotsError,
+                                onRetry = { loadSlots() },
+                                onRefresh = { loadSlots(silent = true) },
+                                onConfirm = { showBookingConfirm = true },
+                                modifier = Modifier.fillMaxSize(),
+                                scrollBehavior = scrollBehavior,
+                                topPadding = glassTop,
+                            )
                         }
-                    },
-                    label = "VenuePage"
-                ) { page ->
-                    when (page) {
-                        VenuePage.VenueList ->                         VenueListContent(
-                            venues = venues,
-                            isLoading = venueLoading,
-                            isRefreshing = venueRefreshing,
-                            error = venueError,
-                            onRetry = { loadVenues() },
-                            onRefresh = { loadVenues(silent = true) },
-                            onVenueSelected = { venue ->
-                                selectedVenue = venue
-                                currentPage = VenuePage.SlotSelection
-                                loadSlots()
-                            },
-                            favoriteIds = favoriteIds,
-                            onToggleFavorite = { venue ->
-                                val isFavorite = favoritesManager.toggleFavorite(venue.id)
-                                showFavoriteToast.value = if (isFavorite) "已收藏 ${venue.name}" else "已取消收藏 ${venue.name}"
-                            },
-                            modifier = Modifier.fillMaxSize(),
-                            scrollBehavior = scrollBehavior
-                        )
-
-                        is VenuePage.SlotSelection -> SlotSelectionContent(
-                            venue = selectedVenue!!,
-                            date = selectedDate,
-                            onDateChange = { selectedDate = it },
-                            availableSlots = availableSlots,
-                            selectedSlots = selectedSlots,
-                            onToggleSlot = { slot ->
-                                selectedSlots = if (slot in selectedSlots) selectedSlots - slot else selectedSlots + slot
-                            },
-                            isLoading = slotsLoading,
-                            isRefreshing = slotsRefreshing,
-                            error = slotsError,
-                            onRetry = { loadSlots() },
-                            onRefresh = { loadSlots(silent = true) },
-                            onConfirm = { showBookingConfirm = true },
-                            modifier = Modifier.fillMaxSize(),
-                            scrollBehavior = scrollBehavior
-                        )
                     }
                 }
             }
@@ -974,7 +1027,9 @@ private fun VenueListContent(
     favoriteIds: Set<Int>,
     onToggleFavorite: (VenueApi.Venue) -> Unit,
     modifier: Modifier = Modifier,
-    scrollBehavior: ScrollBehavior
+    scrollBehavior: ScrollBehavior,
+    /** 玻璃顶栏（含标签行）的高度，放进列表顶部留白。 */
+    topPadding: androidx.compose.ui.unit.Dp = 0.dp,
 ) {
     val sortedVenues = remember(venues, favoriteIds) {
         venues.sortedByDescending { it.id in favoriteIds }
@@ -982,27 +1037,30 @@ private fun VenueListContent(
     val pullToRefreshState = rememberPullToRefreshState()
 
     PullToRefresh(
+        refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
         isRefreshing = isRefreshing,
         onRefresh = onRefresh,
         pullToRefreshState = pullToRefreshState,
         topAppBarScrollBehavior = scrollBehavior,
+        contentPadding = PaddingValues(top = topPadding),
         modifier = modifier.fillMaxSize()
     ) {
     when {
-        isLoading -> LazyColumn(Modifier.fillMaxSize()) {
+        isLoading -> LazyColumn(Modifier.fillMaxSize().padding(top = topPadding)) {
             item { Box(Modifier.fillParentMaxSize()) { LoadingState(message = "加载场馆列表...", modifier = Modifier.fillMaxSize()) } }
         }
-        error != null && venues.isEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
+        error != null && venues.isEmpty() -> LazyColumn(Modifier.fillMaxSize().padding(top = topPadding)) {
             item { Box(Modifier.fillParentMaxSize()) { ErrorState(message = error, onRetry = onRetry, modifier = Modifier.fillMaxSize()) } }
         }
-        sortedVenues.isEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
+        sortedVenues.isEmpty() -> LazyColumn(Modifier.fillMaxSize().padding(top = topPadding)) {
             item { Box(Modifier.fillParentMaxSize()) { EmptyState(title = "暂无可预订场馆", modifier = Modifier.fillMaxSize()) } }
         }
-        else -> LazyColumn(
+        // 宽屏场馆卡分两三列（见 AdaptiveCardGrid）
+        else -> com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid(
             modifier = Modifier
                 .fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp + topPadding, bottom = 8.dp),
+            spacing = 8.dp,
         ) {
             items(sortedVenues, key = { it.id }) { venue ->
                 VenueCard(
@@ -1106,9 +1164,6 @@ private fun VenueCard(
 // ─── 时段选择页 ───
 @Composable
 private fun SlotSelectionContent(
-    venue: VenueApi.Venue,
-    date: LocalDate,
-    onDateChange: (LocalDate) -> Unit,
     availableSlots: List<VenueApi.AreaSlot>,
     selectedSlots: Set<VenueApi.AreaSlot>,
     onToggleSlot: (VenueApi.AreaSlot) -> Unit,
@@ -1119,32 +1174,29 @@ private fun SlotSelectionContent(
     onRefresh: () -> Unit,
     onConfirm: () -> Unit,
     modifier: Modifier = Modifier,
-    scrollBehavior: ScrollBehavior
+    scrollBehavior: ScrollBehavior,
+    /** 玻璃顶栏（含标签行、日期条）的高度，放进列表顶部留白。日期条在顶栏里，见 VenueScreen。 */
+    topPadding: androidx.compose.ui.unit.Dp = 0.dp,
 ) {
     val pullToRefreshState = rememberPullToRefreshState()
     Column(modifier = modifier.fillMaxSize()) {
-        // 日期选择栏留在下拉刷新外面，避免和横向选日抢手势
-        DateSelector(
-            selectedDate = date,
-            onDateChange = onDateChange,
-            advanceDay = venue.advanceDay,
-        )
-
         PullToRefresh(
+            refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
             isRefreshing = isRefreshing,
             onRefresh = onRefresh,
             pullToRefreshState = pullToRefreshState,
             topAppBarScrollBehavior = scrollBehavior,
+            contentPadding = PaddingValues(top = topPadding),
             modifier = Modifier.weight(1f).fillMaxWidth()
         ) {
         when {
-            isLoading -> LazyColumn(Modifier.fillMaxSize()) {
+            isLoading -> LazyColumn(Modifier.fillMaxSize().padding(top = topPadding)) {
                 item { Box(Modifier.fillParentMaxSize()) { LoadingState(message = "加载可用时段...", modifier = Modifier.fillMaxSize()) } }
             }
-            error != null && availableSlots.isEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
+            error != null && availableSlots.isEmpty() -> LazyColumn(Modifier.fillMaxSize().padding(top = topPadding)) {
                 item { Box(Modifier.fillParentMaxSize()) { ErrorState(message = error, onRetry = onRetry, modifier = Modifier.fillMaxSize()) } }
             }
-            availableSlots.isEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
+            availableSlots.isEmpty() -> LazyColumn(Modifier.fillMaxSize().padding(top = topPadding)) {
                 item { Box(Modifier.fillParentMaxSize()) { EmptyState(title = "该日期暂无可预订时段", subtitle = "请尝试其他日期", modifier = Modifier.fillMaxSize()) } }
             }
             else -> {
@@ -1153,11 +1205,12 @@ private fun SlotSelectionContent(
                     availableSlots.groupBy { it.timeSlot }.toSortedMap()
                 }
 
-                LazyColumn(
+                // 宽屏一个时间段一张卡，分两三列（见 AdaptiveCardGrid）
+                com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid(
                     modifier = Modifier
                         .fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp + topPadding, bottom = 8.dp),
+                    spacing = 12.dp,
                 ) {
                     slotsByTime.forEach { (timeSlot, slots) ->
                         item(key = timeSlot) {
@@ -1170,7 +1223,7 @@ private fun SlotSelectionContent(
                         }
                     }
                     // 底部留白给确认按钮
-                    item { Spacer(Modifier.height(72.dp)) }
+                    fullLineItem { Spacer(Modifier.height(72.dp)) }
                 }
             }
         }

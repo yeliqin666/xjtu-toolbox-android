@@ -185,6 +185,19 @@ class AgentWebTest {
     }
 
     @Test
+    fun capToolResult_cutsWholeLinesAndCountsThem() {
+        val rows = (1..400).map { "课程$it｜周一 08:00–09:50｜主楼A-${100 + it}" }
+        val cut = AgentRunner.capToolResult(rows.joinToString("\n"))
+        val kept = cut.split('\n')
+        // 每一行要么是完整的原行，要么是省略标记，不会劈成半行
+        assertTrue(kept.all { it in rows || it.contains("省略") })
+        val omitted = Regex("""省略中间 (\d+) 行""").find(cut)!!.groupValues[1].toInt()
+        assertEquals(400, kept.size - 1 + omitted)
+        assertTrue(cut.startsWith("课程1｜"))
+        assertTrue(cut.endsWith("课程400｜周一 08:00–09:50｜主楼A-500"))
+    }
+
+    @Test
     fun capToolResult_fetchKeepsMoreThanDefault() {
         val long = "HEAD" + "m".repeat(9000) + "TAIL"
         val asList = AgentRunner.capToolResult(long, "get_notifications")
@@ -195,12 +208,10 @@ class AgentWebTest {
     }
 
     @Test
-    fun remainingToolHint_onlyWhenLow() {
-        assertNull(AgentRunner.remainingToolHint(0, 3))
-        assertNull(AgentRunner.remainingToolHint(8, 3))
-        val low = AgentRunner.remainingToolHint(8, 6)!!
-        assertTrue(low.contains("还剩 2 次"))
-        assertTrue(!low.contains("web_fetch"))
-        assertTrue(AgentRunner.remainingToolHint(8, 8)!!.contains("已用尽"))
+    fun remainingToolHint_onlyWhenFuseBlows() {
+        // 平时不提次数，只在保险丝烧断那一刻说一句
+        assertNull(AgentRunner.remainingToolHint(0))
+        assertNull(AgentRunner.remainingToolHint(AgentRunner.TOOL_CALL_FUSE - 1))
+        assertTrue(AgentRunner.remainingToolHint(AgentRunner.TOOL_CALL_FUSE)!!.contains("已用尽"))
     }
 }

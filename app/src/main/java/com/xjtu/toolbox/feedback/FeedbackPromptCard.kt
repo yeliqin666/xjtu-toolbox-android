@@ -134,21 +134,18 @@ fun FeedbackPromptSheet() {
                     .heightIn(min = 96.dp),
             )
             Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(
-                    text = "挺好",
-                    onClick = { send("好用", note.trim()) },
-                    colors = ButtonDefaults.textButtonColorsPrimary(),
-                    modifier = Modifier.weight(1f),
-                )
+            // 底部弹窗惯例：左次要、右主要，两个。「别问了」删了——下滑/点外面关掉就是不再问，
+            // 和两个评价并排反而像三选一。
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 TextButton(
                     text = "有问题",
                     onClick = { send("有问题", note.trim()) },
                     modifier = Modifier.weight(1f),
                 )
                 TextButton(
-                    text = "别问了",
-                    onClick = { close() },
+                    text = "挺好",
+                    onClick = { send("好用", note.trim()) },
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
                     modifier = Modifier.weight(1f),
                 )
             }

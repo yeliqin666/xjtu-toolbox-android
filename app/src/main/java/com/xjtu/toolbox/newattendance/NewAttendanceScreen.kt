@@ -1,6 +1,10 @@
 package com.xjtu.toolbox.newattendance
 
 import com.xjtu.toolbox.ui.adaptive.readableWidth
+import com.xjtu.toolbox.ui.adaptive.fullLineItem
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.foundation.lazy.staggeredgrid.items
+import com.xjtu.toolbox.ui.glass.*
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -8,6 +12,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -24,6 +29,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Face
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -51,6 +57,7 @@ import com.xjtu.toolbox.auth.handleAuthExpired
 import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.AppDatePickerDialog
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
+import com.xjtu.toolbox.ui.components.AppTabPager
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
@@ -103,6 +110,7 @@ private data class NewAttendanceSnapshot(
 fun NewAttendanceScreen(
     site: SiteSession,
     onBack: () -> Unit,
+    onOpenIclassface: () -> Unit,
 ) {
     val api = remember(site) { NewAttendanceApi(site) }
     val leaveApi = remember(site) { LeaveApi(site) }
@@ -187,13 +195,16 @@ fun NewAttendanceScreen(
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     val pullToRefreshState = rememberPullToRefreshState()
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = "新版考勤",
                 largeTitle = "新版考勤",
-                color = MiuixTheme.colorScheme.surface,
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -201,72 +212,113 @@ fun NewAttendanceScreen(
                     }
                 },
                 actions = {
+                    // 快速考勤流水（电子班牌刷卡、人脸签到）：另一个系统的打卡记录，
+                    // 首页不再单独放入口，改从这里进去，做法照搬成绩页右上角的「成绩报表」。
+                    IconButton(onClick = onOpenIclassface) {
+                        Icon(Icons.Default.Face, contentDescription = "快速考勤流水（电子班牌刷卡、人脸签到）")
+                    }
                     if (selectedTab == 3) {
                         IconButton(onClick = { showForm = true }) {
                             Icon(Icons.Default.Add, contentDescription = "新建请假")
                         }
                     }
-                }
-            )
-        }
-    ) { padding ->
-        when {
-            loading && records.isEmpty() && leaves.isEmpty() && error == null -> {
-                LoadingState(message = "加载新版考勤…", modifier = Modifier.fillMaxSize().padding(padding))
-            }
-            error != null && records.isEmpty() && leaves.isEmpty() -> {
-                ErrorState(message = error!!, onRetry = { load() }, modifier = Modifier.fillMaxSize().padding(padding))
-            }
-            else -> {
-                PullToRefresh(
-                    isRefreshing = refreshing,
-                    pullToRefreshState = pullToRefreshState,
-                    onRefresh = { load(fromPull = true) },
-                    topAppBarScrollBehavior = scrollBehavior,
-                    modifier = Modifier.fillMaxSize().padding(padding)
-                ) {
-                    Column(Modifier.readableWidth().fillMaxSize()) {
-                        if (studentName.isNotBlank()) {
-                            Text(
-                                text = studentName + (semesterWindow?.semesterName?.let { " · $it" } ?: ""),
-                                style = MiuixTheme.textStyles.subtitle,
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                modifier = Modifier.padding(horizontal = 28.dp, vertical = 8.dp)
-                            )
-                        }
-                        Card(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                            colors = CardDefaults.defaultColors(color = AppCardColor)
-                        ) {
+                },
+                // 四个分栏标签不跟着滚：挂在顶栏里和顶栏一起做一整块玻璃。
+                // 没数据（加载中 / 出错）时不显示，那时点了也没东西可切
+                bottomContent = {
+                    if (records.isNotEmpty() || leaves.isNotEmpty() || !(loading || error != null)) {
+                        CompositionLocalProvider(LocalOnGlassBar provides (glass != null)) {
                             AppSegmentedTabs(
                                 tabs = listOf("流水", "打卡流水", "统计", "请假"),
                                 selectedTabIndex = selectedTab,
                                 onTabSelected = { selectedTab = it },
-                                embedded = true,
+                                modifier = Modifier.readableWidth(),
                             )
-                            if (termList.isNotEmpty() && selectedTab != 3) {
-                                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
-                                OverlaySpinnerPreference(
-                                    title = "学期",
-                                    summary = "选择要查询的学期",
-                                    items = termList.map { DropdownItem(text = it.name) },
-                                    selectedIndex = termList.indexOfFirst { it.bh == selectedTermBh }.coerceAtLeast(0),
-                                    onSelectedIndexChange = {
-                                        selectedTermBh = termList[it].bh
-                                        load()
-                                    }
-                                )
-                            }
                         }
-                        when (selectedTab) {
-                            0 -> RecordList(records)
-                            1 -> StreamList(streams)
-                            2 -> StatList(courseStats)
+                    }
+                },
+            )
+        }
+    ) { padding ->
+        // 内容铺到顶栏下面；标签行在顶栏里，姓名、学期这一块是每个分栏列表的第一项，跟着列表滚，
+        // 各列表自己把 glassTop 放进 contentPadding
+        val glassTop = padding.glassTop(glass)
+        // 姓名 · 学期 + 学期选择。请假栏不分学期，不放选择器
+        val listHeader: @Composable (Int) -> Unit = { tab ->
+            Column(Modifier.readableWidth().fillMaxWidth()) {
+                if (studentName.isNotBlank()) {
+                    Text(
+                        text = studentName + (semesterWindow?.semesterName?.let { " · $it" } ?: ""),
+                        style = MiuixTheme.textStyles.subtitle,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                    )
+                }
+                if (termList.isNotEmpty() && tab != 3) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        colors = CardDefaults.defaultColors(color = AppCardColor)
+                    ) {
+                        OverlaySpinnerPreference(
+                            title = "学期",
+                            summary = "选择要查询的学期",
+                            items = termList.map { DropdownItem(text = it.name) },
+                            selectedIndex = termList.indexOfFirst { it.bh == selectedTermBh }.coerceAtLeast(0),
+                            onSelectedIndexChange = {
+                                selectedTermBh = termList[it].bh
+                                load()
+                            }
+                        )
+                    }
+                }
+            }
+        }
+        when {
+            loading && records.isEmpty() && leaves.isEmpty() && error == null -> {
+                LazyColumn(
+                    Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
+                    contentPadding = PaddingValues(top = glassTop)
+                ) {
+                    item { Box(Modifier.fillParentMaxSize()) { LoadingState(message = "加载新版考勤…", modifier = Modifier.fillMaxSize()) } }
+                }
+            }
+            error != null && records.isEmpty() && leaves.isEmpty() -> {
+                LazyColumn(
+                    Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
+                    contentPadding = PaddingValues(top = glassTop)
+                ) {
+                    item { Box(Modifier.fillParentMaxSize()) { ErrorState(message = error!!, onRetry = { load() }, modifier = Modifier.fillMaxSize()) } }
+                }
+            }
+            else -> {
+                PullToRefresh(
+                    refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
+                    isRefreshing = refreshing,
+                    pullToRefreshState = pullToRefreshState,
+                    onRefresh = { load(fromPull = true) },
+                    topAppBarScrollBehavior = scrollBehavior,
+                    contentPadding = PaddingValues(top = glassTop),
+                    modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass)
+                ) {
+                    // 宽屏：姓名和学期块限宽居中，下面的记录分两三列铺开（见 AdaptiveCardGrid）
+                    AppTabPager(
+                        pageCount = 4,
+                        selectedTabIndex = selectedTab,
+                        onTabSelected = { selectedTab = it },
+                        modifier = Modifier.fillMaxSize(),
+                    ) { tab ->
+                        val header: @Composable () -> Unit = { listHeader(tab) }
+                        when (tab) {
+                            0 -> RecordList(records, glassTop, header)
+                            1 -> StreamList(streams, glassTop, header)
+                            2 -> StatList(courseStats, glassTop, header)
                             else -> LeaveList(
                                 leaves = leaves,
                                 onOpen = { detail = it },
                                 onWithdraw = { pendingAction = LeaveAction.WITHDRAW to it },
                                 onCancel = { pendingAction = LeaveAction.CANCEL to it },
+                                topPadding = glassTop,
+                                header = header,
                             )
                         }
                     }
@@ -393,16 +445,50 @@ fun NewAttendanceScreen(
 
 private enum class LeaveAction { WITHDRAW, CANCEL }
 
+/**
+ * 四个分栏共用的列表外壳：[topPadding]（玻璃顶栏连同标签行的高度）放进列表顶部留白，
+ * 第一项是姓名 / 学期块 [header]，跟着列表一起滚。没有数据时也保留头部，学期照样能切。
+ */
 @Composable
-private fun RecordList(records: List<AttendanceWaterRecord>) {
-    if (records.isEmpty()) {
-        EmptyState(title = "暂无考勤记录", modifier = Modifier.fillMaxSize())
+private fun AttendanceListShell(
+    isEmpty: Boolean,
+    empty: @Composable (Modifier) -> Unit,
+    topPadding: androidx.compose.ui.unit.Dp,
+    header: @Composable () -> Unit,
+    bottomPadding: androidx.compose.ui.unit.Dp = 16.dp,
+    content: androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridScope.() -> Unit,
+) {
+    if (isEmpty) {
+        LazyColumn(
+            Modifier.fillMaxSize().overScrollVertical(),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp + topPadding),
+        ) {
+            item(key = "header") { header() }
+            item(key = "empty") { empty(Modifier.fillParentMaxWidth().fillParentMaxHeight(0.6f)) }
+        }
         return
     }
-    LazyColumn(
+    com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid(
         modifier = Modifier.fillMaxSize().overScrollVertical(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp + topPadding, bottom = bottomPadding),
+        spacing = 10.dp,
+    ) {
+        fullLineItem(key = "header") { header() }
+        content()
+    }
+}
+
+@Composable
+private fun RecordList(
+    records: List<AttendanceWaterRecord>,
+    topPadding: androidx.compose.ui.unit.Dp,
+    header: @Composable () -> Unit,
+) {
+    AttendanceListShell(
+        isEmpty = records.isEmpty(),
+        empty = { EmptyState(title = "暂无考勤记录", modifier = it) },
+        topPadding = topPadding,
+        header = header,
     ) {
         items(records, key = { it.sbh }) { record ->
             Card(colors = CardDefaults.defaultColors(color = AppCardColor)) {
@@ -431,15 +517,16 @@ private fun RecordList(records: List<AttendanceWaterRecord>) {
  * 没有考勤状态，只有"什么时候在哪台设备刷了一下、这次刷卡算不算数"。
  */
 @Composable
-private fun StreamList(streams: List<AttendanceStream>) {
-    if (streams.isEmpty()) {
-        EmptyState(title = "暂无打卡流水", modifier = Modifier.fillMaxSize())
-        return
-    }
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().overScrollVertical(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+private fun StreamList(
+    streams: List<AttendanceStream>,
+    topPadding: androidx.compose.ui.unit.Dp,
+    header: @Composable () -> Unit,
+) {
+    AttendanceListShell(
+        isEmpty = streams.isEmpty(),
+        empty = { EmptyState(title = "暂无打卡流水", modifier = it) },
+        topPadding = topPadding,
+        header = header,
     ) {
         // 不给 key：id 可能缺失，同一台设备同一秒刷两次时拼出来的 key 会重复，Compose 直接崩。
         items(streams) { stream ->
@@ -478,15 +565,16 @@ private fun StreamList(streams: List<AttendanceStream>) {
 }
 
 @Composable
-private fun StatList(stats: List<CourseAttendanceStat>) {
-    if (stats.isEmpty()) {
-        EmptyState(title = "暂无课程考勤统计数据", modifier = Modifier.fillMaxSize())
-        return
-    }
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().overScrollVertical(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+private fun StatList(
+    stats: List<CourseAttendanceStat>,
+    topPadding: androidx.compose.ui.unit.Dp,
+    header: @Composable () -> Unit,
+) {
+    AttendanceListShell(
+        isEmpty = stats.isEmpty(),
+        empty = { EmptyState(title = "暂无课程考勤统计数据", modifier = it) },
+        topPadding = topPadding,
+        header = header,
     ) {
         items(stats, key = { it.subjectName + it.subjectCode }) { stat ->
             Card(colors = CardDefaults.defaultColors(color = AppCardColor)) {
@@ -509,19 +597,21 @@ private fun LeaveList(
     onOpen: (LeaveRecord) -> Unit,
     onWithdraw: (LeaveRecord) -> Unit,
     onCancel: (LeaveRecord) -> Unit,
+    topPadding: androidx.compose.ui.unit.Dp,
+    header: @Composable () -> Unit,
 ) {
-    if (leaves.isEmpty()) {
-        EmptyState(
-            title = "暂无请假记录",
-            subtitle = "点右上角加号提交病假或私事假申请",
-            modifier = Modifier.fillMaxSize()
-        )
-        return
-    }
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().overScrollVertical(),
-        contentPadding = PaddingValues(16.dp, 16.dp, 16.dp, 88.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+    AttendanceListShell(
+        isEmpty = leaves.isEmpty(),
+        empty = {
+            EmptyState(
+                title = "暂无请假记录",
+                subtitle = "点右上角加号提交病假或私事假申请",
+                modifier = it
+            )
+        },
+        topPadding = topPadding,
+        header = header,
+        bottomPadding = 88.dp,
     ) {
         items(leaves, key = { it.leaveId }) { rec ->
             Card(colors = CardDefaults.defaultColors(color = AppCardColor)) {

@@ -58,6 +58,7 @@ fun OnlineLobbyContent(
     hostFirstDefault: Boolean = true,
     onSessionReady: (session: OnlineGameSession, amHost: Boolean, hostFirst: Boolean, ruleParam: String?) -> Unit,
     onCancel: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -136,7 +137,7 @@ fun OnlineLobbyContent(
         }
     }
 
-    Column(Modifier.fillMaxSize().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(modifier.fillMaxSize().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         when (stage) {
             LobbyStage.CHOOSE -> {
                 Text("联机对战", style = MiuixTheme.textStyles.title3)

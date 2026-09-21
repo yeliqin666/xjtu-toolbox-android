@@ -9,6 +9,8 @@
 
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- 富触感反馈（ui/Haptics.kt）：没有这个权限，VibrationEffect 组合振动会静默失效 -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SHORT_SERVICE" />
 
     <!-- 校园网（XJTU_STU）自动登录：读取当前 SSID 判断是否处于校园 WiFi。

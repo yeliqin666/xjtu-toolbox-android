@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.calendar
 
-import com.xjtu.toolbox.ui.adaptive.readableWidth
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -26,6 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.xjtu.toolbox.ui.glass.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.*
@@ -45,6 +45,8 @@ fun SchoolCalendarScreen(onBack: () -> Unit) {
     val today = remember { LocalDate.now() }
     val scrollState = rememberLazyListState()
     val scrollBehavior = MiuixScrollBehavior()
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
 
     // 加载数据
     LaunchedEffect(Unit) {
@@ -64,6 +66,8 @@ fun SchoolCalendarScreen(onBack: () -> Unit) {
         topBar = {
             TopAppBar(
                 title = "校历",
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 navigationIcon = {
                     IconButton(onClick = onBack, modifier = Modifier.padding(start = 8.dp)) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -73,10 +77,11 @@ fun SchoolCalendarScreen(onBack: () -> Unit) {
             )
         }
     ) { padding ->
-        Box(Modifier.padding(padding).readableWidth().fillMaxSize()) {
+        val glassTop = padding.glassTop(glass)
+        Box(Modifier.padding(padding.withoutTop(glass)).glassSource(glass).fillMaxSize()) {
             when {
                 isLoading -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Box(Modifier.fillMaxSize().padding(top = glassTop), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             CircularProgressIndicator(size = 40.dp, strokeWidth = 3.dp)
                             Spacer(Modifier.height(12.dp))
@@ -86,7 +91,7 @@ fun SchoolCalendarScreen(onBack: () -> Unit) {
                 }
                 errorMessage != null -> {
                     Column(
-                        Modifier.fillMaxSize().padding(32.dp),
+                        Modifier.fillMaxSize().padding(top = glassTop).padding(32.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {
@@ -104,7 +109,7 @@ fun SchoolCalendarScreen(onBack: () -> Unit) {
                     }
                 }
                 terms.isEmpty() -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Box(Modifier.fillMaxSize().padding(top = glassTop), contentAlignment = Alignment.Center) {
                         Text("暂无校历数据", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
                 }
@@ -117,7 +122,8 @@ fun SchoolCalendarScreen(onBack: () -> Unit) {
                         selectedIndex = selectedTermIndex,
                         onSelectTerm = { selectedTermIndex = it },
                         listState = scrollState,
-                        scrollBehavior = scrollBehavior
+                        scrollBehavior = scrollBehavior,
+                        glassTop = glassTop
                     )
                 }
             }
@@ -148,7 +154,8 @@ private fun TermContent(
     selectedIndex: Int,
     onSelectTerm: (Int) -> Unit,
     listState: androidx.compose.foundation.lazy.LazyListState,
-    scrollBehavior: ScrollBehavior
+    scrollBehavior: ScrollBehavior,
+    glassTop: androidx.compose.ui.unit.Dp = 0.dp
 ) {
     val progress by animateFloatAsState(
         targetValue = currentTerm.progress(today),
@@ -161,14 +168,10 @@ private fun TermContent(
     val isBeforeTerm = today < currentTerm.startDate
     val isAfterTerm = today > currentTerm.endDate
 
-    LazyColumn(
-        state = listState,
-        modifier = Modifier.fillMaxSize().nestedScrollToTopAppBar(scrollBehavior),
-        contentPadding = PaddingValues(bottom = 24.dp)
-    ) {
-        // ── 学期选择标签 ──────────────────────────────────
-        if (terms.size > 1) {
-            item {
+    // 宽屏两栏：左边是「这学期现在到哪了」（学期切换、状态卡、统计），右边是整学期的日程时间轴。
+    // 以前整页限宽 720 居中，平板横屏左右各空一大块，时间轴还得滚过状态卡才看得到。
+    val wide = com.xjtu.toolbox.ui.isWideLayout()
+    val termTabs: @Composable () -> Unit = {
                 Row(
                     Modifier
                         .fillMaxWidth()
@@ -210,10 +213,12 @@ private fun TermContent(
                         }
                     }
                 }
-            }
+    }
+    // 状态区：学期切换 + 英雄卡片（当前状态 + 进度）+ 统计信息行
+    val statusItems: androidx.compose.foundation.lazy.LazyListScope.() -> Unit = {
+        if (terms.size > 1) {
+            item { termTabs() }
         }
-
-        // ── 英雄卡片：当前状态 + 进度 ──────────────────────
         item {
             HeroCard(
                 currentTerm = currentTerm,
@@ -226,8 +231,6 @@ private fun TermContent(
                 isAfterTerm = isAfterTerm
             )
         }
-
-        // ── 统计信息行 ────────────────────────────────────
         item {
             StatsRow(
                 totalWeeks = currentTerm.totalWeeks,
@@ -238,8 +241,9 @@ private fun TermContent(
                 isAfterTerm = isAfterTerm
             )
         }
-
-        // ── 事件时间轴 ──────────────────────────────────
+    }
+    // ── 事件时间轴 ──────────────────────────────────
+    val timelineItems: androidx.compose.foundation.lazy.LazyListScope.() -> Unit = {
         item {
             Text(
                 "日程安排",
@@ -258,6 +262,33 @@ private fun TermContent(
                 isCurrent = isCurrent,
                 isLast = index == currentTerm.events.lastIndex
             )
+        }
+    }
+
+    if (!wide) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize().nestedScrollToTopAppBar(scrollBehavior),
+            contentPadding = PaddingValues(top = glassTop, bottom = 24.dp)
+        ) {
+            statusItems()
+            timelineItems()
+        }
+    } else {
+        Row(Modifier.fillMaxSize().nestedScrollToTopAppBar(scrollBehavior)) {
+            LazyColumn(
+                modifier = Modifier.width(440.dp).fillMaxHeight(),
+                contentPadding = PaddingValues(top = glassTop, bottom = 24.dp)
+            ) {
+                statusItems()
+            }
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+                contentPadding = PaddingValues(top = glassTop, bottom = 24.dp)
+            ) {
+                timelineItems()
+            }
         }
     }
 }

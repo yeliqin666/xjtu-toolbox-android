@@ -52,6 +52,11 @@ import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.handleAuthExpired
 import com.xjtu.toolbox.ui.components.AppDropdownMenu
+import com.xjtu.toolbox.ui.glass.glassSource
+import com.xjtu.toolbox.ui.glass.glassTop
+import com.xjtu.toolbox.ui.glass.glassTopBar
+import com.xjtu.toolbox.ui.glass.withoutTop
+import androidx.compose.foundation.layout.PaddingValues
 import com.xjtu.toolbox.ui.components.AppDropdownMenuItem
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
@@ -189,12 +194,16 @@ private fun ReaderContent(
         }
     }
 
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt。
+    // 上下滚动时书页从顶栏下面滚过去；左右翻页时每页让出顶栏高度
+    val glass = com.xjtu.toolbox.ui.glass.rememberPageGlass()
     Scaffold(
         topBar = {
             if (chromeVisible) {
                 SmallTopAppBar(
                     title = title,
-                    color = MiuixTheme.colorScheme.surface,
+                    color = com.xjtu.toolbox.ui.glass.glassBarColor(glass),
+                    modifier = Modifier.glassTopBar(glass),
                     navigationIcon = {
                         IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -243,10 +252,12 @@ private fun ReaderContent(
             }
         }
     ) { padding ->
+        val glassTop = padding.glassTop(glass)
         Box(
             Modifier
                 .fillMaxSize()
-                .padding(padding)
+                .padding(padding.withoutTop(glass))
+                .glassSource(glass)
                 .background(MiuixTheme.colorScheme.surfaceVariant)
         ) {
             BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -255,6 +266,7 @@ private fun ReaderContent(
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(top = glassTop),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         itemsIndexed(pages, key = { _, p -> p.fileName }) { index, page ->
@@ -285,6 +297,7 @@ private fun ReaderContent(
                     HorizontalPager(
                         state = pagerState,
                         modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(top = glassTop),
                         beyondViewportPageCount = 1,
                     ) { index ->
                         val page = pages[index]

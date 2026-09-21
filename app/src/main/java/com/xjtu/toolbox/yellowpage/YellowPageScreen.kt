@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.yellowpage
 
-import com.xjtu.toolbox.ui.adaptive.readableWidth
+import com.xjtu.toolbox.ui.adaptive.fullLineItem
+import androidx.compose.foundation.lazy.staggeredgrid.items
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
@@ -47,6 +48,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.LocalAppLoginState
+import com.xjtu.toolbox.ui.glass.*
 import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
@@ -116,11 +118,15 @@ fun YellowPageScreen(onBack: () -> Unit) {
     }
     val categoryName = data?.categories?.firstOrNull { it.id == selectedCategory }?.name.orEmpty()
 
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
     Scaffold(
         topBar = {
             TopAppBar(
                 title = "校园黄页",
                 largeTitle = "校园黄页",
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -130,18 +136,21 @@ fun YellowPageScreen(onBack: () -> Unit) {
             )
         }
     ) { padding ->
+        val glassTop = padding.glassTop(glass)
         PullToRefresh(
+            refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
             isRefreshing = refreshing,
             onRefresh = { scope.launch { load(force = true) } },
             pullToRefreshState = pullToRefreshState,
             topAppBarScrollBehavior = scrollBehavior,
-            modifier = Modifier.padding(padding).readableWidth().fillMaxSize()
+            contentPadding = PaddingValues(top = glassTop),
+            modifier = Modifier.padding(padding.withoutTop(glass)).glassSource(glass).fillMaxSize()
         ) {
         when {
-            loading -> LazyColumn(Modifier.fillMaxSize()) {
+            loading -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
                 item { Box(Modifier.fillParentMaxSize()) { LoadingState("正在加载校园通讯录…", Modifier.fillMaxSize()) } }
             }
-            error != null && data == null -> LazyColumn(Modifier.fillMaxSize()) {
+            error != null && data == null -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
                 item {
                     Box(Modifier.fillParentMaxSize()) {
                         ErrorState(
@@ -152,20 +161,22 @@ fun YellowPageScreen(onBack: () -> Unit) {
                     }
                 }
             }
-            else -> LazyColumn(
+            // 宽屏机构卡分两三列（见 AdaptiveCardGrid）。卡片自带左右 16dp 外边距，列间距给 0。
+            else -> com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid(
                 modifier = Modifier
                     .fillMaxSize()
                     .overScrollVertical(),
-                contentPadding = PaddingValues(bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                contentPadding = PaddingValues(top = glassTop, bottom = 24.dp),
+                spacing = 10.dp,
+                horizontalSpacing = 0.dp,
             ) {
-                item {
+                fullLineItem {
                     YellowPageHero(
                         departmentCount = data?.departments?.size ?: 0,
                         updateTime = data?.updateTime.orEmpty()
                     )
                 }
-                item {
+                fullLineItem {
                     com.xjtu.toolbox.ui.components.AppSearchBar(
                         query = query,
                         onQueryChange = { query = it },
@@ -176,7 +187,7 @@ fun YellowPageScreen(onBack: () -> Unit) {
                     )
                 }
                 if (query.isBlank()) {
-                    item {
+                    fullLineItem {
                         Row(
                             Modifier
                                 .fillMaxWidth()
@@ -194,7 +205,7 @@ fun YellowPageScreen(onBack: () -> Unit) {
                         }
                     }
                 }
-                item {
+                fullLineItem {
                     Row(
                         Modifier.padding(horizontal = 18.dp, vertical = 2.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -213,7 +224,7 @@ fun YellowPageScreen(onBack: () -> Unit) {
                     }
                 }
                 if (shown.isEmpty()) {
-                    item {
+                    fullLineItem {
                         EmptyState(
                             title = "没有找到相关机构",
                             subtitle = "试试机构简称或电话号码",

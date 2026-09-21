@@ -10,6 +10,7 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.runtime.Composable
@@ -84,9 +85,13 @@ fun MergeGameScreen(onBack: () -> Unit) {
             )
         }
     ) { padding ->
+        // 深浅色经 URL 参数交给页面：WebView 的 prefers-color-scheme 不一定跟 App 主题走。
+        // 底色和页面顶部渐变一致，加载那一下不白闪。
+        val dark = com.xjtu.toolbox.ui.theme.LocalIsDarkTheme.current
         AndroidView(
             factory = { ctx ->
                 WebView(ctx).apply {
+                    setBackgroundColor(if (dark) 0xFF0E141D.toInt() else 0xFFEAF1FF.toInt())
                     layoutParams = ViewGroup.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT
@@ -120,15 +125,17 @@ fun MergeGameScreen(onBack: () -> Unit) {
                     }
 
                     webViewRef.value = this
-                    loadUrl(ENTRY_URL)
+                    loadUrl(if (dark) "$ENTRY_URL?dark=1" else ENTRY_URL)
                 }
             },
             onRelease = { view ->
                 if (webViewRef.value === view) webViewRef.value = null
                 view.releaseSafely(listOf("AndroidGameBridge"))
             },
+            // 以前没套 padding，画面从屏幕顶端画起，上面一截压在顶栏底下
             modifier = Modifier
                 .fillMaxSize()
+                .padding(padding)
         )
     }
 }
