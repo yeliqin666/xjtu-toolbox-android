@@ -7,6 +7,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.unit.sp
+import com.kyant.backdrop.backdrops.layerBackdrop
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateFloatAsState
@@ -326,13 +327,34 @@ internal fun MainScreen(
     // 不换成 "rail" 的话，宽屏下底栏已经不渲染了，子页面却照样留 96dp 空白。
     val effectiveNavStyle = if (isWide) "rail" else navBarStyle
 
-    // 悬浮胶囊底栏的总占位高度，取自 miuix FloatingNavigationBar 的实现：
-    // 胶囊本体最小 52dp，外加底部留白（有系统导航条时 26dp + inset，否则 36dp）。
-    val floatingBarReserve = if (!isWide && navBarStyle == "floating") {
-        val navInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-        FLOATING_BAR_HEIGHT + (if (navInset > 0.dp) 26.dp + navInset else 36.dp)
-    } else {
-        0.dp
+    // 界面风格（plan2 §17 第 12 条）：沿用原来「底栏风格」的取值，"floating" = 玻璃（默认），
+    // "classic" = 经典。选经典时，底栏回到经典样式，所有玻璃点（底栏、侧栏、气泡、搜索浮层、
+    // 二级页顶栏）一起退回不透明；经典同时就是「性能模式」，不另设玻璃开关。
+    val glassStyle = navBarStyle == CredentialStore.NAV_STYLE_FLOATING
+    // 玻璃底栏只在手机竖屏换（宽度 < 600dp 且不是宽屏）。平板竖屏保留原来的悬浮胶囊：
+    // 那里刚在 PR A 修过，不再动。
+    val useGlassBar = glassStyle && !isWide &&
+        com.xjtu.toolbox.ui.currentWindowSize() == com.xjtu.toolbox.ui.WindowSize.Compact
+    // 玻璃的采样源：录下各 tab 的页面内容（见下面 tab 内容区的 layerBackdrop）。
+    // 只录内容区，不录整个 Scaffold：底栏在 Scaffold 里面，录整个 Scaffold 就成了
+    // 「玻璃采样自己」的环，RenderThread 会直接 SIGSEGV。
+    val appBackdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
+    // 玻璃底栏把自己导出成一层，屁岱气泡的尖角伸到底栏上时采的是「页面 + 底栏」合起来的样子，
+    // 不然尖角下面透出来的是页面，和底栏断开（plan2 §16.6）。
+    val glassBarExport = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
+    val phoneBubbleBackdrop = com.kyant.backdrop.backdrops.rememberCombinedBackdrop(appBackdrop, glassBarExport)
+
+    // 悬浮底栏的总占位高度。
+    // - 玻璃底栏：本体 64dp，离系统导航条 12dp（没有导航条时离屏幕底边 20dp）；
+    // - 平板竖屏的悬浮胶囊：取自 miuix FloatingNavigationBar 的实现，胶囊本体最小 52dp，
+    //   外加底部留白（有系统导航条时 26dp + inset，否则 36dp）。
+    val navInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val glassBarBottomGap = if (navInset > 0.dp) 12.dp else 20.dp
+    val floatingBarReserve = when {
+        useGlassBar -> GLASS_BAR_HEIGHT + glassBarBottomGap + navInset
+        !isWide && navBarStyle == "floating" ->
+            FLOATING_BAR_HEIGHT + (if (navInset > 0.dp) 26.dp + navInset else 36.dp)
+        else -> 0.dp
     }
 
     // COURSES tab 副标题 + actions slot + bottomContent slot
@@ -482,6 +504,14 @@ internal fun MainScreen(
                 message = msg,
                 arrowSide = arrowSide,
                 maxWidth = maxWidth,
+                // 底栏上的气泡采「页面 + 玻璃底栏」合起来那一层；侧栏气泡和平板竖屏的旧胶囊上
+                // 只采页面内容（那两种底栏本身不是玻璃，没有导出层）
+                backdrop = if (arrowSide == com.xjtu.toolbox.agent.BubbleArrowSide.Bottom && useGlassBar) {
+                    phoneBubbleBackdrop
+                } else {
+                    appBackdrop
+                },
+                glass = glassStyle,
                 onOpen = {
                     com.xjtu.toolbox.agent.ProactiveRules.markUseful(context, msg.id)
                     val route = msg.openRoute
@@ -704,7 +734,62 @@ internal fun MainScreen(
         } else {
             {}
         },
-        floatingToolbar = if (!isWide && navBarStyle == "floating") {
+        floatingToolbar = if (useGlassBar) {
+            {
+              Column(
+                  Modifier
+                      .fillMaxWidth()
+                      .padding(horizontal = 16.dp)
+                      .padding(bottom = navInset + glassBarBottomGap),
+              ) {
+                proactiveBubbleSlot()
+                com.xjtu.toolbox.ui.glass.GlassBottomTabs(
+                    tabs = BottomTab.entries.map { tab ->
+                        // 屁岱那一格免染色：GlassBottomTabs 会把整排内容再画一遍做强调色，
+                        // 屁岱是会动的机器人，不能被复制出第二份（plan2 §9.3A）
+                        com.xjtu.toolbox.ui.glass.GlassTab(key = tab, tintExempt = tab == BottomTab.PIDAI) { selected ->
+                            if (tab == BottomTab.PIDAI) {
+                                val pidaiStyle = com.xjtu.toolbox.agent.pidaiNavAppearance()
+                                com.xjtu.toolbox.agent.PidaiNavButton(
+                                    onClick = onPidaiTap,
+                                    excited = com.xjtu.toolbox.agent.ProactiveBubbleHost.message != null,
+                                    thinking = com.xjtu.toolbox.agent.AgentThinkingHost.isThinking,
+                                    selected = selected,
+                                    diameter = 40.dp,
+                                    // paper 现在是「挖空」，眼睛处直接透出后面的玻璃（PR O 第 1 步）
+                                    paper = MiuixTheme.colorScheme.surfaceContainerHigh,
+                                    ink = pidaiStyle.ink,
+                                    shape = pidaiStyle.shape,
+                                    skin = pidaiStyle.skin,
+                                )
+                            } else {
+                                Box {
+                                    Icon(
+                                        if (selected) tab.selectedIcon else tab.unselectedIcon,
+                                        contentDescription = tab.label,
+                                        modifier = Modifier.size(24.dp),
+                                    )
+                                    // 角标照常画，不用玻璃（底栏里不能再嵌 layerBackdrop，§9.4）
+                                    bottomTabBadge(tab, loginState.isLoggedIn, navAccountCount)?.let { badge ->
+                                        Box(Modifier.align(Alignment.TopEnd).offset(x = 10.dp, y = (-4).dp)) { badge() }
+                                    }
+                                }
+                                Text(tab.label, fontSize = 11.sp, maxLines = 1)
+                            }
+                        }
+                    },
+                    selectedIndex = selectedTabOrdinal,
+                    onTabSelected = { index ->
+                        // 拖到屁岱松手也要走 onPidaiTap：它既切 tab，也负责戳一下冒闲话气泡
+                        if (index == BottomTab.PIDAI.ordinal) onPidaiTap() else userSelectTab(index)
+                    },
+                    backdrop = appBackdrop,
+                    exportedBackdrop = glassBarExport,
+                    glass = true,
+                )
+              }
+            }
+        } else if (!isWide && navBarStyle == "floating") {
             {
               Column {
                 proactiveBubbleSlot()
@@ -784,7 +869,12 @@ internal fun MainScreen(
                 previousTabOrdinal = selectedTabOrdinal
             }
             val tabSlideDistance = with(androidx.compose.ui.platform.LocalDensity.current) { 28.dp.toPx() }
-            Box(Modifier.fillMaxSize()) {
+            // 玻璃的采样源就是这一层：各 tab 的页面内容。经典风格下不录，省一次离屏绘制。
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .then(if (glassStyle) Modifier.layerBackdrop(appBackdrop) else Modifier),
+            ) {
                 BottomTab.entries.forEach { tab ->
                     key(tab) {
                         if (tab in composedTabs) {
@@ -978,6 +1068,8 @@ internal fun MainScreen(
 
     // 全局搜索覆盖层（跨 tab 共用同一个浮层，渲染优先级高于普通导航）
     if (showGlobalSearch) {
+        // 搜索浮层盖在整页上面，用页面内容做玻璃背景；经典风格下给 null，退回不透明
+        CompositionLocalProvider(com.xjtu.toolbox.ui.glass.LocalAppBackdrop provides if (glassStyle) appBackdrop else null) {
         GlobalSearchScreen(
             onBack = { showGlobalSearch = false },
             onNavigate = { route ->
@@ -993,6 +1085,7 @@ internal fun MainScreen(
             },
             accountType = loginState.accountType,
         )
+        }
     }
 
     // 扫码登录覆盖层（首页左上角入口）

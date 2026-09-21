@@ -117,8 +117,15 @@ class CredentialStore(context: Context) {
     /** 获取 app_settings SharedPreferences，供 Compose 端直接读取/写入 */
     fun getAppPrefs(): SharedPreferences = appPrefs
 
+    /**
+     * 界面风格：[NAV_STYLE_FLOATING] 玻璃（**默认**），[NAV_STYLE_CLASSIC] 经典。
+     *
+     * 键名和取值沿用原来的「底栏风格」：以前选过悬浮胶囊的人自动用上玻璃，
+     * 主动选过经典（本地已存 "classic"）的人保持不变。选经典时底栏回到经典样式，
+     * 所有玻璃点一起退回不透明——经典同时就是「性能模式」。
+     */
     var navBarStyle: String
-        get() = appPrefs.getString(KEY_NAV_BAR_STYLE, NAV_STYLE_CLASSIC) ?: NAV_STYLE_CLASSIC
+        get() = appPrefs.getString(KEY_NAV_BAR_STYLE, NAV_STYLE_FLOATING) ?: NAV_STYLE_FLOATING
         set(value) { appPrefs.edit().putString(KEY_NAV_BAR_STYLE, value).apply() }
 
     /**

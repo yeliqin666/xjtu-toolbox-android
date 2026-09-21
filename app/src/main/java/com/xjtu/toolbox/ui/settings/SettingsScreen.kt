@@ -282,7 +282,7 @@ fun SettingsScreen(
     var crashReportEnabled by remember { mutableStateOf(com.xjtu.toolbox.error.CrashReporter.isEnabled(context)) }
     val scheduleSources = com.xjtu.toolbox.schedule.ScheduleSource.entries
     var scheduleSource by remember { mutableStateOf(com.xjtu.toolbox.schedule.ScheduleSource.fromKey(credentialStore.scheduleSource)) }
-    val navStyleOptions = listOf("悬浮胶囊", "经典底栏")
+    val navStyleOptions = listOf("玻璃（默认）", "经典")
     val navStyleValues = listOf(
         CredentialStore.NAV_STYLE_FLOATING,
         CredentialStore.NAV_STYLE_CLASSIC
@@ -371,11 +371,16 @@ fun SettingsScreen(
                         onCheckedChange = onShowQuickActionsChanged
                     )
                 }
-                // 宽屏（平板横屏 / 折叠屏内屏 / 手机横屏）用的是侧栏，根本没有底栏，
-                // 这一项摆在那里改了也没反应。平板竖屏若不够宽仍走底栏，那时它照常出现。
-                if (!com.xjtu.toolbox.ui.isWideLayout()) {
+                // 原来叫「底栏风格」，宽屏没有底栏就藏起来。现在它管的是所有玻璃点
+                // （侧栏、气泡、搜索浮层、二级页顶栏也在内），宽屏同样有用，所以一直显示。
+                run {
                     OverlayDropdownPreference(
-                        title = "底栏风格",
+                        title = "界面风格",
+                        summary = if (navBarStyle == CredentialStore.NAV_STYLE_CLASSIC) {
+                            "不透明的经典样式，更省电"
+                        } else {
+                            "液态玻璃：手机上是可以拖动的玻璃胶囊底栏；经典样式更省电"
+                        },
                         items = navStyleOptions,
                         selectedIndex = navStyleValues.indexOf(navBarStyle).coerceAtLeast(0),
                         startAction = { SettingsIcon(MiuixIcons.Carrier, cBlue) },

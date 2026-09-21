@@ -263,6 +263,9 @@ enum class BottomTab(
 /** 悬浮底栏胶囊本体的最小高度，对齐 miuix FloatingNavigationBar 的 defaultMinSize。 */
 internal val FLOATING_BAR_HEIGHT = 52.dp
 
+/** 手机竖屏玻璃底栏本体的高度，对齐 ui/glass/GlassBottomTabs 里写死的 64dp。 */
+internal val GLASS_BAR_HEIGHT = 64.dp
+
 // ── 主导航 ────────────────────────────────
 
 @Composable
@@ -1012,7 +1015,12 @@ fun AppNavigation(
             var cardSite by remember { mutableStateOf(loginState.sessionManager?.getSiteOrNull("campus_card")) }
             val readyCard = cardSite
             if (readyCard != null) {
-                com.xjtu.toolbox.card.CampusCardScreen(site = readyCard, onBack = { navController.popBackStack() })
+                com.xjtu.toolbox.card.CampusCardScreen(
+                    site = readyCard,
+                    onBack = { navController.popBackStack() },
+                    // 顶栏玻璃跟随「界面风格」（Y1）；进页面时读一次就够，设置页改了再进来就生效
+                    glass = credentialStore.navBarStyle == CredentialStore.NAV_STYLE_FLOATING,
+                )
             } else {
                 LaunchedEffect(Unit) {
                     repeat(12) {

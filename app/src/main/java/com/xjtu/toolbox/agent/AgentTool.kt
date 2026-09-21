@@ -2158,7 +2158,7 @@ class AgentToolRegistry(
             append("• dark_mode（深色模式）：${cs.darkMode}　可选 system/light/dark\n")
             append("• dynamic_color（跟随系统取色）：${cs.dynamicColor}　可选 true/false\n")
             append("• home_theme（首页主题）：${cs.homeTheme}　可选 card/icon\n")
-            append("• nav_bar_style（底栏风格）：${cs.navBarStyle}　可选 floating/classic\n")
+            append("• nav_bar_style（界面风格）：${cs.navBarStyle}　可选 floating（玻璃，默认）/classic（经典，不透明、更省电）\n")
             append("• show_quick_actions（首页常用功能）：${cs.showQuickActions}　可选 true/false\n")
             append("• default_tab（启动页）：${cs.defaultTab}　可选 HOME/COURSES/TOOLS/PROFILE\n")
             append("• network_mode（网络模式）：${cs.networkMode}　可选 auto/direct/vpn\n")
@@ -2200,13 +2200,13 @@ class AgentToolRegistry(
             }
             "nav_bar_style" -> {
                 val v = when (value.trim().lowercase()) {
-                    "floating", "悬浮", "悬浮胶囊" -> CredentialStore.NAV_STYLE_FLOATING
-                    "classic", "经典", "经典底栏" -> CredentialStore.NAV_STYLE_CLASSIC
+                    "floating", "悬浮", "悬浮胶囊", "玻璃", "液态玻璃" -> CredentialStore.NAV_STYLE_FLOATING
+                    "classic", "经典", "经典底栏", "不透明" -> CredentialStore.NAV_STYLE_CLASSIC
                     else -> return "nav_bar_style 只能是 floating/classic。"
                 }
                 cs.navBarStyle = v
                 AgentRuntimeHooks.applyNavBarStyle?.invoke(v)
-                "已将底栏风格设为 $v（已即时生效）。"
+                "已将界面风格设为 $v（已即时生效）。"
             }
             "show_quick_actions" -> {
                 val b = parseBoolSetting(value) ?: return "show_quick_actions 只能是 true/false。"
