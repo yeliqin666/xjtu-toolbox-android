@@ -70,6 +70,7 @@ import top.yukonga.miuix.kmp.utils.SinkFeedback
 import androidx.compose.foundation.layout.FlowRow
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.components.LoadingState
+import com.xjtu.toolbox.ui.glass.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -448,11 +449,15 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
 
     // ══════ UI ══════
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
     Scaffold(
         topBar = {
             TopAppBar(
                 title = "图书馆座位",
                 largeTitle = "图书馆座位",
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
@@ -547,6 +552,8 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
         LaunchedEffect(isLoading, isLoadingBooking) {
             if (!isLoading && !isLoadingBooking) isPullRefreshing = false
         }
+        // 内容铺到顶栏下面，顶部留白放进列表；下拉指示器也从顶栏下面出来
+        val glassTop = padding.glassTop(glass)
         top.yukonga.miuix.kmp.basic.PullToRefresh(
             isRefreshing = isPullRefreshing,
             onRefresh = {
@@ -555,9 +562,13 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                 refreshMyBooking()
                 bookingResult = null
             },
-            modifier = Modifier.fillMaxSize().padding(padding)
+            contentPadding = PaddingValues(top = glassTop),
+            modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass)
         ) {
         Column(Modifier.readableWidth().fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection)) {
+            // 上面这一整叠卡片（预约状态/校区楼层区域/座位统计）都不滚动，固定在顶部，
+            // 靠这段留白整体让出顶栏高度；下面座位网格/地图是真正滚动的内容，不用再加。
+            Spacer(Modifier.height(glassTop))
             AnimatedVisibility(bookingResult != null) {
                 Card(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
@@ -683,14 +694,16 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                         }
                     }
                     if (floors.isNotEmpty()) {
-                        AppSegmentedTabs(
-                            tabs = floors,
-                            selectedTabIndex = campus.floorCodes.indexOf(selectedFloorCode).coerceAtLeast(0),
-                            onTabSelected = { index ->
-                                campus.floorCodes.getOrNull(index)?.let { loadFloor(it) }
-                            },
-                            embedded = true,
-                        )
+                        CompositionLocalProvider(LocalOnGlassBar provides (glass != null)) {
+                            AppSegmentedTabs(
+                                tabs = floors,
+                                selectedTabIndex = campus.floorCodes.indexOf(selectedFloorCode).coerceAtLeast(0),
+                                onTabSelected = { index ->
+                                    campus.floorCodes.getOrNull(index)?.let { loadFloor(it) }
+                                },
+                                embedded = true,
+                            )
+                        }
                     }
                     if (floors.isNotEmpty() && areaCodes.isNotEmpty()) {
                         HorizontalDivider(
