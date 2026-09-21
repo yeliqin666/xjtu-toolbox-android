@@ -47,6 +47,7 @@ import com.xjtu.toolbox.ui.components.AppDatePickerDialog
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
+import com.xjtu.toolbox.ui.glass.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -110,12 +111,16 @@ fun IclassfaceScreen(
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     val pullToRefreshState = rememberPullToRefreshState()
     val isToday = selectedDate == LocalDate.now()
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = "快速考勤流水",
                 largeTitle = "快速考勤流水",
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -125,6 +130,7 @@ fun IclassfaceScreen(
             )
         }
     ) { padding ->
+        val glassTop = padding.glassTop(glass)
         val today = LocalDate.now()
         AppDatePickerDialog(
             show = showDatePicker,
@@ -144,13 +150,14 @@ fun IclassfaceScreen(
             onRefresh = { load(selectedDate, silent = true) },
             pullToRefreshState = pullToRefreshState,
             topAppBarScrollBehavior = scrollBehavior,
-            modifier = Modifier.fillMaxSize().padding(padding)
+            contentPadding = PaddingValues(top = glassTop),
+            modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass)
         ) {
         when {
-            loading -> LazyColumn(Modifier.fillMaxSize()) {
+            loading -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
                 item { Box(Modifier.fillParentMaxSize()) { LoadingState(message = "查询签到记录...", modifier = Modifier.fillMaxSize()) } }
             }
-            error != null && records.isEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
+            error != null && records.isEmpty() -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
                 item {
                     Box(Modifier.fillParentMaxSize()) {
                         ErrorState(
@@ -165,7 +172,7 @@ fun IclassfaceScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .overScrollVertical(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = glassTop + 12.dp, bottom = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 item {
