@@ -35,6 +35,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.xjtu.toolbox.lms.LmsDue
+import com.xjtu.toolbox.lms.remaining
 import com.xjtu.toolbox.ui.courseColor
 import com.xjtu.toolbox.util.XjtuTime
 import top.yukonga.miuix.kmp.basic.Card
@@ -44,8 +46,13 @@ import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
+import java.time.Duration
+import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.LocalTime
+import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 
 /**
  * 日程页三级里的「今日」与「学期」两级（「日程」那一级是周视图网格，直接在
@@ -56,11 +63,11 @@ import java.time.LocalTime
  */
 
 /**
- * 今日：课和考试合并成一条竖直时间轴。
+ * 今日：课、考试、今天截止的作业合并成一条竖直时间轴，下面接一段「接下来」
+ * （plan2 §5）：3 天内的考试、7 天内没提交的作业，按时间混排。
  *
- * 考试和课在这里不分家。用户脑子里"今天几点要到哪去"是一件事，
- * 之所以在旧布局里分成两个 tab，只是因为它们来自两个接口——那是我们的实现细节，
- * 不该变成用户要自己合并的两张表。
+ * 这几类在这里不分家。用户脑子里"今天几点要到哪去、接下来要忙什么"是一件事，
+ * 之所以来自三个不同接口，只是我们的实现细节，不该变成用户要自己合并的几张表。
  */
 @Composable
 fun TodayTimeline(
@@ -70,9 +77,13 @@ fun TodayTimeline(
     allCourseNames: List<String>,
     onCourseClick: (CourseItem) -> Unit,
     bottomPadding: Dp = 0.dp,
+    /** 3 天内的考试 + 7 天内没提交的作业，见 [buildUpcoming]。 */
+    upcoming: List<UpcomingItem> = emptyList(),
+    /** 今天截止的作业，插进时间轴对应的时刻（不是「接下来」——那是给以后的）。 */
+    todayHomework: List<LmsDue> = emptyList(),
 ) {
     val isSummer = remember(today) { XjtuTime.isSummerTime(today.monthValue) }
-    val entries = remember(courses, exams, today) {
+    val entries = remember(courses, exams, today, todayHomework) {
         val dow = today.dayOfWeek.value
         val fromCourses = courses.filter { it.dayOfWeek == dow }.map { c ->
             TimelineEntry(
@@ -85,7 +96,7 @@ fun TodayTimeline(
                 title = c.courseName,
                 place = c.location,
                 detail = c.teacher,
-                isExam = false,
+                kind = EntryKind.COURSE,
                 course = c,
             )
         }
@@ -103,14 +114,31 @@ fun TodayTimeline(
                         e.examTime.takeIf { it.isNotBlank() },
                         e.seatNumber.takeIf { it.isNotBlank() }?.let { "座位 $it" },
                     ).joinToString("  "),
-                    isExam = true,
+                    kind = EntryKind.EXAM,
                     course = null,
                 )
             }
-        (fromCourses + fromExams).sortedBy { it.startMinute }
+        val fromHomework = todayHomework
+            .filter { !it.submitted }
+            .mapNotNull { hw ->
+                val deadline = runCatching { Instant.parse(hw.deadline) }.getOrNull() ?: return@mapNotNull null
+                val zoned = deadline.atZone(ZoneId.systemDefault())
+                if (zoned.toLocalDate() != today) return@mapNotNull null
+                TimelineEntry(
+                    startMinute = zoned.hour * 60 + zoned.minute,
+                    endMinute = 0,
+                    title = "[${hw.courseName}] ${hw.title}",
+                    place = "",
+                    detail = "%02d:%02d 截止".format(zoned.hour, zoned.minute),
+                    kind = EntryKind.HOMEWORK,
+                    course = null,
+                )
+            }
+        (fromCourses + fromExams + fromHomework).sortedBy { it.startMinute }
     }
 
-    if (entries.isEmpty()) {
+    // 两边都没内容才是真的空——只要「接下来」有东西，就不该用一整页空状态盖住它。
+    if (entries.isEmpty() && upcoming.isEmpty()) {
         Box(Modifier.fillMaxSize().padding(bottom = bottomPadding), Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(
@@ -136,14 +164,26 @@ fun TodayTimeline(
         ),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        items(entries) { e ->
-            // 已经过去的条目压暗。今天这一级的价值就是"接下来干什么"，
-            // 上午的课到了下午还跟没上过一样醒目，等于每次都要自己再筛一遍。
-            val past = e.endMinute in 1 until nowMinute
-            TimelineRow(e, past, allCourseNames, onCourseClick)
+        if (entries.isEmpty()) {
+            // 今天没课也没考试没作业，但「接下来」有内容——给个小卡片交代一下，
+            // 别让页面看着像没加载出来。
+            item { NoCourseTodayCard() }
+        } else {
+            items(entries) { e ->
+                // 已经过去的条目压暗。今天这一级的价值就是"接下来干什么"，
+                // 上午的课到了下午还跟没上过一样醒目，等于每次都要自己再筛一遍。
+                val past = e.endMinute in 1 until nowMinute
+                TimelineRow(e, past, allCourseNames, onCourseClick)
+            }
+        }
+        if (upcoming.isNotEmpty()) {
+            item { SectionLabel("接下来") }
+            items(upcoming) { item -> UpcomingRow(item) }
         }
     }
 }
+
+private enum class EntryKind { COURSE, EXAM, HOMEWORK }
 
 private data class TimelineEntry(
     val startMinute: Int,
@@ -151,9 +191,31 @@ private data class TimelineEntry(
     val title: String,
     val place: String,
     val detail: String,
-    val isExam: Boolean,
+    val kind: EntryKind,
     val course: CourseItem?,
 )
+
+@Composable
+private fun NoCourseTodayCard() {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = MiuixTheme.colorScheme.surfaceVariant,
+    ) {
+        Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Outlined.EventAvailable, null, Modifier.size(18.dp),
+                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "今天没有课",
+                style = MiuixTheme.textStyles.body2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+        }
+    }
+}
 
 @Composable
 private fun TimelineRow(
@@ -162,9 +224,10 @@ private fun TimelineRow(
     allCourseNames: List<String>,
     onCourseClick: (CourseItem) -> Unit,
 ) {
-    val accent = when {
-        e.isExam -> MiuixTheme.colorScheme.error
-        else -> courseColor(e.title, allCourseNames)
+    val accent = when (e.kind) {
+        EntryKind.EXAM -> MiuixTheme.colorScheme.error
+        EntryKind.HOMEWORK -> MiuixTheme.colorScheme.primary
+        EntryKind.COURSE -> courseColor(e.title, allCourseNames)
     }
     val alpha = if (past) 0.45f else 1f
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
@@ -202,13 +265,18 @@ private fun TimelineRow(
         ) {
             Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (e.isExam) {
+                    val badge = when (e.kind) {
+                        EntryKind.EXAM -> "考试"
+                        EntryKind.HOMEWORK -> "作业"
+                        EntryKind.COURSE -> null
+                    }
+                    if (badge != null) {
                         Surface(
                             shape = RoundedCornerShape(4.dp),
-                            color = MiuixTheme.colorScheme.error.copy(alpha = 0.9f),
+                            color = accent.copy(alpha = 0.9f),
                         ) {
                             Text(
-                                "考试",
+                                badge,
                                 Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
                                 style = MiuixTheme.textStyles.footnote2,
                                 color = Color.White,
@@ -238,6 +306,92 @@ private fun TimelineRow(
                     )
                 }
             }
+        }
+    }
+}
+
+/** 「接下来」一行：考试或作业，比今天更晚一点。 */
+enum class UpcomingKind { EXAM, HOMEWORK }
+
+data class UpcomingItem(
+    val kind: UpcomingKind,
+    val title: String,
+    val subtitle: String,
+    /** 排序用，不展示。 */
+    val at: Instant,
+)
+
+/**
+ * 「接下来」的构建：3 天内的考试（今天的已经在时间轴本体里了，不重复）+
+ * 7 天内没提交、且不是今天截止的作业（今天截止的同样已经在时间轴里）。
+ * 两类按时间混排。
+ *
+ * 纯函数，不碰 Context，方便单测（plan2 §5.4）。
+ */
+fun buildUpcoming(
+    exams: List<ExamItem>,
+    homework: List<LmsDue>,
+    now: LocalDateTime = LocalDateTime.now(),
+): List<UpcomingItem> {
+    val today = now.toLocalDate()
+    val zone = ZoneId.systemDefault()
+    val examItems = exams
+        .filter { ExamCountdown.phaseOf(it, now) == ExamCountdown.ExamPhase.SOON }
+        .mapNotNull { e ->
+            val date = ExamCountdown.parseDate(e.examDate) ?: return@mapNotNull null
+            val days = ChronoUnit.DAYS.between(today, date).toInt()
+            val time = ExamCountdown.startTimeOf(e)
+            val dow = DOW_NAMES.getOrElse(date.dayOfWeek.value) { "" }
+            val whenText = "周$dow" + (time?.let { " %02d:%02d".format(it.hour, it.minute) } ?: "")
+            val subtitle = listOfNotNull(whenText, e.location.takeIf { it.isNotBlank() }).joinToString(" · ")
+            UpcomingItem(
+                kind = UpcomingKind.EXAM,
+                title = e.courseName,
+                subtitle = "还有 $days 天 · $subtitle",
+                at = date.atTime(time ?: java.time.LocalTime.MAX).atZone(zone).toInstant(),
+            )
+        }
+    val nowInstant = now.atZone(zone).toInstant()
+    val horizon = nowInstant.plus(Duration.ofDays(7))
+    val homeworkItems = homework
+        .filter { !it.submitted }
+        .mapNotNull { hw ->
+            val deadline = runCatching { Instant.parse(hw.deadline) }.getOrNull() ?: return@mapNotNull null
+            if (deadline.isBefore(nowInstant) || deadline.isAfter(horizon)) return@mapNotNull null
+            // 今天截止的已经作为时间轴条目出现，这里不重复。
+            if (deadline.atZone(zone).toLocalDate() == today) return@mapNotNull null
+            UpcomingItem(
+                kind = UpcomingKind.HOMEWORK,
+                title = "[${hw.courseName}] ${hw.title}",
+                subtitle = "还${remaining(nowInstant, deadline)}",
+                at = deadline,
+            )
+        }
+    return (examItems + homeworkItems).sortedBy { it.at }
+}
+
+@Composable
+private fun UpcomingRow(item: UpcomingItem) {
+    val accent = when (item.kind) {
+        UpcomingKind.EXAM -> MiuixTheme.colorScheme.error
+        UpcomingKind.HOMEWORK -> MiuixTheme.colorScheme.primary
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        cornerRadius = 12.dp,
+        colors = CardDefaults.defaultColors(color = accent.copy(alpha = 0.10f)),
+    ) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Text(
+                item.title,
+                style = MiuixTheme.textStyles.body2,
+                fontWeight = FontWeight.Bold,
+                color = MiuixTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(item.subtitle, style = MiuixTheme.textStyles.footnote1, color = accent)
         }
     }
 }

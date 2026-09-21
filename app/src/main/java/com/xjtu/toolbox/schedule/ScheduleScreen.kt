@@ -201,6 +201,8 @@ fun ScheduleScreen(
 
     var courses by remember { mutableStateOf(disk.courses) }
     var exams by remember { mutableStateOf(disk.exams) }
+    // 「接下来」用的作业截止数据。只读别处已经写好的落盘缓存，日程页不为此发任何请求，见 LmsDueStore。
+    var homeworkDue by remember { mutableStateOf<List<com.xjtu.toolbox.lms.LmsDue>>(emptyList()) }
     var textbooks by remember { mutableStateOf<List<TextbookItem>>(emptyList()) }
     var textbooksLoading by remember { mutableStateOf(false) }
     var textbooksError by remember { mutableStateOf<String?>(null) }
@@ -781,6 +783,10 @@ fun ScheduleScreen(
         lastLoadedAccount = id
         loadInitialData()
         try { holidayDates = HolidayApi.getHolidayDates(context) } catch (_: Exception) {}
+        // 「接下来」的作业数据，纯读缓存（plan2 §5.2）。
+        homeworkDue = withContext(Dispatchers.IO) {
+            runCatching { com.xjtu.toolbox.lms.LmsDueStore.load(context, id) }.getOrDefault(emptyList())
+        }
     }
 
     // 先进来时还没登录、稍后 JWXT 会话才就绪：补一次在线刷新。入页时已经有 site 就不要再打一遍。
@@ -828,6 +834,9 @@ fun ScheduleScreen(
     val filteredMergedCourses = remember(mergedCourses, startOfTerm, holidayDates) {
         ScheduleCache.filterByHolidays(mergedCourses, startOfTerm, holidayDates)
     }
+
+    // 「接下来」：今日两处 TodayTimeline（窄屏 tab、宽屏常驻栏）共用同一份，见 plan2 §5.3。
+    val upcomingItems = remember(exams, homeworkDue) { buildUpcoming(exams, homeworkDue) }
 
     // 自定义课程操作
     //
@@ -1675,6 +1684,8 @@ fun ScheduleScreen(
                                         unifiedSelectedCourse = it
                                     },
                                     bottomPadding = contentBottomPadding,
+                                    upcoming = upcomingItems,
+                                    todayHomework = homeworkDue,
                                 )
                             }
                         }
@@ -1770,6 +1781,8 @@ fun ScheduleScreen(
                                 unifiedSelectedCourse = it
                             },
                             bottomPadding = contentBottomPadding,
+                            upcoming = upcomingItems,
+                            todayHomework = homeworkDue,
                         )
                     }
                 }
