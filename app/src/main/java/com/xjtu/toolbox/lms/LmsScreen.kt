@@ -49,6 +49,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.rememberRetainedLazyListState
+import com.xjtu.toolbox.ui.glass.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -302,6 +303,8 @@ private fun CourseListPage(
 
     val listState = rememberRetainedLazyListState("lms_courses")
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
 
     fun loadCourses() {
         scope.launch {
@@ -337,7 +340,8 @@ private fun CourseListPage(
             TopAppBar(
                 title = "思源学堂",
                 largeTitle = "思源学堂",
-                color = MiuixTheme.colorScheme.surface,
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -347,7 +351,8 @@ private fun CourseListPage(
             )
         }
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding).nestedScroll(scrollBehavior.nestedScrollConnection)) {
+        val glassTop = padding.glassTop(glass)
+        Box(Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass).nestedScroll(scrollBehavior.nestedScrollConnection)) {
             when {
                 isLoading && courses.isEmpty() -> LoadingIndicator("加载课程列表…")
                 errorMsg != null && courses.isEmpty() -> ErrorRetry(errorMsg!!) { loadCourses() }
@@ -356,7 +361,7 @@ private fun CourseListPage(
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(bottom = 16.dp)
+                        contentPadding = PaddingValues(top = glassTop, bottom = 16.dp)
                     ) {
                         if (semesters.size > 1) {
                             item(key = "semester_filter") {
@@ -505,6 +510,8 @@ private fun ActivityListPage(
 
     val listState = rememberRetainedLazyListState("lms_activities_${course.id}")
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
 
     fun loadActivities() {
         scope.launch {
@@ -539,7 +546,8 @@ private fun ActivityListPage(
             TopAppBar(
                 title = course.name,
                 largeTitle = course.name,
-                color = MiuixTheme.colorScheme.surface,
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -549,7 +557,8 @@ private fun ActivityListPage(
             )
         }
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding).nestedScroll(scrollBehavior.nestedScrollConnection)) {
+        val glassTop = padding.glassTop(glass)
+        Box(Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass).nestedScroll(scrollBehavior.nestedScrollConnection)) {
             when {
                 isLoading && activities.isEmpty() -> LoadingIndicator("加载活动列表…")
                 errorMsg != null && activities.isEmpty() -> ErrorRetry(errorMsg!!) { loadActivities() }
@@ -558,7 +567,7 @@ private fun ActivityListPage(
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(bottom = 16.dp)
+                        contentPadding = PaddingValues(top = glassTop, bottom = 16.dp)
                     ) {
                         if (types.size > 1) {
                             item(key = "type_filter") {
@@ -749,12 +758,16 @@ private fun ActivityDetailPage(
     LaunchedEffect(Unit) { if (cache.details[activity.id] == null) loadDetail() }
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt；
+    // 播放器另开全屏页（本函数外的 VideoPlayer 分支），不在这里，不受影响。
+    val glass = rememberPageGlass()
     Scaffold(
         topBar = {
             TopAppBar(
                 title = activity.title,
                 largeTitle = activity.title,
-                color = MiuixTheme.colorScheme.surface,
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -764,7 +777,8 @@ private fun ActivityDetailPage(
             )
         }
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding).nestedScroll(scrollBehavior.nestedScrollConnection)) {
+        val glassTop = padding.glassTop(glass)
+        Box(Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass).nestedScroll(scrollBehavior.nestedScrollConnection)) {
             when {
                 isLoading -> LoadingIndicator("加载活动详情…")
                 errorMsg != null -> ErrorRetry(errorMsg!!) { loadDetail() }
@@ -782,7 +796,7 @@ private fun ActivityDetailPage(
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = glassTop + 12.dp, bottom = 12.dp)
                     ) {
                         // 基本信息卡
                         item(key = "info") { ActivityInfoCard(d) }
