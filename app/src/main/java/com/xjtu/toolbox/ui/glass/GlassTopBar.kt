@@ -36,6 +36,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  *         val top = padding.glassTop(glass)
  *         PullToRefresh(
  *             ...,
+ *             topAppBarScrollBehavior = scrollBehavior,   // 往下拉先展开大标题，再算下拉刷新
  *             contentPadding = PaddingValues(top = top),  // ③ 下拉指示器从顶栏下面出来
  *         ) { LazyColumn(contentPadding = PaddingValues(top = top + 8.dp, ...)) { ... } }
  *     }
@@ -45,6 +46,8 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  *   内容从顶栏下面滚过去，玻璃才看得出来。
  * - 为什么采样源挂在内容容器上、不挂在 Scaffold 上：顶栏在 Scaffold 里面，录整个 Scaffold
  *   就成了「玻璃采样自己」的环，RenderThread 直接 SIGSEGV。
+ * - 采样源要挂在滚动（`verticalScroll`）**之前**：挂在后面录下的是整条跟着滚的长内容，
+ *   不是屏幕上这块视口，顶栏按屏幕位置采样就对不上，看起来只是透明、没有模糊。
  * - 不滚动的横幅、筛选条这类固定在顶部的东西，要么自己让出顶栏高度（在它上面放
  *   `Spacer(Modifier.height(top))`，下面的列表就不用再留），要么挪进列表里跟着滚。
  *   **别让它们被压在玻璃后面**。

@@ -155,12 +155,14 @@ fun AccountManagerScreen(
             modifier = Modifier
                 .readableWidth()
                 .fillMaxSize()
+                // 采样源必须挂在滚动之前：挂在 verticalScroll 后面录下的是整条跟着滚的长内容，
+                // 不是屏幕上这块视口，顶栏按屏幕位置采样就对不上，只剩透明没有模糊
+                .glassSource(glass)
                 .background(MiuixTheme.colorScheme.background)
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
                 .overScrollVertical()
                 .verticalScroll(rememberScrollState())
                 .padding(padding.withoutTop(glass))
-                .glassSource(glass)
         ) {
             Spacer(Modifier.height(padding.glassTop(glass)))
             ActiveAccountPanel(

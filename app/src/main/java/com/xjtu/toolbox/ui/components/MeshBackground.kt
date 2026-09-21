@@ -5,13 +5,13 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.paint
@@ -50,7 +50,7 @@ fun MeshBackground(
     periodMillis: Int = 12000,
     animated: Boolean = true,
 ) {
-    val dark = isSystemInDarkTheme()
+    val dark = com.xjtu.toolbox.ui.theme.LocalIsDarkTheme.current
     val vertexColors = if (dark) darkVertexColors else lightVertexColors
     val gridRows = vertexColors.size
     val gridColumns = vertexColors.firstOrNull()?.size ?: 0
@@ -63,7 +63,8 @@ fun MeshBackground(
     val shouldAnimate = animated && lifecycleState.isAtLeast(Lifecycle.State.RESUMED)
 
     val infiniteTransition = rememberInfiniteTransition(label = "meshBackground")
-    val rawPhase by infiniteTransition.animateFloat(
+    // 注意这里拿的是 State 本身，不用 `by` 在组合阶段读它。
+    val phaseState = infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = (2 * Math.PI).toFloat(),
         animationSpec = infiniteRepeatable(
@@ -71,41 +72,48 @@ fun MeshBackground(
         ),
         label = "meshBackgroundPhase",
     )
-    // 不在前台或调用方要求静止时，把相位钉在 0——注意底层动画时钟本身并不会因此
-    // 停摆，但没有前台帧回调时它也推进不了，实际不会空耗电。
-    val phase = if (shouldAnimate) rawPhase else 0f
+    val animateState = rememberUpdatedState(shouldAnimate)
+    val sizeState = remember { mutableStateOf(IntSize.Zero) }
 
-    var sizePx by remember { mutableStateOf(IntSize.Zero) }
-
-    Box(modifier.fillMaxSize().onSizeChanged { sizePx = it }) {
-        val width = sizePx.width.toFloat()
-        val height = sizePx.height.toFloat()
-        if (width > 0f && height > 0f) {
+    // 画笔只建一次，相位和尺寸都放到绘制阶段去读。
+    //
+    // MeshGradientPainter 每次 onDraw 都会重新执行一遍下面这个 block（先 configure 再 draw，
+    // 已用 javap 核对 ui-android 1.12.0），所以在 block 里读 State，变化只会让这一块重绘，
+    // 不会重组，也不会分配新对象。以前是用 `by` 在组合阶段读相位、按相位 remember 画笔：
+    // 余额卡以屏幕刷新率一直重组、每帧新建一个画笔，停着不动也在跑，把整页滑动拖卡。
+    val painter = remember(gridRows, gridColumns, vertexColors) {
+        MeshGradientPainter(gridRows - 1, gridColumns - 1) {
+            val size = sizeState.value
+            val width = size.width.toFloat()
+            val height = size.height.toFloat()
+            val phase = if (animateState.value) phaseState.value else 0f
             // 内部顶点漂移的幅度：容器较短边的 12%，太大会把顶点甩出边界露底色。
             val driftAmplitude = minOf(width, height) * 0.12f
-
-            val painter = remember(gridRows, gridColumns, vertexColors, width, height, phase) {
-                MeshGradientPainter(gridRows - 1, gridColumns - 1) {
-                    for (row in 0 until gridRows) {
-                        for (col in 0 until gridColumns) {
-                            val baseX = width * col / (gridColumns - 1)
-                            val baseY = height * row / (gridRows - 1)
-                            val isInterior = row in 1 until gridRows - 1 && col in 1 until gridColumns - 1
-                            val position = if (isInterior) {
-                                // 每个内部顶点错开相位，避免所有顶点同步漂移显得呆板。
-                                val seed = (row * gridColumns + col).toFloat()
-                                val dx = driftAmplitude * cos(phase + seed)
-                                val dy = driftAmplitude * sin(phase * 1.3f + seed)
-                                Offset(baseX + dx, baseY + dy)
-                            } else {
-                                Offset(baseX, baseY)
-                            }
-                            setVertex(row, col, position = position, color = vertexColors[row][col])
-                        }
+            for (row in 0 until gridRows) {
+                for (col in 0 until gridColumns) {
+                    val baseX = width * col / (gridColumns - 1)
+                    val baseY = height * row / (gridRows - 1)
+                    val isInterior = row in 1 until gridRows - 1 && col in 1 until gridColumns - 1
+                    val position = if (isInterior) {
+                        // 每个内部顶点错开相位，避免所有顶点同步漂移显得呆板。
+                        val seed = (row * gridColumns + col).toFloat()
+                        Offset(
+                            baseX + driftAmplitude * cos(phase + seed),
+                            baseY + driftAmplitude * sin(phase * 1.3f + seed),
+                        )
+                    } else {
+                        Offset(baseX, baseY)
                     }
+                    setVertex(row, col, position = position, color = vertexColors[row][col])
                 }
             }
-            Box(Modifier.fillMaxSize().paint(painter))
         }
     }
+
+    Box(
+        modifier
+            .fillMaxSize()
+            .onSizeChanged { sizeState.value = it }
+            .paint(painter),
+    )
 }

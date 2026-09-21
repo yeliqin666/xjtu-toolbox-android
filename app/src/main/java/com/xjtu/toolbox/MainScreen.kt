@@ -1154,33 +1154,51 @@ internal fun MainScreen(
     //
     // 不能放进 NavigationRail：它内部是一个 verticalScroll 的 Column，
     // 向右溢出的气泡会被裁掉。改成与 Row 并列的覆盖层，按按钮的根坐标定位。
-    val bubbleMsg = com.xjtu.toolbox.agent.ProactiveBubbleHost.message
-    val anchor = pidaiAnchor
-    if (isWide && bubbleMsg != null && anchor != null) {
-        val density = androidx.compose.ui.platform.LocalDensity.current
-        val windowWidthPx = androidx.compose.ui.platform.LocalWindowInfo.current.containerSize.width
-        val bubbleMax = with(density) {
-            (windowWidthPx - anchor.right).toDp() - 24.dp
-        }.coerceIn(180.dp, 360.dp)
-        val gapPx = with(density) { 8.dp.roundToPx() }
-        Box(
-            Modifier.layout { measurable, constraints ->
-                val placeable = measurable.measure(
-                    constraints.copy(minWidth = 0, minHeight = 0),
-                )
-                layout(constraints.maxWidth, constraints.maxHeight) {
-                    val x = ((anchor.right - overlayOrigin.x).toInt() + gapPx)
-                        .coerceAtMost((constraints.maxWidth - placeable.width).coerceAtLeast(0))
-                    val y = (anchor.center.y - overlayOrigin.y - placeable.height / 2f).toInt()
-                        .coerceIn(0, (constraints.maxHeight - placeable.height).coerceAtLeast(0))
-                    placeable.place(x, y)
-                }
-            },
-        ) {
-            bubbleView(bubbleMsg, com.xjtu.toolbox.agent.BubbleArrowSide.Start, bubbleMax)
-        }
+    // 侧栏气泡拆成单独的组件：屁岱在侧栏展开 / 收起时逐帧移动，pidaiAnchor 每帧都变。
+    // 以前在这里（MainScreen 的组合阶段）直接读它，动画期间整个 MainScreen 每帧重组，侧栏动画卡成幻灯片。
+    // 现在只有 RailProactiveBubble 这一小块跟着重组；没有气泡时它什么都不做。
+    if (isWide) {
+        RailProactiveBubble(
+            anchor = { pidaiAnchor },
+            overlayOrigin = { overlayOrigin },
+            bubbleView = bubbleView,
+        )
     }
     }  // 最外层 Box
+}
+
+/** 宽屏侧栏屁岱旁边的主动气泡，尖角朝左指着屁岱。锚点、覆盖层原点都用函数传进来，只在这里读。 */
+@Composable
+private fun RailProactiveBubble(
+    anchor: () -> androidx.compose.ui.geometry.Rect?,
+    overlayOrigin: () -> androidx.compose.ui.geometry.Offset,
+    bubbleView: @Composable (com.xjtu.toolbox.agent.ProactiveMessage, com.xjtu.toolbox.agent.BubbleArrowSide, androidx.compose.ui.unit.Dp) -> Unit,
+) {
+    val bubbleMsg = com.xjtu.toolbox.agent.ProactiveBubbleHost.message ?: return
+    val rect = anchor() ?: return
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val windowWidthPx = androidx.compose.ui.platform.LocalWindowInfo.current.containerSize.width
+    val bubbleMax = with(density) {
+        (windowWidthPx - rect.right).toDp() - 24.dp
+    }.coerceIn(180.dp, 360.dp)
+    val gapPx = with(density) { 8.dp.roundToPx() }
+    Box(
+        Modifier.layout { measurable, constraints ->
+            val placeable = measurable.measure(
+                constraints.copy(minWidth = 0, minHeight = 0),
+            )
+            layout(constraints.maxWidth, constraints.maxHeight) {
+                val origin = overlayOrigin()
+                val x = ((rect.right - origin.x).toInt() + gapPx)
+                    .coerceAtMost((constraints.maxWidth - placeable.width).coerceAtLeast(0))
+                val y = (rect.center.y - origin.y - placeable.height / 2f).toInt()
+                    .coerceIn(0, (constraints.maxHeight - placeable.height).coerceAtLeast(0))
+                placeable.place(x, y)
+            }
+        },
+    ) {
+        bubbleView(bubbleMsg, com.xjtu.toolbox.agent.BubbleArrowSide.Start, bubbleMax)
+    }
 }
 
 /**
@@ -1336,6 +1354,7 @@ private fun CoursesTab(
             onBottomContentChange = onBottomContentChange,
             contentBottomPadding = extraBottomPadding,
             contentTopPadding = contentTopPadding,
+            topAppBarScrollBehavior = scrollBehavior,
             // 详情面板的下钻目标（教材全文 / 课程回放 / 考勤）都在别的子系统里，
             // 走带登录的跳转，免得落地页自己再弹一次未登录。
             onNavigate = { route ->
