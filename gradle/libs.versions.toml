@@ -8,7 +8,13 @@ coreKtx = "1.15.0"
 coreSplashscreen = "1.0.1"
 lifecycleRuntimeKtx = "2.8.7"
 activityCompose = "1.12.0"
-composeBom = "2025.01.01"
+# Compose 的实际版本由 miuix 带进来的 JetBrains Compose 决定（冲突仲裁取最高版本），
+# 这里的 BOM 必须和实际解析结果一致，否则 toml 里写的和真正用的对不上，出了问题很难查。
+# 2026.08.00 对应 ui / foundation / animation 1.12.0。升级 miuix 以后重跑一次
+# `./gradlew :app:dependencyInsight --configuration releaseRuntimeClasspath --dependency androidx.compose.ui:ui` 核对。
+composeBom = "2026.08.00"
+# material-icons-extended 已经冻结在 1.7.x，这个 BOM 带的是 1.7.8（原来解析到 1.7.7）。
+# 不另外钉版本：普通版本号压不过 BOM 的约束，写了也不生效，反而误导人。
 navigationCompose = "2.8.9"
 okhttp = "4.12.0"
 jsoup = "1.18.3"
@@ -20,7 +26,12 @@ zxing = "3.5.3"
 camerax = "1.4.1"
 lifecycleRuntimeCompose = "2.8.7"
 media3 = "1.6.1"
-lottie = "6.7.1"
+# 液态玻璃（手机底栏等），Apache-2.0。依赖的 ui / foundation 也是 1.12.0，不会拉高版本。
+backdrop = "2.0.1"
+# 形状形变（加载动画），不依赖 material3。
+graphicsShapes = "1.1.0"
+# miuix-nav 的返回栈要靠它序列化，版本和 miuix-ref 保持一致。
+kotlinxSerialization = "1.11.0"
 junit = "4.13.2"
 junitVersion = "1.1.5"
 espressoCore = "3.5.1"
@@ -61,7 +72,9 @@ androidx-lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lif
 media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3" }
 media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "media3" }
 media3-exoplayer-hls = { group = "androidx.media3", name = "media3-exoplayer-hls", version.ref = "media3" }
-lottie-compose = { group = "com.airbnb.android", name = "lottie-compose", version.ref = "lottie" }
+kyant-backdrop = { group = "io.github.kyant0", name = "backdrop", version.ref = "backdrop" }
+androidx-graphics-shapes = { group = "androidx.graphics", name = "graphics-shapes", version.ref = "graphicsShapes" }
+kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
@@ -78,5 +91,6 @@ android-application = { id = "com.android.application", version.ref = "agp" }
 android-test = { id = "com.android.test", version.ref = "agp" }
 baselineprofile = { id = "androidx.baselineprofile", version.ref = "benchmark" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 

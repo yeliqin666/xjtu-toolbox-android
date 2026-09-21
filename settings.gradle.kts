@@ -36,5 +36,7 @@ includeBuild("miuix-ref") {
         // 超椭圆圆角（MIUI/iOS 那种平滑拐角）。设备不支持 RuntimeShader 时库内部
         // 自动退回普通 RoundedCornerShape，minSdk 31 上安全。
         substitute(module("top.yukonga.miuix.kmp:miuix-squircle-android")).using(project(":miuix-squircle"))
+        // 导航运行时。它的 minSdk 是 24，和本项目的 31 不冲突
+        substitute(module("top.yukonga.miuix.kmp:miuix-nav-android")).using(project(":miuix-nav"))
     }
 }
