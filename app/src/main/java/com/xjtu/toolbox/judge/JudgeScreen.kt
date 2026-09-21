@@ -19,6 +19,7 @@ import top.yukonga.miuix.kmp.basic.PullToRefresh
 import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
+import com.xjtu.toolbox.ui.components.AppTabPager
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
@@ -293,16 +294,13 @@ fun JudgeScreen(
                         }
                     }
                     else -> {
-                        AnimatedContent(
-                            targetState = selectedTab,
-                            transitionSpec = {
-                                fadeIn() + slideInHorizontally {
-                                    if (targetState > initialState) it else -it
-                                } togetherWith fadeOut() + slideOutHorizontally {
-                                    if (targetState > initialState) -it else it
-                                }
-                            },
-                            label = "judgeTab"
+                        // 横滑切栏（未评/已评），用契约组件 AppTabPager；标签行仍由上面的
+                        // AppSegmentedTabs 负责点击切换，两者共用同一个 selectedTab。
+                        AppTabPager(
+                            pageCount = 2,
+                            selectedTabIndex = selectedTab,
+                            onTabSelected = { selectedTab = it },
+                            modifier = Modifier.fillMaxSize(),
                         ) { tab ->
                             val displayList = if (tab == 0) unfinishedList else finishedList
                             if (displayList.isEmpty()) {
