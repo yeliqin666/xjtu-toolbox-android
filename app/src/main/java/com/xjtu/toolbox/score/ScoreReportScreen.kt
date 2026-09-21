@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.score
 
+import com.xjtu.toolbox.ui.glass.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -151,11 +152,14 @@ fun ScoreReportScreen(
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     val pullToRefreshState = rememberPullToRefreshState()
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
     Scaffold(
         topBar = {
             TopAppBar(
                 title = "成绩报表",
-                color = MiuixTheme.colorScheme.surface,
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 largeTitle = "成绩报表",
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
@@ -166,22 +170,25 @@ fun ScoreReportScreen(
             )
         }
     ) { padding ->
+        // 内容铺到顶栏下面，顶部留白放进各个列表里；下拉指示器也从顶栏下面出来
+        val glassTop = padding.glassTop(glass)
         PullToRefresh(
             isRefreshing = isRefreshing,
             onRefresh = { loadData(silent = true) },
             pullToRefreshState = pullToRefreshState,
             topAppBarScrollBehavior = scrollBehavior,
-            modifier = Modifier.fillMaxSize().padding(padding)
+            contentPadding = PaddingValues(top = glassTop),
+            modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass)
         ) {
             when {
             isLoading -> {
-                LazyColumn(Modifier.fillMaxSize()) {
+                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
                     item { Box(Modifier.fillParentMaxSize()) { LoadingState(message = "正在加载成绩报表...", modifier = Modifier.fillMaxSize()) } }
                 }
             }
 
             errorMessage != null && allGrades.isEmpty() -> {
-                LazyColumn(Modifier.fillMaxSize()) {
+                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
                     item {
                         Box(Modifier.fillParentMaxSize()) {
                             ErrorState(
@@ -198,7 +205,7 @@ fun ScoreReportScreen(
                 LazyColumn(
                     modifier = Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
-                    contentPadding = PaddingValues(vertical = 8.dp)
+                    contentPadding = PaddingValues(top = glassTop + 8.dp, bottom = 8.dp)
                 ) {
                     // GPA 概览：三个数字是这页的主角，放在最上面
                     item {
