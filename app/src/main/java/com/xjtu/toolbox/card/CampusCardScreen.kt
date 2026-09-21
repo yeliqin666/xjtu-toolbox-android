@@ -50,7 +50,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -59,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.components.AppTabPager
+import com.xjtu.toolbox.ui.components.MeshBackground
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.EmptyState
@@ -440,22 +440,34 @@ private fun OverviewTab(
     }
 }
 
+// 余额卡的 Mesh 顶点颜色：品牌蓝，不随深浅色翻转（类似实体银行卡）。深色那一套是
+// 单独调暗的，不是把浅色乘个透明度——直接调暗浅色顶点会发浑。3x3 网格，中间那个
+// 顶点会缓慢漂移，四角、四边中点固定在卡片边框上，保证渐变始终铺满整张卡。
+private val BalanceCardMeshLight = listOf(
+    listOf(Color(0xFF0A4D94), Color(0xFF13609F), Color(0xFF1E78C8)),
+    listOf(Color(0xFF13609F), Color(0xFF3D9BE0), Color(0xFF1E78C8)),
+    listOf(Color(0xFF1E78C8), Color(0xFF13609F), Color(0xFF0A4D94)),
+)
+private val BalanceCardMeshDark = listOf(
+    listOf(Color(0xFF06294F), Color(0xFF0C3A68), Color(0xFF123F72)),
+    listOf(Color(0xFF0C3A68), Color(0xFF1C5490), Color(0xFF123F72)),
+    listOf(Color(0xFF123F72), Color(0xFF0C3A68), Color(0xFF06294F)),
+)
+
 @Composable
 private fun BalanceCard(info: CardInfo) {
-    // 固定交大蓝品牌渐变（不随深浅色翻转），白字始终高对比，类似实体银行卡
-    val brandStart = Color(0xFF0A4D94)
-    val brandEnd = Color(0xFF1E78C8)
     val onBrand = Color.White
     top.yukonga.miuix.kmp.basic.Card(
         modifier = Modifier.fillMaxWidth(),
         cornerRadius = 24.dp,
         colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = Color.Transparent)
     ) {
-        Box(
-            Modifier.fillMaxWidth().background(
-                Brush.linearGradient(listOf(brandStart, brandEnd))
+        Box(Modifier.fillMaxWidth()) {
+            MeshBackground(
+                modifier = Modifier.matchParentSize(),
+                lightVertexColors = BalanceCardMeshLight,
+                darkVertexColors = BalanceCardMeshDark,
             )
-        ) {
             Column(Modifier.fillMaxWidth().padding(24.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically) {
