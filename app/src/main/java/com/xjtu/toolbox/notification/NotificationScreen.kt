@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.notification
 
 import com.xjtu.toolbox.ui.adaptive.readableWidth
+import com.xjtu.toolbox.ui.glass.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -196,11 +197,15 @@ fun NotificationScreen(
     }
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
     Scaffold(
         topBar = {
             TopAppBar(
                 title = "通知公告",
                 largeTitle = "通知公告",
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -225,13 +230,18 @@ fun NotificationScreen(
             )
         }
     ) { padding ->
+        // 内容铺到顶栏下面；分类/来源/搜索这一整段都不滚动，用 Spacer 让它们整体让出
+        // 顶栏高度，下面的 LazyColumn 就不用再单独留白
+        val glassTop = padding.glassTop(glass)
         Column(
             modifier = Modifier
-                .padding(padding)
+                .padding(padding.withoutTop(glass))
+                .glassSource(glass)
                 .readableWidth()
                 .fillMaxSize()
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
         ) {
+            Spacer(Modifier.height(glassTop))
             // ═══ 分类选择（文本 Tab 样式，轻量级层级感） ═══
             Row(
                 modifier = Modifier
