@@ -230,6 +230,8 @@ fun ScheduleGrid(
     enableCompression: Boolean = false,  // 空时段是否纵向压缩（学期视图禁用）
     weekKey: Any? = null,  // 切换周时触发"先恢复均匀"动画
     bottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
+    /** 顶部留白，放在纵向滚动里面：顶栏是玻璃时，星期头和网格要能从它下面滚过去。 */
+    topPadding: androidx.compose.ui.unit.Dp = 0.dp,
     /**
      * 这一格右上角要不要点标记，null = 不点。
      *
@@ -307,6 +309,7 @@ fun ScheduleGrid(
             .overScrollVertical()
             .verticalScroll(scrollState)
     ) {
+        if (topPadding > 0.dp) Spacer(Modifier.height(topPadding))
         // ── 星期头 ──
         Row(Modifier.fillMaxWidth().padding(bottom = 2.dp)) {
             Box(Modifier.width(LEFT_COL_WIDTH), contentAlignment = Alignment.Center) {

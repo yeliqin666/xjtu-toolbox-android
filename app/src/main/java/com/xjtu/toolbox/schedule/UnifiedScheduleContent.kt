@@ -77,6 +77,8 @@ fun TodayTimeline(
     allCourseNames: List<String>,
     onCourseClick: (CourseItem) -> Unit,
     bottomPadding: Dp = 0.dp,
+    /** 顶部留白，加在列表内容里（不是列表外面）：日程页顶栏是玻璃时，内容要从它下面滚过去。 */
+    topPadding: Dp = 0.dp,
     /** 3 天内的考试 + 7 天内没提交的作业，见 [buildUpcoming]。 */
     upcoming: List<UpcomingItem> = emptyList(),
     /** 今天截止的作业，插进时间轴对应的时刻（不是「接下来」——那是给以后的）。 */
@@ -139,7 +141,7 @@ fun TodayTimeline(
 
     // 两边都没内容才是真的空——只要「接下来」有东西，就不该用一整页空状态盖住它。
     if (entries.isEmpty() && upcoming.isEmpty()) {
-        Box(Modifier.fillMaxSize().padding(bottom = bottomPadding), Alignment.Center) {
+        Box(Modifier.fillMaxSize().padding(top = topPadding, bottom = bottomPadding), Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(
                     Icons.Outlined.EventAvailable, null, Modifier.size(56.dp),
@@ -160,7 +162,7 @@ fun TodayTimeline(
     LazyColumn(
         Modifier.fillMaxSize().overScrollVertical(),
         contentPadding = PaddingValues(
-            start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp + bottomPadding,
+            start = 16.dp, end = 16.dp, top = 8.dp + topPadding, bottom = 12.dp + bottomPadding,
         ),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -408,6 +410,8 @@ fun SemesterCourseList(
     textbooks: List<TextbookItem>,
     onCourseClick: (CourseItem) -> Unit,
     bottomPadding: Dp = 0.dp,
+    /** 顶部留白，加在列表内容里（不是列表外面）：日程页顶栏是玻璃时，内容要从它下面滚过去。 */
+    topPadding: Dp = 0.dp,
     /** 整学期的考试。分级布局没有独立的「考试」页，它们排在课程列表前面。 */
     exams: List<ExamItem> = emptyList(),
 ) {
@@ -435,7 +439,7 @@ fun SemesterCourseList(
     var examsEndedExpanded by rememberSaveable { mutableStateOf(false) }
 
     if (merged.isEmpty() && examData.total == 0) {
-        Box(Modifier.fillMaxSize().padding(bottom = bottomPadding), Alignment.Center) {
+        Box(Modifier.fillMaxSize().padding(top = topPadding, bottom = bottomPadding), Alignment.Center) {
             Text(
                 "本学期没有课程数据",
                 style = MiuixTheme.textStyles.body1,
@@ -447,7 +451,7 @@ fun SemesterCourseList(
     LazyColumn(
         Modifier.fillMaxSize().overScrollVertical(),
         contentPadding = PaddingValues(
-            start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp + bottomPadding,
+            start = 16.dp, end = 16.dp, top = 8.dp + topPadding, bottom = 12.dp + bottomPadding,
         ),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {

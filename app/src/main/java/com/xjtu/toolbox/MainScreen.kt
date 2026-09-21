@@ -8,6 +8,10 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.lens
+import com.kyant.backdrop.effects.vibrancy
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateFloatAsState
@@ -626,7 +630,30 @@ internal fun MainScreen(
                     actions = { agentHeaderActions?.invoke(this) },
                 )
             } else {
+            // 日程 tab 的顶栏（连同标签行、周胶囊，都在这一个 TopAppBar 里）做成一整块玻璃（plan2 Y2）：
+            // 只用一个 drawBackdrop，三块各做各的会在接缝处出现三条模糊边。
+            // 采样源是 R2 录下的 tab 内容区；顶栏不在那一层里面，不会形成环。
+            val coursesGlass = glassStyle && selectedTab == BottomTab.COURSES
+            val topBarGlassTint = MiuixTheme.colorScheme.surface.copy(alpha = 0.72f)
             TopAppBar(
+                color = if (coursesGlass) androidx.compose.ui.graphics.Color.Transparent else MiuixTheme.colorScheme.surface,
+                modifier = if (coursesGlass) {
+                    Modifier.drawBackdrop(
+                        backdrop = appBackdrop,
+                        shape = { androidx.compose.foundation.shape.RoundedCornerShape(0.dp) }, // 直角必须写成 0dp 圆角，RectangleShape 开折射会闪退
+                        effects = {
+                            // 折射需要的采样余量先让出来，再叠色彩增强、模糊、折射
+                            padding = maxOf(padding, 16.dp.toPx())
+                            vibrancy()
+                            blur(8.dp.toPx(), androidx.compose.ui.graphics.TileMode.Clamp)
+                            lens(refractionHeight = 12.dp.toPx(), refractionAmount = 16.dp.toPx())
+                        },
+                        // 标题、周胶囊的字要一直看得清：玻璃上再压一层表面色
+                        onDrawSurface = { drawRect(topBarGlassTint) },
+                    )
+                } else {
+                    Modifier
+                },
                 title = when (selectedTab) {
                     BottomTab.HOME -> "岱宗盒子"
                     BottomTab.COURSES -> "日程"
@@ -829,7 +856,25 @@ internal fun MainScreen(
             {}
         }
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
+        // 玻璃风格下，日程 tab 的内容要铺到顶栏下面（Y2），所以顶部留白不在这一层统一加，
+        // 改成下面逐个 tab 加：日程交给它自己的滚动内容，其余 tab 照旧整体下移。
+        val topBarPadding = padding.calculateTopPadding()
+        val contentLayoutDirection = androidx.compose.ui.platform.LocalLayoutDirection.current
+        Box(
+            Modifier
+                .fillMaxSize()
+                .padding(
+                    if (glassStyle) {
+                        PaddingValues(
+                            start = padding.calculateStartPadding(contentLayoutDirection),
+                            end = padding.calculateEndPadding(contentLayoutDirection),
+                            bottom = padding.calculateBottomPadding(),
+                        )
+                    } else {
+                        padding
+                    },
+                ),
+        ) {
             // 需要联网的无登录路由（空闲教室、通知公告等纯网络功能）
             val networkRequiredRoutes = setOf(
                 Routes.EMPTY_ROOM,
@@ -901,6 +946,10 @@ internal fun MainScreen(
                             )
                             Box(
                                 Modifier.fillMaxSize()
+                                    .then(
+                                        if (glassStyle && tab != BottomTab.COURSES) Modifier.padding(top = topBarPadding)
+                                        else Modifier
+                                    )
                                     .zIndex(if (isActive) 1f else 0f)
                                     .graphicsLayer {
                                         alpha = tabAlpha
@@ -951,7 +1000,7 @@ internal fun MainScreen(
                                         onNavIconChange = { agentHeaderNavIcon = it },
                                         onNavigate = onNavigateWithNetCheck,
                                     )
-                                    BottomTab.COURSES -> CoursesTab(loginState, ::navigateWithLogin, onNavigateWithNetCheck, scrollBehavior = coursesScrollBehavior, extraBottomPadding = floatingBarReserve, onSubtitleChange = { courseSubtitle = it }, onActionsChange = { courseHeaderActions = it }, onBottomContentChange = { courseHeaderBottomContent = it })
+                                    BottomTab.COURSES -> CoursesTab(loginState, ::navigateWithLogin, onNavigateWithNetCheck, scrollBehavior = coursesScrollBehavior, extraBottomPadding = floatingBarReserve, contentTopPadding = if (glassStyle) topBarPadding else 0.dp, onSubtitleChange = { courseSubtitle = it }, onActionsChange = { courseHeaderActions = it }, onBottomContentChange = { courseHeaderBottomContent = it })
                                     BottomTab.TOOLS -> ToolsTab(loginState, ::navigateWithLogin, onNavigateWithNetCheck, scrollBehavior = toolsScrollBehavior, navBarStyle = effectiveNavStyle)
                                     BottomTab.PROFILE -> ProfileTab(
                                         loginState,
@@ -1246,6 +1295,8 @@ private fun CoursesTab(
     onNavigate: (String) -> Unit = {},
     scrollBehavior: ScrollBehavior? = null,
     extraBottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
+    /** 玻璃顶栏盖在内容上面时顶栏的高度，交给日程页各栏做顶部留白（Y2）。 */
+    contentTopPadding: androidx.compose.ui.unit.Dp = 0.dp,
     onSubtitleChange: (String) -> Unit = {},
     onActionsChange: ((@Composable androidx.compose.foundation.layout.RowScope.() -> Unit)?) -> Unit = {},
     onBottomContentChange: ((@Composable () -> Unit)?) -> Unit = {},
@@ -1264,6 +1315,7 @@ private fun CoursesTab(
             onActionsChange = onActionsChange,
             onBottomContentChange = onBottomContentChange,
             contentBottomPadding = extraBottomPadding,
+            contentTopPadding = contentTopPadding,
             // 详情面板的下钻目标（教材全文 / 课程回放 / 考勤）都在别的子系统里，
             // 走带登录的跳转，免得落地页自己再弹一次未登录。
             onNavigate = { route ->

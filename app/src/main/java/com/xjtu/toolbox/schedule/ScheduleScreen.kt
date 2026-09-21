@@ -157,6 +157,11 @@ fun ScheduleScreen(
     onActionsChange: ((@Composable androidx.compose.foundation.layout.RowScope.() -> Unit)?) -> Unit = {},
     onBottomContentChange: ((@Composable () -> Unit)?) -> Unit = {},
     contentBottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
+    /**
+     * 顶栏盖在内容上面时（首页日程 tab 的玻璃顶栏，plan2 Y2）顶栏的总高度。
+     * 各栏的滚动内容把它当作顶部留白，从顶栏下面穿过；0 = 顶栏不盖内容，和原来一样。
+     */
+    contentTopPadding: androidx.compose.ui.unit.Dp = 0.dp,
     /** 课程详情面板里的下钻入口（教材全文 / 课程回放 / 考勤）要能跳到别的功能页。 */
     onNavigate: (String) -> Unit = {},
 ) {
@@ -1506,6 +1511,15 @@ fun ScheduleScreen(
         Column(Modifier.weight(1f).fillMaxHeight()) {
             // 嵌入式 header 已迁移到 MainScreen TopAppBar.actions / bottomContent slot
 
+            // 顶栏是玻璃、盖在内容上面时（contentTopPadding > 0）：
+            // 下面几条不滚动的横幅（缓存提示、切周进度条、考试倒计时）出现时，横幅本身先让出顶栏高度，
+            // 列表就不用再留；没有横幅时把留白交给各栏的滚动内容，内容才会从顶栏下面滚过去。
+            val staticHeaderShown = (showingStaleData && !isLoading) ||
+                (!isLoading && errorMessage == null &&
+                    ((currentContent == "week" && isSwitching) || ExamCountdown.next(exams) != null))
+            if (staticHeaderShown && contentTopPadding > 0.dp) Spacer(Modifier.height(contentTopPadding))
+            val listTopPadding = if (staticHeaderShown) 0.dp else contentTopPadding
+
             // 缓存数据提示：刷新失败但有缓存时，顶部一条小 banner 告知用户「这可能是旧数据」
             if (showingStaleData && !isLoading) {
                 Surface(
@@ -1644,6 +1658,7 @@ fun ScheduleScreen(
                                     customCourses = customCourses,
                                     onEditCustomCourse = { editingCourse = it },
                                     bottomPadding = contentBottomPadding,
+                                    topPadding = listTopPadding,
                                     textbooks = textbooks,
                                     textbooksProblem = textbooksBackgroundError,
                                     onRequestTextbooks = {
@@ -1689,6 +1704,7 @@ fun ScheduleScreen(
                                         unifiedSelectedCourse = it
                                     },
                                     bottomPadding = contentBottomPadding,
+                                    topPadding = listTopPadding,
                                     upcoming = upcomingItems,
                                     todayHomework = homeworkDue,
                                 )
@@ -1720,6 +1736,7 @@ fun ScheduleScreen(
                                         unifiedSelectedCourse = it
                                     },
                                     bottomPadding = contentBottomPadding,
+                                    topPadding = listTopPadding,
                                 )
                             }
                         }
@@ -1736,7 +1753,8 @@ fun ScheduleScreen(
                     Modifier
                         .width(360.dp)
                         .fillMaxHeight()
-                        .background(MiuixTheme.colorScheme.surface),
+                        .background(MiuixTheme.colorScheme.surface)
+                        .padding(top = contentTopPadding),
                 ) {
                     val picked = unifiedSelectedCourse
                     if (picked != null) {
@@ -1879,6 +1897,7 @@ private fun ScheduleTabContent(
     holidayDates: Map<java.time.LocalDate, String> = emptyMap(),
     onEditCustomCourse: (CustomCourseEntity) -> Unit = {},
     bottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
+    topPadding: androidx.compose.ui.unit.Dp = 0.dp,
     textbooks: List<TextbookItem> = emptyList(),
     /** 教材没取到时的原因，null 表示没问题。见 CourseLinkSections。 */
     textbooksProblem: String? = null,
@@ -2018,7 +2037,7 @@ private fun ScheduleTabContent(
                     EmptyState(
                         title = "本周无日程",
                         subtitle = "第${weekN}周还没有安排",
-                        modifier = Modifier.fillMaxSize().padding(bottom = bottomPadding)
+                        modifier = Modifier.fillMaxSize().padding(top = topPadding, bottom = bottomPadding)
                     )
                 } else {
                     ScheduleGrid(
@@ -2029,6 +2048,7 @@ private fun ScheduleTabContent(
                         enableCompression = true,
                         weekKey = weekN,
                         bottomPadding = bottomPadding,
+                        topPadding = topPadding,
                         slotBadge = { badgeOf(it, weekN) },
                         onSlotClick = { item ->
                             val course = item as? CourseItem ?: return@ScheduleGrid
@@ -2053,6 +2073,7 @@ private fun ScheduleTabContent(
                 showWeeks = true,
                 enableCompression = true,
                 bottomPadding = bottomPadding,
+                        topPadding = topPadding,
                 onSlotClick = { item ->
                     val course = item as? CourseItem ?: return@ScheduleGrid
                     val customEntity = customCourses.find { it.toCourseItem().courseCode == course.courseCode }
