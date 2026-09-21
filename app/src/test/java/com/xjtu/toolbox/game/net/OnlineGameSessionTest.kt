@@ -104,7 +104,9 @@ class OnlineGameSessionTest {
 
         // 在 start() 之前就订阅 events：guest.events 是没有 replay 的 SharedFlow，
         // 订阅晚了会错过已经发生的事件，所以从对象一造出来就开始收集，不留竞态窗口。
-        val received = mutableListOf<OnlineGameEvent>()
+        // 收集协程跑在 scope 的默认调度器（多线程）上，下面的 while 在测试线程里同时遍历，
+        // 普通 ArrayList 会抛 ConcurrentModificationException，得用线程安全的列表。
+        val received = java.util.concurrent.CopyOnWriteArrayList<OnlineGameEvent>()
         val collectJob = scope.launch { guest.events.collect { received.add(it) } }
 
         host.start()
