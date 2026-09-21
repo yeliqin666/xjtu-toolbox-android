@@ -40,6 +40,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.components.AppTabPager
+import com.xjtu.toolbox.ui.glass.*
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
@@ -412,6 +413,8 @@ fun VenueScreen(
     }
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
     Scaffold(
         topBar = {
             TopAppBar(
@@ -423,6 +426,8 @@ fun VenueScreen(
                     VenuePage.VenueList -> "场馆预订"
                     is VenuePage.SlotSelection -> selectedVenue?.name ?: "选择时段"
                 },
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = {
@@ -444,6 +449,7 @@ fun VenueScreen(
             )
         }
     ) { padding ->
+        val glassTop = padding.glassTop(glass)
 
         // ── 首次使用提示 ──
         //
@@ -481,7 +487,15 @@ fun VenueScreen(
                 }
             }
         }
-        Column(Modifier.fillMaxSize().padding(padding)) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(padding.withoutTop(glass))
+                .glassSource(glass)
+        ) {
+            // 分段标签是不滚动的固定头部，Spacer(glassTop) 让它让出顶栏高度，
+            // 下面 AppTabPager 里的列表就不用再单独留白
+            Spacer(Modifier.height(glassTop))
             // 「场馆预订」「我的订单」两个顶层标签共用的选中回调：标签行点击、
             // 翻页器滑动停稳都会走这里，切到「我的订单」时顺带首次拉一页。
             val onSelectTab: (Int) -> Unit = { index ->
