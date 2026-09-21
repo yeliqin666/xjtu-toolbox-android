@@ -37,6 +37,7 @@ import com.xjtu.toolbox.lms.LmsDownloadRecord
 import com.xjtu.toolbox.lms.LmsDownloadStore
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
+import com.xjtu.toolbox.util.CredentialStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -52,12 +53,16 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 @Composable
 fun TranscriptScreen(
     site: SiteSession,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    // 现在只有成绩单一种文件，先把参数留出来；P2 接了文件列表页以后，
+    // 调用方会传不同的 DzpzDocument 进来。
+    document: DzpzDocument = DzpzDocuments.TRANSCRIPT,
 ) {
     val appLoginState = LocalAppLoginState.current
     val api = remember(site) { TranscriptApi(site) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val credentialStore = remember(context) { CredentialStore(context) }
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
 
@@ -67,6 +72,17 @@ fun TranscriptScreen(
     var formContext by remember { mutableStateOf<TranscriptApi.FormContext?>(null) }
     var selectedTypeIndex by remember { mutableIntStateOf(0) }
 
+    // 身份：校友身份从账号上判断不出来（本科生/研究生账号体系里没有这一档），
+    // 默认值按当前登录账号的类型来，用户可以在页面顶部手动切换成校友身份。
+    val defaultIdentity = remember(credentialStore) {
+        if (credentialStore.accountType == com.xjtu.toolbox.auth.AccountType.POSTGRADUATE) {
+            DzpzIdentity.POSTGRAD
+        } else {
+            DzpzIdentity.UNDERGRAD
+        }
+    }
+    var selectedIdentity by remember { mutableStateOf(defaultIdentity) }
+
     // 工作流状态
     var workflowState by remember { mutableStateOf(WorkflowState.IDLE) }
     var workflowProgress by remember { mutableStateOf("") }
@@ -74,7 +90,11 @@ fun TranscriptScreen(
     var pdfBytes by remember { mutableStateOf<ByteArray?>(null) }
 
     // ── 加载表单 ──
-    fun loadForm(workflowId: Int = TranscriptApi.WORKFLOW_MAP.values.first()) {
+    // P1 修的 bug：原来这里的默认参数永远取 WORKFLOW_MAP 的第一个值（在校本科生
+    // 29），两个调用点都没传参，所有身份都被当成本科生处理。现在按 document +
+    // 选中的身份查 workflowId。
+    fun loadForm(identity: DzpzIdentity = selectedIdentity) {
+        val workflowId = document.workflowIds[identity] ?: return
         isLoading = true
         errorMessage = null
         workflowState = WorkflowState.IDLE
@@ -189,6 +209,18 @@ fun TranscriptScreen(
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
+                    // ── 身份选择：默认按账号类型，校友身份需要手动切换 ──
+                    item {
+                        IdentitySelector(
+                            selected = selectedIdentity,
+                            enabled = workflowState != WorkflowState.RUNNING,
+                            onSelect = { identity ->
+                                selectedIdentity = identity
+                                loadForm(identity)
+                            }
+                        )
+                    }
+
                     // ── 成绩单类型选择 ──
                     item {
                         TranscriptTypeSelector(
@@ -252,6 +284,45 @@ enum class WorkflowState {
 }
 
 // ══════════════════════════════════════
+//  身份选择器
+// ══════════════════════════════════════
+
+/**
+ * 四档身份：在校本科生 / 研究生 / 已毕业本科（校友）/ 研究生校友。默认值按账号
+ * 类型来，校友身份判断不出来，需要用户自己切；切换后会用对应的 workflowId
+ * 重新调一次 loadForm（见 plan2 §7.2）。
+ */
+@Composable
+private fun IdentitySelector(
+    selected: DzpzIdentity,
+    enabled: Boolean,
+    onSelect: (DzpzIdentity) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Text(
+                "身份",
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MiuixTheme.colorScheme.onSurface
+            )
+            Spacer(Modifier.height(12.dp))
+            DzpzIdentity.entries.forEach { identity ->
+                TranscriptTypeSelectorItem(
+                    label = identity.label,
+                    isSelected = identity == selected,
+                    enabled = enabled,
+                    onClick = { onSelect(identity) }
+                )
+            }
+        }
+    }
+}
+
+// ══════════════════════════════════════
 //  成绩单类型选择器
 // ══════════════════════════════════════
 
@@ -276,7 +347,7 @@ private fun TranscriptTypeSelector(
             Spacer(Modifier.height(12.dp))
             options.forEachIndexed { index, option ->
                 TranscriptTypeSelectorItem(
-                    option = option,
+                    label = option.name,
                     isSelected = index == selectedIndex,
                     enabled = enabled,
                     onClick = { onSelect(index) }
@@ -288,7 +359,7 @@ private fun TranscriptTypeSelector(
 
 @Composable
 private fun TranscriptTypeSelectorItem(
-    option: TranscriptApi.TranscriptTypeOption,
+    label: String,
     isSelected: Boolean,
     enabled: Boolean,
     onClick: () -> Unit
@@ -331,7 +402,7 @@ private fun TranscriptTypeSelectorItem(
             }
             Spacer(Modifier.width(12.dp))
             Text(
-                option.name,
+                label,
                 fontSize = 14.sp,
                 color = if (isSelected) MiuixTheme.colorScheme.primary
                        else MiuixTheme.colorScheme.onSurface
