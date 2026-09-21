@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.KeyboardOptions
 import com.xjtu.toolbox.AppLoginState
 import com.xjtu.toolbox.auth.AccountType
+import com.xjtu.toolbox.ui.glass.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
@@ -124,12 +125,15 @@ fun AccountManagerScreen(
         refresh()
     }
 
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
     Scaffold(
         topBar = {
             TopAppBar(
                 title = "账号管理",
                 largeTitle = "账号管理",
-                color = MiuixTheme.colorScheme.surface,
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -155,8 +159,10 @@ fun AccountManagerScreen(
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
                 .overScrollVertical()
                 .verticalScroll(rememberScrollState())
-                .padding(padding)
+                .padding(padding.withoutTop(glass))
+                .glassSource(glass)
         ) {
+            Spacer(Modifier.height(padding.glassTop(glass)))
             ActiveAccountPanel(
                 account = activeAccount,
                 accountCount = accounts.size,
