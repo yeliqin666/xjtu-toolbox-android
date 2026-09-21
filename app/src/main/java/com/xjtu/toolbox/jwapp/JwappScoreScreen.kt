@@ -97,6 +97,7 @@ import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.AppSearchBar
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.ErrorState
+import com.xjtu.toolbox.ui.glass.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -434,12 +435,16 @@ fun JwappScoreScreen(
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     val pullToRefreshState = rememberPullToRefreshState()
     var termMenuExpanded by remember { mutableStateOf(false) }
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = if (gpaSelectMode) "选课算 GPA" else "成绩查询",
                 largeTitle = if (gpaSelectMode) "选课算 GPA" else "成绩查询",
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = {
@@ -487,30 +492,50 @@ fun JwappScoreScreen(
         // GPA 映射表弹窗
         GpaMappingDialog(show = showGpaTips)
 
+        // 内容铺到顶栏下面，顶部留白放进各个列表里；下拉指示器也从顶栏下面出来
+        val glassTop = padding.glassTop(glass)
         when {
             isLoading -> {
-                LoadingState(message = "正在加载成绩数据...", modifier = Modifier.fillMaxSize().padding(padding))
+                LazyColumn(
+                    Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
+                    contentPadding = PaddingValues(top = glassTop),
+                ) {
+                    item {
+                        Box(Modifier.fillParentMaxSize()) {
+                            LoadingState(message = "正在加载成绩数据...", modifier = Modifier.fillMaxSize())
+                        }
+                    }
+                }
             }
 
             errorMessage != null -> {
-                ErrorState(
-                    message = errorMessage!!,
-                    onRetry = {
-                        scope.launch {
-                            isLoading = true
-                            errorMessage = null
-                            try {
-                                withContext(Dispatchers.IO) {
-                                    appLoginState.sessionManager?.credentials?.let { creds ->
-                                        site?.ensureLogin(creds.first, creds.second, force = true)
+                LazyColumn(
+                    Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
+                    contentPadding = PaddingValues(top = glassTop),
+                ) {
+                    item {
+                        Box(Modifier.fillParentMaxSize()) {
+                            ErrorState(
+                                message = errorMessage!!,
+                                onRetry = {
+                                    scope.launch {
+                                        isLoading = true
+                                        errorMessage = null
+                                        try {
+                                            withContext(Dispatchers.IO) {
+                                                appLoginState.sessionManager?.credentials?.let { creds ->
+                                                    site?.ensureLogin(creds.first, creds.second, force = true)
+                                                }
+                                            }
+                                        } catch (_: Exception) {}
+                                        loadScoreData()
                                     }
-                                }
-                            } catch (_: Exception) {}
-                            loadScoreData()
+                                },
+                                modifier = Modifier.fillMaxSize()
+                            )
                         }
-                    },
-                    modifier = Modifier.fillMaxSize().padding(padding)
-                )
+                    }
+                }
             }
 
             else -> {
@@ -519,12 +544,13 @@ fun JwappScoreScreen(
                     onRefresh = { if (api != null) loadScoreData(silent = true) },
                     pullToRefreshState = pullToRefreshState,
                     topAppBarScrollBehavior = scrollBehavior,
-                    modifier = Modifier.fillMaxSize().padding(padding)
+                    contentPadding = PaddingValues(top = glassTop),
+                    modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass)
                 ) {
                     LazyColumn(
                         modifier = Modifier.readableWidth().fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(vertical = 8.dp)
+                    contentPadding = PaddingValues(top = glassTop + 8.dp, bottom = 8.dp)
                 ) {
                     item {
                         GpaCard(
