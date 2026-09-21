@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
+import com.xjtu.toolbox.ui.glass.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -178,12 +179,16 @@ fun FitnessScreen(
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     val pullToRefreshState = rememberPullToRefreshState()
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = "体测查询",
                 largeTitle = "体测查询",
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -193,30 +198,32 @@ fun FitnessScreen(
             )
         }
     ) { padding ->
+        val glassTop = padding.glassTop(glass)
         PullToRefresh(
             isRefreshing = isRefreshing,
             onRefresh = { scope.launch { refreshCurrent() } },
             pullToRefreshState = pullToRefreshState,
             topAppBarScrollBehavior = scrollBehavior,
-            modifier = Modifier.fillMaxSize().padding(padding)
+            contentPadding = PaddingValues(top = glassTop),
+            modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass)
         ) {
         when {
-            loading && score == null -> LazyColumn(Modifier.fillMaxSize()) {
+            loading && score == null -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
                 item { Box(Modifier.fillParentMaxSize()) { LoadingState("正在读取体测成绩…", Modifier.fillMaxSize()) } }
             }
-            years.isEmpty() && error != null && score == null -> LazyColumn(Modifier.fillMaxSize()) {
+            years.isEmpty() && error != null && score == null -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
                 item {
                     Box(Modifier.fillParentMaxSize()) {
                         ErrorState("查询失败：$error", onRetry = { scope.launch { loadYears() } }, modifier = Modifier.fillMaxSize())
                     }
                 }
             }
-            years.isEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
+            years.isEmpty() -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
                 item { Box(Modifier.fillParentMaxSize()) { EmptyState("暂无可查询的体测学年", modifier = Modifier.fillMaxSize()) } }
             }
             else -> LazyColumn(
                 modifier = Modifier.fillMaxSize().overScrollVertical(),
-                contentPadding = PaddingValues(top = 16.dp, bottom = 28.dp),
+                contentPadding = PaddingValues(top = glassTop + 16.dp, bottom = 28.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 item {
