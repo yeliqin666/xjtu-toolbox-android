@@ -68,6 +68,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.xjtu.toolbox.qrlogin.QrScannerView
 import com.xjtu.toolbox.ui.adaptive.readableWidth
+import com.xjtu.toolbox.ui.glass.*
 import com.xjtu.toolbox.util.QrBitmap
 import com.xjtu.toolbox.util.XjtuTime
 import kotlinx.coroutines.Dispatchers
@@ -216,13 +217,17 @@ fun MatchScreen(onBack: () -> Unit) {
         }
     }
 
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    // 扫码取景（ScannerOverlay）是相机预览，采不到像素，不做玻璃。
+    val glass = rememberPageGlass()
     Box(Modifier.fillMaxSize()) {
         Scaffold(
             topBar = {
                 TopAppBar(
                     title = "匹配交友",
                     largeTitle = "匹配交友",
-                    color = MiuixTheme.colorScheme.surface,
+                    color = glassBarColor(glass),
+                    modifier = Modifier.glassTopBar(glass),
                     scrollBehavior = scrollBehavior,
                     navigationIcon = {
                         IconButton(onClick = onBack) {
@@ -232,9 +237,13 @@ fun MatchScreen(onBack: () -> Unit) {
                 )
             },
         ) { padding ->
+            val glassTop = padding.glassTop(glass)
             Box(Modifier.fillMaxSize()) {
                 if (loading) {
-                    Box(Modifier.fillMaxSize().padding(padding), Alignment.Center) {
+                    Box(
+                        Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
+                        Alignment.Center,
+                    ) {
                         LinearProgressIndicator(Modifier.width(120.dp))
                     }
                 } else {
@@ -244,11 +253,13 @@ fun MatchScreen(onBack: () -> Unit) {
                             // 否则平板上一行文字会拉到整屏那么长。
                             .readableWidth()
                             .fillMaxSize()
+                            .padding(padding.withoutTop(glass))
+                            .glassSource(glass)
                             .nestedScroll(scrollBehavior.nestedScrollConnection)
                             .overScrollVertical(),
                         contentPadding = PaddingValues(
                             start = 16.dp, end = 16.dp,
-                            top = padding.calculateTopPadding() + 8.dp,
+                            top = glassTop + 8.dp,
                             bottom = padding.calculateBottomPadding() + 24.dp,
                         ),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
