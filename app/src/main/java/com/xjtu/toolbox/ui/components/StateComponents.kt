@@ -4,7 +4,6 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -35,7 +34,8 @@ fun LoadingState(
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            CircularProgressIndicator()
+            // PR X（计划 §15）：整页加载换成形状形变，行内小转圈等场景不动。
+            MorphingLoader()
             Spacer(Modifier.height(16.dp))
             Text(
                 message,
