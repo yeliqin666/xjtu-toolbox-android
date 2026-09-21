@@ -1,14 +1,6 @@
 package com.xjtu.toolbox.jiaocai1
 
-import com.xjtu.toolbox.ui.adaptive.readableWidth
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -31,7 +23,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.ChevronRight
@@ -51,24 +42,17 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
-import com.xjtu.toolbox.LocalAppLoginState
 import com.xjtu.toolbox.Routes
-import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.SiteSession
-import com.xjtu.toolbox.auth.handleAuthExpired
 import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.AppInsetColor
 import com.xjtu.toolbox.ui.components.AppSearchBar
-import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
@@ -79,16 +63,11 @@ import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
-import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.TopAppBar
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.squircle.squircleBorder
 import top.yukonga.miuix.kmp.squircle.squircleSurface
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -99,6 +78,10 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
 /**
  * 教材全文库入口：书架 + 五种字段检索 + 中图法分类树。
  * 进阅读器走独立路由，浏览态活在本页 ViewModel 上，返回不丢。
+ *
+ * PR L 之后这只是薄包装：真正的页面是合并了「查教材/书架/全文库」三栏的
+ * [com.xjtu.toolbox.jiaocai.TextbookScreen]，本函数只是把老路由（快捷方式、
+ * 全局搜索、屁岱工具可能还在用）接到它的「全文库」栏。
  */
 @Composable
 fun Jiaocai1Screen(
@@ -107,119 +90,69 @@ fun Jiaocai1Screen(
     onOpenBook: (ssno: String, title: String) -> Unit,
     initialKeyword: String = "",
 ) {
-    val context = LocalContext.current
-    val appLoginState = LocalAppLoginState.current
-    val vm: Jiaocai1ViewModel = viewModel()
-    vm.bind(context, site)
-    Jiaocai1UsageNotice(onDecline = onBack)
-
-    LaunchedEffect(initialKeyword) {
-        if (initialKeyword.isNotBlank() && vm.result == null) {
-            vm.keyword = initialKeyword
-            vm.tab = 1
-            vm.search(1)
-        }
-    }
-
-    if (vm.authExpired) {
-        LaunchedEffect(Unit) {
-            vm.authExpired = false
-            appLoginState.handleAuthExpired(LoginType.JIAOCAI, Routes.JIAOCAI1, onBack)
-        }
-    }
-
-    Jiaocai1BrowseScreen(
+    com.xjtu.toolbox.jiaocai.TextbookScreen(
         site = site,
-        vm = vm,
         onBack = onBack,
         onOpenBook = onOpenBook,
+        initialTab = 2,
+        initialKeyword = initialKeyword,
+        authExpiredRoute = Routes.JIAOCAI1,
     )
 }
 
+/**
+ * 「书架 + 全文库（检索/分类合一）」内容区，不带 Scaffold / TopAppBar，
+ * 供 [com.xjtu.toolbox.jiaocai.TextbookScreen] 的对应栏调用。
+ */
 @Composable
-private fun Jiaocai1BrowseScreen(
-    site: SiteSession,
+internal fun Jiaocai1ShelfContent(
     vm: Jiaocai1ViewModel,
-    onBack: () -> Unit,
+    loader: Jiaocai1PageLoader,
     onOpenBook: (ssno: String, title: String) -> Unit,
 ) {
-    val context = LocalContext.current
-    val loader = remember(site) { Jiaocai1PageLoader(context, site) }
     val shelf by vm.shelf.collectAsState()
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    ShelfTab(
+        items = shelf,
+        loader = loader,
+        onOpen = { onOpenBook(it.ssno, it.title) },
+        onRemove = { ssno -> vm.removeFromShelf(ssno) },
+    )
+}
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = "教材全文库",
-                largeTitle = "教材全文库",
-                scrollBehavior = scrollBehavior,
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                }
-            )
-        }
-    ) { padding ->
-        Column(
-            Modifier
-                .padding(padding)
-                .readableWidth()
-                .fillMaxSize()
-                .nestedScroll(scrollBehavior.nestedScrollConnection)
-                .background(MiuixTheme.colorScheme.surface)
-        ) {
-            AppSegmentedTabs(
-                tabs = listOf("书架", "检索", "分类"),
-                selectedTabIndex = vm.tab,
-                onTabSelected = { vm.tab = it },
-            )
-
-            AnimatedContent(
-                targetState = vm.tab,
-                transitionSpec = {
-                    val dir = if (targetState > initialState) 1 else -1
-                    (slideInHorizontally { dir * it / 4 } + fadeIn(spring(dampingRatio = 0.85f, stiffness = 500f)))
-                        .togetherWith(
-                            slideOutHorizontally { -dir * it / 4 } + fadeOut(spring(dampingRatio = 0.85f, stiffness = 500f))
-                        )
-                },
-                label = "jiaocai1Tab",
-                modifier = Modifier.weight(1f)
-            ) { current ->
-                when (current) {
-                    0 -> ShelfTab(
-                        items = shelf,
-                        loader = loader,
-                        onOpen = { onOpenBook(it.ssno, it.title) },
-                        onRemove = { ssno -> vm.removeFromShelf(ssno) },
-                    )
-                    1 -> SearchTab(
-                        keyword = vm.keyword,
-                        onKeywordChange = { vm.keyword = it },
-                        field = vm.field,
-                        onFieldChange = { vm.changeField(it) },
-                        clsName = vm.clsName,
-                        onClearCls = { vm.clearCls() },
-                        books = vm.books,
-                        result = vm.result,
-                        loading = vm.loading,
-                        loadingMore = vm.loadingMore,
-                        moreFailed = vm.moreFailed,
-                        error = vm.error,
-                        loader = loader,
-                        onSearch = { vm.search(1) },
-                        onLoadMore = { vm.result?.let { if (it.hasMore) vm.search(it.currentPage + 1) } },
-                        onOpenBook = { onOpenBook(it.ssno, it.title) },
-                    )
-                    else -> CategoryTab(
-                        vm = vm,
-                        onPick = { vm.pickCategory(it) },
-                    )
-                }
-            }
-        }
+/**
+ * 全文库栏：关键词为空、也没选分类时先看分类树（分类浏览往往比关键词更容易找到教材）；
+ * 一旦有关键词或选了分类，就切到检索结果列表。不再是两个平行标签，是同一栏内的两种状态。
+ */
+@Composable
+internal fun Jiaocai1BrowseContent(
+    vm: Jiaocai1ViewModel,
+    loader: Jiaocai1PageLoader,
+    onOpenBook: (ssno: String, title: String) -> Unit,
+) {
+    if (vm.keyword.isBlank() && vm.cls.isBlank()) {
+        CategoryTab(
+            vm = vm,
+            onPick = { vm.pickCategory(it) },
+        )
+    } else {
+        SearchTab(
+            keyword = vm.keyword,
+            onKeywordChange = { vm.keyword = it },
+            field = vm.field,
+            onFieldChange = { vm.changeField(it) },
+            clsName = vm.clsName,
+            onClearCls = { vm.clearCls() },
+            books = vm.books,
+            result = vm.result,
+            loading = vm.loading,
+            loadingMore = vm.loadingMore,
+            moreFailed = vm.moreFailed,
+            error = vm.error,
+            loader = loader,
+            onSearch = { vm.search(1) },
+            onLoadMore = { vm.result?.let { if (it.hasMore) vm.search(it.currentPage + 1) } },
+            onOpenBook = { onOpenBook(it.ssno, it.title) },
+        )
     }
 }
 
