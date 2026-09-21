@@ -21,7 +21,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.EditCalendar
 import androidx.compose.material.icons.outlined.EventAvailable
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,13 +48,11 @@ import java.time.LocalDate
 import java.time.LocalTime
 
 /**
- * 分级布局的「今日」与「学期」两级。
+ * 日程页三级里的「今日」与「学期」两级（「日程」那一级是周视图网格，直接在
+ * ScheduleScreen.kt 里的 ScheduleTabContent，二维对齐是它唯一不可替代的地方，
+ * 一眼看出哪段时间是空的）。
  *
- * 「本周」那一级直接复用经典布局的周视图网格——二维对齐是它唯一不可替代的地方
- * （一眼看出哪段时间是空的），没有理由为了新布局再造一个。
- *
- * 这两级本身不含任何数据获取，课程、考试、教材都由 ScheduleScreen 传进来，
- * 和经典布局读的是同一份状态。布局开关换的只是摆法。
+ * 这两级本身不含任何数据获取，课程、考试、教材都由 ScheduleScreen 传进来。
  */
 
 /**
@@ -274,10 +276,11 @@ fun SemesterCourseList(
             }
             .sortedBy { it.course.courseName }
     }
-    // 按日期排好的考试。没有日期的排最后，不猜。
-    val sortedExams = remember(exams) { exams.sortedBy { it.examDate.ifBlank { "9999" } } }
+    // 排好序的考试：未结束在前、已结束折叠。与考试倒计时横幅点开的弹窗共用同一套排序，见 ExamList.kt。
+    val examData = remember(exams) { sortExamsForList(exams) }
+    var examsEndedExpanded by rememberSaveable { mutableStateOf(false) }
 
-    if (merged.isEmpty() && sortedExams.isEmpty()) {
+    if (merged.isEmpty() && examData.total == 0) {
         Box(Modifier.fillMaxSize().padding(bottom = bottomPadding), Alignment.Center) {
             Text(
                 "本学期没有课程数据",
@@ -294,9 +297,13 @@ fun SemesterCourseList(
         ),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        if (sortedExams.isNotEmpty()) {
-            item { SectionLabel("考试安排 · ${sortedExams.size} 场") }
-            items(sortedExams) { exam -> ExamRowCard(exam) }
+        if (examData.total > 0) {
+            // 全考完时不再报「还有 N 场」——那句话在这个场景下没有意义，
+            // 直接就是那一行折叠的「已结束 N 场」。
+            if (examData.active.isNotEmpty()) {
+                item { SectionLabel("考试安排 · 还有 ${examData.active.size} 场") }
+            }
+            examListItems(examData, examsEndedExpanded, { examsEndedExpanded = !examsEndedExpanded })
             if (merged.isNotEmpty()) item { SectionLabel("本学期课程 · ${merged.size} 门") }
         }
         items(merged) { row ->
@@ -389,85 +396,6 @@ private fun SectionLabel(text: String) {
         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
         modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 2.dp),
     )
-}
-
-/**
- * 一场考试。
- *
- * 用 error 色系而不是普通卡片色：这一屏里考试是唯一"错过就没了"的东西，
- * 和几十门课长一个样就等于没标出来。座位号单独给一个角标——进考场前要找的就是它。
- */
-@Composable
-private fun ExamRowCard(exam: ExamItem) {
-    val accent = MiuixTheme.colorScheme.error
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        cornerRadius = 14.dp,
-        colors = CardDefaults.defaultColors(color = accent.copy(alpha = 0.10f)),
-    ) {
-        Row(
-            Modifier.padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    exam.courseName,
-                    style = MiuixTheme.textStyles.body1,
-                    fontWeight = FontWeight.Bold,
-                    color = MiuixTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                val when_ = listOfNotNull(
-                    exam.examDate.takeIf { it.isNotBlank() },
-                    exam.examTime.takeIf { it.isNotBlank() },
-                ).joinToString("  ")
-                if (when_.isNotBlank()) {
-                    Spacer(Modifier.height(3.dp))
-                    Text(
-                        when_,
-                        style = MiuixTheme.textStyles.footnote1,
-                        color = accent,
-                        fontWeight = FontWeight.Medium,
-                    )
-                }
-                exam.location.takeIf { it.isNotBlank() }?.let {
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        it,
-                        style = MiuixTheme.textStyles.footnote1,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-            exam.seatNumber.takeIf { it.isNotBlank() }?.let { seat ->
-                Spacer(Modifier.width(10.dp))
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = accent.copy(alpha = 0.16f),
-                ) {
-                    Column(
-                        Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Text(
-                            "座位",
-                            style = MiuixTheme.textStyles.footnote2,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        )
-                        Text(
-                            seat,
-                            style = MiuixTheme.textStyles.body2,
-                            fontWeight = FontWeight.Bold,
-                            color = accent,
-                        )
-                    }
-                }
-            }
-        }
-    }
 }
 
 // ── 小工具 ────────────────────────────────────────────────

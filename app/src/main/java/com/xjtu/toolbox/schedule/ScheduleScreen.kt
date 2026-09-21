@@ -2,7 +2,6 @@ package com.xjtu.toolbox.schedule
 
 import androidx.activity.compose.BackHandler
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import com.xjtu.toolbox.ui.WindowSize
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Button
@@ -35,6 +34,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.key
 import androidx.compose.runtime.DisposableEffect
 import kotlinx.coroutines.flow.drop
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -51,15 +51,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.EventNote
 import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.EditCalendar
 import androidx.compose.material.icons.filled.EventNote
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Business
 import androidx.compose.material.icons.filled.MoreVert
@@ -103,8 +100,6 @@ import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.ErrorState
-import com.xjtu.toolbox.ui.currentWindowSize
-import com.xjtu.toolbox.ui.adaptive.readableWidth
 import top.yukonga.miuix.kmp.basic.VerticalDivider
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -166,7 +161,6 @@ fun ScheduleScreen(
     onNavigate: (String) -> Unit = {},
 ) {
     // 大屏适配由屏内 Composable 自己根据 currentWindowSize() 判断，调用方不再透传
-    val windowSize: WindowSize = currentWindowSize()
     val isWideLayout = com.xjtu.toolbox.ui.isWideLayout()
     val appLoginState = LocalAppLoginState.current
     var activeSite by remember(site) { mutableStateOf(site) }
@@ -262,35 +256,17 @@ fun ScheduleScreen(
         ?: TermWeeks.DEFAULT_TOTAL_WEEKS
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
 
-    /**
-     * 分级布局（今日 / 本周 / 学期）还是经典布局（日程 / 考试 / 教材）。
-     *
-     * 只在进入页面时读一次，不做实时响应：中途换布局会让 selectedTab 的含义突然变掉
-     * （第 2 页从"教材"变成"学期"），不如等下次进来干净。
-     *
-     * 这是**纯布局开关**。课程详情下钻、考勤角标、考试倒计时两边都有，切回旧版不丢功能。
-     */
-    /** 分级布局的今日 / 学期两级点课后要弹的详情。周视图有自己那份，见 ScheduleTabContent。 */
+    /** 今日 / 学期两级点课后要弹的详情。周视图有自己那份，见 ScheduleTabContent。 */
     var unifiedSelectedCourse by remember { mutableStateOf<CourseItem?>(null) }
 
     /** 今日那一级点课时带上今天；学期那一级说不出是哪一次，保持 null。 */
     var unifiedOccurrence by remember { mutableStateOf<Occurrence?>(null) }
 
-    val unifiedLayout = remember {
-        com.xjtu.toolbox.util.CredentialStore(context).scheduleLayout ==
-            com.xjtu.toolbox.util.CredentialStore.SCHEDULE_LAYOUT_UNIFIED
-    }
-
     /**
-     * tab 序号 → 这一页放什么。两套布局的三格指向不同内容，页面里凡是要问
-     * "现在是不是在课表页"的地方都走这个函数，别再去比 selectedTab == 0——
-     * 那个等式只在经典布局下成立。
+     * tab 序号 → 这一页放什么。固定今日 / 日程 / 学期三格（plan2 §1.5），
+     * 页面里凡是要问"现在是不是在课表页"的地方都走这个函数，别再去比 selectedTab == 0。
      */
-    fun contentOf(tab: Int): String = if (unifiedLayout) {
-        when (tab) { 0 -> "today"; 1 -> "week"; else -> "semester" }
-    } else {
-        when (tab) { 0 -> "week"; 1 -> "exam"; else -> "book" }
-    }
+    fun contentOf(tab: Int): String = when (tab) { 0 -> "today"; 1 -> "week"; else -> "semester" }
     val currentContent = contentOf(selectedTab)
     var weekNote by remember { mutableStateOf<String?>(null) } // "距开学X周" / "学期已结束"
 
@@ -315,6 +291,9 @@ fun ScheduleScreen(
     // 周视图 vs 总览（每次启动默认周视图，不保存状态）
     var showAllWeeks by remember { mutableStateOf(false) }
 
+    // 周选择器弹窗（§1.4）：标签行下面的胶囊点开
+    var showWeekPicker by remember { mutableStateOf(false) }
+
     // 是否正在显示缓存数据（网络失败时提示）
     var showingStaleData by remember { mutableStateOf(disk.courses.isNotEmpty()) }
 
@@ -327,17 +306,10 @@ fun ScheduleScreen(
     // 导出菜单
     var showExportMenu by remember { mutableStateOf(false) }
 
-    // 通知外层（MainScreen TopAppBar）当前学期 / 周次（不含日期范围）
-    LaunchedEffect(selectedTab, selectedTermCode, currentWeek, showAllWeeks, weekNote, termList) {
-        val name = termLabel(selectedTermCode)
-        val subtitle = when {
-            contentOf(selectedTab) != "week" -> name
-            weekNote != null -> name
-            showAllWeeks -> name.takeIf { it.isNotEmpty() }?.let { "$it · 全学期" } ?: "全学期"
-            name.isNotEmpty() -> "$name · 第 $currentWeek 周"
-            else -> "第 $currentWeek 周"
-        }
-        onSubtitleChange(subtitle)
+    // 通知外层（MainScreen TopAppBar）当前学期。第几周已经挪到标签行下面的周选择胶囊里，
+    // 副标题不用再重复一遍。
+    LaunchedEffect(selectedTermCode, termList) {
+        onSubtitleChange(termLabel(selectedTermCode))
     }
 
     fun readCachedTerms(): List<String> {
@@ -790,10 +762,10 @@ fun ScheduleScreen(
 
     fun refreshActiveTab() {
         when (contentOf(selectedTab)) {
-            "exam" -> refreshExams()
-            // 学期一级的教材是每行一条，刷新的还是同一份数据。
-            "book", "semester" -> if (selectedTermCode.isNotEmpty()) {
-                loadTextbooks(selectedTermCode)
+            // 学期一级同时放着考试和教材，两份都刷。
+            "semester" -> {
+                refreshExams()
+                if (selectedTermCode.isNotEmpty()) loadTextbooks(selectedTermCode)
             }
             else -> refreshSchedule(true)
         }
@@ -1150,17 +1122,8 @@ fun ScheduleScreen(
                 Icon(Icons.Default.Add, contentDescription = "添加日程")
             }
         }
-        // 周视图/全学期总览：直接给一个按钮，点一下就换。
-        // 原来它藏在「更多 → 切到全学期总览」里——这是个每天都可能按的视图开关，
-        // 不是一年用一次的导出，埋两层菜单等于没有。
-        if (currentContent == "week") {
-            IconButton(onClick = { showAllWeeks = !showAllWeeks }) {
-                Icon(
-                    if (showAllWeeks) Icons.Default.DateRange else Icons.Default.CalendarMonth,
-                    contentDescription = if (showAllWeeks) "切回本周" else "看全学期",
-                )
-            }
-        }
+        // 周视图/全部周叠加的切换已经挪到标签行下面的周选择胶囊里（§1.4），
+        // 这里不再放一个意思含糊的按钮。
         Box {
             IconButton(onClick = { showExportMenu = true }) {
                 Icon(Icons.Default.MoreVert, contentDescription = "更多")
@@ -1236,27 +1199,143 @@ fun ScheduleScreen(
         }
     }
     val headerBottomContent: (@Composable () -> Unit) = {
-        AppSegmentedTabs(
-            // 分级布局按"看多远"分，经典布局按"看什么"分。两套都是三格，切换时
-            // 位置感不变，只是含义换了一套。
-            //
-            // 中间那格跟着 showAllWeeks 改名：菜单里切到「全学期总览」之后，
-            // 标签还写着「本周」就是在骗人——用户看到的明明是整学期的网格。
-            tabs = if (unifiedLayout) {
-                listOf("今日", if (showAllWeeks) "全学期" else "本周", "学期")
-            } else {
-                listOf(if (showAllWeeks) "全学期" else "日程", "考试", "教材")
-            },
-            selectedTabIndex = selectedTab,
-            onTabSelected = { tab ->
-                selectedTab = tab
-                // 两套布局里教材的落点不同：经典在第 2 页整页，分级在第 2 页每行一条。
-                // 触发加载的时机一样，都是第一次翻到那一页。
-                if (tab == 2 && !textbooksLoaded && !textbooksLoading && selectedTermCode.isNotEmpty()) {
-                    loadTextbooks(selectedTermCode)
+        Column {
+            AppSegmentedTabs(
+                // 固定今日 / 日程 / 学期三格，不再随布局变化，见 plan2 §1.5。
+                tabs = listOf("今日", "日程", "学期"),
+                selectedTabIndex = selectedTab,
+                onTabSelected = { tab ->
+                    selectedTab = tab
+                    // 学期栏第一次打开时才加载教材，别的栏用不上。
+                    if (tab == 2 && !textbooksLoaded && !textbooksLoading && selectedTermCode.isNotEmpty()) {
+                        loadTextbooks(selectedTermCode)
+                    }
+                },
+            )
+            // 周选择器：只在「日程」栏出现，替掉原来那个只在"每周/全部周叠加"之间
+            // 二选一、看不出按了会怎样的按钮（§1.4）。
+            if (currentContent == "week") {
+                val weekPillDateRange = remember(startOfTerm, currentWeek) {
+                    val st = startOfTerm
+                    if (st != null && currentWeek > 0) {
+                        val monday = st.plusWeeks((currentWeek - 1).toLong())
+                        val sunday = monday.plusDays(6)
+                        "${monday.monthValue}/${monday.dayOfMonth}–${sunday.monthValue}/${sunday.dayOfMonth}"
+                    } else null
                 }
-            },
-        )
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = MiuixTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier.clickable { showWeekPicker = true },
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                if (showAllWeeks) "全部周叠加 ▾"
+                                else (weekPillDateRange?.let { "第 $currentWeek 周 · $it ▾" } ?: "第 $currentWeek 周 ▾"),
+                                style = MiuixTheme.textStyles.footnote1,
+                                fontWeight = FontWeight.Medium,
+                                color = MiuixTheme.colorScheme.onSurface,
+                            )
+                        }
+                    }
+                    Spacer(Modifier.weight(1f))
+                    // 当前看的不是本周（或处于叠加模式）时，给个回本周的近道。
+                    if (showAllWeeks || (realCurrentWeek > 0 && currentWeek != realCurrentWeek)) {
+                        TextButton(
+                            text = "回本周",
+                            onClick = {
+                                showAllWeeks = false
+                                if (realCurrentWeek > 0) currentWeek = realCurrentWeek
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    // 周选择弹窗（§1.4③）：网格选任意一周，或者切到「全部周叠加」。
+    if (showWeekPicker) {
+        val pageWeeksForPicker = totalWeeks.takeIf { it > 0 }
+            ?: filteredMergedCourses.maxOfOrNull { it.weekBits.length }?.takeIf { it > 0 }
+            ?: TermWeeks.DEFAULT_TOTAL_WEEKS
+        val pickerShow = remember { mutableStateOf(true) }
+        BackHandler(enabled = pickerShow.value) { pickerShow.value = false; showWeekPicker = false }
+        OverlayBottomSheet(
+            show = pickerShow.value,
+            title = "选择周",
+            onDismissRequest = { pickerShow.value = false; showWeekPicker = false },
+        ) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                (1..pageWeeksForPicker).chunked(5).forEach { rowWeeks ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        rowWeeks.forEach { weekN ->
+                            val hasCourse = filteredMergedCourses.any { it.isInWeek(weekN) }
+                            val isSelected = !showAllWeeks && weekN == currentWeek
+                            Surface(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable {
+                                        showAllWeeks = false
+                                        currentWeek = weekN
+                                        showWeekPicker = false
+                                    }
+                                    .alpha(if (hasCourse) 1f else com.xjtu.toolbox.ui.components.ExpiredStyle.CONTENT_ALPHA),
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (isSelected) MiuixTheme.colorScheme.primary.copy(alpha = 0.16f)
+                                    else MiuixTheme.colorScheme.surfaceVariant,
+                            ) {
+                                Column(
+                                    Modifier.padding(vertical = 10.dp).fillMaxWidth(),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                ) {
+                                    Text(
+                                        "$weekN",
+                                        style = MiuixTheme.textStyles.body2,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSelected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface,
+                                    )
+                                    if (weekN == realCurrentWeek) {
+                                        Text(
+                                            "本周",
+                                            style = MiuixTheme.textStyles.footnote2,
+                                            color = MiuixTheme.colorScheme.primary,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        // 不满 5 个时补空位，保持网格对齐。
+                        repeat(5 - rowWeeks.size) { Spacer(Modifier.weight(1f)) }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+                Spacer(Modifier.height(4.dp))
+                Button(
+                    onClick = {
+                        showAllWeeks = true
+                        showWeekPicker = false
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("全部周叠加")
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "把整学期的课叠到一张表上，看每门课占了哪些格子",
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+            }
+        }
     }
     // 顶栏按钮是一段 lambda 交给外层 Scaffold 拿着的，闭包里 currentContent / api 这类
     // 普通 val 是发布那一刻的值：只发布一次的话，切到考试页加号还在、登录晚到 api 仍是 null。
@@ -1280,25 +1359,10 @@ fun ScheduleScreen(
         },
         topBar = {
             if (showTopBar) {
-                val weekDateLabel = remember(startOfTerm, currentWeek) {
-                    val st = startOfTerm
-                    if (st != null && currentWeek > 0 && !showAllWeeks) {
-                        val monday = st.plusWeeks((currentWeek - 1).toLong())
-                        val sunday = monday.plusDays(6)
-                        "${monday.monthValue}/${monday.dayOfMonth}-${sunday.monthValue}/${sunday.dayOfMonth}"
-                    } else null
-                }
-                val computedSubtitle = when {
-                    currentContent != "week" -> termLabel(selectedTermCode)
-                    weekNote != null -> termLabel(selectedTermCode)
-                    showAllWeeks -> "${termLabel(selectedTermCode)} · 全学期"
-                    weekDateLabel != null -> "${termLabel(selectedTermCode)} · 第 $currentWeek 周 · $weekDateLabel"
-                    selectedTermCode.isNotEmpty() -> "${termLabel(selectedTermCode)} · 第 $currentWeek 周"
-                    else -> "第 $currentWeek 周"
-                }
+                // 第几周已经在标签行下面的周选择胶囊里，副标题不用再重复一遍，只留学期名。
                 SmallTopAppBar(
                     title = "日程",
-                    subtitle = computedSubtitle,
+                    subtitle = termLabel(selectedTermCode),
                     navigationIcon = {
                         if (showBackButton) {
                             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回") }
@@ -1349,15 +1413,7 @@ fun ScheduleScreen(
                                 }
                             }
                         }
-                        // 模式切换（仅课表那一级）
-                        if (currentContent == "week") {
-                            IconButton(onClick = { showAllWeeks = !showAllWeeks }) {
-                                Icon(
-                                    if (showAllWeeks) Icons.Default.DateRange else Icons.Default.CalendarMonth,
-                                    contentDescription = if (showAllWeeks) "切到每周" else "切到总览"
-                                )
-                            }
-                        }
+                        // 模式切换按钮已经挪到标签行下面的周选择胶囊里（§1.4）。
                         // 导出快捷按钮：最常用操作（日历订阅）从菜单里提升到顶栏
                         IconButton(
                             onClick = {
@@ -1520,27 +1576,24 @@ fun ScheduleScreen(
                         height = 2.dp
                     )
                 }
-                // 分级布局下考试不再有独立 tab，改成常驻横幅——功能不能因为换布局而消失。
+                // 没有独立的「考试」tab，改成常驻横幅——功能不能因为改版就消失。
                 // 点开是完整考试列表。
                 var showExamSheet by remember { mutableStateOf(false) }
-                if (unifiedLayout) {
-                    val nextExam = remember(exams) { ExamCountdown.next(exams) }
-                    nextExam?.let { n ->
-                        ExamCountdownBanner(
-                            n,
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 6.dp)
-                                .clickable { showExamSheet = true },
-                        )
-                    }
+                val nextExam = remember(exams) { ExamCountdown.next(exams) }
+                nextExam?.let { n ->
+                    ExamCountdownBanner(
+                        n,
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                            .clickable { showExamSheet = true },
+                    )
                 }
                 if (showExamSheet) {
                     val examSheetShow = remember { mutableStateOf(true) }
                     ExamListSheet(
                         show = examSheetShow,
                         exams = exams,
-                        windowSize = windowSize,
                         onDismiss = { showExamSheet = false },
                     )
                 }
@@ -1556,7 +1609,8 @@ fun ScheduleScreen(
                             val schedulePull = rememberPullToRefreshState()
                             PullToRefresh(
                                 isRefreshing = isRefreshingFromNetwork,
-                                onRefresh = { if (api != null) refreshSchedule(true) },
+                                // 考试倒计时横幅在每个 tab 上都常驻，下拉刷新时顺带把它也刷了。
+                                onRefresh = { if (api != null) { refreshSchedule(true); refreshExams() } },
                                 pullToRefreshState = schedulePull,
                                 modifier = Modifier.fillMaxSize(),
                             ) {
@@ -1597,62 +1651,11 @@ fun ScheduleScreen(
                                 )
                             }
                         }
-                        "exam" -> {
-                            val examPull = rememberPullToRefreshState()
-                            PullToRefresh(
-                                isRefreshing = examsRefreshing,
-                                onRefresh = { refreshExams() },
-                                pullToRefreshState = examPull,
-                                modifier = Modifier.fillMaxSize(),
-                            ) {
-                                ExamTabContent(exams, contentBottomPadding, windowSize)
-                            }
-                        }
-                        "book" -> {
-                            val bookPull = rememberPullToRefreshState()
-                            PullToRefresh(
-                                isRefreshing = textbooksRefreshing,
-                                onRefresh = {
-                                    if (selectedTermCode.isNotEmpty()) {
-                                        loadTextbooks(selectedTermCode)
-                                    }
-                                },
-                                pullToRefreshState = bookPull,
-                                modifier = Modifier.fillMaxSize(),
-                            ) {
-                                TextbookTabContent(
-                                    textbooks = textbooks,
-                                    isLoading = textbooksLoading,
-                                    error = textbooksError,
-                                    onRetry = {
-                                        if (api == null && appLoginState.hasCredentials) {
-                                            scope.launch {
-                                                textbooksError = null
-                                                attemptingAutoLogin = true
-                                                try {
-                                                    withContext(Dispatchers.IO) {
-                                                        activeSite = appLoginState.sessionManager?.ensureSite(LoginType.JWXT)
-                                                    }
-                                                } catch (_: Exception) {}
-                                                attemptingAutoLogin = false
-                                                if (selectedTermCode.isNotEmpty() && activeSite != null) {
-                                                    loadTextbooks(selectedTermCode)
-                                                }
-                                            }
-                                        } else if (selectedTermCode.isNotEmpty()) {
-                                            loadTextbooks(selectedTermCode)
-                                        }
-                                    },
-                                    bottomPadding = contentBottomPadding,
-                                    windowSize = windowSize
-                                )
-                            }
-                        }
                         "today" -> {
                             val todayPull = rememberPullToRefreshState()
                             PullToRefresh(
                                 isRefreshing = isRefreshingFromNetwork,
-                                onRefresh = { if (api != null) refreshSchedule(true) },
+                                onRefresh = { if (api != null) { refreshSchedule(true); refreshExams() } },
                                 pullToRefreshState = todayPull,
                                 modifier = Modifier.fillMaxSize(),
                             ) {
@@ -1680,6 +1683,7 @@ fun ScheduleScreen(
                             PullToRefresh(
                                 isRefreshing = textbooksRefreshing,
                                 onRefresh = {
+                                    refreshExams()
                                     if (selectedTermCode.isNotEmpty()) {
                                         loadTextbooks(selectedTermCode)
                                     }
@@ -1801,22 +1805,48 @@ fun ScheduleScreen(
     }
 }
 
-/** 分级布局下考试没有独立 tab，全列表从倒计时横幅点开。内容与经典布局的考试页一致。 */
+/** 没有独立的「考试」tab，全列表从倒计时横幅点开。用的是与学期栏同一套卡片和排序（ExamList.kt）。 */
 @Composable
 private fun ExamListSheet(
     show: MutableState<Boolean>,
     exams: List<ExamItem>,
-    windowSize: WindowSize,
     onDismiss: () -> Unit,
 ) {
     BackHandler(enabled = show.value) { show.value = false; onDismiss() }
+    val examData = remember(exams) { sortExamsForList(exams) }
+    var endedExpanded by rememberSaveable { mutableStateOf(false) }
     OverlayBottomSheet(
         show = show.value,
         title = "考试安排",
         onDismissRequest = { show.value = false; onDismiss() },
     ) {
         Box(Modifier.fillMaxWidth().heightIn(max = 520.dp)) {
-            ExamTabContent(exams = exams, windowSize = windowSize)
+            if (examData.total == 0) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Icon(
+                        Icons.Outlined.EventAvailable, contentDescription = null,
+                        modifier = Modifier.size(56.dp),
+                        tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f),
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "本学期暂无考试安排",
+                        style = MiuixTheme.textStyles.body1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                }
+            } else {
+                LazyColumn(
+                    Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp),
+                ) {
+                    examListItems(examData, endedExpanded, { endedExpanded = !endedExpanded })
+                }
+            }
         }
     }
 }
@@ -2005,7 +2035,7 @@ private fun ScheduleTabContent(
                     val customEntity = customCourses.find { it.toCourseItem().courseCode == course.courseCode }
                     if (customEntity != null) onEditCustomCourse(customEntity)
                     else {
-                        // 全学期总览一格代表很多周，说不出是哪一次。
+                        // 全部周叠加一格代表很多周，说不出是哪一次。
                         selectCourse(course, null)
                     }
                 }
@@ -2262,75 +2292,8 @@ private fun formatWeeks(weeks: List<Int>): String {
     return ranges.joinToString(", ")
 }
 
-@Composable
-private fun ExamTabContent(
-    exams: List<ExamItem>,
-    bottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
-    windowSize: WindowSize = WindowSize.Compact,
-) {
-    // 去重（同一门课+同一天只显示一次）
-    val uniqueExams = exams.distinctBy { "${it.courseName}_${it.examDate}" }
-    val next = remember(uniqueExams) { ExamCountdown.next(uniqueExams) }
-    Box(
-        Modifier.fillMaxSize(),
-        contentAlignment = Alignment.TopCenter,
-    ) {
-        LazyColumn(
-            Modifier
-                .contentMaxWidth(windowSize)
-                .fillMaxSize()
-                .overScrollVertical()
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = PaddingValues(top = 12.dp, bottom = 12.dp + bottomPadding),
-        ) {
-            if (uniqueExams.isEmpty()) {
-                item {
-                    Column(
-                        modifier = Modifier.fillParentMaxSize().padding(32.dp),
-                        verticalArrangement = Arrangement.Center,
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Icon(
-                            Icons.Outlined.EventAvailable,
-                            contentDescription = null,
-                            modifier = Modifier.size(56.dp),
-                            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f),
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        Text(
-                            "本学期暂无考试安排",
-                            style = MiuixTheme.textStyles.body1,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        )
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            "若已临近期末仍无数据，可能教务系统未发布或当前学期设置有误；可下拉刷新或切换其他学期查看。",
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.7f),
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        )
-                    }
-                }
-            } else {
-                // 倒计时置顶。整页都是卡片时，"最近的那场是哪场、还有几天"是最先要看的，
-                // 不该让人自己在日期里比一遍。
-                next?.let { n ->
-                    item {
-                        ExamCountdownBanner(n, Modifier.fillMaxWidth())
-                    }
-                }
-                items(uniqueExams) { exam -> ExamCard(exam) }
-            }
-        }
-    }
-}
-
 /**
- * 下一场考试的倒计时条。
- *
- * 经典布局放在考试列表顶部，分级布局做常驻横幅——两处共用这一个，
- * 免得同一件事在两套布局里长成两个样子。
+ * 下一场考试的倒计时条。常驻在页面顶部，点开是完整考试列表（ExamListSheet）。
  */
 @Composable
 fun ExamCountdownBanner(next: ExamCountdown.Next, modifier: Modifier = Modifier) {
@@ -2370,330 +2333,6 @@ fun ExamCountdownBanner(next: ExamCountdown.Next, modifier: Modifier = Modifier)
                         maxLines = 1,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     )
-                }
-            }
-        }
-    }
-}
-
-/**
- * 大屏下给单列卡片列表限宽，避免整行被拉到一两千 dp 宽
- * 导致每张卡片里的文字稀稀拉拉横跨全屏。
- *
- * 实现已统一到 ui/adaptive 的 readableWidth()，全应用用同一个宽屏判断与同一个上限。
- * 参数保留只为不动两处调用点的签名。
- */
-@Composable
-private fun Modifier.contentMaxWidth(@Suppress("UNUSED_PARAMETER") windowSize: WindowSize): Modifier =
-    readableWidth()
-
-@Composable
-private fun ExamCard(exam: ExamItem) {
-    // 判断已考/今天/未考
-    val today = java.time.LocalDate.now()
-    val examLocalDate = try {
-        val dateStr = exam.examDate.replace("年", "-").replace("月", "-").replace("日", "").trim()
-        java.time.LocalDate.parse(dateStr)
-    } catch (_: Exception) { null }
-    val isPast = examLocalDate != null && examLocalDate.isBefore(today)
-    val isToday = examLocalDate != null && examLocalDate.isEqual(today)
-    val daysUntil = examLocalDate?.let { java.time.temporal.ChronoUnit.DAYS.between(today, it).toInt() }
-
-    val accentColor = when {
-        isToday -> MiuixTheme.colorScheme.error
-        isPast -> MiuixTheme.colorScheme.outline
-        else -> MiuixTheme.colorScheme.primary
-    }
-
-    top.yukonga.miuix.kmp.basic.Card(
-        modifier = Modifier.fillMaxWidth(),
-        cornerRadius = 16.dp,
-        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = if (isPast) MiuixTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                else MiuixTheme.colorScheme.surface
-        )
-    ) {
-        Row(Modifier.fillMaxWidth()) {
-            // ── 左侧：日历日期 ──
-            if (examLocalDate != null) {
-                Surface(
-                    modifier = Modifier.width(72.dp).fillMaxHeight(),
-                    shape = RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp),
-                    color = accentColor.copy(alpha = if (isPast) 0.12f else 0.18f)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(vertical = 16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Text(
-                            "${examLocalDate.monthValue}月",
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = accentColor,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            "${examLocalDate.dayOfMonth}",
-                            style = MiuixTheme.textStyles.title4,
-                            color = accentColor,
-                            fontWeight = FontWeight.Bold
-                        )
-                        val dayOfWeek = when (examLocalDate.dayOfWeek.value) {
-                            1 -> "周一"; 2 -> "周二"; 3 -> "周三"; 4 -> "周四"
-                            5 -> "周五"; 6 -> "周六"; 7 -> "周日"; else -> ""
-                        }
-                        Text(
-                            dayOfWeek,
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = accentColor.copy(alpha = 0.7f)
-                        )
-                    }
-                }
-            }
-
-            // ── 右侧：考试信息 ──
-            Column(Modifier.weight(1f).padding(horizontal = 14.dp, vertical = 14.dp)) {
-                // 课程名 + 状态
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        exam.courseName.ifEmpty { "未知课程" },
-                        style = MiuixTheme.textStyles.body1,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 2,
-                        modifier = Modifier.weight(1f),
-                        color = if (isPast) MiuixTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                            else MiuixTheme.colorScheme.onSurface
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    // 状态标签
-                    val (label, badgeColor) = when {
-                        isToday -> "今天" to MiuixTheme.colorScheme.error
-                        daysUntil != null && daysUntil in 1..7 -> "${daysUntil}天后" to MiuixTheme.colorScheme.primaryVariant
-                        isPast -> "已结束" to MiuixTheme.colorScheme.outline
-                        daysUntil != null && daysUntil > 7 -> "${daysUntil}天后" to MiuixTheme.colorScheme.primary
-                        else -> "" to MiuixTheme.colorScheme.outline
-                    }
-                    if (label.isNotEmpty()) {
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = badgeColor.copy(alpha = 0.12f)
-                        ) {
-                            Text(
-                                label,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                                style = MiuixTheme.textStyles.footnote1,
-                                fontWeight = FontWeight.Bold,
-                                color = badgeColor
-                            )
-                        }
-                    }
-                }
-
-                Spacer(Modifier.height(8.dp))
-
-                // 时间 + 地点 紧凑排列
-                val infoColor = if (isPast) MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f)
-                    else MiuixTheme.colorScheme.onSurfaceVariantSummary
-
-                if (exam.examTime.isNotEmpty()) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Schedule, contentDescription = null, Modifier.size(14.dp), tint = infoColor)
-                        Spacer(Modifier.width(4.dp))
-                        Text(exam.examTime, style = MiuixTheme.textStyles.footnote1, color = infoColor)
-                    }
-                    Spacer(Modifier.height(3.dp))
-                }
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Place, contentDescription = null, Modifier.size(14.dp), tint = infoColor)
-                    Spacer(Modifier.width(4.dp))
-                    Text(exam.location.ifEmpty { "待定" }, style = MiuixTheme.textStyles.footnote1, color = infoColor)
-                    if (exam.seatNumber.isNotEmpty()) {
-                        Text("  ·  座位 ${exam.seatNumber}", style = MiuixTheme.textStyles.footnote1, color = infoColor, fontWeight = FontWeight.Medium)
-                    }
-                }
-            }
-        }
-    }
-}
-
-// ═══════════════════════ 教材 Tab ═══════════════════════
-
-@Composable
-private fun TextbookTabContent(
-    textbooks: List<TextbookItem>,
-    isLoading: Boolean,
-    error: String?,
-    onRetry: () -> Unit,
-    bottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
-    windowSize: WindowSize = WindowSize.Compact,
-) {
-    when {
-        isLoading -> LoadingState(message = "查询教材信息...", modifier = Modifier.fillMaxSize())
-        else -> {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-                LazyColumn(
-                    Modifier
-                        .contentMaxWidth(windowSize)
-                        .fillMaxSize()
-                        .overScrollVertical()
-                        .padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(top = 12.dp, bottom = 12.dp + bottomPadding)
-                ) {
-                    when {
-                        error != null -> item {
-                            ErrorState(message = error, onRetry = onRetry, modifier = Modifier.fillParentMaxSize())
-                        }
-                        textbooks.isEmpty() -> item {
-                            Column(
-                                modifier = Modifier.fillParentMaxSize(),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center,
-                            ) {
-                                Icon(Icons.AutoMirrored.Filled.MenuBook, null, Modifier.size(48.dp), tint = MiuixTheme.colorScheme.outline)
-                                Spacer(Modifier.height(12.dp))
-                                Text("暂无教材信息", style = MiuixTheme.textStyles.body1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                                Spacer(Modifier.height(4.dp))
-                                Text("本学期可能未录入教材数据，可下拉再试", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.outline)
-                            }
-                        }
-                        else -> items(textbooks) { item -> TextbookCard(item) }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun TextbookCard(item: TextbookItem) {
-    val hasTextbook = item.hasSubstantiveTextbook
-    val scheme = MiuixTheme.colorScheme
-
-    // 清洗占位符数据
-    val author = item.author.trim().takeIf { it.length >= 2 } ?: ""
-    val isbn = item.isbn.trim().takeIf { !it.startsWith("978000000000") } ?: ""
-    val bookName = item.textbookName.trim().takeIf { it.length >= 2 } ?: ""
-    val pubParts = buildList {
-        if (item.publisher.isNotBlank()) add(item.publisher)
-        if (item.edition.isNotBlank()) add(item.edition)
-    }
-
-    val accentColor = if (hasTextbook) scheme.primary else scheme.outline
-
-    top.yukonga.miuix.kmp.basic.Card(
-        modifier = Modifier.fillMaxWidth(),
-        cornerRadius = 16.dp,
-        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = scheme.surfaceVariant)
-    ) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .drawBehind {
-                    // 左侧 4dp 色条
-                    drawRect(
-                        color = accentColor.copy(alpha = if (hasTextbook) 0.6f else 0.2f),
-                        size = androidx.compose.ui.geometry.Size(4.dp.toPx(), size.height)
-                    )
-                }
-                .padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 14.dp)
-        ) {
-            // ── 课程名行 ──
-            Row(
-                Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.MenuBook,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                    tint = if (hasTextbook) scheme.primary else scheme.outline
-                )
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    item.courseName.ifEmpty { "未知课程" },
-                    style = MiuixTheme.textStyles.subtitle,
-                    fontWeight = FontWeight.Bold,
-                    color = if (hasTextbook) scheme.onSurface else scheme.onSurface.copy(alpha = 0.55f),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                if (item.price.isNotBlank()) {
-                    Spacer(Modifier.width(10.dp))
-                    Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = scheme.tertiaryContainer
-                    ) {
-                        Text(
-                            "¥${item.price}",
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
-                            style = MiuixTheme.textStyles.body2,
-                            fontWeight = FontWeight.Bold,
-                            color = scheme.onTertiaryContainer
-                        )
-                    }
-                }
-            }
-
-            if (!hasTextbook) {
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "暂无教材信息",
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = scheme.outline.copy(alpha = 0.6f),
-                    modifier = Modifier.padding(start = 30.dp)
-                )
-            } else {
-                Spacer(Modifier.height(10.dp))
-                // ── 教材信息区 ──
-                Column(Modifier.padding(start = 30.dp)) {
-                    // 书名
-                    if (bookName.isNotEmpty()) {
-                        SelectionContainer {
-                            Text(
-                                "《${bookName}》",
-                                style = MiuixTheme.textStyles.body1,
-                                fontWeight = FontWeight.SemiBold,
-                                color = scheme.onSurface
-                            )
-                        }
-                    }
-
-                    // 作者 · 出版信息 合并为一行
-                    val metaInfo = buildList {
-                        if (author.isNotEmpty()) add(author)
-                        addAll(pubParts)
-                    }.joinToString(" · ")
-                    if (metaInfo.isNotEmpty()) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            metaInfo,
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = scheme.onSurfaceVariantSummary,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-
-                    // ISBN（胶囊标签）
-                    if (isbn.isNotEmpty()) {
-                        Spacer(Modifier.height(8.dp))
-                        SelectionContainer {
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = scheme.secondaryContainer.copy(alpha = 0.5f)
-                            ) {
-                                Text(
-                                    "ISBN $isbn",
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                    style = MiuixTheme.textStyles.footnote1,
-                                    color = scheme.onSecondaryContainer.copy(alpha = 0.8f),
-                                    letterSpacing = 0.4.sp
-                                )
-                            }
-                        }
-                    }
                 }
             }
         }
