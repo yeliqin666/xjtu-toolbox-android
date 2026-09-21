@@ -258,9 +258,10 @@ private fun PlainPidaiIcon(
     modifier: Modifier = Modifier,
 ) {
     // 只在思考态才挂呼吸动画，别让静息态也白跑一个永不停的 InfiniteTransition。
-    val breathAlpha = if (thinking) {
+    // 拿 State 本身，只在 graphicsLayer 里读：呼吸期间只改图层透明度，不每帧重组
+    val breathAlpha: androidx.compose.runtime.State<Float>? = if (thinking) {
         val infiniteTransition = rememberInfiniteTransition(label = "pidaiPlainBreath")
-        val alpha by infiniteTransition.animateFloat(
+        infiniteTransition.animateFloat(
             initialValue = 0.55f,
             targetValue = 1f,
             animationSpec = infiniteRepeatable(
@@ -269,13 +270,12 @@ private fun PlainPidaiIcon(
             ),
             label = "pidaiPlainBreathAlpha",
         )
-        alpha
     } else {
-        1f
+        null
     }
     Box(
         modifier = modifier
-            .graphicsLayer { alpha = breathAlpha }
+            .graphicsLayer { alpha = breathAlpha?.value ?: 1f }
             .background(ink, CircleShape),
         contentAlignment = Alignment.Center,
     ) {

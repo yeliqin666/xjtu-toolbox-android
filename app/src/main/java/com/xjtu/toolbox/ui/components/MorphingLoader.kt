@@ -63,7 +63,8 @@ fun MorphingLoader(
     val morphFraction = (morphDurationMs.toFloat() / segmentMs).coerceIn(0f, 1f)
 
     val transition = rememberInfiniteTransition(label = "morphing_loader")
-    val phase by transition.animateFloat(
+    // 拿 State 本身，只在下面 Canvas 的绘制阶段读：加载期间只重画这块画布，不每帧重组
+    val phaseState = transition.animateFloat(
         initialValue = 0f,
         targetValue = morphs.size.toFloat(),
         animationSpec = infiniteRepeatable(
@@ -72,10 +73,9 @@ fun MorphingLoader(
         label = "morphing_loader_phase",
     )
 
-    val (segment, morphProgress) = morphPhaseToSegment(phase, morphs.size, morphFraction)
-
     val androidPath = remember { android.graphics.Path() }
     Canvas(modifier = modifier.size(size)) {
+        val (segment, morphProgress) = morphPhaseToSegment(phaseState.value, morphs.size, morphFraction)
         androidPath.rewind()
         morphs[segment].toPath(progress = morphProgress, path = androidPath)
         val path = androidPath.asComposePath()

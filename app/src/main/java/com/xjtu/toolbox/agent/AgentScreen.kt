@@ -2,6 +2,7 @@
 
 package com.xjtu.toolbox.agent
 
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
@@ -1273,7 +1274,8 @@ private fun ThinkingDots() {
         horizontalArrangement = Arrangement.spacedBy(5.dp)
     ) {
         repeat(3) { i ->
-            val alpha by transition.animateFloat(
+            // 拿 State 本身，只在绘制阶段读：三个点闪烁时不每帧重组
+            val alpha = transition.animateFloat(
                 initialValue = 0.25f,
                 targetValue = 1f,
                 animationSpec = infiniteRepeatable(
@@ -1282,13 +1284,12 @@ private fun ThinkingDots() {
                 ),
                 label = "dot$i"
             )
+            val dotColor = MiuixTheme.colorScheme.onSurfaceVariantSummary
             Box(
                 Modifier
                     .size(7.dp)
-                    .background(
-                        MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = alpha),
-                        RoundedCornerShape(50)
-                    )
+                    .graphicsLayer { this.alpha = alpha.value }
+                    .background(dotColor, RoundedCornerShape(50))
             )
         }
     }

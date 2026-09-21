@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.dzpz
 
+import androidx.compose.ui.graphics.graphicsLayer
 import android.content.ContentValues
 import android.content.Context
 import android.provider.MediaStore
@@ -509,7 +510,8 @@ private fun WorkflowProgressCard(
                     Spacer(Modifier.height(16.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-                        val alpha by infiniteTransition.animateFloat(
+                        // 拿 State 本身，只在 graphicsLayer 里读：闪烁时不每帧重组
+                        val alpha = infiniteTransition.animateFloat(
                             initialValue = 0.4f,
                             targetValue = 1f,
                             animationSpec = infiniteRepeatable(
@@ -521,8 +523,8 @@ private fun WorkflowProgressCard(
                         Icon(
                             Icons.Default.HourglassTop,
                             contentDescription = null,
-                            modifier = Modifier.size(20.dp),
-                            tint = MiuixTheme.colorScheme.primary.copy(alpha = alpha)
+                            modifier = Modifier.size(20.dp).graphicsLayer { this.alpha = alpha.value },
+                            tint = MiuixTheme.colorScheme.primary
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(

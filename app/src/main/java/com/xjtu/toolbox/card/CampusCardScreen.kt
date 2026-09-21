@@ -515,20 +515,24 @@ private fun OverviewTab(
 // 余额卡的 Mesh 顶点颜色：品牌蓝，不随深浅色翻转（类似实体银行卡）。深色那一套是
 // 单独调暗的，不是把浅色乘个透明度——直接调暗浅色顶点会发浑。3x3 网格，中间那个
 // 顶点会缓慢漂移，四角、四边中点固定在卡片边框上，保证渐变始终铺满整张卡。
+// 余额卡原来是一整块深蓝，在一片白卡里很突兀。改成浅色：白底上一层很淡的蓝色流光，
+// 和页面上其他卡片是一个体系，余额数字用主题色做重点。深色模式同理：贴近卡片底色，只带一点蓝。
 private val BalanceCardMeshLight = listOf(
-    listOf(Color(0xFF0A4D94), Color(0xFF13609F), Color(0xFF1E78C8)),
-    listOf(Color(0xFF13609F), Color(0xFF3D9BE0), Color(0xFF1E78C8)),
-    listOf(Color(0xFF1E78C8), Color(0xFF13609F), Color(0xFF0A4D94)),
+    listOf(Color(0xFFEAF2FF), Color(0xFFF7FAFF), Color(0xFFE2EDFF)),
+    listOf(Color(0xFFF4F8FF), Color(0xFFD3E5FF), Color(0xFFF1F6FF)),
+    listOf(Color(0xFFE4EEFF), Color(0xFFF8FBFF), Color(0xFFDCEAFF)),
 )
 private val BalanceCardMeshDark = listOf(
-    listOf(Color(0xFF06294F), Color(0xFF0C3A68), Color(0xFF123F72)),
-    listOf(Color(0xFF0C3A68), Color(0xFF1C5490), Color(0xFF123F72)),
-    listOf(Color(0xFF123F72), Color(0xFF0C3A68), Color(0xFF06294F)),
+    listOf(Color(0xFF1B2433), Color(0xFF20242C), Color(0xFF1A2536)),
+    listOf(Color(0xFF1F242D), Color(0xFF1E3350), Color(0xFF20252E)),
+    listOf(Color(0xFF1A2434), Color(0xFF21252D), Color(0xFF1B2839)),
 )
 
 @Composable
 private fun BalanceCard(info: CardInfo) {
-    val onBrand = Color.White
+    // 浅色卡：余额和图标用主题色，其余文字用常规的正文 / 次要文字颜色
+    val accent = MiuixTheme.colorScheme.primary
+    val secondary = MiuixTheme.colorScheme.onSurfaceVariantSummary
     top.yukonga.miuix.kmp.basic.Card(
         modifier = Modifier.fillMaxWidth(),
         cornerRadius = 24.dp,
@@ -545,26 +549,26 @@ private fun BalanceCard(info: CardInfo) {
                     verticalAlignment = Alignment.CenterVertically) {
                     Column {
                         Text("校园卡余额", style = MiuixTheme.textStyles.body2,
-                            color = onBrand.copy(alpha = 0.85f))
+                            color = secondary)
                         Spacer(Modifier.height(6.dp))
                         Row(verticalAlignment = Alignment.Bottom) {
                             Text("¥", style = MiuixTheme.textStyles.title4,
                                 fontWeight = FontWeight.Medium,
-                                color = onBrand.copy(alpha = 0.9f),
+                                color = accent,
                                 modifier = Modifier.padding(bottom = 4.dp))
                             Spacer(Modifier.width(2.dp))
                             Text("%.2f".format(info.balance),
                                 style = MiuixTheme.textStyles.title1,
                                 fontWeight = FontWeight.Bold,
-                                color = onBrand)
+                                color = accent)
                         }
                     }
                     Surface(shape = CircleShape,
-                        color = onBrand.copy(alpha = 0.18f),
+                        color = accent.copy(alpha = 0.12f),
                         modifier = Modifier.size(56.dp)) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(Icons.Default.CreditCard, null,
-                                tint = onBrand,
+                                tint = accent,
                                 modifier = Modifier.size(28.dp))
                         }
                     }
@@ -573,14 +577,14 @@ private fun BalanceCard(info: CardInfo) {
                     Spacer(Modifier.height(8.dp))
                     Text("待入账: ¥%.2f".format(info.pendingAmount),
                         style = MiuixTheme.textStyles.footnote1,
-                        color = onBrand.copy(alpha = 0.75f))
+                        color = secondary)
                 }
                 Spacer(Modifier.height(16.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    InfoPill(info.name, onBrand)
-                    InfoPill(info.cardType, onBrand)
+                    InfoPill(info.name, accent)
+                    InfoPill(info.cardType, accent)
                     if (info.account.isNotBlank()) {
-                        InfoPill("一卡通号: ${info.account}", onBrand)
+                        InfoPill("一卡通号: ${info.account}", accent)
                     }
                 }
             }
@@ -591,7 +595,7 @@ private fun BalanceCard(info: CardInfo) {
 @Composable
 private fun InfoPill(text: String, color: Color) {
     if (text.isBlank()) return
-    Surface(shape = RoundedCornerShape(8.dp), color = color.copy(alpha = 0.16f)) {
+    Surface(shape = RoundedCornerShape(8.dp), color = color.copy(alpha = 0.10f)) {
         Text(text, Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
             style = MiuixTheme.textStyles.footnote1, color = color.copy(alpha = 0.95f),
             maxLines = 1, overflow = TextOverflow.Ellipsis)
