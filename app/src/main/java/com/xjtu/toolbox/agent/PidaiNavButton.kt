@@ -36,9 +36,10 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 /**
  * 底栏正中的屁岱按钮。
  *
- * 它**不是**第五个标签页：点击是 push 到 AGENT 路由，没有选中态，所以刻意不复用
- * NavigationBarItem 的灰度线性图标样式——满色形象 + 中心位 + 会动，三重差异叠加，
- * 用户一眼能认出这是"另一类东西"。
+ * 它现在**也是**一个 tab（点击会把 `selectedTabOrdinal` 切到 `BottomTab.PIDAI`，
+ * 有选中态），只是点击时还会顺带触发一句气泡（见 `ProactiveRules.pickOnTap`）。
+ * 刻意不复用 NavigationBarItem 的灰度线性图标样式——满色形象 + 中心位 + 会动，
+ * 三重差异叠加，用户一眼能认出这是"另一类东西"。
  *
  * 形象移植自 bloub 项目（x.ai 机器人头像的 SVG 复刻，MIT）：一个墨色形状按径向
  * 轮廓在状态间实时形变，两眼是身体上的洞。原 Lottie（Noto 🤖）按帧切段复用状态；
@@ -70,7 +71,10 @@ fun PidaiNavButton(
      * 上移一点让它的重心回到图标那条线附近，同时仍比邻居大一圈、略微探进文字区。
      */
     liftUp: Dp = 0.dp,
-    /** 眼洞露出的底色 = 底栏背景色（经典栏 surface，浮动栏 surfaceContainerHigh）。 */
+    /**
+     * 挖空之后眼洞露出的是真实背景，不再需要靠这个参数告诉 [BloubBotIcon] 底栏是什么颜色；
+     * 保留只是为了不改调用方签名（经典栏、浮动栏、玻璃底栏都还在传），内部已不使用。
+     */
     paper: Color = MiuixTheme.colorScheme.surface,
     /**
      * 身体墨色。"跟随主题"时应当传底栏前景色（`onSurface`），深色底栏才看得见；

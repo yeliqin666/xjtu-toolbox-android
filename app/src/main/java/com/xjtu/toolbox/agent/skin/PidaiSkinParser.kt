@@ -537,7 +537,7 @@ object PidaiSkinParser {
     private fun JsonObject.objectValue(name: String): JsonObject = get(name)?.asObject(name) ?: fail("缺少对象字段 $name")
     private fun JsonObject.optionalObject(name: String): JsonObject? = get(name)?.takeUnless { it.isJsonNull }?.asObject(name)
 
-    /** 颜色槽：`none` 不画，`ink`/`paper` 跟随主题，其余按十六进制。 */
+    /** 颜色槽：`none` 不画，`ink` 跟随主题前景色，`paper` 挖空（不再是底栏背景色），其余按十六进制。 */
     private fun JsonObject.optionalPaint(name: String): PidaiPaint? {
         val raw = optionalString(name) ?: return null
         return when (raw.trim().lowercase()) {
