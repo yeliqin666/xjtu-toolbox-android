@@ -83,10 +83,21 @@ data class ProactiveMessage(
     }
 }
 
+/**
+ * 主动提醒的三档：关 / 少 / 标准。
+ *
+ * 只决定「要不要生成气泡」「要不要闲聊」「全局冷却多长」，不碰磁盘也不碰时间，
+ * 所以这几条判断都拆成了下面几个纯函数，能直接对着枚举值单测，不用假 Context。
+ */
+enum class ProactiveLevel { OFF, LOW, STANDARD }
+
 object ProactiveRules {
 
     private const val GLOBAL_COOLDOWN_MS = 15 * 60 * 1000L
     private const val RULE_COOLDOWN_MS = 60 * 60 * 1000L
+
+    /** 「少」档下正事提醒之间的全局冷却：从 15 分钟拉到 1 小时，只留真正要紧的事。 */
+    private const val LOW_GLOBAL_COOLDOWN_MS = 60 * 60 * 1000L
 
     /**
      * 闲话冷却。原来是 6 分钟，太密了：气泡只活 8 秒，6 分钟一句在使用期间就是不停地冒。
@@ -100,15 +111,49 @@ object ProactiveRules {
     const val EVAL_INTERVAL_MS = 60_000L
     const val AUTO_DISMISS_MS = 8_000L
 
-    /** 考试提前几天开始提醒。三天是"还来得及做点什么"和"提早焦虑"的分界。 */
-    private const val EXAM_AHEAD_DAYS = 3
+    /**
+     * 考试提前几天开始提醒，直接引用日程页考试卡片变红的同一个阈值——气泡说「快考试了」
+     * 的那一刻，必须和卡片变红的那一刻是同一天，不然用户会觉得两处对不上。
+     */
+    private val EXAM_AHEAD_DAYS = com.xjtu.toolbox.schedule.ExamCountdown.SOON_DAYS
 
     private const val LOW_BALANCE = 50.0
     private const val CLASS_AHEAD_MIN = 30L
 
     private const val PREFS = "pidai_proactive"
+    private const val LEVEL_KEY = "level"
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    /** 当前挡位，给设置面板做即时回显；`pick()` 自己每次都直接从磁盘读，不依赖这份缓存。 */
+    var proactiveLevel by mutableStateOf(ProactiveLevel.STANDARD)
+        private set
+
+    /** 从磁盘读一次并写入上面那份缓存。设置面板打开时调一次即可。 */
+    fun loadProactiveLevel(ctx: Context) {
+        proactiveLevel = readProactiveLevel(ctx)
+    }
+
+    /** 选择之后立即落盘 + 更新缓存。 */
+    fun setProactiveLevel(ctx: Context, level: ProactiveLevel) {
+        proactiveLevel = level
+        prefs(ctx).edit().putString(LEVEL_KEY, level.name).apply()
+    }
+
+    private fun readProactiveLevel(ctx: Context): ProactiveLevel =
+        prefs(ctx).getString(LEVEL_KEY, null)
+            ?.let { raw -> ProactiveLevel.entries.firstOrNull { it.name == raw } }
+            ?: ProactiveLevel.STANDARD
+
+    /** 关档完全不生成；少、标准两档都保留「正事」提醒。 */
+    fun alertsAllowed(level: ProactiveLevel): Boolean = level != ProactiveLevel.OFF
+
+    /** 只有标准档才闲聊；少档只保留下节课、考试、余额这类正事。 */
+    fun chatterAllowed(level: ProactiveLevel): Boolean = level == ProactiveLevel.STANDARD
+
+    /** 少档把正事提醒之间的全局冷却从 15 分钟拉到 1 小时；标准档维持原样。 */
+    fun globalCooldownMs(level: ProactiveLevel): Long =
+        if (level == ProactiveLevel.LOW) LOW_GLOBAL_COOLDOWN_MS else GLOBAL_COOLDOWN_MS
 
     fun lastShownAt(ctx: Context, id: String): Long = prefs(ctx).getLong("shown_$id", 0L)
     fun lastAnyAt(ctx: Context): Long = prefs(ctx).getLong("shown_any", 0L)
@@ -196,7 +241,10 @@ object ProactiveRules {
         latestNoticeLink: String? = null,
         accountType: AccountType? = null,
     ): ProactiveMessage? {
+        val level = readProactiveLevel(ctx)
+        if (!alertsAllowed(level)) return null
         val now = System.currentTimeMillis()
+        val cooldown = globalCooldownMs(level)
         val alert = pickAlert(
             ctx, now, balance, nextCourseName, minutesToClass, newGradeCount, latestNotice,
             libraryPendingAction, examCountdown,
@@ -205,9 +253,11 @@ object ProactiveRules {
             com.xjtu.toolbox.home.HomeSignals.couponAlert,
             latestNoticeLink,
             accountType,
+            cooldown,
         )
         if (alert != null) return alert
-        if (now - lastAnyAt(ctx) < GLOBAL_COOLDOWN_MS) return null
+        if (!chatterAllowed(level)) return null
+        if (now - lastAnyAt(ctx) < cooldown) return null
         return pickChatter(ctx, now, nextCourseName, minutesToClass)
     }
 
@@ -226,8 +276,9 @@ object ProactiveRules {
         couponAlert: String?,
         latestNoticeLink: String?,
         accountType: AccountType?,
+        globalCooldownMs: Long,
     ): ProactiveMessage? {
-        if (now - lastAnyAt(ctx) < GLOBAL_COOLDOWN_MS) return null
+        if (now - lastAnyAt(ctx) < globalCooldownMs) return null
         val candidates = buildList {
             // 课表变更排最前：调课停课换教室不知道就会白跑一趟，
             // 而学校改课表是不通知的，App 是唯一可能告诉他的地方。

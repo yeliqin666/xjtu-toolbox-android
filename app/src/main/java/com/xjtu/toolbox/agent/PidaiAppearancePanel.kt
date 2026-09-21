@@ -22,6 +22,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -75,6 +76,9 @@ fun PidaiAppearancePanel(modifier: Modifier = Modifier) {
     val activeSkinId = PidaiAppearanceHost.activeSkinId
     val installedSkins = PidaiAppearanceHost.installedSkins
     val plain = PidaiAppearanceHost.plain
+    val proactiveLevel = ProactiveRules.proactiveLevel
+    // 面板一打开就把落盘的挡位读进内存缓存，保证显示的是用户上次实际选的那一档。
+    LaunchedEffect(Unit) { ProactiveRules.loadProactiveLevel(context) }
     var pendingSkin by remember { mutableStateOf<PidaiSkin?>(null) }
     var showGithubDialog by remember { mutableStateOf(false) }
     var githubUrl by remember { mutableStateOf("") }
@@ -237,6 +241,32 @@ fun PidaiAppearancePanel(modifier: Modifier = Modifier) {
                     }
                 }
             }
+
+            Text(
+                "主动提醒",
+                style = MiuixTheme.textStyles.body2,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            // 三选一，不给用户填分钟数——普通人不会去算冷却时长该设多少。
+            ProactiveLevelRow(
+                title = "关",
+                summary = "屁岱不会主动冒泡",
+                selected = proactiveLevel == ProactiveLevel.OFF,
+                onClick = { ProactiveRules.setProactiveLevel(context, ProactiveLevel.OFF) },
+            )
+            ProactiveLevelRow(
+                title = "少",
+                summary = "只提醒考试、上课、余额这类正事，不闲聊",
+                selected = proactiveLevel == ProactiveLevel.LOW,
+                onClick = { ProactiveRules.setProactiveLevel(context, ProactiveLevel.LOW) },
+            )
+            ProactiveLevelRow(
+                title = "标准",
+                summary = "偶尔也会闲聊几句",
+                selected = proactiveLevel == ProactiveLevel.STANDARD,
+                onClick = { ProactiveRules.setProactiveLevel(context, ProactiveLevel.STANDARD) },
+            )
         }
     }
 
@@ -542,6 +572,50 @@ private fun ColorDot(
                         .background(swatch)
                 )
             }
+        }
+    }
+}
+
+/** 「主动提醒」三选一里的一行：单选样式，选中态是一个实心圆点。 */
+@Composable
+private fun ProactiveLevelRow(
+    title: String,
+    summary: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = SinkFeedback(),
+                onClick = onClick,
+            )
+            .semantics { this.selected = selected; contentDescription = "主动提醒：$title" }
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val ringColor = if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.outline
+        Box(
+            Modifier
+                .size(18.dp)
+                .squircleBorder(width = { 1.5.dp }, color = { ringColor }, cornerRadius = 9.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (selected) {
+                Box(
+                    Modifier
+                        .size(10.dp)
+                        .clip(CircleShape)
+                        .background(MiuixTheme.colorScheme.primary)
+                )
+            }
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MiuixTheme.textStyles.body2, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
+            Text(summary, style = MiuixTheme.textStyles.footnote2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         }
     }
 }
