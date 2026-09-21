@@ -49,6 +49,7 @@ import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.rememberRetainedLazyListState
+import com.xjtu.toolbox.ui.glass.*
 import kotlinx.coroutines.delay
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -221,11 +222,15 @@ fun FacultyScreen(
             }
     }
 
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
     Scaffold(
         topBar = {
             TopAppBar(
                 title = "教师主页",
                 largeTitle = "教师主页",
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -237,13 +242,16 @@ fun FacultyScreen(
     ) { padding ->
         Column(
             Modifier
-                .padding(padding)
+                .padding(padding.withoutTop(glass))
+                .glassSource(glass)
                 .readableWidth()
                 .fillMaxSize()
                 // 少了这一句 largeTitle 不会随滚动折叠——scrollBehavior 只是被创建、
                 // 没有任何滚动源喂给它。项目里其他页面都是挂在内容顶层 Column 上。
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
         ) {
+            // 搜索框和筛选条固定在顶栏下面、不跟着滚动，自己先让出顶栏高度
+            Spacer(Modifier.height(padding.glassTop(glass)))
             AppSearchBar(
                 query = nameQuery,
                 onQueryChange = { nameQuery = it },
