@@ -141,16 +141,17 @@ internal fun BloubBotIcon(
         // key 必须带上 importedEngine：LaunchedEffect 的 block 在首次组合时就固定了，
         // 换皮肤后若不重启，循环会一直采样旧引擎（底栏因此永远不切换）。
         LaunchedEffect(importedEngine) {
-            var lastSampleAt = 0.0
             while (true) {
-                withFrameNanos { nanos ->
-                    val now = clock.at(nanos)
-                    val sinceChange = now - clock.stateChangedAt
-                    // 待命节流：入场形变结束后只剩眨眼/漂移，~30fps 足够；其余状态全速
-                    val minInterval =
-                        if (currentBeat == PidaiBeat.REST && sinceChange > 0.6) 0.033 else 0.0
-                    if (now - lastSampleAt >= minInterval) {
-                        lastSampleAt = now
+                val resting = currentBeat == PidaiBeat.REST && clock.now() - clock.stateChangedAt > 0.6
+                if (resting) {
+                    // 待命：入场形变结束后只剩眨眼 / 漂移，~30fps 足够。用定时器而不是逐帧回调：
+                    // withFrameNanos 每个 vsync 都会排一帧，界面什么都不动时也按 120Hz 一直在跑。
+                    kotlinx.coroutines.delay(33)
+                    val now = clock.now()
+                    frame = importedEngine?.sample(now) ?: engine.sample(now)
+                } else {
+                    withFrameNanos { nanos ->
+                        val now = clock.at(nanos)
                         frame = importedEngine?.sample(now) ?: engine.sample(now)
                     }
                 }

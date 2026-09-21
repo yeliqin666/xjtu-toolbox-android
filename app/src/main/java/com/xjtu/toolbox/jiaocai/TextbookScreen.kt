@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.jiaocai
 
 import com.xjtu.toolbox.ui.adaptive.readableWidth
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -125,33 +126,37 @@ fun TextbookScreen(
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
-                }
+                },
+                // 分段标签挂在顶栏里，和顶栏一起做一整块玻璃
+                bottomContent = {
+                    CompositionLocalProvider(LocalOnGlassBar provides (glass != null)) {
+                        AppSegmentedTabs(
+                            tabs = listOf("查教材", "书架", "全文库"),
+                            selectedTabIndex = selectedTab,
+                            onTabSelected = { selectedTab = it },
+                            modifier = Modifier.readableWidth(),
+                        )
+                    }
+                },
             )
         }
     ) { padding ->
         val glassTop = padding.glassTop(glass)
+        // 宽屏不再整页限宽 720：三栏里的书目卡片分列铺开，只有标签行还限宽居中
         Column(
             Modifier
                 .padding(padding.withoutTop(glass))
-                .readableWidth()
                 .fillMaxSize()
                 .glassSource(glass)
         ) {
-            // 分段标签固定在顶栏下面，不跟着滚：自己让出顶栏高度，底色顺带半透明
-            Spacer(Modifier.height(glassTop))
-            CompositionLocalProvider(LocalOnGlassBar provides (glass != null)) {
-                AppSegmentedTabs(
-                    tabs = listOf("查教材", "书架", "全文库"),
-                    selectedTabIndex = selectedTab,
-                    onTabSelected = { selectedTab = it },
-                )
-            }
+            // 三栏顶上都是不滚动的检索框 / 分类条，整栏让出顶栏高度，不压到玻璃后面
             AppTabPager(
                 pageCount = 3,
                 selectedTabIndex = selectedTab,
                 onTabSelected = { selectedTab = it },
                 modifier = Modifier.fillMaxSize(),
             ) { page ->
+              Box(Modifier.fillMaxSize().padding(top = glassTop)) {
                 when (page) {
                     0 -> JiaocaiSearchContent(
                         site = site,
@@ -171,6 +176,7 @@ fun TextbookScreen(
                         onOpenBook = onOpenBook,
                     )
                 }
+              }
             }
         }
     }

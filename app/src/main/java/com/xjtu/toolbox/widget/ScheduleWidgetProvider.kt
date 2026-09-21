@@ -671,12 +671,9 @@ object ScheduleWidgetUpdater {
     }
 
     private fun resolveTermCode(context: Context, cache: DataCache): String? {
-        val lastTermJson = cache.get("schedule_last_term", Long.MAX_VALUE)
-        val termFromLast = if (!lastTermJson.isNullOrBlank()) {
-            runCatching { gson.fromJson(lastTermJson, String::class.java) }.getOrNull()
-        } else {
-            null
-        }
+        // 桌面上永远显示本学期：不能读 schedule_last_term（用户上一次翻到的学期），
+        // 翻一眼去年的课表，桌面小组件就变成去年的了。见 ScheduleCache.readCurrentTerm。
+        val termFromLast = com.xjtu.toolbox.schedule.ScheduleCache.readCurrentTerm(cache, gson)
         if (!termFromLast.isNullOrBlank() && hasScheduleCache(cache, termFromLast)) {
             return termFromLast
         }

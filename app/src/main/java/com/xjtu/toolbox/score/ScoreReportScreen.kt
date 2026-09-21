@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.score
 
 import com.xjtu.toolbox.ui.glass.*
+import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -173,6 +174,7 @@ fun ScoreReportScreen(
         // 内容铺到顶栏下面，顶部留白放进各个列表里；下拉指示器也从顶栏下面出来
         val glassTop = padding.glassTop(glass)
         PullToRefresh(
+            refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
             isRefreshing = isRefreshing,
             onRefresh = { loadData(silent = true) },
             pullToRefreshState = pullToRefreshState,
@@ -202,13 +204,15 @@ fun ScoreReportScreen(
             }
 
             else -> {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    contentPadding = PaddingValues(top = glassTop + 8.dp, bottom = 8.dp)
+                // 宽屏学期卡分两三列（见 AdaptiveRowGrid：卡片会竖着展开，按行对齐，展开一张别的卡不挪位置）；GPA、说明、搜索横跨全宽。
+                // 以前一列学期卡横跨整个平板宽度，一门课的名字和分数隔着大半个屏幕。
+                com.xjtu.toolbox.ui.adaptive.AdaptiveRowGrid(
+                    modifier = Modifier.fillMaxSize().overScrollVertical(),
+                    spacing = 12.dp,
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = glassTop + 8.dp, bottom = 8.dp)
                 ) {
                     // GPA 概览：三个数字是这页的主角，放在最上面
-                    item {
+                    fullLineItem {
                         top.yukonga.miuix.kmp.basic.Card(
                             modifier = Modifier.fillMaxWidth(),
                             colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = AppCardColor)
@@ -224,7 +228,7 @@ fun ScoreReportScreen(
                     }
 
                     // 说明文字改成一行脚注：它是一次性说明，不值得占一张和数据卡同等重量的卡片
-                    item {
+                    fullLineItem {
                         Row(
                             Modifier.fillMaxWidth().padding(horizontal = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -245,7 +249,7 @@ fun ScoreReportScreen(
                     }
 
                     // 搜索框
-                    item {
+                    fullLineItem {
                         com.xjtu.toolbox.ui.components.AppSearchBar(
                             query = searchQuery,
                             onQueryChange = { searchQuery = it },
@@ -301,7 +305,7 @@ fun ScoreReportScreen(
                         }
                     }
 
-                    item { Spacer(Modifier.height(16.dp)) }
+                    fullLineItem { Spacer(Modifier.height(16.dp)) }
                 }
             }
         }

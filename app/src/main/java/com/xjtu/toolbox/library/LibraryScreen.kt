@@ -1,6 +1,6 @@
 package com.xjtu.toolbox.library
 
-import com.xjtu.toolbox.ui.adaptive.readableWidth
+import androidx.compose.foundation.verticalScroll
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -45,8 +45,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.EventSeat
-import androidx.compose.material.icons.filled.Map
-import androidx.compose.material.icons.filled.ViewModule
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
@@ -60,6 +58,7 @@ import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -181,14 +180,6 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
      */
     val areaCodes = remember(floorAreas, areaStatsMap) {
         floorAreas.keys.filter { code -> areaStatsMap[code]?.isOpen != false }
-    }
-
-    // 智能推荐座位
-    val recommendedSeats by remember(seats, selectedAreaCode) {
-        derivedStateOf {
-            if (selectedAreaCode.isEmpty() || seats.isEmpty()) return@derivedStateOf emptyList()
-            api.recommendSeats(seats, selectedAreaCode, topN = 5)
-        }
     }
 
     // ── 加载座位（统一入口） ──
@@ -431,11 +422,7 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
         }
     }
 
-    // 地图/列表视图切换
-    var showMapView by remember { mutableStateOf(false) }
     var seatScope by rememberSaveable { mutableStateOf("可用") }
-    val currentAreaCode = selectedAreaCode
-    val mapAvailable = currentAreaCode in MAP_SUPPORTED_AREAS
 
     val availableCount = seats.count { it.available }
     val totalCount = seats.size
@@ -483,7 +470,7 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
             ) {
                 Column(Modifier.fillMaxWidth()) {
                     val tips = listOf(
-                        "💡" to "智能推荐算法会根据「桌组空闲度、邻座占用率、是否靠墙/角落、离入口距离」等因素为你打分推荐最佳座位。",
+                        "⭐" to "长按座位可以收藏，收藏的座位会排在最前面，下次进来一眼就能找到。",
                         "⏰" to "预约成功后，请在 30 分钟内入馆签到，否则当日将被禁止线上预约。",
                         "📋" to "座位状态说明：「使用中」= 已签到入座；「已预约」 = 已预约未签到；「暂离」= 短暂离开保留中。",
                         "🚫" to "本版本已移除定时抢座功能。频繁自动化请求可能触发学校系统风控，导致账号被限制使用图书馆服务，望理解。"
@@ -555,6 +542,7 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
         // 内容铺到顶栏下面，顶部留白放进列表；下拉指示器也从顶栏下面出来
         val glassTop = padding.glassTop(glass)
         top.yukonga.miuix.kmp.basic.PullToRefresh(
+            refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
             // 顶栏折叠交给下拉刷新协调：往下拉先展开大标题，展开完才算下拉刷新。不传的话下拉刷新先把拖动吃掉，慢慢拉只会刷新、标题展不开
             topAppBarScrollBehavior = scrollBehavior,
             isRefreshing = isPullRefreshing,
@@ -567,10 +555,12 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
             contentPadding = PaddingValues(top = glassTop),
             modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass)
         ) {
-        Column(Modifier.readableWidth().fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection)) {
-            // 上面这一整叠卡片（预约状态/校区楼层区域/座位统计）都不滚动，固定在顶部，
-            // 靠这段留白整体让出顶栏高度；下面座位网格/地图是真正滚动的内容，不用再加。
-            Spacer(Modifier.height(glassTop))
+        // 上面这一整叠卡片：预约状态 / 校区楼层区域 / 座位统计。
+        //
+        // 座位列表模式下它们是座位网格的第一项，和座位一起滚：以前固定在顶部，
+        // 占掉大半屏，往上划只有下面一小块座位在动，半个屏幕纹丝不动，很别扭。
+        // 加载中、出错、没有座位时没有可滚的列表，它们仍然钉在顶上。
+        val headerContent: @Composable ColumnScope.() -> Unit = {
             AnimatedVisibility(bookingResult != null) {
                 Card(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
@@ -671,7 +661,7 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
             // ── 校区/楼层/区域选择器 (一体化) ──
             Card(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-                colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)
+                colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)
             ) {
                 Column {
                     // 校区。切换会写回账号资料（rplace），所以切换期间禁用整排，
@@ -756,18 +746,6 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                                 modifier = Modifier.weight(1f)
                             )
                         }
-                        if (mapAvailable) {
-                            IconButton(
-                                onClick = { showMapView = !showMapView },
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(
-                                    if (showMapView) Icons.Default.ViewModule else Icons.Default.Map,
-                                    contentDescription = if (showMapView) "列表视图" else "地图视图",
-                                    modifier = Modifier.size(19.dp)
-                                )
-                            }
-                        }
                     }
                 }
             }
@@ -781,6 +759,36 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                     height = 2.dp
                 )
+            }
+        }
+
+        // 宽屏两栏：左边一直是头部那叠卡片（自己滚），右边是座位网格。
+        // 以前整页限宽 720 居中：座位网格被挤成窄窄一条，平板横屏两边各空一大块。
+        val wideLibrary = com.xjtu.toolbox.ui.isWideLayout()
+        val seatGridShown = !wideLibrary && !(isLoading && seats.isEmpty()) && errorMessage == null &&
+            seats.isNotEmpty()
+        Row(Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection)) {
+        if (wideLibrary) {
+            Column(
+                Modifier
+                    .width(420.dp)
+                    .fillMaxHeight()
+                    .overScrollVertical()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Spacer(Modifier.height(glassTop))
+                headerContent()
+                Spacer(Modifier.height(16.dp))
+            }
+        }
+        Column(Modifier.weight(1f).fillMaxHeight()) {
+            // 头部不随列表滚动时，由这段留白整体让出顶栏高度；随网格滚动时留白放进网格第一项。
+            // 宽屏头部在左栏，右栏只让出顶栏高度。
+            if (wideLibrary) {
+                Spacer(Modifier.height(glassTop))
+            } else if (!seatGridShown) {
+                Spacer(Modifier.height(glassTop))
+                headerContent()
             }
 
             // ── 内容区 ──
@@ -835,18 +843,6 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                 }
 
                 else -> {
-                    if (showMapView && mapAvailable) {
-                        // ── 座位地图（物理布局版） ──
-                        SeatMapCanvas(
-                            seats = seats,
-                            areaCode = currentAreaCode,
-                            favorites = favorites,
-                            recommendedSeats = recommendedSeats,
-                            onSeatClick = { bookSeat(it.seatId) },
-                            onSeatLongClick = { toggleFavorite(it) },
-                            onUnavailableSeatClick = { /* no-op */ }
-                        )
-                    } else {
                     // 座位网格
                     LazyVerticalGrid(
                         columns = GridCells.Adaptive(minSize = 56.dp),
@@ -855,6 +851,27 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         modifier = Modifier.fillMaxSize().overScrollVertical()
                     ) {
+                        if (seatGridShown) item(span = { GridItemSpan(maxLineSpan) }, key = "header") {
+                            // 网格左右有 12dp 内边距，头部卡片自带 16dp 外边距；把网格的边距抵掉，
+                            // 卡片才和网格不显示时的位置一致。
+                            Column(
+                                Modifier.layout { measurable, constraints ->
+                                    val extra = 12.dp.roundToPx()
+                                    val placeable = measurable.measure(
+                                        constraints.copy(
+                                            minWidth = constraints.minWidth + extra * 2,
+                                            maxWidth = constraints.maxWidth + extra * 2,
+                                        )
+                                    )
+                                    layout(constraints.maxWidth, placeable.height) {
+                                        placeable.place(-extra, 0)
+                                    }
+                                }
+                            ) {
+                                Spacer(Modifier.height(glassTop))
+                                headerContent()
+                            }
+                        }
                         // 收藏座位快捷区
                         val favInArea = seats.filter { it.seatId in favorites }
                         if (favInArea.isNotEmpty()) {
@@ -881,58 +898,6 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                             }
                         }
 
-                        // 智能推荐座位
-                        if (recommendedSeats.isNotEmpty()) {
-                            item(span = { GridItemSpan(maxLineSpan) }) {
-                                Card(
-                                    modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
-                                    colors = CardDefaults.defaultColors(
-                                        color = MiuixTheme.colorScheme.primary.copy(alpha = 0.09f)
-                                    )
-                                ) {
-                                    Column(Modifier.fillMaxWidth().padding(14.dp)) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(
-                                                Icons.Default.Star,
-                                                null,
-                                                Modifier.size(18.dp),
-                                                tint = MiuixTheme.colorScheme.primary
-                                            )
-                                            Spacer(Modifier.width(8.dp))
-                                            Column {
-                                                Text(
-                                                    "为你推荐",
-                                                    style = MiuixTheme.textStyles.body1,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MiuixTheme.colorScheme.primary
-                                                )
-                                                Text(
-                                                    "综合桌组空闲度、邻座和位置",
-                                                    style = MiuixTheme.textStyles.footnote1,
-                                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                                                )
-                                            }
-                                        }
-                                        Spacer(Modifier.height(10.dp))
-                                        FlowRow(
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            recommendedSeats.forEach { seat ->
-                                                SeatChip(
-                                                    seat = seat,
-                                                    isBooking = isBooking,
-                                                    isFavorite = seat.seatId in favorites,
-                                                    onClick = { bookSeat(seat.seatId) },
-                                                    onLongClick = { toggleFavorite(seat.seatId) }
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
                         // 全部座位
                         items(visibleSeats, key = { it.seatId }) { seat ->
                             SeatChip(
@@ -944,10 +909,10 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                             )
                         }
                     }
-                    } // end else (list view)
                 }
             }
         }
+        } // Row（宽屏：左头部、右座位）
         }
     }
 }

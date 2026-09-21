@@ -62,6 +62,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -122,6 +123,11 @@ fun AgentScreen(
     onTitleChange: (String) -> Unit = {},
     onActionsChange: ((@Composable RowScope.() -> Unit)?) -> Unit = {},
     onNavIconChange: ((@Composable () -> Unit)?) -> Unit = {},
+    /**
+     * tab 模式下宿主玻璃顶栏的高度。非 0 时宿主不再整体下移这一页：对话、配置两个列表铺到
+     * 顶栏下面、把这段留白放进列表里；不滚动的会话栏、抽屉自己让出这段高度。
+     */
+    contentTopPadding: Dp = 0.dp,
 ) {
     val context = LocalContext.current
     val loginState = LocalAppLoginState.current
@@ -266,7 +272,8 @@ fun AgentScreen(
                         },
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(padding)
+                            .padding(padding),
+                        listTopPadding = contentTopPadding,
                     )
                 } else {
                     ChatPanel(
@@ -274,6 +281,7 @@ fun AgentScreen(
                         config = config,
                         loginState = loginState,
                         padding = padding,
+                        listTopPadding = contentTopPadding,
                         scrollBehavior = effectiveScrollBehavior,
                         onNavigate = onNavigate,
                         onOpenConfig = { showConfig = true },
@@ -354,7 +362,9 @@ fun AgentScreen(
                     // 独立整页形态下左栏在自带 Scaffold 之外，顶部的状态栏要自己让。
                     .then(
                         if (asTab) {
-                            Modifier.consumeWindowInsets(PaddingValues(bottom = hostBottomPadding))
+                            Modifier
+                                .consumeWindowInsets(PaddingValues(bottom = hostBottomPadding))
+                                .padding(top = contentTopPadding)
                         } else {
                             Modifier.statusBarsPadding()
                         },
@@ -414,7 +424,8 @@ fun AgentScreen(
         }
 
         // 窄屏的覆盖式抽屉。宽屏已经有常驻左栏，不再挂它。
-        if (!isWide) SessionDrawer(
+        // 抽屉从顶栏下沿开始：顶栏画在 tab 内容上面，从屏幕顶开始的话上半截会被玻璃盖住。
+        if (!isWide) Box(Modifier.fillMaxSize().padding(top = contentTopPadding)) { SessionDrawer(
             open = drawerOpen,
             sessions = vm.sessions,
             currentId = vm.currentSessionId,
@@ -425,7 +436,7 @@ fun AgentScreen(
                 deleteTarget = it
                 drawerOpen = false
             },
-        )
+        ) }
     }
 }
 
@@ -759,6 +770,8 @@ private fun ChatPanel(
     onNavigate: (String) -> Unit,
     onOpenConfig: () -> Unit,
     bottomReserve: Dp = 0.dp,
+    /** 玻璃顶栏的高度，放进对话列表的顶部留白（列表铺到顶栏下面）。 */
+    listTopPadding: Dp = 0.dp,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -854,7 +867,7 @@ private fun ChatPanel(
                         .fillMaxSize()
                         .overScrollVertical()
                         .nestedScroll(scrollBehavior.nestedScrollConnection),
-                    contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp),
+                    contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 16.dp + listTopPadding, bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
             if (vm.messages.isEmpty()) {
@@ -1609,7 +1622,9 @@ private fun ConfigPanel(
     config: AgentConfig,
     scrollBehavior: ScrollBehavior,
     onSave: (AgentConfig) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** 玻璃顶栏的高度，放进列表的顶部留白。 */
+    listTopPadding: Dp = 0.dp,
 ) {
     var provider by remember { mutableStateOf(config.provider) }
     var apiKey by remember { mutableStateOf(config.apiKey) }
@@ -1682,11 +1697,11 @@ private fun ConfigPanel(
         modifier = modifier
             .nestedScroll(scrollBehavior.nestedScrollConnection)
             .overScrollVertical(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp + listTopPadding, bottom = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
-            Card(colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.errorContainer.copy(alpha = 0.35f))) {
+            Card(colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.errorContainer.copy(alpha = 0.35f).compositeOver(com.xjtu.toolbox.ui.components.AppCardColor))) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("首次使用前请确认", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold)
                     Text(
@@ -1700,7 +1715,7 @@ private fun ConfigPanel(
         // 服务商 + 助手名字/API Key/模型 + 思考参数：都是"怎么接到哪个模型、这个模型
         // 怎么想问题"这一件事，原来拆成三张卡片，合并成一张放最前面，改起来不用来回滚动。
         item {
-            Card(colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)) {
+            Card(colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     OverlaySpinnerPreference(
                         title = "服务商",
@@ -1889,7 +1904,7 @@ private fun ConfigPanel(
             }
         }
         item {
-            Card(colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)) {
+            Card(colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)) {
                 OverlaySpinnerPreference(
                     title = "联网搜索引擎",
                     summary = AgentConfig.searchEngineLabel(searchEngine),
@@ -1904,7 +1919,7 @@ private fun ConfigPanel(
         }
         // 回复风格和皮肤都是"agent 表现出来的样子"，放一起。
         item {
-            Card(colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)) {
+            Card(colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)) {
                 OverlaySpinnerPreference(
                     title = "回复风格",
                     summary = AgentConfig.responseStyleLabel(responseStyle),
@@ -1925,7 +1940,7 @@ private fun ConfigPanel(
             val ctx = androidx.compose.ui.platform.LocalContext.current
             var memories by remember { mutableStateOf(AgentMemory.all(ctx)) }
             if (memories.isNotEmpty()) {
-                Card(colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)) {
+                Card(colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("记住的偏好", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold)
                         Text(
@@ -1966,7 +1981,7 @@ private fun ConfigPanel(
         }
         // 最多调用次数和能力开关都是"agent 这次能做多少事"，放一起。
         item {
-            Card(colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)) {
+            Card(colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     // 0 = 不限制；1..12 为具体上限（每次提问独立计数）
                     val options = listOf(0) + (1..12).toList()
@@ -2008,7 +2023,7 @@ private fun ConfigPanel(
                 "device_write" to "系统闹钟与日历",
                 "settings_write" to "修改 App 设置"
             )
-            Card(colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)) {
+            Card(colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("能力开关", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold)
                     Text(

@@ -116,6 +116,7 @@ fun GlassBottomTabs(
     val containerColor = MiuixTheme.colorScheme.surfaceContainerHigh.let {
         if (glass) it.copy(alpha = 0.4f) else it
     }
+    val barShadow = remember(accentColor, isDark) { floatingGlassShadow(accentColor, isDark) }
     // 用百分比圆角凑出胶囊形状，不额外依赖 io.github.kyant0:shapes 的 Capsule——
     // 那只是 backdrop 的传递依赖，不在本项目的编译期 classpath 上（加它要改
     // gradle/libs.versions.toml，是热点文件，见收尾报告的胶合清单）。RoundedCornerShape
@@ -248,6 +249,8 @@ fun GlassBottomTabs(
                             backdrop = backdrop,
                             shape = { pillShape },
                             effects = {
+                                // 采样范围往外扩一圈，胶囊边缘处也有真实内容可混（见 glassBarSurface）
+                                padding = maxOf(padding, 16.dp.toPx())
                                 vibrancy()
                                 blur(8.dp.toPx())
                                 lens(24.dp.toPx(), 24.dp.toPx())
@@ -259,6 +262,10 @@ fun GlassBottomTabs(
                                 scaleY = scale
                             },
                             exportedBackdrop = exportedBackdrop,
+                            // 悬浮胶囊是真的浮在内容上面，该有影子；但不要 kyant 默认那圈
+                            // 死黑（24dp、10% 黑）。改成带一点主题色的环境光阴影：更散、更低，
+                            // 颜色跟着主题走，像胶囊被页面的光托着，而不是压了一块灰。
+                            shadow = { barShadow },
                             onDrawSurface = { drawRect(containerColor) },
                         )
                     } else {
@@ -288,6 +295,8 @@ fun GlassBottomTabs(
                             shape = { pillShape },
                             effects = {
                                 val progress = dampedDrag.pressProgress
+                                // 和上面的主胶囊同一套采样范围，指示器透出来的底才对得上
+                                padding = maxOf(padding, 16.dp.toPx())
                                 vibrancy()
                                 blur(8.dp.toPx())
                                 lens(24.dp.toPx() * progress, 24.dp.toPx() * progress)

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -200,6 +201,7 @@ fun FitnessScreen(
     ) { padding ->
         val glassTop = padding.glassTop(glass)
         PullToRefresh(
+            refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
             isRefreshing = isRefreshing,
             onRefresh = { scope.launch { refreshCurrent() } },
             pullToRefreshState = pullToRefreshState,
@@ -221,32 +223,12 @@ fun FitnessScreen(
             years.isEmpty() -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
                 item { Box(Modifier.fillParentMaxSize()) { EmptyState("暂无可查询的体测学年", modifier = Modifier.fillMaxSize()) } }
             }
-            else -> LazyColumn(
-                modifier = Modifier.fillMaxSize().overScrollVertical(),
-                contentPadding = PaddingValues(top = glassTop + 16.dp, bottom = 28.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                item {
-                    // 用 LazyRow 而非 horizontalScroll 的 Row：学年多起来时选中项常在最右侧，
-                    // 普通 Row 没法定位到某一项，用户看到的就是一排全未选中的胶囊
-                    // ——数据其实是对的，只是选中的那枚在屏幕外。
-                    LazyRow(
-                        state = yearListState,
-                        modifier = Modifier.fillMaxWidth(),
-                        contentPadding = PaddingValues(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(years) { year ->
-                            YearChip(
-                                year = year,
-                                selected = year == selectedYear,
-                                onClick = { scope.launch { selectYear(year) } }
-                            )
-                        }
-                    }
-                }
+            else -> {
+            // 宽屏两栏：左边学年 + 总分，右边各项目成绩。以前一列卡片横跨整个平板，
+            // 项目名在最左、分数在最右，中间隔着大半个屏幕。
+            val wide = com.xjtu.toolbox.ui.isWideLayout()
+            val itemsCard: androidx.compose.foundation.lazy.LazyListScope.() -> Unit = {
                 score?.let { result ->
-                    item { ScoreHero(result) }
                     if (result.items.isNotEmpty()) {
                         item {
                             Card(
@@ -271,6 +253,39 @@ fun FitnessScreen(
                         }
                     }
                 }
+            }
+            Row(Modifier.fillMaxSize()) {
+            LazyColumn(
+                modifier = Modifier
+                    .then(if (wide) Modifier.width(460.dp) else Modifier.weight(1f))
+                    .fillMaxHeight()
+                    .overScrollVertical(),
+                contentPadding = PaddingValues(top = glassTop + 16.dp, bottom = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                item {
+                    // 用 LazyRow 而非 horizontalScroll 的 Row：学年多起来时选中项常在最右侧，
+                    // 普通 Row 没法定位到某一项，用户看到的就是一排全未选中的胶囊
+                    // ——数据其实是对的，只是选中的那枚在屏幕外。
+                    LazyRow(
+                        state = yearListState,
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(years) { year ->
+                            YearChip(
+                                year = year,
+                                selected = year == selectedYear,
+                                onClick = { scope.launch { selectYear(year) } }
+                            )
+                        }
+                    }
+                }
+                score?.let { result ->
+                    item { ScoreHero(result) }
+                }
+                if (!wide) itemsCard()
                 if (error != null && score == null) {
                     item {
                         ErrorState(
@@ -280,6 +295,17 @@ fun FitnessScreen(
                         )
                     }
                 }
+            }
+            if (wide) {
+                LazyColumn(
+                    modifier = Modifier.weight(1f).fillMaxHeight().overScrollVertical(),
+                    contentPadding = PaddingValues(top = glassTop + 16.dp, bottom = 28.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    itemsCard()
+                }
+            }
+            } // Row
             }
         }
         }

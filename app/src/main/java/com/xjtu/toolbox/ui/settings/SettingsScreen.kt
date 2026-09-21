@@ -325,9 +325,9 @@ fun SettingsScreen(
     ) { padding ->
         val glassTop = padding.glassTop(glass)
 
-        // 九组设置各抽成一个 lambda。状态全在 SettingsScreen 函数体里，
+        // 八组设置各抽成一个 lambda。状态全在 SettingsScreen 函数体里，
         // 两种布局捕获的是同一份，弹窗也只有一份（都在下面 Scaffold 的内容层）。
-        // 组内一行没动，窄屏按原顺序依次渲染即与改造前等价。
+        // 窄屏按顺序依次渲染，宽屏左栏是组名、右栏是选中的那一组。
         val settingsGroup0: @Composable () -> Unit = {
             // ── 外观 ──
             SmallTitle("外观")
@@ -397,6 +397,45 @@ fun SettingsScreen(
                         }
                     )
                 }
+            }
+        }
+        // 分组按「这一项管的是什么」来分，不按「它长什么样」：原来的「外观」里混着课表来源、
+        // 课表考勤、触感和默认启动 Tab，「网络」「场馆」各只有孤零零一项，崩溃日志上报藏在「关于」里。
+        val settingsGroup1: @Composable () -> Unit = {
+            // ── 通用：打开 App 以后怎么用，不属于哪一个功能 ──
+            SmallTitle("通用")
+            SettingsCard {
+                OverlayDropdownPreference(
+                    title = "默认启动 Tab",
+                    items = tabOptions,
+                    selectedIndex = tabValues.indexOf(defaultTab).coerceAtLeast(0),
+                    startAction = { SettingsIcon(Icons.Default.Tab, cTeal) },
+                    onSelectedIndexChange = { idx ->
+                        val v = tabValues[idx]
+                        defaultTab = v
+                        credentialStore.defaultTab = v
+                        onDefaultTabChanged(v)
+                    }
+                )
+                // 触感开关自带偏好存储，不经 CredentialStore
+                com.xjtu.toolbox.ui.HapticsSettingItem()
+                OverlayDropdownPreference(
+                    title = "连接模式",
+                    items = networkOptions,
+                    selectedIndex = networkValues.indexOf(networkMode).coerceAtLeast(0),
+                    startAction = { SettingsIcon(MiuixIcons.Carrier, cIndigo) },
+                    onSelectedIndexChange = { idx ->
+                        val v = networkValues[idx]
+                        networkMode = v
+                        credentialStore.networkMode = v
+                    }
+                )
+            }
+        }
+        val settingsGroup2: @Composable () -> Unit = {
+            // ── 功能：只对某一个功能生效的开关，按功能分小节 ──
+            SmallTitle("日程")
+            SettingsCard {
                 OverlayDropdownPreference(
                     title = "当前学期课表来源",
                     summary = "${scheduleSource.label} · ${scheduleSource.summary}。历史学期始终查教务，选的来源取不到时也自动退回教务",
@@ -424,41 +463,27 @@ fun SettingsScreen(
                         credentialStore.scheduleAttendanceBadge = it
                     }
                 )
-                // 触感开关自带偏好存储，不经 CredentialStore
-                com.xjtu.toolbox.ui.HapticsSettingItem()
-                OverlayDropdownPreference(
-                    title = "默认启动 Tab",
-                    items = tabOptions,
-                    selectedIndex = tabValues.indexOf(defaultTab).coerceAtLeast(0),
-                    startAction = { SettingsIcon(Icons.Default.Tab, cTeal) },
-                    onSelectedIndexChange = { idx ->
-                        val v = tabValues[idx]
-                        defaultTab = v
-                        credentialStore.defaultTab = v
-                        onDefaultTabChanged(v)
-                    }
-                )
             }
-        }
-        val settingsGroup1: @Composable () -> Unit = {
-            // ── 网络 ──
-            SmallTitle("网络")
+            SmallTitle("场馆")
             SettingsCard {
-                OverlayDropdownPreference(
-                    title = "连接模式",
-                    items = networkOptions,
-                    selectedIndex = networkValues.indexOf(networkMode).coerceAtLeast(0),
-                    startAction = { SettingsIcon(MiuixIcons.Carrier, cIndigo) },
-                    onSelectedIndexChange = { idx ->
-                        val v = networkValues[idx]
-                        networkMode = v
-                        credentialStore.networkMode = v
+                SwitchPreference(
+                    title = "自动识别场馆验证码",
+                    summary = if (venueAutoSolveCaptcha) {
+                        "预约时先尝试自动识别，失败后可手动滑动"
+                    } else {
+                        "已关闭，预约时始终手动滑动"
+                    },
+                    checked = venueAutoSolveCaptcha,
+                    startAction = { SettingsIcon(MiuixIcons.Settings, cIndigo) },
+                    onCheckedChange = {
+                        venueAutoSolveCaptcha = it
+                        credentialStore.venueAutoSolveCaptchaEnabled = it
                     }
                 )
             }
         }
-        val settingsGroup2: @Composable () -> Unit = {
-            // ── 教务通知 ──
+        val settingsGroup3: @Composable () -> Unit = {
+            // ── 通知与提醒：会在系统通知栏冒出来的东西都在这里 ──
             SmallTitle("教务通知")
             SettingsCard {
                 SwitchPreference(
@@ -494,9 +519,6 @@ fun SettingsScreen(
                     onClick = { showNoticeSources = true }
                 )
             }
-        }
-        val settingsGroup3: @Composable () -> Unit = {
-            // ── 后台提醒 ──
             SmallTitle("后台提醒")
             SettingsCard {
                 SwitchPreference(
@@ -550,28 +572,8 @@ fun SettingsScreen(
             }
         }
         val settingsGroup4: @Composable () -> Unit = {
-            // ── 场馆 ──
-            SmallTitle("场馆")
-            SettingsCard {
-                SwitchPreference(
-                    title = "自动识别场馆验证码",
-                    summary = if (venueAutoSolveCaptcha) {
-                        "预约时先尝试自动识别，失败后可手动滑动"
-                    } else {
-                        "已关闭，预约时始终手动滑动"
-                    },
-                    checked = venueAutoSolveCaptcha,
-                    startAction = { SettingsIcon(MiuixIcons.Settings, cIndigo) },
-                    onCheckedChange = {
-                        venueAutoSolveCaptcha = it
-                        credentialStore.venueAutoSolveCaptchaEnabled = it
-                    }
-                )
-            }
-        }
-        val settingsGroup5: @Composable () -> Unit = {
-            // ── 数据 ──
-            SmallTitle("数据")
+            // ── 数据与隐私：本机存了什么、往外发了什么 ──
+            SmallTitle("数据与隐私")
             SettingsCard {
                 BasicComponent(
                     title = "缓存大小",
@@ -584,9 +586,23 @@ fun SettingsScreen(
                     startAction = { SettingsIcon(MiuixIcons.Delete, cRed) },
                     onClick = { showClearCacheDialog = true }
                 )
+                SwitchPreference(
+                    title = "自动上报崩溃日志",
+                    summary = if (crashReportEnabled) {
+                        "闪退后下次启动匿名上报堆栈与机型，已去除网址参数、学号等"
+                    } else {
+                        "已关闭，闪退只能靠你手动反馈"
+                    },
+                    checked = crashReportEnabled,
+                    startAction = { SettingsIcon(Icons.Default.BugReport, cRed) },
+                    onCheckedChange = {
+                        crashReportEnabled = it
+                        com.xjtu.toolbox.error.CrashReporter.setEnabled(context, it)
+                    }
+                )
             }
         }
-        val settingsGroup6: @Composable () -> Unit = {
+        val settingsGroup5: @Composable () -> Unit = {
             // ── 更新 ──
             SmallTitle("更新")
             SettingsCard {
@@ -660,7 +676,7 @@ fun SettingsScreen(
                 )
             }
         }
-        val settingsGroup7: @Composable () -> Unit = {
+        val settingsGroup6: @Composable () -> Unit = {
             // ── 关于 ──
             SmallTitle("关于")
             SettingsCard {
@@ -681,20 +697,6 @@ fun SettingsScreen(
                     startAction = { SettingsIcon(MiuixIcons.Forward, cBlue) },
                     onClick = { uriHandler.openUri("https://github.com/yeliqin666/xjtu-toolbox-android") }
                 )
-                SwitchPreference(
-                    title = "自动上报崩溃日志",
-                    summary = if (crashReportEnabled) {
-                        "闪退后下次启动匿名上报堆栈与机型，已去除网址参数、学号等"
-                    } else {
-                        "已关闭，闪退只能靠你手动反馈"
-                    },
-                    checked = crashReportEnabled,
-                    startAction = { SettingsIcon(Icons.Default.BugReport, cRed) },
-                    onCheckedChange = {
-                        crashReportEnabled = it
-                        com.xjtu.toolbox.error.CrashReporter.setEnabled(context, it)
-                    }
-                )
                 ArrowPreference(
                     title = "用户协议与隐私政策",
                     startAction = { SettingsIcon(MiuixIcons.File, cPurple) },
@@ -702,7 +704,7 @@ fun SettingsScreen(
                 )
             }
         }
-        val settingsGroup8: @Composable () -> Unit = {
+        val settingsGroup7: @Composable () -> Unit = {
             // ── 致谢 ──
             SmallTitle("致谢")
             SettingsCard {
@@ -744,10 +746,10 @@ fun SettingsScreen(
             }
         }
 
-        val groupTitles = listOf("外观", "网络", "教务通知", "后台提醒", "场馆", "数据", "更新", "关于", "致谢")
-        val groupIcons = listOf(Icons.Default.Palette, Icons.Default.CloudSync, Icons.Default.Notifications, Icons.Default.BatteryAlert, Icons.Default.EventSeat, MiuixIcons.Delete, Icons.Default.Refresh, MiuixIcons.Info, Icons.Default.Star)
-        val groupColors = listOf(cPurple, cBlue, cOrange, cRed, cTeal, cLime, cGreen, cBlue, cPurple)
-        val groupBodies = listOf<@Composable () -> Unit>(settingsGroup0, settingsGroup1, settingsGroup2, settingsGroup3, settingsGroup4, settingsGroup5, settingsGroup6, settingsGroup7, settingsGroup8)
+        val groupTitles = listOf("外观", "通用", "功能", "通知与提醒", "数据与隐私", "更新", "关于", "致谢")
+        val groupIcons = listOf(Icons.Default.Palette, Icons.Default.Tab, Icons.Default.CalendarMonth, Icons.Default.Notifications, MiuixIcons.CloudFill, Icons.Default.Refresh, MiuixIcons.Info, Icons.Default.Star)
+        val groupColors = listOf(cPurple, cTeal, cBlue, cOrange, cBlueGray, cGreen, cBlue, cPurple)
+        val groupBodies = listOf<@Composable () -> Unit>(settingsGroup0, settingsGroup1, settingsGroup2, settingsGroup3, settingsGroup4, settingsGroup5, settingsGroup6, settingsGroup7)
 
         // 宽屏：左栏组名列表 + 右栏选中组。选中项 rememberSaveable，跨旋转不丢。
         var selectedGroup by rememberSaveable { mutableIntStateOf(0) }

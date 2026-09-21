@@ -21,8 +21,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.ChevronLeft
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -146,6 +144,7 @@ fun IclassfaceScreen(
             }
         )
         PullToRefresh(
+            refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
             isRefreshing = isRefreshing,
             onRefresh = { load(selectedDate, silent = true) },
             pullToRefreshState = pullToRefreshState,
@@ -214,93 +213,99 @@ fun IclassfaceScreen(
 }
 
 /**
- * 日期切换条。
+ * 日期条：最近 14 天一字排开，最右边是今天，点哪天看哪天；再早的日子点末尾的日历图标，用系统月历选。
  *
- * 用 Card 包住，与同页的 StatusHero / RecordCard 保持同一套卡片语言——原来是个裸 Row，
- * 没有任何边界，夹在两张卡之间像是浮在外面的。
- *
- * 左右箭头按天步进；中间日期可点开选择器，一次跳到任意一天。未来日期没有记录，右箭头到今天禁用。
+ * 以前是左右箭头一天一天步进、中间一个日期点开三个下拉框（年 / 月 / 日）：想看上周三要连点好几下，
+ * 又难看又难用。查签到基本只看最近几天，一排日期直接点最快。选中的日期在两周以外时，
+ * 它自己排在最前面，免得选完了日期条上找不到。
  */
 @Composable
 private fun DateSwitchRow(
     date: LocalDate,
-    isToday: Boolean,
+    @Suppress("UNUSED_PARAMETER") isToday: Boolean,
     onDateChange: (LocalDate) -> Unit,
     onPickDate: () -> Unit,
 ) {
     val today = remember { LocalDate.now() }
-    val relative = when (date) {
-        today -> "今天"
-        today.minusDays(1) -> "昨天"
-        today.minusDays(2) -> "前天"
-        else -> "${java.time.temporal.ChronoUnit.DAYS.between(date, today)} 天前"
-    }
-    val weekday = when (date.dayOfWeek.value) {
-        1 -> "周一"; 2 -> "周二"; 3 -> "周三"; 4 -> "周四"
-        5 -> "周五"; 6 -> "周六"; else -> "周日"
+    val recent = remember(today) { (13 downTo 0).map { today.minusDays(it.toLong()) } }
+    val days = if (date in recent) recent else listOf(date) + recent
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    // 一进来滚到最右边（今天）；选中的日期在屏幕外时把它滚进来
+    LaunchedEffect(date) {
+        val index = days.indexOf(date).coerceAtLeast(0)
+        runCatching { listState.animateScrollToItem(index) }
     }
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.defaultColors(color = AppCardColor)
     ) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
+            Modifier.fillMaxWidth().padding(vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = { onDateChange(date.minusDays(1)) }) {
-                Icon(
-                    Icons.Default.ChevronLeft,
-                    contentDescription = "前一天",
-                    tint = MiuixTheme.colorScheme.onSurface
-                )
-            }
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .clickable(onClick = onPickDate),
-                horizontalAlignment = Alignment.CenterHorizontally
+            androidx.compose.foundation.lazy.LazyRow(
+                state = listState,
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(horizontal = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Default.CalendarMonth,
-                        contentDescription = null,
-                        tint = MiuixTheme.colorScheme.primary,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Text(
-                        date.toString(),
-                        style = MiuixTheme.textStyles.body1,
-                        fontWeight = FontWeight.Medium
+                items(days.size) { i ->
+                    val d = days[i]
+                    DateCell(
+                        date = d,
+                        selected = d == date,
+                        isToday = d == today,
+                        onClick = { if (d != date) onDateChange(d) },
                     )
                 }
-                Text(
-                    "$relative · $weekday",
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                )
             }
-            // 未来日期不会有签到记录，到今天为止
-            IconButton(
-                enabled = !isToday,
-                onClick = { onDateChange(date.plusDays(1)) }
-            ) {
+            IconButton(onClick = onPickDate) {
                 Icon(
-                    Icons.Default.ChevronRight,
-                    contentDescription = "后一天",
-                    tint = if (isToday) {
-                        MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.4f)
-                    } else {
-                        MiuixTheme.colorScheme.onSurface
-                    }
+                    Icons.Default.CalendarMonth,
+                    contentDescription = "选择更早的日期",
+                    tint = MiuixTheme.colorScheme.primary,
                 )
             }
         }
     }
 }
 
+@Composable
+private fun DateCell(date: LocalDate, selected: Boolean, isToday: Boolean, onClick: () -> Unit) {
+    val weekday = when (date.dayOfWeek.value) {
+        1 -> "周一"; 2 -> "周二"; 3 -> "周三"; 4 -> "周四"
+        5 -> "周五"; 6 -> "周六"; else -> "周日"
+    }
+    val scheme = MiuixTheme.colorScheme
+    Column(
+        Modifier
+            .width(48.dp)
+            .clip(androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
+            .background(if (selected) scheme.primary else androidx.compose.ui.graphics.Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            if (isToday) "今天" else weekday,
+            style = MiuixTheme.textStyles.footnote2,
+            color = if (selected) scheme.onPrimary.copy(alpha = 0.85f) else scheme.onSurfaceVariantSummary,
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            "${date.dayOfMonth}",
+            style = MiuixTheme.textStyles.title4,
+            fontWeight = FontWeight.Bold,
+            color = if (selected) scheme.onPrimary else if (isToday) scheme.primary else scheme.onSurface,
+        )
+        // 每月 1 号标一下月份，跨月时知道是哪个月
+        Text(
+            if (date.dayOfMonth == 1 || selected) "${date.monthValue}月" else " ",
+            style = MiuixTheme.textStyles.footnote2,
+            color = if (selected) scheme.onPrimary.copy(alpha = 0.85f) else scheme.onSurfaceVariantSummary,
+        )
+    }
+}
 @Composable
 private fun StatusHero(checkedIn: Boolean, isToday: Boolean, latestTime: String?) {
     Card(

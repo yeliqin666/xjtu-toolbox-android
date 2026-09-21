@@ -1,6 +1,8 @@
 package com.xjtu.toolbox.jwapp
 
-import com.xjtu.toolbox.ui.adaptive.readableWidth
+import com.xjtu.toolbox.ui.adaptive.AdaptiveRowGrid
+import com.xjtu.toolbox.ui.adaptive.fullLineItem
+import androidx.compose.foundation.lazy.grid.items
 import androidx.activity.compose.BackHandler
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
@@ -540,6 +542,7 @@ fun JwappScoreScreen(
 
             else -> {
                 PullToRefresh(
+                    refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
                     isRefreshing = isRefreshing,
                     onRefresh = { if (api != null) loadScoreData(silent = true) },
                     pullToRefreshState = pullToRefreshState,
@@ -547,12 +550,14 @@ fun JwappScoreScreen(
                     contentPadding = PaddingValues(top = glassTop),
                     modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass)
                 ) {
-                    LazyColumn(
-                        modifier = Modifier.readableWidth().fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(top = glassTop + 8.dp, bottom = 8.dp)
+                    // 宽屏：GPA、筛选、学期标题横跨全宽，一门门课分两三列排（见 AdaptiveRowGrid：卡片会竖着展开，按行对齐，展开一张别的卡不挪位置）。
+                    // 以前整页限宽 720 居中，平板横屏两边各空一大块。
+                    AdaptiveRowGrid(
+                        modifier = Modifier.fillMaxSize().overScrollVertical(),
+                    spacing = 10.dp,
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = glassTop + 8.dp, bottom = 8.dp)
                 ) {
-                    item {
+                    fullLineItem {
                         GpaCard(
                             gpaInfo = if (gpaSelectMode) selectedGpaInfo else displayGpaInfo,
                             totalCourses = if (gpaSelectMode) selectedCourseIds.size else filteredScores.size,
@@ -577,7 +582,7 @@ fun JwappScoreScreen(
                         }
                     }
 
-                    item {
+                    fullLineItem {
                         Column {
                             Row(
                                 Modifier.fillMaxWidth(),
@@ -688,7 +693,7 @@ fun JwappScoreScreen(
                     }
 
                     if (filteredScores.isEmpty()) {
-                        item {
+                        fullLineItem {
                             Box(Modifier.fillMaxWidth().padding(vertical = 32.dp), contentAlignment = Alignment.Center) {
                                 Text("暂无成绩数据", style = MiuixTheme.textStyles.body1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                             }
@@ -696,7 +701,7 @@ fun JwappScoreScreen(
                     } else {
                         groupedTerms.forEach { (termCode, termName, termScores) ->
                             if (selectedTermIndex == 0 || groupedTerms.size > 1) {
-                                item(key = "term_$termCode") {
+                                fullLineItem(key = "term_$termCode") {
                                     Text(
                                         "$termName · ${termScores.size} 门",
                                         style = MiuixTheme.textStyles.body2,
@@ -768,7 +773,7 @@ fun JwappScoreScreen(
                         }
                     }
 
-                    item { Spacer(Modifier.height(16.dp)) }
+                    fullLineItem { Spacer(Modifier.height(16.dp)) }
                 }
                 }
             }

@@ -3,6 +3,10 @@ package com.xjtu.toolbox.card
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.overlay.OverlayListPopup
+import top.yukonga.miuix.kmp.basic.ListPopupColumn
+import top.yukonga.miuix.kmp.basic.DropdownImpl
+import top.yukonga.miuix.kmp.basic.PopupPositionProvider
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
@@ -26,13 +30,10 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.graphics.TileMode
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
-import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.lens
-import com.kyant.backdrop.effects.vibrancy
+import com.xjtu.toolbox.ui.glass.glassBarSurface
+import com.xjtu.toolbox.ui.glass.glassBarTint
 import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -69,6 +70,7 @@ import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.components.AppTabPager
 import com.xjtu.toolbox.ui.components.MeshBackground
+import com.xjtu.toolbox.ui.components.appCardShadow
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.EmptyState
@@ -76,7 +78,6 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.spring
 import androidx.compose.ui.platform.LocalContext
 import com.xjtu.toolbox.ui.components.AppDatePickerDialog
-import com.xjtu.toolbox.ui.components.AppFilterChip
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
@@ -226,6 +227,9 @@ fun CampusCardScreen(
                 if (myGeneration != loadGeneration || accountSwitched()) return@launch
                 applyTransactions(allTx, accountId)
                 CampusCardCache.save(context, info, allTx, startDate, endDate, accountId)
+                // 余额和今日消费都已落盘，通知首页重读。首页 tab 一直留在组合里，
+                // 只认这个版本号：不递增的话充值后刷新了这里，回到首页还是旧余额。
+                appLoginState.campusCardCacheVersion++
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: AuthExpiredException) {
@@ -302,9 +306,19 @@ fun CampusCardScreen(
     }
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    var showRangeMenu by remember { mutableStateOf(false) }
+    // 当前时间范围的一句话说法：顶栏菜单按钮的无障碍描述、流水和分析栏的小字共用
+    val rangeLabel = if (selectedTimeRange == TimeRange.CUSTOM) {
+        currentRangeDates().let { (start, end) -> formatRangeChip(start, end) }
+    } else {
+        "近${selectedTimeRange.label}"
+    }
     // 这一页自己的采样源：顶栏采它，不用全局的 LocalAppBackdrop（这是二级页，有自己
     // 的 Scaffold/TopAppBar）。
     val cardBackdrop = rememberLayerBackdrop()
+    // 宽屏「流水 / 分析」两栏的选中项。标签行在顶栏里，所以提到 Scaffold 外面
+    val isWideTop = com.xjtu.toolbox.ui.isWideLayout()
+    var wideTab by rememberSaveable { mutableIntStateOf(0) }
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -319,20 +333,83 @@ fun CampusCardScreen(
                     }
                 },
                 actions = {
+                    // 时间范围收进顶栏菜单：它同时作用于概览、流水、分析三栏，是整页的设置，
+                    // 不该在标签行下面单独占一排胶囊。当前范围由各栏里的小字标出（rangeLabel）。
+                    Box {
+                        IconButton(onClick = { showRangeMenu = true }) {
+                            Icon(Icons.Default.DateRange, contentDescription = "时间范围：$rangeLabel")
+                        }
+                        OverlayListPopup(
+                            show = showRangeMenu,
+                            alignment = PopupPositionProvider.Align.End,
+                            onDismissRequest = { showRangeMenu = false },
+                        ) {
+                            ListPopupColumn {
+                                TimeRange.entries.forEachIndexed { idx, range ->
+                                    DropdownImpl(
+                                        text = if (range == TimeRange.CUSTOM) "自定义…" else "近${range.label}",
+                                        optionSize = TimeRange.entries.size,
+                                        isSelected = range == selectedTimeRange,
+                                        onSelectedIndexChange = {
+                                            showRangeMenu = false
+                                            if (range == TimeRange.CUSTOM) {
+                                                showCustomRange = true
+                                            } else if (range != selectedTimeRange) {
+                                                selectedTimeRange = range
+                                                currentPage = 1
+                                                loadData(range, silent = true)
+                                            }
+                                        },
+                                        index = idx,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                },
+                // 标签行不参与滚动：挂在顶栏里和顶栏一起做一整块玻璃，列表从它下面滚过去。
+                // 宽屏只有右栏有「流水 / 分析」标签，标签行只占右边那一截，和右栏对齐
+                bottomContent = {
+                    CompositionLocalProvider(com.xjtu.toolbox.ui.glass.LocalOnGlassBar provides glass) {
+                        Column {
+                            // 整页在转圈 / 报错时（下面 when 的前两支）没有东西可切，不挂标签
+                            val showTabs = !(cardInfo == null && transactions.isEmpty() &&
+                                (isLoading || errorMessage != null))
+                            if (!showTabs) {
+                                // 什么都不放
+                            } else if (isWideTop) {
+                                Row(Modifier.fillMaxWidth()) {
+                                    Spacer(Modifier.weight(0.42f))
+                                    Box(Modifier.weight(0.58f)) {
+                                        AppSegmentedTabs(
+                                            tabs = listOf("流水", "分析"),
+                                            selectedTabIndex = wideTab,
+                                            onTabSelected = { wideTab = it },
+                                        )
+                                    }
+                                }
+                            } else {
+                                AppSegmentedTabs(
+                                    tabs = listOf("概览", "流水", "分析"),
+                                    selectedTabIndex = selectedTab,
+                                    onTabSelected = { selectedTab = it },
+                                    modifier = Modifier.readableWidth(),
+                                )
+                            }
+                            if (isReloadingRange) {
+                                LinearProgressIndicator(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                                    height = 2.dp,
+                                )
+                            }
+                        }
+                    }
                 },
                 modifier = if (glass) {
-                    Modifier.drawBackdrop(
-                        backdrop = cardBackdrop,
-                        shape = { RoundedCornerShape(0.dp) }, // 直角矩形必须写成 0dp 圆角，RectangleShape 会闪退
-                        effects = {
-                            // 强度参考 miuix-ref 的玻璃底栏示例（liquid/LiquidGlassNavigationBar.kt）：
-                            // padding 先让出折射需要的采样余量，再叠模糊、折射。
-                            padding = maxOf(padding, 24.dp.toPx())
-                            vibrancy()
-                            blur(4.dp.toPx(), TileMode.Clamp)
-                            lens(refractionHeight = 24.dp.toPx(), refractionAmount = 24.dp.toPx())
-                        },
-                    )
+                    // 和其他二级页顶栏同一套画法：不投影、不折射、底边渐隐，见 glassBarSurface。
+                    // 以前这里单独写了一份：只模糊 4dp、没压表面色，还开了 24dp 的强折射，
+                    // 余额卡滚上去时标题下面一大片被拉弯。
+                    Modifier.glassBarSurface(cardBackdrop, glassBarTint())
                 } else {
                     Modifier
                 },
@@ -340,9 +417,6 @@ fun CampusCardScreen(
         }
     ) { padding ->
         val rangeDates = currentRangeDates()
-        val customChipLabel = if (selectedTimeRange == TimeRange.CUSTOM) {
-            formatRangeChip(rangeDates.first, rangeDates.second)
-        } else null
         CustomRangeDialog(
             show = showCustomRange,
             initialStart = rangeDates.first,
@@ -367,12 +441,10 @@ fun CampusCardScreen(
                 // 往下推，而是让横滑翻页器铺满整个 Box（从 y=0 开始），列表用
                 // contentPadding.top 把「顶栏 + 标签行 + 时间选择器」的高度让出来。这样
                 // 初始状态和以前看着一样，往上滚动时余额卡才能真的滚到顶栏下面、透出玻璃。
-                // 标签行、时间选择器仍然不透明、不参与滚动，固定在顶栏下面。
-                val density = LocalDensity.current
-                var headerHeightPx by remember { mutableIntStateOf(0) }
+                // 标签行挂在顶栏里（bottomContent），和顶栏一起是一整块玻璃，
+                // 所以 Scaffold 的 padding 顶部已经连标签行一起算进去了。
                 val topInset = padding.calculateTopPadding()
-                val headerHeight = with(density) { headerHeightPx.toDp() }
-                val topContentPadding = topInset + headerHeight
+                val topContentPadding = topInset
 
                 var isPullRefreshing by remember { mutableStateOf(false) }
                 LaunchedEffect(isLoading, isReloadingRange) {
@@ -382,8 +454,7 @@ fun CampusCardScreen(
                 // 平板横屏：左栏概览、右栏「流水 / 分析」，一屏同时看到余额、汇总和明细。
                 // 三栏是同一份数据的三种看法，经常要对照着看，所以宽屏下并排摆，而不是像设置页那样
                 // 做成左侧目录一次只看一栏。宽屏不再用 readableWidth 限宽，否则左右各空出四分之一。
-                val isWide = com.xjtu.toolbox.ui.isWideLayout()
-                var wideTab by rememberSaveable { mutableIntStateOf(0) }
+                val isWide = isWideTop
                 Box(
                     Modifier
                         .fillMaxSize()
@@ -391,6 +462,7 @@ fun CampusCardScreen(
                         .nestedScroll(scrollBehavior.nestedScrollConnection)
                 ) {
                     top.yukonga.miuix.kmp.basic.PullToRefresh(
+                        refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
                         // 顶栏折叠交给下拉刷新协调：往下拉先展开大标题，展开完才算下拉刷新。不传的话下拉刷新先把拖动吃掉，慢慢拉只会刷新、标题展不开
                         topAppBarScrollBehavior = scrollBehavior,
                         isRefreshing = isPullRefreshing,
@@ -412,7 +484,7 @@ fun CampusCardScreen(
                                     // 右栏就是完整的流水，左栏不再重复「最近交易」
                                     OverviewTab(
                                         cardInfo, monthlyStats, emptyList(), mealTimeStats,
-                                        rangeDates.first, rangeDates.second, topContentPadding,
+                                        rangeDates.first, rangeDates.second, topInset,
                                     )
                                 }
                                 Box(Modifier.weight(0.58f).fillMaxHeight()) {
@@ -426,12 +498,12 @@ fun CampusCardScreen(
                                             0 -> TransactionTab(
                                                 transactions, totalRecords, isLoadingMore, searchQuery,
                                                 onSearchChange = { searchQuery = it }, onLoadMore = ::loadMore,
-                                                topContentPadding = topContentPadding,
+                                                topContentPadding = topContentPadding, rangeLabel = rangeLabel,
                                             )
                                             else -> AnalyticsTab(
                                                 monthlyStats, categorySpending, mealTimeStats, weekdayWeekend,
                                                 activeCampusDays, rangeDates.first, rangeDates.second,
-                                                topContentPadding = topContentPadding,
+                                                topContentPadding = topContentPadding, rangeLabel = rangeLabel,
                                             )
                                         }
                                     }
@@ -451,63 +523,14 @@ fun CampusCardScreen(
                                 1 -> TransactionTab(
                                     transactions, totalRecords, isLoadingMore, searchQuery,
                                     onSearchChange = { searchQuery = it }, onLoadMore = ::loadMore,
-                                    topContentPadding = topContentPadding,
+                                    topContentPadding = topContentPadding, rangeLabel = rangeLabel,
                                 )
                                 2 -> AnalyticsTab(
                                     monthlyStats, categorySpending, mealTimeStats, weekdayWeekend,
                                     activeCampusDays, rangeDates.first, rangeDates.second,
-                                    topContentPadding = topContentPadding,
+                                    topContentPadding = topContentPadding, rangeLabel = rangeLabel,
                                 )
                             }
-                        }
-                    }
-
-                    Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(top = topInset)
-                            // 不透明底色：标签行、时间选择器不参与滚动，要把身后穿过的
-                            // 列表内容盖住，和滚到这里之前的样子一致。
-                            .background(MiuixTheme.colorScheme.surface)
-                            .onSizeChanged { headerHeightPx = it.height }
-                    ) {
-                        val timeRange: @Composable (Modifier) -> Unit = { m ->
-                            TimeRangeSelector(
-                                selectedTimeRange,
-                                onChange = {
-                                    selectedTimeRange = it
-                                    currentPage = 1
-                                    loadData(it, silent = true)
-                                },
-                                customChipLabel = customChipLabel,
-                                onCustomClick = { showCustomRange = true },
-                                modifier = m.padding(horizontal = 16.dp, vertical = 8.dp),
-                            )
-                        }
-                        if (isWide) {
-                            // 和下面两栏对齐：左边时间范围（同时作用于两栏），右边切「流水 / 分析」
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                timeRange(Modifier.weight(0.42f))
-                                AppSegmentedTabs(
-                                    tabs = listOf("流水", "分析"),
-                                    selectedTabIndex = wideTab,
-                                    onTabSelected = { wideTab = it },
-                                    modifier = Modifier.weight(0.58f),
-                                )
-                            }
-                        } else {
-                            AppSegmentedTabs(
-                                tabs = listOf("概览", "流水", "分析"),
-                                selectedTabIndex = selectedTab,
-                                onTabSelected = { selectedTab = it },
-                            )
-                            timeRange(Modifier)
-                        }
-                        if (isReloadingRange) {
-                            LinearProgressIndicator(
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                                height = 2.dp,
-                            )
                         }
                     }
                 }
@@ -530,9 +553,11 @@ private fun OverviewTab(
     topContentPadding: Dp = 0.dp,
 ) {
     LazyColumn(
-        modifier = Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
+        // 左右留白放在 contentPadding 里而不是列表外面：余额卡有投影，
+        // 列表外面留白的话，列表的边界就在卡片边上，投影左右两侧会被切掉。
+        modifier = Modifier.fillMaxSize().overScrollVertical(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(top = topContentPadding + 12.dp, bottom = 12.dp)
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topContentPadding + 12.dp, bottom = 12.dp)
     ) {
         item { cardInfo?.let { BalanceCard(it) } }
         item {
@@ -585,7 +610,10 @@ private fun BalanceCard(info: CardInfo) {
     val accent = MiuixTheme.colorScheme.primary
     val secondary = MiuixTheme.colorScheme.onSurfaceVariantSummary
     top.yukonga.miuix.kmp.basic.Card(
-        modifier = Modifier.fillMaxWidth(),
+        // 这一页的主角，托一层带主题色的柔影（和首页 Hero 卡同一档）
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(Modifier.appCardShadow(shape = RoundedCornerShape(24.dp), strong = true)),
         cornerRadius = 24.dp,
         colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = Color.Transparent)
     ) {
@@ -868,6 +896,8 @@ private fun TransactionTab(
     onSearchChange: (String) -> Unit,
     onLoadMore: () -> Unit,
     topContentPadding: Dp = 0.dp,
+    /** 当前时间范围（如「近1个月」）。时间范围在顶栏菜单里，这里用小字交代一句。 */
+    rangeLabel: String = "",
 ) {
     val filtered = remember(transactions, searchQuery) {
         if (searchQuery.isBlank()) transactions
@@ -905,6 +935,7 @@ private fun TransactionTab(
                     ) {
                         Text(
                             if (searchQuery.isNotBlank()) "搜索结果: ${filtered.size} 笔"
+                            else if (rangeLabel.isNotEmpty()) "$rangeLabel · 共 $total 笔"
                             else "共 $total 笔交易",
                             style = MiuixTheme.textStyles.footnote1,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
@@ -1019,12 +1050,24 @@ private fun AnalyticsTab(
     rangeStart: LocalDate,
     rangeEnd: LocalDate,
     topContentPadding: Dp = 0.dp,
+    /** 当前时间范围（如「近1个月」），见 [TransactionTab] 同名参数。 */
+    rangeLabel: String = "",
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(top = topContentPadding + 12.dp, bottom = 12.dp)
     ) {
+        if (rangeLabel.isNotEmpty()) {
+            item {
+                Text(
+                    "统计范围：$rangeLabel",
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(horizontal = 4.dp),
+                )
+            }
+        }
         if (categorySpending.isEmpty() && monthlyStats.isEmpty() && mealTimeStats.isEmpty()) {
             item {
                 EmptyState(
@@ -1044,34 +1087,6 @@ private fun AnalyticsTab(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun TimeRangeSelector(
-    selected: TimeRange,
-    onChange: (TimeRange) -> Unit,
-    modifier: Modifier = Modifier,
-    customChipLabel: String? = null,
-    onCustomClick: () -> Unit = {},
-) {
-    FlowRow(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        TimeRange.entries.filter { it != TimeRange.CUSTOM }.forEach { range ->
-            AppFilterChip(
-                selected = range == selected,
-                onClick = { onChange(range) },
-                label = range.label
-            )
-        }
-        AppFilterChip(
-            selected = selected == TimeRange.CUSTOM,
-            onClick = onCustomClick,
-            label = customChipLabel ?: TimeRange.CUSTOM.label
-        )
-    }
-}
 
 @Composable
 private fun CustomRangeDialog(

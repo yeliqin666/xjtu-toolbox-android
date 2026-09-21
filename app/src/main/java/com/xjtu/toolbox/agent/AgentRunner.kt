@@ -58,7 +58,7 @@ class AgentRunner(private val tools: AgentToolRegistry) {
         internal fun capToolResult(result: String, toolName: String = ""): String {
             val maxChars = toolResultCap(toolName)
             if (result.length <= maxChars) return result
-            val marker = "\n…（中间已省略，共 ${result.length} 字；保留开头和结尾。需要更多请缩小查询范围。）…\n"
+            val marker = "\n…（已省略中间部分，原长 ${result.length} 字）…\n"
             val budget = maxChars - marker.length
             val head = (budget * 0.6).toInt().coerceAtLeast(200)
             val tail = (budget - head).coerceAtLeast(200)
@@ -71,9 +71,9 @@ class AgentRunner(private val tools: AgentToolRegistry) {
             val left = (maxToolCalls - used).coerceAtLeast(0)
             return when {
                 left == 0 ->
-                    "\n（本问工具次数已用尽，下一轮直接作答。）"
+                    "\n（工具次数已用尽）"
                 left <= 2 ->
-                    "\n（本问还剩 $left 次工具。）"
+                    "\n（工具还剩 $left 次）"
                 else -> null
             }
         }
@@ -197,7 +197,7 @@ class AgentRunner(private val tools: AgentToolRegistry) {
                     messages.add(assistantMsg)
                     messages.add(JsonObject().apply {
                         addProperty("role", "user")
-                        addProperty("content", "（系统）上一则回复因长度限制被截断。请紧接着未写完的内容继续写完，不要重复已写部分，不要解释截断。")
+                        addProperty("content", "（系统）上一条回复因长度被截断。从断处接着写，不重复，不解释。")
                     })
                     lengthContinues++
                     continue

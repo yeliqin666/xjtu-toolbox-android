@@ -12,12 +12,12 @@ import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -76,26 +76,53 @@ fun glassBarColor(backdrop: LayerBackdrop?): Color =
     if (backdrop != null) Color.Transparent else MiuixTheme.colorScheme.surface
 
 /**
- * 顶栏本身的玻璃：色彩增强 + 模糊 + 轻微折射，再压一层表面色保证标题看得清。
- * 直角要写成 `RoundedCornerShape(0.dp)`：`RectangleShape` 开折射会闪退。
+ * 顶栏本身的玻璃：色彩增强 + 模糊，再压一层表面色保证标题看得清。见 [glassBarSurface]。
  */
 @Composable
 fun Modifier.glassTopBar(backdrop: LayerBackdrop?): Modifier {
     if (backdrop == null) return this
-    val tint = MiuixTheme.colorScheme.surface.copy(alpha = 0.72f)
-    return this.drawBackdrop(
-        backdrop = backdrop,
-        shape = { RoundedCornerShape(0.dp) },
-        effects = {
-            // 折射需要的采样余量先让出来
-            padding = maxOf(padding, 16.dp.toPx())
-            vibrancy()
-            blur(8.dp.toPx(), TileMode.Clamp)
-            lens(refractionHeight = 12.dp.toPx(), refractionAmount = 16.dp.toPx())
-        },
-        onDrawSurface = { drawRect(tint) },
-    )
+    return glassBarSurface(backdrop, glassBarTint())
 }
+
+/** 顶栏玻璃上压的那层表面色。标题、标签、周胶囊的字靠它保证看得清。 */
+@Composable
+fun glassBarTint(): Color = MiuixTheme.colorScheme.surface.copy(alpha = 0.72f)
+
+/**
+ * 贴边顶栏的玻璃画法。二级页（[glassTopBar]）、主界面日程顶栏、校园卡顶栏共用这一份。
+ *
+ * 和悬浮的玻璃底栏不同，顶栏是贴着屏幕上沿、横跨整宽的一整块，所以：
+ * - **不要投影、不要边缘高光**：kyant 的 drawBackdrop 默认带一圈 24dp 的黑色投影和描边高光，
+ *   放在悬浮胶囊上是「浮起来」，放在贴边顶栏上就是一道灰影压在内容上，像老式 Android 的
+ *   elevation 分界线，把顶栏和内容硬生生切开。两样都显式关掉。
+ * - **不要折射**：lens 会把底边十几 dp 里的内容拉弯，看起来像底边多了一条扭曲的暗带。
+ *   折射适合有圆角轮廓的悬浮物，整宽直边的顶栏用不上。
+ * - **模糊要够**：20dp。8dp 时经过顶栏的粗体标题、分类小字还读得出轮廓，看着像「没虚化」。
+ * - **采样范围要比顶栏大一圈**（`padding`）：模糊只在采样范围里混像素，范围外面按 TileMode 补。
+ *   范围和顶栏一样大时，越靠近顶栏上下边缘可混的像素越少，下沿接缝那一行、贴着屏幕顶边的
+ *   那一行几乎是清楚的——设置页里「教务通知」这种小标题滚到那里，看着就是「这里没虚化」。
+ *   往外扩 24dp（大于模糊半径），接缝处也能混到下面的真实内容。屏幕顶边外面没有内容，
+ *   用 Decal（外面当透明）而不是 Clamp：Clamp 会把最边上那一排像素拉长，文字反而更清楚。
+ * - **底边就是一刀干净的边**：试过在底边外面再铺一段表面色渐隐，那一段只有色没有模糊，
+ *   内容经过时是一行清清楚楚的字隔着一层纱，比硬边更糟，已去掉。
+ *
+ * 直角要写成 `RoundedCornerShape(0.dp)`：`RectangleShape` 开折射会闪退，这里虽然不开，
+ * 统一写法更保险。
+ */
+fun Modifier.glassBarSurface(backdrop: Backdrop, tint: Color): Modifier =
+    this
+        .drawBackdrop(
+            backdrop = backdrop,
+            shape = { RoundedCornerShape(0.dp) },
+            effects = {
+                padding = maxOf(padding, 24.dp.toPx())
+                vibrancy()
+                blur(20.dp.toPx(), TileMode.Decal)
+            },
+            highlight = null,
+            shadow = null,
+            onDrawSurface = { drawRect(tint) },
+        )
 
 /** 玻璃时内容容器不吃顶部 padding（铺到顶栏下面）；经典时原样返回。 */
 @Composable

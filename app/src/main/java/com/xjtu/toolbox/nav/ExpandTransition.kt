@@ -7,6 +7,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
@@ -104,7 +105,7 @@ fun Modifier.expandOriginSource(source: ExpandOriginSource): Modifier =
  *   让放大到最后和系统的圆角裁剪接上。
  */
 fun expandFromOrigin(type: KClass<out AppRoute>, screenCornerPx: Float): NavTransition =
-    navGraphicsTransition { scope ->
+    navGraphicsTransition(motion = ExpandMotion) { scope ->
         val d = scope.relativeDepth
         val origin = ExpandOrigins.originOf(type)
         val width = scope.layoutSize.width.toFloat()
@@ -149,9 +150,26 @@ fun expandFromOrigin(type: KClass<out AppRoute>, screenCornerPx: Float): NavTran
         val radius = lerp(origin.cornerPx, screenCornerPx, p) / s
         shape = OffsetRoundRectShape(rect, radius)
         clip = true
-        // 页面内容在前 30% 的进度里淡入：刚开始框还很小，满屏文字挤在里面只会显得乱
+        // 页面内容在前 30% 的进度里淡入：刚开始框还很小，满屏文字挤在里面只会显得乱。
+        // 透明度逐条绘制指令去调，不要默认的整层离屏：整页带裁剪、alpha < 1 时默认策略会先把
+        // 一整屏画进离屏缓冲再合成，转场头几帧因此掉帧。淡入只有一瞬间，叠加处的细微差别看不出来。
         alpha = (p / 0.3f).coerceIn(0f, 1f)
+        compositingStrategy = CompositingStrategy.ModulateAlpha
     }
+
+/**
+ * 格子放大 / 缩回的节奏。
+ *
+ * miuix-nav 默认的程序化压栈、出栈是 500ms，缓动模拟 0.8 秒响应的弹簧：起步慢、收尾拖。
+ * 平移转场配这条曲线还行；从一个小格子长到全屏，大部分时间都耗在最后贴边那一截，显得慢。
+ * 换成 380ms 的「强调减速」曲线（起步就快、快速收住），跟手的预测式返回仍用默认弹簧。
+ */
+private val ExpandMotion = top.yukonga.miuix.kmp.nav.transition.NavMotion(
+    programmatic = top.yukonga.miuix.kmp.nav.transition.NavSettleSpec.Tween(
+        durationMillis = 380,
+        easing = androidx.compose.animation.core.CubicBezierEasing(0.2f, 0f, 0f, 1f),
+    ),
+)
 
 /** 裁剪用的形状：一个画在任意位置上的圆角矩形（graphicsLayer 的 shape 默认铺满整层）。 */
 private class OffsetRoundRectShape(private val rect: Rect, private val radius: Float) : Shape {

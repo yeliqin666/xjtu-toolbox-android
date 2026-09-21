@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.emptyroom
 
-import com.xjtu.toolbox.ui.adaptive.readableWidth
+import com.xjtu.toolbox.ui.adaptive.fullLineItem
+import androidx.compose.foundation.lazy.grid.items
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -716,6 +717,7 @@ fun EmptyRoomScreen(
         // - 整块筛选区作为列表的前几项跟着滚，往上一推，教室列表就占满整屏（也才能从玻璃顶栏下面滚过去）。
         // 滑条是横向拖动，放进纵向列表里不会和滚动、下拉刷新抢手势。
         PullToRefresh(
+            refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
             isRefreshing = isLoading && rooms.isNotEmpty(),
             onRefresh = { refreshNonce.intValue++ },
             pullToRefreshState = pullToRefreshState,
@@ -731,43 +733,11 @@ fun EmptyRoomScreen(
                         ?: room.name.substringBefore("-").substringBefore(" ")
                 }
             }
-            LazyColumn(
-                modifier = Modifier.readableWidth().fillMaxSize().overScrollVertical(),
-                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = glassTop + 4.dp, bottom = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(7.dp),
-            ) {
-                // 网络失败兜底提示：展示磁盘缓存 + 「缓存于 HH:mm」标识。
-                // 与下面 errorMessage 的区别：errorMessage 是红字无数据；staleNote 是黄底有数据可看。
-                staleNote?.let { note ->
-                    item(key = "stale") {
-                        Surface(
-                            color = MiuixTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f),
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-                            shape = RoundedCornerShape(16.dp),
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Icon(
-                                    androidx.compose.material.icons.Icons.Outlined.CloudOff,
-                                    contentDescription = "网络不可用提示",
-                                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    note,
-                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                    style = MiuixTheme.textStyles.footnote1,
-                                    modifier = Modifier.weight(1f),
-                                )
-                            }
-                        }
-                    }
-                }
-
-                item(key = "filters") {
+            // 宽屏两栏：左边固定一张筛选卡（楼栋、日期、节次、智能筛选），右边教室卡片分两三列，按行对齐（AdaptiveRowGrid）：展开一间看节次时别的卡不会换列。
+            // 以前整页限宽 720 居中，筛选卡占掉小半屏、教室一行一张，平板横屏两边各空一大块。
+            // 窄屏照旧：筛选卡是列表的第一项，跟着教室一起滚。
+            val wideRooms = com.xjtu.toolbox.ui.isWideLayout()
+            val filtersCard: @Composable () -> Unit = {
                     Card(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
                         cornerRadius = 20.dp,
@@ -894,11 +864,62 @@ fun EmptyRoomScreen(
                             }
                         }
                     }
+            }
+            Row(Modifier.fillMaxSize()) {
+            if (wideRooms) {
+                Column(
+                    Modifier
+                        .width(400.dp)
+                        .fillMaxHeight()
+                        .overScrollVertical()
+                        .verticalScroll(rememberScrollState())
+                        .padding(start = 12.dp, top = glassTop + 4.dp, bottom = 16.dp),
+                ) {
+                    filtersCard()
                 }
+            }
+            com.xjtu.toolbox.ui.adaptive.AdaptiveRowGrid(
+                modifier = Modifier.weight(1f).fillMaxHeight().overScrollVertical(),
+                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = glassTop + 4.dp, bottom = 16.dp),
+                spacing = 7.dp,
+                minColumnWidth = 320.dp,
+            ) {
+                // 网络失败兜底提示：展示磁盘缓存 + 「缓存于 HH:mm」标识。
+                // 与下面 errorMessage 的区别：errorMessage 是红字无数据；staleNote 是黄底有数据可看。
+                staleNote?.let { note ->
+                    fullLineItem(key = "stale") {
+                        Surface(
+                            color = MiuixTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                            shape = RoundedCornerShape(16.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    androidx.compose.material.icons.Icons.Outlined.CloudOff,
+                                    contentDescription = "网络不可用提示",
+                                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    note,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    style = MiuixTheme.textStyles.footnote1,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (!wideRooms) fullLineItem(key = "filters") { filtersCard() }
 
                 // 加载中、出错、空：占一块固定高度居中显示（列表里没有「剩余高度」可以撑满）
                 val stateBox: (@Composable () -> Unit) -> Unit = { content ->
-                    item(key = "state") {
+                    fullLineItem(key = "state") {
                         Box(Modifier.fillMaxWidth().height(260.dp), contentAlignment = Alignment.Center) { content() }
                     }
                 }
@@ -939,7 +960,7 @@ fun EmptyRoomScreen(
                     }
 
                     else -> {
-                        item(key = "count") {
+                        fullLineItem(key = "count") {
                             Row(
                                 Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -959,7 +980,7 @@ fun EmptyRoomScreen(
                             }
                         }
                         groupedRooms.forEach { (building, buildingRooms) ->
-                            item(key = "header_$building") {
+                            fullLineItem(key = "header_$building") {
                                 Row(
                                     Modifier.fillMaxWidth().padding(start = 4.dp, top = 10.dp, bottom = 2.dp),
                                     verticalAlignment = Alignment.CenterVertically
@@ -992,6 +1013,7 @@ fun EmptyRoomScreen(
                     }
                 }
             }
+            } // Row（宽屏：左筛选、右教室）
         }
     }
 }

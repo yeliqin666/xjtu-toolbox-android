@@ -49,6 +49,11 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.rememberRetainedLazyListState
+import com.xjtu.toolbox.ui.components.rememberRetainedLazyStaggeredGridState
+import com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid
+import com.xjtu.toolbox.ui.adaptive.fullLineItem
+import com.xjtu.toolbox.ui.adaptive.readableWidth
+import androidx.compose.foundation.lazy.staggeredgrid.items
 import com.xjtu.toolbox.ui.glass.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -301,7 +306,7 @@ private fun CourseListPage(
     // 学期筛选也跟着缓存走，返回时保持用户的选择
     LaunchedEffect(selectedSemester) { cache.selectedSemester = selectedSemester }
 
-    val listState = rememberRetainedLazyListState("lms_courses")
+    val listState = rememberRetainedLazyStaggeredGridState("lms_courses")
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
@@ -358,13 +363,16 @@ private fun CourseListPage(
                 errorMsg != null && courses.isEmpty() -> ErrorRetry(errorMsg!!) { loadCourses() }
                 courses.isEmpty() -> EmptyState(Icons.Default.School, "没有课程", "暂未加入任何课程")
                 else -> {
-                    LazyColumn(
+                    // 宽屏卡片分两三列（见 AdaptiveCardGrid）；卡片自带外边距，间距给 0
+                    AdaptiveCardGrid(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(top = glassTop, bottom = 16.dp)
+                        contentPadding = PaddingValues(top = glassTop, bottom = 16.dp),
+                        spacing = 0.dp,
+                        horizontalSpacing = 0.dp,
                     ) {
                         if (semesters.size > 1) {
-                            item(key = "semester_filter") {
+                            fullLineItem(key = "semester_filter") {
                                 Card(
                                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
                                     cornerRadius = 22.dp,
@@ -399,7 +407,7 @@ private fun CourseListPage(
                                 }
                             }
                         }
-                        item(key = "count") {
+                        fullLineItem(key = "count") {
                             Text(
                                 "共 ${filtered.size} 门课程" + if (selectedSemester != null) " ($selectedSemester)" else "",
                                 fontSize = 12.sp,
@@ -508,7 +516,7 @@ private fun ActivityListPage(
 
     LaunchedEffect(selectedType) { cache.selectedTypes[course.id] = selectedType }
 
-    val listState = rememberRetainedLazyListState("lms_activities_${course.id}")
+    val listState = rememberRetainedLazyStaggeredGridState("lms_activities_${course.id}")
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
@@ -564,13 +572,16 @@ private fun ActivityListPage(
                 errorMsg != null && activities.isEmpty() -> ErrorRetry(errorMsg!!) { loadActivities() }
                 activities.isEmpty() -> EmptyState(Icons.Default.Inbox, "暂无活动", "该课程还没有发布任何活动")
                 else -> {
-                    LazyColumn(
+                    // 宽屏卡片分两三列（见 AdaptiveCardGrid）；卡片自带外边距，间距给 0
+                    AdaptiveCardGrid(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(top = glassTop, bottom = 16.dp)
+                        contentPadding = PaddingValues(top = glassTop, bottom = 16.dp),
+                        spacing = 0.dp,
+                        horizontalSpacing = 0.dp,
                     ) {
                         if (types.size > 1) {
-                            item(key = "type_filter") {
+                            fullLineItem(key = "type_filter") {
                                 Card(
                                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
                                     cornerRadius = 22.dp,
@@ -607,7 +618,7 @@ private fun ActivityListPage(
                                 }
                             }
                         }
-                        item(key = "count") {
+                        fullLineItem(key = "count") {
                             Text(
                                 "共 ${filtered.size} 个活动",
                                 fontSize = 12.sp,
@@ -797,7 +808,8 @@ private fun ActivityDetailPage(
                     )
                     LazyColumn(
                         state = listState,
-                        modifier = Modifier.fillMaxSize(),
+                        // 活动详情是一篇从上往下读的内容，宽屏限宽居中，不拉满整个平板
+                        modifier = Modifier.fillMaxSize().readableWidth(),
                         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = glassTop + 12.dp, bottom = 12.dp)
                     ) {
                         // 基本信息卡

@@ -17,6 +17,36 @@ object ScheduleCache {
     /** 学期内稳定数据的 TTL。90 天足以覆盖任何正常学期的最大长度。 */
     private const val TERM_TTL_MS = 90L * 24 * 60 * 60 * 1000L
 
+    /**
+     * 「当前学期」：日程页从教务拿到的真正的本学期，不是用户上一次翻到的那个。
+     *
+     * `schedule_last_term` 记的是**上一次看的**学期，日程页切到历史学期时也会改写它。
+     * 屁岱的考试倒计时、桌面小组件、匹配交友以前都读它，于是用户只是翻了一眼去年的课表，
+     * 这几处就全都当成「本学期」了。要「本学期」的地方一律读这个键（[readCurrentTerm]）。
+     */
+    private const val CURRENT_TERM_KEY = "schedule_current_term"
+
+    fun writeCurrentTerm(cache: DataCache, gson: Gson, termCode: String) {
+        if (termCode.isBlank()) return
+        runCatching { cache.put(CURRENT_TERM_KEY, gson.toJson(termCode)) }
+    }
+
+    /**
+     * 读当前学期。老版本升级上来、还没打开过日程页时这个键是空的，
+     * 依次退回 `schedule_last_term`（那时它基本就是本学期）、学期列表的第一个。
+     */
+    fun readCurrentTerm(cache: DataCache, gson: Gson): String? {
+        fun readString(key: String): String? = runCatching {
+            cache.get(key, Long.MAX_VALUE)?.let { gson.fromJson(it, String::class.java) }
+        }.getOrNull()?.takeIf { it.isNotBlank() }
+        return readString(CURRENT_TERM_KEY)
+            ?: readString("schedule_last_term")
+            ?: runCatching {
+                cache.get("schedule_term_list", Long.MAX_VALUE)
+                    ?.let { gson.fromJson(it, Array<String>::class.java)?.firstOrNull() }
+            }.getOrNull()
+    }
+
     fun optimizedScheduleKey(termCode: String): String = "schedule_optimized_$termCode"
     fun textbookKey(termCode: String): String = "schedule_textbooks_$termCode"
 

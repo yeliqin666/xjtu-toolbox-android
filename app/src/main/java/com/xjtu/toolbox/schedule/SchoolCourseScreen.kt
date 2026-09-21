@@ -12,6 +12,10 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid
+import com.xjtu.toolbox.ui.adaptive.fullLineItem
+import com.xjtu.toolbox.ui.adaptive.readableWidth
+import androidx.compose.foundation.lazy.staggeredgrid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -222,9 +226,11 @@ fun SchoolCourseScreen(
             return@Scaffold
         }
 
-        val listState = rememberLazyListState()
+        val listState = androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState()
 
-        LazyColumn(
+        // 宽屏：学期和搜索条件限宽居中，课程卡分两三列（见 AdaptiveCardGrid）。
+        // 以前一列卡片横跨整个平板宽度，课程名在最左、上课时间在最右。
+        AdaptiveCardGrid(
             state = listState,
             modifier = Modifier
                 .fillMaxSize()
@@ -232,14 +238,14 @@ fun SchoolCourseScreen(
                 .glassSource(glass)
                 .nestedScroll(scrollBehavior.nestedScrollConnection),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = glassTop + 12.dp, bottom = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            spacing = 12.dp,
         ) {
             // ── 学期选择 ──
-            item(key = "term_selector") {
+            fullLineItem(key = "term_selector") {
                 val termEntries = termList.map { DropdownItem(title = it.name) }
                 val selectedIdx = termList.indexOfFirst { it.code == selectedTermCode }.coerceAtLeast(0)
 
-                Card(Modifier.fillMaxWidth(), cornerRadius = 16.dp) {
+                Card(Modifier.readableWidth().fillMaxWidth(), cornerRadius = 16.dp) {
                     if (termEntries.isNotEmpty()) {
                         OverlaySpinnerPreference(
                             items = termEntries,
@@ -255,8 +261,8 @@ fun SchoolCourseScreen(
             }
 
             // ── 快捷筛选（课程名 + 教师） ──
-            item(key = "quick_search") {
-                Card(Modifier.fillMaxWidth(), cornerRadius = 16.dp) {
+            fullLineItem(key = "quick_search") {
+                Card(Modifier.readableWidth().fillMaxWidth(), cornerRadius = 16.dp) {
                     Column(Modifier.padding(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
@@ -517,7 +523,7 @@ fun SchoolCourseScreen(
 
             // ── 搜索结果统计 ──
             result?.let { r ->
-                item(key = "result_stats") {
+                fullLineItem(key = "result_stats") {
                     Card(Modifier.fillMaxWidth(), cornerRadius = 16.dp) {
                         Row(
                             Modifier
@@ -543,14 +549,14 @@ fun SchoolCourseScreen(
 
             // ── 搜索错误 ──
             if (searchError != null) {
-                item(key = "search_error") {
+                fullLineItem(key = "search_error") {
                     ErrorState(searchError!!, onRetry = { doSearch(currentPage) })
                 }
             }
 
             // ── 搜索中/空状态 ──
             if (isSearching && result == null) {
-                item(key = "loading") {
+                fullLineItem(key = "loading") {
                     LoadingState("正在查询...")
                 }
             }
@@ -558,7 +564,7 @@ fun SchoolCourseScreen(
             // ── 课程列表 ──
             result?.let { r ->
                 if (r.courses.isEmpty() && !isSearching) {
-                    item(key = "empty") {
+                    fullLineItem(key = "empty") {
                         Box(
                             Modifier
                                 .fillMaxWidth()
@@ -594,7 +600,7 @@ fun SchoolCourseScreen(
 
                 // ── 分页控制 ──
                 if (r.totalPages > 1) {
-                    item(key = "pagination") {
+                    fullLineItem(key = "pagination") {
                         PaginationBar(
                             currentPage = r.pageNumber,
                             totalPages = r.totalPages,
@@ -606,7 +612,7 @@ fun SchoolCourseScreen(
             }
 
             // 底部间距
-            item(key = "bottom_spacer") {
+            fullLineItem(key = "bottom_spacer") {
                 Spacer(Modifier.height(32.dp))
             }
         }

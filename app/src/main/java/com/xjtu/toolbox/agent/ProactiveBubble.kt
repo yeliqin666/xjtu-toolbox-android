@@ -35,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
@@ -396,8 +397,12 @@ object ProactiveRules {
      * 免得连点两下讲同一句。
      *
      * 课程信息拿不到（那份状态在首页），情境句会自动落选，不影响其余句子。
+     *
+     * 「关」档连点击也不回话：用户把它关了，就是不想看见任何气泡，
+     * 戳一下只是想切到屁岱 tab。
      */
     fun pickOnTap(ctx: Context): ProactiveMessage? {
+        if (readProactiveLevel(ctx) == ProactiveLevel.OFF) return null
         val (skinLines, skinMix) = activeSkinChatter()
         val line = ChatterPool.pick(
             java.time.LocalDateTime.now(),
@@ -653,6 +658,14 @@ fun ProactiveBubbleView(
             Modifier
                 .wrapContentWidth()
                 .widthIn(max = maxWidth)
+                // 气泡是冒出来浮在页面上的，给它一圈和自己同色的柔影：像主色的光晕，
+                // 不是灰黑的投影。写在 clip 前面，不然影子被裁掉。
+                .dropShadow(bubbleShape) {
+                    radius = 14.dp.toPx()
+                    color = accent
+                    alpha = if (isDark) 0.45f else 0.30f
+                    offset = androidx.compose.ui.geometry.Offset(0f, 4.dp.toPx())
+                }
                 .clip(bubbleShape)
                 .then(
                     if (glass && backdrop != null) {
@@ -660,6 +673,8 @@ fun ProactiveBubbleView(
                             backdrop = backdrop,
                             shape = { bubbleShape },
                             effects = {
+                                // 采样范围往外扩一圈，边缘处也有真实内容可混，模糊不会在轮廓边上变弱（见 glassBarSurface）
+                                padding = maxOf(padding, 12.dp.toPx())
                                 vibrancy()
                                 blur(6.dp.toPx())
                             },

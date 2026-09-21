@@ -25,7 +25,18 @@ object MatchData {
     private const val MAX_PAST_COURSES = 120
 
     data class Local(
-        /** 当前学期的课。作息、同课、偶遇都从这里来。 */
+        /** 拿来比的那个学期（默认本学期，用户可以换成历史学期）。作息、同课、偶遇都从这里来。 */
+        val term: String? = null,
+        /** 真正的本学期，界面据此标「本学期」。 */
+        val currentTerm: String? = null,
+        /** 本地有课表缓存、可以拿来比的学期，本学期排最前。 */
+        val availableTerms: List<String> = emptyList(),
+        /** 学期码 → 给人看的名字（「2025-2026 学年第一学期」）。 */
+        val termNames: Map<String, String> = emptyMap(),
+        /**
+         * [term] 那个学期的课。只有教务课表缓存里的课：用户自己在日程页添加的课存在单独的库里，
+         * 这里从来不读——那往往是私人安排，不该跟着码发给别人。
+         */
         val courses: List<CourseItem> = emptyList(),
         /** 往期学期的课程号。只有号没有名——名字会让分享码大一倍，而"一起上过几门"不需要名字。 */
         val pastCourseCodes: Set<String> = emptySet(),
@@ -52,7 +63,10 @@ object MatchData {
                 diningHourCounts.isNotEmpty() || canteens.isNotEmpty() || profile != null
     }
 
-    fun read(ctx: Context): Local {
+    /**
+     * @param term 要拿来比的学期；null 表示本学期。
+     */
+    fun read(ctx: Context, term: String? = null): Local {
         val dc = DataCache(ctx)
         val gson = Gson()
         val terms = runCatching {
@@ -60,14 +74,17 @@ object MatchData {
                 ?.let { gson.fromJson(it, Array<String>::class.java)?.toList() }
                 .orEmpty()
         }.getOrDefault(emptyList())
-        // 「当前学期」必须和日程页认的是同一个：先看 schedule_last_term（用户实际打开过的那个），
-        // 没有才退回学期列表的第一个。以前直接取列表第一个——教务一开出新学期，列表第一个就是
-        // 还没打开过、本地根本没有课表的那个学期，自己这边的码里就没有课表网格，
-        // 跟谁比都是「你俩没有一项是都愿意分享的」。
-        val lastTerm = runCatching {
-            dc.get("schedule_last_term", Long.MAX_VALUE)?.trim('"')?.takeIf { it.isNotBlank() }
-        }.getOrNull()
-        val current = lastTerm ?: terms.firstOrNull()
+        // 本学期读日程页记下的「当前学期」，不读 schedule_last_term：后者是用户上一次翻到的学期，
+        // 在日程页看了一眼去年的课表，这里就会把去年当成本学期。
+        val thisTerm = com.xjtu.toolbox.schedule.ScheduleCache.readCurrentTerm(dc, gson)
+        val current = term ?: thisTerm
+        // 能选的学期：本地有课表缓存的那些，本学期排最前
+        val available = (listOfNotNull(thisTerm) + terms).distinct()
+            .filter { it == thisTerm || readCourses(dc, gson, it).isNotEmpty() }
+        val nameMap = com.xjtu.toolbox.schedule.ScheduleTermStore.read(dc, gson)
+        val termNames = available.associateWith {
+            com.xjtu.toolbox.schedule.ScheduleTermStore.display(it, emptyMap(), nameMap)
+        }
 
         val courses = current?.let { readCourses(dc, gson, it) }.orEmpty()
         // 往期只取课程号。逛过几个学期就有几个学期，没逛过的学期缓存里根本没有。
@@ -107,6 +124,10 @@ object MatchData {
         }.orEmpty()
 
         return Local(
+            term = current,
+            currentTerm = thisTerm,
+            availableTerms = available,
+            termNames = termNames,
             courses = courses,
             pastCourseCodes = past,
             pastTermCount = pastTerms,

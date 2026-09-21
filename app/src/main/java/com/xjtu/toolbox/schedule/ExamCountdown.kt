@@ -118,11 +118,9 @@ object ExamCountdown {
     fun fromCache(ctx: android.content.Context): Next? = try {
         val dc = com.xjtu.toolbox.util.DataCache(ctx)
         val gson = com.google.gson.Gson()
-        // 和日程页认同一个学期：先看用户实际打开过的那个，没有才取学期列表第一个。
-        // 列表第一个可能是教务刚开出来、本地还没有数据的新学期（匹配交友栽过同一个坑）。
-        val term = dc.get("schedule_last_term", Long.MAX_VALUE)?.trim('"')?.takeIf { it.isNotBlank() }
-            ?: dc.get("schedule_term_list", Long.MAX_VALUE)
-                ?.let { gson.fromJson(it, Array<String>::class.java)?.firstOrNull() }
+        // 本学期的考试才需要倒计时。不能读 schedule_last_term：那是用户上一次翻到的学期，
+        // 翻了一眼去年的课表，倒计时就会拿去年的考试来算。见 ScheduleCache.readCurrentTerm。
+        val term = ScheduleCache.readCurrentTerm(dc, gson)
         term?.let { t ->
             dc.get("exams_$t", Long.MAX_VALUE)?.let { json ->
                 next(gson.fromJson(json, Array<ExamItem>::class.java).toList().map { it.sanitized() })

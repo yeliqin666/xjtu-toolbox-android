@@ -167,6 +167,7 @@ fun GlobalSearchScreen(
         val backdrop = LocalAppBackdrop.current
         val glassActive = backdrop != null
         val scaffoldColor = if (glassActive) Color.Transparent else MiuixTheme.colorScheme.surface
+        val surface = MiuixTheme.colorScheme.surface
 
         Box(
             Modifier
@@ -182,8 +183,19 @@ fun GlobalSearchScreen(
                             shape = { RoundedCornerShape(0.dp) },
                             effects = {
                                 vibrancy()
-                                blur(20.dp.toPx())
+                                blur(32.dp.toPx())
                             },
+                            // 整页铺满的玻璃不要默认的投影和描边高光：投影落在屏幕外面白算，
+                            // 高光会沿着屏幕四边描出一圈亮线。
+                            highlight = null,
+                            shadow = null,
+                            // 先铺一层不透明底色：采样源只录了 tab 内容区，平板的侧栏、首页的顶栏
+                            // （「岱宗盒子」标题、扫码按钮）都不在里面。不铺底的话这些地方什么都没画，
+                            // 底下的界面原样透上来，和搜索框、分组标题叠成一团。
+                            onDrawBehind = { drawRect(surface) },
+                            // 模糊之上再压一层表面色：页面只该「隐约」透出来，
+                            // 32dp 的模糊下首页瓷砖的图标、文字仍然看得出轮廓，会和搜索内容抢眼。
+                            onDrawSurface = { drawRect(surface.copy(alpha = 0.62f)) },
                         )
                     } else {
                         Modifier.background(MiuixTheme.colorScheme.surface)

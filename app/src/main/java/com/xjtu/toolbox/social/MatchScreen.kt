@@ -67,7 +67,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.xjtu.toolbox.qrlogin.QrScannerView
-import com.xjtu.toolbox.ui.adaptive.readableWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import com.xjtu.toolbox.ui.glass.*
 import com.xjtu.toolbox.util.QrBitmap
 import com.xjtu.toolbox.util.XjtuTime
@@ -135,8 +135,10 @@ fun MatchScreen(onBack: () -> Unit) {
     // 读缓存这一步必须保证「一定会结束」：以前这里没有兜底，
     // MatchData.read 一旦抛异常，协程就地死掉，loading 永远是 true，
     // 用户看到的是一块空白加一条进度条——这正是「怎么选都是空的」那个现象。
-    LaunchedEffect(Unit) {
-        val read = withContext(Dispatchers.IO) { runCatching { MatchData.read(context) } }
+    // 拿来比的学期：null = 本学期。换学期时整份本地数据重读（课、考试、教材都跟着学期走）
+    var pickedTerm by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(pickedTerm) {
+        val read = withContext(Dispatchers.IO) { runCatching { MatchData.read(context, pickedTerm) } }
         read.getOrNull()?.let { local = it }
         loadError = read.exceptionOrNull()?.let {
             "读本地缓存时出错了：${it.message ?: it.javaClass.simpleName}"
@@ -247,21 +249,40 @@ fun MatchScreen(onBack: () -> Unit) {
                         LinearProgressIndicator(Modifier.width(120.dp))
                     }
                 } else {
-                    LazyColumn(
+                    val listPadding = PaddingValues(
+                        start = 16.dp, end = 16.dp,
+                        top = glassTop + 8.dp,
+                        bottom = padding.calculateBottomPadding() + 24.dp,
+                    )
+                    val resultItem: @Composable () -> Unit = {
+                        result?.let { r ->
+                            ResultCard(
+                                theirName = theirName,
+                                result = r,
+                                onCopy = {
+                                    clipboard.setText(
+                                        AnnotatedString(MatchProfile.summaryText(theirName, r))
+                                    )
+                                },
+                            )
+                        }
+                    }
+                    // 宽屏两栏：左边交换码（我的码、对方的码），右边是匹配结果。以前整页限宽 720 居中，
+                    // 结果卡要往下滚过两张码才看得到，平板横屏左右各空一大块。
+                    val wide = com.xjtu.toolbox.ui.isWideLayout()
+                    Row(
                         Modifier
-                            // 这个页面是宽屏改造（PR B）之前删掉的，捞回来时补上限宽，
-                            // 否则平板上一行文字会拉到整屏那么长。
-                            .readableWidth()
                             .fillMaxSize()
                             .padding(padding.withoutTop(glass))
                             .glassSource(glass)
                             .nestedScroll(scrollBehavior.nestedScrollConnection)
+                    ) {
+                    LazyColumn(
+                        Modifier
+                            .then(if (wide) Modifier.width(440.dp) else Modifier.weight(1f))
+                            .fillMaxHeight()
                             .overScrollVertical(),
-                        contentPadding = PaddingValues(
-                            start = 16.dp, end = 16.dp,
-                            top = glassTop + 8.dp,
-                            bottom = padding.calculateBottomPadding() + 24.dp,
-                        ),
+                        contentPadding = listPadding,
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         loadError?.let { msg ->
@@ -314,19 +335,32 @@ fun MatchScreen(onBack: () -> Unit) {
                                 onCompute = { match(theirCode) },
                             )
                         }
-                        result?.let { r ->
-                            item {
-                                ResultCard(
-                                    theirName = theirName,
-                                    result = r,
-                                    onCopy = {
-                                        clipboard.setText(
-                                            AnnotatedString(MatchProfile.summaryText(theirName, r))
+                        if (!wide && result != null) {
+                            item { resultItem() }
+                        }
+                    }
+                    if (wide) {
+                        LazyColumn(
+                            Modifier.weight(1f).fillMaxHeight().overScrollVertical(),
+                            contentPadding = listPadding,
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            if (result != null) {
+                                item { resultItem() }
+                            } else {
+                                item {
+                                    SectionCard("匹配结果会出现在这里") {
+                                        Text(
+                                            "把你的码给对方扫，或者在左边扫对方的码、粘贴对方的文字码，" +
+                                                "点「算一算」就能看到你们的课表重合、共同的老师和考试。",
+                                            style = MiuixTheme.textStyles.footnote1,
+                                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                         )
-                                    },
-                                )
+                                    }
+                                }
                             }
                         }
+                    }
                     }
                 }
 
@@ -341,6 +375,7 @@ fun MatchScreen(onBack: () -> Unit) {
                         onDims = { dims = it },
                         dietInput = dietInput,
                         onDietInput = { dietInput = it },
+                        onTermPicked = { code -> pickedTerm = code.takeIf { it != local.currentTerm } },
                         onDismiss = { showShareSettings = false },
                     )
                 }
@@ -594,9 +629,13 @@ private fun ShareSettingsDialog(
     onDims: (MatchProfile.Dimensions) -> Unit,
     dietInput: String,
     onDietInput: (String) -> Unit,
+    onTermPicked: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val hasSchedule = local.courses.isNotEmpty()
+    val termLabel = local.term?.let { t ->
+        (local.termNames[t] ?: t) + if (t == local.currentTerm) "（本学期）" else ""
+    } ?: "本学期"
     val hasBuildings = hasSchedule && local.courses.any { MatchProfile.buildingOf(it.location) != null }
     val hasTeachers = local.courses.any { it.teacher.isNotBlank() }
     val noSchedule = "还没读到课表，去日程页转一圈就有了"
@@ -623,9 +662,24 @@ private fun ShareSettingsDialog(
                 )
 
                 GroupLabel("课")
+                // 拿哪个学期来比：默认本学期；想和老同学对一对以前的课表，可以换成历史学期。
+                // 只列本地有课表缓存的学期（在日程页翻到过的才有）。
+                if (local.availableTerms.size > 1) {
+                    top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference(
+                        title = "学期",
+                        summary = termLabel,
+                        items = local.availableTerms.map {
+                            top.yukonga.miuix.kmp.basic.DropdownItem(
+                                text = (local.termNames[it] ?: it) + if (it == local.currentTerm) "（本学期）" else "",
+                            )
+                        },
+                        selectedIndex = local.availableTerms.indexOf(local.term).coerceAtLeast(0),
+                        onSelectedIndexChange = { onTermPicked(local.availableTerms[it]) },
+                    )
+                }
                 DimRow(
                     "空课时间",
-                    if (hasSchedule) "本学期 ${local.courses.size} 节课，用来算你俩什么时候都空" else noSchedule,
+                    if (hasSchedule) "${local.termNames[local.term] ?: "本学期"} ${local.courses.size} 节课，用来算你俩什么时候都空" else noSchedule,
                     dims.schedule, hasSchedule,
                 ) { onDims(dims.copy(schedule = it)) }
                 DimRow(

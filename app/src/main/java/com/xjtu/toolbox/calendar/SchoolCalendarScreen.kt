@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.calendar
 
-import com.xjtu.toolbox.ui.adaptive.readableWidth
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -79,7 +78,7 @@ fun SchoolCalendarScreen(onBack: () -> Unit) {
         }
     ) { padding ->
         val glassTop = padding.glassTop(glass)
-        Box(Modifier.padding(padding.withoutTop(glass)).glassSource(glass).readableWidth().fillMaxSize()) {
+        Box(Modifier.padding(padding.withoutTop(glass)).glassSource(glass).fillMaxSize()) {
             when {
                 isLoading -> {
                     Box(Modifier.fillMaxSize().padding(top = glassTop), contentAlignment = Alignment.Center) {
@@ -169,14 +168,10 @@ private fun TermContent(
     val isBeforeTerm = today < currentTerm.startDate
     val isAfterTerm = today > currentTerm.endDate
 
-    LazyColumn(
-        state = listState,
-        modifier = Modifier.fillMaxSize().nestedScrollToTopAppBar(scrollBehavior),
-        contentPadding = PaddingValues(top = glassTop, bottom = 24.dp)
-    ) {
-        // ── 学期选择标签 ──────────────────────────────────
-        if (terms.size > 1) {
-            item {
+    // 宽屏两栏：左边是「这学期现在到哪了」（学期切换、状态卡、统计），右边是整学期的日程时间轴。
+    // 以前整页限宽 720 居中，平板横屏左右各空一大块，时间轴还得滚过状态卡才看得到。
+    val wide = com.xjtu.toolbox.ui.isWideLayout()
+    val termTabs: @Composable () -> Unit = {
                 Row(
                     Modifier
                         .fillMaxWidth()
@@ -218,10 +213,12 @@ private fun TermContent(
                         }
                     }
                 }
-            }
+    }
+    // 状态区：学期切换 + 英雄卡片（当前状态 + 进度）+ 统计信息行
+    val statusItems: androidx.compose.foundation.lazy.LazyListScope.() -> Unit = {
+        if (terms.size > 1) {
+            item { termTabs() }
         }
-
-        // ── 英雄卡片：当前状态 + 进度 ──────────────────────
         item {
             HeroCard(
                 currentTerm = currentTerm,
@@ -234,8 +231,6 @@ private fun TermContent(
                 isAfterTerm = isAfterTerm
             )
         }
-
-        // ── 统计信息行 ────────────────────────────────────
         item {
             StatsRow(
                 totalWeeks = currentTerm.totalWeeks,
@@ -246,8 +241,9 @@ private fun TermContent(
                 isAfterTerm = isAfterTerm
             )
         }
-
-        // ── 事件时间轴 ──────────────────────────────────
+    }
+    // ── 事件时间轴 ──────────────────────────────────
+    val timelineItems: androidx.compose.foundation.lazy.LazyListScope.() -> Unit = {
         item {
             Text(
                 "日程安排",
@@ -266,6 +262,33 @@ private fun TermContent(
                 isCurrent = isCurrent,
                 isLast = index == currentTerm.events.lastIndex
             )
+        }
+    }
+
+    if (!wide) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize().nestedScrollToTopAppBar(scrollBehavior),
+            contentPadding = PaddingValues(top = glassTop, bottom = 24.dp)
+        ) {
+            statusItems()
+            timelineItems()
+        }
+    } else {
+        Row(Modifier.fillMaxSize().nestedScrollToTopAppBar(scrollBehavior)) {
+            LazyColumn(
+                modifier = Modifier.width(440.dp).fillMaxHeight(),
+                contentPadding = PaddingValues(top = glassTop, bottom = 24.dp)
+            ) {
+                statusItems()
+            }
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+                contentPadding = PaddingValues(top = glassTop, bottom = 24.dp)
+            ) {
+                timelineItems()
+            }
         }
     }
 }

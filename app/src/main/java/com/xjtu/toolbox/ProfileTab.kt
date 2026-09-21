@@ -208,7 +208,8 @@ internal fun ProfileTab(
     onNavigateToFeedback: () -> Unit = {},
     onNavigateToAccounts: () -> Unit = {},
     navBarStyle: String = "floating",
-    onWarmupRequest: () -> Unit = {}
+    onWarmupRequest: () -> Unit = {},
+    contentTopPadding: androidx.compose.ui.unit.Dp = 0.dp,
 ) {
     val scope = rememberCoroutineScope()
 
@@ -420,6 +421,8 @@ internal fun ProfileTab(
             .overScrollVertical()
             .verticalScroll(rememberScrollState())
     ) {
+        // 玻璃顶栏：内容铺到顶栏下面，留白放在滚动内容里
+        Spacer(Modifier.height(contentTopPadding))
         // ━━ Hero Header ━━
         Surface(
             modifier = Modifier

@@ -2,6 +2,8 @@ package com.xjtu.toolbox.ui.components
 
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState
+import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -45,6 +47,24 @@ object ScrollMemory {
 fun rememberRetainedLazyListState(key: String): LazyListState {
     val initial = remember(key) { ScrollMemory.get(key) }
     val state = rememberLazyListState(
+        initialFirstVisibleItemIndex = initial.first,
+        initialFirstVisibleItemScrollOffset = initial.second,
+    )
+    LaunchedEffect(state, key) {
+        snapshotFlow { state.firstVisibleItemIndex to state.firstVisibleItemScrollOffset }
+            .collect { (index, offset) -> ScrollMemory.put(key, index, offset) }
+    }
+    return state
+}
+
+/**
+ * 带记忆的 [LazyStaggeredGridState]，给 [com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid] 用。
+ * 和 [rememberRetainedLazyListState] 共用同一份位置表，[key] 的约定也一样。
+ */
+@Composable
+fun rememberRetainedLazyStaggeredGridState(key: String): LazyStaggeredGridState {
+    val initial = remember(key) { ScrollMemory.get(key) }
+    val state = rememberLazyStaggeredGridState(
         initialFirstVisibleItemIndex = initial.first,
         initialFirstVisibleItemScrollOffset = initial.second,
     )

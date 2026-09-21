@@ -35,6 +35,11 @@ import com.xjtu.toolbox.schedule.TextbookItem
 import com.xjtu.toolbox.ui.components.AppSearchBar
 import com.xjtu.toolbox.ui.components.AppSuggestionChip
 import com.xjtu.toolbox.ui.components.rememberRetainedLazyListState
+import com.xjtu.toolbox.ui.components.rememberRetainedLazyStaggeredGridState
+import com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid
+import com.xjtu.toolbox.ui.adaptive.fullLineItem
+import com.xjtu.toolbox.ui.adaptive.readableWidth
+import androidx.compose.foundation.lazy.staggeredgrid.items
 import com.xjtu.toolbox.util.DataCache
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -75,7 +80,7 @@ internal fun JiaocaiSearchContent(
     snackbarHostState: SnackbarHostState,
     modifier: Modifier = Modifier,
 ) {
-    val listState = rememberRetainedLazyListState("jiaocai_search")
+    val listState = rememberRetainedLazyStaggeredGridState("jiaocai_search")
     val keyword = vm.keyword
     val books = vm.books
     val isLoading = vm.loading
@@ -95,13 +100,15 @@ internal fun JiaocaiSearchContent(
             onQueryChange = { vm.keyword = it },
             label = "书名、作者或课程",
             onSearch = { vm.search() },
+            // 宽屏限宽居中：一条搜索框横跨整个平板宽度不好用
             modifier = Modifier
+                .readableWidth()
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         )
 
         if (!hasSearched && !isLoading) {
-            Column(Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
+            Column(Modifier.readableWidth().padding(horizontal = 20.dp, vertical = 6.dp)) {
                 Text("搜索建议", style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(10.dp))
                 Row(
@@ -157,14 +164,15 @@ internal fun JiaocaiSearchContent(
                             }
                         }
                     }
-                    else -> LazyColumn(
+                    // 宽屏教材卡分两三列（见 AdaptiveCardGrid）
+                    else -> AdaptiveCardGrid(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        spacing = 10.dp,
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
                     ) {
                         if (hasSearched) {
-                            item {
+                            fullLineItem {
                                 Text(
                                     "${books.size} 本",
                                     style = MiuixTheme.textStyles.subtitle,
@@ -176,7 +184,7 @@ internal fun JiaocaiSearchContent(
                         items(books) { book ->
                             BookCard(book = book, onClick = { vm.selected = book })
                         }
-                        item { Spacer(Modifier.height(80.dp)) }
+                        fullLineItem { Spacer(Modifier.height(80.dp)) }
                     }
                 }
             }
@@ -373,7 +381,7 @@ private fun MyTextbooksSection(
     val list = textbooks ?: return
     if (list.isEmpty()) return
 
-    Column(Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
+    Column(Modifier.readableWidth().padding(horizontal = 20.dp, vertical = 6.dp)) {
         Text("本学期我的教材", style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(10.dp))
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

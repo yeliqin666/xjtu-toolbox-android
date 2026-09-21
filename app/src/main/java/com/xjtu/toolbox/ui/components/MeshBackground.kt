@@ -3,17 +3,14 @@ package com.xjtu.toolbox.ui.components
 import android.graphics.RuntimeShader
 import android.os.Build
 import androidx.annotation.RequiresApi
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
+import kotlinx.coroutines.delay
 import androidx.compose.ui.FrameRateCategory
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.preferredFrameRate
@@ -53,6 +50,9 @@ import kotlin.math.sin
  * @param darkVertexColors 深色顶点颜色，形状必须和 [lightVertexColors] 完全一致。
  * @param periodMillis 一整圈漂移的周期，默认 12 秒（不少于 10 秒，太快会像跑马灯）。
  */
+private const val TWO_PI = (2 * Math.PI).toFloat()
+private const val MESH_FRAME_MS = 33L
+
 @Composable
 fun MeshBackground(
     modifier: Modifier = Modifier,
@@ -72,18 +72,26 @@ fun MeshBackground(
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && gridRows == 3 && gridColumns == 3) {
         val lifecycleOwner = LocalLifecycleOwner.current
         val lifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
-        val animateState = rememberUpdatedState(animated && lifecycleState.isAtLeast(Lifecycle.State.RESUMED))
-        val phaseState = rememberInfiniteTransition(label = "meshBackground").animateFloat(
-            initialValue = 0f,
-            targetValue = (2 * Math.PI).toFloat(),
-            animationSpec = infiniteRepeatable(tween(durationMillis = periodMillis, easing = LinearEasing)),
-            label = "meshBackgroundPhase",
-        )
+        val running = animated && lifecycleState.isAtLeast(Lifecycle.State.RESUMED)
+        // 相位按约 30 帧/秒推进，用定时器而不是无限动画：无限动画每个 vsync 都改一次值，
+        // 首页什么都不动时整页也按 120Hz 一直重画（现在还连带玻璃顶栏跟着重新采样）。
+        // 一圈 12 秒的慢漂移，30 帧/秒肉眼看不出差别。
+        val phaseState = remember { mutableFloatStateOf(0f) }
+        if (running) {
+            LaunchedEffect(periodMillis) {
+                val start = System.nanoTime() - (phaseState.floatValue / TWO_PI * periodMillis * 1_000_000L).toLong()
+                while (true) {
+                    val elapsedMs = (System.nanoTime() - start) / 1_000_000L
+                    phaseState.floatValue = (elapsedMs % periodMillis) / periodMillis.toFloat() * TWO_PI
+                    delay(MESH_FRAME_MS)
+                }
+            }
+        }
         ShaderMesh(
             modifier = modifier,
             colors = vertexColors,
             // 只在绘制阶段读相位：动画只触发这一小块图层重画，不重组
-            phase = { if (animateState.value) phaseState.value else 0f },
+            phase = { phaseState.floatValue },
         )
     } else {
         StaticMesh(modifier, vertexColors)

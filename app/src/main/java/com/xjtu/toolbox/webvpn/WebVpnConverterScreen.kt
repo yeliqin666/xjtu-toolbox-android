@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.webvpn
 
-import com.xjtu.toolbox.ui.adaptive.readableWidth
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -61,8 +60,8 @@ fun WebVpnConverterScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = "WebVPN 网址互转",
-                largeTitle = "WebVPN 网址互转",
+                title = "WebVPN",
+                largeTitle = "WebVPN",
                 color = glassBarColor(glass),
                 modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
@@ -75,20 +74,7 @@ fun WebVpnConverterScreen(
         }
     ) { padding ->
         val glassTop = padding.glassTop(glass)
-        Column(
-            Modifier
-                .readableWidth()
-                .fillMaxSize()
-                .padding(padding.withoutTop(glass))
-                .glassSource(glass)
-                .nestedScroll(scrollBehavior.nestedScrollConnection)
-                .overScrollVertical()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Spacer(Modifier.height(glassTop))
-            // 介绍卡
+        val introCard: @Composable () -> Unit = {
             Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 14.dp) {
                 Column(Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -113,7 +99,24 @@ fun WebVpnConverterScreen(
                     )
                 }
             }
-
+        }
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(padding.withoutTop(glass))
+                .glassSource(glass)
+                .nestedScroll(scrollBehavior.nestedScrollConnection)
+                .overScrollVertical()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+        ) {
+            Spacer(Modifier.height(glassTop))
+            // 宽屏两栏：左边是真正要用的转换卡，右边放说明和速查。以前整页限宽 720 居中，
+            // 三张卡竖着排，平板横屏两边各空一大块。窄屏转换卡也放到最前面：进来就是为了转网址。
+            com.xjtu.toolbox.ui.adaptive.AdaptiveTwoColumns(
+                verticalSpacing = 12.dp,
+                firstWeight = 1.2f,
+                first = {
             // 转换卡
             Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 14.dp) {
                 Column(Modifier.padding(16.dp)) {
@@ -150,7 +153,7 @@ fun WebVpnConverterScreen(
                             convertedUrl = ""
                             error = null
                         },
-                        label = if (!isReversed) "校内网址（如 bkkq.xjtu.edu.cn/）" else "WebVPN 网址",
+                        label = if (!isReversed) "校内网址（如 kq.xjtu.edu.cn/）" else "WebVPN 网址",
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
@@ -214,6 +217,9 @@ fun WebVpnConverterScreen(
                 }
             }
 
+                },
+                second = {
+            introCard()
             // 示例提示卡
             Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 14.dp) {
                 Column(Modifier.padding(16.dp)) {
@@ -236,7 +242,7 @@ fun WebVpnConverterScreen(
                         "教务系统" to "https://jwxt.xjtu.edu.cn/",
                         "图书馆主页" to "https://www.lib.xjtu.edu.cn/",
                         "一网通办" to "https://ywtb.xjtu.edu.cn/",
-                        "本科考勤" to "https://bkkq.xjtu.edu.cn/"
+                        "新版考勤" to "https://kq.xjtu.edu.cn/"
                     )
                     examples.forEach { (name, url) ->
                         Row(
@@ -262,6 +268,8 @@ fun WebVpnConverterScreen(
                     )
                 }
             }
+                },
+            )
 
             Spacer(Modifier.height(24.dp))
         }

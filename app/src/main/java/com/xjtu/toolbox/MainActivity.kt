@@ -80,10 +80,41 @@ class MainActivity : ComponentActivity() {
     private val dynamicColorState = mutableStateOf(false)
     private val deepLinkPrompt = mutableStateOf<String?>(null)
 
+    /**
+     * 手机锁竖屏，平板（含折叠屏展开）随意转。
+     *
+     * 手机和平板按经典分界线分：最短边 ≥ 600dp 才算平板。手机横过来宽也有七八百 dp，
+     * 以前按窗口宽度判断就进了平板的侧栏 + 分栏排布，高度只剩三百多 dp，处处挤。
+     * 折叠屏合上 / 展开时 smallestScreenSize 会变，Manifest 里声明了自己处理，
+     * 这里在 onConfigurationChanged 里重新判断一次。
+     *
+     * 只在「手机 / 平板」这个结论变了时才动 requestedOrientation：视频全屏会临时请求横屏
+     * （VideoPlayer），转过去也会触发 onConfigurationChanged，每次都重设就把它掰回竖屏了。
+     */
+    private var lastIsTablet: Boolean? = null
+
+    private fun applyOrientationPolicy(config: android.content.res.Configuration) {
+        val isTablet = config.smallestScreenWidthDp >= 600
+        if (isTablet == lastIsTablet) return
+        lastIsTablet = isTablet
+        val want = if (isTablet) {
+            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        } else {
+            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
+        if (requestedOrientation != want) requestedOrientation = want
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        applyOrientationPolicy(newConfig)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         val splash = installSplashScreen()
         splash.setKeepOnScreenCondition { !isAppReady }
         super.onCreate(savedInstanceState)
+        applyOrientationPolicy(resources.configuration)
         // 深链优先于 EXTRA_LAUNCH_ROUTE；二者都未设置则交给 navController 自己的默认路由
         val deepLink = DeepLinkRouter.resolve(intent)
         val launchRoute = deepLink?.route ?: intent?.getStringExtra(EXTRA_LAUNCH_ROUTE)
@@ -370,10 +401,19 @@ fun AppNavigation(
                     ?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
         if (!isOnline) return@LaunchedEffect
 
-        kotlinx.coroutines.withTimeoutOrNull(10_000L) {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                loginState.sessionManager?.ensureSite(LoginType.JWXT)
+        // 只是提前把教务登上，失败了日程页自己会再登、会给出错误态。这里必须把异常吞掉：
+        // 教务偶尔整体返回 404/5xx，ensureSite 抛 IOException，冲出 LaunchedEffect 就是主线程闪退
+        // （4.9.6 线上崩溃「教务系统 登录失败：目标服务返回错误（HTTP 404）」就是这里）。
+        try {
+            kotlinx.coroutines.withTimeoutOrNull(10_000L) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    loginState.sessionManager?.ensureSite(LoginType.JWXT)
+                }
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("Startup", "预登录教务失败，交给日程页处理: ${e.message}")
         }
     }
 
@@ -1004,10 +1044,17 @@ fun AppNavigation(
                     // 成绩报表需 JWXT 登录：已登录直接进，否则走 JWXT 登录后再跳报表
                     if (loginState.sessionManager?.getSiteOrNull("jwxt")?.hasLogin == true) navController.navigate(Routes.SCORE_REPORT)
                     else mainScope.launch {
-                        val site = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                            loginState.sessionManager?.ensureSite(LoginType.JWXT)
+                        // 和上面快速考勤流水的入口一样兜住：教务挂了只提示一句，不闪退
+                        try {
+                            val site = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                loginState.sessionManager?.ensureSite(LoginType.JWXT)
+                            }
+                            if (site != null) navController.navigate(Routes.SCORE_REPORT)
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            android.widget.Toast.makeText(context, "打开成绩报表失败：${e.message}", android.widget.Toast.LENGTH_SHORT).show()
                         }
-                        if (site != null) navController.navigate(Routes.SCORE_REPORT)
                     }
                 }
             )

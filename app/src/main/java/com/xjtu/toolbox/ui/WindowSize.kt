@@ -37,7 +37,10 @@ fun currentWindowSize(): WindowSize {
  * 是否使用宽屏布局（侧栏 + 分屏）。与 miuix 示例 `shouldShowSplitPane()` 同规则：
  * 宽 ≥ 840dp，或宽 ≥ 600dp 且接近方形/横置（高宽比 < 1.2）。
  *
- * 比旧的「`screenWidthDp >= 840`」宽松：手机横屏、折叠屏内屏也会进宽屏分支，这是有意的。
+ * 前提是**设备本身是平板**：最短边 ≥ 600dp（经典的 sw600dp 分界）。手机横过来宽也有
+ * 七八百 dp，只看窗口宽度就会把横屏手机排成侧栏 + 分栏，高度只剩三百多 dp。
+ * 手机本身也锁了竖屏（见 MainActivity.applyOrientationPolicy），这里再把一道关，
+ * 防系统强制旋转、自由窗口之类的情况。折叠屏内屏最短边过 600，照常走宽屏。
  *
  * 不要直接调它做布局判断，读 [LocalIsWideLayout]——那一份在导航根部算好后向下提供，
  * 保证同一帧内所有页面拿到同一个结论。
@@ -45,6 +48,7 @@ fun currentWindowSize(): WindowSize {
 @Composable
 fun calculateIsWideLayout(): Boolean {
     val windowInfo = LocalWindowInfo.current
+    if (androidx.compose.ui.platform.LocalConfiguration.current.smallestScreenWidthDp < 600) return false
     return with(LocalDensity.current) {
         val widthDp = windowInfo.containerSize.width.toDp()
         val heightDp = windowInfo.containerSize.height.toDp()

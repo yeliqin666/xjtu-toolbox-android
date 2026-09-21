@@ -341,7 +341,8 @@ class CampusCardApi(private val site: SiteSession) {
                 }
                 .sortedByDescending { it.totalAmount }
                 .take(10)
-            val totalSpend = -spending.sumOf { it.amount }
+            // 逐笔取反再求和，不写 -sumOf：没有消费的月份 -(0.0) 是 -0.0，趋势图上印成「¥-0」。
+            val totalSpend = spending.sumOf { -it.amount }
             val overlapStart = maxOf(month.atDay(1), inferredStart)
             val overlapEnd = minOf(month.atEndOfMonth(), inferredEnd)
             val daysCovered = java.time.temporal.ChronoUnit.DAYS.between(overlapStart, overlapEnd).toInt() + 1

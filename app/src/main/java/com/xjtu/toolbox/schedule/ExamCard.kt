@@ -38,6 +38,11 @@ internal fun ExamCard(
     exam: ExamItem,
     now: LocalDateTime = LocalDateTime.now(),
     modifier: Modifier = Modifier,
+    /**
+     * 排在一张分组卡里面（「已考完的考试」展开以后）：不画自己的卡片底色和圆角，
+     * 由外面那张卡统一包住，一组考试看起来是一整块，而不是一串碎卡片。
+     */
+    inGroup: Boolean = false,
 ) {
     val phase = ExamCountdown.phaseOf(exam, now)
     val scheme = MiuixTheme.colorScheme
@@ -69,8 +74,10 @@ internal fun ExamCard(
         modifier = modifier
             .fillMaxWidth()
             .alpha(if (ended) ExpiredStyle.CONTENT_ALPHA else 1f),
-        cornerRadius = 14.dp,
-        colors = CardDefaults.defaultColors(color = cardColor),
+        cornerRadius = if (inGroup) 0.dp else 14.dp,
+        colors = CardDefaults.defaultColors(
+            color = if (inGroup) androidx.compose.ui.graphics.Color.Transparent else cardColor,
+        ),
     ) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {

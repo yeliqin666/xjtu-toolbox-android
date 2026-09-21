@@ -57,6 +57,11 @@ import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.rememberRetainedLazyListState
+import com.xjtu.toolbox.ui.components.rememberRetainedLazyStaggeredGridState
+import com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid
+import com.xjtu.toolbox.ui.adaptive.fullLineItem
+import com.xjtu.toolbox.ui.adaptive.readableWidth
+import androidx.compose.foundation.lazy.staggeredgrid.items
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -129,13 +134,21 @@ internal fun Jiaocai1BrowseContent(
     loader: Jiaocai1PageLoader,
     onOpenBook: (ssno: String, title: String) -> Unit,
 ) {
-    if (vm.keyword.isBlank() && vm.cls.isBlank()) {
-        CategoryTab(
-            vm = vm,
-            onPick = { vm.pickCategory(it) },
-        )
-    } else {
+    // 检索框一直在顶上，下面才在「分类树」和「检索结果」之间切换。
+    // 合并教材页（PR L）时写成了关键词为空就整栏换成分类树，检索框只长在结果页里：
+    // 于是一进全文库根本没有地方输关键词，搜过以后把关键词删空，输入框还会连同整栏一起消失。
+    // 分类树什么时候出现：没限定分类，并且关键词为空或者还没按下检索。
+    val showBrowse = vm.cls.isBlank() && (vm.keyword.isBlank() || vm.result == null) &&
+        !vm.loading && vm.error == null
+    run {
         SearchTab(
+            showBrowse = showBrowse,
+            browse = {
+                CategoryTab(
+                    vm = vm,
+                    onPick = { vm.pickCategory(it) },
+                )
+            },
             keyword = vm.keyword,
             onKeywordChange = { vm.keyword = it },
             field = vm.field,
@@ -166,7 +179,7 @@ private fun ShelfTab(
     onRemove: suspend (String) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    val listState = rememberRetainedLazyListState("jiaocai1_shelf")
+    val listState = rememberRetainedLazyStaggeredGridState("jiaocai1_shelf")
     // 移出书架会连阅读进度一起丢，先确认再删
     var pendingRemove by remember { mutableStateOf<Jiaocai1ShelfEntity?>(null) }
 
@@ -208,13 +221,14 @@ private fun ShelfTab(
         return
     }
 
-    LazyColumn(
+    // 宽屏书架分两三列（见 AdaptiveCardGrid）
+    AdaptiveCardGrid(
         state = listState,
         modifier = Modifier.fillMaxSize().overScrollVertical(),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        spacing = 10.dp,
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
     ) {
-        item {
+        fullLineItem {
             Text(
                 "共 ${items.size} 本",
                 style = MiuixTheme.textStyles.footnote1,
@@ -230,7 +244,7 @@ private fun ShelfTab(
                 onRemove = { pendingRemove = row },
             )
         }
-        item { Spacer(Modifier.height(60.dp)) }
+        fullLineItem { Spacer(Modifier.height(60.dp)) }
     }
 }
 
@@ -347,6 +361,9 @@ private fun relativeReadAt(at: Long): String {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SearchTab(
+    /** true 时检索框下面放 [browse]（分类树），不放检索结果。见 Jiaocai1BrowseContent。 */
+    showBrowse: Boolean,
+    browse: @Composable () -> Unit,
     keyword: String,
     onKeywordChange: (String) -> Unit,
     field: Jiaocai1SearchField,
@@ -364,10 +381,11 @@ private fun SearchTab(
     onLoadMore: () -> Unit,
     onOpenBook: (Jiaocai1Book) -> Unit,
 ) {
-    val listState = rememberRetainedLazyListState("jiaocai1_search_${field.key}_$clsName")
+    val listState = rememberRetainedLazyStaggeredGridState("jiaocai1_search_${field.key}_$clsName")
     Column(Modifier.fillMaxSize()) {
         Card(
             modifier = Modifier
+                .readableWidth()
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 4.dp),
             cornerRadius = 18.dp,
@@ -438,6 +456,7 @@ private fun SearchTab(
         }
 
         when {
+            showBrowse -> Box(Modifier.weight(1f).fillMaxSize()) { browse() }
             loading -> LoadingState("正在检索…", modifier = Modifier.weight(1f).fillMaxSize())
             error != null -> ErrorState(error, onRetry = onSearch, modifier = Modifier.weight(1f).fillMaxSize())
             result == null -> EmptyState(
@@ -452,13 +471,14 @@ private fun SearchTab(
                 icon = Icons.AutoMirrored.Filled.MenuBook,
                 modifier = Modifier.weight(1f).fillMaxSize(),
             )
-            else -> LazyColumn(
+            // 宽屏检索结果分两三列（见 AdaptiveCardGrid）
+            else -> AdaptiveCardGrid(
                 state = listState,
                 modifier = Modifier.weight(1f).overScrollVertical(),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                spacing = 10.dp,
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             ) {
-                item {
+                fullLineItem {
                     Text(
                         "共 ${result.totalRows} 条",
                         style = MiuixTheme.textStyles.footnote1,
@@ -470,7 +490,7 @@ private fun SearchTab(
                     Jiaocai1BookCard(book = book, loader = loader, onClick = { onOpenBook(book) })
                 }
                 if (result.hasMore) {
-                    item {
+                    fullLineItem {
                         if (moreFailed) {
                             Box(
                                 Modifier.fillMaxWidth().padding(vertical = 16.dp),
@@ -485,7 +505,7 @@ private fun SearchTab(
                         }
                     }
                 }
-                item { Spacer(Modifier.height(60.dp)) }
+                fullLineItem { Spacer(Modifier.height(60.dp)) }
             }
         }
     }
@@ -638,7 +658,8 @@ private fun CategoryTab(
             )
             else -> LazyColumn(
                 state = listState,
-                modifier = Modifier.weight(1f).overScrollVertical(),
+                // 分类树是一张长卡片，宽屏限宽居中就好，分列反而打乱层级
+                modifier = Modifier.weight(1f).readableWidth().overScrollVertical(),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             ) {
                 if (vm.categoryPath.isNotEmpty()) {

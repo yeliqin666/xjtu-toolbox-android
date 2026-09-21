@@ -51,6 +51,7 @@ import com.xjtu.toolbox.ui.theme.serviceColor
 import com.xjtu.toolbox.bulletin.Bulletin
 import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.ExpressiveIcon
+import com.xjtu.toolbox.ui.components.appCardShadow
 import com.xjtu.toolbox.util.CredentialStore
 import com.xjtu.toolbox.home.AppServices
 import com.xjtu.toolbox.home.ServiceCategory
@@ -129,20 +130,23 @@ private fun HomeHero(
     Box(
         Modifier
             .fillMaxWidth()
+            // 首页最重要的一张卡：托一层带主题色的柔影，从一排平铺的瓷砖里浮出来一点
+            .appCardShadow(shape = RoundedCornerShape(CARD_RADIUS), strong = true)
             .squircleClip(CARD_RADIUS)
             .background(AppCardColor),
     ) {
         Box(Modifier.matchParentSize()) {
-            Box(
-                Modifier
-                    .align(Alignment.TopEnd)
-                    .offset(x = 56.dp, y = (-64).dp)
-                    .size(260.dp)
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(primary.copy(alpha = 0.20f), Color.Transparent),
-                        ),
-                    ),
+            // 底色是缓慢流动的 Mesh 渐变（plan2 S2）：顶点颜色由主题色按不同浓度混进卡片底色，
+            // 布局沿用原来那两层静态渐变——右上一团光、左上偏浓、往下渐淡——所以静止时和以前一样，
+            // 只是多了一点呼吸。颜色从主题色算，不写死：Monet 取色下也跟着走。
+            val cardBase = AppCardColor
+            val heroMesh = remember(primary, cardBase) {
+                HeroMeshWeights.map { row -> row.map { t -> androidx.compose.ui.graphics.lerp(cardBase, primary, t) } }
+            }
+            com.xjtu.toolbox.ui.components.MeshBackground(
+                modifier = Modifier.matchParentSize(),
+                lightVertexColors = heroMesh,
+                darkVertexColors = heroMesh,
             )
             Image(
                 painter = painterResource(R.drawable.home_campus_hero),
@@ -152,19 +156,6 @@ private fun HomeHero(
                     .padding(end = 8.dp, bottom = 12.dp)
                     .size(artSize),
                 contentScale = ContentScale.Fit,
-            )
-            Box(
-                Modifier
-                    .matchParentSize()
-                    .background(
-                        Brush.linearGradient(
-                            listOf(
-                                primary.copy(alpha = 0.14f),
-                                primary.copy(alpha = 0.04f),
-                                Color.Transparent,
-                            ),
-                        ),
-                    ),
             )
         }
         Column(
@@ -260,6 +251,8 @@ internal fun HomeTab(
     bulletins: List<Bulletin> = emptyList(),
     onBulletinTap: (Bulletin) -> Unit = {},
     onBulletinDismiss: (Bulletin) -> Unit = {},
+    /** 玻璃顶栏的高度：内容铺到顶栏下面，这段留白放进滚动内容里。经典风格为 0。 */
+    contentTopPadding: androidx.compose.ui.unit.Dp = 0.dp,
 ) {
     // ── 仪表盘数据：下一节日程 + 校园卡余额缓存（供 Hero 重点信息区使用）──
     val heroContext = LocalContext.current
@@ -844,6 +837,7 @@ internal fun HomeTab(
                     .overScrollVertical()
                     .verticalScroll(rememberScrollState())
             ) {
+                Spacer(Modifier.height(contentTopPadding))
                 headerSection()
                 Spacer(Modifier.height(24.dp))
                 quickActionsSection()
@@ -857,7 +851,7 @@ internal fun HomeTab(
                     .verticalScroll(rememberScrollState())
                     .padding(end = 16.dp)
             ) {
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(contentTopPadding + 8.dp))
                 categorySection()
                 Spacer(Modifier.height(24.dp))
             }
@@ -870,6 +864,7 @@ internal fun HomeTab(
                 .overScrollVertical()
                 .verticalScroll(rememberScrollState())
         ) {
+            Spacer(Modifier.height(contentTopPadding))
             headerSection()
             Spacer(Modifier.height(24.dp))
             quickActionsSection()
@@ -1135,6 +1130,17 @@ private fun HomeServiceTile(
 
 /** 分类卡圆角。超椭圆下这个值可以给得比普通圆角更大而不显得"胀"。 */
 private val CARD_RADIUS = 26.dp
+
+/**
+ * 首页 Hero 卡 Mesh 渐变的 3x3 顶点：每格是「主题色混进卡片底色的比例」。
+ * 右上角最浓（原来那团径向光），左上次之（原来斜向渐变的起点），往下、往中间渐淡，
+ * 底部几乎就是卡片底色，给右下角的主楼插画和下面的文字留出干净的底。
+ */
+private val HeroMeshWeights = listOf(
+    listOf(0.15f, 0.08f, 0.22f),
+    listOf(0.07f, 0.11f, 0.08f),
+    listOf(0.03f, 0.02f, 0.05f),
+)
 
 // ══════════════════════════════════════════
 //  卡片主题：场景大卡

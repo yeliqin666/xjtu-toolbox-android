@@ -103,7 +103,7 @@ fun PidaiAppearancePanel(modifier: Modifier = Modifier) {
 
     Card(
         modifier = modifier,
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer),
+        colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor),
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("屁岱形象", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold)
@@ -251,7 +251,7 @@ fun PidaiAppearancePanel(modifier: Modifier = Modifier) {
             // 三选一，不给用户填分钟数——普通人不会去算冷却时长该设多少。
             ProactiveLevelRow(
                 title = "关",
-                summary = "屁岱不会主动冒泡",
+                summary = "屁岱不会冒泡，点它也不说话",
                 selected = proactiveLevel == ProactiveLevel.OFF,
                 onClick = { ProactiveRules.setProactiveLevel(context, ProactiveLevel.OFF) },
             )

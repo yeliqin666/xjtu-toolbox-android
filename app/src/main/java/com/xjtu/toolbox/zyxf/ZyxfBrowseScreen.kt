@@ -75,7 +75,7 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
  * 而且打爆的是**别人的**服务。所以这里严格保持"一次交互一次请求"，
  * 目录内容按需拉、直链点了才要。
  *
- * 预览另见 [ZyxfPreviewScreen]：那一层的渲染借阿里云 IMM，不自己造。
+ * 预览另见 [ZyxfPreviewSheet]：那一层的渲染借阿里云 IMM，不自己造。
  */
 @Composable
 fun ZyxfBrowseScreen(
@@ -83,6 +83,8 @@ fun ZyxfBrowseScreen(
     contentPadding: PaddingValues = PaddingValues(0.dp),
     /** 宿主的折叠标题栏。列表滚动要驱动它，否则大标题永远不收。 */
     scrollBehavior: top.yukonga.miuix.kmp.basic.ScrollBehavior? = null,
+    /** 宿主玻璃顶栏的高度：列表铺到顶栏下面，这段留白放进列表的 contentPadding。经典风格为 0。 */
+    contentTopPadding: androidx.compose.ui.unit.Dp = 0.dp,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
@@ -175,10 +177,10 @@ fun ZyxfBrowseScreen(
     val isWide = com.xjtu.toolbox.ui.isWideLayout()
 
     // 目录内返回上一级；已在根目录时交给宿主。
-    // 宽屏多一级：右栏正在预览时先关预览（窄屏下预览是 Dialog，它自己接返回）。
-    BackHandler(enabled = (isWide && previewing != null) || stack.size > 1 || searching) {
+    // 宽屏右栏的预览不算一层：返回不先关预览（和教师主页、日程的分屏同一个约定）。
+    // 窄屏下预览是弹窗，它自己接返回。
+    BackHandler(enabled = stack.size > 1 || searching) {
         when {
-            isWide && previewing != null -> previewing = null
             searching -> { query = ""; searching = false; scope.launch { loadFolder(stack.last().id) } }
             else -> goTo(stack.lastIndex - 1)
         }
@@ -190,19 +192,18 @@ fun ZyxfBrowseScreen(
     val splitPreviewStale = !isWide && previewFromSplit && previewing != null
     if (splitPreviewStale) SideEffect { previewing = null; previewFromSplit = false }
 
-    // 窄屏的预览是盖住全屏的浮层（含底部 Tab 栏），所以放在列表之外、由 Dialog 承载。
+    // 窄屏的预览是接近全高的底部弹窗（盖住底部 Tab 栏），一直留在组合里、按有没有选中文件开合。
     // 宽屏不走这一支：预览已经长在右栏里。
-    if (!isWide && !splitPreviewStale) previewing?.let { file ->
-        ZyxfPreviewScreen(
-            fileId = file.id,
-            fileName = file.name,
-            sizeBytes = file.sizeBytes,
-            onBack = { previewing = null },
-            onDownload = { download(file) },
-        )
-    }
+    ZyxfPreviewSheet(
+        file = if (!isWide && !splitPreviewStale) previewing else null,
+        onDismiss = { previewing = null },
+        onDownload = { download(it) },
+    )
 
-    // 宽屏：左栏列表、右栏预览。窄屏下 TwoPane 只渲染列表，预览仍走上面那个全屏 Dialog。
+    // 宽屏：左栏列表、右栏预览。窄屏下 TwoPane 只渲染列表，预览走上面那个底部弹窗。
+    //
+    // 搜索框、面包屑、排序条都放进列表里跟着滚，不钉在顶上：玻璃顶栏下面铺的是列表，
+    // 钉住的头部要么被压在玻璃后面，要么自己占一截、让玻璃底下永远只是一条纯色。
     val listPane: @Composable () -> Unit = {
     Column(
         Modifier
@@ -210,39 +211,49 @@ fun ZyxfBrowseScreen(
             .background(MiuixTheme.colorScheme.surface)
             .padding(contentPadding),
     ) {
-        SearchField(
-            value = query,
-            onValueChange = { query = it },
-            onSearch = { runSearch() },
-            onClear = { query = ""; searching = false; scope.launch { loadFolder(stack.last().id) } },
-        )
-
-        if (!searching && stack.size > 1) {
-            Breadcrumb(stack = stack, onJump = ::goTo)
-        }
-        if (!searching) {
-            SortBar(
-                sort = sort,
-                desc = desc,
-                onPick = { picked ->
-                    // 再点当前项＝翻转方向，换一项＝切字段并回到升序。
-                    if (picked == sort) desc = !desc else { sort = picked; desc = picked == ZyxfApi.Sort.TIME }
-                    scope.launch { loadFolder(stack.last().id) }
-                },
-            )
-        }
-        if (searching) {
-            Text(
-                if (truncated) "检索结果（较多，已截断；关键词更具体能看到更多）"
-                else "检索结果 · ${entries.size} 条",
-                style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
-            )
+        val header: androidx.compose.foundation.lazy.LazyListScope.() -> Unit = {
+            item(key = "search", contentType = "header") {
+                SearchField(
+                    value = query,
+                    onValueChange = { query = it },
+                    onSearch = { runSearch() },
+                    onClear = { query = ""; searching = false; scope.launch { loadFolder(stack.last().id) } },
+                )
+            }
+            if (!searching && stack.size > 1) {
+                item(key = "crumb", contentType = "header") {
+                    Breadcrumb(stack = stack, onJump = ::goTo)
+                }
+            }
+            if (!searching) {
+                item(key = "sort", contentType = "header") {
+                    SortBar(
+                        sort = sort,
+                        desc = desc,
+                        onPick = { picked ->
+                            // 再点当前项＝翻转方向，换一项＝切字段并回到升序。
+                            if (picked == sort) desc = !desc else { sort = picked; desc = picked == ZyxfApi.Sort.TIME }
+                            scope.launch { loadFolder(stack.last().id) }
+                        },
+                    )
+                }
+            }
+            if (searching) {
+                item(key = "searchInfo", contentType = "header") {
+                    Text(
+                        if (truncated) "检索结果（较多，已截断；关键词更具体能看到更多）"
+                        else "检索结果 · ${entries.size} 条",
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                    )
+                }
+            }
         }
 
         val pullState = rememberPullToRefreshState()
         PullToRefresh(
+            refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
             // 顶栏折叠交给下拉刷新协调：往下拉先展开大标题，展开完才算下拉刷新。不传的话下拉刷新先把拖动吃掉，慢慢拉只会刷新、标题展不开
             topAppBarScrollBehavior = scrollBehavior,
             isRefreshing = refreshing,
@@ -254,54 +265,65 @@ fun ZyxfBrowseScreen(
                 }
             },
             pullToRefreshState = pullState,
+            // 下拉指示器从玻璃顶栏下面出来，不藏到玻璃后面
+            contentPadding = PaddingValues(top = contentTopPadding),
             modifier = Modifier.fillMaxSize(),
         ) {
-            when {
-                loading && entries.isEmpty() -> Box(Modifier.fillMaxSize(), Alignment.Center) {
-                    CircularProgressIndicator()
-                }
-                error != null -> Box(Modifier.fillMaxSize(), Alignment.Center) {
-                    Text(
-                        error!!,
-                        style = MiuixTheme.textStyles.body2,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            LazyColumn(
+                Modifier
+                    .fillMaxSize()
+                    .then(
+                        scrollBehavior?.let {
+                            Modifier.nestedScroll(it.nestedScrollConnection)
+                        } ?: Modifier
                     )
+                    .overScrollVertical(),
+                contentPadding = PaddingValues(top = contentTopPadding, bottom = 16.dp),
+            ) {
+                header()
+                // 加载、出错、空目录也是列表里的一项：头部照样在，能改搜索词、能点面包屑回上一级
+                val stateText = when {
+                    loading && entries.isEmpty() -> null
+                    error != null -> error
+                    entries.isEmpty() -> if (searching) "没有匹配的资料" else "这个目录是空的"
+                    else -> ""
                 }
-                entries.isEmpty() -> Box(Modifier.fillMaxSize(), Alignment.Center) {
-                    Text(
-                        if (searching) "没有匹配的资料" else "这个目录是空的",
-                        style = MiuixTheme.textStyles.body2,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    )
-                }
-                else -> LazyColumn(
-                    Modifier
-                        .fillMaxSize()
-                        .then(
-                            scrollBehavior?.let {
-                                Modifier.nestedScroll(it.nestedScrollConnection)
-                            } ?: Modifier
-                        )
-                        .overScrollVertical(),
-                    contentPadding = PaddingValues(
-                        start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp,
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(entries, key = { "${it.isFolder}-${it.id}" }) { entry ->
-                        EntryRow(
-                            entry = entry,
-                            state = downloadState[entry.id],
-                            onClick = {
-                                if (entry.isFolder) openFolder(entry)
-                                else if (ZyxfApi.previewable(entry.ext)) {
-                                    previewing = entry
-                                    previewFromSplit = isWide
-                                }
-                                else download(entry)
-                            },
-                            onDownload = { download(entry) },
-                        )
+                if (stateText != "") {
+                    item(key = "state", contentType = "state") {
+                        Box(
+                            Modifier
+                                .fillParentMaxWidth()
+                                .fillParentMaxHeight(0.6f),
+                            Alignment.Center,
+                        ) {
+                            if (stateText == null) {
+                                CircularProgressIndicator()
+                            } else {
+                                Text(
+                                    stateText,
+                                    style = MiuixTheme.textStyles.body2,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    items(entries, key = { "${it.isFolder}-${it.id}" }, contentType = { "entry" }) { entry ->
+                        Box(Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 4.dp)) {
+                            EntryRow(
+                                entry = entry,
+                                state = downloadState[entry.id],
+                                onClick = {
+                                    if (entry.isFolder) openFolder(entry)
+                                    else if (ZyxfApi.previewable(entry.ext)) {
+                                        previewing = entry
+                                        previewFromSplit = isWide
+                                    }
+                                    else download(entry)
+                                },
+                                onDownload = { download(entry) },
+                            )
+                        }
                     }
                 }
             }
@@ -312,6 +334,8 @@ fun ZyxfBrowseScreen(
     com.xjtu.toolbox.ui.adaptive.TwoPane(
         list = listPane,
         detail = {
+          // 右栏的预览不跟着列表滚，整栏让出顶栏高度
+          Box(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface).padding(top = contentTopPadding)) {
             val file = previewing
             if (file != null) {
                 // 不包 Dialog：它就长在右栏里。
@@ -337,6 +361,7 @@ fun ZyxfBrowseScreen(
                     )
                 }
             }
+          }
         },
         listWidth = 380.dp,
     )
