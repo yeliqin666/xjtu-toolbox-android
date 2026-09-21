@@ -98,6 +98,7 @@ import com.xjtu.toolbox.notification.NoticeWatchSync
 import com.xjtu.toolbox.notification.NotificationSource
 import com.xjtu.toolbox.notification.SourceCategory
 import com.xjtu.toolbox.ui.components.AppFilterChip
+import com.xjtu.toolbox.ui.glass.*
 import com.xjtu.toolbox.util.CredentialStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -304,12 +305,15 @@ fun SettingsScreen(
     val channelOptions = AppUpdater.channelLabels
     val channelValues = AppUpdater.channelKeys
 
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
     Scaffold(
         topBar = {
             TopAppBar(
                 title = "设置",
                 largeTitle = "设置",
-                color = MiuixTheme.colorScheme.surface,
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -319,6 +323,7 @@ fun SettingsScreen(
             )
         }
     ) { padding ->
+        val glassTop = padding.glassTop(glass)
 
         // 九组设置各抽成一个 lambda。状态全在 SettingsScreen 函数体里，
         // 两种布局捕获的是同一份，弹窗也只有一份（都在下面 Scaffold 的内容层）。
@@ -751,7 +756,8 @@ fun SettingsScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(MiuixTheme.colorScheme.surface)
-                    .padding(padding),
+                    .padding(padding.withoutTop(glass))
+                    .glassSource(glass),
                 listWidth = 240.dp,
                 list = {
                     Column(
@@ -760,7 +766,7 @@ fun SettingsScreen(
                             .overScrollVertical()
                             .verticalScroll(rememberScrollState())
                     ) {
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(glassTop + 8.dp))
                         SettingsCard {
                             groupTitles.forEachIndexed { i, title ->
                                 BasicComponent(
@@ -782,6 +788,7 @@ fun SettingsScreen(
                             .overScrollVertical()
                             .verticalScroll(rememberScrollState())
                     ) {
+                        Spacer(Modifier.height(glassTop))
                         groupBodies[selectedGroup.coerceIn(groupBodies.indices)]()
                         Spacer(Modifier.height(16.dp))
                         Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
@@ -796,8 +803,10 @@ fun SettingsScreen(
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
                 .overScrollVertical()
                 .verticalScroll(rememberScrollState())
-                .padding(padding)
+                .padding(padding.withoutTop(glass))
+                .glassSource(glass)
         ) {
+            Spacer(Modifier.height(glassTop))
             groupBodies.forEach { it() }
 
             Spacer(Modifier.height(16.dp))
