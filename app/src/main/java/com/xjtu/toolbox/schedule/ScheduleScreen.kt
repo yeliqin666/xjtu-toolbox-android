@@ -162,6 +162,8 @@ fun ScheduleScreen(
      * 各栏的滚动内容把它当作顶部留白，从顶栏下面穿过；0 = 顶栏不盖内容，和原来一样。
      */
     contentTopPadding: androidx.compose.ui.unit.Dp = 0.dp,
+    /** 首页日程 tab 的顶栏折叠行为（顶栏在 MainScreen 里），交给各栏的下拉刷新协调。 */
+    topAppBarScrollBehavior: top.yukonga.miuix.kmp.basic.ScrollBehavior? = null,
     /** 课程详情面板里的下钻入口（教材全文 / 课程回放 / 考勤）要能跳到别的功能页。 */
     onNavigate: (String) -> Unit = {},
 ) {
@@ -1638,6 +1640,8 @@ fun ScheduleScreen(
                         "week" -> {
                             val schedulePull = rememberPullToRefreshState()
                             PullToRefresh(
+                                // 顶栏折叠交给下拉刷新协调：往下拉先展开大标题，展开完才算下拉刷新。不传的话下拉刷新先把拖动吃掉，慢慢拉只会刷新、标题展不开
+                                topAppBarScrollBehavior = topAppBarScrollBehavior,
                                 isRefreshing = isRefreshingFromNetwork,
                                 // 考试倒计时横幅在每个 tab 上都常驻，下拉刷新时顺带把它也刷了。
                                 onRefresh = { if (api != null) { refreshSchedule(true); refreshExams() } },
@@ -1687,6 +1691,8 @@ fun ScheduleScreen(
                         "today" -> {
                             val todayPull = rememberPullToRefreshState()
                             PullToRefresh(
+                                // 顶栏折叠交给下拉刷新协调：往下拉先展开大标题，展开完才算下拉刷新。不传的话下拉刷新先把拖动吃掉，慢慢拉只会刷新、标题展不开
+                                topAppBarScrollBehavior = topAppBarScrollBehavior,
                                 isRefreshing = isRefreshingFromNetwork,
                                 onRefresh = { if (api != null) { refreshSchedule(true); refreshExams() } },
                                 pullToRefreshState = todayPull,
@@ -1719,6 +1725,8 @@ fun ScheduleScreen(
                         "semester" -> {
                             val semPull = rememberPullToRefreshState()
                             PullToRefresh(
+                                // 顶栏折叠交给下拉刷新协调：往下拉先展开大标题，展开完才算下拉刷新。不传的话下拉刷新先把拖动吃掉，慢慢拉只会刷新、标题展不开
+                                topAppBarScrollBehavior = topAppBarScrollBehavior,
                                 isRefreshing = textbooksRefreshing,
                                 onRefresh = {
                                     refreshExams()

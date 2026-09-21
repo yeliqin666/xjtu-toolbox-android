@@ -243,6 +243,8 @@ fun ZyxfBrowseScreen(
 
         val pullState = rememberPullToRefreshState()
         PullToRefresh(
+            // 顶栏折叠交给下拉刷新协调：往下拉先展开大标题，展开完才算下拉刷新。不传的话下拉刷新先把拖动吃掉，慢慢拉只会刷新、标题展不开
+            topAppBarScrollBehavior = scrollBehavior,
             isRefreshing = refreshing,
             onRefresh = {
                 refreshing = true
