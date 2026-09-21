@@ -961,7 +961,25 @@ fun AppNavigation(
         }
         composable(Routes.NEW_ATTENDANCE) {
             loginState.sessionManager?.getSiteOrNull("new_attendance")?.let {
-                com.xjtu.toolbox.newattendance.NewAttendanceScreen(site = it, onBack = { navController.popBackStack() })
+                com.xjtu.toolbox.newattendance.NewAttendanceScreen(
+                    site = it,
+                    onBack = { navController.popBackStack() },
+                    onOpenIclassface = {
+                        // 做法照搬成绩页的 onOpenReport：已登录直接进，否则先登录再进。
+                        // 多包一层 try/catch：ensureSite 失败时提示一句，不闪退
+                        if (loginState.sessionManager?.getSiteOrNull("iclassface")?.hasLogin == true) navController.navigate(Routes.ICLASSFACE)
+                        else mainScope.launch {
+                            try {
+                                val site = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                    loginState.sessionManager?.ensureSite(LoginType.ICLASSFACE)
+                                }
+                                if (site != null) navController.navigate(Routes.ICLASSFACE)
+                            } catch (e: Exception) {
+                                android.widget.Toast.makeText(context, "打开快速考勤流水失败：${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                )
             } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
         composable(Routes.SCHEDULE) {

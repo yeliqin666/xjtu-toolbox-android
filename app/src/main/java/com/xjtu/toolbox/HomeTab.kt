@@ -783,6 +783,14 @@ internal fun HomeTab(
                             }
                         }
                         // 日程没有下节课时，退回最近一场考试（HomeStats 把它挂在同一个 key 下）
+                        // 快速考勤流水不再单列在首页，今天刷过卡就借新版考勤这一行露出来
+                        Routes.NEW_ATTENDANCE -> homeStats[Routes.NEW_ATTENDANCE]?.let { att ->
+                            val punch = homeStats[Routes.ICLASSFACE]
+                            val detail = if (punch != null && punch.value != "今日未刷卡") {
+                                "今日已刷 ${punch.value}" + (punch.detail?.takeIf { it.isNotBlank() }?.let { " · $it" } ?: "")
+                            } else att.detail
+                            att.value to detail
+                        }
                         else -> homeStats[key]?.let { it.value to it.detail }
                     }
                 }
