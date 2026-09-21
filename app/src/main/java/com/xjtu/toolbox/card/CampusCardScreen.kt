@@ -58,6 +58,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
+import com.xjtu.toolbox.ui.components.AppTabPager
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.EmptyState
@@ -363,17 +364,13 @@ fun CampusCardScreen(
                         },
                         modifier = Modifier.fillMaxSize()
                     ) {
-                    AnimatedContent(
-                        targetState = selectedTab,
-                        transitionSpec = {
-                            val direction = if (targetState > initialState) 1 else -1
-                            (slideInHorizontally { direction * it / 4 } + fadeIn(
-                                spring(dampingRatio = 0.85f, stiffness = 500f)
-                            )) togetherWith (slideOutHorizontally { -direction * it / 4 } + fadeOut(
-                                spring(dampingRatio = 0.85f, stiffness = 500f)
-                            ))
-                        },
-                        label = "campusCardTab"
+                    // 横滑切栏（概览/流水/分析），用契约组件 AppTabPager；标签行仍由上面的
+                    // AppSegmentedTabs 负责点击切换，两者共用同一个 selectedTab。
+                    AppTabPager(
+                        pageCount = 3,
+                        selectedTabIndex = selectedTab,
+                        onTabSelected = { selectedTab = it },
+                        modifier = Modifier.fillMaxSize(),
                     ) { tab ->
                         when (tab) {
                             0 -> OverviewTab(
