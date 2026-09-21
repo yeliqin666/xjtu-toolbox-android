@@ -20,6 +20,7 @@ import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.components.AppTabPager
+import com.xjtu.toolbox.ui.glass.*
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
@@ -116,11 +117,14 @@ fun JudgeScreen(
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     val pullToRefreshState = rememberPullToRefreshState()
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
     Scaffold(
         topBar = {
             TopAppBar(
                 title = "本科评教",
-                color = MiuixTheme.colorScheme.surface,
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 largeTitle = "本科评教",
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
@@ -131,17 +135,24 @@ fun JudgeScreen(
             )
         }
     ) { padding ->
+        val glassTop = padding.glassTop(glass)
         Column(
             Modifier
-                .padding(padding)
+                .padding(padding.withoutTop(glass))
                 .readableWidth()
                 .fillMaxSize()
+                .glassSource(glass)
         ) {
-            AppSegmentedTabs(
-                tabs = listOf("未评 (${unfinishedList.size})", "已评 (${finishedList.size})"),
-                selectedTabIndex = selectedTab,
-                onTabSelected = { selectedTab = it },
-            )
+            // 分段标签固定在顶栏下面，不跟着滚：自己让出顶栏高度，底色顺带半透明。
+            // 下面「一键好评」按钮块也固定不滚，跟着一起被这段留白推下来。
+            Spacer(Modifier.height(glassTop))
+            CompositionLocalProvider(LocalOnGlassBar provides (glass != null)) {
+                AppSegmentedTabs(
+                    tabs = listOf("未评 (${unfinishedList.size})", "已评 (${finishedList.size})"),
+                    selectedTabIndex = selectedTab,
+                    onTabSelected = { selectedTab = it },
+                )
+            }
 
             // 确认对话框（提升至顶层，不受 selectedTab 条件约束）
             BackHandler(enabled = showConfirmDialog.value) { showConfirmDialog.value = false }
