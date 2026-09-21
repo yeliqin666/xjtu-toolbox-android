@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.ConfirmationNumber
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.outlined.ConfirmationNumber
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -55,6 +56,7 @@ import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
+import com.xjtu.toolbox.ui.glass.*
 import com.xjtu.toolbox.auth.SiteSession
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -190,12 +192,15 @@ fun CouponScreen(
         loadPage(selectedFilter)
     }
 
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
     Scaffold(
         topBar = {
             TopAppBar(
                 title = "加餐券",
                 largeTitle = "加餐券",
-                color = MiuixTheme.colorScheme.surface,
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -207,15 +212,21 @@ fun CouponScreen(
     ) { padding ->
         Column(
             Modifier
-                .padding(padding)
+                .padding(padding.withoutTop(glass))
+                .glassSource(glass)
                 .readableWidth()
                 .fillMaxSize()
         ) {
-            AppSegmentedTabs(
-                tabs = CouponFilter.entries.map { it.label },
-                selectedTabIndex = CouponFilter.entries.indexOf(selectedFilter),
-                onTabSelected = { selectedFilter = CouponFilter.entries[it] },
-            )
+            // 分段标签固定在顶栏下面、不跟着滚动，自己先让出顶栏高度，
+            // 再包一层 LocalOnGlassBar 换成半透明底色（见 ui/glass/GlassTopBar.kt）
+            Spacer(Modifier.height(padding.glassTop(glass)))
+            CompositionLocalProvider(LocalOnGlassBar provides (glass != null)) {
+                AppSegmentedTabs(
+                    tabs = CouponFilter.entries.map { it.label },
+                    selectedTabIndex = CouponFilter.entries.indexOf(selectedFilter),
+                    onTabSelected = { selectedFilter = CouponFilter.entries[it] },
+                )
+            }
 
             PullToRefresh(
                 isRefreshing = isRefreshing,
