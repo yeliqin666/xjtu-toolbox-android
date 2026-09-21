@@ -29,6 +29,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -45,6 +46,7 @@ import com.xjtu.toolbox.agent.skin.PidaiSkin
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.basic.Switch
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -72,6 +74,7 @@ fun PidaiAppearancePanel(modifier: Modifier = Modifier) {
     val colorId = PidaiAppearanceHost.colorId
     val activeSkinId = PidaiAppearanceHost.activeSkinId
     val installedSkins = PidaiAppearanceHost.installedSkins
+    val plain = PidaiAppearanceHost.plain
     var pendingSkin by remember { mutableStateOf<PidaiSkin?>(null) }
     var showGithubDialog by remember { mutableStateOf(false) }
     var githubUrl by remember { mutableStateOf("") }
@@ -101,13 +104,34 @@ fun PidaiAppearancePanel(modifier: Modifier = Modifier) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("屁岱形象", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold)
 
-            Text("角色皮肤", style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium)
+            // 朴素图标：#65 协作者觉得装饰有点怪，加这个开关但不砍功能——形状、皮肤的
+            // 选择照样保留在存档里，只是暂时不画。颜色选择不受影响，见下面的说明。
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("朴素图标", style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium)
+                    Text(
+                        "不播动画、没有装饰，只显示一个静态图标",
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                Switch(checked = plain, onCheckedChange = { PidaiAppearanceHost.setPlain(context, it) })
+            }
+
+            Text(
+                "角色皮肤",
+                style = MiuixTheme.textStyles.body2,
+                fontWeight = FontWeight.Medium,
+                color = if (plain) MiuixTheme.colorScheme.onSurfaceVariantSummary else MiuixTheme.colorScheme.onSurface,
+            )
             SkinTile(
                 name = "经典屁岱",
                 summary = "使用下方的内置形状和颜色",
                 selected = activeSkinId == null,
                 skin = null,
                 ink = ink,
+                enabled = !plain,
                 onClick = { PidaiAppearanceHost.selectSkin(context, null) },
             )
             installedSkins.forEach { skin ->
@@ -120,6 +144,7 @@ fun PidaiAppearancePanel(modifier: Modifier = Modifier) {
                     selected = activeSkinId == skin.manifest.id,
                     skin = skin,
                     ink = skin.motion.colorArgb?.let(::Color) ?: ink,
+                    enabled = !plain,
                     onClick = { PidaiAppearanceHost.selectSkin(context, skin.manifest.id) },
                 )
             }
@@ -160,10 +185,10 @@ fun PidaiAppearancePanel(modifier: Modifier = Modifier) {
             }
 
             Text(
-                "形状",
+                if (plain) "形状（朴素图标开启时不生效）" else "形状",
                 style = MiuixTheme.textStyles.body2,
                 fontWeight = FontWeight.Medium,
-                color = if (activeSkinId == null) MiuixTheme.colorScheme.onSurface
+                color = if (activeSkinId == null && !plain) MiuixTheme.colorScheme.onSurface
                 else MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
             // 4 列：8 种形状刚好两行。缩略图直接画引擎采出的一帧，不是抽象色块——
@@ -176,6 +201,7 @@ fun PidaiAppearancePanel(modifier: Modifier = Modifier) {
                             selected = def.id == shapeId,
                             ink = ink,
                             shape = def.radii,
+                            enabled = !plain,
                             onClick = { PidaiAppearanceHost.set(context, shape = def.id) },
                             modifier = Modifier.weight(1f),
                         )
@@ -291,12 +317,15 @@ private fun SkinTile(
     skin: PidaiSkin?,
     ink: Color,
     onClick: () -> Unit,
+    enabled: Boolean = true,
 ) {
     val paper = MiuixTheme.colorScheme.surfaceVariant
     val border = if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.outline
     Row(
         Modifier
             .fillMaxWidth()
+            // 朴素图标开着时，形状/皮肤这两组选择项一起变灰、点不动，提示这里暂时没用。
+            .alpha(if (enabled) 1f else 0.45f)
             .squircleSurface(color = paper, cornerRadius = TILE_RADIUS)
             .squircleBorder(
                 width = { if (selected) 2.dp else 1.dp },
@@ -306,6 +335,7 @@ private fun SkinTile(
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = SinkFeedback(),
+                enabled = enabled,
                 onClick = onClick,
             )
             .semantics { this.selected = selected; contentDescription = "角色皮肤：$name" }
@@ -407,11 +437,13 @@ private fun ShapeTile(
     shape: DoubleArray,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
     val paper = MiuixTheme.colorScheme.surfaceVariant
     val borderColor = if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.outline
     Column(
         modifier = modifier
+            .alpha(if (enabled) 1f else 0.45f)
             .squircleSurface(color = paper, cornerRadius = TILE_RADIUS)
             .squircleBorder(
                 width = { if (selected) 2.dp else 1.dp },
@@ -421,6 +453,7 @@ private fun ShapeTile(
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = SinkFeedback(),
+                enabled = enabled,
             ) { onClick() }
             .semantics {
                 contentDescription = "形状：$label"

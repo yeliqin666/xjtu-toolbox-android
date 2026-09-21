@@ -1,13 +1,22 @@
 package com.xjtu.toolbox.agent
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -31,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.xjtu.toolbox.agent.skin.PidaiSkin
+import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -207,19 +217,74 @@ fun PidaiNavButton(
                 },
             contentAlignment = Alignment.Center,
         ) {
-            // 画布比触摸区大一圈：球和通知点/彗尾需要更多作画空间，触摸目标保持 diameter。
-            // 1.5 倍时球径约 1.23 倍触摸区（经典栏 ~46dp），是底栏高度约束下的舒适上限。
-            BloubBotIcon(
-                beat = beat,
-                ink = ink,
-                paper = paper,
-                shape = shape,
-                skin = skin,
-                requestedAction = customAction,
-                requestedActionGeneration = skinActionGeneration,
-                modifier = Modifier.size(diameter * 1.5f),
-            )
+            if (PidaiAppearanceHost.plain) {
+                // 朴素图标：不播动画、没有装饰，颜色选择仍然决定圆的底色。
+                PlainPidaiIcon(
+                    ink = ink,
+                    paper = paper,
+                    thinking = thinking,
+                    diameter = diameter,
+                    modifier = Modifier.size(diameter),
+                )
+            } else {
+                // 画布比触摸区大一圈：球和通知点/彗尾需要更多作画空间，触摸目标保持 diameter。
+                // 1.5 倍时球径约 1.23 倍触摸区（经典栏 ~46dp），是底栏高度约束下的舒适上限。
+                BloubBotIcon(
+                    beat = beat,
+                    ink = ink,
+                    paper = paper,
+                    shape = shape,
+                    skin = skin,
+                    requestedAction = customAction,
+                    requestedActionGeneration = skinActionGeneration,
+                    modifier = Modifier.size(diameter * 1.5f),
+                )
+            }
         }
+    }
+}
+
+/**
+ * 朴素图标：#65 里协作者觉得装饰有点怪，这个开关不砍功能、只是把满色形象换成
+ * 一个静态圆 + 静态图标。除了「思考」时的呼吸透明度，不做任何其它动画——
+ * 尤其不画三点脉冲（thinking）和 excited 的效果，这些都是"装饰"。
+ */
+@Composable
+private fun PlainPidaiIcon(
+    ink: Color,
+    paper: Color,
+    thinking: Boolean,
+    diameter: Dp,
+    modifier: Modifier = Modifier,
+) {
+    // 只在思考态才挂呼吸动画，别让静息态也白跑一个永不停的 InfiniteTransition。
+    val breathAlpha = if (thinking) {
+        val infiniteTransition = rememberInfiniteTransition(label = "pidaiPlainBreath")
+        val alpha by infiniteTransition.animateFloat(
+            initialValue = 0.55f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(700, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "pidaiPlainBreathAlpha",
+        )
+        alpha
+    } else {
+        1f
+    }
+    Box(
+        modifier = modifier
+            .graphicsLayer { alpha = breathAlpha }
+            .background(ink, CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            Icons.Outlined.SmartToy,
+            contentDescription = null,
+            tint = paper,
+            modifier = Modifier.size(diameter * 0.5f),
+        )
     }
 }
 
