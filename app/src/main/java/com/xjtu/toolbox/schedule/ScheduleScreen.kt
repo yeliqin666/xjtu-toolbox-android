@@ -811,6 +811,24 @@ fun ScheduleScreen(
         loadInitialData()
     }
 
+    // 设置里换了「当前学期课表来源」以后回到这里：按新来源重新加载一遍。
+    // 日程是首页的一个 tab，组合一次就一直留着，从设置页返回不会重新加载；而学期列表只在
+    // 教务系统那条路径上拉取。默认来源是移动教务，那时教务可能一直没登录、学期列表是空的，
+    // 切到教务系统回来右上角就没有「切换学期」，要重启才出现。
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    var lastSource by remember { mutableStateOf(com.xjtu.toolbox.util.CredentialStore(context).scheduleSource) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event != androidx.lifecycle.Lifecycle.Event.ON_RESUME) return@LifecycleEventObserver
+            val now = com.xjtu.toolbox.util.CredentialStore(context).scheduleSource
+            if (now == lastSource) return@LifecycleEventObserver
+            lastSource = now
+            if (!isLoading && !isSwitching && !isRefreshingFromNetwork) loadInitialData()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     var attemptingAutoLogin by remember { mutableStateOf(false) }
     LaunchedEffect(activeSite, appLoginState.hasCredentials) {
         if (activeSite != null) return@LaunchedEffect
@@ -1257,7 +1275,9 @@ fun ScheduleScreen(
                     // 当前看的不是本周（或处于叠加模式）时，给个回本周的近道。
                     // 和左边的周胶囊同一套外观：同高、同圆角、带图标；用主题色浅底表示「这是个动作」。
                     // 以前直接用 miuix 的 TextButton，比周胶囊高一截、没有图标，放在一行里很突兀。
-                    if (showAllWeeks || (realCurrentWeek > 0 && currentWeek != realCurrentWeek)) {
+                    // 只在看本学期时出现：历史学期里没有「本周」，按了也回不去
+                    val viewingCurrentTerm = selectedTermCode.isEmpty() || selectedTermCode == currentTermCode
+                    if (viewingCurrentTerm && (showAllWeeks || (realCurrentWeek > 0 && currentWeek != realCurrentWeek))) {
                         WeekHeaderPill(
                             text = "回本周",
                             leadingIcon = Icons.Default.Event,
@@ -1772,7 +1792,19 @@ fun ScheduleScreen(
                         .background(MiuixTheme.colorScheme.surface)
                         .padding(top = contentTopPadding),
                 ) {
-                    val picked = unifiedSelectedCourse
+                    // 「今日」栏左边已经是今天的时间轴，右栏再放一遍「今天的课」就是纯重复。
+                    // 这时右栏自动选中现在或下一节课、直接给出它的详情（教材、考勤、回放入口）；
+                    // 今天的课都上完了或者今天没课，就给本周概览。「日程」「学期」两栏照旧：右栏放今天的课是补充。
+                    val weekCourses = remember(filteredMergedCourses, realCurrentWeek) {
+                        filteredMergedCourses.filter { it.isInWeek(realCurrentWeek) }
+                    }
+                    val onTodayTab = contentOf(selectedTab) == "today"
+                    val todayFocus = if (unifiedSelectedCourse == null && onTodayTab) {
+                        remember(weekCourses) { focusCourseOf(weekCourses, java.time.LocalDate.now(), java.time.LocalTime.now()) }
+                    } else {
+                        null
+                    }
+                    val picked = unifiedSelectedCourse ?: todayFocus?.course
                     if (picked != null) {
                         Column(
                             Modifier
@@ -1781,12 +1813,25 @@ fun ScheduleScreen(
                                 .verticalScroll(rememberScrollState())
                                 .padding(horizontal = 16.dp, vertical = 12.dp),
                         ) {
+                            if (todayFocus != null) {
+                                Text(
+                                    if (todayFocus.ongoing) "正在上" else "下一节",
+                                    style = MiuixTheme.textStyles.footnote1,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MiuixTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(bottom = 6.dp),
+                                )
+                            }
                             CourseDetailContent(
                                 course = picked,
                                 textbooks = textbooks,
                                 textbooksProblem = textbooksBackgroundError,
                                 termCode = selectedTermCode,
-                                occurrence = unifiedOccurrence,
+                                occurrence = if (todayFocus != null) {
+                                    Occurrence(java.time.LocalDate.now(), realCurrentWeek)
+                                } else {
+                                    unifiedOccurrence
+                                },
                                 onRequestTextbooks = {
                                     if (!textbooksLoaded && selectedTermCode.isNotEmpty()) {
                                         loadTextbooks(selectedTermCode, background = true)
@@ -1797,6 +1842,8 @@ fun ScheduleScreen(
                                 onCloseAction = null,
                             )
                         }
+                    } else if (onTodayTab) {
+                        WeekGlance(courses = weekCourses, today = java.time.LocalDate.now())
                     } else {
                         Text(
                             "今天的课",
@@ -1805,9 +1852,7 @@ fun ScheduleScreen(
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                         )
                         TodayTimeline(
-                            courses = remember(filteredMergedCourses, realCurrentWeek) {
-                                filteredMergedCourses.filter { it.isInWeek(realCurrentWeek) }
-                            },
+                            courses = weekCourses,
                             exams = exams,
                             today = java.time.LocalDate.now(),
                             allCourseNames = remember(filteredMergedCourses) {

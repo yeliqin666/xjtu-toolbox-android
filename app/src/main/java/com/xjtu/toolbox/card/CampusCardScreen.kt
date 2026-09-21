@@ -379,10 +379,15 @@ fun CampusCardScreen(
                     if (!isLoading && !isReloadingRange) isPullRefreshing = false
                 }
 
+                // 平板横屏：左栏概览、右栏「流水 / 分析」，一屏同时看到余额、汇总和明细。
+                // 三栏是同一份数据的三种看法，经常要对照着看，所以宽屏下并排摆，而不是像设置页那样
+                // 做成左侧目录一次只看一栏。宽屏不再用 readableWidth 限宽，否则左右各空出四分之一。
+                val isWide = com.xjtu.toolbox.ui.isWideLayout()
+                var wideTab by rememberSaveable { mutableIntStateOf(0) }
                 Box(
                     Modifier
                         .fillMaxSize()
-                        .readableWidth()
+                        .then(if (isWide) Modifier else Modifier.readableWidth())
                         .nestedScroll(scrollBehavior.nestedScrollConnection)
                 ) {
                     top.yukonga.miuix.kmp.basic.PullToRefresh(
@@ -401,7 +406,38 @@ fun CampusCardScreen(
                         // 横滑切栏（概览/流水/分析），用契约组件 AppTabPager；标签行仍由下面的
                         // AppSegmentedTabs 负责点击切换，两者共用同一个 selectedTab。挂上
                         // layerBackdrop，顶栏才能采到「余额卡从这里滚过去」的画面。
-                        AppTabPager(
+                        if (isWide) {
+                            Row(Modifier.fillMaxSize().layerBackdrop(cardBackdrop)) {
+                                Box(Modifier.weight(0.42f).fillMaxHeight()) {
+                                    // 右栏就是完整的流水，左栏不再重复「最近交易」
+                                    OverviewTab(
+                                        cardInfo, monthlyStats, emptyList(), mealTimeStats,
+                                        rangeDates.first, rangeDates.second, topContentPadding,
+                                    )
+                                }
+                                Box(Modifier.weight(0.58f).fillMaxHeight()) {
+                                    AppTabPager(
+                                        pageCount = 2,
+                                        selectedTabIndex = wideTab,
+                                        onTabSelected = { wideTab = it },
+                                        modifier = Modifier.fillMaxSize(),
+                                    ) { tab ->
+                                        when (tab) {
+                                            0 -> TransactionTab(
+                                                transactions, totalRecords, isLoadingMore, searchQuery,
+                                                onSearchChange = { searchQuery = it }, onLoadMore = ::loadMore,
+                                                topContentPadding = topContentPadding,
+                                            )
+                                            else -> AnalyticsTab(
+                                                monthlyStats, categorySpending, mealTimeStats, weekdayWeekend,
+                                                activeCampusDays, rangeDates.first, rangeDates.second,
+                                                topContentPadding = topContentPadding,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        } else AppTabPager(
                             pageCount = 3,
                             selectedTabIndex = selectedTab,
                             onTabSelected = { selectedTab = it },
@@ -435,22 +471,38 @@ fun CampusCardScreen(
                             .background(MiuixTheme.colorScheme.surface)
                             .onSizeChanged { headerHeightPx = it.height }
                     ) {
-                        AppSegmentedTabs(
-                            tabs = listOf("概览", "流水", "分析"),
-                            selectedTabIndex = selectedTab,
-                            onTabSelected = { selectedTab = it },
-                        )
-                        TimeRangeSelector(
-                            selectedTimeRange,
-                            onChange = {
-                                selectedTimeRange = it
-                                currentPage = 1
-                                loadData(it, silent = true)
-                            },
-                            customChipLabel = customChipLabel,
-                            onCustomClick = { showCustomRange = true },
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        )
+                        val timeRange: @Composable (Modifier) -> Unit = { m ->
+                            TimeRangeSelector(
+                                selectedTimeRange,
+                                onChange = {
+                                    selectedTimeRange = it
+                                    currentPage = 1
+                                    loadData(it, silent = true)
+                                },
+                                customChipLabel = customChipLabel,
+                                onCustomClick = { showCustomRange = true },
+                                modifier = m.padding(horizontal = 16.dp, vertical = 8.dp),
+                            )
+                        }
+                        if (isWide) {
+                            // 和下面两栏对齐：左边时间范围（同时作用于两栏），右边切「流水 / 分析」
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                timeRange(Modifier.weight(0.42f))
+                                AppSegmentedTabs(
+                                    tabs = listOf("流水", "分析"),
+                                    selectedTabIndex = wideTab,
+                                    onTabSelected = { wideTab = it },
+                                    modifier = Modifier.weight(0.58f),
+                                )
+                            }
+                        } else {
+                            AppSegmentedTabs(
+                                tabs = listOf("概览", "流水", "分析"),
+                                selectedTabIndex = selectedTab,
+                                onTabSelected = { selectedTab = it },
+                            )
+                            timeRange(Modifier)
+                        }
                         if (isReloadingRange) {
                             LinearProgressIndicator(
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -512,9 +564,8 @@ private fun OverviewTab(
     }
 }
 
-// 余额卡的 Mesh 顶点颜色：品牌蓝，不随深浅色翻转（类似实体银行卡）。深色那一套是
-// 单独调暗的，不是把浅色乘个透明度——直接调暗浅色顶点会发浑。3x3 网格，中间那个
-// 顶点会缓慢漂移，四角、四边中点固定在卡片边框上，保证渐变始终铺满整张卡。
+// 余额卡的 Mesh 顶点颜色：3x3 网格，中间那个顶点缓慢漂移，四角、四边中点固定在卡片边框上，
+// 保证渐变始终铺满整张卡。
 // 余额卡原来是一整块深蓝，在一片白卡里很突兀。改成浅色：白底上一层很淡的蓝色流光，
 // 和页面上其他卡片是一个体系，余额数字用主题色做重点。深色模式同理：贴近卡片底色，只带一点蓝。
 private val BalanceCardMeshLight = listOf(

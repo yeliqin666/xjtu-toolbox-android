@@ -1,14 +1,17 @@
 package com.xjtu.toolbox.schedule
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -75,26 +78,51 @@ fun LazyListScope.examListItems(
     }
 }
 
+/**
+ * 已考完的场次收起来的那一行。
+ *
+ * 以前是一行光秃秃的「已结束 5 场」：说不清是什么结束了，也看不出能点开，第一次看到的人都会愣一下。
+ * 现在写明「已考完的考试」、给出能做的动作（查看 / 收起），并和考试卡片一样包成一张卡，
+ * 放在列表里不再像一行漏排的小字。
+ */
 @Composable
 private fun ExamEndedToggleRow(count: Int, expanded: Boolean, onToggle: () -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onToggle)
-            .padding(vertical = 8.dp, horizontal = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    top.yukonga.miuix.kmp.basic.Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(
+            color = com.xjtu.toolbox.ui.components.AppCardColor,
+        ),
+        onClick = onToggle,
     ) {
-        Text(
-            "已结束 $count 场",
-            style = MiuixTheme.textStyles.footnote1,
-            fontWeight = FontWeight.Bold,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            modifier = Modifier.weight(1f),
-        )
-        Icon(
-            if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-            contentDescription = if (expanded) "收起" else "展开",
-            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        )
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Default.TaskAlt,
+                contentDescription = null,
+                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                "已考完的考试 · $count 场",
+                style = MiuixTheme.textStyles.body2,
+                fontWeight = FontWeight.Medium,
+                color = MiuixTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                if (expanded) "收起" else "查看",
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.primary,
+            )
+            Icon(
+                if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                contentDescription = null,
+                tint = MiuixTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp),
+            )
+        }
     }
 }

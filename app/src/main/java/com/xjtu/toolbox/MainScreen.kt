@@ -1240,8 +1240,17 @@ private fun MainNavigationRail(
                     animationSpec = androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 322f),
                     label = "pidaiRailProgress",
                 )
+                // 普通数组而不是 State：layout 里写、onGloballyPositioned 里读，都在布局阶段，不需要触发重组
+                val pidaiContentRight = remember { floatArrayOf(0f) }
                 androidx.compose.ui.layout.Layout(
                     modifier = Modifier
+                        // 气泡锚在这一格「内容」的右端：收起时是屁岱图标的右边，展开时是「屁岱」二字的右边，
+                        // 展开过程中跟着动画走（右端由下面的 layout 算出来写进 pidaiContentRight）。
+                        // 锚在按钮上，展开时气泡压在字上；锚在整行上，气泡又飘到侧栏外面、离屁岱太远。
+                        .onGloballyPositioned {
+                            val b = it.boundsInRoot()
+                            onPidaiBoundsChange(b.copy(right = b.left + pidaiContentRight[0]))
+                        }
                         .fillMaxWidth()
                         // 与 NavigationRailDefaults.ItemVerticalPadding 对齐，
                         // 保证它和邻居在侧栏里是同一套等距节奏。
@@ -1258,7 +1267,6 @@ private fun MainNavigationRail(
                         ink = pidaiStyle.ink,
                         shape = pidaiStyle.shape,
                         skin = pidaiStyle.skin,
-                        modifier = Modifier.onGloballyPositioned { onPidaiBoundsChange(it.boundsInRoot()) },
                     )
                     // ExpandedLabelFontSize，与邻居的展开态对齐；收起时透明，不占位置
                     Text(
@@ -1273,19 +1281,24 @@ private fun MainNavigationRail(
                 ) { measurables, constraints ->
                     val f = railProgress.coerceIn(0f, 1f)
                     val icon = measurables[0].measure(constraints.copy(minWidth = 0, minHeight = 0))
-                    val labelMax = (constraints.maxWidth - 26.dp.roundToPx() - icon.width - 16.dp.roundToPx() - 26.dp.roundToPx())
-                        .coerceAtLeast(0)
+                    // 文字从 70dp 起，右边留出和左边对称的 26dp
+                    val labelMax = (constraints.maxWidth - 70.dp.roundToPx() - 26.dp.roundToPx()).coerceAtLeast(0)
                     val label = measurables[1].measure(androidx.compose.ui.unit.Constraints(maxWidth = labelMax))
-                    // 收起：在 80dp（NavigationRailDefaults.MinWidth）宽的侧栏里居中；
-                    // 展开：ExpandedItemHorizontalMargin(12) + ExpandedItemContentHorizontalPadding(14)
-                    val collapsedX = (80.dp.toPx() - icon.width) / 2f
-                    val expandedX = 26.dp.toPx()
-                    val iconX = androidx.compose.ui.util.lerp(collapsedX, expandedX, f).toInt()
+                    // 和上下几项按「中心」对齐，而不是按左边缘：屁岱直径 40dp，比 miuix 的图标（IconSize 28dp）大一圈，
+                    // 按左边缘放，展开时图标和文字都比邻居往右偏。
+                    // - 图标中心：miuix 收起时在 80dp（MinWidth）宽的侧栏里居中，中心在 40dp；展开时图标左边在
+                    //   12 + 14 = 26dp（ExpandedItemHorizontalMargin + ExpandedItemContentHorizontalPadding），
+                    //   中心也是 26 + 28 / 2 = 40dp。两态重合，所以屁岱展开、收起都不用动；
+                    // - 文字：邻居的文字起点是 26 + 28 + 16（ExpandedItemIconTextSpacing）= 70dp，屁岱照这个位置放。
+                    val iconX = (40.dp.toPx() - icon.width / 2f).toInt()
+                    val labelX = 70.dp.roundToPx()
                     val height = maxOf(icon.height, label.height)
+                    // 内容右端给气泡定位用：收起时是图标右边，展开时是文字右边，按展开进度过渡
+                    val iconRight = (iconX + icon.width).toFloat()
+                    pidaiContentRight[0] = androidx.compose.ui.util.lerp(iconRight, maxOf(iconRight, (labelX + label.width).toFloat()), f)
                     layout(constraints.maxWidth, height) {
                         icon.placeRelative(iconX, (height - icon.height) / 2)
-                        // ExpandedItemIconTextSpacing(16)
-                        if (f > 0f) label.placeRelative(iconX + icon.width + 16.dp.roundToPx(), (height - label.height) / 2)
+                        if (f > 0f) label.placeRelative(labelX, (height - label.height) / 2)
                     }
                 }
                 return@forEach

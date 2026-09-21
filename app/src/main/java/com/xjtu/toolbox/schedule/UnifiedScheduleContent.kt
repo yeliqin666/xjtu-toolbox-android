@@ -582,3 +582,90 @@ private fun compactWeeks(weeks: List<Int>): String {
     out.add(if (s == e) "$s" else "$s-$e")
     return out.joinToString(",")
 }
+
+/** 宽屏「今日」栏右边要默认展开的那节课：正在上的，或者今天接下来最近的一节。 */
+internal data class FocusCourse(val course: CourseItem, val ongoing: Boolean)
+
+/**
+ * 从本周的课里挑出今天「正在上」或「下一节」。今天的课都上完了、或者今天没课，返回 null。
+ * 起止时间的算法和今日时间轴（[TodayTimeline]）完全一样：优先用课表给的分钟数，没有就按节次换算，
+ * 冬夏作息都算上。两处算出来的时间必须一致，否则右栏说「正在上」、左栏却已经把它压暗了。
+ */
+internal fun focusCourseOf(weekCourses: List<CourseItem>, today: LocalDate, now: LocalTime): FocusCourse? {
+    val isSummer = XjtuTime.isSummerTime(today.monthValue)
+    val nowMinute = now.toMinuteOfDay()
+    val todays = weekCourses
+        .filter { it.dayOfWeek == today.dayOfWeek.value }
+        .map { c ->
+            val start = c.startMinuteOfDay.takeIf { it >= 0 }
+                ?: XjtuTime.getClassTime(c.startSection, isSummer)?.start?.toMinuteOfDay()
+                ?: return@map null
+            val end = c.endMinuteOfDay.takeIf { it >= 0 }
+                ?: XjtuTime.getClassTime(c.endSection, isSummer)?.end?.toMinuteOfDay()
+                ?: start
+            Triple(c, start, end)
+        }
+        .filterNotNull()
+        .sortedBy { it.second }
+    todays.firstOrNull { nowMinute in it.second until it.third }?.let { return FocusCourse(it.first, ongoing = true) }
+    return todays.firstOrNull { it.second > nowMinute }?.let { FocusCourse(it.first, ongoing = false) }
+}
+
+/**
+ * 宽屏「今日」栏右边在今天没有（剩余）课时显示的本周概览：这周还剩几节、哪天最满、每天几节。
+ * 左边已经是今天的时间轴和「接下来」，这里换个尺度，回答「这周还要忙多少」。
+ */
+@Composable
+internal fun WeekGlance(courses: List<CourseItem>, today: LocalDate) {
+    val todayDow = today.dayOfWeek.value
+    val perDay = remember(courses) { (1..7).map { d -> courses.count { it.dayOfWeek == d } } }
+    val remaining = perDay.withIndex().filter { it.index + 1 > todayDow }.sumOf { it.value }
+    val busiest = perDay.withIndex().maxByOrNull { it.value }?.takeIf { it.value > 0 }
+    val dayNames = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+        Text("本周", style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            when {
+                courses.isEmpty() -> "这周没有课"
+                remaining == 0 -> "今天之后这周没有课了"
+                else -> "今天之后还有 $remaining 节课" + (busiest?.let { "，${dayNames[it.index]}最满（${it.value} 节）" } ?: "")
+            },
+            style = MiuixTheme.textStyles.body2,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        )
+        Spacer(Modifier.height(12.dp))
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor),
+        ) {
+            Column(Modifier.padding(vertical = 6.dp)) {
+                perDay.forEachIndexed { i, n ->
+                    val isToday = i + 1 == todayDow
+                    val past = i + 1 < todayDow
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            dayNames[i] + if (isToday) " · 今天" else "",
+                            style = MiuixTheme.textStyles.body2,
+                            fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
+                            color = when {
+                                isToday -> MiuixTheme.colorScheme.primary
+                                past -> MiuixTheme.colorScheme.onSurfaceVariantSummary
+                                else -> MiuixTheme.colorScheme.onSurface
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            if (n == 0) "没课" else "$n 节",
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}

@@ -8,6 +8,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 
 /**
@@ -53,9 +54,14 @@ fun AppTabPager(
         }
     }
 
-    // 翻页器 → 选中项
+    // 翻页器 → 选中项：跟 targetPage，而不是 settledPage。
+    // settledPage 要等翻页动画完全停稳才变，惯性滑动时上面的标签行总是慢半拍，
+    // 页面都滑过去了指示条才开始动。targetPage 在松手、翻页器定下目标页的那一刻就变
+    // （拖动途中过半时也会变），标签和页面同时启动。
+    // 上面那个「选中项 → 翻页器」的效果在滚动进行中不动手，所以两边不会互相打架。
     LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.settledPage }
+        snapshotFlow { pagerState.targetPage }
+            .distinctUntilChanged()
             .drop(1)
             .collect { page -> onSelected(page) }
     }

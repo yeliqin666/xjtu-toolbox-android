@@ -632,8 +632,10 @@ private fun LmsActivityCard(activity: LmsActivity, onClick: () -> Unit) {
         onClick = onClick,
         pressFeedbackType = PressFeedbackType.Sink,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 3.dp),
+        // 和课程卡、其他页面的卡片同一个不透明底色。原来是半透明的 secondaryContainer，
+        // 贴在页面灰底上几乎看不出卡片边界，内容从玻璃顶栏下面穿过时还会透出后面的东西
         colors = CardDefaults.defaultColors(
-            color = MiuixTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+            color = com.xjtu.toolbox.ui.components.AppCardColor
         )
     ) {
         Row(

@@ -359,7 +359,9 @@ fun AgentScreen(
                             Modifier.statusBarsPadding()
                         },
                     ),
-                color = MiuixTheme.colorScheme.surfaceContainer,
+                // 和顶栏、聊天区同一个底色，两栏之间只靠那条竖分隔线分开。原来是 surfaceContainer（白），
+                // 从顶栏下沿才开始，灰色顶栏和白色面板之间就出现一道横向断口
+                color = MiuixTheme.colorScheme.surface,
             ) {
                 SessionListPane(
                     sessions = vm.sessions,
