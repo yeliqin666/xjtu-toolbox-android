@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.newattendance
 
 import com.xjtu.toolbox.ui.adaptive.readableWidth
+import com.xjtu.toolbox.ui.glass.*
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -8,6 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -190,13 +192,16 @@ fun NewAttendanceScreen(
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     val pullToRefreshState = rememberPullToRefreshState()
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = "新版考勤",
                 largeTitle = "新版考勤",
-                color = MiuixTheme.colorScheme.surface,
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -218,12 +223,25 @@ fun NewAttendanceScreen(
             )
         }
     ) { padding ->
+        // 内容铺到顶栏下面；这页顶部是不滚动的姓名+分段标签，用 Spacer 让它们让出顶栏高度，
+        // 下面 AppTabPager 里的列表就不用再单独留白
+        val glassTop = padding.glassTop(glass)
         when {
             loading && records.isEmpty() && leaves.isEmpty() && error == null -> {
-                LoadingState(message = "加载新版考勤…", modifier = Modifier.fillMaxSize().padding(padding))
+                LazyColumn(
+                    Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
+                    contentPadding = PaddingValues(top = glassTop)
+                ) {
+                    item { Box(Modifier.fillParentMaxSize()) { LoadingState(message = "加载新版考勤…", modifier = Modifier.fillMaxSize()) } }
+                }
             }
             error != null && records.isEmpty() && leaves.isEmpty() -> {
-                ErrorState(message = error!!, onRetry = { load() }, modifier = Modifier.fillMaxSize().padding(padding))
+                LazyColumn(
+                    Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
+                    contentPadding = PaddingValues(top = glassTop)
+                ) {
+                    item { Box(Modifier.fillParentMaxSize()) { ErrorState(message = error!!, onRetry = { load() }, modifier = Modifier.fillMaxSize()) } }
+                }
             }
             else -> {
                 PullToRefresh(
@@ -231,9 +249,11 @@ fun NewAttendanceScreen(
                     pullToRefreshState = pullToRefreshState,
                     onRefresh = { load(fromPull = true) },
                     topAppBarScrollBehavior = scrollBehavior,
-                    modifier = Modifier.fillMaxSize().padding(padding)
+                    contentPadding = PaddingValues(top = glassTop),
+                    modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass)
                 ) {
                     Column(Modifier.readableWidth().fillMaxSize()) {
+                        Spacer(Modifier.height(glassTop))
                         if (studentName.isNotBlank()) {
                             Text(
                                 text = studentName + (semesterWindow?.semesterName?.let { " · $it" } ?: ""),
