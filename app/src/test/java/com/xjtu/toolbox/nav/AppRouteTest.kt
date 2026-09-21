@@ -42,6 +42,19 @@ class AppRouteTest {
     }
 
     @Test
+    fun `返回栈能序列化再读回来`() {
+        // miuix-nav 用 kotlinx.serialization 把返回栈存进 rememberSaveable，切到后台时才触发；
+        // 这里提前在单测里走一遍，插件没生效或者哪个路由漏了 @Serializable 会在这里就挂。
+        val stack = listOf(
+            AppRoute.Main, AppRoute.Settings, AppRoute.Lms(7),
+            AppRoute.Browser("https://a.b/?c=中"), AppRoute.Jiaocai1Reader("1", "书"),
+        )
+        val ser = kotlinx.serialization.serializer<List<AppRoute>>()
+        val json = kotlinx.serialization.json.Json.encodeToString(ser, stack)
+        assertEquals(stack, kotlinx.serialization.json.Json.decodeFromString(ser, json))
+    }
+
+    @Test
     fun `不认识的字符串返回 null 而不是抛异常`() {
         assertNull(appRouteOf("no_such_route"))
         assertNull(appRouteOf(""))
