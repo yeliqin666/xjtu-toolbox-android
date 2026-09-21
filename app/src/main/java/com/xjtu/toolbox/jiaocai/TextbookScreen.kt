@@ -2,11 +2,14 @@ package com.xjtu.toolbox.jiaocai
 
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -28,6 +31,7 @@ import com.xjtu.toolbox.jiaocai1.Jiaocai1UsageNotice
 import com.xjtu.toolbox.jiaocai1.Jiaocai1ViewModel
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.components.AppTabPager
+import com.xjtu.toolbox.ui.glass.*
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
@@ -106,13 +110,16 @@ fun TextbookScreen(
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     val snackbarHostState = remember { SnackbarHostState() }
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = "教材",
                 largeTitle = "教材",
-                color = MiuixTheme.colorScheme.surface,
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -122,17 +129,23 @@ fun TextbookScreen(
             )
         }
     ) { padding ->
+        val glassTop = padding.glassTop(glass)
         Column(
             Modifier
-                .padding(padding)
+                .padding(padding.withoutTop(glass))
                 .readableWidth()
                 .fillMaxSize()
+                .glassSource(glass)
         ) {
-            AppSegmentedTabs(
-                tabs = listOf("查教材", "书架", "全文库"),
-                selectedTabIndex = selectedTab,
-                onTabSelected = { selectedTab = it },
-            )
+            // 分段标签固定在顶栏下面，不跟着滚：自己让出顶栏高度，底色顺带半透明
+            Spacer(Modifier.height(glassTop))
+            CompositionLocalProvider(LocalOnGlassBar provides (glass != null)) {
+                AppSegmentedTabs(
+                    tabs = listOf("查教材", "书架", "全文库"),
+                    selectedTabIndex = selectedTab,
+                    onTabSelected = { selectedTab = it },
+                )
+            }
             AppTabPager(
                 pageCount = 3,
                 selectedTabIndex = selectedTab,
