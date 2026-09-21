@@ -26,6 +26,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.xjtu.toolbox.ui.glass.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.*
@@ -45,6 +46,8 @@ fun SchoolCalendarScreen(onBack: () -> Unit) {
     val today = remember { LocalDate.now() }
     val scrollState = rememberLazyListState()
     val scrollBehavior = MiuixScrollBehavior()
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
 
     // 加载数据
     LaunchedEffect(Unit) {
@@ -64,6 +67,8 @@ fun SchoolCalendarScreen(onBack: () -> Unit) {
         topBar = {
             TopAppBar(
                 title = "校历",
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 navigationIcon = {
                     IconButton(onClick = onBack, modifier = Modifier.padding(start = 8.dp)) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -73,10 +78,11 @@ fun SchoolCalendarScreen(onBack: () -> Unit) {
             )
         }
     ) { padding ->
-        Box(Modifier.padding(padding).readableWidth().fillMaxSize()) {
+        val glassTop = padding.glassTop(glass)
+        Box(Modifier.padding(padding.withoutTop(glass)).glassSource(glass).readableWidth().fillMaxSize()) {
             when {
                 isLoading -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Box(Modifier.fillMaxSize().padding(top = glassTop), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             CircularProgressIndicator(size = 40.dp, strokeWidth = 3.dp)
                             Spacer(Modifier.height(12.dp))
@@ -86,7 +92,7 @@ fun SchoolCalendarScreen(onBack: () -> Unit) {
                 }
                 errorMessage != null -> {
                     Column(
-                        Modifier.fillMaxSize().padding(32.dp),
+                        Modifier.fillMaxSize().padding(top = glassTop).padding(32.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {
@@ -104,7 +110,7 @@ fun SchoolCalendarScreen(onBack: () -> Unit) {
                     }
                 }
                 terms.isEmpty() -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Box(Modifier.fillMaxSize().padding(top = glassTop), contentAlignment = Alignment.Center) {
                         Text("暂无校历数据", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
                 }
@@ -117,7 +123,8 @@ fun SchoolCalendarScreen(onBack: () -> Unit) {
                         selectedIndex = selectedTermIndex,
                         onSelectTerm = { selectedTermIndex = it },
                         listState = scrollState,
-                        scrollBehavior = scrollBehavior
+                        scrollBehavior = scrollBehavior,
+                        glassTop = glassTop
                     )
                 }
             }
@@ -148,7 +155,8 @@ private fun TermContent(
     selectedIndex: Int,
     onSelectTerm: (Int) -> Unit,
     listState: androidx.compose.foundation.lazy.LazyListState,
-    scrollBehavior: ScrollBehavior
+    scrollBehavior: ScrollBehavior,
+    glassTop: androidx.compose.ui.unit.Dp = 0.dp
 ) {
     val progress by animateFloatAsState(
         targetValue = currentTerm.progress(today),
@@ -164,7 +172,7 @@ private fun TermContent(
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize().nestedScrollToTopAppBar(scrollBehavior),
-        contentPadding = PaddingValues(bottom = 24.dp)
+        contentPadding = PaddingValues(top = glassTop, bottom = 24.dp)
     ) {
         // ── 学期选择标签 ──────────────────────────────────
         if (terms.size > 1) {
