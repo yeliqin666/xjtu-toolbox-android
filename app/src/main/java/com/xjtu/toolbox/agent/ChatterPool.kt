@@ -18,6 +18,26 @@ internal data class ChatterLine(
     val action: String? = null,
 )
 
+/**
+ * 闲话用得上的几件真事，由 [ChatterFactsLoader.load] 从本地缓存读出来（不联网、不读数据库）。
+ * 读不到就是 null / 空，对应的情景句自然落选。
+ *
+ * 为什么要它：静态句子对谁都一样，「今天有点难吧」对着一个状态很好的人说就是错位。
+ * 关心要落在真事上——今天有体育课、下午连上四节、明天放假——才不像模板。
+ */
+internal data class ChatterFacts(
+    /** 今天的课，按节次排好。 */
+    val today: List<Slot> = emptyList(),
+    /** 明天第一节课的节次；明天没课为 null。 */
+    val tomorrowFirstSection: Int? = null,
+    /** 今天是法定假日时的节日名。 */
+    val todayHoliday: String? = null,
+    /** 最近一个还没到的法定假日：名字和还有几天（1 = 明天）。只看两周内。 */
+    val nextHoliday: Pair<String, Int>? = null,
+) {
+    data class Slot(val name: String, val startSection: Int, val endSection: Int)
+}
+
 internal object ChatterPool {
 
     const val MAX_CHARS = 14
@@ -28,90 +48,56 @@ internal object ChatterPool {
         ChatterLine("late_hate", "明天的你会恨现在", hours = 0..4),
         ChatterLine("late_light", "宿舍灯还亮着", hours = 0..4),
         ChatterLine("late_roll", "这个点还在卷啊", hours = 0..4),
-        ChatterLine("late_lab", "实验还没做完吧", hours = 0..5),
         ChatterLine("late_dawn", "别刷到天亮了", hours = 1..5),
         ChatterLine("late_breakfast", "别把早饭睡过去", hours = 4..6),
-        ChatterLine("late_hot", "热水还没停吧", hours = 0..5),
         // 早
         ChatterLine("am_ba", "早八是一种人格", hours = 6..8),
         ChatterLine("am_soy", "食堂豆浆见", hours = 6..8),
         ChatterLine("am_quilt", "别在被窝里看课表", hours = 6..8),
-        ChatterLine("am_gate", "一号门风更大", hours = 7..9),
         ChatterLine("am_bao", "豆浆配包子走起", hours = 6..9),
         ChatterLine("am_pk", "彭康路梧桐在等", hours = 7..9),
-        ChatterLine("am_lift", "后悔熬夜了吧！", hours = 7..10),
         ChatterLine("am_third", "第三节才是真困", hours = 9..11),
-        ChatterLine("am_coffee", "咖啡比课表诚实", hours = 9..11),
-        ChatterLine("am_real8", "第三节才是早八", hours = 9..11),
         ChatterLine("am_pick", "去康桥还是梧桐", hours = 7..10),
         // 午饭
         ChatterLine("noon_kq", "康桥队伍排到哪了", hours = 11..13),
         ChatterLine("noon_milk", "饭点别只喝奶茶", hours = 11..13),
-        ChatterLine("noon_pk", "康三渔粉可以有", hours = 11..13),
-        ChatterLine("noon_wt", "梧桐苑也在排队", hours = 11..13),
         ChatterLine("noon_full", "康桥一层人满了", hours = 11..13),
         ChatterLine("noon_lp", "凉皮夹馍先顶上", hours = 11..13),
-        ChatterLine("noon_cj", "财经食堂大盘鸡", hours = 11..13),
         ChatterLine("noon_hm", "和鸣苑午饭见", hours = 11..13),
         ChatterLine("noon_hf", "惠风苑民族餐走起", hours = 11..13),
-        ChatterLine("noon_lq", "朗清苑也行啊", hours = 11..13),
-        ChatterLine("noon_nap", "午觉被课表打断", hours = 12..14),
         // 下午
         ChatterLine("pm_room", "空教室才是归宿", hours = 13..17),
-        ChatterLine("pm_eyes", "眼睛歇一会儿", hours = 13..17),
         ChatterLine("pm_walk", "站起来走两步", hours = 14..18),
-        ChatterLine("pm_qt", "钱图座位还有吗", hours = 13..18),
         ChatterLine("pm_exp", "实验课别摸鱼", hours = 13..18),
         // 晚饭
         ChatterLine("eve_win", "晚饭窗口别犹豫", hours = 17..19),
         ChatterLine("eve_card", "别把饭卡忘食堂", hours = 17..19),
-        ChatterLine("eve_ny", "去温泉称称体重", hours = 17..19),
         ChatterLine("eve_wt2", "梧桐苑二楼见", hours = 17..19),
-        ChatterLine("eve_night", "夜宵档口还开吗", hours = 17..20),
-        ChatterLine("eve_cart", "移动餐车来了没", hours = 19..22),
-        ChatterLine("eve_kq3", "梧桐三层自助呢", hours = 17..19),
+        ChatterLine("eve_kq3", "康桥三楼有自助餐", hours = 17..19),
         // 晚上
-        ChatterLine("night_lib", "图书馆座位呢", hours = 19..21),
-        ChatterLine("night_lab", "实验报告还活着吗", hours = 19..22),
-        ChatterLine("night_water", "先别开电脑，喝口水", hours = 19..22),
-        ChatterLine("night_ppt", "PPT还没做完吧", hours = 20..23),
         ChatterLine("night_close", "图书馆该散了", hours = 22..23),
         ChatterLine("night_ba", "明天的早八在盯你", hours = 22..23),
         ChatterLine("night_cy", "畅园夜风有点硬", hours = 19..23),
-        ChatterLine("night_jg", "巨构里灯还亮", hours = 19..23),
         ChatterLine("night_bed", "别在床上改PPT", hours = 20..23),
-        ChatterLine("night_dorm", "宿舍热水来了吗", hours = 21..23),
         ChatterLine("night_rpt", "报告还差一节", hours = 19..23),
-        ChatterLine("night_qian", "钱图的灯还亮着", hours = 18..23),
         // 四季（跨年月份不能写 11..2，那是空区间）
         ChatterLine("spr_fluff", "梧桐絮又开始下", months = 3..5),
         ChatterLine("spr_rain", "小心梧桐河！", months = 3..5),
         ChatterLine("spr_pollen", "花粉战士集合", months = 4..5),
-        ChatterLine("spr_spit", "梧桐开始吐絮了", months = 4..5),
         ChatterLine("sum_bath", "去洗个凉水澡！", months = 6..8),
-        ChatterLine("sum_ac", "空调房里的夏天", months = 6..8),
         ChatterLine("sum_junxun", "看看小登军训，嘿嘿", months = 8..9),
         ChatterLine("sum_shade", "新港没有树荫啊", months = 6..8),
-        ChatterLine("sum_cicada", "蝉比课表准时", months = 6..8),
         ChatterLine("aut_leaf", "期待金色梧桐节呀！", months = 10..11),
         ChatterLine("aut_hot", "开学热还没散", months = 9..10),
         ChatterLine("aut_gold", "彭康路在铺金", months = 10..11),
         ChatterLine("aut_pick", "去捡两片梧桐叶", months = 10..11),
-        ChatterLine("aut_yt", "雁塔梧桐道也黄", months = 10..11),
-        // 春见樱花节：近年三校区同步，大约三月底到四月初
+        // 春见樱花节：兴庆、雁塔，大约三月底到四月初（创新港没有樱花）
         ChatterLine("sakura_fest", "春见樱花节来了", months = 3..4),
         ChatterLine("sakura_xq", "兴庆樱花开了没", months = 3..4),
-        ChatterLine("sakura_port", "去港上看樱花路", months = 3..4),
-        ChatterLine("sakura_yt", "雁塔也能赏樱", months = 3..4),
-        ChatterLine("sakura_you", "樱你而美，走啊", months = 3..4),
         ChatterLine("sakura_shot", "别只拍照，看看花", months = 3..4),
         // 选课：学期初主峰，期中还有一轮改课
         ChatterLine("pick_fight_a", "选课像打仗", months = 2..3),
         ChatterLine("pick_fight_b", "选课像打仗", months = 8..9),
-        ChatterLine("pick_down_a", "选课系统崩了没", months = 2..3),
-        ChatterLine("pick_down_b", "选课系统崩了没", months = 8..9),
-        ChatterLine("pick_left_a", "这课还有余量吗", months = 2..3),
-        ChatterLine("pick_left_b", "这课还有余量吗", months = 8..9),
         ChatterLine("pick_pe_a", "体育课秒没了", months = 2..3),
         ChatterLine("pick_pe_b", "体育课秒没了", months = 8..9),
         ChatterLine("pick_slip_a", "志愿填报别手滑", months = 2..3),
@@ -121,23 +107,13 @@ internal object ChatterPool {
         ChatterLine("pick_mid_a", "期中改课别错过", months = 4..5),
         ChatterLine("pick_mid_b", "期中改课别错过", months = 10..11),
         // 保研：夏令营到九推
-        ChatterLine("bao_camp", "夏令营材料交了没", months = 6..7),
         ChatterLine("bao_pre", "预推免开始了", months = 8..8),
-        ChatterLine("bao_sys", "推免系统开了没", months = 9..9),
-        ChatterLine("bao_mail", "套磁邮件发了没", months = 6..8),
-        ChatterLine("bao_or", "保研还是考研啊", months = 6..9),
         ChatterLine("bao_nine", "九推别只刷群", months = 9..9),
-        ChatterLine("bao_offer", "offer来了敢点吗", months = 7..9),
         // 考研：报名、初试、出分、复试调剂
         ChatterLine("kao_sign", "考研报名别忘了", months = 10..10),
-        ChatterLine("kao_eng", "政治英语还活着吗", months = 9..12),
         ChatterLine("kao_paper", "真题别只收藏", months = 9..12),
         ChatterLine("kao_seat", "钱图考研位满了", months = 11..12),
         ChatterLine("kao_exam", "十二月初试加油", months = 12..12),
-        ChatterLine("kao_score", "出分了没敢看", months = 2..2),
-        ChatterLine("kao_re", "复试名单出来没", months = 3..4),
-        ChatterLine("kao_tiao", "调剂系统别挂着", months = 3..4),
-        ChatterLine("kao_night", "考研灯比人晚睡", hours = 21..23, months = 9..12),
         // 考试月：春夏小学期尾、秋冬学期尾
         ChatterLine("exam_qt_a", "考试月钱图爆了", months = 6..7),
         ChatterLine("exam_qt_b", "考试月钱图爆了", months = 12..12),
@@ -145,52 +121,20 @@ internal object ChatterPool {
         ChatterLine("exam_quiet_a", "期末周食堂好安静", months = 6..7),
         ChatterLine("exam_quiet_b", "期末周食堂好安静", months = 12..12),
         ChatterLine("exam_quiet_c", "期末周食堂好安静", months = 1..1),
-        ChatterLine("exam_outline_a", "复习大纲找到没", months = 6..7),
-        ChatterLine("exam_outline_b", "复习大纲找到没", months = 12..12),
-        ChatterLine("exam_outline_c", "复习大纲找到没", months = 1..1),
-        ChatterLine("exam_warn_a", "挂科预警响了没", months = 6..7),
-        ChatterLine("exam_warn_b", "挂科预警响了没", months = 12..12),
-        ChatterLine("exam_warn_c", "挂科预警响了没", months = 1..1),
-        ChatterLine("exam_all_a", "通宵自习点名了", hours = 22..23, months = 6..7),
-        ChatterLine("exam_all_b", "通宵自习点名了", hours = 22..23, months = 12..12),
-        ChatterLine("exam_all_c", "通宵自习点名了", hours = 22..23, months = 1..1),
-        ChatterLine("exam_paper_a", "卷子比人先到", months = 6..7),
-        ChatterLine("exam_paper_b", "卷子比人先到", months = 12..12),
-        ChatterLine("exam_paper_c", "卷子比人先到", months = 1..1),
-        ChatterLine("exam_makeup_a", "补考报名看见没", months = 8..9),
-        ChatterLine("exam_makeup_b", "补考报名看见没", months = 2..3),
-        ChatterLine("exam_judge_a", "评教开了再出分", months = 6..7),
-        ChatterLine("exam_judge_b", "评教开了再出分", months = 12..12),
-        ChatterLine("exam_judge_c", "评教开了再出分", months = 1..1),
         // 小学期：盛夏还在上课，不是假期
         ChatterLine("short_not", "小学期不是假期", months = 7..7),
-        ChatterLine("short_table", "小学期课表看了没", months = 6..7),
         ChatterLine("short_july", "七月还在上课啊", months = 7..7),
         ChatterLine("short_lab", "小学期实验更狠", months = 7..7),
-        ChatterLine("short_exam", "小学期也有考试", months = 7..8),
-        ChatterLine("short_fake", "短学期名不副实", months = 6..8),
-        ChatterLine("short_ac", "小学期空调全开", months = 7..7),
         // 寒假
         ChatterLine("vac_count", "寒假倒计时开始", months = 1..1),
-        ChatterLine("vac_train", "火车票抢到了没", months = 1..1),
+        ChatterLine("vac_train", "车票抢到了没", months = 1..1),
         ChatterLine("vac_heat", "宿舍暖气还在供", months = 1..2),
-        ChatterLine("vac_home", "回家先别开电脑", months = 1..2),
-        ChatterLine("vac_hw", "假期作业埋了吗", months = 1..2),
-        ChatterLine("vac_back", "过年回学校了没", months = 2..2),
-        ChatterLine("vac_bus", "寒假班车还开吗", months = 1..2),
-        ChatterLine("vac_lib", "钱图寒假开门吗", months = 1..2),
-        ChatterLine("win_heat_a", "暖气比课表暖", months = 11..12),
-        ChatterLine("win_heat_b", "暖气比课表暖", months = 1..2),
         ChatterLine("win_snow_a", "下雪了么？", months = 11..12),
         ChatterLine("win_snow_b", "下雪了么？", months = 1..2),
         ChatterLine("win_main_a", "主楼暖气开得太大", months = 12..12),
         ChatterLine("win_main_b", "主楼暖气开得太大", months = 1..2),
         ChatterLine("win_two_a", "主楼里外两重天", months = 12..12),
         ChatterLine("win_two_b", "主楼里外两重天", months = 1..2),
-        ChatterLine("win_port_a", "新港比兴庆更冷", months = 11..12),
-        ChatterLine("win_port_b", "新港比兴庆更冷", months = 1..2),
-        ChatterLine("win_glove_a", "手套比课表重要", months = 12..12),
-        ChatterLine("win_glove_b", "手套比课表重要", months = 1..2),
         // 周节奏
         ChatterLine("mon_ba", "周一的早八最真", hours = 6..10, weekdays = setOf(DayOfWeek.MONDAY)),
         ChatterLine("wed_home", "周三晚上想回家", hours = 18..22, weekdays = setOf(DayOfWeek.WEDNESDAY)),
@@ -214,21 +158,34 @@ internal object ChatterPool {
         ChatterLine("app_ask", "搜索栏直接问我"),
         ChatterLine("app_replay", "回放能下到本地"),
         ChatterLine("app_acct", "多账号互不串号"),
-        ChatterLine("app_face", "刷脸流水也能查"),
+        ChatterLine("app_face", "刷脸流水在这能查"),
         ChatterLine("app_open", "全校开课都能搜"),
         ChatterLine("app_fit", "体测成绩藏这儿"),
-        ChatterLine("app_adv", "导员电话在我的"),
+        ChatterLine("app_adv", "导员电话在「我的」页"),
         ChatterLine("app_zy", "仲英资料能下载"),
         ChatterLine("app_tap", "点我不是摆设哦"),
-        ChatterLine("app_seat", "图书馆座位也能看"),
+        ChatterLine("app_seat", "图书馆座位能在这看"),
         ChatterLine("app_order", "场馆订单能取消"),
-        ChatterLine("app_night", "网页也能夜间读"),
+        ChatterLine("app_night", "网页能开夜间模式"),
         ChatterLine("app_judge_a", "评教入口在学业里", months = 6..7),
         ChatterLine("app_judge_b", "评教入口在学业里", months = 12..12),
         ChatterLine("app_judge_c", "评教入口在学业里", months = 1..1),
         ChatterLine("app_coupon_a", "加餐券别忘领", months = 1..2),
         ChatterLine("app_coupon_b", "加餐券别忘领", months = 4..5),
         ChatterLine("app_coupon_c", "加餐券别忘领", months = 9..10),
+        ChatterLine("app_widget", "课表能放到桌面"),
+        ChatterLine("app_widget_card", "余额小组件放桌面"),
+        ChatterLine("app_widget_notice", "通知能放桌面组件"),
+        ChatterLine("app_add_event", "要加日程跟我说"),
+        ChatterLine("app_balance", "查余额直接问我"),
+        ChatterLine("app_where", "问我下节课在哪"),
+        ChatterLine("app_spend", "钱花哪了看消费分析"),
+        ChatterLine("app_transcript", "成绩单能一键申请"),
+        ChatterLine("app_leave", "请假在新版考勤里"),
+        ChatterLine("app_webvpn", "校外进内网用WebVPN"),
+        ChatterLine("app_exampaper", "历年卷去学辅站找", months = 5..7),
+        ChatterLine("app_exampaper_b", "历年卷去学辅站找", months = 11..12),
+        ChatterLine("app_fresh", "刚解放的教室最空"),
         // ── 闲聊：不推荐功能、不提醒事务，就是搭句话 ──
         //
         // 补这一批的原因：原有 190 条生活句里，吃饭 / 自习 / 期末考研保研占了绝大多数，
@@ -240,113 +197,87 @@ internal object ChatterPool {
         ChatterLine("mood_hi", "欸，你来了"),
         ChatterLine("mood_here", "我一直在这儿"),
         ChatterLine("mood_nothing", "没事，就看看你"),
-        ChatterLine("mood_bored", "闲着也是闲着"),
         ChatterLine("mood_poke", "别老戳我头"),
         ChatterLine("mood_again", "又是你啊"),
         ChatterLine("mood_quiet", "今天话有点少"),
-        ChatterLine("mood_ok", "还行吧，今天"),
         ChatterLine("mood_hmm", "在想事情？"),
-        ChatterLine("mood_slow", "不着急，慢慢来"),
-        ChatterLine("mood_enough", "差不多就行了"),
-        ChatterLine("mood_hard", "今天有点难吧"),
-        ChatterLine("mood_fine", "没搞砸就算赢"),
-        ChatterLine("mood_rest", "歇会儿不丢人"),
-        ChatterLine("mood_stand", "腰还好吗"),
-        ChatterLine("mood_blink", "眨眨眼，别干着"),
-        ChatterLine("mood_shoulder", "肩膀松一下"),
-        ChatterLine("mood_deep", "深呼吸一次"),
         ChatterLine("mood_water2", "水杯是不是空了"),
-        ChatterLine("mood_phone", "手机有点烫吧"),
 
         ChatterLine("chat_morning", "早，睡够了吗", hours = 6..9),
-        ChatterLine("chat_wake", "醒了就先别看手机", hours = 6..9),
         ChatterLine("chat_slow_am", "今早不用太拼", hours = 6..9),
         ChatterLine("chat_facewash", "洗把脸清醒点", hours = 6..9),
         ChatterLine("chat_sun", "今天太阳挺好的", hours = 8..16),
         ChatterLine("chat_window", "往窗外看两秒", hours = 8..17),
         ChatterLine("chat_afternoon", "下午最难熬", hours = 14..16),
         ChatterLine("chat_doze", "困了就趴会儿", hours = 13..15),
-        ChatterLine("chat_halfday", "半天已经过去了", hours = 12..14),
-        ChatterLine("chat_sunset", "天要黑了", hours = 17..19),
-        ChatterLine("chat_lamp", "灯开亮点，护眼", hours = 18..23),
-        ChatterLine("chat_evening", "晚上安静一些", hours = 19..22),
-        ChatterLine("chat_today_end", "今天到这儿就行", hours = 21..23),
         ChatterLine("chat_sleep", "早点睡，真的", hours = 22..23),
-        ChatterLine("chat_tomorrow", "明天再说吧", hours = 22..23),
         ChatterLine("chat_still_up", "还醒着呢", hours = 0..3),
         ChatterLine("chat_quiet_night", "这会儿宿舍最静", hours = 0..3),
-        ChatterLine("chat_nobody", "楼里就剩你了吧", hours = 0..4),
         ChatterLine("chat_dawn2", "天快亮了", hours = 4..6),
         ChatterLine("chat_earlybird", "起这么早啊", hours = 5..7),
 
-        ChatterLine("life_walk", "出去走一圈吧"),
-        ChatterLine("life_music", "听首歌再说"),
         ChatterLine("life_call", "多久没给家里打电话了"),
         ChatterLine("life_friend", "找个人说说话"),
-        ChatterLine("life_alone", "一个人也挺好"),
-        ChatterLine("life_socks", "袜子该洗了"),
-        ChatterLine("life_desk", "桌子有点乱了"),
-        ChatterLine("life_bottle", "空瓶子攒一堆了"),
-        ChatterLine("life_sheet", "床单该换了吧"),
-        ChatterLine("life_hair", "头发该剪了"),
-        ChatterLine("life_shoes", "鞋带开了没"),
-        ChatterLine("life_umbrella", "伞放包里没"),
-        ChatterLine("life_charge", "充电宝充了吗"),
-        ChatterLine("life_key", "钥匙带了吗"),
-        ChatterLine("life_wallet", "手机电量还行吗"),
 
-        ChatterLine("mind_dontrush", "别跟别人比进度"),
         ChatterLine("mind_small", "先做最小的那件"),
-        ChatterLine("mind_start", "开个头就不难了"),
-        ChatterLine("mind_notall", "不用全做完"),
-        ChatterLine("mind_bad", "状态差是正常的"),
-        ChatterLine("mind_pause", "卡住就先放着"),
-        ChatterLine("mind_kind", "对自己别太狠"),
-        ChatterLine("mind_far", "路还长着呢"),
-        ChatterLine("mind_worth", "今天也算数"),
         ChatterLine("mind_tired", "累就是累，别嘴硬"),
 
-        ChatterLine("wx_cold", "外面比看着冷", months = 11..12),
-        ChatterLine("wx_cold2", "外面比看着冷", months = 1..2),
-        ChatterLine("wx_wind", "今天风大，抓紧帽子", months = 11..12),
         ChatterLine("wx_hot", "热得人不想动", months = 6..8),
         ChatterLine("wx_dry", "西安太干了", months = 10..12),
         ChatterLine("wx_dry2", "西安太干了", months = 1..3),
-        ChatterLine("wx_haze", "今天空气一般", months = 11..12),
-        ChatterLine("wx_haze2", "今天空气一般", months = 1..2),
         ChatterLine("wx_nice", "这天气不出门可惜", months = 4..5),
         ChatterLine("wx_nice2", "这天气不出门可惜", months = 9..10),
         // 随时 / 地点
         ChatterLine("any_eat", "精勤求学，先吃饭"),
         ChatterLine("any_drink", "饮水思源，先喝水"),
-        ChatterLine("any_port", "新港的风好硬..."),
-        ChatterLine("any_cat", "兴庆的猫还在吗"),
+        ChatterLine("any_port", "新港的风好硬"),
         ChatterLine("any_lang", "仲英连廊吹吹风"),
         ChatterLine("any_tower", "腾飞塔看见你了"),
-        ChatterLine("any_ddl", "作业在截止线里游"),
-        ChatterLine("any_self", "这天气适合自习"),
-        ChatterLine("any_xiqian", "西迁路上吹吹风"),
         ChatterLine("any_siyuan", "思源碑前站一会"),
-        ChatterLine("any_square", "四大发明广场转"),
-        ChatterLine("any_bus", "班车座位还在吗"),
-        ChatterLine("any_stay", "去港还是留兴庆"),
-        ChatterLine("any_wall", "没有围墙的大学"),
-        ChatterLine("any_hy", "涵英楼好认路吗"),
+        ChatterLine("any_square", "去四大发明广场转转"),
         ChatterLine("any_mail", "记得取快递！！"),
-        ChatterLine("any_judge", "评教窗口别忘了"),
-        ChatterLine("any_pick", "选课像打仗"),
-        ChatterLine("any_app", "交大美餐打开没"),
-        ChatterLine("any_xqg", "兴庆宫在围墙外"),
         ChatterLine("any_sp", "沙坡到了就是家"),
-        ChatterLine("any_qj", "曲江也算半个家"),
-        ChatterLine("any_yt", "雁塔的医学生在吗"),
-        ChatterLine("any_zy", "仲英的猫也在吗"),
-        ChatterLine("any_nanyang", "南洋公学还在碑上"),
-        ChatterLine("any_move2", "第二次西迁进行中"),
         ChatterLine("any_jg48", "巨构里别迷路"),
-        ChatterLine("any_sail", "风帆广场吹吹风"),
-        ChatterLine("any_sy", "饮水记得思源"),
-        ChatterLine("any_kqwt", "康桥梧桐今晚自习"),
+        // ── 屁岱自己的小性格：它是个会眨眼的小机器人，有点贫，有点黏人 ──
+        ChatterLine("me_poke", "被你戳醒了"),
+        ChatterLine("me_hungry", "我也想去吃梧桐", hours = 11..13),
+        ChatterLine("me_dinner", "我闻不到饭香，你替我吃", hours = 17..19),
+        ChatterLine("me_nosleep", "我不用睡觉，但你要", hours = 0..3),
+        ChatterLine("me_nosleep2", "我不用睡觉，但你要", hours = 22..23),
+        ChatterLine("me_duty", "今天我值班"),
+        ChatterLine("me_blink", "我在练习眨眼"),
+        ChatterLine("me_daze", "被你发现我在发呆"),
+        ChatterLine("me_think", "我正在假装思考"),
+        ChatterLine("me_legs", "我没有腿，但想去散步"),
+        ChatterLine("me_battery", "我的电量永远满格"),
+        ChatterLine("me_memory", "我记性可好了"),
+        ChatterLine("me_nopeek", "我可没偷看你课表"),
+        ChatterLine("me_praise", "今天也想被你夸"),
+        ChatterLine("me_either", "有事叫我，没事也行"),
+        ChatterLine("me_obedient", "今天也是乖巧的一天"),
+        ChatterLine("me_exam_q", "今天被问了好多次考试", months = 6..7),
+        ChatterLine("me_exam_q2", "今天被问了好多次考试", months = 12..12),
+        ChatterLine("me_exam_q3", "今天被问了好多次考试", months = 1..1),
+        ChatterLine("me_rain", "下雨我就不出门了"),
+        ChatterLine("me_shy", "别盯着我看，怪害羞的"),
+        ChatterLine("me_tired", "我想放假"),
+        // ── 逗一下：有点欠，但不刻薄 ──
+        ChatterLine("tease_fish", "摸鱼被我抓到了", hours = 9..17),
+        ChatterLine("tease_delay", "你是不是在拖延"),
+        ChatterLine("tease_hw", "作业写完了吗，我不信", hours = 19..23),
+        ChatterLine("tease_back", "又来找我玩啦"),
+        ChatterLine("tease_study", "看我干嘛，去学习", hours = 8..22),
+        ChatterLine("tease_again", "今天第几次戳我了"),
+        ChatterLine("tease_bed", "躺床上说要学习的是你吧", hours = 21..23),
+        ChatterLine("tease_ddl", "ddl 是第一生产力对吧"),
+        // ── 抛个问题，勾人点开对话 ──
+        ChatterLine("ask_room", "猜猜今天空教室多吗", hours = 8..20),
+        ChatterLine("ask_week", "想知道这周还剩几节课吗"),
+        ChatterLine("ask_hard", "问我点难的试试"),
+        ChatterLine("ask_trivia", "考考我交大冷知识"),
+        ChatterLine("ask_review", "要不要我帮你排复习", months = 5..7),
+        ChatterLine("ask_review2", "要不要我帮你排复习", months = 11..12),
+        ChatterLine("ask_where", "让我猜猜你下节课在哪"),
     )
 
     init {
@@ -369,22 +300,66 @@ internal object ChatterPool {
         }
     }
 
-    /** 上课还早 / 今天没课：补两句情景闲话，仍然不超过字数。 */
+    /**
+     * 情景闲话：按真实的课表、节假日说话。权重调高，有真事可说时优先于泛泛的句子。
+     * 仍然不超过字数；读不到数据的那几类自然落选。
+     */
     fun situational(
         now: LocalDateTime,
         nextCourseName: String?,
         minutesToClass: Long?,
+        facts: ChatterFacts? = null,
     ): List<ChatterLine> = buildList {
+        val w = 3.0
         if (minutesToClass != null && minutesToClass in 31..180) {
-            add(ChatterLine("sit_soon", "下节课还早，先喘口气"))
+            add(ChatterLine("sit_soon", "下节课还早，先喘口气", weight = w))
         }
         if (minutesToClass != null && minutesToClass > 180) {
             add(ChatterLine("sit_later", "今天后面还有课"))
         }
         val weekday = now.dayOfWeek !in setOf(DayOfWeek.SATURDAY, DayOfWeek.SUNDAY)
-        if (nextCourseName == null && weekday && now.hour in 8..21) {
-            add(ChatterLine("sit_free", "今天没课？行啊"))
+        val today = facts?.today.orEmpty()
+        if (facts != null && today.isEmpty() && facts.todayHoliday == null && weekday && now.hour in 8..21) {
+            add(ChatterLine("sit_free", "今天没课？行啊", weight = w))
         }
+        if (facts == null) return@buildList
+
+        // 课表：节次换成钟点粗算，冬夏作息差半小时，这里只用来判断「还剩几节」够了
+        val sectionNow = sectionAt(now)
+        val remaining = today.filter { it.endSection >= sectionNow }
+        if (today.any { "体育" in it.name } && remaining.any { "体育" in it.name } && now.hour in 6..17) {
+            add(ChatterLine("sit_pe", "体育课别忘了带鞋", weight = w))
+        }
+        val afternoon = (5..8).all { s -> today.any { s in it.startSection..it.endSection } }
+        if (afternoon && now.hour in 7..15) {
+            add(ChatterLine("sit_pm4", "下午四节连上，撑住", weight = w))
+        }
+        val total = today.sumOf { it.endSection - it.startSection + 1 }
+        if (total >= 8 && !afternoon && now.hour in 7..15) {
+            add(ChatterLine("sit_full", "今天课排得好满", weight = w))
+        }
+        if (remaining.size == 1 && today.size >= 2 && now.hour in 12..20) {
+            add(ChatterLine("sit_last", "就剩最后一节了", weight = w))
+        }
+        if (today.isNotEmpty() && remaining.isEmpty() && now.hour in 12..21) {
+            add(ChatterLine("sit_done", "今天的课上完了", weight = w))
+        }
+        if (facts.tomorrowFirstSection == 1 && now.hour in 20..23) {
+            add(ChatterLine("sit_tmr8", "明早第一节就有课", weight = w))
+        }
+        // 节假日
+        facts.todayHoliday?.let { add(ChatterLine("sit_holiday", "${it}快乐，歇着吧".take(MAX_CHARS), weight = w)) }
+        facts.nextHoliday?.let { (name, days) ->
+            if (days == 1 && now.hour >= 12) add(ChatterLine("sit_hol_tmr", "明天放假，今晚随便", weight = w))
+            if (days in 2..7) add(ChatterLine("sit_hol_soon", "离${name}还有${days}天".take(MAX_CHARS), weight = w))
+        }
+    }
+
+    /** 此刻大约在第几节（下课间隙算下一节）。只用来判断「还剩几节」，精度够用。 */
+    private fun sectionAt(now: LocalDateTime): Int {
+        val m = now.hour * 60 + now.minute
+        val starts = listOf(480, 540, 610, 670, 840, 900, 970, 1030, 1150, 1210, 1270)
+        return (starts.indexOfFirst { m < it + 50 } + 1).takeIf { it > 0 } ?: 12
     }
 
     /** 「本 App 会什么」这类自荐句的前缀。它们是宣传，不是闲话，得单独限额。 */
@@ -406,9 +381,10 @@ internal object ChatterPool {
         minutesToClass: Long?,
         skinLines: List<ChatterLine> = emptyList(),
         skinMix: Double = 0.0,
+        facts: ChatterFacts? = null,
     ): ChatterLine? {
         val recent = recentIds.toSet()
-        val builtInPool = eligible(now) + situational(now, nextCourseName, minutesToClass)
+        val builtInPool = eligible(now) + situational(now, nextCourseName, minutesToClass, facts)
         val eligibleSkin = skinLines.filter { line ->
             (line.hours == null || now.hour in line.hours) &&
                 (line.months == null || now.monthValue in line.months) &&

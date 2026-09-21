@@ -14,6 +14,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -219,8 +220,10 @@ fun LmsScreen(
         return
     }
 
+    // 前后两页同时淡入淡出，中途都是半透明——没有底色时会透出导航栈底下的主页。
     AnimatedContent(
         targetState = currentPage,
+        modifier = Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface),
         transitionSpec = {
             val forward = when {
                 targetState is LmsPage.ActivityList && initialState is LmsPage.CourseList -> true

@@ -928,11 +928,13 @@ fun AppNavigation(
     // 宽屏判断在导航根部算一次向下提供（见 ui/WindowSize.kt）：各页面若各算各的，
     // 同一帧里可能得出不一致的结论（侧栏认为宽屏、内容区认为窄屏），布局就会错位。
     // 界面风格（玻璃 / 经典）给二级页的玻璃顶栏用（ui/glass/GlassTopBar.kt）。
-    // 跟着返回栈变化重读一次偏好：设置页里改了风格，退出设置页、再进别的页面就生效，
-    // 不用为了一个偏好值额外挂监听。
-    val glassStyle = remember(backStack.size, backStack.lastOrNull()) {
-        credentialStore.navBarStyle == CredentialStore.NAV_STYLE_FLOATING
+    // 监听偏好：设置页里一改，当前页（包括设置页自己）的顶栏立刻跟着换，和主界面底栏同一个时刻。
+    var navStyle by remember { mutableStateOf(credentialStore.navBarStyle) }
+    DisposableEffect(Unit) {
+        val stop = credentialStore.observeNavBarStyle { navStyle = it }
+        onDispose { stop() }
     }
+    val glassStyle = navStyle == CredentialStore.NAV_STYLE_FLOATING
     CompositionLocalProvider(
         LocalAppLoginState provides loginState,
         com.xjtu.toolbox.ui.LocalIsWideLayout provides com.xjtu.toolbox.ui.calculateIsWideLayout(),

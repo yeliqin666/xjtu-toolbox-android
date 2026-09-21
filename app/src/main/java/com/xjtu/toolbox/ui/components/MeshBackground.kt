@@ -49,7 +49,16 @@ import kotlin.math.sin
  * @param lightVertexColors 浅色顶点颜色，按行列排列，至少 2x2（各行长度必须一致）。
  * @param darkVertexColors 深色顶点颜色，形状必须和 [lightVertexColors] 完全一致。
  * @param periodMillis 一整圈漂移的周期，默认 12 秒（不少于 10 秒，太快会像跑马灯）。
+ * @param runForMillis 每次开始显示后只流动这么久就停在当前相位；页面重新显示时再流动一轮。
+ *   上面压着玻璃顶栏/底栏时要设：渐变每变一帧，玻璃都要重新取样模糊，静止的页面也一直占着 GPU。
  */
+/**
+ * 所在页面此刻是否真的显示着。主界面切走的 tab 仍留在组合里（只是透明度为 0），
+ * Activity 也还在前台，只看生命周期的话切到日程 tab 后首页的渐变照样每秒刷 30 次。
+ * MainScreen 按 tab 是否选中提供这个值。
+ */
+val LocalPageVisible = androidx.compose.runtime.compositionLocalOf { true }
+
 private const val TWO_PI = (2 * Math.PI).toFloat()
 private const val MESH_FRAME_MS = 33L
 
@@ -60,6 +69,7 @@ fun MeshBackground(
     darkVertexColors: List<List<Color>>,
     periodMillis: Int = 12000,
     animated: Boolean = true,
+    runForMillis: Long = Long.MAX_VALUE,
 ) {
     val dark = com.xjtu.toolbox.ui.theme.LocalIsDarkTheme.current
     val vertexColors = if (dark) darkVertexColors else lightVertexColors
@@ -72,15 +82,16 @@ fun MeshBackground(
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && gridRows == 3 && gridColumns == 3) {
         val lifecycleOwner = LocalLifecycleOwner.current
         val lifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
-        val running = animated && lifecycleState.isAtLeast(Lifecycle.State.RESUMED)
+        val running = animated && LocalPageVisible.current && lifecycleState.isAtLeast(Lifecycle.State.RESUMED)
         // 相位按约 30 帧/秒推进，用定时器而不是无限动画：无限动画每个 vsync 都改一次值，
         // 首页什么都不动时整页也按 120Hz 一直重画（现在还连带玻璃顶栏跟着重新采样）。
         // 一圈 12 秒的慢漂移，30 帧/秒肉眼看不出差别。
         val phaseState = remember { mutableFloatStateOf(0f) }
         if (running) {
-            LaunchedEffect(periodMillis) {
+            LaunchedEffect(periodMillis, runForMillis) {
                 val start = System.nanoTime() - (phaseState.floatValue / TWO_PI * periodMillis * 1_000_000L).toLong()
-                while (true) {
+                val stopAt = System.nanoTime() + runForMillis.coerceAtMost(Long.MAX_VALUE / 2_000_000L) * 1_000_000L
+                while (System.nanoTime() < stopAt) {
                     val elapsedMs = (System.nanoTime() - start) / 1_000_000L
                     phaseState.floatValue = (elapsedMs % periodMillis) / periodMillis.toFloat() * TWO_PI
                     delay(MESH_FRAME_MS)

@@ -121,6 +121,10 @@ fun Modifier.glassBarSurface(backdrop: Backdrop, tint: Color): Modifier =
             },
             highlight = null,
             shadow = null,
+            // 先垫一层不透明的底：采样层里只有内容、没有页面底色，文字四周是透明的，
+            // 模糊后几乎不剩东西；顶栏又画在真实内容上面，只压 72% 的表面色时，
+            // 底下那行原字会透上来——看起来就是「小字没被模糊」，每个页面都一样。
+            onDrawBehind = { drawRect(tint.copy(alpha = 1f)) },
             onDrawSurface = { drawRect(tint) },
         )
 

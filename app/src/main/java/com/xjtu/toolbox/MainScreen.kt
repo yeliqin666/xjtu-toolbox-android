@@ -103,7 +103,14 @@ internal fun MainScreen(
     var navBarStyle by remember { mutableStateOf(credentialStore.navBarStyle) }
     DisposableEffect(Unit) {
         AgentRuntimeHooks.applyNavBarStyle = { v -> navBarStyle = v }
-        onDispose { AgentRuntimeHooks.applyNavBarStyle = null }
+        // 设置页改风格只写存储；主界面在返回栈底下一直活着，不跟着监听就一直是旧风格
+        // （存储里是玻璃、画出来却是经典底栏，重启才对）。
+        navBarStyle = credentialStore.navBarStyle
+        val stop = credentialStore.observeNavBarStyle { navBarStyle = it }
+        onDispose {
+            AgentRuntimeHooks.applyNavBarStyle = null
+            stop()
+        }
     }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -474,13 +481,14 @@ internal fun MainScreen(
 
     val onPidaiTap: () -> Unit = {
         userSelectTab(BottomTab.PIDAI.ordinal)
-        // 正事气泡（余额不足、要上课了）优先级高于闲话，不许被戳一下就顶掉。
-        val current = com.xjtu.toolbox.agent.ProactiveBubbleHost.message
-        if (current == null || current.id == com.xjtu.toolbox.agent.ProactiveRules.CHATTER_ID) {
-            com.xjtu.toolbox.agent.ProactiveRules.pickOnTap(context)?.let { line ->
-                com.xjtu.toolbox.agent.ProactiveRules.markTapped(context, line)
-                com.xjtu.toolbox.agent.ProactiveBubbleHost.message = line
-            }
+        // 点了就是要进屁岱页：闲话不再从底栏冒泡（气泡会压住输入框），交给首屏的屁岱说。
+        // 正事气泡（余额不足、要上课了）不动，离开屁岱页后照常显示。
+        val host = com.xjtu.toolbox.agent.ProactiveBubbleHost
+        if (host.message?.id == com.xjtu.toolbox.agent.ProactiveRules.CHATTER_ID) host.clear()
+        com.xjtu.toolbox.agent.ProactiveRules.pickOnTap(context)?.let { line ->
+            com.xjtu.toolbox.agent.ProactiveRules.markTapped(context, line)
+            host.heroLine = line.text
+            host.heroPokes++
         }
     }
 
@@ -540,7 +548,8 @@ internal fun MainScreen(
 
     val proactiveBubbleSlot: @Composable () -> Unit = {
         val msg = com.xjtu.toolbox.agent.ProactiveBubbleHost.message
-        if (msg != null) {
+        // 在屁岱页不画底栏气泡：它会压住输入框，而且人已经在跟屁岱说话了
+        if (msg != null && selectedTab != BottomTab.PIDAI) {
             val screenWidth = with(androidx.compose.ui.platform.LocalDensity.current) {
                 androidx.compose.ui.platform.LocalWindowInfo.current.containerSize.width.toDp()
             }
@@ -611,11 +620,10 @@ internal fun MainScreen(
         } else {
             WindowInsets.systemBars.union(WindowInsets.displayCutout)
         },
-        snackbarHost = {
-            Box(Modifier.padding(bottom = floatingBarReserve)) {
-                SnackbarHost(snackbarHostState)
-            }
-        },
+        // 不再自己垫高：两种悬浮底栏都走 floatingToolbar 槽位，miuix Scaffold 会把提示条放在
+        // 整个槽位（底栏 + 头顶的屁岱气泡）之上；经典底栏走 bottomBar，同样自动让开。
+        // 再加 floatingBarReserve 就是双份，提示条会悬在半空。
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             // 屁岱永远用折叠态标题：它是从下往上长的聊天，大标题会随滚动忽大忽小。
             // 学辅原来也在这一档，理由是"它是个 WebView，没有可驱动折叠的原生滚动"；
@@ -963,6 +971,8 @@ internal fun MainScreen(
                                         }
                                     }
                             ) {
+                              // 切走的 tab 仍在组合里，靠它让里面的常驻动画（首页渐变）停下
+                              CompositionLocalProvider(com.xjtu.toolbox.ui.components.LocalPageVisible provides isActive) {
                                 when (tab) {
                                     BottomTab.HOME -> HomeTab(
                                         loginState,
@@ -987,9 +997,6 @@ internal fun MainScreen(
                                         // 经典底栏本身占位，无需额外补。
                                         extraBottomPadding = floatingBarReserve,
                                         hostBottomPadding = padding.calculateBottomPadding(),
-                                        // 0 级页：不自带 Scaffold/TopAppBar，也没有返回箭头。
-                                        // 返回键的语义由 MainScreen 统一管（非首页 tab → 回首页）。
-                                        asTab = true,
                                         scrollBehavior = agentScrollBehavior,
                                         onTitleChange = { agentTitle = it },
                                         onActionsChange = { agentHeaderActions = it },
@@ -1014,6 +1021,7 @@ internal fun MainScreen(
                                         contentTopPadding = tabTopPadding,
                                     )
                                 }
+                              }
                             }
                         }
                     }
@@ -1374,7 +1382,6 @@ private fun CoursesTab(
             site = loginState.sessionManager?.getSiteOrNull("jwxt"),
             studentId = loginState.activeUsername,
             onBack = {},
-            showTopBar = false,
             onSubtitleChange = onSubtitleChange,
             onActionsChange = onActionsChange,
             onBottomContentChange = onBottomContentChange,

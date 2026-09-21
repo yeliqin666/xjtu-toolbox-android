@@ -41,6 +41,38 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 /**
+ * `app_guide` 的内容：App 功能与入口。
+ *
+ * 以前常驻在系统提示里（约 600 字），可只有「去哪办」「App 能不能做」这类问题才用得上，
+ * 其余每轮都白付这些 token，所以挪到工具后面按需取。
+ * 这是 App 页面的一份手写副本，**加减页面时记得同步**——以前写错过（日程「导出图片」其实走不到）。
+ */
+private const val APP_GUIDE = """App 功能与入口：
+- 日程（底栏）：课表与教材、考试安排、自建日程；可切学期、导出日历（ICS）。
+- 成绩查询：各学期成绩、GPA、成绩报表。电子成绩单另有一页：一键向学校申请并下载 PDF。
+- 空闲教室：按校区、楼、节次查，可筛「现在空闲」「刚解放」「大教室」。
+- 新版考勤：考勤流水、打卡流水、统计，以及请假的提交、撤回和销假；另有快速考勤流水（人脸 / 班牌打卡）。
+- 校园卡：余额、流水、消费分析；付款码单独一页。
+- 加餐券：领取和使用。
+- 图书馆：座位查询、预约等。
+- 场馆预约：体育场馆按时段预订、看订单。
+- 思源学堂：课程、作业、课件、回放。
+- 教材：查本人教材、书架、全文库在线阅读。
+- 本科评教：可一键好评。
+- 其他：全校课程（按课程名或老师查开课）、校历、校园黄页、体测成绩、通知公告（多来源合并）、教师主页、仲英学辅资料站（课件、历年卷等资料的预览和下载）、WebVPN 链接转换（校外访问内网）、扫码登录（首页左上角，扫统一身份认证的二维码）、反馈与建议（「我的」页）。
+- 选课、交作业、缴费不在 App 里，要去学校对应系统。"""
+
+/** `app_guide` 的内容：校区食堂与开放时间。来源：学校后勤官网、交大新闻网及公开报道。 */
+private const val XINGQING_GUIDE = """兴庆校区：
+- 学生食堂：梧桐苑和康桥苑。梧桐苑三层，二楼是自选餐厅。康桥苑价格更便宜，离东南门和操场近：一楼大众伙食，二楼特色小吃和自选，三楼东苑食堂有点餐、套餐和自助餐，还有超市、奶茶店和瑞幸。
+- 图书馆约 23:00 闭馆，二层连廊和流通大厅 24 小时开放；主楼群约 22:30 关门。
+- 主楼在校园南部，中、东、西楼在北部。
+
+创新港：
+- 食堂：A 区和鸣苑、B 区惠风苑、C 区朗清苑，另有涵英楼食堂、同和苑，都在各自的宿舍园区里。
+- 供餐时间：早餐 6:30–9:30，午餐 11:00–13:30，晚餐 17:00–19:30；部分档口有夜宵到 23:00。"""
+
+/**
  * 暴露给 Agent 的只读工具注册表。
  *
  * 安全约束：
@@ -54,25 +86,24 @@ class AgentToolRegistry(
     private val loginState: AppLoginState,
     private val dataCache: DataCache,
     private val context: Context,
-    private val disabledCaps: Set<String> = emptySet(),
     private val defaultSearchEngine: String = AgentConfig.SEARCH_AUTO
 ) {
     private val gson = Gson()
 
     /**
-     * 限流分组键。复用 [toolCaps] 的能力分类——它天然就是按后端系统分的组，
-     * 正好可以当"同一站点"的判据。返回 null 表示纯本地工具（取时间、设闹钟等），
-     * 不需要任何间隔。
+     * 限流分组键：同一个后端系统的两次调用之间要隔开一点，别连着猛打学校服务器。
+     * 返回 null 表示纯本地工具（算术、设闹钟、记偏好等），不需要间隔。
      */
-    fun rateLimitKeyOf(toolName: String): String? = toolCaps[toolName]
+    fun rateLimitKeyOf(toolName: String): String? = toolSites[toolName]
 
     /** 记住的用户偏好，拼进系统提示。走注册表是因为 ViewModel 手上没有 Context。 */
     fun memoryBlock(): String = AgentMemory.promptBlock(context)
 
-    private val toolCaps = mapOf(
+    /** 工具 → 它访问的后端系统。只用于限流分组。 */
+    private val toolSites = mapOf(
         "get_schedule" to "schedule",
         "get_exam_schedule" to "schedule",
-        "get_school_calendar" to "schedule",
+        "get_calendar" to "schedule",
         "search_school_courses" to "schedule",
         "get_empty_rooms" to "schedule",
         "get_attendance" to "attendance",
@@ -82,26 +113,15 @@ class AgentToolRegistry(
         "search_yellow_page" to "yellow_page",
         "web_search" to "web",
         "web_fetch" to "web",
-        "get_library_booking" to "library",
-        "get_library_seats" to "library",
-        "search_zyxf" to "zyxf",
-        "browse_zyxf" to "zyxf",
+        "get_library" to "library",
+        "list_zyxf" to "zyxf",
         "read_zyxf_file" to "zyxf",
         "get_textbooks" to "textbook",
         "get_coupons" to "coupon",
-        "get_lms_courses" to "lms",
-        "get_lms_activities" to "lms",
-        "get_lms_assignments" to "lms",
-        "get_lms_activity_detail" to "lms",
-        "read_lms_attachment" to "lms",
+        "get_lms" to "lms",
+        "get_lms_activity" to "lms",
         "get_fitness_score" to "fitness",
         "find_faculty" to "faculty",
-        "compose_email" to "device_write",
-        "remember_preference" to "memory",
-        "forget_preference" to "memory",
-        "set_app_setting" to "settings_write",
-        "set_alarm" to "device_write",
-        "create_calendar_event" to "device_write"
     )
 
     // 每个 LoginType 上次失败的时间戳；60s 内不重试，防止反复触发服务端风控
@@ -178,6 +198,22 @@ class AgentToolRegistry(
             lines.add(buildString {
                 append("- 学号：$sid")
                 enrollYear?.let { append("（${it} 级，$it 年秋入学）") }
+                // 年级和学期直接算好写出来，不让模型从入学年自己推（跨年、春季学期最容易推错）。
+                // 以课表缓存里的当前学期代码为准，如 2025-2026-2 → 学年起始 2025、第 2 学期
+                val y = enrollYear?.toIntOrNull()
+                val term = cachedTermCode()?.split("-")
+                val termStart = term?.getOrNull(0)?.toIntOrNull()
+                val termNo = term?.getOrNull(2)?.toIntOrNull()
+                if (y != null && termStart != null && termNo != null && termStart >= y) {
+                    val grade = termStart - y + 1
+                    val postgrad = runCatching {
+                        com.xjtu.toolbox.util.CredentialStore(context).accountType == AccountType.POSTGRADUATE
+                    }.getOrDefault(false)
+                    val names = if (postgrad) listOf("研一", "研二", "研三") else listOf("大一", "大二", "大三", "大四", "大五")
+                    val gradeName = names.getOrElse(grade - 1) { "入学第 $grade 年" }
+                    val half = when (termNo) { 1 -> "上"; 2 -> "下"; else -> "小学期" }
+                    append("；当前 $gradeName$half（${term.joinToString("-")} 学期）")
+                }
             })
             province?.let { lines.add("- 生源地：${it}省（学号省码${sid.substring(3, 5)}）") }
         }
@@ -199,6 +235,15 @@ class AgentToolRegistry(
                     lines.add("- 校区：$it")
                 }
                 if (p.grade > 0) lines.add("- 年级：${p.grade} 级")
+                // 请假、证明、心情不好时最该找的人；「我辅导员电话多少」黄页里查不到
+                if (p.counselorName.isNotBlank()) {
+                    lines.add("- 辅导员：" + listOf(p.counselorName, p.counselorPhone, p.counselorOffice)
+                        .filter { it.isNotBlank() }.joinToString("｜"))
+                }
+                if (p.classTeacherName.isNotBlank()) {
+                    lines.add("- 班主任：" + listOf(p.classTeacherName, p.classTeacherPhone)
+                        .filter { it.isNotBlank() }.joinToString("｜"))
+                }
             }
 
         if (lines.isEmpty()) return@withContext ""
@@ -305,8 +350,9 @@ class AgentToolRegistry(
         val arr = JsonArray()
         // 描述只写「返回什么、参数怎么填、前置条件」。何时该调、怎么答由系统提示和模型自己定，
         // 不在这里举例、劝说或解释。
-        arr.add(tool("get_current_time",
-            "当前日期、时间、星期、学期代码与名称、教学周、当前与下一节次、开学至今天数。"))
+        arr.add(tool("get_calendar",
+            "第几周、放假、考试周、开学：教学周、当前与下一节次、今天的作息表、开学至今天数，以及学期校历。",
+            params("term" to strProp("学年或学期关键词，如 2025-2026、第一学期。缺省：当前学期。"))))
         arr.add(tool("get_schedule",
             "课表，含用户自建日程。无缓存时联网拉取。",
             params(
@@ -315,9 +361,6 @@ class AgentToolRegistry(
             )))
         arr.add(tool("get_exam_schedule",
             "考试安排：日期、时间、地点、座位号。需教务登录。"))
-        arr.add(tool("get_school_calendar",
-            "校历：学期起止、总周数、当前周、假期、考试周。",
-            params("term" to strProp("学年或学期关键词，如 2025-2026、第一学期。缺省：当前学期。"))))
         arr.add(tool("search_school_courses",
             "全校开课查询，返回教师、学分、容量、班级、时间地点。至少给一个筛选条件。需教务登录。",
             params(
@@ -351,7 +394,7 @@ class AgentToolRegistry(
             "成绩与加权 GPA。需教务登录。",
             params("term" to strProp("学期代码，如 2024-2025-1。缺省：全部学期。"))))
         arr.add(tool("get_card_info",
-            "校园卡余额与状态（挂失/冻结）；给 days 时附流水与收支汇总。需校园卡登录。",
+            "校园卡余额、消费流水与收支汇总（给 days 时）。需校园卡登录。",
             params("days" to intProp("流水天数 1–180。缺省：不查流水。"))))
         arr.add(tool("get_notifications",
             "校内通知：标题、来源、日期、链接。",
@@ -366,22 +409,12 @@ class AgentToolRegistry(
                 "category" to strProp("党群机构/行政机构/直属单位/附属单位/其它。"),
                 "limit" to intProp("条数，默认 10，上限 20。")
             )))
-        arr.add(tool("compose_email",
-            "打开系统邮件应用并预填收件人、主题、正文，由用户发送。收件人须来自 find_faculty 结果或用户原话。",
-            params(
-                "to" to strProp("收件人邮箱。"),
-                "subject" to strProp("主题。"),
-                "body" to strProp("正文。")
-            )))
-        arr.add(tool("remember_preference",
-            "在本机长期保存一条用户偏好。只存可复用的信息，不存一次性事项。偏好不决定是否查询。",
+        arr.add(tool("preference",
+            "在本机长期保存或删除一条用户偏好。只存可复用的信息，不存一次性事项。",
             params(
                 "key" to strProp("偏好名，同名覆盖。"),
-                "value" to strProp("内容，一句。")
+                "value" to strProp("内容，一句。缺省：删除该偏好。")
             )))
-        arr.add(tool("forget_preference",
-            "删除一条已存偏好。",
-            params("key" to strProp("偏好名。"))))
         arr.add(tool("find_faculty",
             "本校在职教师主页：学院、职称、研究方向、办公地点、邮箱、主页地址。不含学生、行政人员、校外人士。",
             params(
@@ -392,7 +425,7 @@ class AgentToolRegistry(
         arr.add(tool("web_search",
             "联网搜索，返回标题、URL、摘要。",
             params(
-                "query" to strProp("关键词。"),
+                "query" to strProp("关键词。学校政策、办事流程加 site:xjtu.edu.cn 优先查官网。"),
                 "engine" to strProp("auto/duckduckgo/so360/bing/wechat/wiki。缺省：用户设置。wechat=公众号，wiki=百科词条。"),
                 "limit" to intProp("条数，默认 8，上限 22。")
             )))
@@ -407,34 +440,31 @@ class AgentToolRegistry(
                 "message" to strProp("标签。"),
                 "days" to strProp("重复星期，逗号分隔：MON,TUE,WED,THU,FRI,SAT,SUN。缺省：单次。")
             )))
-        arr.add(tool("create_calendar_event",
-            "打开系统日历新建日程，由用户确认保存。",
+        arr.add(tool("add_schedule_event",
+            "往本 App 的日程里添加一条，只限当前学期。与课程或已有日程时间重叠时不添加，返回冲突；用户确认后带 force=true 重试。",
             params(
                 "title" to strProp("标题。"),
-                "start" to strProp("yyyy-MM-dd HH:mm；全天填 yyyy-MM-dd。"),
-                "end" to strProp("格式同 start。缺省：开始后 1 小时；全天为当天。"),
+                "date" to strProp("yyyy-MM-dd；星期取这一天。"),
+                "start" to strProp("开始时间 HH:mm。"),
+                "end" to strProp("结束时间 HH:mm。缺省：开始后 1 小时。"),
                 "location" to strProp("地点。"),
-                "description" to strProp("备注。")
+                "note" to strProp("备注。"),
+                "weeks" to strProp("每周重复的教学周，如 3-5,8。缺省：只加 date 所在的那一周。"),
+                "force" to boolProp("冲突时仍然添加。")
             )))
-        arr.add(tool("get_library_booking",
-            "本人当前图书馆座位预约：座位号、区域、状态。需图书馆登录。"))
-        arr.add(tool("get_library_seats",
-            "图书馆区域空座数。需图书馆登录。",
+        arr.add(tool("get_library",
+            "图书馆：本人当前座位预约，以及某区域的空座数。需图书馆登录。",
             params("area" to strProp("区域名，模糊，如 北楼二层外文库。缺省：返回区域列表。"))))
-        arr.add(tool("search_zyxf",
-            "检索仲英学辅资料站（同学共享的课件、历年卷、笔记），按文件名、目录名模糊匹配。",
+        arr.add(tool("list_zyxf",
+            "历年卷、复习资料、课件、笔记（仲英学辅资料站，同学共享）：给 keyword 按文件名、目录名检索，否则列出目录。",
             params(
-                "keyword" to strProp("关键词，宜用课程名。")
-            )))
-        arr.add(tool("browse_zyxf",
-            "列出仲英学辅资料站目录。",
-            params(
+                "keyword" to strProp("关键词，宜用课程名。"),
                 "folder_id" to intProp("目录 ID。缺省或 0：根目录。")
             )))
         arr.add(tool("read_zyxf_file",
             "读取仲英学辅资料站文件。文本返回正文；PDF/Office 只返回直链与大小。",
             params(
-                "file_id" to intProp("文件 ID，来自 search_zyxf/browse_zyxf。")
+                "file_id" to intProp("文件 ID，来自 list_zyxf。")
             )))
         arr.add(tool("get_textbooks",
             "本人课程教材（教务教材报表）。需教务登录。",
@@ -445,21 +475,14 @@ class AgentToolRegistry(
         arr.add(tool("get_coupons",
             "本人加餐券：可领取、可使用、余额、有效期。需加餐券登录。",
             params("status" to strProp("all=可领取+可使用；available=可领取；usable=可使用。缺省：all。"))))
-        arr.add(tool("get_lms_courses",
-            "思源学堂课程列表。需思源学堂登录。"))
-        arr.add(tool("get_lms_activities",
-            "思源学堂某课的作业、课件、回放等活动。需思源学堂登录。",
-            params("course" to strProp("课程名，模糊。"))))
-        arr.add(tool("get_lms_assignments",
-            "思源学堂全部课程的作业汇总，逐课查询，较慢。需思源学堂登录。"))
-        arr.add(tool("get_lms_activity_detail",
-            "思源学堂活动详情：说明、截止时间、提交状态、附件名与 URL。需思源学堂登录。",
+        arr.add(tool("get_lms",
+            "思源学堂：不给 course 列出本人课程；给 course 列出该课的作业、课件、回放等活动；scope=assignments 汇总全部课程的作业（逐课查询，较慢）。需思源学堂登录。",
             params(
                 "course" to strProp("课程名，模糊。"),
-                "activity" to strProp("活动标题，模糊。")
+                "scope" to strProp("assignments：全部作业汇总。")
             )))
-        arr.add(tool("read_lms_attachment",
-            "读取思源学堂附件文本（txt/md/html/json/csv）；PDF/Office 只返回 URL。需思源学堂登录。",
+        arr.add(tool("get_lms_activity",
+            "思源学堂某个活动的详情：说明、截止时间、提交状态、附件名与 URL；给 file 时读取该附件文本（txt/md/html/json/csv；PDF/Office 只返回 URL）。需思源学堂登录。",
             params(
                 "course" to strProp("课程名，模糊。"),
                 "activity" to strProp("活动标题，模糊。"),
@@ -468,31 +491,19 @@ class AgentToolRegistry(
         arr.add(tool("get_fitness_score",
             "本人体测成绩：总分、等级、分项。按学年计。需体测登录。",
             params("year" to strProp("学年起始年，2025=2025-2026 学年。缺省：当前已开测学年。"))))
-        arr.add(tool("get_app_settings",
-            "本应用可调设置的当前值与可选值。"))
-        arr.add(tool("get_login_diagnostics",
-            "各子系统登录状态、访问模式、近期登录/重认证/冷却事件，已脱敏。",
-            params("limit" to intProp("事件条数，默认 30，上限 80。"))))
-        arr.add(tool("set_app_setting",
-            "修改本应用一项非敏感设置。",
+        arr.add(tool("app_setting",
+            "本应用设置：不给 value 时列出全部设置的当前值与可选值；给 key 和 value 时修改该项。",
             params(
-                "key" to strProp("dark_mode / dynamic_color / home_theme / nav_bar_style / show_quick_actions / default_tab / network_mode / account_type / venue_auto_solve_captcha / update_channel。"),
-                "value" to strProp("取值，可选值见 get_app_settings。")
+                "key" to strProp("dark_mode / dynamic_color / home_theme / nav_bar_style / show_quick_actions / default_tab / network_mode / account_type / venue_auto_solve_captcha / update_channel / receive_preview_updates。"),
+                "value" to strProp("新取值。")
             )))
+        arr.add(tool("app_guide",
+            "本 App 有哪些功能、某件事去哪一页办；兴庆、创新港的食堂和开放时间。",
+            params("topic" to strProp("app：功能与入口；campus：食堂与开放时间。缺省：两者都给。"))))
         arr.add(tool("calculate",
             "计算表达式：+ - * / ^ 与括号。",
             params("expression" to strProp("如 (3.7*4+4.0*3)/(4+3)。"))))
-        arr.add(tool("check_update",
-            "当前版本与发布渠道最新版本。"))
-        return JsonArray().apply {
-            arr.forEach { definition ->
-                val name = definition.asJsonObject
-                    .getAsJsonObject("function")
-                    .get("name").asString
-                val cap = toolCaps[name]
-                if (cap == null || cap !in disabledCaps) add(definition)
-            }
-        }.toString()
+        return arr.toString()
     }
 
     /** 构造单个 function-calling 工具对象。params 省略时为无参。 */
@@ -527,20 +538,18 @@ class AgentToolRegistry(
     }
 
     suspend fun execute(name: String, argsJson: String): String = withContext(Dispatchers.IO) {
-        toolCaps[name]?.takeIf { it in disabledCaps }?.let { cap ->
-            return@withContext ToolReply.disabled(name, cap)
-        }
 
         val args = runCatching {
             @Suppress("UNCHECKED_CAST")
             gson.fromJson(argsJson, Map::class.java) as Map<String, Any>
         }.getOrDefault(emptyMap())
 
-        when (name) {
-            "get_current_time" -> getCurrentTime()
+        val widgetsBefore = pendingWidgets.size
+        val result = when (name) {
+            // 当前时间、节次、教学周和校历本是同一件事，合成一个工具
+            "get_calendar" -> getCurrentTime() + "\n\n" + getSchoolCalendar(args["term"] as? String)
             "get_schedule" -> getSchedule(args["date"] as? String, args["term"] as? String)
             "get_exam_schedule" -> getExamSchedule()
-            "get_school_calendar" -> getSchoolCalendar(args["term"] as? String)
             "search_school_courses" -> searchSchoolCourses(
                 courseName = args["course_name"] as? String,
                 teacher = args["teacher"] as? String,
@@ -574,17 +583,13 @@ class AgentToolRegistry(
                 category = args["category"] as? String,
                 limit = (args["limit"] as? Double)?.toInt() ?: 10
             )
-            "compose_email" -> composeEmail(
-                to = args["to"] as? String ?: "",
-                subject = args["subject"] as? String ?: "",
-                body = args["body"] as? String ?: "",
-            )
-            "remember_preference" -> AgentMemory.remember(
-                context,
-                args["key"] as? String ?: "",
-                args["value"] as? String ?: "",
-            )
-            "forget_preference" -> AgentMemory.forget(context, args["key"] as? String ?: "")
+            // 给 value 是记下，不给是删掉
+            "preference" -> {
+                val key = args["key"] as? String ?: ""
+                val value = (args["value"] as? String).orEmpty()
+                if (value.isBlank()) AgentMemory.forget(context, key)
+                else AgentMemory.remember(context, key, value)
+            }
             "find_faculty" -> findFaculty(
                 name = args["name"] as? String ?: "",
                 college = args["college"] as? String,
@@ -602,33 +607,57 @@ class AgentToolRegistry(
                 message = args["message"] as? String,
                 days = args["days"] as? String
             )
-            "create_calendar_event" -> createCalendarEvent(
+            "add_schedule_event" -> addScheduleEvent(
                 title = args["title"] as? String,
+                date = args["date"] as? String,
                 start = args["start"] as? String,
                 end = args["end"] as? String,
                 location = args["location"] as? String,
-                description = args["description"] as? String
+                note = args["note"] as? String,
+                weeks = args["weeks"] as? String,
+                force = args["force"] as? Boolean ?: false,
             )
-            "search_zyxf" -> searchZyxf(args["keyword"] as? String ?: "")
-            "browse_zyxf" -> browseZyxf((args["folder_id"] as? Double)?.toInt() ?: 0)
+            // 给关键词就检索，不给就按目录浏览
+            "list_zyxf" -> {
+                val keyword = (args["keyword"] as? String).orEmpty()
+                if (keyword.isNotBlank()) searchZyxf(keyword)
+                else browseZyxf((args["folder_id"] as? Double)?.toInt() ?: 0)
+            }
             "read_zyxf_file" -> readZyxfFile((args["file_id"] as? Double)?.toInt() ?: 0)
-            "get_library_booking" -> getLibraryBooking()
-            "get_library_seats" -> getLibrarySeats(args["area"] as? String)
+            // 我的预约和区域空座一次给全
+            "get_library" -> getLibraryBooking() + "\n\n" + getLibrarySeats(args["area"] as? String)
             "get_textbooks" -> getTextbooks(args["course"] as? String, args["term"] as? String)
             "get_coupons" -> getCoupons(args["status"] as? String)
-            "get_lms_courses" -> getLmsCourses()
-            "get_lms_activities" -> getLmsActivities(args["course"] as? String)
-            "get_lms_assignments" -> getLmsAssignments()
-            "get_lms_activity_detail" -> getLmsActivityDetail(args["course"] as? String, args["activity"] as? String)
-            "read_lms_attachment" -> readLmsAttachment(args["course"] as? String, args["activity"] as? String, args["file"] as? String)
+            "get_lms" -> {
+                val course = (args["course"] as? String).orEmpty()
+                when {
+                    args["scope"] == "assignments" -> getLmsAssignments()
+                    course.isBlank() -> getLmsCourses()
+                    else -> getLmsActivities(course)
+                }
+            }
+            "get_lms_activity" -> {
+                val file = (args["file"] as? String).orEmpty()
+                if (file.isNotBlank()) readLmsAttachment(args["course"] as? String, args["activity"] as? String, file)
+                else getLmsActivityDetail(args["course"] as? String, args["activity"] as? String)
+            }
             "get_fitness_score" -> getFitnessScore(args["year"] as? String)
-            "get_app_settings" -> getAppSettings()
-            "get_login_diagnostics" -> getLoginDiagnostics((args["limit"] as? Double)?.toInt() ?: 30)
-            "set_app_setting" -> setAppSetting(args["key"] as? String ?: "", args["value"] as? String ?: "")
+            // 给了 key 和 value 是改，否则列出全部设置
+            "app_setting" -> {
+                val key = (args["key"] as? String).orEmpty()
+                val value = (args["value"] as? String).orEmpty()
+                if (key.isBlank() || value.isBlank()) getAppSettings() else setAppSetting(key, value)
+            }
             "calculate" -> calculate(args["expression"] as? String ?: "")
-            "check_update" -> checkUpdate()
+            "app_guide" -> when ((args["topic"] as? String)?.trim()?.lowercase()) {
+                "app" -> APP_GUIDE
+                "campus", "xingqing" -> XINGQING_GUIDE
+                else -> APP_GUIDE + "\n\n" + XINGQING_GUIDE
+            }
             else -> ToolReply.notFound("tool", name)
         }
+        // 这次调用生成了卡片（课表、成绩、空教室……）就明确告诉模型：用户已经看到了
+        if (pendingWidgets.size > widgetsBefore) result + "\n" + ToolReply.CARD_SHOWN else result
     }
 
     // ── 实现 ──────────────────────────────────────────────────────────────
@@ -751,6 +780,11 @@ class AgentToolRegistry(
                 nextSection != null -> append("，下一节：第${nextSection}节（${XjtuTime.getClassStartStr(nextSection, isSummer)}）")
                 else -> append("，今日课程已结束")
             }
+            // 今天适用的作息表：用户问「第 9 节几点」时不必再猜冬季还是夏季
+            append("\n作息（${if (isSummer) "夏季，5–9 月" else "冬季，10–4 月"}）：")
+            append((1..11).mapNotNull { s ->
+                XjtuTime.getClassTime(s, isSummer)?.let { "$s ${it.start}–${it.end}" }
+            }.joinToString("｜"))
         }
     }
 
@@ -798,7 +832,7 @@ class AgentToolRegistry(
                 }
             }.trimEnd()
         } catch (e: Exception) {
-            ToolReply.failed("get_school_calendar", e.message)
+            ToolReply.failed("get_calendar", e.message)
         }
     }
 
@@ -827,8 +861,8 @@ class AgentToolRegistry(
                 append("：\n")
                 result.forEach { department ->
                     val categoryName = data.categories.firstOrNull { it.id == department.categoryId }?.name
-                    append("• ${department.name}：${department.phone}")
-                    categoryName?.let { append("（$it）") }
+                    append("${department.name}｜${department.phone}")
+                    categoryName?.let { append("｜$it") }
                     append("\n")
                 }
                 if (result.size == limit.coerceIn(1, 20)) append("（已按 limit 截断）")
@@ -1008,10 +1042,10 @@ class AgentToolRegistry(
                 // 一门课一周上几次、临时换过教室，都会是好几条；"共几门"按课程数，不按条数
                 val courseCount = courses.map { it.courseCode.ifBlank { it.courseName } }.distinct().size
                 append("${termCode}学期课表（共${courseCount}门，含手动添加${customCourses.size}）：\n")
-                courses.sortedWith(compareBy({ it.dayOfWeek }, { it.startSection })).groupBy { it.dayOfWeek }
-                    .forEach { (day, cs) ->
-                        append("${dayNames.getOrElse(day) { "" }}：${cs.joinToString("；") { "${it.courseName}（${weekRange(it)}${it.startSection}-${it.endSection}节，${it.location}）" }}\n")
-                    }
+                // 历史学期跨冬夏两套作息，只给节次不给钟点
+                courses.sortedWith(compareBy({ it.dayOfWeek }, { it.startSection })).forEach {
+                    append("${it.courseName}｜${dayNames.getOrElse(it.dayOfWeek) { "" }} ${it.startSection}–${it.endSection}节｜${weekRange(it).trim()}｜${it.location}\n")
+                }
             }.withChangeNote(changeNote)
         }
 
@@ -1019,22 +1053,26 @@ class AgentToolRegistry(
             cachedStartDate(termCode)?.let { LocalDate.parse(it) }
         }.getOrNull() ?: return ToolReply.failed("get_schedule", "no_term_start_date")
 
+        // 法定假日：课表照排，但那天停课。数据源只有放假日，没有调休补课日，所以只标停课
+        val holidays = runCatching { com.xjtu.toolbox.schedule.HolidayApi.getHolidayDates(context) }
+            .getOrDefault(emptyMap())
+
         if (dateStr != null) {
             val targetDate = runCatching { LocalDate.parse(dateStr) }.getOrElse { LocalDate.now() }
             val weekNum = com.xjtu.toolbox.schedule.TermWeeks.weekOf(startDate, targetDate)
             val dayCourses = courses.filter { it.dayOfWeek == targetDate.dayOfWeek.value && it.isInWeek(weekNum) }
                 .sortedBy { it.startSection }
-            if (dayCourses.isEmpty()) return "${targetDate}（第${weekNum}周 ${dayNames[targetDate.dayOfWeek.value]}）没有课。"
+            val holiday = holidays[targetDate]
+            if (dayCourses.isEmpty()) {
+                return "${targetDate} 第${weekNum}周${dayNames[targetDate.dayOfWeek.value]}｜无课" +
+                    (holiday?.let { "｜法定假日 $it" } ?: "")
+            }
             pendingWidgets.add(ScheduleWidget("${targetDate} 第${weekNum}周${dayNames[targetDate.dayOfWeek.value]}", dayCourses))
             return buildString {
-                append("${targetDate} 第${weekNum}周${dayNames[targetDate.dayOfWeek.value]}课程：\n")
-                // 作息按所问那天的月份定（夏令/冬令），不是按今天
-                val summer = XjtuTime.isSummerTime(targetDate.monthValue)
-                dayCourses.forEach { c ->
-                    val startsAt = c.startMinuteOfDay.takeIf { it >= 0 }?.let { "%02d:%02d".format(it / 60, it % 60) }
-                        ?: XjtuTime.getClassStartStr(c.startSection, summer)
-                    append("• ${c.courseName}，第${c.startSection}-${c.endSection}节（${startsAt}起），${c.location}，${c.teacher}\n")
-                }
+                append("${targetDate} 第${weekNum}周${dayNames[targetDate.dayOfWeek.value]}")
+                holiday?.let { append("｜法定假日 $it，以下课程停课") }
+                append("\n")
+                dayCourses.forEach { c -> append(courseLine(c, targetDate, withTeacher = true)).append('\n') }
             }.withChangeNote(changeNote)
         } else {
             val today = LocalDate.now()
@@ -1045,12 +1083,42 @@ class AgentToolRegistry(
             if (weekCourses.isEmpty()) return "第${weekNum}周没有课。"
             pendingWidgets.add(ScheduleWidget("第${weekNum}周课表", weekCourses))
             return buildString {
-                append("第${weekNum}周课程：\n")
-                weekCourses.groupBy { it.dayOfWeek }.forEach { (day, cs) ->
-                    append("${dayNames[day]}：${cs.joinToString("；") { "${it.courseName}（${it.startSection}-${it.endSection}节，${it.location}）" }}\n")
+                append("第${weekNum}周：\n")
+                // 每门课按它那天的日期算作息，跨月那周也不会错
+                val monday = startDate.plusWeeks((weekNum - 1).toLong())
+                weekCourses.forEach { c ->
+                    val day = monday.plusDays((c.dayOfWeek - 1).toLong())
+                    append(courseLine(c, day))
+                    holidays[day]?.let { append("｜停课（$it）") }
+                    append('\n')
                 }
             }.withChangeNote(changeNote)
         }
+    }
+
+    /**
+     * 课表的一行：`课程｜周二 10:10–12:00（3–4节）｜地点｜教师`。
+     *
+     * 直接写出钟点，模型不必知道作息表——学校有冬、夏两套作息（5–9 月下午晚上推后 30 分钟），
+     * 让模型按节次自己推，问「明天几点下课」时容易错。作息按**那节课所在日期**的月份定。
+     * 自建日程带分钟级时间，优先用它。
+     */
+    private fun courseLine(c: CourseItem, date: LocalDate, withTeacher: Boolean = false): String {
+        val summer = XjtuTime.isSummerTime(date.monthValue)
+        fun hhmm(min: Int) = "%02d:%02d".format(min / 60, min % 60)
+        val start = c.startMinuteOfDay.takeIf { it >= 0 }?.let(::hhmm)
+            ?: XjtuTime.getClassTime(c.startSection, summer)?.start?.toString()
+        val end = c.endMinuteOfDay.takeIf { it >= 0 }?.let(::hhmm)
+            ?: XjtuTime.getClassTime(c.endSection, summer)?.end?.toString()
+        val days = listOf("", "周一", "周二", "周三", "周四", "周五", "周六", "周日")
+        val time = if (start != null && end != null) "$start–$end" else ""
+        val sections = if (c.courseType == "日程" || c.courseType == "自定义") "" else "（${c.startSection}–${c.endSection}节）"
+        return listOfNotNull(
+            c.courseName,
+            "${days.getOrElse(c.dayOfWeek) { "" }} $time$sections".trim(),
+            c.location.ifBlank { null },
+            c.teacher.takeIf { withTeacher && it.isNotBlank() },
+        ).joinToString("｜")
     }
 
     /**
@@ -1094,7 +1162,7 @@ class AgentToolRegistry(
             val text = buildString {
                 append("考试安排（${exams.size}场）：\n")
                 exams.forEach { e ->
-                    append("• ${e.courseName}，${e.examDate} ${e.examTime}，${e.location}，座位：${e.seatNumber.ifBlank { "待定" }}\n")
+                    append("${e.courseName}｜${e.examDate} ${e.examTime}｜${e.location}｜座位 ${e.seatNumber.ifBlank { "待定" }}\n")
                 }
             }
             dataCache.put("agent_exam", text)
@@ -1169,7 +1237,7 @@ class AgentToolRegistry(
                 append("空教室（$cond，共${filtered.size}间）：\n")
                 shown.forEach { r ->
                     val freeSlots = r.status.mapIndexedNotNull { i, s -> if (s == 0) i + 1 else null }
-                    append("• ${r.name}（${r.size}座），空闲节次：${freeSlots.joinToString("、") { "${it}节" }}\n")
+                    append("${r.name}｜${r.size} 座｜空闲节次 ${freeSlots.joinToString(",")}\n")
                 }
                 if (filtered.size > shown.size) append("…还有${filtered.size - shown.size}间，可指定楼栋缩小范围。\n")
             }
@@ -1203,10 +1271,14 @@ class AgentToolRegistry(
             if (records.isEmpty()) return ToolReply.empty("attendance")
             pendingWidgets.add(AttendanceWidget(records))
             val text = buildString {
-                append("最近${records.size}条考勤记录：\n")
+                // 统计先算好放第一行，「我这学期迟到几次」不用模型自己数
+                val counts = records.groupingBy { it.status.displayName }.eachCount()
+                append("最近 ${records.size} 条｜")
+                append(counts.entries.sortedByDescending { it.value }.joinToString("，") { "${it.key} ${it.value}" })
+                append("\n签到时间窗：每节开课前约 35–40 分钟到开课后 5 分钟，之后算迟到\n")
                 records.forEach { r ->
-                    append("• ${r.courseName}（${r.date} 第${r.startTime}-${r.endTime}节）：${r.status.displayName}")
-                    if (r.location.isNotBlank()) append("，${r.location}")
+                    append("${r.courseName}｜${r.date} ${r.startTime}–${r.endTime}节｜${r.status.displayName}")
+                    if (r.location.isNotBlank()) append("｜${r.location}")
                     append("\n")
                 }
             }
@@ -1230,25 +1302,35 @@ class AgentToolRegistry(
             if (grades.isEmpty()) return ToolReply.empty("grades; term: ${term ?: "all"}")
 
             // 加权平均绩点：按学分加权，仅统计有绩点的课程。
-            val contributions = grades.asSequence().map { g ->
+            val contributions = grades.map { g ->
                 com.xjtu.toolbox.util.ScoreCalculator.calculateOneCourseContribution(
                     rawScore = g.score,
                     credit = g.coursePoint,
                     reportedGpa = g.gpa,
                 )
             }
-            val (weightedGpaSum, totalPoints) = com.xjtu.toolbox.util.ScoreCalculator.accumulate(contributions)
+            val (weightedGpaSum, totalPoints) = com.xjtu.toolbox.util.ScoreCalculator.accumulate(contributions.asSequence())
             val gpa = if (totalPoints > 0) weightedGpaSum / totalPoints else null
+            // 加权均分只算数值成绩；等级制、通过/不通过算不进去，数出来告诉模型，免得它以为漏了课
+            val numeric = grades.mapNotNull { g -> g.score.trim().toDoubleOrNull()?.let { it to g.coursePoint } }
+                .filter { it.second > 0 }
+            val numericCredit = numeric.sumOf { it.second }
+            val weightedAvg = if (numericCredit > 0) numeric.sumOf { it.first * it.second } / numericCredit else null
+            val notInGpa = contributions.count { it.credit <= 0.0 }
 
             pendingWidgets.add(GradeWidget(grades, gpa, totalPoints))
             val text = buildString {
-                append("成绩（${grades.size}门")
-                gpa?.let { append("，加权GPA %.2f".format(it)) }
-                append("）：\n")
+                // 统计先算好放第一行（仿问舟的做法），模型不用自己心算
+                append("${grades.size} 门｜总学分 %.1f".format(grades.sumOf { it.coursePoint }))
+                gpa?.let { append("｜加权 GPA %.3f".format(it)) }
+                weightedAvg?.let { append("｜加权均分 %.2f（仅数值成绩）".format(it)) }
+                if (notInGpa > 0) append("｜不计入 GPA $notInGpa 门")
+                append("\n")
                 // 不截断：用户可能要求排除某些课程重算 GPA，需要完整成绩列表
                 grades.forEach { g ->
-                    append("• ${g.courseName}：${g.score}，${g.coursePoint}学分")
-                    g.gpa?.let { append("，绩点%.2f".format(it)) }
+                    append("${g.courseName}｜${g.score}｜${g.coursePoint} 学分")
+                    g.gpa?.let { append("｜绩点 %.2f".format(it)) }
+                    if (term == null && g.term.isNotBlank()) append("｜${g.term}")
                     append("\n")
                 }
             }
@@ -1290,7 +1372,7 @@ class AgentToolRegistry(
                             val income = txs.filter { it.amount > 0 }.sumOf { it.amount }
                             append("\n最近${d}天流水（共${txs.size}笔，支出¥${"%.2f".format(spend)}，充值/收入¥${"%.2f".format(income)}）：\n")
                             txs.forEach { t ->
-                                append("• ${t.time} ${t.merchant} ${"%+.2f".format(t.amount)}元，余额${"%.2f".format(t.balance)}\n")
+                                append("${t.time}｜${t.merchant}｜${"%+.2f".format(t.amount)}｜余额 ${"%.2f".format(t.balance)}\n")
                             }
                         }
                     }.onFailure {
@@ -1333,7 +1415,7 @@ class AgentToolRegistry(
             val text = buildString {
                 append("校内最新通知（${list.size}条）：\n")
                 list.forEach { n ->
-                    append("• [${n.source.displayName}] ${n.title}（${n.date}）\n${n.link}\n")
+                    append("${n.date}｜${n.source.displayName}｜${n.title}｜${n.link}\n")
                 }
                 append("\n" + ToolReply.EXTERNAL_DATA)
             }
@@ -1482,7 +1564,7 @@ class AgentToolRegistry(
     }
 
     private suspend fun webSearch(query: String, limit: Int, engine: String?): String {
-        if (query.isBlank()) return "搜索词为空。"
+        if (query.isBlank()) return ToolReply.missing("query")
         return try {
             val encoded = java.net.URLEncoder.encode(query, "UTF-8")
             val requested = engine?.trim()?.lowercase()
@@ -1624,15 +1706,16 @@ class AgentToolRegistry(
                     }
                 }
             }
-            if (results.isEmpty()) return "未搜到「$query」的结果。"
+            if (results.isEmpty()) return ToolReply.empty("query: $query")
             buildString {
-                append("搜索「$query」结果（${AgentConfig.searchEngineLabel(usedEngine)}）：\n")
+                append("「$query」｜${AgentConfig.searchEngineLabel(usedEngine)}｜${results.size} 条\n")
+                // 一条一行、带编号，模型转述时能写「据 [2]」，再用 web_fetch 读原文
                 results.forEachIndexed { i, (t, l, s) ->
-                    append("${i + 1}. [$t]($l)\n")
-                    append("   URL：$l\n")
-                    if (s.isNotBlank()) append("   摘要：${s.take(240)}\n")
+                    append("[${i + 1}] $t｜$l")
+                    if (s.isNotBlank()) append("｜${s.take(240)}")
+                    append("\n")
                 }
-                append("\n" + ToolReply.EXTERNAL_DATA)
+                append(ToolReply.EXTERNAL_DATA)
             }
         } catch (e: Exception) {
             ToolReply.failed("web_search", e.message)
@@ -1653,7 +1736,7 @@ class AgentToolRegistry(
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
             throw e
         } catch (e: Exception) {
-            ToolReply.failed("get_library_booking", e.message)
+            ToolReply.failed("get_library.booking", e.message)
         }
     }
 
@@ -1702,15 +1785,13 @@ class AgentToolRegistry(
             pendingWidgets.add(zyxfWidgetOf(keyword, r.entries))
             buildString {
                 append("仲英学辅资料站「$keyword」检索结果（共 ${r.entries.size} 条")
-                if (r.truncated) append("，服务端已截断，关键词再具体些能看到更多")
+                if (r.truncated) append("，服务端已截断")
                 append("）：\n")
                 r.entries.take(25).forEach { append("• ${zyxfLine(it)}\n") }
-                // 卡片已经把「下载」做成一次点击了，别再让模型复述文件名劝用户去哪儿下。
-                append("\n以上已在卡片中列出，用户点文件即可下载，无需你再给链接或复述文件名。")
-                append("要看正文用 read_zyxf_file(file_id)，进目录用 browse_zyxf(folder_id)。")
+                append("\ntap_to_download: true")
             }.trimEnd()
         } catch (e: Exception) {
-            ToolReply.failed("search_zyxf", e.message)
+            ToolReply.failed("list_zyxf", e.message)
         }
     }
 
@@ -1725,10 +1806,10 @@ class AgentToolRegistry(
                 append("仲英学辅资料站 · $where（${entries.size} 项）：\n")
                 entries.take(40).forEach { append("• ${zyxfLine(it)}\n") }
                 if (entries.size > 40) append("…（还有 ${entries.size - 40} 项）\n")
-                append("\n以上已在卡片中列出，用户点文件即可下载。")
+                append("\ntap_to_download: true")
             }.trimEnd()
         } catch (e: Exception) {
-            ToolReply.failed("browse_zyxf", e.message)
+            ToolReply.failed("list_zyxf", e.message)
         }
     }
 
@@ -1792,12 +1873,12 @@ class AgentToolRegistry(
                 }
                 is com.xjtu.toolbox.library.SeatResult.AuthError ->
                     "登录失效：图书馆"
-                is com.xjtu.toolbox.library.SeatResult.Error -> ToolReply.failed("get_library_seats", r.message)
+                is com.xjtu.toolbox.library.SeatResult.Error -> ToolReply.failed("get_library.seats", r.message)
             }
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
             throw e
         } catch (e: Exception) {
-            ToolReply.failed("get_library_seats", e.message)
+            ToolReply.failed("get_library.seats", e.message)
         }
     }
 
@@ -1875,19 +1956,19 @@ class AgentToolRegistry(
                 )
             }
             val pages = filters.associateWith { filter -> api.queryCoupons(filter, page = 1, pageSize = 20) }
-            if (pages.values.all { it.records.isEmpty() }) return "无可领取或可使用的加餐券"
+            if (pages.values.all { it.records.isEmpty() }) return ToolReply.empty("coupons")
             val text = buildString {
                 pages[com.xjtu.toolbox.coupon.CouponFilter.AVAILABLE]?.records?.takeIf { it.isNotEmpty() }?.let { records ->
                     append("可领取加餐券（${records.size}张）：\n")
                     records.take(20).forEach { c ->
-                        append("• ${c.voucherName}：面额¥${"%.2f".format(c.amountFen / 100.0)}，领取/使用期 ${c.startDate}~${c.endDate}\n")
+                        append("${c.voucherName}｜面额 ¥${"%.2f".format(c.amountFen / 100.0)}｜${c.startDate}~${c.endDate}\n")
                     }
                 }
                 pages[com.xjtu.toolbox.coupon.CouponFilter.USABLE]?.records?.takeIf { it.isNotEmpty() }?.let { records ->
                     if (isNotEmpty()) append("\n")
                     append("可使用加餐券（${records.size}张）：\n")
                     records.take(20).forEach { c ->
-                        append("• ${c.voucherName}（${c.typeName}）：余额¥${"%.2f".format(c.leftAmountFen / 100.0)}，有效期 ${c.startDate}~${c.endDate}\n")
+                        append("${c.voucherName}｜${c.typeName}｜余额 ¥${"%.2f".format(c.leftAmountFen / 100.0)}｜${c.startDate}~${c.endDate}\n")
                     }
                 }
             }
@@ -1922,7 +2003,7 @@ class AgentToolRegistry(
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
             throw e
         } catch (e: Exception) {
-            ToolReply.failed("get_lms_courses", e.message)
+            ToolReply.failed("get_lms.courses", e.message)
         }
     }
 
@@ -1962,7 +2043,7 @@ class AgentToolRegistry(
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
             throw e
         } catch (e: Exception) {
-            ToolReply.failed("get_lms_activities", e.message)
+            ToolReply.failed("get_lms.activities", e.message)
         }
     }
 
@@ -1992,7 +2073,7 @@ class AgentToolRegistry(
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
             throw e
         } catch (e: Exception) {
-            ToolReply.failed("get_lms_assignments", e.message)
+            ToolReply.failed("get_lms.assignments", e.message)
         }
     }
 
@@ -2057,7 +2138,7 @@ class AgentToolRegistry(
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
             throw e
         } catch (e: Exception) {
-            ToolReply.failed("get_lms_activity_detail", e.message)
+            ToolReply.failed("get_lms_activity", e.message)
         }
     }
 
@@ -2075,18 +2156,18 @@ class AgentToolRegistry(
             val upload = uploads.firstOrNull { key.isBlank() || it.name.contains(key, ignoreCase = true) }
                 ?: return ToolReply.notFound("file", key)
             val url = upload.downloadUrl.ifBlank { upload.attachmentUrl.ifBlank { upload.previewUrl } }
-            if (url.isBlank()) return ToolReply.failed("read_lms_attachment", "no_download_url; file: ${upload.name}")
+            if (url.isBlank()) return ToolReply.failed("get_lms_activity.file","no_download_url; file: ${upload.name}")
             val ext = upload.name.substringAfterLast('.', "").lowercase()
             if (ext in listOf("pdf", "doc", "docx", "ppt", "pptx", "xls", "xlsx", "zip", "rar", "7z")) {
                 return "result: not_parsed; file: ${upload.name}; type: ${ext.uppercase()}; url: $url"
             }
-            val bytes = api.downloadBytes(url) ?: return ToolReply.failed("read_lms_attachment", "download")
+            val bytes = api.downloadBytes(url) ?: return ToolReply.failed("get_lms_activity.file","download")
             val text = bytes.toString(Charsets.UTF_8)
             "附件「${upload.name}」内容：\n" + text.take(4000) + if (text.length > 4000) "\n…（已截断）" else ""
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
             throw e
         } catch (e: Exception) {
-            ToolReply.failed("read_lms_attachment", e.message)
+            ToolReply.failed("get_lms_activity.file",e.message)
         }
     }
 
@@ -2248,24 +2329,6 @@ class AgentToolRegistry(
         }
     }
 
-    private suspend fun checkUpdate(): String {
-        val cur = com.xjtu.toolbox.BuildConfig.VERSION_NAME
-        val cs = runCatching { com.xjtu.toolbox.util.CredentialStore(context) }.getOrNull()
-        val channel = cs?.updateChannel ?: com.xjtu.toolbox.util.AppUpdater.CHANNEL_GITEE
-        val includePreview = cs?.receivePreviewUpdates ?: false
-        val rolloutId = cs?.rolloutId ?: ""
-        return try {
-            val info = com.xjtu.toolbox.util.AppUpdater.check(channel, includePreview, rolloutId)
-                ?: return "current: v$cur; latest: unknown"
-            val latest = info.version.ifBlank { cur }
-            "current: v$cur; latest: ${if (info.isPreview) "" else "v"}$latest" +
-                (if (info.isPreview) "; preview: true" else "") +
-                "; channel: ${info.channelLabel}; update_available: ${info.version.isNotBlank() && info.version != cur}"
-        } catch (e: Exception) {
-            ToolReply.failed("check_update", e.message)
-        }
-    }
-
     private fun setAlarm(hour: Int?, minute: Int?, message: String?, days: String?): String {
         val h = hour ?: return ToolReply.missing("hour")
         val m = minute ?: 0
@@ -2305,122 +2368,108 @@ class AgentToolRegistry(
     }
 
     /**
-     * 起草一封邮件并交给系统邮件应用。
+     * 往本 App 的日程里加一条（和日程页「添加日程」同一张表），只加进**当前学期**。
      *
-     * **只起草，不发送**：用 ACTION_SENDTO + mailto，落在用户的收件箱编辑界面上，
-     * 发送键由他自己按。给老师发信这件事不该由一个助手代劳——措辞是否得体、
-     * 该不该现在打扰，只有本人判断得了。
+     * 写入前查冲突：正式课表（缓存）和已有的自建日程都算，周次、星期、时间三样都重叠才算撞。
+     * 撞了默认不写，把冲突列给模型，由它问过用户再带 force 重试——
+     * 日程页手动添加时也是先弹「时间冲突」让人选，这里不能替用户默默决定。
      */
-    private fun composeEmail(to: String, subject: String, body: String): String {
-        if (to.isBlank()) return ToolReply.missing("to")
-        return try {
-            val intent = Intent(Intent.ACTION_SENDTO).apply {
-                data = android.net.Uri.parse("mailto:" + android.net.Uri.encode(to.trim()))
-                putExtra(Intent.EXTRA_SUBJECT, subject)
-                putExtra(Intent.EXTRA_TEXT, body)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(intent)
-            ToolReply.handedOff("mail", "to: $to")
-        } catch (e: Exception) {
-            // 没装邮件客户端很常见，这时候把草稿原样交回去，用户还能自己复制。
-            ToolReply.failed("compose_email", e.message ?: "no_mail_app") +
-                "\n收件人：$to\n主题：$subject\n\n$body"
-        }
-    }
-
-    private fun parseEventMillis(value: String, endOfDay: Boolean = false): Long? {
-        val text = value.trim()
-        if (text.isBlank()) return null
-        val zone = ZoneId.systemDefault()
-        val dateOnly = runCatching { LocalDate.parse(text) }.getOrNull()
-        if (dateOnly != null) {
-            val time = if (endOfDay) LocalTime.of(23, 59) else LocalTime.MIDNIGHT
-            return dateOnly.atTime(time).atZone(zone).toInstant().toEpochMilli()
-        }
-        val normalized = text.replace('T', ' ')
-        val patterns = listOf("yyyy-MM-dd HH:mm", "yyyy/MM/dd HH:mm", "yyyy-M-d H:mm", "yyyy/M/d H:mm")
-        patterns.forEach { pattern ->
-            runCatching {
-                LocalDateTime.parse(normalized, DateTimeFormatter.ofPattern(pattern))
-                    .atZone(zone)
-                    .toInstant()
-                    .toEpochMilli()
-            }.getOrNull()?.let { return it }
-        }
-        return null
-    }
-
-    private fun createCalendarEvent(
+    private suspend fun addScheduleEvent(
         title: String?,
+        date: String?,
         start: String?,
         end: String?,
         location: String?,
-        description: String?,
+        note: String?,
+        weeks: String?,
+        force: Boolean,
     ): String {
-        val eventTitle = title?.trim()?.takeIf { it.isNotBlank() } ?: return ToolReply.missing("title")
-        val startText = start?.trim()?.takeIf { it.isNotBlank() } ?: return ToolReply.missing("start")
-        val allDay = runCatching { LocalDate.parse(startText) }.isSuccess
-        val startMillis = parseEventMillis(startText)
-            ?: return ToolReply.badFormat("start", "yyyy-MM-dd HH:mm | yyyy-MM-dd")
-        val endMillis = end?.takeIf { it.isNotBlank() }?.let {
-            parseEventMillis(it, endOfDay = allDay)
-        } ?: if (allDay) {
-            startMillis + 24 * 60 * 60 * 1000L
-        } else {
-            startMillis + 60 * 60 * 1000L
-        }
-        if (endMillis <= startMillis) return ToolReply.outOfRange("end", "> start")
-        return try {
-            val intent = Intent(Intent.ACTION_INSERT).apply {
-                data = CalendarContract.Events.CONTENT_URI
-                putExtra(CalendarContract.Events.TITLE, eventTitle)
-                putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, startMillis)
-                putExtra(CalendarContract.EXTRA_EVENT_END_TIME, endMillis)
-                putExtra(CalendarContract.Events.EVENT_LOCATION, location.orEmpty())
-                putExtra(CalendarContract.Events.DESCRIPTION, description.orEmpty())
-                putExtra(CalendarContract.Events.ALL_DAY, allDay)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(intent)
-            ToolReply.handedOff("calendar", "title: $eventTitle")
-        } catch (e: Exception) {
-            ToolReply.failed("create_calendar_event", e.message ?: "no_calendar_app")
-        }
-    }
+        val name = title?.trim()?.takeIf { it.isNotBlank() } ?: return ToolReply.missing("title")
+        val day = date?.trim()?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+            ?: return ToolReply.badFormat("date", "yyyy-MM-dd")
+        val hhmm = DateTimeFormatter.ofPattern("H:mm")
+        val startTime = start?.trim()?.let { runCatching { LocalTime.parse(it, hhmm) }.getOrNull() }
+            ?: return ToolReply.badFormat("start", "HH:mm")
+        val endTime = end?.trim()?.takeIf { it.isNotBlank() }
+            ?.let { runCatching { LocalTime.parse(it, hhmm) }.getOrNull() ?: return ToolReply.badFormat("end", "HH:mm") }
+            ?: startTime.plusHours(1)
+        val startMin = startTime.hour * 60 + startTime.minute
+        val endMin = endTime.hour * 60 + endTime.minute
+        if (endMin <= startMin) return ToolReply.outOfRange("end", "> start")
 
-    private fun getLoginDiagnostics(limit: Int): String {
-        val mgr = loginState.sessionManager ?: return ToolReply.failed("get_login_diagnostics", "session_manager_not_ready")
-        val snapshots = mgr.siteSnapshots()
-        val events = mgr.recentDiagnostics(limit.coerceIn(1, 80))
-        return buildString {
-            append("当前访问模式：${mgr.currentAccessMode.value.key}\n")
-            append("已登录站点：${mgr.activeSiteCount}/${snapshots.size}")
-            if (mgr.activeSiteKeys.isNotEmpty()) append("（${mgr.activeSiteKeys.joinToString(", ")}）")
-            append("\n")
-            append("密码熔断：${if (mgr.passwordInvalidated.value) "已触发（${mgr.passwordInvalidatedSite.value}）" else "未触发"}\n\n")
-            append("子系统状态：\n")
-            snapshots.forEach { s ->
-                append("• ${s.siteName} / ${s.siteKey}：")
-                append(if (s.hasLogin) "已登录" else "未登录")
-                append("，mode=${s.accessMode}")
-                if (!s.mustUseWebVpn) append("，不走WebVPN")
-                if (s.localTokenKeys.isNotEmpty()) append("，tokenKeys=${s.localTokenKeys.joinToString("/")}")
-                append("\n")
+        ensureScheduleLoaded(null)?.let { return it }
+        val termCode = cachedTermCode() ?: return ToolReply.failed("add_schedule_event", "no_term_code")
+        val termStart = cachedStartDate(termCode)?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+            ?: return ToolReply.failed("add_schedule_event", "no_term_start_date")
+        val maxWeeks = 20
+        val week = com.xjtu.toolbox.schedule.TermWeeks.weekOf(termStart, day)
+        if (week !in 1..maxWeeks) {
+            return ToolReply.outOfRange("date", "current term $termCode, weeks 1-$maxWeeks (from $termStart)")
+        }
+        // weeks 给了就按周重复（星期取 date 那天），否则只加 date 所在的这一周
+        val weekList = weeks?.takeIf { it.isNotBlank() }
+            ?.let { com.xjtu.toolbox.schedule.parseWeeksString(it).filter { w -> w in 1..maxWeeks } }
+            ?.ifEmpty { return ToolReply.badFormat("weeks", "如 3-5,8，范围 1-$maxWeeks") }
+            ?: listOf(week)
+
+        // 节次按日程页自建日程的算法：从 8 点起每 60 分钟一格
+        val dayStart = com.xjtu.toolbox.ui.DAY_START_HOUR * 60
+        val startSection = ((startMin - dayStart) / 60 + 1).coerceIn(1, com.xjtu.toolbox.ui.MAX_SECTIONS)
+        val endSection = kotlin.math.ceil((endMin - dayStart) / 60f).toInt()
+            .coerceIn(startSection, com.xjtu.toolbox.ui.MAX_SECTIONS)
+        val accountId = com.xjtu.toolbox.account.AccountContext.activeAccountId ?: ""
+        val entity = com.xjtu.toolbox.schedule.CustomCourseEntity(
+            accountId = accountId,
+            courseName = name,
+            location = location?.trim().orEmpty(),
+            weekBits = (1..maxWeeks).joinToString("") { w -> if (w in weekList) "1" else "0" },
+            dayOfWeek = day.dayOfWeek.value,
+            startSection = startSection,
+            endSection = endSection,
+            startMinuteOfDay = startMin,
+            endMinuteOfDay = endMin,
+            termCode = termCode,
+            note = com.xjtu.toolbox.schedule.encodeAgendaNote(note.orEmpty()),
+        )
+
+        val dao = com.xjtu.toolbox.util.AppDatabase.getInstance(context).customCourseDao()
+        val conflicts = mutableListOf<String>()
+        dao.getConflicts(accountId, termCode, entity.dayOfWeek, 1, com.xjtu.toolbox.ui.MAX_SECTIONS)
+            .filter { com.xjtu.toolbox.schedule.CustomCourseConflicts.conflicts(entity, it) }
+            .forEach { other ->
+                val shared = com.xjtu.toolbox.schedule.CustomCourseConflicts.sharedWeeks(entity.weekBits, other.weekBits)
+                conflicts += "${other.courseName}（自建，${com.xjtu.toolbox.schedule.CustomCourseConflicts.describeWeeks(shared)}）"
             }
-            append("\n近期认证事件：\n")
-            if (events.isEmpty()) {
-                append("• 暂无事件。")
-            } else {
-                val fmt = DateTimeFormatter.ofPattern("MM-dd HH:mm:ss")
-                events.forEach { e ->
-                    val time = java.time.Instant.ofEpochMilli(e.timestamp)
-                        .atZone(ZoneId.systemDefault())
-                        .format(fmt)
-                    append("• [$time] ${e.level}/${e.siteKey}: ${e.message}\n")
+        // 正式课按真实上课时刻比：节次换算成钟点，夏季 / 冬季作息按 date 所在月份
+        val summer = XjtuTime.isSummerTime(day.monthValue)
+        val official = ScheduleCache.readOptimizedCourses(dataCache, gson, termCode)
+            ?: ScheduleCache.readRawCourses(dataCache, gson, termCode)
+            ?: emptyList()
+        official.filter { it.dayOfWeek == entity.dayOfWeek }.forEach { c ->
+            val cStart = c.startMinuteOfDay.takeIf { it >= 0 }
+                ?: XjtuTime.getClassTime(c.startSection, summer)?.start?.let { it.hour * 60 + it.minute } ?: return@forEach
+            val cEnd = c.endMinuteOfDay.takeIf { it >= 0 }
+                ?: XjtuTime.getClassTime(c.endSection, summer)?.end?.let { it.hour * 60 + it.minute } ?: return@forEach
+            if (startMin < cEnd && cStart < endMin) {
+                val shared = com.xjtu.toolbox.schedule.CustomCourseConflicts.sharedWeeks(entity.weekBits, c.weekBits)
+                if (shared.isNotEmpty()) {
+                    conflicts += "${c.courseName}（课程，${com.xjtu.toolbox.schedule.CustomCourseConflicts.describeWeeks(shared)}）"
                 }
             }
-        }.trimEnd()
+        }
+        if (conflicts.isNotEmpty() && !force) {
+            return "error: conflict; not_added: true; with: ${conflicts.joinToString("；")}; retry_with: force=true"
+        }
+
+        return try {
+            dao.insert(entity)
+            "ok: added; term: $termCode; title: $name; weekday: ${entity.dayOfWeek}; " +
+                "time: ${"%02d:%02d".format(startTime.hour, startTime.minute)}-${"%02d:%02d".format(endTime.hour, endTime.minute)}; " +
+                "weeks: ${com.xjtu.toolbox.schedule.CustomCourseConflicts.describeWeeks(weekList.sorted())}" +
+                (if (conflicts.isNotEmpty()) "; overlaps_kept: ${conflicts.joinToString("；")}" else "")
+        } catch (e: Exception) {
+            ToolReply.failed("add_schedule_event", e.message)
+        }
     }
 
     private fun calculate(expr: String): String {

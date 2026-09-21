@@ -147,6 +147,9 @@ private fun HomeHero(
                 modifier = Modifier.matchParentSize(),
                 lightVertexColors = heroMesh,
                 darkVertexColors = heroMesh,
+                // 卡片在玻璃顶栏/底栏的取样范围里：一直流动的话，静止的首页也要每秒重新模糊 30 次，
+                // 实测滑动时掉帧明显。回到首页时流动一小段就停。
+                runForMillis = 6_000L,
             )
             Image(
                 painter = painterResource(R.drawable.home_campus_hero),

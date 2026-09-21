@@ -1,5 +1,16 @@
 package com.xjtu.toolbox.schedule
 
+import androidx.compose.foundation.layout.height
+import androidx.compose.runtime.mutableLongStateOf
+import com.xjtu.toolbox.ui.glass.glassSource
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.shadow
+import com.kyant.backdrop.effects.vibrancy
+import com.kyant.backdrop.effects.lens
+import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.drawBackdrop
 import androidx.activity.compose.BackHandler
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
@@ -38,6 +49,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.GridView
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
@@ -151,8 +163,6 @@ fun ScheduleScreen(
     site: SiteSession? = null,
     studentId: String = "",
     onBack: () -> Unit = {},  // 用于 catch AuthExpired 时退出
-    showTopBar: Boolean = true,
-    showBackButton: Boolean = true,
     onSubtitleChange: (String) -> Unit = {},
     onActionsChange: ((@Composable androidx.compose.foundation.layout.RowScope.() -> Unit)?) -> Unit = {},
     onBottomContentChange: ((@Composable () -> Unit)?) -> Unit = {},
@@ -1240,86 +1250,11 @@ fun ScheduleScreen(
             }
         }
     }
-    // 周选择器那一行：只在「日程」栏出现，替掉原来那个只在"每周/全部周叠加"之间
-    // 二选一、看不出按了会怎样的按钮（§1.4）。
-    //
-    // 窄屏挂在顶栏标签下面；宽屏挂在左栏周视图的顶上。宽屏顶栏横跨左右两栏，
-    // 这一行放进顶栏的话，「回本周」被推到屏幕另一头、和周胶囊隔着半个屏，
-    // 顶栏还因此高了一截，把只管课程详情的右栏也往下挤。
-    // 宽屏只占左栏宽度，周标题和「回本周」离得近，不隔半个屏幕。
-    val weekPillRow: @Composable (Modifier) -> Unit = { rowModifier ->
-        val weekPillDateRange = remember(startOfTerm, currentWeek) {
-            val st = startOfTerm
-            if (st != null && currentWeek > 0) {
-                val monday = st.plusWeeks((currentWeek - 1).toLong())
-                val sunday = monday.plusDays(6)
-                "${monday.monthValue}/${monday.dayOfMonth}–${sunday.monthValue}/${sunday.dayOfMonth}"
-            } else null
-        }
-        // 一条整宽的周标题栏，不再是两颗小胶囊：小胶囊是 footnote 字号、30dp 高，
-        // 和日程页的大标题、大卡片不在一个量级，摆在那里像临时加的控件。
-        // 左边是「现在看的是哪一周」这个标题本身，大字、整块可点开周选择；
-        // 右边「回本周」是同一行里的一个文字动作，不另起一个按钮的形状。
-        Row(
-            rowModifier.fillMaxWidth().padding(start = 8.dp, end = 12.dp, top = 2.dp, bottom = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Row(
-                Modifier
-                    .clip(RoundedCornerShape(12.dp))
-                    .clickable { showWeekPicker = true }
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    if (showAllWeeks) "全学期总览" else "第 $currentWeek 周",
-                    style = MiuixTheme.textStyles.title4,
-                    fontWeight = FontWeight.Bold,
-                    color = MiuixTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                )
-                if (!showAllWeeks && weekPillDateRange != null) {
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        weekPillDateRange,
-                        style = MiuixTheme.textStyles.body2,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        maxLines = 1,
-                    )
-                }
-                Icon(
-                    Icons.Default.KeyboardArrowDown,
-                    contentDescription = "选择周",
-                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.padding(start = 2.dp).size(20.dp),
-                )
-            }
-            Spacer(Modifier.weight(1f))
-            // 当前看的不是本周（或处于全学期总览）时，给个回本周的近道。
-            // 只在看本学期时出现：历史学期里没有「本周」，按了也回不去
-            val viewingCurrentTerm = selectedTermCode.isEmpty() || selectedTermCode == currentTermCode
-            if (viewingCurrentTerm && (showAllWeeks || (realCurrentWeek > 0 && currentWeek != realCurrentWeek))) {
-                Text(
-                    "回本周",
-                    style = MiuixTheme.textStyles.body2,
-                    fontWeight = FontWeight.Medium,
-                    color = MiuixTheme.colorScheme.primary,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .clickable {
-                            showAllWeeks = false
-                            if (realCurrentWeek > 0) currentWeek = realCurrentWeek
-                        }
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
-                )
-            }
-        }
-    }
     val headerBottomContent: (@Composable () -> Unit) = {
         Column {
             AppSegmentedTabs(
-                // 固定今日 / 日程 / 学期三格，不再随布局变化，见 plan2 §1.5。
-                tabs = listOf("今日", "日程", "学期"),
+                // 固定今日 / 周视图 / 学期三格，不再随布局变化，见 plan2 §1.5。
+                tabs = listOf("今日", "周视图", "学期"),
                 selectedTabIndex = selectedTab,
                 onTabSelected = { tab ->
                     selectedTab = tab
@@ -1329,7 +1264,6 @@ fun ScheduleScreen(
                     }
                 },
             )
-            if (currentContent == "week" && !isWideLayout) weekPillRow(Modifier)
         }
     }
 
@@ -1346,6 +1280,65 @@ fun ScheduleScreen(
             onDismissRequest = { pickerShow.value = false; showWeekPicker = false },
         ) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                // 「全学期总览」和周网格是同一个选择的两种答案，放在网格上方同一行的右端，
+                // 选中时和选中的周一样高亮；不再单独占一整行、再配一行解释小字。
+                Row(
+                    Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        if (realCurrentWeek > 0) "本周第 $realCurrentWeek 周 · 共 $pageWeeksForPicker 周" else "共 $pageWeeksForPicker 周",
+                        style = MiuixTheme.textStyles.body2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        modifier = Modifier.weight(1f),
+                    )
+                    // 「回本周」原来在整行周标题的右端，那一行删了，挪到这里
+                    val viewingCurrentTerm = selectedTermCode.isEmpty() || selectedTermCode == currentTermCode
+                    if (viewingCurrentTerm && realCurrentWeek > 0 && (showAllWeeks || currentWeek != realCurrentWeek)) {
+                        Text(
+                            "回本周",
+                            style = MiuixTheme.textStyles.body2,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MiuixTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .padding(end = 8.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    haptics.tick()
+                                    showAllWeeks = false
+                                    currentWeek = realCurrentWeek
+                                    showWeekPicker = false
+                                }
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                        )
+                    }
+                    val allSelected = showAllWeeks
+                    Row(
+                        Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(
+                                if (allSelected) MiuixTheme.colorScheme.primary
+                                else MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)
+                            )
+                            .clickable {
+                                haptics.tick()
+                                showAllWeeks = true
+                                showWeekPicker = false
+                            }
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        val fg = if (allSelected) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.primary
+                        Icon(
+                            Icons.Default.GridView,
+                            contentDescription = null,
+                            tint = fg,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text("全学期总览", style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.SemiBold, color = fg)
+                    }
+                }
                 (1..pageWeeksForPicker).chunked(5).forEach { rowWeeks ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         rowWeeks.forEach { weekN ->
@@ -1391,23 +1384,7 @@ fun ScheduleScreen(
                     }
                     Spacer(Modifier.height(8.dp))
                 }
-                Spacer(Modifier.height(4.dp))
-                Button(
-                    onClick = {
-                        showAllWeeks = true
-                        showWeekPicker = false
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("全学期总览")
-                }
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "把整学期的课叠到一张表上，看每门课占了哪些格子",
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                )
-                // 弹层铺到屏幕底边，最后这行小字会压在系统导航条上；和 AppDialogs 里的弹层一样补一段导航条高度
+                // 弹层铺到屏幕底边，最后一行会压在系统导航条上；和 AppDialogs 里的弹层一样补一段导航条高度
                 Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
             }
         }
@@ -1415,11 +1392,9 @@ fun ScheduleScreen(
     // 顶栏按钮是一段 lambda 交给外层 Scaffold 拿着的，闭包里 currentContent / api 这类
     // 普通 val 是发布那一刻的值：只发布一次的话，切到考试页加号还在、登录晚到 api 仍是 null。
     // 这两个变了就重发一份，别用 SideEffect 每帧发——外层重组会再重组这里，转起来没头。
-    DisposableEffect(showTopBar, currentContent, api) {
-        if (!showTopBar) {
-            onActionsChange(headerActionsContent)
-            onBottomContentChange(headerBottomContent)
-        }
+    DisposableEffect(currentContent, api) {
+        onActionsChange(headerActionsContent)
+        onBottomContentChange(headerBottomContent)
         onDispose {
             onActionsChange(null)
             onBottomContentChange(null)
@@ -1432,130 +1407,9 @@ fun ScheduleScreen(
                 SnackbarHost(snackbarHostState)
             }
         },
-        topBar = {
-            if (showTopBar) {
-                // 第几周已经在标签行下面的周选择胶囊里，副标题不用再重复一遍，只留学期名。
-                SmallTopAppBar(
-                    title = "日程",
-                    subtitle = termLabel(selectedTermCode),
-                    navigationIcon = {
-                        if (showBackButton) {
-                            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回") }
-                        }
-                    },
-                    actions = {
-                        // 学期切换（仅多个学期时显示）
-                        if (termList.size > 1) {
-                            Box {
-                                IconButton(onClick = { termDropdownExpanded = true }) {
-                                    Icon(Icons.Default.CalendarMonth, contentDescription = "切换学期")
-                                }
-                                val termSelectedIdx = termList.indexOf(selectedTermCode).coerceAtLeast(0)
-                                OverlayListPopup(
-                                    show = termDropdownExpanded,
-                                    alignment = PopupPositionProvider.Align.End,
-                                    onDismissRequest = { termDropdownExpanded = false }
-                                ) {
-                                    ListPopupColumn {
-                                        // 快捷回当前学期：用户从历史学期切回去时不用翻列表
-                                        if (termList.size > 1 && currentTermCode.isNotEmpty() &&
-                                            termList.indexOf(currentTermCode) >= 0 &&
-                                            currentTermCode != selectedTermCode) {
-                                            DropdownImpl(
-                                                text = "📍 当前学期 · ${termLabel(currentTermCode)}",
-                                                optionSize = termList.size + 1,
-                                                isSelected = false,
-                                                onSelectedIndexChange = {
-                                                    termDropdownExpanded = false
-                                                    switchTerm(currentTermCode)
-                                                },
-                                                index = -1,
-                                            )
-                                        }
-                                        termList.forEachIndexed { idx, term ->
-                                            DropdownImpl(
-                                                text = termLabel(term),
-                                                optionSize = termList.size,
-                                                isSelected = idx == termSelectedIdx,
-                                                onSelectedIndexChange = {
-                                                    termDropdownExpanded = false
-                                                    switchTerm(term)
-                                                },
-                                                index = idx
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        // 模式切换按钮已经挪到标签行下面的周选择胶囊里（§1.4）。
-                        // 导出快捷按钮：最常用操作（日历订阅）从菜单里提升到顶栏
-                        IconButton(
-                            onClick = {
-                                val st = startOfTerm
-                                if (st == null) {
-                                    android.widget.Toast.makeText(context, "无法获取开学日期，ICS 导出不可用", android.widget.Toast.LENGTH_SHORT).show()
-                                    return@IconButton
-                                }
-                                val ics = ScheduleExport.generateIcs(filteredMergedCourses, st, selectedTermCode)
-                                ScheduleExport.shareTextFile(context, ics, "${selectedTermCode}_日程.ics", "text/calendar")
-                            },
-                            enabled = filteredMergedCourses.isNotEmpty(),
-                        ) {
-                            Icon(Icons.Default.IosShare, contentDescription = "导出日历")
-                        }
-                        // 更多（CSV/图片/学期切换）
-                        Box {
-                            IconButton(onClick = { showExportMenu = true }) {
-                                Icon(Icons.Default.MoreVert, contentDescription = "更多")
-                            }
-                            AppDropdownMenu(expanded = showExportMenu, onDismissRequest = { showExportMenu = false }) {
-                                if (termList.size > 1) {
-                                    AppDropdownMenuItem(
-                                        text = { Text("切换学期") },
-                                        leadingIcon = { Icon(Icons.Default.SwapHoriz, null, Modifier.size(20.dp)) },
-                                        onClick = {
-                                            showExportMenu = false
-                                            termDropdownExpanded = true
-                                        }
-                                    )
-                                }
-                                AppDropdownMenuItem(
-                                    text = { Text("导出表格 (CSV)") },
-                                    leadingIcon = { Icon(Icons.Default.TableChart, null, Modifier.size(20.dp)) },
-                                    onClick = {
-                                        showExportMenu = false
-                                        val csv = ScheduleExport.generateCsv(filteredMergedCourses)
-                                        ScheduleExport.shareTextFile(context, csv, "${selectedTermCode}_日程.csv", "text/csv")
-                                    }
-                                )
-                                AppDropdownMenuItem(
-                                    text = { Text("导出图片") },
-                                    leadingIcon = { Icon(Icons.Default.Image, null, Modifier.size(20.dp)) },
-                                    onClick = {
-                                        showExportMenu = false
-                                        scope.launch {
-                                            try {
-                                                val bitmap = ScheduleExport.renderScheduleBitmap(
-                                                    filteredMergedCourses, currentWeek, selectedTermCode, showAllWeeks
-                                                )
-                                                ScheduleExport.shareBitmap(context, bitmap, "${selectedTermCode}_第${currentWeek}周日程.png")
-                                            } catch (e: kotlinx.coroutines.CancellationException) {
-                                                throw e
-                                            } catch (e: Exception) {
-                                                snackbarHostState.showSnackbar("图片导出失败: ${e.message}")
-                                            }
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                    }
-                )
-            }
-        }
-    ) { padding ->
-        val contentPadding = if (showTopBar) padding else PaddingValues(0.dp)
+    ) { _ ->
+        // 顶栏在宿主 MainScreen 里，这里不吃 Scaffold 的 padding
+        val contentPadding = PaddingValues(0.dp)
         // 宽屏：课表区右侧挂一栏常驻详情。窄屏时 Row 里只剩一个 weight(1f) 的孩子，
         // 等价于改造前那一个 Column。
         Row(
@@ -1697,16 +1551,32 @@ fun ScheduleScreen(
                     modifier = Modifier.fillMaxSize(),
                 ) { tab ->
                     when (contentOf(tab)) {
-                        "week" -> Column(Modifier.fillMaxSize()) {
-                            // 宽屏的周胶囊行长在左栏这里，不进顶栏（见 weekPillRow）。它不随课表滚动，
-                            // 所以由它自己让出玻璃顶栏的高度，下面的课表就不用再留。
-                            val weekTopPadding = if (isWideLayout) {
-                                weekPillRow(Modifier.padding(top = listTopPadding))
-                                0.dp
-                            } else {
-                                listTopPadding
-                            }
+                        "week" -> Box(Modifier.fillMaxSize()) {
+                            // 选周是浮在课表底部、底栏上方的一颗玻璃胶囊（WeekFloatingPill），
+                            // 不在顶栏、也不单独占一行。它采样的是下面这层课表。
+                            val weekTopPadding = listTopPadding
                             val schedulePull = rememberPullToRefreshState()
+                            val pillBackdrop = com.xjtu.toolbox.ui.glass.rememberPageGlass()
+                            // 课表在滚：胶囊先淡出让路，停下来 700ms 后再浮上来
+                            var scrolledAt by remember { mutableLongStateOf(0L) }
+                            val scrollWatcher = remember {
+                                object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+                                    override fun onPreScroll(
+                                        available: androidx.compose.ui.geometry.Offset,
+                                        source: androidx.compose.ui.input.nestedscroll.NestedScrollSource,
+                                    ): androidx.compose.ui.geometry.Offset {
+                                        if (kotlin.math.abs(available.y) > 1f) scrolledAt = System.currentTimeMillis()
+                                        return androidx.compose.ui.geometry.Offset.Zero
+                                    }
+                                }
+                            }
+                            var pillHidden by remember { mutableStateOf(false) }
+                            LaunchedEffect(scrolledAt) {
+                                if (scrolledAt == 0L) return@LaunchedEffect
+                                pillHidden = true
+                                kotlinx.coroutines.delay(700)
+                                pillHidden = false
+                            }
                             PullToRefresh(
                                 refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
                                 // 顶栏折叠交给下拉刷新协调：往下拉先展开大标题，展开完才算下拉刷新。不传的话下拉刷新先把拖动吃掉，慢慢拉只会刷新、标题展不开
@@ -1717,7 +1587,12 @@ fun ScheduleScreen(
                                 pullToRefreshState = schedulePull,
                                 // 内容铺到玻璃顶栏下面时，指示器也要从顶栏下面出来，而不是屏幕顶边
                                 contentPadding = PaddingValues(top = weekTopPadding),
-                                modifier = Modifier.fillMaxSize(),
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .nestedScroll(scrollWatcher)
+                                    .then(
+                                        if (pillBackdrop != null) Modifier.glassSource(pillBackdrop) else Modifier
+                                    ),
                             ) {
                                 ScheduleTabContent(
                                     courses = filteredMergedCourses,
@@ -1734,7 +1609,8 @@ fun ScheduleScreen(
                                     holidayDates = holidayDates,
                                     customCourses = customCourses,
                                     onEditCustomCourse = { editingCourse = it },
-                                    bottomPadding = contentBottomPadding,
+                                    // 多留一截给悬浮的选周胶囊，最后一节课能滚到它上面
+                                    bottomPadding = contentBottomPadding + 64.dp,
                                     topPadding = weekTopPadding,
                                     textbooks = textbooks,
                                     textbooksProblem = textbooksBackgroundError,
@@ -1756,6 +1632,20 @@ fun ScheduleScreen(
                                     },
                                 )
                             }
+                            WeekFloatingPill(
+                                backdrop = pillBackdrop,
+                                label = if (showAllWeeks) "全学期" else "第 $currentWeek 周",
+                                offWeek = showAllWeeks || (realCurrentWeek > 0 && currentWeek != realCurrentWeek),
+                                canPrev = !showAllWeeks && currentWeek > 1,
+                                canNext = !showAllWeeks && currentWeek < (totalWeeks.takeIf { it > 0 } ?: TermWeeks.DEFAULT_TOTAL_WEEKS),
+                                hidden = pillHidden,
+                                onPrev = { haptics.tick(); currentWeek -= 1 },
+                                onNext = { haptics.tick(); currentWeek += 1 },
+                                onPick = { showWeekPicker = true },
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .padding(bottom = contentBottomPadding + 12.dp),
+                            )
                         }
                         "today" -> {
                             val todayPull = rememberPullToRefreshState()
@@ -1845,7 +1735,7 @@ fun ScheduleScreen(
                 ) {
                     // 「今日」栏左边已经是今天的时间轴，右栏再放一遍「今天的课」就是纯重复。
                     // 这时右栏自动选中现在或下一节课、直接给出它的详情（教材、考勤、回放入口）；
-                    // 今天的课都上完了或者今天没课，就给本周概览。「日程」「学期」两栏照旧：右栏放今天的课是补充。
+                    // 今天的课都上完了或者今天没课，就给本周概览。「周视图」「学期」两栏照旧：右栏放今天的课是补充。
                     val weekCourses = remember(filteredMergedCourses, realCurrentWeek) {
                         filteredMergedCourses.filter { it.isInWeek(realCurrentWeek) }
                     }
@@ -2499,3 +2389,95 @@ fun ExamCountdownBanner(next: ExamCountdown.Next, modifier: Modifier = Modifier)
     }
 }
 
+
+
+/**
+ * 周视图底部悬浮的选周胶囊：「‹  第 3 周  ›」。左右箭头翻周，点中间弹出选择周（含全学期总览、回本周）。
+ *
+ * 玻璃风格下采样课表那一层（[backdrop]），经典风格退回不透明胶囊。
+ * 不在本周（或在看全学期）时周数染主色，提醒「你看的不是这周」。
+ * 课表滚动时淡出下沉让路，停下来再浮上来。
+ */
+@Composable
+private fun WeekFloatingPill(
+    backdrop: com.kyant.backdrop.backdrops.LayerBackdrop?,
+    label: String,
+    offWeek: Boolean,
+    canPrev: Boolean,
+    canNext: Boolean,
+    hidden: Boolean,
+    onPrev: () -> Unit,
+    onNext: () -> Unit,
+    onPick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(50)
+    val show by androidx.compose.animation.core.animateFloatAsState(
+        if (hidden) 0f else 1f,
+        androidx.compose.animation.core.tween(if (hidden) 140 else 260),
+        label = "weekPill",
+    )
+    val surface = MiuixTheme.colorScheme.surfaceContainer
+    val fg = MiuixTheme.colorScheme.onSurface
+    val accent = if (offWeek) MiuixTheme.colorScheme.primary else fg
+    Row(
+        modifier
+            .graphicsLayer {
+                alpha = show
+                translationY = (1f - show) * 16.dp.toPx()
+            }
+            .then(
+                if (backdrop != null) {
+                    Modifier.drawBackdrop(
+                        backdrop = backdrop,
+                        shape = { shape },
+                        effects = {
+                            padding = maxOf(padding, 16.dp.toPx())
+                            vibrancy()
+                            blur(8.dp.toPx())
+                            lens(18.dp.toPx(), 18.dp.toPx())
+                        },
+                        onDrawSurface = { drawRect(surface.copy(alpha = 0.45f)) },
+                    )
+                } else {
+                    Modifier
+                        .shadow(6.dp, shape)
+                        .clip(shape)
+                        .background(surface)
+                }
+            )
+            .height(48.dp)
+            .padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onPrev, enabled = canPrev, modifier = Modifier.size(40.dp)) {
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                contentDescription = "上一周",
+                tint = fg.copy(alpha = if (canPrev) 0.85f else 0.25f),
+            )
+        }
+        Row(
+            Modifier
+                .clip(RoundedCornerShape(50))
+                .clickable(onClick = onPick)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                label,
+                style = MiuixTheme.textStyles.body1,
+                fontWeight = FontWeight.Bold,
+                color = accent,
+                maxLines = 1,
+            )
+        }
+        IconButton(onClick = onNext, enabled = canNext, modifier = Modifier.size(40.dp)) {
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = "下一周",
+                tint = fg.copy(alpha = if (canNext) 0.85f else 0.25f),
+            )
+        }
+    }
+}

@@ -114,4 +114,23 @@ class BoardTest {
         assertEquals(state.board.cells, next.board.cells)
         assertEquals(state.score, next.score)
     }
+
+    /** 动画用的去向追踪必须和真正的移动结果一致：按追踪把格子搬过去，得到的就是 move 的棋盘。 */
+    @Test
+    fun `traceMove 与 move 结果一致`() {
+        val random = Random(42)
+        repeat(200) {
+            val cells = List(16) { if (random.nextInt(3) == 0) null else random.nextInt(4) }
+            val board = Board(cells)
+            for (direction in Direction.entries) {
+                val expected = move(board, direction).board.cells
+                val rebuilt = MutableList<Int?>(16) { null }
+                traceMove(board, direction).groupBy { it.to }.forEach { (to, group) ->
+                    val level = board.cells[group.first().from]!!
+                    rebuilt[to] = if (group.size == 2) level + 1 else level
+                }
+                assertEquals("$cells $direction", expected, rebuilt)
+            }
+        }
+    }
 }

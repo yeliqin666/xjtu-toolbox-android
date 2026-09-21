@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -308,19 +309,40 @@ fun ZyxfBrowseScreen(
                         }
                     }
                 } else {
-                    items(entries, key = { "${it.isFolder}-${it.id}" }, contentType = { "entry" }) { entry ->
-                        Box(Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 4.dp)) {
-                            EntryRow(
+                    // 文件夹在上、排成两列的小卡片；文件在下、合成一张分组卡片，行与行之间一道细分隔线。
+                    // 以前每一项都是一张独立的灰卡片，一长串看着像随手堆上去的。
+                    val folders = entries.filter { it.isFolder }
+                    val files = entries.filterNot { it.isFolder }
+                    val onEntryClick: (ZyxfApi.Entry) -> Unit = { entry ->
+                        if (entry.isFolder) openFolder(entry)
+                        else if (ZyxfApi.previewable(entry.ext)) {
+                            previewing = entry
+                            previewFromSplit = isWide
+                        } else download(entry)
+                    }
+                    if (folders.isNotEmpty()) {
+                        item(key = "folderHead", contentType = "section") { SectionLabel("文件夹", folders.size) }
+                        items(folders.chunked(2), key = { "folders-${it.first().id}" }, contentType = { "folderRow" }) { pair ->
+                            Row(
+                                Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                pair.forEach { folder ->
+                                    FolderTile(folder, Modifier.weight(1f)) { onEntryClick(folder) }
+                                }
+                                if (pair.size == 1) Spacer(Modifier.weight(1f))
+                            }
+                        }
+                    }
+                    if (files.isNotEmpty()) {
+                        item(key = "fileHead", contentType = "section") { SectionLabel("文件", files.size) }
+                        itemsIndexed(files, key = { _, it -> "file-${it.id}" }, contentType = { _, _ -> "file" }) { i, entry ->
+                            FileRow(
                                 entry = entry,
                                 state = downloadState[entry.id],
-                                onClick = {
-                                    if (entry.isFolder) openFolder(entry)
-                                    else if (ZyxfApi.previewable(entry.ext)) {
-                                        previewing = entry
-                                        previewFromSplit = isWide
-                                    }
-                                    else download(entry)
-                                },
+                                first = i == 0,
+                                last = i == files.lastIndex,
+                                onClick = { onEntryClick(entry) },
                                 onDownload = { download(entry) },
                             )
                         }
@@ -516,47 +538,105 @@ private fun extTone(ext: String): Pair<Long, String> {
 }
 
 @Composable
-private fun EntryRow(
+private fun SectionLabel(title: String, count: Int) {
+    Row(
+        Modifier.padding(start = 22.dp, end = 22.dp, top = 12.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            title,
+            style = MiuixTheme.textStyles.footnote1,
+            fontWeight = FontWeight.SemiBold,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            "$count",
+            style = MiuixTheme.textStyles.footnote2,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.7f),
+        )
+    }
+}
+
+/** 文件夹：带色块图标的小卡片，两列排开，一屏能看到的目录多一倍。 */
+@Composable
+private fun FolderTile(entry: ZyxfApi.Entry, modifier: Modifier, onClick: () -> Unit) {
+    val primary = MiuixTheme.colorScheme.primary
+    Row(
+        modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(com.xjtu.toolbox.ui.components.AppCardColor)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(primary.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Default.Folder, contentDescription = null, tint = primary, modifier = Modifier.size(20.dp))
+        }
+        Spacer(Modifier.width(10.dp))
+        Text(
+            entry.name,
+            style = MiuixTheme.textStyles.body2,
+            fontWeight = FontWeight.Medium,
+            color = MiuixTheme.colorScheme.onSurface,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+/**
+ * 文件行：分组卡片里的一行。首行圆上角、末行圆下角，行间画细分隔线，
+ * 连起来就是一整张卡。左边是带颜色的类型方块，右边是下载按钮或下载状态。
+ */
+@Composable
+private fun FileRow(
     entry: ZyxfApi.Entry,
     state: String?,
+    first: Boolean,
+    last: Boolean,
     onClick: () -> Unit,
     onDownload: () -> Unit,
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        cornerRadius = 14.dp,
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
-        onClick = onClick,
+    val r = 18.dp
+    val shape = RoundedCornerShape(
+        topStart = if (first) r else 0.dp, topEnd = if (first) r else 0.dp,
+        bottomStart = if (last) r else 0.dp, bottomEnd = if (last) r else 0.dp,
+    )
+    Column(
+        Modifier
+            .padding(horizontal = 16.dp)
+            .clip(shape)
+            .background(com.xjtu.toolbox.ui.components.AppCardColor)
+            .clickable(onClick = onClick),
     ) {
         Row(
             Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (entry.isFolder) {
-                Icon(
-                    Icons.Default.Folder,
-                    contentDescription = null,
-                    tint = MiuixTheme.colorScheme.primary,
-                    modifier = Modifier.size(24.dp),
+            val (tone, label) = extTone(entry.ext)
+            val color = androidx.compose.ui.graphics.Color(tone)
+            Box(
+                Modifier
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(11.dp))
+                    .background(color.copy(alpha = 0.14f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    label,
+                    style = MiuixTheme.textStyles.footnote2,
+                    fontWeight = FontWeight.Black,
+                    color = color,
+                    maxLines = 1,
                 )
-            } else {
-                val (tone, label) = extTone(entry.ext)
-                val color = androidx.compose.ui.graphics.Color(tone)
-                Box(
-                    Modifier
-                        .size(width = 30.dp, height = 24.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(color.copy(alpha = 0.14f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        label,
-                        style = MiuixTheme.textStyles.footnote2,
-                        fontWeight = FontWeight.Bold,
-                        color = color,
-                        maxLines = 1,
-                    )
-                }
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
@@ -572,34 +652,45 @@ private fun EntryRow(
                     entry.path.takeIf { it.isNotBlank() },
                     entry.sizeText.takeIf { it.isNotBlank() },
                     entry.timeText.takeIf { it.isNotBlank() },
-                    state,
-                ).joinToString("  ·  ")
+                ).joinToString(" · ")
                 if (sub.isNotBlank()) {
                     Spacer(Modifier.height(3.dp))
                     Text(
                         sub,
                         style = MiuixTheme.textStyles.footnote1,
-                        color = if (state != null && state != DOWNLOADING) {
-                            MiuixTheme.colorScheme.primary
-                        } else {
-                            MiuixTheme.colorScheme.onSurfaceVariantSummary
-                        },
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
-            if (!entry.isFolder) {
-                Spacer(Modifier.width(8.dp))
-                IconButton(onClick = onDownload, modifier = Modifier.size(30.dp)) {
+            Spacer(Modifier.width(8.dp))
+            when {
+                state == DOWNLOADING -> CircularProgressIndicator(size = 22.dp, strokeWidth = 2.dp, progress = null)
+                state != null -> Text(
+                    state,
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.primary,
+                    maxLines = 1,
+                )
+                else -> IconButton(onClick = onDownload, modifier = Modifier.size(34.dp)) {
                     Icon(
                         Icons.Default.Download,
                         contentDescription = "下载",
                         tint = MiuixTheme.colorScheme.primary,
-                        modifier = Modifier.size(17.dp),
+                        modifier = Modifier.size(19.dp),
                     )
                 }
             }
+        }
+        if (!last) {
+            Box(
+                Modifier
+                    .padding(start = 66.dp)
+                    .fillMaxWidth()
+                    .height(0.5.dp)
+                    .background(MiuixTheme.colorScheme.dividerLine),
+            )
         }
     }
 }

@@ -129,6 +129,18 @@ class CredentialStore(context: Context) {
         set(value) { appPrefs.edit().putString(KEY_NAV_BAR_STYLE, value).apply() }
 
     /**
+     * 界面风格一变就回调（设置页、屁岱的 app_setting 工具都会改它）。返回取消监听的函数。
+     * 主界面只在首次组合读一次的话，从设置页改完返回，底栏和顶栏还停在旧风格，直到重启。
+     */
+    fun observeNavBarStyle(onChange: (String) -> Unit): () -> Unit {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == KEY_NAV_BAR_STYLE) onChange(navBarStyle)
+        }
+        appPrefs.registerOnSharedPreferenceChangeListener(listener)
+        return { appPrefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+
+    /**
      * 课表格子上叠考勤角标。**默认开**。
      *
      * 可以放心默认打开：取数走 ensureSite(silent = true)，遇到二次验证直接放弃——

@@ -396,7 +396,8 @@ object ProactiveRules {
      * 而用户戳它一下却不吭声，看起来就是坏了。但仍然避开最近说过的句子，
      * 免得连点两下讲同一句。
      *
-     * 课程信息拿不到（那份状态在首页），情境句会自动落选，不影响其余句子。
+     * 「几分钟后上课」拿不到（那份状态在首页），但今天有哪些课、节假日从本地缓存读（[ChatterFactsLoader]），
+     * 情景句照样能出。
      *
      * 「关」档连点击也不回话：用户把它关了，就是不想看见任何气泡，
      * 戳一下只是想切到屁岱 tab。
@@ -411,6 +412,7 @@ object ProactiveRules {
             null,
             skinLines,
             skinMix,
+            ChatterFactsLoader.load(ctx),
         ) ?: return null
         return ProactiveMessage(
             id = CHATTER_ID,
@@ -437,6 +439,7 @@ object ProactiveRules {
             minutesToClass,
             skinLines,
             skinMix,
+            ChatterFactsLoader.load(ctx),
         ) ?: return null
         return ProactiveMessage(
             id = CHATTER_ID,
@@ -743,6 +746,14 @@ object ProactiveBubbleHost {
      * 只挡自动的那一路；用户主动点按钮逗它照常回应。
      */
     var autoSuppressed by mutableStateOf(false)
+
+    /**
+     * 待在屁岱页时点底栏屁岱，闲话不从底栏冒泡（会挡住输入框），而是交给首屏的屁岱说：
+     * 首屏读这一句替换它的问候第二行，[heroPokes] 每戳一次 +1，让它翻个跟头。
+     * 这样首屏问候和底栏气泡也不会同时各说一句，显得重复。
+     */
+    var heroLine by mutableStateOf<String?>(null)
+    var heroPokes by mutableStateOf(0)
 
     fun clear() {
         message = null

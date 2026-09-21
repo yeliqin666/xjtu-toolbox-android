@@ -1,5 +1,21 @@
 package com.xjtu.toolbox.game.gomoku
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import com.xjtu.toolbox.game.ui.Contender
+import com.xjtu.toolbox.game.ui.GameAction
+import com.xjtu.toolbox.game.ui.GameActionRow
+import com.xjtu.toolbox.game.ui.GameHint
+import com.xjtu.toolbox.game.ui.SjtuColor
+import com.xjtu.toolbox.game.ui.StonePaints
+import com.xjtu.toolbox.game.ui.VersusBar
+import com.xjtu.toolbox.game.ui.XjtuColor
+import com.xjtu.toolbox.game.ui.drawStone
+import com.xjtu.toolbox.game.ui.rememberDropProgress
+import com.xjtu.toolbox.game.ui.woodBoard
+import com.xjtu.toolbox.game.ui.woodColors
+import kotlin.math.abs
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -37,6 +53,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.game.GameIds
 import com.xjtu.toolbox.game.GameResult
 import com.xjtu.toolbox.game.GameStore
@@ -66,16 +83,8 @@ import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
- * 五子棋：西交 vs 上交。
- *
- * 素材 `R.drawable.game_c9_xjtu` / `game_c9_sjtu`（校徽棋子）还没到位，先用纯色圆
- * + 文字占位（西交深蓝「西」、上交红「上」）。等美术把校徽素材放进来，把
- * [StonePiece] 里的 Canvas 换成 Image(painterResource(...)) 就行，别的都不用动。
+ * 五子棋：西交 vs 上交。棋盘、棋子、对阵栏的画法和围棋/象棋共用 `game/ui/BoardGameKit.kt`。
  */
-
-private val XjtuBlue = Color(0xFF1B3B6F)
-private val SjtuRed = Color(0xFFC8161D)
-
 private enum class GomokuMode { AI, LOCAL, ONLINE }
 
 private data class GomokuUiState(
@@ -150,10 +159,15 @@ fun GomokuScreen(onBack: () -> Unit) {
         scope.launch {
             val timeoutMillis = difficulty.timeoutMillis
             val deadline = if (timeoutMillis > 0) System.nanoTime() + timeoutMillis * 1_000_000L else null
+            // 给 AI 一份拷贝去搜：它会在棋盘上反复试落/撤回，界面同时在读同一份就会崩
+            val searchBoard = ui.board.copy()
+            val startCount = searchBoard.moveCount()
             val move = withContext(Dispatchers.Default) {
-                ai.findMove(ui.board, aiPlayer, difficulty, deadline)
+                ai.findMove(searchBoard, aiPlayer, difficulty, deadline)
             }
             val board = ui.board
+            // AI 想的时候用户点了「重开」或切了模式：这一手作废，别下到新棋盘上
+            if (board.moveCount() != startCount || !ui.thinking) return@launch
             board.place(move.first, move.second, aiPlayer)
             val outcome = board.outcomeAfter(move.first, move.second, aiPlayer)
             ui = ui.copy(toMove = board.opponentOf(aiPlayer), thinking = false)
@@ -200,200 +214,202 @@ fun GomokuScreen(onBack: () -> Unit) {
             )
         },
     ) { padding ->
-        if (mode == GomokuMode.ONLINE) {
-            Box(Modifier.fillMaxSize().padding(padding)) {
-                GomokuOnlineSection(onExitOnlineMode = { mode = GomokuMode.AI })
-            }
-        } else if (isWideLayout()) {
-            Row(
-                Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                Box(Modifier.fillMaxHeight().weight(1f), contentAlignment = Alignment.Center) {
-                    GomokuBoardView(ui, onCellTap = ::onCellTap)
-                }
-                Column(Modifier.width(280.dp).fillMaxHeight()) {
-                    GomokuSidePanel(
-                        mode = mode, onModeChange = { mode = it },
-                        difficulty = difficulty, onDifficultyChange = { difficulty = it },
-                        playerIsXjtu = playerIsXjtu, onPlayerSideChange = { playerIsXjtu = it },
-                        ui = ui, taunt = taunt,
-                        onUndo = ::undo, onRestart = ::resetGame,
-                    )
-                }
-            }
-        } else {
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                GomokuSidePanel(
-                    mode = mode, onModeChange = { mode = it },
-                    difficulty = difficulty, onDifficultyChange = { difficulty = it },
-                    playerIsXjtu = playerIsXjtu, onPlayerSideChange = { playerIsXjtu = it },
-                    ui = ui, taunt = taunt,
-                    onUndo = ::undo, onRestart = ::resetGame,
-                )
-                Box(Modifier.fillMaxWidth().padding(top = 12.dp), contentAlignment = Alignment.Center) {
-                    GomokuBoardView(ui, onCellTap = ::onCellTap)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun GomokuSidePanel(
-    mode: GomokuMode,
-    onModeChange: (GomokuMode) -> Unit,
-    difficulty: GomokuDifficulty,
-    onDifficultyChange: (GomokuDifficulty) -> Unit,
-    playerIsXjtu: Boolean,
-    onPlayerSideChange: (Boolean) -> Unit,
-    ui: GomokuUiState,
-    taunt: String?,
-    onUndo: () -> Unit,
-    onRestart: () -> Unit,
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        cornerRadius = 16.dp,
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surface),
-    ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("对局设置", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold)
-
+        Column(Modifier.fillMaxSize().padding(padding)) {
             AppSegmentedTabs(
                 tabs = listOf("人机对战", "同屏双人", "联机对战"),
-                selectedTabIndex = when (mode) {
-                    GomokuMode.AI -> 0
-                    GomokuMode.LOCAL -> 1
-                    GomokuMode.ONLINE -> 2
-                },
-                onTabSelected = {
-                    onModeChange(
-                        when (it) {
-                            0 -> GomokuMode.AI
-                            1 -> GomokuMode.LOCAL
-                            else -> GomokuMode.ONLINE
-                        }
-                    )
-                },
-                embedded = true,
+                selectedTabIndex = mode.ordinal,
+                onTabSelected = { mode = GomokuMode.entries[it] },
             )
+            if (mode == GomokuMode.ONLINE) {
+                GomokuOnlineSection(onExitOnlineMode = { mode = GomokuMode.AI })
+                return@Column
+            }
 
-            if (mode == GomokuMode.AI) {
-                Text("上交 AI 难度", style = MiuixTheme.textStyles.body2)
-                AppSegmentedTabs(
-                    tabs = GomokuDifficulty.entries.map { it.label },
-                    selectedTabIndex = GomokuDifficulty.entries.indexOf(difficulty),
-                    onTabSelected = { onDifficultyChange(GomokuDifficulty.entries[it]) },
-                    embedded = true,
+            val aiIsXjtu = mode == GomokuMode.AI && !playerIsXjtu
+            val aiIsSjtu = mode == GomokuMode.AI && playerIsXjtu
+            val aiDetail = "AI · ${difficulty.label}"
+            val versus: @Composable () -> Unit = {
+                VersusBar(
+                    left = Contender("西交", if (aiIsXjtu) aiDetail else if (mode == GomokuMode.AI) "你 · 先手" else "先手", StonePaints.Xjtu),
+                    right = Contender("上交", if (aiIsSjtu) aiDetail else if (mode == GomokuMode.AI) "你 · 后手" else "后手", StonePaints.Sjtu),
+                    activeLeft = if (ui.outcome == GomokuOutcome.ONGOING) ui.toMove == GOMOKU_XJTU else null,
+                    thinking = ui.thinking,
                 )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("我执：", style = MiuixTheme.textStyles.body2)
-                    Spacer(Modifier.width(8.dp))
-                    TextButton(
-                        text = if (playerIsXjtu) "西交（先手）" else "上交（后手）",
-                        onClick = { onPlayerSideChange(!playerIsXjtu) },
-                    )
+            }
+            val hint: @Composable () -> Unit = {
+                val (text, color) = when (ui.outcome) {
+                    GomokuOutcome.XJTU_WIN -> GomokuTexts.XJTU_WIN to XjtuColor
+                    GomokuOutcome.SJTU_WIN -> (taunt ?: "上交获胜") to SjtuColor
+                    GomokuOutcome.DRAW -> GomokuTexts.DRAW_TEXT to MiuixTheme.colorScheme.onSurfaceVariantSummary
+                    GomokuOutcome.ONGOING -> "先连成五子者胜" to MiuixTheme.colorScheme.onSurfaceVariantSummary
                 }
+                GameHint(text, color = color)
             }
-
-            GomokuStatusLine(ui = ui, mode = mode)
-
-            taunt?.let {
-                Text(it, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-            }
-            if (ui.outcome == GomokuOutcome.XJTU_WIN) {
-                Text(GomokuTexts.XJTU_WIN, style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold, color = XjtuBlue)
-            }
-            if (ui.outcome == GomokuOutcome.DRAW) {
-                Text(GomokuTexts.DRAW_TEXT, style = MiuixTheme.textStyles.body2)
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = onUndo, modifier = Modifier.weight(1f)) { Text("悔棋") }
-                Button(
-                    onClick = onRestart,
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColorsPrimary(),
-                ) { Text("重开") }
-            }
-        }
-    }
-}
-
-@Composable
-private fun GomokuStatusLine(ui: GomokuUiState, mode: GomokuMode) {
-    val text = when {
-        ui.thinking -> "上交正在思考…"
-        ui.outcome != GomokuOutcome.ONGOING -> "本局已结束"
-        ui.toMove == GOMOKU_XJTU -> "轮到西交落子"
-        else -> "轮到上交落子"
-    }
-    Text(text, style = MiuixTheme.textStyles.body1)
-}
-
-@Composable
-private fun GomokuBoardView(ui: GomokuUiState, onCellTap: (Int, Int) -> Unit) {
-    val size = ui.board.size
-    val last = ui.board.lastMove()
-    Box(
-        modifier = Modifier
-            .aspectRatio(1f)
-            .fillMaxWidth()
-            .padding(4.dp)
-            .background(MiuixTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp)),
-    ) {
-        Canvas(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp)
-                .pointerInput(ui.board, ui.outcome, ui.thinking) {
-                    detectBoardTap(size) { row, col -> onCellTap(row, col) }
-                },
-        ) {
-            val step = this.size.width / (size - 1)
-            val lineColor = Color.Gray.copy(alpha = 0.6f)
-            for (i in 0 until size) {
-                drawLine(lineColor, Offset(0f, i * step), Offset(this.size.width, i * step), strokeWidth = 1.5f, cap = StrokeCap.Round)
-                drawLine(lineColor, Offset(i * step, 0f), Offset(i * step, this.size.height), strokeWidth = 1.5f, cap = StrokeCap.Round)
-            }
-            val radius = step * 0.42f
-            for (r in 0 until size) {
-                for (c in 0 until size) {
-                    val stone = ui.board.stoneAt(r, c)
-                    if (stone == GOMOKU_EMPTY) continue
-                    val center = Offset(c * step, r * step)
-                    val color = if (stone == GOMOKU_XJTU) XjtuBlue else SjtuRed
-                    drawCircle(color, radius, center)
-                    if (last?.first == r && last.second == c) {
-                        drawCircle(Color.White, radius * 0.28f, center)
+            val settings: @Composable () -> Unit = {
+                if (mode == GomokuMode.AI) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.weight(1f)) {
+                            AppSegmentedTabs(
+                                tabs = GomokuDifficulty.entries.map { it.label },
+                                selectedTabIndex = GomokuDifficulty.entries.indexOf(difficulty),
+                                onTabSelected = { difficulty = GomokuDifficulty.entries[it] },
+                                embedded = true,
+                            )
+                        }
+                        Box(
+                            Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MiuixTheme.colorScheme.surfaceContainer)
+                                .clickable { playerIsXjtu = !playerIsXjtu }
+                                .padding(horizontal = 12.dp, vertical = 9.dp),
+                        ) {
+                            Text(
+                                if (playerIsXjtu) "我执西交 ⇄" else "我执上交 ⇄",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (playerIsXjtu) XjtuColor else SjtuColor,
+                            )
+                        }
                     }
                 }
             }
+            val actions: @Composable () -> Unit = {
+                GameActionRow(
+                    listOf(
+                        GameAction("悔棋", enabled = !ui.thinking && ui.board.moveCount() > 0, onClick = ::undo),
+                        GameAction("重开", primary = true, onClick = ::resetGame),
+                    ),
+                )
+            }
+
+            if (isWideLayout()) {
+                Row(
+                    Modifier.fillMaxSize().padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(20.dp),
+                ) {
+                    Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                        GomokuBoardView(ui, Modifier.fillMaxHeight(), onCellTap = ::onCellTap)
+                    }
+                    Column(Modifier.width(320.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        settings()
+                        versus()
+                        hint()
+                        actions()
+                    }
+                }
+            } else {
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    settings()
+                    Spacer(Modifier.height(8.dp))
+                    versus()
+                    hint()
+                    GomokuBoardView(ui, Modifier.fillMaxWidth(), onCellTap = ::onCellTap)
+                    Spacer(Modifier.height(16.dp))
+                    actions()
+                    Spacer(Modifier.height(24.dp))
+                }
+            }
         }
     }
 }
 
-/** 把点击坐标换算成最近的交叉点行列号——棋子下在交叉点上，不是格子里。 */
-private suspend fun PointerInputScope.detectBoardTap(
-    boardSize: Int,
-    onTap: (Int, Int) -> Unit,
-) {
-    detectTapGestures { offset ->
-        val step = size.width / (boardSize - 1)
-        if (step <= 0) return@detectTapGestures
-        val col = ((offset.x / step) + 0.5f).toInt().coerceIn(0, boardSize - 1)
-        val row = ((offset.y / step) + 0.5f).toInt().coerceIn(0, boardSize - 1)
-        onTap(row, col)
+/** 最后一手如果连成了五子，返回那条线的两端；否则 null。 */
+private fun winningLine(board: GomokuBoard): Pair<Pair<Int, Int>, Pair<Int, Int>>? {
+    val (r0, c0) = board.lastMove() ?: return null
+    val p = board.stoneAt(r0, c0)
+    if (p == GOMOKU_EMPTY) return null
+    for ((dr, dc) in listOf(0 to 1, 1 to 0, 1 to 1, 1 to -1)) {
+        var a = r0 to c0
+        while (board.inBounds(a.first - dr, a.second - dc) && board.stoneAt(a.first - dr, a.second - dc) == p) {
+            a = (a.first - dr) to (a.second - dc)
+        }
+        var b = r0 to c0
+        while (board.inBounds(b.first + dr, b.second + dc) && board.stoneAt(b.first + dr, b.second + dc) == p) {
+            b = (b.first + dr) to (b.second + dc)
+        }
+        val count = maxOf(abs(b.first - a.first), abs(b.second - a.second)) + 1
+        if (count >= 5) return a to b
+    }
+    return null
+}
+
+/**
+ * 木纹棋盘 + 西交蓝 / 上交红的立体棋子；最后一手弹一下，连成五子时画一道连线。
+ * [GomokuBoard] 是原地修改的，所以把 moveCount 读进绘制，每落一子必重画。
+ */
+@Composable
+private fun GomokuBoardView(ui: GomokuUiState, modifier: Modifier, onCellTap: (Int, Int) -> Unit) {
+    val wood = woodColors()
+    val n = ui.board.size
+    val moves = ui.board.moveCount()
+    val last = ui.board.lastMove()
+    val drop = rememberDropProgress(moves)
+    val line = if (ui.outcome == GomokuOutcome.XJTU_WIN || ui.outcome == GomokuOutcome.SJTU_WIN) winningLine(ui.board) else null
+    val lineColor = Color(0xFFFFD54F)
+
+    Box(modifier.aspectRatio(1f).woodBoard(wood)) {
+        Canvas(
+            Modifier
+                .fillMaxSize()
+                .pointerInput(n, ui.outcome, ui.thinking, moves) {
+                    detectTapGestures { offset ->
+                        val cell = size.width.toFloat() / n
+                        val col = ((offset.x - cell / 2f) / cell + 0.5f).toInt().coerceIn(0, n - 1)
+                        val row = ((offset.y - cell / 2f) / cell + 0.5f).toInt().coerceIn(0, n - 1)
+                        onCellTap(row, col)
+                    }
+                },
+        ) {
+            @Suppress("UNUSED_VARIABLE") val v = moves
+            val cell = size.width / n
+            val o = cell / 2f
+            val end = size.width - o
+            val thin = (cell * 0.04f).coerceIn(1f, 2.2f)
+            for (i in 0 until n) {
+                val p = o + i * cell
+                val edge = i == 0 || i == n - 1
+                drawLine(wood.line, Offset(p, o), Offset(p, end), strokeWidth = if (edge) thin * 1.8f else thin, cap = StrokeCap.Round)
+                drawLine(wood.line, Offset(o, p), Offset(end, p), strokeWidth = if (edge) thin * 1.8f else thin, cap = StrokeCap.Round)
+            }
+            // 天元和四个星位
+            listOf(3 to 3, 3 to 11, 7 to 7, 11 to 3, 11 to 11).forEach { (r, c) ->
+                if (r < n && c < n) drawCircle(wood.line, radius = cell * 0.1f, center = Offset(o + c * cell, o + r * cell))
+            }
+
+            val radius = cell * 0.45f
+            for (r in 0 until n) {
+                for (c in 0 until n) {
+                    val stone = ui.board.stoneAt(r, c)
+                    if (stone == GOMOKU_EMPTY) continue
+                    val isLast = last?.first == r && last.second == c
+                    drawStone(
+                        Offset(o + c * cell, o + r * cell), radius,
+                        if (stone == GOMOKU_XJTU) StonePaints.Xjtu else StonePaints.Sjtu,
+                        scale = if (isLast) 0.55f + 0.45f * drop.value else 1f,
+                    )
+                }
+            }
+            if (last != null && line == null) {
+                drawCircle(Color.White.copy(alpha = 0.9f), radius = radius * 0.26f * drop.value, center = Offset(o + last.second * cell, o + last.first * cell))
+            }
+            if (line != null) {
+                val (a, b) = line
+                drawLine(
+                    lineColor,
+                    Offset(o + a.second * cell, o + a.first * cell),
+                    Offset(o + b.second * cell, o + b.first * cell),
+                    strokeWidth = cell * 0.16f,
+                    cap = StrokeCap.Round,
+                    alpha = 0.9f,
+                )
+            }
+        }
     }
 }
 
@@ -496,49 +512,71 @@ private fun GomokuOnlineSection(onExitOnlineMode: () -> Unit) {
     }
 
     val uiState = GomokuUiState(board = board, toMove = toMove, outcome = outcome, thinking = false)
+    val finished = outcome != GomokuOutcome.ONGOING || disconnectedReason != null
+    val meXjtu = myStone == GOMOKU_XJTU
 
-    Column(Modifier.fillMaxSize().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        if (disconnectedReason != null) {
-            Text(disconnectedReason ?: "", color = MiuixTheme.colorScheme.error, style = MiuixTheme.textStyles.body2)
-            Spacer(Modifier.height(8.dp))
-            TextButton(text = "返回", onClick = onExitOnlineMode)
-            return@Column
-        }
-        Text(
-            "我执${if (myStone == GOMOKU_XJTU) "西交" else "上交"}",
-            style = MiuixTheme.textStyles.body2,
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        VersusBar(
+            left = Contender("西交", if (meXjtu) "我 · 先手" else "对手 · 先手", StonePaints.Xjtu),
+            right = Contender("上交", if (meXjtu) "对手 · 后手" else "我 · 后手", StonePaints.Sjtu),
+            activeLeft = if (finished) null else toMove == GOMOKU_XJTU,
+            modifier = Modifier.padding(top = 4.dp),
         )
-        GomokuStatusLine(ui = uiState, mode = GomokuMode.ONLINE)
+        val hint = when {
+            disconnectedReason != null -> disconnectedReason
+            outcome == GomokuOutcome.XJTU_WIN -> GomokuTexts.XJTU_WIN
+            outcome == GomokuOutcome.SJTU_WIN -> "上交获胜"
+            outcome == GomokuOutcome.DRAW -> "平局"
+            toMove == myStone -> "轮到你落子"
+            else -> "等待对方落子…"
+        }
+        GameHint(hint, color = if (disconnectedReason != null) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.onSurfaceVariantSummary)
         if (pendingDrawFromPeer) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("对方提议和棋。", style = MiuixTheme.textStyles.body2)
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(MiuixTheme.colorScheme.surfaceContainer)
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("对方提议和棋", style = MiuixTheme.textStyles.body2, modifier = Modifier.weight(1f))
+                TextButton(text = "拒绝", onClick = {
+                    pendingDrawFromPeer = false
+                    scope.launch { activeSession.answerDraw(false) }
+                })
                 TextButton(text = "同意", onClick = {
                     pendingDrawFromPeer = false
                     scope.launch { activeSession.answerDraw(true) }
                     outcome = GomokuOutcome.DRAW
                     recordIfFinished(GomokuOutcome.DRAW)
                 })
-                TextButton(text = "拒绝", onClick = {
-                    pendingDrawFromPeer = false
-                    scope.launch { activeSession.answerDraw(false) }
-                })
             }
         }
-        Box(Modifier.fillMaxWidth().padding(top = 8.dp), contentAlignment = Alignment.Center) {
-            GomokuBoardView(uiState, onCellTap = ::onCellTap)
-        }
-        if (outcome == GomokuOutcome.ONGOING) {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                TextButton(text = "求和", onClick = { scope.launch { activeSession.requestDraw() } })
-                TextButton(text = "认输", onClick = {
-                    scope.launch { activeSession.resign() }
-                    val o = if (myStone == GOMOKU_XJTU) GomokuOutcome.SJTU_WIN else GomokuOutcome.XJTU_WIN
-                    outcome = o
-                    recordIfFinished(o)
-                })
-            }
+        GomokuBoardView(uiState, Modifier.fillMaxWidth(), onCellTap = ::onCellTap)
+        Spacer(Modifier.height(16.dp))
+        if (!finished) {
+            GameActionRow(
+                listOf(
+                    GameAction("求和") { scope.launch { activeSession.requestDraw() } },
+                    GameAction("认输") {
+                        scope.launch { activeSession.resign() }
+                        val o = if (myStone == GOMOKU_XJTU) GomokuOutcome.SJTU_WIN else GomokuOutcome.XJTU_WIN
+                        outcome = o
+                        recordIfFinished(o)
+                    },
+                ),
+            )
         } else {
-            TextButton(text = "退出联机", onClick = onExitOnlineMode)
+            GameActionRow(listOf(GameAction("退出联机", primary = true, onClick = onExitOnlineMode)))
         }
+        Spacer(Modifier.height(24.dp))
     }
 }

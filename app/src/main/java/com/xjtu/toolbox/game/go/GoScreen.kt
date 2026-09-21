@@ -1,6 +1,23 @@
 package com.xjtu.toolbox.game.go
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.text.font.FontWeight
+import com.xjtu.toolbox.game.ui.Contender
+import com.xjtu.toolbox.game.ui.GameAction
+import com.xjtu.toolbox.game.ui.GameActionRow
+import com.xjtu.toolbox.game.ui.GameHint
+import com.xjtu.toolbox.game.ui.StonePaints
+import com.xjtu.toolbox.game.ui.VersusBar
+import com.xjtu.toolbox.game.ui.drawStone
+import com.xjtu.toolbox.game.ui.rememberDropProgress
+import com.xjtu.toolbox.game.ui.woodBoard
+import com.xjtu.toolbox.game.ui.woodColors
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -90,110 +107,136 @@ fun GoScreen(onBack: () -> Unit) {
             )
         },
     ) { padding ->
-        if (online) {
-            GoOnlineSection(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                onExitOnlineMode = { online = false },
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            AppSegmentedTabs(
+                tabs = listOf("同屏双人", "联机对战"),
+                selectedTabIndex = if (online) 1 else 0,
+                onTabSelected = { online = it == 1 },
             )
-        } else {
-            Column(Modifier.fillMaxSize().padding(padding)) {
-                Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    AppSegmentedTabs(
-                        tabs = listOf("同屏双人", "联机对战"),
-                        selectedTabIndex = 0,
-                        onTabSelected = { if (it == 1) online = true },
-                        embedded = true,
-                    )
+            if (online) {
+                GoOnlineSection(
+                    modifier = Modifier.fillMaxSize(),
+                    onExitOnlineMode = { online = false },
+                )
+            } else if (isWideLayout()) {
+                // 宽屏（横屏平板/折叠屏展开）棋盘和操作面板并排
+                Row(
+                    Modifier.fillMaxSize().padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(20.dp),
+                ) {
+                    Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                        GoLocalBoard(state, Modifier.fillMaxHeight().aspectRatio(1f))
+                    }
+                    Column(Modifier.width(300.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        GoVersus(state)
+                        GoHintLine(state)
+                        GoActions(state, context)
+                        GoSizePicker(state)
+                    }
                 }
-                // 宽屏（横屏平板/折叠屏展开）时棋盘和操作面板并排放，窄屏就上下堆叠；
-                // 沿用仓库统一的宽屏判定，好和课表、设置等其他页面在同一个阈值上切换。
-                if (isWideLayout()) {
-                    Row(
-                        Modifier
-                            .fillMaxSize()
-                            .background(MiuixTheme.colorScheme.background)
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    ) {
-                        GoBoardCanvas(
-                            state = state,
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .weight(1f),
-                        )
-                        GoSidePanel(
-                            state = state,
-                            context = context,
-                            modifier = Modifier.width(260.dp).fillMaxHeight(),
-                        )
-                    }
-                } else {
-                    Column(
-                        Modifier
-                            .fillMaxSize()
-                            .background(MiuixTheme.colorScheme.background)
-                            .padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        GoStatusBar(state)
-                        Spacer(Modifier.height(12.dp))
-                        GoBoardCanvas(state = state, modifier = Modifier.fillMaxWidth())
-                        Spacer(Modifier.height(12.dp))
-                        GoControlRow(state, context)
-                    }
+            } else {
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    GoVersus(state)
+                    GoHintLine(state)
+                    GoLocalBoard(state, Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(16.dp))
+                    GoActions(state, context)
+                    Spacer(Modifier.height(12.dp))
+                    GoSizePicker(state)
+                    Spacer(Modifier.height(24.dp))
                 }
             }
+        }
 
-            if (state.phase == GoPhase.FINISHED) {
-                GoResultDialog(state = state, context = context, onDismiss = { state.newGame() })
-            }
+        if (state.phase == GoPhase.FINISHED) {
+            GoResultDialog(state = state, context = context, onDismiss = { state.newGame() })
         }
     }
 }
 
 @Composable
-private fun GoStatusBar(state: GoGameState) {
-    // 读 version 是为了让这个 Composable 在每次落子/提子/悔棋之后重组——
-    // GoBoard 是普通可变对象，不靠这个计数器 Compose 感知不到盘面变了。
-    @Suppress("UNUSED_EXPRESSION") val v = state.version
-    val text = when (state.phase) {
-        GoPhase.PLAYING -> "轮到${if (state.turn == Stone.BLACK) "黑棋（西交）" else "白棋（上交）"}"
-        GoPhase.SCORING -> "数子中：点棋子标记死活，确认后计算胜负"
-        GoPhase.FINISHED -> "对局结束"
-    }
-    Text(text, style = MiuixTheme.textStyles.body1, color = MiuixTheme.colorScheme.onSurface)
+private fun GoVersus(state: GoGameState) {
+    VersusBar(
+        left = Contender("黑 · 西交", "执黑先行", StonePaints.GoBlack, accent = MiuixTheme.colorScheme.onSurface),
+        right = Contender("白 · 上交", "贴 3.75 子", StonePaints.GoWhite, accent = MiuixTheme.colorScheme.onSurfaceVariantSummary),
+        activeLeft = if (state.phase == GoPhase.PLAYING) state.turn == Stone.BLACK else null,
+        modifier = Modifier.padding(top = 4.dp),
+    )
+}
+
+@Composable
+private fun GoHintLine(state: GoGameState) {
     val reason = when (state.rejection) {
         GoRejection.OCCUPIED -> "这里已经有子了"
         GoRejection.SUICIDE -> "这手是自杀，禁着"
-        GoRejection.KO -> "打劫：不能立即走回上一个全局同形的局面"
+        GoRejection.KO -> "打劫：不能立即提回，先去别处走一手"
         null -> null
     }
-    if (reason != null) {
-        Text(reason, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.error)
+    val text = reason ?: when (state.phase) {
+        GoPhase.PLAYING -> "点交叉点落子 · 双方连续虚手进入数子"
+        GoPhase.SCORING -> "数子：点棋子标记死子，再点一次取消"
+        GoPhase.FINISHED -> "对局结束"
+    }
+    GameHint(text, color = if (reason != null) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.onSurfaceVariantSummary)
+}
+
+@Composable
+private fun GoActions(state: GoGameState, context: android.content.Context) {
+    // 读 version：GoBoard 是普通可变对象，canUndo() 的结果要跟着每一手刷新
+    @Suppress("UNUSED_VARIABLE") val v = state.version
+    when (state.phase) {
+        GoPhase.PLAYING -> GameActionRow(
+            listOf(
+                GameAction("虚手") { state.pass() },
+                GameAction("悔棋", enabled = state.canUndo()) { state.undo() },
+                GameAction("认输") { state.resign(state.turn) },
+            ),
+        )
+        GoPhase.SCORING -> GameActionRow(
+            listOf(GameAction("确认数子", primary = true) { finishScoring(state, context) }),
+        )
+        GoPhase.FINISHED -> GameActionRow(
+            listOf(GameAction("再来一局", primary = true) { state.newGame() }),
+        )
     }
 }
 
 @Composable
-private fun GoControlRow(state: GoGameState, context: android.content.Context) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        when (state.phase) {
-            GoPhase.PLAYING -> {
-                TextButton(text = "虚手", onClick = { state.pass() })
-                TextButton(text = "悔棋", onClick = { state.undo() }, enabled = state.canUndo())
-                TextButton(text = "认输", onClick = { state.resign(state.turn) })
+private fun GoSizePicker(state: GoGameState) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            "棋盘",
+            fontSize = 14.sp,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            modifier = Modifier.padding(end = 12.dp),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(9, 13, 19).forEach { size ->
+                val selected = state.boardSize == size
+                Box(
+                    Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(
+                            if (selected) MiuixTheme.colorScheme.primary
+                            else MiuixTheme.colorScheme.surfaceContainer
+                        )
+                        .clickable { if (!selected) state.newGame(size) }
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                ) {
+                    Text(
+                        "$size 路",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (selected) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurface,
+                    )
+                }
             }
-            GoPhase.SCORING -> {
-                Text(
-                    "点棋子切换死活",
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                )
-                Button(
-                    onClick = { finishScoring(state, context) },
-                    colors = ButtonDefaults.buttonColorsPrimary(),
-                ) { Text("确认数子") }
-            }
-            GoPhase.FINISHED -> Unit
         }
     }
 }
@@ -205,28 +248,10 @@ private fun finishScoring(state: GoGameState, context: android.content.Context) 
 
 // 同屏双人没有"哪一方是本机用户"的概念，两个人共用一台设备轮流下棋。
 // 战绩这里选择固定按"黑棋视角"记一胜一负——黑棋赢记 WIN，白棋赢（黑棋输）记 LOSS，
-// 没有平局（贴 3.75 子后不会打平）。这是本任务里规格没写明、需要自己拍板的一处细节。
+// 没有平局（贴 3.75 子后不会打平）。
 private fun recordResult(context: android.content.Context, winner: Stone) {
     val result = if (winner == Stone.BLACK) GameResult.WIN else GameResult.LOSS
     GameStore.recordResult(context, GameIds.GO, "local", result)
-}
-
-@Composable
-private fun GoSidePanel(state: GoGameState, context: android.content.Context, modifier: Modifier = Modifier) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        GoStatusBar(state)
-        GoControlRow(state, context)
-        Spacer(Modifier.height(8.dp))
-        Text("棋盘大小", style = MiuixTheme.textStyles.footnote1)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(9, 13, 19).forEach { size ->
-                TextButton(
-                    text = "$size",
-                    onClick = { state.newGame(size) },
-                )
-            }
-        }
-    }
 }
 
 @Composable
@@ -236,27 +261,24 @@ private fun GoResultDialog(state: GoGameState, context: android.content.Context,
     OverlayDialog(
         show = true,
         onDismissRequest = onDismiss,
-        title = "对局结束",
+        title = "$winnerName 获胜",
     ) {
-        Column(Modifier.padding(16.dp)) {
-            Text("$winnerName 获胜", style = MiuixTheme.textStyles.title3)
-            if (r != null) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "黑：${r.blackArea} 子（贴 3.75 子后 ${"%.2f".format(r.blackFinal)}）\n" +
-                        "白：${r.whiteArea} 子\n胜 ${"%.2f".format(r.margin)} 子",
-                    style = MiuixTheme.textStyles.body2,
-                )
-            } else {
-                Spacer(Modifier.height(8.dp))
-                Text("对方中途认输", style = MiuixTheme.textStyles.body2)
-            }
-            Spacer(Modifier.height(16.dp))
-            Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                Button(onClick = { state.newGame(); onDismiss() }, colors = ButtonDefaults.buttonColorsPrimary()) {
-                    Text("再来一局")
-                }
-            }
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(
+                if (r != null) {
+                    "黑 ${r.blackArea} 子，贴 3.75 子后 ${"%.2f".format(r.blackFinal)}\n" +
+                        "白 ${r.whiteArea} 子\n胜 ${"%.2f".format(r.margin)} 子"
+                } else {
+                    "对方中途认输"
+                },
+                style = MiuixTheme.textStyles.body1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+            Button(
+                onClick = { state.newGame(); onDismiss() },
+                colors = ButtonDefaults.buttonColorsPrimary(),
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("再来一局", color = MiuixTheme.colorScheme.onPrimary) }
         }
     }
     // 认输场景没有经过数子阶段（confirmScore 里已经记过一次），没有 ScoreResult 就是这种情况，
@@ -277,74 +299,94 @@ private fun starPoints(size: Int): List<GoPoint> = when (size) {
 }
 
 @Composable
-private fun GoBoardCanvas(state: GoGameState, modifier: Modifier = Modifier) {
-    @Suppress("UNUSED_EXPRESSION") val v = state.version // 见 GoStatusBar 里的说明
-    val boardColor = Color(0xFFE3C08A) // 棋盘用固定的木色，不是主题相关的语义色，暗色模式下也保持木纹感
-    val lineColor = Color(0xFF6B4A26)
-    val blackStone = MiuixTheme.colorScheme.onBackground // 深色，代表西交
-    val whiteStone = MiuixTheme.colorScheme.surface // 浅色，代表上交
-    val highlight = MiuixTheme.colorScheme.primary
+private fun GoLocalBoard(state: GoGameState, modifier: Modifier) {
+    GoBoardView(
+        board = state.board,
+        version = state.version,
+        dead = if (state.phase == GoPhase.SCORING) state.deadStones.toSet() else emptySet(),
+        showLastMove = state.phase == GoPhase.PLAYING,
+        modifier = modifier,
+        onTap = { x, y -> state.tapIntersection(x, y) },
+    )
+}
 
-    Card(
-        modifier = modifier.aspectRatio(1f),
-        cornerRadius = 12.dp,
-        colors = CardDefaults.defaultColors(color = boardColor),
-    ) {
+/**
+ * 木纹棋盘 + 立体黑白子。
+ *
+ * [version] 必须每一手都变：[GoBoard] 是普通可变对象，绘制 lambda 不读一个会变的值的话，
+ * Compose 会复用上一次的 lambda、不重画——以前「落了子却看不到棋子」就是这个原因。
+ */
+@Composable
+private fun GoBoardView(
+    board: GoBoard,
+    version: Int,
+    dead: Set<GoPoint>,
+    showLastMove: Boolean,
+    modifier: Modifier,
+    onTap: (Int, Int) -> Unit,
+) {
+    val wood = woodColors()
+    val n = board.size
+    val last = board.lastMove
+    val drop = rememberDropProgress(last)
+    val markColor = Color(0xFFE53935)
+
+    Box(modifier.aspectRatio(1f).woodBoard(wood)) {
         Canvas(
             Modifier
                 .fillMaxSize()
-                .padding(20.dp)
-                .pointerInput(state.boardSize, state.phase) {
+                .pointerInput(n, onTap) {
                     detectTapGestures { offset ->
-                        val size = state.boardSize
-                        val cell = this.size.width.toFloat() / (size - 1)
-                        val x = (offset.x / cell).roundToInt().coerceIn(0, size - 1)
-                        val y = (offset.y / cell).roundToInt().coerceIn(0, size - 1)
-                        state.tapIntersection(x, y)
+                        val cell = size.width.toFloat() / n
+                        val x = ((offset.x - cell / 2f) / cell).roundToInt().coerceIn(0, n - 1)
+                        val y = ((offset.y - cell / 2f) / cell).roundToInt().coerceIn(0, n - 1)
+                        onTap(x, y)
                     }
                 },
         ) {
-            val n = state.boardSize
-            val cell = size.width / (n - 1)
+            @Suppress("UNUSED_VARIABLE") val v = version
+            val cell = size.width / n
+            val o = cell / 2f
+            val end = size.width - o
+            val thin = (cell * 0.035f).coerceIn(1.2f, 2.4f)
 
-            // 网格线
             for (i in 0 until n) {
-                val p = i * cell
-                drawLine(lineColor, Offset(p, 0f), Offset(p, size.height), strokeWidth = 2f)
-                drawLine(lineColor, Offset(0f, p), Offset(size.width, p), strokeWidth = 2f)
+                val p = o + i * cell
+                val edge = i == 0 || i == n - 1
+                drawLine(wood.line, Offset(p, o), Offset(p, end), strokeWidth = if (edge) thin * 1.8f else thin)
+                drawLine(wood.line, Offset(o, p), Offset(end, p), strokeWidth = if (edge) thin * 1.8f else thin)
             }
-
-            // 星位
             for (star in starPoints(n)) {
-                drawCircle(lineColor, radius = 4f, center = Offset(star.x * cell, star.y * cell))
+                drawCircle(wood.line, radius = cell * 0.09f, center = Offset(o + star.x * cell, o + star.y * cell))
             }
 
-            val stoneRadius = cell * 0.46f
+            val stoneRadius = cell * 0.47f
             for (y in 0 until n) {
                 for (x in 0 until n) {
-                    val stone = state.board.stoneAt(x, y)
+                    val stone = board.stoneAt(x, y)
                     if (stone == Stone.EMPTY) continue
-                    val center = Offset(x * cell, y * cell)
-                    val dead = state.phase == GoPhase.SCORING && GoPoint(x, y) in state.deadStones
-                    val color = if (stone == Stone.BLACK) blackStone else whiteStone
-                    drawCircle(color, radius = stoneRadius, center = center, alpha = if (dead) 0.35f else 1f)
-                    drawCircle(lineColor, radius = stoneRadius, center = center, style = Stroke(width = 1.5f))
-                    if (dead) {
-                        // 死子打一个叉，比单纯变淡更清楚地表明"这块棋已经判定死了"
-                        val d = stoneRadius * 0.6f
-                        drawLine(highlight, Offset(center.x - d, center.y - d), Offset(center.x + d, center.y + d), strokeWidth = 3f)
-                        drawLine(highlight, Offset(center.x - d, center.y + d), Offset(center.x + d, center.y - d), strokeWidth = 3f)
+                    val center = Offset(o + x * cell, o + y * cell)
+                    val isDead = GoPoint(x, y) in dead
+                    val isLast = last != null && last.x == x && last.y == y
+                    drawStone(
+                        center, stoneRadius,
+                        if (stone == Stone.BLACK) StonePaints.GoBlack else StonePaints.GoWhite,
+                        alpha = if (isDead) 0.4f else 1f,
+                        scale = if (isLast) 0.6f + 0.4f * drop.value else 1f,
+                    )
+                    if (isDead) {
+                        val d = stoneRadius * 0.5f
+                        drawLine(markColor, Offset(center.x - d, center.y - d), Offset(center.x + d, center.y + d), strokeWidth = cell * 0.08f)
+                        drawLine(markColor, Offset(center.x - d, center.y + d), Offset(center.x + d, center.y - d), strokeWidth = cell * 0.08f)
                     }
                 }
             }
 
-            // 最后一手标记：数子阶段盘面已经不再变化，标了也没意义，只在对局中画
-            val last = state.board.lastMove
-            if (state.phase == GoPhase.PLAYING && last != null) {
+            if (showLastMove && last != null && board.stoneAt(last.x, last.y) != Stone.EMPTY) {
                 drawCircle(
-                    highlight,
-                    radius = stoneRadius * 0.32f,
-                    center = Offset(last.x * cell, last.y * cell),
+                    markColor,
+                    radius = stoneRadius * 0.24f * drop.value,
+                    center = Offset(o + last.x * cell, o + last.y * cell),
                 )
             }
         }
@@ -375,6 +417,8 @@ private fun GoOnlineSection(modifier: Modifier = Modifier, onExitOnlineMode: () 
     var resignedWinner by remember { mutableStateOf<Stone?>(null) }
     var disconnectedReason by remember { mutableStateOf<String?>(null) }
     var pendingDrawFromPeer by remember { mutableStateOf(false) }
+    // 每成功走一手（含虚手）+1，棋盘靠它重画——GoBoard 是原地修改的可变对象
+    var moveCount by remember { mutableIntStateOf(0) }
 
     fun recordIfFinished(winner: Stone?) {
         if (winner == null) return
@@ -398,6 +442,7 @@ private fun GoOnlineSection(modifier: Modifier = Modifier, onExitOnlineMode: () 
                 session = s
             },
             onCancel = onExitOnlineMode,
+            modifier = modifier,
         )
         return
     }
@@ -420,6 +465,7 @@ private fun GoOnlineSection(modifier: Modifier = Modifier, onExitOnlineMode: () 
                         return@collect
                     }
                     consecutivePasses = if (move is OnlineMove.Pass) consecutivePasses + 1 else 0
+                    moveCount++
                     turn = if (turn == Stone.BLACK) Stone.WHITE else Stone.BLACK
                     if (consecutivePasses >= 2) result = GoScoring.score(board, emptySet())
                 }
@@ -444,6 +490,7 @@ private fun GoOnlineSection(modifier: Modifier = Modifier, onExitOnlineMode: () 
         val move = OnlineMove.Place(x, y)
         if (!adapter.applyIfLegal(board, move, myColor.ordinal)) return
         consecutivePasses = 0
+        moveCount++
         turn = if (turn == Stone.BLACK) Stone.WHITE else Stone.BLACK
         sendMove(move)
     }
@@ -452,101 +499,83 @@ private fun GoOnlineSection(modifier: Modifier = Modifier, onExitOnlineMode: () 
         if (result != null || resignedWinner != null || turn != myColor) return
         adapter.applyIfLegal(board, OnlineMove.Pass, myColor.ordinal)
         consecutivePasses += 1
+        moveCount++
         turn = if (turn == Stone.BLACK) Stone.WHITE else Stone.BLACK
         if (consecutivePasses >= 2) result = GoScoring.score(board, emptySet())
         sendMove(OnlineMove.Pass)
     }
 
-    Column(modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        if (disconnectedReason != null) {
-            Text(disconnectedReason ?: "", color = MiuixTheme.colorScheme.error, style = MiuixTheme.textStyles.body2)
-            Spacer(Modifier.height(8.dp))
-            TextButton(text = "返回", onClick = onExitOnlineMode)
-            return@Column
-        }
-        Text("我执${if (myColor == Stone.BLACK) "黑棋（西交）" else "白棋（上交）"}", style = MiuixTheme.textStyles.body2)
-        val statusText = when {
-            result != null -> "对局结束：${if (result!!.winner == Stone.BLACK) "黑棋" else "白棋"}胜 ${"%.2f".format(result!!.margin)} 子"
-            resignedWinner != null -> "对局结束：${if (resignedWinner == Stone.BLACK) "黑棋" else "白棋"}胜（对方认输）"
-            turn == myColor -> "轮到你落子"
-            else -> "等待对方落子"
-        }
-        Text(statusText, style = MiuixTheme.textStyles.body1)
+    val statusText = when {
+        disconnectedReason != null -> disconnectedReason
+        result != null -> "对局结束：${if (result!!.winner == Stone.BLACK) "黑棋" else "白棋"}胜 ${"%.2f".format(result!!.margin)} 子"
+        resignedWinner != null -> "对局结束：${if (resignedWinner == Stone.BLACK) "黑棋" else "白棋"}胜（对方认输）"
+        turn == myColor -> "轮到你落子"
+        else -> "等待对方落子…"
+    }
+    val finished = result != null || resignedWinner != null || disconnectedReason != null
+    val meBlack = myColor == Stone.BLACK
+
+    Column(
+        modifier
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        VersusBar(
+            left = Contender(if (meBlack) "我 · 黑" else "我 · 白", "本机", if (meBlack) StonePaints.GoBlack else StonePaints.GoWhite, accent = MiuixTheme.colorScheme.primary),
+            right = Contender(if (meBlack) "对手 · 白" else "对手 · 黑", "联机", if (meBlack) StonePaints.GoWhite else StonePaints.GoBlack, accent = MiuixTheme.colorScheme.onSurfaceVariantSummary),
+            activeLeft = if (finished) null else turn == myColor,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        GameHint(
+            statusText,
+            color = if (disconnectedReason != null) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        )
         if (pendingDrawFromPeer) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("对方提议和棋（按双方现有盘面数子定胜负）。", style = MiuixTheme.textStyles.body2)
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(MiuixTheme.colorScheme.surfaceContainer)
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("对方提议按现有盘面数子", style = MiuixTheme.textStyles.body2, modifier = Modifier.weight(1f))
+                TextButton(text = "拒绝", onClick = {
+                    pendingDrawFromPeer = false
+                    scope.launch { activeSession.answerDraw(false) }
+                })
                 TextButton(text = "同意", onClick = {
                     pendingDrawFromPeer = false
                     scope.launch { activeSession.answerDraw(true) }
                     result = GoScoring.score(board, emptySet())
                 })
-                TextButton(text = "拒绝", onClick = {
-                    pendingDrawFromPeer = false
-                    scope.launch { activeSession.answerDraw(false) }
-                })
             }
         }
-        Spacer(Modifier.height(8.dp))
-        GoOnlineBoardCanvas(board = board, boardSize = boardSize, onTap = ::onIntersectionTap)
-        Spacer(Modifier.height(8.dp))
-        if (result == null && resignedWinner == null) {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                TextButton(text = "虚手", onClick = ::onPassTap)
-                TextButton(text = "求和", onClick = { scope.launch { activeSession.requestDraw() } })
-                TextButton(text = "认输", onClick = {
-                    scope.launch { activeSession.resign() }
-                    resignedWinner = if (myColor == Stone.BLACK) Stone.WHITE else Stone.BLACK
-                })
-            }
+        GoBoardView(
+            board = board,
+            version = moveCount,
+            dead = emptySet(),
+            showLastMove = !finished,
+            modifier = Modifier.fillMaxWidth(),
+            onTap = ::onIntersectionTap,
+        )
+        Spacer(Modifier.height(16.dp))
+        if (!finished) {
+            GameActionRow(
+                listOf(
+                    GameAction("虚手", enabled = turn == myColor, onClick = ::onPassTap),
+                    GameAction("求和") { scope.launch { activeSession.requestDraw() } },
+                    GameAction("认输") {
+                        scope.launch { activeSession.resign() }
+                        resignedWinner = if (myColor == Stone.BLACK) Stone.WHITE else Stone.BLACK
+                    },
+                ),
+            )
         } else {
-            TextButton(text = "退出联机", onClick = onExitOnlineMode)
+            GameActionRow(listOf(GameAction("退出联机", primary = true, onClick = onExitOnlineMode)))
         }
-    }
-}
-
-/** 联机对局用的极简棋盘画布：不需要数子阶段的死子标记交互，比 [GoBoardCanvas] 精简。 */
-@Composable
-private fun GoOnlineBoardCanvas(board: GoBoard, boardSize: Int, onTap: (Int, Int) -> Unit) {
-    val boardColor = Color(0xFFE3C08A)
-    val lineColor = Color(0xFF6B4A26)
-    val blackStone = MiuixTheme.colorScheme.onBackground
-    val whiteStone = MiuixTheme.colorScheme.surface
-
-    Card(
-        modifier = Modifier.fillMaxWidth().aspectRatio(1f),
-        cornerRadius = 12.dp,
-        colors = CardDefaults.defaultColors(color = boardColor),
-    ) {
-        Canvas(
-            Modifier
-                .fillMaxSize()
-                .padding(20.dp)
-                .pointerInput(board) {
-                    detectTapGestures { offset ->
-                        val cell = this.size.width.toFloat() / (boardSize - 1)
-                        val x = (offset.x / cell).roundToInt().coerceIn(0, boardSize - 1)
-                        val y = (offset.y / cell).roundToInt().coerceIn(0, boardSize - 1)
-                        onTap(x, y)
-                    }
-                },
-        ) {
-            val cell = size.width / (boardSize - 1)
-            for (i in 0 until boardSize) {
-                val p = i * cell
-                drawLine(lineColor, Offset(p, 0f), Offset(p, size.height), strokeWidth = 2f)
-                drawLine(lineColor, Offset(0f, p), Offset(size.width, p), strokeWidth = 2f)
-            }
-            val stoneRadius = cell * 0.46f
-            for (y in 0 until boardSize) {
-                for (x in 0 until boardSize) {
-                    val stone = board.stoneAt(x, y)
-                    if (stone == Stone.EMPTY) continue
-                    val center = Offset(x * cell, y * cell)
-                    val color = if (stone == Stone.BLACK) blackStone else whiteStone
-                    drawCircle(color, radius = stoneRadius, center = center)
-                    drawCircle(lineColor, radius = stoneRadius, center = center, style = Stroke(width = 1.5f))
-                }
-            }
-        }
+        Spacer(Modifier.height(24.dp))
     }
 }
