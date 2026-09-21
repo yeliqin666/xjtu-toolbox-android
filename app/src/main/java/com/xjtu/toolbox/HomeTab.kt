@@ -248,7 +248,8 @@ internal fun HomeTab(
     onNavigateToProfile: () -> Unit = {},
     onNavigateToCourses: () -> Unit = {},
     scrollBehavior: ScrollBehavior? = null,
-    navBarStyle: String = "floating",
+    /** 悬浮底栏的总占位高度（= MainScreen 的 floatingBarReserve）：底栏浮在内容之上，页面末尾得自己留出来。 */
+    extraBottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
     homeTheme: String = CredentialStore.THEME_CARD,
     showQuickActions: Boolean = true,
     bulletins: List<Bulletin> = emptyList(),
@@ -872,7 +873,7 @@ internal fun HomeTab(
             Spacer(Modifier.height(24.dp))
             quickActionsSection()
             categorySection()
-            if (navBarStyle == "floating") Spacer(Modifier.height(96.dp))
+            Spacer(Modifier.height(extraBottomPadding))
         }
     }
 }

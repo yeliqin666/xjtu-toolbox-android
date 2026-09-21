@@ -151,10 +151,17 @@ internal fun MainScreen(
 
     val snackbarHostState = remember { SnackbarHostState() }
     // miuix：底栏条目可单独设选中色。选中跟主题色（含取色），未选中仍走容器字色。
+    // 底栏图标两个状态共用一枚实心图标（见 BottomTab），所以这两个色值是选中/未选中的
+    // 全部差别所在：经典底栏走下面的 NavigationBarItemColors，玻璃底栏自己取它们给图标和文字。
+    val navSelectedContent = MiuixTheme.colorScheme.primary
+    val navUnselectedContent = MiuixTheme.colorScheme.onSurfaceContainer
     val navItemColors = NavigationBarDefaults.navigationBarItemColors(
-        selectedContentColor = MiuixTheme.colorScheme.primary,
-        unselectedContentColor = MiuixTheme.colorScheme.onSurfaceContainer,
+        selectedContentColor = navSelectedContent,
+        unselectedContentColor = navUnselectedContent,
     )
+    // 各格图标的光学尺寸不同（见 BottomTab.iconSize），统一放进这么大的框里居中：不统一的话
+    // 每格「图标 + 文字」的总高会差出几 dp，五格的文字基线就错开了。
+    val navIconBox = remember { BottomTab.entries.maxOf { it.iconSize } }
 
     fun switchToTab(tab: BottomTab) {
         selectedTabOrdinal = tab.ordinal
@@ -333,10 +340,6 @@ internal fun MainScreen(
     // 规则见 ui/WindowSize.kt。平板、折叠屏内屏、手机横屏都可能进这一支。
     val isWide = com.xjtu.toolbox.ui.isWideLayout()
 
-    // 宽屏没有底栏，可底栏风格是一路透传给各 tab 的（它们据此补底部留白）。
-    // 不换成 "rail" 的话，宽屏下底栏已经不渲染了，子页面却照样留 96dp 空白。
-    val effectiveNavStyle = if (isWide) "rail" else navBarStyle
-
     // 界面风格（plan2 §17 第 12 条）：沿用原来「底栏风格」的取值，"floating" = 玻璃（默认），
     // "classic" = 经典。选经典时，底栏回到经典样式，所有玻璃点（底栏、侧栏、气泡、搜索浮层、
     // 二级页顶栏）一起退回不透明；经典同时就是「性能模式」，不另设玻璃开关。
@@ -355,11 +358,24 @@ internal fun MainScreen(
     val phoneBubbleBackdrop = com.kyant.backdrop.backdrops.rememberCombinedBackdrop(appBackdrop, glassBarExport)
 
     // 悬浮底栏的总占位高度。
-    // - 玻璃底栏：本体 64dp，离系统导航条 12dp（没有导航条时离屏幕底边 20dp）；
+    // - 玻璃底栏：本体 58dp（GLASS_BAR_HEIGHT），离系统导航条 8dp（没有导航条时离屏幕底边 20dp）；
     // - 平板竖屏的悬浮胶囊：取自 miuix FloatingNavigationBar 的实现，胶囊本体最小 52dp，
     //   外加底部留白（有系统导航条时 26dp + inset，否则 36dp）。
     val navInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    val glassBarBottomGap = if (navInset > 0.dp) 12.dp else 20.dp
+    val glassBarBottomGap = if (navInset > 0.dp) 8.dp else 20.dp
+    // 两种悬浮底栏都挂在 Scaffold 的 floatingToolbar 槽位里，而槽位底边自己就让开了系统
+    // 导航条（contentWindowInsets 的 bottom）、还额外减了 4dp —— Scaffold.kt 里那个 private
+    // 的 FloatingToolbarSpacing，取不到只能照抄数值。所以槽位内容必须按「槽位已经让了
+    // 多少」来补，两种底栏各补各的：
+    //   - 玻璃底栏自己不垫底，只补「想要的留白 − 4dp」；再加一次 navInset 就是算两遍，
+    //     底栏会被整体抬高 navInset + 4dp（这台机器上实测多出 20dp）；
+    //   - 平板竖屏的 miuix 胶囊内部已经垫了 26dp + inset（NavigationBar.kt 的
+    //     bottomPaddingValue），要反过来把槽位多让的 navInset + 4dp 压回去，否则同样高
+    //     20dp（实测底边 62dp 而不是 42dp），顶端还会压住内容区最后一截。
+    val miuixFloatingToolbarSpacing = 4.dp
+    val glassBarSlotBottomPadding =
+        (glassBarBottomGap - miuixFloatingToolbarSpacing).coerceAtLeast(0.dp)
+    val floatingBarSlotOffsetY = navInset + miuixFloatingToolbarSpacing
     val floatingBarReserve = when {
         useGlassBar -> GLASS_BAR_HEIGHT + glassBarBottomGap + navInset
         !isWide && navBarStyle == "floating" ->
@@ -748,7 +764,7 @@ internal fun MainScreen(
                         NavigationBarItem(
                             selected = selectedTab == tab,
                             onClick = { userSelectTab(tab.ordinal) },
-                            icon = if (selectedTab == tab) tab.selectedIcon else tab.unselectedIcon,
+                            icon = tab.icon,
                             label = tab.label,
                             colors = navItemColors,
                             badge = bottomTabBadge(tab, loginState.isLoggedIn, navAccountCount)
@@ -765,8 +781,8 @@ internal fun MainScreen(
               Column(
                   Modifier
                       .fillMaxWidth()
-                      .padding(horizontal = 16.dp)
-                      .padding(bottom = navInset + glassBarBottomGap),
+                      .padding(horizontal = 20.dp)
+                      .padding(bottom = glassBarSlotBottomPadding),
               ) {
                 proactiveBubbleSlot()
                 com.xjtu.toolbox.ui.glass.GlassBottomTabs(
@@ -789,18 +805,28 @@ internal fun MainScreen(
                                     skin = pidaiStyle.skin,
                                 )
                             } else {
-                                Box {
-                                    Icon(
-                                        if (selected) tab.selectedIcon else tab.unselectedIcon,
-                                        contentDescription = tab.label,
-                                        modifier = Modifier.size(24.dp),
-                                    )
-                                    // 角标照常画，不用玻璃（底栏里不能再嵌 layerBackdrop，§9.4）
-                                    bottomTabBadge(tab, loginState.isLoggedIn, navAccountCount)?.let { badge ->
-                                        Box(Modifier.align(Alignment.TopEnd).offset(x = 10.dp, y = (-4).dp)) { badge() }
+                                // 各格图标的光学尺寸不同（见 BottomTab.iconSize），统一放进
+                                // navIconBox 高的框里居中，五格的「图标 + 文字」总高才一致
+                                Box(Modifier.height(navIconBox), contentAlignment = Alignment.Center) {
+                                    Box {
+                                        Icon(
+                                            tab.icon,
+                                            contentDescription = tab.label,
+                                            tint = if (selected) navSelectedContent else navUnselectedContent,
+                                            modifier = Modifier.size(tab.iconSize),
+                                        )
+                                        // 角标照常画，不用玻璃（底栏里不能再嵌 layerBackdrop，§9.4）
+                                        bottomTabBadge(tab, loginState.isLoggedIn, navAccountCount)?.let { badge ->
+                                            Box(Modifier.align(Alignment.TopEnd).offset(x = 10.dp, y = (-4).dp)) { badge() }
+                                        }
                                     }
                                 }
-                                Text(tab.label, fontSize = 11.sp, maxLines = 1)
+                                Text(
+                                    tab.label,
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    color = if (selected) navSelectedContent else navUnselectedContent,
+                                )
                             }
                         }
                     },
@@ -817,7 +843,9 @@ internal fun MainScreen(
             }
         } else if (!isWide && navBarStyle == "floating") {
             {
-              Column {
+              Column(
+                  Modifier.offset(y = floatingBarSlotOffsetY),
+              ) {
                 proactiveBubbleSlot()
                 FloatingNavigationBar(
                     color = MiuixTheme.colorScheme.surfaceContainerHigh,
@@ -842,7 +870,7 @@ internal fun MainScreen(
                         FloatingNavigationBarItem(
                             selected = selectedTab == tab,
                             onClick = { userSelectTab(tab.ordinal) },
-                            icon = if (selectedTab == tab) tab.selectedIcon else tab.unselectedIcon,
+                            icon = tab.icon,
                             label = tab.label,
                             colors = navItemColors,
                             badge = bottomTabBadge(tab, loginState.isLoggedIn, navAccountCount)
@@ -982,7 +1010,7 @@ internal fun MainScreen(
                                         onNavigateToProfile = { selectedTabOrdinal = BottomTab.PROFILE.ordinal },
                                         onNavigateToCourses = { selectedTabOrdinal = BottomTab.COURSES.ordinal },
                                         scrollBehavior = homeScrollBehavior,
-                                        navBarStyle = effectiveNavStyle,
+                                        extraBottomPadding = floatingBarReserve,
                                         homeTheme = homeTheme,
                                         showQuickActions = showQuickActions,
                                         bulletins = heroBulletins,
@@ -1005,7 +1033,7 @@ internal fun MainScreen(
                                         contentTopPadding = tabTopPadding,
                                     )
                                     BottomTab.COURSES -> CoursesTab(loginState, ::navigateWithLogin, onNavigateWithNetCheck, scrollBehavior = coursesScrollBehavior, extraBottomPadding = floatingBarReserve, contentTopPadding = tabTopPadding, onSubtitleChange = { courseSubtitle = it }, onActionsChange = { courseHeaderActions = it }, onBottomContentChange = { courseHeaderBottomContent = it })
-                                    BottomTab.TOOLS -> ToolsTab(loginState, ::navigateWithLogin, onNavigateWithNetCheck, scrollBehavior = toolsScrollBehavior, navBarStyle = effectiveNavStyle, contentTopPadding = tabTopPadding)
+                                    BottomTab.TOOLS -> ToolsTab(loginState, ::navigateWithLogin, onNavigateWithNetCheck, scrollBehavior = toolsScrollBehavior, extraBottomPadding = floatingBarReserve, contentTopPadding = tabTopPadding)
                                     BottomTab.PROFILE -> ProfileTab(
                                         loginState,
                                         ::navigateWithLogin,
@@ -1016,7 +1044,7 @@ internal fun MainScreen(
                                         onNavigateToSettings = { navController.navigate(Routes.SETTINGS) },
                                         onNavigateToFeedback = { navController.navigate(Routes.FEEDBACK) },
                                         onNavigateToAccounts = { navController.navigate(com.xjtu.toolbox.Routes.ACCOUNTS) },
-                                        navBarStyle = effectiveNavStyle,
+                                        extraBottomPadding = floatingBarReserve,
                                         onWarmupRequest = onWarmupRequest,
                                         contentTopPadding = tabTopPadding,
                                     )
@@ -1326,7 +1354,7 @@ private fun MainNavigationRail(
             top.yukonga.miuix.kmp.basic.NavigationRailItem(
                 selected = selectedTab == tab,
                 onClick = { onSelect(tab) },
-                icon = if (selectedTab == tab) tab.selectedIcon else tab.unselectedIcon,
+                icon = tab.icon,
                 label = tab.label,
                 badge = bottomTabBadge(tab, isLoggedIn, accountCount)
             )
@@ -1448,12 +1476,13 @@ private fun ToolsTab(
     onNavigateWithLogin: (String, LoginType) -> Unit,
     onNavigate: (String) -> Unit,
     scrollBehavior: ScrollBehavior? = null,
-    navBarStyle: String = "floating",
+    /** 悬浮底栏的总占位高度（= floatingBarReserve）：底栏浮在内容之上，列表末尾得自己留出来。 */
+    extraBottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
     contentTopPadding: androidx.compose.ui.unit.Dp = 0.dp,
 ) {
     com.xjtu.toolbox.zyxf.ZyxfBrowseScreen(
         contentPadding = PaddingValues(
-            bottom = if (navBarStyle == "floating") 96.dp else 0.dp,
+            bottom = extraBottomPadding,
         ),
         scrollBehavior = scrollBehavior,
         contentTopPadding = contentTopPadding,

@@ -207,7 +207,8 @@ internal fun ProfileTab(
     onNavigateToSettings: () -> Unit = {},
     onNavigateToFeedback: () -> Unit = {},
     onNavigateToAccounts: () -> Unit = {},
-    navBarStyle: String = "floating",
+    /** 悬浮底栏的总占位高度（= MainScreen 的 floatingBarReserve）：底栏浮在内容之上，页面末尾得自己留出来。 */
+    extraBottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
     onWarmupRequest: () -> Unit = {},
     contentTopPadding: androidx.compose.ui.unit.Dp = 0.dp,
 ) {
@@ -893,7 +894,7 @@ internal fun ProfileTab(
             }
         }
 
-        if (navBarStyle == "floating") Spacer(Modifier.height(96.dp))
+        Spacer(Modifier.height(extraBottomPadding))
     }
 }
 

@@ -61,6 +61,7 @@ import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
+import com.xjtu.toolbox.GLASS_BAR_HEIGHT
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -117,12 +118,17 @@ fun GlassBottomTabs(
         if (glass) it.copy(alpha = 0.4f) else it
     }
     val barShadow = remember(accentColor, isDark) { floatingGlassShadow(accentColor, isDark) }
-    // 用百分比圆角凑出胶囊形状，不额外依赖 io.github.kyant0:shapes 的 Capsule——
-    // 那只是 backdrop 的传递依赖，不在本项目的编译期 classpath 上（加它要改
+    // 圆角按设计给的 28dp 写死，不额外依赖 io.github.kyant0:shapes 的 Capsule——那只是
+    // backdrop 的传递依赖，不在本项目的编译期 classpath 上（加它要改
     // gradle/libs.versions.toml，是热点文件，见收尾报告的胶合清单）。RoundedCornerShape
-    // 是 CornerBasedShape，lens() 支持（计划 §16.1 第 2 条），和 MainScreen.kt 里经典
-    // FloatingNavigationBar 用的 `RoundedCornerShape(50)` 一致，视觉上也是胶囊。
-    val pillShape = remember { RoundedCornerShape(50) }
+    // 是 CornerBasedShape，lens() 支持（计划 §16.1 第 2 条）。
+    // 28dp < 本体高的一半（58/2 = 29dp），所以不会被 Compose 夹：两端各留一小段直边，
+    // 是圆角矩形而不是满半圆的胶囊。给到 ≥ 29dp 才会被夹成胶囊。
+    val pillShape = remember { RoundedCornerShape(28.dp) }
+
+    // 内容行高度 = 本体高 − 上下各 4dp 内衬。本体高取 GLASS_BAR_HEIGHT（MainScreen 的浮空占位
+    // 也按它算），滑块、染色层、屁岱真身那几层都跟着它，以后调高度只改那一个常量。
+    val innerHeight = GLASS_BAR_HEIGHT - 8.dp
 
     // 只有 glass = true 才需要这一层：给滑块用，把「强调色染色」那一遍的像素录下来，
     // 让滑块下面透出的是「玻璃 + 强调色」而不是纯色块。
@@ -275,7 +281,7 @@ fun GlassBottomTabs(
                     },
                 )
                 .then(if (glass) interactiveHighlight.modifier else Modifier)
-                .height(64.dp)
+                .height(GLASS_BAR_HEIGHT)
                 .fillMaxWidth()
                 .padding(4.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -307,7 +313,7 @@ fun GlassBottomTabs(
                             onDrawSurface = { drawRect(containerColor) },
                         )
                         .then(interactiveHighlight.modifier)
-                        .height(56.dp)
+                        .height(innerHeight)
                         .fillMaxWidth()
                         .padding(horizontal = 4.dp)
                         .graphicsLayer(colorFilter = ColorFilter.tint(accentColor)),
@@ -353,7 +359,7 @@ fun GlassBottomTabs(
                                 drawRect(Color.Black.copy(alpha = 0.03f * progress))
                             },
                         )
-                        .height(56.dp)
+                        .height(innerHeight)
                         .fillMaxWidth(1f / tabsCount),
                 )
             } else {
@@ -370,7 +376,7 @@ fun GlassBottomTabs(
                         .then(dampedDrag.modifier)
                         .clip(pillShape)
                         .background(accentColor.copy(alpha = 0.15f))
-                        .height(56.dp)
+                        .height(innerHeight)
                         .fillMaxWidth(1f / tabsCount),
                 )
             }
@@ -382,7 +388,7 @@ fun GlassBottomTabs(
             Row(
                 Modifier
                     .graphicsLayer { translationX = panelOffset }
-                    .height(64.dp)
+                    .height(GLASS_BAR_HEIGHT)
                     .fillMaxWidth()
                     .padding(4.dp),
                 verticalAlignment = Alignment.CenterVertically,
