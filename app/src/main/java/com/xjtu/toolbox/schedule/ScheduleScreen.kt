@@ -2052,7 +2052,6 @@ private fun ScheduleTabContent(
                         weekDates = weekDates,
                         holidayNames = holidayDates,
                         enableCompression = true,
-                        weekKey = weekN,
                         bottomPadding = bottomPadding,
                         topPadding = gridTopPadding,
                         slotBadge = { badgeOf(it, weekN) },

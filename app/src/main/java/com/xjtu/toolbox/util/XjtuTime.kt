@@ -77,6 +77,38 @@ object XjtuTime {
     }
 
     /**
+     * 把「当天第几分钟」换算成**节次刻度**：第 n 节这一行 = `[n, n+1)`，小数部分就是节内比例。
+     *
+     * 课表网格按节次排版、行高等距（见 ui/ScheduleComponents.kt 的 ScheduleGrid），
+     * 而自定义日程、体育课这类条目带的是钟点，需要这个刻度把它们落到行内的正确位置。
+     *
+     * - 落在某节课的起止之间 → 节号 + 节内分钟比例；
+     * - 落在课间（午休/晚休）或作息之外 → 贴到最近的那一侧节边界（保证块仍然可见）；
+     * - 第一节之前 → 1.0；最后一节之后 → 末节 + 1。
+     */
+    fun sectionScaleOf(minuteOfDay: Int, summer: Boolean = isSummerTime()): Float {
+        val ordered = (if (summer) SUMMER_SCHEDULE else WINTER_SCHEDULE).entries.sortedBy { it.key }
+        if (ordered.isEmpty()) return 1f
+        for ((section, t) in ordered) {
+            val start = t.start.hour * 60 + t.start.minute
+            val end = t.end.hour * 60 + t.end.minute
+            if (minuteOfDay in start..end) {
+                val span = (end - start).coerceAtLeast(1)
+                return section + (minuteOfDay - start).toFloat() / span
+            }
+        }
+        val lastSection = ordered.last().key
+        val firstStart = ordered.first().let { it.value.start.hour * 60 + it.value.start.minute }
+        if (minuteOfDay < firstStart) return ordered.first().key.toFloat()
+        // 课间/晚休/作息之后：取「最后一个已开始的节次 + 1」作为落点
+        var floorSection = ordered.first().key
+        for ((section, t) in ordered) {
+            if (t.start.hour * 60 + t.start.minute <= minuteOfDay) floorSection = section else break
+        }
+        return (floorSection + 1).toFloat().coerceAtMost((lastSection + 1).toFloat())
+    }
+
+    /**
      * 当前学年的起始年份。学年从 9 月起算，用起始年命名——
      * 2025-2026 学年即「2025 学年」。
      *
