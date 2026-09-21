@@ -8,7 +8,6 @@ import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.runtime.*
-import androidx.navigation.compose.dialog
 import com.xjtu.toolbox.auth.*
 import com.xjtu.toolbox.card.putTodaySummary
 import com.xjtu.toolbox.util.CredentialStore

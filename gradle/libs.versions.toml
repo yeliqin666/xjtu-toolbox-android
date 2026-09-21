@@ -15,7 +15,6 @@ activityCompose = "1.12.0"
 composeBom = "2026.08.00"
 # material-icons-extended 已经冻结在 1.7.x，这个 BOM 带的是 1.7.8（原来解析到 1.7.7）。
 # 不另外钉版本：普通版本号压不过 BOM 的约束，写了也不生效，反而误导人。
-navigationCompose = "2.8.9"
 okhttp = "4.12.0"
 jsoup = "1.18.3"
 flexmark = "0.64.8"
@@ -61,7 +60,6 @@ jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
 flexmark-html2md = { group = "com.vladsch.flexmark", name = "flexmark-html2md-converter", version.ref = "flexmark" }
 gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
 coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
 security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
 zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
 androidx-camera-core = { group = "androidx.camera", name = "camera-core", version.ref = "camerax" }

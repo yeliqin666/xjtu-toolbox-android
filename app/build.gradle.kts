@@ -139,9 +139,11 @@ android {
             versionNameSuffix = "-dev.${System.getenv("GITHUB_RUN_NUMBER") ?: "local"}"
         }
     }
+    // Java / Kotlin 目标 21：miuix 各模块都用 JDK 21 工具链编译，miuix-nav 的 entry<T>() 是 inline 函数，
+    // Kotlin 不允许把 21 的字节码内联进更低目标的代码。Android 上由 D8 脱糖，不影响 minSdk。
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
     }
     buildFeatures {
         compose = true
@@ -192,7 +194,6 @@ dependencies {
     implementation(libs.flexmark.html2md)
     implementation(libs.gson)
     implementation(libs.coroutines.android)
-    implementation(libs.navigation.compose)
     implementation(libs.security.crypto)
     implementation(libs.zxing.core)
     // 扫码登录：CameraX 取景 + zxing 解码

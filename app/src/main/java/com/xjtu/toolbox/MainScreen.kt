@@ -54,7 +54,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.navigation.NavHostController
+import com.xjtu.toolbox.nav.AppNavigator
 import com.xjtu.toolbox.auth.*
 import com.xjtu.toolbox.schedule.ScheduleScreen
 import com.xjtu.toolbox.bulletin.Bulletin
@@ -68,7 +68,7 @@ import kotlinx.coroutines.launch
 
 @Composable
 internal fun MainScreen(
-    navController: NavHostController,
+    navController: AppNavigator,
     loginState: AppLoginState,
     credentialStore: CredentialStore,
     accountManager: com.xjtu.toolbox.account.AccountManager,
@@ -156,7 +156,7 @@ internal fun MainScreen(
         when (target) {
             Routes.SCHEDULE -> switchToTab(BottomTab.COURSES)
             Routes.AGENT -> switchToTab(BottomTab.PIDAI)
-            else -> navController.navigate(target) { launchSingleTop = true }
+            else -> navController.navigate(target)
         }
     }
 
@@ -749,12 +749,12 @@ internal fun MainScreen(
                     val cm2 = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
                     val online = cm2?.activeNetwork != null && cm2.getNetworkCapabilities(cm2.activeNetwork)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
                     if (online) {
-                        navController.navigate(route) { launchSingleTop = true }
+                        navController.navigate(route)
                     } else {
                         scope.launch { snackbarHostState.showSnackbar("该功能需要联网使用，请检查网络连接", duration = SnackbarDuration.Short) }
                     }
                 } else {
-                    navController.navigate(route) { launchSingleTop = true }
+                    navController.navigate(route)
                 }
             }
             var composedTabs by remember { mutableStateOf(setOf(selectedTab)) }
@@ -856,9 +856,9 @@ internal fun MainScreen(
                                         accountManager,
                                         scrollBehavior = profileScrollBehavior,
                                         onNavigateToDownloads = { navController.navigate(Routes.DOWNLOAD_MANAGER) },
-                                        onNavigateToSettings = { navController.navigate(Routes.SETTINGS) { launchSingleTop = true } },
-                                        onNavigateToFeedback = { navController.navigate(Routes.FEEDBACK) { launchSingleTop = true } },
-                                        onNavigateToAccounts = { navController.navigate(com.xjtu.toolbox.Routes.ACCOUNTS) { launchSingleTop = true } },
+                                        onNavigateToSettings = { navController.navigate(Routes.SETTINGS) },
+                                        onNavigateToFeedback = { navController.navigate(Routes.FEEDBACK) },
+                                        onNavigateToAccounts = { navController.navigate(com.xjtu.toolbox.Routes.ACCOUNTS) },
                                         navBarStyle = effectiveNavStyle,
                                         onWarmupRequest = onWarmupRequest
                                     )
@@ -952,9 +952,7 @@ internal fun MainScreen(
                             text = "去更新密码",
                             onClick = {
                                 loginState.passwordInvalidatedDialogVisible = false
-                                navController.navigate(Routes.SETTINGS) {
-                                    launchSingleTop = true
-                                }
+                                navController.navigate(Routes.SETTINGS)
                             },
                             modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.textButtonColorsPrimary()
