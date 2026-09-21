@@ -464,19 +464,23 @@ internal fun HomeTab(
         return service.copy(color = iconColorByKey[service.key] ?: service.color)
     }
 
-    // 两个主题共用的分类视觉标识
-    val categoryIcon = mapOf(
-        ServiceCategory.CLASS to Icons.Default.School,
-        ServiceCategory.STUDY to Icons.Default.Assessment,
-        ServiceCategory.LIFE to Icons.Default.Restaurant,
-        ServiceCategory.TOOL to Icons.Default.SmartToy,
-    )
-    val categoryAccentKey = mapOf(
-        ServiceCategory.CLASS to Routes.SCHEDULE,
-        ServiceCategory.STUDY to Routes.JWAPP_SCORE,
-        ServiceCategory.LIFE to Routes.CAMPUS_CARD,
-        ServiceCategory.TOOL to Routes.AGENT,
-    )
+    // 两个主题共用的分类视觉标识。
+    // 用 when 而不是 mapOf + getValue：以后加分类漏写了，编译就不过，
+    // 不会像「课余」（PLAY）那次一样，到首页渲染分类卡时才抛 NoSuchElementException 闪退。
+    fun categoryIcon(category: ServiceCategory): ImageVector = when (category) {
+        ServiceCategory.CLASS -> Icons.Default.School
+        ServiceCategory.STUDY -> Icons.Default.Assessment
+        ServiceCategory.LIFE -> Icons.Default.Restaurant
+        ServiceCategory.TOOL -> Icons.Default.SmartToy
+        ServiceCategory.PLAY -> Icons.Default.SportsEsports
+    }
+    fun categoryAccentKey(category: ServiceCategory): String = when (category) {
+        ServiceCategory.CLASS -> Routes.SCHEDULE
+        ServiceCategory.STUDY -> Routes.JWAPP_SCORE
+        ServiceCategory.LIFE -> Routes.CAMPUS_CARD
+        ServiceCategory.TOOL -> Routes.AGENT
+        ServiceCategory.PLAY -> Routes.GAMES
+    }
 
     // 首页内容拆成三块。窄屏按原顺序竖排，与改造前逐行等价；
     // 宽屏左栏放状态区与常用功能、右栏放分类卡（两列）。三块内部一个字没动。
@@ -719,8 +723,8 @@ internal fun HomeTab(
                     HomeCategoryCard(
                         title = category.title,
                         subtitle = category.subtitle,
-                        icon = categoryIcon.getValue(category),
-                        accent = com.xjtu.toolbox.ui.theme.legacyColor(categoryAccentKey.getValue(category)),
+                        icon = categoryIcon(category),
+                        accent = com.xjtu.toolbox.ui.theme.legacyColor(categoryAccentKey(category)),
                         rows = items.map { svc ->
                             HomeServiceRow(svc.key, svc.icon, svc.title, svc.color, trackedAction(svc))
                         },
@@ -804,8 +808,8 @@ internal fun HomeTab(
                     HomeSceneCard(
                         title = category.title,
                         subtitle = category.subtitle,
-                        icon = categoryIcon.getValue(category),
-                        accent = com.xjtu.toolbox.ui.theme.legacyColor(categoryAccentKey.getValue(category)),
+                        icon = categoryIcon(category),
+                        accent = com.xjtu.toolbox.ui.theme.legacyColor(categoryAccentKey(category)),
                         rows = rows,
                     )
                 }

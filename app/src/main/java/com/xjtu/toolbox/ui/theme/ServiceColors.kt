@@ -66,6 +66,8 @@ private const val R_FITNESS = "fitness"
 private const val R_YELLOW_PAGE = "yellow_page"
 private const val R_WEBVPN_CONVERTER = "webvpn_converter"
 private const val R_AGENT = "agent"
+private const val R_GAMES = "games"
+private const val R_MATCH = "schedule_match"
 
 /**
  * 彩虹关闭时使用的旧硬编码配色。
@@ -100,5 +102,8 @@ fun legacyColor(key: String): Color = when (key) {
     // 工具与助手
     R_WEBVPN_CONVERTER -> Color(0xFF4E342E)
     R_AGENT -> Color(0xFF00695C)
+    // 课余
+    R_GAMES -> Color(0xFFEF6C00)
+    R_MATCH -> Color(0xFFD81B60)
     else -> Color(0xFF757575)
 }
