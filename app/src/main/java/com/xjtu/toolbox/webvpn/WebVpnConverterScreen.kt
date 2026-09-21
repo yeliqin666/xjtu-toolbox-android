@@ -19,6 +19,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
+import com.xjtu.toolbox.ui.glass.*
 import com.xjtu.toolbox.util.WebVpnUtil
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
@@ -55,12 +56,15 @@ fun WebVpnConverterScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var isReversed by remember { mutableStateOf(false) } // false=原始→VPN, true=VPN→原始
 
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
     Scaffold(
         topBar = {
             TopAppBar(
                 title = "WebVPN 网址互转",
                 largeTitle = "WebVPN 网址互转",
-                color = MiuixTheme.colorScheme.surface,
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -70,17 +74,20 @@ fun WebVpnConverterScreen(
             )
         }
     ) { padding ->
+        val glassTop = padding.glassTop(glass)
         Column(
             Modifier
                 .readableWidth()
                 .fillMaxSize()
-                .padding(padding)
+                .padding(padding.withoutTop(glass))
+                .glassSource(glass)
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
                 .overScrollVertical()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            Spacer(Modifier.height(glassTop))
             // 介绍卡
             Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 14.dp) {
                 Column(Modifier.padding(16.dp)) {
