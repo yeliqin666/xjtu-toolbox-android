@@ -1,5 +1,6 @@
 package com.xjtu.toolbox
 
+import com.xjtu.toolbox.nav.expandOriginSource
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.activity.compose.BackHandler
@@ -694,6 +695,7 @@ internal fun HomeTab(
                                 service.color,
                                 onClick = trackedAction(service),
                                 modifier = Modifier.weight(1f),
+                                originKey = service.key,
                             )
                         }
                     }
@@ -1101,13 +1103,19 @@ private fun HomeServiceTile(
     row: HomeServiceRow,
     modifier: Modifier = Modifier,
 ) {
+    val origin = com.xjtu.toolbox.nav.rememberExpandOriginSource()
+    val density = androidx.compose.ui.platform.LocalDensity.current
     Column(
         modifier = modifier
+            .expandOriginSource(origin)
             .clip(RoundedCornerShape(14.dp))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = SinkFeedback(),
-                onClick = row.onClick
+                onClick = {
+                    origin.arm(row.key, 14.dp, density)
+                    row.onClick()
+                }
             )
             .padding(horizontal = 2.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -1212,13 +1220,19 @@ private fun ServiceStatCell(
     accent: androidx.compose.ui.graphics.Color,
     modifier: Modifier = Modifier,
 ) {
+    val origin = com.xjtu.toolbox.nav.rememberExpandOriginSource()
+    val density = androidx.compose.ui.platform.LocalDensity.current
     Column(
         modifier = modifier
+            .expandOriginSource(origin)
             .clip(RoundedCornerShape(10.dp))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = SinkFeedback(),
-                onClick = row.onClick
+                onClick = {
+                    origin.arm(row.key, 10.dp, density)
+                    row.onClick()
+                }
             )
             .padding(vertical = 7.dp, horizontal = 4.dp)
     ) {
@@ -1285,15 +1299,23 @@ private fun HomeQuickAction(
     color: androidx.compose.ui.graphics.Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    /** 点它打开的路由；用来让功能页从这一格放大出来（PR V）。 */
+    originKey: String? = null,
 ) {
+    val origin = com.xjtu.toolbox.nav.rememberExpandOriginSource()
+    val density = androidx.compose.ui.platform.LocalDensity.current
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier
+            .then(if (originKey != null) Modifier.expandOriginSource(origin) else Modifier)
             .clip(RoundedCornerShape(18.dp))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = SinkFeedback(),
-                onClick = onClick
+                onClick = {
+                    originKey?.let { origin.arm(it, 18.dp, density) }
+                    onClick()
+                }
             )
             .padding(horizontal = 8.dp, vertical = 8.dp)
     ) {

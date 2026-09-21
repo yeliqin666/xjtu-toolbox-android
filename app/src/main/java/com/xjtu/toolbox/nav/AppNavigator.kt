@@ -49,7 +49,10 @@ class AppNavigator(
         when {
             backStack.lastOrNull() == route -> Unit
             route in backStack -> popUntil { it == route }
-            else -> backStack.add(route)
+            else -> {
+                ExpandOrigins.onPush(route)
+                backStack.add(route)
+            }
         }
     }
 
