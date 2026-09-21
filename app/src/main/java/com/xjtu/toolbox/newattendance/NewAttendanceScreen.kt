@@ -24,6 +24,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Face
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -51,6 +52,7 @@ import com.xjtu.toolbox.auth.handleAuthExpired
 import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.AppDatePickerDialog
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
+import com.xjtu.toolbox.ui.components.AppTabPager
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
@@ -103,6 +105,7 @@ private data class NewAttendanceSnapshot(
 fun NewAttendanceScreen(
     site: SiteSession,
     onBack: () -> Unit,
+    onOpenIclassface: () -> Unit,
 ) {
     val api = remember(site) { NewAttendanceApi(site) }
     val leaveApi = remember(site) { LeaveApi(site) }
@@ -201,6 +204,11 @@ fun NewAttendanceScreen(
                     }
                 },
                 actions = {
+                    // 快速考勤流水（电子班牌刷卡、人脸签到）：另一个系统的打卡记录，
+                    // 首页不再单独放入口，改从这里进去，做法照搬成绩页右上角的「成绩报表」。
+                    IconButton(onClick = onOpenIclassface) {
+                        Icon(Icons.Default.Face, contentDescription = "快速考勤流水（电子班牌刷卡、人脸签到）")
+                    }
                     if (selectedTab == 3) {
                         IconButton(onClick = { showForm = true }) {
                             Icon(Icons.Default.Add, contentDescription = "新建请假")
@@ -258,16 +266,23 @@ fun NewAttendanceScreen(
                                 )
                             }
                         }
-                        when (selectedTab) {
-                            0 -> RecordList(records)
-                            1 -> StreamList(streams)
-                            2 -> StatList(courseStats)
-                            else -> LeaveList(
-                                leaves = leaves,
-                                onOpen = { detail = it },
-                                onWithdraw = { pendingAction = LeaveAction.WITHDRAW to it },
-                                onCancel = { pendingAction = LeaveAction.CANCEL to it },
-                            )
+                        AppTabPager(
+                            pageCount = 4,
+                            selectedTabIndex = selectedTab,
+                            onTabSelected = { selectedTab = it },
+                            modifier = Modifier.fillMaxSize(),
+                        ) { tab ->
+                            when (tab) {
+                                0 -> RecordList(records)
+                                1 -> StreamList(streams)
+                                2 -> StatList(courseStats)
+                                else -> LeaveList(
+                                    leaves = leaves,
+                                    onOpen = { detail = it },
+                                    onWithdraw = { pendingAction = LeaveAction.WITHDRAW to it },
+                                    onCancel = { pendingAction = LeaveAction.CANCEL to it },
+                                )
+                            }
                         }
                     }
                 }
