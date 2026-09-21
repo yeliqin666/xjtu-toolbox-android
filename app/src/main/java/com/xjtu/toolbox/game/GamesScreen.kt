@@ -29,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
@@ -36,6 +37,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.Routes
 import com.xjtu.toolbox.ui.adaptive.readableWidth
+import com.xjtu.toolbox.ui.glass.*
 import com.xjtu.toolbox.ui.isWideLayout
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -109,12 +111,17 @@ fun GamesScreen(
         )
     }
 
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
     Scaffold(
         topBar = {
             TopAppBar(
                 title = "小游戏",
                 largeTitle = "小游戏",
-                color = MiuixTheme.colorScheme.background,
+                // 这页顶栏原来用 background 而非 surface（卡片本身才是 surface），
+                // 玻璃时透明，经典时保持原色，不借 glassBarColor 的默认值
+                color = if (glass != null) Color.Transparent else MiuixTheme.colorScheme.background,
+                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -124,7 +131,11 @@ fun GamesScreen(
             )
         },
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
+        val glassTop = padding.glassTop(glass)
+        Box(
+            Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
+            contentAlignment = Alignment.TopCenter,
+        ) {
             LazyVerticalGrid(
                 // 窄屏一列（卡里要放得下一行说明和一行战绩），宽屏两列。
                 columns = GridCells.Fixed(if (isWideLayout()) 2 else 1),
@@ -133,7 +144,7 @@ fun GamesScreen(
                     .fillMaxSize()
                     .nestedScroll(scrollBehavior.nestedScrollConnection)
                     .overScrollVertical(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = glassTop + 8.dp, bottom = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
