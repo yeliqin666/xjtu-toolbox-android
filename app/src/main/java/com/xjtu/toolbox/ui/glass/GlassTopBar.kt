@@ -5,8 +5,17 @@ import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -66,9 +75,63 @@ fun rememberPageGlass(): LayerBackdrop? {
     return if (LocalGlassStyle.current) backdrop else null
 }
 
-/** 录下这一层作为玻璃的采样源；[backdrop] 为 null 时什么都不做。 */
-fun Modifier.glassSource(backdrop: LayerBackdrop?): Modifier =
-    if (backdrop != null) this.layerBackdrop(backdrop) else this
+/**
+ * 录下这一层作为玻璃的采样源；[backdrop] 为 null 时什么都不做。
+ *
+ * 顺带让内容跟着顶栏折叠走：[glassTop] 给页面的是一个**稳定**的留白（见过的最大顶栏高度），
+ * 顶栏折叠时实际高度比它矮多少，这里就在布局阶段把内容往上挪多少、高度补多少。
+ * 位移放在采样层里面，录下来的就是挪过之后的内容，玻璃采样位置对得上。
+ */
+fun Modifier.glassSource(backdrop: LayerBackdrop?): Modifier {
+    if (backdrop == null) return this
+    return this.layerBackdrop(backdrop).shiftUpBy {
+        val follow = topBarFollows[backdrop] ?: return@shiftUpBy 0.dp
+        follow.stable - follow.current()
+    }
+}
+
+/** 内容往上挪 [amount]（布局阶段算），高度补上同样的量，底边不动。 */
+private fun Modifier.shiftUpBy(amount: () -> Dp): Modifier =
+    this.layout { measurable, constraints ->
+        val shift = amount().roundToPx().coerceAtLeast(0)
+        val c = if (constraints.hasBoundedHeight) {
+            constraints.copy(minHeight = constraints.minHeight + shift, maxHeight = constraints.maxHeight + shift)
+        } else constraints
+        val placeable = measurable.measure(c)
+        layout(placeable.width, constraints.constrainHeight(placeable.height - shift)) {
+            placeable.place(0, -shift)
+        }
+    }
+
+
+/**
+ * 自己管采样层的页面（主界面各 tab、校园卡）用的同一套办法：
+ * [rememberStableTopPadding] 给一个稳定的顶部留白放进内容，[followTopBar] 挂在内容容器上补位移。
+ */
+@Composable
+fun rememberStableTopPadding(padding: PaddingValues): androidx.compose.runtime.State<Dp> {
+    val stable = remember { mutableStateOf(Snapshot.withoutReadObservation { padding.calculateTopPadding() }) }
+    LaunchedEffect(padding) {
+        snapshotFlow { padding.calculateTopPadding() }.collect { if (it > stable.value) stable.value = it }
+    }
+    return stable
+}
+
+/** 内容按 [stableTop] 留白排版，实际顶栏（[padding]）矮多少就往上挪多少。只在布局阶段读。 */
+fun Modifier.followTopBar(stableTop: () -> Dp, padding: PaddingValues): Modifier =
+    shiftUpBy { stableTop() - padding.calculateTopPadding() }
+
+/**
+ * 一页玻璃顶栏的高度：[stable] 是见过的最大值（组合阶段读，几乎不变），
+ * [current] 读实时高度（只在布局阶段调用）。按采样源实例登记，[glassTop] 写、[glassSource] 读。
+ */
+private class TopBarFollow(initial: Dp) {
+    var stable by mutableStateOf(initial)
+    var padding: PaddingValues? = null
+    fun current(): Dp = padding?.calculateTopPadding() ?: stable
+}
+
+private val topBarFollows = java.util.WeakHashMap<LayerBackdrop, TopBarFollow>()
 
 /** 顶栏的底色：玻璃时透明，否则就是原来的 surface。 */
 @Composable
@@ -140,6 +203,25 @@ fun PaddingValues.withoutTop(backdrop: LayerBackdrop?): PaddingValues {
     )
 }
 
-/** 玻璃时要放进滚动内容里的顶部留白（= 顶栏高度）；经典时为 0，布局和原来一样。 */
-fun PaddingValues.glassTop(backdrop: LayerBackdrop?): Dp =
-    if (backdrop != null) calculateTopPadding() else 0.dp
+/**
+ * 玻璃时要放进滚动内容里的顶部留白；经典时为 0，布局和原来一样。
+ *
+ * 返回的是**见过的最大顶栏高度**，不是实时高度：Scaffold 给的 padding 内部是个 state，
+ * 大标题顶栏折叠时每帧都变。以前这里直接在组合阶段读它，整页（调用它的那个 Scaffold 内容）
+ * 每折叠一帧就重组一遍，大标题页面折叠 / 展开明显掉帧，小标题页面则没事。
+ * 实时高度与它的差额由 [glassSource] 在布局阶段补成位移，内容照样跟着顶栏走。
+ */
+@Composable
+fun PaddingValues.glassTop(backdrop: LayerBackdrop?): Dp {
+    if (backdrop == null) return 0.dp
+    val follow = remember(backdrop) {
+        topBarFollows.getOrPut(backdrop) {
+            TopBarFollow(Snapshot.withoutReadObservation { calculateTopPadding() })
+        }
+    }
+    follow.padding = this
+    LaunchedEffect(follow, this) {
+        snapshotFlow { calculateTopPadding() }.collect { if (it > follow.stable) follow.stable = it }
+    }
+    return follow.stable
+}

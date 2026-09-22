@@ -39,30 +39,6 @@ class VenueFavorites(context: Context) {
         return newState
     }
     
-    /**
-     * 添加收藏
-     */
-    fun addFavorite(venueId: Int) {
-        if (!_favoriteIds.value.contains(venueId)) {
-            val current = _favoriteIds.value.toMutableSet()
-            current.add(venueId)
-            _favoriteIds.value = current
-            saveFavorites(current)
-        }
-    }
-    
-    /**
-     * 移除收藏
-     */
-    fun removeFavorite(venueId: Int) {
-        if (_favoriteIds.value.contains(venueId)) {
-            val current = _favoriteIds.value.toMutableSet()
-            current.remove(venueId)
-            _favoriteIds.value = current
-            saveFavorites(current)
-        }
-    }
-    
     private fun loadFavorites(): Set<Int> {
         val saved = prefs.getStringSet(KEY_FAVORITES, emptySet()) ?: emptySet()
         return saved.mapNotNull { it.toIntOrNull() }.toSet()

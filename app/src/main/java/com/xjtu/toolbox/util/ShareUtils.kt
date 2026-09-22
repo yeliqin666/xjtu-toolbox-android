@@ -16,25 +16,6 @@ import java.io.File
  */
 object ShareUtils {
 
-    /** 暴露目录：cache/exports/。FileProvider xml 里已声明。 */
-    private const val EXPORT_DIR = "exports"
-
-    /**
-     * 分享文本（非文件）。常用于 Agent 回复复制 + 通知文本。
-     * 会先把内容写入临时 .txt 再走 ACTION_SEND——这样系统的"分享到"列表里
-     * 能看到"保存到文件"等选项，体验比纯文本 chooser 丰富。
-     */
-    fun shareText(
-        context: Context,
-        title: String,
-        text: String,
-        fileBaseName: String = "share.txt",
-        mime: String = "text/plain",
-    ) {
-        val file = writeToCache(context, fileBaseName, text)
-        shareFile(context, title, file, mime)
-    }
-
     /**
      * 分享文件。
      */
@@ -80,13 +61,5 @@ object ShareUtils {
             )
             Toast.makeText(context, "没有可用的分享应用", Toast.LENGTH_SHORT).show()
         }
-    }
-
-    /** 写文件到 cache/exports/，自动 mkdirs。返回写入后的 File。 */
-    fun writeToCache(context: Context, fileName: String, content: String): File {
-        val dir = File(context.cacheDir, EXPORT_DIR).apply { mkdirs() }
-        val file = File(dir, fileName)
-        file.writeText(content, Charsets.UTF_8)
-        return file
     }
 }

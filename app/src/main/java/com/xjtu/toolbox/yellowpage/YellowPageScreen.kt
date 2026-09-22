@@ -2,6 +2,9 @@ package com.xjtu.toolbox.yellowpage
 
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import androidx.compose.foundation.lazy.staggeredgrid.items
+import androidx.compose.foundation.lazy.staggeredgrid.itemsIndexed
+import androidx.compose.foundation.lazy.itemsIndexed
+import com.xjtu.toolbox.ui.components.enterOnce
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
@@ -148,7 +151,7 @@ fun YellowPageScreen(onBack: () -> Unit) {
         ) {
         when {
             loading -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
-                item { Box(Modifier.fillParentMaxSize()) { LoadingState("正在加载校园通讯录…", Modifier.fillMaxSize()) } }
+                item { Box(Modifier.fillParentMaxSize()) { com.xjtu.toolbox.ui.components.SkeletonList(Modifier.fillMaxSize(), rows = 8, rowHeight = 64.dp) } }
             }
             error != null && data == null -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
                 item {
@@ -232,8 +235,9 @@ fun YellowPageScreen(onBack: () -> Unit) {
                         )
                     }
                 } else {
-                    items(shown, key = { it.id }) { department ->
+                    itemsIndexed(shown, key = { _, it -> it.id }) { i, department ->
                         DepartmentCard(
+                            modifier = Modifier.enterOnce(i),
                             department = department,
                             onDial = { number ->
                                 runCatching {
@@ -306,10 +310,11 @@ private fun YellowPageHero(departmentCount: Int, updateTime: String) {
 @Composable
 private fun DepartmentCard(
     department: YellowPageDepartment,
-    onDial: (String) -> Unit
+    onDial: (String) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp),
         cornerRadius = 18.dp,
         colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
     ) {

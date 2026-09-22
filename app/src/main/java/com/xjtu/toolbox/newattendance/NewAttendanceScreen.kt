@@ -1,9 +1,12 @@
 package com.xjtu.toolbox.newattendance
 
+import androidx.compose.ui.graphics.Color
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.foundation.lazy.staggeredgrid.items
+import androidx.compose.foundation.lazy.staggeredgrid.itemsIndexed
+import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.ui.glass.*
 import android.net.Uri
 import androidx.activity.compose.BackHandler
@@ -279,7 +282,7 @@ fun NewAttendanceScreen(
                     Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
                     contentPadding = PaddingValues(top = glassTop)
                 ) {
-                    item { Box(Modifier.fillParentMaxSize()) { LoadingState(message = "加载新版考勤…", modifier = Modifier.fillMaxSize()) } }
+                    item { Box(Modifier.fillParentMaxSize()) { com.xjtu.toolbox.ui.components.SkeletonList(Modifier.fillMaxSize(), rows = 6, rowHeight = 88.dp) } }
                 }
             }
             error != null && records.isEmpty() && leaves.isEmpty() -> {
@@ -473,7 +476,7 @@ private fun AttendanceListShell(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp + topPadding, bottom = bottomPadding),
         spacing = 10.dp,
     ) {
-        fullLineItem(key = "header") { header() }
+        fullLineItem(key = "header") { Box(Modifier.enterOnce(0)) { header() } }
         content()
     }
 }
@@ -490,8 +493,8 @@ private fun RecordList(
         topPadding = topPadding,
         header = header,
     ) {
-        items(records, key = { it.sbh }) { record ->
-            Card(colors = CardDefaults.defaultColors(color = AppCardColor)) {
+        itemsIndexed(records, key = { _, it -> it.sbh }) { i, record ->
+            Card(modifier = Modifier.enterOnce(i + 1), colors = CardDefaults.defaultColors(color = AppCardColor)) {
                 Column(Modifier.padding(16.dp)) {
                     Text(record.courseName, style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.SemiBold)
                     Text(
@@ -529,8 +532,8 @@ private fun StreamList(
         header = header,
     ) {
         // 不给 key：id 可能缺失，同一台设备同一秒刷两次时拼出来的 key 会重复，Compose 直接崩。
-        items(streams) { stream ->
-            Card(colors = CardDefaults.defaultColors(color = AppCardColor)) {
+        itemsIndexed(streams) { i, stream ->
+            Card(modifier = Modifier.enterOnce(i + 1), colors = CardDefaults.defaultColors(color = AppCardColor)) {
                 Row(
                     Modifier.padding(16.dp).fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -576,14 +579,27 @@ private fun StatList(
         topPadding = topPadding,
         header = header,
     ) {
-        items(stats, key = { it.subjectName + it.subjectCode }) { stat ->
-            Card(colors = CardDefaults.defaultColors(color = AppCardColor)) {
+        itemsIndexed(stats, key = { _, it -> it.subjectName + it.subjectCode }) { i, stat ->
+            Card(modifier = Modifier.enterOnce(i + 1), colors = CardDefaults.defaultColors(color = AppCardColor)) {
                 Column(Modifier.padding(16.dp)) {
                     Text(stat.subjectName, style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.SemiBold)
                     Text(
                         "正常 ${stat.normalCount} · 迟到 ${stat.lateCount} · 缺勤 ${stat.absenceCount} · 请假 ${stat.leaveCount}",
                         style = MiuixTheme.textStyles.body2,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                    )
+                    // 四种状态各占多少，一眼能看出这门课有没有问题；进场时从左到右揭开
+                    Spacer(Modifier.height(10.dp))
+                    com.xjtu.toolbox.ui.components.SegmentedBar(
+                        parts = listOf(
+                            stat.normalCount.toFloat() to MiuixTheme.colorScheme.primary,
+                            stat.lateCount.toFloat() to Color(0xFFE39A1B),
+                            stat.absenceCount.toFloat() to MiuixTheme.colorScheme.error,
+                            stat.leaveCount.toFloat() to MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f),
+                        ),
+                        trackColor = MiuixTheme.colorScheme.outline.copy(alpha = 0.12f),
+                        height = 6.dp,
+                        delayMillis = 120,
                     )
                 }
             }
@@ -604,7 +620,7 @@ private fun LeaveList(
         isEmpty = leaves.isEmpty(),
         empty = {
             EmptyState(
-                title = "暂无请假记录",
+                title = "还没请过假",
                 subtitle = "点右上角加号提交病假或私事假申请",
                 modifier = it
             )
@@ -613,8 +629,8 @@ private fun LeaveList(
         header = header,
         bottomPadding = 88.dp,
     ) {
-        items(leaves, key = { it.leaveId }) { rec ->
-            Card(colors = CardDefaults.defaultColors(color = AppCardColor)) {
+        itemsIndexed(leaves, key = { _, it -> it.leaveId }) { i, rec ->
+            Card(modifier = Modifier.enterOnce(i + 1), colors = CardDefaults.defaultColors(color = AppCardColor)) {
                 Column(
                     Modifier
                         .clickable(

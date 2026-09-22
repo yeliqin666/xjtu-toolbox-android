@@ -112,8 +112,6 @@ class AgentViewModel : ViewModel() {
     /** 停止正在进行的生成。 */
     fun stop() { currentJob?.cancel() }
 
-    fun lastUserText(): String? = messages.lastOrNull { it.role == "user" }?.content
-
     fun replaceLastUserAndSend(
         newText: String,
         config: AgentConfig,
@@ -240,11 +238,6 @@ class AgentViewModel : ViewModel() {
         contextExhaustedJustTriggered = false
         // 落盘的 system prompt 是哪一版不可知，下一轮按当前配置比一次内容，变了才换。
         tools = null; errorMessage = null
-    }
-
-    fun renameSession(id: String, title: String) {
-        store?.rename(id, sanitizeAgentTitle(title, AgentSessionStore.DEFAULT_TITLE))
-        refreshSessions()
     }
 
     fun deleteSession(id: String) {

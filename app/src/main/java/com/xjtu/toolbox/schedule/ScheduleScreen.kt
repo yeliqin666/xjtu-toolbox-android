@@ -6,6 +6,7 @@ import com.xjtu.toolbox.ui.glass.glassSource
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.ui.graphics.graphicsLayer
+import kotlinx.coroutines.delay
 import androidx.compose.ui.draw.shadow
 import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.effects.lens
@@ -787,17 +788,6 @@ fun ScheduleScreen(
         }
     }
 
-    fun refreshActiveTab() {
-        when (contentOf(selectedTab)) {
-            // 学期一级同时放着考试和教材，两份都刷。
-            "semester" -> {
-                refreshExams()
-                if (selectedTermCode.isNotEmpty()) loadTextbooks(selectedTermCode)
-            }
-            else -> refreshSchedule(true)
-        }
-    }
-
     LaunchedEffect(appLoginState.accountId) {
         val id = appLoginState.accountId
         if (lastLoadedAccount != null && lastLoadedAccount != id) {
@@ -861,11 +851,12 @@ fun ScheduleScreen(
         attemptingAutoLogin = false
     }
 
-    // 加载自定义课程（学期变更时刷新）
-    LaunchedEffect(selectedTermCode) {
-        if (selectedTermCode.isNotEmpty()) {
-            customCourses = customCourseDao.getByTerm(AccountContext.activeAccountId ?: "", selectedTermCode)
-        }
+    // 自定义日程：订阅数据库，学期或账号一变就换一条订阅。
+    // 以前只在切学期时读一次，屁岱在侧栏里加的日程要重进页面才看得到。
+    LaunchedEffect(selectedTermCode, appLoginState.accountId) {
+        if (selectedTermCode.isEmpty()) return@LaunchedEffect
+        customCourseDao.observeByTerm(AccountContext.activeAccountId ?: "", selectedTermCode)
+            .collect { customCourses = it }
     }
 
     // 合并 API 课程 + 自定义课程
@@ -1779,8 +1770,6 @@ fun ScheduleScreen(
                                     }
                                 },
                                 onNavigate = onNavigate,
-                                // 常驻栏没有「关掉」这回事，不要底部那颗「知道了」。
-                                onCloseAction = null,
                             )
                         }
                     } else if (onTodayTab) {
@@ -2041,8 +2030,8 @@ private fun ScheduleTabContent(
                 }
                 if (weekCourses.isEmpty() && courses.isNotEmpty()) {
                     EmptyState(
-                        title = "本周无日程",
-                        subtitle = "第${weekN}周还没有安排",
+                        title = "这周没课",
+                        subtitle = "第${weekN}周整周空着",
                         modifier = Modifier.fillMaxSize().padding(top = gridTopPadding, bottom = bottomPadding)
                     )
                 } else {
@@ -2135,7 +2124,7 @@ private fun ScheduleMenuRow(
  * 手机上被 [CourseDetailDialog] 包在 OverlayBottomSheet 里（行为与抽出前一致），
  * 宽屏下直接长在课表右侧的常驻详情栏里。
  *
- * @param onCloseAction 弹窗版底部的「知道了」。分屏右栏不需要这个按钮，传 null。
+ * 不再有底部的「知道了」：弹窗下滑、点外面、返回键都能关，多一颗按钮只占高度。
  */
 @Composable
 private fun CourseDetailContent(
@@ -2148,7 +2137,6 @@ private fun CourseDetailContent(
     occurrence: Occurrence? = null,
     onRequestTextbooks: () -> Unit = {},
     onNavigate: (String) -> Unit = {},
-    onCloseAction: (() -> Unit)? = null,
 ) {
     val isAgenda = course.courseType == "日程"
         // 异步获取教室座位数
@@ -2212,10 +2200,11 @@ private fun CourseDetailContent(
 
             // 两行元信息合进一张卡：它们回答的是同一个问题（这门课在哪、什么时候），
             // 裸排在弹窗底色上时和下面的下钻入口分不开。
+            // 底色不能用 surfaceVariant：miuix 深色主题里它和弹窗底色同为 #242424，卡片等于隐形。
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                cornerRadius = 12.dp,
-                colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
+                cornerRadius = 14.dp,
+                colors = CardDefaults.defaultColors(color = courseDetailTileColor()),
             ) {
             Column(
                 Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
@@ -2277,16 +2266,7 @@ private fun CourseDetailContent(
                 onNavigate = onNavigate,
             )
         }
-        if (onCloseAction != null) {
-            Spacer(Modifier.height(16.dp))
-            Button(
-                onClick = onCloseAction,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("知道了")
-            }
-            Spacer(Modifier.height(16.dp))
-        }
+        Spacer(Modifier.height(16.dp))
         Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
 }
 
@@ -2319,7 +2299,6 @@ private fun CourseDetailDialog(
             onRequestTextbooks = onRequestTextbooks,
             // 下钻跳转前先关弹窗，行为与抽出前一致。
             onNavigate = { route -> close(); onNavigate(route) },
-            onCloseAction = close,
         )
     }
 }
@@ -2358,17 +2337,46 @@ fun ExamCountdownBanner(next: ExamCountdown.Next, modifier: Modifier = Modifier)
             Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(Icons.Default.Schedule, null, Modifier.size(18.dp), tint = accent)
+            // 考试就在明天或今天：图标每隔 4 秒轻晃一下，一共三次就停，提醒到了就不再打扰
+            val wiggle = remember { androidx.compose.animation.core.Animatable(0f) }
+            if (next.daysLeft <= 1) {
+                LaunchedEffect(next.exam.courseName) {
+                    repeat(3) {
+                        delay(if (it == 0) 800L else 4_000L)
+                        for (angle in listOf(14f, -12f, 8f, -5f, 0f)) {
+                            wiggle.animateTo(angle, androidx.compose.animation.core.tween(70))
+                        }
+                    }
+                }
+            }
+            Icon(
+                Icons.Default.Schedule, null,
+                Modifier.size(18.dp).graphicsLayer { rotationZ = wiggle.value },
+                tint = accent,
+            )
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text(
-                    "${next.label} · ${next.exam.courseName}",
-                    style = MiuixTheme.textStyles.body2,
-                    fontWeight = FontWeight.Bold,
-                    color = accent,
-                    maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // 天数变化时翻牌：旧的往上走、新的从下面上来
+                    androidx.compose.animation.AnimatedContent(
+                        targetState = next.label,
+                        transitionSpec = {
+                            (androidx.compose.animation.slideInVertically { it } + androidx.compose.animation.fadeIn()) togetherWith
+                                (androidx.compose.animation.slideOutVertically { -it } + androidx.compose.animation.fadeOut())
+                        },
+                        label = "examDays",
+                    ) { label ->
+                        Text(label, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Bold, color = accent, maxLines = 1)
+                    }
+                    Text(
+                        " · ${next.exam.courseName}",
+                        style = MiuixTheme.textStyles.body2,
+                        fontWeight = FontWeight.Bold,
+                        color = accent,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    )
+                }
                 val detail = listOfNotNull(
                     next.exam.examDate.takeIf { it.isNotBlank() },
                     next.exam.examTime.takeIf { it.isNotBlank() },

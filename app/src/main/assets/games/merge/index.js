@@ -158,15 +158,19 @@
     ctx.fill();
     ctx.restore();
 
-    return c.toDataURL('image/png');
+    return c;
   }
 
+  // 烘焙好的棋子直接以 canvas 形式塞进 Matter 的贴图缓存，不走 toDataURL：
+  // 页面是 file:// 的不透明源，校徽一画进来 canvas 就被污染，toDataURL 会抛 SecurityError，
+  // 整个预加载 reject，游戏一帧都起不来。Matter 的 sprite 只拿贴图去 drawImage，canvas 照样能用。
   async function loadLevelTexture(level) {
     const badge = (await tryLoadImage('./img/game_c9_' + level.key + '.webp'))
       || (await tryLoadImage('./img/game_c9_' + level.key + '.png'));
-    const url = bakeToken(level, badge);
-    const img = await tryLoadImage(url);
-    return { texture: url, image: img, size: TOKEN_SIZE };
+    const token = bakeToken(level, badge);
+    const key = 'token:' + level.key;
+    render.textures[key] = token;
+    return { texture: key, image: token, size: TOKEN_SIZE };
   }
 
   function submitScoreToHost(score) {
@@ -606,7 +610,14 @@
   window.addEventListener('resize', resize);
 
   Game.loadHighscore();
-  Game.preload().then(() => {
+  // 单枚棋子出错也不能让整局起不来：失败的那级退回写校名的纯色棋子
+  Game.preload().catch(() => {
+    Game.textures = LEVELS.map((level) => {
+      const key = 'token:' + level.key;
+      const token = render.textures[key] || (render.textures[key] = bakeToken(level, null));
+      return { texture: key, image: token, size: TOKEN_SIZE };
+    });
+  }).then(() => {
     resize();
     startRender();
     Game.start();

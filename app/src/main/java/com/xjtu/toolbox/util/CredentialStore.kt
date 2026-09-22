@@ -114,9 +114,6 @@ class CredentialStore(context: Context) {
 
     // ── 设置页持久化（普通 SharedPreferences，非敏感） ──
 
-    /** 获取 app_settings SharedPreferences，供 Compose 端直接读取/写入 */
-    fun getAppPrefs(): SharedPreferences = appPrefs
-
     /**
      * 界面风格：[NAV_STYLE_FLOATING] 玻璃（**默认**），[NAV_STYLE_CLASSIC] 经典。
      *

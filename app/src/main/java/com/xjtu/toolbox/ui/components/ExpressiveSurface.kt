@@ -87,24 +87,6 @@ fun Modifier.appCardShadow(
 }
 
 @Composable
-fun AmbientGlow(
-    color: Color,
-    modifier: Modifier = Modifier,
-    size: Dp = 180.dp,
-) {
-    Box(
-        modifier = modifier
-            .size(size)
-            .blur(size / 3)
-            .background(
-                Brush.radialGradient(
-                    colors = listOf(color.copy(alpha = 0.42f), Color.Transparent),
-                ),
-            ),
-    )
-}
-
-@Composable
 fun ExpressiveIcon(
     icon: ImageVector,
     color: Color,

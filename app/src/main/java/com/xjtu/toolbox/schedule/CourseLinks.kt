@@ -216,8 +216,6 @@ object CourseLinks {
      */
     class AttendanceIndex(
         private val byKey: Map<SlotKey, AttendanceWaterRecord>,
-        private val byCode: Map<String, List<AttendanceWaterRecord>>,
-        private val byName: Map<String, List<AttendanceWaterRecord>>,
     ) {
         fun statusOf(week: Int, dayOfWeek: Int, startSection: Int): WaterType? =
             statusRecordOf(week, dayOfWeek, startSection)?.status
@@ -225,28 +223,9 @@ object CourseLinks {
         fun statusRecordOf(week: Int, dayOfWeek: Int, startSection: Int): AttendanceWaterRecord? =
             byKey[SlotKey(week, dayOfWeek, startSection)]
 
-        /**
-         * 优先按课程号：实测考勤的 `sCode` 与教务 `courseCode` 逐字相同。
-         * 名字只作兜底，个别记录的 sCode 会是空的。
-         */
-        fun recordsOf(course: CourseItem): List<AttendanceWaterRecord> {
-            val code = course.courseCode.trim()
-            if (code.isNotEmpty()) byCode[code]?.let { return it }
-            return byName[course.courseName.normalizedCourseName()].orEmpty()
-        }
-
-        /** 这一个课格每周的考勤，按周次升序。一门课一周上两次时能分开看。 */
         /** 指定周次的那一次考勤。没有记录 = 还没上，或这门课不考勤。 */
         fun recordOn(course: CourseItem, week: Int): AttendanceWaterRecord? =
             statusRecordOf(week, course.dayOfWeek, course.startSection)
-
-        fun weeklyOf(course: CourseItem): List<AttendanceWaterRecord> =
-            recordsOf(course)
-                .filter { r ->
-                    r.startTime == course.startSection &&
-                        r.date.dayOfWeekOrNull() == course.dayOfWeek
-                }
-                .sortedBy { it.week }
 
         val isEmpty: Boolean get() = byKey.isEmpty()
 
@@ -331,11 +310,7 @@ object CourseLinks {
             val old = byKey[key]
             if (old == null || r.status.severity() > old.status.severity()) byKey[key] = r
         }
-        return AttendanceIndex(
-            byKey = byKey,
-            byCode = records.filter { it.courseCode.isNotBlank() }.groupBy { it.courseCode.trim() },
-            byName = records.groupBy { it.courseName.normalizedCourseName() },
-        )
+        return AttendanceIndex(byKey = byKey)
     }
 
     private suspend fun fetchAttendanceIndexInner(
@@ -530,8 +505,6 @@ object CourseLinks {
     private fun String.parseDayOfWeek(): Int? = runCatching {
         LocalDate.parse(take(10)).dayOfWeek.value
     }.getOrNull()
-
-    internal fun String.dayOfWeekOrNull(): Int? = parseDayOfWeek()
 }
 
 /** 去掉空白和结尾括号后缀，让两个系统里同一门课的名字能对上。 */

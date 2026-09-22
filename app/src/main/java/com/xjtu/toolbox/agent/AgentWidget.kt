@@ -5,6 +5,25 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.EventNote
+import androidx.compose.material.icons.filled.Assessment
+import androidx.compose.material.icons.filled.AssignmentTurnedIn
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.CreditCard
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.MeetingRoom
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.vector.ImageVector
+import com.xjtu.toolbox.ui.components.AppCardColor
+import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.squircle.squircleBackground
+import top.yukonga.miuix.kmp.squircle.squircleClip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -21,10 +40,6 @@ import com.xjtu.toolbox.schedule.CourseItem
 import com.xjtu.toolbox.schedule.ExamItem
 import com.xjtu.toolbox.score.ReportedGrade
 import com.xjtu.toolbox.util.XjtuTime
-import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.CardDefaults
-import top.yukonga.miuix.kmp.basic.HorizontalDivider
-import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -152,242 +167,431 @@ fun AgentWidgetView(
     }
 }
 
+/**
+ * 所有数据卡片共用的外壳：超椭圆面 + 图标徽记 + 标题/副标题，和首页分类卡同一套语言。
+ *
+ * 以前是「左侧 4dp 色条 + 标题 + 胶囊 + 分割线」，每张卡都像网页上的一个区块；
+ * 现在层级靠面和字重，不靠线条。[trailing] 放这张卡最想让人一眼看到的那个数（GPA、场次）。
+ */
 @Composable
 private fun WidgetCard(
     title: String,
+    icon: ImageVector,
     accent: Color,
     subtitle: String? = null,
+    trailing: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        cornerRadius = 16.dp,
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
+    val dark = LocalIsDarkTheme.current
+    Column(
+        modifier
+            .fillMaxWidth()
+            .squircleClip(WIDGET_RADIUS)
+            .background(AppCardColor)
+            .padding(start = 14.dp, end = 14.dp, top = 14.dp, bottom = 10.dp)
     ) {
-        Column(Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier.size(width = 4.dp, height = 15.dp)
-                        .background(accent, RoundedCornerShape(2.dp))
-                )
-                Spacer(Modifier.width(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier
+                    .size(32.dp)
+                    .squircleBackground(accent.copy(alpha = if (dark) 0.24f else 0.12f), 10.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(18.dp))
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
                 Text(
                     title,
                     style = MiuixTheme.textStyles.body1,
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f)
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
-                subtitle?.let {
-                    Surface(shape = RoundedCornerShape(8.dp), color = accent.copy(alpha = 0.12f)) {
-                        Text(it, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                            style = MiuixTheme.textStyles.footnote1, color = accent,
-                            fontWeight = FontWeight.Medium)
-                    }
+                subtitle?.takeIf { it.isNotBlank() }?.let {
+                    Text(
+                        it,
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
             }
-            Spacer(Modifier.height(8.dp))
-            HorizontalDivider(color = MiuixTheme.colorScheme.outline.copy(alpha = 0.10f))
-            Spacer(Modifier.height(6.dp))
-            content()
+            trailing?.let {
+                Spacer(Modifier.width(8.dp))
+                it()
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        content()
+    }
+}
+
+private val WIDGET_RADIUS = 22.dp
+
+/** 卡片里的小节标题（如按星期分组）。 */
+@Composable
+private fun WidgetGroupLabel(text: String) {
+    Text(
+        text,
+        style = MiuixTheme.textStyles.footnote2,
+        fontWeight = FontWeight.Bold,
+        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        modifier = Modifier.padding(start = 2.dp, top = 6.dp, bottom = 2.dp),
+    )
+}
+
+/** 列表条目：可选前导块、主副两行、可选尾部。条目之间不画线，靠留白分隔。 */
+@Composable
+private fun WidgetRow(
+    primary: String,
+    secondary: String?,
+    modifier: Modifier = Modifier,
+    leading: (@Composable () -> Unit)? = null,
+    trailing: (@Composable () -> Unit)? = null,
+) {
+    Row(
+        modifier.fillMaxWidth().padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        leading?.let {
+            it()
+            Spacer(Modifier.width(12.dp))
+        }
+        Column(Modifier.weight(1f)) {
+            Text(
+                primary,
+                style = MiuixTheme.textStyles.body2,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            secondary?.takeIf { it.isNotBlank() }?.let {
+                Spacer(Modifier.height(1.dp))
+                Text(
+                    it,
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        trailing?.let {
+            Spacer(Modifier.width(10.dp))
+            it()
         }
     }
 }
 
-/** 一行紧凑条目：左侧主文本（可两行），右侧小标签。 */
+/** 尾部的小徽标：淡色底 + 同色字，用于分数、状态、倒计时。 */
 @Composable
-private fun WidgetRow(primary: String, secondary: String?, trailing: String? = null) {
-    Row(
-        Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
+private fun WidgetBadge(text: String, color: Color) {
+    val dark = LocalIsDarkTheme.current
+    Box(
+        Modifier
+            .squircleBackground(color.copy(alpha = if (dark) 0.22f else 0.11f), 9.dp)
+            .padding(horizontal = 9.dp, vertical = 4.dp),
     ) {
-        Column(Modifier.weight(1f)) {
-            Text(primary, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
-            secondary?.let {
-                Text(it, style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    maxLines = 2, overflow = TextOverflow.Ellipsis)
-            }
-        }
-        trailing?.let {
-            Spacer(Modifier.width(8.dp))
-            Text(it, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Bold,
-                color = MiuixTheme.colorScheme.primary)
-        }
+        Text(text, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Bold, color = color, maxLines = 1)
     }
+}
+
+@Composable
+private fun WidgetMore(text: String) {
+    Text(
+        text,
+        style = MiuixTheme.textStyles.footnote1,
+        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        modifier = Modifier.padding(start = 2.dp, top = 4.dp, bottom = 4.dp),
+    )
 }
 
 // ── 各控件 ───────────────────────────────────────────────────────────────
 
+/** 课程的开始 / 结束钟点：自建日程有分钟级时间就用它，否则按节次和当天所在月份的作息推。 */
+private fun courseClock(c: CourseItem): Pair<String, String> {
+    fun fmt(m: Int) = "%02d:%02d".format(m / 60, m % 60)
+    val start = c.startMinuteOfDay.takeIf { it >= 0 }?.let(::fmt)
+        ?: XjtuTime.getClassTime(c.startSection)?.start?.let { "%02d:%02d".format(it.hour, it.minute) }
+        ?: "第${c.startSection}节"
+    val end = c.endMinuteOfDay.takeIf { it >= 0 }?.let(::fmt)
+        ?: XjtuTime.getClassTime(c.endSection)?.end?.let { "%02d:%02d".format(it.hour, it.minute) }
+        ?: "第${c.endSection}节"
+    return start to end
+}
+
 @Composable
 private fun ScheduleWidgetView(w: ScheduleWidget, modifier: Modifier) {
-    val byDay = w.courses.sortedWith(compareBy({ it.dayOfWeek }, { it.startSection }))
-        .groupBy { it.dayOfWeek }
-    WidgetCard(title = w.title, accent = MiuixTheme.colorScheme.primary, subtitle = "${w.courses.size} 节", modifier = modifier) {
-        if (w.courses.isEmpty()) {
-            Text("没有课", style = MiuixTheme.textStyles.body2,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-            return@WidgetCard
-        }
-        byDay.entries.forEachIndexed { idx, (day, list) ->
-            if (idx > 0) {
-                Spacer(Modifier.height(6.dp))
-                HorizontalDivider(color = MiuixTheme.colorScheme.outline.copy(alpha = 0.08f))
-                Spacer(Modifier.height(2.dp))
-            }
-            if (byDay.size > 1) {
-                Text(DAY_NAMES.getOrElse(day) { "" }, style = MiuixTheme.textStyles.footnote1,
-                    fontWeight = FontWeight.Bold, color = MiuixTheme.colorScheme.primary,
-                    modifier = Modifier.padding(top = 2.dp))
-            }
+    val sorted = w.courses.sortedWith(compareBy({ it.dayOfWeek }, { it.startSection }, { it.startMinuteOfDay }))
+    val byDay = sorted.groupBy { it.dayOfWeek }
+    val names = remember(w.courses) { w.courses.map { it.courseName }.distinct() }
+    WidgetCard(
+        title = w.title,
+        icon = Icons.Default.CalendarMonth,
+        accent = MiuixTheme.colorScheme.primary,
+        subtitle = if (w.courses.isEmpty()) "没有安排" else "${w.courses.size} 项安排",
+        modifier = modifier,
+    ) {
+        if (w.courses.isEmpty()) return@WidgetCard
+        byDay.entries.forEach { (day, list) ->
+            if (byDay.size > 1) WidgetGroupLabel(DAY_NAMES.getOrElse(day) { "" })
             list.forEach { c ->
-                WidgetRow(
-                    primary = c.courseName,
-                    secondary = "第${c.startSection}-${c.endSection}节 ${XjtuTime.getClassStartStr(c.startSection)} · ${c.location}" +
-                        if (c.teacher.isNotBlank()) " · ${c.teacher}" else ""
-                )
+                val (start, end) = courseClock(c)
+                val color = com.xjtu.toolbox.ui.courseColor(c.courseName, names)
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 5.dp).height(IntrinsicSize.Min),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.width(44.dp), horizontalAlignment = Alignment.End) {
+                        Text(start, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Bold)
+                        Text(end, style = MiuixTheme.textStyles.footnote2,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Box(
+                        Modifier
+                            .width(4.dp)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(color)
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(c.courseName, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        val sub = listOf(c.location, c.teacher).filter { it.isNotBlank() }.joinToString(" · ")
+                        if (sub.isNotBlank()) {
+                            Text(sub, style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
             }
+        }
+    }
+}
+
+/** 考试日期块：上面月份、下面日子，和日历 App 的日期图标一个意思。 */
+@Composable
+private fun DateBlock(date: java.time.LocalDate?, accent: Color) {
+    val dark = LocalIsDarkTheme.current
+    Column(
+        Modifier
+            .size(42.dp)
+            .squircleBackground(accent.copy(alpha = if (dark) 0.22f else 0.10f), 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        if (date == null) {
+            Text("待定", style = MiuixTheme.textStyles.footnote2, color = accent, fontWeight = FontWeight.Bold)
+        } else {
+            Text("${date.monthValue}月", style = MiuixTheme.textStyles.footnote2, color = accent)
+            Text("${date.dayOfMonth}", style = MiuixTheme.textStyles.body1, color = accent, fontWeight = FontWeight.Bold)
         }
     }
 }
 
 @Composable
 private fun ExamWidgetView(w: ExamWidget, modifier: Modifier) {
-    WidgetCard(title = "考试安排", accent = MiuixTheme.colorScheme.primaryVariant, subtitle = "${w.exams.size} 场", modifier = modifier) {
+    val accent = MiuixTheme.colorScheme.primary
+    val today = java.time.LocalDate.now()
+    WidgetCard(
+        title = "考试安排",
+        icon = Icons.AutoMirrored.Filled.EventNote,
+        accent = accent,
+        subtitle = "${w.exams.size} 场",
+        modifier = modifier,
+    ) {
         w.exams.take(12).forEach { e ->
+            val date = runCatching { java.time.LocalDate.parse(e.examDate.take(10)) }.getOrNull()
+            val days = date?.let { java.time.temporal.ChronoUnit.DAYS.between(today, it) }
             WidgetRow(
                 primary = e.courseName,
-                secondary = "${e.examDate} ${e.examTime} · ${e.location}",
-                trailing = e.seatNumber.ifBlank { "待定" }
+                secondary = listOf(e.examTime, e.location, e.seatNumber.takeIf { it.isNotBlank() }?.let { "座位 $it" })
+                    .filter { !it.isNullOrBlank() }.joinToString(" · "),
+                leading = { DateBlock(date, accent) },
+                trailing = when {
+                    days == null -> null
+                    days < 0 -> ({ WidgetBadge("已结束", MiuixTheme.colorScheme.onSurfaceVariantSummary) })
+                    days == 0L -> ({ WidgetBadge("今天", MiuixTheme.colorScheme.error) })
+                    days <= 7 -> ({ WidgetBadge("${days} 天", MiuixTheme.colorScheme.error) })
+                    else -> ({ WidgetBadge("${days} 天", accent) })
+                },
             )
         }
+        if (w.exams.size > 12) WidgetMore("…还有 ${w.exams.size - 12} 场")
     }
 }
 
 @Composable
 private fun RoomWidgetView(w: RoomWidget, modifier: Modifier) {
+    val accent = MiuixTheme.colorScheme.primary
     val shown = w.rooms.take(12)
-    WidgetCard(title = "空闲教室", accent = MiuixTheme.colorScheme.secondary, subtitle = w.condition, modifier = modifier) {
+    WidgetCard(
+        title = "空闲教室",
+        icon = Icons.Default.MeetingRoom,
+        accent = accent,
+        subtitle = w.condition,
+        modifier = modifier,
+    ) {
         shown.forEach { r ->
-            val freeSlots = r.status.mapIndexedNotNull { i, s -> if (s == 0) i + 1 else null }
             val nowFree = w.currentPeriod in r.status.indices && r.status[w.currentPeriod] == 0
-            WidgetRow(
-                primary = r.name,
-                secondary = "空闲：${freeSlots.joinToString("、") { "${it}节" }}",
-                trailing = "${r.size}座"
-            )
-            if (nowFree) {
-                Surface(shape = RoundedCornerShape(6.dp),
-                    color = MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)) {
-                    Text("本节空闲", modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
-                        style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.primary)
+            Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(r.name, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    if (nowFree) {
+                        WidgetBadge("本节空闲", accent)
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    Text("${r.size} 座", style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                }
+                if (r.status.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    // 和空闲教室页同一条节次条（一次画完、进场依次亮起）
+                    com.xjtu.toolbox.ui.components.SlotStripe(
+                        free = r.status.map { it == 0 },
+                        freeColor = accent,
+                        currentIndex = w.currentPeriod,
+                        busyColor = MiuixTheme.colorScheme.outline.copy(alpha = 0.16f),
+                    )
                 }
             }
         }
-        if (w.rooms.size > shown.size) {
-            Text("…还有 ${w.rooms.size - shown.size} 间", style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.padding(top = 4.dp))
-        }
+        if (w.rooms.size > shown.size) WidgetMore("…还有 ${w.rooms.size - shown.size} 间")
     }
 }
 
 @Composable
 private fun AttendanceWidgetView(w: AttendanceWidget, modifier: Modifier) {
-    WidgetCard(title = "考勤记录", accent = MiuixTheme.colorScheme.primary, subtitle = "${w.records.size} 条", modifier = modifier) {
+    val normal = w.records.count { it.status == WaterType.NORMAL }
+    WidgetCard(
+        title = "考勤记录",
+        icon = Icons.Default.AssignmentTurnedIn,
+        accent = MiuixTheme.colorScheme.primary,
+        subtitle = if (w.records.isEmpty()) null else "正常 $normal / ${w.records.size}",
+        modifier = modifier,
+    ) {
         w.records.forEach { r ->
             val color = when (r.status) {
-                WaterType.NORMAL -> MiuixTheme.colorScheme.primary
-                WaterType.LEAVE  -> MiuixTheme.colorScheme.onSurfaceVariantSummary
-                else             -> MiuixTheme.colorScheme.error
+                WaterType.NORMAL -> STATUS_OK
+                WaterType.LEAVE -> MiuixTheme.colorScheme.onSurfaceVariantSummary
+                else -> MiuixTheme.colorScheme.error
             }
-            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(r.courseName, style = MiuixTheme.textStyles.body2,
-                        fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text("${r.date} 第${r.startTime}-${r.endTime}节" +
-                        if (r.location.isNotBlank()) " · ${r.location}" else "",
-                        style = MiuixTheme.textStyles.footnote1,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                }
-                Spacer(Modifier.width(8.dp))
-                Text(r.status.displayName, style = MiuixTheme.textStyles.body2,
-                    fontWeight = FontWeight.Bold, color = color)
-            }
+            WidgetRow(
+                primary = r.courseName,
+                secondary = "${r.date} 第${r.startTime}-${r.endTime}节" +
+                    if (r.location.isNotBlank()) " · ${r.location}" else "",
+                trailing = { WidgetBadge(r.status.displayName, color) },
+            )
         }
     }
 }
 
 @Composable
 private fun GradeWidgetView(w: GradeWidget, modifier: Modifier) {
+    val accent = MiuixTheme.colorScheme.primary
     WidgetCard(
         title = "成绩",
-        accent = MiuixTheme.colorScheme.primaryVariant,
-        subtitle = w.gpa?.let { "GPA %.2f".format(it) },
-        modifier = modifier
-    ) {
-        Text("共 ${w.grades.size} 门 · 计入学分 ${"%.1f".format(w.totalPoints)}",
-            style = MiuixTheme.textStyles.footnote1,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-        Spacer(Modifier.height(4.dp))
-        w.grades.take(15).forEach { g ->
-            val scoreColor = when {
-                g.score.toDoubleOrNull()?.let { it < 60 } == true -> MiuixTheme.colorScheme.error
-                g.score.contains("不及格") -> MiuixTheme.colorScheme.error
-                g.score.toDoubleOrNull()?.let { it >= 90 } == true -> MiuixTheme.colorScheme.primary
-                else -> MiuixTheme.colorScheme.onSurface
-            }
-            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(g.courseName, style = MiuixTheme.textStyles.body2,
-                        fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text("${g.coursePoint} 学分" + (g.gpa?.let { " · 绩点 %.2f".format(it) } ?: ""),
-                        style = MiuixTheme.textStyles.footnote1,
+        icon = Icons.Default.Assessment,
+        accent = accent,
+        subtitle = "${w.grades.size} 门 · 计入学分 ${"%.1f".format(w.totalPoints)}",
+        trailing = w.gpa?.let { gpa ->
+            {
+                Column(horizontalAlignment = Alignment.End) {
+                    Text("%.2f".format(gpa), style = MiuixTheme.textStyles.title4,
+                        fontWeight = FontWeight.Bold, color = accent)
+                    Text("加权 GPA", style = MiuixTheme.textStyles.footnote2,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 }
-                Spacer(Modifier.width(8.dp))
-                Text(g.score, style = MiuixTheme.textStyles.body2,
-                    fontWeight = FontWeight.Bold, color = scoreColor)
+            }
+        },
+        modifier = modifier,
+    ) {
+        w.grades.take(15).forEach { g ->
+            val n = g.score.toDoubleOrNull()
+            val color = when {
+                n != null && n < 60 || g.score.contains("不及格") -> MiuixTheme.colorScheme.error
+                n != null && n >= 90 || g.score == "优秀" -> STATUS_OK
+                else -> accent
+            }
+            WidgetRow(
+                primary = g.courseName,
+                secondary = "${g.coursePoint} 学分" + (g.gpa?.let { " · 绩点 %.2f".format(it) } ?: ""),
+                trailing = { WidgetBadge(g.score, color) },
+            )
+        }
+        if (w.grades.size > 15) WidgetMore("…还有 ${w.grades.size - 15} 门")
+    }
+}
+
+/**
+ * 校园卡做成一张「卡」：主题色渐变的卡面，余额大字压在上面。
+ * 这是唯一一张不走 [WidgetCard] 外壳的：它本身就是实物卡片的样子，再套一层反而像截图。
+ */
+@Composable
+private fun CardWidgetView(w: CardWidget, modifier: Modifier) {
+    val info = w.info
+    val primary = MiuixTheme.colorScheme.primary
+    val deep = androidx.compose.ui.graphics.lerp(primary, Color.Black, 0.28f)
+    val light = androidx.compose.ui.graphics.lerp(primary, Color.White, 0.12f)
+    val onCard = Color.White
+    Column(
+        modifier
+            .fillMaxWidth()
+            .squircleClip(WIDGET_RADIUS)
+            .background(Brush.linearGradient(listOf(light, primary, deep)))
+            .drawBehind {
+                // 右上角一圈淡光，卡面才有质感
+                drawCircle(
+                    Brush.radialGradient(
+                        listOf(Color.White.copy(alpha = 0.22f), Color.Transparent),
+                        center = androidx.compose.ui.geometry.Offset(size.width, 0f),
+                        radius = size.width * 0.6f,
+                    ),
+                    radius = size.width * 0.6f,
+                    center = androidx.compose.ui.geometry.Offset(size.width, 0f),
+                )
+            }
+            .padding(18.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.CreditCard, contentDescription = null, tint = onCard, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("校园卡", style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Bold, color = onCard,
+                modifier = Modifier.weight(1f))
+            info.cardType.takeIf { it.isNotBlank() }?.let {
+                Text(it, style = MiuixTheme.textStyles.footnote1, color = onCard.copy(alpha = 0.8f))
             }
         }
-        if (w.grades.size > 15) {
-            Text("…还有 ${w.grades.size - 15} 门", style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.padding(top = 4.dp))
+        Spacer(Modifier.height(22.dp))
+        Text("余额", style = MiuixTheme.textStyles.footnote1, color = onCard.copy(alpha = 0.75f))
+        Text(
+            "¥%.2f".format(info.balance),
+            style = MiuixTheme.textStyles.title2,
+            fontWeight = FontWeight.Bold,
+            color = onCard,
+        )
+        val notes = buildList {
+            if (info.pendingAmount > 0) add("待入账 ¥%.2f".format(info.pendingAmount))
+            if (info.lostFlag) add("已挂失")
+            if (info.frozenFlag) add("已冻结")
+        }
+        if (notes.isNotEmpty()) {
+            Spacer(Modifier.height(6.dp))
+            Text(notes.joinToString(" · "), style = MiuixTheme.textStyles.footnote1,
+                fontWeight = if (info.lostFlag || info.frozenFlag) FontWeight.Bold else FontWeight.Normal,
+                color = onCard.copy(alpha = 0.9f))
         }
     }
 }
 
-@Composable
-private fun CardWidgetView(w: CardWidget, modifier: Modifier) {
-    val info = w.info
-    WidgetCard(title = "校园卡", accent = MiuixTheme.colorScheme.primary, subtitle = info.cardType.ifBlank { null }, modifier = modifier) {
-        Row(verticalAlignment = Alignment.Bottom) {
-            Text("¥%.2f".format(info.balance), style = MiuixTheme.textStyles.headline1,
-                fontWeight = FontWeight.Bold, color = MiuixTheme.colorScheme.primary)
-            Spacer(Modifier.width(6.dp))
-            Text("余额", style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.padding(bottom = 4.dp))
-        }
-        if (info.pendingAmount > 0) {
-            Text("待入账 ¥%.2f".format(info.pendingAmount), style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-        }
-        val flags = buildList {
-            if (info.lostFlag) add("已挂失")
-            if (info.frozenFlag) add("已冻结")
-        }
-        if (flags.isNotEmpty()) {
-            Spacer(Modifier.height(2.dp))
-            Text(flags.joinToString(" · "), style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.error, fontWeight = FontWeight.Bold)
-        }
-    }
-}
+private val STATUS_OK = Color(0xFF2E9D5A)
 
 
 // ── 仲英学辅资料卡 ───────────────────────────────────────────────────────
@@ -410,20 +614,29 @@ private fun ZyxfWidgetView(w: ZyxfWidget, modifier: Modifier, onAsk: (String) ->
         androidx.compose.runtime.mutableStateMapOf<Int, String>()
     }
     val shown = w.items.take(12)
+    val accent = MiuixTheme.colorScheme.primary
+    val dark = LocalIsDarkTheme.current
 
     WidgetCard(
         title = "仲英学辅资料",
-        accent = MiuixTheme.colorScheme.primary,
-        subtitle = w.query.takeIf { it.isNotBlank() },
+        icon = Icons.Default.FolderOpen,
+        accent = accent,
+        subtitle = w.query.takeIf { it.isNotBlank() }?.let { "「$it」" },
         modifier = modifier,
     ) {
         shown.forEach { item ->
             val state = states[item.id]
             val busy = state == ZYXF_DOWNLOADING
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
+            val tint = if (item.isFolder) FOLDER_TINT else accent
+            WidgetRow(
+                primary = item.name,
+                secondary = listOfNotNull(
+                    item.path.takeIf { it.isNotBlank() },
+                    item.sizeText.takeIf { it.isNotBlank() },
+                    state,
+                ).joinToString(" · "),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
                     .clickable(enabled = !busy) {
                         if (item.isFolder) {
                             onAsk("打开仲英学辅资料站的目录 ${item.id}（${item.name}）")
@@ -438,58 +651,39 @@ private fun ZyxfWidgetView(w: ZyxfWidget, modifier: Modifier, onAsk: (String) ->
                                 states[item.id] = if (saved != null) "已保存到下载" else "下载失败，稍后再试"
                             }
                         }
-                    }
-                    .padding(horizontal = 2.dp, vertical = 5.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    if (item.isFolder) "📁" else "📄",
-                    style = MiuixTheme.textStyles.footnote1,
-                )
-                Spacer(Modifier.width(8.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        item.name,
-                        style = MiuixTheme.textStyles.body2,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    val sub = listOfNotNull(
-                        item.path.takeIf { it.isNotBlank() },
-                        item.sizeText.takeIf { it.isNotBlank() },
-                        state,
-                    ).joinToString(" · ")
-                    if (sub.isNotBlank()) {
-                        Text(
-                            sub,
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = if (state != null && state != ZYXF_DOWNLOADING) {
-                                MiuixTheme.colorScheme.primary
-                            } else {
-                                MiuixTheme.colorScheme.onSurfaceVariantSummary
-                            },
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+                    },
+                leading = {
+                    Box(
+                        Modifier
+                            .size(36.dp)
+                            .squircleBackground(tint.copy(alpha = if (dark) 0.22f else 0.12f), 11.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            if (item.isFolder) Icons.Default.Folder else Icons.Default.Description,
+                            contentDescription = null,
+                            tint = tint,
+                            modifier = Modifier.size(19.dp),
                         )
                     }
-                }
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    if (item.isFolder) "打开" else if (busy) "…" else "下载",
-                    style = MiuixTheme.textStyles.footnote1,
-                    fontWeight = FontWeight.Medium,
-                    color = MiuixTheme.colorScheme.primary,
-                )
-            }
+                },
+                trailing = {
+                    WidgetBadge(
+                        when {
+                            item.isFolder -> "打开"
+                            busy -> "…"
+                            state == "已保存到下载" -> "已下载"
+                            else -> "下载"
+                        },
+                        accent,
+                    )
+                },
+            )
         }
         if (w.items.size > shown.size) {
-            Text(
-                "…还有 ${w.items.size - shown.size} 条，换个更具体的关键词能更快找到",
-                style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.padding(top = 4.dp),
-            )
+            WidgetMore("…还有 ${w.items.size - shown.size} 条，换个更具体的关键词能更快找到")
         }
     }
 }
+
+private val FOLDER_TINT = Color(0xFFE0A030)

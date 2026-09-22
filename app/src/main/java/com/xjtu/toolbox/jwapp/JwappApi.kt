@@ -112,19 +112,6 @@ data class TermScore(
     )
 }
 
-data class ScoreRank(
-    val defeatPercent: Double?,
-    val scoreHigh: Double?,
-    val scoreAvg: Double?,
-    val scoreLow: Double?,
-    val scoreDist: List<ScoreDistRange>
-)
-
-data class ScoreDistRange(
-    val range: String,
-    val num: Int
-)
-
 data class TimeTableBasis(
     val termCode: String,
     val termName: String,
@@ -287,42 +274,6 @@ class JwappApi(private val site: SiteSession) {
         )
     }
 
-    fun getRank(courseId: String): ScoreRank {
-        val json = gson.toJson(mapOf("id" to courseId))
-        val body = json.toRequestBody("application/json".toMediaType())
-
-        val request = authenticatedRequest("$baseUrl/api/biz/v410/score/scoreAnalyze")
-            .post(body)
-
-        val responseBody = execute(request)
-        val root = responseBody.safeParseJsonObject()
-
-        val resultCode = root.get("code").asInt
-        if (resultCode != 200) {
-            throw RuntimeException(root.get("msg")?.asString ?: "服务器错误 ($resultCode)")
-        }
-
-        val data = root.getAsJsonObject("data")
-
-        val distEl = data.get("scoreDist")
-        val dist = if (distEl == null || distEl.isJsonNull || !distEl.isJsonArray) emptyList()
-        else distEl.asJsonArray.map { el ->
-            val d = el.asJsonObject
-            ScoreDistRange(
-                range = d.get("range").safeString(),
-                num = d.get("num").safeInt()
-            )
-        }
-
-        return ScoreRank(
-            defeatPercent = data.get("defeatPercent").safeDoubleOrNull(),
-            scoreHigh = data.get("scoreHigh").safeDoubleOrNull(),
-            scoreAvg = data.get("scoreAvg").safeDoubleOrNull(),
-            scoreLow = data.get("scoreLow").safeDoubleOrNull(),
-            scoreDist = dist
-        )
-    }
-
     fun getTimeTableBasis(): TimeTableBasis {
         // [J1] 优先返回缓存（1h TTL，防跨学期过期）
         cachedBasis?.let {
@@ -360,15 +311,10 @@ class JwappApi(private val site: SiteSession) {
 
     fun getCurrentTerm(): String = getTimeTableBasis().termCode
 
-    fun getCurrentWeek(): Int = getTimeTableBasis().todayWeekNum
-
     fun getTermList(): List<Pair<String, String>> {
         val allGrades = getGrade(null)
         return allGrades.map { it.termCode to it.termName }
     }
-
-    fun calculateGpaFromGrades(termScores: List<TermScore>): GpaInfo =
-        calculateGpaForCourses(termScores.flatMap { it.scoreList })
 
     /**
      * GPA 计算：二等级制不参与，优先 xscjcx.do 精确值，fallback 本地映射。

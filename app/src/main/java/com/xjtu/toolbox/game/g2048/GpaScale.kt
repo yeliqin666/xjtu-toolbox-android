@@ -31,8 +31,6 @@ object GpaScale {
     val SPAWN_INDEX_0 = 0
     val SPAWN_INDEX_1 = 1
     const val SPAWN_INDEX_1_PROBABILITY = 0.1
-
-    fun indexOfGpa(gpa: Double): Int = LEVELS.indexOfFirst { it.gpa == gpa }
 }
 
 /** 单个等级：绩点数值 + 展示用字母。 */

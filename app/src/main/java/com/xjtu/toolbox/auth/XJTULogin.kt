@@ -426,18 +426,6 @@ open class XJTULogin(
     fun isShowCaptcha(): Boolean = failCount >= 3
 
     /**
-     * 获取验证码图片
-     */
-    fun getCaptchaImage(): ByteArray {
-        val request = Request.Builder()
-            .url("https://login.xjtu.edu.cn/cas/captcha.jpg")
-            .get()
-            .build()
-        val response = client.newCall(request).execute()
-        return response.body?.bytes() ?: ByteArray(0)
-    }
-
-    /**
      * 执行登录（状态机驱动）
      */
     fun login(

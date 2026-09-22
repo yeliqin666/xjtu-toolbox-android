@@ -14,9 +14,6 @@ import androidx.core.content.ContextCompat
  * "蓝牙扫描等于定位权限"的旧模型。`BLUETOOTH_SCAN` 在 Manifest 里声明了
  * `android:usesPermissionFlags="neverForLocation"`（见 AndroidManifest.xml），
  * 向系统承诺"扫描结果不用来推断位置"，这样才不用连带申请定位权限。
- *
- * 局域网通道（TCP + NSD）不需要任何运行时权限：`ACCESS_NETWORK_STATE` /
- * `INTERNET` 都是普通权限，安装时自动授予。
  */
 object OnlinePermissions {
 

@@ -27,19 +27,16 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 
-    <!-- 棋类联机（PR H）：局域网 TCP + NSD 优先，BLE GATT 兜底，只在用户进入联机对战页时
-         才申请这三个蓝牙权限（见 game/net/OnlinePermissions.kt），单机、同屏双人完全碰不到。
+    <!-- 棋类联机：只走 BLE GATT（校园网 AP 隔离，局域网直连实测不通，已下线）。只在用户点
+         「创建 / 加入房间」时才申请这三个蓝牙权限（见 game/net/OnlinePermissions.kt），
+         单机、同屏双人完全碰不到。
          minSdk 31（Android 12）起蓝牙权限已经是新模型，不用再考虑旧版"扫描等于定位"那一套。
          BLUETOOTH_SCAN 声明 neverForLocation：本应用的 BLE 扫描只用来找同一局对局的服务
-         UUID，不用扫描结果推断位置，这样就不用连带申请定位权限。
-         局域网通道不需要任何运行时权限，ACCESS_NETWORK_STATE 已经在上面声明过。
-         不声明 CHANGE_WIFI_MULTICAST_STATE 以外的任何"改网络状态"权限——本应用不开热点、
-         不切 Wi-Fi，符合 plan.md §4.9"不改变用户任何网络状态"的约束。 -->
+         UUID，不用扫描结果推断位置，这样就不用连带申请定位权限。 -->
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
         android:usesPermissionFlags="neverForLocation" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
-    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
 
     <application

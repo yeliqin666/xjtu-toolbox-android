@@ -319,24 +319,5 @@ object VenueCaptchaSolver {
     }
 }
 
-// 保留旧版本的顶层入口，避免其他分支或插件调用时发生源码兼容性回归。
-fun autoSolveCaptcha(
-    backgroundImageBase64: String,
-    sliderImageBase64: String,
-    bgOriginalWidth: Int,
-    bgOriginalHeight: Int
-): Int? {
-    val data = VenueApi.CaptchaData(
-        id = "compat",
-        backgroundImage = backgroundImageBase64,
-        sliderImage = sliderImageBase64,
-        bgWidth = bgOriginalWidth,
-        bgHeight = bgOriginalHeight,
-        sliderWidth = 0,
-        sliderHeight = 0
-    )
-    return VenueCaptchaSolver.solve(data)?.targetX
-}
-
 fun generateHumanLikeTrack(targetX: Int, duration: Long = 1200L): List<TrackPoint> =
     VenueCaptchaSolver.generateHumanLikeTrack(targetX, duration)

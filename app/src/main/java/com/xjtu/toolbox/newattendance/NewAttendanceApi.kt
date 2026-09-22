@@ -29,14 +29,6 @@ class NewAttendanceApi(private val site: SiteSession) : AttendanceProvider {
         return KqHttp.execute(site, req, path, retryable = true)
     }
 
-    private fun postJson(path: String, body: JsonObject): JsonObject {
-        val req = Request.Builder()
-            .url(KqHttp.buildUrl(site, path))
-            .post(body.toString().toRequestBody(jsonType))
-            .build()
-        return KqHttp.execute(site, req, path, retryable = false)
-    }
-
     fun getStudentInfo(): Map<String, Any> {
         val root = getJson("/student/profile")
         var obj = KqHttp.dataObject(root)

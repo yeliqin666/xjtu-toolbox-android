@@ -4,6 +4,9 @@ import androidx.room.*
 
 const val AGENDA_NOTE_PREFIX = "[AGENDA]"
 
+/** 自建日程转成 [CourseItem] 时 courseCode 的前缀，见 [CourseItem.isUserCreated]。 */
+const val CUSTOM_COURSE_CODE_PREFIX = "custom_"
+
 fun encodeAgendaNote(note: String): String {
     val trimmed = note.trim()
     return if (trimmed.startsWith(AGENDA_NOTE_PREFIX)) trimmed else "$AGENDA_NOTE_PREFIX$trimmed"
@@ -52,7 +55,7 @@ data class CustomCourseEntity(
         dayOfWeek = dayOfWeek,
         startSection = startSection,
         endSection = endSection,
-        courseCode = "custom_$id",
+        courseCode = "$CUSTOM_COURSE_CODE_PREFIX$id",
         courseType = if (note.startsWith(AGENDA_NOTE_PREFIX)) "日程" else "自定义",
         startMinuteOfDay = startMinuteOfDay,
         endMinuteOfDay = endMinuteOfDay
@@ -108,6 +111,10 @@ fun List<Int>.toWeekBits(maxWeeks: Int = 20): String {
 interface CustomCourseDao {
     @Query("SELECT * FROM custom_courses WHERE accountId = :accountId AND termCode = :termCode ORDER BY dayOfWeek, startSection, startMinuteOfDay")
     suspend fun getByTerm(accountId: String, termCode: String): List<CustomCourseEntity>
+
+    /** 同 [getByTerm]，但表一变就重发。日程页用它：屁岱在别处写进来的日程也能立刻出现。 */
+    @Query("SELECT * FROM custom_courses WHERE accountId = :accountId AND termCode = :termCode ORDER BY dayOfWeek, startSection, startMinuteOfDay")
+    fun observeByTerm(accountId: String, termCode: String): kotlinx.coroutines.flow.Flow<List<CustomCourseEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(course: CustomCourseEntity): Long

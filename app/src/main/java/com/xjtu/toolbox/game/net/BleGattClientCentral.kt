@@ -77,8 +77,13 @@ class BleGattClientCentral(private val context: Context) {
 
         val callback = object : BluetoothGattCallback() {
             override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
-                if (newState == BluetoothGatt.STATE_CONNECTED) {
-                    gatt.requestMtu(BleGattIds.REQUESTED_MTU)
+                if (status != BluetoothGatt.GATT_SUCCESS && newState != BluetoothGatt.STATE_CONNECTED) {
+                    // 典型的是 133：协议栈没建起连接，不会再有后续回调，直接判失败，别干等到总超时
+                    if (!readyDeferred.isCompleted) readyDeferred.complete(false)
+                    incomingChannel.close()
+                } else if (newState == BluetoothGatt.STATE_CONNECTED) {
+                    // 有的机型 requestMtu 直接返回 false、之后也不回调 onMtuChanged，那就按默认 MTU 继续
+                    if (!gatt.requestMtu(BleGattIds.REQUESTED_MTU)) gatt.discoverServices()
                 } else if (newState == BluetoothGatt.STATE_DISCONNECTED) {
                     if (!readyDeferred.isCompleted) readyDeferred.complete(false)
                     incomingChannel.close()
@@ -138,7 +143,14 @@ class BleGattClientCentral(private val context: Context) {
         // 多绕一圈甚至连不上，这里的外围设备只广播 BLE，没必要留这个歧义。
         val gatt = device.connectGatt(context, false, callback, BluetoothDevice.TRANSPORT_LE)
         gattRef = gatt
-        val ok = readyDeferred.await()
+        // 外层 withTimeoutOrNull 超时会在这里取消：GATT 连接必须随之关掉，否则会一直占着蓝牙
+        val ok = try {
+            readyDeferred.await()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            runCatching { gatt.disconnect() }
+            runCatching { gatt.close() }
+            throw e
+        }
         if (!ok) {
             runCatching { gatt.close() }
             return null

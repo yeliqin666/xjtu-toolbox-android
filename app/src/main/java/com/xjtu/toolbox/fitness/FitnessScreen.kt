@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.fitness
 
+import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.LocalAppLoginState
 import com.xjtu.toolbox.Routes
 import com.xjtu.toolbox.auth.AuthExpiredException
@@ -232,7 +233,7 @@ fun FitnessScreen(
                     if (result.items.isNotEmpty()) {
                         item {
                             Card(
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                                modifier = Modifier.enterOnce(2).fillMaxWidth().padding(horizontal = 16.dp),
                                 colors = CardDefaults.defaultColors(
                                     color = MiuixTheme.colorScheme.surfaceVariant
                                 )
@@ -244,9 +245,10 @@ fun FitnessScreen(
                                         fontWeight = FontWeight.Bold,
                                         modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp)
                                     )
-                                    result.items.forEach { item ->
+                                    // 卡片落位后，各项目再一行行跟上
+                                    result.items.forEachIndexed { i, item ->
                                         HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-                                        FitnessItemRow(item)
+                                        Box(Modifier.enterOnce(i + 3)) { FitnessItemRow(item) }
                                     }
                                 }
                             }
@@ -269,7 +271,7 @@ fun FitnessScreen(
                     // ——数据其实是对的，只是选中的那枚在屏幕外。
                     LazyRow(
                         state = yearListState,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.enterOnce(0).fillMaxWidth(),
                         contentPadding = PaddingValues(horizontal = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
@@ -283,7 +285,7 @@ fun FitnessScreen(
                     }
                 }
                 score?.let { result ->
-                    item { ScoreHero(result) }
+                    item { Box(Modifier.enterOnce(1)) { ScoreHero(result) } }
                 }
                 if (!wide) itemsCard()
                 if (error != null && score == null) {
@@ -335,14 +337,17 @@ private fun ScoreHero(score: FitnessScore) {
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
         colors = CardDefaults.defaultColors(color = Color.Transparent)
     ) {
+      Box(Modifier.fillMaxWidth()) {
+        // 蓝绿两色的流动底色（原来的静态渐变改成 Mesh），6 秒后停：这张卡在玻璃顶栏下面
+        com.xjtu.toolbox.ui.components.MeshBackground(
+            modifier = Modifier.matchParentSize(),
+            lightVertexColors = FitnessHeroMesh,
+            darkVertexColors = FitnessHeroMesh,
+            runForMillis = 6_000L,
+        )
         Row(
             Modifier
                 .fillMaxWidth()
-                .background(
-                    Brush.linearGradient(
-                        listOf(Color(0xFF1565C0), Color(0xFF00897B))
-                    )
-                )
                 .padding(20.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp)
@@ -388,14 +393,26 @@ private fun ScoreHero(score: FitnessScore) {
                 modifier = Modifier.width(86.dp),
                 horizontalAlignment = Alignment.End
             ) {
-                Text(
-                    score.totalScore,
-                    color = Color.White,
-                    style = MiuixTheme.textStyles.title1,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Clip
-                )
+                // 总分是数字就从 0 滚上来；「未测」这类文字照原样
+                val total = score.totalScore.trim().toDoubleOrNull()
+                if (total != null) {
+                    com.xjtu.toolbox.ui.components.RollingNumberText(
+                        value = total,
+                        format = { if (score.totalScore.contains('.')) "%.1f".format(it) else "%.0f".format(it) },
+                        color = Color.White,
+                        style = MiuixTheme.textStyles.title1,
+                        fontWeight = FontWeight.Bold,
+                    )
+                } else {
+                    Text(
+                        score.totalScore,
+                        color = Color.White,
+                        style = MiuixTheme.textStyles.title1,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Clip
+                    )
+                }
                 Text(
                     score.totalGrade,
                     color = Color.White.copy(alpha = 0.85f),
@@ -405,8 +422,15 @@ private fun ScoreHero(score: FitnessScore) {
                 )
             }
         }
+      }
     }
 }
+
+private val FitnessHeroMesh = listOf(
+    listOf(Color(0xFF1565C0), Color(0xFF1B6FC4), Color(0xFF1E88A8)),
+    listOf(Color(0xFF1662B8), Color(0xFF0F7D9E), Color(0xFF00897B)),
+    listOf(Color(0xFF136AAE), Color(0xFF0B8C8A), Color(0xFF00796B)),
+)
 
 @Composable
 private fun FitnessItemRow(item: FitnessItem) {

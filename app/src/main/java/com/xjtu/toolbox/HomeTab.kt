@@ -34,6 +34,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -52,6 +53,8 @@ import com.xjtu.toolbox.bulletin.Bulletin
 import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.ExpressiveIcon
 import com.xjtu.toolbox.ui.components.appCardShadow
+import com.xjtu.toolbox.ui.components.enterOnce
+import com.xjtu.toolbox.ui.components.pressScale
 import com.xjtu.toolbox.util.CredentialStore
 import com.xjtu.toolbox.home.AppServices
 import com.xjtu.toolbox.home.ServiceCategory
@@ -60,8 +63,29 @@ import com.xjtu.toolbox.home.ServiceCategory
 //  Tab 1 — 首页
 // ══════════════════════════════════════════
 
+/** Hero 卡顶部那一行状态：网络环境 + 子系统就绪数，点开看明细。 */
+private data class HeroStatus(val label: String, val detail: String, val color: Color)
+
+/** Hero 卡底部的常用入口。 */
+private data class HeroQuickAction(
+    val key: String,
+    val icon: ImageVector,
+    val title: String,
+    val color: Color,
+    val onClick: () -> Unit,
+)
+
+/**
+ * 首页的「今日」卡：一张卡装下此刻最该看的全部东西。
+ *
+ * 以前从上到下是 Hero、一排网络/子系统小胶囊、「常用功能」标题 + 一条宫格，三块各管各的，
+ * Hero 里的余额和下节课又在下面的分类卡里再出现一遍。现在收成一张：
+ * 问候与状态 → 下一项安排（整条可点）→ 余额 / 今日消费 / 考试三格速览 → 常用入口。
+ * 下面的分类卡只放 Hero 没有的信息。
+ */
 @Composable
 private fun HomeHero(
+    modifier: Modifier = Modifier,
     greetingName: String,
     dateLabel: String,
     weekNumber: Int,
@@ -70,75 +94,33 @@ private fun HomeHero(
     reminder: ScheduleReminderInfo?,
     balance: Float,
     todaySpend: Float,
+    exam: com.xjtu.toolbox.home.HomeStat?,
+    status: HeroStatus?,
+    quickActions: List<HeroQuickAction>,
+    solidQuickIcons: Boolean,
     onOpenCourses: () -> Unit,
     onOpenCard: () -> Unit,
     onOpenProfile: () -> Unit,
+    onOpenStatus: () -> Unit,
 ) {
-    val hour = java.time.LocalTime.now().hour
-    val greeting = when (hour) {
-        in 5..10 -> "早上好"
-        in 11..13 -> "中午好"
-        in 14..17 -> "下午好"
-        else -> "晚上好"
-    }
+    val greeting = com.xjtu.toolbox.util.Greeting.of()
     val headline = if (greetingName.isBlank()) greeting else "$greeting，$greetingName"
     val meta = buildString {
         append(dateLabel)
         if (weekNumber in 1..25) append(" · 第${weekNumber}周")
     }
     val primary = MiuixTheme.colorScheme.primary
-    val muted = MiuixTheme.colorScheme.onSurfaceVariantSummary
-    val artSize = 128.dp
-
-    val courseTitle: String
-    val courseDetail: String?
-    when {
-        !isLoggedIn -> {
-            courseTitle = "登录后查看课表和余额"
-            courseDetail = "课表、校园卡会显示在这里"
-        }
-        !isFocusLoaded -> {
-            courseTitle = "正在读取今日安排…"
-            courseDetail = null
-        }
-        reminder != null -> {
-            val now = java.time.LocalDateTime.now()
-            val minutesUntil = java.time.Duration.between(now, reminder.startAt)
-                .toMinutes().coerceAtLeast(0)
-            val dayLabel = formatScheduleReminderDateLabel(
-                reminder.startAt.toLocalDate(), now.toLocalDate()
-            )
-            val startLabel = formatMinuteClock(reminder.startAt.hour * 60 + reminder.startAt.minute)
-            val endLabel = reminder.endAt?.let {
-                formatMinuteClock(it.hour * 60 + it.minute)
-            }
-            val timePart = if (endLabel != null) "$startLabel–$endLabel" else startLabel
-            courseTitle = reminder.name
-            courseDetail = buildString {
-                append(formatScheduleReminderEta(minutesUntil))
-                if (dayLabel != "今天") append(" · $dayLabel")
-                append(" · $timePart")
-                if (reminder.location.isNotBlank()) append(" · ${reminder.location}")
-            }
-        }
-        else -> {
-            courseTitle = "未来两周暂无日程"
-            courseDetail = "打开课表看看"
-        }
-    }
+    val artSize = 104.dp
 
     Box(
-        Modifier
+        modifier
             .fillMaxWidth()
-            // 首页最重要的一张卡：托一层带主题色的柔影，从一排平铺的瓷砖里浮出来一点
             .appCardShadow(shape = RoundedCornerShape(CARD_RADIUS), strong = true)
             .squircleClip(CARD_RADIUS)
             .background(AppCardColor),
     ) {
         Box(Modifier.matchParentSize()) {
-            // 底色是缓慢流动的 Mesh 渐变（plan2 S2）：顶点颜色由主题色按不同浓度混进卡片底色，
-            // 布局沿用原来那两层静态渐变——右上一团光、左上偏浓、往下渐淡——所以静止时和以前一样，
-            // 只是多了一点呼吸。颜色从主题色算，不写死：Monet 取色下也跟着走。
+            // 底色是缓慢流动的 Mesh 渐变，顶点颜色由主题色按不同浓度混进卡片底色，Monet 取色下也跟着走。
             val cardBase = AppCardColor
             val heroMesh = remember(primary, cardBase) {
                 HeroMeshWeights.map { row -> row.map { t -> androidx.compose.ui.graphics.lerp(cardBase, primary, t) } }
@@ -147,97 +129,337 @@ private fun HomeHero(
                 modifier = Modifier.matchParentSize(),
                 lightVertexColors = heroMesh,
                 darkVertexColors = heroMesh,
-                // 卡片在玻璃顶栏/底栏的取样范围里：一直流动的话，静止的首页也要每秒重新模糊 30 次，
-                // 实测滑动时掉帧明显。回到首页时流动一小段就停。
+                // 卡片在玻璃顶栏/底栏的取样范围里，一直流动会让静止的首页也持续重模糊，流动一小段就停。
                 runForMillis = 6_000L,
             )
-            Image(
-                painter = painterResource(R.drawable.home_campus_hero),
-                contentDescription = "兴庆校区主楼",
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 8.dp, bottom = 12.dp)
-                    .size(artSize),
-                contentScale = ContentScale.Fit,
-            )
         }
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .padding(start = 20.dp, top = 22.dp, bottom = 22.dp, end = artSize + 8.dp),
-        ) {
-            Text(
-                meta,
-                style = MiuixTheme.textStyles.footnote1,
-                color = primary,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                headline,
-                style = MiuixTheme.textStyles.title3,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(18.dp))
-            Column(
-                Modifier.clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = SinkFeedback(),
-                    onClick = if (isLoggedIn) onOpenCourses else onOpenProfile,
-                ),
-            ) {
+        Image(
+            painter = painterResource(R.drawable.home_campus_hero),
+            contentDescription = "兴庆校区主楼",
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 12.dp, end = 12.dp)
+                .size(artSize),
+            contentScale = ContentScale.Fit,
+        )
+        Column(Modifier.fillMaxWidth().padding(14.dp)) {
+            Column(Modifier.padding(start = 6.dp, top = 8.dp, end = artSize)) {
                 Text(
-                    courseTitle,
-                    style = MiuixTheme.textStyles.body1,
+                    meta,
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = primary,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (courseDetail != null) {
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        courseDetail,
-                        style = MiuixTheme.textStyles.footnote1,
-                        color = muted,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    headline,
+                    style = MiuixTheme.textStyles.title3,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (status != null) {
+                    Spacer(Modifier.height(8.dp))
+                    HeroStatusLine(status, onOpenStatus)
                 }
             }
+            Spacer(Modifier.height(if (status != null) 18.dp else 30.dp))
+            HeroNextUp(
+                isLoggedIn = isLoggedIn,
+                isFocusLoaded = isFocusLoaded,
+                reminder = reminder,
+                onClick = if (isLoggedIn) onOpenCourses else onOpenProfile,
+            )
             if (isLoggedIn) {
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(8.dp))
                 Row(
-                    Modifier.clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = SinkFeedback(),
-                        onClick = onOpenCard,
-                    ),
-                    verticalAlignment = Alignment.CenterVertically,
+                    Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    val balanceText = if (balance >= 0f) "¥${"%.2f".format(balance)}" else "—"
-                    val spendText = if (todaySpend >= 0f) "¥${"%.2f".format(todaySpend)}" else "—"
-                    Text("余额 ", style = MiuixTheme.textStyles.footnote1, color = muted)
-                    Text(
-                        balanceText,
-                        style = MiuixTheme.textStyles.footnote1,
-                        fontWeight = FontWeight.Bold,
-                        color = if (balance in 0f..30f) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.onSurface,
+                    val lowBalance = balance in 0f..30f
+                    HeroGlance(
+                        icon = Icons.Default.CreditCard,
+                        label = if (lowBalance) "余额不多了" else "校园卡余额",
+                        value = if (balance >= 0f) "¥${"%.2f".format(balance)}" else "—",
+                        number = balance.takeIf { it >= 0f }?.toDouble(),
+                        valueColor = if (lowBalance) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.onSurface,
+                        onClick = onOpenCard,
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
-                    Text("  ·  今日 ", style = MiuixTheme.textStyles.footnote1, color = muted)
+                    HeroGlance(
+                        icon = Icons.Default.Restaurant,
+                        label = "今日消费",
+                        value = if (todaySpend >= 0f) "¥${"%.2f".format(todaySpend)}" else "—",
+                        number = todaySpend.takeIf { it >= 0f }?.toDouble(),
+                        onClick = onOpenCard,
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                    )
+                    if (exam != null) {
+                        HeroGlance(
+                            icon = Icons.AutoMirrored.Filled.EventNote,
+                            label = exam.detail?.substringBefore(" · ")?.ifBlank { null } ?: "下一场考试",
+                            value = exam.value,
+                            valueColor = primary,
+                            onClick = onOpenCourses,
+                            modifier = Modifier.weight(1f).fillMaxHeight(),
+                        )
+                    }
+                }
+            }
+            if (quickActions.isNotEmpty()) {
+                Spacer(Modifier.height(12.dp))
+                Row(Modifier.fillMaxWidth()) {
+                    quickActions.forEach { a ->
+                        HomeQuickAction(
+                            a.icon,
+                            a.title,
+                            a.color,
+                            onClick = a.onClick,
+                            modifier = Modifier.weight(1f),
+                            originKey = a.key,
+                            iconSize = 44.dp,
+                            solidIcon = solidQuickIcons,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Hero 里半透明的内嵌面板：叠在 Mesh 上像一层磨砂，比再套一张实心卡轻。 */
+@Composable
+private fun Modifier.heroInset(radius: androidx.compose.ui.unit.Dp = 18.dp): Modifier {
+    val dark = com.xjtu.toolbox.ui.theme.LocalIsDarkTheme.current
+    return this
+        .squircleClip(radius)
+        .background(AppCardColor.copy(alpha = if (dark) 0.55f else 0.72f))
+        .squircleBorder(1.dp, Color.White.copy(alpha = if (dark) 0.06f else 0.6f), radius)
+}
+
+@Composable
+private fun HeroStatusLine(status: HeroStatus, onClick: () -> Unit) {
+    Row(
+        Modifier.clickable(
+            interactionSource = remember { MutableInteractionSource() },
+            indication = SinkFeedback(),
+            onClick = onClick,
+        ),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .size(7.dp)
+                .clip(androidx.compose.foundation.shape.CircleShape)
+                .background(status.color)
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            "${status.label} · ${status.detail}",
+            style = MiuixTheme.textStyles.footnote1,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Icon(
+            Icons.Default.ChevronRight,
+            contentDescription = "查看子系统连接状态",
+            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            modifier = Modifier.size(14.dp),
+        )
+    }
+}
+
+/** 下一项安排：左边钟点，右边名称与倒计时，整条点进日程。 */
+@Composable
+private fun HeroNextUp(
+    isLoggedIn: Boolean,
+    isFocusLoaded: Boolean,
+    reminder: ScheduleReminderInfo?,
+    onClick: () -> Unit,
+) {
+    val primary = MiuixTheme.colorScheme.primary
+    val muted = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heroInset()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = SinkFeedback(),
+                onClick = onClick,
+            )
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val title: String
+        var detail: androidx.compose.ui.text.AnnotatedString? = null
+        if (reminder != null) {
+            val now = java.time.LocalDateTime.now()
+            val minutesUntil = java.time.Duration.between(now, reminder.startAt).toMinutes().coerceAtLeast(0)
+            val dayLabel = formatScheduleReminderDateLabel(reminder.startAt.toLocalDate(), now.toLocalDate())
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    formatMinuteClock(reminder.startAt.hour * 60 + reminder.startAt.minute),
+                    style = MiuixTheme.textStyles.title4,
+                    fontWeight = FontWeight.Bold,
+                    color = primary,
+                )
+                Text(
+                    reminder.endAt?.let { "至 " + formatMinuteClock(it.hour * 60 + it.minute) } ?: dayLabel,
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = muted,
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Box(
+                Modifier
+                    .width(1.dp)
+                    .height(30.dp)
+                    .background(MiuixTheme.colorScheme.outline.copy(alpha = 0.18f))
+            )
+            Spacer(Modifier.width(12.dp))
+            title = reminder.name
+            detail = androidx.compose.ui.text.buildAnnotatedString {
+                pushStyle(androidx.compose.ui.text.SpanStyle(color = primary, fontWeight = FontWeight.Medium))
+                append(formatScheduleReminderEta(minutesUntil))
+                pop()
+                if (dayLabel != "今天" && reminder.endAt != null) append(" · $dayLabel")
+                if (reminder.location.isNotBlank()) append(" · ${reminder.location}")
+            }
+        } else {
+            val (icon, t, d) = when {
+                !isLoggedIn -> Triple(Icons.AutoMirrored.Filled.Login, "登录后查看课表和余额", "课表、校园卡会显示在这里")
+                !isFocusLoaded -> Triple(Icons.Default.CalendarMonth, "正在读取今日安排…", null)
+                else -> Triple(Icons.Default.EventAvailable, "接下来两周都没课", "空出来的日子怎么过，可以问问屁岱")
+            }
+            ExpressiveIcon(icon = icon, color = primary, size = 38.dp, iconSize = 20.dp)
+            Spacer(Modifier.width(12.dp))
+            title = t
+            detail = d?.let { androidx.compose.ui.text.AnnotatedString(it) }
+        }
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                style = MiuixTheme.textStyles.body1,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            detail?.let {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    it,
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = muted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = muted, modifier = Modifier.size(18.dp))
+    }
+}
+
+/** 速览格：小标签在上、数值在下。 */
+@Composable
+private fun HeroGlance(
+    icon: ImageVector,
+    label: String,
+    value: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    valueColor: Color = MiuixTheme.colorScheme.onSurface,
+    /** 金额类传数值：第一次从 0 滚上来，之后随缓存刷新从旧值滚到新值。 */
+    number: Double? = null,
+) {
+    val muted = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    Column(
+        modifier
+            .heroInset(16.dp)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = SinkFeedback(),
+                onClick = onClick,
+            )
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, contentDescription = null, tint = muted, modifier = Modifier.size(12.dp))
+            Spacer(Modifier.width(4.dp))
+            Text(label, style = MiuixTheme.textStyles.footnote2, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Spacer(Modifier.height(4.dp))
+        if (number != null) {
+            com.xjtu.toolbox.ui.components.RollingNumberText(
+                value = number,
+                format = { "¥%.2f".format(it) },
+                style = MiuixTheme.textStyles.body1,
+                fontWeight = FontWeight.Bold,
+                color = valueColor,
+            )
+        } else {
+            Text(
+                value,
+                style = MiuixTheme.textStyles.body1,
+                fontWeight = FontWeight.Bold,
+                color = valueColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/** 子系统连接明细。原来挂在首页那排小胶囊上，现在由 Hero 的状态行打开。 */
+@Composable
+private fun SubsystemStatusSheet(loginState: AppLoginState, show: MutableState<Boolean>) {
+    if (!show.value) return
+    BackHandler { show.value = false }
+    OverlayBottomSheet(
+        show = show.value,
+        title = "子系统连接状态",
+        onDismissRequest = { show.value = false }
+    ) {
+        Column(
+            Modifier.fillMaxWidth().navigationBarsPadding()
+                .heightIn(max = 460.dp)
+                .verticalScroll(rememberScrollState())   // 子系统较多，弹窗内容需要可滚动。
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        ) {
+            LoginType.entries.forEach { t ->
+                val ready = loginState.sessionManager?.getSiteOrNull(t.siteKey())?.hasLogin == true
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val statusColor = if (ready) STATUS_GREEN else MiuixTheme.colorScheme.onSurfaceVariantSummary
+                    Icon(
+                        if (ready) Icons.Default.CheckCircle else Icons.Default.RemoveCircleOutline,
+                        contentDescription = null,
+                        tint = statusColor,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(t.label, style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium)
+                        Text(t.description, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                    }
                     Text(
-                        spendText,
+                        if (ready) "已连接" else "未登录",
                         style = MiuixTheme.textStyles.footnote1,
-                        fontWeight = FontWeight.Bold,
+                        color = statusColor
                     )
                 }
             }
         }
     }
 }
+
+private val STATUS_GREEN = Color(0xFF2E7D32)
+private val STATUS_BLUE = Color(0xFF1565C0)
 
 @Composable
 internal fun HomeTab(
@@ -284,11 +506,9 @@ internal fun HomeTab(
             try {
                 val dataCache = com.xjtu.toolbox.util.DataCache(heroContext)
                 val gson = com.google.gson.Gson()
-                val termListJson = dataCache.get("schedule_term_list", Long.MAX_VALUE)
-                val termList = if (termListJson != null) {
-                    gson.fromJson(termListJson, Array<String>::class.java)?.toList() ?: emptyList()
-                } else emptyList<String>()
-                val termCode = termList.firstOrNull() ?: return@withContext Pair(null, 0)
+                // 本学期统一认 readCurrentTerm：学期列表第一个可能是教务已挂出的下学期
+                val termCode = com.xjtu.toolbox.schedule.ScheduleCache.readCurrentTerm(dataCache, gson)
+                    ?: return@withContext Pair(null, 0)
                 val apiCourses = com.xjtu.toolbox.schedule.ScheduleCache
                     .readOptimizedCourses(dataCache, gson, termCode, Long.MAX_VALUE)
                     ?: com.xjtu.toolbox.schedule.ScheduleCache
@@ -322,12 +542,14 @@ internal fun HomeTab(
                 val nowDateTime = java.time.LocalDateTime.now()
                 for (offset in 0..14) {
                     val targetDate = today.plusDays(offset.toLong())
-                    if (holidayDates.containsKey(targetDate)) continue
+                    // 放假停的是教务的课，自建日程照常提醒
+                    val isHoliday = holidayDates.containsKey(targetDate)
 
                     val targetWeek = com.xjtu.toolbox.schedule.TermWeeks.weekOf(startDate, targetDate)
                     if (targetWeek <= 0) continue
                     val daySchedules = allSchedules
                         .filter { it.dayOfWeek == targetDate.dayOfWeek.value && it.isInWeek(targetWeek) }
+                        .filter { !isHoliday || it.isUserCreated }
                         .map {
                             ScheduleReminderCourseInfo(
                                 name = it.courseName,
@@ -480,10 +702,77 @@ internal fun HomeTab(
         ServiceCategory.PLAY -> Routes.GAMES
     }
 
-    // 首页内容拆成三块。窄屏按原顺序竖排，与改造前逐行等价；
-    // 宽屏左栏放状态区与常用功能、右栏放分类卡（两列）。三块内部一个字没动。
+    // 各功能的当前状态，两个主题共用：Hero 的考试倒计时、卡片主题的数据格都读它。
+    // 全部读**本地缓存**，首页不发任何网络请求（详见 HomeStats）。刷新在 MainScreen 层跑，
+    // 这里跟着 statsVersion 走：每跑完一轮就自增，拿到的永远是刚落盘的那份。
+    val statsCtx = LocalContext.current
+    var homeStats by remember { mutableStateOf<Map<String, com.xjtu.toolbox.home.HomeStat>>(emptyMap()) }
+    LaunchedEffect(
+        loginState.accountId,
+        loginState.campusCardCacheVersion,
+        com.xjtu.toolbox.home.HomeSignals.statsVersion,
+    ) {
+        val term = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                val dc = com.xjtu.toolbox.util.DataCache(statsCtx)
+                com.xjtu.toolbox.schedule.ScheduleCache.readCurrentTerm(dc, com.google.gson.Gson())
+            }.getOrNull()
+        }
+        homeStats = com.xjtu.toolbox.home.HomeStats.collect(statsCtx, term)
+        // 校园卡由 refresher 写进 CampusCardCache 的 prefs，不经过 homeStats，单独重读一次。
+        cachedBalance = cardPrefs.getFloat("card_balance_cache", -1f)
+        cachedTodaySpend = cardPrefs.getFloat("card_today_spend_cache", -1f)
+    }
+
+    // 常用入口：按使用频率取 4 个，放进 Hero 卡底部。它是**额外**的入口，分类里照常保留。
+    val quickCandidateKeys = listOf(
+        Routes.CAMPUS_CARD,
+        Routes.EMPTY_ROOM,
+        Routes.PAYMENT_CODE,
+        Routes.NOTIFICATION,
+        Routes.JWAPP_SCORE,
+        Routes.COUPON,
+        Routes.LIBRARY,
+        Routes.LMS,
+        Routes.AGENT,
+    )
+    val quickKeys = if (showQuickActions) {
+        remember(quickCandidateKeys) {
+            com.xjtu.toolbox.util.ServiceUsageTracker.topKeys(
+                ctx,
+                quickCandidateKeys,
+                n = 4,
+                fallback = listOf(Routes.CAMPUS_CARD, Routes.EMPTY_ROOM, Routes.NOTIFICATION) + quickCandidateKeys
+            ).filter { it in quickCandidateKeys }.distinct().take(4)
+        }
+    } else emptyList()
+    val quickActions = servicesByKeys(quickKeys).map { svc ->
+        val colored = if (homeTheme == CredentialStore.THEME_ICON) coloredForIconTheme(svc) else svc
+        HeroQuickAction(svc.key, svc.icon, svc.title, colored.color, trackedAction(svc))
+    }
+
+    val showStatusSheet = remember { mutableStateOf(false) }
+    SubsystemStatusSheet(loginState, showStatusSheet)
+    val heroStatus: HeroStatus? = if (loginState.isLoggedIn) {
+        val (netLabel, netColor) = when (loginState.isOnCampus) {
+            true -> "校园网" to STATUS_GREEN
+            false -> "校外 · WebVPN" to STATUS_BLUE
+            null -> "网络检测中" to MiuixTheme.colorScheme.onSurfaceVariantSummary
+        }
+        val types = LoginType.entries
+        val ok = types.count { loginState.sessionManager?.getSiteOrNull(it.siteKey())?.hasLogin == true }
+        HeroStatus(
+            label = netLabel,
+            detail = when {
+                isRestoring -> "正在连接…"
+                ok > 0 -> "$ok/${types.size} 子系统就绪"
+                else -> "子系统未连接"
+            },
+            color = netColor,
+        )
+    } else null
+
     val headerSection: @Composable () -> Unit = {
-        // ── Zone A: 状态信息行（日期 + 系统状态，大标题已移至 TopAppBar）──
         Column(
             Modifier
                 .fillMaxWidth()
@@ -500,9 +789,10 @@ internal fun HomeTab(
                     onTap = onBulletinTap,
                     onDismiss = onBulletinDismiss,
                 )
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(SECTION_GAP))
             }
             HomeHero(
+                modifier = Modifier.enterOnce(0),
                 greetingName = loginState.cachedNickname.orEmpty()
                     .ifBlank { loginState.ywtbUserInfo?.userName.orEmpty() }
                     .ifBlank { loginState.activeUsername },
@@ -513,276 +803,45 @@ internal fun HomeTab(
                 reminder = scheduleReminderState,
                 balance = cachedBalance,
                 todaySpend = cachedTodaySpend,
+                exam = homeStats[com.xjtu.toolbox.home.EXAM_KEY],
+                status = heroStatus,
+                quickActions = quickActions,
+                solidQuickIcons = homeTheme == CredentialStore.THEME_ICON,
                 onOpenCourses = onNavigateToCourses,
                 onOpenCard = { onNavigateWithLogin(Routes.CAMPUS_CARD, LoginType.CAMPUS_CARD) },
                 onOpenProfile = onNavigateToProfile,
+                onOpenStatus = { showStatusSheet.value = true },
             )
-            if (loginState.isLoggedIn) {
-                Spacer(Modifier.height(10.dp))
-                // 网络环境徽标 + 会话数
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    val (netLabel, netColor) = when (loginState.isOnCampus) {
-                        true -> "校园网" to androidx.compose.ui.graphics.Color(0xFF2E7D32)
-                        false -> "校外 · WebVPN" to androidx.compose.ui.graphics.Color(0xFF1565C0)
-                        null -> "网络检测中" to MiuixTheme.colorScheme.onSurfaceVariantSummary
-                    }
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = netColor.copy(alpha = 0.12f)
-                    ) {
-                        Row(
-                            Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = if (loginState.isOnCampus == false) Icons.Default.VpnKey else Icons.Default.Wifi,
-                                contentDescription = null,
-                                tint = netColor,
-                                modifier = Modifier.size(12.dp)
-                            )
-                            Spacer(Modifier.width(4.dp))
-                            Text(
-                                netLabel,
-                                style = MiuixTheme.textStyles.footnote2,
-                                color = netColor,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    val sessionColor = if ((loginState.sessionManager?.activeSiteCount ?: 0) > 0)
-                        androidx.compose.ui.graphics.Color(0xFF2E7D32)
-                    else MiuixTheme.colorScheme.onSurfaceVariantSummary
-                    val showStatusSheet = remember { mutableStateOf(false) }
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = sessionColor.copy(alpha = 0.12f),
-                        modifier = Modifier.clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = SinkFeedback()
-                        ) { showStatusSheet.value = true }
-                    ) {
-                        Row(
-                            Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                Icons.Default.CheckCircle,
-                                contentDescription = null,
-                                tint = sessionColor,
-                                modifier = Modifier.size(12.dp)
-                            )
-                            Spacer(Modifier.width(4.dp))
-                            // 用全集，避免手写列表漏项与两处不一致
-                            val visibleTypes = remember { LoginType.entries.toList() }
-                            fun isReady(type: LoginType): Boolean =
-                                loginState.sessionManager?.getSiteOrNull(type.siteKey())?.hasLogin == true
-                            val ok = visibleTypes.count { isReady(it) }
-                            Text(
-                                when {
-                                    isRestoring -> "正在连接…"
-                                    ok > 0 -> "$ok / ${visibleTypes.size} 已就绪"
-                                    else -> "未连接"
-                                },
-                                style = MiuixTheme.textStyles.footnote2,
-                                color = sessionColor,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
-                    if (showStatusSheet.value) {
-                        BackHandler { showStatusSheet.value = false }
-                        OverlayBottomSheet(
-                            show = showStatusSheet.value,
-                            title = "子系统连接状态",
-                            onDismissRequest = { showStatusSheet.value = false }
-                        ) {
-                            Column(
-                                Modifier.fillMaxWidth().navigationBarsPadding()
-                                    .heightIn(max = 460.dp)
-                                    .verticalScroll(rememberScrollState())   // 子系统较多，弹窗内容需要可滚动。
-                                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                            ) {
-                                val types = LoginType.entries.toList()
-                                types.forEach { t ->
-                                    val ready = loginState.sessionManager?.getSiteOrNull(t.siteKey())?.hasLogin == true
-                                    Row(
-                                        Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        val statusColor = if (ready) androidx.compose.ui.graphics.Color(0xFF2E7D32)
-                                        else MiuixTheme.colorScheme.onSurfaceVariantSummary
-                                        Icon(
-                                            if (ready) Icons.Default.CheckCircle else Icons.Default.RemoveCircleOutline,
-                                            contentDescription = null,
-                                            tint = statusColor,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        Spacer(Modifier.width(10.dp))
-                                        Column(Modifier.weight(1f)) {
-                                            Text(t.label, style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium)
-                                            Text(t.description, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                                        }
-                                        Text(
-                                            if (ready) "已连接" else "未登录",
-                                            style = MiuixTheme.textStyles.footnote1,
-                                            color = statusColor
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    val quickActionsSection: @Composable () -> Unit = {
-        // 「常用功能」原本长在卡片主题的分支里，图标主题没有这一块——保持原样。
-        if (homeTheme != CredentialStore.THEME_ICON) {
-            val usedKeys = mutableSetOf<String>()
-
-            val quickCandidateKeys = listOf(
-                Routes.CAMPUS_CARD,
-                Routes.EMPTY_ROOM,
-                Routes.PAYMENT_CODE,
-                Routes.NOTIFICATION,
-                Routes.JWAPP_SCORE,
-                Routes.COUPON,
-                Routes.LIBRARY,
-                Routes.LMS,
-                Routes.AGENT,
-            ).filterNot { it in usedKeys }
-            val quickKeys = if (showQuickActions && quickCandidateKeys.isNotEmpty()) {
-                remember(quickCandidateKeys) {
-                    // 屁岱曾经被钉死在第 0 位，为的是给主动提醒气泡一个稳定锚点。
-                    // 现在气泡改挂底栏正中的屁岱按钮上，这里就没有理由再搞特殊了——
-                    // 它回到频率排序里正常参与竞争，四格全部按使用频率给。
-                    com.xjtu.toolbox.util.ServiceUsageTracker.topKeys(
-                        ctx,
-                        quickCandidateKeys,
-                        n = 4,
-                        fallback = listOf(Routes.CAMPUS_CARD, Routes.EMPTY_ROOM, Routes.NOTIFICATION)
-                            .filter { it in quickCandidateKeys } + quickCandidateKeys
-                    ).filter { it in quickCandidateKeys }.distinct().take(4)
-                }
-            } else {
-                emptyList()
-            }
-            val quickShown = servicesByKeys(quickKeys)
-            if (quickShown.isNotEmpty()) {
-                // 不再把快捷入口从下方分类里剔除：「常用功能」是**额外**多一个入口，
-                // 不是把功能搬走。原来会 usedKeys += 之后在分类里过滤掉，
-                // 表现为"某个功能从它所属的分类里凭空消失了"，找不到。
-                // 气泡搬走后这里不再需要测量图标坐标，整块退回成一个朴素的等分 Row。
-                Column(Modifier.padding(horizontal = 16.dp)) {
-                    HomeSectionHeader("常用功能", Modifier.padding(start = 4.dp, bottom = 12.dp))
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .squircleClip(CARD_RADIUS)
-                            .background(AppCardColor)
-                            .padding(vertical = 10.dp),
-                    ) {
-                        quickShown.forEach { service ->
-                            HomeQuickAction(
-                                service.icon,
-                                service.title,
-                                service.color,
-                                onClick = trackedAction(service),
-                                modifier = Modifier.weight(1f),
-                                originKey = service.key,
-                            )
-                        }
-                    }
-                }
-                Spacer(Modifier.height(24.dp))
-            }
         }
     }
 
     val categorySection: @Composable () -> Unit = {
+        val categories = ServiceCategory.entries.mapNotNull { category ->
+            val items = allServices.filter { it.category == category }
+            if (items.isEmpty()) null else category to items
+        }
         when (homeTheme) {
             CredentialStore.THEME_ICON -> {
-                // 图标主题 = 分类卡（超椭圆 + 主色渐变 + 细描边）+ 卡内 4 列密集宫格。
-                // 追求"一屏尽收、认图标找功能"，所以格子小、排布规整。
-                //
-                // 收藏夹已彻底删除：长按固定会把项目从当前分类"搬"到页面最上方的收藏夹，
-                // 用户长按"常用功能"里的东西时体验是"东西突然跑到别的地方去了"，混乱。
-                // 现在只保留自动识别的常用功能（按使用频率算），完全不支持手动移动/固定。
-                val categories = ServiceCategory.entries.mapNotNull { category ->
-                    val items = allServices
-                        .filter { it.category == category }
-                        .map { coloredForIconTheme(it) }
-                    if (items.isEmpty()) null else category to items
-                }
-                CategoryCards(count = categories.size, spacing = 16.dp) { index ->
+                // 彩虹主题：实心渐变的 App 式图标 + 4 列宫格，回答「有哪些功能」。
+                CategoryCards(count = categories.size, spacing = SECTION_GAP) { index ->
                     val (category, items) = categories[index]
                     HomeCategoryCard(
                         title = category.title,
                         subtitle = category.subtitle,
-                        icon = categoryIcon(category),
                         accent = com.xjtu.toolbox.ui.theme.legacyColor(categoryAccentKey(category)),
-                        rows = items.map { svc ->
+                        rows = items.map { coloredForIconTheme(it) }.map { svc ->
                             HomeServiceRow(svc.key, svc.icon, svc.title, svc.color, trackedAction(svc))
                         },
                     )
                 }
             }
             else -> {
-                // 卡片主题 = Bento（便当盒）不规则网格。
-                //
-                // 与图标主题的区别必须是**结构性**的，不能只是"给宫格套个壳"——那样两个主题
-                // 只剩几列之差，等于没有区别。这里每个分类的首项占一块 2 列宽的大瓷砖
-                // （大图标 + 名称，主色实心渐变），旁边竖排两块小的，剩下的走 3 列常规块，
-                // 由此产生大小错落的节奏；而图标主题是严格等分的密集宫格。
-                //
-                // 纯布局实现，没有引第三方组件：Bento 的观感来自尺寸对比与留白节奏，
-                // 不是某个控件，为它引依赖只会徒增体积和版本耦合。
-                //
-                // 分类不再各自成卡，改由标题分隔——瓷砖本身就是卡，再套一层就是"卡中卡"。
-                // 各功能的当前状态。全部读**本地缓存**，首页不发任何网络请求
-                // （详见 HomeStats）。拿不到就是 null，该功能退回纯入口。
-                val statsCtx = LocalContext.current
-
-                var homeStats by remember { mutableStateOf<Map<String, com.xjtu.toolbox.home.HomeStat>>(emptyMap()) }
-                // 只负责**读**，不再自己触发刷新——那一步已经提到 MainScreen 层，
-                // 好让它与"用户有没有点过首页"解耦。这里跟着 statsVersion 走：
-                // MainScreen 每跑完一轮就自增，于是首页拿到的永远是刚落盘的那份。
-                LaunchedEffect(
-                    loginState.accountId,
-                    loginState.campusCardCacheVersion,
-                    com.xjtu.toolbox.home.HomeSignals.statsVersion,
-                ) {
-                    val term = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        runCatching {
-                            val dc = com.xjtu.toolbox.util.DataCache(statsCtx)
-                            dc.get("schedule_term_list", Long.MAX_VALUE)?.let { j ->
-                                com.google.gson.Gson().fromJson(j, Array<String>::class.java)?.firstOrNull()
-                            }
-                        }.getOrNull()
-                    }
-                    homeStats = com.xjtu.toolbox.home.HomeStats.collect(statsCtx, term)
-                    // 校园卡由 refresher 写进 CampusCardCache 的 prefs，不经过 homeStats，
-                    // 所以要单独重读一次，否则 Hero 区的余额要等到下次账号切换才更新。
-                    cachedBalance = cardPrefs.getFloat("card_balance_cache", -1f)
-                    cachedTodaySpend = cardPrefs.getFloat("card_today_spend_cache", -1f)
-                }
-
+                // 卡片主题：有状态的功能出数据格，其余收成一排紧凑入口，回答「这一块现在怎么样」。
+                // Hero 已经给了的（下节课、余额、教学周）这里不再重复。
                 val statOf: (String) -> Pair<String, String?>? = { key ->
                     when (key) {
-                        // 下节课用 Hero 区已算好的那份，避免重复解析课表
-                        Routes.SCHEDULE -> scheduleReminderState?.let { r ->
-                            val eta = java.time.Duration.between(java.time.LocalDateTime.now(), r.startAt).toMinutes()
-                            r.name to buildString {
-                                append(formatMinuteClock(r.startAt.hour * 60 + r.startAt.minute))
-                                if (r.location.isNotBlank()) append(" · ${r.location}")
-                                if (eta > 0) append(" · ${formatScheduleReminderEta(eta)}")
-                            }
-                        }
-                        // 日程没有下节课时，退回最近一场考试（HomeStats 把它挂在同一个 key 下）
-                        // 快速考勤流水不再单列在首页，今天刷过卡就借新版考勤这一行露出来
+                        Routes.CAMPUS_CARD, Routes.SCHOOL_CALENDAR -> null
+                        // 快速考勤流水不再单列在首页，今天刷过卡就借新版考勤这一格露出来
                         Routes.NEW_ATTENDANCE -> homeStats[Routes.NEW_ATTENDANCE]?.let { att ->
                             val punch = homeStats[Routes.ICLASSFACE]
                             val detail = if (punch != null && punch.value != "今日未刷卡") {
@@ -793,31 +852,25 @@ internal fun HomeTab(
                         else -> homeStats[key]?.let { it.value to it.detail }
                     }
                 }
-
-                val categoryCards = ServiceCategory.entries.mapNotNull { category ->
-                    val items = allServices.filter { it.category == category }
-                    if (items.isEmpty()) null else category to items
-                }
-                CategoryCards(count = categoryCards.size, spacing = 14.dp) { index ->
-                    val (category, items) = categoryCards[index]
-                    val rows = items.map { svc ->
-                        val stat = statOf(svc.key)
-                        HomeServiceRow(
-                            key = svc.key,
-                            icon = svc.icon,
-                            title = svc.title,
-                            color = svc.color,
-                            onClick = trackedAction(svc),
-                            stat = stat?.first,
-                            statDetail = stat?.second,
-                        )
-                    }
+                CategoryCards(count = categories.size, spacing = SECTION_GAP) { index ->
+                    val (category, items) = categories[index]
                     HomeSceneCard(
                         title = category.title,
                         subtitle = category.subtitle,
                         icon = categoryIcon(category),
                         accent = com.xjtu.toolbox.ui.theme.legacyColor(categoryAccentKey(category)),
-                        rows = rows,
+                        rows = items.map { svc ->
+                            val stat = statOf(svc.key)
+                            HomeServiceRow(
+                                key = svc.key,
+                                icon = svc.icon,
+                                title = svc.title,
+                                color = svc.color,
+                                onClick = trackedAction(svc),
+                                stat = stat?.first,
+                                statDetail = stat?.second,
+                            )
+                        },
                     )
                 }
             }
@@ -844,8 +897,6 @@ internal fun HomeTab(
                 Spacer(Modifier.height(contentTopPadding))
                 headerSection()
                 Spacer(Modifier.height(24.dp))
-                quickActionsSection()
-                Spacer(Modifier.height(24.dp))
             }
             Column(
                 Modifier
@@ -870,10 +921,9 @@ internal fun HomeTab(
         ) {
             Spacer(Modifier.height(contentTopPadding))
             headerSection()
-            Spacer(Modifier.height(24.dp))
-            quickActionsSection()
+            Spacer(Modifier.height(SECTION_GAP))
             categorySection()
-            Spacer(Modifier.height(extraBottomPadding))
+            Spacer(Modifier.height(SECTION_GAP + extraBottomPadding))
         }
     }
 }
@@ -891,9 +941,10 @@ private fun CategoryCards(
     spacing: androidx.compose.ui.unit.Dp,
     card: @Composable (Int) -> Unit,
 ) {
+    // 每张分类卡接在 Hero 后面依次登场（Hero 是第 0 拍）
     if (!com.xjtu.toolbox.ui.isWideLayout()) {
         for (i in 0 until count) {
-            card(i)
+            Box(Modifier.enterOnce(i + 1)) { card(i) }
             if (i != count - 1) Spacer(Modifier.height(spacing))
         }
         return
@@ -905,7 +956,7 @@ private fun CategoryCards(
                 var i = col
                 while (i < count) {
                     if (!first) Spacer(Modifier.height(spacing))
-                    card(i)
+                    Box(Modifier.enterOnce(i + 1)) { card(i) }
                     first = false
                     i += 2
                 }
@@ -1010,97 +1061,103 @@ private data class HomeServiceRow(
 }
 
 /**
- * 卡片主题的分类卡。
+ * 彩虹主题的分类卡。
  *
- * 设计取向是**克制**。避免大面积光晕与 2 列超大瓷砖：光晕盖过标题、瓷砖占半屏宽会
- * 把图标撑大、留白空洞，一屏装不下几个功能。具体做法：
- * - 去掉光晕，分类主色只留标题左侧一根 3dp 竖条，够做区分又不喧宾夺主；
- * - 3 列紧凑瓷砖，图标 38dp，一屏能完整看到一个分类；
- * - 瓷砖底色用中性的 surfaceVariant 而不是分类主色染色，避免整卡花花绿绿；
- * - 圆角、内边距整体收一档（28→24、18→14）。
- *
- * 与图标主题的区别仍然立得住：图标主题是**无卡片的 4 列通栏宫格**，这里是**成卡分组
- * 的 3 列**，卡片边界 + 分类标题 + 副标题承担信息层级。
+ * 图标做成实心渐变 + 白色字形的 App 图标，而不是浅色底上的彩色字形——后者一排排摆出来
+ * 像网页上的功能列表；前者一眼就是「手机上的一屏应用」。卡片本身只在左上角晕一团分类色，
+ * 没有描边、没有色条，让彩色图标自己说话。
  */
 @Composable
 private fun HomeCategoryCard(
     title: String,
     subtitle: String,
-    icon: ImageVector,
-    accent: androidx.compose.ui.graphics.Color,
+    accent: Color,
     rows: List<HomeServiceRow>,
 ) {
-    val isDark = isSystemInDarkTheme()
-    // 分类主色的对角渐变，浓度压得很低——它是"氛围"，不是"色块"。
-    // 深色模式下同样的 alpha 会显脏，所以两套值。
-    val tint = if (isDark) 0.16f else 0.10f
-    val fill = Brush.linearGradient(
-        listOf(
-            accent.copy(alpha = tint),
-            accent.copy(alpha = tint * 0.25f),
-            AppCardColor
-        )
-    )
+    val dark = com.xjtu.toolbox.ui.theme.LocalIsDarkTheme.current
+    val glow = accent.copy(alpha = if (dark) 0.16f else 0.10f)
     Column(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
-            // squircleBackground 只接受纯色，渐变要走 clip + background(brush)
+            .appCardShadow(shape = RoundedCornerShape(CARD_RADIUS))
             .squircleClip(CARD_RADIUS)
-            .background(fill)
-            // 细边框是精致感的关键。之前整卡没有任何描边，边界全靠底色差，
-            // 在浅色主题下几乎看不出卡在哪儿，就显得"糊成一片"。
-            .squircleBorder(1.dp, accent.copy(alpha = if (isDark) 0.28f else 0.20f), CARD_RADIUS)
-            .padding(horizontal = 16.dp, vertical = 16.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier
-                    .size(30.dp)
-                    .squircleBackground(accent.copy(alpha = if (isDark) 0.28f else 0.16f), 10.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(17.dp))
-            }
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                Text(title, style = MiuixTheme.textStyles.headline1, fontWeight = FontWeight.Bold)
-                Text(
-                    subtitle,
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+            .background(AppCardColor)
+            .drawBehind {
+                drawRect(
+                    Brush.radialGradient(
+                        listOf(glow, Color.Transparent),
+                        center = androidx.compose.ui.geometry.Offset(0f, 0f),
+                        radius = size.maxDimension * 0.75f,
+                    )
                 )
             }
+            .padding(start = 18.dp, end = 18.dp, top = 18.dp, bottom = 10.dp)
+    ) {
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(title, style = MiuixTheme.textStyles.title4, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.width(8.dp))
+            Text(
+                subtitle,
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f).padding(bottom = 2.dp),
+            )
         }
         Spacer(Modifier.height(14.dp))
         rows.chunked(4).forEach { group ->
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
+            Row(Modifier.fillMaxWidth()) {
                 group.forEach { row ->
-                    HomeServiceTile(row, Modifier.weight(1f))
+                    HomeServiceTile(row, Modifier.weight(1f), solidIcon = true)
                 }
                 repeat(4 - group.size) { Spacer(Modifier.weight(1f)) }
             }
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(6.dp))
         }
     }
 }
 
 /**
- * 分类卡里的瓷砖：图标 + 名称，**无独立背景块**。
- *
- * 关键取舍：不给瓷砖单独的底色。之前每个瓷砖都是一个小圆角色块，整体是"卡片里再套
- * 一堆小卡片"，这种嵌套容器正是廉价感的来源。现在瓷砖直接落在分类卡的渐变底上，
- * 卡片本身承担唯一的容器角色，层级干净。按压反馈由 SinkFeedback 提供，不需要底色来提示可点。
+ * App 式图标：分类色的对角渐变铺满超椭圆，上半截一层柔和高光，字形用白色。
+ * 不加投影：一屏二十几个图标，每个一层 dropShadow，滚动时帧率会掉。
  */
+@Composable
+internal fun GradientAppIcon(
+    icon: ImageVector,
+    color: Color,
+    size: androidx.compose.ui.unit.Dp = 48.dp,
+    iconSize: androidx.compose.ui.unit.Dp = 24.dp,
+) {
+    val radius = size * 0.3f
+    val top = androidx.compose.ui.graphics.lerp(color, Color.White, 0.22f)
+    val bottom = androidx.compose.ui.graphics.lerp(color, Color.Black, 0.10f)
+    Box(
+        Modifier
+            .size(size)
+            .squircleClip(radius)
+            .background(Brush.linearGradient(listOf(top, color, bottom)))
+            .drawBehind {
+                drawRect(
+                    Brush.verticalGradient(
+                        listOf(Color.White.copy(alpha = 0.26f), Color.Transparent),
+                        endY = this.size.height * 0.55f,
+                    )
+                )
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(iconSize))
+    }
+}
+
+/** 宫格里的一个入口：图标 + 名称，没有独立底色，卡片是唯一容器。 */
 @Composable
 private fun HomeServiceTile(
     row: HomeServiceRow,
     modifier: Modifier = Modifier,
+    solidIcon: Boolean = false,
 ) {
     val origin = com.xjtu.toolbox.nav.rememberExpandOriginSource()
     val density = androidx.compose.ui.platform.LocalDensity.current
@@ -1119,7 +1176,11 @@ private fun HomeServiceTile(
             .padding(horizontal = 2.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        ExpressiveIcon(icon = row.icon, color = row.color, size = 40.dp, iconSize = 21.dp)
+        if (solidIcon) {
+            GradientAppIcon(row.icon, row.color)
+        } else {
+            ExpressiveIcon(icon = row.icon, color = row.color, size = 42.dp, iconSize = 21.dp)
+        }
         Spacer(Modifier.height(7.dp))
         Text(
             row.title,
@@ -1132,13 +1193,15 @@ private fun HomeServiceTile(
     }
 }
 
+/** 首页各卡之间统一的间距：Hero、公告、分类卡之间都是它，页面读起来是一整套而不是几截。 */
+private val SECTION_GAP = 14.dp
+
 /** 分类卡圆角。超椭圆下这个值可以给得比普通圆角更大而不显得"胀"。 */
 private val CARD_RADIUS = 26.dp
 
 /**
  * 首页 Hero 卡 Mesh 渐变的 3x3 顶点：每格是「主题色混进卡片底色的比例」。
- * 右上角最浓（原来那团径向光），左上次之（原来斜向渐变的起点），往下、往中间渐淡，
- * 底部几乎就是卡片底色，给右下角的主楼插画和下面的文字留出干净的底。
+ * 右上角最浓，往下渐淡，底部几乎就是卡片底色，给下面的面板留出干净的底。
  */
 private val HeroMeshWeights = listOf(
     listOf(0.15f, 0.08f, 0.22f),
@@ -1147,112 +1210,111 @@ private val HeroMeshWeights = listOf(
 )
 
 // ══════════════════════════════════════════
-//  卡片主题：场景大卡
+//  卡片主题：场景卡
 // ══════════════════════════════════════════
 
 /**
- * 场景大卡：一张卡装下一整类，卡内是**双列数据排版**。
+ * 卡片主题的分类卡：上面是有实时状态的功能（数据格），下面是其余功能的紧凑入口。
  *
- * 与图标主题的分工：
- * - 图标主题 = 彩色宫格 + 主色渐变卡，回答「有哪些功能」；
- * - 卡片主题 = **中性卡 + 数据排版**，回答「这一块现在怎么样」。
- *
- * 视觉上刻意不用渐变。渐变已经是图标主题的语言，两边都铺一层同样的主色渐变，
- * 换来的只是"看起来一样"。这里改成：卡片本身中性，主色只出现在**左缘一条书脊**
- * 和**数值文字**上——颜色少而准，信息才立得住。
- *
- * 条目既不是方块也不是胶囊，而是"名称在上、数值在下"的数据格：没有任何背景块，
- * 卡片是唯一容器。有数据的格子数值用主色加粗，没数据的只剩一行淡名称，
- * 一眼就能扫出哪里有事。
+ * 以前是左缘一条色条 + 双列「名称 / 数值」纯文字，没有任何面，像网页表格；
+ * 没数据的功能只剩一行灰字，点都不好点。现在：
+ * - 有状态的做成淡染分类色的圆角数据格，数值加粗，一眼扫出「哪里有事」；
+ * - 没状态的收成一排图标入口，和彩虹主题同一套手感；
+ * - 标题用浅色底的图标徽记做识别，去掉色条。
  */
 @Composable
 private fun HomeSceneCard(
     title: String,
     subtitle: String,
     icon: ImageVector,
-    accent: androidx.compose.ui.graphics.Color,
+    accent: Color,
     rows: List<HomeServiceRow>,
 ) {
     if (rows.isEmpty()) return
-    // 有状态的排前面：卡片打开就先看见"有事"的部分
-    val ordered = rows.sortedByDescending { it.hasStat }
-    val liveCount = rows.count { it.hasStat }
+    val dark = com.xjtu.toolbox.ui.theme.LocalIsDarkTheme.current
+    val live = rows.filter { it.hasStat }
+    val rest = rows.filterNot { it.hasStat }
 
-    Row(
+    Column(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
+            .appCardShadow(shape = RoundedCornerShape(CARD_RADIUS))
             .squircleClip(CARD_RADIUS)
             .background(AppCardColor)
-            .height(IntrinsicSize.Min)
+            .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = if (rest.isEmpty()) 16.dp else 8.dp)
     ) {
-        // 书脊：整卡左缘一条主色，替代整片渐变做分类识别
-        Box(
-            Modifier
-                .width(4.dp)
-                .fillMaxHeight()
-                .background(accent)
-        )
-        Column(Modifier.weight(1f).padding(start = 15.dp, end = 15.dp, top = 14.dp, bottom = 14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(17.dp))
-                Spacer(Modifier.width(7.dp))
-                Text(title, style = MiuixTheme.textStyles.title4, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.weight(1f))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier
+                    .size(32.dp)
+                    .squircleBackground(accent.copy(alpha = if (dark) 0.24f else 0.12f), 10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(18.dp))
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MiuixTheme.textStyles.headline1, fontWeight = FontWeight.Bold)
                 Text(
-                    if (liveCount > 0) "$liveCount 条更新" else subtitle,
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = if (liveCount > 0) accent else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    fontWeight = if (liveCount > 0) FontWeight.Medium else FontWeight.Normal,
+                    subtitle,
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            Spacer(Modifier.height(12.dp))
-            ordered.chunked(2).forEachIndexed { i, pair ->
-                if (i > 0) Spacer(Modifier.height(2.dp))
+        }
+        if (live.isNotEmpty()) {
+            Spacer(Modifier.height(14.dp))
+            live.chunked(2).forEachIndexed { i, pair ->
+                if (i > 0) Spacer(Modifier.height(8.dp))
+                Row(
+                    Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    pair.forEach { ServiceStatCell(it, Modifier.weight(1f).fillMaxHeight()) }
+                }
+            }
+        }
+        if (rest.isNotEmpty()) {
+            Spacer(Modifier.height(if (live.isNotEmpty()) 8.dp else 10.dp))
+            rest.chunked(4).forEach { group ->
                 Row(Modifier.fillMaxWidth()) {
-                    pair.forEach { ServiceStatCell(it, accent, Modifier.weight(1f)) }
-                    if (pair.size == 1) Spacer(Modifier.weight(1f))
+                    group.forEach { HomeServiceTile(it, Modifier.weight(1f)) }
+                    repeat(4 - group.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
         }
     }
 }
 
-/**
- * 数据格：名称（弱）在上，数值（主色加粗）在下，无背景块。
- * 没有数据时只留名称一行并压低不透明度，让"有事的"自然浮出来。
- */
+/** 数据格：功能色淡染的面，名称在上，数值加粗，说明一行。 */
 @Composable
 private fun ServiceStatCell(
     row: HomeServiceRow,
-    accent: androidx.compose.ui.graphics.Color,
     modifier: Modifier = Modifier,
 ) {
+    val dark = com.xjtu.toolbox.ui.theme.LocalIsDarkTheme.current
     val origin = com.xjtu.toolbox.nav.rememberExpandOriginSource()
     val density = androidx.compose.ui.platform.LocalDensity.current
     Column(
         modifier = modifier
             .expandOriginSource(origin)
-            .clip(RoundedCornerShape(10.dp))
+            .squircleClip(18.dp)
+            .background(row.color.copy(alpha = if (dark) 0.14f else 0.07f))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = SinkFeedback(),
                 onClick = {
-                    origin.arm(row.key, 10.dp, density)
+                    origin.arm(row.key, 18.dp, density)
                     row.onClick()
                 }
             )
-            .padding(vertical = 7.dp, horizontal = 4.dp)
+            .padding(horizontal = 12.dp, vertical = 11.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                row.icon,
-                contentDescription = null,
-                tint = if (row.hasStat) row.color else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.size(14.dp)
-            )
+            Icon(row.icon, contentDescription = null, tint = row.color, modifier = Modifier.size(14.dp))
             Spacer(Modifier.width(5.dp))
             Text(
                 row.title,
@@ -1262,25 +1324,23 @@ private fun ServiceStatCell(
                 overflow = TextOverflow.Ellipsis
             )
         }
-        if (row.hasStat) {
-            Spacer(Modifier.height(2.dp))
+        Spacer(Modifier.height(6.dp))
+        Text(
+            row.stat.orEmpty(),
+            style = MiuixTheme.textStyles.body1,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        row.statDetail?.takeIf { it.isNotBlank() }?.let {
+            Spacer(Modifier.height(1.dp))
             Text(
-                row.stat.orEmpty(),
-                style = MiuixTheme.textStyles.body1,
-                fontWeight = FontWeight.Bold,
-                color = accent,
+                it,
+                style = MiuixTheme.textStyles.footnote2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            row.statDetail?.takeIf { it.isNotBlank() }?.let {
-                Text(
-                    it,
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
         }
     }
 }
@@ -1311,6 +1371,9 @@ private fun HomeQuickAction(
     modifier: Modifier = Modifier,
     /** 点它打开的路由；用来让功能页从这一格放大出来（PR V）。 */
     originKey: String? = null,
+    iconSize: androidx.compose.ui.unit.Dp = 54.dp,
+    /** 彩虹主题下用实心渐变图标，和分类卡里的图标一致。 */
+    solidIcon: Boolean = false,
 ) {
     val origin = com.xjtu.toolbox.nav.rememberExpandOriginSource()
     val density = androidx.compose.ui.platform.LocalDensity.current
@@ -1327,132 +1390,13 @@ private fun HomeQuickAction(
                     onClick()
                 }
             )
-            .padding(horizontal = 8.dp, vertical = 8.dp)
+            .padding(horizontal = 4.dp, vertical = 6.dp)
     ) {
         // 唯一的调用方是首页「常用功能」，气泡搬到底栏后这里不再需要向外报告图标坐标，
         // 那个 onIconGloballyPositioned 参数已随之删掉。
-        ExpressiveIcon(icon = icon, color = color)
-        Spacer(Modifier.height(8.dp))
-        Text(label, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium)
-    }
-}
-
-/** 更多服务宫格项：纯图标 + 标签，无背景无副标题。 */
-@Composable
-private fun HomeGridItem(
-    icon: ImageVector,
-    label: String,
-    color: androidx.compose.ui.graphics.Color,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = modifier
-            .heightIn(min = 86.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .background(MiuixTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f))
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = SinkFeedback(),
-                onClick = onClick
-            )
-            .padding(horizontal = 4.dp, vertical = 10.dp)
-    ) {
-        ExpressiveIcon(icon = icon, color = color, size = 46.dp, iconSize = 23.dp)
+        if (solidIcon) GradientAppIcon(icon, color, size = iconSize, iconSize = iconSize * 0.5f)
+        else ExpressiveIcon(icon = icon, color = color, size = iconSize, iconSize = iconSize * 0.5f)
         Spacer(Modifier.height(6.dp))
-        Text(
-            label,
-            style = MiuixTheme.textStyles.footnote1,
-            textAlign = TextAlign.Center,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
-}
-
-@Composable
-private fun HomeServiceTile(
-    icon: ImageVector, title: String, subtitle: String,
-    iconColor: androidx.compose.ui.graphics.Color, modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(MiuixTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f))
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = SinkFeedback(),
-                onClick = onClick
-            )
-            .padding(horizontal = 12.dp, vertical = 13.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        ExpressiveIcon(
-            icon = icon,
-            color = iconColor,
-            size = 42.dp,
-            iconSize = 22.dp,
-        )
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                title,
-                style = MiuixTheme.textStyles.body1,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                subtitle,
-                style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-    }
-}
-
-@Composable
-private fun SectionLabel(text: String) {
-    Text(text, style = MiuixTheme.textStyles.subtitle, color = MiuixTheme.colorScheme.primary, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 4.dp, bottom = 8.dp))
-}
-
-@Composable
-private fun ServiceCard(icon: ImageVector, title: String, description: String, loggedIn: Boolean, iconColor: androidx.compose.ui.graphics.Color = MiuixTheme.colorScheme.primary, onClick: () -> Unit) {
-    Card(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        cornerRadius = 24.dp,
-        pressFeedbackType = PressFeedbackType.Sink
-    ) {
-        Row(
-            Modifier.fillMaxWidth().padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(iconColor.copy(alpha = 0.15f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(icon, null, tint = iconColor, modifier = Modifier.size(24.dp))
-            }
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-                Text(title, style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Bold)
-                Text(description, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            if (loggedIn) {
-                Surface(shape = RoundedCornerShape(8.dp), color = MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)) {
-                    Text("已登录", Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.primary)
-                }
-            } else {
-                Icon(Icons.Default.ChevronRight, null, tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-            }
-        }
+        Text(label, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium)
     }
 }

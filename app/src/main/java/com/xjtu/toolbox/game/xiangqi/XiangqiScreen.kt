@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import com.xjtu.toolbox.game.GameIds
@@ -68,6 +69,8 @@ import com.xjtu.toolbox.game.net.OnlineConnState
 import com.xjtu.toolbox.game.net.OnlineGameEvent
 import com.xjtu.toolbox.game.net.OnlineGameSession
 import com.xjtu.toolbox.game.net.OnlineLobbyContent
+import com.xjtu.toolbox.game.net.OnlineLobbyState
+import com.xjtu.toolbox.game.net.rememberOnlineLobbyState
 import com.xjtu.toolbox.game.net.OnlineMove
 import com.xjtu.toolbox.game.xiangqi.engine.EndReason
 import com.xjtu.toolbox.game.xiangqi.engine.Side
@@ -112,6 +115,14 @@ fun XiangqiScreen(onBack: () -> Unit) {
     var resultRecorded by remember { mutableIntStateOf(-1) }
     var resultDialogOpen by remember { mutableStateOf(false) }
     var online by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    // 联机对局和大厅挂在整页上：切到同屏双人再切回来，连接和棋局都还在。
+    val match = remember { XiangqiOnlineMatch() }
+    val lobby = rememberOnlineLobbyState(scope)
+    DisposableEffect(match) { onDispose { match.session?.close() } }
+    // 收对方着法也放在整页：人在别的 tab 时对方走子不能丢（events 没有重放）。
+    LaunchedEffect(match.session) { match.session?.let { match.collect(context, it) } }
 
     val snapshot = remember(version) { game.snapshot() }
     val status = snapshot.status
@@ -163,8 +174,10 @@ fun XiangqiScreen(onBack: () -> Unit) {
         )
         if (online) {
             XiangqiOnlineSection(
+                match = match,
+                lobby = lobby,
+                scope = scope,
                 modifier = Modifier.fillMaxSize(),
-                onExitOnlineMode = { online = false },
             )
             return@Column
         }
@@ -514,26 +527,43 @@ private fun DrawScope.drawCrossMark(cx: Float, cy: Float, cell: Float, color: Co
 }
 
 /**
- * 联机对战：接入 `game/net` 模块，逻辑结构跟五子棋/围棋那两份是同一套。棋盘直接复用
- * [XiangqiBoard]——它本来就只依赖 [XiangqiGame] + 一个 `version` 重组触发器，不关心
- * 对手是 AI、同屏还是网络对面的另一台手机。
+ * 联机对局的全部状态。放在整页（[XiangqiScreen]）里记住而不是联机区块里：
+ * 以前切个 tab 联机区块就离开组合，连接被关、棋局清空。
  */
-@Composable
-private fun XiangqiOnlineSection(modifier: Modifier = Modifier, onExitOnlineMode: () -> Unit) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val adapter = remember { XiangqiOnlineAdapter() }
+private class XiangqiOnlineMatch {
+    val adapter = XiangqiOnlineAdapter()
+    var session by mutableStateOf<OnlineGameSession?>(null)
+    var mySide by mutableStateOf(Side.RED)
+    var game by mutableStateOf(XiangqiGame())
+    var version by mutableIntStateOf(0)
+    var selected by mutableStateOf<Position?>(null)
+    var disconnectedReason by mutableStateOf<String?>(null)
+    var pendingDrawFromPeer by mutableStateOf(false)
+    private var recorded = false
 
-    var session by remember { mutableStateOf<OnlineGameSession?>(null) }
-    var mySide by remember { mutableStateOf(Side.RED) }
-    var game by remember { mutableStateOf(XiangqiGame()) }
-    var version by remember { mutableIntStateOf(0) }
-    var selected by remember { mutableStateOf<Position?>(null) }
-    var disconnectedReason by remember { mutableStateOf<String?>(null) }
-    var pendingDrawFromPeer by remember { mutableStateOf(false) }
+    fun begin(s: OnlineGameSession, iAmFirst: Boolean) {
+        // 象棋固定红先，谁先手（红方）由房主决定，逻辑跟其它两种棋一致。
+        mySide = if (iAmFirst) Side.RED else Side.BLACK
+        game = XiangqiGame()
+        version = 0
+        selected = null
+        disconnectedReason = null
+        pendingDrawFromPeer = false
+        recorded = false
+        session = s
+    }
 
-    fun recordIfFinished(status: XiangqiStatus) {
-        if (status !is XiangqiStatus.Over) return
+    fun leave() {
+        session?.close()
+        session = null
+    }
+
+    val peerSide: Side get() = if (mySide == Side.RED) Side.BLACK else Side.RED
+
+    fun recordIfFinished(context: android.content.Context) {
+        val status = game.status()
+        if (status !is XiangqiStatus.Over || recorded) return
+        recorded = true
         val result = when (status.winner) {
             mySide -> GameResult.WIN
             null -> GameResult.DRAW
@@ -542,62 +572,73 @@ private fun XiangqiOnlineSection(modifier: Modifier = Modifier, onExitOnlineMode
         GameStore.recordResult(context, GameIds.XIANGQI, "online", result)
     }
 
-    val activeSession = session
-    if (activeSession == null) {
-        OnlineLobbyContent(
-            kind = GameKind.XIANGQI,
-            ruleParam = null,
-            onSessionReady = { s, isHost, hostFirst, _ ->
-                // 象棋固定红先，谁先手（红方）由房主决定，逻辑跟其它两种棋一致。
-                mySide = if (isHost == hostFirst) Side.RED else Side.BLACK
-                game = XiangqiGame()
-                version = 0
-                selected = null
-                disconnectedReason = null
-                session = s
-            },
-            onCancel = onExitOnlineMode,
-            modifier = modifier,
-        )
-        return
-    }
-
-    LaunchedEffect(activeSession) {
+    suspend fun collect(context: android.content.Context, s: OnlineGameSession): Unit = kotlinx.coroutines.coroutineScope {
         launch {
-            activeSession.state.collect { st ->
+            s.state.collect { st ->
                 if (st is OnlineConnState.Disconnected) disconnectedReason = st.reason
             }
         }
-        activeSession.events.collect { ev ->
+        s.events.collect { ev ->
             when (ev) {
                 is OnlineGameEvent.RemoteMove -> {
-                    val peerSide = if (mySide == Side.RED) Side.BLACK else Side.RED
                     val move = adapter.decodeMove(ev.code)
                     val legal = move != null && adapter.applyIfLegal(game, move, peerSide.ordinal)
                     if (!legal) {
-                        activeSession.reportIllegalMoveAndClose()
+                        s.reportIllegalMoveAndClose()
                         return@collect
                     }
                     version += 1
-                    recordIfFinished(game.status())
                 }
                 OnlineGameEvent.Resigned -> {
-                    game.resign(if (mySide == Side.RED) Side.BLACK else Side.RED)
+                    game.resign(peerSide)
                     version += 1
-                    recordIfFinished(game.status())
                 }
                 OnlineGameEvent.DrawRequested -> pendingDrawFromPeer = true
                 is OnlineGameEvent.DrawAnswered -> if (ev.accepted) {
                     game.agreeDraw()
                     version += 1
-                    recordIfFinished(game.status())
                 }
                 else -> Unit
             }
+            recordIfFinished(context)
         }
     }
+}
 
-    val status = game.status()
+/**
+ * 联机对战：接入 `game/net` 模块，逻辑结构跟五子棋/围棋那两份是同一套。棋盘直接复用
+ * [XiangqiBoard]——它本来就只依赖 [XiangqiGame] + 一个 `version` 重组触发器，不关心
+ * 对手是 AI、同屏还是网络对面的另一台手机。
+ */
+@Composable
+private fun XiangqiOnlineSection(
+    match: XiangqiOnlineMatch,
+    lobby: OnlineLobbyState,
+    scope: kotlinx.coroutines.CoroutineScope,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+
+    val activeSession = match.session
+    if (activeSession == null) {
+        OnlineLobbyContent(
+            state = lobby,
+            kind = GameKind.XIANGQI,
+            ruleParam = null,
+            onSessionReady = { s, isHost, hostFirst, _ ->
+                match.begin(s, iAmFirst = isHost == hostFirst)
+            },
+            onCancel = {},
+            modifier = modifier,
+        )
+        return
+    }
+
+    val game = match.game
+    val version = match.version
+    val mySide = match.mySide
+    val disconnectedReason = match.disconnectedReason
+    val status = remember(game, version) { game.status() }
     val playing = status is XiangqiStatus.Playing && disconnectedReason == null
     val meRed = mySide == Side.RED
 
@@ -620,54 +661,52 @@ private fun XiangqiOnlineSection(modifier: Modifier = Modifier, onExitOnlineMode
             else -> "等待对方走子…"
         }
         GameHint(statusText, color = if (disconnectedReason != null) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.onSurfaceVariantSummary)
-        if (pendingDrawFromPeer) {
+        if (match.pendingDrawFromPeer) {
             Row(
                 Modifier
                     .fillMaxWidth()
                     .padding(bottom = 8.dp)
                     .clip(RoundedCornerShape(14.dp))
-                    .background(MiuixTheme.colorScheme.surfaceContainer)
+                    .background(MiuixTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f))
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("对方提议和棋", style = MiuixTheme.textStyles.body2, modifier = Modifier.weight(1f))
                 TextButton(text = "拒绝", onClick = {
-                    pendingDrawFromPeer = false
+                    match.pendingDrawFromPeer = false
                     scope.launch { activeSession.answerDraw(false) }
                 })
                 TextButton(text = "同意", onClick = {
-                    pendingDrawFromPeer = false
+                    match.pendingDrawFromPeer = false
                     scope.launch { activeSession.answerDraw(true) }
                     game.agreeDraw()
-                    version += 1
-                    recordIfFinished(game.status())
+                    match.version += 1
+                    match.recordIfFinished(context)
                 })
             }
         }
         XiangqiBoard(
             game = game,
             version = version,
-            selected = selected,
+            selected = match.selected,
             modifier = Modifier.fillMaxWidth(),
             onTap = { pos ->
                 if (!playing || game.sideToMove != mySide) return@XiangqiBoard
-                val cur = selected
+                val cur = match.selected
                 val piece = game.pieceAt(pos.x, pos.y)
                 val own = XiangqiGame.sideOf(piece) == mySide
                 when {
-                    own -> selected = pos
+                    own -> match.selected = pos
                     cur != null -> {
                         val move = OnlineMove.Step(cur.x, cur.y, pos.x, pos.y)
-                        if (adapter.applyIfLegal(game, move, mySide.ordinal)) {
-                            selected = null
-                            version += 1
-                            recordIfFinished(game.status())
-                            scope.launch { activeSession.sendLocalMove(adapter.encodeMove(move)) }
-                        } else {
-                            selected = null
+                        match.selected = null
+                        if (match.adapter.applyIfLegal(game, move, mySide.ordinal)) {
+                            match.version += 1
+                            match.recordIfFinished(context)
+                            scope.launch { activeSession.sendLocalMove(match.adapter.encodeMove(move)) }
                         }
                     }
-                    else -> selected = null
+                    else -> match.selected = null
                 }
             },
         )
@@ -679,13 +718,13 @@ private fun XiangqiOnlineSection(modifier: Modifier = Modifier, onExitOnlineMode
                     GameAction("认输") {
                         scope.launch { activeSession.resign() }
                         game.resign(mySide)
-                        version += 1
-                        recordIfFinished(game.status())
+                        match.version += 1
+                        match.recordIfFinished(context)
                     },
                 ),
             )
         } else {
-            GameActionRow(listOf(GameAction("退出联机", primary = true, onClick = onExitOnlineMode)))
+            GameActionRow(listOf(GameAction("退出联机", primary = true, onClick = { match.leave(); lobby.reset() })))
         }
         Box(Modifier.height(24.dp))
     }

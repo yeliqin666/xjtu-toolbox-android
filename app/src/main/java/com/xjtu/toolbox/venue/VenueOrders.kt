@@ -88,7 +88,7 @@ fun VenueOrdersContent(
         }
 
         orders.isEmpty() -> LazyColumn(Modifier.fillMaxSize().padding(top = topPadding)) {
-            item { Box(Modifier.fillParentMaxSize()) { EmptyState(title = "暂无订单", subtitle = "预约场馆后，订单会显示在这里", modifier = Modifier.fillMaxSize()) } }
+            item { Box(Modifier.fillParentMaxSize()) { EmptyState(title = "还没订过场馆", subtitle = "预约场馆后，订单会显示在这里", modifier = Modifier.fillMaxSize()) } }
         }
 
         else -> {

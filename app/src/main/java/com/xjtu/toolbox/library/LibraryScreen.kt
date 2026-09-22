@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.library
 
+import com.xjtu.toolbox.ui.components.pressScale
+import com.xjtu.toolbox.ui.components.enterOnce
 import androidx.compose.foundation.verticalScroll
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
@@ -561,7 +563,15 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
         // 占掉大半屏，往上划只有下面一小块座位在动，半个屏幕纹丝不动，很别扭。
         // 加载中、出错、没有座位时没有可滚的列表，它们仍然钉在顶上。
         val headerContent: @Composable ColumnScope.() -> Unit = {
-            AnimatedVisibility(bookingResult != null) {
+            // 预约结果从上方弹进来（缩放 + 淡入），比平铺展开更像「一个结果」
+            AnimatedVisibility(
+                bookingResult != null,
+                enter = androidx.compose.animation.scaleIn(
+                    initialScale = 0.9f,
+                    animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.6f, stiffness = 500f),
+                ) + androidx.compose.animation.fadeIn() + androidx.compose.animation.expandVertically(),
+                exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.shrinkVertically(),
+            ) {
                 Card(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
                     colors = CardDefaults.defaultColors(
@@ -585,9 +595,9 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                 }
             }
 
-            // ── 当前预约 ──
+            // ── 当前预约 ──（头部三张卡依次登场）
             Card(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                Modifier.enterOnce(0).fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
                 colors = CardDefaults.defaultColors(
                     color = if (myBooking != null) {
                         MiuixTheme.colorScheme.secondaryContainer
@@ -660,7 +670,7 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
 
             // ── 校区/楼层/区域选择器 (一体化) ──
             Card(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                modifier = Modifier.enterOnce(1).fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
                 colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)
             ) {
                 Column {
@@ -725,7 +735,7 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
 
             if (seats.isNotEmpty()) {
                 Card(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                    modifier = Modifier.enterOnce(2).fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                     cornerRadius = 20.dp,
                     colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
                 ) {
@@ -936,13 +946,15 @@ private fun SeatChip(
         else -> MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f)
     }
 
+    val press = remember { MutableInteractionSource() }
     Box(
         modifier = Modifier
+            .pressScale(press, pressed = 0.9f)   // 按下缩一点再弹回，座位格摸起来是软的
             .squircleSurface(color = bgColor, cornerRadius = 10.dp)
             .then(
                 if (!isBooking)
                     Modifier.combinedClickable(
-                        interactionSource = remember { MutableInteractionSource() },
+                        interactionSource = press,
                         indication = SinkFeedback(),
                         onClick = onClick,
                         onLongClick = onLongClick

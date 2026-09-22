@@ -298,7 +298,7 @@ fun ZyxfBrowseScreen(
                             Alignment.Center,
                         ) {
                             if (stateText == null) {
-                                CircularProgressIndicator()
+                                com.xjtu.toolbox.ui.components.MorphingLoader()  // 整页加载统一用形变加载器
                             } else {
                                 Text(
                                     stateText,

@@ -181,12 +181,4 @@ class CampusCardLogin(
         .header("synAccessSource", "h5")
         .get()
         .build()
-
-    /** 创建带 JWT 鉴权的 POST 请求 */
-    fun makeAuthPostRequest(url: String, body: RequestBody): Request = Request.Builder()
-        .url(url)
-        .header("synjones-auth", "bearer ${accessToken ?: ""}")
-        .header("synAccessSource", "h5")
-        .post(body)
-        .build()
 }

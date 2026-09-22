@@ -1,5 +1,9 @@
 package com.xjtu.toolbox.schedule
 
+import com.xjtu.toolbox.ui.components.enterOnce
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -149,7 +153,7 @@ fun TodayTimeline(
                 )
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    "今天没有安排",
+                    "今天一节课都没有",
                     style = MiuixTheme.textStyles.body1,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
@@ -158,7 +162,13 @@ fun TodayTimeline(
         return
     }
 
-    val nowMinute = LocalTime.now().toMinuteOfDay()
+    // 每到整分钟走一次：正在上的课的进度、过去的课变淡都跟着它，不用重进页面才更新
+    val nowMinute by androidx.compose.runtime.produceState(LocalTime.now().toMinuteOfDay()) {
+        while (true) {
+            kotlinx.coroutines.delay((60 - LocalTime.now().second) * 1000L)
+            value = LocalTime.now().toMinuteOfDay()
+        }
+    }
     LazyColumn(
         Modifier.fillMaxSize().overScrollVertical(),
         contentPadding = PaddingValues(
@@ -169,18 +179,23 @@ fun TodayTimeline(
         if (entries.isEmpty()) {
             // 今天没课也没考试没作业，但「接下来」有内容——给个小卡片交代一下，
             // 别让页面看着像没加载出来。
-            item { NoCourseTodayCard() }
+            item { Box(Modifier.enterOnce(0)) { NoCourseTodayCard() } }
         } else {
-            items(entries) { e ->
+            itemsIndexed(entries) { i, e ->
                 // 已经过去的条目压暗。今天这一级的价值就是"接下来干什么"，
                 // 上午的课到了下午还跟没上过一样醒目，等于每次都要自己再筛一遍。
                 val past = e.endMinute in 1 until nowMinute
-                TimelineRow(e, past, allCourseNames, onCourseClick)
+                val progress = if (e.endMinute > e.startMinute && nowMinute in e.startMinute until e.endMinute)
+                    (nowMinute - e.startMinute).toFloat() / (e.endMinute - e.startMinute) else null
+                Box(Modifier.enterOnce(i)) {
+                    TimelineRow(e, past, allCourseNames, onCourseClick, progress)
+                }
             }
         }
         if (upcoming.isNotEmpty()) {
-            item { SectionLabel("接下来") }
-            items(upcoming) { item -> UpcomingRow(item) }
+            val base = entries.size.coerceAtLeast(1)
+            item { Box(Modifier.enterOnce(base)) { SectionLabel("接下来") } }
+            itemsIndexed(upcoming) { i, item -> Box(Modifier.enterOnce(base + 1 + i)) { UpcomingRow(item) } }
         }
     }
 }
@@ -211,7 +226,7 @@ private fun NoCourseTodayCard() {
             )
             Spacer(Modifier.width(8.dp))
             Text(
-                "今天没有课",
+                "今天没课，后面几天的在下面",
                 style = MiuixTheme.textStyles.body2,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
@@ -225,6 +240,8 @@ private fun TimelineRow(
     past: Boolean,
     allCourseNames: List<String>,
     onCourseClick: (CourseItem) -> Unit,
+    /** 正在进行时是已过去的比例（0~1），否则 null。 */
+    progress: Float? = null,
 ) {
     val accent = when (e.kind) {
         EntryKind.EXAM -> MiuixTheme.colorScheme.error
@@ -265,7 +282,21 @@ private fun TimelineRow(
             colors = CardDefaults.defaultColors(color = accent.copy(alpha = 0.12f * alpha)),
             onClick = { e.course?.let(onCourseClick) },
         ) {
-            Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            // 正在上的课：卡底从左到右铺一层更深的颜色表示已上的部分，进场时长出来
+            val grown = remember { androidx.compose.animation.core.Animatable(0f) }
+            LaunchedEffect(progress) {
+                grown.animateTo(progress ?: 0f, androidx.compose.animation.core.tween(700))
+            }
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .drawBehind {
+                        if (progress != null) {
+                            drawRect(accent.copy(alpha = 0.14f), size = size.copy(width = size.width * grown.value))
+                        }
+                    }
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     val badge = when (e.kind) {
                         EntryKind.EXAM -> "考试"

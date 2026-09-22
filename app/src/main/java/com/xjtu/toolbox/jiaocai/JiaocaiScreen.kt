@@ -145,7 +145,7 @@ internal fun JiaocaiSearchContent(
                         Modifier.fillMaxWidth().padding(vertical = 48.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        CircularProgressIndicator()
+                        com.xjtu.toolbox.ui.components.MorphingLoader()  // 整页加载统一用形变加载器
                     }
                     errorMsg != null -> Text(
                         errorMsg!!,

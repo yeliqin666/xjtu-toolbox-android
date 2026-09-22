@@ -37,6 +37,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -61,7 +62,11 @@ import com.xjtu.toolbox.game.net.GameKind
 import com.xjtu.toolbox.game.net.OnlineConnState
 import com.xjtu.toolbox.game.net.OnlineGameEvent
 import com.xjtu.toolbox.game.net.OnlineGameSession
+import com.xjtu.toolbox.game.net.LobbyChip
+import com.xjtu.toolbox.game.net.LobbyOptionRow
 import com.xjtu.toolbox.game.net.OnlineLobbyContent
+import com.xjtu.toolbox.game.net.OnlineLobbyState
+import com.xjtu.toolbox.game.net.rememberOnlineLobbyState
 import com.xjtu.toolbox.game.net.OnlineMove
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.isWideLayout
@@ -93,6 +98,14 @@ fun GoScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val state = remember { GoGameState(9) }
     var online by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    // 联机对局和大厅挂在整页上：切到同屏双人再切回来，连接和棋局都还在。
+    val match = remember { GoOnlineMatch() }
+    val lobby = rememberOnlineLobbyState(scope)
+    DisposableEffect(match) { onDispose { match.session?.close() } }
+    // 收对方着法也放在整页：人在别的 tab 时对方落子不能丢（events 没有重放）。
+    LaunchedEffect(match.session) { match.session?.let { match.collect(context, it) } }
 
     Scaffold(
         topBar = {
@@ -115,8 +128,10 @@ fun GoScreen(onBack: () -> Unit) {
             )
             if (online) {
                 GoOnlineSection(
+                    match = match,
+                    lobby = lobby,
+                    scope = scope,
                     modifier = Modifier.fillMaxSize(),
-                    onExitOnlineMode = { online = false },
                 )
             } else if (isWideLayout()) {
                 // 宽屏（横屏平板/折叠屏展开）棋盘和操作面板并排
@@ -393,75 +408,73 @@ private fun GoBoardView(
     }
 }
 
+/** 联机能选的路数。二维码之后的 hello 里带着它，加入方按房主的来。 */
+private val ONLINE_GO_SIZES = listOf(9, 13, 19)
+
 /**
- * 联机对战：接入 `game/net` 模块，逻辑结构跟五子棋那份是同一套（见 `GomokuScreen.kt`）。
- *
- * 数子阶段的"点棋子标死活"是同屏双人才有的手动步骤，联机对局不同步这一步——双方棋盘
- * 保证完全一致，连续两次虚手之后直接按"全部按活子处理"跑一次确定性数子
- * （[GoScoring.score] 传空的死子集合），两边算出来的结果必然一样，不需要为了同步"点哪块死"
- * 专门加一种协议消息。这是相对同屏双人体验的一处简化，认输/求和仍然是实时的。
+ * 联机对局的全部状态。放在整页（[GoScreen]）里记住而不是联机区块里：
+ * 以前切个 tab 联机区块就离开组合，连接被关、棋局清空。
  */
-@Composable
-private fun GoOnlineSection(modifier: Modifier = Modifier, onExitOnlineMode: () -> Unit) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val adapter = remember { GoOnlineAdapter() }
-    val boardSize = 9
-
-    var session by remember { mutableStateOf<OnlineGameSession?>(null) }
-    var myColor by remember { mutableStateOf(Stone.BLACK) }
-    var board by remember { mutableStateOf(GoBoard(boardSize)) }
-    var turn by remember { mutableStateOf(Stone.BLACK) }
-    var consecutivePasses by remember { mutableStateOf(0) }
-    var result by remember { mutableStateOf<ScoreResult?>(null) }
-    var resignedWinner by remember { mutableStateOf<Stone?>(null) }
-    var disconnectedReason by remember { mutableStateOf<String?>(null) }
-    var pendingDrawFromPeer by remember { mutableStateOf(false) }
+private class GoOnlineMatch {
+    val adapter = GoOnlineAdapter()
+    /** 房主开房前选的路数；对局中的真实路数看 [board].size。 */
+    var hostSize by mutableIntStateOf(9)
+    var session by mutableStateOf<OnlineGameSession?>(null)
+    var myColor by mutableStateOf(Stone.BLACK)
+    var board by mutableStateOf(GoBoard(9))
+    var turn by mutableStateOf(Stone.BLACK)
+    var consecutivePasses by mutableIntStateOf(0)
+    var result by mutableStateOf<ScoreResult?>(null)
+    var resignedWinner by mutableStateOf<Stone?>(null)
+    var disconnectedReason by mutableStateOf<String?>(null)
+    var pendingDrawFromPeer by mutableStateOf(false)
     // 每成功走一手（含虚手）+1，棋盘靠它重画——GoBoard 是原地修改的可变对象
-    var moveCount by remember { mutableIntStateOf(0) }
+    var moveCount by mutableIntStateOf(0)
+    private var recorded = false
 
-    fun recordIfFinished(winner: Stone?) {
-        if (winner == null) return
+    fun begin(s: OnlineGameSession, iAmFirst: Boolean, size: Int) {
+        // 围棋固定黑先，谁先手（黑棋）由房主决定，逻辑跟五子棋一致。
+        myColor = if (iAmFirst) Stone.BLACK else Stone.WHITE
+        board = GoBoard(size)
+        turn = Stone.BLACK
+        consecutivePasses = 0
+        result = null
+        resignedWinner = null
+        disconnectedReason = null
+        pendingDrawFromPeer = false
+        moveCount = 0
+        recorded = false
+        session = s
+    }
+
+    fun leave() {
+        session?.close()
+        session = null
+    }
+
+    val peerColor: Stone get() = if (myColor == Stone.BLACK) Stone.WHITE else Stone.BLACK
+
+    fun recordIfFinished(context: android.content.Context) {
+        val winner = result?.winner ?: resignedWinner ?: return
+        if (recorded) return
+        recorded = true
         GameStore.recordResult(context, GameIds.GO, "online", if (winner == myColor) GameResult.WIN else GameResult.LOSS)
     }
 
-    val activeSession = session
-    if (activeSession == null) {
-        OnlineLobbyContent(
-            kind = GameKind.GO,
-            ruleParam = "$boardSize",
-            onSessionReady = { s, isHost, hostFirst, _ ->
-                // 围棋固定黑先，谁先手（黑棋）由房主决定，逻辑跟五子棋一致。
-                myColor = if (isHost == hostFirst) Stone.BLACK else Stone.WHITE
-                board = GoBoard(boardSize)
-                turn = Stone.BLACK
-                consecutivePasses = 0
-                result = null
-                resignedWinner = null
-                disconnectedReason = null
-                session = s
-            },
-            onCancel = onExitOnlineMode,
-            modifier = modifier,
-        )
-        return
-    }
-
-    LaunchedEffect(activeSession) {
+    suspend fun collect(context: android.content.Context, s: OnlineGameSession): Unit = kotlinx.coroutines.coroutineScope {
         launch {
-            activeSession.state.collect { st ->
+            s.state.collect { st ->
                 if (st is OnlineConnState.Disconnected) disconnectedReason = st.reason
             }
         }
-        activeSession.events.collect { ev ->
+        s.events.collect { ev ->
             when (ev) {
                 is OnlineGameEvent.RemoteMove -> {
-                    val peerColor = if (myColor == Stone.BLACK) Stone.WHITE else Stone.BLACK
                     val move = adapter.decodeMove(ev.code)
                     val legal = turn == peerColor && move != null &&
                         adapter.applyIfLegal(board, move, peerColor.ordinal)
                     if (!legal) {
-                        activeSession.reportIllegalMoveAndClose()
+                        s.reportIllegalMoveAndClose()
                         return@collect
                     }
                     consecutivePasses = if (move is OnlineMove.Pass) consecutivePasses + 1 else 0
@@ -474,43 +487,92 @@ private fun GoOnlineSection(modifier: Modifier = Modifier, onExitOnlineMode: () 
                 is OnlineGameEvent.DrawAnswered -> if (ev.accepted) result = GoScoring.score(board, emptySet())
                 else -> Unit
             }
+            recordIfFinished(context)
         }
     }
+}
 
-    LaunchedEffect(result, resignedWinner) {
-        recordIfFinished(result?.winner ?: resignedWinner)
+/**
+ * 联机对战：接入 `game/net` 模块，逻辑结构跟五子棋那份是同一套（见 `GomokuScreen.kt`）。
+ *
+ * 路数由房主开房前选（9 / 13 / 19），写进 hello 的规则参数，加入方握手后按房主的来。
+ *
+ * 数子阶段的"点棋子标死活"是同屏双人才有的手动步骤，联机对局不同步这一步——双方棋盘
+ * 保证完全一致，连续两次虚手之后直接按"全部按活子处理"跑一次确定性数子
+ * （[GoScoring.score] 传空的死子集合），两边算出来的结果必然一样，不需要为了同步"点哪块死"
+ * 专门加一种协议消息。这是相对同屏双人体验的一处简化，认输/求和仍然是实时的。
+ */
+@Composable
+private fun GoOnlineSection(
+    match: GoOnlineMatch,
+    lobby: OnlineLobbyState,
+    scope: kotlinx.coroutines.CoroutineScope,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+
+    val activeSession = match.session
+    if (activeSession == null) {
+        OnlineLobbyContent(
+            state = lobby,
+            kind = GameKind.GO,
+            ruleParam = "${match.hostSize}",
+            onSessionReady = { s, isHost, hostFirst, rule ->
+                // 加入方的 rule 来自房主的 hello；认不出就退回 9 路（两边都会按 hello 里的值建盘）
+                val size = rule?.toIntOrNull()?.takeIf { it in ONLINE_GO_SIZES } ?: match.hostSize.takeIf { isHost } ?: 9
+                match.begin(s, iAmFirst = isHost == hostFirst, size = size)
+            },
+            onCancel = {},
+            modifier = modifier,
+            hostOptions = {
+                LobbyOptionRow("棋盘") {
+                    ONLINE_GO_SIZES.forEach { size ->
+                        LobbyChip("$size 路", match.hostSize == size) { match.hostSize = size }
+                    }
+                }
+            },
+        )
+        return
     }
 
+    val board = match.board
+    val myColor = match.myColor
+    val turn = match.turn
+    val result = match.result
+    val resignedWinner = match.resignedWinner
+    val disconnectedReason = match.disconnectedReason
+
     fun sendMove(move: OnlineMove) {
-        scope.launch { activeSession.sendLocalMove(adapter.encodeMove(move)) }
+        scope.launch { activeSession.sendLocalMove(match.adapter.encodeMove(move)) }
     }
 
     fun onIntersectionTap(x: Int, y: Int) {
-        if (result != null || resignedWinner != null || turn != myColor) return
+        if (match.result != null || match.resignedWinner != null || match.turn != myColor || disconnectedReason != null) return
         val move = OnlineMove.Place(x, y)
-        if (!adapter.applyIfLegal(board, move, myColor.ordinal)) return
-        consecutivePasses = 0
-        moveCount++
-        turn = if (turn == Stone.BLACK) Stone.WHITE else Stone.BLACK
+        if (!match.adapter.applyIfLegal(board, move, myColor.ordinal)) return
+        match.consecutivePasses = 0
+        match.moveCount++
+        match.turn = match.peerColor
         sendMove(move)
     }
 
     fun onPassTap() {
-        if (result != null || resignedWinner != null || turn != myColor) return
-        adapter.applyIfLegal(board, OnlineMove.Pass, myColor.ordinal)
-        consecutivePasses += 1
-        moveCount++
-        turn = if (turn == Stone.BLACK) Stone.WHITE else Stone.BLACK
-        if (consecutivePasses >= 2) result = GoScoring.score(board, emptySet())
+        if (match.result != null || match.resignedWinner != null || match.turn != myColor || disconnectedReason != null) return
+        match.adapter.applyIfLegal(board, OnlineMove.Pass, myColor.ordinal)
+        match.consecutivePasses += 1
+        match.moveCount++
+        match.turn = match.peerColor
+        if (match.consecutivePasses >= 2) match.result = GoScoring.score(board, emptySet())
+        match.recordIfFinished(context)
         sendMove(OnlineMove.Pass)
     }
 
     val statusText = when {
         disconnectedReason != null -> disconnectedReason
-        result != null -> "对局结束：${if (result!!.winner == Stone.BLACK) "黑棋" else "白棋"}胜 ${"%.2f".format(result!!.margin)} 子"
+        result != null -> "对局结束：${if (result.winner == Stone.BLACK) "黑棋" else "白棋"}胜 ${"%.2f".format(result.margin)} 子"
         resignedWinner != null -> "对局结束：${if (resignedWinner == Stone.BLACK) "黑棋" else "白棋"}胜（对方认输）"
-        turn == myColor -> "轮到你落子"
-        else -> "等待对方落子…"
+        turn == myColor -> "轮到你落子 · ${board.size} 路"
+        else -> "等待对方落子… · ${board.size} 路"
     }
     val finished = result != null || resignedWinner != null || disconnectedReason != null
     val meBlack = myColor == Stone.BLACK
@@ -531,31 +593,32 @@ private fun GoOnlineSection(modifier: Modifier = Modifier, onExitOnlineMode: () 
             statusText,
             color = if (disconnectedReason != null) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.onSurfaceVariantSummary,
         )
-        if (pendingDrawFromPeer) {
+        if (match.pendingDrawFromPeer) {
             Row(
                 Modifier
                     .fillMaxWidth()
                     .padding(bottom = 8.dp)
                     .clip(RoundedCornerShape(14.dp))
-                    .background(MiuixTheme.colorScheme.surfaceContainer)
+                    .background(MiuixTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f))
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("对方提议按现有盘面数子", style = MiuixTheme.textStyles.body2, modifier = Modifier.weight(1f))
                 TextButton(text = "拒绝", onClick = {
-                    pendingDrawFromPeer = false
+                    match.pendingDrawFromPeer = false
                     scope.launch { activeSession.answerDraw(false) }
                 })
                 TextButton(text = "同意", onClick = {
-                    pendingDrawFromPeer = false
+                    match.pendingDrawFromPeer = false
                     scope.launch { activeSession.answerDraw(true) }
-                    result = GoScoring.score(board, emptySet())
+                    match.result = GoScoring.score(board, emptySet())
+                    match.recordIfFinished(context)
                 })
             }
         }
         GoBoardView(
             board = board,
-            version = moveCount,
+            version = match.moveCount,
             dead = emptySet(),
             showLastMove = !finished,
             modifier = Modifier.fillMaxWidth(),
@@ -569,12 +632,13 @@ private fun GoOnlineSection(modifier: Modifier = Modifier, onExitOnlineMode: () 
                     GameAction("求和") { scope.launch { activeSession.requestDraw() } },
                     GameAction("认输") {
                         scope.launch { activeSession.resign() }
-                        resignedWinner = if (myColor == Stone.BLACK) Stone.WHITE else Stone.BLACK
+                        match.resignedWinner = match.peerColor
+                        match.recordIfFinished(context)
                     },
                 ),
             )
         } else {
-            GameActionRow(listOf(GameAction("退出联机", primary = true, onClick = onExitOnlineMode)))
+            GameActionRow(listOf(GameAction("退出联机", primary = true, onClick = { match.leave(); lobby.reset() })))
         }
         Spacer(Modifier.height(24.dp))
     }

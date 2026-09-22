@@ -81,6 +81,4 @@ object AppServices {
 
     fun homeFor(accountType: AccountType): List<AppService> =
         visibleFor(accountType).filter { it.showOnHome }
-
-    fun byRoute(route: String): AppService? = all.firstOrNull { it.route == route }
 }

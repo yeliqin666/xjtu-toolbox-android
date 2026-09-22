@@ -11,7 +11,6 @@ class OnlineQrPayloadTest {
     fun `编解码往返`() {
         val payload = OnlineQrPayload(
             game = GameKind.GOMOKU.wireId,
-            lan = OnlineQrPayload.LanInfo("192.168.1.5", 23456),
             ble = OnlineQrPayload.BleInfo("6e6f7401-0000-1000-8000-00805f9b34fb"),
             token = "ABCD1234",
         )
@@ -33,14 +32,16 @@ class OnlineQrPayloadTest {
     }
 
     @Test
-    fun `只有局域网信息、没有蓝牙信息也是合法的码`() {
-        val payload = OnlineQrPayload(
-            game = GameKind.GO.wireId,
-            lan = OnlineQrPayload.LanInfo("10.0.0.1", 1234),
-            ble = null,
-            token = "TOKEN123",
-        )
-        val decoded = OnlineQrPayload.decode(OnlineQrPayload.encode(payload))
-        assertEquals(payload, decoded)
+    fun `没有蓝牙信息的码（旧版只带局域网）判定为不可用`() {
+        val oldLanOnly = OnlineQrPayload.PREFIX +
+            """{"v":1,"game":"go","lan":{"ip":"10.0.0.1","port":1234},"token":"TOKEN123"}"""
+        assertNull(OnlineQrPayload.decode(oldLanOnly))
+    }
+
+    @Test
+    fun `旧版码里多出的 lan 字段被忽略，蓝牙信息照常读出`() {
+        val old = OnlineQrPayload.PREFIX +
+            """{"v":1,"game":"go","lan":{"ip":"10.0.0.1","port":1234},"ble":{"serviceUuid":"abc"},"token":"T"}"""
+        assertEquals("abc", OnlineQrPayload.decode(old)?.ble?.serviceUuid)
     }
 }

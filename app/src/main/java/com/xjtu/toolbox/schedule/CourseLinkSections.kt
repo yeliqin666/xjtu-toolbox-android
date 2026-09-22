@@ -1,8 +1,17 @@
 package com.xjtu.toolbox.schedule
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,8 +22,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.FactCheck
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.School
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -26,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -36,7 +48,6 @@ import com.xjtu.toolbox.Routes
 import com.xjtu.toolbox.attendance.WaterType
 import com.xjtu.toolbox.jiaocai1.Jiaocai1Book
 import com.xjtu.toolbox.util.CredentialStore
-import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -132,10 +143,9 @@ fun CourseLinkSections(
     val bookProblem = textbooksProblem?.takeIf { !hasBook }
     if (!hasBook && bookProblem == null && record == null && lmsCourse == null) return
 
-    Spacer(Modifier.height(6.dp))
-    HorizontalDivider(color = MiuixTheme.colorScheme.dividerLine, thickness = 0.5.dp)
-    Spacer(Modifier.height(8.dp))
-
+    // 自成一列、行距统一 6dp。以前这些行和「间隔 + 分割线 + 间隔」直接散在外层 Column 里，
+    // 外层每项之间又有 10dp，叠出一条莫名的分割线和大段空白。
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
     // 本次考勤：一行一句话。
     record?.let { r ->
         LinkRow(
@@ -193,7 +203,15 @@ fun CourseLinkSections(
             onClick = { onNavigate(Routes.lmsCourse(lc.id)) },
         )
     }
+    }
 }
+
+/**
+ * 详情里各块的底色。不用 surfaceVariant / surfaceContainerHigh：miuix 深色主题里它们和
+ * 弹窗底色同为 #242424，块和块分不开；输入框同款的 secondaryContainer 半透明在深浅两套下都看得出。
+ */
+@Composable
+internal fun courseDetailTileColor(): Color = MiuixTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f)
 
 /**
  * 教材缓存键：归一化后的 ISBN，没有 ISBN 的退回书名。
@@ -222,58 +240,79 @@ private fun TextbookRow(
     onRead: (Jiaocai1Book) -> Unit,
 ) {
     var expanded by remember(fulltextKey(book)) { mutableStateOf(false) }
+    val arrow by animateFloatAsState(if (expanded) 180f else 0f, tween(220), label = "bookArrow")
 
-    LinkRow(
-        icon = Icons.AutoMirrored.Filled.MenuBook,
-        tint = if (fulltext is CourseLinks.Fulltext.Found) MiuixTheme.colorScheme.primary
-        else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        title = book.textbookName.ifBlank { "未命名教材" },
-        subtitle = textbookSummary(book),
-        onClick = { expanded = !expanded },
-    )
-    if (expanded) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .padding(start = 28.dp, end = 4.dp, bottom = 6.dp),
+    // 标题行和展开的详情同在一块里：展开的内容属于这本书，不该漂在块外面。
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(courseDetailTileColor()),
+    ) {
+        LinkRowContent(
+            icon = Icons.AutoMirrored.Filled.MenuBook,
+            tint = if (fulltext is CourseLinks.Fulltext.Found) MiuixTheme.colorScheme.primary
+            else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            title = book.textbookName.ifBlank { "未命名教材" },
+            subtitle = textbookSummary(book),
+            onClick = { expanded = !expanded },
+            trailing = {
+                Icon(
+                    Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (expanded) "收起" else "展开",
+                    modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = arrow },
+                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+            },
+        )
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically(tween(220)) + fadeIn(tween(180, delayMillis = 40)),
+            exit = shrinkVertically(tween(200)) + fadeOut(tween(120)),
         ) {
-            // 详情逐项列，不再挤进一行副标题：买书时要抄的就是这几项。
-            textbookFields(book).forEach { (label, value) ->
-                Row(Modifier.fillMaxWidth().padding(bottom = 3.dp)) {
-                    Text(
-                        label,
-                        Modifier.width(52.dp),
-                        style = MiuixTheme.textStyles.footnote2,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    )
-                    SelectionContainer {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(start = 40.dp, end = 12.dp, bottom = 10.dp),
+            ) {
+                // 详情逐项列，不再挤进一行副标题：买书时要抄的就是这几项。
+                textbookFields(book).forEach { (label, value) ->
+                    Row(Modifier.fillMaxWidth().padding(bottom = 3.dp)) {
                         Text(
-                            value,
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.onSurface,
+                            label,
+                            Modifier.width(52.dp),
+                            style = MiuixTheme.textStyles.footnote2,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         )
+                        SelectionContainer {
+                            Text(
+                                value,
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.onSurface,
+                            )
+                        }
                     }
                 }
-            }
-            Spacer(Modifier.height(4.dp))
-            // 全文这一项把话说清楚：在查 / 没 ISBN 没法查 / 这次没连上 / 库里没有 / 能读。
-            when (fulltext) {
-                is CourseLinks.Fulltext.Found -> Text(
-                    "在线阅读全文 ›",
-                    Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .clickable { onRead(fulltext.book) }
-                        .padding(vertical = 3.dp, horizontal = 2.dp),
-                    style = MiuixTheme.textStyles.footnote1,
-                    fontWeight = FontWeight.Medium,
-                    color = MiuixTheme.colorScheme.primary,
-                )
+                Spacer(Modifier.height(4.dp))
+                // 全文这一项把话说清楚：在查 / 没 ISBN 没法查 / 这次没连上 / 库里没有 / 能读。
+                when (fulltext) {
+                    is CourseLinks.Fulltext.Found -> Text(
+                        "在线阅读全文 ›",
+                        Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { onRead(fulltext.book) }
+                            .padding(vertical = 3.dp, horizontal = 2.dp),
+                        style = MiuixTheme.textStyles.footnote1,
+                        fontWeight = FontWeight.Medium,
+                        color = MiuixTheme.colorScheme.primary,
+                    )
 
-                null -> FulltextNote("正在查全文库…")
-                CourseLinks.Fulltext.NoKey -> FulltextNote("这本教材没有 ISBN，查不了全文")
-                CourseLinks.Fulltext.NotFound -> FulltextNote("全文库里没有这本")
-                CourseLinks.Fulltext.SiteUnavailable ->
-                    FulltextNote("教材库这次没连上，重开一次课程详情再试")
+                    null -> FulltextNote("正在查全文库…")
+                    CourseLinks.Fulltext.NoKey -> FulltextNote("这本教材没有 ISBN，查不了全文")
+                    CourseLinks.Fulltext.NotFound -> FulltextNote("全文库里没有这本")
+                    CourseLinks.Fulltext.SiteUnavailable ->
+                        FulltextNote("教材库这次没连上，重开一次课程详情再试")
+                }
             }
         }
     }
@@ -317,13 +356,47 @@ private fun LinkRow(
     /** null = 这一行只是陈述事实，点不动（比如「本次考勤：正常」）。 */
     onClick: (() -> Unit)?,
 ) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(courseDetailTileColor()),
+    ) {
+        LinkRowContent(
+            icon = icon,
+            tint = tint,
+            title = title,
+            subtitle = subtitle,
+            onClick = onClick,
+            trailing = if (onClick != null) {
+                {
+                    Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                }
+            } else null,
+        )
+    }
+}
+
+/** 一行的内容，不含底色：独立的行包一层底色，教材行把它和展开的详情放进同一块。 */
+@Composable
+private fun LinkRowContent(
+    icon: ImageVector,
+    tint: Color,
+    title: String,
+    subtitle: String?,
+    onClick: (() -> Unit)?,
+    trailing: (@Composable () -> Unit)? = null,
+) {
     Row(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
             .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
-            .background(MiuixTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.7f))
-            .padding(horizontal = 12.dp, vertical = 9.dp),
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(icon, null, Modifier.size(18.dp), tint = tint)
@@ -349,6 +422,9 @@ private fun LinkRow(
                 )
             }
         }
+        if (trailing != null) {
+            Spacer(Modifier.width(8.dp))
+            trailing()
+        }
     }
-    Spacer(Modifier.height(5.dp))
 }

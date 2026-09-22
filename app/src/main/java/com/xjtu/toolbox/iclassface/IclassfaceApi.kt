@@ -73,7 +73,4 @@ class IclassfaceApi(private val site: SiteSession) {
             emptyList()
         }
     }
-
-    /** 今天是否已有任意一条刷卡/签到记录。 */
-    fun hasCheckedInToday(): Boolean = fetchRecords(LocalDate.now()).isNotEmpty()
 }

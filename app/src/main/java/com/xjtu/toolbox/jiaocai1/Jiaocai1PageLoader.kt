@@ -85,13 +85,6 @@ class Jiaocai1PageLoader(
         }
     }
 
-    suspend fun ensureOnDisk(handle: Jiaocai1BookHandle, page: Jiaocai1Page): Boolean {
-        if (diskFile(handle.ssno, page.fileName).exists()) return true
-        return withContext(Dispatchers.IO) {
-            gate.withPermit { download(handle, page) } != null
-        }
-    }
-
     fun setPrefetchWindow(handle: Jiaocai1BookHandle, center: Int) {
         val pages = handle.pages
         val keep = (center - 2..center + 2)

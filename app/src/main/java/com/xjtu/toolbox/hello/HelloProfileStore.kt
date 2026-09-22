@@ -68,6 +68,8 @@ object HelloProfileStore {
         context: Context,
         manager: SessionManager?,
         force: Boolean = false,
+        /** 档案一拿到就回调（头像还在下载）：姓名、专业可以先显示，不用等头像下完。 */
+        onProfile: (HelloProfile) -> Unit = {},
     ): HelloProfile? {
         val cache = DataCache(context)
         val local = cache.readProfile()
@@ -92,6 +94,7 @@ object HelloProfileStore {
                     HelloApi(site).getProfile()
                 }
                 cache.writeProfile(profile)
+                onProfile(profile)
                 withContext(Dispatchers.IO) { downloadAvatar(context, manager, profile) }
                 profile
             } catch (e: Exception) {
