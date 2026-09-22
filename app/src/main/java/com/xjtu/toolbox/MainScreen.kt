@@ -1,5 +1,6 @@
 package com.xjtu.toolbox
 
+import com.xjtu.toolbox.ui.glass.followTopBar
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.constrainHeight
@@ -608,6 +609,13 @@ internal fun MainScreen(
             .fillMaxSize()
             .onGloballyPositioned { overlayOrigin = it.positionInRoot() },
     ) {
+    val railState = top.yukonga.miuix.kmp.basic.rememberNavigationRailState()
+    // 和 miuix 侧栏内部同一条弹簧（阻尼 1、刚度 322、收尾阈值 0.001），用来判断「侧栏还在动」
+    val railProgress = androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (railState.isExpanded) 1f else 0f,
+        animationSpec = androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 322f, visibilityThreshold = 0.001f),
+        label = "railProgress",
+    )
     Row(Modifier.fillMaxSize()) {
     if (isWide) {
         MainNavigationRail(
@@ -617,6 +625,7 @@ internal fun MainScreen(
             isLoggedIn = loginState.isLoggedIn,
             accountCount = navAccountCount,
             onPidaiBoundsChange = { pidaiAnchor = it },
+            railState = railState,
         )
     }
     Scaffold(
@@ -624,7 +633,10 @@ internal fun MainScreen(
             .weight(1f)
             .fillMaxHeight()
             // 宽屏下 tab 切换动画会横向平移内容，不裁剪的话会画到侧栏上。
-            .then(if (isWide) Modifier.clipToBounds() else Modifier),
+            .then(if (isWide) Modifier.clipToBounds() else Modifier)
+            // 侧栏展开 / 收起期间，内容区一直按**终点宽度**排版，只随侧栏平移、被裁剪：
+            // 以前每帧都按新宽度把整个 tab（首页几十个文字）重新测量一遍，玻璃顶栏也跟着每帧重模糊。
+            .then(if (isWide) Modifier.railSettledWidth(railState, railProgress) else Modifier),
         // 宽屏时左侧的刘海/侧边导航条已经被侧栏自己吃掉了（NavigationRail 的
         // defaultWindowInsetsPadding），这里再留一次就是双重留白。同 miuix 示例 WideScreenContent。
         contentWindowInsets = if (isWide) {
@@ -885,8 +897,12 @@ internal fun MainScreen(
     ) { padding ->
         // 玻璃风格下，每个 tab 的内容都铺到顶栏下面，所以顶部留白不在这一层统一加，
         // 交给各 tab 放进自己的滚动内容（contentTopPadding）。经典风格照旧整体下移。
-        val topBarPadding = padding.calculateTopPadding()
-        val tabTopPadding = if (glassStyle) topBarPadding else 0.dp
+        // 顶栏高度只能在布局阶段读：miuix 给的 padding 内部是个 state，折叠时每帧都变。
+        // 以前这里在组合阶段读它，再当参数传给每个打开过的 tab——顶栏每折叠一帧，
+        // 首页、日程、我的……整页都重组一遍，折叠 / 展开明显掉帧。
+        // 现在各 tab 拿「见过的最大顶栏高度」这个稳定值，差额由 followTopBar 在布局阶段补位移。
+        val stableTopBar = com.xjtu.toolbox.ui.glass.rememberStableTopPadding(padding)
+        val tabTopPadding = if (glassStyle) stableTopBar.value else 0.dp
         val contentLayoutDirection = androidx.compose.ui.platform.LocalLayoutDirection.current
         Box(
             Modifier
@@ -980,6 +996,10 @@ internal fun MainScreen(
                                     // 不冻住的话宽屏侧栏展开 / 收起时内容区宽度逐帧在变，打开过的每个 tab
                                     // 都跟着逐帧重新测量布局——实测打开过三个 tab 时每帧 37ms，动画掉到 30 帧。
                                     .freezeLayoutWhile { !isActive && tabAlpha == 0f }
+                                    .then(
+                                        if (glassStyle) Modifier.followTopBar({ stableTopBar.value }, padding)
+                                        else Modifier
+                                    )
                                     // 玻璃风格下每个 tab 都铺到顶栏下面，顶部留白各自放进滚动内容（contentTopPadding）
                                     .zIndex(if (isActive) 1f else 0f)
                                     .graphicsLayer {
@@ -1104,7 +1124,7 @@ internal fun MainScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    CircularProgressIndicator()
+                    com.xjtu.toolbox.ui.components.MorphingLoader()  // 整页加载统一用形变加载器
                     TextButton(
                         text = "取消",
                         onClick = {
@@ -1248,8 +1268,9 @@ private fun MainNavigationRail(
     isLoggedIn: Boolean,
     accountCount: Int,
     onPidaiBoundsChange: (androidx.compose.ui.geometry.Rect) -> Unit,
+    /** 提到 MainScreen：右边内容区要知道侧栏往哪个宽度走，动画期间按终点宽度排版（见 [railSettledWidth]）。 */
+    railState: top.yukonga.miuix.kmp.basic.NavigationRailState,
 ) {
-    val railState = top.yukonga.miuix.kmp.basic.rememberNavigationRailState()
     // 侧栏里的文字固定行高。miuix 的格子文字字号跟着展开进度从 12sp 插值到 16sp，格子高度又按文字
     // 高度算；main 样式没设行高，文字高度随字号走、按整像素取整。收起弹簧最后那段慢尾巴里字号
     // 只变零点几 sp，文字高度却会在某一帧跳 1px，下面每一格都跟着被推一下——就是收窄最后一刻
@@ -1360,6 +1381,42 @@ private fun MainNavigationRail(
             )
         }
     }
+    }
+}
+
+/**
+ * 侧栏动画期间让内容区按终点宽度排版一次，之后只平移、裁剪，不再逐帧重新测量。
+ *
+ * 动画第一帧记下「现在的宽度 + 侧栏还要变化的量」作为终点宽度，整个动画都用它测量孩子；
+ * 自己对外仍报外面给的宽度（Row 照常把它排在侧栏右边），多出来的部分由外层 clipToBounds 裁掉，
+ * 少的那一截在右边、会随侧栏走完被填满。动画一停立刻回到按实际宽度测量。
+ * 进度只在布局阶段读，不引起重组。
+ */
+@Composable
+private fun Modifier.railSettledWidth(
+    railState: top.yukonga.miuix.kmp.basic.NavigationRailState,
+    progress: androidx.compose.runtime.State<Float>,
+): Modifier {
+    // [0] 终点宽度（px），[1] 它对应的目标状态（1 展开 / 0 收起 / -1 无）；布局阶段读写，不用 State
+    val held = remember { IntArray(2).also { it[1] = -1 } }
+    return this.layout { measurable, constraints ->
+        val target = if (railState.isExpanded) 1 else 0
+        val p = progress.value
+        val animating = kotlin.math.abs(p - target) > 0.001f && constraints.hasBoundedWidth
+        val width = if (animating) {
+            if (held[1] != target) {
+                // 侧栏当前宽度与终点宽度之差 = (p - target) × (展开宽 - 收起宽)
+                val remaining = ((p - target) * (240.dp - 80.dp).toPx()).let { kotlin.math.round(it).toInt() }
+                held[0] = (constraints.maxWidth + remaining).coerceAtLeast(0)
+                held[1] = target
+            }
+            held[0]
+        } else {
+            held[1] = -1
+            constraints.maxWidth
+        }
+        val placeable = measurable.measure(constraints.copy(minWidth = width, maxWidth = width))
+        layout(constraints.maxWidth, placeable.height) { placeable.place(0, 0) }
     }
 }
 

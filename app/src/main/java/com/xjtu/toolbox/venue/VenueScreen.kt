@@ -35,7 +35,7 @@ import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -702,14 +702,14 @@ fun VenueScreen(
                     when {
                         bookingInProgress -> {
                             Spacer(Modifier.height(32.dp))
-                            CircularProgressIndicator()
+                            com.xjtu.toolbox.ui.components.MorphingLoader()  // 整页加载统一用形变加载器
                             Spacer(Modifier.height(8.dp))
                             Text("正在预订...", style = MiuixTheme.textStyles.body2)
                             Spacer(Modifier.height(32.dp))
                         }
                         captchaLoading -> {
                             Spacer(Modifier.height(32.dp))
-                            CircularProgressIndicator()
+                            com.xjtu.toolbox.ui.components.MorphingLoader()  // 整页加载统一用形变加载器
                             Spacer(Modifier.height(8.dp))
                             Text(
                                 if (captchaAutoSolving) "正在自动识别验证码..." else "加载验证码...",
@@ -1153,7 +1153,8 @@ private fun VenueCard(
                     contentDescription = "已收藏",
                     modifier = Modifier
                         .size(24.dp)
-                        .scale(favoriteScale),
+                        // 在 graphicsLayer 里读：动画期间只重画图标，不让整张场馆卡重组
+                        .graphicsLayer { scaleX = favoriteScale; scaleY = favoriteScale },
                     tint = Color(0xFFE91E63)
                 )
             }
