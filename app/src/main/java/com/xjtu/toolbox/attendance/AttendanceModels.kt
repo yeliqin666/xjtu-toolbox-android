@@ -11,7 +11,12 @@ enum class WaterType(val value: Int) {
     NORMAL(1),     // 正常
     LATE(2),       // 迟到
     ABSENCE(3),    // 缺勤
-    LEAVE(5);      // 请假
+    LEAVE(5),      // 请假
+    /**
+     * 接口返回了未识别的状态码。不能落到 [NORMAL]——那会把说不清的记录悄悄算成
+     * 正常出勤，统计数字看着很漂亮但是假的。UI/统计都要显式处理这个分支。
+     */
+    UNKNOWN(-1);
 
     val displayName: String
         get() = when (this) {
@@ -19,17 +24,18 @@ enum class WaterType(val value: Int) {
             LATE -> "迟到"
             ABSENCE -> "缺勤"
             LEAVE -> "请假"
+            UNKNOWN -> "未知"
         }
 
     companion object {
-        fun fromValue(v: Int) = entries.firstOrNull { it.value == v } ?: NORMAL
+        fun fromValue(v: Int) = entries.firstOrNull { it.value == v } ?: UNKNOWN
 
         fun fromCode(code: String?): WaterType = when (code?.trim()?.uppercase()) {
             "NORMAL", "PRESENT", "1" -> NORMAL
             "LATE", "2" -> LATE
             "ABSENCE", "ABSENT", "3" -> ABSENCE
             "LEAVE", "5" -> LEAVE
-            else -> NORMAL
+            else -> UNKNOWN
         }
     }
 }
@@ -66,21 +72,38 @@ data class AttendanceWaterRecord(
         courseName = (courseName as String?) ?: "",
         courseCode = (courseCode as String?) ?: "",
         teacher = (teacher as String?) ?: "",
-        status = (status as WaterType?) ?: WaterType.NORMAL,
+        status = (status as WaterType?) ?: WaterType.UNKNOWN,
         date = (date as String?) ?: "",
     )
 }
+
+/**
+ * 打卡流水（考勤记录之外的原始刷卡数据）
+ */
+data class AttendanceStream(
+    val id: String,
+    val location: String,
+    val collectTime: String,
+    val effective: Boolean,
+)
 
 /**
  * 学期信息
  */
 data class TermInfo(
     val bh: String,
+    /** 人类可读展示名，如"2026-2027 第一学期"，仅供 UI 展示，不参与匹配。 */
     val name: String,
     val startDate: String = "",
     val endDate: String = "",
     /** 学期总周数。0 表示接口没给，按周拉课表时不能用。 */
     val weeks: Int = 0,
+    /**
+     * 教务风格的学期码，如"2026-2027-1"，与 jwxt 课表模块的 termCode 同格式，
+     * 用于跨模块匹配（[com.xjtu.toolbox.schedule.CourseLinks] 靠它对齐考勤与课表）。
+     * 为空表示无法从接口字段推出年份/学期序号。
+     */
+    val code: String = "",
 )
 
 /**

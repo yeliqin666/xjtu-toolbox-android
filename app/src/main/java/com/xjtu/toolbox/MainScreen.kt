@@ -1,6 +1,17 @@
 package com.xjtu.toolbox
 
+import com.xjtu.toolbox.ui.glass.followTopBar
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.constrainWidth
+import androidx.compose.ui.unit.constrainHeight
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.unit.sp
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.xjtu.toolbox.ui.glass.glassBarSurface
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateFloatAsState
@@ -48,7 +59,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.navigation.NavHostController
+import com.xjtu.toolbox.nav.AppNavigator
 import com.xjtu.toolbox.auth.*
 import com.xjtu.toolbox.schedule.ScheduleScreen
 import com.xjtu.toolbox.bulletin.Bulletin
@@ -62,7 +73,7 @@ import kotlinx.coroutines.launch
 
 @Composable
 internal fun MainScreen(
-    navController: NavHostController,
+    navController: AppNavigator,
     loginState: AppLoginState,
     credentialStore: CredentialStore,
     accountManager: com.xjtu.toolbox.account.AccountManager,
@@ -93,7 +104,14 @@ internal fun MainScreen(
     var navBarStyle by remember { mutableStateOf(credentialStore.navBarStyle) }
     DisposableEffect(Unit) {
         AgentRuntimeHooks.applyNavBarStyle = { v -> navBarStyle = v }
-        onDispose { AgentRuntimeHooks.applyNavBarStyle = null }
+        // 设置页改风格只写存储；主界面在返回栈底下一直活着，不跟着监听就一直是旧风格
+        // （存储里是玻璃、画出来却是经典底栏，重启才对）。
+        navBarStyle = credentialStore.navBarStyle
+        val stop = credentialStore.observeNavBarStyle { navBarStyle = it }
+        onDispose {
+            AgentRuntimeHooks.applyNavBarStyle = null
+            stop()
+        }
     }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -134,13 +152,28 @@ internal fun MainScreen(
 
     val snackbarHostState = remember { SnackbarHostState() }
     // miuix：底栏条目可单独设选中色。选中跟主题色（含取色），未选中仍走容器字色。
+    // 底栏图标两个状态共用一枚实心图标（见 BottomTab），所以这两个色值是选中/未选中的
+    // 全部差别所在：经典底栏走下面的 NavigationBarItemColors，玻璃底栏自己取它们给图标和文字。
+    val navSelectedContent = MiuixTheme.colorScheme.primary
+    val navUnselectedContent = MiuixTheme.colorScheme.onSurfaceContainer
     val navItemColors = NavigationBarDefaults.navigationBarItemColors(
-        selectedContentColor = MiuixTheme.colorScheme.primary,
-        unselectedContentColor = MiuixTheme.colorScheme.onSurfaceContainer,
+        selectedContentColor = navSelectedContent,
+        unselectedContentColor = navUnselectedContent,
     )
+    // 各格图标的光学尺寸不同（见 BottomTab.iconSize），统一放进这么大的框里居中：不统一的话
+    // 每格「图标 + 文字」的总高会差出几 dp，五格的文字基线就错开了。
+    val navIconBox = remember { BottomTab.entries.maxOf { it.iconSize } }
 
     fun switchToTab(tab: BottomTab) {
         selectedTabOrdinal = tab.ordinal
+    }
+
+    // 富触感（PR T）：只有用户自己点底栏 / 侧栏切 tab 才震一下轻 tick。
+    // 深链、快捷方式、搜索跳 tab 走 switchToTab，不震——那不是手上的动作。
+    val haptics = com.xjtu.toolbox.ui.rememberHaptics()
+    fun userSelectTab(ordinal: Int) {
+        if (ordinal != selectedTabOrdinal) haptics.tick()
+        selectedTabOrdinal = ordinal
     }
 
     fun navigateToTarget(target: String) {
@@ -150,7 +183,7 @@ internal fun MainScreen(
         when (target) {
             Routes.SCHEDULE -> switchToTab(BottomTab.COURSES)
             Routes.AGENT -> switchToTab(BottomTab.PIDAI)
-            else -> navController.navigate(target) { launchSingleTop = true }
+            else -> navController.navigate(target)
         }
     }
 
@@ -304,17 +337,51 @@ internal fun MainScreen(
     val profileScrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     val agentScrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
 
-    // 大屏适配：宽度 ≥ 840dp（Material expanded breakpoint，平板/桌面）启用侧边 NavigationRail
-    // 手机横屏/折叠屏内屏（600-839dp）继续用底栏
-    val isWideScreen = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 840
+    // 大屏适配：宽屏（侧边 NavigationRail）与否由导航根部统一算好向下提供，
+    // 规则见 ui/WindowSize.kt。平板、折叠屏内屏、手机横屏都可能进这一支。
+    val isWide = com.xjtu.toolbox.ui.isWideLayout()
 
-    // 悬浮胶囊底栏的总占位高度，取自 miuix FloatingNavigationBar 的实现：
-    // 胶囊本体最小 52dp，外加底部留白（有系统导航条时 26dp + inset，否则 36dp）。
-    val floatingBarReserve = if (!isWideScreen && navBarStyle == "floating") {
-        val navInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-        FLOATING_BAR_HEIGHT + (if (navInset > 0.dp) 26.dp + navInset else 36.dp)
-    } else {
-        0.dp
+    // 界面风格（plan2 §17 第 12 条）：沿用原来「底栏风格」的取值，"floating" = 玻璃（默认），
+    // "classic" = 经典。选经典时，底栏回到经典样式，所有玻璃点（底栏、侧栏、气泡、搜索浮层、
+    // 二级页顶栏）一起退回不透明；经典同时就是「性能模式」，不另设玻璃开关。
+    val glassStyle = navBarStyle == CredentialStore.NAV_STYLE_FLOATING
+    // 玻璃底栏只在手机竖屏换（宽度 < 600dp 且不是宽屏）。平板竖屏保留原来的悬浮胶囊：
+    // 那里刚在 PR A 修过，不再动。
+    val useGlassBar = glassStyle && !isWide &&
+        com.xjtu.toolbox.ui.currentWindowSize() == com.xjtu.toolbox.ui.WindowSize.Compact
+    // 玻璃的采样源：录下各 tab 的页面内容（见下面 tab 内容区的 layerBackdrop）。
+    // 只录内容区，不录整个 Scaffold：底栏在 Scaffold 里面，录整个 Scaffold 就成了
+    // 「玻璃采样自己」的环，RenderThread 会直接 SIGSEGV。
+    val appBackdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
+    // 玻璃底栏把自己导出成一层，屁岱气泡的尖角伸到底栏上时采的是「页面 + 底栏」合起来的样子，
+    // 不然尖角下面透出来的是页面，和底栏断开（plan2 §16.6）。
+    val glassBarExport = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
+    val phoneBubbleBackdrop = com.kyant.backdrop.backdrops.rememberCombinedBackdrop(appBackdrop, glassBarExport)
+
+    // 悬浮底栏的总占位高度。
+    // - 玻璃底栏：本体 58dp（GLASS_BAR_HEIGHT），离系统导航条 8dp（没有导航条时离屏幕底边 20dp）；
+    // - 平板竖屏的悬浮胶囊：取自 miuix FloatingNavigationBar 的实现，胶囊本体最小 52dp，
+    //   外加底部留白（有系统导航条时 26dp + inset，否则 36dp）。
+    val navInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val glassBarBottomGap = if (navInset > 0.dp) 8.dp else 20.dp
+    // 两种悬浮底栏都挂在 Scaffold 的 floatingToolbar 槽位里，而槽位底边自己就让开了系统
+    // 导航条（contentWindowInsets 的 bottom）、还额外减了 4dp —— Scaffold.kt 里那个 private
+    // 的 FloatingToolbarSpacing，取不到只能照抄数值。所以槽位内容必须按「槽位已经让了
+    // 多少」来补，两种底栏各补各的：
+    //   - 玻璃底栏自己不垫底，只补「想要的留白 − 4dp」；再加一次 navInset 就是算两遍，
+    //     底栏会被整体抬高 navInset + 4dp（这台机器上实测多出 20dp）；
+    //   - 平板竖屏的 miuix 胶囊内部已经垫了 26dp + inset（NavigationBar.kt 的
+    //     bottomPaddingValue），要反过来把槽位多让的 navInset + 4dp 压回去，否则同样高
+    //     20dp（实测底边 62dp 而不是 42dp），顶端还会压住内容区最后一截。
+    val miuixFloatingToolbarSpacing = 4.dp
+    val glassBarSlotBottomPadding =
+        (glassBarBottomGap - miuixFloatingToolbarSpacing).coerceAtLeast(0.dp)
+    val floatingBarSlotOffsetY = navInset + miuixFloatingToolbarSpacing
+    val floatingBarReserve = when {
+        useGlassBar -> GLASS_BAR_HEIGHT + glassBarBottomGap + navInset
+        !isWide && navBarStyle == "floating" ->
+            FLOATING_BAR_HEIGHT + (if (navInset > 0.dp) 26.dp + navInset else 36.dp)
+        else -> 0.dp
     }
 
     // COURSES tab 副标题 + actions slot + bottomContent slot
@@ -430,15 +497,22 @@ internal fun MainScreen(
     }
 
     val onPidaiTap: () -> Unit = {
-        selectedTabOrdinal = BottomTab.PIDAI.ordinal
-        // 正事气泡（余额不足、要上课了）优先级高于闲话，不许被戳一下就顶掉。
-        val current = com.xjtu.toolbox.agent.ProactiveBubbleHost.message
-        if (current == null || current.id == com.xjtu.toolbox.agent.ProactiveRules.CHATTER_ID) {
-            com.xjtu.toolbox.agent.ProactiveRules.pickOnTap(context)?.let { line ->
-                com.xjtu.toolbox.agent.ProactiveRules.markTapped(context, line)
-                com.xjtu.toolbox.agent.ProactiveBubbleHost.message = line
-            }
+        userSelectTab(BottomTab.PIDAI.ordinal)
+        // 点了就是要进屁岱页：闲话不再从底栏冒泡（气泡会压住输入框），交给首屏的屁岱说。
+        // 正事气泡（余额不足、要上课了）不动，离开屁岱页后照常显示。
+        val host = com.xjtu.toolbox.agent.ProactiveBubbleHost
+        if (host.message?.id == com.xjtu.toolbox.agent.ProactiveRules.CHATTER_ID) host.clear()
+        com.xjtu.toolbox.agent.ProactiveRules.pickOnTap(context)?.let { line ->
+            com.xjtu.toolbox.agent.ProactiveRules.markTapped(context, line)
+            host.heroLine = line.text
+            host.heroPokes++
         }
+    }
+
+    // 气泡冒出来的那一刻给一下 LOW_TICK（PR T §11.3）：按气泡 id 触发，同一条气泡重组不会重复震
+    val bubbleId = com.xjtu.toolbox.agent.ProactiveBubbleHost.message?.id
+    LaunchedEffect(bubbleId) {
+        if (bubbleId != null) haptics.lowTick()
     }
 
     // ── 屁岱主动提醒气泡 ──
@@ -450,10 +524,52 @@ internal fun MainScreen(
     // 气泡外面套了个"零高度"的 layout：照常测量、往上溢出绘制，但对外宣称高度为 0。
     // 不这么做的话，气泡一出现就会把 bottomBar 撑高，Scaffold 重算 contentPadding，
     // 整页内容跟着往上跳一下。
+    // 底栏版和侧栏版只差「朝哪个方向、摆在哪」，三个回调（打开/关掉/超时）必须完全一致，
+    // 所以提出来一份，两个展示位各自只负责定位。
+    val bubbleView: @Composable (com.xjtu.toolbox.agent.ProactiveMessage, com.xjtu.toolbox.agent.BubbleArrowSide, androidx.compose.ui.unit.Dp) -> Unit =
+        { msg, arrowSide, maxWidth ->
+            com.xjtu.toolbox.agent.ProactiveBubbleView(
+                message = msg,
+                arrowSide = arrowSide,
+                maxWidth = maxWidth,
+                // 底栏上的气泡采「页面 + 玻璃底栏」合起来那一层；侧栏气泡和平板竖屏的旧胶囊上
+                // 只采页面内容（那两种底栏本身不是玻璃，没有导出层）
+                backdrop = if (arrowSide == com.xjtu.toolbox.agent.BubbleArrowSide.Bottom && useGlassBar) {
+                    phoneBubbleBackdrop
+                } else {
+                    appBackdrop
+                },
+                glass = glassStyle,
+                onOpen = {
+                    com.xjtu.toolbox.agent.ProactiveRules.markUseful(context, msg.id)
+                    val route = msg.openRoute
+                    com.xjtu.toolbox.agent.ProactiveBubbleHost.clear()
+                    if (!route.isNullOrBlank()) {
+                        val type = loginTypeForRoute(route)
+                        if (type != null) navigateWithLogin(route, type)
+                        else navigateToTarget(route)
+                    } else if (msg.prompt.isNotBlank()) {
+                        AgentPendingPrompt.set(msg.prompt, msg.eventSnapshot)
+                        selectedTabOrdinal = BottomTab.PIDAI.ordinal
+                    } else {
+                        selectedTabOrdinal = BottomTab.PIDAI.ordinal
+                    }
+                },
+                onDismiss = {
+                    com.xjtu.toolbox.agent.ProactiveRules.markDismissed(context, msg.id)
+                    com.xjtu.toolbox.agent.ProactiveBubbleHost.clear()
+                },
+                onTimeout = { com.xjtu.toolbox.agent.ProactiveBubbleHost.clear() },
+            )
+        }
+
     val proactiveBubbleSlot: @Composable () -> Unit = {
         val msg = com.xjtu.toolbox.agent.ProactiveBubbleHost.message
-        if (msg != null) {
-            val screenWidth = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp
+        // 在屁岱页不画底栏气泡：它会压住输入框，而且人已经在跟屁岱说话了
+        if (msg != null && selectedTab != BottomTab.PIDAI) {
+            val screenWidth = with(androidx.compose.ui.platform.LocalDensity.current) {
+                androidx.compose.ui.platform.LocalWindowInfo.current.containerSize.width.toDp()
+            }
             Box(
                 Modifier
                     .fillMaxWidth()
@@ -463,54 +579,105 @@ internal fun MainScreen(
                     },
                 contentAlignment = Alignment.TopCenter,
             ) {
-                com.xjtu.toolbox.agent.ProactiveBubbleView(
-                    message = msg,
-                    maxWidth = (screenWidth - 32.dp).coerceAtLeast(200.dp),
-                    onOpen = {
-                        com.xjtu.toolbox.agent.ProactiveRules.markUseful(context, msg.id)
-                        val route = msg.openRoute
-                        com.xjtu.toolbox.agent.ProactiveBubbleHost.clear()
-                        if (!route.isNullOrBlank()) {
-                            val type = loginTypeForRoute(route)
-                            if (type != null) navigateWithLogin(route, type)
-                            else navigateToTarget(route)
-                        } else if (msg.prompt.isNotBlank()) {
-                            AgentPendingPrompt.set(msg.prompt, msg.eventSnapshot)
-                            selectedTabOrdinal = BottomTab.PIDAI.ordinal
-                        } else {
-                            selectedTabOrdinal = BottomTab.PIDAI.ordinal
-                        }
-                    },
-                    onDismiss = {
-                        com.xjtu.toolbox.agent.ProactiveRules.markDismissed(context, msg.id)
-                        com.xjtu.toolbox.agent.ProactiveBubbleHost.clear()
-                    },
-                    onTimeout = { com.xjtu.toolbox.agent.ProactiveBubbleHost.clear() },
+                bubbleView(
+                    msg,
+                    com.xjtu.toolbox.agent.BubbleArrowSide.Bottom,
+                    (screenWidth - 32.dp).coerceAtLeast(200.dp),
                 )
             }
         }
     }
 
+    // 侧栏屁岱按钮在根坐标系里的位置，宽屏气泡靠它定位。
+    var pidaiAnchor by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
+    // 覆盖层自己的根坐标。两者相减才是气泡该放的本地偏移：
+    // MainScreen 在 NavHost 里，push 子页的转场动画会把整页横向平移，
+    // 直接拿根坐标当本地坐标用就会在那几帧里偏掉。
+    var overlayOrigin by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+
+    // 骨架：Row 包 Scaffold，不是 Scaffold 包 Row。
+    //
+    // 侧栏原本挂在 Scaffold 的内容区里，外面套着 `.padding(padding)`——而 padding.top
+    // 就是顶栏高度，各 tab 的顶栏又不一样高（屁岱是小标题、别的是会折叠的大标题、
+    // 日程还多一条副标题和 bottomContent）。于是切 tab、滚动列表时侧栏跟着上下跳。
+    // 搬到 Scaffold 外面，侧栏就只受窗口约束，顶栏怎么折叠都跟它无关。
+    // 对照 miuix 示例 example/shared/.../AppContent.kt 的 Row { rail; NavDisplay }。
+    //
+    // 手机上 isWide == false，Row 里只剩 Scaffold 一个孩子，等价于原来的结构。
+    Box(
+        Modifier
+            .fillMaxSize()
+            .onGloballyPositioned { overlayOrigin = it.positionInRoot() },
+    ) {
+    val railState = top.yukonga.miuix.kmp.basic.rememberNavigationRailState()
+    // 和 miuix 侧栏内部同一条弹簧（阻尼 1、刚度 322、收尾阈值 0.001），用来判断「侧栏还在动」
+    val railProgress = androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (railState.isExpanded) 1f else 0f,
+        animationSpec = androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 322f, visibilityThreshold = 0.001f),
+        label = "railProgress",
+    )
+    Row(Modifier.fillMaxSize()) {
+    if (isWide) {
+        MainNavigationRail(
+            selectedTab = selectedTab,
+            onSelect = { userSelectTab(it.ordinal) },
+            onPidaiTap = onPidaiTap,
+            isLoggedIn = loginState.isLoggedIn,
+            accountCount = navAccountCount,
+            onPidaiBoundsChange = { pidaiAnchor = it },
+            railState = railState,
+        )
+    }
     Scaffold(
-        snackbarHost = {
-            Box(Modifier.padding(bottom = floatingBarReserve)) {
-                SnackbarHost(snackbarHostState)
-            }
+        modifier = Modifier
+            .weight(1f)
+            .fillMaxHeight()
+            // 宽屏下 tab 切换动画会横向平移内容，不裁剪的话会画到侧栏上。
+            .then(if (isWide) Modifier.clipToBounds() else Modifier)
+            // 侧栏展开 / 收起期间，内容区一直按**终点宽度**排版，只随侧栏平移、被裁剪：
+            // 以前每帧都按新宽度把整个 tab（首页几十个文字）重新测量一遍，玻璃顶栏也跟着每帧重模糊。
+            .then(if (isWide) Modifier.railSettledWidth(railState, railProgress) else Modifier),
+        // 宽屏时左侧的刘海/侧边导航条已经被侧栏自己吃掉了（NavigationRail 的
+        // defaultWindowInsetsPadding），这里再留一次就是双重留白。同 miuix 示例 WideScreenContent。
+        contentWindowInsets = if (isWide) {
+            WindowInsets.systemBars.union(
+                WindowInsets.displayCutout.exclude(
+                    WindowInsets.displayCutout.only(WindowInsetsSides.Start),
+                ),
+            )
+        } else {
+            WindowInsets.systemBars.union(WindowInsets.displayCutout)
         },
+        // 不再自己垫高：两种悬浮底栏都走 floatingToolbar 槽位，miuix Scaffold 会把提示条放在
+        // 整个槽位（底栏 + 头顶的屁岱气泡）之上；经典底栏走 bottomBar，同样自动让开。
+        // 再加 floatingBarReserve 就是双份，提示条会悬在半空。
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             // 屁岱永远用折叠态标题：它是从下往上长的聊天，大标题会随滚动忽大忽小。
             // 学辅原来也在这一档，理由是"它是个 WebView，没有可驱动折叠的原生滚动"；
             // 现在那一页换成了原生列表，正是大标题适用的场景，于是移回下面那一档。
+            //
+            // 五个 tab 的顶栏都是玻璃（经典风格除外），和二级页顶栏同一套画法，见 glassBarSurface。
+            // 采样源是下面录下的 tab 内容区；顶栏不在那一层里面，不会形成环。
+            val topBarGlassTint = com.xjtu.toolbox.ui.glass.glassBarTint()
+            val topBarColor = if (glassStyle) androidx.compose.ui.graphics.Color.Transparent else MiuixTheme.colorScheme.surface
+            val topBarModifier = if (glassStyle) Modifier.glassBarSurface(appBackdrop, topBarGlassTint) else Modifier
             if (selectedTab == BottomTab.PIDAI) {
                 top.yukonga.miuix.kmp.basic.SmallTopAppBar(
                     title = agentTitle,
-                    color = MiuixTheme.colorScheme.surface,
+                    color = topBarColor,
+                    modifier = topBarModifier,
                     scrollBehavior = agentScrollBehavior,
                     navigationIcon = { agentHeaderNavIcon?.invoke() },
                     actions = { agentHeaderActions?.invoke(this) },
                 )
             } else {
+            // 日程 tab 的顶栏（连同标签行、周标题栏，都在这一个 TopAppBar 里）做成一整块玻璃（plan2 Y2）：
+            // 只用一个 drawBackdrop，三块各做各的会在接缝处出现三条模糊边。
+            val coursesGlass = glassStyle && selectedTab == BottomTab.COURSES
             TopAppBar(
+                color = topBarColor,
+                modifier = topBarModifier,
                 title = when (selectedTab) {
                     BottomTab.HOME -> "岱宗盒子"
                     BottomTab.COURSES -> "日程"
@@ -569,13 +736,16 @@ internal fun MainScreen(
                 },
                 bottomContent = {
                     if (selectedTab == BottomTab.COURSES) {
-                        courseHeaderBottomContent?.invoke()
+                        // 挂在玻璃顶栏下面的标签行、周胶囊，底色跟着换成半透明
+                        CompositionLocalProvider(com.xjtu.toolbox.ui.glass.LocalOnGlassBar provides coursesGlass) {
+                            courseHeaderBottomContent?.invoke()
+                        }
                     }
                 }
             )
             }
         },
-        bottomBar = if (!isWideScreen && navBarStyle == "classic") {
+        bottomBar = if (!isWide && navBarStyle == "classic") {
             {
               Column {
                 proactiveBubbleSlot()
@@ -605,8 +775,8 @@ internal fun MainScreen(
                         }
                         NavigationBarItem(
                             selected = selectedTab == tab,
-                            onClick = { selectedTabOrdinal = tab.ordinal },
-                            icon = if (selectedTab == tab) tab.selectedIcon else tab.unselectedIcon,
+                            onClick = { userSelectTab(tab.ordinal) },
+                            icon = tab.icon,
                             label = tab.label,
                             colors = navItemColors,
                             badge = bottomTabBadge(tab, loginState.isLoggedIn, navAccountCount)
@@ -618,9 +788,76 @@ internal fun MainScreen(
         } else {
             {}
         },
-        floatingToolbar = if (!isWideScreen && navBarStyle == "floating") {
+        floatingToolbar = if (useGlassBar) {
             {
-              Column {
+              Column(
+                  Modifier
+                      .fillMaxWidth()
+                      .padding(horizontal = 20.dp)
+                      .padding(bottom = glassBarSlotBottomPadding),
+              ) {
+                proactiveBubbleSlot()
+                com.xjtu.toolbox.ui.glass.GlassBottomTabs(
+                    tabs = BottomTab.entries.map { tab ->
+                        // 屁岱那一格免染色：GlassBottomTabs 会把整排内容再画一遍做强调色，
+                        // 屁岱是会动的机器人，不能被复制出第二份（plan2 §9.3A）
+                        com.xjtu.toolbox.ui.glass.GlassTab(key = tab, tintExempt = tab == BottomTab.PIDAI) { selected ->
+                            if (tab == BottomTab.PIDAI) {
+                                val pidaiStyle = com.xjtu.toolbox.agent.pidaiNavAppearance()
+                                com.xjtu.toolbox.agent.PidaiNavButton(
+                                    onClick = onPidaiTap,
+                                    excited = com.xjtu.toolbox.agent.ProactiveBubbleHost.message != null,
+                                    thinking = com.xjtu.toolbox.agent.AgentThinkingHost.isThinking,
+                                    selected = selected,
+                                    diameter = 40.dp,
+                                    // paper 现在是「挖空」，眼睛处直接透出后面的玻璃（PR O 第 1 步）
+                                    paper = MiuixTheme.colorScheme.surfaceContainerHigh,
+                                    ink = pidaiStyle.ink,
+                                    shape = pidaiStyle.shape,
+                                    skin = pidaiStyle.skin,
+                                )
+                            } else {
+                                // 各格图标的光学尺寸不同（见 BottomTab.iconSize），统一放进
+                                // navIconBox 高的框里居中，五格的「图标 + 文字」总高才一致
+                                Box(Modifier.height(navIconBox), contentAlignment = Alignment.Center) {
+                                    Box {
+                                        Icon(
+                                            tab.icon,
+                                            contentDescription = tab.label,
+                                            tint = if (selected) navSelectedContent else navUnselectedContent,
+                                            modifier = Modifier.size(tab.iconSize),
+                                        )
+                                        // 角标照常画，不用玻璃（底栏里不能再嵌 layerBackdrop，§9.4）
+                                        bottomTabBadge(tab, loginState.isLoggedIn, navAccountCount)?.let { badge ->
+                                            Box(Modifier.align(Alignment.TopEnd).offset(x = 10.dp, y = (-4).dp)) { badge() }
+                                        }
+                                    }
+                                }
+                                Text(
+                                    tab.label,
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    color = if (selected) navSelectedContent else navUnselectedContent,
+                                )
+                            }
+                        }
+                    },
+                    selectedIndex = selectedTabOrdinal,
+                    onTabSelected = { index ->
+                        // 拖到屁岱松手也要走 onPidaiTap：它既切 tab，也负责戳一下冒闲话气泡
+                        if (index == BottomTab.PIDAI.ordinal) onPidaiTap() else userSelectTab(index)
+                    },
+                    backdrop = appBackdrop,
+                    exportedBackdrop = glassBarExport,
+                    glass = true,
+                )
+              }
+            }
+        } else if (!isWide && navBarStyle == "floating") {
+            {
+              Column(
+                  Modifier.offset(y = floatingBarSlotOffsetY),
+              ) {
                 proactiveBubbleSlot()
                 FloatingNavigationBar(
                     color = MiuixTheme.colorScheme.surfaceContainerHigh,
@@ -644,8 +881,8 @@ internal fun MainScreen(
                         }
                         FloatingNavigationBarItem(
                             selected = selectedTab == tab,
-                            onClick = { selectedTabOrdinal = tab.ordinal },
-                            icon = if (selectedTab == tab) tab.selectedIcon else tab.unselectedIcon,
+                            onClick = { userSelectTab(tab.ordinal) },
+                            icon = tab.icon,
                             label = tab.label,
                             colors = navItemColors,
                             badge = bottomTabBadge(tab, loginState.isLoggedIn, navAccountCount)
@@ -658,36 +895,30 @@ internal fun MainScreen(
             {}
         }
     ) { padding ->
+        // 玻璃风格下，每个 tab 的内容都铺到顶栏下面，所以顶部留白不在这一层统一加，
+        // 交给各 tab 放进自己的滚动内容（contentTopPadding）。经典风格照旧整体下移。
+        // 顶栏高度只能在布局阶段读：miuix 给的 padding 内部是个 state，折叠时每帧都变。
+        // 以前这里在组合阶段读它，再当参数传给每个打开过的 tab——顶栏每折叠一帧，
+        // 首页、日程、我的……整页都重组一遍，折叠 / 展开明显掉帧。
+        // 现在各 tab 拿「见过的最大顶栏高度」这个稳定值，差额由 followTopBar 在布局阶段补位移。
+        val stableTopBar = com.xjtu.toolbox.ui.glass.rememberStableTopPadding(padding)
+        val tabTopPadding = if (glassStyle) stableTopBar.value else 0.dp
+        val contentLayoutDirection = androidx.compose.ui.platform.LocalLayoutDirection.current
         Box(
             Modifier
                 .fillMaxSize()
+                .padding(
+                    if (glassStyle) {
+                        PaddingValues(
+                            start = padding.calculateStartPadding(contentLayoutDirection),
+                            end = padding.calculateEndPadding(contentLayoutDirection),
+                            bottom = padding.calculateBottomPadding(),
+                        )
+                    } else {
+                        padding
+                    },
+                ),
         ) {
-        androidx.compose.foundation.layout.Row(Modifier.fillMaxSize().padding(padding)) {
-        if (isWideScreen) {
-            // miuix 0.9.3 起 NavigationRail 去掉了 mode 参数，改为传 state 获得可展开侧栏：
-            // 收起态为图标+小字，展开态为「图标 + 文字」横向排布，顶部自带展开/收起按钮。
-            // 平板/折叠屏展开后主标签一眼可读，状态经 rememberSaveable 跨旋转与进程重建保留。
-            val railState = top.yukonga.miuix.kmp.basic.rememberNavigationRailState()
-            top.yukonga.miuix.kmp.basic.NavigationRail(
-                color = MiuixTheme.colorScheme.surface,
-                state = railState,
-                expandContentDescription = "展开导航栏",
-                collapseContentDescription = "收起导航栏"
-            ) {
-                // 侧栏不做特殊造型：宽屏没有"底栏正中"这个位置，硬塞一颗机器人只会破坏
-                // 侧栏的等距节奏。这里退回成普通条目，保证宽屏也进得去屁岱。
-                BottomTab.entries.forEach { tab ->
-                    top.yukonga.miuix.kmp.basic.NavigationRailItem(
-                        selected = selectedTab == tab,
-                        onClick = { selectedTabOrdinal = tab.ordinal },
-                        icon = if (selectedTab == tab) tab.selectedIcon else tab.unselectedIcon,
-                        label = tab.label,
-                        badge = bottomTabBadge(tab, loginState.isLoggedIn, navAccountCount)
-                    )
-                }
-            }
-        }
-        Box(Modifier.fillMaxSize()) {
             // 需要联网的无登录路由（空闲教室、通知公告等纯网络功能）
             val networkRequiredRoutes = setOf(
                 Routes.EMPTY_ROOM,
@@ -706,12 +937,12 @@ internal fun MainScreen(
                     val cm2 = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
                     val online = cm2?.activeNetwork != null && cm2.getNetworkCapabilities(cm2.activeNetwork)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
                     if (online) {
-                        navController.navigate(route) { launchSingleTop = true }
+                        navController.navigate(route)
                     } else {
                         scope.launch { snackbarHostState.showSnackbar("该功能需要联网使用，请检查网络连接", duration = SnackbarDuration.Short) }
                     }
                 } else {
-                    navController.navigate(route) { launchSingleTop = true }
+                    navController.navigate(route)
                 }
             }
             var composedTabs by remember { mutableStateOf(setOf(selectedTab)) }
@@ -727,7 +958,14 @@ internal fun MainScreen(
                 previousTabOrdinal = selectedTabOrdinal
             }
             val tabSlideDistance = with(androidx.compose.ui.platform.LocalDensity.current) { 28.dp.toPx() }
-            Box(Modifier.fillMaxSize()) {
+            // 玻璃的采样源就是这一层：各 tab 的页面内容。经典风格下不录，省一次离屏绘制。
+            // 玻璃风格下五个 tab 的顶栏都采它，所以一直录。
+            val backdropNeeded = glassStyle
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .then(if (backdropNeeded) Modifier.layerBackdrop(appBackdrop) else Modifier),
+            ) {
                 BottomTab.entries.forEach { tab ->
                     key(tab) {
                         if (tab in composedTabs) {
@@ -754,6 +992,15 @@ internal fun MainScreen(
                             )
                             Box(
                                 Modifier.fillMaxSize()
+                                    // 藏起来的 tab 沿用它最后一次的测量约束：它们只是透明度为 0，仍在组合里，
+                                    // 不冻住的话宽屏侧栏展开 / 收起时内容区宽度逐帧在变，打开过的每个 tab
+                                    // 都跟着逐帧重新测量布局——实测打开过三个 tab 时每帧 37ms，动画掉到 30 帧。
+                                    .freezeLayoutWhile { !isActive && tabAlpha == 0f }
+                                    .then(
+                                        if (glassStyle) Modifier.followTopBar({ stableTopBar.value }, padding)
+                                        else Modifier
+                                    )
+                                    // 玻璃风格下每个 tab 都铺到顶栏下面，顶部留白各自放进滚动内容（contentTopPadding）
                                     .zIndex(if (isActive) 1f else 0f)
                                     .graphicsLayer {
                                         alpha = tabAlpha
@@ -772,6 +1019,8 @@ internal fun MainScreen(
                                         }
                                     }
                             ) {
+                              // 切走的 tab 仍在组合里，靠它让里面的常驻动画（首页渐变）停下
+                              CompositionLocalProvider(com.xjtu.toolbox.ui.components.LocalPageVisible provides isActive) {
                                 when (tab) {
                                     BottomTab.HOME -> HomeTab(
                                         loginState,
@@ -781,12 +1030,13 @@ internal fun MainScreen(
                                         onNavigateToProfile = { selectedTabOrdinal = BottomTab.PROFILE.ordinal },
                                         onNavigateToCourses = { selectedTabOrdinal = BottomTab.COURSES.ordinal },
                                         scrollBehavior = homeScrollBehavior,
-                                        navBarStyle = navBarStyle,
+                                        extraBottomPadding = floatingBarReserve,
                                         homeTheme = homeTheme,
                                         showQuickActions = showQuickActions,
                                         bulletins = heroBulletins,
                                         onBulletinTap = onHeroBulletinTap,
                                         onBulletinDismiss = onHeroBulletinDismiss,
+                                        contentTopPadding = tabTopPadding,
                                     )
                                     BottomTab.PIDAI -> com.xjtu.toolbox.agent.AgentScreen(
                                         // 悬浮胶囊底栏是**浮在内容上**的，不占 Scaffold 的
@@ -795,17 +1045,15 @@ internal fun MainScreen(
                                         // 经典底栏本身占位，无需额外补。
                                         extraBottomPadding = floatingBarReserve,
                                         hostBottomPadding = padding.calculateBottomPadding(),
-                                        // 0 级页：不自带 Scaffold/TopAppBar，也没有返回箭头。
-                                        // 返回键的语义由 MainScreen 统一管（非首页 tab → 回首页）。
-                                        asTab = true,
                                         scrollBehavior = agentScrollBehavior,
                                         onTitleChange = { agentTitle = it },
                                         onActionsChange = { agentHeaderActions = it },
                                         onNavIconChange = { agentHeaderNavIcon = it },
                                         onNavigate = onNavigateWithNetCheck,
+                                        contentTopPadding = tabTopPadding,
                                     )
-                                    BottomTab.COURSES -> CoursesTab(loginState, ::navigateWithLogin, onNavigateWithNetCheck, scrollBehavior = coursesScrollBehavior, extraBottomPadding = floatingBarReserve, onSubtitleChange = { courseSubtitle = it }, onActionsChange = { courseHeaderActions = it }, onBottomContentChange = { courseHeaderBottomContent = it })
-                                    BottomTab.TOOLS -> ToolsTab(loginState, ::navigateWithLogin, onNavigateWithNetCheck, scrollBehavior = toolsScrollBehavior, navBarStyle = navBarStyle)
+                                    BottomTab.COURSES -> CoursesTab(loginState, ::navigateWithLogin, onNavigateWithNetCheck, scrollBehavior = coursesScrollBehavior, extraBottomPadding = floatingBarReserve, contentTopPadding = tabTopPadding, onSubtitleChange = { courseSubtitle = it }, onActionsChange = { courseHeaderActions = it }, onBottomContentChange = { courseHeaderBottomContent = it })
+                                    BottomTab.TOOLS -> ToolsTab(loginState, ::navigateWithLogin, onNavigateWithNetCheck, scrollBehavior = toolsScrollBehavior, extraBottomPadding = floatingBarReserve, contentTopPadding = tabTopPadding)
                                     BottomTab.PROFILE -> ProfileTab(
                                         loginState,
                                         ::navigateWithLogin,
@@ -813,13 +1061,15 @@ internal fun MainScreen(
                                         accountManager,
                                         scrollBehavior = profileScrollBehavior,
                                         onNavigateToDownloads = { navController.navigate(Routes.DOWNLOAD_MANAGER) },
-                                        onNavigateToSettings = { navController.navigate(Routes.SETTINGS) { launchSingleTop = true } },
-                                        onNavigateToFeedback = { navController.navigate(Routes.FEEDBACK) { launchSingleTop = true } },
-                                        onNavigateToAccounts = { navController.navigate(com.xjtu.toolbox.Routes.ACCOUNTS) { launchSingleTop = true } },
-                                        navBarStyle = navBarStyle,
-                                        onWarmupRequest = onWarmupRequest
+                                        onNavigateToSettings = { navController.navigate(Routes.SETTINGS) },
+                                        onNavigateToFeedback = { navController.navigate(Routes.FEEDBACK) },
+                                        onNavigateToAccounts = { navController.navigate(com.xjtu.toolbox.Routes.ACCOUNTS) },
+                                        extraBottomPadding = floatingBarReserve,
+                                        onWarmupRequest = onWarmupRequest,
+                                        contentTopPadding = tabTopPadding,
                                     )
                                 }
+                              }
                             }
                         }
                     }
@@ -874,7 +1124,7 @@ internal fun MainScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    CircularProgressIndicator()
+                    com.xjtu.toolbox.ui.components.MorphingLoader()  // 整页加载统一用形变加载器
                     TextButton(
                         text = "取消",
                         onClick = {
@@ -909,9 +1159,7 @@ internal fun MainScreen(
                             text = "去更新密码",
                             onClick = {
                                 loginState.passwordInvalidatedDialogVisible = false
-                                navController.navigate(Routes.SETTINGS) {
-                                    launchSingleTop = true
-                                }
+                                navController.navigate(Routes.SETTINGS)
                             },
                             modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.textButtonColorsPrimary()
@@ -920,11 +1168,11 @@ internal fun MainScreen(
                 }
             }
         }
-        }
-        }
 
     // 全局搜索覆盖层（跨 tab 共用同一个浮层，渲染优先级高于普通导航）
     if (showGlobalSearch) {
+        // 搜索浮层盖在整页上面，用页面内容做玻璃背景；经典风格下给 null，退回不透明
+        CompositionLocalProvider(com.xjtu.toolbox.ui.glass.LocalAppBackdrop provides if (glassStyle) appBackdrop else null) {
         GlobalSearchScreen(
             onBack = { showGlobalSearch = false },
             onNavigate = { route ->
@@ -940,6 +1188,7 @@ internal fun MainScreen(
             },
             accountType = loginState.accountType,
         )
+        }
     }
 
     // 扫码登录覆盖层（首页左上角入口）
@@ -949,7 +1198,226 @@ internal fun MainScreen(
             onBack = { showQrLogin = false },
         )
     }
+    }  // Scaffold content
+    }  // Row
+
+    // 侧栏屁岱的主动提醒气泡。
+    //
+    // 不能放进 NavigationRail：它内部是一个 verticalScroll 的 Column，
+    // 向右溢出的气泡会被裁掉。改成与 Row 并列的覆盖层，按按钮的根坐标定位。
+    // 侧栏气泡拆成单独的组件：屁岱在侧栏展开 / 收起时逐帧移动，pidaiAnchor 每帧都变。
+    // 以前在这里（MainScreen 的组合阶段）直接读它，动画期间整个 MainScreen 每帧重组，侧栏动画卡成幻灯片。
+    // 现在只有 RailProactiveBubble 这一小块跟着重组；没有气泡时它什么都不做。
+    if (isWide) {
+        RailProactiveBubble(
+            anchor = { pidaiAnchor },
+            overlayOrigin = { overlayOrigin },
+            bubbleView = bubbleView,
+        )
+    }
+    }  // 最外层 Box
 }
+
+/** 宽屏侧栏屁岱旁边的主动气泡，尖角朝左指着屁岱。锚点、覆盖层原点都用函数传进来，只在这里读。 */
+@Composable
+private fun RailProactiveBubble(
+    anchor: () -> androidx.compose.ui.geometry.Rect?,
+    overlayOrigin: () -> androidx.compose.ui.geometry.Offset,
+    bubbleView: @Composable (com.xjtu.toolbox.agent.ProactiveMessage, com.xjtu.toolbox.agent.BubbleArrowSide, androidx.compose.ui.unit.Dp) -> Unit,
+) {
+    val bubbleMsg = com.xjtu.toolbox.agent.ProactiveBubbleHost.message ?: return
+    val rect = anchor() ?: return
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val windowWidthPx = androidx.compose.ui.platform.LocalWindowInfo.current.containerSize.width
+    val bubbleMax = with(density) {
+        (windowWidthPx - rect.right).toDp() - 24.dp
+    }.coerceIn(180.dp, 360.dp)
+    val gapPx = with(density) { 8.dp.roundToPx() }
+    Box(
+        Modifier.layout { measurable, constraints ->
+            val placeable = measurable.measure(
+                constraints.copy(minWidth = 0, minHeight = 0),
+            )
+            layout(constraints.maxWidth, constraints.maxHeight) {
+                val origin = overlayOrigin()
+                val x = ((rect.right - origin.x).toInt() + gapPx)
+                    .coerceAtMost((constraints.maxWidth - placeable.width).coerceAtLeast(0))
+                val y = (rect.center.y - origin.y - placeable.height / 2f).toInt()
+                    .coerceIn(0, (constraints.maxHeight - placeable.height).coerceAtLeast(0))
+                placeable.place(x, y)
+            }
+        },
+    ) {
+        bubbleView(bubbleMsg, com.xjtu.toolbox.agent.BubbleArrowSide.Start, bubbleMax)
+    }
+}
+
+/**
+ * 宽屏侧栏。整体在 Scaffold **之外**，只受窗口约束，顶栏怎么折叠都跟它无关（见 MainScreen 注释）。
+ *
+ * miuix 0.9.3 起 NavigationRail 去掉了 mode 参数，改为传 state 获得可展开侧栏：
+ * 收起态为图标+小字，展开态为「图标 + 文字」横向排布，顶部自带展开/收起按钮。
+ * 它自己处理状态栏 / 侧边导航条 / 起始侧刘海的 inset（defaultWindowInsetsPadding），
+ * 外面不要再补 padding。
+ */
+@Composable
+private fun MainNavigationRail(
+    selectedTab: BottomTab,
+    onSelect: (BottomTab) -> Unit,
+    onPidaiTap: () -> Unit,
+    isLoggedIn: Boolean,
+    accountCount: Int,
+    onPidaiBoundsChange: (androidx.compose.ui.geometry.Rect) -> Unit,
+    /** 提到 MainScreen：右边内容区要知道侧栏往哪个宽度走，动画期间按终点宽度排版（见 [railSettledWidth]）。 */
+    railState: top.yukonga.miuix.kmp.basic.NavigationRailState,
+) {
+    // 侧栏里的文字固定行高。miuix 的格子文字字号跟着展开进度从 12sp 插值到 16sp，格子高度又按文字
+    // 高度算；main 样式没设行高，文字高度随字号走、按整像素取整。收起弹簧最后那段慢尾巴里字号
+    // 只变零点几 sp，文字高度却会在某一帧跳 1px，下面每一格都跟着被推一下——就是收窄最后一刻
+    // 「所有按钮文字抖一下」。行高钉死以后，格子高度不再随字号变。
+    val railTextStyles = MiuixTheme.textStyles.let { ts ->
+        ts.copy(
+            main = ts.main.copy(
+                lineHeight = 16.sp,
+                lineHeightStyle = androidx.compose.ui.text.style.LineHeightStyle(
+                    alignment = androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center,
+                    trim = androidx.compose.ui.text.style.LineHeightStyle.Trim.None,
+                ),
+            ),
+        )
+    }
+    MiuixTheme(textStyles = railTextStyles) {
+    top.yukonga.miuix.kmp.basic.NavigationRail(
+        color = MiuixTheme.colorScheme.surface,
+        state = railState,
+        expandContentDescription = "展开导航栏",
+        collapseContentDescription = "收起导航栏"
+    ) {
+        BottomTab.entries.forEach { tab ->
+            if (tab == BottomTab.PIDAI) {
+                // 屁岱在侧栏里也是那颗会眨眼、会思考、能换皮肤的机器人，
+                // 不再退化成灰度线性图标——否则宽屏用户看到的是另一个应用。
+                val pidaiStyle = com.xjtu.toolbox.agent.pidaiNavAppearance()
+                // 展开 / 收起要和邻居一起平滑地挪。miuix 的 NavigationRailItem 跟着侧栏内部的一条
+                // 0..1 弹簧进度逐帧插值位置，那个进度（LocalNavigationRailExpandInfo）是 internal 的，
+                // 拿不到；这里用同一条弹簧（阻尼 1、响应 0.35s）自己算一份，几何也照它的公式：
+                // 图标从「收起时居中」插值到「展开时左侧 12 + 14dp」，文字跟着淡入。
+                // 以前按 isExpanded 直接在居中和靠左之间硬切，别的格子在滑、只有屁岱跳一下。
+                val railProgress by androidx.compose.animation.core.animateFloatAsState(
+                    targetValue = if (railState.isExpanded) 1f else 0f,
+                    // 收尾阈值也对齐 miuix 的 RailExpandSpring（0.001）：默认 0.01 会比邻居早停一小截
+                    animationSpec = androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 322f, visibilityThreshold = 0.001f),
+                    label = "pidaiRailProgress",
+                )
+                // 普通数组而不是 State：layout 里写、onGloballyPositioned 里读，都在布局阶段，不需要触发重组
+                val pidaiContentRight = remember { floatArrayOf(0f) }
+                androidx.compose.ui.layout.Layout(
+                    modifier = Modifier
+                        // 气泡锚在这一格「内容」的右端：收起时是屁岱图标的右边，展开时是「屁岱」二字的右边，
+                        // 展开过程中跟着动画走（右端由下面的 layout 算出来写进 pidaiContentRight）。
+                        // 锚在按钮上，展开时气泡压在字上；锚在整行上，气泡又飘到侧栏外面、离屁岱太远。
+                        .onGloballyPositioned {
+                            val b = it.boundsInRoot()
+                            onPidaiBoundsChange(b.copy(right = b.left + pidaiContentRight[0]))
+                        }
+                        .fillMaxWidth()
+                        // 与 NavigationRailDefaults.ItemVerticalPadding 对齐，
+                        // 保证它和邻居在侧栏里是同一套等距节奏。
+                        .padding(vertical = 12.dp)
+                        .clickable(onClick = onPidaiTap),
+                    content = {
+                    com.xjtu.toolbox.agent.PidaiNavButton(
+                        onClick = onPidaiTap,
+                        excited = com.xjtu.toolbox.agent.ProactiveBubbleHost.message != null,
+                        thinking = com.xjtu.toolbox.agent.AgentThinkingHost.isThinking,
+                        selected = selectedTab == tab,
+                        diameter = 40.dp,
+                        paper = MiuixTheme.colorScheme.surface,
+                        ink = pidaiStyle.ink,
+                        shape = pidaiStyle.shape,
+                        skin = pidaiStyle.skin,
+                    )
+                    // ExpandedLabelFontSize，与邻居的展开态对齐；收起时透明，不占位置
+                    Text(
+                        tab.label,
+                        color = MiuixTheme.colorScheme.onSurfaceContainer,
+                        fontSize = 16.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                        maxLines = 1,
+                        modifier = Modifier.graphicsLayer { alpha = railProgress },
+                    )
+                    },
+                ) { measurables, constraints ->
+                    val f = railProgress.coerceIn(0f, 1f)
+                    val icon = measurables[0].measure(constraints.copy(minWidth = 0, minHeight = 0))
+                    // 文字从 70dp 起，右边留出和左边对称的 26dp
+                    val labelMax = (constraints.maxWidth - 70.dp.roundToPx() - 26.dp.roundToPx()).coerceAtLeast(0)
+                    val label = measurables[1].measure(androidx.compose.ui.unit.Constraints(maxWidth = labelMax))
+                    // 和上下几项按「中心」对齐，而不是按左边缘：屁岱直径 40dp，比 miuix 的图标（IconSize 28dp）大一圈，
+                    // 按左边缘放，展开时图标和文字都比邻居往右偏。
+                    // - 图标中心：miuix 收起时在 80dp（MinWidth）宽的侧栏里居中，中心在 40dp；展开时图标左边在
+                    //   12 + 14 = 26dp（ExpandedItemHorizontalMargin + ExpandedItemContentHorizontalPadding），
+                    //   中心也是 26 + 28 / 2 = 40dp。两态重合，所以屁岱展开、收起都不用动；
+                    // - 文字：邻居的文字起点是 26 + 28 + 16（ExpandedItemIconTextSpacing）= 70dp，屁岱照这个位置放。
+                    val iconX = (40.dp.toPx() - icon.width / 2f).toInt()
+                    val labelX = 70.dp.roundToPx()
+                    val height = maxOf(icon.height, label.height)
+                    // 内容右端给气泡定位用：收起时是图标右边，展开时是文字右边，按展开进度过渡
+                    val iconRight = (iconX + icon.width).toFloat()
+                    pidaiContentRight[0] = androidx.compose.ui.util.lerp(iconRight, maxOf(iconRight, (labelX + label.width).toFloat()), f)
+                    layout(constraints.maxWidth, height) {
+                        icon.placeRelative(iconX, (height - icon.height) / 2)
+                        if (f > 0f) label.placeRelative(labelX, (height - label.height) / 2)
+                    }
+                }
+                return@forEach
+            }
+            top.yukonga.miuix.kmp.basic.NavigationRailItem(
+                selected = selectedTab == tab,
+                onClick = { onSelect(tab) },
+                icon = tab.icon,
+                label = tab.label,
+                badge = bottomTabBadge(tab, isLoggedIn, accountCount)
+            )
+        }
+    }
+    }
+}
+
+/**
+ * 侧栏动画期间让内容区按终点宽度排版一次，之后只平移、裁剪，不再逐帧重新测量。
+ *
+ * 动画第一帧记下「现在的宽度 + 侧栏还要变化的量」作为终点宽度，整个动画都用它测量孩子；
+ * 自己对外仍报外面给的宽度（Row 照常把它排在侧栏右边），多出来的部分由外层 clipToBounds 裁掉，
+ * 少的那一截在右边、会随侧栏走完被填满。动画一停立刻回到按实际宽度测量。
+ * 进度只在布局阶段读，不引起重组。
+ */
+@Composable
+private fun Modifier.railSettledWidth(
+    railState: top.yukonga.miuix.kmp.basic.NavigationRailState,
+    progress: androidx.compose.runtime.State<Float>,
+): Modifier {
+    // [0] 终点宽度（px），[1] 它对应的目标状态（1 展开 / 0 收起 / -1 无）；布局阶段读写，不用 State
+    val held = remember { IntArray(2).also { it[1] = -1 } }
+    return this.layout { measurable, constraints ->
+        val target = if (railState.isExpanded) 1 else 0
+        val p = progress.value
+        val animating = kotlin.math.abs(p - target) > 0.001f && constraints.hasBoundedWidth
+        val width = if (animating) {
+            if (held[1] != target) {
+                // 侧栏当前宽度与终点宽度之差 = (p - target) × (展开宽 - 收起宽)
+                val remaining = ((p - target) * (240.dp - 80.dp).toPx()).let { kotlin.math.round(it).toInt() }
+                held[0] = (constraints.maxWidth + remaining).coerceAtLeast(0)
+                held[1] = target
+            }
+            held[0]
+        } else {
+            held[1] = -1
+            constraints.maxWidth
+        }
+        val placeable = measurable.measure(constraints.copy(minWidth = width, maxWidth = width))
+        layout(constraints.maxWidth, placeable.height) { placeable.place(0, 0) }
+    }
 }
 
 private fun bottomTabBadge(
@@ -984,6 +1452,8 @@ private fun CoursesTab(
     onNavigate: (String) -> Unit = {},
     scrollBehavior: ScrollBehavior? = null,
     extraBottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
+    /** 玻璃顶栏盖在内容上面时顶栏的高度，交给日程页各栏做顶部留白（Y2）。 */
+    contentTopPadding: androidx.compose.ui.unit.Dp = 0.dp,
     onSubtitleChange: (String) -> Unit = {},
     onActionsChange: ((@Composable androidx.compose.foundation.layout.RowScope.() -> Unit)?) -> Unit = {},
     onBottomContentChange: ((@Composable () -> Unit)?) -> Unit = {},
@@ -997,11 +1467,12 @@ private fun CoursesTab(
             site = loginState.sessionManager?.getSiteOrNull("jwxt"),
             studentId = loginState.activeUsername,
             onBack = {},
-            showTopBar = false,
             onSubtitleChange = onSubtitleChange,
             onActionsChange = onActionsChange,
             onBottomContentChange = onBottomContentChange,
             contentBottomPadding = extraBottomPadding,
+            contentTopPadding = contentTopPadding,
+            topAppBarScrollBehavior = scrollBehavior,
             // 详情面板的下钻目标（教材全文 / 课程回放 / 考勤）都在别的子系统里，
             // 走带登录的跳转，免得落地页自己再弹一次未登录。
             onNavigate = { route ->
@@ -1062,12 +1533,35 @@ private fun ToolsTab(
     onNavigateWithLogin: (String, LoginType) -> Unit,
     onNavigate: (String) -> Unit,
     scrollBehavior: ScrollBehavior? = null,
-    navBarStyle: String = "floating"
+    /** 悬浮底栏的总占位高度（= floatingBarReserve）：底栏浮在内容之上，列表末尾得自己留出来。 */
+    extraBottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
+    contentTopPadding: androidx.compose.ui.unit.Dp = 0.dp,
 ) {
     com.xjtu.toolbox.zyxf.ZyxfBrowseScreen(
         contentPadding = PaddingValues(
-            bottom = if (navBarStyle == "floating") 96.dp else 0.dp,
+            bottom = extraBottomPadding,
         ),
         scrollBehavior = scrollBehavior,
+        contentTopPadding = contentTopPadding,
     )
+}
+
+/**
+ * [frozen] 为真时，用上一次（未冻结时）的约束测量子内容，外面的约束怎么变都不传进去。
+ *
+ * 约束没变，Compose 就跳过子树的重新测量，于是整棵子树不跟着父布局的尺寸动画逐帧重排。
+ * 自己报给父布局的尺寸仍按当前约束收紧，不会撑破父布局。
+ * [frozen] 在布局阶段读，状态变了只触发重新布局、不触发重组。
+ */
+@Composable
+private fun Modifier.freezeLayoutWhile(frozen: () -> Boolean): Modifier {
+    // remember 住：MainScreen 重组时修饰符会重建，不记住的话冻结期间一重组就丢了原来的约束
+    val last = remember { arrayOfNulls<androidx.compose.ui.unit.Constraints>(1) }
+    return this.layout { measurable, constraints ->
+        val use = if (frozen()) last[0] ?: constraints else constraints.also { last[0] = it }
+        val placeable = measurable.measure(use)
+        layout(constraints.constrainWidth(placeable.width), constraints.constrainHeight(placeable.height)) {
+            placeable.place(0, 0)
+        }
+    }
 }

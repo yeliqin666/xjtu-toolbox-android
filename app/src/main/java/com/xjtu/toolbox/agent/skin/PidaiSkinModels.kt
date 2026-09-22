@@ -15,7 +15,7 @@ data class PidaiSkinManifest(
 )
 
 /**
- * 颜色槽。皮肤可以写死颜色，也可以让某一层跟随底栏主题的墨色/背景色，
+ * 颜色槽。皮肤可以写死颜色，也可以让某一层跟随主题的墨色，或者干脆挖空，
  * 这样单色皮肤在深浅色模式下都还认得出来。
  */
 sealed interface PidaiPaint {
@@ -25,7 +25,11 @@ sealed interface PidaiPaint {
     /** 跟随主题前景色。 */
     object Ink : PidaiPaint
 
-    /** 跟随主题背景色；用来在身体上挖洞（眼睛、镂空）。 */
+    /**
+     * 挖空：用 [androidx.compose.ui.graphics.BlendMode.Clear] 在身体上镂出真正的洞
+     * （眼睛、通知点凹槽等），而不是画成某种「背景色」。名字沿用旧版皮肤格式，
+     * 旧版这里画的是底栏背景色，挖空以后含义变了，但字段名和取值不变，兼容旧皮肤文件。
+     */
     object Paper : PidaiPaint
 
     /** 0xAARRGGBB。 */

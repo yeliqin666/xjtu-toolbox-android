@@ -90,15 +90,6 @@ data class LmsCourseSummary(
         get() = instructors.joinToString(" / ") { it.name }.ifEmpty { "未知" }
 }
 
-data class LmsCourseDetail(
-    val summary: LmsCourseSummary,
-    val subjectCode: String = "",
-    val displayName: String = "",
-    val publicScope: String = "",
-    val cover: String = "",
-    val courseOutline: Map<String, Any?> = emptyMap()
-)
-
 // ════════════════════════════════════════
 //  活动 (Activity)
 // ════════════════════════════════════════

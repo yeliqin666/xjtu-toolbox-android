@@ -132,3 +132,10 @@
     public static int d(...);
     public static int v(...);
 }
+
+# ── miuix-nav 返回栈（nav/AppRoute.kt）──
+# 返回栈用 kotlinx.serialization 存进 rememberSaveable，切后台时序列化、进程被杀后读回来。
+# 库自带的规则覆盖了常规写法，这里再显式留住整个路由层级和生成的序列化器当保险：
+# 预览包不混淆，这类问题只会在正式版上才暴露。
+-keep class com.xjtu.toolbox.nav.AppRoute { *; }
+-keep class com.xjtu.toolbox.nav.AppRoute$* { *; }

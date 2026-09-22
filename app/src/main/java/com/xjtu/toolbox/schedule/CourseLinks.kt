@@ -9,8 +9,6 @@ import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.SessionManager
 import com.xjtu.toolbox.auth.ensureSite
-import com.xjtu.toolbox.classreplay.Course as ReplayCourse
-import com.xjtu.toolbox.classreplay.fetchCourses
 import com.xjtu.toolbox.jiaocai1.Jiaocai1Api
 import com.xjtu.toolbox.jiaocai1.Jiaocai1Book
 import com.xjtu.toolbox.jiaocai1.Jiaocai1SearchField
@@ -24,7 +22,7 @@ import java.util.concurrent.ConcurrentHashMap
 private const val TAG = "CourseLinks"
 
 /**
- * 把教材、回放、考勤挂回一门课上。
+ * 把教材、思源学堂、考勤挂回一门课上。
  *
  * 只管解析，不管展示——两套日程布局共用同一份结果。每一项独立可失败，调用方按项渲染。
  * 所有登录都走 `silent = true`：点开课程详情不该让用户收到短信验证码。
@@ -33,10 +31,6 @@ object CourseLinks {
 
     // ── 教材 ──────────────────────────────────────────────
 
-    /**
-     * 按课程名匹配——教材接口没有课程号这一列。
-     * 名字带「（甲）」这类后缀时两边未必一致，所以精确优先、包含兜底。
-     */
     /**
      * 找这门课的教材。
      *
@@ -73,10 +67,6 @@ object CourseLinks {
     }
 
     /**
-     * 只按 ISBN 精确查。书名在两个系统里的写法对不上是常态，按书名搜出来的第一条
-     * 经常是另一本书——给错的书比不给更糟，所以没 ISBN 就放弃，不做模糊回退。
-     */
-    /**
      * 书名归一化：去掉书名号、括注、空白与标点，统一大小写。
      *
      * 两边对同一本书的写法常有出入（《固体物理学》/ 固体物理学（第二版）），
@@ -88,27 +78,54 @@ object CourseLinks {
             .filter { it.isLetterOrDigit() }
             .lowercase()
 
+    /**
+     * 教材全文的查询结局。
+     *
+     * 刻意不折成一个 `Jiaocai1Book?`：四种结局对用户意味着完全不同的事——
+     * 「还在查」该等，「这本书没 ISBN」永远不会有结果，「教材站点这次没登上」
+     * 下次可能就好了，「库里没有」是确定的没有。折成一个可空值，界面就只剩
+     * "那一行点不动"一种表现，用户既不知道该等、该重试还是该死心。
+     */
+    sealed interface Fulltext {
+        data class Found(val book: Jiaocai1Book) : Fulltext
+
+        /** 教材报表里这本书没有能用来检索的 ISBN，书名也兜不住。 */
+        data object NoKey : Fulltext
+
+        /** 全文库确实没有这本书。这是确定的结论，可以缓存。 */
+        data object NotFound : Fulltext
+
+        /** 教材站点这次没登上或请求失败。是暂时的，**不缓存**，下次再来。 */
+        data object SiteUnavailable : Fulltext
+    }
+
+    /**
+     * 查这本教材在全文库里有没有。
+     *
+     * @param byTitle ISBN 查不到时用来兜底的书名；传 null 表示不兜底。
+     * @param byAuthor 同名多版本时用来消歧的作者，可空。
+     */
     suspend fun fulltextByIsbn(
         manager: SessionManager?,
         isbn: String,
-        /** ISBN 查不到时用来兜底的书名；传 null 表示不兜底。 */
         byTitle: String? = null,
-        /** 同名多版本时用来消歧的作者，可空。 */
         byAuthor: String? = null,
-    ): Jiaocai1Book? {
+    ): Fulltext {
         val key = isbn.filter { it.isDigit() || it.equals('X', ignoreCase = true) }
-        if (key.length < 10) return null
+        if (key.length < 10) return Fulltext.NoKey
         val c = caches()
         c.fulltext[key]?.let { return it.value }
-        val site = manager.siteOrNull(LoginType.JIAOCAI) ?: return null
+        // 用户正开着课程详情等这一行，豁免站点级失败冷却——与下面的考勤同一个道理。
+        val site = manager.siteOrNull(LoginType.JIAOCAI, userInitiated = true)
+            ?: return Fulltext.SiteUnavailable
         return withContext(Dispatchers.IO) {
             // 两种写法都试。教材报表里的 ISBN 常带连字符（978-7-04-039663-9），
             // 而全文库存的是哪一种没有保证——之前只发原文，库里存纯数字时就一条也搜不到，
             // 表现就是"明明有 ISBN 却从来匹配不上全文"。
             // 先发规范化的纯数字/X 形态，再退回原文。
             val candidates = listOf(key, isbn.trim()).filter { it.isNotEmpty() }.distinct()
-            val hit = runCatching {
-                candidates.firstNotNullOfOrNull { kw ->
+            val outcome = runCatching {
+                val hit = candidates.firstNotNullOfOrNull { kw ->
                     Jiaocai1Api(site).search(keyword = kw, field = Jiaocai1SearchField.ISBN)
                         .books.firstOrNull()
                 } ?: byTitle?.takeIf { it.isNotBlank() }?.let { title ->
@@ -130,85 +147,20 @@ object CourseLinks {
                             ?: exact.first()
                     }
                 }
+                if (hit != null) Fulltext.Found(hit) else Fulltext.NotFound
             }.rethrowCancellation().getOrElse {
                 Log.w(TAG, "fulltext by isbn=$isbn failed", it)
-                null
+                Fulltext.SiteUnavailable
             }
-            // 查不到也缓存：同一个面板反复开合不该反复打这个请求。
-            if (c.isCurrent()) c.fulltext[key] = Box(hit)
-            hit
-        }
-    }
-
-    // ── 课程回放 ──────────────────────────────────────────
-
-    /**
-     * 教务课程号 → TronClass 的同一门课。
-     *
-     * 两边的 code 不是同一个串，TronClass 在外面包了一层：
-     * `202520262` + `PHYS405309` + `01`（学年学期 + 教务课程号 + 教学班号）。
-     * 所以判据是包含，不是等值。同一门课跨学期重修会有多条，优先取学期前缀相符的。
-     */
-    suspend fun replayFor(
-        manager: SessionManager?,
-        courseCode: String,
-        /** 教务学期码，如 `2025-2026-2`；用于在同名多学期时挑对的那一门。 */
-        termCode: String = "",
-    ): ReplayCourse? {
-        val code = courseCode.trim()
-        if (code.isEmpty()) return null
-        val all = replayCourses(manager) ?: return null
-        val candidates = all.filter { it.courseCode.contains(code, ignoreCase = true) }
-        if (candidates.isEmpty()) {
-            Log.d(
-                TAG,
-                "replay 未命中 code=$code；对方 ${all.size} 门，样本 codes=" +
-                    all.take(5).joinToString { "${it.courseCode}(${it.name})" },
-            )
-            return null
-        }
-        // 学期前缀就是教务学期码去掉分隔符：2025-2026-2 -> 202520262
-        val prefix = termCode.filter { it.isDigit() }
-        val hit = candidates.firstOrNull { prefix.isNotEmpty() && it.courseCode.startsWith(prefix) }
-            ?: candidates.first()
-        Log.d(TAG, "replay 命中 $code -> ${hit.courseCode}(${hit.name}) 候选 ${candidates.size} 门")
-        return hit
-    }
-
-    private suspend fun replayCourses(manager: SessionManager?): List<ReplayCourse>? {
-        val c = caches()
-        c.replay?.let { return it.value }
-        // 注意：这里**不按学期过滤**。TronClass 的 my-courses 用 classify_type
-        // "recently_started"，一次返回多个学期（课程回放页的学期筛选器就是这么来的），
-        // 所以历史学期的课也在列表里，按课程号匹配即可，不需要额外的学期参数。
-        val site = manager.siteOrNull(LoginType.CLASS) ?: return null
-        return withContext(Dispatchers.IO) {
-            val list = runCatching {
-                // 接口是分页的，一页 50。翻到取空或够 5 页为止：一个学生一学期不可能有
-                // 250 门课，封顶只是防服务端 total 字段不可信时无限翻页。
-                val acc = ArrayList<ReplayCourse>()
-                var page = 1
-                while (page <= 5) {
-                    val (items, _) = fetchCourses(site, page = page, pageSize = 50)
-                    acc += items
-                    if (items.size < 50) break
-                    page++
-                }
-                acc.toList()
-            }.rethrowCancellation().getOrElse {
-                Log.w(TAG, "fetchCourses failed", it)
-                null
+            // 只缓存确定的结论。站点没登上是暂时的，缓存它会让这个面板
+            // 在整个会话里都以为"这本书没有全文"，而其实只是那一下没登上。
+            if (outcome !is Fulltext.SiteUnavailable && c.isCurrent()) {
+                c.fulltext[key] = Box(outcome)
             }
-            // 失败不写缓存：网络抖一下不该让整个会话都查不到回放。
-            if (list != null && c.isCurrent()) c.replay = Box(list)
-            list
+            outcome
         }
     }
 
-    /**
-     * 指定某一天的回放场次，不是"这个课格在整学期的所有周"——
-     * 按星期几筛会把 7 天后、14 天后的全带进来。同一天多场是正常的（连堂各录一段）。
-     */
     /**
      * 这门课在思源学堂对应哪门。
      *
@@ -251,74 +203,6 @@ object CourseLinks {
         return all.firstOrNull { it.name.normalizedCourseName() == target }
     }
 
-    suspend fun replaySessionsOn(
-        manager: SessionManager?,
-        course: CourseItem,
-        termCode: String,
-        date: LocalDate,
-    ): Pair<ReplayCourse, List<com.xjtu.toolbox.classreplay.LiveActivity>>? {
-        val target = replayFor(manager, course.courseCode, termCode) ?: return null
-        val activities = replaySessions(manager, target) ?: return null
-        val mine = activities.filter { it.startTime.parseDateTime()?.toLocalDate() == date }
-        Log.d(
-            TAG,
-            "replay 场次 ${target.name} @$date：共 ${activities.size} 场，命中 ${mine.size} 场",
-        )
-        // 那一天没有录播就一场不给。摆别的日子的出来比不摆更糟——
-        // 用户会以为那就是这次课的。想看全部走"课程回放"那一行进回放页。
-        return target to mine.sortedBy { it.startTime }
-    }
-
-    private suspend fun replaySessions(
-        manager: SessionManager?,
-        target: ReplayCourse,
-    ): List<com.xjtu.toolbox.classreplay.LiveActivity>? {
-        val c = caches()
-        c.sessions[target.id]?.let { return it.value }
-        val site = manager.siteOrNull(LoginType.CLASS) ?: return null
-        return withContext(Dispatchers.IO) {
-            runCatching {
-                val acc = ArrayList<com.xjtu.toolbox.classreplay.LiveActivity>()
-                var page = 1
-                while (page <= 5) {
-                    val (items, _) = com.xjtu.toolbox.classreplay
-                        .fetchLiveActivities(site, target.id, page = page, pageSize = 50)
-                    acc += items
-                    if (items.size < 50) break
-                    page++
-                }
-                acc.toList()
-            }.rethrowCancellation().getOrElse {
-                Log.w(TAG, "fetchLiveActivities failed", it)
-                null
-            }?.also { if (c.isCurrent()) c.sessions[target.id] = Box(it) }
-        }
-    }
-
-    private const val SESSION_SLACK_MIN = 45
-
-    /** 走 [parseDateTime] 而不是截字符串：原始值是 UTC，直接截会显示成 02:10。 */
-    fun prettyLocalTime(raw: String): String =
-        raw.parseDateTime()?.format(java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm"))
-            ?: raw
-
-    /**
-     * TronClass 的时间戳是 UTC（`2026-06-15T02:10:00Z`），必须按时区换算。
-     * 不能用 `OffsetDateTime.toLocalDateTime()`——那是丢掉偏移而不是换算，
-     * 小时和星期会一起算错。
-     */
-    private fun String.parseDateTime(): java.time.LocalDateTime? {
-        val t = trim()
-        if (t.isEmpty()) return null
-        runCatching {
-            java.time.OffsetDateTime.parse(t)
-                .atZoneSameInstant(java.time.ZoneId.systemDefault())
-                .toLocalDateTime()
-        }.getOrNull()?.let { return it }
-        return runCatching { java.time.LocalDateTime.parse(t) }.getOrNull()
-            ?: runCatching { java.time.LocalDateTime.parse(t.replace(' ', 'T')) }.getOrNull()
-    }
-
     // ── 考勤 ──────────────────────────────────────────────
 
     /** 考勤流水与课表格子的联合键。 */
@@ -332,8 +216,6 @@ object CourseLinks {
      */
     class AttendanceIndex(
         private val byKey: Map<SlotKey, AttendanceWaterRecord>,
-        private val byCode: Map<String, List<AttendanceWaterRecord>>,
-        private val byName: Map<String, List<AttendanceWaterRecord>>,
     ) {
         fun statusOf(week: Int, dayOfWeek: Int, startSection: Int): WaterType? =
             statusRecordOf(week, dayOfWeek, startSection)?.status
@@ -341,28 +223,9 @@ object CourseLinks {
         fun statusRecordOf(week: Int, dayOfWeek: Int, startSection: Int): AttendanceWaterRecord? =
             byKey[SlotKey(week, dayOfWeek, startSection)]
 
-        /**
-         * 优先按课程号：实测考勤的 `sCode` 与教务 `courseCode` 逐字相同。
-         * 名字只作兜底，个别记录的 sCode 会是空的。
-         */
-        fun recordsOf(course: CourseItem): List<AttendanceWaterRecord> {
-            val code = course.courseCode.trim()
-            if (code.isNotEmpty()) byCode[code]?.let { return it }
-            return byName[course.courseName.normalizedCourseName()].orEmpty()
-        }
-
-        /** 这一个课格每周的考勤，按周次升序。一门课一周上两次时能分开看。 */
         /** 指定周次的那一次考勤。没有记录 = 还没上，或这门课不考勤。 */
         fun recordOn(course: CourseItem, week: Int): AttendanceWaterRecord? =
             statusRecordOf(week, course.dayOfWeek, course.startSection)
-
-        fun weeklyOf(course: CourseItem): List<AttendanceWaterRecord> =
-            recordsOf(course)
-                .filter { r ->
-                    r.startTime == course.startSection &&
-                        r.date.dayOfWeekOrNull() == course.dayOfWeek
-                }
-                .sortedBy { it.week }
 
         val isEmpty: Boolean get() = byKey.isEmpty()
 
@@ -447,11 +310,7 @@ object CourseLinks {
             val old = byKey[key]
             if (old == null || r.status.severity() > old.status.severity()) byKey[key] = r
         }
-        return AttendanceIndex(
-            byKey = byKey,
-            byCode = records.filter { it.courseCode.isNotBlank() }.groupBy { it.courseCode.trim() },
-            byName = records.groupBy { it.courseName.normalizedCourseName() },
-        )
+        return AttendanceIndex(byKey = byKey)
     }
 
     private suspend fun fetchAttendanceIndexInner(
@@ -474,11 +333,12 @@ object CourseLinks {
                     Log.w(TAG, "getTermList 失败", it)
                     emptyList()
                 }
-                Log.d(TAG, "attendance 学期表：" + terms.joinToString { "${it.bh}=${it.name}" })
+                Log.d(TAG, "attendance 学期表：" + terms.joinToString { "${it.bh}=${it.code}(${it.name})" })
                 // 考勤的 bh（如 646）和教务的学期码（2025-2026-2）是两套编号，
-                // 靠学期名里的数字对齐：两边都抽成纯数字 202520262 再比。
-                val want = termCode.filter { it.isDigit() }
-                val matched = terms.firstOrNull { it.name.filter { c -> c.isDigit() } == want }
+                // 靠 TermInfo.code（"2025-2026-2"，与教务 termCode 同格式）直接对齐，
+                // 不再用人类可读名字里的数字瞎凑——"2025-2026 第二学期"抽出数字
+                // 是"202520262"，跟教务的"2025-2026-2"永远对不上，考勤记录会被整学期丢弃。
+                val matched = terms.firstOrNull { it.code.isNotBlank() && it.code == termCode }
                 // 增量只回看最近几天，全量按学期起止取。
                 // 老师改考勤没有时间限制（期末回头补第 3 周是常事），所以增量之外
                 // 还有定期全量重扫兜底，见 AttendanceRecordStore 的分层说明。
@@ -569,9 +429,7 @@ object CourseLinks {
      * 多张课程卡片的 LaunchedEffect 会并发查询，所以容器必须线程安全。
      */
     private class Caches(val accountId: String?) {
-        val fulltext = ConcurrentHashMap<String, Box<Jiaocai1Book?>>()
-        val sessions = ConcurrentHashMap<Int, Box<List<com.xjtu.toolbox.classreplay.LiveActivity>>>()
-        @Volatile var replay: Box<List<ReplayCourse>>? = null
+        val fulltext = ConcurrentHashMap<String, Box<Fulltext>>()
         @Volatile var lmsCourses: Box<List<com.xjtu.toolbox.lms.LmsCourseSummary>>? = null
         @Volatile var attendance: Pair<String, Box<AttendanceIndex>>? = null
 
@@ -639,14 +497,14 @@ object CourseLinks {
         WaterType.LATE -> 2
         WaterType.LEAVE -> 1
         WaterType.NORMAL -> 0
+        // 未识别状态不确定好坏，按"最坏"处理，避免被一条正常记录悄悄盖掉。
+        WaterType.UNKNOWN -> 4
     }
 
     /** 考勤的 `checkdate` 形如 `2025-09-15`，可能带时间后缀，取前 10 位解析。 */
     private fun String.parseDayOfWeek(): Int? = runCatching {
         LocalDate.parse(take(10)).dayOfWeek.value
     }.getOrNull()
-
-    internal fun String.dayOfWeekOrNull(): Int? = parseDayOfWeek()
 }
 
 /** 去掉空白和结尾括号后缀，让两个系统里同一门课的名字能对上。 */

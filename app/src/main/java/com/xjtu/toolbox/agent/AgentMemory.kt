@@ -74,9 +74,9 @@ object AgentMemory {
         val items = all(ctx)
         if (items.isEmpty()) return ""
         return buildString {
-            append("\n# 记住的偏好\n")
+            append("\n# 用户偏好\n")
             items.forEach { (k, v) -> append("- $k：$v\n") }
-            append("只用来决定表达方式和查询顺序。用户明确问的事照查不误，不许因为偏好跳过。\n")
+            append("偏好只影响表达方式和查询顺序，不影响查不查。\n")
         }.trimEnd()
     }
 }

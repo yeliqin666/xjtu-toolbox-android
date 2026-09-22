@@ -67,6 +67,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.xjtu.toolbox.qrlogin.QrScannerView
+import androidx.compose.foundation.layout.fillMaxHeight
+import com.xjtu.toolbox.ui.glass.*
 import com.xjtu.toolbox.util.QrBitmap
 import com.xjtu.toolbox.util.XjtuTime
 import kotlinx.coroutines.Dispatchers
@@ -118,6 +120,7 @@ fun MatchScreen(onBack: () -> Unit) {
     var dietInput by remember { mutableStateOf("") }
     var local by remember { mutableStateOf(MatchData.Local()) }
     var loading by remember { mutableStateOf(true) }
+    var loadError by remember { mutableStateOf<String?>(null) }
 
     var showShareSettings by remember { mutableStateOf(false) }
     var scanning by remember { mutableStateOf(false) }
@@ -128,8 +131,18 @@ fun MatchScreen(onBack: () -> Unit) {
 
     // 全部读本地缓存，这个功能不为自己发任何请求，也不触发登录。
     // 哪个页面没逛过就没有对应的数据，那一项会禁用并说明原因。
-    LaunchedEffect(Unit) {
-        local = withContext(Dispatchers.IO) { MatchData.read(context) }
+    //
+    // 读缓存这一步必须保证「一定会结束」：以前这里没有兜底，
+    // MatchData.read 一旦抛异常，协程就地死掉，loading 永远是 true，
+    // 用户看到的是一块空白加一条进度条——这正是「怎么选都是空的」那个现象。
+    // 拿来比的学期：null = 本学期。换学期时整份本地数据重读（课、考试、教材都跟着学期走）
+    var pickedTerm by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(pickedTerm) {
+        val read = withContext(Dispatchers.IO) { runCatching { MatchData.read(context, pickedTerm) } }
+        read.getOrNull()?.let { local = it }
+        loadError = read.exceptionOrNull()?.let {
+            "读本地缓存时出错了：${it.message ?: it.javaClass.simpleName}"
+        }
         loading = false
     }
     LaunchedEffect(local.profile?.name) {
@@ -206,13 +219,17 @@ fun MatchScreen(onBack: () -> Unit) {
         }
     }
 
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    // 扫码取景（ScannerOverlay）是相机预览，采不到像素，不做玻璃。
+    val glass = rememberPageGlass()
     Box(Modifier.fillMaxSize()) {
         Scaffold(
             topBar = {
                 TopAppBar(
                     title = "匹配交友",
                     largeTitle = "匹配交友",
-                    color = MiuixTheme.colorScheme.surface,
+                    color = glassBarColor(glass),
+                    modifier = Modifier.glassTopBar(glass),
                     scrollBehavior = scrollBehavior,
                     navigationIcon = {
                         IconButton(onClick = onBack) {
@@ -222,24 +239,78 @@ fun MatchScreen(onBack: () -> Unit) {
                 )
             },
         ) { padding ->
+            val glassTop = padding.glassTop(glass)
             Box(Modifier.fillMaxSize()) {
                 if (loading) {
-                    Box(Modifier.fillMaxSize().padding(padding), Alignment.Center) {
+                    Box(
+                        Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
+                        Alignment.Center,
+                    ) {
                         LinearProgressIndicator(Modifier.width(120.dp))
                     }
                 } else {
-                    LazyColumn(
+                    val listPadding = PaddingValues(
+                        start = 16.dp, end = 16.dp,
+                        top = glassTop + 8.dp,
+                        bottom = padding.calculateBottomPadding() + 24.dp,
+                    )
+                    val resultItem: @Composable () -> Unit = {
+                        result?.let { r ->
+                            ResultCard(
+                                theirName = theirName,
+                                result = r,
+                                onCopy = {
+                                    clipboard.setText(
+                                        AnnotatedString(MatchProfile.summaryText(theirName, r))
+                                    )
+                                },
+                            )
+                        }
+                    }
+                    // 宽屏两栏：左边交换码（我的码、对方的码），右边是匹配结果。以前整页限宽 720 居中，
+                    // 结果卡要往下滚过两张码才看得到，平板横屏左右各空一大块。
+                    val wide = com.xjtu.toolbox.ui.isWideLayout()
+                    Row(
                         Modifier
                             .fillMaxSize()
+                            .padding(padding.withoutTop(glass))
+                            .glassSource(glass)
                             .nestedScroll(scrollBehavior.nestedScrollConnection)
+                    ) {
+                    LazyColumn(
+                        Modifier
+                            .then(if (wide) Modifier.width(440.dp) else Modifier.weight(1f))
+                            .fillMaxHeight()
                             .overScrollVertical(),
-                        contentPadding = PaddingValues(
-                            start = 16.dp, end = 16.dp,
-                            top = padding.calculateTopPadding() + 8.dp,
-                            bottom = padding.calculateBottomPadding() + 24.dp,
-                        ),
+                        contentPadding = listPadding,
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
+                        loadError?.let { msg ->
+                            item {
+                                SectionCard("读不到本地数据") {
+                                    Text(
+                                        "$msg\n这个页面只读别的页面留下的缓存，不会自己联网。" +
+                                            "退出去重进一次；还是这样就是缓存坏了，去设置里清一次数据。",
+                                        style = MiuixTheme.textStyles.footnote1,
+                                        color = MiuixTheme.colorScheme.error,
+                                    )
+                                }
+                            }
+                        }
+                        // 一条缓存都没有时，码里只剩一个名字，出了也没用。
+                        // 与其给一张"能扫但算不出东西"的码，不如先说清楚该去哪把数据攒出来。
+                        if (!local.hasAnything) {
+                            item {
+                                SectionCard("还没有可分享的数据") {
+                                    Text(
+                                        "匹配靠的是你在别的页面留下的缓存：课表、考试、教材来自日程页，" +
+                                            "饭点和食堂来自校园卡页。先去转一圈，回来这里就有东西可对了。",
+                                        style = MiuixTheme.textStyles.footnote1,
+                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    )
+                                }
+                            }
+                        }
                         item {
                             MyCodeCard(
                                 code = myCode,
@@ -264,19 +335,32 @@ fun MatchScreen(onBack: () -> Unit) {
                                 onCompute = { match(theirCode) },
                             )
                         }
-                        result?.let { r ->
-                            item {
-                                ResultCard(
-                                    theirName = theirName,
-                                    result = r,
-                                    onCopy = {
-                                        clipboard.setText(
-                                            AnnotatedString(MatchProfile.summaryText(theirName, r))
+                        if (!wide && result != null) {
+                            item { resultItem() }
+                        }
+                    }
+                    if (wide) {
+                        LazyColumn(
+                            Modifier.weight(1f).fillMaxHeight().overScrollVertical(),
+                            contentPadding = listPadding,
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            if (result != null) {
+                                item { resultItem() }
+                            } else {
+                                item {
+                                    SectionCard("匹配结果会出现在这里") {
+                                        Text(
+                                            "把你的码给对方扫，或者在左边扫对方的码、粘贴对方的文字码，" +
+                                                "点「算一算」就能看到你们的课表重合、共同的老师和考试。",
+                                            style = MiuixTheme.textStyles.footnote1,
+                                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                         )
-                                    },
-                                )
+                                    }
+                                }
                             }
                         }
+                    }
                     }
                 }
 
@@ -291,6 +375,7 @@ fun MatchScreen(onBack: () -> Unit) {
                         onDims = { dims = it },
                         dietInput = dietInput,
                         onDietInput = { dietInput = it },
+                        onTermPicked = { code -> pickedTerm = code.takeIf { it != local.currentTerm } },
                         onDismiss = { showShareSettings = false },
                     )
                 }
@@ -313,6 +398,21 @@ fun MatchScreen(onBack: () -> Unit) {
 // ── 交换 ─────────────────────────────────────────────────
 
 /**
+ * 二维码那一块的状态。
+ *
+ * 以前这里只有一个 `Bitmap?`，null 同时表示「还在画」和「画不出来」，
+ * UI 把两者都渲染成进度条——于是失败和加载中长得一模一样，用户报的
+ * 「怎么选都不出码」实际上是一直停在那个假的加载态上。三态之后，
+ * 每一种情况都必须说出一句话，不允许再有「转圈转到天荒地老」这个分支。
+ */
+private sealed interface QrState {
+    data object Loading : QrState
+    data class Ready(val bitmap: Bitmap) : QrState
+    /** [reason] 直接显示给用户，得是一句能照着做的话。 */
+    data class Failed(val reason: String) : QrState
+}
+
+/**
  * 我的码：一张二维码 + 一段文字兜底。
  *
  * 二维码只在扫得动的长度里给。密到 [QrBitmap.MAX_SCANNABLE] 以上的码摆出来，
@@ -325,23 +425,44 @@ private fun MyCodeCard(
     onEditShare: () -> Unit,
     onCopy: () -> Unit,
 ) {
-    val scannable = code.length <= QrBitmap.MAX_SCANNABLE
-    val qr by produceState<Bitmap?>(null, code, scannable) {
-        value = if (!scannable) null
-        else withContext(Dispatchers.Default) { QrBitmap.generate(code, 720) }
+    val state by produceState<QrState>(QrState.Loading, code) {
+        // 换了维度就先回到加载态：produceState 不会自己把 value 复位，
+        // 不显式写一次的话，新码没画出来之前显示的还是上一张旧码。
+        value = QrState.Loading
+        value = when {
+            code.isEmpty() ->
+                // 正常不会走到：encode 至少会带版本号。但空串喂给 zxing 是直接抛异常，
+                // 与其让它炸在协程里变成永远的加载态，不如在这说清楚。
+                QrState.Failed("没能生成分享码。退出去重进一次试试。")
+
+            code.length > QrBitmap.MAX_SCANNABLE ->
+                QrState.Failed(
+                    "开的项太多，${code.length} 字的码密到扫不出来了" +
+                        "（扫得动的上限约 ${QrBitmap.MAX_SCANNABLE} 字）。" +
+                        "点「改」关掉几项，或者把下面的文字直接发给对方。"
+                )
+
+            else -> withContext(Dispatchers.Default) { QrBitmap.generate(code, 720) }
+                ?.let { QrState.Ready(it) }
+                ?: QrState.Failed(
+                    "这段 ${code.length} 字的码画不成二维码。点「改」关掉几项再试，" +
+                        "或者把下面的文字发给对方。"
+                )
+        }
     }
 
     SectionCard("我的码") {
-        if (scannable) {
-            Box(Modifier.fillMaxWidth(), Alignment.Center) {
-                val bitmap = qr
-                if (bitmap == null) {
-                    Box(Modifier.size(232.dp), Alignment.Center) {
-                        LinearProgressIndicator(Modifier.width(80.dp))
-                    }
-                } else {
+        when (val s = state) {
+            is QrState.Loading -> Box(Modifier.fillMaxWidth(), Alignment.Center) {
+                Box(Modifier.size(232.dp), Alignment.Center) {
+                    LinearProgressIndicator(Modifier.width(80.dp))
+                }
+            }
+
+            is QrState.Ready -> {
+                Box(Modifier.fillMaxWidth(), Alignment.Center) {
                     Image(
-                        bitmap = bitmap.asImageBitmap(),
+                        bitmap = s.bitmap.asImageBitmap(),
                         contentDescription = "我的匹配交友二维码",
                         modifier = Modifier
                             .size(232.dp)
@@ -351,19 +472,19 @@ private fun MyCodeCard(
                             .padding(10.dp),
                     )
                 }
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    if (code.length <= QrBitmap.COMFORTABLE) "让对方用「扫一扫」扫这张"
+                    else "开的项多，码有点密，扫的时候凑近点",
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center,
+                )
             }
-            Spacer(Modifier.height(10.dp))
-            Text(
-                if (code.length <= QrBitmap.COMFORTABLE) "让对方用「扫一扫」扫这张"
-                else "开的项多，码有点密，扫的时候凑近点",
-                style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center,
-            )
-        } else {
-            Text(
-                "开的项太多，二维码密到扫不出来了。少开几项，或者把下面的文字发给对方。",
+
+            is QrState.Failed -> Text(
+                s.reason,
                 style = MiuixTheme.textStyles.footnote1,
                 color = MiuixTheme.colorScheme.error,
             )
@@ -374,12 +495,20 @@ private fun MyCodeCard(
         Spacer(Modifier.height(10.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("分享了 $sharedCount 项", style = MiuixTheme.textStyles.body2)
                 Text(
-                    // 维度越多码越长。与其等用户粘到一半发现聊天框塞不下，不如把长度摆在这。
-                    "文字 ${code.length} 字",
+                    if (sharedCount == 0) "一项都没分享" else "分享了 $sharedCount 项",
+                    style = MiuixTheme.textStyles.body2,
+                    // 一项没开时码里只有个名字，对方算不出任何东西，得让人看出不对劲。
+                    color = if (sharedCount == 0) MiuixTheme.colorScheme.error
+                    else MiuixTheme.colorScheme.onSurface,
+                )
+                Text(
+                    // 维度越多码越长。与其等用户粘到一半发现聊天框塞不下，不如把长度摆在这，
+                    // 顺带把上限写出来——改维度时能直接看见离上限还有多远。
+                    "码长 ${code.length} / 上限 ${QrBitmap.MAX_SCANNABLE} 字",
                     style = MiuixTheme.textStyles.footnote2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    color = if (code.length > QrBitmap.COMFORTABLE) MiuixTheme.colorScheme.error
+                    else MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
             }
             TextButton(text = "改", onClick = onEditShare)
@@ -500,9 +629,13 @@ private fun ShareSettingsDialog(
     onDims: (MatchProfile.Dimensions) -> Unit,
     dietInput: String,
     onDietInput: (String) -> Unit,
+    onTermPicked: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val hasSchedule = local.courses.isNotEmpty()
+    val termLabel = local.term?.let { t ->
+        (local.termNames[t] ?: t) + if (t == local.currentTerm) "（本学期）" else ""
+    } ?: "本学期"
     val hasBuildings = hasSchedule && local.courses.any { MatchProfile.buildingOf(it.location) != null }
     val hasTeachers = local.courses.any { it.teacher.isNotBlank() }
     val noSchedule = "还没读到课表，去日程页转一圈就有了"
@@ -529,9 +662,24 @@ private fun ShareSettingsDialog(
                 )
 
                 GroupLabel("课")
+                // 拿哪个学期来比：默认本学期；想和老同学对一对以前的课表，可以换成历史学期。
+                // 只列本地有课表缓存的学期（在日程页翻到过的才有）。
+                if (local.availableTerms.size > 1) {
+                    top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference(
+                        title = "学期",
+                        summary = termLabel,
+                        items = local.availableTerms.map {
+                            top.yukonga.miuix.kmp.basic.DropdownItem(
+                                text = (local.termNames[it] ?: it) + if (it == local.currentTerm) "（本学期）" else "",
+                            )
+                        },
+                        selectedIndex = local.availableTerms.indexOf(local.term).coerceAtLeast(0),
+                        onSelectedIndexChange = { onTermPicked(local.availableTerms[it]) },
+                    )
+                }
                 DimRow(
                     "空课时间",
-                    if (hasSchedule) "本学期 ${local.courses.size} 节课，用来算你俩什么时候都空" else noSchedule,
+                    if (hasSchedule) "${local.termNames[local.term] ?: "本学期"} ${local.courses.size} 节课，用来算你俩什么时候都空" else noSchedule,
                     dims.schedule, hasSchedule,
                 ) { onDims(dims.copy(schedule = it)) }
                 DimRow(
@@ -669,10 +817,24 @@ private fun ResultCard(
                 Text("和 $theirName", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "你俩没有一项是都愿意分享的，没得比。让对方多开几项试试。",
+                    if (result.commonDims == 0) {
+                        "你俩没有一项是都分享了的，没得比。常见原因是有一方没进过日程页，本地还没有课表；" +
+                            "让对方先打开一次日程页，或者多开几项再生成一次码。"
+                    } else {
+                        "你俩都分享了一些内容，但课、老师、考试这些都没有撞上，时间表也没能比上。"
+                    },
                     style = MiuixTheme.textStyles.body2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
+                // 同级、同专业、老乡这类身份信息不打分，但也是实打实的交集，没分数时照样列出来
+                result.notes.forEach { note ->
+                    Spacer(Modifier.height(6.dp))
+                    Text(note, style = MiuixTheme.textStyles.body2)
+                }
+                result.blocker?.let {
+                    Spacer(Modifier.height(6.dp))
+                    Text(it, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                }
                 return@Column
             }
 

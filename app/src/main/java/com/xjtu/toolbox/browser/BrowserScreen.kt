@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.browser
 
 import com.xjtu.toolbox.util.releaseSafely
+import com.xjtu.toolbox.util.WebVpnUtil
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -29,6 +30,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -203,6 +205,13 @@ fun BrowserScreen(
                         IconButton(onClick = { webViewRef?.reload() }) {
                             Icon(Icons.Default.Refresh, "刷新")
                         }
+                        // 分享：纯文字「网页标题 + 链接」，走系统分享面板
+                        IconButton(
+                            onClick = { shareWebPage(context, pageTitle, currentUrl) },
+                            enabled = currentUrl.startsWith("http"),
+                        ) {
+                            Icon(Icons.Default.Share, "分享")
+                        }
                     }
                 )
                 // 进度条
@@ -275,6 +284,9 @@ fun BrowserScreen(
                     android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
 
                     webViewClient = object : WebViewClient() {
+                        /** 自动跳过 WebVPN 登录前页的次数上限：统一认证失败时网关会再把人送回来，别来回兜圈。 */
+                        private var webVpnAutoLogins = 0
+
                         override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                             super.onPageStarted(view, url, favicon)
                             isLoading = true
@@ -312,6 +324,14 @@ fun BrowserScreen(
                             request: WebResourceRequest?
                         ): Boolean {
                             val url = request?.url?.toString() ?: return false
+                            // WebVPN 网关的「登录前页」（/login，不带参数）只有一颗「登录」按钮，
+                            // 按下去就是 /login?cas_login=true：走统一认证，拿到 ticket 后网关按事先记下的
+                            // 目标地址跳回去。网关会话过期时直接替用户按下这一步，不在中间停一页。
+                            if (request.isForMainFrame && isWebVpnLoginLanding(request.url) && webVpnAutoLogins < 2) {
+                                webVpnAutoLogins++
+                                view?.loadUrl(WebVpnUtil.WEBVPN_LOGIN_URL)
+                                return true
+                            }
                             // 验证码一次性地址：拦在 WebView 发出 GET 之前，只由 App 请求一次。
                             if (isCmsOneShotDownload(url)) {
                                 val name = URLUtil.guessFileName(url, null, null)
@@ -385,6 +405,12 @@ fun BrowserScreen(
                     // 加载 URL
                     if (initialUrl.isNotBlank()) {
                         val normalizedInitialUrl = normalizeUrl(initialUrl)
+                        // 第一次请求之前先把 App 的会话 cookie 注进来。上面的 LaunchedEffect 也会同步，
+                        // 但它要等这一帧组合提交之后才跑，比这里的 loadUrl 晚：WebVPN 打开转换后的网址时，
+                        // 第一个请求不带网关票据，被 302 到网关的登录前页，要用户再点一次「登录」
+                        // （那时 onPageStarted 已经把 cookie 补进去了，所以一点就过）。
+                        syncCookiesToWebView(site, cookieDomains)
+                        syncCookiesToWebView(cookieClient, cookieDomains)
                         Log.d(TAG, "load initialUrl=$normalizedInitialUrl")
                         loadUrl(normalizedInitialUrl)
                     }
@@ -412,3 +438,33 @@ private fun hostOf(url: String): String? =
     runCatching { URI(normalizeUrl(url)).host?.lowercase() }
         .getOrNull()
         ?.takeIf { it.isNotBlank() }
+
+/**
+ * WebVPN 网关的「登录前页」：`https://webvpn.xjtu.edu.cn/login`，不带 `cas_login`。
+ * 没有网关会话时访问任何代理地址都会被 302 到这里。
+ */
+internal fun isWebVpnLoginLanding(uri: android.net.Uri): Boolean =
+    uri.host.equals("webvpn.xjtu.edu.cn", ignoreCase = true) &&
+        uri.path?.trimEnd('/') == "/login" &&
+        uri.getQueryParameter("cas_login") == null &&
+        uri.getQueryParameter("ticket") == null
+
+/**
+ * 把当前网页分享出去：纯文字，第一行网页标题，第二行链接。
+ *
+ * 分享 WebVPN 代理出来的地址时换回原始地址：`webvpn.xjtu.edu.cn/https/7772…` 这种链接
+ * 对方没有网关会话打不开，也看不出是哪个网站。原始地址在校外打不开，至少看得懂。
+ * 标题是 WebView 还没拿到时的占位「浏览器」，或者就是网址本身时，只发链接。
+ */
+internal fun shareWebPage(context: android.content.Context, title: String, url: String) {
+    val link = WebVpnUtil.getOriginalUrl(url)?.takeIf { WebVpnUtil.isWebVpnUrl(url) && it.isNotBlank() } ?: url
+    val cleanTitle = title.trim().takeIf { it.isNotEmpty() && it != "浏览器" && it != url && it != link }
+    val text = if (cleanTitle != null) "$cleanTitle\n$link" else link
+    val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(android.content.Intent.EXTRA_TEXT, text)
+        cleanTitle?.let { putExtra(android.content.Intent.EXTRA_SUBJECT, it) }
+    }
+    runCatching { context.startActivity(android.content.Intent.createChooser(send, "分享网页")) }
+        .onFailure { Toast.makeText(context, "没有可以分享到的应用", Toast.LENGTH_SHORT).show() }
+}

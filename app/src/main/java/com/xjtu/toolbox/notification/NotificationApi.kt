@@ -101,11 +101,48 @@ enum class NotificationSource(
     XMTXY("新媒体学院", "https://xmtxy.xjtu.edu.cn/xwgg/tzgg.htm", SourceCategory.HUMANITIES);
 
     companion object {
-        fun fromDisplayName(name: String): NotificationSource? =
-            entries.find { it.displayName == name }
-
         fun byCategory(cat: SourceCategory): List<NotificationSource> =
             entries.filter { it.category == cat }
+
+        /**
+         * 学院 / 书院全称（学籍档案、校园卡、一网通办里的写法，如「电子与信息学部」「公共政策与管理学院」）
+         * 对应到通知来源；对不上返回 null。
+         *
+         * 顺序有讲究：「公共政策与管理学院」含「管理学院」、「化学工程与技术学院」含「化学」，
+         * 长的、特指的放前面先匹配。
+         */
+        fun forOrg(name: String?): NotificationSource? {
+            val n = name?.trim().orEmpty()
+            if (n.isEmpty()) return null
+            return ORG_ALIASES.firstOrNull { (_, keys) -> keys.any { n.contains(it) } }?.first
+        }
+
+        private val ORG_ALIASES: List<Pair<NotificationSource, List<String>>> = listOf(
+            QXS to listOf("钱学森"),
+            CY to listOf("仲英"),
+            FTI to listOf("未来技术"),
+            EIEUG to listOf("电子与信息", "电信"),
+            ME to listOf("机械"),
+            EE to listOf("电气"),
+            EPE to listOf("能源与动力", "能动"),
+            AERO to listOf("航天"),
+            MSE to listOf("材料"),
+            CLET to listOf("化学工程", "化工"),
+            HSCE to listOf("人居"),
+            SE to listOf("软件"),
+            MATH to listOf("数学"),
+            PHY to listOf("物理"),
+            CHEM to listOf("化学"),
+            SLST to listOf("生命"),
+            SPPA to listOf("公共政策", "公管"),
+            SOM to listOf("管理学院"),
+            RWXY to listOf("人文"),
+            SFS to listOf("外国语"),
+            LAW to listOf("法学"),
+            SEF to listOf("经济与金融", "经金"),
+            MARX to listOf("马克思"),
+            XMTXY to listOf("新媒体"),
+        )
     }
 }
 
@@ -772,6 +809,37 @@ private class OaNoticeCrawler(
         return NotificationPage(items, hasMore)
     }
 
+    /**
+     * 按公告主题搜：列表页自带的表单，POST `_ggzt`，结果和列表同一种表格、按时间倒序。
+     * 翻页同样靠表单里的 `strPageNo`。
+     */
+    fun search(keyword: String, page: Int): NotificationPage {
+        val pageNo = page.coerceAtLeast(1)
+        val body = okhttp3.FormBody.Builder(StandardCharsets.UTF_8)
+            .add("_ggzt", keyword)
+            .add("_fromdeptname", "")
+            .apply { if (pageNo > 1) add("strPageNo", pageNo.toString()) }
+            .build()
+        val req = Request.Builder()
+            .url(INDEX_URL)
+            .post(body)
+            .header("User-Agent", USER_AGENT)
+            .header("Referer", INDEX_URL)
+            .build()
+        val html = client.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) throw java.io.IOException("HTTP ${resp.code} for OA search")
+            resp.body?.string().orEmpty()
+        }
+        val doc = Jsoup.parse(html, INDEX_URL)
+        val items = doc.select("a.noa_list").mapNotNull { parseRow(it) }.distinctBy { it.link }
+        val hasMore = PAGE_META_RE.find(doc.body()?.text().orEmpty())?.let { match ->
+            val current = match.groupValues[1].toIntOrNull() ?: pageNo
+            val total = match.groupValues[2].toIntOrNull() ?: current
+            current < total
+        } ?: (items.size >= PAGE_SIZE)
+        return NotificationPage(items, hasMore)
+    }
+
     private fun parseRow(a: org.jsoup.nodes.Element): Notification? {
         val title = a.attr("title").ifBlank { a.text() }.trim()
         if (title.length < 4) return null
@@ -798,6 +866,88 @@ private class OaNoticeCrawler(
         private val META_RE = Regex("""^(.*?)[（(](\d{4}-\d{1,2}-\d{1,2})[）)]""")
         private val PAGE_META_RE = Regex("""页次:\s*(\d+)\s*/\s*(\d+)\s*页""")
     }
+}
+
+// ==================== 站内搜索 ====================
+
+/**
+ * 用各站自己的搜索，而不是把列表页抓回来在本地按标题筛。
+ *
+ * 本地筛只能在「已经抓到的那一两页」里找，半年前的通知永远搜不到；站内搜索查的是全站索引。
+ * 2026-09 实测：
+ * - 学院 / 部门站几乎都是博达 CMS，首页有个 `search.jsp`（有的站叫 `ssjgy.jsp`、`sou.jsp`）
+ *   的全文检索表单。关键词 Base64 后放进 `newskeycode2`，GET 就能翻页；0.4~1 秒一页、每页约 15 条，
+ *   每条带日期。结果按相关度排，旧通知常排在前面，所以取前两页再按日期倒序。
+ * - OA 通知：列表页自带的表单 POST `_ggzt`（公告主题），直接按时间倒序返回。
+ * - 首页找不到搜索表单的站，退回「抓列表前两页、本地按标题筛」。
+ */
+private object SiteSearch {
+    /** 搜索入口，按域名缓存；[NONE] 表示这个站没有博达搜索，别每次都去首页找。 */
+    private val actions = ConcurrentHashMap<String, String>()
+    private const val NONE = ""
+    private val FORM_ACTION_RE = Regex("""<form[^>]+action="/?([a-zA-Z0-9_]+\.jsp\?wbtreeid=\d+)"""", RegexOption.IGNORE_CASE)
+    private val DATE_RE = Regex("""(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})""")
+    private val CATEGORY_RE = Regex("""^\s*[\[【]([^\]】]{1,12})[\]】]\s*""")
+
+    /** 站点首页上博达检索表单的 action（相对站点根），没有返回 null。 */
+    fun actionFor(client: OkHttpClient, source: NotificationSource): String? {
+        val origin = originOf(source.baseUrl) ?: return null
+        actions[origin]?.let { return it.ifEmpty { null } }
+        val html = runCatching { fetchDocumentWithChallenge(client, "$origin/").outerHtml() }.getOrNull()
+            ?: return null   // 首页都打不开：不缓存结论，下次再试
+        // 只认带博达检索字段的表单，别把登录框之类的 jsp 当成搜索
+        val action = FORM_ACTION_RE.findAll(html)
+            .firstOrNull { m -> html.indexOf("lucenenewssearchkey", m.range.first).let { it in 0..(m.range.first + 1500) } }
+            ?.groupValues?.get(1)
+        actions[origin] = action ?: NONE
+        return action
+    }
+
+    /** [undatedHits]：搜到了、但结果行里没有完整日期的条数（有的站只写「11-14」或干脆不写）。 */
+    class VsbResult(val page: NotificationPage, val undatedHits: Int)
+
+    fun searchVsb(client: OkHttpClient, source: NotificationSource, action: String, keyword: String, page: Int): VsbResult {
+        val origin = originOf(source.baseUrl) ?: return VsbResult(NotificationPage(emptyList(), false), 0)
+        val key = java.util.Base64.getEncoder().encodeToString(keyword.toByteArray(StandardCharsets.UTF_8))
+        val url = "$origin/$action&searchScope=0&currentnum=$page&newskeycode2=${URLEncoder.encode(key, StandardCharsets.UTF_8)}"
+        val doc = fetchDocumentWithChallenge(client, url)
+        val latest = LocalDate.now().plusDays(7)
+        var undated = 0
+        val items = doc.select("a[href]")
+            .asSequence()
+            .filter { a -> a.attr("href").contains("info/") }
+            .mapNotNull { a ->
+                val raw = a.text().replace('​', ' ').trim()
+                val category = CATEGORY_RE.find(raw)?.groupValues?.get(1)
+                val title = raw.replace(CATEGORY_RE, "").trim()
+                if (title.length < 4) return@mapNotNull null
+                val link = a.absUrl("href").ifBlank { return@mapNotNull null }
+                // 日期和标题同在一行（li / tr / div），在它的文字里找
+                val row = a.parents().firstOrNull { it.tagName() in setOf("li", "tr", "dd", "div") } ?: a.parent()
+                // 没年份就没法和别的站一起按时间排，猜年份会把老通知显示成今年：不收，记一笔
+                val date = DATE_RE.find(row?.text().orEmpty())?.let { m ->
+                    runCatching { LocalDate.of(m.groupValues[1].toInt(), m.groupValues[2].toInt(), m.groupValues[3].toInt()) }.getOrNull()
+                } ?: run { undated++; return@mapNotNull null }
+                // 置顶占位会写成 2099-12-31 之类的未来日期，不是真通知
+                if (date.isAfter(latest)) return@mapNotNull null
+                Notification(
+                    title = title,
+                    link = link,
+                    source = source,
+                    date = date,
+                    tags = listOfNotNull(category),
+                )
+            }
+            .distinctBy { it.link }
+            .toList()
+        val hasMore = doc.select("a[href*=currentnum=${page + 1}]").isNotEmpty()
+        return VsbResult(NotificationPage(items, hasMore), undated)
+    }
+
+    private fun originOf(url: String): String? = runCatching {
+        val u = URI(url)
+        "${u.scheme}://${u.host}"
+    }.getOrNull()
 }
 
 // ==================== 工具函数 ====================
@@ -904,12 +1054,56 @@ class NotificationApi(
         return getMergedNotificationsWithSkipped(sources, page).items
     }
 
-    suspend fun getAllNotifications(page: Int = 1): List<Notification> {
-        return getMergedNotifications(NotificationSource.entries, page)
+    /**
+     * 在一个来源里搜 [keyword]，用站点自己的检索（见 [SiteSearch]），最多翻 [pages] 页，按日期倒序。
+     * 站点没有检索入口时退回「抓列表前几页、本地按标题筛」。
+     */
+    fun searchSource(source: NotificationSource, keyword: String, pages: Int = 2): List<Notification> {
+        val kw = keyword.trim()
+        if (kw.isEmpty()) return emptyList()
+        val found = LinkedHashMap<String, Notification>()
+        val oa = crawlers[source] as? OaNoticeCrawler
+        var action = if (oa == null) SiteSearch.actionFor(client, source) else null
+        for (page in 1..pages.coerceAtLeast(1)) {
+            var vsb = if (oa == null && action != null) SiteSearch.searchVsb(client, source, action, kw, page) else null
+            // 这个站的检索结果不带完整日期（只有「11-14」或没有）：没法按时间排，改用列表本地筛
+            if (vsb != null && page == 1 && vsb.page.items.isEmpty() && vsb.undatedHits > 0) {
+                action = null
+                vsb = null
+            }
+            val result = when {
+                oa != null -> oa.search(kw, page)
+                vsb != null -> vsb.page
+                else -> {
+                    val terms = kw.split(Regex("\\s+")).filter { it.isNotBlank() }
+                    val listPage = getNotificationPage(source, page)
+                    NotificationPage(
+                        listPage.items.filter { n -> terms.all { n.title.contains(it, ignoreCase = true) } },
+                        listPage.hasMore,
+                    )
+                }
+            }
+            result.items.forEach { found.putIfAbsent(it.link, it) }
+            if (!result.hasMore) break
+        }
+        Log.d(TAG, "search ${source.name} \"$kw\" via ${if (oa != null) "oa" else action ?: "list"}: ${found.size}")
+        return found.values.sortedByDescending { it.date }
     }
 
-    /** 清除域名失败缓存（例如切换网络后调用） */
-    fun clearFailedDomainCache() {
-        failedDomains.clear()
+    /** 多个来源并发搜，合并去重、按日期倒序；整体失败的来源记进 skipped。 */
+    suspend fun search(
+        sources: List<NotificationSource>,
+        keyword: String,
+        pages: Int = 2,
+    ): MergedNotificationPage = coroutineScope {
+        val results = sources.map { source ->
+            async(Dispatchers.IO) { source to runCatching { searchSource(source, keyword, pages) } }
+        }.awaitAll()
+        val skipped = results.filter { it.second.isFailure }.map { it.first }.toSet()
+        val items = results.flatMap { it.second.getOrDefault(emptyList()) }
+            .distinctBy { it.link }
+            .sortedByDescending { it.date }
+        MergedNotificationPage(items = items, skipped = skipped, hasMore = false)
     }
+
 }

@@ -95,7 +95,6 @@ class AgentViewModel : ViewModel() {
 
     // AgentToolRegistry 保持在 ViewModel 级别，使 loginFailedAt 冷却状态跨消息保留
     private var tools: AgentToolRegistry? = null
-    private var toolsDisabledCaps: Set<String>? = null
     private var toolsSearchEngine: String? = null
     /** 工具注册表里的 DataCache 构造时绑定账号，换账号必须重建，否则工具读写的是旧账号缓存。 */
     private var toolsAccountId: String? = null
@@ -112,8 +111,6 @@ class AgentViewModel : ViewModel() {
 
     /** 停止正在进行的生成。 */
     fun stop() { currentJob?.cancel() }
-
-    fun lastUserText(): String? = messages.lastOrNull { it.role == "user" }?.content
 
     fun replaceLastUserAndSend(
         newText: String,
@@ -243,11 +240,6 @@ class AgentViewModel : ViewModel() {
         tools = null; errorMessage = null
     }
 
-    fun renameSession(id: String, title: String) {
-        store?.rename(id, sanitizeAgentTitle(title, AgentSessionStore.DEFAULT_TITLE))
-        refreshSessions()
-    }
-
     fun deleteSession(id: String) {
         val store = store ?: return
         store.delete(id)
@@ -286,12 +278,16 @@ class AgentViewModel : ViewModel() {
         refreshSessions()
     }
 
-    /** 实时时间标签，注入每条 user 消息开头。 */
-    private fun nowTag(): String {
+    /**
+     * 注入每条 user 消息开头的实时标签：时间和当前模型。
+     * 这两样一段对话里会变（跨天、中途换模型），所以不放进只生成一次的系统提示。
+     */
+    private fun nowTag(model: String): String {
         val now = java.time.LocalDateTime.now()
         val days = listOf("", "周一", "周二", "周三", "周四", "周五", "周六", "周日")
         val w = days.getOrElse(now.dayOfWeek.value) { "" }
-        return "[现在：${now.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))} $w]"
+        val time = now.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+        return "[现在：$time $w" + (if (model.isBlank()) "" else " · $model") + "]"
     }
 
     /** 首轮结束后用 AI 把对话总结成简短标题（仿 opencode）；用户已改名则不动。 */
@@ -388,12 +384,8 @@ class AgentViewModel : ViewModel() {
             try {
                 // 首次调用时初始化，此后复用（loginFailedAt 冷却状态得以保留）
                 val accountNow = com.xjtu.toolbox.account.AccountContext.activeAccountId
-                if (toolsDisabledCaps != config.disabledCaps ||
-                    toolsSearchEngine != config.searchEngine ||
-                    toolsAccountId != accountNow
-                ) {
+                if (toolsSearchEngine != config.searchEngine || toolsAccountId != accountNow) {
                     tools = null
-                    toolsDisabledCaps = config.disabledCaps
                     toolsSearchEngine = config.searchEngine
                     toolsAccountId = accountNow
                 }
@@ -401,48 +393,33 @@ class AgentViewModel : ViewModel() {
                     loginState,
                     DataCache(context, accountNow),
                     context,
-                    config.disabledCaps,
                     config.searchEngine
                 ).also { tools = it }
                 registry.drainWidgets()   // 丢弃上一轮残留，确保本轮控件干净
                 val runner = AgentRunner(registry)
 
-                // 画像每轮重算：全是本地存储读，登录完成、学籍档案补齐当场反映到下一句。
-                // 联网补齐姓名/学院只在本会话第一次、以及登录态变过之后再试一次——
-                // 没登录时每轮都去撞一次网络，只会让每条消息都先干等一轮超时。
-                val loginKey = "${loginState.isLoggedIn}|${loginState.activeUsername}"
-                val allowProfileNetwork = userContextProbe != loginKey
-                if (allowProfileNetwork) userContextProbe = loginKey
-
-                // 直接比渲染结果，不再维护一份"签名"。签名要手工跟 AgentPrompt.build 的入参
-                // 保持同步，漏一个就是一类 bug（改名不生效、换模型仍自称旧模型都是这么来的）。
-                // 比成品则天然覆盖全部入参，以后往 prompt 里加东西也不必记得改这里。
-                // 皮肤在时用皮肤的名字覆盖用户设置的名字；两处必须用同一个值，否则
-                // 免责声明里报的名字和上文「你是」用的名字对不上，等于又制造一次身份分裂。
-                val resolvedAssistantName = PidaiAppearanceHost.effectiveAssistantName(config.effectiveName)
-                val systemPrompt = AgentPrompt.build(
-                    today = LocalDate.now(),
-                    assistantName = resolvedAssistantName,
-                    userContext = registry.userContext(allowNetwork = allowProfileNetwork),
-                    maxToolCalls = config.maxToolCalls,
-                    responseStyle = config.responseStyle,
-                    modelId = config.effectiveModel,
-                    providerLabel = AgentConfig.providerPromptLabel(config.provider),
-                    memoryBlock = registry.memoryBlock(),
-                    skinPersonaBlock = PidaiAppearanceHost.personaPromptBlock(resolvedAssistantName),
-                )
-                // system 必须待在第 0 位：整段历史是 provider 端 prefix cache 的比对前缀，
-                // 把它挪到末尾等于第一个 token 就对不上，之后每一轮都是全量重算。
-                // （旧代码重建时是"过滤掉 system 再 append"，正是这个毛病。）
-                val systemIdx = (0 until llmHistory.size()).firstOrNull { i ->
-                    runCatching { llmHistory[i].asJsonObject.get("role")?.asString == "system" }
-                        .getOrDefault(false)
-                }
-                val systemUpToDate = systemIdx == 0 && runCatching {
-                    llmHistory[0].asJsonObject.get("content")?.asString == systemPrompt
+                // 系统提示**一段对话只生成一次**：对话里还没有它（新对话，或老数据缺了）才生成，
+                // 之后原样复用。名字、皮肤、偏好、画像中途变了，都从下一个新对话起生效——
+                // 中途改写等于篡改上下文：前几轮按旧设定答的，前后人设对不上，前缀缓存也整段作废。
+                // 会变的时间和模型走每条消息头（nowTag），不在这里。
+                val hasSystem = llmHistory.size() > 0 && runCatching {
+                    llmHistory[0].asJsonObject.get("role")?.asString == "system"
                 }.getOrDefault(false)
-                // 内容没变就一个字节都不动，前缀缓存照常命中；真变了才付这一次重算。
-                if (!systemUpToDate) {
+                if (!hasSystem) {
+                    // 联网补齐姓名/学院只在登录态变过之后再试：没登录时每个新对话都去撞一次网络，
+                    // 只会让第一条消息先干等一轮超时。
+                    val loginKey = "${loginState.isLoggedIn}|${loginState.activeUsername}"
+                    val allowProfileNetwork = userContextProbe != loginKey
+                    if (allowProfileNetwork) userContextProbe = loginKey
+                    // 皮肤在时用皮肤的名字覆盖用户设置的名字，「你是」和皮肤语气块里用同一个值
+                    val resolvedAssistantName = PidaiAppearanceHost.effectiveAssistantName(config.effectiveName)
+                    val systemPrompt = AgentPrompt.build(
+                        assistantName = resolvedAssistantName,
+                        userContext = registry.userContext(allowNetwork = allowProfileNetwork),
+                        memoryBlock = registry.memoryBlock(),
+                        skinPersonaBlock = PidaiAppearanceHost.personaPromptBlock(resolvedAssistantName),
+                    )
+                    // system 必须待在第 0 位：整段历史是 provider 端 prefix cache 的比对前缀
                     val rebuilt = JsonArray()
                     rebuilt.add(JsonObject().apply {
                         addProperty("role", "system")
@@ -461,7 +438,7 @@ class AgentViewModel : ViewModel() {
                 // 每条 user 消息携带实时时间，杜绝"今天/明天"按会话起始日的陈旧判断。
                 // 提醒快照只给模型看：对准「点的是哪件事」，不当完整事实，也不进气泡。
                 val llmUser = buildString {
-                    append(nowTag())
+                    append(nowTag(config.effectiveModel))
                     append('\n')
                     if (!llmAnnex.isNullOrBlank()) {
                         append("[本地提醒快照]\n")
@@ -537,10 +514,9 @@ class AgentViewModel : ViewModel() {
                         flushStream()
                         streamIdx = -1
                         val label = when (name) {
-                            "get_current_time"      -> "获取当前时间…"
+                            "get_calendar"          -> "查询时间与校历…"
                             "get_schedule"          -> "查询课表…"
                             "get_exam_schedule"     -> "查询考试安排…"
-                            "get_school_calendar"   -> "查询校历…"
                             "search_school_courses" -> "查询全校课程…"
                             "get_empty_rooms"       -> "查询空教室…"
                             "get_attendance"        -> "查询考勤记录…"
@@ -552,19 +528,19 @@ class AgentViewModel : ViewModel() {
                             "web_search"            -> "联网搜索…"
                             "web_fetch"             -> "阅读网页…"
                             "set_alarm"             -> "打开系统闹钟…"
-                            "create_calendar_event" -> "打开系统日历…"
-                            "get_library_booking"   -> "查询图书馆预约…"
-                            "get_library_seats"     -> "查询图书馆座位…"
+                            "add_schedule_event"    -> "添加日程…"
+                            "get_library"           -> "查询图书馆…"
                             "get_textbooks"         -> "查询日程教材…"
                             "get_coupons"           -> "查询加餐券…"
-                            "get_lms_courses"       -> "查询课程…"
-                            "get_lms_activities"    -> "查询课程活动…"
-                            "get_lms_assignments"   -> "汇总作业…"
-                            "get_app_settings"      -> "读取设置…"
-                            "get_login_diagnostics" -> "读取登录诊断…"
-                            "set_app_setting"       -> "修改设置…"
+                            "get_lms"               -> "查询思源学堂…"
+                            "get_lms_activity"      -> "读取课程活动…"
+                            "list_zyxf"             -> "检索学辅资料…"
+                            "read_zyxf_file"        -> "读取学辅资料…"
+                            "find_faculty"          -> "查询教师…"
+                            "preference"            -> "记下偏好…"
+                            "app_setting"           -> "读取 / 修改设置…"
                             "calculate"             -> "计算…"
-                            "check_update"          -> "检查更新…"
+                            "app_guide"             -> "查看 App 指南…"
                             else                    -> "调用工具 $name…"
                         }
                         if (currentSessionId == turnSid) {
@@ -607,8 +583,8 @@ class AgentViewModel : ViewModel() {
 
                 val navSuggestions = calledTools.mapNotNull { toolName ->
                     when (toolName) {
-                        "get_schedule", "get_exam_schedule" -> "查看课表"   to "schedule"
-                        "get_school_calendar"               -> "查看校历"   to "school_calendar"
+                        "get_schedule", "get_exam_schedule", "add_schedule_event" -> "查看课表" to "schedule"
+                        "get_calendar"                      -> "查看校历"   to "school_calendar"
                         "search_school_courses"             -> "全校课程"   to "school_course"
                         "get_empty_rooms"                   -> "空闲教室"   to "empty_room"
                         "get_attendance"                    -> "查看考勤"   to attendanceRoute
@@ -616,11 +592,11 @@ class AgentViewModel : ViewModel() {
                         "get_card_info"                      -> "校园卡"     to "campus_card"
                         "get_notifications"                 -> "通知公告"   to "notification"
                         "search_yellow_page"                -> "校园黄页"   to "yellow_page"
-                        "get_library_booking", "get_library_seats" -> "图书馆" to "library"
+                        "get_library"                       -> "图书馆"     to "library"
                         "get_textbooks"                     -> "日程教材"   to "schedule"
                         "get_coupons"                       -> "加餐券"     to "coupon"
-                        "get_lms_courses", "get_lms_activities", "get_lms_assignments" -> "思源学堂" to "lms"
-                        "get_app_settings", "set_app_setting" -> "设置"     to "settings"
+                        "get_lms", "get_lms_activity"       -> "思源学堂"   to "lms"
+                        "app_setting"                       -> "设置"       to "settings"
                         else                                -> null
                     }
                 }.distinctBy { it.second }

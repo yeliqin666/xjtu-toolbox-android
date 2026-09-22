@@ -21,14 +21,6 @@ class BotExpression(
 private fun eyePair(w: Double, h: Double, tilt: Double = 0.0): List<EyeCfg> =
     listOf(EyeCfg(w, h, tilt = tilt), EyeCfg(w, h, tilt = -tilt))
 
-/** 原版默认：对参考视频逐帧实测的平静脸。 */
-val EXPRESSION_NEUTRE = BotExpression(
-    id = "neutre",
-    gaze = REST_GAZE,
-    split = EYE_SPLIT,
-    eyes = eyePair(EYE_W, EYE_H),
-)
-
 /** 专注：眼睛稍大且微抬，像在留意周围。 */
 val EXPRESSION_ATTENTIF = BotExpression(
     id = "attentif",

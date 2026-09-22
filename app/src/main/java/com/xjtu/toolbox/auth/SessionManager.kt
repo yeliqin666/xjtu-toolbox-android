@@ -30,22 +30,6 @@ data class MfaRequest(
     fun cancel(): Boolean = deferred.complete(null)
 }
 
-data class SessionDiagnosticEvent(
-    val timestamp: Long,
-    val level: String,
-    val siteKey: String,
-    val message: String,
-)
-
-data class SessionSiteSnapshot(
-    val siteKey: String,
-    val siteName: String,
-    val hasLogin: Boolean,
-    val accessMode: String,
-    val mustUseWebVpn: Boolean,
-    val localTokenKeys: List<String>,
-)
-
 /**
  * 顶层会话管家。维护两个 [SessionBackend]、注册所有 [SiteSession]，
  * 统一处理 access mode 切换、凭据存储、密码失效熔断、MFA 状态机宿主。
@@ -136,39 +120,19 @@ class SessionManager(context: Context) {
     val activeSiteCount: Int get() = sites.values.count { it.hasLogin }
     val activeSiteKeys: List<String> get() = sites.values.filter { it.hasLogin }.map { it.siteKey }
 
-    fun siteSnapshots(): List<SessionSiteSnapshot> =
-        sites.values.sortedBy { it.siteKey }.map { site ->
-            SessionSiteSnapshot(
-                siteKey = site.siteKey,
-                siteName = site.siteName,
-                hasLogin = site.hasLogin,
-                accessMode = site.currentAccessMode.key,
-                mustUseWebVpn = site.mustUseWebVpn,
-                localTokenKeys = site.localToken.keys.sorted(),
-            )
-        }
-
-    private val diagnosticEvents = ArrayDeque<SessionDiagnosticEvent>()
-    private val diagnosticLock = Any()
-    private val maxDiagnosticEvents = 120
-
+    /**
+     * 会话诊断：写进 logcat（标签 [TAG]）。以前还在内存里留一份最近 120 条的队列，
+     * 但全 App 没有任何地方读它，只是每次登录、切网都白白加锁写一遍，已去掉。
+     */
     fun recordDiagnostic(level: String, siteKey: String, message: String) {
-        val event = SessionDiagnosticEvent(
-            timestamp = System.currentTimeMillis(),
-            level = level,
-            siteKey = siteKey,
-            message = message.take(240),
-        )
-        synchronized(diagnosticLock) {
-            diagnosticEvents.addLast(event)
-            while (diagnosticEvents.size > maxDiagnosticEvents) diagnosticEvents.removeFirst()
+        val priority = when (level) {
+            "ERROR" -> Log.ERROR
+            "WARN" -> Log.WARN
+            "DEBUG" -> Log.DEBUG
+            else -> Log.INFO
         }
+        Log.println(priority, TAG, "[$siteKey] ${message.take(240)}")
     }
-
-    fun recentDiagnostics(limit: Int = 30): List<SessionDiagnosticEvent> =
-        synchronized(diagnosticLock) {
-            diagnosticEvents.takeLast(limit.coerceIn(1, maxDiagnosticEvents))
-        }
 
     // ── 凭据 ────────────────────────────────────────────
     @Volatile var credentials: Pair<String, String>? = null

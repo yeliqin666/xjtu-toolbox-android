@@ -7,7 +7,11 @@ import android.net.Uri
 import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -55,13 +59,6 @@ import kotlin.math.roundToInt
 /**
  * 圆形头像裁剪。
  *
- * ### 为什么自己写
- * 安卓**没有**可用的官方裁剪 API。常被提到的 `com.android.camera.action.CROP` 是早年
- * AOSP 图库的隐式 Intent，从未进入公开 SDK，大量机型（含多数国产 ROM）没有任何 Activity
- * 能响应它——拿它当方案等于随机一半用户用不了。Photo Picker 也不带裁剪。
- * 剩下的选择是引 uCrop / Image-Cropper，或自己写；头像只要定比例圆形裁剪，
- * 为它拖进一个库不划算。
- *
  * ### 稳健性
  * - 解码走 [ImageDecoder]：自动应用 EXIF 方向（相机直出的竖拍照片在文件里常是横的），
  *   并在**解码阶段**降采样，不把几千万像素整张读进内存。
@@ -106,7 +103,7 @@ fun AvatarCropDialog(
     OverlayDialog(
         show = true,
         title = "调整头像",
-        summary = "拖动移动，双指缩放。圆圈内的部分会被保留。",
+        summary = "拖动移动，双指缩放，双击放大或复位。圆圈内的部分会被保留。",
         onDismissRequest = { if (!cropping) onCancel() },
     ) {
         Column(Modifier.fillMaxWidth()) {
@@ -114,6 +111,9 @@ fun AvatarCropDialog(
                 Modifier
                     .fillMaxWidth()
                     .aspectRatio(1f)
+                    // 取景框裁剪：Canvas 默认不裁，放大后图片会画到框外、压住弹窗标题和按钮
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Color.Black)
                     .onSizeChanged { viewportPx = min(it.width, it.height) },
                 contentAlignment = Alignment.Center,
             ) {
@@ -131,10 +131,27 @@ fun AvatarCropDialog(
                             Modifier
                                 .fillMaxSize()
                                 .pointerInput(bmp, geo) {
-                                    detectTransformGestures { _, pan, zoom, _ ->
-                                        scale = (scale * zoom).coerceIn(1f, MAX_SCALE)
-                                        offset = geo.clamp(offset + pan, scale)
+                                    // 以双指中点为锚缩放：手指按着的那块在缩放前后停在原处。
+                                    // 以前总以图片中心为基准，想放大脸，脸却往外跑。
+                                    detectTransformGestures { centroid, pan, zoom, _ ->
+                                        val newScale = (scale * zoom).coerceIn(1f, MAX_SCALE)
+                                        offset = geo.clamp(
+                                            geo.zoomAround(offset, scale, newScale, centroid, size.width.toFloat(), size.height.toFloat()) + pan,
+                                            newScale,
+                                        )
+                                        scale = newScale
                                     }
+                                }
+                                .pointerInput(bmp, geo) {
+                                    // 双击：没放大时放大到 2.5 倍（以点按处为中心），放大了就复位
+                                    detectTapGestures(onDoubleTap = { tap ->
+                                        val target = if (scale > 1.05f) 1f else DOUBLE_TAP_SCALE
+                                        offset = geo.clamp(
+                                            geo.zoomAround(offset, scale, target, tap, size.width.toFloat(), size.height.toFloat()),
+                                            target,
+                                        )
+                                        scale = target
+                                    })
                                 }
                         ) {
                             val dispW = geo.displayWidth(scale)
@@ -166,7 +183,7 @@ fun AvatarCropDialog(
                                 color = Color.White.copy(alpha = 0.9f),
                                 radius = r,
                                 center = Offset(cx, cy),
-                                style = Stroke(width = 2f),
+                                style = Stroke(width = 1.5.dp.toPx()),
                             )
                         }
                     }
@@ -216,6 +233,8 @@ private const val OUTPUT_PX = 512
 
 private const val MAX_SCALE = 6f
 
+private const val DOUBLE_TAP_SCALE = 2.5f
+
 /** 裁剪圆占画布的比例。留边是为了让用户看得见圈外还有什么。 */
 private const val CROP_RATIO = 0.78f
 
@@ -247,6 +266,17 @@ private data class CropGeometry(
         val maxX = max(0f, (displayWidth(scale) - cropPx) / 2f)
         val maxY = max(0f, (displayHeight(scale) - cropPx) / 2f)
         return Offset(raw.x.coerceIn(-maxX, maxX), raw.y.coerceIn(-maxY, maxY))
+    }
+
+    /**
+     * 以画布上的 [anchor] 为不动点，从 [from] 倍缩放到 [to] 倍后的平移量。
+     * 图片中心相对画布中心的偏移是 offset；锚点相对图片中心的距离按 to/from 等比放大，
+     * 反推出新的 offset，锚点下的像素就停在原处。
+     */
+    fun zoomAround(offset: Offset, from: Float, to: Float, anchor: Offset, width: Float, height: Float): Offset {
+        if (from == to) return offset
+        val a = anchor - Offset(width / 2f, height / 2f)   // 锚点相对画布中心
+        return a - (a - offset) * (to / from)
     }
 
     /**

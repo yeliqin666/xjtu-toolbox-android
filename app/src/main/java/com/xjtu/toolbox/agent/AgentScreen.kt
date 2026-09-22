@@ -2,6 +2,8 @@
 
 package com.xjtu.toolbox.agent
 
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
@@ -46,6 +48,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
@@ -57,10 +60,12 @@ import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -89,6 +94,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.ViewModelStoreOwner
 import com.xjtu.toolbox.LocalAppLoginState
 import kotlinx.coroutines.launch
+import com.xjtu.toolbox.ui.adaptive.readableWidth
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
@@ -99,19 +105,13 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
 /**
  * 屁岱主界面。
  *
- * 两种宿主形态：
- * - [asTab] = true：作为底栏第三个 0 级 tab 嵌在 MainScreen 的 Scaffold 里。
- *   自己**不**渲染 Scaffold / TopAppBar / 返回箭头——顶栏归宿主，标题和
- *   「会话列表 / 设置」两个按钮通过 [onTitleChange] / [onActionsChange] 反向送上去。
- * - [asTab] = false：独立整页（保留这条路是为了将来可能的独立入口），自带 Scaffold 与返回。
- *
- * 内容主体两种形态共用，靠一个 body lambda 复用，不复制两份。
+ * 作为底栏的 0 级 tab 嵌在 MainScreen 的 Scaffold 里，自己**不**渲染 Scaffold / TopAppBar /
+ * 返回箭头——顶栏归宿主，标题和「会话列表 / 设置」两个按钮通过 [onTitleChange] /
+ * [onActionsChange] 反向送上去。
  */
 @Composable
 fun AgentScreen(
-    onBack: () -> Unit = {},
     onNavigate: (String) -> Unit = {},
-    asTab: Boolean = false,
     /** tab 模式下需要额外空出的底部高度（悬浮胶囊底栏不占宿主 contentPadding，见调用处）。 */
     extraBottomPadding: Dp = 0.dp,
     /** 宿主 Scaffold 的 contentPadding 底部值。输入栏算自己的让位时要把它减掉，见 AgentComposer。 */
@@ -120,6 +120,11 @@ fun AgentScreen(
     onTitleChange: (String) -> Unit = {},
     onActionsChange: ((@Composable RowScope.() -> Unit)?) -> Unit = {},
     onNavIconChange: ((@Composable () -> Unit)?) -> Unit = {},
+    /**
+     * tab 模式下宿主玻璃顶栏的高度。非 0 时宿主不再整体下移这一页：对话、配置两个列表铺到
+     * 顶栏下面、把这段留白放进列表里；不滚动的会话栏、抽屉自己让出这段高度。
+     */
+    contentTopPadding: Dp = 0.dp,
 ) {
     val context = LocalContext.current
     val loginState = LocalAppLoginState.current
@@ -158,6 +163,8 @@ fun AgentScreen(
             showContextExhaustedDialog = true
         }
     }
+    // 宽屏下会话列表是常驻左栏，根本没有「抽屉开没开」这回事。
+    val isWide = com.xjtu.toolbox.ui.isWideLayout()
     var drawerOpen by rememberSaveable { mutableStateOf(false) }
     var deleteTarget by remember { mutableStateOf<AgentSession?>(null) }
     val keyboard = LocalSoftwareKeyboardController.current
@@ -168,10 +175,11 @@ fun AgentScreen(
     // 宿主给了就用宿主的（顶栏在宿主那儿，折叠状态必须共用同一份），没给才自己建。
     val ownScrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     val effectiveScrollBehavior = scrollBehavior ?: ownScrollBehavior
-    BackHandler(enabled = showConfig || drawerOpen || showContextExhaustedDialog) {
+    // 宽屏不拦抽屉：没有抽屉可关，再拦就是吃掉一次返回。
+    BackHandler(enabled = showConfig || (drawerOpen && !isWide) || showContextExhaustedDialog) {
         when {
             showContextExhaustedDialog -> showContextExhaustedDialog = false
-            drawerOpen -> drawerOpen = false
+            drawerOpen && !isWide -> drawerOpen = false
             else -> showConfig = false
         }
     }
@@ -182,7 +190,9 @@ fun AgentScreen(
     // 这个 lambda 闭包捕获的是 showConfig / drawerOpen 的**委托属性**而不是取到的值，
     // 所以状态变化时读它的宿主会自己重组，不需要在 key 上列出来。
     // 会话列表放最左边：抽屉从左边滑出，触发它的按钮就该在左边。
-    val headerNavIcon: @Composable () -> Unit = {
+    // 宽屏下会话列表已经常驻在左栏，顶栏这颗开关按钮没意义，不送给宿主。
+    val headerNavIcon: (@Composable () -> Unit)? = if (isWide) null else {
+        {
         AnimatedVisibility(
             // 配置面板打开时才收起这颗按钮；抽屉开着时必须留着，用户要靠它收回去。
             visible = !showConfig,
@@ -198,6 +208,7 @@ fun AgentScreen(
                     onClick = { drawerOpen = !drawerOpen },
                 )
             }
+        }
         }
     }
 
@@ -216,18 +227,16 @@ fun AgentScreen(
         Spacer(Modifier.width(4.dp))
     }
 
-    if (asTab) {
-        // 标题跟着助手名字走（用户可改名，皮肤可覆盖），进配置面板时换成「配置」。
-        val hostTitle = if (showConfig) "配置" else PidaiAppearanceHost.effectiveAssistantName(config.effectiveName)
-        LaunchedEffect(hostTitle) { onTitleChange(hostTitle) }
-        DisposableEffect(Unit) {
-            onActionsChange(headerActions)
-            onNavIconChange(headerNavIcon)
-            // 切走时把按钮撤掉，否则别的 tab 顶栏上会残留屁岱的图标。
-            onDispose {
-                onActionsChange(null)
-                onNavIconChange(null)
-            }
+    // 标题跟着助手名字走（用户可改名，皮肤可覆盖），进配置面板时换成「配置」。
+    val hostTitle = if (showConfig) "配置" else PidaiAppearanceHost.effectiveAssistantName(config.effectiveName)
+    LaunchedEffect(hostTitle) { onTitleChange(hostTitle) }
+    DisposableEffect(Unit) {
+        onActionsChange(headerActions)
+        onNavIconChange(headerNavIcon)
+        // 切走时把按钮撤掉，否则别的 tab 顶栏上会残留屁岱的图标。
+        onDispose {
+            onActionsChange(null)
+            onNavIconChange(null)
         }
     }
 
@@ -258,7 +267,10 @@ fun AgentScreen(
                         },
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(padding)
+                            .padding(padding),
+                        listTopPadding = contentTopPadding,
+                        // 悬浮胶囊底栏盖在内容上，不占宿主 padding，列表底部要自己让出来
+                        listBottomPadding = extraBottomPadding,
                     )
                 } else {
                     ChatPanel(
@@ -266,6 +278,7 @@ fun AgentScreen(
                         config = config,
                         loginState = loginState,
                         padding = padding,
+                        listTopPadding = contentTopPadding,
                         scrollBehavior = effectiveScrollBehavior,
                         onNavigate = onNavigate,
                         onOpenConfig = { showConfig = true },
@@ -333,44 +346,50 @@ fun AgentScreen(
     }
 
     Box(Modifier.fillMaxSize()) {
-        if (asTab) {
-            // 把"宿主已经让出底部 hostBottomPadding"这件事声明出来。
-            // 宿主 Scaffold 只 padding(padding)、没 consumeWindowInsets(padding)，
-            // 消费链是断的；在这里补一次，子树里的 windowInsetsPadding（输入栏那处）
-            // 才能正确扣除已让的部分，不至于把 ime 再整段加一遍。
-            // 只包住屁岱，其它 tab 的 inset 行为不受影响。
-            Box(
-                Modifier
-                    .fillMaxSize()
+        Row(Modifier.fillMaxSize()) {
+        if (isWide) {
+            // 常驻会话列表。宽屏上让人点一下按钮才能看到历史对话，
+            // 是把手机上的妥协搬到了放得下的屏幕上。
+            Surface(
+                modifier = Modifier
+                    .width(300.dp)
+                    .fillMaxHeight()
+                    // 列表底部自带 navigationBarsPadding（抽屉需要）。宿主 Scaffold 已经让过一次
+                    // 底部，不声明消费就会再让一条导航条的高度；顶部让出玻璃顶栏
                     .consumeWindowInsets(PaddingValues(bottom = hostBottomPadding))
+                    .padding(top = contentTopPadding),
+                // 和顶栏、聊天区同一个底色，两栏之间只靠那条竖分隔线分开。原来是 surfaceContainer（白），
+                // 从顶栏下沿才开始，灰色顶栏和白色面板之间就出现一道横向断口
+                color = MiuixTheme.colorScheme.surface,
             ) {
-                body(PaddingValues())
+                SessionListPane(
+                    sessions = vm.sessions,
+                    currentId = vm.currentSessionId,
+                    onNew = { vm.newSession() },
+                    onSelect = { vm.switchSession(it) },
+                    onRequestDelete = { deleteTarget = it },
+                )
             }
-        } else {
-            Scaffold(
-                topBar = {
-                    TopAppBar(
-                        title = PidaiAppearanceHost.effectiveAssistantName(config.effectiveName),
-                        largeTitle = if (showConfig) "配置" else PidaiAppearanceHost.effectiveAssistantName(config.effectiveName),
-                        color = MiuixTheme.colorScheme.surface,
-                        scrollBehavior = effectiveScrollBehavior,
-                        navigationIcon = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(onClick = {
-                                    if (showConfig) showConfig = false else onBack()
-                                }) {
-                                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                                }
-                                headerNavIcon()
-                            }
-                        },
-                        actions = headerActions,
-                    )
-                }
-            ) { padding -> body(padding) }
+            VerticalDivider()
+        }
+        // 把"宿主已经让出底部 hostBottomPadding"这件事声明出来。
+        // 宿主 Scaffold 只 padding(padding)、没 consumeWindowInsets(padding)，
+        // 消费链是断的；在这里补一次，子树里的 windowInsetsPadding（输入栏那处）
+        // 才能正确扣除已让的部分，不至于把 ime 再整段加一遍。
+        Box(
+            Modifier
+                .weight(1f)
+                .fillMaxHeight()
+                .consumeWindowInsets(PaddingValues(bottom = hostBottomPadding))
+        ) {
+            body(PaddingValues())
+        }
         }
 
-        SessionDrawer(
+        // 窄屏的覆盖式抽屉。宽屏已经有常驻左栏，不再挂它。
+        // 抽屉从顶栏下沿开始：顶栏画在 tab 内容上面，从屏幕顶开始的话上半截会被玻璃盖住。
+        if (!isWide) Box(Modifier.fillMaxSize().padding(top = contentTopPadding)) { SessionDrawer(
+            bottomReserve = extraBottomPadding,
             open = drawerOpen,
             sessions = vm.sessions,
             currentId = vm.currentSessionId,
@@ -381,7 +400,7 @@ fun AgentScreen(
                 deleteTarget = it
                 drawerOpen = false
             },
-        )
+        ) }
     }
 }
 
@@ -431,6 +450,7 @@ private fun SessionDrawer(
     onNew: () -> Unit,
     onSelect: (String) -> Unit,
     onRequestDelete: (AgentSession) -> Unit,
+    bottomReserve: Dp = 0.dp,
 ) {
     // 半透明遮罩，点击关闭
     AnimatedVisibility(
@@ -464,107 +484,134 @@ private fun SessionDrawer(
             shape = RoundedCornerShape(topEnd = 24.dp, bottomEnd = 24.dp),
             color = MiuixTheme.colorScheme.surfaceContainer,
         ) {
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    // 不加 statusBarsPadding：抽屉现在活在 Scaffold 的内容区里，
-                    // 顶栏已经把状态栏那段让开了，再加一次就是在「对话」上面白白空出
-                    // 一整条状态栏的高度——那就是之前看着头重脚轻的原因。
-                    .navigationBarsPadding()
-                    .padding(horizontal = 12.dp)
-                    .padding(top = 4.dp, bottom = 12.dp)
-            ) {
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        "对话",
-                        style = MiuixTheme.textStyles.title3,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    if (sessions.isNotEmpty()) {
-                        Text(
-                            sessions.size.toString(),
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        )
-                    }
-                }
-
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.14f))
-                        .clickable(onClick = onNew)
-                        .padding(horizontal = 14.dp, vertical = 11.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        Icons.Default.Add,
-                        contentDescription = null,
-                        tint = MiuixTheme.colorScheme.primary,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        "新建对话",
-                        style = MiuixTheme.textStyles.body2,
-                        fontWeight = FontWeight.Medium,
-                        color = MiuixTheme.colorScheme.primary,
-                    )
-                }
-
-                Spacer(Modifier.height(10.dp))
-
-                LazyColumn(
-                    Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    if (sessions.isEmpty()) {
-                        item {
-                            Column(
-                                Modifier.fillMaxWidth().padding(vertical = 40.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                            ) {
-                                Icon(
-                                    Icons.AutoMirrored.Filled.List,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(32.dp),
-                                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.6f),
-                                )
-                                Spacer(Modifier.height(12.dp))
-                                Text(
-                                    "还没有任何对话",
-                                    style = MiuixTheme.textStyles.body2,
-                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                )
-                                Spacer(Modifier.height(4.dp))
-                                Text(
-                                    "点上面「新建对话」开始",
-                                    style = MiuixTheme.textStyles.footnote1,
-                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.7f),
-                                )
-                            }
-                        }
-                    }
-                    items(sessions, key = { it.id }) { session ->
-                        SessionRow(
-                            session = session,
-                            isCurrent = session.id == currentId,
-                            onSelect = { onSelect(session.id) },
-                            onRequestDelete = { onRequestDelete(session) },
-                        )
-                    }
-                }
-            }
+            SessionListPane(
+                sessions = sessions,
+                currentId = currentId,
+                onNew = onNew,
+                onSelect = onSelect,
+                onRequestDelete = onRequestDelete,
+                bottomReserve = bottomReserve,
+            )
         }
     }
 
     // 删除确认改由外层 OverlayDialog 处理，保证走 MIUIX 弹窗宿主。
 }
+
+/**
+ * 会话列表本体（新建按钮 + 会话行），不含容器。
+ *
+ * 手机上被 [SessionDrawer] 包在遮罩 + 滑入动画里（行为与抽出前一致），
+ * 宽屏下直接当常驻左栏用。
+ */
+@Composable
+private fun SessionListPane(
+    sessions: List<AgentSession>,
+    currentId: String?,
+    onNew: () -> Unit,
+    onSelect: (String) -> Unit,
+    onRequestDelete: (AgentSession) -> Unit,
+    /** 悬浮底栏盖在抽屉上面，列表底部要让出它的高度。 */
+    bottomReserve: Dp = 0.dp,
+) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                // 不加 statusBarsPadding：抽屉现在活在 Scaffold 的内容区里，
+                // 顶栏已经把状态栏那段让开了，再加一次就是在「对话」上面白白空出
+                // 一整条状态栏的高度——那就是之前看着头重脚轻的原因。
+                .navigationBarsPadding()
+                .padding(horizontal = 12.dp)
+                .padding(top = 4.dp, bottom = 12.dp + bottomReserve)
+        ) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "对话",
+                    style = MiuixTheme.textStyles.title3,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(Modifier.width(8.dp))
+                if (sessions.isNotEmpty()) {
+                    Text(
+                        sessions.size.toString(),
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                }
+            }
+
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.14f))
+                    .clickable(onClick = onNew)
+                    .padding(horizontal = 14.dp, vertical = 11.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Default.Add,
+                    contentDescription = null,
+                    tint = MiuixTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "新建对话",
+                    style = MiuixTheme.textStyles.body2,
+                    fontWeight = FontWeight.Medium,
+                    color = MiuixTheme.colorScheme.primary,
+                )
+            }
+
+            Spacer(Modifier.height(10.dp))
+
+            LazyColumn(
+                Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                if (sessions.isEmpty()) {
+                    item {
+                        Column(
+                            Modifier.fillMaxWidth().padding(vertical = 40.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.List,
+                                contentDescription = null,
+                                modifier = Modifier.size(32.dp),
+                                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.6f),
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                "还没有任何对话",
+                                style = MiuixTheme.textStyles.body2,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "点上面「新建对话」开始",
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.7f),
+                            )
+                        }
+                    }
+                }
+                items(sessions, key = { it.id }) { session ->
+                    SessionRow(
+                        session = session,
+                        isCurrent = session.id == currentId,
+                        onSelect = { onSelect(session.id) },
+                        onRequestDelete = { onRequestDelete(session) },
+                    )
+                }
+            }
+        }
+}
+
 
 /** 抽屉里的一条会话。当前会话靠「左侧主色竖条 + 浅色底」区分，其余保持无底。 */
 @Composable
@@ -638,50 +685,6 @@ private fun formatSessionTime(ts: Long): String =
     java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.CHINA).format(java.util.Date(ts))
 
 @Composable
-private fun DrawerTextAction(
-    text: String,
-    primary: Boolean,
-    onClick: () -> Unit
-) {
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = if (primary) MiuixTheme.colorScheme.primary.copy(alpha = 0.14f)
-        else MiuixTheme.colorScheme.surface,
-        modifier = Modifier.clickable(onClick = onClick)
-    ) {
-        Text(
-            text = text,
-            modifier = Modifier.padding(horizontal = 13.dp, vertical = 7.dp),
-            style = MiuixTheme.textStyles.footnote1,
-            fontWeight = FontWeight.Medium,
-            color = if (primary) MiuixTheme.colorScheme.primary
-            else MiuixTheme.colorScheme.onSurfaceVariantSummary
-        )
-    }
-}
-
-@Composable
-private fun CompactSessionAction(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    contentDescription: String,
-    onClick: () -> Unit,
-    tint: Color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-) {
-    Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = MiuixTheme.colorScheme.surface.copy(alpha = 0.72f),
-        modifier = Modifier
-            .padding(start = 4.dp)
-            .size(34.dp)
-            .clickable(onClick = onClick)
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(icon, contentDescription = contentDescription, modifier = Modifier.size(17.dp), tint = tint)
-        }
-    }
-}
-
-@Composable
 private fun ChatPanel(
     vm: AgentViewModel,
     config: AgentConfig,
@@ -691,6 +694,8 @@ private fun ChatPanel(
     onNavigate: (String) -> Unit,
     onOpenConfig: () -> Unit,
     bottomReserve: Dp = 0.dp,
+    /** 玻璃顶栏的高度，放进对话列表的顶部留白（列表铺到顶栏下面）。 */
+    listTopPadding: Dp = 0.dp,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -764,6 +769,8 @@ private fun ChatPanel(
 
     Column(
         modifier
+            // 宽屏下一行聊天横跨平板全宽让人找不到行首，整块（含输入栏）限宽居中。
+            .readableWidth(760.dp)
             .fillMaxSize()
             // 只吃顶部（TopAppBar 高度）；底部由输入栏自己的 navigationBarsPadding + imePadding 处理，
             // 否则会和输入栏的 inset 双重叠加，键盘弹出时把输入框顶飞。
@@ -784,60 +791,19 @@ private fun ChatPanel(
                         .fillMaxSize()
                         .overScrollVertical()
                         .nestedScroll(scrollBehavior.nestedScrollConnection),
-                    contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp),
+                    contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 16.dp + listTopPadding, bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
             if (vm.messages.isEmpty()) {
-                item {
-                    Column(
-                        Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp),
-                    ) {
-                        Text(
-                            "你好",
-                            style = MiuixTheme.textStyles.title2,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            "课表、空教室、成绩，直接问就行。",
-                            style = MiuixTheme.textStyles.body2,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        )
-                        Spacer(Modifier.height(22.dp))
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            listOf(
-                                // 「去哪自习」放第一个：它是这里唯一需要**综合**几个来源才能答的问题
-                                // （空教室 + 图书馆座位 + 当前时段 + 你下节课在哪），
-                                // 也最能说明这个助手和一个查询入口的区别。
-                                "现在想找个地方自习，去哪合适？",
-                                "这周考试",
-                                "明天空教室",
-                                "最近成绩",
-                                "校园卡余额",
-                            ).forEach { q ->
-                                Surface(
-                                    shape = RoundedCornerShape(18.dp),
-                                    color = MiuixTheme.colorScheme.surfaceVariant,
-                                    modifier = Modifier.clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null,
-                                    ) {
-                                        input = q
-                                    },
-                                ) {
-                                    Text(
-                                        q,
-                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                                        style = MiuixTheme.textStyles.footnote1,
-                                        color = MiuixTheme.colorScheme.onSurface,
-                                    )
-                                }
-                            }
-                        }
-                    }
+                item(key = "welcome") {
+                    AgentWelcome(
+                        greetingName = loginState.cachedNickname.orEmpty()
+                            .ifBlank { loginState.ywtbUserInfo?.userName.orEmpty() },
+                        configured = config.isConfigured,
+                        onAsk = ::askFromWidget,
+                        onFill = { input = it },
+                        onOpenConfig = onOpenConfig,
+                    )
                 }
             }
             items(chatRows, key = { it.key }) { row ->
@@ -878,11 +844,16 @@ private fun ChatPanel(
             }
                 }
             }
+            // 聊天中戳底栏屁岱：首屏已经不在了，就在输入框正上方冒一句小话，几秒后自己收起。
+            // 不走底栏气泡（会压住输入框），也不打断对话。
+            if (vm.messages.isNotEmpty()) {
+                PokeWhisper(Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp))
+            }
         }
 
         // 未配置模型时的提示条。放在输入栏正上方而不是弹窗或整页表单，
         // 是因为它要解释「为什么现在发不出去」，紧挨着发送动作才说得通。
-        if (!config.isConfigured) {
+        if (!config.isConfigured && vm.messages.isNotEmpty()) {
             Surface(
                 shape = RoundedCornerShape(14.dp),
                 color = MiuixTheme.colorScheme.primary.copy(alpha = 0.08f),
@@ -940,7 +911,9 @@ private fun ChatPanel(
                 )
             }
         }
+        val composerHint = remember { COMPOSER_HINTS.random() }
         AgentComposer(
+            placeholder = composerHint,
             input = input,
             onInputChange = { input = it },
             onSend = { send() },
@@ -980,6 +953,8 @@ private fun AgentComposer(
     isLoading: Boolean,
     contextExhausted: Boolean,
     bottomReserve: Dp,
+    /** 输入框空着时的占位文字。 */
+    placeholder: String = "问一句…",
     /** 待发送的图片路径。空列表表示这个模型不支持图片，连按钮都不显示。 */
     attachments: List<String> = emptyList(),
     /** 模型认不认图片。不认就不给入口——贴了也只会被服务端拒掉。 */
@@ -1129,7 +1104,7 @@ private fun AgentComposer(
                 )
                 if (input.isEmpty()) {
                     Text(
-                        if (contextExhausted) "这轮对话满了，新建一个吧" else "问一句…",
+                        if (contextExhausted) "这轮对话满了，新建一个吧" else placeholder,
                         style = MiuixTheme.textStyles.body1,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         maxLines = 1,
@@ -1206,7 +1181,8 @@ private fun ThinkingDots() {
         horizontalArrangement = Arrangement.spacedBy(5.dp)
     ) {
         repeat(3) { i ->
-            val alpha by transition.animateFloat(
+            // 拿 State 本身，只在绘制阶段读：三个点闪烁时不每帧重组
+            val alpha = transition.animateFloat(
                 initialValue = 0.25f,
                 targetValue = 1f,
                 animationSpec = infiniteRepeatable(
@@ -1215,13 +1191,12 @@ private fun ThinkingDots() {
                 ),
                 label = "dot$i"
             )
+            val dotColor = MiuixTheme.colorScheme.onSurfaceVariantSummary
             Box(
                 Modifier
                     .size(7.dp)
-                    .background(
-                        MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = alpha),
-                        RoundedCornerShape(50)
-                    )
+                    .graphicsLayer { this.alpha = alpha.value }
+                    .background(dotColor, RoundedCornerShape(50))
             )
         }
     }
@@ -1510,17 +1485,29 @@ private fun MessageBubble(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
+                        // 跳转按钮：主题色淡底 + 箭头，一看就是「点了去那一页」，和普通标签区分开
                         msg.navSuggestions.forEach { (label, route) ->
-                            Surface(
-                                shape = RoundedCornerShape(14.dp),
-                                color = MiuixTheme.colorScheme.surfaceVariant,
-                                modifier = Modifier.clickable { onNavigate(route) }
+                            val accent = MiuixTheme.colorScheme.primary
+                            Row(
+                                Modifier
+                                    .clip(RoundedCornerShape(50))
+                                    .background(accent.copy(alpha = 0.10f))
+                                    .clickable { onNavigate(route) }
+                                    .padding(start = 12.dp, end = 9.dp, top = 6.dp, bottom = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(
                                     label,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                                     style = MiuixTheme.textStyles.footnote1,
-                                    color = MiuixTheme.colorScheme.onSurface,
+                                    fontWeight = FontWeight.Medium,
+                                    color = accent,
+                                )
+                                Spacer(Modifier.width(3.dp))
+                                Icon(
+                                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                    contentDescription = null,
+                                    tint = accent,
+                                    modifier = Modifier.size(15.dp),
                                 )
                             }
                         }
@@ -1539,17 +1526,18 @@ private fun ConfigPanel(
     config: AgentConfig,
     scrollBehavior: ScrollBehavior,
     onSave: (AgentConfig) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** 玻璃顶栏的高度，放进列表的顶部留白。 */
+    listTopPadding: Dp = 0.dp,
+    /** 悬浮底栏的高度，放进列表的底部留白。 */
+    listBottomPadding: Dp = 0.dp,
 ) {
     var provider by remember { mutableStateOf(config.provider) }
     var apiKey by remember { mutableStateOf(config.apiKey) }
     var model by remember { mutableStateOf(config.model) }
     var baseUrl by remember { mutableStateOf(config.baseUrl) }
-    var maxToolCalls by remember { mutableIntStateOf(config.maxToolCalls) }
     var assistantName by remember { mutableStateOf(config.assistantName) }
-    var disabledCaps by remember { mutableStateOf(config.disabledCaps) }
     var searchEngine by remember { mutableStateOf(config.searchEngine) }
-    var responseStyle by remember { mutableStateOf(config.responseStyle) }
     var thinkingEnabled by remember { mutableStateOf(config.thinkingEnabled) }
     var reasoningEffort by remember { mutableStateOf(config.reasoningEffort) }
     var showReasoning by remember { mutableStateOf(config.showReasoning) }
@@ -1561,11 +1549,8 @@ private fun ConfigPanel(
             apiKey = apiKey.trim(),
             model = model.trim(),
             baseUrl = baseUrl.trim(),
-            maxToolCalls = maxToolCalls,
             assistantName = sanitizeAgentTitle(assistantName),
-            disabledCaps = disabledCaps,
             searchEngine = searchEngine,
-            responseStyle = responseStyle,
             thinkingEnabled = thinkingEnabled,
             reasoningEffort = reasoningEffort,
             showReasoning = showReasoning
@@ -1605,18 +1590,16 @@ private fun ConfigPanel(
     val providerIndex = AgentConfig.PROVIDERS.indexOf(provider).coerceAtLeast(0)
     val searchEngineItems = AgentConfig.SEARCH_ENGINES.map { DropdownItem(text = AgentConfig.searchEngineLabel(it)) }
     val searchEngineIndex = AgentConfig.SEARCH_ENGINES.indexOf(searchEngine).coerceAtLeast(0)
-    val responseStyleItems = AgentConfig.RESPONSE_STYLES.map { DropdownItem(text = AgentConfig.responseStyleLabel(it)) }
-    val responseStyleIndex = AgentConfig.RESPONSE_STYLES.indexOf(responseStyle).coerceAtLeast(0)
 
     LazyColumn(
         modifier = modifier
             .nestedScroll(scrollBehavior.nestedScrollConnection)
             .overScrollVertical(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp + listTopPadding, bottom = 12.dp + listBottomPadding),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
-            Card(colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.errorContainer.copy(alpha = 0.35f))) {
+            Card(colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.errorContainer.copy(alpha = 0.35f).compositeOver(com.xjtu.toolbox.ui.components.AppCardColor))) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("首次使用前请确认", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold)
                     Text(
@@ -1630,7 +1613,7 @@ private fun ConfigPanel(
         // 服务商 + 助手名字/API Key/模型 + 思考参数：都是"怎么接到哪个模型、这个模型
         // 怎么想问题"这一件事，原来拆成三张卡片，合并成一张放最前面，改起来不用来回滚动。
         item {
-            Card(colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)) {
+            Card(colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     OverlaySpinnerPreference(
                         title = "服务商",
@@ -1648,7 +1631,7 @@ private fun ConfigPanel(
                             assistantName = sanitizeAgentTitle(it, "")
                             scheduleSave()
                         },
-                        label = "助手名字（默认 屁岱）",
+                        label = "助手名字（默认 屁岱，新对话生效）",
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
@@ -1689,48 +1672,64 @@ private fun ConfigPanel(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                        keyboardActions = KeyboardActions(onDone = { saveNow() })
-                    )
-                    // 一键拉取模型列表，选择填入
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        TextButton(
-                            text = if (fetchingModels) "拉取中…" else "拉取模型列表",
-                            enabled = apiKey.isNotBlank() && !fetchingModels,
-                            onClick = {
-                                fetchError = null
-                                fetchingModels = true
-                                val probe = AgentConfig(provider = provider, apiKey = apiKey.trim(),
-                                    model = model.trim(), baseUrl = baseUrl.trim())
-                                scope.launch {
-                                    try {
-                                        availableModels = AgentModelFetcher.fetch(probe)
-                                    } catch (e: Exception) {
-                                        fetchError = e.message ?: "拉取失败"
-                                        availableModels = emptyList()
-                                    } finally {
-                                        fetchingModels = false
-                                    }
+                        keyboardActions = KeyboardActions(onDone = { saveNow() }),
+                        // 输入框右端的「拉取模型列表」：拉到以后下面出现选择器
+                        trailingIcon = {
+                            if (fetchingModels) {
+                                top.yukonga.miuix.kmp.basic.CircularProgressIndicator(
+                                    size = 20.dp,
+                                    modifier = Modifier.padding(end = 12.dp),
+                                )
+                            } else {
+                                IconButton(
+                                    enabled = apiKey.isNotBlank(),
+                                    onClick = {
+                                        fetchError = null
+                                        fetchingModels = true
+                                        val probe = AgentConfig(provider = provider, apiKey = apiKey.trim(),
+                                            model = model.trim(), baseUrl = baseUrl.trim())
+                                        scope.launch {
+                                            try {
+                                                availableModels = AgentModelFetcher.fetch(probe)
+                                            } catch (e: Exception) {
+                                                fetchError = e.message ?: "拉取失败"
+                                                availableModels = emptyList()
+                                            } finally {
+                                                fetchingModels = false
+                                            }
+                                        }
+                                    },
+                                ) {
+                                    Icon(
+                                        Icons.Default.Refresh,
+                                        contentDescription = "拉取模型列表",
+                                        tint = if (apiKey.isNotBlank()) MiuixTheme.colorScheme.primary
+                                        else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    )
                                 }
                             }
-                        )
-                        fetchError?.let {
-                            Text(it, style = MiuixTheme.textStyles.footnote1,
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                modifier = Modifier.weight(1f))
-                        }
+                        },
+                    )
+                    fetchError?.let {
+                        Text(it, style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
                     if (availableModels.isNotEmpty()) {
-                        val selIdx = availableModels.indexOf(model).coerceAtLeast(0)
+                        // 选中项必须和输入框一致：以前框里空着（用默认）或填了列表外的模型时，
+                        // 选中项被硬定成第 0 个——看着选中了第一个、框里却是空的，点它还没反应。
+                        // 现在第一项是「默认」对应空框；手填的列表外模型单独列一项。
+                        val trimmed = model.trim()
+                        val defaultModel = AgentConfig(provider = provider).effectiveModel
+                        val extra = trimmed.takeIf { it.isNotEmpty() && it !in availableModels }
+                        val options: List<String> = listOf("") + listOfNotNull(extra) + availableModels
+                        val selIdx = options.indexOf(trimmed).coerceAtLeast(0)
                         OverlaySpinnerPreference(
                             title = "选择模型",
-                            summary = model.ifBlank { "点击从 ${availableModels.size} 个模型中选择" },
-                            items = availableModels.map { DropdownItem(text = it) },
+                            summary = trimmed.ifBlank { "默认（$defaultModel）" },
+                            items = options.map { DropdownItem(text = it.ifBlank { "默认（$defaultModel）" }) },
                             selectedIndex = selIdx,
                             onSelectedIndexChange = {
-                                model = availableModels[it]
+                                model = options[it]
                                 saveNow()
                             }
                         )
@@ -1819,7 +1818,7 @@ private fun ConfigPanel(
             }
         }
         item {
-            Card(colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)) {
+            Card(colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)) {
                 OverlaySpinnerPreference(
                     title = "联网搜索引擎",
                     summary = AgentConfig.searchEngineLabel(searchEngine),
@@ -1832,34 +1831,18 @@ private fun ConfigPanel(
                 )
             }
         }
-        // 回复风格和皮肤都是"agent 表现出来的样子"，放一起。
-        item {
-            Card(colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)) {
-                OverlaySpinnerPreference(
-                    title = "回复风格",
-                    summary = AgentConfig.responseStyleLabel(responseStyle),
-                    items = responseStyleItems,
-                    selectedIndex = responseStyleIndex,
-                    onSelectedIndexChange = {
-                        responseStyle = AgentConfig.RESPONSE_STYLES[it]
-                        saveNow()
-                    }
-                )
-            }
-        }
         // 形象选择：形状 + 颜色。即时生效、设备级持久化，不参与 AgentConfig 的存取（见 PidaiAppearanceHost）。
         item { PidaiAppearancePanel() }
         item {
             // 记住的偏好必须**可见可删**：模型往本机写了东西，用户有权知道写了什么。
-            // 放在能力开关上面，因为看见内容才谈得上决定要不要关掉这个能力。
             val ctx = androidx.compose.ui.platform.LocalContext.current
             var memories by remember { mutableStateOf(AgentMemory.all(ctx)) }
             if (memories.isNotEmpty()) {
-                Card(colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)) {
+                Card(colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("记住的偏好", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold)
                         Text(
-                            "只存在这台设备上，不上传。最多 ${AgentMemory.MAX_ITEMS} 条。",
+                            "只存在这台设备上，不上传。最多 ${AgentMemory.MAX_ITEMS} 条。增删从下一个新对话起生效。",
                             style = MiuixTheme.textStyles.footnote1,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                         )
@@ -1894,76 +1877,66 @@ private fun ConfigPanel(
                 }
             }
         }
-        // 最多调用次数和能力开关都是"agent 这次能做多少事"，放一起。
-        item {
-            Card(colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // 0 = 不限制；1..12 为具体上限（每次提问独立计数）
-                    val options = listOf(0) + (1..12).toList()
-                    Text(
-                        "每次提问最多工具调用：" + if (maxToolCalls <= 0) "不限制" else "$maxToolCalls 次",
-                        style = MiuixTheme.textStyles.body1
-                    )
-                    val sliderItems = options.map { DropdownItem(text = if (it == 0) "不限制" else "$it 次") }
-                    OverlaySpinnerPreference(
-                        title = "上限",
-                        summary = if (maxToolCalls <= 0) "不限制" else "$maxToolCalls 次",
-                        items = sliderItems,
-                        selectedIndex = options.indexOf(maxToolCalls).coerceAtLeast(0),
-                        onSelectedIndexChange = {
-                            maxToolCalls = options[it]
-                            saveNow()
-                        }
-                    )
-                }
-            }
-        }
-        item {
-            val capabilities = listOf(
-                "schedule" to "课表、校历、全校课程与空教室",
-                "grades" to "成绩",
-                "attendance" to "考勤",
-                "card" to "校园卡",
-                "notifications" to "通知公告",
-                "yellow_page" to "校园黄页",
-                "faculty" to "教师主页",
-                "memory" to "记住我的偏好",
-                "library" to "图书馆",
-                "zyxf" to "仲英学辅资料站",
-                "lms" to "思源学堂",
-                "fitness" to "体测查询",
-                "textbook" to "教材",
-                "coupon" to "加餐券",
-                "web" to "联网搜索与网页阅读",
-                "device_write" to "系统闹钟与日历",
-                "settings_write" to "修改 App 设置"
-            )
-            Card(colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("能力开关", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold)
-                    Text(
-                        "关闭后，模型不会看到对应工具。",
-                        style = MiuixTheme.textStyles.footnote1,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                    )
-                    capabilities.forEach { (key, label) ->
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(label, modifier = Modifier.weight(1f), style = MiuixTheme.textStyles.body1)
-                            Switch(
-                                checked = key !in disabledCaps,
-                                onCheckedChange = { enabled ->
-                                    disabledCaps = if (enabled) disabledCaps - key else disabledCaps + key
-                                    saveNow()
-                                }
-                            )
-                        }
-                    }
-                }
-            }
-        }
         // 所有配置已改为即时保存，无需底部按钮
+    }
+}
+
+
+/**
+ * 聊天中戳屁岱的回应：输入框上方浮起一颗小气泡，左边是迷你屁岱，右边是那句闲话，
+ * 弹一下出来，3.5 秒后淡出。每戳一次（[ProactiveBubbleHost.heroPokes] 变化）换一句。
+ */
+@Composable
+private fun PokeWhisper(modifier: Modifier = Modifier) {
+    val host = ProactiveBubbleHost
+    val seen = remember { intArrayOf(host.heroPokes) }
+    var text by remember { mutableStateOf<String?>(null) }
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(host.heroPokes) {
+        if (host.heroPokes == seen[0]) return@LaunchedEffect
+        seen[0] = host.heroPokes
+        text = host.heroLine ?: return@LaunchedEffect
+        visible = true
+        kotlinx.coroutines.delay(3500)
+        visible = false
+    }
+    val look = pidaiNavAppearance()
+    androidx.compose.animation.AnimatedVisibility(
+        visible = visible && text != null,
+        enter = androidx.compose.animation.fadeIn(tween(160)) +
+            androidx.compose.animation.scaleIn(
+                androidx.compose.animation.core.spring(dampingRatio = 0.55f, stiffness = 500f),
+                initialScale = 0.7f,
+                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f),
+            ),
+        exit = androidx.compose.animation.fadeOut(tween(220)) +
+            androidx.compose.animation.slideOutVertically(tween(220)) { it / 3 },
+        modifier = modifier,
+    ) {
+        Row(
+            Modifier
+                .shadow(8.dp, RoundedCornerShape(20.dp), ambientColor = MiuixTheme.colorScheme.primary.copy(alpha = 0.25f), spotColor = MiuixTheme.colorScheme.primary.copy(alpha = 0.25f))
+                .clip(RoundedCornerShape(20.dp))
+                .background(MiuixTheme.colorScheme.surfaceVariant)
+                .clickable { visible = false }
+                .padding(start = 8.dp, end = 14.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            BloubBotIcon(
+                beat = PidaiBeat.IDLE,
+                ink = look.ink,
+                paper = MiuixTheme.colorScheme.surfaceVariant,
+                shape = look.shape,
+                skin = look.skin,
+                modifier = Modifier.size(26.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text.orEmpty(),
+                style = MiuixTheme.textStyles.body2,
+                color = MiuixTheme.colorScheme.onSurface,
+                maxLines = 2,
+            )
+        }
     }
 }

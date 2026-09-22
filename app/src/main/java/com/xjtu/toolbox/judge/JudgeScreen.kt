@@ -1,5 +1,8 @@
 package com.xjtu.toolbox.judge
 
+import com.xjtu.toolbox.ui.adaptive.readableWidth
+import com.xjtu.toolbox.ui.adaptive.fullLineItem
+import androidx.compose.foundation.lazy.staggeredgrid.items
 import androidx.activity.compose.BackHandler
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
@@ -18,6 +21,8 @@ import top.yukonga.miuix.kmp.basic.PullToRefresh
 import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
+import com.xjtu.toolbox.ui.components.AppTabPager
+import com.xjtu.toolbox.ui.glass.*
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
@@ -114,31 +119,44 @@ fun JudgeScreen(
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     val pullToRefreshState = rememberPullToRefreshState()
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
     Scaffold(
         topBar = {
             TopAppBar(
                 title = "本科评教",
-                color = MiuixTheme.colorScheme.surface,
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 largeTitle = "本科评教",
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
-                }
+                },
+                // 分段标签不跟着滚：挂在顶栏里和顶栏一起做一整块玻璃，课程卡从它下面滚过去
+                bottomContent = {
+                    CompositionLocalProvider(LocalOnGlassBar provides (glass != null)) {
+                        AppSegmentedTabs(
+                            tabs = listOf("未评 (${unfinishedList.size})", "已评 (${finishedList.size})"),
+                            selectedTabIndex = selectedTab,
+                            onTabSelected = { selectedTab = it },
+                            modifier = Modifier.readableWidth(),
+                        )
+                    }
+                },
             )
         }
     ) { padding ->
+        val glassTop = padding.glassTop(glass)
+        // 宽屏不再整页限宽 720：课程卡分两三列铺开（见下面的 AdaptiveCardGrid），
+        // 只有分段标签和「一键好评」这种控件还限宽居中，拉满一整个平板宽度反而难点。
         Column(
             Modifier
+                .padding(padding.withoutTop(glass))
                 .fillMaxSize()
-                .padding(padding)
+                .glassSource(glass)
         ) {
-            AppSegmentedTabs(
-                tabs = listOf("未评 (${unfinishedList.size})", "已评 (${finishedList.size})"),
-                selectedTabIndex = selectedTab,
-                onTabSelected = { selectedTab = it },
-            )
 
             // 确认对话框（提升至顶层，不受 selectedTab 条件约束）
             BackHandler(enabled = showConfirmDialog.value) { showConfirmDialog.value = false }
@@ -202,12 +220,14 @@ fun JudgeScreen(
                     }
                 }
 
-            // 一键好评按钮 + 进度条
-            if (selectedTab == 0 && unfinishedList.isNotEmpty()) {
+            // 一键好评按钮 + 进度条：「未评」列表的第一项，跟着列表滚（以前钉在标签下面，
+            // 玻璃顶栏下面永远压着一块按钮）
+            val autoJudgeBlock: @Composable () -> Unit = {
                 Column(
                     Modifier
+                        .readableWidth()
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                        .padding(bottom = 2.dp)
                 ) {
                     Button(
                         onClick = { if (!isAutoJudging) showConfirmDialog.value = true },
@@ -262,14 +282,17 @@ fun JudgeScreen(
             }
 
             PullToRefresh(
+                refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
                 isRefreshing = isRefreshing,
                 onRefresh = { loadData(silent = true) },
                 pullToRefreshState = pullToRefreshState,
                 topAppBarScrollBehavior = scrollBehavior,
+                // 下拉指示器从玻璃顶栏（含标签行）下面出来
+                contentPadding = PaddingValues(top = glassTop),
                 modifier = Modifier.fillMaxSize()
             ) {
                 when {
-                    isLoading -> LazyColumn(Modifier.fillMaxSize()) {
+                    isLoading -> LazyColumn(Modifier.fillMaxSize().padding(top = glassTop)) {
                         item {
                             Box(Modifier.fillParentMaxSize()) {
                                 LoadingState(
@@ -279,7 +302,7 @@ fun JudgeScreen(
                             }
                         }
                     }
-                    errorMessage != null -> LazyColumn(Modifier.fillMaxSize()) {
+                    errorMessage != null -> LazyColumn(Modifier.fillMaxSize().padding(top = glassTop)) {
                         item {
                             Box(Modifier.fillParentMaxSize()) {
                                 ErrorState(
@@ -291,20 +314,17 @@ fun JudgeScreen(
                         }
                     }
                     else -> {
-                        AnimatedContent(
-                            targetState = selectedTab,
-                            transitionSpec = {
-                                fadeIn() + slideInHorizontally {
-                                    if (targetState > initialState) it else -it
-                                } togetherWith fadeOut() + slideOutHorizontally {
-                                    if (targetState > initialState) -it else it
-                                }
-                            },
-                            label = "judgeTab"
+                        // 横滑切栏（未评/已评），用契约组件 AppTabPager；标签行仍由上面的
+                        // AppSegmentedTabs 负责点击切换，两者共用同一个 selectedTab。
+                        AppTabPager(
+                            pageCount = 2,
+                            selectedTabIndex = selectedTab,
+                            onTabSelected = { selectedTab = it },
+                            modifier = Modifier.fillMaxSize(),
                         ) { tab ->
                             val displayList = if (tab == 0) unfinishedList else finishedList
                             if (displayList.isEmpty()) {
-                                LazyColumn(Modifier.fillMaxSize()) {
+                                LazyColumn(Modifier.fillMaxSize().padding(top = glassTop)) {
                                     item {
                                         Box(Modifier.fillParentMaxSize()) {
                                             EmptyState(
@@ -316,14 +336,14 @@ fun JudgeScreen(
                                     }
                                 }
                             } else {
-                                LazyColumn(
-                                    Modifier
+                                com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid(
+                                    modifier = Modifier
                                         .fillMaxSize()
-                                        .overScrollVertical()
-                                        .padding(horizontal = 16.dp),
-                                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                                    contentPadding = PaddingValues(vertical = 12.dp)
+                                        .overScrollVertical(),
+                                    spacing = 10.dp,
+                                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp + glassTop, bottom = 12.dp)
                                 ) {
+                                    if (tab == 0) fullLineItem(key = "auto_judge") { autoJudgeBlock() }
                                     items(displayList, key = { "${it.WJDM}_${it.JXBID}_${it.BPR}" }) { q ->
                                         val qKey = "${q.WJDM}_${q.JXBID}_${q.BPR}"
                                         QuestionnaireCard(

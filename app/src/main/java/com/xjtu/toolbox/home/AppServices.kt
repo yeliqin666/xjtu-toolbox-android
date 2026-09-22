@@ -15,6 +15,13 @@ enum class ServiceCategory(val title: String, val subtitle: String) {
     CLASS("上课", "课表、自习与课程内容"),
     STUDY("学业", "成绩、评教与学习资料"),
     TOOL("工具与助手", "智能助手与连接工具"),
+
+    /**
+     * 单独一类而不是塞进 [TOOL]：「工具与助手」装游戏语义不搭，
+     * 而底栏已经是 5 个 tab（miuix 的上限就是 5），加不了 tab，
+     * 所以走首页分类卡这一层。
+     */
+    PLAY("课余", "小游戏与匹配"),
 }
 
 data class AppService(
@@ -32,16 +39,15 @@ object AppServices {
         AppService(Routes.SCHEDULE, "日程", "本学期课表与考试", ServiceCategory.CLASS, listOf("课表", "课程", "schedule", "今天", "明天")),
         AppService(Routes.EMPTY_ROOM, "空闲教室", "查找自习空教室", ServiceCategory.CLASS, listOf("空教室", "自习", "教室")),
         AppService(Routes.LMS, "思源", "课程作业与资料", ServiceCategory.CLASS, listOf("思源学堂", "lms", "作业", "课件")),
-        AppService(Routes.CLASS_REPLAY, "课程回放", "课堂录像回放", ServiceCategory.CLASS, listOf("回放", "录像", "录播")),
         AppService(Routes.SCHOOL_COURSE, "课程查询", "全校开课查询", ServiceCategory.CLASS, listOf("开课", "选课", "查课")),
         AppService(Routes.NEW_ATTENDANCE, "新版考勤", "本研统一，流水、统计与请假", ServiceCategory.CLASS, listOf("考勤", "考勤查询", "出勤", "迟到", "缺勤", "新考勤", "请假", "病假", "私事假", "销假", "kq")),
-        AppService(Routes.ICLASSFACE, "快速考勤流水", "课堂人脸考勤记录", ServiceCategory.CLASS, listOf("人脸考勤", "刷脸", "iclassface"), audience = AccountType.UNDERGRADUATE),
-        AppService(Routes.MATCH, "匹配交友", "扫一扫，对一对空课时间", ServiceCategory.CLASS, listOf("匹配", "交友", "契合", "一起自习", "共同空闲", "扫码匹配", "同楼", "偶遇", "同课", "课表匹配")),
+        AppService(Routes.ICLASSFACE, "快速考勤流水", "课堂人脸考勤记录", ServiceCategory.CLASS, listOf("人脸考勤", "刷脸", "iclassface"), showOnHome = false, audience = AccountType.UNDERGRADUATE),
 
         AppService(Routes.JWAPP_SCORE, "成绩", "本学期成绩与 GPA", ServiceCategory.STUDY, listOf("成绩查询", "分数", "gpa", "绩点")),
         AppService(Routes.JUDGE, "评教", "本科课程评教", ServiceCategory.STUDY, listOf("问卷", "打分", "本科评教")),
-        AppService(Routes.JIAOCAI, "教材", "教材选用信息", ServiceCategory.STUDY, listOf("课本", "教材中心")),
-        AppService(Routes.JIAOCAI1, "教材全文", "教材全文库", ServiceCategory.STUDY, listOf("全文", "电子书", "在线阅读")),
+        AppService(Routes.JIAOCAI, "教材", "查课程教材、读全文", ServiceCategory.STUDY, listOf("课本", "教材中心", "全文", "电子书", "在线阅读")),
+        // 已并进「教材」的全文库栏；首页不单列，全局搜「教材全文」仍能直达那一栏
+        AppService(Routes.JIAOCAI1, "教材全文", "教材全文库", ServiceCategory.STUDY, listOf("全文", "电子书", "在线阅读"), showOnHome = false),
         AppService(Routes.LIBRARY, "图书馆", "借阅与座位", ServiceCategory.STUDY, listOf("图书", "借书", "座位", "自习室")),
         AppService(Routes.TRANSCRIPT, "成绩单", "电子成绩单", ServiceCategory.STUDY, listOf("成绩证明", "打印成绩")),
         AppService(Routes.NOTIFICATION, "通知公告", "教务与学院通知", ServiceCategory.STUDY, listOf("通知", "公告", "教务")),
@@ -58,6 +64,9 @@ object AppServices {
         AppService(Routes.WEBVPN_CONVERTER, "WebVPN", "校外访问转换", ServiceCategory.TOOL, listOf("vpn", "webvpn")),
         AppService(Routes.AGENT, "屁岱", "校园 AI 助手", ServiceCategory.TOOL, listOf("问屁岱", "ai", "助手")),
 
+        AppService(Routes.GAMES, "小游戏", "合成西交大、五子棋、围棋…", ServiceCategory.PLAY, listOf("游戏", "小游戏", "五子棋", "围棋", "象棋", "2048", "合成", "摸鱼")),
+        AppService(Routes.MATCH, "匹配交友", "扫一扫，对一对空课时间", ServiceCategory.PLAY, listOf("匹配", "交友", "契合", "一起自习", "共同空闲", "扫码匹配", "同楼", "偶遇", "同课", "课表匹配")),
+
         AppService(Routes.SCORE_REPORT, "成绩报表", "历年成绩明细", ServiceCategory.STUDY, listOf("报表", "历年成绩"), showOnHome = false),
         AppService(Routes.DOWNLOAD_MANAGER, "下载管理", "课件与回放下载", ServiceCategory.TOOL, listOf("下载", "已下载"), showOnHome = false),
         AppService(Routes.SETTINGS, "设置", "外观、校园网与通知", ServiceCategory.TOOL, listOf("偏好", "主题"), showOnHome = false),
@@ -72,6 +81,4 @@ object AppServices {
 
     fun homeFor(accountType: AccountType): List<AppService> =
         visibleFor(accountType).filter { it.showOnHome }
-
-    fun byRoute(route: String): AppService? = all.firstOrNull { it.route == route }
 }

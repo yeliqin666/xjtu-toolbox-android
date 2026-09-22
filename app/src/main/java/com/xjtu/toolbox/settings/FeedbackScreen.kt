@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -40,6 +41,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import com.xjtu.toolbox.feedback.FeedbackApi
 import com.xjtu.toolbox.feedback.FeedbackStore
+import com.xjtu.toolbox.ui.glass.*
 import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.AppFilterChip
 import kotlinx.coroutines.launch
@@ -195,12 +197,15 @@ fun FeedbackScreen(
         }
     }
 
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
     Scaffold(
         topBar = {
             TopAppBar(
                 title = "反馈与建议",
                 largeTitle = "反馈与建议",
-                color = MiuixTheme.colorScheme.surface,
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -210,8 +215,12 @@ fun FeedbackScreen(
             )
         }
     ) { padding ->
+        val glassTop = padding.glassTop(glass)
         val pullState = rememberPullToRefreshState()
         PullToRefresh(
+            refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
+            // 顶栏折叠交给下拉刷新协调：往下拉先展开大标题，展开完才算下拉刷新。不传的话下拉刷新先把拖动吃掉，慢慢拉只会刷新、标题展不开
+            topAppBarScrollBehavior = scrollBehavior,
             isRefreshing = refreshing,
             onRefresh = {
                 refreshing = true
@@ -221,7 +230,8 @@ fun FeedbackScreen(
                 }
             },
             pullToRefreshState = pullState,
-            modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding = PaddingValues(top = glassTop),
+            modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
         ) {
         Column(
             Modifier
@@ -233,6 +243,7 @@ fun FeedbackScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
+            Spacer(Modifier.height(glassTop))
             if (FeedbackApi.isConfigured) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),

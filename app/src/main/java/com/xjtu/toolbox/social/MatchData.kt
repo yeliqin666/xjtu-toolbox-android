@@ -25,7 +25,18 @@ object MatchData {
     private const val MAX_PAST_COURSES = 120
 
     data class Local(
-        /** 当前学期的课。作息、同课、偶遇都从这里来。 */
+        /** 拿来比的那个学期（默认本学期，用户可以换成历史学期）。作息、同课、偶遇都从这里来。 */
+        val term: String? = null,
+        /** 真正的本学期，界面据此标「本学期」。 */
+        val currentTerm: String? = null,
+        /** 本地有课表缓存、可以拿来比的学期，本学期排最前。 */
+        val availableTerms: List<String> = emptyList(),
+        /** 学期码 → 给人看的名字（「2025-2026 学年第一学期」）。 */
+        val termNames: Map<String, String> = emptyMap(),
+        /**
+         * [term] 那个学期的课。只有教务课表缓存里的课：用户自己在日程页添加的课存在单独的库里，
+         * 这里从来不读——那往往是私人安排，不该跟着码发给别人。
+         */
         val courses: List<CourseItem> = emptyList(),
         /** 往期学期的课程号。只有号没有名——名字会让分享码大一倍，而"一起上过几门"不需要名字。 */
         val pastCourseCodes: Set<String> = emptySet(),
@@ -38,9 +49,24 @@ object MatchData {
         /** 常去的食堂，按次数降序。只有名字，没有金额。 */
         val canteens: List<String> = emptyList(),
         val profile: HelloProfile? = null,
-    )
+    ) {
+        /**
+         * 有没有任何一维拿得出数据。
+         *
+         * 全空时分享码里只剩一个名字：码本身能出、也能扫，但对方算不出任何东西。
+         * 界面靠这个字段提前说清"先去别的页面转一圈"，而不是让人对着一张
+         * 扫完什么都没有的码猜是哪里坏了。
+         */
+        val hasAnything: Boolean
+            get() = courses.isNotEmpty() || pastCourseCodes.isNotEmpty() ||
+                textbooks.isNotEmpty() || exams.isNotEmpty() ||
+                diningHourCounts.isNotEmpty() || canteens.isNotEmpty() || profile != null
+    }
 
-    fun read(ctx: Context): Local {
+    /**
+     * @param term 要拿来比的学期；null 表示本学期。
+     */
+    fun read(ctx: Context, term: String? = null): Local {
         val dc = DataCache(ctx)
         val gson = Gson()
         val terms = runCatching {
@@ -48,13 +74,23 @@ object MatchData {
                 ?.let { gson.fromJson(it, Array<String>::class.java)?.toList() }
                 .orEmpty()
         }.getOrDefault(emptyList())
-        val current = terms.firstOrNull()
+        // 本学期读日程页记下的「当前学期」，不读 schedule_last_term：后者是用户上一次翻到的学期，
+        // 在日程页看了一眼去年的课表，这里就会把去年当成本学期。
+        val thisTerm = com.xjtu.toolbox.schedule.ScheduleCache.readCurrentTerm(dc, gson)
+        val current = term ?: thisTerm
+        // 能选的学期：本地有课表缓存的那些，本学期排最前
+        val available = (listOfNotNull(thisTerm) + terms).distinct()
+            .filter { it == thisTerm || readCourses(dc, gson, it).isNotEmpty() }
+        val nameMap = com.xjtu.toolbox.schedule.ScheduleTermStore.read(dc, gson)
+        val termNames = available.associateWith {
+            com.xjtu.toolbox.schedule.ScheduleTermStore.display(it, emptyMap(), nameMap)
+        }
 
         val courses = current?.let { readCourses(dc, gson, it) }.orEmpty()
         // 往期只取课程号。逛过几个学期就有几个学期，没逛过的学期缓存里根本没有。
         val past = LinkedHashSet<String>()
         var pastTerms = 0
-        for (t in terms.drop(1)) {
+        for (t in terms.filter { it != current }) {
             val list = readCourses(dc, gson, t)
             if (list.isEmpty()) continue
             pastTerms++
@@ -88,6 +124,10 @@ object MatchData {
         }.orEmpty()
 
         return Local(
+            term = current,
+            currentTerm = thisTerm,
+            availableTerms = available,
+            termNames = termNames,
             courses = courses,
             pastCourseCodes = past,
             pastTermCount = pastTerms,
@@ -101,10 +141,15 @@ object MatchData {
         )
     }
 
+    /**
+     * 和日程页读法一致：先读 ScheduleCache 的优化格式，没有再读原始的 schedule_<学期>。
+     * 只读原始格式的话，某些路径只写了优化格式，这边就读成空。
+     */
     private fun readCourses(dc: DataCache, gson: Gson, term: String): List<CourseItem> =
         runCatching {
-            dc.get("schedule_$term", Long.MAX_VALUE)?.let { json ->
-                gson.fromJson(json, Array<CourseItem>::class.java).toList().map { it.sanitized() }
-            }
+            com.xjtu.toolbox.schedule.ScheduleCache.readOptimizedCourses(dc, gson, term, Long.MAX_VALUE)
+                ?: dc.get("schedule_$term", Long.MAX_VALUE)?.let { json ->
+                    gson.fromJson(json, Array<CourseItem>::class.java).toList().map { it.sanitized() }
+                }
         }.getOrNull().orEmpty()
 }

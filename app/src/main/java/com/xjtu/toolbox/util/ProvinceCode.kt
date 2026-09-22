@@ -4,7 +4,7 @@ package com.xjtu.toolbox.util
  * 从学号推生源地省份。
  *
  * 学号第 4-5 位是 GB/T 2260 省级行政区代码（前两位）。纯字符串运算，
- * 不碰 Android，方便在屁岱画像、匹配交友这类不同场景下复用同一份映射。
+ * 不碰 Android，方便在屁岱画像等不同场景下复用同一份映射。
  */
 object ProvinceCode {
     private val MAP = mapOf(

@@ -13,8 +13,10 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Matrix
 import androidx.compose.ui.graphics.Path
@@ -26,7 +28,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.withTransform
-import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.graphicsLayer
 import com.xjtu.toolbox.agent.bot.BotEngine
 import com.xjtu.toolbox.agent.bot.BotFrame
 import com.xjtu.toolbox.agent.bot.ImportedMotionEngine
@@ -41,10 +43,13 @@ import com.xjtu.toolbox.agent.skin.PidaiSkin
 /**
  * bloub 机器人的 Compose 渲染器：把 [BotEngine] 采出的帧画到一块小画布上。
  *
- * 眼睛是身体上的「洞」（露出底栏背景色），不是白色形状贴在上面——所以先画一层
- * 与身体同形的背景色垫底，再在身体裁剪内画墨色、以背景色回填眼洞。burst 的粒子
- * 在身体后面（先画，被垫底遮住），通知点带凹槽（身体先让出一圈背景色再叠蓝点），
- * 彗星彩带按 z 分量分前后两半（后半段先画、被身体遮住，才是「轨道」而不是平面画）。
+ * 眼睛是身体上真正的「洞」：整只机器人画在一个离屏合成层里（`graphicsLayer` +
+ * `CompositingStrategy.Offscreen`），眼睛、通知点凹槽用 [BlendMode.Clear] 挖穿，
+ * 而不是拿背景色画上去——这样不管底栏是不透明还是玻璃，洞后面露出来的都是
+ * 真实背景，不用关心「背景色是什么」。没有离屏合成层的话 Clear 会直接穿透到
+ * 更底层的宿主画布，效果就不对了。burst 的粒子在身体后面（先画，被身体的
+ * ink 填充遮住），彗星彩带按 z 分量分前后两半（后半段先画、被身体遮住，才是
+ * 「轨道」而不是平面画）。
  *
  * 性能：底栏常驻，待命态只有眨眼和视线漂移在动（渲染器节流到 ~30fps，眨眼
  * 0.18s ≈ 5 帧足够平滑），主动全速播动画的只有微动、提醒、被点击三种情况。
@@ -53,6 +58,10 @@ import com.xjtu.toolbox.agent.skin.PidaiSkin
 internal fun BloubBotIcon(
     beat: PidaiBeat,
     ink: Color,
+    /**
+     * 曾经是「眼洞露出的底色」，挖空之后眼洞用 [BlendMode.Clear] 真的镂空，
+     * 不再需要知道底栏颜色。保留这个参数只是为了不改调用方的签名，内部不再使用。
+     */
     paper: Color,
     modifier: Modifier = Modifier,
     /** 用户选择的形状轮廓（见 [com.xjtu.toolbox.agent.bot.BOT_SHAPES]）；null = 圆形。 */
@@ -132,16 +141,17 @@ internal fun BloubBotIcon(
         // key 必须带上 importedEngine：LaunchedEffect 的 block 在首次组合时就固定了，
         // 换皮肤后若不重启，循环会一直采样旧引擎（底栏因此永远不切换）。
         LaunchedEffect(importedEngine) {
-            var lastSampleAt = 0.0
             while (true) {
-                withFrameNanos { nanos ->
-                    val now = clock.at(nanos)
-                    val sinceChange = now - clock.stateChangedAt
-                    // 待命节流：入场形变结束后只剩眨眼/漂移，~30fps 足够；其余状态全速
-                    val minInterval =
-                        if (currentBeat == PidaiBeat.REST && sinceChange > 0.6) 0.033 else 0.0
-                    if (now - lastSampleAt >= minInterval) {
-                        lastSampleAt = now
+                val resting = currentBeat == PidaiBeat.REST && clock.now() - clock.stateChangedAt > 0.6
+                if (resting) {
+                    // 待命：入场形变结束后只剩眨眼 / 漂移，~30fps 足够。用定时器而不是逐帧回调：
+                    // withFrameNanos 每个 vsync 都会排一帧，界面什么都不动时也按 120Hz 一直在跑。
+                    kotlinx.coroutines.delay(33)
+                    val now = clock.now()
+                    frame = importedEngine?.sample(now) ?: engine.sample(now)
+                } else {
+                    withFrameNanos { nanos ->
+                        val now = clock.at(nanos)
                         frame = importedEngine?.sample(now) ?: engine.sample(now)
                     }
                 }
@@ -149,7 +159,11 @@ internal fun BloubBotIcon(
         }
     }
 
-    Canvas(modifier = modifier) {
+    Canvas(
+        // 挖空要用 BlendMode.Clear，必须先落到一个离屏层上再合成，否则会直接
+        // 挖穿到宿主 Canvas 之外（见类注释）。
+        modifier = modifier.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen },
+    ) {
         val f = frame
         if (f == null) {
             // 首帧采样前的占位（最多一帧）：画一个素球，避免中间塌洞
@@ -163,7 +177,7 @@ internal fun BloubBotIcon(
             translate(size.width / 2f, size.height / 2f)
             scale(unitPx, unitPx, pivot = Offset.Zero)
         }) {
-            drawFrame(f, ink, paper, images)
+            drawFrame(f, ink, images)
         }
     }
 }
@@ -171,18 +185,19 @@ internal fun BloubBotIcon(
 private fun DrawScope.drawFrame(
     f: BotFrame,
     ink: Color,
-    paper: Color,
     images: Map<String, ImageBitmap>,
 ) {
     // 导入皮肤：任意条自由图层，下标即 z 序，没有内置身体也没有眼洞。
     if (f.bodyPath == null) {
-        f.layers.forEach { drawSkinLayer(it, ink, paper, images) }
+        f.layers.forEach { drawSkinLayer(it, ink, images) }
         return
     }
 
     fun drawDots() {
         for (d in f.dots) {
-            val color = if (d.depth < 0.0) ink else lerp(paper, ink, d.depth.toFloat())
+            // depth < 0：在身体前面，纯墨色；depth ∈ [0,1]：在身体后面，挖空以后
+            // 背后不再是固定的纸色，改用墨色乘透明度去逼近「越靠后越淡」的观感。
+            val color = if (d.depth < 0.0) ink else ink.copy(alpha = d.depth.toFloat())
             drawCircle(
                 color = color,
                 radius = d.r.toFloat(),
@@ -212,8 +227,9 @@ private fun DrawScope.drawFrame(
     // 彩带后半段：画在身体之前，被身体遮住
     drawArcs()
 
-    // 与身体同形的背景色垫底：眼洞和凹槽露出的就是它，同时遮住身后的粒子和彩带
-    drawPath(f.bodyPath, paper, alpha = f.bodyAlpha.toFloat())
+    // 挖空身体轮廓：先把身后的粒子、彩带清掉，腾出一块干净区域，
+    // 免得它们透过之后的 alpha 混合渗出到身体边缘。
+    drawPath(f.bodyPath, Color.Black, alpha = f.bodyAlpha.toFloat(), blendMode = BlendMode.Clear)
 
     clipPath(f.bodyPath) {
         // 墨色身体：裁剪到轮廓，画满整个裁剪区即可
@@ -223,12 +239,17 @@ private fun DrawScope.drawFrame(
             size = Size(500f, 500f),
             alpha = f.bodyAlpha.toFloat(),
         )
-        // 眼洞与通知点凹槽：以背景色回填
+        // 眼洞与通知点凹槽：真的挖穿，不再拿背景色回填
         for (eye in f.eyes) {
-            drawPath(eye.path, paper, alpha = eye.alpha.toFloat())
+            drawPath(eye.path, Color.Black, alpha = eye.alpha.toFloat(), blendMode = BlendMode.Clear)
         }
         f.notif?.let { n ->
-            drawCircle(paper, radius = n.notchR.toFloat(), center = Offset(n.x.toFloat(), n.y.toFloat()))
+            drawCircle(
+                Color.Black,
+                radius = n.notchR.toFloat(),
+                center = Offset(n.x.toFloat(), n.y.toFloat()),
+                blendMode = BlendMode.Clear,
+            )
         }
     }
 
@@ -249,7 +270,6 @@ private fun DrawScope.drawFrame(
 private fun DrawScope.drawSkinLayer(
     d: PidaiDraw,
     ink: Color,
-    paper: Color,
     images: Map<String, ImageBitmap>,
 ) {
     val alpha = d.alpha.toFloat().coerceIn(0f, 1f)
@@ -271,13 +291,15 @@ private fun DrawScope.drawSkinLayer(
     val outline = d.outline ?: return
     // 仿射保持三次贝塞尔，所以直接变换控制点：几何留在纯 Kotlin 里，可被单测断言。
     val path = outline.transformedBy(d.transform).toComposePath(d.evenOdd)
-    d.fill.resolve(ink, paper)?.let { drawPath(path, it, alpha = alpha) }
-    val strokeColor = d.stroke.resolve(ink, paper)
-    if (strokeColor != null && d.strokeWidth > 0.0) {
+    d.fill.resolve(ink)?.let { (color, blendMode) -> drawPath(path, color, alpha = alpha, blendMode = blendMode) }
+    val stroke = d.stroke.resolve(ink)
+    if (stroke != null && d.strokeWidth > 0.0) {
+        val (strokeColor, strokeBlendMode) = stroke
         drawPath(
             path,
             strokeColor,
             alpha = alpha,
+            blendMode = strokeBlendMode,
             style = Stroke(
                 width = (d.strokeWidth * d.transform.lineScale).toFloat(),
                 cap = when (d.cap) {
@@ -295,11 +317,15 @@ private fun DrawScope.drawSkinLayer(
     }
 }
 
-private fun PidaiPaint.resolve(ink: Color, paper: Color): Color? = when (this) {
+/**
+ * 皮肤里声明为 `"paper"` 的填充/描边：挖空以后不再是「底栏颜色」，
+ * 而是用 [BlendMode.Clear] 真的镂空，所以要连同混合模式一起返回。
+ */
+private fun PidaiPaint.resolve(ink: Color): Pair<Color, BlendMode>? = when (this) {
     PidaiPaint.None -> null
-    PidaiPaint.Ink -> ink
-    PidaiPaint.Paper -> paper
-    is PidaiPaint.Solid -> Color(argb.toInt())
+    PidaiPaint.Ink -> ink to BlendMode.SrcOver
+    PidaiPaint.Paper -> Color.Black to BlendMode.Clear
+    is PidaiPaint.Solid -> Color(argb.toInt()) to BlendMode.SrcOver
 }
 
 private fun SkinOutline.toComposePath(evenOdd: Boolean): Path {

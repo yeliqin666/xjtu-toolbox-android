@@ -114,32 +114,38 @@ class CredentialStore(context: Context) {
 
     // ── 设置页持久化（普通 SharedPreferences，非敏感） ──
 
-    /** 获取 app_settings SharedPreferences，供 Compose 端直接读取/写入 */
-    fun getAppPrefs(): SharedPreferences = appPrefs
-
+    /**
+     * 界面风格：[NAV_STYLE_FLOATING] 玻璃（**默认**），[NAV_STYLE_CLASSIC] 经典。
+     *
+     * 键名和取值沿用原来的「底栏风格」：以前选过悬浮胶囊的人自动用上玻璃，
+     * 主动选过经典（本地已存 "classic"）的人保持不变。选经典时底栏回到经典样式，
+     * 所有玻璃点一起退回不透明——经典同时就是「性能模式」。
+     */
     var navBarStyle: String
-        get() = appPrefs.getString(KEY_NAV_BAR_STYLE, NAV_STYLE_CLASSIC) ?: NAV_STYLE_CLASSIC
+        get() = appPrefs.getString(KEY_NAV_BAR_STYLE, NAV_STYLE_FLOATING) ?: NAV_STYLE_FLOATING
         set(value) { appPrefs.edit().putString(KEY_NAV_BAR_STYLE, value).apply() }
 
     /**
-     * 日程页用哪套布局：[SCHEDULE_LAYOUT_CLASSIC] 三 tab（日程/考试/教材），
-     * 或 [SCHEDULE_LAYOUT_UNIFIED] 粒度分级（今日/本周/学期）。
-     *
-     * 这是**纯布局开关**，不是功能开关：课程详情下钻、考勤角标、考试倒计时
-     * 两套布局都有。切回旧版只是换个摆法，不会丢功能。
+     * 界面风格一变就回调（设置页、屁岱的 app_setting 工具都会改它）。返回取消监听的函数。
+     * 主界面只在首次组合读一次的话，从设置页改完返回，底栏和顶栏还停在旧风格，直到重启。
      */
-    var scheduleLayout: String
-        get() = appPrefs.getString(KEY_SCHEDULE_LAYOUT, SCHEDULE_LAYOUT_CLASSIC) ?: SCHEDULE_LAYOUT_CLASSIC
-        set(value) { appPrefs.edit().putString(KEY_SCHEDULE_LAYOUT, value).apply() }
+    fun observeNavBarStyle(onChange: (String) -> Unit): () -> Unit {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == KEY_NAV_BAR_STYLE) onChange(navBarStyle)
+        }
+        appPrefs.registerOnSharedPreferenceChangeListener(listener)
+        return { appPrefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
 
     /**
-     * 课表格子上叠考勤角标。**默认关**。
+     * 课表格子上叠考勤角标。**默认开**。
      *
-     * 拉考勤是额外一次登录 + 一次请求，对只想看课表的人是纯负担；而且考勤站点比教务慢，
-     * 绝不能让它拖住课表渲染——加载是异步旁路的，失败或超时就当没有角标。
+     * 可以放心默认打开：取数走 ensureSite(silent = true)，遇到二次验证直接放弃——
+     * 不弹窗、不发短信，结果只是不显示角标。加载是异步旁路的，考勤站点再慢也拖不住课表。
+     * 用户主动关过的（本地已存 false）不受这次默认值改动影响。
      */
     var scheduleAttendanceBadge: Boolean
-        get() = appPrefs.getBoolean(KEY_SCHEDULE_ATTENDANCE_BADGE, false)
+        get() = appPrefs.getBoolean(KEY_SCHEDULE_ATTENDANCE_BADGE, true)
         set(value) { appPrefs.edit().putBoolean(KEY_SCHEDULE_ATTENDANCE_BADGE, value).apply() }
 
     /**
@@ -276,13 +282,10 @@ class CredentialStore(context: Context) {
         private const val MAX_RECENT_SITES = 4
         private const val KEY_SHOW_QUICK_ACTIONS = "show_quick_actions"
         private const val KEY_VENUE_AUTO_SOLVE_CAPTCHA = "venue_auto_solve_captcha"
-        private const val KEY_SCHEDULE_LAYOUT = "schedule_layout"
         private const val KEY_SCHEDULE_ATTENDANCE_BADGE = "schedule_attendance_badge"
         private const val KEY_SCHEDULE_SOURCE = "schedule_source"
 
         // ── 设置值常量 ──
-        const val SCHEDULE_LAYOUT_CLASSIC = "classic"
-        const val SCHEDULE_LAYOUT_UNIFIED = "unified"
         const val SCHEDULE_SOURCE_JWXT = "jwxt"
         const val SCHEDULE_SOURCE_JWAPP = "jwapp"
         const val SCHEDULE_SOURCE_BKKQ = "bkkq"

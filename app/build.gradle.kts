@@ -3,6 +3,8 @@ import java.util.Properties
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    // miuix-nav 的返回栈（NavKey 路由）要求 @Serializable，进程被杀后靠它恢复
+    alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
     // 消费 :baselineprofile 生成的 profile，并自动建出采集/压测用的
     // nonMinifiedRelease、benchmarkRelease 两个变体
@@ -23,8 +25,8 @@ android {
         applicationId = "com.xjtu.toolbox"
         minSdk = 31
         targetSdk = 36
-        versionCode = 63
-        versionName = "4.9.7"
+        versionCode = 81
+        versionName = "5.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -137,9 +139,11 @@ android {
             versionNameSuffix = "-dev.${System.getenv("GITHUB_RUN_NUMBER") ?: "local"}"
         }
     }
+    // Java / Kotlin 目标 21：miuix 各模块都用 JDK 21 工具链编译，miuix-nav 的 entry<T>() 是 inline 函数，
+    // Kotlin 不允许把 21 的字节码内联进更低目标的代码。Android 上由 D8 脱糖，不影响 minSdk。
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
     }
     buildFeatures {
         compose = true
@@ -190,7 +194,6 @@ dependencies {
     implementation(libs.flexmark.html2md)
     implementation(libs.gson)
     implementation(libs.coroutines.android)
-    implementation(libs.navigation.compose)
     implementation(libs.security.crypto)
     implementation(libs.zxing.core)
     // 扫码登录：CameraX 取景 + zxing 解码
@@ -201,6 +204,8 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui)
+    // 思源直播是 HLS(m3u8)：ExoPlayer 靠反射加载 HlsMediaSource.Factory，缺这个模块会 ClassNotFound 崩溃
+    implementation(libs.media3.exoplayer.hls)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     implementation(libs.androidx.work.runtime.ktx)
@@ -217,6 +222,13 @@ dependencies {
     implementation("top.yukonga.miuix.kmp:miuix-preference-android:0.9.3")
     implementation("top.yukonga.miuix.kmp:miuix-icons-android:0.9.3")
     implementation("top.yukonga.miuix.kmp:miuix-squircle-android:0.9.3")
+    // 导航运行时（连续栈、跟手侧滑返回、预测式返回），同样替换成 miuix-ref 里的本地工程
+    implementation("top.yukonga.miuix.kmp:miuix-nav-android:0.9.3")
+    implementation(libs.kotlinx.serialization.json)
+    // 液态玻璃（Kyant0/AndroidLiquidGlass，Apache-2.0）
+    implementation(libs.kyant.backdrop)
+    // 形状形变（加载动画）
+    implementation(libs.androidx.graphics.shapes)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

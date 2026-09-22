@@ -1,5 +1,10 @@
 package com.xjtu.toolbox.jwapp
 
+import com.xjtu.toolbox.ui.adaptive.AdaptiveRowGrid
+import com.xjtu.toolbox.ui.adaptive.fullLineItem
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import com.xjtu.toolbox.ui.components.enterOnce
 import androidx.activity.compose.BackHandler
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
@@ -96,6 +101,7 @@ import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.AppSearchBar
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.ErrorState
+import com.xjtu.toolbox.ui.glass.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -433,12 +439,16 @@ fun JwappScoreScreen(
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     val pullToRefreshState = rememberPullToRefreshState()
     var termMenuExpanded by remember { mutableStateOf(false) }
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = if (gpaSelectMode) "选课算 GPA" else "成绩查询",
                 largeTitle = if (gpaSelectMode) "选课算 GPA" else "成绩查询",
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = {
@@ -486,46 +496,72 @@ fun JwappScoreScreen(
         // GPA 映射表弹窗
         GpaMappingDialog(show = showGpaTips)
 
+        // 内容铺到顶栏下面，顶部留白放进各个列表里；下拉指示器也从顶栏下面出来
+        val glassTop = padding.glassTop(glass)
         when {
             isLoading -> {
-                LoadingState(message = "正在加载成绩数据...", modifier = Modifier.fillMaxSize().padding(padding))
+                LazyColumn(
+                    Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
+                    contentPadding = PaddingValues(top = glassTop),
+                ) {
+                    item {
+                        Box(Modifier.fillParentMaxSize()) {
+                            LoadingState(message = "正在加载成绩数据...", modifier = Modifier.fillMaxSize())
+                        }
+                    }
+                }
             }
 
             errorMessage != null -> {
-                ErrorState(
-                    message = errorMessage!!,
-                    onRetry = {
-                        scope.launch {
-                            isLoading = true
-                            errorMessage = null
-                            try {
-                                withContext(Dispatchers.IO) {
-                                    appLoginState.sessionManager?.credentials?.let { creds ->
-                                        site?.ensureLogin(creds.first, creds.second, force = true)
+                LazyColumn(
+                    Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
+                    contentPadding = PaddingValues(top = glassTop),
+                ) {
+                    item {
+                        Box(Modifier.fillParentMaxSize()) {
+                            ErrorState(
+                                message = errorMessage!!,
+                                onRetry = {
+                                    scope.launch {
+                                        isLoading = true
+                                        errorMessage = null
+                                        try {
+                                            withContext(Dispatchers.IO) {
+                                                appLoginState.sessionManager?.credentials?.let { creds ->
+                                                    site?.ensureLogin(creds.first, creds.second, force = true)
+                                                }
+                                            }
+                                        } catch (_: Exception) {}
+                                        loadScoreData()
                                     }
-                                }
-                            } catch (_: Exception) {}
-                            loadScoreData()
+                                },
+                                modifier = Modifier.fillMaxSize()
+                            )
                         }
-                    },
-                    modifier = Modifier.fillMaxSize().padding(padding)
-                )
+                    }
+                }
             }
 
             else -> {
                 PullToRefresh(
+                    refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
                     isRefreshing = isRefreshing,
                     onRefresh = { if (api != null) loadScoreData(silent = true) },
                     pullToRefreshState = pullToRefreshState,
                     topAppBarScrollBehavior = scrollBehavior,
-                    modifier = Modifier.fillMaxSize().padding(padding)
+                    contentPadding = PaddingValues(top = glassTop),
+                    modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass)
                 ) {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(vertical = 8.dp)
+                    // 宽屏：GPA、筛选、学期标题横跨全宽，一门门课分两三列排（见 AdaptiveRowGrid：卡片会竖着展开，按行对齐，展开一张别的卡不挪位置）。
+                    // 以前整页限宽 720 居中，平板横屏两边各空一大块。
+                    AdaptiveRowGrid(
+                        modifier = Modifier.fillMaxSize().overScrollVertical(),
+                    spacing = 10.dp,
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = glassTop + 8.dp, bottom = 8.dp)
                 ) {
-                    item {
+                    // 整页依次登场：GPA 卡 → 筛选 → 成绩列表第一屏
+                    fullLineItem {
+                      Box(Modifier.enterOnce(0)) {
                         GpaCard(
                             gpaInfo = if (gpaSelectMode) selectedGpaInfo else displayGpaInfo,
                             totalCourses = if (gpaSelectMode) selectedCourseIds.size else filteredScores.size,
@@ -548,10 +584,11 @@ fun JwappScoreScreen(
                                 )
                             }
                         }
+                      }
                     }
 
-                    item {
-                        Column {
+                    fullLineItem {
+                        Column(Modifier.enterOnce(1)) {
                             Row(
                                 Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -661,7 +698,7 @@ fun JwappScoreScreen(
                     }
 
                     if (filteredScores.isEmpty()) {
-                        item {
+                        fullLineItem {
                             Box(Modifier.fillMaxWidth().padding(vertical = 32.dp), contentAlignment = Alignment.Center) {
                                 Text("暂无成绩数据", style = MiuixTheme.textStyles.body1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                             }
@@ -669,7 +706,7 @@ fun JwappScoreScreen(
                     } else {
                         groupedTerms.forEach { (termCode, termName, termScores) ->
                             if (selectedTermIndex == 0 || groupedTerms.size > 1) {
-                                item(key = "term_$termCode") {
+                                fullLineItem(key = "term_$termCode") {
                                     Text(
                                         "$termName · ${termScores.size} 门",
                                         style = MiuixTheme.textStyles.body2,
@@ -679,7 +716,7 @@ fun JwappScoreScreen(
                                     )
                                 }
                             }
-                            items(termScores, key = { "${termCode}_${it.id}" }) { scoreItem ->
+                            itemsIndexed(termScores, key = { _, it -> "${termCode}_${it.id}" }) { rowIndex, scoreItem ->
                                             val isFromReport = scoreItem.source == ScoreSource.REPORT
                                             val isUnevaluated = scoreItem.courseName in unevaluatedCourses
                                             val isExpanded = expandedCourseId == scoreItem.id
@@ -687,6 +724,8 @@ fun JwappScoreScreen(
                                             val isDetailLoading = detailLoading == scoreItem.id
                                             val isSelected = scoreItem.id in selectedCourseIds
                                             ScoreRow(
+                                                // 第一屏错峰淡入，后面的直接就位
+                                                modifier = Modifier.enterOnce(rowIndex + 2),
                                                 scoreItem = scoreItem,
                                                 isExpanded = isExpanded && !isFromReport,
                                                 detail = detail,
@@ -741,60 +780,11 @@ fun JwappScoreScreen(
                         }
                     }
 
-                    item { Spacer(Modifier.height(16.dp)) }
+                    fullLineItem { Spacer(Modifier.height(16.dp)) }
                 }
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun AnimatedNumber(value: Double, precision: Int, style: androidx.compose.ui.text.TextStyle, color: androidx.compose.ui.graphics.Color, fontWeight: FontWeight = FontWeight.Bold) {
-    val animatedValue by animateFloatAsState(
-        targetValue = value.toFloat(),
-        animationSpec = spring(dampingRatio = 0.85f, stiffness = 500f),
-        label = "gpaNum"
-    )
-    Text(
-        text = "%.${precision}f".format(animatedValue),
-        style = style,
-        fontWeight = fontWeight,
-        color = color,
-        maxLines = 1
-    )
-}
-
-@Composable
-private fun GpaRingIndicator(gpa: Double, modifier: Modifier = Modifier) {
-    val maxGpa = 4.3
-    val animatedProgress by animateFloatAsState(
-        targetValue = (gpa / maxGpa).toFloat().coerceIn(0f, 1f),
-        animationSpec = spring(dampingRatio = 0.85f, stiffness = 400f),
-        label = "gpaRing"
-    )
-    val ringColor = when {
-        gpa >= 4.0 -> MiuixTheme.colorScheme.primary
-        gpa >= 3.0 -> MiuixTheme.colorScheme.primaryVariant
-        gpa >= 2.0 -> MiuixTheme.colorScheme.primaryVariant.copy(alpha = 0.7f)
-        else -> MiuixTheme.colorScheme.error
-    }
-    val trackColor = MiuixTheme.colorScheme.outline.copy(alpha = 0.3f)
-    val gpaFormatted = "%.2f".format(gpa)
-    Canvas(modifier = modifier.semantics { contentDescription = "GPA $gpaFormatted" }) {
-        val stroke = 8.dp.toPx()
-        val inset = stroke / 2
-        val rectSize = Size(size.width - stroke, size.height - stroke)
-        drawArc(
-            color = trackColor, startAngle = -90f, sweepAngle = 360f,
-            useCenter = false, style = Stroke(stroke, cap = StrokeCap.Round),
-            topLeft = Offset(inset, inset), size = rectSize
-        )
-        drawArc(
-            color = ringColor, startAngle = -90f, sweepAngle = 360f * animatedProgress,
-            useCenter = false, style = Stroke(stroke, cap = StrokeCap.Round),
-            topLeft = Offset(inset, inset), size = rectSize
-        )
     }
 }
 
@@ -826,6 +816,16 @@ fun GpaCard(
         modifier = Modifier.fillMaxWidth(),
         colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = containerColor)
     ) {
+      Box(Modifier.fillMaxWidth()) {
+        // 平时是这页的主角，铺一层主题色流动底色（6 秒后停，它在玻璃顶栏下面）；
+        // 选课算均分时换成 secondaryContainer 纯色，表示「这是临时的计算结果」
+        if (!isSelectMode) {
+            com.xjtu.toolbox.ui.components.HeroMesh(
+                base = containerColor,
+                accent = MiuixTheme.colorScheme.primary,
+                modifier = Modifier.matchParentSize(),
+            )
+        }
         Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
             if (isSelectMode) {
                 Row(
@@ -868,26 +868,29 @@ fun GpaCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 GpaStatColumn(
-                    value = if (gpaInfo != null) "%.${precision}f".format(gpaInfo.gpa) else "—",
+                    value = gpaInfo?.gpa,
+                    format = { "%.${precision}f".format(it) },
                     label = "GPA",
                     textColor = textColor,
                     modifier = Modifier.weight(1f)
                 )
                 GpaStatColumn(
-                    value = if (gpaInfo != null && gpaInfo.averageScore > 0)
-                        "%.${precision}f".format(gpaInfo.averageScore) else "—",
+                    value = gpaInfo?.averageScore?.takeIf { it > 0 },
+                    format = { "%.${precision}f".format(it) },
                     label = "均分",
                     textColor = textColor,
                     modifier = Modifier.weight(1f)
                 )
                 GpaStatColumn(
-                    value = "${gpaInfo?.courseCount ?: totalCourses}",
+                    value = (gpaInfo?.courseCount ?: totalCourses).toDouble(),
+                    format = { "%.0f".format(it) },
                     label = "课程",
                     textColor = textColor,
                     modifier = Modifier.weight(1f)
                 )
                 GpaStatColumn(
-                    value = "%.1f".format(gpaInfo?.totalCredits ?: totalCredits),
+                    value = gpaInfo?.totalCredits ?: totalCredits,
+                    format = { "%.1f".format(it) },
                     label = "学分",
                     textColor = textColor,
                     modifier = Modifier.weight(1f)
@@ -895,28 +898,33 @@ fun GpaCard(
             }
             extraContent()
         }
+      }
     }
 }
 
 @Composable
 private fun GpaStatColumn(
-    value: String,
+    value: Double?,
+    format: (Float) -> String,
     label: String,
     textColor: androidx.compose.ui.graphics.Color,
     modifier: Modifier = Modifier
 ) {
+    // 字号按**最终值**的长度定，滚动过程中不跟着变，数字不会一跳一跳地换字号
+    val finalText = value?.let { format(it.toFloat()) } ?: "—"
     val valueStyle = when {
-        value.length >= 7 -> MiuixTheme.textStyles.body2
-        value.length >= 6 -> MiuixTheme.textStyles.body1
-        value.length >= 5 -> MiuixTheme.textStyles.subtitle
+        finalText.length >= 7 -> MiuixTheme.textStyles.body2
+        finalText.length >= 6 -> MiuixTheme.textStyles.body1
+        finalText.length >= 5 -> MiuixTheme.textStyles.subtitle
         else -> MiuixTheme.textStyles.title3
     }
+    val rolled by com.xjtu.toolbox.ui.components.rememberRollingValue(value ?: 0.0)
     Column(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            value,
+            if (value == null) "—" else format(rolled),
             style = valueStyle,
             fontWeight = FontWeight.Bold,
             color = textColor,
@@ -944,7 +952,8 @@ private fun ScoreRow(
     isSelected: Boolean = false,
     isFromReport: Boolean = false,
     isUnevaluated: Boolean = false,
-    onToggle: () -> Unit
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val reallyPassed = com.xjtu.toolbox.util.ScoreCalculator.isPassed(scoreItem)
     val scoreColor = when {
@@ -965,7 +974,7 @@ private fun ScoreRow(
     }.joinToString("  ·  ")
 
     Card(
-        modifier = Modifier.fillMaxWidth().animateContentSize(
+        modifier = modifier.fillMaxWidth().animateContentSize(
             animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)
         ),
         colors = CardDefaults.defaultColors(color = AppCardColor),

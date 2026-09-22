@@ -2,6 +2,7 @@ package com.xjtu.toolbox.newattendance
 
 import com.google.gson.JsonObject
 import com.xjtu.toolbox.attendance.AttendanceProvider
+import com.xjtu.toolbox.attendance.AttendanceStream
 import com.xjtu.toolbox.attendance.AttendanceWaterRecord
 import com.xjtu.toolbox.attendance.CourseAttendanceStat
 import com.xjtu.toolbox.attendance.TermInfo
@@ -26,14 +27,6 @@ class NewAttendanceApi(private val site: SiteSession) : AttendanceProvider {
     private fun getJson(path: String, query: Map<String, String> = emptyMap()): JsonObject {
         val req = Request.Builder().url(KqHttp.buildUrl(site, path, query)).get().build()
         return KqHttp.execute(site, req, path, retryable = true)
-    }
-
-    private fun postJson(path: String, body: JsonObject): JsonObject {
-        val req = Request.Builder()
-            .url(KqHttp.buildUrl(site, path))
-            .post(body.toString().toRequestBody(jsonType))
-            .build()
-        return KqHttp.execute(site, req, path, retryable = false)
     }
 
     fun getStudentInfo(): Map<String, Any> {
@@ -68,32 +61,32 @@ class NewAttendanceApi(private val site: SiteSession) : AttendanceProvider {
                 name = name,
                 startDate = normalizeDate(KqHttp.str(row, "startDate", "beginDate", "startTime")),
                 endDate = normalizeDate(KqHttp.str(row, "endDate", "finishDate", "endTime")),
+                code = termCodeOf(year, semesterName),
             )
         }.distinctBy { it.bh }.sortedByDescending { it.startDate }
         cachedTerms = terms
         return terms
     }
 
+    private fun termCodeOf(year: String, semesterName: String): String = TermCodeMapper.termCodeOf(year, semesterName)
+
+    /**
+     * 当前学期直接取列表第 0 个——接口按当前学期在前排序，不用再猜 current/isCurrent
+     * 标志位，也不用为此多打一次请求。日期兜底只在列表异常（比如年初还没排出新学期）
+     * 时才用得上。
+     */
     override fun getTermBh(): String {
         val terms = cachedTerms.ifEmpty { getTermList() }
         if (terms.isEmpty()) return ""
-        runCatching {
-            val root = getJson("/student/service/timetable/semesters")
-            val rows = KqHttp.rows(root.get("data")).ifEmpty { KqHttp.rows(root) }
-            val current = rows.firstOrNull { row ->
-                val flag = KqHttp.first(row, "current", "isCurrent", "active", "currentFlag")
-                if (flag != null) {
-                    KqHttp.bool(row, "current", "isCurrent", "active", "currentFlag")
-                } else {
-                    KqHttp.str(row, "status").uppercase() in setOf("CURRENT", "ACTIVE")
-                }
-            }
-            val id = current?.let { KqHttp.str(it, "semesterId", "termId", "id", "semesterCode", "termNo") }
-            if (!id.isNullOrBlank()) return id
-        }
+        val first = terms.first()
         val today = LocalDate.now().toString()
+        if (first.startDate.isBlank() || first.endDate.isBlank() ||
+            (first.startDate <= today && today <= first.endDate)
+        ) {
+            return first.bh
+        }
         return terms.firstOrNull { it.startDate.isNotBlank() && it.endDate.isNotBlank() && it.startDate <= today && today <= it.endDate }?.bh
-            ?: terms.first().bh
+            ?: first.bh
     }
 
     override fun getWaterRecords(termBh: String?, startDate: String, endDate: String): List<AttendanceWaterRecord> {
@@ -117,7 +110,7 @@ class NewAttendanceApi(private val site: SiteSession) : AttendanceProvider {
             }
             AttendanceWaterRecord(
                 sbh = id,
-                termString = term?.name.orEmpty(),
+                termString = term?.code?.ifBlank { term.name }.orEmpty(),
                 startTime = startSection,
                 endTime = endSection,
                 week = weekOf(term?.startDate.orEmpty(), date),
@@ -159,6 +152,36 @@ class NewAttendanceApi(private val site: SiteSession) : AttendanceProvider {
         return aggregateCourseStats(rows)
     }
 
+    /**
+     * 按学期取整学期课表（`/student/service/timetable/weekly`，尽管路径带 weekly，
+     * 实测不传周次也会把整学期的行一次性返回，同一门课跨越的不同周段会拆成多行，
+     * 靠 weekRanges 区分，如 "1-8,10-16"）。调用方（[com.xjtu.toolbox.schedule.ScheduleSourceRouter]）
+     * 负责按 (name, teacher, room, day, start, end) 合并这些行。
+     */
+    fun getWeeklyTimetable(semesterId: String): List<KqTimetableRow> {
+        val root = getJson("/student/service/timetable/weekly", mapOf("semesterId" to semesterId))
+        val data = KqHttp.obj(root.get("data"))
+        val courseRows = data?.get("courses")?.let { KqHttp.rows(it) } ?: KqHttp.rows(root.get("data"))
+        return courseRows.mapNotNull { row ->
+            val name = KqHttp.str(row, "courseName", "course")
+            if (name.isBlank()) return@mapNotNull null
+            val day = KqHttp.int(row, "dayOfWeek", "day")
+            val start = KqHttp.int(row, "startSection", "startJc")
+            val end = KqHttp.int(row, "endSection", "endJc").takeIf { it > 0 } ?: start
+            if (day !in 1..7 || start <= 0) return@mapNotNull null
+            KqTimetableRow(
+                courseName = name,
+                teacherName = KqHttp.str(row, "teacherName", "teacher"),
+                classroomName = KqHttp.str(row, "classroomName", "classroom", "location"),
+                courseCode = KqHttp.str(row, "courseCode", "courseNo"),
+                dayOfWeek = day,
+                startSection = start,
+                endSection = end,
+                weekRanges = KqHttp.str(row, "weekRanges", "weeks"),
+            )
+        }
+    }
+
     fun computeCourseStatsFromRecords(records: List<AttendanceWaterRecord>): List<CourseAttendanceStat> {
         if (records.isEmpty()) return emptyList()
         return records.groupBy { it.courseName }
@@ -194,15 +217,63 @@ class NewAttendanceApi(private val site: SiteSession) : AttendanceProvider {
             addProperty("attendanceStatus", "")
             if (term.isNotBlank()) addProperty("semesterId", term)
         }
-        val req = Request.Builder()
-            .url(KqHttp.buildUrl(site, "/student/pc/attendance-records/page"))
-            .post(KqHttp.pagePayload(data).toString().toRequestBody(jsonType))
-            .build()
-        val root = KqHttp.execute(site, req, "/student/pc/attendance-records/page", retryable = true)
-        val rows = KqHttp.rows(root.get("data")).ifEmpty { KqHttp.rows(root) }
+        val rows = fetchAllPages("/student/pc/attendance-records/page", data)
+        // 服务端状态全集（上游 PR #72 取自前端状态标签）：PENDING / NORMAL / LATE / ABSENT / LEAVE / NOT_REQUIRED。
+        // PENDING（待考勤，课还没上完或还没出结果）和 NOT_REQUIRED（不考勤）都不是考勤结果，丢掉；
+        // 留着的话 PENDING 会落进 WaterType.UNKNOWN，课表角标按「最坏」标红，今天还没上的课全是红的。
+        // 已出结果的记录由增量/全量刷新补上。
         return rows.filter { row ->
-            KqHttp.str(row, "attendanceStatus", "status").uppercase() != "NOT_REQUIRED"
+            KqHttp.str(row, "attendanceStatus", "status").uppercase() !in NON_RESULT_STATUSES
         }
+    }
+
+    private companion object {
+        val NON_RESULT_STATUSES = setOf("NOT_REQUIRED", "PENDING")
+    }
+
+    /**
+     * 考勤打卡流水分页，跟 [fetchAttendanceRecords] 同一套接口形状，字段不同。
+     */
+    fun getStreams(startDate: String, endDate: String): List<AttendanceStream> {
+        val data = JsonObject().apply {
+            addProperty("startDate", startDate)
+            addProperty("endDate", endDate)
+        }
+        val rows = fetchAllPages("/student/pc/attendance-streams/page", data)
+        return rows.map { row ->
+            AttendanceStream(
+                id = KqHttp.str(row, "id", "streamId"),
+                location = KqHttp.str(row, "classroomName", "classroom", "location"),
+                collectTime = KqHttp.str(row, "collectTime", "time"),
+                effective = KqHttp.bool(row, "effective", "isEffective"),
+            )
+        }
+    }
+
+    /**
+     * 通用分页拉取：每页 50 条，靠 `data.total` 判断是否还有下一页，最多拉 40 页
+     * （2000 条），避免账号数据异常时无限翻页。以前是单页 pageSize=500 硬取，
+     * 数据量一旦超过 500 条（比如整年流水）后面的就直接丢了。
+     */
+    private fun fetchAllPages(path: String, data: JsonObject): List<JsonObject> {
+        val pageSize = 50
+        val maxPages = 40
+        val result = mutableListOf<JsonObject>()
+        var page = 1
+        while (page <= maxPages) {
+            val req = Request.Builder()
+                .url(KqHttp.buildUrl(site, path))
+                .post(KqHttp.pagePayload(data, pageNum = page, pageSize = pageSize).toString().toRequestBody(jsonType))
+                .build()
+            val root = KqHttp.execute(site, req, path, retryable = true)
+            val rows = KqHttp.rows(root.get("data")).ifEmpty { KqHttp.rows(root) }
+            result += rows
+            val total = KqHttp.total(root)
+            // total 取不到时是 0，不能拿它当"已经取完"——只靠不满一页来判断结束。
+            if (rows.isEmpty() || (total > 0 && result.size >= total) || rows.size < pageSize) break
+            page++
+        }
+        return result
     }
 
     private fun aggregateCourseStats(records: List<JsonObject>): List<CourseAttendanceStat> {

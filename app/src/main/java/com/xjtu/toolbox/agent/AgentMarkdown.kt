@@ -1,7 +1,12 @@
 package com.xjtu.toolbox.agent
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,7 +34,9 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 /**
  * 轻量 Markdown 渲染器（无第三方依赖，按主流实现自写）。覆盖 LLM 回复常见语法：
  * 标题 #~######、**粗** *斜* ***粗斜*** ~~删除~~ `行内码` [链接](url)、
- * 代码块 ```、引用 >、有序/无序列表（含缩进嵌套）、分隔线 ---。
+ * 代码块 ```、引用 >、有序/无序列表（含缩进嵌套）、分隔线 ---、表格、
+ * 公式（行内 `$…$` `\(…\)`，块级 `$$…$$` `\[…\]`，经 [TexLite] 转成 Unicode）、
+ * 独占一行的 https 图片。
  */
 @Composable
 fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier, onLink: (String) -> Unit = {}) {
@@ -119,6 +126,15 @@ fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier, onLi
                 }
                 is MdBlock.Para -> Text(rememberInline(block.text, linkColor, codeBg, errorColor, linkHandler), color = color,
                     style = MiuixTheme.textStyles.body1)
+                is MdBlock.Math -> Text(
+                    remember(block.tex) { TexLite.toUnicode(block.tex) },
+                    color = color,
+                    style = MiuixTheme.textStyles.body1,
+                    fontStyle = FontStyle.Italic,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                )
+                is MdBlock.Image -> MdImage(block.alt, block.url, linkColor, onClick = { linkHandler(block.url) })
             }
         }
     }
@@ -143,7 +159,13 @@ private sealed interface MdBlock {
     data object Rule : MdBlock
     data class Table(val headers: List<String>, val rows: List<List<String>>) : MdBlock
     data class Para(val text: String) : MdBlock
+    /** 独占一段的公式：`$$…$$` 或 `\[…\]`，转成 Unicode 后居中显示。 */
+    data class Math(val tex: String) : MdBlock
+    /** 独占一行的图片 `![说明](https://…)`。行内夹在文字里的图片仍按链接显示。 */
+    data class Image(val alt: String, val url: String) : MdBlock
 }
+
+private val imageLineRe = Regex("""^!\[([^\]]*)]\((https://[^)\s]+)\)$""")
 
 private val tableSepCharsRe = Regex("""[\s|:-]""")
 
@@ -182,6 +204,26 @@ private fun parseBlocks(text: String): List<MdBlock> {
         }
 
         when {
+            // 块级公式：$$…$$ / \[…\]，可以一行写完，也可以跨行
+            line.startsWith("$$") || line.startsWith("\\[") -> {
+                val close = if (line.startsWith("$$")) "$$" else "\\]"
+                val body = line.removePrefix(if (close == "$$") "$$" else "\\[")
+                if (body.trimEnd().endsWith(close)) {
+                    out.add(MdBlock.Math(body.trimEnd().removeSuffix(close)))
+                } else {
+                    val sb = StringBuilder(body)
+                    i++
+                    while (i < lines.size && !lines[i].trimEnd().endsWith(close)) {
+                        sb.append(' ').append(lines[i].trim()); i++
+                    }
+                    if (i < lines.size) sb.append(' ').append(lines[i].trimEnd().removeSuffix(close).trim())
+                    out.add(MdBlock.Math(sb.toString()))
+                }
+            }
+            imageLineRe.matches(line.trimEnd()) -> {
+                val m = imageLineRe.find(line.trimEnd())!!
+                out.add(MdBlock.Image(m.groupValues[1], m.groupValues[2]))
+            }
             line.startsWith("```") -> {
                 val sb = StringBuilder()
                 i++
@@ -215,7 +257,7 @@ private fun parseBlocks(text: String): List<MdBlock> {
     return out
 }
 
-// 顺序即优先级：图片 | ***粗斜*** | **粗** | ~~删除~~ | `码` | *斜* | _斜_ | [文字](链接)
+// 顺序即优先级：图片 | ***粗斜*** | **粗** | ~~删除~~ | `码` | *斜* | _斜_ | [文字](链接) | 行内公式
 private val inlineRe = Regex(
     """!\[([^\]]*)]\(([^)]+)\)""" +          // 1 img-alt, 2 img-url
         """|\*\*\*(.+?)\*\*\*""" +           // 3 bold-italic
@@ -224,7 +266,10 @@ private val inlineRe = Regex(
         """|`([^`]+)`""" +                   // 6 code
         """|\*(.+?)\*""" +                   // 7 italic
         """|_(.+?)_""" +                     // 8 italic
-        """|\[([^\]]+)]\(([^)]+)\)"""        // 9 link-text, 10 link-url
+        """|\[([^\]]+)]\(([^)]+)\)""" +      // 9 link-text, 10 link-url
+        // 11 行内公式 $…$：紧挨 $ 的不能是空格，免得把「$5 和 $10」这种美元金额当公式
+        """|\$(?! )([^$\n]+?)(?<! )\$""" +
+        """|\\\((.+?)\\\)"""                 // 12 行内公式 \(…\)
 )
 
 /**
@@ -265,9 +310,18 @@ private fun inline(s: String, linkColor: Color, codeBg: Color, errorColor: Color
         if (m.range.first > last) append(s.substring(last, m.range.first))
         val g = m.groupValues
         when {
-            g[2].isNotEmpty() -> withStyle(SpanStyle(color = linkColor)) {
-                append("🖼 ${g[1].ifBlank { "图片" }}")
+            // 夹在文字里的图片不内嵌（会把一行字撑开），显示成可点的链接
+            g[2].isNotEmpty() -> if (isSafeLinkScheme(g[2])) {
+                withLink(LinkAnnotation.Clickable(
+                    tag = g[2],
+                    styles = TextLinkStyles(SpanStyle(color = linkColor)),
+                    linkInteractionListener = { onLink(g[2]) }
+                )) { append("🖼 ${g[1].ifBlank { "图片" }}") }
+            } else {
+                withStyle(SpanStyle(color = linkColor)) { append("🖼 ${g[1].ifBlank { "图片" }}") }
             }
+            g[11].isNotEmpty() -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(TexLite.toUnicode(g[11])) }
+            g[12].isNotEmpty() -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(TexLite.toUnicode(g[12])) }
             g[3].isNotEmpty() -> withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic)) { append(g[3]) }
             g[4].isNotEmpty() -> withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(g[4]) }
             g[5].isNotEmpty() -> withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) { append(g[5]) }
@@ -294,3 +348,94 @@ private fun inline(s: String, linkColor: Color, codeBg: Color, errorColor: Color
     }
     if (last < s.length) append(s.substring(last))
 }
+
+/**
+ * 回复里的图片。做法照搬教师证件照（FacultyPhotoLoader）：项目里没有 Coil / Glide，
+ * 用 OkHttp + BitmapFactory 自己加载，按屏宽采样解码、内存 LRU 缓存。
+ *
+ * 只认 https，且单张不超过 8MB：图片地址是模型给的（可能来自搜到的网页），
+ * 不能让它随手拉一个巨型文件或明文地址。加载失败就退成一行可点的链接。
+ */
+private object MdImageLoader {
+    private const val MAX_BYTES = 8L * 1024 * 1024
+    private const val TARGET_PX = 1080
+
+    private val cache = object : android.util.LruCache<String, android.graphics.Bitmap>(24 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: android.graphics.Bitmap): Int = value.byteCount
+    }
+    private val failed = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+    private val client by lazy {
+        okhttp3.OkHttpClient.Builder()
+            .connectTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+    }
+
+    fun cached(url: String): android.graphics.Bitmap? = cache.get(url)
+    fun hasFailed(url: String) = url in failed
+
+    suspend fun load(url: String): android.graphics.Bitmap? {
+        if (!url.startsWith("https://") || url in failed) return null
+        cache.get(url)?.let { return it }
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                val bytes = client.newCall(okhttp3.Request.Builder().url(url).get().build()).execute().use { resp ->
+                    val len = resp.body?.contentLength() ?: -1L
+                    if (!resp.isSuccessful || len > MAX_BYTES) return@use null
+                    resp.body?.bytes()?.takeIf { it.size <= MAX_BYTES }
+                } ?: return@runCatching null
+                val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                var sample = 1
+                while (bounds.outWidth / sample > TARGET_PX * 2) sample *= 2
+                android.graphics.BitmapFactory.decodeByteArray(
+                    bytes, 0, bytes.size,
+                    android.graphics.BitmapFactory.Options().apply { inSampleSize = sample },
+                )
+            }.getOrNull()?.also { cache.put(url, it) } ?: null.also { failed.add(url) }
+        }
+    }
+}
+
+@Composable
+private fun MdImage(alt: String, url: String, linkColor: Color, onClick: () -> Unit) {
+    var bitmap by androidx.compose.runtime.remember(url) {
+        androidx.compose.runtime.mutableStateOf(MdImageLoader.cached(url))
+    }
+    var failed by androidx.compose.runtime.remember(url) {
+        androidx.compose.runtime.mutableStateOf(MdImageLoader.hasFailed(url))
+    }
+    androidx.compose.runtime.LaunchedEffect(url) {
+        if (bitmap == null && !failed) {
+            bitmap = MdImageLoader.load(url)
+            failed = bitmap == null
+        }
+    }
+    val bmp = bitmap
+    when {
+        bmp != null -> androidx.compose.foundation.Image(
+            bitmap = bmp.asImageBitmapCompat(),
+            contentDescription = alt.ifBlank { "图片" },
+            contentScale = androidx.compose.ui.layout.ContentScale.FillWidth,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 360.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .clickable(onClick = onClick),
+        )
+        failed -> Text(
+            "🖼 ${alt.ifBlank { "图片" }}（加载失败，点开看原图）",
+            color = linkColor,
+            style = MiuixTheme.textStyles.body2,
+            modifier = Modifier.clickable(onClick = onClick),
+        )
+        else -> Box(
+            Modifier
+                .fillMaxWidth()
+                .height(160.dp)
+                .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.06f), RoundedCornerShape(10.dp)),
+        )
+    }
+}
+
+private fun android.graphics.Bitmap.asImageBitmapCompat() = asImageBitmap()

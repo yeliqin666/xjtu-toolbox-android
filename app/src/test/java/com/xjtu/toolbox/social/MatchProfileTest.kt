@@ -479,4 +479,113 @@ class MatchProfileTest {
         // 退回让人复制一大段文字，那正是这个功能最不好用的样子。实测约 980 字。
         assertTrue("全开的分享码 $len 字，二维码已经密到扫不动了", len <= 1800)
     }
+
+    /**
+     * 用户报的是「选啥都不变，是空的」。这条钉住「选了就得变」：
+     * 有数据的每一维，单独关掉都必须让码变短、让 sharedCount 少一项。
+     * 任何一维不满足，都说明开关没接到编码链路上。
+     */
+    @Test
+    fun 每一维单独关掉都会让分享码变短() {
+        val all = MatchProfile.Dimensions(
+            textbooks = true, diningHours = true, canteens = true, dietTags = true,
+        )
+        fun profile(dims: MatchProfile.Dimensions) = build(
+            courses = realisticCourses(),
+            nickname = "阿离",
+            past = (1..30).map { "PAST%03d".format(it) }.toSet(),
+            exams = (1..6).map { exam("CS%03d".format(it), "考试科目$it", "2027-01-0$it") },
+            textbooks = (1..10).map { "教材名称$it" },
+            dining = mapOf(12 to 9, 18 to 7),
+            canteens = listOf("一食堂", "二食堂"),
+            tags = setOf("辣", "面食"),
+            dims = dims,
+        )
+
+        val full = profile(all)
+        val fullCode = MatchProfile.encode(full)
+        assertTrue("全开时分享码不该是空的", fullCode.isNotEmpty())
+
+        // 每一项：关掉它之后的 Dimensions，以及给人看的名字。
+        val switches = listOf<Pair<String, MatchProfile.Dimensions>>(
+            "课表" to all.copy(schedule = false),
+            "同课" to all.copy(sameCourses = false),
+            "教学楼" to all.copy(buildings = false),
+            "老师" to all.copy(teachers = false),
+            "往期课程" to all.copy(pastCourses = false),
+            "考试" to all.copy(exams = false),
+            "教材" to all.copy(textbooks = false),
+            "饭点" to all.copy(diningHours = false),
+            "食堂" to all.copy(canteens = false),
+            "口味" to all.copy(dietTags = false),
+        )
+        for ((label, dims) in switches) {
+            val p = profile(dims)
+            assertTrue(
+                "关掉「$label」之后分享码没变，开关没接上编码",
+                MatchProfile.encode(p) != fullCode,
+            )
+            assertTrue(
+                "关掉「$label」之后 sharedCount 没减少（${p.sharedCount} vs ${full.sharedCount}）",
+                p.sharedCount < full.sharedCount,
+            )
+        }
+    }
+
+    @Test
+    fun 一条缓存都没有时hasAnything是假的() {
+        assertTrue("空缓存不该被当成有数据", !MatchData.Local().hasAnything)
+        assertTrue("有课表就算有数据", MatchData.Local(courses = realisticCourses()).hasAnything)
+        assertTrue("只有食堂记录也算有数据", MatchData.Local(canteens = listOf("一食堂")).hasAnything)
+    }
+
+    /**
+     * 最坏情况也得留在能扫的长度里。
+     *
+     * 往期课程顶到 [MatchData] 的 120 门上限、教材拉满、课名和老师名都取允许的最长，
+     * 这是一个逛遍了所有页面的大四学生能攒出的最长的码。超了界面会撤掉二维码，
+     * 那正是用户当初报「不出码」的那个样子。
+     */
+    @Test
+    fun 数据拉满时分享码仍然扫得动() {
+        val fat = realisticCourses().map {
+            it.copy(courseName = "课程名称".repeat(4), teacher = "老师姓名很长")
+        }
+        val p = build(
+            courses = fat,
+            nickname = "十二个字的很长昵称",
+            past = (1..120).map { "PAST%05d".format(it) }.toSet(),
+            exams = (1..12).map { exam("CS%03d".format(it), "考试科目名称$it", "2027-01-%02d".format(it)) },
+            textbooks = (1..30).map { "教材名称第$it 册" },
+            dining = (7..22).associateWith { 5 },
+            canteens = listOf("一食堂", "二食堂", "三食堂", "梧桐苑餐厅", "康桥苑"),
+            tags = setOf("辣", "面食", "咖啡", "清真", "甜"),
+            dims = MatchProfile.Dimensions(
+                textbooks = true, diningHours = true, canteens = true, dietTags = true,
+            ),
+        )
+        val code = MatchProfile.encode(p)
+        assertTrue(
+            "数据拉满时分享码 ${code.length} 字，超过了扫得动的上限，界面会退回纯文字",
+            code.length <= 1800,
+        )
+        // 长码最容易在压缩/分隔符上出问题，顺带确认它还解得回来。
+        assertEquals(p, MatchProfile.decode(code))
+    }
+
+    /** 一个维度都不开时也得出一段合法的码，而不是空串——空串喂给 zxing 会直接抛异常。 */
+    @Test
+    fun 全关时仍然是一段能解开的码() {
+        val none = MatchProfile.Dimensions(
+            schedule = false, sameCourses = false, buildings = false, teachers = false,
+            pastCourses = false, exams = false, textbooks = false, identity = false,
+            diningHours = false, canteens = false, dietTags = false,
+        )
+        val code = MatchProfile.encode(build(courses = realisticCourses(), nickname = "阿离", dims = none))
+        assertTrue("全关时分享码是空串，二维码这一侧会直接崩", code.isNotEmpty())
+        val back = MatchProfile.decode(code)
+        assertNotNull("全关的码解不开", back)
+        assertEquals("阿离", back!!.nickname)
+        assertEquals(0, back.sharedCount)
+    }
 }

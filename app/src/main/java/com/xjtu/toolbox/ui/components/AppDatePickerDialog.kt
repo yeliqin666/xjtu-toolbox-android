@@ -1,87 +1,65 @@
 package com.xjtu.toolbox.ui.components
 
-import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.width
+import android.app.DatePickerDialog
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
-import top.yukonga.miuix.kmp.basic.ButtonDefaults
-import top.yukonga.miuix.kmp.basic.DropdownItem
-import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.overlay.OverlayDialog
-import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.platform.LocalContext
+import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import java.time.LocalDate
-import java.time.YearMonth
+import java.time.ZoneId
 
+/**
+ * 选一个日期：调系统的日期选择器（月历），不自己画。
+ *
+ * 以前这里是自己拼的三个下拉框（年 / 月 / 日），选一个日期要点开三次、每次在长列表里找，
+ * 又难看又难用。系统月历一眼看到整月、点一下就选中，厂商系统上也是用户最熟的样子。
+ *
+ * 用法不变：[show] 变成 true 时弹出，确定回调 [onConfirm]，取消或点外面回调 [onDismiss]。
+ * [title] 系统月历没有地方放标题（设了标题会把月历上方的日期头挤掉），保留参数只为不改调用方。
+ * 深浅色跟着 App 自己的主题走（App 可以单独设深色，不一定和系统一致）。
+ */
 @Composable
 fun AppDatePickerDialog(
     show: Boolean,
-    title: String,
+    @Suppress("UNUSED_PARAMETER") title: String,
     date: LocalDate,
     minDate: LocalDate,
     maxDate: LocalDate,
     onDismiss: () -> Unit,
     onConfirm: (LocalDate) -> Unit,
 ) {
-    val years = remember(minDate, maxDate) { (minDate.year..maxDate.year).toList() }
-    var year by remember(show, date) { mutableIntStateOf(date.year.coerceIn(minDate.year, maxDate.year)) }
-    var month by remember(show, date) { mutableIntStateOf(date.monthValue) }
-    var day by remember(show, date) { mutableIntStateOf(date.dayOfMonth) }
-
-    val monthStart = if (year == minDate.year) minDate.monthValue else 1
-    val monthEnd = if (year == maxDate.year) maxDate.monthValue else 12
-    val months = (monthStart..monthEnd).toList()
-    val safeMonth = month.coerceIn(monthStart, monthEnd)
-
-    val dim = YearMonth.of(year, safeMonth).lengthOfMonth()
-    val dayStart = if (year == minDate.year && safeMonth == minDate.monthValue) minDate.dayOfMonth else 1
-    val dayEnd = if (year == maxDate.year && safeMonth == maxDate.monthValue) minOf(maxDate.dayOfMonth, dim) else dim
-    val days = (dayStart..dayEnd).toList()
-    val safeDay = day.coerceIn(dayStart, dayEnd)
-
-    BackHandler(enabled = show) { onDismiss() }
-    OverlayDialog(
-        show = show,
-        title = title,
-        onDismissRequest = onDismiss
-    ) {
-        OverlaySpinnerPreference(
-            title = "年",
-            items = remember(years) { years.map { DropdownItem(text = "${it}年") } },
-            selectedIndex = years.indexOf(year).coerceAtLeast(0),
-            onSelectedIndexChange = { year = years[it] },
-            modifier = Modifier.fillMaxWidth()
+    if (!show) return
+    val context = LocalContext.current
+    val dark = LocalIsDarkTheme.current
+    val confirm = rememberUpdatedState(onConfirm)
+    val dismiss = rememberUpdatedState(onDismiss)
+    DisposableEffect(Unit) {
+        val initial = date.coerceIn(minDate, maxDate)
+        var picked = false
+        val dialog = DatePickerDialog(
+            context,
+            if (dark) android.R.style.Theme_DeviceDefault_Dialog_Alert
+            else android.R.style.Theme_DeviceDefault_Light_Dialog_Alert,
+            { _, y, m, d ->
+                picked = true
+                confirm.value(LocalDate.of(y, m + 1, d))
+            },
+            initial.year, initial.monthValue - 1, initial.dayOfMonth,
         )
-        OverlaySpinnerPreference(
-            title = "月",
-            items = remember(months) { months.map { DropdownItem(text = "${it}月") } },
-            selectedIndex = months.indexOf(safeMonth).coerceAtLeast(0),
-            onSelectedIndexChange = { month = months[it] },
-            modifier = Modifier.fillMaxWidth()
-        )
-        OverlaySpinnerPreference(
-            title = "日",
-            items = remember(days) { days.map { DropdownItem(text = "${it}日") } },
-            selectedIndex = days.indexOf(safeDay).coerceAtLeast(0),
-            onSelectedIndexChange = { day = days[it] },
-            modifier = Modifier.fillMaxWidth()
-        )
-        Row(Modifier.fillMaxWidth()) {
-            TextButton(text = "取消", onClick = onDismiss, modifier = Modifier.weight(1f))
-            Spacer(Modifier.width(20.dp))
-            TextButton(
-                text = "确定",
-                onClick = { onConfirm(LocalDate.of(year, safeMonth, safeDay)) },
-                modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.textButtonColorsPrimary()
-            )
+        val zone = ZoneId.systemDefault()
+        dialog.datePicker.minDate = minDate.atStartOfDay(zone).toInstant().toEpochMilli()
+        dialog.datePicker.maxDate = maxDate.atStartOfDay(zone).toInstant().toEpochMilli()
+        dialog.setOnDismissListener { if (!picked) dismiss.value() }
+        dialog.show()
+        onDispose {
+            // 调用方先把 show 改成 false（比如确定以后）时，这里把系统弹窗收掉；
+            // 已经关掉的弹窗再 dismiss 是空操作
+            picked = true
+            if (dialog.isShowing) dialog.dismiss()
         }
     }
 }
+
+private fun LocalDate.coerceIn(min: LocalDate, max: LocalDate): LocalDate =
+    if (isBefore(min)) min else if (isAfter(max)) max else this

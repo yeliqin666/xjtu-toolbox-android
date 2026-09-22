@@ -12,6 +12,7 @@ import com.xjtu.toolbox.auth.siteKey
 import com.xjtu.toolbox.fitness.hasUsableTotal
 import com.xjtu.toolbox.fitness.orderedFitnessYears
 import com.xjtu.toolbox.lms.LmsCourseSummary
+import com.xjtu.toolbox.lms.deadlineInstant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
@@ -123,9 +124,9 @@ object HomeStatsRefresher {
         },
 
         // 思源学堂：一天一次。要逐门课查活动，比别的源贵，别刷太勤。
-        Source(Routes.LMS, 1 * DAY, LoginType.LMS) { _, site ->
+        Source(Routes.LMS, 1 * DAY, LoginType.LMS) { ctx, site ->
             site ?: return@Source null
-            withContext(Dispatchers.IO) { lmsLatest(site) }
+            withContext(Dispatchers.IO) { lmsLatest(site, ctx) }
         },
 
         // 快速考勤流水：最新一条刷卡记录。用户要求"打开时立即请求"，
@@ -300,7 +301,7 @@ object HomeStatsRefresher {
      * 成本控制：逐门课查活动是 N 次请求，这里只取该学期前 [LMS_MAX_COURSES] 门，
      * 且整个源一天只刷一次。
      */
-    private fun lmsLatest(site: SiteSession): HomeStat? {
+    private fun lmsLatest(site: SiteSession, ctx: Context): HomeStat? {
         val api = com.xjtu.toolbox.lms.LmsApi(site)
         val courses = runCatching { api.getMyCourses() }
             .onFailure { Log.w(TAG, "lms: getMyCourses 失败 ${it.message}") }
@@ -316,29 +317,54 @@ object HomeStatsRefresher {
             com.xjtu.toolbox.lms.LmsActivityType.HOMEWORK,
             com.xjtu.toolbox.lms.LmsActivityType.MATERIAL,
         )
+        // 带上课程 id：日程页「接下来」（plan2 §5）要按 (courseId, activityId) 合并落盘缓存。
         val all = inTerm.flatMap { c ->
-            runCatching { api.getCourseActivities(c.id) }.getOrNull().orEmpty().map { c.name to it }
+            runCatching { api.getCourseActivities(c.id) }.getOrNull().orEmpty()
+                .map { Triple(c.id, c.name, it) }
         }
-        Log.d(TAG, "lms: 活动共 ${all.size} 条，类型分布=${all.groupingBy { it.second.type }.eachCount()}")
+        Log.d(TAG, "lms: 活动共 ${all.size} 条，类型分布=${all.groupingBy { it.third.type }.eachCount()}")
         // 不再要求 published：活动列表接口返回的本就是学生可见的内容，而该字段在**列表**响应里
         // 常常缺失（详情接口才有），safeBoolean() 于是一律得到 false，把所有活动都滤没了。
-        val acts = all.filter { it.second.type in wanted }
+        val acts = all.filter { it.third.type in wanted }
         Log.d(TAG, "lms: 命中作业/资料 ${acts.size} 条")
+
+        // 顺手把带截止时间的作业写进日程页读的那份缓存——这里已经在跑同样的请求，
+        // 日程页自己不用再发一次。见 plan2 §5.2：LmsDueStore 只读，从不发请求。
+        val dueItems = acts.filter { it.third.type == com.xjtu.toolbox.lms.LmsActivityType.HOMEWORK }
+            .mapNotNull { (courseId, courseName, a) ->
+                val deadline = a.deadlineInstant() ?: return@mapNotNull null
+                com.xjtu.toolbox.lms.LmsDue(
+                    courseId = courseId,
+                    courseName = courseName,
+                    activityId = a.id,
+                    title = a.title,
+                    deadline = deadline.toString(),
+                    submitted = a.userSubmitCount > 0,
+                    fetchedAt = System.currentTimeMillis(),
+                )
+            }
+        if (dueItems.isNotEmpty()) {
+            com.xjtu.toolbox.lms.LmsDueStore.save(
+                ctx, dueItems,
+                com.xjtu.toolbox.account.AccountContext.activeAccountId.orEmpty(),
+            )
+        }
+
         if (acts.isEmpty()) return null
 
         // 排序时间要逐级兜底：**部分作业既没有 updated_at 也没有 created_at**
         // （用户实测遇到过），只用这两个字段的话它们会以空串排到最后，永远选不中。
         // 作业还有截止/开始时间可用，最后才退回空串。截止优先读列表里的 deadline，
         // 与详情页、截止提醒同一口径（end_time 可能比真截止早）。
-        val latest = acts.sortedByDescending { (_, a) ->
+        val latest = acts.sortedByDescending { (_, _, a) ->
             a.updatedAt.ifBlank { a.createdAt }
                 .ifBlank { a.deadline.orEmpty() }
                 .ifBlank { a.endTime.orEmpty() }
                 .ifBlank { a.startTime.orEmpty() }
         }.take(2)
 
-        fun label(pair: Pair<String, com.xjtu.toolbox.lms.LmsActivity>): String {
-            val (course, a) = pair
+        fun label(triple: Triple<Int, String, com.xjtu.toolbox.lms.LmsActivity>): String {
+            val (_, course, a) = triple
             val kind = if (a.type == com.xjtu.toolbox.lms.LmsActivityType.HOMEWORK) "作业" else "资料"
             return "$kind · ${a.title.ifBlank { course }.take(14)}"
         }

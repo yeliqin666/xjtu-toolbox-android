@@ -2,6 +2,7 @@
 
 package com.xjtu.toolbox.faculty
 
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -48,6 +49,7 @@ import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.rememberRetainedLazyListState
+import com.xjtu.toolbox.ui.glass.*
 import kotlinx.coroutines.delay
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -220,11 +222,15 @@ fun FacultyScreen(
             }
     }
 
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
     Scaffold(
         topBar = {
             TopAppBar(
                 title = "教师主页",
                 largeTitle = "教师主页",
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -234,89 +240,106 @@ fun FacultyScreen(
             )
         }
     ) { padding ->
-        Column(
+        // 宽屏：左栏检索 + 列表，右栏常驻详情（点左边的老师直接换右边的内容，不再弹底部弹窗）。
+        // 以前宽屏只是把整页限宽 720dp 居中，列表窄窄一条，两边空着。
+        val isWide = com.xjtu.toolbox.ui.isWideLayout()
+        Row(
             Modifier
+                .padding(padding.withoutTop(glass))
+                .glassSource(glass)
                 .fillMaxSize()
-                .padding(padding)
                 // 少了这一句 largeTitle 不会随滚动折叠——scrollBehavior 只是被创建、
                 // 没有任何滚动源喂给它。项目里其他页面都是挂在内容顶层 Column 上。
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
         ) {
+        Column(
+            Modifier
+                .then(if (isWide) Modifier.width(420.dp) else Modifier.weight(1f))
+                .fillMaxHeight()
+        ) {
+            // 搜索框和筛选条是列表的头两项，跟着列表滚到玻璃顶栏下面（宽屏时它们只属于左栏，
+            // 挂进横跨两栏的顶栏不合适）。加载中 / 出错 / 没结果也是这个列表里的一项：
+            // 每改一个字都会重新检索，要是那几种状态把列表换掉，搜索框跟着换位置就会丢焦点。
+            val searchBar: @Composable () -> Unit = {
             AppSearchBar(
                 query = nameQuery,
                 onQueryChange = { nameQuery = it },
                 label = "搜索教师姓名",
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp),
             )
+            }
 
-            FlowRow(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+            // 筛选条件写成一整行：「学院 全部 ▾ | 学科 全部 ▾ | 职称 全部 ▾」，每一段点开底部选择器。
+            // 以前是三颗浅色小胶囊加一颗「清除」，和下面卡片里的一堆小胶囊叠在一起，显得廉价。
+            // 选过的那一段用主题色写出选中的值；有任何条件时最右边出现「清除」。
+            val filterBar: @Composable () -> Unit = {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(MiuixTheme.colorScheme.surfaceVariant)
+                    .padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                FilterPill(
-                    text = college?.name ?: "全部学院",
-                    active = college != null,
+                FilterSegment(
+                    label = "学院",
+                    value = college?.name,
                     onClick = { picker = PickerTarget.COLLEGE },
+                    modifier = Modifier.weight(1f),
                 )
-                FilterPill(
-                    text = discipline?.name ?: "全部学科",
-                    active = discipline != null,
+                FilterSegmentDivider()
+                FilterSegment(
+                    label = "学科",
+                    value = discipline?.name,
                     onClick = { picker = PickerTarget.DISCIPLINE },
+                    modifier = Modifier.weight(1f),
                 )
-                FilterPill(
-                    text = proRank.ifBlank { "全部职称" },
-                    active = proRank.isNotBlank(),
+                FilterSegmentDivider()
+                FilterSegment(
+                    label = "职称",
+                    value = proRank.ifBlank { null },
                     onClick = { picker = PickerTarget.PRO_RANK },
+                    modifier = Modifier.weight(1f),
                 )
-                // 清除做成与筛选胶囊同形的一枚，而不是一个突兀的文字按钮——
-                // 它和左边三个是同一组控件，形状不一致会显得像误入的元素。
                 if (college != null || discipline != null || proRank.isNotBlank()) {
-                    Surface(
-                        shape = RoundedCornerShape(50.dp),
-                        color = MiuixTheme.colorScheme.surfaceVariant,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50.dp))
-                            .clickable { college = null; discipline = null; proRank = "" },
-                    ) {
-                        Row(
-                            Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(
-                                Icons.Outlined.Close,
-                                contentDescription = null,
-                                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                modifier = Modifier.width(14.dp),
-                            )
-                            Spacer(Modifier.width(4.dp))
-                            Text(
-                                "清除",
-                                style = MiuixTheme.textStyles.footnote1,
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            )
-                        }
+                    IconButton(onClick = { college = null; discipline = null; proRank = "" }) {
+                        Icon(
+                            Icons.Outlined.Close,
+                            contentDescription = "清除筛选",
+                            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.width(18.dp),
+                        )
                     }
                 }
             }
+            }
 
-            Spacer(Modifier.height(8.dp))
-
-            when {
-                loading -> LoadingState("正在检索教师…")
-                error != null -> ErrorState(error!!, onRetry = { reloadTick++ })
-                members.isEmpty() -> EmptyState(
-                    title = "没有找到匹配的教师",
-                    subtitle = "换个姓名或放宽筛选条件试试",
-                    icon = Icons.Outlined.PersonSearch,
-                )
-                else -> LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize().overScrollVertical(),
-                    contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 24.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    item {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize().overScrollVertical(),
+                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = padding.glassTop(glass), bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                item(key = "search") { searchBar() }
+                item(key = "filter") { filterBar() }
+                val stateBox: @Composable (@Composable () -> Unit) -> Unit = { body ->
+                    Box(Modifier.fillMaxWidth().padding(top = 48.dp), contentAlignment = Alignment.Center) { body() }
+                }
+                when {
+                    loading -> item(key = "state") { stateBox { LoadingState("正在检索教师…") } }
+                    error != null -> item(key = "state") { stateBox { ErrorState(error!!, onRetry = { reloadTick++ }) } }
+                    members.isEmpty() -> item(key = "state") {
+                        stateBox {
+                            EmptyState(
+                                title = "没有找到匹配的教师",
+                                subtitle = "换个姓名或放宽筛选条件试试",
+                                icon = Icons.Outlined.PersonSearch,
+                            )
+                        }
+                    }
+                    else -> {
+                    item(key = "count") {
                         // 服务端 totalnum 对姓名检索是模糊计数，标注清楚免得用户以为漏了人
                         Text(
                             if (nameQuery.isBlank()) "共 $total 位教师"
@@ -332,16 +355,46 @@ fun FacultyScreen(
                     if (loadingMore) {
                         item { LoadingState("正在加载更多…") }
                     }
+                    }
                 }
             }
+        }
+
+        if (isWide) {
+            top.yukonga.miuix.kmp.basic.VerticalDivider()
+            Box(Modifier.weight(1f).fillMaxHeight()) {
+                // 宽屏选中的老师不算一层页面：返回直接退出教师主页，不先清右栏
+                val picked = detail
+                if (picked != null) {
+                    // 按老师分开记滚动位置：不 key 的话换一位老师还停在上一位滚到的地方，顶部被顶栏盖住
+                    androidx.compose.runtime.key(picked.teacherId) {
+                        FacultyDetailPane(
+                            member = picked,
+                            api = api,
+                            onOpenUrl = onOpenUrl,
+                            topPadding = padding.glassTop(glass),
+                        )
+                    }
+                } else {
+                    // 让出顶栏高度，否则提示贴在屏幕最上沿、压在顶栏那一层里
+                    EmptyState(
+                        title = "选一位老师",
+                        subtitle = "左边点任意一位，详情和个人主页栏目会显示在这里",
+                        icon = Icons.Outlined.PersonSearch,
+                        modifier = Modifier.padding(top = padding.glassTop(glass)),
+                    )
+                }
+            }
+        }
 
         // ⚠️ 两个弹窗必须写在 Scaffold 的内容 lambda **里面**。
         // OverlayBottomSheet 默认 renderInRootScaffold = true，需要在组合树祖先中
         // 找到 Scaffold 宿主才能渲染；放在 Scaffold 外面它会静默地什么都不显示——
         // 筛选弹窗拉不开、点老师没反应，都是这一个原因。
         // 同时 show 必须由外部布尔驱动（false→true），不能条件式创建后把 show 初值设成 true。
+        // 宽屏详情在右栏，不弹窗
         FacultyDetailSheet(
-            member = detail,
+            member = if (isWide) null else detail,
             api = api,
             onOpenUrl = onOpenUrl,
             onDismiss = { detail = null },
@@ -410,44 +463,35 @@ private fun FacultyCard(member: FacultyMember, onClick: () -> Unit) {
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (member.collegeName.isNotBlank()) {
-                    Spacer(Modifier.height(2.dp))
+                // 身份一行小字（职称 · 博导 · 硕导 · 学院），研究方向一行。
+                // 以前职称、导师、研究方向各是一颗浅色小胶囊，一张卡里堆四五颗，列表一长就显得廉价；
+                // 这些都是说明文字，不能点，就该写成文字。
+                val meta = buildList {
+                    if (member.proRank.isNotBlank()) add(member.proRank)
+                    if (member.isDoctoralTutor) add("博导")
+                    if (member.isMasterTutor) add("硕导")
+                    if (member.collegeName.isNotBlank()) add(member.collegeName)
+                }
+                if (meta.isNotEmpty()) {
+                    Spacer(Modifier.height(3.dp))
                     Text(
-                        member.collegeName,
+                        meta.joinToString(" · "),
                         style = MiuixTheme.textStyles.footnote1,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                val meta = buildList {
-                    if (member.proRank.isNotBlank()) add(member.proRank)
-                    if (member.isDoctoralTutor) add("博导")
-                    if (member.isMasterTutor) add("硕导")
-                }
-                if (meta.isNotEmpty()) {
-                    Spacer(Modifier.height(6.dp))
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        meta.forEachIndexed { i, text ->
-                            MetaChip(text, emphasized = i == 0 && member.proRank.isNotBlank())
-                        }
-                    }
-                }
-                val directions = member.researchDirections.take(3)
-                if (directions.isNotEmpty()) {
-                    Spacer(Modifier.height(6.dp))
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        directions.forEach { TagPill(it, onTonal = true) }
-                    }
-                } else if (member.discipline.isNotBlank()) {
-                    Spacer(Modifier.height(6.dp))
-                    TagPill(member.discipline, onTonal = true)
+                val focus = member.researchDirections.take(3).joinToString("、").ifBlank { member.discipline }
+                if (focus.isNotBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        focus,
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.72f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
             }
         }
@@ -481,13 +525,62 @@ private fun FacultyDetailSheet(
         title = shown.name,
         onDismissRequest = onDismiss,
     ) {
-        Column(
-            Modifier
+        FacultyDetailBody(
+            shown = shown,
+            homepage = homepage,
+            onOpenUrl = onOpenUrl,
+            modifier = Modifier
                 .fillMaxWidth()
                 .overScrollVertical()
                 .verticalScroll(rememberScrollState())
                 .padding(bottom = 12.dp),
-        ) {
+        )
+    }
+}
+
+/**
+ * 宽屏右栏的教师详情：和底部弹窗同一份内容（[FacultyDetailBody]），只是常驻在右边，
+ * 点左边列表换人时直接换内容，不用一次次拉起、收起弹窗。
+ */
+@Composable
+private fun FacultyDetailPane(
+    member: FacultyMember,
+    api: FacultyApi,
+    onOpenUrl: (String) -> Unit,
+    topPadding: androidx.compose.ui.unit.Dp,
+) {
+    var homepage by remember(member.teacherId) { mutableStateOf<HomepageResult?>(null) }
+    LaunchedEffect(member.teacherId) {
+        homepage = api.fetchHomepage(member)
+    }
+    Column(
+        Modifier
+            .fillMaxSize()
+            .overScrollVertical()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp),
+    ) {
+        Spacer(Modifier.height(topPadding + 12.dp))
+        Text(
+            member.name,
+            style = MiuixTheme.textStyles.title2,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(bottom = 12.dp),
+        )
+        FacultyDetailBody(shown = member, homepage = homepage, onOpenUrl = onOpenUrl)
+        Spacer(Modifier.height(24.dp))
+    }
+}
+
+/** 教师详情的内容本身，弹窗和宽屏右栏共用。 */
+@Composable
+private fun FacultyDetailBody(
+    shown: FacultyMember,
+    homepage: HomepageResult?,
+    onOpenUrl: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+        Column(modifier) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 cornerRadius = 16.dp,
@@ -646,7 +739,6 @@ private fun FacultyDetailSheet(
                 }
             }
         }
-    }
 }
 
 // ==================== 选择器 ====================
@@ -724,33 +816,53 @@ private fun OptionPickerSheet(
 
 // ==================== 细粒度组件 ====================
 
+/** 条件栏里的一段：上面小字写维度，下面写当前值（没选就是「全部」）。 */
 @Composable
-private fun FilterPill(text: String, active: Boolean, onClick: () -> Unit) {
-    Surface(
-        shape = RoundedCornerShape(50.dp),
-        color = if (active) MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)
-        else MiuixTheme.colorScheme.surfaceVariant,
-        modifier = Modifier.clip(RoundedCornerShape(50.dp)).clickable { onClick() },
+private fun FilterSegment(
+    label: String,
+    value: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        Column(Modifier.weight(1f)) {
             Text(
-                text,
-                style = MiuixTheme.textStyles.footnote1,
-                color = if (active) MiuixTheme.colorScheme.primary
-                else MiuixTheme.colorScheme.onSurface,
+                label,
+                style = MiuixTheme.textStyles.footnote2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
-            Icon(
-                Icons.Outlined.ExpandMore,
-                contentDescription = null,
-                tint = if (active) MiuixTheme.colorScheme.primary
-                else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.width(16.dp),
+            Text(
+                value ?: "全部",
+                style = MiuixTheme.textStyles.body2,
+                fontWeight = if (value != null) FontWeight.Medium else FontWeight.Normal,
+                color = if (value != null) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
+        Icon(
+            Icons.Outlined.ExpandMore,
+            contentDescription = null,
+            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            modifier = Modifier.width(16.dp),
+        )
     }
+}
+
+@Composable
+private fun FilterSegmentDivider() {
+    Box(
+        Modifier
+            .width(0.5.dp)
+            .height(28.dp)
+            .background(MiuixTheme.colorScheme.outline.copy(alpha = 0.3f)),
+    )
 }
 
 @Composable

@@ -11,7 +11,7 @@ import java.util.concurrent.TimeUnit
 /**
  * 仲英学辅资料站的文件下载。
  *
- * 独立于 `classreplay.DownloadManager`：那一套是为**课程回放视频**设计的（断点续传、
+ * 独立于 `media.DownloadManager`：那一套是为**课程回放视频**设计的（断点续传、
  * 并发限流、暂停/恢复、按 camera/audio 分轨），字段和交互都围绕视频任务。资料站下载的是
  * 课件、真题、笔记这类小文件，一次请求就完，塞进视频任务表只会让下载管理页的分类变得混乱。
  *

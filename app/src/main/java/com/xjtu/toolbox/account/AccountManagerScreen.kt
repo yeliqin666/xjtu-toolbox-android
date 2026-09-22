@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.account
 
+import com.xjtu.toolbox.ui.adaptive.readableWidth
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -45,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.KeyboardOptions
 import com.xjtu.toolbox.AppLoginState
 import com.xjtu.toolbox.auth.AccountType
+import com.xjtu.toolbox.ui.glass.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
@@ -89,6 +91,8 @@ fun AccountManagerScreen(
     onBack: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
+    // PR T（计划 §11）：登录失败的错误触感，见下面 onSubmit 的 onFailure/catch。
+    val haptics = com.xjtu.toolbox.ui.rememberHaptics()
     val activeId = loginState.accountId
     fun orderedAccounts(): List<Account> = accountManager.accountList()
         .sortedWith(
@@ -121,12 +125,15 @@ fun AccountManagerScreen(
         refresh()
     }
 
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
     Scaffold(
         topBar = {
             TopAppBar(
                 title = "账号管理",
                 largeTitle = "账号管理",
-                color = MiuixTheme.colorScheme.surface,
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -146,13 +153,18 @@ fun AccountManagerScreen(
     ) { padding ->
         Column(
             modifier = Modifier
+                .readableWidth()
                 .fillMaxSize()
+                // 采样源必须挂在滚动之前：挂在 verticalScroll 后面录下的是整条跟着滚的长内容，
+                // 不是屏幕上这块视口，顶栏按屏幕位置采样就对不上，只剩透明没有模糊
+                .glassSource(glass)
                 .background(MiuixTheme.colorScheme.background)
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
                 .overScrollVertical()
                 .verticalScroll(rememberScrollState())
-                .padding(padding)
+                .padding(padding.withoutTop(glass))
         ) {
+            Spacer(Modifier.height(padding.glassTop(glass)))
             ActiveAccountPanel(
                 account = activeAccount,
                 accountCount = accounts.size,
@@ -214,12 +226,16 @@ fun AccountManagerScreen(
                                 refresh()
                                 toast = "已添加 ${accountTitle(it)}"
                             },
-                            onFailure = { toast = "添加失败：${it.message ?: "未知错误"}" },
+                            onFailure = {
+                                toast = "添加失败：${it.message ?: "未知错误"}"
+                                haptics.error()
+                            },
                         )
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
                         toast = "添加失败：${e.message ?: "未知错误"}"
+                        haptics.error()
                     } finally {
                         globalBusy = false
                         refresh()
@@ -712,6 +728,8 @@ private fun AddAccountDialog(
     var password by remember { mutableStateOf("") }
     var pwdVisible by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    // PR T：表单校验失败（学号/密码留空）的错误触感。
+    val haptics = com.xjtu.toolbox.ui.rememberHaptics()
 
     BackHandler { onDismiss() }
     OverlayDialog(
@@ -752,7 +770,9 @@ private fun AddAccountDialog(
                     text = "登录并添加",
                     onClick = {
                         if (username.isBlank() || password.isBlank()) {
-                            error = "请输入学号和密码"; return@TextButton
+                            error = "请输入学号和密码"
+                            haptics.error()
+                            return@TextButton
                         }
                         onSubmit(username.trim(), password, AccountType.UNDERGRADUATE)
                     },

@@ -300,7 +300,9 @@ jobs:
           # dev 上的 versionName 必须是「下一个正式版」号且不能已带后缀
           case "$BASE" in *-*) echo "::error::dev 的 versionName 不应带后缀: $BASE"; exit 1;; esac
           # 防呆：dev 版本号必须大于最新正式 tag，否则预览版比已发布正式版还"旧"，没人收得到
-          LATEST=$(git tag -l 'v*' --sort=-v:refname | head -1 | sed 's/^v//')
+          # 按创建时间取最新正式 tag，不能按版本号排序：仓库里有 v4.71 这类旧写法（=4.7.1），
+          # sort -V 会把它排在 4.9.x 前面。
+          LATEST=$(git tag -l 'v*' --sort=-creatordate | head -1 | sed 's/^v//')
           if [ -n "$LATEST" ] && [ "$(printf '%s\n%s\n' "$LATEST" "$BASE" | sort -V | tail -1)" != "$BASE" -o "$LATEST" = "$BASE" ]; then
             echo "::error::dev 的 versionName ($BASE) 必须大于最新正式版 ($LATEST)，请先在 dev 上升版本号"
             exit 1

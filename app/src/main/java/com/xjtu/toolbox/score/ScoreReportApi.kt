@@ -34,6 +34,40 @@ class ScoreReportApi(private val site: SiteSession) {
 
     companion object {
         private const val FR_REPORT_URL = "https://jwxt.xjtu.edu.cn/jwapp/sys/frReport2/show.do"
+
+        /**
+         * 学期标题 → 学期代码 `2024-2025-N`。不是学期标题返回 null。
+         *
+         * 以前只认「1 学期」「第一学期」：小学期的标题写的是「夏季学期」「暑期学期」「小学期」
+         * 这类，一个数字都没有，整行被跳过、学期没切换，小学期的课就混进了前一个（春季）学期。
+         * 现在季节字也认；实在认不出的写法原样留作代码，至少单独成组，不再并进上一学期。
+         */
+        internal fun termCodeFromHeading(text: String): String? {
+            // 暑假重修、补考也会出成绩，标题可能只写「暑假」不带「学期」两个字。
+            // 和成绩页（教务接口）的学期代码对齐：暑假 = 4（见 XjtuTime.displayTerm）
+            Regex("""(\d{4})\s*-\s*(\d{4})\s*学年\s*暑假""").find(text)?.let {
+                return "${it.groupValues[1]}-${it.groupValues[2]}-4"
+            }
+            val m = Regex("""(\d{4})\s*-\s*(\d{4})\s*学年\s*(.*?)\s*学期""").find(text) ?: return null
+            val y1 = m.groupValues[1]
+            val y2 = m.groupValues[2]
+            val label = m.groupValues[3]
+            val cnNumMap = mapOf("一" to 1, "二" to 2, "三" to 3, "四" to 4)
+            val no = label.toIntOrNull()
+                ?: Regex("第\\s*(\\d)").find(label)?.groupValues?.get(1)?.toIntOrNull()
+                ?: Regex("第\\s*([一二三四])").find(label)?.groupValues?.get(1)?.let { cnNumMap[it] }
+                ?: when {
+                    "秋" in label -> 1
+                    "春" in label -> 2
+                    "夏" in label || "暑" in label || "小" in label || "短" in label -> 3
+                    else -> null
+                }
+            return when {
+                no != null -> "$y1-$y2-$no"
+                label.isNotBlank() -> "$y1-$y2-$label"
+                else -> null
+            }
+        }
     }
 
     /**
@@ -69,9 +103,6 @@ class ScoreReportApi(private val site: SiteSession) {
         val courses = mutableListOf<ReportedGrade>()
         var currentTerm: String? = null
 
-        // 中文数字映射
-        val cnNumMap = mapOf("一" to 1, "二" to 2, "三" to 3, "四" to 4, "五" to 5, "六" to 6)
-
         // 查找所有 tbody 中的行
         val rows = doc.select("tbody tr")
         if (rows.isEmpty()) return emptyList()
@@ -83,16 +114,7 @@ class ScoreReportApi(private val site: SiteSession) {
             // 单列行 → 学期标题
             if (tds.size == 1) {
                 val text = tds[0].text().trim().replace("\u3000", " ")
-                val termMatch = Regex("""(\d{4})\s*-\s*(\d{4})\s*学年\s*(.+?)\s*学期""").find(text)
-                if (termMatch != null) {
-                    val y1 = termMatch.groupValues[1]
-                    val y2 = termMatch.groupValues[2]
-                    val termDisplay = termMatch.groupValues[3]
-                    val termNo = termDisplay.toIntOrNull()
-                        ?: cnNumMap[Regex("第(.)")?.find(termDisplay)?.groupValues?.get(1) ?: ""]
-                        ?: continue
-                    currentTerm = "$y1-$y2-$termNo"
-                }
+                termCodeFromHeading(text)?.let { currentTerm = it }
                 continue
             }
 

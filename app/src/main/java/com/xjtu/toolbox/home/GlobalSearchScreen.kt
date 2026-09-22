@@ -7,8 +7,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -35,14 +37,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.vibrancy
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.ui.components.AppSearchBar
+import com.xjtu.toolbox.ui.glass.LocalAppBackdrop
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
@@ -154,62 +161,106 @@ fun GlobalSearchScreen(
 
         BackHandler(onBack = onBack)
 
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = "搜索",
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                        }
-                    },
-                    actions = {
-                        if (query.isNotEmpty()) {
-                            IconButton(onClick = { query = "" }) {
-                                Icon(Icons.Default.Close, contentDescription = "清空")
-                            }
-                        }
-                    }
-                )
-            }
-        ) { padding ->
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(horizontal = 16.dp)
-            ) {
-                Spacer(Modifier.height(4.dp))
-                AppSearchBar(
-                    query = query,
-                    onQueryChange = { query = it },
-                    label = "课表、成绩、空教室、问屁岱…",
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(focusRequester)
-                )
+        // 搜索是盖在当前页上面的浮层，下面的页面应该隐约透出来，所以背景在有采样源时
+        // 整页做成玻璃；LocalAppBackdrop 为 null（选了「经典」界面风格，或者本地没接上
+        // 采样源——A4 自己的 worktree 里永远是这种情况）时退回原来的不透明背景，行为不变。
+        val backdrop = LocalAppBackdrop.current
+        val glassActive = backdrop != null
+        val scaffoldColor = if (glassActive) Color.Transparent else MiuixTheme.colorScheme.surface
+        val surface = MiuixTheme.colorScheme.surface
 
-                AnimatedContent(
-                    targetState = query.isBlank(),
-                    transitionSpec = {
-                        (fadeIn(tween(180)) + slideInVertically(tween(220)) { it / 12 })
-                            .togetherWith(fadeOut(tween(120)))
-                    },
-                    label = "searchBody",
-                    modifier = Modifier.fillMaxSize(),
-                ) { blank ->
-                    if (blank) {
-                        SearchEmptyHints(
-                            onChip = { query = it },
-                            onAskAgent = onAskAgent,
+        Box(
+            Modifier
+                .fillMaxSize()
+                .then(
+                    if (backdrop != null) {
+                        Modifier.drawBackdrop(
+                            backdrop = backdrop,
+                            // 折射在整页大小的玻璃上只会让边缘变形，这里不开 lens()，只用
+                            // 模糊加色彩增强；直角矩形按 §16.1 第 2 条写成 0dp 圆角，不用
+                            // RectangleShape（backdrop 的 lens 只支持圆角类形状，虽然这里没
+                            // 用到 lens，但统一写法更保险，也和 Y1/Y2 的顶栏一致）。
+                            shape = { RoundedCornerShape(0.dp) },
+                            effects = {
+                                vibrancy()
+                                blur(32.dp.toPx())
+                            },
+                            // 整页铺满的玻璃不要默认的投影和描边高光：投影落在屏幕外面白算，
+                            // 高光会沿着屏幕四边描出一圈亮线。
+                            highlight = null,
+                            shadow = null,
+                            // 先铺一层不透明底色：采样源只录了 tab 内容区，平板的侧栏、首页的顶栏
+                            // （「岱宗盒子」标题、扫码按钮）都不在里面。不铺底的话这些地方什么都没画，
+                            // 底下的界面原样透上来，和搜索框、分组标题叠成一团。
+                            onDrawBehind = { drawRect(surface) },
+                            // 模糊之上再压一层表面色：页面只该「隐约」透出来，
+                            // 32dp 的模糊下首页瓷砖的图标、文字仍然看得出轮廓，会和搜索内容抢眼。
+                            onDrawSurface = { drawRect(surface.copy(alpha = 0.62f)) },
                         )
                     } else {
-                        SearchResultList(
-                            query = query,
-                            results = results,
-                            onNavigate = onNavigate,
-                            onAskAgent = onAskAgent,
-                        )
+                        Modifier.background(MiuixTheme.colorScheme.surface)
+                    },
+                ),
+        ) {
+            Scaffold(
+                containerColor = scaffoldColor,
+                topBar = {
+                    TopAppBar(
+                        title = "搜索",
+                        color = scaffoldColor,
+                        navigationIcon = {
+                            IconButton(onClick = onBack) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                            }
+                        },
+                        actions = {
+                            if (query.isNotEmpty()) {
+                                IconButton(onClick = { query = "" }) {
+                                    Icon(Icons.Default.Close, contentDescription = "清空")
+                                }
+                            }
+                        }
+                    )
+                }
+            ) { padding ->
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                        .padding(horizontal = 16.dp)
+                ) {
+                    Spacer(Modifier.height(4.dp))
+                    AppSearchBar(
+                        query = query,
+                        onQueryChange = { query = it },
+                        label = "课表、成绩、空教室、问屁岱…",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(focusRequester)
+                    )
+
+                    AnimatedContent(
+                        targetState = query.isBlank(),
+                        transitionSpec = {
+                            (fadeIn(tween(180)) + slideInVertically(tween(220)) { it / 12 })
+                                .togetherWith(fadeOut(tween(120)))
+                        },
+                        label = "searchBody",
+                        modifier = Modifier.fillMaxSize(),
+                    ) { blank ->
+                        if (blank) {
+                            SearchEmptyHints(
+                                onChip = { query = it },
+                                onAskAgent = onAskAgent,
+                            )
+                        } else {
+                            SearchResultList(
+                                query = query,
+                                results = results,
+                                onNavigate = onNavigate,
+                                onAskAgent = onAskAgent,
+                            )
+                        }
                     }
                 }
             }

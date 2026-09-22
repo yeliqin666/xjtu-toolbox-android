@@ -22,7 +22,7 @@ import java.util.concurrent.TimeUnit
  * OpenAI-compatible function calling 调度循环。
  *
  * 安全限制：
- * - 每轮最多 maxToolCalls 次工具调用，超限直接返回提示，不继续请求 LLM
+ * - 每个问题最多 [TOOL_CALL_FUSE] 次工具调用，到了就不再给工具，逼模型直接作答
  * - 两次工具调用之间强制等待 1s，防止对学校服务器连续请求
  * - Auth 异常（AuthExpiredException）直接上抛，不让 LLM 自行重试
  *
@@ -55,28 +55,51 @@ class AgentRunner(private val tools: AgentToolRegistry) {
             else -> DEFAULT_TOOL_RESULT_CHARS
         }
 
+        /**
+         * 超长结果保留开头和结尾、省略中间，**按整行截**并写明省略了几行。
+         * 以前按字数从中间砍一刀，常把一行（一门课、一条流水）劈成两半，模型也不知道少了多少条。
+         * 只有一行却超长（网页正文）时退回按字截。
+         */
         internal fun capToolResult(result: String, toolName: String = ""): String {
             val maxChars = toolResultCap(toolName)
             if (result.length <= maxChars) return result
-            val marker = "\n…（中间已省略，共 ${result.length} 字；保留开头和结尾。需要更多请缩小查询范围。）…\n"
-            val budget = maxChars - marker.length
-            val head = (budget * 0.6).toInt().coerceAtLeast(200)
-            val tail = (budget - head).coerceAtLeast(200)
-            return result.take(head) + marker + result.takeLast(tail)
+            val lines = result.split('\n')
+            if (lines.size < 3) {
+                val marker = "\n…（已省略中间部分，原长 ${result.length} 字）…\n"
+                val budget = maxChars - marker.length
+                val head = (budget * 0.6).toInt().coerceAtLeast(200)
+                return result.take(head) + marker + result.takeLast((budget - head).coerceAtLeast(200))
+            }
+            val budget = maxChars - 40
+            val headBudget = (budget * 0.6).toInt()
+            var used = 0
+            var headCount = 0
+            while (headCount < lines.size && used + lines[headCount].length + 1 <= headBudget) {
+                used += lines[headCount].length + 1
+                headCount++
+            }
+            var tailCount = 0
+            while (tailCount < lines.size - headCount - 1 &&
+                used + lines[lines.size - 1 - tailCount].length + 1 <= budget
+            ) {
+                used += lines[lines.size - 1 - tailCount].length + 1
+                tailCount++
+            }
+            val omitted = lines.size - headCount - tailCount
+            val marker = "…（已省略中间 $omitted 行）…"
+            return (lines.take(headCount) + marker + lines.takeLast(tailCount)).joinToString("\n")
         }
 
-        /** 快用尽才提醒，避免一上来倒数把模型吓回去。 */
-        internal fun remainingToolHint(maxToolCalls: Int, used: Int): String? {
-            if (maxToolCalls <= 0) return null
-            val left = (maxToolCalls - used).coerceAtLeast(0)
-            return when {
-                left == 0 ->
-                    "\n（本问工具次数已用尽，下一轮直接作答。）"
-                left <= 2 ->
-                    "\n（本问还剩 $left 次工具。）"
-                else -> null
-            }
-        }
+        /**
+         * 一个问题的工具调用保险丝。不是给模型的预算——不写进提示词、不在设置里露出，
+         * 该查几次由模型自己判断；这道只防它陷进死循环（反复调同一个失败的工具），
+         * 白烧用户的 API 额度。正常问题碰不到。
+         */
+        internal const val TOOL_CALL_FUSE = 20
+
+        /** 只在熔断那一刻告诉模型，平时不提次数，免得它束手束脚。 */
+        internal fun remainingToolHint(used: Int): String? =
+            if (used >= TOOL_CALL_FUSE) "\n（工具次数已用尽）" else null
     }
 
     /** 站点 -> 上次调用时刻，用于按站点限流。 */
@@ -120,8 +143,8 @@ class AgentRunner(private val tools: AgentToolRegistry) {
         var lengthContinues = 0
 
         while (true) {
-            // maxToolCalls <= 0 表示不限次数；否则预算用尽后这一轮不带 tools，逼模型直接作答
-            val allowTools = config.maxToolCalls <= 0 || toolCallCount < config.maxToolCalls
+            // 保险丝烧了，这一轮不带 tools，逼模型直接作答
+            val allowTools = toolCallCount < TOOL_CALL_FUSE
             val reqBody = JsonObject().apply {
                 addProperty("model", config.effectiveModel)
                 add("messages", messagesForProvider(messages, config))
@@ -197,7 +220,7 @@ class AgentRunner(private val tools: AgentToolRegistry) {
                     messages.add(assistantMsg)
                     messages.add(JsonObject().apply {
                         addProperty("role", "user")
-                        addProperty("content", "（系统）上一则回复因长度限制被截断。请紧接着未写完的内容继续写完，不要重复已写部分，不要解释截断。")
+                        addProperty("content", "（系统）上一条回复因长度被截断。从断处接着写，不重复，不解释。")
                     })
                     lengthContinues++
                     continue
@@ -247,7 +270,7 @@ class AgentRunner(private val tools: AgentToolRegistry) {
                     addProperty("content", capToolResult(result, tc.name))
                 })
             }
-            remainingToolHint(config.maxToolCalls, toolCallCount)?.let { hint ->
+            remainingToolHint(toolCallCount)?.let { hint ->
                 val last = toolResults.lastOrNull() ?: return@let
                 last.addProperty("content", last.get("content").asString + hint)
             }

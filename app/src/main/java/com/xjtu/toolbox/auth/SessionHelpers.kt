@@ -8,7 +8,6 @@ fun LoginType.siteKey(): String = when (this) {
     LoginType.CAMPUS_CARD -> "campus_card"
     LoginType.DZPZ -> "dzpz"
     LoginType.VENUE -> "venue"
-    LoginType.CLASS -> "class"
     LoginType.LMS -> "lms"
     LoginType.JIAOCAI -> "jiaocai"
     LoginType.COUPON -> "coupon"

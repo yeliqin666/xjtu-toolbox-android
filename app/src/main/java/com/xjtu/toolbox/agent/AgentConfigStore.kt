@@ -24,13 +24,8 @@ data class AgentConfig(
     val apiKey: String = "",
     val model: String = "",
     val baseUrl: String = "",
-    // 8 而非 4：全部工具都是只读查询，没有副作用风险，而"搜一次 + 读两个链接"
-    // 或"课表 + 空教室 + 图书馆"这类再正常不过的连环问，4 次直接打满。
-    val maxToolCalls: Int = 8,
     val assistantName: String = DEFAULT_ASSISTANT_NAME,
-    val disabledCaps: Set<String> = emptySet(),
     val searchEngine: String = SEARCH_AUTO,
-    val responseStyle: String = STYLE_FRIENDLY,
     val thinkingEnabled: Boolean = true,
     val reasoningEffort: String = REASONING_AUTO,
     val showReasoning: Boolean = true
@@ -67,23 +62,24 @@ data class AgentConfig(
         const val REASONING_HIGH = "high"
         const val REASONING_MAX = "max"
         const val SEARCH_AUTO = "auto"
-        const val SEARCH_BING = "bing"
+        const val SEARCH_BAIDU = "baidu"
         const val SEARCH_WECHAT = "wechat"
-        const val SEARCH_DDG = "duckduckgo"
         const val SEARCH_SO360 = "so360"
         const val SEARCH_WIKI = "wiki"
 
         /**
-         * 已下线的搜索源。实测（2026-08，国内网络，三条中文查询 + 连发六次）：
+         * 已下线的搜索源。实测（国内网络 / 校园网，中文查询 + 连发）：
          * - jina：`s.jina.ai` 匿名访问返回 401，要 API Key，调用必然失败。
          * - brave：429 + 验证码页，拿不到结果。
          * - sogou：`/web` 直接 302 到 `sogou.com/antispider`，一条都取不到。
+         * - duckduckgo（2026-09）：html / lite 两版都回 202 +「证明你是人类」挑战页，
+         *   国内每次白等两秒多，一条结果都没有。
+         * - bing（2026-09）：不带会话时中文查询被截成首字（「西交 创新港 校车」搜的是「西」），
+         *   RSS 和网页版都一样，结果与查询基本无关。
          *
-         * 留着它们只会白占一次并发和一轮超时。保留常量名是为了老配置能识别并迁回自动。
+         * 留着它们只会白占一轮超时。保留名字是为了老配置和模型点名时能识别并迁回自动。
          */
-        val RETIRED_SEARCH_ENGINES = setOf("jina", "brave", "sogou")
-        const val STYLE_FRIENDLY = "friendly"
-        const val STYLE_PROFESSIONAL = "professional"
+        val RETIRED_SEARCH_ENGINES = setOf("jina", "brave", "sogou", "duckduckgo", "ddg", "bing")
 
         val PROVIDERS = listOf(PROVIDER_DEEPSEEK, PROVIDER_OPENAI, PROVIDER_CUSTOM)
         /**
@@ -99,24 +95,10 @@ data class AgentConfig(
             REASONING_MAX -> "最大"
             else -> "自动"
         }
-        // 顺序即推荐度，实测中文相关性从高到低。
+        // 顺序即推荐度，实测中文相关性从高到低。自动 = 百度与 360 并发、合并去重。
         val SEARCH_ENGINES = listOf(
-            SEARCH_AUTO, SEARCH_DDG, SEARCH_SO360, SEARCH_BING, SEARCH_WECHAT, SEARCH_WIKI
+            SEARCH_AUTO, SEARCH_BAIDU, SEARCH_SO360, SEARCH_WECHAT, SEARCH_WIKI
         )
-        val RESPONSE_STYLES = listOf(STYLE_FRIENDLY, STYLE_PROFESSIONAL)
-
-        /**
-         * 给 system prompt 用的接入方式说明。
-         *
-         * 不复用 [providerLabel]：那是设置页的下拉选项文案，带着「（推荐）」这种
-         * 面向用户的修饰词，塞进 prompt 里只会让模型莫名其妙。
-         */
-        fun providerPromptLabel(p: String) = when (p) {
-            PROVIDER_DEEPSEEK -> "DeepSeek 官方 API"
-            PROVIDER_OPENAI -> "OpenAI 官方 API"
-            PROVIDER_CUSTOM -> "用户自填的兼容端点（可能是中转）"
-            else -> p
-        }
 
         fun providerLabel(p: String) = when (p) {
             PROVIDER_DEEPSEEK -> "DeepSeek（推荐）"
@@ -127,17 +109,11 @@ data class AgentConfig(
 
         fun searchEngineLabel(engine: String) = when (engine) {
             SEARCH_AUTO -> "自动"
-            SEARCH_DDG -> "DuckDuckGo"
+            SEARCH_BAIDU -> "百度"
             SEARCH_SO360 -> "360 搜索"
-            SEARCH_BING -> "Bing"
             SEARCH_WECHAT -> "搜狗微信"
             SEARCH_WIKI -> "维基百科"
             else -> "自动"
-        }
-
-        fun responseStyleLabel(style: String) = when (style) {
-            STYLE_PROFESSIONAL -> "专业"
-            else -> "亲切"
         }
     }
 }
@@ -187,17 +163,10 @@ private val prefs: SharedPreferences
         apiKey = securePrefs.getString("api_key", "") ?: "",
         model = prefs.getString("model", "") ?: "",
         baseUrl = prefs.getString("base_url", "") ?: "",
-        maxToolCalls = prefs.getInt("max_tool_calls", 8),
         assistantName = sanitizeAgentTitle(
             prefs.getString("assistant_name", AgentConfig.DEFAULT_ASSISTANT_NAME)
                 ?: AgentConfig.DEFAULT_ASSISTANT_NAME
         ),
-        disabledCaps = prefs.getString("disabled_caps", "")
-            .orEmpty()
-            .split(",")
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .toSet(),
         searchEngine = prefs.getString("search_engine", AgentConfig.SEARCH_AUTO)
             ?.let { raw ->
                 when {
@@ -208,9 +177,6 @@ private val prefs: SharedPreferences
                 }
             }
             ?: AgentConfig.SEARCH_AUTO,
-        responseStyle = prefs.getString("response_style", AgentConfig.STYLE_FRIENDLY)
-            ?.takeIf { it in AgentConfig.RESPONSE_STYLES }
-            ?: AgentConfig.STYLE_FRIENDLY,
         thinkingEnabled = prefs.getBoolean("thinking_enabled", true),
         reasoningEffort = normalizeReasoningEffort(
             prefs.getString("reasoning_effort", AgentConfig.REASONING_AUTO)
@@ -223,11 +189,13 @@ private val prefs: SharedPreferences
             .putString("provider", config.provider)
             .putString("model", config.model)
             .putString("base_url", config.baseUrl)
-            .putInt("max_tool_calls", config.maxToolCalls)
+            // 工具次数上限、能力开关都已取消，清掉老配置里的残留键
+            .remove("max_tool_calls")
+            .remove("disabled_caps")
             .putString("assistant_name", sanitizeAgentTitle(config.assistantName))
-            .putString("disabled_caps", config.disabledCaps.sorted().joinToString(","))
             .putString("search_engine", config.searchEngine)
-            .putString("response_style", config.responseStyle)
+            // 回复风格已取消（只剩亲切一种），清掉老配置里的残留键
+            .remove("response_style")
             .putBoolean("thinking_enabled", config.thinkingEnabled)
             .putString("reasoning_effort", config.reasoningEffort)
             .putBoolean("show_reasoning", config.showReasoning)

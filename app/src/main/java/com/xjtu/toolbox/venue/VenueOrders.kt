@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.staggeredgrid.items
+import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.CalendarToday
@@ -62,37 +64,42 @@ fun VenueOrdersContent(
     onCancel: (VenueApi.OrderInfo) -> Unit,
     onPay: (VenueApi.OrderInfo) -> Unit,
     modifier: Modifier = Modifier,
-    scrollBehavior: ScrollBehavior? = null
+    scrollBehavior: ScrollBehavior? = null,
+    /** 玻璃顶栏（含标签行）的高度，放进列表顶部留白。 */
+    topPadding: androidx.compose.ui.unit.Dp = 0.dp,
 ) {
     val pullToRefreshState = rememberPullToRefreshState()
     PullToRefresh(
+        refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
         isRefreshing = isLoading && orders.isNotEmpty(),
         onRefresh = onRefresh,
         pullToRefreshState = pullToRefreshState,
         topAppBarScrollBehavior = scrollBehavior,
+        contentPadding = PaddingValues(top = topPadding),
         modifier = modifier.fillMaxSize()
     ) {
     when {
-        isLoading && orders.isEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
+        isLoading && orders.isEmpty() -> LazyColumn(Modifier.fillMaxSize().padding(top = topPadding)) {
             item { Box(Modifier.fillParentMaxSize()) { LoadingState(message = "加载订单...", modifier = Modifier.fillMaxSize()) } }
         }
 
-        error != null && orders.isEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
+        error != null && orders.isEmpty() -> LazyColumn(Modifier.fillMaxSize().padding(top = topPadding)) {
             item { Box(Modifier.fillParentMaxSize()) { ErrorState(message = error, onRetry = onRetry, modifier = Modifier.fillMaxSize()) } }
         }
 
-        orders.isEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
-            item { Box(Modifier.fillParentMaxSize()) { EmptyState(title = "暂无订单", subtitle = "预约场馆后，订单会显示在这里", modifier = Modifier.fillMaxSize()) } }
+        orders.isEmpty() -> LazyColumn(Modifier.fillMaxSize().padding(top = topPadding)) {
+            item { Box(Modifier.fillParentMaxSize()) { EmptyState(title = "还没订过场馆", subtitle = "预约场馆后，订单会显示在这里", modifier = Modifier.fillMaxSize()) } }
         }
 
         else -> {
-            LazyColumn(
+            // 宽屏订单卡分两三列（见 AdaptiveCardGrid）
+            com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp + topPadding, bottom = 10.dp),
+                spacing = 10.dp,
             ) {
                 if (error != null) {
-                    item(key = "refresh-error") {
+                    fullLineItem(key = "refresh-error") {
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
                             color = MiuixTheme.colorScheme.errorContainer
@@ -124,7 +131,7 @@ fun VenueOrdersContent(
                     )
                 }
 
-                item(key = "pagination") {
+                fullLineItem(key = "pagination") {
                     if (hasMore) {
                         Row(
                             modifier = Modifier

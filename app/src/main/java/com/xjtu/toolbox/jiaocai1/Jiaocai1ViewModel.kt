@@ -2,7 +2,6 @@ package com.xjtu.toolbox.jiaocai1
 
 import android.content.Context
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
@@ -20,7 +19,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class Jiaocai1ViewModel : ViewModel() {
-    var tab by mutableIntStateOf(0)
     var keyword by mutableStateOf("")
     var field by mutableStateOf(Jiaocai1SearchField.BOOK_NAME)
     var result by mutableStateOf<Jiaocai1SearchResult?>(null)
@@ -119,14 +117,23 @@ class Jiaocai1ViewModel : ViewModel() {
         cls = node.id
         clsName = node.name
         keyword = ""
-        tab = 1
         search(1)
     }
 
+    /**
+     * 取消分类限定。有关键词就照原关键词重新检索；关键词也是空的就直接退回分类树
+     * （跟「关键词为空、没有分类限定就显示分类树」用的是同一个判据），不必带着
+     * 一对空参数再打一次检索。
+     */
     fun clearCls() {
         cls = ""
         clsName = ""
-        search(1)
+        if (keyword.isNotBlank()) {
+            search(1)
+        } else {
+            result = null
+            books = emptyList()
+        }
     }
 
     fun changeField(next: Jiaocai1SearchField) {

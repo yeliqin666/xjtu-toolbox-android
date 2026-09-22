@@ -11,7 +11,6 @@ enum class LoginType(val label: String, val description: String) {
     CAMPUS_CARD("校园卡", "余额/账单查询"),
     DZPZ("电子打印证", "成绩单下载"),
     VENUE("体育场馆", "运动场地预订"),
-    CLASS("课程平台", "课程回放 · TronClass"),
     LMS("思源学堂", "课程 · 作业 · 回放"),
     JIAOCAI("教材中心", "教材查询"),
     COUPON("加餐券", "电子券 · 余额与有效期"),

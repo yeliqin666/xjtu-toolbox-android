@@ -52,51 +52,6 @@ class YwtbApi(private val site: SiteSession) {
         )
     }
 
-    /**
-     * 获取今日的教学周信息（直接查询 YWTB 服务器）
-     * @return Triple(教学周数, 学期名, 学期ID)，假期返回 null
-     */
-    fun getCurrentWeekOfTeaching(): Triple<Int, String, String>? {
-        val today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))
-        val url = "https://ywtb.xjtu.edu.cn/portal-api/v1/calendar/share/schedule/getWeekOfTeaching"
-            .toHttpUrl().newBuilder()
-            .addQueryParameter("today", today)
-            .addQueryParameter("random_number", Random.nextInt(100, 999).toString())
-            .build()
-
-        android.util.Log.d("YwtbWeek", "requesting: today=$today")
-        val request = baseRequest(url.toString()).get()
-        val responseBody = runBlocking { site.executeWithReAuth(request.build()) }.use { response ->
-            android.util.Log.d("YwtbWeek", "response code=${response.code}")
-            response.body?.string() ?: run {
-                android.util.Log.w("YwtbWeek", "response body is null")
-                return null
-            }
-        }
-        android.util.Log.d("YwtbWeek", "responseBody=${responseBody.take(500)}")
-        val json = responseBody.safeParseJsonObject()
-        val dataObj = json.getAsJsonObject("data")?.getAsJsonObject("data")
-        if (dataObj == null) {
-            android.util.Log.w("YwtbWeek", "data.data is null")
-            return null
-        }
-        val dateArray = dataObj.getAsJsonArray("date")
-        if (dateArray == null || dateArray.size() == 0) {
-            android.util.Log.w("YwtbWeek", "date array empty or null (size=${dateArray?.size()}), keys=${dataObj.keySet()}")
-            return null
-        }
-        val weekStr = dateArray[0].asString
-        val semesterAliArray = dataObj.getAsJsonArray("semesterAlilist")
-        val semesterArray = dataObj.getAsJsonArray("semesterlist")
-        val semesterName = if (semesterAliArray != null && semesterAliArray.size() > 0) semesterAliArray[0].asString else ""
-        val semesterId = if (semesterArray != null && semesterArray.size() > 0) semesterArray[0].asString else ""
-
-        val week = weekStr.toIntOrNull()
-        android.util.Log.d("YwtbWeek", "weekStr=$weekStr, week=$week, semesterName=$semesterName")
-        if (week == null || week <= 0) return null   // 不在教学周内 = 假期
-        return Triple(week, semesterName, semesterId)
-    }
-
     fun getStartOfTerm(timestamp: String): String {
         val parts = timestamp.split("-")
         require(parts.size == 3) { "格式错误，应为 YYYY-YYYY-S" }

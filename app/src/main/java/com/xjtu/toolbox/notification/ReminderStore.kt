@@ -43,8 +43,6 @@ internal object ReminderStore {
         prefs(context).edit().putBoolean("enabled_${kind.key}", value).apply()
     }
 
-    fun anyEnabled(context: Context): Boolean = ReminderKind.entries.any { isEnabled(context, it) }
-
     /** 这条提醒过没有。id 要能长期稳定标识一件事（作业 id、考试课程+日期）。 */
     fun hasSeen(context: Context, kind: ReminderKind, id: String): Boolean =
         id in seen(context, kind)

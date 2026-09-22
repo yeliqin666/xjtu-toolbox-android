@@ -341,7 +341,8 @@ class CampusCardApi(private val site: SiteSession) {
                 }
                 .sortedByDescending { it.totalAmount }
                 .take(10)
-            val totalSpend = -spending.sumOf { it.amount }
+            // 逐笔取反再求和，不写 -sumOf：没有消费的月份 -(0.0) 是 -0.0，趋势图上印成「¥-0」。
+            val totalSpend = spending.sumOf { -it.amount }
             val overlapStart = maxOf(month.atDay(1), inferredStart)
             val overlapEnd = minOf(month.atEndOfMonth(), inferredEnd)
             val daysCovered = java.time.temporal.ChronoUnit.DAYS.between(overlapStart, overlapEnd).toInt() + 1
@@ -450,20 +451,6 @@ class CampusCardApi(private val site: SiteSession) {
         }
 
         return DayTypeStats.from("工作日", weekday) to DayTypeStats.from("周末", weekend)
-    }
-
-    /**
-     * 每日消费分布（按日期聚合）
-     */
-    fun dailySpending(transactions: List<Transaction>): Map<LocalDate, Double> {
-        return transactions.filter { it.amount < 0 }
-            .groupBy { tx ->
-                try {
-                    LocalDate.parse(tx.time.substringBefore(" "), dateFormat)
-                } catch (_: Exception) { LocalDate.now() }
-            }
-            .mapValues { (_, txs) -> -txs.sumOf { it.amount } }
-            .toSortedMap()
     }
 
     private fun classifyMerchant(merchant: String, description: String): String {

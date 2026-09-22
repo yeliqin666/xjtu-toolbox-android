@@ -1,13 +1,22 @@
 package com.xjtu.toolbox.agent
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -31,14 +40,16 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.xjtu.toolbox.agent.skin.PidaiSkin
+import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
  * 底栏正中的屁岱按钮。
  *
- * 它**不是**第五个标签页：点击是 push 到 AGENT 路由，没有选中态，所以刻意不复用
- * NavigationBarItem 的灰度线性图标样式——满色形象 + 中心位 + 会动，三重差异叠加，
- * 用户一眼能认出这是"另一类东西"。
+ * 它现在**也是**一个 tab（点击会把 `selectedTabOrdinal` 切到 `BottomTab.PIDAI`，
+ * 有选中态），只是点击时还会顺带触发一句气泡（见 `ProactiveRules.pickOnTap`）。
+ * 刻意不复用 NavigationBarItem 的灰度线性图标样式——满色形象 + 中心位 + 会动，
+ * 三重差异叠加，用户一眼能认出这是"另一类东西"。
  *
  * 形象移植自 bloub 项目（x.ai 机器人头像的 SVG 复刻，MIT）：一个墨色形状按径向
  * 轮廓在状态间实时形变，两眼是身体上的洞。原 Lottie（Noto 🤖）按帧切段复用状态；
@@ -70,7 +81,10 @@ fun PidaiNavButton(
      * 上移一点让它的重心回到图标那条线附近，同时仍比邻居大一圈、略微探进文字区。
      */
     liftUp: Dp = 0.dp,
-    /** 眼洞露出的底色 = 底栏背景色（经典栏 surface，浮动栏 surfaceContainerHigh）。 */
+    /**
+     * 挖空之后眼洞露出的是真实背景，不再需要靠这个参数告诉 [BloubBotIcon] 底栏是什么颜色；
+     * 保留只是为了不改调用方签名（经典栏、浮动栏、玻璃底栏都还在传），内部已不使用。
+     */
     paper: Color = MiuixTheme.colorScheme.surface,
     /**
      * 身体墨色。"跟随主题"时应当传底栏前景色（`onSurface`），深色底栏才看得见；
@@ -203,19 +217,74 @@ fun PidaiNavButton(
                 },
             contentAlignment = Alignment.Center,
         ) {
-            // 画布比触摸区大一圈：球和通知点/彗尾需要更多作画空间，触摸目标保持 diameter。
-            // 1.5 倍时球径约 1.23 倍触摸区（经典栏 ~46dp），是底栏高度约束下的舒适上限。
-            BloubBotIcon(
-                beat = beat,
-                ink = ink,
-                paper = paper,
-                shape = shape,
-                skin = skin,
-                requestedAction = customAction,
-                requestedActionGeneration = skinActionGeneration,
-                modifier = Modifier.size(diameter * 1.5f),
-            )
+            if (PidaiAppearanceHost.plain) {
+                // 朴素图标：不播动画、没有装饰，颜色选择仍然决定圆的底色。
+                PlainPidaiIcon(
+                    ink = ink,
+                    paper = paper,
+                    thinking = thinking,
+                    diameter = diameter,
+                    modifier = Modifier.size(diameter),
+                )
+            } else {
+                // 画布比触摸区大一圈：球和通知点/彗尾需要更多作画空间，触摸目标保持 diameter。
+                // 1.5 倍时球径约 1.23 倍触摸区（经典栏 ~46dp），是底栏高度约束下的舒适上限。
+                BloubBotIcon(
+                    beat = beat,
+                    ink = ink,
+                    paper = paper,
+                    shape = shape,
+                    skin = skin,
+                    requestedAction = customAction,
+                    requestedActionGeneration = skinActionGeneration,
+                    modifier = Modifier.size(diameter * 1.5f),
+                )
+            }
         }
+    }
+}
+
+/**
+ * 朴素图标：#65 里协作者觉得装饰有点怪，这个开关不砍功能、只是把满色形象换成
+ * 一个静态圆 + 静态图标。除了「思考」时的呼吸透明度，不做任何其它动画——
+ * 尤其不画三点脉冲（thinking）和 excited 的效果，这些都是"装饰"。
+ */
+@Composable
+private fun PlainPidaiIcon(
+    ink: Color,
+    paper: Color,
+    thinking: Boolean,
+    diameter: Dp,
+    modifier: Modifier = Modifier,
+) {
+    // 只在思考态才挂呼吸动画，别让静息态也白跑一个永不停的 InfiniteTransition。
+    // 拿 State 本身，只在 graphicsLayer 里读：呼吸期间只改图层透明度，不每帧重组
+    val breathAlpha: androidx.compose.runtime.State<Float>? = if (thinking) {
+        val infiniteTransition = rememberInfiniteTransition(label = "pidaiPlainBreath")
+        infiniteTransition.animateFloat(
+            initialValue = 0.55f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(700, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "pidaiPlainBreathAlpha",
+        )
+    } else {
+        null
+    }
+    Box(
+        modifier = modifier
+            .graphicsLayer { alpha = breathAlpha?.value ?: 1f }
+            .background(ink, CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            Icons.Outlined.SmartToy,
+            contentDescription = null,
+            tint = paper,
+            modifier = Modifier.size(diameter * 0.5f),
+        )
     }
 }
 

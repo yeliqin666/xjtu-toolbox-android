@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.fitness
 
+import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.LocalAppLoginState
 import com.xjtu.toolbox.Routes
 import com.xjtu.toolbox.auth.AuthExpiredException
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -47,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
+import com.xjtu.toolbox.ui.glass.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -178,12 +181,16 @@ fun FitnessScreen(
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     val pullToRefreshState = rememberPullToRefreshState()
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = "体测查询",
                 largeTitle = "体测查询",
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -193,30 +200,69 @@ fun FitnessScreen(
             )
         }
     ) { padding ->
+        val glassTop = padding.glassTop(glass)
         PullToRefresh(
+            refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
             isRefreshing = isRefreshing,
             onRefresh = { scope.launch { refreshCurrent() } },
             pullToRefreshState = pullToRefreshState,
             topAppBarScrollBehavior = scrollBehavior,
-            modifier = Modifier.fillMaxSize().padding(padding)
+            contentPadding = PaddingValues(top = glassTop),
+            modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass)
         ) {
         when {
-            loading && score == null -> LazyColumn(Modifier.fillMaxSize()) {
+            loading && score == null -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
                 item { Box(Modifier.fillParentMaxSize()) { LoadingState("正在读取体测成绩…", Modifier.fillMaxSize()) } }
             }
-            years.isEmpty() && error != null && score == null -> LazyColumn(Modifier.fillMaxSize()) {
+            years.isEmpty() && error != null && score == null -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
                 item {
                     Box(Modifier.fillParentMaxSize()) {
                         ErrorState("查询失败：$error", onRetry = { scope.launch { loadYears() } }, modifier = Modifier.fillMaxSize())
                     }
                 }
             }
-            years.isEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
+            years.isEmpty() -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
                 item { Box(Modifier.fillParentMaxSize()) { EmptyState("暂无可查询的体测学年", modifier = Modifier.fillMaxSize()) } }
             }
-            else -> LazyColumn(
-                modifier = Modifier.fillMaxSize().overScrollVertical(),
-                contentPadding = PaddingValues(top = 16.dp, bottom = 28.dp),
+            else -> {
+            // 宽屏两栏：左边学年 + 总分，右边各项目成绩。以前一列卡片横跨整个平板，
+            // 项目名在最左、分数在最右，中间隔着大半个屏幕。
+            val wide = com.xjtu.toolbox.ui.isWideLayout()
+            val itemsCard: androidx.compose.foundation.lazy.LazyListScope.() -> Unit = {
+                score?.let { result ->
+                    if (result.items.isNotEmpty()) {
+                        item {
+                            Card(
+                                modifier = Modifier.enterOnce(2).fillMaxWidth().padding(horizontal = 16.dp),
+                                colors = CardDefaults.defaultColors(
+                                    color = MiuixTheme.colorScheme.surfaceVariant
+                                )
+                            ) {
+                                Column {
+                                    Text(
+                                        "项目成绩",
+                                        style = MiuixTheme.textStyles.title2,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp)
+                                    )
+                                    // 卡片落位后，各项目再一行行跟上
+                                    result.items.forEachIndexed { i, item ->
+                                        HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                                        Box(Modifier.enterOnce(i + 3)) { FitnessItemRow(item) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Row(Modifier.fillMaxSize()) {
+            LazyColumn(
+                modifier = Modifier
+                    .then(if (wide) Modifier.width(460.dp) else Modifier.weight(1f))
+                    .fillMaxHeight()
+                    .overScrollVertical(),
+                contentPadding = PaddingValues(top = glassTop + 16.dp, bottom = 28.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 item {
@@ -225,7 +271,7 @@ fun FitnessScreen(
                     // ——数据其实是对的，只是选中的那枚在屏幕外。
                     LazyRow(
                         state = yearListState,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.enterOnce(0).fillMaxWidth(),
                         contentPadding = PaddingValues(horizontal = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
@@ -239,31 +285,9 @@ fun FitnessScreen(
                     }
                 }
                 score?.let { result ->
-                    item { ScoreHero(result) }
-                    if (result.items.isNotEmpty()) {
-                        item {
-                            Card(
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                                colors = CardDefaults.defaultColors(
-                                    color = MiuixTheme.colorScheme.surfaceVariant
-                                )
-                            ) {
-                                Column {
-                                    Text(
-                                        "项目成绩",
-                                        style = MiuixTheme.textStyles.title2,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp)
-                                    )
-                                    result.items.forEach { item ->
-                                        HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-                                        FitnessItemRow(item)
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    item { Box(Modifier.enterOnce(1)) { ScoreHero(result) } }
                 }
+                if (!wide) itemsCard()
                 if (error != null && score == null) {
                     item {
                         ErrorState(
@@ -273,6 +297,17 @@ fun FitnessScreen(
                         )
                     }
                 }
+            }
+            if (wide) {
+                LazyColumn(
+                    modifier = Modifier.weight(1f).fillMaxHeight().overScrollVertical(),
+                    contentPadding = PaddingValues(top = glassTop + 16.dp, bottom = 28.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    itemsCard()
+                }
+            }
+            } // Row
             }
         }
         }
@@ -302,14 +337,17 @@ private fun ScoreHero(score: FitnessScore) {
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
         colors = CardDefaults.defaultColors(color = Color.Transparent)
     ) {
+      Box(Modifier.fillMaxWidth()) {
+        // 蓝绿两色的流动底色（原来的静态渐变改成 Mesh），6 秒后停：这张卡在玻璃顶栏下面
+        com.xjtu.toolbox.ui.components.MeshBackground(
+            modifier = Modifier.matchParentSize(),
+            lightVertexColors = FitnessHeroMesh,
+            darkVertexColors = FitnessHeroMesh,
+            runForMillis = 6_000L,
+        )
         Row(
             Modifier
                 .fillMaxWidth()
-                .background(
-                    Brush.linearGradient(
-                        listOf(Color(0xFF1565C0), Color(0xFF00897B))
-                    )
-                )
                 .padding(20.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp)
@@ -355,14 +393,26 @@ private fun ScoreHero(score: FitnessScore) {
                 modifier = Modifier.width(86.dp),
                 horizontalAlignment = Alignment.End
             ) {
-                Text(
-                    score.totalScore,
-                    color = Color.White,
-                    style = MiuixTheme.textStyles.title1,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Clip
-                )
+                // 总分是数字就从 0 滚上来；「未测」这类文字照原样
+                val total = score.totalScore.trim().toDoubleOrNull()
+                if (total != null) {
+                    com.xjtu.toolbox.ui.components.RollingNumberText(
+                        value = total,
+                        format = { if (score.totalScore.contains('.')) "%.1f".format(it) else "%.0f".format(it) },
+                        color = Color.White,
+                        style = MiuixTheme.textStyles.title1,
+                        fontWeight = FontWeight.Bold,
+                    )
+                } else {
+                    Text(
+                        score.totalScore,
+                        color = Color.White,
+                        style = MiuixTheme.textStyles.title1,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Clip
+                    )
+                }
                 Text(
                     score.totalGrade,
                     color = Color.White.copy(alpha = 0.85f),
@@ -372,8 +422,15 @@ private fun ScoreHero(score: FitnessScore) {
                 )
             }
         }
+      }
     }
 }
+
+private val FitnessHeroMesh = listOf(
+    listOf(Color(0xFF1565C0), Color(0xFF1B6FC4), Color(0xFF1E88A8)),
+    listOf(Color(0xFF1662B8), Color(0xFF0F7D9E), Color(0xFF00897B)),
+    listOf(Color(0xFF136AAE), Color(0xFF0B8C8A), Color(0xFF00796B)),
+)
 
 @Composable
 private fun FitnessItemRow(item: FitnessItem) {

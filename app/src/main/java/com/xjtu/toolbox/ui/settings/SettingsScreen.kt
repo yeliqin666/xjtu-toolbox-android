@@ -70,6 +70,8 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -96,6 +98,7 @@ import com.xjtu.toolbox.notification.NoticeWatchSync
 import com.xjtu.toolbox.notification.NotificationSource
 import com.xjtu.toolbox.notification.SourceCategory
 import com.xjtu.toolbox.ui.components.AppFilterChip
+import com.xjtu.toolbox.ui.glass.*
 import com.xjtu.toolbox.util.CredentialStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -276,17 +279,11 @@ fun SettingsScreen(
         CredentialStore.THEME_CARD,
         CredentialStore.THEME_ICON
     )
-    val scheduleLayoutOptions = listOf("经典三栏", "分级视图")
-    val scheduleLayoutValues = listOf(
-        CredentialStore.SCHEDULE_LAYOUT_CLASSIC,
-        CredentialStore.SCHEDULE_LAYOUT_UNIFIED,
-    )
-    var scheduleLayout by remember { mutableStateOf(credentialStore.scheduleLayout) }
     var attendanceBadge by remember { mutableStateOf(credentialStore.scheduleAttendanceBadge) }
     var crashReportEnabled by remember { mutableStateOf(com.xjtu.toolbox.error.CrashReporter.isEnabled(context)) }
     val scheduleSources = com.xjtu.toolbox.schedule.ScheduleSource.entries
     var scheduleSource by remember { mutableStateOf(com.xjtu.toolbox.schedule.ScheduleSource.fromKey(credentialStore.scheduleSource)) }
-    val navStyleOptions = listOf("悬浮胶囊", "经典底栏")
+    val navStyleOptions = listOf("玻璃（默认）", "经典")
     val navStyleValues = listOf(
         CredentialStore.NAV_STYLE_FLOATING,
         CredentialStore.NAV_STYLE_CLASSIC
@@ -308,12 +305,15 @@ fun SettingsScreen(
     val channelOptions = AppUpdater.channelLabels
     val channelValues = AppUpdater.channelKeys
 
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
     Scaffold(
         topBar = {
             TopAppBar(
                 title = "设置",
                 largeTitle = "设置",
-                color = MiuixTheme.colorScheme.surface,
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -323,15 +323,12 @@ fun SettingsScreen(
             )
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MiuixTheme.colorScheme.surface)
-                .nestedScroll(scrollBehavior.nestedScrollConnection)
-                .overScrollVertical()
-                .verticalScroll(rememberScrollState())
-                .padding(padding)
-        ) {
+        val glassTop = padding.glassTop(glass)
+
+        // 八组设置各抽成一个 lambda。状态全在 SettingsScreen 函数体里，
+        // 两种布局捕获的是同一份，弹窗也只有一份（都在下面 Scaffold 的内容层）。
+        // 窄屏按顺序依次渲染，宽屏左栏是组名、右栏是选中的那一组。
+        val settingsGroup0: @Composable () -> Unit = {
             // ── 外观 ──
             SmallTitle("外观")
             SettingsCard {
@@ -379,34 +376,66 @@ fun SettingsScreen(
                         onCheckedChange = onShowQuickActionsChanged
                     )
                 }
+                // 原来叫「底栏风格」，宽屏没有底栏就藏起来。现在它管的是所有玻璃点
+                // （侧栏、气泡、搜索浮层、二级页顶栏也在内），宽屏同样有用，所以一直显示。
+                run {
+                    OverlayDropdownPreference(
+                        title = "界面风格",
+                        summary = if (navBarStyle == CredentialStore.NAV_STYLE_CLASSIC) {
+                            "不透明的经典样式，更省电"
+                        } else {
+                            "液态玻璃：手机上是可以拖动的玻璃胶囊底栏；经典样式更省电"
+                        },
+                        items = navStyleOptions,
+                        selectedIndex = navStyleValues.indexOf(navBarStyle).coerceAtLeast(0),
+                        startAction = { SettingsIcon(MiuixIcons.Carrier, cBlue) },
+                        onSelectedIndexChange = { idx ->
+                            val v = navStyleValues[idx]
+                            navBarStyle = v
+                            credentialStore.navBarStyle = v
+                            onNavBarStyleChanged(v)
+                        }
+                    )
+                }
+            }
+        }
+        // 分组按「这一项管的是什么」来分，不按「它长什么样」：原来的「外观」里混着课表来源、
+        // 课表考勤、触感和默认启动 Tab，「网络」「场馆」各只有孤零零一项，崩溃日志上报藏在「关于」里。
+        val settingsGroup1: @Composable () -> Unit = {
+            // ── 通用：打开 App 以后怎么用，不属于哪一个功能 ──
+            SmallTitle("通用")
+            SettingsCard {
                 OverlayDropdownPreference(
-                    title = "底栏风格",
-                    items = navStyleOptions,
-                    selectedIndex = navStyleValues.indexOf(navBarStyle).coerceAtLeast(0),
-                    startAction = { SettingsIcon(MiuixIcons.Carrier, cBlue) },
+                    title = "默认启动 Tab",
+                    items = tabOptions,
+                    selectedIndex = tabValues.indexOf(defaultTab).coerceAtLeast(0),
+                    startAction = { SettingsIcon(Icons.Default.Tab, cTeal) },
                     onSelectedIndexChange = { idx ->
-                        val v = navStyleValues[idx]
-                        navBarStyle = v
-                        credentialStore.navBarStyle = v
-                        onNavBarStyleChanged(v)
+                        val v = tabValues[idx]
+                        defaultTab = v
+                        credentialStore.defaultTab = v
+                        onDefaultTabChanged(v)
                     }
                 )
+                // 触感开关自带偏好存储，不经 CredentialStore
+                com.xjtu.toolbox.ui.HapticsSettingItem()
                 OverlayDropdownPreference(
-                    title = "日程页布局",
-                    summary = if (scheduleLayout == CredentialStore.SCHEDULE_LAYOUT_UNIFIED) {
-                        "今日 / 本周 / 学期，考试并进时间轴"
-                    } else {
-                        "日程 / 考试 / 教材 三个标签页"
-                    },
-                    items = scheduleLayoutOptions,
-                    selectedIndex = scheduleLayoutValues.indexOf(scheduleLayout).coerceAtLeast(0),
-                    startAction = { SettingsIcon(Icons.Default.CalendarMonth, cOrange) },
+                    title = "连接模式",
+                    items = networkOptions,
+                    selectedIndex = networkValues.indexOf(networkMode).coerceAtLeast(0),
+                    startAction = { SettingsIcon(MiuixIcons.Carrier, cIndigo) },
                     onSelectedIndexChange = { idx ->
-                        val v = scheduleLayoutValues[idx]
-                        scheduleLayout = v
-                        credentialStore.scheduleLayout = v
+                        val v = networkValues[idx]
+                        networkMode = v
+                        credentialStore.networkMode = v
                     }
                 )
+            }
+        }
+        val settingsGroup2: @Composable () -> Unit = {
+            // ── 功能：只对某一个功能生效的开关，按功能分小节 ──
+            SmallTitle("日程")
+            SettingsCard {
                 OverlayDropdownPreference(
                     title = "当前学期课表来源",
                     summary = "${scheduleSource.label} · ${scheduleSource.summary}。历史学期始终查教务，选的来源取不到时也自动退回教务",
@@ -425,7 +454,7 @@ fun SettingsScreen(
                     summary = if (attendanceBadge) {
                         "周视图标出迟到/缺勤/请假，课程详情显示本课出勤"
                     } else {
-                        "需额外登录考勤系统，默认关闭"
+                        "需额外登录考勤系统，已关闭"
                     },
                     checked = attendanceBadge,
                     startAction = { SettingsIcon(Icons.Default.FactCheck, cGreen) },
@@ -434,37 +463,27 @@ fun SettingsScreen(
                         credentialStore.scheduleAttendanceBadge = it
                     }
                 )
-                OverlayDropdownPreference(
-                    title = "默认启动 Tab",
-                    items = tabOptions,
-                    selectedIndex = tabValues.indexOf(defaultTab).coerceAtLeast(0),
-                    startAction = { SettingsIcon(Icons.Default.Tab, cTeal) },
-                    onSelectedIndexChange = { idx ->
-                        val v = tabValues[idx]
-                        defaultTab = v
-                        credentialStore.defaultTab = v
-                        onDefaultTabChanged(v)
-                    }
-                )
             }
-
-            // ── 网络 ──
-            SmallTitle("网络")
+            SmallTitle("场馆")
             SettingsCard {
-                OverlayDropdownPreference(
-                    title = "连接模式",
-                    items = networkOptions,
-                    selectedIndex = networkValues.indexOf(networkMode).coerceAtLeast(0),
-                    startAction = { SettingsIcon(MiuixIcons.Carrier, cIndigo) },
-                    onSelectedIndexChange = { idx ->
-                        val v = networkValues[idx]
-                        networkMode = v
-                        credentialStore.networkMode = v
+                SwitchPreference(
+                    title = "自动识别场馆验证码",
+                    summary = if (venueAutoSolveCaptcha) {
+                        "预约时先尝试自动识别，失败后可手动滑动"
+                    } else {
+                        "已关闭，预约时始终手动滑动"
+                    },
+                    checked = venueAutoSolveCaptcha,
+                    startAction = { SettingsIcon(MiuixIcons.Settings, cIndigo) },
+                    onCheckedChange = {
+                        venueAutoSolveCaptcha = it
+                        credentialStore.venueAutoSolveCaptchaEnabled = it
                     }
                 )
             }
-
-            // ── 教务通知 ──
+        }
+        val settingsGroup3: @Composable () -> Unit = {
+            // ── 通知与提醒：会在系统通知栏冒出来的东西都在这里 ──
             SmallTitle("教务通知")
             SettingsCard {
                 SwitchPreference(
@@ -500,8 +519,6 @@ fun SettingsScreen(
                     onClick = { showNoticeSources = true }
                 )
             }
-
-            // ── 后台提醒 ──
             SmallTitle("后台提醒")
             SettingsCard {
                 SwitchPreference(
@@ -553,28 +570,10 @@ fun SettingsScreen(
                     }
                 )
             }
-
-            // ── 场馆 ──
-            SmallTitle("场馆")
-            SettingsCard {
-                SwitchPreference(
-                    title = "自动识别场馆验证码",
-                    summary = if (venueAutoSolveCaptcha) {
-                        "预约时先尝试自动识别，失败后可手动滑动"
-                    } else {
-                        "已关闭，预约时始终手动滑动"
-                    },
-                    checked = venueAutoSolveCaptcha,
-                    startAction = { SettingsIcon(MiuixIcons.Settings, cIndigo) },
-                    onCheckedChange = {
-                        venueAutoSolveCaptcha = it
-                        credentialStore.venueAutoSolveCaptchaEnabled = it
-                    }
-                )
-            }
-
-            // ── 数据 ──
-            SmallTitle("数据")
+        }
+        val settingsGroup4: @Composable () -> Unit = {
+            // ── 数据与隐私：本机存了什么、往外发了什么 ──
+            SmallTitle("数据与隐私")
             SettingsCard {
                 BasicComponent(
                     title = "缓存大小",
@@ -587,8 +586,23 @@ fun SettingsScreen(
                     startAction = { SettingsIcon(MiuixIcons.Delete, cRed) },
                     onClick = { showClearCacheDialog = true }
                 )
+                SwitchPreference(
+                    title = "自动上报崩溃日志",
+                    summary = if (crashReportEnabled) {
+                        "闪退后下次启动匿名上报堆栈与机型，已去除网址参数、学号等"
+                    } else {
+                        "已关闭，闪退只能靠你手动反馈"
+                    },
+                    checked = crashReportEnabled,
+                    startAction = { SettingsIcon(Icons.Default.BugReport, cRed) },
+                    onCheckedChange = {
+                        crashReportEnabled = it
+                        com.xjtu.toolbox.error.CrashReporter.setEnabled(context, it)
+                    }
+                )
             }
-
+        }
+        val settingsGroup5: @Composable () -> Unit = {
             // ── 更新 ──
             SmallTitle("更新")
             SettingsCard {
@@ -661,7 +675,8 @@ fun SettingsScreen(
                     }
                 )
             }
-
+        }
+        val settingsGroup6: @Composable () -> Unit = {
             // ── 关于 ──
             SmallTitle("关于")
             SettingsCard {
@@ -682,27 +697,14 @@ fun SettingsScreen(
                     startAction = { SettingsIcon(MiuixIcons.Forward, cBlue) },
                     onClick = { uriHandler.openUri("https://github.com/yeliqin666/xjtu-toolbox-android") }
                 )
-                SwitchPreference(
-                    title = "自动上报崩溃日志",
-                    summary = if (crashReportEnabled) {
-                        "闪退后下次启动匿名上报堆栈与机型，已去除网址参数、学号等"
-                    } else {
-                        "已关闭，闪退只能靠你手动反馈"
-                    },
-                    checked = crashReportEnabled,
-                    startAction = { SettingsIcon(Icons.Default.BugReport, cRed) },
-                    onCheckedChange = {
-                        crashReportEnabled = it
-                        com.xjtu.toolbox.error.CrashReporter.setEnabled(context, it)
-                    }
-                )
                 ArrowPreference(
                     title = "用户协议与隐私政策",
                     startAction = { SettingsIcon(MiuixIcons.File, cPurple) },
                     onClick = { showEula = true }
                 )
             }
-
+        }
+        val settingsGroup7: @Composable () -> Unit = {
             // ── 致谢 ──
             SmallTitle("致谢")
             SettingsCard {
@@ -713,9 +715,107 @@ fun SettingsScreen(
                     onClick = { uriHandler.openUri("https://github.com/yan-xiaoo/XJTUToolBox") }
                 )
             }
+            // 小游戏并入或参考的上游项目。完整的改动说明与许可证全文见仓库根目录的
+            // THIRD_PARTY_NOTICES.md，这里只放跳转，避免在设置页里塞进几千字许可证。
+            SmallTitle("小游戏的上游项目")
+            SettingsCard {
+                ArrowPreference(
+                    title = "suika-game by moonfloof",
+                    summary = "「合成西交大」的玩法与实现基础 · Unlicense",
+                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
+                    onClick = { uriHandler.openUri("https://github.com/moonfloof/suika-game") }
+                )
+                ArrowPreference(
+                    title = "Matter.js by liabru",
+                    summary = "「合成西交大」的物理引擎 · MIT",
+                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
+                    onClick = { uriHandler.openUri("https://github.com/liabru/matter-js") }
+                )
+                ArrowPreference(
+                    title = "chinese-chess-fish-android by zfdang",
+                    summary = "象棋规则引擎 · MIT",
+                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
+                    onClick = { uriHandler.openUri("https://github.com/zfdang/chinese-chess-fish-android") }
+                )
+                ArrowPreference(
+                    title = "blackstone by haslam22",
+                    summary = "五子棋 AI 的思路来源（未并入代码）· MIT",
+                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
+                    onClick = { uriHandler.openUri("https://github.com/haslam22/blackstone") }
+                )
+            }
+        }
+
+        val groupTitles = listOf("外观", "通用", "功能", "通知与提醒", "数据与隐私", "更新", "关于", "致谢")
+        val groupIcons = listOf(Icons.Default.Palette, Icons.Default.Tab, Icons.Default.CalendarMonth, Icons.Default.Notifications, MiuixIcons.CloudFill, Icons.Default.Refresh, MiuixIcons.Info, Icons.Default.Star)
+        val groupColors = listOf(cPurple, cTeal, cBlue, cOrange, cBlueGray, cGreen, cBlue, cPurple)
+        val groupBodies = listOf<@Composable () -> Unit>(settingsGroup0, settingsGroup1, settingsGroup2, settingsGroup3, settingsGroup4, settingsGroup5, settingsGroup6, settingsGroup7)
+
+        // 宽屏：左栏组名列表 + 右栏选中组。选中项 rememberSaveable，跨旋转不丢。
+        var selectedGroup by rememberSaveable { mutableIntStateOf(0) }
+        if (com.xjtu.toolbox.ui.isWideLayout()) {
+            com.xjtu.toolbox.ui.adaptive.TwoPane(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MiuixTheme.colorScheme.surface)
+                    .padding(padding.withoutTop(glass))
+                    .glassSource(glass),
+                listWidth = 240.dp,
+                list = {
+                    Column(
+                        Modifier
+                            .fillMaxSize()
+                            .overScrollVertical()
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        Spacer(Modifier.height(glassTop + 8.dp))
+                        SettingsCard {
+                            groupTitles.forEachIndexed { i, title ->
+                                BasicComponent(
+                                    title = title,
+                                    startAction = { SettingsIcon(groupIcons[i], groupColors[i]) },
+                                    holdDownState = selectedGroup == i,
+                                    onClick = { selectedGroup = i },
+                                )
+                            }
+                        }
+                        Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+                    }
+                },
+                detail = {
+                    Column(
+                        Modifier
+                            .fillMaxSize()
+                            .nestedScroll(scrollBehavior.nestedScrollConnection)
+                            .overScrollVertical()
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        Spacer(Modifier.height(glassTop))
+                        groupBodies[selectedGroup.coerceIn(groupBodies.indices)]()
+                        Spacer(Modifier.height(16.dp))
+                        Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+                    }
+                },
+            )
+        } else {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                // 采样源必须挂在滚动之前：挂在 verticalScroll 后面录下的是整条跟着滚的长内容，
+                // 不是屏幕上这块视口，顶栏按屏幕位置采样就对不上，只剩透明没有模糊
+                .glassSource(glass)
+                .background(MiuixTheme.colorScheme.surface)
+                .nestedScroll(scrollBehavior.nestedScrollConnection)
+                .overScrollVertical()
+                .verticalScroll(rememberScrollState())
+                .padding(padding.withoutTop(glass))
+        ) {
+            Spacer(Modifier.height(glassTop))
+            groupBodies.forEach { it() }
 
             Spacer(Modifier.height(16.dp))
             Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+        }
         }
 
         // ── Sheets / Dialogs（必须在 Scaffold 内，MIUIX MiuixPopupHost 才能渲染）──

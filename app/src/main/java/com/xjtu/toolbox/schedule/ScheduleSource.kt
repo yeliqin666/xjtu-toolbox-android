@@ -166,21 +166,77 @@ object ScheduleSourceRouter {
     }
 
     /**
-     * 考勤系统课表源暂时禁用。
+     * 考勤系统课表源（新版考勤 kq.xjtu.edu.cn，函数名沿用 BKKQ 枚举的历史命名，
+     * 未改动对外的 [ScheduleSource.BKKQ] 键值以免影响用户已保存的设置）。
      *
-     * 旧版考勤（bkkq/yjskq.xjtu.edu.cn）域名已经停用，迁到了新版考勤（kq.xjtu.edu.cn +
-     * bk-kq/yjs-kq.xjtu.edu.cn）。新版考勤只确认了考勤记录接口（[com.xjtu.toolbox.attendance.AttendanceProvider]），
-     * 按周查排课的接口没有任何抓包证据——kq.xjtu.edu.cn 匿名访问直接被 302 到 CAS 登录页，
-     * 连公开 JS bundle 都拿不到，没法像 jwapp 那样反查接口。宁可这个源先失效（路由器本来就
-     * 会自动退回教务源，用户无感知），也不瞎猜一个接口结构上去——猜错了是静默拉错课表，
-     * 比"这个源暂时不能用"糟得多。
+     * 旧版考勤（bkkq/yjskq.xjtu.edu.cn）域名已停用，迁到了新版考勤（kq.xjtu.edu.cn +
+     * bk-kq/yjs-kq.xjtu.edu.cn）。新版考勤按周查排课走的是
+     * `/sa/student/service/timetable/weekly?semesterId=…`（见上游 PR #72 抓包验证），
+     * 一次请求返回整学期的行，同一门课跨周段拆成多行，靠 [KqWeekRanges] 合并。
+     *
+     * 登录用的是 [LoginType.NEW_ATTENDANCE]，站点在本科/研究生两套部署间自动切换
+     * （[com.xjtu.toolbox.auth.NewAttendanceSession]），跟考勤记录共用同一套登录。
+     *
+     * 保守起见：解析过程任何一步出问题都直接返回 null，让路由器退回教务源——
+     * 猜错了字段结构是静默拉错课表，比"这个源暂时不能用"糟得多。
      */
-    private fun fromBkkq(
+    private suspend fun fromBkkq(
         manager: SessionManager,
         accountType: AccountType,
         termCode: String,
         userInitiated: Boolean,
-    ): SourceResult? = null
+    ): SourceResult? {
+        val site = manager.siteOrNull(LoginType.NEW_ATTENDANCE, userInitiated) ?: return null
+        return try {
+            val api = com.xjtu.toolbox.newattendance.NewAttendanceApi(site)
+            val terms = api.getTermList()
+            val term = terms.firstOrNull { it.code.isNotBlank() && sameTerm(it.code, termCode) } ?: run {
+                Log.d(TAG, "新版考勤没有找到学期 $termCode，走教务")
+                return null
+            }
+            val rows = api.getWeeklyTimetable(term.bh)
+            if (rows.isEmpty()) return null
+            val grouped = rows.groupBy {
+                TimetableKey(it.courseName, it.teacherName, it.classroomName, it.courseCode, it.dayOfWeek, it.startSection, it.endSection)
+            }
+            // 学期总周数：优先用接口给的 weeks；给不了就用观察到的最大周次兜底，
+            // 至少不短于任何一行实际出现的周次。
+            val observedMax = grouped.values.flatten().maxOfOrNull { row ->
+                com.xjtu.toolbox.newattendance.KqWeekRanges.parse(row.weekRanges).maxOrNull() ?: 0
+            } ?: 0
+            val maxWeekNum = term.weeks.takeIf { it > 0 } ?: observedMax.coerceAtLeast(1)
+            val courses = grouped.map { (key, group) ->
+                CourseItem(
+                    courseName = key.courseName,
+                    teacher = key.teacher,
+                    location = key.location,
+                    weekBits = com.xjtu.toolbox.newattendance.KqWeekRanges.mergeToBits(group.map { it.weekRanges }, maxWeekNum),
+                    dayOfWeek = key.dayOfWeek,
+                    startSection = key.startSection,
+                    endSection = key.endSection,
+                    courseCode = key.courseCode,
+                    courseType = "",
+                )
+            }
+            if (courses.isEmpty()) return null
+            SourceResult(courses)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            Log.w(TAG, "新版考勤取课表失败：${e.javaClass.simpleName} ${e.message}")
+            null
+        }
+    }
+
+    private data class TimetableKey(
+        val courseName: String,
+        val teacher: String,
+        val location: String,
+        val courseCode: String,
+        val dayOfWeek: Int,
+        val startSection: Int,
+        val endSection: Int,
+    )
 
     /**
      * 两个学期标识是不是同一个学期。
