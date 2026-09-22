@@ -10,6 +10,9 @@ import java.time.LocalDate
 /** 一条首页状态：[value] 是大字主数据，[detail] 是补充说明。 */
 data class HomeStat(val value: String, val detail: String? = null)
 
+/** 最近一场考试（名称 + 倒计时）在 [HomeStats.collect] 结果里的键。 */
+const val EXAM_KEY = "exam_next"
+
 /**
  * 首页各功能的「当前状态」采集器。
  *
@@ -271,8 +274,8 @@ object HomeStats {
                     }.sortedBy { it.second }
                     upcoming.firstOrNull()?.let { e ->
                         val days = e.second.toEpochDay() - today.toEpochDay()
-                        // 挂在「日程」下：没有下节课时它就是这一类最该被看到的信息
-                        out["schedule"] = HomeStat(
+                        // 单独一项：首页 Hero 的考试倒计时读它，不再挤占「日程」那一格
+                        out[EXAM_KEY] = HomeStat(
                             e.first.ifBlank { "考试" },
                             buildString {
                                 append(if (days == 0L) "就在今天" else "还有 $days 天")
@@ -283,9 +286,9 @@ object HomeStats {
                 }
             }
 
-            // ── 日程兜底：既没有下节课（Hero 算的）也没有考试时，至少告诉用户本学期有多少门课。
-            // 否则「日程」这一格在假期/短学期里永远是空的，看着像功能坏了。
-            if (!out.containsKey("schedule")) {
+            // ── 日程：本学期有多少门课。下节课和考试都在 Hero 里，这一格只给学期概况，
+            // 否则假期/短学期里它永远是空的，看着像功能坏了。
+            run {
                 runCatching {
                     val courses = com.xjtu.toolbox.schedule.ScheduleCache
                         .readOptimizedCourses(cache, gson, termCode)

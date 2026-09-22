@@ -3,6 +3,8 @@ package com.xjtu.toolbox.jwapp
 import com.xjtu.toolbox.ui.adaptive.AdaptiveRowGrid
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import com.xjtu.toolbox.ui.components.enterOnce
 import androidx.activity.compose.BackHandler
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
@@ -557,7 +559,9 @@ fun JwappScoreScreen(
                     spacing = 10.dp,
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = glassTop + 8.dp, bottom = 8.dp)
                 ) {
+                    // 整页依次登场：GPA 卡 → 筛选 → 成绩列表第一屏
                     fullLineItem {
+                      Box(Modifier.enterOnce(0)) {
                         GpaCard(
                             gpaInfo = if (gpaSelectMode) selectedGpaInfo else displayGpaInfo,
                             totalCourses = if (gpaSelectMode) selectedCourseIds.size else filteredScores.size,
@@ -580,10 +584,11 @@ fun JwappScoreScreen(
                                 )
                             }
                         }
+                      }
                     }
 
                     fullLineItem {
-                        Column {
+                        Column(Modifier.enterOnce(1)) {
                             Row(
                                 Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -711,7 +716,7 @@ fun JwappScoreScreen(
                                     )
                                 }
                             }
-                            items(termScores, key = { "${termCode}_${it.id}" }) { scoreItem ->
+                            itemsIndexed(termScores, key = { _, it -> "${termCode}_${it.id}" }) { rowIndex, scoreItem ->
                                             val isFromReport = scoreItem.source == ScoreSource.REPORT
                                             val isUnevaluated = scoreItem.courseName in unevaluatedCourses
                                             val isExpanded = expandedCourseId == scoreItem.id
@@ -719,6 +724,8 @@ fun JwappScoreScreen(
                                             val isDetailLoading = detailLoading == scoreItem.id
                                             val isSelected = scoreItem.id in selectedCourseIds
                                             ScoreRow(
+                                                // 第一屏错峰淡入，后面的直接就位
+                                                modifier = Modifier.enterOnce(rowIndex + 2),
                                                 scoreItem = scoreItem,
                                                 isExpanded = isExpanded && !isFromReport,
                                                 detail = detail,
@@ -782,55 +789,6 @@ fun JwappScoreScreen(
 }
 
 @Composable
-private fun AnimatedNumber(value: Double, precision: Int, style: androidx.compose.ui.text.TextStyle, color: androidx.compose.ui.graphics.Color, fontWeight: FontWeight = FontWeight.Bold) {
-    val animatedValue by animateFloatAsState(
-        targetValue = value.toFloat(),
-        animationSpec = spring(dampingRatio = 0.85f, stiffness = 500f),
-        label = "gpaNum"
-    )
-    Text(
-        text = "%.${precision}f".format(animatedValue),
-        style = style,
-        fontWeight = fontWeight,
-        color = color,
-        maxLines = 1
-    )
-}
-
-@Composable
-private fun GpaRingIndicator(gpa: Double, modifier: Modifier = Modifier) {
-    val maxGpa = 4.3
-    val animatedProgress by animateFloatAsState(
-        targetValue = (gpa / maxGpa).toFloat().coerceIn(0f, 1f),
-        animationSpec = spring(dampingRatio = 0.85f, stiffness = 400f),
-        label = "gpaRing"
-    )
-    val ringColor = when {
-        gpa >= 4.0 -> MiuixTheme.colorScheme.primary
-        gpa >= 3.0 -> MiuixTheme.colorScheme.primaryVariant
-        gpa >= 2.0 -> MiuixTheme.colorScheme.primaryVariant.copy(alpha = 0.7f)
-        else -> MiuixTheme.colorScheme.error
-    }
-    val trackColor = MiuixTheme.colorScheme.outline.copy(alpha = 0.3f)
-    val gpaFormatted = "%.2f".format(gpa)
-    Canvas(modifier = modifier.semantics { contentDescription = "GPA $gpaFormatted" }) {
-        val stroke = 8.dp.toPx()
-        val inset = stroke / 2
-        val rectSize = Size(size.width - stroke, size.height - stroke)
-        drawArc(
-            color = trackColor, startAngle = -90f, sweepAngle = 360f,
-            useCenter = false, style = Stroke(stroke, cap = StrokeCap.Round),
-            topLeft = Offset(inset, inset), size = rectSize
-        )
-        drawArc(
-            color = ringColor, startAngle = -90f, sweepAngle = 360f * animatedProgress,
-            useCenter = false, style = Stroke(stroke, cap = StrokeCap.Round),
-            topLeft = Offset(inset, inset), size = rectSize
-        )
-    }
-}
-
-@Composable
 fun GpaCard(
     gpaInfo: GpaInfo?,
     totalCourses: Int,
@@ -858,6 +816,16 @@ fun GpaCard(
         modifier = Modifier.fillMaxWidth(),
         colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = containerColor)
     ) {
+      Box(Modifier.fillMaxWidth()) {
+        // 平时是这页的主角，铺一层主题色流动底色（6 秒后停，它在玻璃顶栏下面）；
+        // 选课算均分时换成 secondaryContainer 纯色，表示「这是临时的计算结果」
+        if (!isSelectMode) {
+            com.xjtu.toolbox.ui.components.HeroMesh(
+                base = containerColor,
+                accent = MiuixTheme.colorScheme.primary,
+                modifier = Modifier.matchParentSize(),
+            )
+        }
         Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
             if (isSelectMode) {
                 Row(
@@ -900,26 +868,29 @@ fun GpaCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 GpaStatColumn(
-                    value = if (gpaInfo != null) "%.${precision}f".format(gpaInfo.gpa) else "—",
+                    value = gpaInfo?.gpa,
+                    format = { "%.${precision}f".format(it) },
                     label = "GPA",
                     textColor = textColor,
                     modifier = Modifier.weight(1f)
                 )
                 GpaStatColumn(
-                    value = if (gpaInfo != null && gpaInfo.averageScore > 0)
-                        "%.${precision}f".format(gpaInfo.averageScore) else "—",
+                    value = gpaInfo?.averageScore?.takeIf { it > 0 },
+                    format = { "%.${precision}f".format(it) },
                     label = "均分",
                     textColor = textColor,
                     modifier = Modifier.weight(1f)
                 )
                 GpaStatColumn(
-                    value = "${gpaInfo?.courseCount ?: totalCourses}",
+                    value = (gpaInfo?.courseCount ?: totalCourses).toDouble(),
+                    format = { "%.0f".format(it) },
                     label = "课程",
                     textColor = textColor,
                     modifier = Modifier.weight(1f)
                 )
                 GpaStatColumn(
-                    value = "%.1f".format(gpaInfo?.totalCredits ?: totalCredits),
+                    value = gpaInfo?.totalCredits ?: totalCredits,
+                    format = { "%.1f".format(it) },
                     label = "学分",
                     textColor = textColor,
                     modifier = Modifier.weight(1f)
@@ -927,28 +898,33 @@ fun GpaCard(
             }
             extraContent()
         }
+      }
     }
 }
 
 @Composable
 private fun GpaStatColumn(
-    value: String,
+    value: Double?,
+    format: (Float) -> String,
     label: String,
     textColor: androidx.compose.ui.graphics.Color,
     modifier: Modifier = Modifier
 ) {
+    // 字号按**最终值**的长度定，滚动过程中不跟着变，数字不会一跳一跳地换字号
+    val finalText = value?.let { format(it.toFloat()) } ?: "—"
     val valueStyle = when {
-        value.length >= 7 -> MiuixTheme.textStyles.body2
-        value.length >= 6 -> MiuixTheme.textStyles.body1
-        value.length >= 5 -> MiuixTheme.textStyles.subtitle
+        finalText.length >= 7 -> MiuixTheme.textStyles.body2
+        finalText.length >= 6 -> MiuixTheme.textStyles.body1
+        finalText.length >= 5 -> MiuixTheme.textStyles.subtitle
         else -> MiuixTheme.textStyles.title3
     }
+    val rolled by com.xjtu.toolbox.ui.components.rememberRollingValue(value ?: 0.0)
     Column(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            value,
+            if (value == null) "—" else format(rolled),
             style = valueStyle,
             fontWeight = FontWeight.Bold,
             color = textColor,
@@ -976,7 +952,8 @@ private fun ScoreRow(
     isSelected: Boolean = false,
     isFromReport: Boolean = false,
     isUnevaluated: Boolean = false,
-    onToggle: () -> Unit
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val reallyPassed = com.xjtu.toolbox.util.ScoreCalculator.isPassed(scoreItem)
     val scoreColor = when {
@@ -997,7 +974,7 @@ private fun ScoreRow(
     }.joinToString("  ·  ")
 
     Card(
-        modifier = Modifier.fillMaxWidth().animateContentSize(
+        modifier = modifier.fillMaxWidth().animateContentSize(
             animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)
         ),
         colors = CardDefaults.defaultColors(color = AppCardColor),

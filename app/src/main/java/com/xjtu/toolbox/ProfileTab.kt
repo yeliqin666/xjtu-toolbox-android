@@ -1,5 +1,7 @@
 package com.xjtu.toolbox
 
+import androidx.compose.ui.graphics.graphicsLayer
+import com.xjtu.toolbox.ui.components.enterOnce
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
@@ -431,25 +433,33 @@ internal fun ProfileTab(
                 .then(if (loginState.isLoggedIn) Modifier.clickable { onNavigateToAccounts() } else Modifier),
             color = MiuixTheme.colorScheme.surface
         ) {
+          Box(Modifier.fillMaxWidth()) {
+            // 原来是三段静态纵向渐变，改成主题色流动底色，4 秒后停（在玻璃顶栏下面）
+            com.xjtu.toolbox.ui.components.HeroMesh(
+                base = MiuixTheme.colorScheme.surface,
+                accent = MiuixTheme.colorScheme.primary,
+                modifier = Modifier.matchParentSize(),
+                runForMillis = 4_000L,
+            )
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                MiuixTheme.colorScheme.surface,
-                                MiuixTheme.colorScheme.primary.copy(alpha = 0.08f),
-                                MiuixTheme.colorScheme.surface
-                            )
-                        )
-                    )
+                    .enterOnce(0)
                     .padding(horizontal = 24.dp, vertical = 36.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     // Avatar：登录后显示姓名首字母，未登录显示通用 Icon
                     // 点头像 = 换头像；点头像以外的区域仍是进账号管理（内层 clickable 会吃掉事件）
+                    val avatarPop = remember { androidx.compose.animation.core.Animatable(1f) }
+                    LaunchedEffect(helloAvatar) {
+                        if (helloAvatar != null) {
+                            avatarPop.snapTo(0.82f)
+                            avatarPop.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.45f, stiffness = 420f))
+                        }
+                    }
                     Surface(
                         modifier = Modifier
+                            .graphicsLayer { scaleX = avatarPop.value; scaleY = avatarPop.value }
                             .size(72.dp)
                             .then(
                                 if (loginState.isLoggedIn) Modifier.clickable { showAvatarSheet = true }
@@ -506,6 +516,7 @@ internal fun ProfileTab(
                     }
                 }
             }
+          }
         }
 
         // ━━ 未登录 → 登录表单 ━━
@@ -515,7 +526,7 @@ internal fun ProfileTab(
 
                 // 登录表单
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.enterOnce(1).fillMaxWidth(),
                     cornerRadius = 20.dp,
                     colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
                 ) {
@@ -626,7 +637,7 @@ internal fun ProfileTab(
 
                 Spacer(Modifier.height(16.dp))
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.enterOnce(2).fillMaxWidth(),
                     cornerRadius = 20.dp,
                     colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
                 ) {
@@ -703,7 +714,7 @@ internal fun ProfileTab(
 
                 // 学籍档案（hello.xjtu.edu.cn）。缓存优先，没有就整块不渲染。
                 helloProfile?.takeIf { it.hasContent() }?.let { p ->
-                    ProfileInfoCard(p)
+                    Box(Modifier.enterOnce(1)) { ProfileInfoCard(p) }
                 }
 
                 Spacer(Modifier.height(12.dp))
@@ -760,7 +771,7 @@ internal fun ProfileTab(
 
                 // ━━ 账号管理 + 设置 + 退出登录 ━━
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.enterOnce(3).fillMaxWidth(),
                     cornerRadius = 20.dp,
                     colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
                 ) {
@@ -898,41 +909,3 @@ internal fun ProfileTab(
     }
 }
 
-@Composable
-private fun StatusListItem(title: String, subtitle: String, isActive: Boolean) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // 状态指示点
-        Box(
-            Modifier
-                .size(8.dp)
-                .clip(CircleShape)
-                .background(
-                    if (isActive) MiuixTheme.colorScheme.primary
-                    else MiuixTheme.colorScheme.outline
-                )
-        )
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium)
-            Text(subtitle, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-        }
-        Surface(
-            shape = RoundedCornerShape(6.dp),
-            color = if (isActive) MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)
-                    else MiuixTheme.colorScheme.surfaceVariant
-        ) {
-            Text(
-                if (isActive) "已连接" else "离线",
-                Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                style = MiuixTheme.textStyles.footnote1,
-                color = if (isActive) MiuixTheme.colorScheme.primary
-                        else MiuixTheme.colorScheme.onSurfaceVariantSummary
-            )
-        }
-    }
-}

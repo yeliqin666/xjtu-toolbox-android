@@ -6,6 +6,7 @@ import com.xjtu.toolbox.ui.glass.glassSource
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.ui.graphics.graphicsLayer
+import kotlinx.coroutines.delay
 import androidx.compose.ui.draw.shadow
 import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.effects.lens
@@ -787,17 +788,6 @@ fun ScheduleScreen(
         }
     }
 
-    fun refreshActiveTab() {
-        when (contentOf(selectedTab)) {
-            // 学期一级同时放着考试和教材，两份都刷。
-            "semester" -> {
-                refreshExams()
-                if (selectedTermCode.isNotEmpty()) loadTextbooks(selectedTermCode)
-            }
-            else -> refreshSchedule(true)
-        }
-    }
-
     LaunchedEffect(appLoginState.accountId) {
         val id = appLoginState.accountId
         if (lastLoadedAccount != null && lastLoadedAccount != id) {
@@ -861,11 +851,12 @@ fun ScheduleScreen(
         attemptingAutoLogin = false
     }
 
-    // 加载自定义课程（学期变更时刷新）
-    LaunchedEffect(selectedTermCode) {
-        if (selectedTermCode.isNotEmpty()) {
-            customCourses = customCourseDao.getByTerm(AccountContext.activeAccountId ?: "", selectedTermCode)
-        }
+    // 自定义日程：订阅数据库，学期或账号一变就换一条订阅。
+    // 以前只在切学期时读一次，屁岱在侧栏里加的日程要重进页面才看得到。
+    LaunchedEffect(selectedTermCode, appLoginState.accountId) {
+        if (selectedTermCode.isEmpty()) return@LaunchedEffect
+        customCourseDao.observeByTerm(AccountContext.activeAccountId ?: "", selectedTermCode)
+            .collect { customCourses = it }
     }
 
     // 合并 API 课程 + 自定义课程
@@ -2358,17 +2349,46 @@ fun ExamCountdownBanner(next: ExamCountdown.Next, modifier: Modifier = Modifier)
             Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(Icons.Default.Schedule, null, Modifier.size(18.dp), tint = accent)
+            // 考试就在明天或今天：图标每隔 4 秒轻晃一下，一共三次就停，提醒到了就不再打扰
+            val wiggle = remember { androidx.compose.animation.core.Animatable(0f) }
+            if (next.daysLeft <= 1) {
+                LaunchedEffect(next.exam.courseName) {
+                    repeat(3) {
+                        delay(if (it == 0) 800L else 4_000L)
+                        for (angle in listOf(14f, -12f, 8f, -5f, 0f)) {
+                            wiggle.animateTo(angle, androidx.compose.animation.core.tween(70))
+                        }
+                    }
+                }
+            }
+            Icon(
+                Icons.Default.Schedule, null,
+                Modifier.size(18.dp).graphicsLayer { rotationZ = wiggle.value },
+                tint = accent,
+            )
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text(
-                    "${next.label} · ${next.exam.courseName}",
-                    style = MiuixTheme.textStyles.body2,
-                    fontWeight = FontWeight.Bold,
-                    color = accent,
-                    maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // 天数变化时翻牌：旧的往上走、新的从下面上来
+                    androidx.compose.animation.AnimatedContent(
+                        targetState = next.label,
+                        transitionSpec = {
+                            (androidx.compose.animation.slideInVertically { it } + androidx.compose.animation.fadeIn()) togetherWith
+                                (androidx.compose.animation.slideOutVertically { -it } + androidx.compose.animation.fadeOut())
+                        },
+                        label = "examDays",
+                    ) { label ->
+                        Text(label, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Bold, color = accent, maxLines = 1)
+                    }
+                    Text(
+                        " · ${next.exam.courseName}",
+                        style = MiuixTheme.textStyles.body2,
+                        fontWeight = FontWeight.Bold,
+                        color = accent,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    )
+                }
                 val detail = listOfNotNull(
                     next.exam.examDate.takeIf { it.isNotBlank() },
                     next.exam.examTime.takeIf { it.isNotBlank() },

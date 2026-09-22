@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.notification
 
+import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import com.xjtu.toolbox.ui.glass.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -410,7 +411,7 @@ fun NotificationScreen(
             // ═══ 内容区 ═══
             when {
                 isLoading && notifications.isEmpty() -> {
-                    LoadingState(message = "正在加载通知...", modifier = Modifier.fillMaxSize())
+                    com.xjtu.toolbox.ui.components.SkeletonList(Modifier.fillMaxSize(), rows = 7, rowHeight = 84.dp)
                 }
 
                 errorMessage != null && notifications.isEmpty() -> {
@@ -474,6 +475,8 @@ fun NotificationScreen(
                                 key = { index -> "${filteredNotifications[index].source.name}_${index}_${filteredNotifications[index].link.hashCode()}" }
                             ) { index ->
                                 val notification = filteredNotifications[index]
+                                // 第一屏错峰淡入，之后的直接就位
+                                androidx.compose.foundation.layout.Box(Modifier.enterOnce(index)) {
                                 NotificationCard(
                                     notification = notification,
                                     showSource = mergeMode,
@@ -481,6 +484,7 @@ fun NotificationScreen(
                                         onNavigate(com.xjtu.toolbox.Routes.browser(notification.link))
                                     }
                                 )
+                                }
                             }
 
                             if (hasMorePages || isLoadingMore) {

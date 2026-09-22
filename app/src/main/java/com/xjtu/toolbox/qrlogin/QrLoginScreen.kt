@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.qrlogin
 
+import com.xjtu.toolbox.ui.components.enterOnce
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
@@ -311,17 +312,20 @@ private fun QrLoginContent(
                             kotlinx.coroutines.delay(1600)
                             onBack()
                         }
-                        StatusIcon(Icons.Filled.CheckCircle, Color(0xFF34C759))
+                        // 对勾沿路径画出、外圈弹一下；文字随后依次上浮
+                        com.xjtu.toolbox.ui.components.DrawCheckmark(Color(0xFF34C759), size = 72.dp)
                         Spacer(Modifier.height(16.dp))
                         Text(
                             "登录成功",
                             fontWeight = FontWeight.Bold,
                             color = MiuixTheme.colorScheme.onSurface,
+                            modifier = Modifier.enterOnce(2),
                         )
                         Spacer(Modifier.height(8.dp))
                         Text(
                             "电脑端已完成登录。",
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.enterOnce(3),
                         )
                         Spacer(Modifier.height(20.dp))
                         Button(

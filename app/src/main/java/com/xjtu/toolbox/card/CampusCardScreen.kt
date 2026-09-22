@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.card
 
+import com.xjtu.toolbox.ui.glass.followTopBar
+import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
@@ -443,7 +445,9 @@ fun CampusCardScreen(
                 // 初始状态和以前看着一样，往上滚动时余额卡才能真的滚到顶栏下面、透出玻璃。
                 // 标签行挂在顶栏里（bottomContent），和顶栏一起是一整块玻璃，
                 // 所以 Scaffold 的 padding 顶部已经连标签行一起算进去了。
-                val topInset = padding.calculateTopPadding()
+                // 稳定值：顶栏折叠时不跟着每帧变，否则整页每帧重组；差额由下面的 followTopBar 补位移
+                val stableTop = com.xjtu.toolbox.ui.glass.rememberStableTopPadding(padding)
+                val topInset = stableTop.value
                 val topContentPadding = topInset
 
                 var isPullRefreshing by remember { mutableStateOf(false) }
@@ -479,7 +483,7 @@ fun CampusCardScreen(
                         // AppSegmentedTabs 负责点击切换，两者共用同一个 selectedTab。挂上
                         // layerBackdrop，顶栏才能采到「余额卡从这里滚过去」的画面。
                         if (isWide) {
-                            Row(Modifier.fillMaxSize().layerBackdrop(cardBackdrop)) {
+                            Row(Modifier.fillMaxSize().layerBackdrop(cardBackdrop).followTopBar({ stableTop.value }, padding)) {
                                 Box(Modifier.weight(0.42f).fillMaxHeight()) {
                                     // 右栏就是完整的流水，左栏不再重复「最近交易」
                                     OverviewTab(
@@ -513,7 +517,7 @@ fun CampusCardScreen(
                             pageCount = 3,
                             selectedTabIndex = selectedTab,
                             onTabSelected = { selectedTab = it },
-                            modifier = Modifier.fillMaxSize().layerBackdrop(cardBackdrop),
+                            modifier = Modifier.fillMaxSize().layerBackdrop(cardBackdrop).followTopBar({ stableTop.value }, padding),
                         ) { tab ->
                             when (tab) {
                                 0 -> OverviewTab(
@@ -559,16 +563,19 @@ private fun OverviewTab(
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topContentPadding + 12.dp, bottom = 12.dp)
     ) {
-        item { cardInfo?.let { BalanceCard(it) } }
+        // 整页依次登场：余额 → 区间消费 → 卡状态 → 三餐 → 最近交易，每块错开一拍
+        item { Box(Modifier.enterOnce(0)) { cardInfo?.let { BalanceCard(it) } } }
         item {
-            RangeSpendCard(CampusCardAnalysis.summarizeRange(monthlyStats, rangeStart, rangeEnd))
+            Box(Modifier.enterOnce(1)) {
+                RangeSpendCard(CampusCardAnalysis.summarizeRange(monthlyStats, rangeStart, rangeEnd))
+            }
         }
-        item { cardInfo?.let { CardStatusPanel(it) } }
-        item { MealQuickView(mealTimeStats) }
+        item { Box(Modifier.enterOnce(2)) { cardInfo?.let { CardStatusPanel(it) } } }
+        item { Box(Modifier.enterOnce(3)) { MealQuickView(mealTimeStats) } }
         if (recentTransactions.isNotEmpty()) {
             item {
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().enterOnce(4),
                     colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
                 ) {
                     Column {
@@ -622,6 +629,8 @@ private fun BalanceCard(info: CardInfo) {
                 modifier = Modifier.matchParentSize(),
                 lightVertexColors = BalanceCardMeshLight,
                 darkVertexColors = BalanceCardMeshDark,
+                // 这张卡在玻璃顶栏的取样范围里：一直流动的话，静止时顶栏也在持续重新模糊
+                runForMillis = 6_000L,
             )
             Column(Modifier.fillMaxWidth().padding(24.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
@@ -636,10 +645,14 @@ private fun BalanceCard(info: CardInfo) {
                                 color = accent,
                                 modifier = Modifier.padding(bottom = 4.dp))
                             Spacer(Modifier.width(2.dp))
-                            Text("%.2f".format(info.balance),
+                            // 进页面时从 0 滚到余额，刷新后从旧值滚到新值
+                            com.xjtu.toolbox.ui.components.RollingNumberText(
+                                value = info.balance,
+                                format = { "%.2f".format(it) },
                                 style = MiuixTheme.textStyles.title1,
                                 fontWeight = FontWeight.Bold,
-                                color = accent)
+                                color = accent,
+                            )
                         }
                     }
                     Surface(shape = CircleShape,
@@ -948,10 +961,10 @@ private fun TransactionTab(
                 }
             }
         }
-        grouped.forEach { (date, txList) ->
+        grouped.entries.forEachIndexed { dayIndex, (date, txList) ->
             item(key = "day_$date") {
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().enterOnce(dayIndex + 1),
                     colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
                 ) {
                     Column {
@@ -1077,12 +1090,13 @@ private fun AnalyticsTab(
                 )
             }
         } else {
-            if (categorySpending.isNotEmpty()) { item { CategoryCard(categorySpending) } }
-            if (monthlyStats.isNotEmpty()) { item { MonthlyTrendCard(monthlyStats, rangeStart, rangeEnd) } }
-            if (mealTimeStats.isNotEmpty()) { item { MealAnalysisCard(mealTimeStats) } }
-            if (weekdayWeekend != null) { item { WeekdayWeekendCard(weekdayWeekend) } }
-            if (monthlyStats.isNotEmpty()) { item { TopMerchantsCard(monthlyStats) } }
-            item { SpendingInsightsCard(monthlyStats, categorySpending, mealTimeStats, weekdayWeekend, activeCampusDays, rangeStart, rangeEnd) }
+            // 各统计卡依次登场，卡里的条形图随后从左边长出来
+            if (categorySpending.isNotEmpty()) { item { Box(Modifier.enterOnce(0)) { CategoryCard(categorySpending) } } }
+            if (monthlyStats.isNotEmpty()) { item { Box(Modifier.enterOnce(1)) { MonthlyTrendCard(monthlyStats, rangeStart, rangeEnd) } } }
+            if (mealTimeStats.isNotEmpty()) { item { Box(Modifier.enterOnce(2)) { MealAnalysisCard(mealTimeStats) } } }
+            if (weekdayWeekend != null) { item { Box(Modifier.enterOnce(3)) { WeekdayWeekendCard(weekdayWeekend) } } }
+            if (monthlyStats.isNotEmpty()) { item { Box(Modifier.enterOnce(4)) { TopMerchantsCard(monthlyStats) } } }
+            item { Box(Modifier.enterOnce(5)) { SpendingInsightsCard(monthlyStats, categorySpending, mealTimeStats, weekdayWeekend, activeCampusDays, rangeStart, rangeEnd) } }
         }
     }
 }
@@ -1191,13 +1205,13 @@ private fun CategoryCard(categories: Map<String, Double>) {
                     Spacer(Modifier.width(8.dp))
                     Text(category, style = MiuixTheme.textStyles.body2,
                         modifier = Modifier.width(48.dp))
-                    LinearProgressIndicator(
-                        progress = percent.toFloat().coerceIn(0f, 1f),
-                        modifier = Modifier.weight(1f),
-                        height = 8.dp,
-                        colors = ProgressIndicatorDefaults.progressIndicatorColors(
-                            foregroundColor = color, backgroundColor = color.copy(alpha = 0.12f)
-                        ))
+                    com.xjtu.toolbox.ui.components.AnimatedBar(
+                            progress = percent.toFloat().coerceIn(0f, 1f),
+                            color = color,
+                            modifier = Modifier.weight(1f),
+                            trackColor = color.copy(alpha = 0.12f),
+                            height = 8.dp,
+                        )
                     Spacer(Modifier.width(8.dp))
                     Column(horizontalAlignment = Alignment.End) {
                         Text("¥%.0f".format(amount), style = MiuixTheme.textStyles.footnote1,
@@ -1254,14 +1268,13 @@ private fun MonthlyTrendCard(stats: List<MonthlyStats>, rangeStart: LocalDate, r
                         fontWeight = FontWeight.Medium)
                     Spacer(Modifier.height(4.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        LinearProgressIndicator(
+                        com.xjtu.toolbox.ui.components.AnimatedBar(
                             progress = spendBar,
+                            color = MiuixTheme.colorScheme.error,
                             modifier = Modifier.weight(1f),
+                            trackColor = MiuixTheme.colorScheme.error.copy(alpha = 0.1f),
                             height = 10.dp,
-                            colors = ProgressIndicatorDefaults.progressIndicatorColors(
-                                foregroundColor = MiuixTheme.colorScheme.error,
-                                backgroundColor = MiuixTheme.colorScheme.error.copy(alpha = 0.1f)
-                            ))
+                        )
                         Spacer(Modifier.width(8.dp))
                         Text("¥%.0f".format(monthStat.totalSpend),
                             style = MiuixTheme.textStyles.footnote1,
@@ -1270,14 +1283,13 @@ private fun MonthlyTrendCard(stats: List<MonthlyStats>, rangeStart: LocalDate, r
                     if (monthStat.totalIncome > 0) {
                         Spacer(Modifier.height(2.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            LinearProgressIndicator(
-                                progress = incomeBar,
-                                modifier = Modifier.weight(1f),
-                                height = 6.dp,
-                                colors = ProgressIndicatorDefaults.progressIndicatorColors(
-                                    foregroundColor = MiuixTheme.colorScheme.primary,
-                                    backgroundColor = MiuixTheme.colorScheme.primary.copy(alpha = 0.1f)
-                                ))
+                            com.xjtu.toolbox.ui.components.AnimatedBar(
+                            progress = incomeBar,
+                            color = MiuixTheme.colorScheme.primary,
+                            modifier = Modifier.weight(1f),
+                            trackColor = MiuixTheme.colorScheme.primary.copy(alpha = 0.1f),
+                            height = 6.dp,
+                        )
                             Spacer(Modifier.width(8.dp))
                             Text("¥%.0f".format(monthStat.totalIncome),
                                 style = MiuixTheme.textStyles.footnote1,
@@ -1320,13 +1332,13 @@ private fun MealAnalysisCard(mealStats: Map<String, MealTimeStats>) {
                     Spacer(Modifier.width(8.dp))
                     Text(period, style = MiuixTheme.textStyles.body2,
                         modifier = Modifier.width(36.dp))
-                    LinearProgressIndicator(
-                        progress = barPercent,
-                        modifier = Modifier.weight(1f),
-                        height = 8.dp,
-                        colors = ProgressIndicatorDefaults.progressIndicatorColors(
-                            foregroundColor = color, backgroundColor = color.copy(alpha = 0.12f)
-                        ))
+                    com.xjtu.toolbox.ui.components.AnimatedBar(
+                            progress = barPercent,
+                            color = color,
+                            modifier = Modifier.weight(1f),
+                            trackColor = color.copy(alpha = 0.12f),
+                            height = 8.dp,
+                        )
                     Spacer(Modifier.width(8.dp))
                     Column(horizontalAlignment = Alignment.End) {
                         Text("均¥%.1f".format(stat.avgAmount),
@@ -1424,14 +1436,13 @@ private fun TopMerchantsCard(monthlyStats: List<MonthlyStats>) {
                     Text(merchant.name, style = MiuixTheme.textStyles.footnote1,
                         modifier = Modifier.width(80.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Spacer(Modifier.width(4.dp))
-                    LinearProgressIndicator(
-                        progress = barPercent,
-                        modifier = Modifier.weight(1f),
-                        height = 6.dp,
-                        colors = ProgressIndicatorDefaults.progressIndicatorColors(
-                            foregroundColor = MiuixTheme.colorScheme.error.copy(alpha = 0.7f),
-                            backgroundColor = MiuixTheme.colorScheme.error.copy(alpha = 0.15f)
-                        ))
+                    com.xjtu.toolbox.ui.components.AnimatedBar(
+                            progress = barPercent,
+                            color = MiuixTheme.colorScheme.error.copy(alpha = 0.7f),
+                            modifier = Modifier.weight(1f),
+                            trackColor = MiuixTheme.colorScheme.error.copy(alpha = 0.15f),
+                            height = 6.dp,
+                        )
                     Spacer(Modifier.width(8.dp))
                     Text("¥%.0f".format(merchant.totalAmount),
                         style = MiuixTheme.textStyles.footnote1,

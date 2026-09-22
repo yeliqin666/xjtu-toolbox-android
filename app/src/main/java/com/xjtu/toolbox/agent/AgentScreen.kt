@@ -48,6 +48,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
@@ -682,50 +683,6 @@ private fun SessionRow(
 
 private fun formatSessionTime(ts: Long): String =
     java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.CHINA).format(java.util.Date(ts))
-
-@Composable
-private fun DrawerTextAction(
-    text: String,
-    primary: Boolean,
-    onClick: () -> Unit
-) {
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = if (primary) MiuixTheme.colorScheme.primary.copy(alpha = 0.14f)
-        else MiuixTheme.colorScheme.surface,
-        modifier = Modifier.clickable(onClick = onClick)
-    ) {
-        Text(
-            text = text,
-            modifier = Modifier.padding(horizontal = 13.dp, vertical = 7.dp),
-            style = MiuixTheme.textStyles.footnote1,
-            fontWeight = FontWeight.Medium,
-            color = if (primary) MiuixTheme.colorScheme.primary
-            else MiuixTheme.colorScheme.onSurfaceVariantSummary
-        )
-    }
-}
-
-@Composable
-private fun CompactSessionAction(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    contentDescription: String,
-    onClick: () -> Unit,
-    tint: Color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-) {
-    Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = MiuixTheme.colorScheme.surface.copy(alpha = 0.72f),
-        modifier = Modifier
-            .padding(start = 4.dp)
-            .size(34.dp)
-            .clickable(onClick = onClick)
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(icon, contentDescription = contentDescription, modifier = Modifier.size(17.dp), tint = tint)
-        }
-    }
-}
 
 @Composable
 private fun ChatPanel(
@@ -1528,17 +1485,29 @@ private fun MessageBubble(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
+                        // 跳转按钮：主题色淡底 + 箭头，一看就是「点了去那一页」，和普通标签区分开
                         msg.navSuggestions.forEach { (label, route) ->
-                            Surface(
-                                shape = RoundedCornerShape(14.dp),
-                                color = MiuixTheme.colorScheme.surfaceVariant,
-                                modifier = Modifier.clickable { onNavigate(route) }
+                            val accent = MiuixTheme.colorScheme.primary
+                            Row(
+                                Modifier
+                                    .clip(RoundedCornerShape(50))
+                                    .background(accent.copy(alpha = 0.10f))
+                                    .clickable { onNavigate(route) }
+                                    .padding(start = 12.dp, end = 9.dp, top = 6.dp, bottom = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(
                                     label,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                                     style = MiuixTheme.textStyles.footnote1,
-                                    color = MiuixTheme.colorScheme.onSurface,
+                                    fontWeight = FontWeight.Medium,
+                                    color = accent,
+                                )
+                                Spacer(Modifier.width(3.dp))
+                                Icon(
+                                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                    contentDescription = null,
+                                    tint = accent,
+                                    modifier = Modifier.size(15.dp),
                                 )
                             }
                         }

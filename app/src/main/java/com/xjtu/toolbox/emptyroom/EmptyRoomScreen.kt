@@ -1,7 +1,10 @@
 package com.xjtu.toolbox.emptyroom
 
+import com.xjtu.toolbox.ui.components.enterOnce
+import androidx.compose.foundation.lazy.itemsIndexed
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -926,7 +929,7 @@ fun EmptyRoomScreen(
                 when {
                     isLoading && rooms.isEmpty() -> stateBox {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            CircularProgressIndicator()
+                            com.xjtu.toolbox.ui.components.MorphingLoader()  // 整页加载统一用形变加载器
                             Spacer(Modifier.height(8.dp))
                             val pg = directProgress
                             Text(
@@ -1006,8 +1009,8 @@ fun EmptyRoomScreen(
                                     )
                                 }
                             }
-                            items(buildingRooms, key = { it.name }) { room ->
-                                SmartRoomCard(room, effectivePeriod)
+                            itemsIndexed(buildingRooms, key = { _, it -> it.name }) { i, room ->
+                                Box(Modifier.enterOnce(i + 1)) { SmartRoomCard(room, effectivePeriod) }
                             }
                         }
                     }
@@ -1092,6 +1095,17 @@ private fun SmartRoomCard(room: RoomInfo, currentPeriod: Int) {
                 }
             }
 
+            // 收起时也给一条全天节次条：不用点开就能看出哪几节空
+            if (!expanded && room.status.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                com.xjtu.toolbox.ui.components.SlotStripe(
+                    free = room.status.map { it == 0 },
+                    freeColor = MiuixTheme.colorScheme.primary,
+                    currentIndex = currentPeriod,
+                    busyColor = MiuixTheme.colorScheme.outline.copy(alpha = 0.14f),
+                    height = 5.dp,
+                )
+            }
             if (expanded) {
                 Spacer(Modifier.height(12.dp))
                 HorizontalDivider(color = MiuixTheme.colorScheme.outline.copy(alpha = 0.08f))

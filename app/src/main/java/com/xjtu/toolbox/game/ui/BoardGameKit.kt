@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.game.ui
 
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
@@ -258,12 +259,25 @@ fun GameActionRow(actions: List<GameAction>, modifier: Modifier = Modifier) {
 @Composable
 fun GameHint(text: String?, modifier: Modifier = Modifier, color: Color = MiuixTheme.colorScheme.onSurfaceVariantSummary) {
     Box(modifier.fillMaxWidth().padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
-        Text(
-            text ?: " ",
-            fontSize = 13.sp,
-            color = color,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        // 提示换内容（轮到谁、谁赢了）时新的一句轻轻弹进来，胜负那一刻有个「落定」的感觉
+        androidx.compose.animation.AnimatedContent(
+            targetState = text ?: " ",
+            transitionSpec = {
+                (androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(180)) +
+                    androidx.compose.animation.scaleIn(
+                        initialScale = 0.9f,
+                        animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.55f, stiffness = 600f),
+                    )) togetherWith androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(120))
+            },
+            label = "gameHint",
+        ) { t ->
+            Text(
+                t,
+                fontSize = 13.sp,
+                color = color,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }

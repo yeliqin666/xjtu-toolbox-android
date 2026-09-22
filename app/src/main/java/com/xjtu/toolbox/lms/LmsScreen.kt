@@ -246,7 +246,7 @@ fun LmsScreen(
             // 这中间把列表画出来，用户看到的就是"闪一下列表又跳走"。
             is LmsPage.CourseList -> if (pendingCourseId != null) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
+                    com.xjtu.toolbox.ui.components.MorphingLoader()  // 整页加载统一用形变加载器
                 }
             } else {
                 CourseListPage(

@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.calendar
 
+import com.xjtu.toolbox.ui.components.enterOnce
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -157,11 +158,8 @@ private fun TermContent(
     scrollBehavior: ScrollBehavior,
     glassTop: androidx.compose.ui.unit.Dp = 0.dp
 ) {
-    val progress by animateFloatAsState(
-        targetValue = currentTerm.progress(today),
-        animationSpec = spring(),
-        label = "progress"
-    )
+    // 动画交给 HeroCard 里的滚动数字和进度条（从 0 长上来）；以前 animateFloatAsState 的初值就是目标值，进场根本不动
+    val progress = currentTerm.progress(today)
     val currentWeek = currentTerm.currentWeek(today)
     val daysRemaining = currentTerm.daysRemaining(today)
     val todayEvent = currentTerm.todayEvent(today)
@@ -219,7 +217,9 @@ private fun TermContent(
         if (terms.size > 1) {
             item { termTabs() }
         }
+        // 整页依次登场：学期卡 → 统计 → 日程标题 → 时间轴前几项
         item {
+          Box(Modifier.enterOnce(0)) {
             HeroCard(
                 currentTerm = currentTerm,
                 today = today,
@@ -230,8 +230,10 @@ private fun TermContent(
                 isBeforeTerm = isBeforeTerm,
                 isAfterTerm = isAfterTerm
             )
+          }
         }
         item {
+          Box(Modifier.enterOnce(1)) {
             StatsRow(
                 totalWeeks = currentTerm.totalWeeks,
                 workDays = currentTerm.workDays,
@@ -240,6 +242,7 @@ private fun TermContent(
                 isBeforeTerm = isBeforeTerm,
                 isAfterTerm = isAfterTerm
             )
+          }
         }
     }
     // ── 事件时间轴 ──────────────────────────────────
@@ -249,7 +252,7 @@ private fun TermContent(
                 "日程安排",
                 style = MiuixTheme.textStyles.subtitle,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(start = 20.dp, top = 20.dp, bottom = 8.dp)
+                modifier = Modifier.enterOnce(2).padding(start = 20.dp, top = 20.dp, bottom = 8.dp)
             )
         }
 
@@ -257,6 +260,7 @@ private fun TermContent(
             val isPast = today > event.endDate
             val isCurrent = today >= event.startDate && today <= event.endDate
             EventTimelineItem(
+                modifier = Modifier.enterOnce(index + 3),
                 event = event,
                 isPast = isPast,
                 isCurrent = isCurrent,
@@ -310,8 +314,15 @@ private fun HeroCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor),
     ) {
+      Box(Modifier.fillMaxWidth()) {
+        com.xjtu.toolbox.ui.components.HeroMesh(
+            base = com.xjtu.toolbox.ui.components.AppCardColor,
+            accent = primaryColor,
+            modifier = Modifier.matchParentSize(),
+        )
         Column(Modifier.padding(20.dp)) {
             // 主标题：当前状态
             val statusTitle = when {
@@ -364,11 +375,13 @@ private fun HeroCard(
                         fontSize = 11.sp,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                     )
-                    Text(
-                        "%.0f%%".format(progress * 100),
-                        fontSize = 11.sp,
+                    com.xjtu.toolbox.ui.components.RollingNumberText(
+                        value = progress * 100.0,
+                        format = { "%.0f%%".format(it) },
+                        style = MiuixTheme.textStyles.footnote2,
                         fontWeight = FontWeight.Medium,
-                        color = primaryColor
+                        color = primaryColor,
+                        durationMillis = 700,
                     )
                     Text(
                         currentTerm.endDate.format(fmtMonthDay),
@@ -377,23 +390,17 @@ private fun HeroCard(
                     )
                 }
                 Spacer(Modifier.height(4.dp))
-                // 自定义进度条
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(6.dp)
-                        .clip(RoundedCornerShape(3.dp))
-                        .background(surfaceVariant)
-                ) {
-                    Box(
-                        Modifier
-                            .fillMaxWidth(progress)
-                            .fillMaxHeight()
-                            .background(primaryColor)
-                    )
-                }
+                // 进度条从左边长到今天的位置，端点一个柔光点标出「现在」
+                com.xjtu.toolbox.ui.components.AnimatedBar(
+                    progress = progress,
+                    color = primaryColor,
+                    trackColor = surfaceVariant,
+                    height = 6.dp,
+                    glowTip = !isAfterTerm,
+                )
             }
         }
+      }
     }
 }
 
@@ -445,12 +452,24 @@ private fun StatChip(value: String, label: String, modifier: Modifier = Modifier
             Modifier.padding(vertical = 10.dp, horizontal = 4.dp).fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(
-                value,
-                style = MiuixTheme.textStyles.subtitle,
-                fontWeight = FontWeight.Bold,
-                color = MiuixTheme.colorScheme.primary
-            )
+            // 纯数字的统计滚动出来，「—」这类占位照原样
+            val n = value.toIntOrNull()
+            if (n != null) {
+                com.xjtu.toolbox.ui.components.RollingNumberText(
+                    value = n.toDouble(),
+                    format = { "%.0f".format(it) },
+                    style = MiuixTheme.textStyles.subtitle,
+                    fontWeight = FontWeight.Bold,
+                    color = MiuixTheme.colorScheme.primary,
+                )
+            } else {
+                Text(
+                    value,
+                    style = MiuixTheme.textStyles.subtitle,
+                    fontWeight = FontWeight.Bold,
+                    color = MiuixTheme.colorScheme.primary
+                )
+            }
             Text(
                 label,
                 fontSize = 11.sp,
@@ -465,7 +484,8 @@ private fun EventTimelineItem(
     event: CalendarEvent,
     isPast: Boolean,
     isCurrent: Boolean,
-    isLast: Boolean
+    isLast: Boolean,
+    modifier: Modifier = Modifier,
 ) {
     val fallbackColor = MiuixTheme.colorScheme.primary  // 用主题色兜底，深色主题下也有对比度
     val accentColor = remember(event.colorHex) {
@@ -477,7 +497,7 @@ private fun EventTimelineItem(
     val alpha = if (isPast) 0.45f else 1f
 
     Row(
-        Modifier
+        modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp)
             .alpha(alpha)
