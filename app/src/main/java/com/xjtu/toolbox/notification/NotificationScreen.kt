@@ -97,14 +97,48 @@ fun NotificationScreen(
         else NotificationSource.byCategory(selectedCategory!!)
     }
 
-    // 过滤后的通知
-    val filteredNotifications = remember(notifications, searchQuery) {
-        if (searchQuery.isBlank()) notifications
-        else notifications.filter { it.title.contains(searchQuery, ignoreCase = true) }
-    }
-
     // 缓存 key
     val cacheKey: Any = if (mergeMode) selectedSources.toSortedSet().joinToString(",") else selectedSource
+
+    // ── 站内搜索 ──
+    // 以前只在已经抓回来的一两页里按标题筛，半年前的通知永远搜不到。现在停手 0.5 秒后
+    // 用各站自己的检索查全站（见 NotificationApi.search）；结果回来之前先拿本地筛的顶着，不空屏。
+    val searching = searchQuery.isNotBlank()
+    var searchResults by remember { mutableStateOf<List<Notification>?>(null) }
+    var searchLoading by remember { mutableStateOf(false) }
+    var searchNotice by remember { mutableStateOf<String?>(null) }
+    val searchSources = if (mergeMode) selectedSources.toList() else listOf(selectedSource)
+    LaunchedEffect(searchQuery, cacheKey) {
+        searchResults = null
+        searchNotice = null
+        val kw = searchQuery.trim()
+        if (kw.isEmpty()) { searchLoading = false; return@LaunchedEffect }
+        searchLoading = true
+        kotlinx.coroutines.delay(500)
+        try {
+            val r = api.search(searchSources, kw)
+            searchResults = r.items
+            searchNotice = r.skipped.takeIf { it.isNotEmpty() }
+                ?.joinToString("、") { it.displayName }?.let { "$it 这次没搜成，可能是网络问题或站点维护" }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            searchNotice = "站内搜索失败：${e.message ?: "未知错误"}，下面只是已加载通知里的匹配"
+        } finally {
+            searchLoading = false
+        }
+    }
+
+    // 展示的通知：没在搜就是列表；在搜时是站内结果，外加本地已加载里的匹配（合并去重、按日期）
+    val filteredNotifications = remember(notifications, searchQuery, searchResults) {
+        if (!searching) notifications
+        else {
+            val local = notifications.filter { it.title.contains(searchQuery.trim(), ignoreCase = true) }
+            val remote = searchResults
+            if (remote == null) local
+            else (remote + local).distinctBy { it.link }.sortedByDescending { it.date }
+        }
+    }
 
     // ── 加载通知（suspend 版，由 LaunchedEffect / scope.launch 调用） ──
     suspend fun loadNotifications(page: Int = 1, append: Boolean = false) {
@@ -187,7 +221,8 @@ fun NotificationScreen(
     // 若把 isLoadingMore 当 key 又在 Effect 里 await，状态一改 Effect 就会被取消；
     // CancellationException 再被当成普通失败，hasMorePages 会被关掉，之后怎么拉都不翻页。
     fun requestLoadMore() {
-        if (isLoading || isLoadingMore || !hasMorePages || filteredNotifications.isEmpty()) return
+        // 搜索结果一次取齐（每个来源前两页），不跟着列表翻页
+        if (searching || isLoading || isLoadingMore || !hasMorePages || filteredNotifications.isEmpty()) return
         isLoadingMore = true
         scope.launch { loadNotifications(page = currentPage + 1, append = true) }
     }
@@ -337,7 +372,7 @@ fun NotificationScreen(
                     }
 
                     // ═══ 加载条 ═══
-                    AnimatedVisibility(isLoading && notifications.isNotEmpty(), enter = fadeIn(), exit = fadeOut()) {
+                    AnimatedVisibility((isLoading && notifications.isNotEmpty()) || searchLoading, enter = fadeIn(), exit = fadeOut()) {
                         LinearProgressIndicator(Modifier.fillMaxWidth())
                     }
                   }
@@ -370,13 +405,14 @@ fun NotificationScreen(
                 com.xjtu.toolbox.ui.components.AppSearchBar(
                     query = searchQuery,
                     onQueryChange = { searchQuery = it },
-                    label = "搜索通知标题",
+                    label = if (mergeMode) "在已选的 ${selectedSources.size} 个来源里搜索" else "在${selectedSource.displayName}站内搜索",
                     modifier = m.fillMaxWidth()
                 )
             }
             // 通知源静默跳过提示：让用户知道"不是没通知，是某些源被静默"。
+            val bannerText = if (searching) searchNotice else skippedSourceNotice
             val skippedNoticeBanner: @Composable (Modifier) -> Unit = { m ->
-              skippedSourceNotice?.let { msg ->
+              bannerText?.let { msg ->
                 Surface(
                     color = MiuixTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f),
                     modifier = m.fillMaxWidth(),
@@ -458,16 +494,32 @@ fun NotificationScreen(
                             spacing = 8.dp,
                         ) {
                             fullLineItem(key = "search") { searchBar(Modifier) }
-                            if (skippedSourceNotice != null) {
+                            if (bannerText != null) {
                                 fullLineItem(key = "skipped") { skippedNoticeBanner(Modifier) }
+                            }
+                            if (searching && !searchLoading && searchResults != null && filteredNotifications.isNotEmpty()) {
+                                fullLineItem(key = "search_count") {
+                                    Text(
+                                        "站内搜到 ${filteredNotifications.size} 条 · 按时间排列",
+                                        style = MiuixTheme.textStyles.footnote1,
+                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                        modifier = Modifier.padding(horizontal = 4.dp),
+                                    )
+                                }
                             }
                             if (filteredNotifications.isEmpty()) {
                                 fullLineItem(key = "no_match") {
-                                    EmptyState(
-                                        title = "没有匹配的通知",
-                                        subtitle = "请尝试更改搜索关键词",
-                                        modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp)
-                                    )
+                                    if (searching && searchLoading) {
+                                        Box(Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
+                                            CircularProgressIndicator(size = 24.dp)
+                                        }
+                                    } else {
+                                        EmptyState(
+                                            title = "没有匹配的通知",
+                                            subtitle = if (searching) "站内也没搜到，换个关键词试试" else "请尝试更改搜索关键词",
+                                            modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp)
+                                        )
+                                    }
                                 }
                             }
                             items(
@@ -487,7 +539,7 @@ fun NotificationScreen(
                                 }
                             }
 
-                            if (hasMorePages || isLoadingMore) {
+                            if (!searching && (hasMorePages || isLoadingMore)) {
                                 fullLineItem {
                                     Box(
                                         modifier = Modifier.fillMaxWidth().padding(16.dp),

@@ -103,13 +103,7 @@ private fun HomeHero(
     onOpenProfile: () -> Unit,
     onOpenStatus: () -> Unit,
 ) {
-    val hour = java.time.LocalTime.now().hour
-    val greeting = when (hour) {
-        in 5..10 -> "早上好"
-        in 11..13 -> "中午好"
-        in 14..17 -> "下午好"
-        else -> "晚上好"
-    }
+    val greeting = com.xjtu.toolbox.util.Greeting.of()
     val headline = if (greetingName.isBlank()) greeting else "$greeting，$greetingName"
     val meta = buildString {
         append(dateLabel)
@@ -187,7 +181,7 @@ private fun HomeHero(
                     val lowBalance = balance in 0f..30f
                     HeroGlance(
                         icon = Icons.Default.CreditCard,
-                        label = if (lowBalance) "余额偏低" else "校园卡余额",
+                        label = if (lowBalance) "余额不多了" else "校园卡余额",
                         value = if (balance >= 0f) "¥${"%.2f".format(balance)}" else "—",
                         number = balance.takeIf { it >= 0f }?.toDouble(),
                         valueColor = if (lowBalance) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.onSurface,
@@ -339,7 +333,7 @@ private fun HeroNextUp(
             val (icon, t, d) = when {
                 !isLoggedIn -> Triple(Icons.AutoMirrored.Filled.Login, "登录后查看课表和余额", "课表、校园卡会显示在这里")
                 !isFocusLoaded -> Triple(Icons.Default.CalendarMonth, "正在读取今日安排…", null)
-                else -> Triple(Icons.Default.EventAvailable, "未来两周暂无日程", "打开日程看看")
+                else -> Triple(Icons.Default.EventAvailable, "接下来两周都没课", "空出来的日子怎么过，可以问问屁岱")
             }
             ExpressiveIcon(icon = icon, color = primary, size = 38.dp, iconSize = 20.dp)
             Spacer(Modifier.width(12.dp))

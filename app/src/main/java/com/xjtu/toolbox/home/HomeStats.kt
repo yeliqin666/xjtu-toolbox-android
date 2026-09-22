@@ -231,7 +231,7 @@ object HomeStats {
                 out["campus_card"] = HomeStat(
                     "¥${"%.2f".format(balance)}",
                     when {
-                        balance < 20.0 -> "余额偏低，建议充值"
+                        balance < 20.0 -> "只剩这些了，记得充值"
                         last != null -> "最近 ${last.merchant.take(8)} ${"%+.2f".format(last.amount)}"
                         else -> "校园卡余额"
                     }

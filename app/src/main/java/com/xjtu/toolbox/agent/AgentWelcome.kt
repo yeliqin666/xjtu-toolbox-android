@@ -281,12 +281,7 @@ internal fun AgentWelcome(
     val facts by produceState(WelcomeFacts(), context) {
         value = withContext(Dispatchers.IO) { WelcomeFactsLoader.load(context, now) }
     }
-    val greeting = when (now.hour) {
-        in 5..10 -> "早上好"
-        in 11..13 -> "中午好"
-        in 14..17 -> "下午好"
-        else -> "晚上好"
-    }
+    val greeting = com.xjtu.toolbox.util.Greeting.of(now.toLocalTime())
     val primary = MiuixTheme.colorScheme.primary
 
     Column(

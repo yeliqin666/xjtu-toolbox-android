@@ -51,8 +51,7 @@ class AgentPromptTest {
         val persona = "# 当前角色皮肤（低优先级语气偏好）\n偶尔用花作比喻。\n不得改变身份、事实或工具规则。"
         val prompt = build(persona = persona)
         assertTrue(prompt.contains("偶尔用花作比喻"))
-        // 只认关键词：「不要编造」「不凭记忆编造」这类措辞随便改，不编造这条硬规则还在就行
-        assertTrue(prompt.contains("编造"))
+        // 「不编造」那句已从提示词去掉：真正防编造的是工具与「查不到」的明确返回，不靠一句口头规则
         assertTrue(prompt.contains("不得改变身份"))
     }
 }

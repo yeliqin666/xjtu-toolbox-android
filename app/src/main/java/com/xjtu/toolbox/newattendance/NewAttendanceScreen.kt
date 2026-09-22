@@ -620,7 +620,7 @@ private fun LeaveList(
         isEmpty = leaves.isEmpty(),
         empty = {
             EmptyState(
-                title = "暂无请假记录",
+                title = "还没请过假",
                 subtitle = "点右上角加号提交病假或私事假申请",
                 modifier = it
             )

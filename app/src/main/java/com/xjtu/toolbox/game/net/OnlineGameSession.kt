@@ -38,7 +38,7 @@ sealed class OnlineGameEvent {
  * （用一个内存里的假 [OnlineTransport] 模拟两端）。
  *
  * 用法：
- * 1. 建立好 [OnlineTransport]（局域网或 BLE，由调用方决定用哪个）之后 new 一个 session；
+ * 1. 建立好 [OnlineTransport]（现在只有 BLE 一种）之后 new 一个 session；
  * 2. 调 [start]，它会自己完成 hello 握手（含断线重连时的补发）；
  * 3. 本地走了一步，调 [sendLocalMove]；
  * 4. 收 [OnlineGameEvent.RemoteMove] 之后，调用方**必须**用本地的规则引擎重放校验一遍——

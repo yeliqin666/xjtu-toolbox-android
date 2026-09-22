@@ -10,5 +10,5 @@ val AppRefreshTexts: List<String> = listOf(
     "下拉刷新",
     "松手刷新",
     "正在刷新…",
-    "刷新完成",
+    "都是最新的了",
 )

@@ -62,21 +62,24 @@ data class AgentConfig(
         const val REASONING_HIGH = "high"
         const val REASONING_MAX = "max"
         const val SEARCH_AUTO = "auto"
-        const val SEARCH_BING = "bing"
+        const val SEARCH_BAIDU = "baidu"
         const val SEARCH_WECHAT = "wechat"
-        const val SEARCH_DDG = "duckduckgo"
         const val SEARCH_SO360 = "so360"
         const val SEARCH_WIKI = "wiki"
 
         /**
-         * 已下线的搜索源。实测（2026-08，国内网络，三条中文查询 + 连发六次）：
+         * 已下线的搜索源。实测（国内网络 / 校园网，中文查询 + 连发）：
          * - jina：`s.jina.ai` 匿名访问返回 401，要 API Key，调用必然失败。
          * - brave：429 + 验证码页，拿不到结果。
          * - sogou：`/web` 直接 302 到 `sogou.com/antispider`，一条都取不到。
+         * - duckduckgo（2026-09）：html / lite 两版都回 202 +「证明你是人类」挑战页，
+         *   国内每次白等两秒多，一条结果都没有。
+         * - bing（2026-09）：不带会话时中文查询被截成首字（「西交 创新港 校车」搜的是「西」），
+         *   RSS 和网页版都一样，结果与查询基本无关。
          *
-         * 留着它们只会白占一次并发和一轮超时。保留常量名是为了老配置能识别并迁回自动。
+         * 留着它们只会白占一轮超时。保留名字是为了老配置和模型点名时能识别并迁回自动。
          */
-        val RETIRED_SEARCH_ENGINES = setOf("jina", "brave", "sogou")
+        val RETIRED_SEARCH_ENGINES = setOf("jina", "brave", "sogou", "duckduckgo", "ddg", "bing")
 
         val PROVIDERS = listOf(PROVIDER_DEEPSEEK, PROVIDER_OPENAI, PROVIDER_CUSTOM)
         /**
@@ -92,9 +95,9 @@ data class AgentConfig(
             REASONING_MAX -> "最大"
             else -> "自动"
         }
-        // 顺序即推荐度，实测中文相关性从高到低。
+        // 顺序即推荐度，实测中文相关性从高到低。自动 = 百度与 360 并发、合并去重。
         val SEARCH_ENGINES = listOf(
-            SEARCH_AUTO, SEARCH_DDG, SEARCH_SO360, SEARCH_BING, SEARCH_WECHAT, SEARCH_WIKI
+            SEARCH_AUTO, SEARCH_BAIDU, SEARCH_SO360, SEARCH_WECHAT, SEARCH_WIKI
         )
 
         fun providerLabel(p: String) = when (p) {
@@ -106,9 +109,8 @@ data class AgentConfig(
 
         fun searchEngineLabel(engine: String) = when (engine) {
             SEARCH_AUTO -> "自动"
-            SEARCH_DDG -> "DuckDuckGo"
+            SEARCH_BAIDU -> "百度"
             SEARCH_SO360 -> "360 搜索"
-            SEARCH_BING -> "Bing"
             SEARCH_WECHAT -> "搜狗微信"
             SEARCH_WIKI -> "维基百科"
             else -> "自动"

@@ -43,7 +43,7 @@ object ExamCountdown {
         val label: String
             get() = when (daysLeft) {
                 0 -> "今天考试"
-                1 -> "明天考试"
+                1 -> "明天就考"
                 else -> "还有 $daysLeft 天"
             }
     }

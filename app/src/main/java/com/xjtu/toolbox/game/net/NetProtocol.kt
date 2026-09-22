@@ -2,6 +2,7 @@ package com.xjtu.toolbox.game.net
 
 import com.google.gson.Gson
 import com.google.gson.JsonSyntaxException
+import com.google.gson.annotations.SerializedName
 
 /** 协议里所有消息的类型标识，对应 plan.md §4.9 列出的那一份。 */
 object NetMsgType {
@@ -29,25 +30,24 @@ object NetMsgType {
  * 的协议来说，维护一个扁平数据类明显更省事，字段是否该出现也全靠 [type] 一个字段兜底，
  * 不会因为拼错某个可选字段名就整条解析失败。
  *
- * 每条消息编码后必须是不含换行符的一行文本（局域网通道按行分帧，BLE 通道分片重组后
- * 还原成一整条），[NetCodec] 保证这一点——JSON 本身不会带 `\n`，这里只是防御性再检查一次。
+ * 每条消息编码后必须是不含换行符的一行文本（BLE 通道分片发送、重组后按一整条处理），[NetCodec] 保证这一点——JSON 本身不会带 `\n`，这里只是防御性再检查一次。
  */
 data class NetEnvelope(
-    val type: String,
+    @SerializedName("type") val type: String,
     // hello
-    val token: String? = null,
-    val game: String? = null,
-    val rule: String? = null,
-    val hostFirst: Boolean? = null,
+    @SerializedName("token") val token: String? = null,
+    @SerializedName("game") val game: String? = null,
+    @SerializedName("rule") val rule: String? = null,
+    @SerializedName("hostFirst") val hostFirst: Boolean? = null,
     // hello_ack（token 在这里回传一遍，房主据此核实"接进来的确实是拿到同一份二维码的那台设备"，
     // 而不是恰好先连上 socket/GATT 的第三台设备——见 OnlineGameSession 里 hostToken 的用法）
-    val ok: Boolean? = null,
-    val reason: String? = null,
+    @SerializedName("ok") val ok: Boolean? = null,
+    @SerializedName("reason") val reason: String? = null,
     // move
-    val seq: Int? = null,
-    val move: String? = null,
+    @SerializedName("seq") val seq: Int? = null,
+    @SerializedName("move") val move: String? = null,
     // resume：断线重连后告诉对方"我这边已经确认到第几步"，对方据此补发缺的部分
-    val ackSeq: Int? = null,
+    @SerializedName("ackSeq") val ackSeq: Int? = null,
 )
 
 object NetCodec {

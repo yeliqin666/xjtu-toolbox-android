@@ -153,7 +153,7 @@ fun TodayTimeline(
                 )
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    "今天没有安排",
+                    "今天一节课都没有",
                     style = MiuixTheme.textStyles.body1,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
@@ -226,7 +226,7 @@ private fun NoCourseTodayCard() {
             )
             Spacer(Modifier.width(8.dp))
             Text(
-                "今天没有课",
+                "今天没课，后面几天的在下面",
                 style = MiuixTheme.textStyles.body2,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )

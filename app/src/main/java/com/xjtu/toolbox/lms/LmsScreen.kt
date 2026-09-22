@@ -129,12 +129,22 @@ fun LmsScreen(
 
     // 只跳一次：跳完把意图消费掉，否则用户从活动页返回课程列表会被立刻弹回去。
     var pendingCourseId by remember { mutableStateOf(initialCourseId) }
+    // 深链进来时「课程列表」这一页一直画占位，直到确定匹配不到那门课才露出列表。
+    // 不能跟着 pendingCourseId 一起清：清掉它和切到活动页是同一帧，AnimatedContent 里淡出中的
+    // 旧页会用新状态重组一次——占位变成完整课程列表，用户就看到「中间闪过思源学堂主页」。
+    var listPlaceholder by remember { mutableStateOf(initialCourseId != null) }
     LaunchedEffect(pendingCourseId) {
         // 占位期间 CourseListPage 没被组合，它那个"进页面就加载"的 effect 不会跑，
         // 得在这里把列表拉起来，否则一直转圈。
         if (pendingCourseId != null && cache.courses.isEmpty()) {
             runCatching {
                 cache.courses = withContext(Dispatchers.IO) { api.getMyCourses() }
+            }.onSuccess {
+                if (cache.courses.isEmpty()) { pendingCourseId = null; listPlaceholder = false }
+            }.onFailure {
+                // 列表都拉不下来就别一直转圈：落回课程列表，由它显示错误和重试
+                pendingCourseId = null
+                listPlaceholder = false
             }
         }
     }
@@ -144,7 +154,7 @@ fun LmsScreen(
         val hit = cache.courses.firstOrNull { it.id == want }
         // 匹配不到就老实落回课程列表，别把用户困在转圈里。
         pendingCourseId = null
-        if (hit != null) currentPage = LmsPage.ActivityList(hit)
+        if (hit != null) currentPage = LmsPage.ActivityList(hit) else listPlaceholder = false
     }
 
     // 首次使用提示
@@ -244,7 +254,7 @@ fun LmsScreen(
         when (page) {
             // 带着 courseId 进来时先显示占位：课程列表要等接口回来才能匹配到那门课，
             // 这中间把列表画出来，用户看到的就是"闪一下列表又跳走"。
-            is LmsPage.CourseList -> if (pendingCourseId != null) {
+            is LmsPage.CourseList -> if (listPlaceholder) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     com.xjtu.toolbox.ui.components.MorphingLoader()  // 整页加载统一用形变加载器
                 }

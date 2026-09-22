@@ -34,6 +34,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.sync.withLock
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
@@ -385,9 +386,10 @@ class AgentToolRegistry(
             "校园卡余额、消费流水与收支汇总（给 days 时）。需校园卡登录。",
             params("days" to intProp("流水天数 1–180。缺省：不查流水。"))))
         arr.add(tool("get_notifications",
-            "校内通知：标题、来源、日期、链接。",
+            "校内通知：标题、来源、日期、链接。给 keyword 时用各站自己的站内搜索查全站（含往年），否则列最新。",
             params(
-                "source" to strProp("来源名，如 教务处、OA 通知、仲英书院、电信学部。缺省：教务处+研究生院+学生处+实践教学中心+OA 通知。"),
+                "keyword" to strProp("关键词，如 推免、放假、奖学金、选课。缺省：不搜，列最新。"),
+                "source" to strProp("来源名，如 教务处、OA 通知、仲英书院、电信学部。缺省：按用户身份自动选（本科生：教务处、学生处、实践教学中心、所在书院；研究生：研究生院；都含 OA 与所在学院）。"),
                 "limit" to intProp("条数，默认 10，上限 20。")
             )))
         arr.add(tool("search_yellow_page",
@@ -414,7 +416,7 @@ class AgentToolRegistry(
             "联网搜索，返回标题、URL、摘要。",
             params(
                 "query" to strProp("关键词。学校政策、办事流程加 site:xjtu.edu.cn 优先查官网。"),
-                "engine" to strProp("auto/duckduckgo/so360/bing/wechat/wiki。缺省：用户设置。wechat=公众号，wiki=百科词条。"),
+                "engine" to strProp("auto/baidu/so360/wechat/wiki。缺省：用户设置。auto=百度与360合并，wechat=公众号，wiki=百科词条。"),
                 "limit" to intProp("条数，默认 8，上限 22。")
             )))
         arr.add(tool("web_fetch",
@@ -565,7 +567,11 @@ class AgentToolRegistry(
             )
             "get_grades" -> getGrades(args["term"] as? String)
             "get_card_info" -> getCardInfo((args["days"] as? Double)?.toInt())
-            "get_notifications" -> getNotifications(args["source"] as? String, (args["limit"] as? Double)?.toInt() ?: 10)
+            "get_notifications" -> getNotifications(
+                args["source"] as? String,
+                (args["limit"] as? Double)?.toInt() ?: 10,
+                (args["keyword"] as? String)?.trim()?.takeIf { it.isNotEmpty() },
+            )
             "search_yellow_page" -> searchYellowPage(
                 query = args["query"] as? String,
                 category = args["category"] as? String,
@@ -1386,31 +1392,76 @@ class AgentToolRegistry(
         }
     }
 
-    private suspend fun getNotifications(source: String?, limit: Int): String {
+    /**
+     * 没点名来源时，按身份挑这个人真正会看的几个站，而不是固定一组：
+     * - 本科生：教务处、学生处、实践教学中心，加所在书院；
+     * - 研究生：研究生院（教务处、学生处、书院的通知基本与研究生无关）；
+     * - 都加 OA 通知和所在学院。
+     * 学院 / 书院从本地缓存里取（校园卡、一网通办、学籍档案），不为此联网；取不到就只用校级几个。
+     */
+    private fun identityNoticeSources(): List<com.xjtu.toolbox.notification.NotificationSource> {
+        val src = com.xjtu.toolbox.notification.NotificationSource
+        val postgrad = runCatching {
+            com.xjtu.toolbox.util.CredentialStore(context).accountType == AccountType.POSTGRADUATE
+        }.getOrDefault(false)
+        val profile = runCatching { com.xjtu.toolbox.hello.HelloProfileStore.cached(context) }.getOrNull()
+        val college = listOfNotNull(
+            profile?.departmentName,
+            runCatching { com.xjtu.toolbox.card.CampusCardCache.load(context)?.cardInfo?.department }.getOrNull(),
+            dataCache.get(YWTB_IDENTITY_KEY, com.xjtu.toolbox.util.DataCache.TERM_TTL_MS)?.let { json ->
+                runCatching { gson.fromJson(json, YwtbIdentity::class.java)?.college }.getOrNull()
+            },
+        ).firstNotNullOfOrNull { src.forOrg(it) }
+        val academy = if (postgrad) null else src.forOrg(profile?.academyName)
+        val gs = com.xjtu.toolbox.notification.NotificationSource.GS
+        val oa = com.xjtu.toolbox.notification.NotificationSource.OA
+        val base = if (postgrad) listOf(gs, oa) else listOf(
+            com.xjtu.toolbox.notification.NotificationSource.JWC,
+            com.xjtu.toolbox.notification.NotificationSource.XSC,
+            com.xjtu.toolbox.notification.NotificationSource.PEC,
+            oa,
+        )
+        return (base + listOfNotNull(college, academy)).distinct()
+    }
+
+    private suspend fun getNotifications(source: String?, limit: Int, keyword: String? = null): String {
         return try {
             val all = com.xjtu.toolbox.notification.NotificationSource.entries
             val sources = if (source.isNullOrBlank()) {
-                // 默认核心来源，避免并发爬几十个学院官网又慢又常失败
-                listOf(
-                    com.xjtu.toolbox.notification.NotificationSource.JWC,
-                    com.xjtu.toolbox.notification.NotificationSource.GS,
-                    com.xjtu.toolbox.notification.NotificationSource.XSC,
-                    com.xjtu.toolbox.notification.NotificationSource.PEC,
-                    com.xjtu.toolbox.notification.NotificationSource.OA,
-                )
+                // 按身份挑（见 identityNoticeSources），不并发爬几十个学院官网，又慢又常失败
+                identityNoticeSources()
             } else {
                 all.filter { it.displayName.contains(source) || source.contains(it.displayName) }
                     .ifEmpty {
                         return ToolReply.notFound("source", source, all.take(12).map { it.displayName })
                     }
             }
-            val list = com.xjtu.toolbox.notification.NotificationApi()
+            // 告诉模型查了哪几个站：没查到时它能说清范围，用户想看别的站也知道该怎么问
+            val scope = sources.joinToString("、") { it.displayName } +
+                if (source.isNullOrBlank()) "（按你的身份自动选）" else ""
+            val api = com.xjtu.toolbox.notification.NotificationApi()
+            if (keyword != null) {
+                // 站内搜索：查的是各站全站索引，不是本地已抓的那几页（见 NotificationApi.search）
+                val found = api.search(sources, keyword)
+                val hits = found.items.take(limit.coerceIn(1, 20))
+                if (hits.isEmpty()) return ToolReply.empty("notifications: $keyword（已查：$scope）")
+                return buildString {
+                    append("「$keyword」站内搜索结果（${hits.size}条，按日期从新到旧")
+                    if (found.skipped.isNotEmpty()) append("；${found.skipped.joinToString("、") { it.displayName }}这次没搜成")
+                    append("）\n已查：$scope\n")
+                    hits.forEach { n ->
+                        append("${n.date}｜${n.source.displayName}｜${n.title}｜${n.link}\n")
+                    }
+                    append("\n" + ToolReply.EXTERNAL_DATA)
+                }
+            }
+            val list = api
                 .getMergedNotifications(sources, 1)
                 .sortedByDescending { it.date }
                 .take(limit.coerceIn(1, 20))
-            if (list.isEmpty()) return ToolReply.empty("notifications")
+            if (list.isEmpty()) return ToolReply.empty("notifications（已查：$scope）")
             val text = buildString {
-                append("校内最新通知（${list.size}条）：\n")
+                append("校内最新通知（${list.size}条）\n已查：$scope\n")
                 list.forEach { n ->
                     append("${n.date}｜${n.source.displayName}｜${n.title}｜${n.link}\n")
                 }
@@ -1466,6 +1517,9 @@ class AgentToolRegistry(
                         host.contains("sogou.com") -> b.header("Referer", "https://weixin.sogou.com/")
                         host.contains("mp.weixin.qq.com") -> b.header("Referer", "https://weixin.sogou.com/")
                         host.contains("so.com") -> b.header("Referer", "https://www.so.com/")
+                        // 百度首页是「地址栏直接打开」，不能带 Referer（和 Sec-Fetch-Site: none 自相矛盾）
+                        host.contains("baidu.com") && request.url.encodedPath != "/" ->
+                            b.header("Referer", "https://www.baidu.com/")
                     }
                 }
                 val response = chain.proceed(b.build())
@@ -1482,13 +1536,58 @@ class AgentToolRegistry(
     private val searchUa =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
-    /** 搜索回退要快失败，不能被搜狗验证码页卡满 20 秒。 */
+    /**
+     * 搜索要快失败。callTimeout 是整次调用（含跳转、读完正文）的硬上限，OkHttp 到点直接取消。
+     * 以前只靠外面包一层 withTimeoutOrNull，而里面是阻塞的 execute()，协程超时根本打断不了它，
+     * 各个源的连接 + 读取超时会一路叠加。
+     */
     private val searchClient by lazy {
         webClient.newBuilder()
             .connectTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
             .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+            .callTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
             .build()
     }
+
+    /**
+     * 百度专用的内存 cookie，每次搜索前清空、重新从首页拿一份。
+     *
+     * 2026-09 实测（校园网，连发中文查询）：
+     * - 只带 UA/Referer 的精简请求头：几乎每次都跳 wappass 验证码；
+     * - 补齐浏览器导航请求头（Accept、Sec-Fetch-*、sec-ch-ua）：多数能过，但同一份 cookie
+     *   连用第二次起常被拦；
+     * - 每次搜索前换一份新 cookie：8/8 一次通过，只多一次首页请求（约 0.3 秒）。
+     * 所以不再「一个会话热身一次」，而是每次都新拿；万一还是被拦，换 cookie 再试一次。
+     */
+    private val baiduJar = object : okhttp3.CookieJar {
+        private val store = java.util.concurrent.CopyOnWriteArrayList<okhttp3.Cookie>()
+        fun clear() = store.clear()
+        override fun saveFromResponse(url: okhttp3.HttpUrl, cookies: List<okhttp3.Cookie>) {
+            for (c in cookies) {
+                store.removeAll { it.name == c.name && it.domain == c.domain && it.path == c.path }
+                store.add(c)
+            }
+        }
+        override fun loadForRequest(url: okhttp3.HttpUrl): List<okhttp3.Cookie> {
+            val now = System.currentTimeMillis()
+            return store.filter { it.expiresAt > now && it.matches(url) }
+        }
+    }
+    private val baiduClient by lazy { searchClient.newBuilder().cookieJar(baiduJar).build() }
+    /** 换 cookie 这件事不能并发：两次搜索同时清空、同时热身会互相踩掉。 */
+    private val baiduMutex = kotlinx.coroutines.sync.Mutex()
+
+    /** 浏览器从地址栏 / 页内跳转打开网页时带的那一套请求头，缺了百度就当成脚本。 */
+    private val baiduNavHeaders = mapOf(
+        "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Upgrade-Insecure-Requests" to "1",
+        "sec-ch-ua" to "\"Chromium\";v=\"131\", \"Not_A Brand\";v=\"24\"",
+        "sec-ch-ua-mobile" to "?0",
+        "sec-ch-ua-platform" to "\"Windows\"",
+        "Sec-Fetch-Dest" to "document",
+        "Sec-Fetch-Mode" to "navigate",
+        "Sec-Fetch-User" to "?1",
+    )
 
     private fun normalizeSearchLink(href: String, baseUrl: String): String {
         val raw = href.trim()
@@ -1538,6 +1637,8 @@ class AgentToolRegistry(
         const val MAX_SEARCH_RESULTS = 22
         /** 搜狗/微信翻页极易撞验证码，自动链路只取首页。 */
         const val MAX_SEARCH_PAGES = 1
+        /** 自动档百度返回后，360 最多再等多久才合并；实测 360 通常比百度早到，这点余量足够。 */
+        const val AUTO_GRACE_MS = 400L
     }
 
     /**
@@ -1570,45 +1671,66 @@ class AgentToolRegistry(
                 requested in AgentConfig.RETIRED_SEARCH_ENGINES -> AgentConfig.SEARCH_AUTO
                 else -> when (requested) {
                     AgentConfig.SEARCH_WECHAT, "weixin", "wx" -> AgentConfig.SEARCH_WECHAT
-                    AgentConfig.SEARCH_DDG, "ddg" -> AgentConfig.SEARCH_DDG
+                    AgentConfig.SEARCH_BAIDU, "百度" -> AgentConfig.SEARCH_BAIDU
                     AgentConfig.SEARCH_SO360, "360", "so" -> AgentConfig.SEARCH_SO360
-                    AgentConfig.SEARCH_BING -> AgentConfig.SEARCH_BING
                     AgentConfig.SEARCH_WIKI, "wikipedia", "wiki" -> AgentConfig.SEARCH_WIKI
                     AgentConfig.SEARCH_AUTO, "auto", null, "" ->
                         if (engine.isNullOrBlank()) defaultSearchEngine else AgentConfig.SEARCH_AUTO
                     else -> defaultSearchEngine
                 }
             }
-            fun fetch(url: String, extra: Map<String, String> = emptyMap()): Pair<String, String>? = try {
-                val req = okhttp3.Request.Builder()
-                    .url(url)
-                    .header("User-Agent", searchUa)
-                    .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.6")
-                extra.forEach { (k, v) -> req.header(k, v) }
-                searchClient.newCall(req.get().build()).execute().use { resp ->
-                    if (!resp.isSuccessful) null
-                    else (resp.body?.string() ?: return@use null) to resp.request.url.toString()
+            // 异步 + 可取消：协程一取消（自动档不再等某一家时）就 call.cancel() 立刻断开，
+            // 不会像阻塞的 execute() 那样非要跑到超时，把整个 coroutineScope 一起拖住。
+            suspend fun fetch(
+                url: String,
+                extra: Map<String, String> = emptyMap(),
+                client: okhttp3.OkHttpClient = searchClient,
+            ): Pair<String, String>? =
+                kotlinx.coroutines.suspendCancellableCoroutine { cont ->
+                    val req = okhttp3.Request.Builder()
+                        .url(url)
+                        .header("User-Agent", searchUa)
+                        .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.6")
+                    extra.forEach { (k, v) -> req.header(k, v) }
+                    val call = try {
+                        client.newCall(req.get().build())
+                    } catch (_: Exception) {
+                        cont.resume(null) {}
+                        return@suspendCancellableCoroutine
+                    }
+                    cont.invokeOnCancellation { call.cancel() }
+                    call.enqueue(object : okhttp3.Callback {
+                        override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
+                            cont.resume(null) {}
+                        }
+                        override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                            val result = runCatching {
+                                response.use { resp ->
+                                    if (!resp.isSuccessful) null
+                                    else resp.body?.string()?.let { it to resp.request.url.toString() }
+                                }
+                            }.getOrNull()
+                            cont.resume(result) {}
+                        }
+                    })
                 }
-            } catch (_: Exception) {
-                null
-            }
 
             val want = limit.coerceIn(1, MAX_SEARCH_RESULTS)
 
             fun parseOrEmpty(which: String, body: String, finalUrl: String): List<Triple<String, String, String>> {
+                // 百度正常结果页很大、脚本里什么词都有，只认它自己的拦截特征，不走通用关键词
+                if (which == AgentConfig.SEARCH_BAIDU) {
+                    return if (AgentWeb.looksLikeBaiduBlock(body, finalUrl)) emptyList()
+                    else AgentWeb.parseBaiduHtml(body, want)
+                }
                 if (AgentWeb.looksLikeCaptcha(body)) return emptyList()
                 return when (which) {
                     AgentConfig.SEARCH_WECHAT -> parseSogouResults(body, want, finalUrl)
-                    AgentConfig.SEARCH_DDG ->
-                        AgentWeb.parseDuckDuckGoHtml(body, want).ifEmpty {
-                            AgentWeb.parseDuckDuckGoLite(body, want)
-                        }
-                    AgentConfig.SEARCH_SO360 -> AgentWeb.parseSo360Html(body, want)
-                    else -> AgentWeb.parseBingRss(body, want)
+                    else -> AgentWeb.parseSo360Html(body, want)
                 }
             }
 
-            fun fetchPage(which: String, page: Int): List<Triple<String, String, String>> = when (which) {
+            suspend fun fetchPage(which: String, page: Int): List<Triple<String, String, String>> = when (which) {
                 AgentConfig.SEARCH_WECHAT -> {
                     if (page == 1) fetch("https://weixin.sogou.com/")
                     val pc = fetch(
@@ -1621,14 +1743,27 @@ class AgentToolRegistry(
                         mapOf("Referer" to "https://weixin.sogou.com/"),
                     )?.let { (body, finalUrl) -> parseOrEmpty(which, body, finalUrl) }.orEmpty()
                 }
-                AgentConfig.SEARCH_DDG ->
+                AgentConfig.SEARCH_BAIDU -> {
                     if (page > 1) emptyList()
-                    else fetch("https://html.duckduckgo.com/html/?q=$encoded&kl=cn-zh")
-                        ?.let { (body, finalUrl) -> parseOrEmpty(which, body, finalUrl) }.orEmpty()
-                        .ifEmpty {
-                            fetch("https://lite.duckduckgo.com/lite/?q=$encoded")
-                                ?.let { (body, finalUrl) -> parseOrEmpty(which, body, finalUrl) }.orEmpty()
+                    else baiduMutex.withLock {
+                        var rows = emptyList<Triple<String, String, String>>()
+                        // 换一份新 cookie 再搜；被拦就再换一次（原因见 baiduJar 注释）
+                        for (attempt in 1..2) {
+                            baiduJar.clear()
+                            fetch("https://www.baidu.com/", baiduNavHeaders + ("Sec-Fetch-Site" to "none"), baiduClient)
+                            val got = fetch(
+                                "https://www.baidu.com/s?ie=utf-8&tn=baidu&wd=$encoded&rn=${want.coerceIn(10, 20)}",
+                                baiduNavHeaders + ("Sec-Fetch-Site" to "same-origin"),
+                                baiduClient,
+                            ) ?: break
+                            val (body, finalUrl) = got
+                            if (AgentWeb.looksLikeBaiduBlock(body, finalUrl)) continue
+                            rows = AgentWeb.parseBaiduHtml(body, want)
+                            break
                         }
+                        rows
+                    }
+                }
                 AgentConfig.SEARCH_SO360 ->
                     if (page > 1) emptyList()
                     else fetch(
@@ -1641,15 +1776,10 @@ class AgentToolRegistry(
                         "https://zh.wikipedia.org/w/api.php?action=opensearch&search=$encoded&limit=$want&namespace=0&format=json",
                         mapOf("Accept" to "application/json"),
                     )?.let { (body, _) -> AgentWeb.parseWikiOpenSearch(body, want) }.orEmpty()
-                else ->
-                    if (page > 1) emptyList()
-                    else fetch(
-                        "https://www.bing.com/search?q=$encoded&format=rss&setlang=zh-CN&cc=CN&mkt=zh-CN",
-                        mapOf("Accept" to "application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8"),
-                    )?.let { (body, finalUrl) -> parseOrEmpty(AgentConfig.SEARCH_BING, body, finalUrl) }.orEmpty()
+                else -> emptyList()
             }
 
-            fun searchOnce(which: String): List<Triple<String, String, String>> {
+            suspend fun searchOnce(which: String): List<Triple<String, String, String>> {
                 val acc = LinkedHashMap<String, Triple<String, String, String>>()
                 val pages = if (which == AgentConfig.SEARCH_WECHAT) MAX_SEARCH_PAGES else 1
                 for (page in 1..pages) {
@@ -1660,52 +1790,54 @@ class AgentToolRegistry(
                 return acc.values.take(want)
             }
 
-            // 自动链路：**按实测质量顺序串行**，不再并行竞速。
-            //
-            // 2026-08 实测（国内网络，三条中文查询，命中数=标题含查询关键词的结果数）：
-            //   DuckDuckGo  9/10 10/10 9/10   33KB  2.0s   连发 6 次全过
-            //   360         6/6  6/6   6/7   300~450KB 1.0s 连发即 302
-            //   Bing RSS    1/11 1/11  1/11    5KB  1.4s   连发 6 次全过
-            //   维基         长查询一律返回空（只认单一词条名）
-            //
-            // 两个结论改变了原来的设计：
-            // 1. Bing RSS 极不准（11 条只有 1 条相关），却是原来自动链的**第一位**，
-            //    等于绝大多数搜索都在用最差的源。降到兜底。
-            // 2. 原来是并行竞速取"第一个有结果的"，而 360 最快（1.0s）却最不耐连发，
-            //    结果就是它经常赢、然后很快被 302 掐掉。改成串行按质量取，
-            //    DDG 两秒内基本必中，后面两个只在它失败时才走。
-            // 维基不进自动链：长查询返回空，白占一轮。
-            val autoChain = listOf(
-                AgentConfig.SEARCH_DDG,
-                AgentConfig.SEARCH_SO360,
-                AgentConfig.SEARCH_BING,
-            )
-            var usedEngine = selectedEngine
-            var results = emptyList<Triple<String, String, String>>()
+            // 自动：百度为主、360 陪跑。2026-09 校园网实测，六条中文查询：
+            //   百度  1.0~1.6s  每条 8~10 个结果，大量直达 xjtu.edu.cn 校内页面，连发不弹验证码
+            //   360   0.5~1.2s  每条 4~7 个结果，相关；此前因解析 bug 一直返回 0 条
+            // 两家同时发出。百度一回来就出结果，360 只再多等 [AUTO_GRACE_MS]：赶上了合并补充，
+            // 赶不上就取消（fetch 可取消，立刻断开），不让较慢的一家拖住整体。
+            // 百度挂了（拦截 / 超时 / 空）才完整等 360。每个请求另有 callTimeout 6 秒兜底。
+            suspend fun searchAuto(skip: String?): Pair<String, List<Triple<String, String, String>>> =
+                kotlinx.coroutines.coroutineScope {
+                    fun run(which: String) = async(Dispatchers.IO) {
+                        if (which == skip) emptyList() else runCatching { searchOnce(which) }.getOrDefault(emptyList())
+                    }
+                    val baiduJob = run(AgentConfig.SEARCH_BAIDU)
+                    val so360Job = run(AgentConfig.SEARCH_SO360)
+                    val baidu = baiduJob.await()
+                    val so360 = if (baidu.isEmpty()) so360Job.await()
+                    else withTimeoutOrNull(AUTO_GRACE_MS) { so360Job.await() } ?: emptyList<Triple<String, String, String>>().also { so360Job.cancel() }
 
+                    // 合并去重：同一地址或同一标题只留一条，百度在前
+                    val merged = LinkedHashMap<String, Triple<String, String, String>>()
+                    val titles = HashSet<String>()
+                    for (r in baidu + so360) {
+                        val key = r.second.substringAfter("://").trimEnd('/').lowercase()
+                        if (key in merged || !titles.add(r.first)) continue
+                        merged[key] = r
+                    }
+                    val label = listOfNotNull(
+                        AgentConfig.searchEngineLabel(AgentConfig.SEARCH_BAIDU).takeIf { baidu.isNotEmpty() },
+                        AgentConfig.searchEngineLabel(AgentConfig.SEARCH_SO360).takeIf { so360.isNotEmpty() },
+                    ).joinToString(" + ")
+                    label to merged.values.take(want)
+                }
+
+            var usedLabel = AgentConfig.searchEngineLabel(selectedEngine)
+            var results = emptyList<Triple<String, String, String>>()
             val primary = selectedEngine.takeUnless { it == AgentConfig.SEARCH_AUTO }
             if (primary != null) {
-                results = searchOnce(primary)
-                usedEngine = primary
+                results = runCatching { searchOnce(primary) }.getOrDefault(emptyList())
             }
             if (results.isEmpty()) {
-                // 串行按质量走，单源限时 5 秒——DDG 实测 2 秒出结果，超过就是它今天不通，
-                // 与其干等不如让位给下一个。总体最坏 15 秒，仍在 web_search 的容忍范围内。
-                for (which in autoChain) {
-                    if (which == primary) continue
-                    val rows = withTimeoutOrNull(5_000) {
-                        runCatching { searchOnce(which) }.getOrDefault(emptyList())
-                    }.orEmpty()
-                    if (rows.isNotEmpty()) {
-                        usedEngine = which
-                        results = rows
-                        break
-                    }
+                val (label, rows) = searchAuto(skip = primary)
+                if (rows.isNotEmpty()) {
+                    usedLabel = label
+                    results = rows
                 }
             }
             if (results.isEmpty()) return ToolReply.empty("query: $query")
             buildString {
-                append("「$query」｜${AgentConfig.searchEngineLabel(usedEngine)}｜${results.size} 条\n")
+                append("「$query」｜$usedLabel｜${results.size} 条\n")
                 // 一条一行、带编号，模型转述时能写「据 [2]」，再用 web_fetch 读原文
                 results.forEachIndexed { i, (t, l, s) ->
                     append("[${i + 1}] $t｜$l")

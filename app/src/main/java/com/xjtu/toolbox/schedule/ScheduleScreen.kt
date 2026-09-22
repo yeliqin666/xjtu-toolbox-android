@@ -1770,8 +1770,6 @@ fun ScheduleScreen(
                                     }
                                 },
                                 onNavigate = onNavigate,
-                                // 常驻栏没有「关掉」这回事，不要底部那颗「知道了」。
-                                onCloseAction = null,
                             )
                         }
                     } else if (onTodayTab) {
@@ -2032,8 +2030,8 @@ private fun ScheduleTabContent(
                 }
                 if (weekCourses.isEmpty() && courses.isNotEmpty()) {
                     EmptyState(
-                        title = "本周无日程",
-                        subtitle = "第${weekN}周还没有安排",
+                        title = "这周没课",
+                        subtitle = "第${weekN}周整周空着",
                         modifier = Modifier.fillMaxSize().padding(top = gridTopPadding, bottom = bottomPadding)
                     )
                 } else {
@@ -2126,7 +2124,7 @@ private fun ScheduleMenuRow(
  * 手机上被 [CourseDetailDialog] 包在 OverlayBottomSheet 里（行为与抽出前一致），
  * 宽屏下直接长在课表右侧的常驻详情栏里。
  *
- * @param onCloseAction 弹窗版底部的「知道了」。分屏右栏不需要这个按钮，传 null。
+ * 不再有底部的「知道了」：弹窗下滑、点外面、返回键都能关，多一颗按钮只占高度。
  */
 @Composable
 private fun CourseDetailContent(
@@ -2139,7 +2137,6 @@ private fun CourseDetailContent(
     occurrence: Occurrence? = null,
     onRequestTextbooks: () -> Unit = {},
     onNavigate: (String) -> Unit = {},
-    onCloseAction: (() -> Unit)? = null,
 ) {
     val isAgenda = course.courseType == "日程"
         // 异步获取教室座位数
@@ -2203,10 +2200,11 @@ private fun CourseDetailContent(
 
             // 两行元信息合进一张卡：它们回答的是同一个问题（这门课在哪、什么时候），
             // 裸排在弹窗底色上时和下面的下钻入口分不开。
+            // 底色不能用 surfaceVariant：miuix 深色主题里它和弹窗底色同为 #242424，卡片等于隐形。
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                cornerRadius = 12.dp,
-                colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
+                cornerRadius = 14.dp,
+                colors = CardDefaults.defaultColors(color = courseDetailTileColor()),
             ) {
             Column(
                 Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
@@ -2268,16 +2266,7 @@ private fun CourseDetailContent(
                 onNavigate = onNavigate,
             )
         }
-        if (onCloseAction != null) {
-            Spacer(Modifier.height(16.dp))
-            Button(
-                onClick = onCloseAction,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("知道了")
-            }
-            Spacer(Modifier.height(16.dp))
-        }
+        Spacer(Modifier.height(16.dp))
         Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
 }
 
@@ -2310,7 +2299,6 @@ private fun CourseDetailDialog(
             onRequestTextbooks = onRequestTextbooks,
             // 下钻跳转前先关弹窗，行为与抽出前一致。
             onNavigate = { route -> close(); onNavigate(route) },
-            onCloseAction = close,
         )
     }
 }

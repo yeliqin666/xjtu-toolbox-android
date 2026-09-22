@@ -395,7 +395,7 @@ object ScheduleWidgetUpdater {
             weekText = weekText,
             today = coursesOn(context, cache, termCode, startDate, today),
             tomorrow = coursesOn(context, cache, termCode, startDate, tomorrow),
-            todayEmptyText = "今天没有课",
+            todayEmptyText = "今天一节课都没有",
             tomorrowEmptyText = "明天没有课",
             hasCache = true,
         )
