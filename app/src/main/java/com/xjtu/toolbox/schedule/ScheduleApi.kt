@@ -46,6 +46,13 @@ data class CourseItem(
     }
 
     /**
+     * 用户自己建的日程（日程页手动添加、屁岱代加），不是教务排的课。
+     * 法定假日停的是**课**：自建日程是用户明确要在那天做的事，节假日过滤一律不碰它，
+     * 否则中秋那周加的一次性日程刚画出来就被滤掉，看着像「出现半秒就消失」。
+     */
+    val isUserCreated: Boolean get() = courseCode.startsWith(CUSTOM_COURSE_CODE_PREFIX)
+
+    /**
      * Gson 反射反序列化不认 Kotlin 的非空约束：磁盘缓存里的旧版本/半截 JSON
      * 一旦缺了某个字段，这里几个声明成非空 String 的属性会在运行时实际是 null。
      * 后面 [getWeeks]/[isInWeek] 等在 Composable 的 remember{} 里被直接调用，不在任何
@@ -129,10 +136,6 @@ class ScheduleApi(private val site: SiteSession) {
     private val termNameCache = mutableMapOf<String, String>()
 
     fun termNames(): Map<String, String> = termNameCache.toMap()
-
-    /** 可读学期名。优先接口 `MC`，否则把代码译成秋季/春季/短学期/暑假。 */
-    fun termDisplayName(code: String): String =
-        ScheduleTermStore.display(code, termNameCache, emptyMap())
 
     private fun rememberTermName(code: String, row: JsonObject) {
         val mc = ScheduleTermStore.usableName(code, row.get("MC")?.asString)

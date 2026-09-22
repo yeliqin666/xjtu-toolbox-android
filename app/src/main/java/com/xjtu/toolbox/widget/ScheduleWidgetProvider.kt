@@ -409,8 +409,8 @@ object ScheduleWidgetUpdater {
         startDate: LocalDate?,
         date: LocalDate,
     ): List<WidgetCourse> {
-        val holidays = widgetHolidays(context)
-        if (holidays.containsKey(date)) return emptyList()
+        // 节假日只滤掉教务的课，自建日程照常显示
+        val isHoliday = widgetHolidays(context).containsKey(date)
 
         val all = allCoursesOf(context, cache, termCode)
         // 没有开学日期就算不出周次；这时按星期给出全部同星期的课，
@@ -418,6 +418,7 @@ object ScheduleWidgetUpdater {
         val week = startDate?.let { com.xjtu.toolbox.schedule.TermWeeks.weekOf(it, date) }
         return all.asSequence()
             .filter { it.dayOfWeek == date.dayOfWeek.value }
+            .filter { !isHoliday || it.isUserCreated }
             .filter { week == null || it.isInWeek(week) }
             .sortedBy { it.startSection }
             .map {
@@ -554,8 +555,9 @@ object ScheduleWidgetUpdater {
         val holidayDates = widgetHolidays(context)
         val isHoliday = holidayDates.containsKey(selectedDate)
 
-        val todayCourses = if (isHoliday) emptyList() else allCourses
+        val todayCourses = allCourses
             .asSequence()
+            .filter { !isHoliday || it.isUserCreated }
             .filter { it.dayOfWeek == selectedDayOfWeek }
             .filter { if (shouldFilterByWeek) it.isInWeek(effectiveWeek) else true }
             .sortedBy { it.startSection }
@@ -590,7 +592,7 @@ object ScheduleWidgetUpdater {
         }
 
         val status = when {
-            isHoliday -> "今日为节假日，无日程安排"
+            isHoliday && todayCourses.isEmpty() -> "今日为节假日，无日程安排"
             todayCourses.isEmpty() -> "周${weekdayLabel(selectedDayOfWeek)}没有日程"
             notStartedYet -> "尚未开课，已显示第${effectiveWeek}周"
             !isSelectedToday -> "所选日共 ${todayCourses.size} 项安排"

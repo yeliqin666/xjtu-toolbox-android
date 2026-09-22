@@ -44,7 +44,7 @@ object ScheduleExport {
         sb.appendLine("VERSION:2.0")
         sb.appendLine("PRODID:-//XJTUToolBox//Schedule//CN")
         sb.appendLine("CALSCALE:GREGORIAN")
-        sb.appendLine("X-WR-CALNA ME:$termName 日程")
+        sb.appendLine("X-WR-CALNAME:$termName 日程")
         sb.appendLine("X-WR-TIMEZONE:Asia/Shanghai")
 
         // 嵌入时区定义
@@ -68,14 +68,17 @@ object ScheduleExport {
                 val weekStartMonday = startOfTerm.plusWeeks((week - 1).toLong())
                 val courseDate = weekStartMonday.plusDays((course.dayOfWeek - 1).toLong())
 
-                // ★ 节假日过滤
-                if (holidayDates.contains(courseDate)) {
+                // ★ 节假日过滤：停的只是教务的课，自建日程照常导出
+                if (!course.isUserCreated && holidayDates.contains(courseDate)) {
                     Log.d(TAG, "ICS Export: Skipped course '\${course.courseName}' on holiday \$courseDate")
                     continue
                 }
 
-                val startTime = sectionToTime(course.startSection, isStart = true, courseDate)
-                val endTime = sectionToTime(course.endSection, isStart = false, courseDate)
+                // 自建日程带分钟级时间，按节次换算会把 14:00 的事导成整节的钟点
+                val startTime = course.startMinuteOfDay.takeIf { it >= 0 }?.let { it / 60 to it % 60 }
+                    ?: sectionToTime(course.startSection, isStart = true, courseDate)
+                val endTime = course.endMinuteOfDay.takeIf { it >= 0 }?.let { it / 60 to it % 60 }
+                    ?: sectionToTime(course.endSection, isStart = false, courseDate)
 
                 val dtStart = courseDate.atTime(startTime.first, startTime.second)
                 val dtEnd = courseDate.atTime(endTime.first, endTime.second)

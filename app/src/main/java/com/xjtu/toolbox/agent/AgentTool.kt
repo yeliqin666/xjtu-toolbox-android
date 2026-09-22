@@ -124,8 +124,6 @@ class AgentToolRegistry(
         "find_faculty" to "faculty",
     )
 
-    // 每个 LoginType 上次失败的时间戳；60s 内不重试，防止反复触发服务端风控
-    private val loginFailedAt = mutableMapOf<LoginType, Long>()
 
     // 本轮工具执行产出的富控件（课表卡/成绩卡/教室卡…）；ViewModel 在 run 结束后 drain。
     private val pendingWidgets = mutableListOf<AgentWidget>()
@@ -285,16 +283,6 @@ class AgentToolRegistry(
             nowMinute in (ct.start.hour * 60 + ct.start.minute)..(ct.end.hour * 60 + ct.end.minute)
         }
         return (section ?: 0) - 1
-    }
-
-    private suspend fun tryAutoLogin(type: LoginType): Boolean {
-        val now = System.currentTimeMillis()
-        if (now - (loginFailedAt[type] ?: 0L) < 60_000L) return false
-        val ok = ensureSite(type) != null
-        if (!ok) {
-            loginFailedAt[type] = now
-        }
-        return ok
     }
 
     /**
@@ -788,9 +776,12 @@ class AgentToolRegistry(
         }
     }
 
-    private fun cachedTermCode(): String? = runCatching {
-        gson.fromJson(dataCache.get("schedule_term_list", com.xjtu.toolbox.util.DataCache.TERM_TTL_MS), Array<String>::class.java)?.firstOrNull()
-    }.getOrNull()
+    /**
+     * 本学期，和日程页、首页、小组件认同一个键（[ScheduleCache.readCurrentTerm]）。
+     * 以前取学期列表的第一个：教务把下学期挂出来以后它就排在最前，屁岱的日程写进了
+     * 日程页压根不显示的学期。
+     */
+    private fun cachedTermCode(): String? = ScheduleCache.readCurrentTerm(dataCache, gson)
 
     private fun cachedStartDate(term: String): String? = runCatching {
         gson.fromJson(dataCache.get("start_date_$term", com.xjtu.toolbox.util.DataCache.TERM_TTL_MS), String::class.java)
@@ -981,7 +972,10 @@ class AgentToolRegistry(
         return try {
             val api = ScheduleApi(site)
             val term = term0 ?: api.getCurrentTerm()
-            if (cachedTermCode() == null) dataCache.put("schedule_term_list", gson.toJson(listOf(term)))
+            if (term0 == null) ScheduleCache.writeCurrentTerm(dataCache, gson, term)
+            if (dataCache.get("schedule_term_list", Long.MAX_VALUE) == null) {
+                dataCache.put("schedule_term_list", gson.toJson(listOf(term)))
+            }
             runCatching {
                 if (com.xjtu.toolbox.schedule.ScheduleTermStore.read(dataCache, gson).isEmpty()) {
                     api.getTermList()
@@ -1070,7 +1064,10 @@ class AgentToolRegistry(
             pendingWidgets.add(ScheduleWidget("${targetDate} 第${weekNum}周${dayNames[targetDate.dayOfWeek.value]}", dayCourses))
             return buildString {
                 append("${targetDate} 第${weekNum}周${dayNames[targetDate.dayOfWeek.value]}")
-                holiday?.let { append("｜法定假日 $it，以下课程停课") }
+                holiday?.let { h ->
+                    append("｜法定假日 $h")
+                    if (dayCourses.any { !it.isUserCreated }) append("，教务课程停课，自建日程照常")
+                }
                 append("\n")
                 dayCourses.forEach { c -> append(courseLine(c, targetDate, withTeacher = true)).append('\n') }
             }.withChangeNote(changeNote)
@@ -1089,7 +1086,7 @@ class AgentToolRegistry(
                 weekCourses.forEach { c ->
                     val day = monday.plusDays((c.dayOfWeek - 1).toLong())
                     append(courseLine(c, day))
-                    holidays[day]?.let { append("｜停课（$it）") }
+                    if (!c.isUserCreated) holidays[day]?.let { append("｜停课（$it）") }
                     append('\n')
                 }
             }.withChangeNote(changeNote)
@@ -2463,6 +2460,8 @@ class AgentToolRegistry(
 
         return try {
             dao.insert(entity)
+            // 日程页经 Room 的 Flow 自动刷新；桌面小组件得单独叫一声
+            com.xjtu.toolbox.widget.ScheduleWidgetUpdater.requestUpdate(context)
             "ok: added; term: $termCode; title: $name; weekday: ${entity.dayOfWeek}; " +
                 "time: ${"%02d:%02d".format(startTime.hour, startTime.minute)}-${"%02d:%02d".format(endTime.hour, endTime.minute)}; " +
                 "weeks: ${com.xjtu.toolbox.schedule.CustomCourseConflicts.describeWeeks(weekList.sorted())}" +

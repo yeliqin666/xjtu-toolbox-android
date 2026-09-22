@@ -116,6 +116,7 @@ object ScheduleCache {
     ): List<CourseItem> {
         if (startOfTerm == null || holidayDates.isEmpty()) return courses
         return courses.mapNotNull { course ->
+            if (course.isUserCreated) return@mapNotNull course
             var changed = false
             val newBits = StringBuilder(course.weekBits)
             for (i in newBits.indices) {
