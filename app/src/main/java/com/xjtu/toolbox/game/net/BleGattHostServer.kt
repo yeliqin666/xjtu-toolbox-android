@@ -95,10 +95,15 @@ class BleGattHostServer(private val context: Context) {
         adv?.startAdvertising(settings, data, advertiseCallback)
     }
 
-    /** 等待第一个加入方连上、完成 MTU 协商与订阅通知；超时返回 null。 */
-    suspend fun waitForReady(): OnlineTransport? = try {
-        kotlinx.coroutines.withTimeoutOrNull(READY_TIMEOUT_MS) { readyDeferred.await() }
-        if (connectedDevice != null) HostTransport() else null
+    /**
+     * 等第一个加入方连上并订阅通知；[timeoutMs] 内没人来、广播起不来、或者被 [stop] 了都返回 null。
+     *
+     * 等待时长由调用方给，和房间的候人时长一致。以前这里写死 10 秒：二维码亮出来 10 秒后
+     * 蓝牙这条路就没人在等了，对方晚一点扫码、局域网又被校园网隔离，就只能干等到超时。
+     */
+    suspend fun waitForReady(timeoutMs: Long): OnlineTransport? = try {
+        kotlinx.coroutines.withTimeoutOrNull(timeoutMs) { readyDeferred.await() }
+        if (readyDeferred.isCompleted && connectedDevice != null) HostTransport() else null
     } catch (_: Exception) {
         null
     }
@@ -111,6 +116,8 @@ class BleGattHostServer(private val context: Context) {
         advertiser = null
         connectedDevice = null
         incomingChannel.close()
+        // 还在等人的那一方立刻醒过来，不用等到超时
+        readyDeferred.completeExceptionally(IllegalStateException("stopped"))
     }
 
     private val advertiseCallback = object : AdvertiseCallback() {
@@ -223,7 +230,4 @@ class BleGattHostServer(private val context: Context) {
         override fun close() = this@BleGattHostServer.stop()
     }
 
-    companion object {
-        private const val READY_TIMEOUT_MS = 10_000L
-    }
 }

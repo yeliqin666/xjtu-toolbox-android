@@ -7,9 +7,5 @@ package com.xjtu.toolbox.game.net
 enum class GameKind(val wireId: String) {
     GOMOKU("gomoku"),
     GO("go"),
-    XIANGQI("xiangqi");
-
-    companion object {
-        fun fromWireId(id: String?): GameKind? = entries.firstOrNull { it.wireId == id }
-    }
+    XIANGQI("xiangqi"),
 }

@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import com.xjtu.toolbox.game.GameIds
@@ -542,9 +543,13 @@ private fun XiangqiOnlineSection(modifier: Modifier = Modifier, onExitOnlineMode
         GameStore.recordResult(context, GameIds.XIANGQI, "online", result)
     }
 
+    // 离开联机（退出、返回、切模式）时把连接关掉，否则 socket / 蓝牙会一直占着直到心跳超时
+    DisposableEffect(Unit) { onDispose { session?.close() } }
+
     val activeSession = session
     if (activeSession == null) {
         OnlineLobbyContent(
+            sessionScope = scope,
             kind = GameKind.XIANGQI,
             ruleParam = null,
             onSessionReady = { s, isHost, hostFirst, _ ->

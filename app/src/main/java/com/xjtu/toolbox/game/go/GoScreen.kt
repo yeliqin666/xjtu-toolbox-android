@@ -37,6 +37,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -425,9 +426,13 @@ private fun GoOnlineSection(modifier: Modifier = Modifier, onExitOnlineMode: () 
         GameStore.recordResult(context, GameIds.GO, "online", if (winner == myColor) GameResult.WIN else GameResult.LOSS)
     }
 
+    // 离开联机（退出、返回、切模式）时把连接关掉，否则 socket / 蓝牙会一直占着直到心跳超时
+    DisposableEffect(Unit) { onDispose { session?.close() } }
+
     val activeSession = session
     if (activeSession == null) {
         OnlineLobbyContent(
+            sessionScope = scope,
             kind = GameKind.GO,
             ruleParam = "$boardSize",
             onSessionReady = { s, isHost, hostFirst, _ ->

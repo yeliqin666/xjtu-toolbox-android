@@ -37,6 +37,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -352,6 +353,12 @@ private fun GomokuBoardView(ui: GomokuUiState, modifier: Modifier, onCellTap: (I
     val drop = rememberDropProgress(moves)
     val line = if (ui.outcome == GomokuOutcome.XJTU_WIN || ui.outcome == GomokuOutcome.SJTU_WIN) winningLine(ui.board) else null
     val lineColor = Color(0xFFFFD54F)
+    // 胜负一出，连成五子的那条线从一端画到另一端（在绘制阶段读，不重组）
+    val lineGrow = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(line) {
+        if (line == null) lineGrow.snapTo(0f)
+        else lineGrow.animateTo(1f, androidx.compose.animation.core.tween(420, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+    }
 
     Box(modifier.aspectRatio(1f).woodBoard(wood)) {
         Canvas(
@@ -400,10 +407,12 @@ private fun GomokuBoardView(ui: GomokuUiState, modifier: Modifier, onCellTap: (I
             }
             if (line != null) {
                 val (a, b) = line
+                val start = Offset(o + a.second * cell, o + a.first * cell)
+                val finish = Offset(o + b.second * cell, o + b.first * cell)
                 drawLine(
                     lineColor,
-                    Offset(o + a.second * cell, o + a.first * cell),
-                    Offset(o + b.second * cell, o + b.first * cell),
+                    start,
+                    androidx.compose.ui.geometry.lerp(start, finish, lineGrow.value),
                     strokeWidth = cell * 0.16f,
                     cap = StrokeCap.Round,
                     alpha = 0.9f,
@@ -444,9 +453,13 @@ private fun GomokuOnlineSection(onExitOnlineMode: () -> Unit) {
         GameStore.recordResult(context, GameIds.GOMOKU, "online", result)
     }
 
+    // 离开联机（退出、返回、切模式）时把连接关掉，否则 socket / 蓝牙会一直占着直到心跳超时
+    DisposableEffect(Unit) { onDispose { session?.close() } }
+
     val activeSession = session
     if (activeSession == null) {
         OnlineLobbyContent(
+            sessionScope = scope,
             kind = GameKind.GOMOKU,
             ruleParam = null,
             onSessionReady = { s, isHost, hostFirst, _ ->

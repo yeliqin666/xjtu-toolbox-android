@@ -169,15 +169,41 @@ class LanNsd(context: Context) {
     }
 }
 
-/** 本机在当前 Wi-Fi/局域网下的 IPv4 地址，房主用它拼进二维码。拿不到返回 null。 */
-fun localLanIPv4Address(): String? = try {
-    NetworkInterface.getNetworkInterfaces()?.toList()
-        ?.filter { it.isUp && !it.isLoopback && !it.isVirtual }
-        ?.flatMap { it.inetAddresses.toList() }
-        ?.firstOrNull { addr ->
-            !addr.isLoopbackAddress && addr is java.net.Inet4Address
+/**
+ * 本机在当前 Wi-Fi / 热点下的 IPv4 地址，房主用它拼进二维码。拿不到返回 null。
+ *
+ * 以前取「第一个非回环 IPv4」：手机同时开着移动数据时，枚举顺序里排在前面的常常是
+ * rmnet/ccmni（运营商内网地址，对方根本连不到），开着 VPN 时还可能是 tun0。二维码里的
+ * 地址一错，加入方的 TCP 必然超时，表现就是「怎么都连不上」。
+ *
+ * 现在按网卡名挑：Wi-Fi（wlan*）和本机开的热点（ap* / swlan* / wlan1 等）优先，有线其次，
+ * 蜂窝、VPN、点对点等一律排除；同一类里只要局域网私有地址。
+ */
+fun localLanIPv4Address(): String? = runCatching {
+    val candidates = NetworkInterface.getNetworkInterfaces()?.toList().orEmpty()
+        .filter { it.isUp && !it.isLoopback && !it.isVirtual && !it.isPointToPoint }
+        .mapNotNull { nif ->
+            val rank = lanInterfaceRank(nif.name) ?: return@mapNotNull null
+            val addr = nif.inetAddresses.toList()
+                .firstOrNull { it is java.net.Inet4Address && it.isSiteLocalAddress }
+                ?: return@mapNotNull null
+            rank to addr.hostAddress
         }
-        ?.hostAddress
-} catch (_: Exception) {
-    null
+    candidates.minByOrNull { it.first }?.second
+}.getOrNull()
+
+/** 网卡名 → 优先级（小的优先）；不该用来局域网直连的网卡返回 null。 */
+internal fun lanInterfaceRank(name: String): Int? {
+    val n = name.lowercase()
+    return when {
+        EXCLUDED_IFACE_PREFIXES.any { n.startsWith(it) } -> null
+        n.startsWith("wlan") -> 0
+        n.startsWith("ap") || n.startsWith("swlan") || n.startsWith("softap") -> 1
+        n.startsWith("eth") -> 2
+        else -> 3
+    }
 }
+
+private val EXCLUDED_IFACE_PREFIXES = listOf(
+    "rmnet", "ccmni", "pdp", "clat", "v4-", "tun", "ppp", "ipsec", "dummy", "p2p", "rndis", "bt-pan", "lo",
+)

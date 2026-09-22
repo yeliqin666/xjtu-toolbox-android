@@ -6,8 +6,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** 我方在这局里的角色：房主先发 hello_ack，加入方先发 hello。 */
 enum class OnlineRole { HOST, GUEST }
@@ -72,9 +73,17 @@ class OnlineGameSession(
         private set
 
     private var job: Job? = null
-    private var closed = false
+    @Volatile private var closed = false
+
+    /**
+     * 读循环、心跳循环靠它判断还要不要继续。以前用 `job?.isActive`：scope 是
+     * Main.immediate 这类立即派发的调度器时，launch 里的代码会在 `job =` 赋值之前就跑起来，
+     * 那一刻 job 还是 null，心跳循环一进来就判定「不活跃」直接退出，之后永远不发 ping。
+     */
+    @Volatile private var running = false
 
     fun start() {
+        running = true
         job = scope.launch {
             heartbeat.start(now())
             // 房主先发 hello：棋种、规则参数（比如围棋盘大小）、谁先手，全部由房主决定，
@@ -98,7 +107,23 @@ class OnlineGameSession(
         }
     }
 
-    private fun isActive(): Boolean = job?.isActive == true && !closed
+    private fun isActive(): Boolean = running && !closed
+
+    /**
+     * 等握手结束：成功返回 true；超时、口令不对、对方断开都返回 false（此时会话已关闭）。
+     *
+     * 连接编排层（[OnlineController]）必须等到这里返回 true 才把会话交给 UI——
+     * 加入方的先后手、规则参数都在房主的 hello 里，握手前读 [resolvedHostFirst] 拿到的只是占位值，
+     * UI 据此分配棋子颜色就会两边对不上。
+     */
+    suspend fun awaitHandshake(timeoutMs: Long): Boolean {
+        val settled = withTimeoutOrNull(timeoutMs) {
+            state.first { it !is OnlineConnState.Handshaking }
+        }
+        if (settled is OnlineConnState.Playing) return true
+        if (settled == null) failAndClose("握手超时：连上了对方，但对方没有回应")
+        return false
+    }
 
     private suspend fun handle(env: NetEnvelope) {
         when (env.type) {
@@ -214,6 +239,7 @@ class OnlineGameSession(
     private fun failAndClose(reason: String) {
         if (closed) return
         closed = true
+        running = false
         _state.value = OnlineConnState.Disconnected(reason)
         transport.close()
         job?.cancel()
