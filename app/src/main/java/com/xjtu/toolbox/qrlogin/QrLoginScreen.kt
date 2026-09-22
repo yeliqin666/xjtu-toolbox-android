@@ -41,6 +41,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import com.xjtu.toolbox.auth.SessionManager
+import com.xjtu.toolbox.library.LibrarySeatQr
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
@@ -68,16 +69,19 @@ private sealed class UiState {
     data class Confirm(val scanned: String) : UiState()
     object Authorizing : UiState()
     object Success : UiState()
-    data class Error(val message: String, val canRescan: Boolean) : UiState()
+    data class Error(val message: String, val canRescan: Boolean, val title: String = "无法登录") : UiState()
 }
 
 /**
- * 扫码登录。独立 Dialog，盖过首页大标题和悬浮底栏（与全局搜索同一套层级）。
+ * 首页扫一扫：电脑端的统一身份认证登录码，或图书馆桌面上的座位码。
+ * 座位码不在这里处理，交给 [onLibrarySeat] 跳图书馆页——那边有平面图、我的预约、换座，
+ * 这里只负责认码。独立 Dialog，盖过首页大标题和悬浮底栏（与全局搜索同一套层级）。
  */
 @Composable
 fun QrLoginScreen(
     sessionManager: SessionManager?,
     onBack: () -> Unit,
+    onLibrarySeat: (LibrarySeatQr) -> Unit = {},
 ) {
     Dialog(
         onDismissRequest = onBack,
@@ -110,7 +114,7 @@ fun QrLoginScreen(
                 }
             }
         }
-        QrLoginContent(sessionManager = sessionManager, onBack = onBack)
+        QrLoginContent(sessionManager = sessionManager, onBack = onBack, onLibrarySeat = onLibrarySeat)
     }
 }
 
@@ -118,6 +122,7 @@ fun QrLoginScreen(
 private fun QrLoginContent(
     sessionManager: SessionManager?,
     onBack: () -> Unit,
+    onLibrarySeat: (LibrarySeatQr) -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -161,8 +166,9 @@ private fun QrLoginContent(
     }
 
     fun onDecoded(scanned: String) {
+        LibrarySeatQr.parse(scanned)?.let { onLibrarySeat(it); return }
         if (!CasQrLogin.isXjtuQrLogin(scanned)) {
-            state = UiState.Error("这不是西安交大的扫码登录二维码", canRescan = true)
+            state = UiState.Error("这不是登录二维码，也不是图书馆座位码", canRescan = true, title = "认不出这个码")
             return
         }
         val mgr = sessionManager
@@ -217,7 +223,7 @@ private fun QrLoginContent(
             // 始终折叠：这一页没有可滚动的长内容，大标题只会占掉取景空间，
             // miuix 的 SmallTopAppBar 就是钉死在折叠态的版本。
             SmallTopAppBar(
-                title = "扫码登录",
+                title = "扫一扫",
                 // 一律用主题色，不锁死黑：应用支持浅色模式和动态取色，
                 // 写死 Color.Black 在浅色主题下就是一条突兀的黑条。
                 // miuix 的 .background(color) 排在 windowInsetsPadding 之前，
@@ -341,7 +347,7 @@ private fun QrLoginContent(
                         StatusIcon(Icons.Filled.ErrorOutline, Color(0xFFFF3B30))
                         Spacer(Modifier.height(16.dp))
                         Text(
-                            "无法登录",
+                            s.title,
                             fontWeight = FontWeight.Bold,
                             color = MiuixTheme.colorScheme.onSurface,
                         )
@@ -463,7 +469,7 @@ private fun ScanningContent(onResult: (String) -> Unit) {
             }
         }
         Text(
-            "将电脑上的登录二维码放入框内",
+            "对准电脑上的登录二维码，或图书馆桌上的座位码",
             color = Color.White,
             textAlign = TextAlign.Center,
             modifier = Modifier

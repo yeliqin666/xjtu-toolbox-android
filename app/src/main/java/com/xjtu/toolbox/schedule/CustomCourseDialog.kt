@@ -27,6 +27,8 @@ import com.xjtu.toolbox.ui.DAY_END_HOUR
 import com.xjtu.toolbox.ui.DAY_START_HOUR
 import com.xjtu.toolbox.ui.MAX_SECTIONS
 import kotlin.math.ceil
+import kotlin.math.floor
+import com.xjtu.toolbox.util.XjtuTime
 
 data class CustomCourseDraft(
     val courseName: String = "",
@@ -343,11 +345,13 @@ fun CustomCourseDialog(
             colors = ButtonDefaults.textButtonColorsPrimary(),
             onClick = {
                 val weekBitsStr = (1..totalWeeks).joinToString("") { if (it in selectedWeeks) "1" else "0" }
-                val startSection = (((startTotalMinutes - startDayMinutes) / 60) + 1)
-                    .coerceIn(1, MAX_SECTIONS)
-                val endSection = ceil((endTotalMinutes - startDayMinutes) / 60f)
-                    .toInt()
-                    .coerceIn(startSection, MAX_SECTIONS)
+                // 节次按学校作息表换算，不是「8 点起每小时一节」：14:00–18:00 是第 5–8 节，
+                // 按小时算会成第 7–10 节，冲突判定和详情里的节次就都错了。
+                // 结束时刻正好落在某节下课（刻度整数）时算到那一节为止，不多占下一节。
+                val startScale = XjtuTime.sectionScaleOf(startTotalMinutes)
+                val endScale = XjtuTime.sectionScaleOf(endTotalMinutes)
+                val startSection = floor(startScale).toInt().coerceIn(1, MAX_SECTIONS)
+                val endSection = (ceil(endScale).toInt() - 1).coerceIn(startSection, MAX_SECTIONS)
                 val entity = (existing ?: CustomCourseEntity(
                     courseName = "", teacher = "", location = "", weekBits = "",
                     dayOfWeek = 1, startSection = 1, endSection = 1, termCode = termCode

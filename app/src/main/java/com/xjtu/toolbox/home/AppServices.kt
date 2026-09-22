@@ -44,7 +44,7 @@ object AppServices {
         AppService(Routes.ICLASSFACE, "快速考勤流水", "课堂人脸考勤记录", ServiceCategory.CLASS, listOf("人脸考勤", "刷脸", "iclassface"), showOnHome = false, audience = AccountType.UNDERGRADUATE),
 
         AppService(Routes.JWAPP_SCORE, "成绩", "本学期成绩与 GPA", ServiceCategory.STUDY, listOf("成绩查询", "分数", "gpa", "绩点")),
-        AppService(Routes.JUDGE, "评教", "本科课程评教", ServiceCategory.STUDY, listOf("问卷", "打分", "本科评教")),
+        AppService(Routes.JUDGE, "评教", "课程评教", ServiceCategory.STUDY, listOf("问卷", "打分", "本科评教", "研究生评教")),
         AppService(Routes.JIAOCAI, "教材", "查课程教材、读全文", ServiceCategory.STUDY, listOf("课本", "教材中心", "全文", "电子书", "在线阅读")),
         // 已并进「教材」的全文库栏；首页不单列，全局搜「教材全文」仍能直达那一栏
         AppService(Routes.JIAOCAI1, "教材全文", "教材全文库", ServiceCategory.STUDY, listOf("全文", "电子书", "在线阅读"), showOnHome = false),

@@ -418,6 +418,8 @@ object HomeStatsRefresher {
             // 一周才刷一次的评教/体测后面，等于让最该新鲜的数据等最不着急的。
             for (s in sources.sortedBy { it.ttlMs }) {
                 if (s.loginType == LoginType.ICLASSFACE && accountType != AccountType.UNDERGRADUATE) continue
+                // 首页评教统计走的是本科教务评教；研究生评教在 gste，要单独登录，不在后台刷
+                if (s.routeKey == Routes.JUDGE && accountType != AccountType.UNDERGRADUATE) continue
                 val last = stamps[s.routeKey] ?: 0L
                 val hasContent = s.routeKey in existing
                 if (now - last < s.ttlMs && !(coldStart && !hasContent)) {

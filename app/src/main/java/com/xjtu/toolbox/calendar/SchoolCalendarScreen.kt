@@ -37,11 +37,17 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun SchoolCalendarScreen(onBack: () -> Unit) {
     val api = remember { SchoolCalendarApi() }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val imageApi = remember { SchoolCalendarImageApi(context) }
 
     var terms by remember { mutableStateOf<List<SchoolTerm>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var selectedTermIndex by remember { mutableIntStateOf(0) }
+    // 教务处发布的校历原图：各学年一张，拉不到不影响上面的结构化校历
+    var calendarImages by remember { mutableStateOf<List<SchoolCalendarImage>>(emptyList()) }
+    var loadedImage by remember { mutableStateOf<LoadedCalendarImage?>(null) }
+    var showImageViewer by remember { mutableStateOf(false) }
 
     val today = remember { LocalDate.now() }
     val scrollState = rememberLazyListState()
@@ -61,6 +67,41 @@ fun SchoolCalendarScreen(onBack: () -> Unit) {
             errorMessage = "加载失败：${e.message}"
         }
         isLoading = false
+    }
+
+    LaunchedEffect(Unit) {
+        calendarImages = try {
+            withContext(Dispatchers.IO) { imageApi.getImages() }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("SchoolCalendar", "校历图片列表获取失败", e)
+            emptyList()
+        }
+    }
+
+    // 显示所选学期那一学年的校历；教务处还没发这一学年的，就显示最新一张
+    val wantedImage = remember(calendarImages, terms, selectedTermIndex) {
+        val year = terms.getOrNull(selectedTermIndex)?.yearName
+        calendarImages.firstOrNull { it.year == year } ?: calendarImages.firstOrNull()
+    }
+    LaunchedEffect(wantedImage) {
+        val image = wantedImage ?: return@LaunchedEffect
+        if (loadedImage?.image == image) return@LaunchedEffect
+        loadedImage = try {
+            withContext(Dispatchers.IO) {
+                val bytes = imageApi.getImageBytes(image)
+                decodeCalendarBitmap(bytes)?.let { LoadedCalendarImage(image, bytes, it) }
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("SchoolCalendar", "校历图片下载失败: ${image.url}", e)
+            null
+        }
+    }
+    loadedImage?.takeIf { showImageViewer }?.let {
+        SchoolCalendarImageViewer(loaded = it, onDismiss = { showImageViewer = false })
     }
 
     Scaffold(
@@ -124,7 +165,9 @@ fun SchoolCalendarScreen(onBack: () -> Unit) {
                         onSelectTerm = { selectedTermIndex = it },
                         listState = scrollState,
                         scrollBehavior = scrollBehavior,
-                        glassTop = glassTop
+                        glassTop = glassTop,
+                        calendarImage = loadedImage,
+                        onOpenCalendarImage = { showImageViewer = true },
                     )
                 }
             }
@@ -156,7 +199,9 @@ private fun TermContent(
     onSelectTerm: (Int) -> Unit,
     listState: androidx.compose.foundation.lazy.LazyListState,
     scrollBehavior: ScrollBehavior,
-    glassTop: androidx.compose.ui.unit.Dp = 0.dp
+    glassTop: androidx.compose.ui.unit.Dp = 0.dp,
+    calendarImage: LoadedCalendarImage? = null,
+    onOpenCalendarImage: () -> Unit = {},
 ) {
     // 动画交给 HeroCard 里的滚动数字和进度条（从 0 长上来）；以前 animateFloatAsState 的初值就是目标值，进场根本不动
     val progress = currentTerm.progress(today)
@@ -243,6 +288,12 @@ private fun TermContent(
                 isAfterTerm = isAfterTerm
             )
           }
+        }
+        // 学期状态之后、日程之前：整学年校历原图，点开可放大、保存
+        if (calendarImage != null) {
+            item(key = "calendar_image") {
+                SchoolCalendarImageCard(loaded = calendarImage, onOpen = onOpenCalendarImage)
+            }
         }
     }
     // ── 事件时间轴 ──────────────────────────────────

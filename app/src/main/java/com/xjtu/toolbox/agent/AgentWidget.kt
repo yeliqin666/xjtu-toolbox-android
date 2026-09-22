@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.EventNote
 import androidx.compose.material.icons.filled.Assessment
@@ -16,6 +18,7 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.MeetingRoom
+import androidx.compose.material.icons.filled.EventSeat
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -63,6 +66,16 @@ data class ExamWidget(val exams: List<ExamItem>) : AgentWidget
 /** 空闲教室。currentPeriod 为 0 基节次索引，-1 表示无"当前节次"语境。 */
 data class RoomWidget(val condition: String, val rooms: List<RoomInfo>, val currentPeriod: Int) : AgentWidget
 
+/**
+ * 空闲教室的实时状态（智慧教室平台）：只放空闲和"没排课但有人"的教室。
+ * 类名是存盘判别式，字段名受 proguard 保护，改名要同步 proguard-rules.pro。
+ */
+data class LiveRoomWidget(
+    val condition: String,
+    val rooms: List<com.xjtu.toolbox.emptyroom.LiveRoom>,
+    val fetchedAt: Long,
+) : AgentWidget
+
 /** 考勤记录。 */
 data class AttendanceWidget(val records: List<AttendanceWaterRecord>) : AgentWidget
 
@@ -97,6 +110,19 @@ data class ZyxfEntryRef(
     )
 }
 
+/**
+ * 图书馆某区域的平面图缩略图：底图来自平面图磁盘缓存（工具执行时已落盘），
+ * 有人的座位压暗，空座就亮出来。点一下打开图书馆页并定位到这个区域。
+ */
+data class LibraryWidget(
+    val campusId: String,
+    val campusName: String,
+    val areaCode: String,
+    val areaName: String,
+    val imageName: String,
+    val seats: List<com.xjtu.toolbox.library.PlanSeat>,
+) : AgentWidget
+
 fun AgentWidget.toStored(gson: Gson): StoredWidget =
     StoredWidget(javaClass.simpleName, gson.toJson(this))
 
@@ -123,6 +149,12 @@ fun storedToWidget(stored: StoredWidget, gson: Gson): AgentWidget? = runCatching
                 rooms = (w.rooms as List<RoomInfo>?)?.map { it.sanitized() } ?: emptyList(),
             )
         }
+        "LiveRoomWidget" -> gson.fromJson(stored.json, LiveRoomWidget::class.java)?.let { w ->
+            w.copy(
+                condition = (w.condition as String?) ?: "",
+                rooms = (w.rooms as List<com.xjtu.toolbox.emptyroom.LiveRoom?>?)?.filterNotNull()?.map { it.sanitized() } ?: emptyList(),
+            )
+        }
         "AttendanceWidget" -> gson.fromJson(stored.json, AttendanceWidget::class.java)?.let { w ->
             w.copy(records = (w.records as List<AttendanceWaterRecord>?)?.map { it.sanitized() } ?: emptyList())
         }
@@ -136,6 +168,16 @@ fun storedToWidget(stored: StoredWidget, gson: Gson): AgentWidget? = runCatching
             w.copy(
                 query = (w.query as String?) ?: "",
                 items = (w.items as List<ZyxfEntryRef>?)?.map { it.sanitized() } ?: emptyList(),
+            )
+        }
+        "LibraryWidget" -> gson.fromJson(stored.json, LibraryWidget::class.java)?.let { w ->
+            w.copy(
+                campusId = (w.campusId as String?) ?: "",
+                campusName = (w.campusName as String?) ?: "",
+                areaCode = (w.areaCode as String?) ?: "",
+                areaName = (w.areaName as String?) ?: "",
+                imageName = (w.imageName as String?) ?: "",
+                seats = (w.seats as List<com.xjtu.toolbox.library.PlanSeat?>?)?.filterNotNull() ?: emptyList(),
             )
         }
         else -> null
@@ -155,11 +197,14 @@ fun AgentWidgetView(
     widget: AgentWidget,
     modifier: Modifier = Modifier,
     onAsk: (String) -> Unit = {},
+    onNavigate: (String) -> Unit = {},
 ) {
     when (widget) {
+        is LibraryWidget    -> LibraryWidgetView(widget, modifier, onNavigate)
         is ScheduleWidget   -> ScheduleWidgetView(widget, modifier)
         is ExamWidget       -> ExamWidgetView(widget, modifier)
         is RoomWidget       -> RoomWidgetView(widget, modifier)
+        is LiveRoomWidget   -> LiveRoomWidgetView(widget, modifier)
         is AttendanceWidget -> AttendanceWidgetView(widget, modifier)
         is GradeWidget      -> GradeWidgetView(widget, modifier)
         is CardWidget       -> CardWidgetView(widget, modifier)
@@ -468,6 +513,34 @@ private fun RoomWidgetView(w: RoomWidget, modifier: Modifier) {
 }
 
 @Composable
+private fun LiveRoomWidgetView(w: LiveRoomWidget, modifier: Modifier) {
+    val accent = MiuixTheme.colorScheme.primary
+    // 和空闲教室页的"其它使用"同一个琥珀色
+    val inUseColor = Color(0xFFD9822B)
+    val shown = w.rooms.take(12)
+    WidgetCard(
+        title = "空闲教室",
+        icon = Icons.Default.MeetingRoom,
+        accent = accent,
+        subtitle = w.condition,
+        modifier = modifier,
+    ) {
+        if (w.rooms.isEmpty()) WidgetMore("此刻没有空闲或其它使用的教室")
+        shown.forEach { r ->
+            WidgetRow(
+                primary = r.name,
+                secondary = if (r.isInUse) "其它使用 · ${r.seats} 座" else "${r.seats} 座",
+                trailing = {
+                    if (r.isInUse) WidgetBadge("${r.people} 人", inUseColor)
+                    else WidgetBadge("空闲", accent)
+                },
+            )
+        }
+        if (w.rooms.size > shown.size) WidgetMore("…还有 ${w.rooms.size - shown.size} 间")
+    }
+}
+
+@Composable
 private fun AttendanceWidgetView(w: AttendanceWidget, modifier: Modifier) {
     val normal = w.records.count { it.status == WaterType.NORMAL }
     WidgetCard(
@@ -687,3 +760,86 @@ private fun ZyxfWidgetView(w: ZyxfWidget, modifier: Modifier, onAsk: (String) ->
 }
 
 private val FOLDER_TINT = Color(0xFFE0A030)
+
+// ── 图书馆平面图 ──────────────────────────────────────────────────────────
+
+@Composable
+private fun LibraryWidgetView(w: LibraryWidget, modifier: Modifier, onNavigate: (String) -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val dark = LocalIsDarkTheme.current
+    // 底图工具执行时已经进了磁盘缓存；历史会话里缓存过期被清掉了，就只剩文字
+    // (缩略图, 原图宽)：座位坐标是原图像素，缩略图降采样过，要按原图宽换算
+    val decoded by androidx.compose.runtime.produceState<Pair<androidx.compose.ui.graphics.ImageBitmap, Int>?>(null, w.imageName) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                val file = java.io.File(java.io.File(context.cacheDir, "library_plan"), w.imageName.replace('/', '_'))
+                if (!file.isFile) return@runCatching null
+                val bytes = file.readBytes()
+                val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                val opts = android.graphics.BitmapFactory.Options().apply {
+                    inSampleSize = if (bounds.outWidth > 1600) 2 else 1
+                    inPreferredConfig = android.graphics.Bitmap.Config.RGB_565
+                }
+                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+                    ?.let { bmp -> Pair(bmp.asImageBitmap(), bounds.outWidth) }
+            }.getOrNull()
+        }
+    }
+    val free = w.seats.count { it.available }
+    val accent = Color(0xFF2FA36B)
+    WidgetCard(
+        title = w.areaName,
+        icon = Icons.Default.EventSeat,
+        accent = accent,
+        subtitle = "${w.campusName} · 点开在图书馆页选座",
+        trailing = {
+            Text("空闲 $free / ${w.seats.size}", style = MiuixTheme.textStyles.footnote1,
+                fontWeight = FontWeight.Bold, color = accent)
+        },
+        modifier = modifier.clickable {
+            com.xjtu.toolbox.library.LibraryFocus.request(
+                com.xjtu.toolbox.library.LibraryFocus.Target(w.campusId, w.areaCode)
+            )
+            onNavigate(com.xjtu.toolbox.Routes.LIBRARY)
+        },
+    ) {
+        val d = decoded
+        if (d != null && w.seats.isNotEmpty()) {
+            val img = d.first
+            val origW = d.second.toFloat()
+            val dimFilter = if (dark) androidx.compose.ui.graphics.ColorFilter.colorMatrix(
+                androidx.compose.ui.graphics.ColorMatrix().apply { setToScale(0.78f, 0.78f, 0.8f, 1f) }
+            ) else null
+            androidx.compose.foundation.Canvas(
+                Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(img.width.toFloat() / img.height)
+                    .clip(RoundedCornerShape(14.dp))
+            ) {
+                val k = size.width / origW
+                drawImage(
+                    img,
+                    dstSize = androidx.compose.ui.unit.IntSize(size.width.toInt(), size.height.toInt()),
+                    colorFilter = dimFilter,
+                    filterQuality = androidx.compose.ui.graphics.FilterQuality.Medium,
+                )
+                // 有人的座位压暗，空座就在一片暗里亮出来
+                w.seats.forEach { s ->
+                    if (!s.available) drawRect(
+                        Color.Black.copy(alpha = 0.55f),
+                        androidx.compose.ui.geometry.Offset(s.left * k, s.top * k),
+                        androidx.compose.ui.geometry.Size(s.width * k, s.height * k),
+                    )
+                }
+            }
+        } else {
+            Text(
+                "平面图已过期，点开图书馆页查看",
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+        }
+    }
+}
+

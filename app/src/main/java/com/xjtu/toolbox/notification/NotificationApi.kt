@@ -990,6 +990,26 @@ private val notificationClient: OkHttpClient by lazy {
         .build()
 }
 
+/**
+ * 学校站群（博达 CMS）上的非通知页面也挂着同一套人机验证，例如教务处校历页。
+ * 复用这里的挑战求解和按域名缓存的 client_id，别在别处再实现一遍。
+ */
+internal object XjtuSiteFetcher {
+    fun document(url: String): Document = fetchDocumentWithChallenge(notificationClient, url)
+
+    /** 下载站内文件（图片等）。先取过 [document] 的话会带上已通过验证的 client_id。 */
+    fun bytes(url: String, referer: String? = null): ByteArray {
+        val domain = URI(url).host
+        val builder = Request.Builder().url(url).header("User-Agent", USER_AGENT)
+        referer?.let { builder.header("Referer", it) }
+        cachedClientId(domain)?.let { builder.header("Cookie", "client_id=$it") }
+        notificationClient.newCall(builder.build()).execute().use { resp ->
+            if (!resp.isSuccessful) throw java.io.IOException("HTTP ${resp.code} for $url")
+            return resp.body?.bytes() ?: throw java.io.IOException("空响应：$url")
+        }
+    }
+}
+
 class NotificationApi(
     private val client: OkHttpClient = notificationClient
 ) {

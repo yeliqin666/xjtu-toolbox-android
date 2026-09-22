@@ -705,12 +705,12 @@ internal fun MainScreen(
                     if (selectedTab == BottomTab.PIDAI) {
                         agentHeaderNavIcon?.invoke()
                     }
-                    // 首页左上角：扫码登录入口
+                    // 首页左上角：扫一扫入口（扫码登录 / 图书馆座位码）
                     if (selectedTab == BottomTab.HOME) {
                         IconButton(onClick = { showQrLogin = true }) {
                             Icon(
                                 androidx.compose.material.icons.Icons.Default.QrCodeScanner,
-                                contentDescription = "扫码登录",
+                                contentDescription = "扫一扫",
                                 tint = MiuixTheme.colorScheme.onSurface
                             )
                         }
@@ -1196,6 +1196,18 @@ internal fun MainScreen(
         com.xjtu.toolbox.qrlogin.QrLoginScreen(
             sessionManager = accountManager.sessionManager,
             onBack = { showQrLogin = false },
+            // 图书馆桌面座位码：进图书馆页，定位到那个区并弹出这个座位的预约确认
+            onLibrarySeat = { qr ->
+                showQrLogin = false
+                com.xjtu.toolbox.library.LibraryFocus.request(
+                    com.xjtu.toolbox.library.LibraryFocus.Target(
+                        campusId = com.xjtu.toolbox.library.LibraryQrArea.campusOf(qr.areaCode).id,
+                        areaCode = qr.areaCode,
+                        seatId = qr.seat,
+                    )
+                )
+                navigateWithLogin(Routes.LIBRARY, LoginType.LIBRARY)
+            },
         )
     }
     }  // Scaffold content

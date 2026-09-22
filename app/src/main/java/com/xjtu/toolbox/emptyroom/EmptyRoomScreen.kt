@@ -54,6 +54,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.outlined.CloudOff
+import androidx.compose.material.icons.outlined.MeetingRoom
 import com.xjtu.toolbox.ui.components.AppDropdownMenu
 import com.xjtu.toolbox.ui.components.AppDropdownMenuItem
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
@@ -81,7 +82,32 @@ import kotlin.math.roundToInt
 import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.AppSearchBar
 import com.xjtu.toolbox.auth.AccountType
+import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.util.CredentialStore
+
+/** 空闲教室的数据源。[key] 存进偏好，改名别动它。 */
+private enum class RoomSource(val key: String) {
+    /** 智慧教室平台的此刻状态：含上课、没排课但有人（带人数）。默认。 */
+    LIVE("live"),
+    /** 预生成的课表数据，免登录，可看今天/明天。 */
+    CDN("cdn"),
+    /** 登录教务实时查课表，结果和 CDN 同源。 */
+    DIRECT("direct"),
+}
+
+/** 新键：旧的 empty_room_use_direct_query 是 CDN/直查二选一时代的，实时状态上线后默认改回实时，不沿用。 */
+private const val SOURCE_PREF_KEY = "empty_room_source"
+
+/** 实时状态的快捷筛选。第一个是默认。 */
+private val LIVE_FILTERS = listOf("空闲", "其它使用", "上课中", "全部")
+
+/** 空闲 → 其它使用 → 上课中 → 未知。 */
+private fun liveStatusRank(status: Int): Int = when (status) {
+    LiveRoomStatus.FREE -> 0
+    LiveRoomStatus.IN_USE -> 1
+    LiveRoomStatus.IN_CLASS -> 2
+    else -> 3
+}
 
 /** 每节课对应的时间段 (1-11) */
 private val PERIOD_TIMES = listOf(
@@ -208,10 +234,10 @@ private fun BuildingSelectionTile(
 fun EmptyRoomScreen(
     onBack: () -> Unit,
     /**
-     * 可选：已通过 JWXT 认证的 OkHttpClient（一般取自 jwxtLogin.client，或校外 vpnClient）。
-     * 不为 null 时 UI 会显示「数据源：CDN / 直查教务」切换；为 null 时维持原 CDN 模式。
+     * 会话管家。实时状态要登智慧教室、直查要登教务，都在页面里按需登录（入口不再先登教务）。
+     * 为 null（未初始化）时只剩 CDN 可用。
      */
-    directClient: okhttp3.OkHttpClient? = null,
+    sessionManager: com.xjtu.toolbox.auth.SessionManager? = null,
 ) {
     val context = LocalContext.current
     val credentialStore = remember(context) { CredentialStore(context) }
@@ -219,8 +245,6 @@ fun EmptyRoomScreen(
     val api = remember(context) { EmptyRoomApi(context) }
     val uncachedApi = remember { EmptyRoomApi() }
     val emptyRoomCache = remember(context) { EmptyRoomCache(context) }
-    val directApi = remember(directClient, emptyRoomCache) { directClient?.let { EmptyRoomDirectQuery(it, emptyRoomCache) } }
-    val uncachedDirectApi = remember(directClient) { directClient?.let { EmptyRoomDirectQuery(it) } }
     val prefs = remember { context.getSharedPreferences("empty_room", 0) }
     var rooms by remember { mutableStateOf<List<RoomInfo>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
@@ -231,19 +255,38 @@ fun EmptyRoomScreen(
      * 格式：「数据可能不是最新 · 缓存于 HH:mm」；null 表示当前显示的是实时数据。
      */
     var staleNote by remember { mutableStateOf<String?>(null) }
-    var useDirectQuery by rememberSaveable {
-        mutableStateOf(accountType != AccountType.POSTGRADUATE && prefs.getBoolean("empty_room_use_direct_query", false))
+    // 数据源：默认实时状态；CDN 和直查教务是同一份课表数据的两条取法，只在右上角切过去时才出现今天/明天
+    var source by rememberSaveable {
+        val saved = RoomSource.entries.firstOrNull { it.key == prefs.getString(SOURCE_PREF_KEY, null) }
+        mutableStateOf(
+            when {
+                saved == null -> RoomSource.LIVE
+                saved == RoomSource.DIRECT && accountType == AccountType.POSTGRADUATE -> RoomSource.CDN
+                else -> saved
+            }
+        )
     }
-    var showCdnTip by remember { mutableStateOf(!credentialStore.hasReadEmptyRoomCdnTip && !useDirectQuery) }
+    val isLive = source == RoomSource.LIVE
+    val useDirectQuery = source == RoomSource.DIRECT
+    var showCdnTip by remember { mutableStateOf(!credentialStore.hasReadEmptyRoomCdnTip && source == RoomSource.CDN) }
     var directProgress by remember { mutableStateOf<Pair<Int, Int>?>(null) }
 
-    val campusNames = CAMPUS_BUILDINGS.keys.toList()
-    fun savedCampusIndex(): Int {
-        val savedCampus = prefs.getString("empty_room_last_campus", null) ?: return 0
-        return campusNames.indexOf(savedCampus).takeIf { it >= 0 } ?: 0
+    // 实时状态：整个校区一次拿回来，楼的筛选在本地做
+    val liveApi = remember(sessionManager, emptyRoomCache) {
+        sessionManager?.getSiteOrNull(com.xjtu.toolbox.auth.JsSession.SITE_KEY)?.let { LiveRoomApi(it, emptyRoomCache) }
     }
-    var selectedCampusIndex by rememberSaveable { mutableIntStateOf(savedCampusIndex()) }
-    val selectedCampus = campusNames.getOrElse(selectedCampusIndex) { campusNames.firstOrNull() ?: "" }
+    var liveSnapshot by remember { mutableStateOf<LiveSnapshot?>(null) }
+    // 当天课表（CDN），按教室名对上实时状态，用来画节次条、算"能用到第几节"。拿不到就不画。
+    var liveSchedule by remember { mutableStateOf<Map<String, RoomInfo>>(emptyMap()) }
+
+    // 校区按名字记，不按下标：实时状态只有三个校区，两套列表的下标对不上
+    val campusNames = if (isLive) LIVE_CAMPUSES.keys.toList() else CAMPUS_BUILDINGS.keys.toList()
+    var selectedCampusName by rememberSaveable {
+        mutableStateOf(prefs.getString("empty_room_last_campus", null) ?: campusNames.first())
+    }
+    // 记住的校区不在当前数据源里（实时状态下选过曲江/苏州）时先落到第一个，不改用户记住的选择
+    val selectedCampus = selectedCampusName.takeIf { it in campusNames } ?: campusNames.first()
+    val selectedCampusIndex = campusNames.indexOf(selectedCampus)
 
     val buildings = remember(selectedCampus) { CAMPUS_BUILDINGS[selectedCampus] ?: emptyList() }
     // 教学楼多选
@@ -256,6 +299,31 @@ fun EmptyRoomScreen(
             ?.filterTo(mutableSetOf()) { it in buildings }
             ?.takeIf { it.isNotEmpty() }
         mutableStateOf(saved ?: setOf(buildings.firstOrNull().orEmpty()))
+    }
+    // 实时状态的楼单独记：平台的楼和课表的楼不是同一批（多了国防中心、西1楼，少了仲英楼等）。
+    // 空集合 = 全部楼——一次请求本来就是整个校区，默认全看最自然。
+    val liveBuildings = liveSnapshot?.takeIf { it.campus == selectedCampus }?.buildings.orEmpty()
+    var liveSelected by rememberSaveable(selectedCampus) {
+        mutableStateOf(
+            prefs.getString("empty_room_live_buildings_$selectedCampus", null)
+                ?.split("|")?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet()
+                ?: emptySet()
+        )
+    }
+    // 平台上已经没有的楼（改名、下线）不算数；全筛没了就回到全部
+    val liveEffective = liveSelected.filter { it in liveBuildings }.toSet()
+        .takeIf { it.isNotEmpty() && it.size < liveBuildings.size } ?: emptySet()
+
+    // 选楼弹窗两种数据源共用：课表按楼查询，实时按楼本地筛选
+    val sheetBuildings = if (isLive) liveBuildings else buildings
+    val sheetSelected = if (isLive) liveEffective.ifEmpty { liveBuildings.toSet() } else selectedBuildings
+    fun setSheetSelected(newSet: Set<String>) {
+        if (isLive) {
+            liveSelected = if (newSet.size >= liveBuildings.size) emptySet() else newSet
+            prefs.edit().putString("empty_room_live_buildings_$selectedCampus", liveSelected.joinToString("|")).apply()
+        } else {
+            selectedBuildings = newSet
+        }
     }
 
     val availableDates = remember { api.getAvailableDates() }
@@ -275,15 +343,15 @@ fun EmptyRoomScreen(
             .apply()
     }
 
-    LaunchedEffect(selectedCampusIndex, selectedBuildings) {
-        persistBuildingSelection()
+    LaunchedEffect(selectedCampus, selectedBuildings) {
+        if (!isLive) persistBuildingSelection()
     }
 
-    LaunchedEffect(useDirectQuery) {
-        if (accountType == AccountType.POSTGRADUATE && useDirectQuery) {
-            useDirectQuery = false
+    LaunchedEffect(source) {
+        if (accountType == AccountType.POSTGRADUATE && source == RoomSource.DIRECT) {
+            source = RoomSource.CDN
         } else {
-            prefs.edit().putBoolean("empty_room_use_direct_query", useDirectQuery).apply()
+            prefs.edit().putString(SOURCE_PREF_KEY, source.key).apply()
         }
     }
 
@@ -317,7 +385,7 @@ fun EmptyRoomScreen(
      * 缓存有数据 → 写入 [rooms] 并把 [staleNote] 标为「数据可能不是最新 · 缓存于 HH:mm」。
      * 缓存为空 → [staleNote] 仍为 null，由 errorMessage 单独展示。
      */
-    fun fallbackToStaleCache(activeBuildings: Collection<String>, date: String, reason: String) {
+    fun fallbackToStaleCache(activeBuildings: Collection<String>, date: String, reason: String): Boolean {
         val source = if (useDirectQuery) "direct" else "cdn"
         val merged = mutableListOf<RoomInfo>()
         var newestSavedAt = 0L
@@ -337,9 +405,10 @@ fun EmptyRoomScreen(
             val ts = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(newestSavedAt)
             staleNote = "数据可能不是最新 · 缓存于今天 $ts · $reason"
             android.util.Log.i("EmptyRoomScreen", "fallback to stale cache: $newestSavedAt, reason=$reason")
-        } else {
-            staleNote = null
+            return true
         }
+        staleNote = null
+        return false
     }
     val buildingCache = remember { mutableStateMapOf<String, Pair<String, List<RoomInfo>>>() }
 
@@ -351,11 +420,58 @@ fun EmptyRoomScreen(
     val refreshNonce = remember { mutableIntStateOf(0) }
     val handledRefreshNonce = remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(selectedCampus, selectedBuildings, selectedDate, useDirectQuery, refreshNonce.intValue) {
+    LaunchedEffect(selectedCampus, selectedBuildings, selectedDate, source, refreshNonce.intValue) {
         val myGen = queryGeneration.incrementAndGet()
         fun isLatest(): Boolean = myGen == queryGeneration.get()
         val forceRefresh = refreshNonce.intValue != handledRefreshNonce.intValue
         handledRefreshNonce.intValue = refreshNonce.intValue
+
+        if (source == RoomSource.LIVE) {
+            // 实时状态：一个校区一次请求，楼只在本地筛，所以不跟 selectedBuildings/日期走
+            isLoading = true
+            errorMessage = null
+            directProgress = null
+            try {
+                val liveSite = liveApi ?: throw RuntimeException("实时状态暂不可用，可在右上角切换到课表数据")
+                val snapshot = withContext(Dispatchers.IO) {
+                    val mgr = sessionManager ?: throw RuntimeException("实时状态暂不可用")
+                    if (mgr.credentials == null) throw RuntimeException("实时状态需要先登录统一身份认证，未登录可在右上角切换到 CDN 课表")
+                    mgr.ensureSite(com.xjtu.toolbox.auth.JsSession.SITE_KEY, userInitiated = true)
+                    liveSite.fetchCampus(selectedCampus, if (forceRefresh) 0L else LiveRoomApi.FRESH_MS)
+                }
+                if (!isLatest()) return@LaunchedEffect
+                liveSnapshot = snapshot
+                staleNote = null
+                // 当天课表只做点缀：拿不到照样显示实时状态
+                val today = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
+                val schedule = withContext(Dispatchers.IO) {
+                    runCatching {
+                        api.getEmptyRoomsMulti(selectedCampus, snapshot.buildings.toSet(), today)
+                            .associateBy { it.name }
+                    }.getOrDefault(emptyMap())
+                }
+                if (isLatest()) liveSchedule = schedule
+            } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+                android.util.Log.d("EmptyRoomScreen", "live gen=$myGen cancelled")
+            } catch (e: Exception) {
+                if (isLatest()) {
+                    val stale = liveApi?.readStale(selectedCampus)
+                    if (stale != null) {
+                        liveSnapshot = stale
+                        val ts = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(stale.fetchedAt)
+                        staleNote = "实时状态没刷出来，下面是 $ts 的状态（${rawError(e)}）"
+                        errorMessage = null
+                    } else {
+                        liveSnapshot = null
+                        staleNote = null
+                        errorMessage = rawError(e)
+                    }
+                }
+            } finally {
+                if (isLatest()) isLoading = false
+            }
+            return@LaunchedEffect
+        }
 
         // [debounce] 用户在 BottomSheet 里连续勾选多个教学楼时，selectedBuildings 短时间变化多次。
         // 350ms 防抖：连续操作只触发最后一次。这一步本身 suspend，coroutine cancel 会立即跳过。
@@ -403,11 +519,12 @@ fun EmptyRoomScreen(
         directProgress = null
         try {
             val queryResult: Pair<List<RoomInfo>, List<Pair<String, List<RoomInfo>>>> = withContext(Dispatchers.IO) {
-                val direct = if (forceRefresh) uncachedDirectApi else directApi
                 if (useDirectQuery) {
-                    if (direct == null) {
-                        throw RuntimeException("未完成教务登录，请返回后重新进入空闲教室")
-                    }
+                    // 入口不再先登教务（默认数据源是实时状态），切到直查时才登
+                    val mgr = sessionManager ?: throw RuntimeException("直查教务暂不可用，可切换到 CDN 缓存")
+                    if (mgr.credentials == null) throw RuntimeException("直查教务需要先登录，未登录可切换到 CDN 缓存")
+                    val jwxtClient = mgr.ensureSite(com.xjtu.toolbox.auth.LoginType.JWXT, userInitiated = true).client
+                    val direct = if (forceRefresh) EmptyRoomDirectQuery(jwxtClient) else EmptyRoomDirectQuery(jwxtClient, emptyRoomCache)
                     val merged = mutableListOf<RoomInfo>().also { it.addAll(cachedRows) }
                     val fetched = mutableListOf<Pair<String, List<RoomInfo>>>()
                     val totalBuildings = toFetch.size
@@ -451,20 +568,12 @@ fun EmptyRoomScreen(
                 rooms = emptyList()
                 staleNote = null
             }
-        } catch (e: java.net.ConnectException) {
-            if (isLatest()) {
-                errorMessage = "网络不可用，请检查连接"
-                fallbackToStaleCache(active, selectedDate, "网络不可用")
-            }
-        } catch (e: java.net.SocketTimeoutException) {
-            if (isLatest()) {
-                errorMessage = "网络不可用，请检查连接"
-                fallbackToStaleCache(active, selectedDate, "网络连接超时")
-            }
         } catch (e: Exception) {
             if (isLatest()) {
-                errorMessage = com.xjtu.toolbox.util.FriendlyError.of(e, "查询空教室")
-                fallbackToStaleCache(active, selectedDate, "查询失败")
+                // 有缓存就显示缓存（顶部黄条写明原因），没有才整页报错。
+                // 以前两者同时置上，报错块排在列表前面，读回来的缓存根本露不出来。
+                val reason = rawError(e)
+                errorMessage = if (fallbackToStaleCache(active, selectedDate, reason)) null else reason
             }
         } finally {
             // 只有最新一代查询才能更新 isLoading=false，避免旧 coroutine 覆盖新 coroutine 的 isLoading=true
@@ -499,6 +608,33 @@ fun EmptyRoomScreen(
         }
     }
 
+    // 实时状态的筛选与排序。楼的顺序跟平台一致（groupBy 保留首次出现顺序）。
+    var liveFilter by rememberSaveable { mutableStateOf(LIVE_FILTERS.first()) }
+    val liveInScope = remember(liveSnapshot, liveEffective, selectedCampus) {
+        val snap = liveSnapshot?.takeIf { it.campus == selectedCampus } ?: return@remember emptyList()
+        if (liveEffective.isEmpty()) snap.rooms else snap.rooms.filter { it.building in liveEffective }
+    }
+    val liveCounts = remember(liveInScope) {
+        if (liveInScope.isEmpty()) emptyMap() else mapOf(
+            "空闲" to liveInScope.count { it.isFree },
+            "其它使用" to liveInScope.count { it.isInUse },
+            "上课中" to liveInScope.count { it.isInClass },
+            "全部" to liveInScope.size,
+        )
+    }
+    val liveGrouped = remember(liveInScope, liveFilter) {
+        val picked = when (liveFilter) {
+            "空闲" -> liveInScope.filter { it.isFree }
+            "其它使用" -> liveInScope.filter { it.isInUse }
+            "上课中" -> liveInScope.filter { it.isInClass }
+            else -> liveInScope
+        }
+        // 空闲的排前面；其它使用的按人数从少到多
+        picked.groupBy { it.building }.mapValues { (_, list) ->
+            list.sortedWith(compareBy<LiveRoom>({ liveStatusRank(it.status) }, { if (it.isInUse) it.people else 0 }, { it.name }))
+        }
+    }
+
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     var showActionsMenu by remember { mutableStateOf(false) }
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
@@ -517,31 +653,39 @@ fun EmptyRoomScreen(
                     }
                 },
                 actions = {
-                    if (accountType != AccountType.POSTGRADUATE) {
-                        Box {
-                            IconButton(onClick = { showActionsMenu = true }) {
-                                Icon(Icons.Default.MoreVert, contentDescription = "更多")
+                    Box {
+                        IconButton(onClick = { showActionsMenu = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "切换数据源")
+                        }
+                        AppDropdownMenu(
+                            expanded = showActionsMenu,
+                            onDismissRequest = { showActionsMenu = false }
+                        ) {
+                            Text(
+                                "数据源",
+                                modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                            )
+                            val options = buildList {
+                                add(Triple(RoomSource.LIVE, "实时状态", "此刻哪间空、哪间有人，含没排课但有人用的"))
+                                add(Triple(RoomSource.CDN, "CDN 课表", "免登录，看今天、明天逐节安排"))
+                                // 沿用原来的限制：研究生身份不提供直查教务
+                                if (accountType != AccountType.POSTGRADUATE) {
+                                    add(Triple(RoomSource.DIRECT, "直查教务", "登录教务查课表，和 CDN 同源"))
+                                }
                             }
-                            AppDropdownMenu(
-                                expanded = showActionsMenu,
-                                onDismissRequest = { showActionsMenu = false }
-                            ) {
-                                Text(
-                                    "数据源",
-                                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
-                                    style = MiuixTheme.textStyles.footnote1,
-                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                                )
+                            options.forEach { (option, label, hint) ->
                                 AppDropdownMenuItem(
                                     text = {
                                         Column {
                                             Text(
-                                                "CDN 缓存",
+                                                label,
                                                 style = MiuixTheme.textStyles.body2,
-                                                fontWeight = if (!useDirectQuery) FontWeight.Bold else FontWeight.Normal
+                                                fontWeight = if (source == option) FontWeight.Bold else FontWeight.Normal
                                             )
                                             Text(
-                                                "免登录，定时生成",
+                                                hint,
                                                 style = MiuixTheme.textStyles.footnote1,
                                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                                             )
@@ -549,44 +693,17 @@ fun EmptyRoomScreen(
                                     },
                                     onClick = {
                                         showActionsMenu = false
-                                        if (useDirectQuery) {
-                                            useDirectQuery = false
-                                            if (!credentialStore.hasReadEmptyRoomCdnTip) {
+                                        if (source != option) {
+                                            source = option
+                                            if (option == RoomSource.CDN && !credentialStore.hasReadEmptyRoomCdnTip) {
                                                 showCdnTip = true
                                             }
-                                            refreshNonce.intValue++
+                                            errorMessage = null
+                                            staleNote = null
                                         }
                                     },
                                     trailingIcon = {
-                                        if (!useDirectQuery) {
-                                            Icon(Icons.Default.Check, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.primary)
-                                        }
-                                    }
-                                )
-                                AppDropdownMenuItem(
-                                    text = {
-                                        Column {
-                                            Text(
-                                                "直查教务",
-                                                style = MiuixTheme.textStyles.body2,
-                                                fontWeight = if (useDirectQuery) FontWeight.Bold else FontWeight.Normal
-                                            )
-                                            Text(
-                                                "登录后实时查询",
-                                                style = MiuixTheme.textStyles.footnote1,
-                                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                                            )
-                                        }
-                                    },
-                                    onClick = {
-                                        showActionsMenu = false
-                                        if (!useDirectQuery) {
-                                            useDirectQuery = true
-                                            refreshNonce.intValue++
-                                        }
-                                    },
-                                    trailingIcon = {
-                                        if (useDirectQuery) {
+                                        if (source == option) {
                                             Icon(Icons.Default.Check, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.primary)
                                         }
                                     }
@@ -603,9 +720,9 @@ fun EmptyRoomScreen(
                 show = true,
                 title = "Cloudflare CDN 查询说明",
                 summary = if (accountType == AccountType.POSTGRADUATE) {
-                    "CDN 查询无需登录教务系统，也不会发送账号相关信息；数据由后台定时生成，可能不是实时结果。"
+                    "CDN 查询无需登录，也不会发送账号相关信息；数据是按课表定时生成的，只知道哪节有课，不知道没排课的教室里有没有人。想看此刻的实际情况，可切回实时状态。"
                 } else {
-                    "CDN 查询无需登录教务系统，也不会发送账号相关信息；数据由后台定时生成，可能不是实时结果。如果查询失败或需要最新数据，可切换为直查教务。"
+                    "CDN 查询无需登录，也不会发送账号相关信息；数据是按课表定时生成的，只知道哪节有课，不知道没排课的教室里有没有人。想看此刻的实际情况，可切回实时状态；CDN 查询失败时可改用直查教务。"
                 },
                 onDismissRequest = {
                     credentialStore.hasReadEmptyRoomCdnTip = true
@@ -648,9 +765,9 @@ fun EmptyRoomScreen(
                         tabs = campusNames.map { it.removeSuffix("校区") },
                         selectedTabIndex = selectedCampusIndex,
                         onTabSelected = {
-                            selectedCampusIndex = it
+                            selectedCampusName = campusNames.getOrElse(it) { selectedCampus }
                             prefs.edit()
-                                .putString("empty_room_last_campus", campusNames.getOrElse(it) { selectedCampus })
+                                .putString("empty_room_last_campus", selectedCampusName)
                                 .apply()
                         },
                         embedded = true,
@@ -667,18 +784,26 @@ fun EmptyRoomScreen(
                         label = "搜索教学楼",
                         modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
                     )
+                    if (isLive && sheetBuildings.isEmpty()) {
+                        Text(
+                            if (isLoading) "正在读取这个校区的楼…" else "这个校区的实时状态还没拿到",
+                            style = MiuixTheme.textStyles.body2,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 12.dp),
+                        )
+                    }
                     // 全选/取消全选
-                    val allSelected = selectedBuildings.size == buildings.size
-                    BuildingSelectionTile(
+                    val allSelected = sheetBuildings.isNotEmpty() && sheetSelected.size == sheetBuildings.size
+                    if (sheetBuildings.isNotEmpty()) BuildingSelectionTile(
                         text = if (allSelected) "已选择全部教学楼" else "选择全部教学楼",
                         selected = allSelected,
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
                     ) {
-                        selectedBuildings = if (allSelected) setOf(buildings.firstOrNull() ?: "") else buildings.toSet()
-                        persistBuildingSelection()
+                        setSheetSelected(if (allSelected) setOf(sheetBuildings.firstOrNull() ?: "") else sheetBuildings.toSet())
+                        if (!isLive) persistBuildingSelection()
                     }
                     HorizontalDivider(Modifier.padding(vertical = 4.dp))
-                    val visibleBuildings = buildings
+                    val visibleBuildings = sheetBuildings
                         .filter { buildingQuery.isBlank() || it.contains(buildingQuery, ignoreCase = true) }
                     visibleBuildings.chunked(2).forEach { rowBuildings ->
                         Row(
@@ -686,23 +811,33 @@ fun EmptyRoomScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             rowBuildings.forEach { building ->
-                                val isSelected = building in selectedBuildings
+                                val isSelected = building in sheetSelected
                                 BuildingSelectionTile(
                                     text = building,
                                     selected = isSelected,
                                     modifier = Modifier.weight(1f)
                                 ) {
-                                    selectedBuildings = if (isSelected) {
-                                        val newSet = selectedBuildings - building
-                                        if (newSet.isEmpty()) selectedBuildings else newSet
-                                    } else {
-                                        selectedBuildings + building
-                                    }
-                                    persistBuildingSelection()
+                                    setSheetSelected(
+                                        if (isSelected) {
+                                            val newSet = sheetSelected - building
+                                            if (newSet.isEmpty()) sheetSelected else newSet
+                                        } else {
+                                            sheetSelected + building
+                                        }
+                                    )
+                                    if (!isLive) persistBuildingSelection()
                                 }
                             }
                             if (rowBuildings.size == 1) Spacer(Modifier.weight(1f))
                         }
+                    }
+                    if (isLive) {
+                        Text(
+                            "实时状态来自学校智慧教室平台，只有兴庆、雁塔、创新港三个校区；仲英楼、中1、计教中心、田家炳等楼和曲江、苏州校区不在平台上，要看它们请在右上角切到课表数据。",
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 10.dp),
+                        )
                     }
 
                     // 日期 / 空闲节次 / 快捷筛选已在主页面卡片提供，弹窗内不再重复（避免与页面控件重叠）。
@@ -721,7 +856,7 @@ fun EmptyRoomScreen(
         // 滑条是横向拖动，放进纵向列表里不会和滚动、下拉刷新抢手势。
         PullToRefresh(
             refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
-            isRefreshing = isLoading && rooms.isNotEmpty(),
+            isRefreshing = isLoading && (if (isLive) liveSnapshot != null else rooms.isNotEmpty()),
             onRefresh = { refreshNonce.intValue++ },
             pullToRefreshState = pullToRefreshState,
             topAppBarScrollBehavior = scrollBehavior,
@@ -766,7 +901,12 @@ fun EmptyRoomScreen(
                                     )
                                     Spacer(Modifier.width(5.dp))
                                     Text(
-                                        selectedBuildings.joinToString("、").ifEmpty { "选择教学楼" },
+                                        if (isLive) {
+                                            if (liveEffective.isEmpty()) "全部教学楼"
+                                            else liveBuildings.filter { it in liveEffective }.joinToString("、")
+                                        } else {
+                                            selectedBuildings.joinToString("、").ifEmpty { "选择教学楼" }
+                                        },
                                         style = MiuixTheme.textStyles.body2,
                                         fontWeight = FontWeight.Bold,
                                         color = MiuixTheme.colorScheme.primary,
@@ -787,7 +927,22 @@ fun EmptyRoomScreen(
                                         modifier = Modifier.size(16.dp),
                                     )
                                 }
-                                availableDates.forEachIndexed { index, date ->
+                                if (isLive) {
+                                    val snap = liveSnapshot?.takeIf { it.campus == selectedCampus }
+                                    Text(
+                                        if (snap == null) "实时"
+                                        else "实时 · " + java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(snap.fetchedAt),
+                                        modifier = Modifier
+                                            .padding(start = 6.dp)
+                                            .clip(RoundedCornerShape(50))
+                                            .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.12f))
+                                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                                        style = MiuixTheme.textStyles.footnote2,
+                                        color = MiuixTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+                                if (!isLive) availableDates.forEachIndexed { index, date ->
                                     AppFilterChip(
                                         selected = selectedDate == date,
                                         onClick = { selectedDate = date },
@@ -801,6 +956,41 @@ fun EmptyRoomScreen(
                                 }
                             }
                             Spacer(Modifier.height(12.dp))
+                            if (isLive) {
+                                // 实时状态只有"此刻"，没有节次可选；快捷筛选按状态分，带上各自的间数
+                                val counts = liveCounts
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    LIVE_FILTERS.forEach { filter ->
+                                        val n = counts[filter]
+                                        AppFilterChip(
+                                            selected = liveFilter == filter,
+                                            onClick = { liveFilter = filter },
+                                            label = if (n != null) "$filter $n" else filter,
+                                        )
+                                    }
+                                }
+                                Spacer(Modifier.height(8.dp))
+                                Text(
+                                    "「其它使用」是课表上没课、但平台统计到有人的教室（自习、社团借用、活动等，平台不区分），人数是此刻在场人数。",
+                                    style = MiuixTheme.textStyles.footnote1,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                )
+                                if (isLoading && liveSnapshot != null) {
+                                    Spacer(Modifier.height(8.dp))
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        CircularProgressIndicator(size = 12.dp, strokeWidth = 1.5.dp)
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(
+                                            "正在更新实时状态",
+                                            style = MiuixTheme.textStyles.footnote1,
+                                            color = MiuixTheme.colorScheme.primary,
+                                        )
+                                    }
+                                }
+                            } else {
                             // 第二行：要空的节次和对应时间；今天再标出现在是第几节
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
@@ -865,6 +1055,7 @@ fun EmptyRoomScreen(
                                     )
                                 }
                             }
+                            } // 课表数据源的节次/日期筛选
                         }
                     }
             }
@@ -920,13 +1111,83 @@ fun EmptyRoomScreen(
 
                 if (!wideRooms) fullLineItem(key = "filters") { filtersCard() }
 
-                // 加载中、出错、空：占一块固定高度居中显示（列表里没有「剩余高度」可以撑满）
+                // 加载中、出错、空：列表里没有「剩余高度」可以撑满，给个最小高度居中
                 val stateBox: (@Composable () -> Unit) -> Unit = { content ->
                     fullLineItem(key = "state") {
-                        Box(Modifier.fillMaxWidth().height(260.dp), contentAlignment = Alignment.Center) { content() }
+                        Box(Modifier.fillMaxWidth().heightIn(min = 320.dp), contentAlignment = Alignment.Center) { content() }
                     }
                 }
-                when {
+                val switchToCdn: () -> Unit = {
+                    source = RoomSource.CDN
+                    errorMessage = null
+                    if (!credentialStore.hasReadEmptyRoomCdnTip) showCdnTip = true
+                }
+                if (isLive) when {
+                    isLoading && liveInScope.isEmpty() -> stateBox {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            com.xjtu.toolbox.ui.components.MorphingLoader()
+                            Spacer(Modifier.height(8.dp))
+                            Text("正在读取实时状态…", style = MiuixTheme.textStyles.body2)
+                        }
+                    }
+
+                    errorMessage != null -> stateBox {
+                        RoomStateBlock(
+                            icon = Icons.Outlined.CloudOff,
+                            title = "实时状态加载失败",
+                            detail = errorMessage,
+                            isError = true,
+                            primaryLabel = "重试",
+                            onPrimary = { refreshNonce.intValue++ },
+                            secondaryLabel = "改用 CDN 课表",
+                            onSecondary = switchToCdn,
+                        )
+                    }
+
+                    liveGrouped.isEmpty() -> stateBox {
+                        RoomStateBlock(
+                            icon = Icons.Outlined.MeetingRoom,
+                            title = if (liveFilter == "空闲") "此刻没有空闲的教室" else "此刻没有符合条件的教室",
+                            secondaryLabel = if (liveFilter != "全部") "查看全部" else null,
+                            onSecondary = { liveFilter = "全部" },
+                        )
+                    }
+
+                    else -> {
+                        val nowPeriod = currentPeriod
+                        liveGrouped.forEach { (building, buildingRooms) ->
+                            fullLineItem(key = "live_header_$building") {
+                                Row(
+                                    Modifier.fillMaxWidth().padding(start = 4.dp, top = 10.dp, bottom = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = MiuixTheme.colorScheme.primary.copy(alpha = 0.11f)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Apartment,
+                                            contentDescription = null,
+                                            tint = MiuixTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(7.dp).size(17.dp)
+                                        )
+                                    }
+                                    Spacer(Modifier.width(9.dp))
+                                    Text(building, style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Bold)
+                                    Spacer(Modifier.weight(1f))
+                                    Text(
+                                        "${buildingRooms.size} 间",
+                                        style = MiuixTheme.textStyles.footnote1,
+                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                                    )
+                                }
+                            }
+                            itemsIndexed(buildingRooms, key = { _, it -> "live_${it.name}" }) { i, room ->
+                                Box(Modifier.enterOnce(i + 1)) { LiveRoomCard(room, liveSchedule[room.name], nowPeriod) }
+                            }
+                        }
+                    }
+                } else when {
                     isLoading && rooms.isEmpty() -> stateBox {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             com.xjtu.toolbox.ui.components.MorphingLoader()  // 整页加载统一用形变加载器
@@ -940,26 +1201,33 @@ fun EmptyRoomScreen(
                     }
 
                     errorMessage != null -> stateBox {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(errorMessage!!, color = MiuixTheme.colorScheme.error, textAlign = TextAlign.Center)
-                            Spacer(Modifier.height(12.dp))
-                            Button(onClick = { refreshNonce.intValue++ }) { Text("重试") }
-                        }
+                        RoomStateBlock(
+                            icon = Icons.Outlined.CloudOff,
+                            title = if (useDirectQuery) "直查教务失败" else "课表数据加载失败",
+                            detail = errorMessage,
+                            isError = true,
+                            primaryLabel = "重试",
+                            onPrimary = { refreshNonce.intValue++ },
+                        )
                     }
 
                     rooms.isEmpty() && selectedBuildings.all { it.isEmpty() } -> stateBox {
-                        Text(
-                            "选择教学楼后自动查询",
-                            style = MiuixTheme.textStyles.body1,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        RoomStateBlock(
+                            icon = Icons.Default.Apartment,
+                            title = "选择教学楼后自动查询",
+                            primaryLabel = "选择教学楼",
+                            onPrimary = { showFilterSheet.value = true },
                         )
                     }
 
                     displayRooms.isEmpty() -> stateBox {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("暂无符合条件的教室", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                            TextButton(text = "查看全部", onClick = { smartFilter = "全部" })
-                        }
+                        RoomStateBlock(
+                            icon = Icons.Outlined.MeetingRoom,
+                            title = "暂无符合条件的教室",
+                            detail = "可以放宽节次范围，或换一个筛选",
+                            secondaryLabel = if (smartFilter != "全部") "查看全部" else null,
+                            onSecondary = { smartFilter = "全部" },
+                        )
                     }
 
                     else -> {
@@ -1150,3 +1418,181 @@ private fun SmartRoomCard(room: RoomInfo, currentPeriod: Int) {
 }
 
 
+// ══════ 实时状态教室卡片 ══════
+
+/** 其它使用（没排课但有人）：用琥珀色，和"空闲"的主色、"上课中"的错误色都分得开。 */
+private val IN_USE_COLOR = Color(0xFFD9822B)
+
+/**
+ * @param schedule 当天课表（CDN）里的同名教室，可能没有（平台多出来的教室、CDN 拿不到）。
+ * 有的话画节次条，并告诉用户这间空教室能用到什么时候。
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun LiveRoomCard(room: LiveRoom, schedule: RoomInfo?, currentPeriod: Int) {
+    val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
+    val seats = room.seats.takeIf { it > 0 } ?: schedule?.size ?: 0
+    val seatText = if (seats > 0) "$seats 座" else "座位数未知"
+    val status = schedule?.status.orEmpty()
+    val nextBusy = if (currentPeriod >= 0) {
+        status.indices.firstOrNull { it > currentPeriod && status[it] != 0 }
+    } else null
+    val (badge, badgeColor) = when {
+        room.isFree -> "空闲" to MiuixTheme.colorScheme.primary
+        room.isInUse -> "${room.people} 人" to IN_USE_COLOR
+        room.isInClass -> "上课中" to MiuixTheme.colorScheme.error
+        else -> "未知" to MiuixTheme.colorScheme.onSurfaceVariantSummary
+    }
+    val summary = when {
+        room.isFree -> when {
+            status.isEmpty() || currentPeriod < 0 -> "$seatText · 此刻没人"
+            nextBusy != null -> "$seatText · 下一节课在第${nextBusy + 1}节"
+            else -> "$seatText · 今天余下时段没排课"
+        }
+        room.isInUse -> "$seatText · 没排课，此刻 ${room.people} 人在用"
+        room.isInClass -> listOfNotNull(room.course, room.teacher).joinToString(" · ").ifEmpty { "有课" } +
+            " · ${room.people}/${seats.takeIf { it > 0 } ?: "?"} 人"
+        else -> "$seatText · 平台没给出状态"
+    }
+
+    top.yukonga.miuix.kmp.basic.Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = {},
+                onLongClick = {
+                    clipboardManager.setText(AnnotatedString(room.name))
+                    android.widget.Toast.makeText(context, "已复制：${room.name}", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            ),
+        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(
+            color = if (room.isFree) MiuixTheme.colorScheme.surfaceVariant
+            else MiuixTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+        )
+    ) {
+        Column(Modifier.fillMaxWidth().padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        room.name,
+                        style = MiuixTheme.textStyles.body1,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        summary,
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = badgeColor.copy(alpha = 0.12f)
+                ) {
+                    Text(
+                        badge,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = badgeColor,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+            if (status.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                com.xjtu.toolbox.ui.components.SlotStripe(
+                    free = status.map { it == 0 },
+                    freeColor = MiuixTheme.colorScheme.primary,
+                    currentIndex = currentPeriod,
+                    busyColor = MiuixTheme.colorScheme.outline.copy(alpha = 0.14f),
+                    height = 5.dp,
+                )
+            }
+        }
+    }
+}
+
+// ══════ 加载失败 / 空结果 ══════
+
+/** 报错不翻译：原文最准。没有 message 的给类名，至少知道是哪一类错。 */
+private fun rawError(e: Throwable): String =
+    e.message?.trim()?.takeIf { it.isNotEmpty() } ?: e.javaClass.simpleName
+
+/**
+ * 页面里所有「没东西可显示」的状态共用一个样子：浅底圆形图标 + 标题 + 说明 +
+ * 一个主按钮 + 一个文字链接。
+ *
+ * 以前是手写的：整句报错染成红色、没有图标，「重试」是 miuix Button，下面的次要操作
+ * 用的是 miuix TextButton——它不是文字链接，而是另一块灰底胶囊，两块宽度颜色都不一样，
+ * 叠在一起像两块砖。「查看全部」同样是一块灰胶囊紧贴在提示字下面。
+ * 现在只有主操作是按钮，次要操作一律是主色文字链接。
+ */
+@Composable
+private fun RoomStateBlock(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    detail: String? = null,
+    isError: Boolean = false,
+    primaryLabel: String? = null,
+    onPrimary: () -> Unit = {},
+    secondaryLabel: String? = null,
+    onSecondary: () -> Unit = {},
+) {
+    val accent = if (isError) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.primary
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 36.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            Modifier.size(64.dp).clip(RoundedCornerShape(50)).background(accent.copy(alpha = 0.10f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(30.dp))
+        }
+        Spacer(Modifier.height(16.dp))
+        Text(
+            title,
+            style = MiuixTheme.textStyles.body1,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center,
+        )
+        if (!detail.isNullOrBlank()) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                detail,
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                textAlign = TextAlign.Center,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (primaryLabel != null) {
+            Spacer(Modifier.height(20.dp))
+            TextButton(
+                text = primaryLabel,
+                onClick = onPrimary,
+                colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.textButtonColorsPrimary(),
+                modifier = Modifier.widthIn(min = 160.dp),
+            )
+        }
+        if (secondaryLabel != null) {
+            Spacer(Modifier.height(if (primaryLabel != null) 6.dp else 14.dp))
+            Text(
+                secondaryLabel,
+                style = MiuixTheme.textStyles.body2,
+                color = MiuixTheme.colorScheme.primary,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .clickable(onClick = onSecondary)
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+            )
+        }
+    }
+}

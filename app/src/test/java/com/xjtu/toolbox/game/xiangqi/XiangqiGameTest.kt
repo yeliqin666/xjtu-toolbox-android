@@ -112,4 +112,17 @@ class XiangqiGameTest {
         assertTrue(g.move(pos(5, 2), pos(5, 1)))
         assertEquals(XiangqiStatus.Over(Side.RED, EndReason.STALEMATE), g.status())
     }
+    @Test
+    fun `长将判负`() {
+        // 红车追着黑将左右将军，黑将只能来回躲；同一局面第三次出现时红方长将违例
+        val g = XiangqiGame.fromFen("4k4/9/R8/9/9/9/9/9/9/3K5 w")!!
+        assertTrue(g.move(pos(0, 2), pos(4, 2)))
+        repeat(2) {
+            assertTrue(g.move(pos(4, 0), pos(5, 0)))
+            assertTrue(g.move(pos(4, 2), pos(5, 2)))
+            assertTrue(g.move(pos(5, 0), pos(4, 0)))
+            assertTrue(g.move(pos(5, 2), pos(4, 2)))
+        }
+        assertEquals(XiangqiStatus.Over(Side.BLACK, EndReason.PERPETUAL_CHECK), g.status())
+    }
 }

@@ -527,6 +527,9 @@ class AppLoginStateViewModel(application: android.app.Application) : androidx.li
             register(com.xjtu.toolbox.auth.FitnessSession())
             register(com.xjtu.toolbox.auth.IclassfaceSession())
             register(com.xjtu.toolbox.auth.HelloSession())
+            register(com.xjtu.toolbox.auth.GsteSession())
+            register(com.xjtu.toolbox.auth.GmisSession())
+            register(com.xjtu.toolbox.auth.JsSession())
         }
         // 绑定 AccountManager 到 sessionManager + loginState
         accountManager.sessionManager = sessionManager

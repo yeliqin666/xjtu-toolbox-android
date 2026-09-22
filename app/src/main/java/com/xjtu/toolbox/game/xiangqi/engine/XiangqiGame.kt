@@ -23,14 +23,14 @@ class XiangqiGame {
     private val boardHistory = ArrayList<Board>()
     private val moveHistory = ArrayList<MoveRecord>()
 
-    /**
-     * 历史局面计数，用于三次重复局面判和。
-     *
-     * 注意：这是**简化规则**，不是中国象棋完整棋例里的长将 / 长捉判负。
-     * 完整棋例要分辨「将、捉、闲」并判长将一方负，实现代价远大于同屏双人自娱自乐的收益；
-     * 这里退一步：同一局面（含轮走方）出现三次就判和，至少保证长将不会让对局永远走不完。
-     */
+    /** 历史局面计数。同一局面（含轮走方）第三次出现时按棋例裁决，见 [judgeRepetition]。 */
     private val repetition = HashMap<Long, Int>()
+
+    /** 每一步走完后的局面哈希：第 0 项是开局局面，第 i 项是第 i 步之后。 */
+    private val positionKeys = ArrayList<Long>()
+
+    /** 每一步的性质（将 / 捉 / 闲），和 [moveHistory] 一一对应。 */
+    private val moveKinds = ArrayList<MoveKind>()
 
     private var status: XiangqiStatus = XiangqiStatus.Playing
 
@@ -44,6 +44,8 @@ class XiangqiGame {
         boardHistory.clear()
         moveHistory.clear()
         repetition.clear()
+        positionKeys.clear()
+        moveKinds.clear()
         status = XiangqiStatus.Playing
         countCurrentPosition()
     }
@@ -80,12 +82,20 @@ class XiangqiGame {
 
         val piece = board.getPieceByPosition(from)
         val captured = board.getPieceByPosition(to)
+        val mover = sideToMove
+        val threatsBefore = chaseTargets(board, mover)
         boardHistory.add(Board(board))
         board.setPieceByPosition(to, piece)
         board.setPieceByPosition(from, Piece.EMPTY)
         board.bRedGo = !board.bRedGo
         board.rounds += 1
         moveHistory.add(MoveRecord(from, to, piece, captured))
+        moveKinds.add(
+            MoveKind(
+                check = Rule.isInCheck(mover.opposite.kingPiece, board),
+                chase = (chaseTargets(board, mover) - threatsBefore).isNotEmpty(),
+            )
+        )
 
         countCurrentPosition()
         updateStatusAfterMove()
@@ -104,6 +114,7 @@ class XiangqiGame {
         decountCurrentPosition()
         board = boardHistory.removeAt(boardHistory.size - 1)
         moveHistory.removeAt(moveHistory.size - 1)
+        moveKinds.removeAt(moveKinds.size - 1)
         status = XiangqiStatus.Playing
         return true
     }
@@ -143,9 +154,11 @@ class XiangqiGame {
     private fun countCurrentPosition() {
         val key = zobrist()
         repetition[key] = (repetition[key] ?: 0) + 1
+        positionKeys.add(key)
     }
 
     private fun decountCurrentPosition() {
+        positionKeys.removeAt(positionKeys.size - 1)
         val key = zobrist()
         val n = repetition[key] ?: return
         if (n <= 1) repetition.remove(key) else repetition[key] = n - 1
@@ -162,11 +175,115 @@ class XiangqiGame {
             return
         }
         if ((repetition[zobrist()] ?: 0) >= 3) {
-            status = XiangqiStatus.Over(null, EndReason.REPETITION)
+            status = judgeRepetition()
+            return
+        }
+        // 自然限着：双方各走 60 回合没有吃子，判和
+        val sinceCapture = moveHistory.asReversed().indexOfFirst { Piece.isValid(it.captured) }
+            .let { if (it < 0) moveHistory.size else it }
+        if (sinceCapture >= MOVE_LIMIT_PLIES) {
+            status = XiangqiStatus.Over(null, EndReason.MOVE_LIMIT)
         }
     }
 
+    /**
+     * 循环局面按棋例裁决（「将、捉、闲」分类）：
+     * - 一方长将、另一方不是：长将方负；双方都长将：和。
+     * - 都不长将时，一方长捉、另一方不是：长捉方负；双方同捉或都是闲着：和。
+     *
+     * 「长」指循环里这一方的每一步都是将（或都是捉，夹着将也算捉）。
+     * 循环取这个局面上一次出现到现在这一段。
+     */
+    private fun judgeRepetition(): XiangqiStatus {
+        val key = positionKeys.last()
+        val prev = positionKeys.subList(0, positionKeys.size - 1).lastIndexOf(key)
+        // positionKeys[i] 是第 i 步之后，所以循环里的步是 moveKinds[prev ..< 末尾]
+        val cycle = moveKinds.subList(prev, moveKinds.size).asReversed()
+        val lastMover = if (board.bRedGo) Side.BLACK else Side.RED
+        // 倒过来数，偶数下标是刚走完的一方
+        val mine = cycle.filterIndexed { i, _ -> i % 2 == 0 }
+        val theirs = cycle.filterIndexed { i, _ -> i % 2 == 1 }
+        fun List<MoveKind>.always(p: (MoveKind) -> Boolean) = isNotEmpty() && all(p)
+
+        val myCheck = mine.always { it.check }
+        val theirCheck = theirs.always { it.check }
+        if (myCheck != theirCheck) {
+            val winner = if (myCheck) lastMover.opposite else lastMover
+            return XiangqiStatus.Over(winner, EndReason.PERPETUAL_CHECK)
+        }
+        if (!myCheck) {
+            val myChase = mine.always { it.chase || it.check }
+            val theirChase = theirs.always { it.chase || it.check }
+            if (myChase != theirChase) {
+                val winner = if (myChase) lastMover.opposite else lastMover
+                return XiangqiStatus.Over(winner, EndReason.PERPETUAL_CHASE)
+            }
+        }
+        return XiangqiStatus.Over(null, EndReason.REPETITION)
+    }
+
     companion object {
+        /** 60 回合 = 120 步。 */
+        const val MOVE_LIMIT_PLIES = 120
+
+        /**
+         * [side] 此刻能「捉」的对方棋子位置。
+         *
+         * 捉 = 下一步能合法吃掉，且目标没有保护，或者吃它的子比它轻（马炮捉车、士象捉车马炮）。
+         * 按棋例排除：将帅、兵卒去吃不算捉；没过河的兵卒被攻击不算被捉；攻击将帅是「将」不是「捉」。
+         */
+        internal fun chaseTargets(board: Board, side: Side): Set<Pair<Int, Int>> {
+            val result = HashSet<Pair<Int, Int>>()
+            val red = side == Side.RED
+            for (y in 0 until Board.BOARD_PIECE_HEIGHT) for (x in 0 until Board.BOARD_PIECE_WIDTH) {
+                val attacker = board.getPieceByPosition(x, y)
+                if (!Piece.isValid(attacker) || Piece.isRed(attacker) != red || rank(attacker) == 0) continue
+                for (to in Rule.PossibleToPositions(attacker, x, y, board)) {
+                    val target = board.getPieceByPosition(to)
+                    if (!Piece.isValid(target) || Piece.isRed(target) == red) continue
+                    if (target == Piece.WSHUAI || target == Piece.BJIANG) continue
+                    if (isUncrossedPawn(target, to)) continue
+                    val move = Move(Position(x, y), to)
+                    if (!Rule.isLegalMove(side.kingPiece, move, board)) continue
+                    if (rank(attacker) < rank(target) || !isProtected(board, move, side.opposite)) {
+                        result.add(to.x to to.y)
+                    }
+                }
+            }
+            return result
+        }
+
+        /** 车 3，马炮 2，士象 1；将帅兵卒 0，表示它们去吃不算捉。过河兵卒被捉时按 1 算。 */
+        private fun rank(piece: Int): Int = when (piece) {
+            Piece.WJU, Piece.BJU -> 3
+            Piece.WMA, Piece.BMA, Piece.WPAO, Piece.BPAO -> 2
+            Piece.WSHI, Piece.BSHI, Piece.WXIANG, Piece.BXIANG -> 1
+            else -> 0
+        }
+
+        /** 红方在下（y 5..9 是红方地盘）。 */
+        private fun isUncrossedPawn(piece: Int, at: Position): Boolean = when (piece) {
+            Piece.WBING -> at.y >= 5
+            Piece.BZU -> at.y <= 4
+            else -> false
+        }
+
+        /** 吃掉之后 [defender] 能不能合法吃回来。 */
+        private fun isProtected(board: Board, capture: Move, defender: Side): Boolean {
+            val trial = Board(board)
+            trial.setPieceByPosition(capture.toPosition, board.getPieceByPosition(capture.fromPosition))
+            trial.setPieceByPosition(capture.fromPosition, Piece.EMPTY)
+            val dest = capture.toPosition
+            val redDef = defender == Side.RED
+            for (y in 0 until Board.BOARD_PIECE_HEIGHT) for (x in 0 until Board.BOARD_PIECE_WIDTH) {
+                val p = trial.getPieceByPosition(x, y)
+                if (!Piece.isValid(p) || Piece.isRed(p) != redDef) continue
+                if (Rule.PossibleToPositions(p, x, y, trial).none { it.x == dest.x && it.y == dest.y }) continue
+                if (Rule.isLegalMove(defender.kingPiece, Move(Position(x, y), dest), trial)) return true
+            }
+            return false
+        }
+
         fun sideOf(piece: Int): Side? = when {
             Piece.isRed(piece) -> Side.RED
             Piece.isBlack(piece) -> Side.BLACK
@@ -183,6 +300,8 @@ class XiangqiGame {
             game.boardHistory.clear()
             game.moveHistory.clear()
             game.repetition.clear()
+            game.positionKeys.clear()
+            game.moveKinds.clear()
             game.status = XiangqiStatus.Playing
             game.countCurrentPosition()
             return game
@@ -198,7 +317,20 @@ enum class Side {
     val opposite: Side get() = if (this == RED) BLACK else RED
 }
 
-enum class EndReason { CHECKMATE, STALEMATE, RESIGN, AGREED_DRAW, REPETITION }
+enum class EndReason {
+    CHECKMATE, STALEMATE, RESIGN, AGREED_DRAW,
+    /** 循环局面，双方都没犯规（都是闲着，或者同犯），判和。 */
+    REPETITION,
+    /** 长将判负。 */
+    PERPETUAL_CHECK,
+    /** 长捉判负。 */
+    PERPETUAL_CHASE,
+    /** 自然限着：60 回合无吃子，判和。 */
+    MOVE_LIMIT,
+}
+
+/** 一步棋按棋例的分类：将（走完对方被将军）、捉（新造出一个捉的威胁），都不是就是闲。 */
+private data class MoveKind(val check: Boolean, val chase: Boolean)
 
 sealed interface XiangqiStatus {
     data object Playing : XiangqiStatus

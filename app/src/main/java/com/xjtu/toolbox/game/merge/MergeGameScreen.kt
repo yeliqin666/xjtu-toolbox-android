@@ -154,4 +154,7 @@ private class MergeGameBridge(private val context: Context) {
         if (score <= 0) return
         GameStore.submitScore(context, GameIds.MERGE, score)
     }
+
+    @JavascriptInterface
+    fun bestScore(): Int = GameStore.bestScore(context, GameIds.MERGE)
 }

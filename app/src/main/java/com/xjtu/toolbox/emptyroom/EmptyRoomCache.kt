@@ -53,6 +53,9 @@ class EmptyRoomCache(context: Context) {
         return parseRoomList(raw)
     }
 
+    /** 不看天数 TTL 读原文：实时状态按分钟算新鲜度，由调用方拿 [savedAt] 自己判断。 */
+    fun readJsonAnyAge(key: String): String? = prefs.getString(key, null)
+
     /** 取出对应缓存键的「写入时间戳」，供 UI 标注新鲜度。 */
     fun savedAt(key: String): Long = prefs.getLong("${key}_time", 0L)
 
