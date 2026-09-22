@@ -345,8 +345,10 @@ private fun describeResult(over: XiangqiStatus.Over): String {
         EndReason.STALEMATE -> "对方被困毙（无子可动），$who 获胜。"
         EndReason.RESIGN -> "对方认输，$who 获胜。"
         EndReason.AGREED_DRAW -> "双方同意和棋。"
-        // 简化棋例：完整规则要判长将一方负，这里只按三次重复局面判和
-        EndReason.REPETITION -> "同一局面出现三次，判和（简化棋例，不判长将负）。"
+        EndReason.REPETITION -> "同一局面反复出现，双方都没犯规，判和。"
+        EndReason.PERPETUAL_CHECK -> "对方长将违例，$who 获胜。"
+        EndReason.PERPETUAL_CHASE -> "对方长捉违例，$who 获胜。"
+        EndReason.MOVE_LIMIT -> "60 回合没有吃子，判和。"
     }
 }
 

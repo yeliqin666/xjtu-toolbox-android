@@ -3,13 +3,8 @@ package com.xjtu.toolbox.util
 import android.graphics.Bitmap
 import android.graphics.Color
 import com.google.zxing.BarcodeFormat
-import com.google.zxing.BinaryBitmap
-import com.google.zxing.DecodeHintType
 import com.google.zxing.EncodeHintType
-import com.google.zxing.MultiFormatReader
-import com.google.zxing.RGBLuminanceSource
 import com.google.zxing.common.BitMatrix
-import com.google.zxing.common.HybridBinarizer
 import com.google.zxing.qrcode.QRCodeWriter
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 
@@ -69,18 +64,8 @@ object QrBitmap {
         return try {
             val pixels = IntArray(scaled.width * scaled.height)
             scaled.getPixels(pixels, 0, scaled.width, 0, 0, scaled.width, scaled.height)
-            val binary = BinaryBitmap(
-                HybridBinarizer(RGBLuminanceSource(scaled.width, scaled.height, pixels))
-            )
-            val reader = MultiFormatReader().apply {
-                setHints(
-                    mapOf(
-                        DecodeHintType.POSSIBLE_FORMATS to listOf(BarcodeFormat.QR_CODE),
-                        DecodeHintType.TRY_HARDER to true,
-                    )
-                )
-            }
-            reader.decodeWithState(binary).text
+            // 和相机取景同一个解码器：定位块破损的码也能读
+            com.xjtu.toolbox.qrlogin.QrFrameDecoder.decodeArgb(pixels, scaled.width, scaled.height)
         } catch (_: Exception) {
             null
         } finally {

@@ -108,6 +108,52 @@ private fun savePreferredCampus(ctx: Context, campus: LibraryCampus) {
         .edit().putString(KEY_CAMPUS, campus.id).apply()
 }
 
+/**
+ * 「离开页面要切回哪个校区」的落盘记录。
+ *
+ * 切回原校区原本只挂在页面销毁时做，可进程被杀（系统回收、覆盖安装、划掉后台）时根本走不到那一步，
+ * 账号就停在了别的校区。所以切走时先记下来，下次进页面发现没切回就补上。
+ */
+private const val KEY_PENDING_HOME = "pending_home_campus"
+
+private fun loadPendingHome(ctx: Context): LibraryCampus? =
+    LibraryCampus.byId(ctx.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).getString(KEY_PENDING_HOME, null))
+
+private fun savePendingHome(ctx: Context, campus: LibraryCampus?) {
+    ctx.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).edit().apply {
+        if (campus == null) remove(KEY_PENDING_HOME) else putString(KEY_PENDING_HOME, campus.id)
+    }.apply()
+}
+
+/**
+ * 别处（屁岱的座位卡片、首页扫桌面二维码）想让图书馆页一打开就定位到某个区域。放一次、取一次。
+ * 路由不带参数，用一个进程内的单槽传过去；进程被杀就算了，本来也只是个便利。
+ * 带 [Target.seatId] 时，区域加载完会弹出这个座位的预约确认（扫码的场景）。
+ */
+object LibraryFocus {
+    data class Target(val campusId: String, val areaCode: String, val seatId: String? = null)
+
+    @Volatile private var pending: Target? = null
+
+    fun request(target: Target) { pending = target }
+
+    fun take(): Target? = pending.also { pending = null }
+}
+
+// ══════ 列表 / 平面图 ══════
+
+private const val KEY_VIEW_MODE = "seat_view_mode"
+internal const val VIEW_LIST = "列表"
+internal const val VIEW_PLAN = "平面图"
+
+private fun loadViewMode(ctx: Context): String =
+    ctx.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).getString(KEY_VIEW_MODE, null)
+        ?.takeIf { it == VIEW_LIST || it == VIEW_PLAN } ?: VIEW_PLAN
+
+private fun saveViewMode(ctx: Context, mode: String) {
+    ctx.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).edit().putString(KEY_VIEW_MODE, mode).apply()
+}
+
 // ══════ LibraryScreen ══════
 
 @Composable
@@ -124,7 +170,9 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
     // 座位数据
     var seats by remember { mutableStateOf<List<SeatInfo>>(emptyList()) }
     var areaStatsMap by remember { mutableStateOf<Map<String, AreaStats>>(emptyMap()) }
-    var isLoading by remember { mutableStateOf(false) }
+    // 初值 true：进页面先要问一次账号所在校区（/modify），这段时间以前是 false，
+    // 于是先闪一下「该区域暂无座位数据」再转圈。
+    var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     val seatLoadGeneration = remember { java.util.concurrent.atomic.AtomicInteger(0) }
 
@@ -144,6 +192,8 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
 
     // 确认对话框
     var confirmDialog by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
+    /** 扫桌面二维码进来要约的座位。校区一定下来就弹确认，不等这一层座位表。 */
+    var scanSeat by remember { mutableStateOf<ScanSeatPrompt?>(null) }
 
     // 我的预约
     var myBooking by remember { mutableStateOf<MyBookingInfo?>(null) }
@@ -164,6 +214,43 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
     // 雁塔和创新港的区域码一个都对不上，两个校区的列表永远空着（issue #42）。
     var campus by remember { mutableStateOf(loadPreferredCampus(context)) }
     var campusSwitching by remember { mutableStateOf(false) }
+
+    /**
+     * 账号「本来」的校区：进页面时从 /modify 读到的那个。
+     *
+     * 看别的校区要改账号资料里的 rplace，离开页面时切回它——只是看一眼，不该把账号留在那边。
+     * 在别的校区约成了座位就改认那个校区：预约绑在 rplace 上，切回去反而添乱。
+     * 为 null 表示没读到，这种情况下不做切回。
+     */
+    var homeCampus by remember { mutableStateOf<LibraryCampus?>(null) }
+    val latestCampus by rememberUpdatedState(campus)
+    val latestHome by rememberUpdatedState(homeCampus)
+    DisposableEffect(api) {
+        onDispose {
+            val home = latestHome
+            if (home != null && latestCampus != home) {
+                LibraryApi.restoreScope.launch {
+                    if (runCatching { api.switchCampus(home) }.getOrDefault(false)) savePendingHome(context, null)
+                }
+                savePreferredCampus(context, home)
+            }
+        }
+    }
+
+    // ── 列表 / 平面图 ──
+    var viewMode by rememberSaveable { mutableStateOf(loadViewMode(context)) }
+    var planLayout by remember { mutableStateOf<SeatLayout?>(null) }
+    var planImages by remember { mutableStateOf<PlanImages?>(null) }
+    var planLoading by remember { mutableStateOf(false) }
+    var planError by remember { mutableStateOf<String?>(null) }
+    /** 平面图图片按区域缓存最近两个：来回切两个区域不重新下图，也不无限占内存。 */
+    val planImageCache = remember { LinkedHashMap<String, PlanImages>() }
+    var planAreaCode by remember { mutableStateOf<String?>(null) }
+    /** 进页面那一轮定校区（读 rplace、必要时切回原校区）做完了没有。之前别发按校区走的请求。 */
+    var bootstrapped by remember { mutableStateOf(false) }
+    var floorPlan by remember { mutableStateOf<Pair<SeatLayout, PlanImages>?>(null) }
+    var floorPlanFor by remember { mutableStateOf<String?>(null) }
+    val planGeneration = remember { java.util.concurrent.atomic.AtomicInteger(0) }
     var selectedFloorCode by remember(campus) { mutableStateOf(campus.floorCodes.first()) }
 
     /** 当前楼层的「区域码 → 中文名」，顺序即学校给的顺序。 */
@@ -213,20 +300,92 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
         }
     }
 
+    /**
+     * 拉平面图：座位位置 / 状态每次都拉（状态会变），图片按区域缓存。
+     * 底图拿不到就报错，状态图缺了只是那几种座位改用色块画。
+     */
+    fun loadPlan(areaCode: String, force: Boolean = false) {
+        if (areaCode.isEmpty()) return
+        if (!force && planAreaCode == areaCode && planLayout != null && planImages != null) return
+        val gen = planGeneration.incrementAndGet()
+        if (planAreaCode != areaCode) { planLayout = null; planImages = null }
+        planAreaCode = areaCode
+        planLoading = true
+        planError = null
+        scope.launch {
+            try {
+                // 先要底图和座位位置就能画；四张状态图随后一张张补，补齐前有人的座位用色块画。
+                // 以前五张图和坐标一起并发拉，经 WebVPN 时把同一站点的连接占满，
+                // 紧接着点「预约」要排在图片后面，预约就显得慢。图片还落盘缓存，同一区域只下一次。
+                val names = LibraryPages.planImageNames(areaCode)
+                val (layout, images) = withContext(Dispatchers.IO) {
+                    coroutineScope {
+                        val layoutD = async { api.getSeatLayout(areaCode) }
+                        val images = planImageCache[areaCode] ?: run {
+                            val base = PlanImageDiskCache.get(context, names.getValue(null)) { api.getPlanImage(it) }
+                                ?: throw RuntimeException("这个区域没有平面图")
+                            decodePlanImages(base, emptyMap()) ?: throw RuntimeException("平面图解码失败")
+                        }
+                        layoutD.await() to images
+                    }
+                }
+                if (gen != planGeneration.get()) return@launch
+                planImageCache.remove(areaCode)
+                planImageCache[areaCode] = images
+                while (planImageCache.size > 2) planImageCache.remove(planImageCache.keys.first())
+                planLayout = layout
+                planImages = images
+                if (layout.seats.isEmpty()) planError = "这个区域的平面图上没有座位"
+                planLoading = false
+                if (images.tiles.isEmpty()) {
+                    val tiles = withContext(Dispatchers.IO) {
+                        names.entries.filter { it.key != null }.mapNotNull { (status, name) ->
+                            PlanImageDiskCache.get(context, name) { api.getPlanImage(it) }?.let { status!! to it }
+                        }.toMap()
+                    }
+                    if (tiles.isNotEmpty()) {
+                        val withTiles = withContext(Dispatchers.Default) { images.withTiles(tiles) }
+                        if (gen == planGeneration.get() && planImages === images) {
+                            planImages = withTiles
+                            planImageCache[areaCode] = withTiles
+                        }
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: AuthExpiredException) {
+                appLoginState.handleAuthExpired(LoginType.LIBRARY, Routes.LIBRARY, onBack)
+            } catch (e: Exception) {
+                if (gen == planGeneration.get()) planError = e.message ?: "平面图加载失败"
+            }
+            if (gen == planGeneration.get()) planLoading = false
+        }
+    }
+
     fun loadSeats(force: Boolean = false) {
-        selectedAreaCode.takeIf { it.isNotEmpty() }?.let { loadSeatsFor(it, force) }
+        selectedAreaCode.takeIf { it.isNotEmpty() }?.let {
+            loadSeatsFor(it, force)
+            if (viewMode == VIEW_PLAN) loadPlan(it, force)
+        }
     }
 
     /** 拉一层的区域列表并选中第一个可用区域。换校区、换楼层都走这里。 */
-    fun loadFloor(floorCode: String) {
+    fun loadFloor(floorCode: String, preferArea: String? = null) {
         selectedFloorCode = floorCode
         isLoading = true
         scope.launch {
             try {
-                val result = withContext(Dispatchers.IO) { api.getFloorAreas(floorCode) }
+                // 刚切过校区时学校偶尔还按旧校区回，给个空的；隔一下再问一次
+                val result = withContext(Dispatchers.IO) {
+                    api.getFloorAreas(floorCode).ifEmpty {
+                        kotlinx.coroutines.delay(800)
+                        api.getFloorAreas(floorCode)
+                    }
+                }
                 floorAreas = result
                 errorMessage = if (result.isEmpty()) "这一层没有可选区域" else null
-                val code = result.keys.firstOrNull { api.cachedAreaStats[it]?.isOpen != false }
+                val code = preferArea?.takeIf { it in result }
+                    ?: result.keys.firstOrNull { api.cachedAreaStats[it]?.isOpen != false }
                     ?: result.keys.firstOrNull().orEmpty()
                 selectedAreaCode = code
                 if (code.isEmpty()) {
@@ -257,11 +416,36 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
     LaunchedEffect(selectedAreaCode) {
         if (selectedAreaCode.isNotEmpty()) loadSeatsFor(selectedAreaCode)
     }
+    // 平面图模式下换区域 / 切进平面图：拉这个区域的图
+    LaunchedEffect(selectedAreaCode, viewMode) {
+        if (viewMode == VIEW_PLAN && selectedAreaCode.isNotEmpty()) loadPlan(selectedAreaCode)
+    }
+
+    // 整层的平面图（区域矩形 + 楼层底图），平面图模式下换楼层时拉一次。拿不到就不显示，区域标签照常能用。
+    LaunchedEffect(selectedFloorCode, viewMode, campus, bootstrapped) {
+        if (viewMode != VIEW_PLAN || !bootstrapped) return@LaunchedEffect
+        val code = selectedFloorCode
+        if (floorPlanFor == code && floorPlan != null) return@LaunchedEffect
+        floorPlan = null
+        floorPlanFor = code
+        val r = withContext(Dispatchers.IO) {
+            runCatching {
+                val layout = api.getSeatLayout(code)
+                val bytes = PlanImageDiskCache.get(context, "$code.jpg") { api.getPlanImage(it) }
+                val img = bytes?.let { decodePlanImages(it, emptyMap()) }
+                if (img == null || layout.seats.isEmpty()) null else layout to img
+            }.getOrNull()
+        }
+        if (floorPlanFor == code) floorPlan = r
+    }
 
     // 后台把本校区所有楼层的区域名学一遍。用来判断「已有预约是不是在别的校区」——
     // 只学用户翻过的那几层的话，没翻过的楼层会被误判成外校区。
     // 顺带让切楼层时区域标签立刻就有。
-    LaunchedEffect(campus) {
+    // 要等进页面那一轮把校区定下来（可能要先切回原校区）再预热：以前按本地记的旧校区一进来就开拉，
+    // 和切校区的请求撞在一起，学校按混了的校区回，新校区的楼层拿回来是空的。
+    LaunchedEffect(campus, bootstrapped) {
+        if (!bootstrapped) return@LaunchedEffect
         withContext(Dispatchers.IO) { runCatching { api.warmCampusAreas(campus) } }
     }
 
@@ -269,12 +453,59 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
     LaunchedEffect(Unit) {
         // 以账号在图书馆系统里实际选的校区为准。本地记的那个可能是上次装机时的，
         // 也可能用户在网页端改过；不问一声就按本地的画，会画出一个空列表。
-        val actual = withContext(Dispatchers.IO) { runCatching { api.getCurrentCampus() }.getOrNull() }
+        var actual = withContext(Dispatchers.IO) { runCatching { api.getCurrentCampus() }.getOrNull() }
+        // 上次看别的校区时进程被杀，没来得及切回：先补上
+        val pending = loadPendingHome(context)
+        if (pending != null && actual != null && actual != pending) {
+            val ok = withContext(Dispatchers.IO) { runCatching { api.switchCampus(pending) }.getOrDefault(false) }
+            if (ok) actual = pending
+        }
+        if (pending != null && (actual == pending || actual == null)) savePendingHome(context, null)
+        homeCampus = actual
         if (actual != null && actual != campus) {
             campus = actual
             savePreferredCampus(context, actual)
         }
-        loadFloor((actual ?: campus).floorCodes.first())
+        // 从屁岱的座位卡片点进来：直接定位到那个区域，用平面图看
+        val focus = LibraryFocus.take()
+        if (focus != null) {
+            val target = LibraryCampus.byId(focus.campusId)
+            if (target != null && actual != null && target != actual) {
+                val ok = withContext(Dispatchers.IO) { runCatching { api.switchCampus(target) }.getOrDefault(false) }
+                if (ok) {
+                    campus = target
+                    savePendingHome(context, actual)
+                }
+            }
+            // 扫码进来：预约只认账号当前校区，校区到位就能约，不用等楼层和座位表。
+            // 座位空不空另查一次 /qavail/（一个请求），查到前按钮照样能点。
+            focus.seatId?.let { seatId ->
+                if (target != null && target != campus) {
+                    bookingResult = BookResult(false, "没能切换到${target.displayName}，请在上方校区标签里手动切换后再扫码")
+                } else {
+                    val qr = LibrarySeatQr(seatId, focus.areaCode)
+                    scanSeat = ScanSeatPrompt(qr)
+                    scope.launch {
+                        val status = withContext(Dispatchers.IO) {
+                            runCatching { LibrarySeatAvailability.fetch(site.client, qr) }.getOrNull()
+                        }
+                        scanSeat = scanSeat?.takeIf { it.qr == qr }?.copy(status = status, checking = false)
+                    }
+                }
+            }
+            val floor = withContext(Dispatchers.IO) {
+                runCatching { api.warmCampusAreas(campus); api.floorOfArea(focus.areaCode) }.getOrNull()
+            } ?: LibraryQrArea.byCode(focus.areaCode)?.floorCode?.takeIf { it in campus.floorCodes }
+            if (floor != null) {
+                viewMode = VIEW_PLAN
+                loadFloor(floor, preferArea = focus.areaCode)
+            } else {
+                loadFloor(campus.floorCodes.first())
+            }
+        } else {
+            loadFloor((actual ?: campus).floorCodes.first())
+        }
+        bootstrapped = true
         try { myBooking = withContext(Dispatchers.IO) { api.getMyBooking() } } catch (_: Exception) {}
     }
 
@@ -294,11 +525,13 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
             if (ok) {
                 campus = target
                 savePreferredCampus(context, target)
+                homeCampus?.let { home -> savePendingHome(context, if (target == home) null else home) }
                 floorAreas = emptyMap()
                 selectedAreaCode = ""
                 seats = emptyList()
                 areaStatsMap = emptyMap()
                 lastLoadedAreaCode = null
+                planLayout = null; planImages = null; planAreaCode = null
                 loadFloor(target.floorCodes.first())
             } else {
                 errorMessage = "切换到" + target.displayName + "失败，请稍后重试"
@@ -325,11 +558,21 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
             }
         }
         myBooking = bookingDeferred.await()
+        if (viewMode == VIEW_PLAN && areaCode != null) loadPlan(areaCode, force = true)
+    }
+
+    /** 在别的校区约成了：账号就留在这个校区，离开页面时不再切回。 */
+    fun adoptCampusIfBooked(result: BookResult) {
+        if (result.success) {
+            homeCampus = campus
+            savePendingHome(context, null)
+        }
     }
 
     // ── 预约 ──
-    fun doBookSeat(seatId: String) {
-        val areaCode = selectedAreaCode.takeIf { it.isNotEmpty() }
+    fun doBookSeat(seatId: String, areaOverride: String? = null) {
+        val areaCode = areaOverride
+            ?: selectedAreaCode.takeIf { it.isNotEmpty() }
             ?: LibraryApi.guessAreaCode(seatId)
             ?: run { bookingResult = BookResult(false, "无法确定区域"); return }
         isBooking = true; bookingResult = null
@@ -338,6 +581,9 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
             try {
                 val result = withContext(Dispatchers.IO) { api.bookSeat(seatId, areaCode) }
                 bookingResult = result
+                adoptCampusIfBooked(result)
+                // 结果一出来就放开按钮，刷新座位和「我的预约」在后面做
+                isBooking = false
                 if (result.success) kotlinx.coroutines.delay(400)
                 refreshAfterBooking()
             } catch (e: CancellationException) { throw e }
@@ -347,8 +593,9 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
     }
 
     // 直接换座（已知有现有预约时使用）
-    fun doSwapSeat(seatId: String) {
-        val areaCode = selectedAreaCode.takeIf { it.isNotEmpty() }
+    fun doSwapSeat(seatId: String, areaOverride: String? = null) {
+        val areaCode = areaOverride
+            ?: selectedAreaCode.takeIf { it.isNotEmpty() }
             ?: LibraryApi.guessAreaCode(seatId)
             ?: run { bookingResult = BookResult(false, "无法确定区域"); return }
         isBooking = true; bookingResult = null
@@ -356,6 +603,8 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
             try {
                 val result = withContext(Dispatchers.IO) { api.swapSeat(seatId, areaCode) }
                 bookingResult = result
+                adoptCampusIfBooked(result)
+                isBooking = false
                 refreshAfterBooking()
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { bookingResult = BookResult(false, "换座异常: ${e.message}") }
@@ -378,7 +627,9 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
     }
 
     // 预约前检查：如有现有预约则弹窗确认换座
-    fun bookSeat(seatId: String) {
+    // areaOverride：扫码时二维码上的区域码。页面选中的区域可能还没加载到那个区，
+    // 而 guessAreaCode 对纯数字座位号猜不出区域，所以扫码必须显式带上。
+    fun bookSeat(seatId: String, areaOverride: String? = null) {
         val existing = myBooking?.seatId
         val isExpired = myBooking?.statusText?.let { "超时" in it || "过期" in it || "失效" in it } == true
         if (existing != null && !isExpired) {
@@ -399,10 +650,10 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
             }
             confirmDialog = "你已预约座位 $existing$area\n是否换座到 $seatId？" to {
                 // 直接调用 /updateseat/ 端点，不走 /seat/ 的检测逻辑
-                doSwapSeat(seatId)
+                doSwapSeat(seatId, areaOverride)
             }
         } else {
-            doBookSeat(seatId)
+            doBookSeat(seatId, areaOverride)
         }
     }
 
@@ -499,6 +750,60 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
         // Overlay* 必须放在 Scaffold content 内：miuix 弹窗靠 Scaffold 提供的
         // MiuixPopupHost(LocalPopupStates) 渲染；放在 Scaffold 外（且 App 根无 popup host）会永不显示，
         // 正是"换座/取消点了没反应、请求从未发出"的真因。
+        // 扫桌面二维码进来的预约确认。校区定下来就弹，状态查到前「预约」也能点：
+        // 真被占了服务端会拒，失败原因照常显示在页面上。
+        val ss = scanSeat
+        BackHandler(enabled = ss != null) { scanSeat = null }
+        OverlayDialog(
+            show = ss != null,
+            title = "预约座位",
+            summary = ss?.let { "${it.qr.areaName} · ${it.qr.seat} 号" },
+            renderInRootScaffold = false,
+            onDismissRequest = { scanSeat = null },
+        ) {
+            val status = ss?.status
+            val blocked = status is LibrarySeatStatus.NotFound ||
+                (status is LibrarySeatStatus.Known && !status.isFree)
+            Column(Modifier.fillMaxWidth()) {
+                Text(
+                    text = when {
+                        ss == null -> ""
+                        ss.checking -> "正在查看座位状态…"
+                        status is LibrarySeatStatus.Known && status.isFree -> status.statusText
+                        status is LibrarySeatStatus.Known -> "${status.statusText}，可以关掉后在平面图里另选"
+                        status is LibrarySeatStatus.NotFound -> "图书馆系统里查不到这个座位，二维码可能已失效"
+                        else -> "暂时查不到座位状态，可以直接预约"
+                    },
+                    style = MiuixTheme.textStyles.body2,
+                    color = when {
+                        blocked -> MiuixTheme.colorScheme.error
+                        status is LibrarySeatStatus.Known -> MiuixTheme.colorScheme.primary
+                        else -> MiuixTheme.colorScheme.onSurfaceVariantSummary
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                )
+                Row(Modifier.fillMaxWidth()) {
+                    TextButton(
+                        text = "取消",
+                        onClick = { scanSeat = null },
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(Modifier.width(20.dp))
+                    TextButton(
+                        text = "预约",
+                        enabled = !blocked && !isBooking,
+                        onClick = {
+                            val qr = ss?.qr
+                            scanSeat = null
+                            if (qr != null) bookSeat(qr.seat, areaOverride = qr.areaCode)
+                        },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.textButtonColorsPrimary()
+                    )
+                }
+            }
+        }
+
         val cd = confirmDialog
         BackHandler(enabled = cd != null) { confirmDialog = null }
         OverlayDialog(
@@ -695,6 +1000,15 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                             CircularProgressIndicator(size = 14.dp, strokeWidth = 2.dp)
                         }
                     }
+                    val home = homeCampus
+                    if (home != null && home != campus) {
+                        Text(
+                            "离开本页会切回${home.displayName}；在这里约了座位就留在${campus.displayName}",
+                            style = MiuixTheme.textStyles.footnote2,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 2.dp),
+                        )
+                    }
                     if (floors.isNotEmpty()) {
                         CompositionLocalProvider(LocalOnGlassBar provides (glass != null)) {
                             AppSegmentedTabs(
@@ -733,13 +1047,33 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                 }
             }
 
-            if (seats.isNotEmpty()) {
+            if (seats.isNotEmpty() || viewMode == VIEW_PLAN) {
                 Card(
                     modifier = Modifier.enterOnce(2).fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                     cornerRadius = 20.dp,
                     colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
                 ) {
+                    // 列表 / 平面图。平面图看得到座位在哪（靠窗、离门远近），列表适合快速扫空位。
                     Row(
+                        Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        listOf(VIEW_PLAN, VIEW_LIST).forEach { mode ->
+                            com.xjtu.toolbox.ui.components.AppFilterChip(
+                                selected = viewMode == mode,
+                                onClick = { viewMode = mode; saveViewMode(context, mode) },
+                                label = mode,
+                            )
+                        }
+                        Spacer(Modifier.weight(1f))
+                        if (totalCount > 0) Text(
+                            "空闲 $availableCount / $totalCount",
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        )
+                    }
+                    if (viewMode == VIEW_LIST) Row(
                         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -756,7 +1090,7 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                                 modifier = Modifier.weight(1f)
                             )
                         }
-                    }
+                    } else Spacer(Modifier.height(10.dp))
                 }
             }
 
@@ -772,11 +1106,13 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
             }
         }
 
-        // 宽屏两栏：左边一直是头部那叠卡片（自己滚），右边是座位网格。
-        // 以前整页限宽 720 居中：座位网格被挤成窄窄一条，平板横屏两边各空一大块。
+        // 宽屏两栏：左边一直是头部那叠卡片（自己滚），右边是座位网格 / 平面图。
+        //
+        // 手机上头部卡片**始终**是网格的第一项，加载、出错、空状态也放在网格里。
+        // 以前加载时头部钉在顶上、有数据了再挪进网格：挪一次就换一个组合位置，
+        // 三张卡的入场动画重播一遍，整页先跳一下再淡入一次——看着就是「加载动画很怪」。
         val wideLibrary = com.xjtu.toolbox.ui.isWideLayout()
-        val seatGridShown = !wideLibrary && !(isLoading && seats.isEmpty()) && errorMessage == null &&
-            seats.isNotEmpty()
+        val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
         Row(Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection)) {
         if (wideLibrary) {
             Column(
@@ -791,30 +1127,64 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                 Spacer(Modifier.height(16.dp))
             }
         }
-        Column(Modifier.weight(1f).fillMaxHeight()) {
-            // 头部不随列表滚动时，由这段留白整体让出顶栏高度；随网格滚动时留白放进网格第一项。
-            // 宽屏头部在左栏，右栏只让出顶栏高度。
-            if (wideLibrary) {
-                Spacer(Modifier.height(glassTop))
-            } else if (!seatGridShown) {
-                Spacer(Modifier.height(glassTop))
-                headerContent()
-            }
-
-            // ── 内容区 ──
-            when {
-                isLoading && seats.isEmpty() -> {
-                    LoadingState(message = "正在查询座位…", modifier = Modifier.fillMaxSize())
+        BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {
+            val viewportHeight = maxHeight
+            LazyVerticalGrid(
+                state = gridState,
+                columns = GridCells.Adaptive(minSize = 56.dp),
+                contentPadding = PaddingValues(
+                    start = 12.dp, end = 12.dp,
+                    top = if (wideLibrary) glassTop + 6.dp else 0.dp,
+                    bottom = 16.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.fillMaxSize().overScrollVertical()
+            ) {
+                if (!wideLibrary) item(span = { GridItemSpan(maxLineSpan) }, key = "header", contentType = "header") {
+                    // 网格左右有 12dp 内边距，头部卡片自带 16dp 外边距；把网格的边距抵掉，
+                    // 卡片才和宽屏左栏里的位置一致。
+                    Column(
+                        Modifier.layout { measurable, constraints ->
+                            val extra = 12.dp.roundToPx()
+                            val placeable = measurable.measure(
+                                constraints.copy(
+                                    minWidth = constraints.minWidth + extra * 2,
+                                    maxWidth = constraints.maxWidth + extra * 2,
+                                )
+                            )
+                            layout(constraints.maxWidth, placeable.height) {
+                                placeable.place(-extra, 0)
+                            }
+                        }
+                    ) {
+                        Spacer(Modifier.height(glassTop))
+                        headerContent()
+                    }
                 }
 
-                errorMessage != null -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                fun fullSpan(key: String, content: @Composable () -> Unit) =
+                    item(span = { GridItemSpan(maxLineSpan) }, key = key, contentType = key) { content() }
+
+                when {
+                    isLoading && seats.isEmpty() -> fullSpan("loading") {
+                        LoadingState(message = "正在查询座位…", modifier = Modifier.heightIn(min = 280.dp))
+                    }
+
+                    errorMessage != null -> fullSpan("error") {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
                             Text(errorMessage!!, color = MiuixTheme.colorScheme.error,
                                 textAlign = TextAlign.Center, style = MiuixTheme.textStyles.body2)
                             Spacer(Modifier.height(12.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(onClick = { loadSeats(force = true) }) { Text("重试") }
+                                // 区域都没拉到时（这一层为空、楼层接口出错）重拉楼层；拉座位没用，那时还没有区域可拉
+                                Button(onClick = {
+                                    if (selectedAreaCode.isEmpty() || floorAreas.isEmpty()) loadFloor(selectedFloorCode)
+                                    else loadSeats(force = true)
+                                }) { Text("重试") }
                                 // 认证相关错误 → 提供重新认证
                                 if ("认证" in (errorMessage ?: "") || "登录" in (errorMessage ?: "") || "VPN" in (errorMessage ?: "")) {
                                     var isReAuth by remember { mutableStateOf(false) }
@@ -843,66 +1213,81 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                             }
                         }
                     }
-                }
 
-                seats.isEmpty() -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("该区域暂无座位数据", style = MiuixTheme.textStyles.body1,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                    }
-                }
-
-                else -> {
-                    // 座位网格
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = 56.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        modifier = Modifier.fillMaxSize().overScrollVertical()
-                    ) {
-                        if (seatGridShown) item(span = { GridItemSpan(maxLineSpan) }, key = "header") {
-                            // 网格左右有 12dp 内边距，头部卡片自带 16dp 外边距；把网格的边距抵掉，
-                            // 卡片才和网格不显示时的位置一致。
-                            Column(
-                                Modifier.layout { measurable, constraints ->
-                                    val extra = 12.dp.roundToPx()
-                                    val placeable = measurable.measure(
-                                        constraints.copy(
-                                            minWidth = constraints.minWidth + extra * 2,
-                                            maxWidth = constraints.maxWidth + extra * 2,
-                                        )
-                                    )
-                                    layout(constraints.maxWidth, placeable.height) {
-                                        placeable.place(-extra, 0)
-                                    }
-                                }
-                            ) {
-                                Spacer(Modifier.height(glassTop))
-                                headerContent()
-                            }
+                    viewMode == VIEW_PLAN -> fullSpan("plan") {
+                        // 手机上图高约一屏：把头部卡片往上滚走，图正好铺满；平板在右栏占满。
+                        val planHeight = (viewportHeight - (if (wideLibrary) glassTop + 22.dp else 16.dp))
+                            .coerceAtLeast(320.dp)
+                        val layout = planLayout
+                        val images = planImages
+                        Column {
+                        // 整层图：点区域切区域。只保留这一层真有的区域，图上别的矩形（楼梯、出口按钮）不响应
+                        floorPlan?.let { (fl, fi) ->
+                            val areas = remember(fl, floorAreas) { fl.copy(seats = fl.seats.filter { it.seatId in floorAreas }) }
+                            if (areas.seats.isNotEmpty()) FloorPlanView(
+                                layout = areas,
+                                images = fi,
+                                selectedArea = selectedAreaCode,
+                                onPick = { selectedAreaCode = it },
+                                modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
+                            )
                         }
+                        when {
+                            layout != null && images != null -> SeatPlanPanel(
+                                layout = layout,
+                                images = images,
+                                maxHeight = planHeight,
+                                favorites = favorites,
+                                isBooking = isBooking,
+                                // 平面图模式下页面顶部的结果卡已经滚出屏幕，图下面再给一份
+                                result = bookingResult,
+                                onBook = { bookSeat(it) },
+                                modifier = Modifier.padding(top = 4.dp),
+                            )
+                            planError != null -> Column(
+                                Modifier.fillMaxWidth().padding(24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                Text(planError!!, color = MiuixTheme.colorScheme.error,
+                                    textAlign = TextAlign.Center, style = MiuixTheme.textStyles.body2)
+                                Spacer(Modifier.height(12.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Button(onClick = { loadPlan(selectedAreaCode, force = true) }) { Text("重试") }
+                                    Button(onClick = { viewMode = VIEW_LIST; saveViewMode(context, VIEW_LIST) }) { Text("看列表") }
+                                }
+                            }
+                            else -> LoadingState(message = "正在加载平面图…", modifier = Modifier.heightIn(min = 280.dp))
+                        }
+                        }
+                    }
+
+                    seats.isEmpty() -> fullSpan("empty") {
+                        Box(Modifier.fillMaxWidth().padding(vertical = 64.dp), contentAlignment = Alignment.Center) {
+                            Text("该区域暂无座位数据", style = MiuixTheme.textStyles.body1,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                        }
+                    }
+
+                    else -> {
                         // 收藏座位快捷区
                         val favInArea = seats.filter { it.seatId in favorites }
-                        if (favInArea.isNotEmpty()) {
-                            item(span = { GridItemSpan(maxLineSpan) }) {
-                                Column(Modifier.padding(bottom = 4.dp)) {
-                                    Text("★ 收藏座位", style = MiuixTheme.textStyles.footnote1,
-                                        color = MiuixTheme.colorScheme.primaryVariant)
-                                    Spacer(Modifier.height(4.dp))
-                                    FlowRow(
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        favInArea.forEach { seat ->
-                                            SeatChip(
-                                                seat = seat,
-                                                isBooking = isBooking,
-                                                isFavorite = true,
-                                                onClick = { if (seat.available) bookSeat(seat.seatId) },
-                                                onLongClick = { toggleFavorite(seat.seatId) }
-                                            )
-                                        }
+                        if (favInArea.isNotEmpty()) fullSpan("favorites") {
+                            Column(Modifier.padding(bottom = 4.dp)) {
+                                Text("★ 收藏座位", style = MiuixTheme.textStyles.footnote1,
+                                    color = MiuixTheme.colorScheme.primaryVariant)
+                                Spacer(Modifier.height(4.dp))
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    favInArea.forEach { seat ->
+                                        SeatChip(
+                                            seat = seat,
+                                            isBooking = isBooking,
+                                            isFavorite = true,
+                                            onClick = { if (seat.available) bookSeat(seat.seatId) },
+                                            onLongClick = { toggleFavorite(seat.seatId) }
+                                        )
                                     }
                                 }
                             }

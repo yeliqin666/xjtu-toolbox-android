@@ -90,7 +90,7 @@
 -keepclassmembers class com.xjtu.toolbox.agent.StoredConversation { <fields>; }
 -keepclassmembers class com.xjtu.toolbox.agent.StoredMessage { <fields>; }
 -keepclassmembers class com.xjtu.toolbox.agent.StoredWidget { <fields>; }
-# 这 7 个 Widget 子类的类名本身就是判别式（AgentWidget.kt 用 javaClass.simpleName 存、
+# 这些 Widget 子类的类名本身就是判别式（AgentWidget.kt 用 javaClass.simpleName 存、
 # 字面量 when 分支读回），字段名和类名都不能改；类都很小，整类原样保留的体积代价可忽略。
 -keep class com.xjtu.toolbox.agent.ScheduleWidget { *; }
 -keep class com.xjtu.toolbox.agent.ExamWidget { *; }
@@ -99,11 +99,18 @@
 -keep class com.xjtu.toolbox.agent.GradeWidget { *; }
 -keep class com.xjtu.toolbox.agent.CardWidget { *; }
 -keep class com.xjtu.toolbox.agent.ZyxfWidget { *; }
+-keep class com.xjtu.toolbox.agent.LiveRoomWidget { *; }
+# LibraryWidget 是后来加的第 9 种卡片，当时漏了规则：正式版里类名被改，存进会话的
+# 类型名对不上 storedToWidget 的字面量分支，重启后这张卡就没了。
+-keep class com.xjtu.toolbox.agent.LibraryWidget { *; }
 # 上面这些卡片里装的元素类型。它们本身也是 cacheDir 缓存的模型（CourseItem 等），但卡片
 # 随 Agent 会话存进 filesDir，换包不清——字段名一变，升级后旧对话里的卡片内容就全成空串。
 -keepclassmembers class com.xjtu.toolbox.schedule.CourseItem { <fields>; }
 -keepclassmembers class com.xjtu.toolbox.schedule.ExamItem { <fields>; }
 -keepclassmembers class com.xjtu.toolbox.emptyroom.RoomInfo { <fields>; }
+# 实时状态的教室（LiveRoomWidget 里装的）。status 故意是 Int 不是枚举，免得踩 ScoreSource 那个坑。
+-keepclassmembers class com.xjtu.toolbox.emptyroom.LiveRoom { <fields>; }
+-keepclassmembers class com.xjtu.toolbox.library.PlanSeat { <fields>; }
 -keepclassmembers class com.xjtu.toolbox.score.ReportedGrade { <fields>; }
 -keepclassmembers class com.xjtu.toolbox.agent.ZyxfEntryRef { <fields>; }
 -keepclassmembers class com.xjtu.toolbox.agent.AgentToolRegistry$YwtbIdentity { <fields>; }

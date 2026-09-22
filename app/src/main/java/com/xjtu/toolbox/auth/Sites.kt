@@ -508,6 +508,131 @@ class CampusCardSession : CasSiteSession("campus_card", "校园卡", mustUseWebV
     }
 }
 
+// ── GSTE 研究生评教 / GMIS 研究生管理信息系统 ─────────────────────────
+
+/**
+ * 只需走完 CAS、落到本站就算登录成功的站点。CAS 回跳偶尔停在「200 + 表单自动提交」上，
+ * OkHttp 不会替你提交，这时 TGC 已经建好，重访一次入口就能把跳转链走完（同 [JwxtLogin]）。
+ */
+private class LandingCasLogin(
+    private val entryUrl: String,
+    private val targetHost: String,
+    existingClient: OkHttpClient,
+    visitorId: String?,
+    cachedRsaKey: String?,
+) : XJTULogin(entryUrl, existingClient, visitorId, cachedRsaKey) {
+    override fun postLogin(response: Response) {
+        if (com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(response.request.url.toString(), targetHost)) return
+        client.newCall(Request.Builder().url(entryUrl).get().build()).execute().use { retry ->
+            val body = retry.body?.string().orEmpty()
+            if (XJTULogin.isSafetyVerifyPage(body)) throw SafetyVerifyRequiredException(retry, body)
+            if (!com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(retry.request.url.toString(), targetHost)) {
+                throw IOException("$targetHost SSO 未完成跳转，需要重新登录")
+            }
+        }
+    }
+}
+
+/**
+ * 研究生评教 gste.xjtu.edu.cn。只在校园网内可达，校外走 WebVPN。
+ * 身份固定选研究生：本站只服务研究生，同时有本科身份的账号也要登研究生那一支。
+ */
+class GsteSession : CasSiteSession("gste", "研究生评教", mustUseWebVpn = true) {
+    override val accountType: XJTULogin.AccountType get() = XJTULogin.AccountType.POSTGRADUATE
+
+    override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
+        LandingCasLogin(LOGIN_URL, "gste.xjtu.edu.cn", client, visitorId, cachedRsaKey)
+
+    override suspend fun validateLogin(): Boolean = withIo {
+        client.newCall(Request.Builder().url(LIST_URL).get().build()).execute().use { resp ->
+            resp.code == 200 &&
+                com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(resp.request.url.toString(), "gste.xjtu.edu.cn") &&
+                resp.body?.string().orEmpty().trimStart().startsWith("[")
+        }
+    }
+
+    companion object {
+        const val LOGIN_URL = "https://cas.xjtu.edu.cn/login?TARGET=http%3A%2F%2Fgste.xjtu.edu.cn%2Flogin.do"
+        const val LIST_URL = "http://gste.xjtu.edu.cn/app/sshd4Stu/list.do"
+    }
+}
+
+/** 研究生管理信息系统 gmis.xjtu.edu.cn。研究生评教要从这里取教材、授课语言、学位课信息来填问卷。 */
+class GmisSession : CasSiteSession("gmis", "研究生管理信息系统", mustUseWebVpn = true) {
+    override val accountType: XJTULogin.AccountType get() = XJTULogin.AccountType.POSTGRADUATE
+
+    override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
+        LandingCasLogin(LOGIN_URL, "gmis.xjtu.edu.cn", client, visitorId, cachedRsaKey)
+
+    override suspend fun validateLogin(): Boolean = withIo {
+        client.newCall(Request.Builder().url(SCORE_URL).get().build()).execute().use { resp ->
+            resp.code == 200 &&
+                com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(resp.request.url.toString(), "gmis.xjtu.edu.cn")
+        }
+    }
+
+    companion object {
+        const val LOGIN_URL = "https://org.xjtu.edu.cn/openplatform/oauth/authorize?appId=1036&state=abcd1234" +
+            "&redirectUri=http://gmis.xjtu.edu.cn/pyxx/sso/login&responseType=code&scope=user_info"
+        const val SCORE_URL = "https://gmis.xjtu.edu.cn/pyxx/pygl/xscjcx/index"
+    }
+}
+
+// ── 智慧教室平台 js.xjtu.edu.cn（空闲教室实时状态 / 课表源） ──────────────
+
+/**
+ * 智慧教室运维平台（网页标题「智慧教室运维-服务端」，XJTUToolBox 里叫「教学服务平台」）。
+ * 两处在用：空闲教室页的「实时状态」、设置里可选的课表源。凭据是 loginCas 换来的
+ * `TOKEN-AUTH` 请求头（10 小时有效），不是 cookie，登录细节见 [JsLogin]。
+ *
+ * mustUseWebVpn=true：跟随全局模式，校外走 WebVPN。XJTUToolBox 的 JsSession 是固定直连，
+ * 但 2026-09-22 真机实测校外直连 202.117.52.120:443 连接超时——这个域名只在校内可达。
+ */
+class JsSession : CasSiteSession(SITE_KEY, "智慧教室平台", mustUseWebVpn = true) {
+    override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
+        com.xjtu.toolbox.auth.JsLogin(session = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
+
+    override fun onLoginSuccess(login: XJTULogin) {
+        val grant = (login as? com.xjtu.toolbox.auth.JsLogin)?.grantOrNull
+            ?: throw IOException("智慧教室登录失败：未取得令牌")
+        localToken[TOKEN_KEY] = grant.token
+        localToken[EXPIRES_KEY] = (grant.obtainedAtMs + grant.timeoutSeconds * 1000L).toString()
+    }
+
+    override fun decorateRequest(builder: Request.Builder): Request.Builder {
+        localToken[TOKEN_KEY]?.let { builder.header(com.xjtu.toolbox.auth.JsLogin.TOKEN_HEADER, it) }
+        builder.header(
+            com.xjtu.toolbox.auth.JsLogin.SYSTEM_HEADER,
+            com.xjtu.toolbox.auth.JsLogin.SYSTEM_VALUE,
+        )
+        return builder
+    }
+
+    /**
+     * 不发请求：令牌寿命服务端直接告诉了我们，留 10 分钟余量，过了就重换。
+     * 提前失效（服务端重启、被踢）由 [executeWithReAuth] 按 401 兜底重登。
+     * 也不拿 getUserInfoForPersonal 探活——那个接口会把密码哈希一起回过来。
+     */
+    override suspend fun validateLogin(): Boolean {
+        if (localToken[TOKEN_KEY].isNullOrBlank()) return false
+        val expiresAt = localToken[EXPIRES_KEY]?.toLongOrNull() ?: return false
+        return System.currentTimeMillis() < expiresAt - 10 * 60_000L
+    }
+
+    override fun isAuthFailureResponse(response: Response, bodyPreview: String?): Boolean {
+        if (super.isAuthFailureResponse(response, bodyPreview)) return true
+        val body = bodyPreview ?: return false
+        return """"code"\s*:\s*401""".toRegex().containsMatchIn(body) ||
+            (body.contains("token", ignoreCase = true) && body.contains("过期"))
+    }
+
+    companion object {
+        const val SITE_KEY = "js"
+        private const val TOKEN_KEY = "token_auth"
+        private const val EXPIRES_KEY = "token_expires_at"
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────
 //  辅助
 // ─────────────────────────────────────────────────────────────────────

@@ -142,8 +142,10 @@ object ScoreCalculator {
             // - 未通过：
             //     • 教务语义 (skipFailedRetake = false)：examProp=="初修" 才跳过（避免初修挂科拉低）
             //     • Agent 语义 (skipFailedRetake = true)：所有未通过都跳过
+            //     • 缓考（specificReason=="缓考"）：还没考，不论初修重修都不计入
             val isFirstAttempt = item.examProp == "初修"
-            val skip = !passed && (skipFailedRetake || isFirstAttempt)
+            val isDeferred = item.specificReason?.trim() == "缓考"
+            val skip = !passed && (skipFailedRetake || isFirstAttempt || isDeferred)
             if (skip) continue
 
             courseCount++

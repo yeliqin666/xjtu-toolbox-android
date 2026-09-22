@@ -289,6 +289,7 @@ class CredentialStore(context: Context) {
         const val SCHEDULE_SOURCE_JWXT = "jwxt"
         const val SCHEDULE_SOURCE_JWAPP = "jwapp"
         const val SCHEDULE_SOURCE_BKKQ = "bkkq"
+        const val SCHEDULE_SOURCE_JS = "js"
         const val NAV_STYLE_FLOATING = "floating"
         const val NAV_STYLE_CLASSIC = "classic"
         const val DARK_MODE_SYSTEM = "system"

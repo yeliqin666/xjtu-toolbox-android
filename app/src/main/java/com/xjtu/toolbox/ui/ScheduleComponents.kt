@@ -196,21 +196,15 @@ private fun toDisplayScheduleSlot(
         // 本质原因：jwapp 记回来的钟点是**按某一令时写死**的（不随令时变），换季之后拿当天的作息
         // 去解释它必然错位（曾把 9-10 节的课画成半行、把 3-4 节的课缩成一节）；而节次字段在
         // 详情面板、考勤索引、冲突判定各处都是统一口径，块的位置就该由它决定。
+        // 自建条目（「日程」「自定义」两种）带钟点就只认钟点。以前要求钟点换算出的节次和节次字段吻合才采信，
+        // 可节次字段是编辑器按「8 点起每小时一节」推的，和作息表对不上：14:00–18:00 的实验课
+        // 存成第 7–10 节，钟点换算是第 5–8 节，一不吻合就退回节次字段，块一路拉到晚课 9–10 节。
         slot is CourseItem &&
-            slot.courseType == "日程" &&
+            (slot.courseType == "日程" || slot.courseCode.startsWith(com.xjtu.toolbox.schedule.CUSTOM_COURSE_CODE_PREFIX)) &&
             slot.startMinuteOfDay > 0 &&
             slot.endMinuteOfDay > slot.startMinuteOfDay -> {
-            val byMinutesStart = XjtuTime.sectionScaleOf(slot.startMinuteOfDay, daySummer)
-            val byMinutesEnd = XjtuTime.sectionScaleOf(slot.endMinuteOfDay, daySummer)
-            // 钟点描述的节次范围要和节次字段一致才采信（自定义日程的节次是按小时块推的，
-            // 正常情况下两者吻合；万一不吻合，以节次为准）
-            if (floor(byMinutesStart).toInt() == sectionStart &&
-                ceil(byMinutesEnd).toInt() == sectionEnd + 1
-            ) {
-                byMinutesStart to byMinutesEnd
-            } else {
-                sectionStart.toFloat() to (sectionEnd + 1).toFloat()
-            }
+            XjtuTime.sectionScaleOf(slot.startMinuteOfDay, daySummer) to
+                XjtuTime.sectionScaleOf(slot.endMinuteOfDay, daySummer)
         }
 
         else -> sectionStart.toFloat() to (sectionEnd + 1).toFloat()

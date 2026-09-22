@@ -16,13 +16,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.google.zxing.BarcodeFormat
-import com.google.zxing.BinaryBitmap
-import com.google.zxing.DecodeHintType
-import com.google.zxing.MultiFormatReader
-import com.google.zxing.NotFoundException
-import com.google.zxing.PlanarYUVLuminanceSource
-import com.google.zxing.common.HybridBinarizer
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
@@ -30,7 +23,7 @@ import java.util.concurrent.atomic.AtomicReference
 /**
  * 相机取景 + 实时二维码解码的 Compose 组件。
  *
- * CameraX 拿 YUV 帧（`ImageAnalysis`），zxing（本仓库已依赖 `zxing.core`）离线解码。
+ * CameraX 拿 YUV 帧（`ImageAnalysis`），[QrFrameDecoder] 离线解码（zxing，定位块破损时会补一个再解）。
  * 解出第一个结果后即锁定并回调一次 [onResult]，不再重复触发——由 [decoded] 保证。
  */
 @Composable
@@ -42,20 +35,8 @@ fun QrScannerView(
     val decoded = remember { AtomicBoolean(false) }
     val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
     val cameraProviderRef = remember { AtomicReference<ProcessCameraProvider?>(null) }
-    val reader = remember {
-        MultiFormatReader().apply {
-            setHints(
-                mapOf(
-                    DecodeHintType.POSSIBLE_FORMATS to listOf(BarcodeFormat.QR_CODE),
-                    // 分享码那种上千字的码是 25 版以上，模块密、
-                    // 容错又只有 L 级，不开 TRY_HARDER 基本扫不出来。
-                    // 代价是每帧慢几十毫秒，但 KEEP_ONLY_LATEST 会丢帧，
-                    // 取景不会卡，只是分析帧率低一些。
-                    DecodeHintType.TRY_HARDER to true,
-                )
-            )
-        }
-    }
+    // 补定位块比常规解码贵（几十毫秒），每 300ms 最多试一次；常规解码每帧都跑
+    val lastRepairAt = remember { java.util.concurrent.atomic.AtomicLong(0L) }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -102,7 +83,10 @@ fun QrScannerView(
                         proxy.close()
                         return@setAnalyzer
                     }
-                    val text = decodeQr(proxy, reader)
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    val repair = now - lastRepairAt.get() >= REPAIR_INTERVAL_MS
+                    if (repair) lastRepairAt.set(now)
+                    val text = decodeQr(proxy, repair)
                     proxy.close()
                     if (text != null && decoded.compareAndSet(false, true)) {
                         ContextCompat.getMainExecutor(ctx).execute { onResult(text) }
@@ -123,22 +107,17 @@ fun QrScannerView(
     )
 }
 
-/** 解 [proxy] 的 Y 平面为一帧灰度图并交给 zxing；未识别到返回 null。 */
-private fun decodeQr(proxy: ImageProxy, reader: MultiFormatReader): String? {
+/**
+ * 解 [proxy] 的 Y 平面。按 rowStride 读：1080p 下很多机型每行末尾有填充字节，
+ * 以前按 width 当行宽读，整幅图逐行错位，能扫出来全凭运气。
+ */
+private fun decodeQr(proxy: ImageProxy, repair: Boolean): String? {
     val plane = proxy.planes.firstOrNull() ?: return null
     val buffer = plane.buffer
     val data = ByteArray(buffer.remaining()).also { buffer.get(it) }
-    val w = proxy.width
-    val h = proxy.height
-    val source = PlanarYUVLuminanceSource(data, w, h, 0, 0, w, h, false)
-    val bitmap = BinaryBitmap(HybridBinarizer(source))
-    return try {
-        reader.decodeWithState(bitmap).text
-    } catch (e: NotFoundException) {
-        null
-    } catch (e: Exception) {
-        null
-    } finally {
-        reader.reset()
-    }
+    return runCatching {
+        QrFrameDecoder.decode(data, plane.rowStride, proxy.width, proxy.height, repair)
+    }.getOrNull()
 }
+
+private const val REPAIR_INTERVAL_MS = 300L

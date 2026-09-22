@@ -103,16 +103,19 @@ fun ExpressiveIcon(
             ),
         contentAlignment = Alignment.Center,
     ) {
-        Box(
-            Modifier
-                .size(size * 0.7f)
-                .clip(androidx.compose.foundation.shape.CircleShape)
-                .background(
-                    Brush.radialGradient(
-                        listOf(Color.White.copy(alpha = 0.2f), Color.Transparent),
+        // 浅色下这团白光融进浅底，只是提亮；深色底上它会变成字形背后一圈灰白光环，所以只在浅色画。
+        if (!LocalIsDarkTheme.current) {
+            Box(
+                Modifier
+                    .size(size * 0.7f)
+                    .clip(androidx.compose.foundation.shape.CircleShape)
+                    .background(
+                        Brush.radialGradient(
+                            listOf(Color.White.copy(alpha = 0.2f), Color.Transparent),
+                        ),
                     ),
-                ),
-        )
+            )
+        }
         Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(iconSize))
     }
 }

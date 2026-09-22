@@ -245,15 +245,23 @@
     aboveLineSince: null,
     maxReached: 0,
 
+    // 记录以原生端为准：切账号时 WebView 的 localStorage 会被整个清掉。
+    // localStorage 只作浏览器里单独调试时的后备，两边取大。
     loadHighscore() {
+      let local = 0, host = 0;
+      try { local = parseInt(localStorage.getItem(STORAGE_KEY), 10) || 0; } catch (e) { /* 忽略 */ }
       try {
-        const v = localStorage.getItem(STORAGE_KEY);
-        Game.highscore = v ? parseInt(v, 10) || 0 : 0;
-      } catch (e) { Game.highscore = 0; }
+        if (window.AndroidGameBridge && typeof window.AndroidGameBridge.bestScore === 'function') {
+          host = window.AndroidGameBridge.bestScore() || 0;
+        }
+      } catch (e) { /* 忽略 */ }
+      Game.highscore = Math.max(local, host);
       els.highscore.innerText = Game.highscore;
+      if (local > host) submitScoreToHost(local);
     },
     saveHighscore() {
       try { localStorage.setItem(STORAGE_KEY, String(Game.highscore)); } catch (e) { /* 忽略 */ }
+      submitScoreToHost(Game.highscore);
     },
 
     async preload() {
@@ -270,6 +278,8 @@
       if (v > Game.highscore) {
         Game.highscore = v;
         els.highscore.innerText = v;
+        // 破纪录当场就存：中途返回或切走 App 不会走到 lose()
+        Game.saveHighscore();
       }
     },
 

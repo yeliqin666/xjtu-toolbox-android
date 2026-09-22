@@ -1477,6 +1477,7 @@ private fun MessageBubble(
                         // 卡片上点"打开目录"等于替用户问一句，直接走正常发送路径，
                         // 历史、限流、工具预算全都照常。
                         onAsk = onAskFromWidget,
+                        onNavigate = onNavigate,
                     )
                 }
                 if (msg.navSuggestions.isNotEmpty()) {

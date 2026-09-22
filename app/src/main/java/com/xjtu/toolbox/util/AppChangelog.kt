@@ -34,6 +34,21 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "5.0.3" to VersionChangelog(
+            items = listOf(
+                "🪶" to "错误的生活里，没有正确的生活。",
+                "🏫" to "空闲教室切换「智慧教室」源，更细致准确",
+                "📷" to "首页可扫图书馆座位码直接预约",
+                "🏛️" to "图书馆新增座位平面图，可直接按地图选座",
+                "📥" to "思源学堂支持批量下载",
+                "📝" to "新增研究生评教",
+                "🖼️" to "校历新增教务处原图",
+                "🗓️" to "新增「智慧教室」课表源",
+                "♟️" to "象棋按棋例判定长将、长捉与和棋",
+                "🎓" to "GPA 不再计入缓考课程",
+                "🩹" to "修复自定义日程节次换算、部分机型扫码失败、空闲教室断网不显示缓存等问题",
+            )
+        ),
         "5.0" to VersionChangelog(
             items = listOf(
                 "🪶" to "无望其速成，无诱于势利。",

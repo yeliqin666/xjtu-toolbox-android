@@ -19,6 +19,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -439,13 +440,13 @@ private fun MyCodeCard(
                 QrState.Failed(
                     "开的项太多，${code.length} 字的码密到扫不出来了" +
                         "（扫得动的上限约 ${QrBitmap.MAX_SCANNABLE} 字）。" +
-                        "点「改」关掉几项，或者把下面的文字直接发给对方。"
+                        "点「挑选」关掉几项，或者把下面的文字直接发给对方。"
                 )
 
             else -> withContext(Dispatchers.Default) { QrBitmap.generate(code, 720) }
                 ?.let { QrState.Ready(it) }
                 ?: QrState.Failed(
-                    "这段 ${code.length} 字的码画不成二维码。点「改」关掉几项再试，" +
+                    "这段 ${code.length} 字的码画不成二维码。点「挑选」关掉几项再试，" +
                         "或者把下面的文字发给对方。"
                 )
         }
@@ -491,13 +492,22 @@ private fun MyCodeCard(
         }
 
         Spacer(Modifier.height(14.dp))
-        HorizontalDivider(color = MiuixTheme.colorScheme.dividerLine)
-        Spacer(Modifier.height(10.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        // 选分享哪些是这一页真正要做的决定：整行可点，淡淡铺一层主色，比角落里一个「改」好找，又不抢二维码的风头。
+        val primary = MiuixTheme.colorScheme.primary
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(primary.copy(alpha = 0.08f))
+                .clickable(onClick = onEditShare)
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Column(Modifier.weight(1f)) {
                 Text(
                     if (sharedCount == 0) "一项都没分享" else "分享了 $sharedCount 项",
                     style = MiuixTheme.textStyles.body2,
+                    fontWeight = FontWeight.Medium,
                     // 一项没开时码里只有个名字，对方算不出任何东西，得让人看出不对劲。
                     color = if (sharedCount == 0) MiuixTheme.colorScheme.error
                     else MiuixTheme.colorScheme.onSurface,
@@ -511,7 +521,7 @@ private fun MyCodeCard(
                     else MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
             }
-            TextButton(text = "改", onClick = onEditShare)
+            Text("挑选 ›", style = MiuixTheme.textStyles.body2, color = primary)
         }
         Spacer(Modifier.height(8.dp))
         TextButton(text = "复制文字", onClick = onCopy, modifier = Modifier.fillMaxWidth())

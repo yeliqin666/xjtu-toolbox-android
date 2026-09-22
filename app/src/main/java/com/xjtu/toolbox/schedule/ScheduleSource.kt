@@ -7,6 +7,7 @@ import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.SessionManager
 import com.xjtu.toolbox.auth.ensureSite
+import com.xjtu.toolbox.auth.siteKey
 import com.xjtu.toolbox.jwapp.JwappScheduleApi
 import com.xjtu.toolbox.util.CredentialStore
 import kotlinx.coroutines.CancellationException
@@ -20,12 +21,14 @@ private const val TAG = "ScheduleSource"
  *
  * 三套系统的数据各有取舍：教务一次给整学期，最快也最全；移动教务和考勤系统都只能
  * 按周查，整学期要发十几个请求，但它们是任课老师和签到设备实际用的那一份，
- * 学校临时调课时通常更新得更早。
+ * 学校临时调课时通常更新得更早。智慧教室平台同样按周查，是 XJTUToolBox 在考勤取不到时
+ * 的备用源，和空闲教室的实时状态共用一套登录。
  */
 enum class ScheduleSource(val key: String, val label: String, val summary: String) {
     JWXT(CredentialStore.SCHEDULE_SOURCE_JWXT, "教务系统", "一次拉整学期，最快"),
     JWAPP(CredentialStore.SCHEDULE_SOURCE_JWAPP, "移动教务", "按周拉，含分钟级上下课时间"),
-    BKKQ(CredentialStore.SCHEDULE_SOURCE_BKKQ, "考勤系统", "按周拉，与刷卡签到同一份排课");
+    BKKQ(CredentialStore.SCHEDULE_SOURCE_BKKQ, "考勤系统", "按周拉，与刷卡签到同一份排课"),
+    JS(CredentialStore.SCHEDULE_SOURCE_JS, "智慧教室平台", "按周拉，XJTUToolBox 的备用课表源");
 
     companion object {
         val DEFAULT = JWAPP
@@ -65,6 +68,7 @@ object ScheduleSourceRouter {
                 when (source) {
                     ScheduleSource.JWAPP -> fromJwapp(manager, termCode, userInitiated)
                     ScheduleSource.BKKQ -> fromBkkq(manager, accountType, termCode, userInitiated)
+                    ScheduleSource.JS -> fromJs(manager, termCode, userInitiated)
                     ScheduleSource.JWXT -> null
                 }
             }
@@ -228,6 +232,41 @@ object ScheduleSourceRouter {
         }
     }
 
+    /**
+     * 智慧教室平台课表源（js.xjtu.edu.cn，XJTUToolBox 里是考勤取不到时的备用源）。
+     *
+     * 这个接口按学期代码查，理论上不只认当前学期；但没验证过历史学期，
+     * 也就不知道它会不会像 jwapp 那样把当前学期的课当成别的学期返回。
+     * 为守住"历史学期永远走教务"，只在要查的就是当前学期时用它。
+     */
+    private suspend fun fromJs(
+        manager: SessionManager,
+        termCode: String,
+        userInitiated: Boolean,
+    ): SourceResult? {
+        if (!sameTerm(termCode, guessCurrentTerm())) {
+            Log.d(TAG, "智慧教室平台只用于当前学期，要查的是 $termCode，走教务")
+            return null
+        }
+        val site = manager.siteOrNull(com.xjtu.toolbox.auth.JsSession.SITE_KEY, userInitiated) ?: return null
+        val courses = JsScheduleApi(site).getSchedule(termCode)
+        return courses.takeIf { it.isNotEmpty() }?.let { SourceResult(it) }
+    }
+
+    /**
+     * 按日期推当前学期，规则同 XJTUToolBox：2 月前算上一学年第一学期，
+     * 2–8 月第二学期，9 月起新学年第一学期。（暑期小学期不单独算。）
+     */
+    private fun guessCurrentTerm(): String {
+        val now = java.time.LocalDate.now()
+        val y = now.year
+        return when {
+            now.monthValue < 2 -> "${y - 1}-$y-1"
+            now.monthValue < 9 -> "${y - 1}-$y-2"
+            else -> "$y-${y + 1}-1"
+        }
+    }
+
     private data class TimetableKey(
         val courseName: String,
         val teacher: String,
@@ -255,12 +294,15 @@ object ScheduleSourceRouter {
      * 取一个已登录的站点，拿不到返回 null。取消必须原样抛，不能当成"站点不可用"——
      * 吞掉取消会在重组频繁时反复触发登录，把站点打进失败冷却。
      */
-    private suspend fun SessionManager.siteOrNull(type: LoginType, userInitiated: Boolean) = try {
-        ensureSite(type, userInitiated = userInitiated, silent = true)
+    private suspend fun SessionManager.siteOrNull(type: LoginType, userInitiated: Boolean) =
+        siteOrNull(type.siteKey(), userInitiated)
+
+    private suspend fun SessionManager.siteOrNull(siteKey: String, userInitiated: Boolean) = try {
+        ensureSite(siteKey, userInitiated = userInitiated, silent = true)
     } catch (e: CancellationException) {
         throw e
     } catch (e: Throwable) {
-        Log.d(TAG, "ensureSite(${type.name}) 不可用：${e.javaClass.simpleName} ${e.message}")
+        Log.d(TAG, "ensureSite($siteKey) 不可用：${e.javaClass.simpleName} ${e.message}")
         null
     }
 }

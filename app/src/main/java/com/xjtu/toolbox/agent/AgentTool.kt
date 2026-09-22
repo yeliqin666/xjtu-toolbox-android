@@ -17,6 +17,8 @@ import com.xjtu.toolbox.emptyroom.CAMPUS_BUILDINGS
 import com.xjtu.toolbox.emptyroom.EmptyRoomApi
 import com.xjtu.toolbox.emptyroom.EmptyRoomCache
 import com.xjtu.toolbox.emptyroom.EmptyRoomDirectQuery
+import com.xjtu.toolbox.emptyroom.LIVE_CAMPUSES
+import com.xjtu.toolbox.emptyroom.LiveRoomApi
 import com.xjtu.toolbox.fitness.orderedFitnessYears
 import com.xjtu.toolbox.fitness.pickFitnessYear
 import com.xjtu.toolbox.fitness.yearValue
@@ -51,7 +53,7 @@ import java.time.format.DateTimeFormatter
 private const val APP_GUIDE = """App 功能与入口：
 - 日程（底栏）：课表与教材、考试安排、自建日程；可切学期、导出日历（ICS）。
 - 成绩查询：各学期成绩、GPA、成绩报表。电子成绩单另有一页：一键向学校申请并下载 PDF。
-- 空闲教室：按校区、楼、节次查，可筛「现在空闲」「刚解放」「大教室」。
+- 空闲教室：默认看此刻实时状态（空闲 / 其它使用及人数 / 上课中，兴庆、雁塔、创新港）；右上角可切到 CDN 课表或直查教务，按今天、明天逐节查，可筛「现在空闲」「刚解放」「大教室」。
 - 新版考勤：考勤流水、打卡流水、统计，以及请假的提交、撤回和销假；另有快速考勤流水（人脸 / 班牌打卡）。
 - 校园卡：余额、流水、消费分析；付款码单独一页。
 - 加餐券：领取和使用。
@@ -310,6 +312,67 @@ class AgentToolRegistry(
         null
     }
 
+    /** 同 [ensureSite]，给不在 [LoginType] 里的站点（智慧教室等）用。 */
+    private suspend fun ensureSiteKey(siteKey: String): SiteSession? = try {
+        lastSiteError = null
+        loginState.sessionManager?.ensureSite(siteKey, silent = true)
+    } catch (e: Throwable) {
+        lastSiteError = e
+        null
+    }
+
+    /** 模型常写"兴庆""创新港"，补成 [CAMPUS_BUILDINGS] 的键。 */
+    private fun normalizeCampus(campus: String?): String {
+        val c = campus?.trim().orEmpty()
+        if (c.isEmpty()) return "兴庆校区"
+        if (c in CAMPUS_BUILDINGS) return c
+        return CAMPUS_BUILDINGS.keys.firstOrNull { it.startsWith(c.removeSuffix("校区")) } ?: c
+    }
+
+    /**
+     * 空闲教室的实时状态版回复。楼不在平台上时返回 null，调用方退回课表数据。
+     *
+     * 给模型的文字只列空闲的和其它使用的（没排课但有人，人少在前）；上课中的只给个数。
+     * 卡片同样只放这两类——上课中的教室列出来也进不去。
+     */
+    private suspend fun liveRoomsReply(site: SiteSession, campus: String, building: String?): String? {
+        val snap = LiveRoomApi(site, EmptyRoomCache(context)).fetchCampus(campus)
+        val key = building?.trim().orEmpty()
+        val wanted = when {
+            key.isEmpty() -> null
+            key.all { it.isDigit() } -> "${key}号巨构"
+            else -> key
+        }
+        val scope = if (wanted == null) snap.rooms else snap.rooms.filter {
+            it.building == wanted || it.building.startsWith(wanted) ||
+                (wanted.length > 2 && wanted.startsWith(it.building))
+        }
+        if (scope.isEmpty()) return null
+
+        val time = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(snap.fetchedAt)
+        val free = scope.filter { it.isFree }
+        val inUse = scope.filter { it.isInUse }.sortedBy { it.people }
+        val inClass = scope.count { it.isInClass }
+        val cond = campus + (wanted?.let { " $it" } ?: "")
+
+        pendingWidgets.add(LiveRoomWidget("$cond · $time 实时", (free + inUse).take(40), snap.fetchedAt))
+        return buildString {
+            append("实时状态（$cond，$time）：空闲 ${free.size} 间｜其它使用 ${inUse.size} 间｜上课中 $inClass 间。\n")
+            append("其它使用 = 课表上没课但平台统计到有人，可能是自习，也可能是社团借用、活动，平台不区分，别替用户断定能进；人数是此刻在场人数。上课中的教室不能进。\n")
+            if (free.isEmpty() && inUse.isEmpty()) append("此刻没有空闲或其它使用的教室。\n")
+            if (free.isNotEmpty()) {
+                append("空闲：\n")
+                free.take(15).forEach { append("${it.name}｜${it.seats} 座\n") }
+                if (free.size > 15) append("…还有${free.size - 15}间空闲，可指定楼栋缩小范围。\n")
+            }
+            if (inUse.isNotEmpty()) {
+                append("其它使用（人少在前）：\n")
+                inUse.take(8).forEach { append("${it.name}｜${it.people} 人/${it.seats} 座\n") }
+                if (inUse.size > 8) append("…还有${inUse.size - 8}间。\n")
+            }
+        }
+    }
+
     /**
      * 登录失败的结果：只给系统名和原因，写成字段。怎么跟用户说、让用户做什么由模型自己判断。
      *
@@ -369,11 +432,11 @@ class AgentToolRegistry(
                 "limit" to intProp("条数，默认 10，上限 20。")
             )))
         arr.add(tool("get_empty_rooms",
-            "空闲教室，逐节。",
+            "空闲教室。今天且不给节次（或给的就是当前节）时返回此刻实时状态：空闲、其它使用（没排课但有人，附人数）、上课中；其余按课表逐节。",
             params(
-                "campus"   to strProp("兴庆校区/雁塔校区/曲江校区/创新港校区。缺省：兴庆校区。"),
-                "building" to strProp("楼名，如 主楼A。缺省：全校区。"),
-                "section"  to intProp("节次 1–11。缺省：全天。"),
+                "campus"   to strProp("兴庆校区/雁塔校区/曲江校区/创新港校区。缺省：兴庆校区。实时状态只有兴庆、雁塔、创新港。"),
+                "building" to strProp("楼名，如 主楼A、1号巨构。缺省：全校区。"),
+                "section"  to intProp("节次 1–11。缺省：此刻（今天）/全天（其他日期）。"),
                 "date"     to strProp("今天/明天/yyyy-MM-dd。缺省：今天。")
             )))
         arr.add(tool("get_attendance",
@@ -443,8 +506,12 @@ class AgentToolRegistry(
                 "force" to boolProp("冲突时仍然添加。")
             )))
         arr.add(tool("get_library",
-            "图书馆：本人当前座位预约，以及某区域的空座数。需图书馆登录。",
-            params("area" to strProp("区域名，模糊，如 北楼二层外文库。缺省：返回区域列表。"))))
+            "图书馆：本人当前座位预约，以及各区域空座。给 area 时返回该区域空座并附平面图卡片。需图书馆登录。" +
+                "推荐去哪自习时按用户所在校区选 campus，用户点名别的校区就用那个。",
+            params(
+                "campus" to strProp("校区：兴庆 / 雁塔 / 创新港。缺省：账号在图书馆系统里当前的校区。"),
+                "area" to strProp("区域名，模糊，如 北楼二层外文库。缺省：列出该校区全部区域及空座数。"),
+            )))
         arr.add(tool("list_zyxf",
             "历年卷、复习资料、课件、笔记（仲英学辅资料站，同学共享）：给 keyword 按文件名、目录名检索，否则列出目录。",
             params(
@@ -619,7 +686,8 @@ class AgentToolRegistry(
             }
             "read_zyxf_file" -> readZyxfFile((args["file_id"] as? Double)?.toInt() ?: 0)
             // 我的预约和区域空座一次给全
-            "get_library" -> getLibraryBooking() + "\n\n" + getLibrarySeats(args["area"] as? String)
+            "get_library" -> getLibraryBooking() + "\n\n" +
+                getLibrarySeats(args["campus"] as? String, args["area"] as? String)
             "get_textbooks" -> getTextbooks(args["course"] as? String, args["term"] as? String)
             "get_coupons" -> getCoupons(args["status"] as? String)
             "get_lms" -> {
@@ -1183,9 +1251,33 @@ class AgentToolRegistry(
             val targetDate = parseToolDate(date)
             val dateStr = targetDate.format(DateTimeFormatter.ISO_LOCAL_DATE)
 
-            val targetCampus = campus ?: "兴庆校区"
+            val targetCampus = normalizeCampus(campus)
             val buildings = CAMPUS_BUILDINGS[targetCampus]
                 ?: return ToolReply.notFound("campus", targetCampus, CAMPUS_BUILDINGS.keys)
+
+            // 问的是"现在"：今天、没给节次或给的就是当前节 → 先用实时状态。
+            // 实时状态比课表多一层信息（没排课但有人、有几个人），正是"现在去哪自习"要的。
+            // 用户在页面里明确切到了课表数据源，就尊重他的选择。
+            val sourcePref = context.getSharedPreferences("empty_room", Context.MODE_PRIVATE)
+                .getString("empty_room_source", null)
+            val nowSection = currentPeriodIndex() + 1
+            val asksNow = targetDate == LocalDate.now() && (section == null || section == nowSection)
+            var liveNote: String? = null
+            if (asksNow && (sourcePref == null || sourcePref == "live") && targetCampus in LIVE_CAMPUSES) {
+                val site = ensureSiteKey(com.xjtu.toolbox.auth.JsSession.SITE_KEY)
+                if (site != null) {
+                    val live = runCatching { liveRoomsReply(site, targetCampus, building) }
+                    live.getOrNull()?.let { return it }
+                    liveNote = if (live.isSuccess) {
+                        // 楼不在智慧教室平台上（仲英楼、中1 等），课表里有
+                        "实时状态里没有「$building」，以下按课表"
+                    } else {
+                        "实时状态查询失败（${live.exceptionOrNull()?.message?.take(60) ?: "未知原因"}），以下按课表"
+                    }
+                } else {
+                    liveNote = "实时状态登录不上（${lastSiteError?.javaClass?.simpleName ?: "未登录"}），以下按课表"
+                }
+            }
 
             val targetBuildings = if (building != null) {
                 buildings.filter { it == building || it.startsWith(building) }
@@ -1194,8 +1286,7 @@ class AgentToolRegistry(
 
             // 复用页面的「CDN / 直连教务」选择。直连较重（每楼逐节查询，约11次请求/楼），
             // 仅在用户已开启直连且指定了具体楼栋时启用，避免对全校区直连冲击学校服务器。
-            val preferDirect = context.getSharedPreferences("empty_room", Context.MODE_PRIVATE)
-                .getBoolean("empty_room_use_direct_query", false)
+            val preferDirect = sourcePref == "direct"
             val directClient = if (preferDirect && building != null) {
                 ensureSite(LoginType.JWXT)?.client
             } else null
@@ -1213,7 +1304,9 @@ class AgentToolRegistry(
                     }
                 }.awaitAll().flatten()
             }
-            if (allRooms.isEmpty()) return ToolReply.empty("empty_rooms_data; date: $dateStr; campus: $targetCampus")
+            if (allRooms.isEmpty()) return ToolReply.empty(
+                "empty_rooms_data; date: $dateStr; campus: $targetCampus" + (liveNote?.let { "; note: $it" } ?: "")
+            )
 
             val filtered = if (section != null && section in 1..11) {
                 allRooms.filter { it.status.getOrElse(section - 1) { 1 } == 0 }
@@ -1237,6 +1330,7 @@ class AgentToolRegistry(
             pendingWidgets.add(RoomWidget(cond, filtered, section?.minus(1) ?: currentPeriodIndex()))
             val shown = filtered.take(15)
             buildString {
+                liveNote?.let { append(it).append("。\n") }
                 append("空教室（$cond，共${filtered.size}间）：\n")
                 shown.forEach { r ->
                     val freeSlots = r.status.mapIndexedNotNull { i, s -> if (s == 0) i + 1 else null }
@@ -1972,42 +2066,96 @@ class AgentToolRegistry(
         }
     }
 
-    private suspend fun getLibrarySeats(area: String?): String {
+    private suspend fun getLibrarySeats(campusArg: String?, area: String?): String {
         val site = ensureSite(LoginType.LIBRARY)
             ?: return loginHint(LoginType.LIBRARY)
         val api = com.xjtu.toolbox.library.LibraryApi(site)
-        // 区域按校区各不相同，不能拿兴庆那张写死的表当全集——雁塔/创新港的同学问
-        // 「哪个区有空位」，会被告知一串他们根本去不了的兴庆区域（issue #42）。
-        // 这里按账号当前校区逐层现拉；拉不到（网络异常）才退回兴庆表。
-        val campus = runCatching { api.getCurrentCampus() }.getOrNull()
-            ?: com.xjtu.toolbox.library.LibraryCampus.DEFAULT
+        val current = withContext(Dispatchers.IO) { runCatching { api.getCurrentCampus() }.getOrNull() }
+        val requested = campusArg?.trim()?.takeIf { it.isNotEmpty() }?.let { arg ->
+            com.xjtu.toolbox.library.LibraryCampus.entries.firstOrNull { arg.contains(it.displayName) || it.displayName.contains(arg) }
+                ?: return ToolReply.notFound("campus", arg, com.xjtu.toolbox.library.LibraryCampus.entries.map { it.displayName })
+        }
+        val campus = requested ?: current ?: com.xjtu.toolbox.library.LibraryCampus.DEFAULT
+
+        // 区域和空座都跟着账号在图书馆系统里的校区（rplace）走：查别的校区得先切过去，查完切回来，
+        // 和图书馆页「看一眼别的校区」一个规矩——不能因为屁岱查了一下就把用户的账号留在那边。
+        val switched = current != null && campus != current &&
+            withContext(Dispatchers.IO) { runCatching { api.switchCampus(campus) }.getOrDefault(false) }
+        if (current != null && campus != current && !switched) {
+            return ToolReply.failed("get_library.campus", "切到${campus.displayName}查询失败")
+        }
+        try {
+            return withContext(Dispatchers.IO) { librarySeatsIn(api, campus, area) }
+        } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
+            throw e
+        } catch (e: Exception) {
+            return ToolReply.failed("get_library.seats", e.message)
+        } finally {
+            if (switched && current != null) {
+                withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) { runCatching { api.switchCampus(current) } }
+            }
+        }
+    }
+
+    private fun librarySeatsIn(
+        api: com.xjtu.toolbox.library.LibraryApi,
+        campus: com.xjtu.toolbox.library.LibraryCampus,
+        area: String?,
+    ): String {
+        // 区域按校区各不相同，不能拿兴庆那张写死的表当全集（issue #42）。逐层现拉，
+        // 顺带收集每层 scount 里的空座统计，列区域时一并给出，方便直接推荐。
         val discovered = linkedMapOf<String, String>()   // 中文名 → 区域码
+        val stats = mutableMapOf<String, com.xjtu.toolbox.library.AreaStats>()
         campus.floorCodes.forEach { floorCode ->
-            runCatching { api.getFloorAreas(floorCode) }.getOrNull()
-                ?.forEach { (code, name) -> discovered[name] = code }
+            runCatching { api.getFloorAreas(floorCode) }.getOrNull()?.let { areas ->
+                areas.forEach { (code, name) -> discovered[name] = code }
+                stats += api.cachedAreaStats.filterKeys { it in areas }
+            }
         }
         val areaMap = discovered.ifEmpty { com.xjtu.toolbox.library.LibraryApi.AREA_MAP }
         val where = "${campus.displayName}校区"
         if (area.isNullOrBlank()) {
-            return "$where 可查询的图书馆区域：\n" + areaMap.keys.joinToString("、")
+            val lines = areaMap.entries.map { (name, code) ->
+                val s = stats[code]
+                when {
+                    s == null -> "- $name"
+                    !s.isOpen -> "- $name：未开放"
+                    else -> "- $name：空闲 ${s.available} / ${s.total}"
+                }
+            }
+            return "$where 图书馆各区域（按楼层）：\n" + lines.joinToString("\n")
         }
         val entry = areaMap.entries.firstOrNull {
             it.key == area || it.key.contains(area) || area.contains(it.key)
         } ?: return ToolReply.notFound("area", area, areaMap.keys)
-        return try {
-            when (val r = api.getSeats(entry.value)) {
-                is com.xjtu.toolbox.library.SeatResult.Success -> {
-                    val free = r.seats.count { it.available }
-                    "$where ${entry.key}：空闲 $free / 共 ${r.seats.size} 座"
+        return when (val r = api.getSeats(entry.value)) {
+            is com.xjtu.toolbox.library.SeatResult.Success -> {
+                val free = r.seats.filter { it.available }
+                // 平面图卡片：坐标这一枪失败不影响文字答复
+                runCatching {
+                    val layout = api.getSeatLayout(entry.value)
+                    val imageName = com.xjtu.toolbox.library.LibraryPages.planImageNames(entry.value).getValue(null)
+                    val cached = com.xjtu.toolbox.library.PlanImageDiskCache.get(context, imageName) { api.getPlanImage(it) }
+                    if (layout.seats.isNotEmpty() && cached != null) {
+                        pendingWidgets.add(
+                            LibraryWidget(
+                                campusId = campus.id,
+                                campusName = campus.displayName,
+                                areaCode = entry.value,
+                                areaName = entry.key,
+                                imageName = imageName,
+                                seats = layout.seats,
+                            )
+                        )
+                    }
                 }
-                is com.xjtu.toolbox.library.SeatResult.AuthError ->
-                    "登录失效：图书馆"
-                is com.xjtu.toolbox.library.SeatResult.Error -> ToolReply.failed("get_library.seats", r.message)
+                buildString {
+                    append("$where ${entry.key}：空闲 ${free.size} / 共 ${r.seats.size} 座")
+                    if (free.isNotEmpty()) append("\n空闲座位（节选）：" + free.take(20).joinToString("、") { it.seatId })
+                }
             }
-        } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
-            throw e
-        } catch (e: Exception) {
-            ToolReply.failed("get_library.seats", e.message)
+            is com.xjtu.toolbox.library.SeatResult.AuthError -> "登录失效：图书馆"
+            is com.xjtu.toolbox.library.SeatResult.Error -> ToolReply.failed("get_library.seats", r.message)
         }
     }
 
@@ -2541,10 +2689,10 @@ class AgentToolRegistry(
             ?.ifEmpty { return ToolReply.badFormat("weeks", "如 3-5,8，范围 1-$maxWeeks") }
             ?: listOf(week)
 
-        // 节次按日程页自建日程的算法：从 8 点起每 60 分钟一格
-        val dayStart = com.xjtu.toolbox.ui.DAY_START_HOUR * 60
-        val startSection = ((startMin - dayStart) / 60 + 1).coerceIn(1, com.xjtu.toolbox.ui.MAX_SECTIONS)
-        val endSection = kotlin.math.ceil((endMin - dayStart) / 60f).toInt()
+        // 节次和日程页自建日程同一个算法：按学校作息表换算，下课那一刻不多占下一节
+        val startSection = kotlin.math.floor(com.xjtu.toolbox.util.XjtuTime.sectionScaleOf(startMin)).toInt()
+            .coerceIn(1, com.xjtu.toolbox.ui.MAX_SECTIONS)
+        val endSection = (kotlin.math.ceil(com.xjtu.toolbox.util.XjtuTime.sectionScaleOf(endMin)).toInt() - 1)
             .coerceIn(startSection, com.xjtu.toolbox.ui.MAX_SECTIONS)
         val accountId = com.xjtu.toolbox.account.AccountContext.activeAccountId ?: ""
         val entity = com.xjtu.toolbox.schedule.CustomCourseEntity(

@@ -237,13 +237,20 @@ object Routes {
         "jiaocai1_reader/$ssno?title=${java.net.URLEncoder.encode(title, "UTF-8")}"
 }
 
+/** 当前账号是否研究生身份（一网通办判定，见 [com.xjtu.toolbox.auth.AccountType.fromIdentityName]）。 */
+fun isPostgraduateSession(): Boolean =
+    com.xjtu.toolbox.auth.SessionManager.active?.accountType == com.xjtu.toolbox.auth.XJTULogin.AccountType.POSTGRADUATE
+
 /** shortcut / 搜索 / 深链进功能页时，对应要先登录的站点。null = 无需登录可直达。 */
 fun loginTypeForRoute(route: String): LoginType? = when (route) {
     Routes.NEW_ATTENDANCE -> LoginType.NEW_ATTENDANCE
     Routes.LIBRARY -> LoginType.LIBRARY
     Routes.CAMPUS_CARD, Routes.PAYMENT_CODE -> LoginType.CAMPUS_CARD
     Routes.JWAPP_SCORE -> LoginType.JWAPP
-    Routes.SCORE_REPORT, Routes.JUDGE, Routes.SCHOOL_COURSE, Routes.EMPTY_ROOM, Routes.SCHEDULE -> LoginType.JWXT
+    // 研究生评教走 gste + gmis，由评教页自己按需登录，不在入口先登教务
+    Routes.JUDGE -> if (isPostgraduateSession()) null else LoginType.JWXT
+    // 空闲教室不在入口登录：默认的实时状态要登智慧教室，直查才要教务，CDN 不用登，由页面按数据源自己登
+    Routes.SCORE_REPORT, Routes.SCHOOL_COURSE, Routes.SCHEDULE -> LoginType.JWXT
     Routes.TRANSCRIPT -> LoginType.DZPZ
     Routes.VENUE -> LoginType.VENUE
     Routes.LMS -> LoginType.LMS
@@ -264,7 +271,7 @@ val maintenanceRoutes: Set<String> = setOf(
 )
 val maintenanceLabels: Map<String, String> = mapOf(
     Routes.LIBRARY to "图书馆座位预约",
-    Routes.JUDGE to "本科评教",
+    Routes.JUDGE to "评教",
 )
 
 // ── 底部导航项 ────────────────────────────
@@ -1001,10 +1008,9 @@ fun AppNavigation(
         }
 
         entry<AppRoute.EmptyRoom>(transition = expand(AppRoute.EmptyRoom::class)) {
-            val direct = loginState.sessionManager?.getSiteOrNull("jwxt")?.client
             EmptyRoomScreen(
                 onBack = { navController.popBackStack() },
-                directClient = direct,
+                sessionManager = loginState.sessionManager,
             )
         }
         entry<AppRoute.Notification>(transition = expand(AppRoute.Notification::class)) {
@@ -1073,7 +1079,13 @@ fun AppNavigation(
             )
         }
         entry<AppRoute.Judge>(transition = expand(AppRoute.Judge::class)) {
-            loginState.sessionManager?.getSiteOrNull("jwxt")?.let { JudgeScreen(site = it, username = loginState.activeUsername, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
+            val sm = loginState.sessionManager
+            when {
+                sm == null -> LaunchedEffect(Unit) { navController.popBackStack() }
+                sm.accountType == com.xjtu.toolbox.auth.XJTULogin.AccountType.POSTGRADUATE ->
+                    com.xjtu.toolbox.judge.GraduateJudgeScreen(sessionManager = sm, onBack = { navController.popBackStack() })
+                else -> sm.getSiteOrNull("jwxt")?.let { JudgeScreen(site = it, username = loginState.activeUsername, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
+            }
         }
         entry<AppRoute.Library>(transition = expand(AppRoute.Library::class)) {
             loginState.sessionManager?.getSiteOrNull("library")?.let { LibraryScreen(site = it, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }

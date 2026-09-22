@@ -48,7 +48,7 @@ sealed class SeatResult {
 class LibraryApi(private val site: SiteSession) {
 
     companion object {
-        private const val BASE_URL = "http://rg.lib.xjtu.edu.cn:8086"
+        private const val BASE_URL = LibraryPages.BASE_URL
         private const val TAG = "LibraryApi"
 
         val AREA_MAP = linkedMapOf(
@@ -110,17 +110,16 @@ class LibraryApi(private val site: SiteSession) {
         private fun looksLikeJson(body: String): Boolean =
             body.trimStart().firstOrNull()?.let { it == '{' || it == '[' } == true
 
+        private fun isJpeg(b: ByteArray) = b[0] == 0xFF.toByte() && b[1] == 0xD8.toByte()
+        private fun isPng(b: ByteArray) = b[0] == 0x89.toByte() && b[1] == 'P'.code.toByte()
+
         /**
-         * 座位号正则：匹配字母前缀的 (C08, Y003) 和纯数字零开头的 (002, 019)。
-         * 东南侧/西南侧的座位是纯数字编号，没有字母前缀。
+         * 离开页面时把校区切回去用的作用域。页面的协程作用域那时已经取消了，
+         * 切回原校区这一枪必须打完，否则用户看一眼别的校区，账号资料就一直停在那儿。
          */
-        /** `showConfirmModal('文案', 'ruguan1', '4953117')` 的动作名与 reserve id。 */
-        val CONFIRM_MODAL_REGEX =
-            Regex("""showConfirmModal\s*\(\s*['"][^'"]*['"]\s*,\s*['"](\w+)['"]\s*,\s*['"](\d+)['"]\s*\)""")
-
-        val RESERVE_ID_IN_URL = Regex("""[?&]ri=(\d+)""")
-
-        val SEAT_ID_REGEX = Regex("""(?:[A-Z]\d{2,4}|\b\d{3}\b)""")
+        internal val restoreScope = kotlinx.coroutines.CoroutineScope(
+            kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO
+        )
 
         /**
          * 「这条预约已经没用了」的状态文本。
@@ -239,6 +238,9 @@ class LibraryApi(private val site: SiteSession) {
 
     private fun floorCodeOf(areaCode: String): String? =
         learnedAreaFloors[areaCode] ?: AREA_FLOOR_CODES[areaCode]
+
+    /** 区域所在的楼层码。要先 [warmCampusAreas] 或翻过那一层，否则只认得兴庆的静态表。 */
+    fun floorOfArea(areaCode: String): String? = floorCodeOf(areaCode)
 
     /**
      * 拉一层的区域列表（码 → 中文名），顺带把 scount 更新掉。
@@ -490,6 +492,46 @@ class LibraryApi(private val site: SiteSession) {
         }
     }
 
+    // ── 平面图 ──
+
+    /**
+     * 区域平面图上每个座位的位置和实时状态（`/qseatuist`，学校网页版 `/seatui` 用的同一份）。
+     * 和 [getSeats] 一样要先 `qspace` 把楼层存进会话。
+     */
+    fun getSeatLayout(areaCode: String): SeatLayout {
+        loadFloorContext(areaCode)
+        val referer = floorCodeOf(areaCode)?.let { "$BASE_URL/qspace?lang=zh&floor=$it" } ?: "$BASE_URL/seat/"
+        val (response, body) = executeWithReAuth(
+            buildRequest("$BASE_URL/qseatuist?sp=$areaCode", ajax = true, referer = referer)
+        )
+        response.close()
+        if (!response.isSuccessful) throw RuntimeException("平面图数据加载失败: HTTP ${response.code}")
+        if (!looksLikeJson(body)) {
+            Log.e(TAG, "qseatuist not JSON: ${body.take(300)}")
+            throw RuntimeException("图书馆平面图接口返回异常（非 JSON 响应）")
+        }
+        return LibraryPages.parseSeatLayout(body)
+    }
+
+    /**
+     * 平面图图片原始字节（`/static/images/ui10/<name>`）。不存在或不是图片返回 null。
+     * 不走 [executeWithReAuth]：那条路会把响应体按字符串读掉。
+     */
+    fun getPlanImage(name: String): ByteArray? = try {
+        val req = buildRequest("$BASE_URL/static/images/ui10/$name", referer = "$BASE_URL/seatui/")
+        runBlocking { site.executeWithReAuth(req) }.use { resp ->
+            // 认文件头而不是 Content-Type：经 WebVPN 转发时类型头不一定还在；
+            // 登录页、404 页是 HTML，头两个字节对不上 JPEG / PNG。
+            val bytes = if (resp.isSuccessful) resp.body?.bytes() else null
+            bytes?.takeIf { it.size > 4 && (isJpeg(it) || isPng(it)) }
+        }
+    } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(TAG, "plan image $name failed: ${e.message}")
+        null
+    }
+
     // ── 预约座位（带详细原因） ──
 
     /**
@@ -584,11 +626,8 @@ class LibraryApi(private val site: SiteSession) {
             // 实测：换座后查询「我的预约」，座位号变成目标即真成功
             val after = runCatching { getMyBooking() }.getOrNull()
             val booked = after?.seatId
-            val ok = booked != null && (booked.equals(seatId, true) ||
-                booked.contains(seatId, true) || seatId.contains(booked, true))
-            if (ok) BookResult(true, "✓ 已换座到 ${booked}！", finalUrl)
-            else if ("/my/" in finalUrl && booked != null)
-                BookResult(true, "✓ 换座请求已提交，当前预约：$booked", finalUrl)
+            // 严格相等：以前用 contains 双向比，A01 和 A011 会被当成同一个座位，换座没成也报成功。
+            if (booked != null && LibraryPages.sameSeat(booked, seatId)) BookResult(true, "✓ 已换座到 ${booked}！", finalUrl)
             else BookResult(false, "换座未生效${booked?.let { "（当前仍为 $it）" } ?: ""}：${parseBookingFailure(html)}", finalUrl)
         } catch (e: Exception) {
             if (e is com.xjtu.toolbox.auth.AuthExpiredException)
@@ -597,415 +636,46 @@ class LibraryApi(private val site: SiteSession) {
         }
     }
 
-    private fun parseBookingFailure(html: String): String {
-        val doc = Jsoup.parse(html)
-        val alertText = extractAlertText(doc, ".alert, .error, .msg, .message, .warn, .notice, #msg, .tip")
-        if (alertText.isNotBlank()) return alertText
-
-        val bodyText = doc.body()?.text() ?: ""
-        return when {
-            "30分钟" in bodyText || "30 min" in bodyText -> "30 分钟内不能重复预约\n‣ 取消后 30 分钟内不能重新预约"
-            "已被预约" in bodyText || "已被占" in bodyText -> "该座位已被他人预约\n‣ 已自动刷新座位列表"
-            "已有预约" in bodyText || "已预约" in bodyText -> "您已有其他座位预约\n‣ 如需更换，请先取消当前预约"
-            "不在预约时间" in bodyText || "未开放" in bodyText -> "当前不在预约开放时间\n‣ 预约通常在 22:00 开放次日抢座"
-            "维护" in bodyText -> "系统维护中，请稍后再试"
-            isRedirectedToLogin(html, "") -> "登录状态已失效"
-            else -> "预约失败（未知原因）"
-        }
-    }
-
-    /**
-     * 学校页面的提示框是 Bootstrap 风格：`<div class="alert"><button class="close">×</button>正文</div>`。
-     * 直接对整个容器 `.text()` 会把关闭按钮上的 "×" 也拼进来，签到成功也会显示成
-     * "×入馆签到成功！"——先把关闭按钮摘掉再取文字。
-     */
-    private fun extractAlertText(doc: org.jsoup.nodes.Document, selector: String): String {
-        val elements = doc.select(selector)
-        elements.select(".close, [data-dismiss], button").remove()
-        return elements.text().trim().trimStart('×', '✕', '✗').trim()
-    }
+    private fun parseBookingFailure(html: String): String =
+        LibraryPages.bookingFailureReason(html)
+            ?: if (isRedirectedToLogin(html, "")) "登录状态已失效" else "预约失败（未知原因）"
 
     // ── 我的预约 ──
 
-    fun getMyBooking(): MyBookingInfo? {
-        // HAR 2026-06-13 shows /my/ is the canonical booking page.
-        val candidateUrls = buildList {
-            add("$BASE_URL/my/")
-            add("$BASE_URL/seat/my/")
-            add("$BASE_URL/seat/my")
-        }.distinct()
+    /** 当前预约；查不到（网络错、页面认不出）也返回 null。要区分这两种情况用 [fetchMyBooking]。 */
+    fun getMyBooking(): MyBookingInfo? = fetchMyBooking().getOrNull()
 
+    /**
+     * 当前预约。成功且值为 null 表示页面明确说了「没有预约」；
+     * 所有候选地址都没给出能认的页面时返回失败——操作后复核不能把「没查到」当成「已取消」。
+     */
+    fun fetchMyBooking(): Result<MyBookingInfo?> {
+        // HAR 2026-06-13 shows /my/ is the canonical booking page.
+        val candidateUrls = listOf("$BASE_URL/my/", "$BASE_URL/seat/my/", "$BASE_URL/seat/my")
+        var lastError: Throwable? = null
         for (url in candidateUrls) {
             try {
-                val (response, html) = executeWithReAuth(
-                    buildRequest(url, referer = "$BASE_URL/seat/")
-                )
+                val (response, html) = executeWithReAuth(buildRequest(url, referer = "$BASE_URL/seat/"))
                 val finalUrl = response.request.url.toString()
                 response.close()
-
-                if (html.length < 50 || isRedirectedToLogin(html, finalUrl)) continue
-
-                val doc = Jsoup.parse(html, finalUrl)
-                val bodyText = doc.body()?.text() ?: ""
-                Log.d(TAG, "my page try $url body (500): ${bodyText.take(500)}")
-
-                if ("Not Found" in bodyText && bodyText.length < 800) continue
-
-                // ① 结构化解析优先。页面模板认得出来（有 well / notwell 卡）时，它的结论
-                //    就是最终结论——包括"没有预约"，不再往下试别的 URL，也不再猜文本。
-                if (doc.selectFirst("div.well, div.notwell") != null) {
-                    val structured = parseBookingCard(doc, html, finalUrl)
-                    Log.d(TAG, "getMyBooking: structured -> ${structured?.seatId ?: "无预约"}")
-                    return structured
-                }
-
-                // ② 模板不认识，退回文本启发式。
-                val hasSeatId = SEAT_ID_REGEX.containsMatchIn(bodyText)
-                val hasStatus = "预约状态" in bodyText
-
-                if (!hasSeatId) {
-                    if (listOf("暂无", "没有预约", "无预约", "暂无预约").any { it in bodyText }) {
-                        Log.d(TAG, "getMyBooking: no active booking at $url")
-                        return null
+                if (isRedirectedToLogin(html, finalUrl)) continue
+                when (val page = LibraryPages.parseMyPage(html, finalUrl, knownAreaNames())) {
+                    is LibraryPages.MyPage.Booked -> {
+                        Log.d(TAG, "getMyBooking: ${page.info.seatId} ${page.info.statusText} ${page.info.actionUrls.keys}")
+                        return Result.success(page.info)
                     }
-                    continue
+                    LibraryPages.MyPage.NoBooking -> return Result.success(null)
+                    LibraryPages.MyPage.Unrecognized -> continue
                 }
-
-                // 有座位号，解析活跃预约
-                val result = parseActiveBooking(doc, bodyText, html, finalUrl)
-                if (result != null) return result
-
-                // 有座位号但无活跃预约（全部已取消）
-                if (hasStatus) {
-                    Log.d(TAG, "getMyBooking: all bookings cancelled at $url")
-                    return null
-                }
+            } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
+                return Result.failure(e)
             } catch (e: Exception) {
+                lastError = e
                 Log.e(TAG, "getMyBooking: error trying $url", e)
             }
         }
-
-        Log.d(TAG, "getMyBooking: no booking found across all candidate URLs")
-        return null
-    }
-
-    /**
-     * 按 `/my/` 页的 DOM 结构解析当前预约。
-     *
-     * 之前这里是「全文正则找座位号」，而 [SEAT_ID_REGEX] 是照兴庆的编号写的（`A101` / `002`）。
-     * 创新港、雁塔的编号对不上，于是：认不出座位号 → 页面里又没有"暂无预约"字样 →
-     * 三个候选 URL 全部落空 → 永远显示"暂无预约"。换座后拿它复核，自然也永远判成
-     * "换座未生效"，哪怕座位其实已经换成功了——红叉和"暂无预约"是同一个根因。
-     *
-     * 改成认模板而不是认数据：模板全校一套，数据每个校区都不同。
-     * - 当前预约是 `div.well`，历史记录是 `div.notwell`；没有 well 卡就是真的没有预约；
-     * - 座位行是卡内第一个 `<hr>` 的**尾随文本**，固定为 `区域名&nbsp;座位号`；
-     * - 状态是 `.cta-button` 里第一个无 class 的 `<h3>`。
-     *
-     * 结构判据取自 yan-xiaoo/XJTUToolBox 对该页面的实测（`library/seats.py`）。
-     */
-    private fun parseBookingCard(
-        doc: org.jsoup.nodes.Document,
-        html: String,
-        finalUrl: String,
-    ): MyBookingInfo? {
-        val card = doc.selectFirst("div.well") ?: return null
-
-        // Jsoup 没有 lxml 的 .tail，尾随文本就是 <hr> 的下一个兄弟文本节点。
-        // 必须用 wholeText：text() 会把 &nbsp; 规范化掉，而我们正是靠它切分区域名和座位号。
-        val hr = card.selectFirst("hr") ?: return null
-        val tail = (hr.nextSibling() as? org.jsoup.nodes.TextNode)?.wholeText?.trim().orEmpty()
-        if (tail.isBlank()) return null
-
-        // NBSP 不算 Kotlin 认的空白字符，上面的 trim() 不会把它吃掉。
-        val nbsp = '\u00a0'
-        val area: String?
-        val seatId: String
-        if (nbsp in tail) {
-            area = tail.substringBeforeLast(nbsp).trim().ifBlank { null }
-            seatId = tail.substringAfterLast(nbsp).trim()
-        } else {
-            // 结构对了但分隔符不是 NBSP（模板微调过）。别把整行当座位号，
-            // 退一步按空白切最后一段。
-            area = tail.substringBeforeLast(' ').trim().ifBlank { null }
-            seatId = tail.substringAfterLast(' ').trim()
-        }
-        if (seatId.isBlank()) return null
-
-        val status = card.selectFirst("div.cta-button h3:not([class])")?.text()?.trim()
-            ?.takeIf { it.isNotBlank() }
-
-        val actions = parseActionsFromHtml(doc, html)
-            .ifEmpty { actionsFromConfirmModal(html, finalUrl) }
-        Log.d(TAG, "parseBookingCard: seat=$seatId area=$area status=$status actions=${actions.keys}")
-        return MyBookingInfo(seatId, area, status, actions)
-    }
-
-    /**
-     * 从整页 HTML 里直接扫 `showConfirmModal('确认您已到馆?', 'ruguan1', '4953117')`。
-     *
-     * [parseActionsFromHtml] 按控件文案认按钮，文案一改就抓瞎；这里认的是 JS 调用本身，
-     * 只依赖 action 名和 reserve id 两个稳定量。页面按当前状态只渲染可执行的按钮，
-     * 所以出现了哪个就给哪个，不要替它补全。
-     */
-    private fun actionsFromConfirmModal(html: String, finalUrl: String): MutableMap<String, String> {
-        val normalized = org.jsoup.parser.Parser.unescapeEntities(html, false)
-        val out = mutableMapOf<String, String>()
-        CONFIRM_MODAL_REGEX.findAll(normalized).forEach { m ->
-            val action = m.groupValues[1]
-            val reserveId = m.groupValues[2]
-            val label = when (action) {
-                "cancel" -> "取消预约"
-                "ruguan1" -> "入馆签到"
-                "leave", "midleave" -> "中途离开"
-                "return", "midreturn" -> "中途返回"
-                else -> null
-            } ?: return@forEach
-            buildActionUrl(action, reserveId)?.let { out[label] = it }
-        }
-        if (out.isEmpty()) {
-            // 页面没内联 JS（有的模板把 ri 放在地址上），退一步从 URL 里取。
-            RESERVE_ID_IN_URL.find(finalUrl)?.groupValues?.get(1)?.let { ri ->
-                buildActionUrl("cancel", ri)?.let { out["取消预约"] = it }
-            }
-        }
-        return out
-    }
-
-    /**
-     * 从预约页面解析【活跃】预约。
-     * 页面可能包含多条预约记录（含已取消的），只返回第一条活跃预约。
-     */
-    private fun parseActiveBooking(
-        doc: org.jsoup.nodes.Document, bodyText: String,
-        html: String, finalUrl: String
-    ): MyBookingInfo? {
-        // 按"预约状态"分割文本，找到活跃预约的文本块
-        val statusRegex = Regex("""预约状态[:：]\s*(\S+)""")
-        val statusMatches = statusRegex.findAll(bodyText).toList()
-
-        if (statusMatches.isEmpty()) {
-            // 无明确状态标记，回退：找第一个座位号
-            val seatId = SEAT_ID_REGEX.find(bodyText)?.value ?: return null
-            val area = knownAreaNames().firstOrNull { it in bodyText }
-            val actionUrls = parseActionsFromHtml(doc, html)
-            Log.d(TAG, "getMyBooking (no status): seatId=$seatId, area=$area")
-            return MyBookingInfo(seatId, area, null, actionUrls)
-        }
-
-        var blockStart = 0
-        for (statusMatch in statusMatches) {
-            val status = statusMatch.groupValues[1]
-            val blockEnd = statusMatch.range.last + 1
-            val blockText = bodyText.substring(blockStart, blockEnd)
-
-            if (status in INACTIVE_STATUSES) {
-                blockStart = blockEnd
-                continue
-            }
-
-            // 找到活跃预约！提取该文本块内的信息
-            val seatId = SEAT_ID_REGEX.findAll(blockText).lastOrNull()?.value
-            if (seatId == null) {
-                blockStart = blockEnd
-                continue
-            }
-
-            val area = knownAreaNames().firstOrNull { it in blockText }
-            val actionUrls = parseActionsFromHtml(doc, html)
-
-            Log.d(TAG, "getMyBooking: seatId=$seatId, area=$area, status=$status, actions=${actionUrls.keys}")
-            return MyBookingInfo(seatId, area, status, actionUrls)
-        }
-
-        return null // 所有预约都是非活跃状态
-    }
-
-    /**
-     * 从 HTML DOM 中提取操作按钮的真实 URL。
-     * 处理 href="#" 的 JavaScript 按钮：检查 onclick、data-* 属性、表单、脚本。
-     */
-    private fun parseActionsFromHtml(doc: org.jsoup.nodes.Document, html: String): MutableMap<String, String> {
-        val actionUrls = mutableMapOf<String, String>()
-        val navTexts = setOf("座位预约", "我预约的座位", "我预约的图书", "跨校", "提存", "典藏", "意见反馈",
-            "资料修改", "活动查询", "注销", "常见问题", "其他功能", "Toggle navigation", "首页",
-            "English version", "确认操作", "确认", "取消", "×")
-
-        // 1. 扫描所有 <a> 和 <button>
-        doc.body()?.select("a[href], button[onclick], a[onclick], a[data-href], a[data-url]")?.forEach { el ->
-            val text = el.text().trim()
-            if (text.isBlank() || text in navTexts || text.length > 15) return@forEach
-            if ("logout" in (el.attr("href") + el.attr("onclick")).lowercase()) return@forEach
-
-            // 获取真实 URL（优先级：data 属性 > onclick > href）
-            val realUrl = el.attr("data-href").ifBlank { null }
-                ?: el.attr("data-url").ifBlank { null }
-                ?: el.attr("data-action").ifBlank { null }
-                ?: extractUrlFromOnclick(el.attr("onclick"))
-                ?: el.attr("abs:href").let { href ->
-                    if (href.isBlank() || href.endsWith("#") || href == "#" || "javascript:" in href) null
-                    else href
-                }
-
-            val label = classifyActionLabel(text) ?: return@forEach
-            if (realUrl != null) {
-                actionUrls[label] = realUrl
-                Log.d(TAG, "getMyBooking action found: $label -> $realUrl (from DOM)")
-            }
-        }
-
-        // 2. 从 <form> 中提取
-        doc.select("form[action]").forEach { form ->
-            val action = form.attr("abs:action").ifBlank { return@forEach }
-            val submitText = form.select("button[type=submit], input[type=submit]").firstOrNull()?.let {
-                it.text().ifBlank { it.attr("value") }
-            } ?: return@forEach
-            val label = classifyActionLabel(submitText)
-            if (label != null && action.isNotBlank() && !action.endsWith("#")) {
-                actionUrls[label] = action
-                Log.d(TAG, "getMyBooking action found: $label -> $action (from form)")
-            }
-        }
-
-        // 3. 从 <script> 中提取操作 URL 作为后备
-        if (actionUrls.isEmpty() || "取消预约" !in actionUrls) {
-            extractActionsFromScripts(doc).forEach { (label, url) ->
-                if (label !in actionUrls) {
-                    actionUrls[label] = url
-                    Log.d(TAG, "getMyBooking action found: $label -> $url (from script)")
-                }
-            }
-        }
-
-        return actionUrls
-    }
-
-    private fun classifyActionLabel(text: String): String? = when {
-        "取消" in text && "预约" in text -> "取消预约"
-        "线上签到" in text -> "入馆签到"
-        "首次入馆" in text || "入馆" in text && "离" !in text && "返" !in text -> "入馆签到"
-        "签到" in text && "回馆" !in text && "离" !in text && "返" !in text -> "入馆签到"
-        "中途离开" in text -> "中途离开"
-        "离馆" in text || "暂离" in text || "中途离" in text -> "中途离开"
-        "中途返回" in text -> "中途返回"
-        "回馆" in text || "返回签到" in text || "中途返" in text -> "中途返回"
-        "换座" in text -> "我想换座"
-        "取消" in text -> "取消预约"
-        else -> null
-    }
-
-    /** 从 onclick="..." 中提取 URL */
-    private fun extractUrlFromOnclick(onclick: String?): String? {
-        if (onclick.isNullOrBlank()) return null
-        // location.href = '/my/cancel/123'
-        Regex("""(?:location\.href|location|window\.location)\s*=\s*['"]([^'"]+)['"]""")
-            .find(onclick)?.groupValues?.get(1)?.let { return it }
-
-        // showConfirmModal('msg', 'action', 'id')
-        // action 映射：cancel → /my/?cancel=1&ri={id}
-        //              ruguan1 → /my/?firstruguan=1&ri={id}
-        //              midleave → /my/?midleave=1&ri={id}
-        //              midreturn → /my/?midreturn=1&ri={id}
-        Regex("""showConfirmModal\s*\(\s*['"][^'"]*['"]\s*,\s*'(\w+)'\s*,\s*'(\d+)'\s*\)""")
-            .find(onclick)?.let { match ->
-                val action = match.groupValues[1]
-                val id = match.groupValues[2]
-                return buildActionUrl(action, id)
-            }
-
-        // someFunc('/url/path')
-        Regex("""['"](/[^'"]+)['"]""").find(onclick)?.groupValues?.get(1)?.let { return it }
-        return null
-    }
-
-    /**
-     * 将 showConfirmModal 中的 action 类型映射为真实 URL
-     */
-    private fun buildActionUrl(action: String, reserveId: String): String? {
-        return when (action) {
-            "cancel" -> "$BASE_URL/my/?cancel=1&ri=$reserveId"
-            "ruguan1" -> "$BASE_URL/my/?firstruguan=1&ri=$reserveId"
-            "leave", "midleave" -> "$BASE_URL/my/?midleave=1&ri=$reserveId"
-            "return", "midreturn" -> "$BASE_URL/my/?midreturn=1&ri=$reserveId"
-            else -> {
-                Log.w(TAG, "Unknown showConfirmModal action: $action (ri=$reserveId)")
-                null
-            }
-        }
-    }
-
-    /** 从 <script> 标签中搜索操作 URL */
-    private fun extractActionsFromScripts(doc: org.jsoup.nodes.Document): Map<String, String> {
-        val found = mutableMapOf<String, String>()
-        doc.select("script").forEach { script ->
-            val code = script.data()
-            if (code.length < 20) return@forEach
-
-            // 从 showConfirmModal 调用中提取操作 URL
-            // showConfirmModal('msg', 'cancel', '4617835')
-            Regex("""showConfirmModal\s*\(\s*['"][^'"]*['"]\s*,\s*'(\w+)'\s*,\s*'(\d+)'\s*\)""")
-                .findAll(code).forEach { match ->
-                    val action = match.groupValues[1]
-                    val id = match.groupValues[2]
-                    val url = buildActionUrl(action, id)
-                    if (url != null) {
-                        val label = when (action) {
-                            "cancel" -> "取消预约"
-                            "ruguan1" -> "入馆签到"
-                            "leave", "midleave" -> "中途离开"
-                            "return", "midreturn" -> "中途返回"
-                            else -> null
-                        }
-                        if (label != null && label !in found) {
-                            found[label] = url
-                            Log.d(TAG, "extractActionsFromScripts: $label -> $url (from showConfirmModal)")
-                        }
-                    }
-                }
-
-            // 从 switch/case 或 url 拼接中提取动态 URL
-            // url = "/my/?cancel=1&ri=" + currentId
-            Regex("""['"](/my/\?(?:cancel|firstruguan|midleave|midreturn)=1&ri=)\s*['"]?\s*\+?\s*(?:['"]?(\d+)['"]?|(\w+))""")
-                .findAll(code).forEach { match ->
-                    val urlPrefix = match.groupValues[1]
-                    val directId = match.groupValues[2]
-                    if (directId.isNotEmpty()) {
-                        val fullUrl = "$BASE_URL$urlPrefix$directId"
-                        val label = when {
-                            "cancel" in urlPrefix -> "取消预约"
-                            "firstruguan" in urlPrefix -> "入馆签到"
-                            "midleave" in urlPrefix -> "中途离开"
-                            "midreturn" in urlPrefix -> "中途返回"
-                            else -> null
-                        }
-                        if (label != null && label !in found) {
-                            found[label] = fullUrl
-                        }
-                    }
-                }
-
-            // 取消相关: "/my/cancel", "/cancel", "/reserve/cancel" (旧路径格式兼容)
-            listOf(
-                Regex("""['"]([^'"]*(?:cancel|quxiao|取消)[^'"]*(?:reserve|booking|seat)?[^'"]*)['"]"""),
-                Regex("""url\s*[:=]\s*['"]([^'"]*cancel[^'"]+)['"]"""),
-                Regex("""['"](/my/cancel[^'"]*)['"]""")
-            ).forEach { pattern ->
-                pattern.find(code)?.groupValues?.get(1)?.let { url ->
-                    if (url.startsWith("/") && url.length > 2 && "取消预约" !in found) found["取消预约"] = if (url.startsWith("/")) "$BASE_URL$url" else url
-                }
-            }
-            // 签到相关
-            listOf(
-                Regex("""['"]([^'"]*(?:checkin|signin|签到|firstruguan)[^'"]*)['"]"""),
-                Regex("""['"](/my/checkin[^'"]*)['"]"""),
-                Regex("""['"](/my/\?firstruguan[^'"]*)['"]""")
-            ).forEach { pattern ->
-                pattern.find(code)?.groupValues?.get(1)?.let { url ->
-                    if (url.startsWith("/") && url.length > 2 && "入馆签到" !in found) found["入馆签到"] = if (url.startsWith("/")) "$BASE_URL$url" else url
-                }
-            }
-        }
-        return found
+        Log.d(TAG, "getMyBooking: no recognizable page across all candidate URLs")
+        return Result.failure(lastError ?: IllegalStateException("预约页面认不出来"))
     }
 
     /** 执行操作（签到/离馆/回馆/取消） */
@@ -1023,18 +693,33 @@ class LibraryApi(private val site: SiteSession) {
 
             val doc = Jsoup.parse(html)
             val bodyText = doc.body()?.text() ?: ""
-            val msg = extractAlertText(doc, ".alert, .msg, .message, .success, .error")
+            val msg = LibraryPages.extractAlertText(doc, ".alert, .msg, .message, .success, .error")
 
             // 取消预约：以「我的预约是否已消失」为准判定，最可靠
             if ("cancel" in actionUrl.lowercase()) {
-                val stillBooked = runCatching { getMyBooking() }.getOrNull()?.seatId != null
-                return if (!stillBooked) BookResult(true, msg.ifBlank { "✓ 已取消预约" }, finalUrl)
-                else BookResult(false, "取消未生效：当前仍有预约。${msg}", finalUrl)
+                val after = fetchMyBooking()
+                return when (LibraryPages.actionVerdict("取消预约", after.getOrNull(), fetched = after.isSuccess)) {
+                    LibraryPages.ActionVerdict.DONE -> BookResult(true, msg.ifBlank { "✓ 已取消预约" }, finalUrl)
+                    LibraryPages.ActionVerdict.NOT_DONE ->
+                        BookResult(false, "取消未生效，当前仍为 ${after.getOrNull()?.seatId}。$msg", finalUrl)
+                    LibraryPages.ActionVerdict.UNKNOWN -> BookResult(true, "已提交取消，状态以下方刷新结果为准", finalUrl)
+                }
             }
 
-            val success = listOf("成功", "success", "已取消", "取消成功").any { it in bodyText.lowercase() }
-                    || "/my/" in finalUrl
-            return BookResult(success, msg.ifBlank { if (success) "操作成功" else "操作可能未生效" }, finalUrl)
+            // 签到 / 离开 / 返回：以操作后「我的预约」页上还剩哪些按钮为准，不看落地页文案。
+            val label = LibraryPages.labelOfActionUrl(normalizedUrl)
+            val after = fetchMyBooking()
+            val verdict = LibraryPages.actionVerdict(label, after.getOrNull(), fetched = after.isSuccess)
+            Log.d(TAG, "action $label -> $verdict (body ${bodyText.take(80)})")
+            return when (verdict) {
+                LibraryPages.ActionVerdict.DONE -> BookResult(true, msg.ifBlank { "✓ 已完成" }, finalUrl)
+                LibraryPages.ActionVerdict.NOT_DONE -> BookResult(
+                    false,
+                    "未生效，当前状态：${after.getOrNull()?.statusText ?: "无预约"}" + msg.takeIf { it.isNotBlank() }?.let { "（$it）" }.orEmpty(),
+                    finalUrl,
+                )
+                LibraryPages.ActionVerdict.UNKNOWN -> BookResult(true, "已提交，状态以下方刷新结果为准", finalUrl)
+            }
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
             return BookResult(false, "登录状态已失效，请退出图书馆页面后重新进入")
         } catch (e: Exception) {
