@@ -274,12 +274,6 @@ fun SliderCaptchaView(
 }
 
 /**
- * 重置滑块位置（验证失败后调用）
- */
-@Composable
-fun rememberSliderReset(): MutableState<Boolean> = remember { mutableStateOf(false) }
-
-/**
  * 解码 data URI base64 图片
  */
 private fun decodeBase64Image(dataUri: String): android.graphics.Bitmap? {

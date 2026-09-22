@@ -51,6 +51,3 @@ private val degToRad = PI / 180.0
 
 /** 角度转弧度。 */
 fun Double.deg2rad(): Double = this * degToRad
-
-/** 用余弦构造一个 [cos, sin]，供眼位旋转复用。 */
-fun cosSin(angleRad: Double): Pair<Double, Double> = cos(angleRad) to sin(angleRad)

@@ -204,20 +204,6 @@ class AccountManager(
     }
 
     /**
-     * 持久化当前登录得到的 fpVisitorId / rsaKey 到账号记录。
-     * 登录链路完成后调用，保证下次切换切回时复用同一设备指纹。
-     */
-    fun persistSessionArtifacts(accountId: String) {
-        accountStore.update(accountId) {
-            it.copy(
-                fpVisitorId = sessionManager.fpVisitorId ?: it.fpVisitorId,
-                rsaPublicKey = sessionManager.cachedRsaKey ?: it.rsaPublicKey,
-                rsaKeyTime = if (sessionManager.cachedRsaKey != null) System.currentTimeMillis() else it.rsaKeyTime,
-            )
-        }
-    }
-
-    /**
      * 「我的」页首次登录成功后落库当前账号。
      * 与 [addAccount] 不同：本方法假定 SessionManager 已完成 JWXT 登录，不再重复探活，
      * 仅把当前内存态身份 + 会话产物写入 AccountStore。

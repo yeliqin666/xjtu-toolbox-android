@@ -77,11 +77,6 @@ class LeaveApi(private val site: SiteSession) {
         return LeavePage(parsed, KqHttp.int(data, "total", "totalCount", "count"), remotePage, remoteSize)
     }
 
-    fun getLeaveDetail(leaveId: String): LeaveRecord {
-        val data = KqHttp.dataObject(getJson("/student/leaves/${encode(leaveId)}"))
-        return parseLeaveRecord(data)
-    }
-
     fun uploadEvidence(fileName: String, contentType: String, bytes: ByteArray): JsonObject {
         val mime = contentType.ifBlank { "application/octet-stream" }
         val body = MultipartBody.Builder().setType(MultipartBody.FORM)
@@ -135,16 +130,6 @@ class LeaveApi(private val site: SiteSession) {
     fun cancelLeave(leaveId: String, requestId: String = UUID.randomUUID().toString()) {
         val body = JsonObject().apply { addProperty("requestId", requestId) }
         postJson("/student/leaves/${encode(leaveId)}/cancel", body, retryable = false)
-    }
-
-    fun getEvidenceUrl(leaveId: String, evidenceId: String): String {
-        val root = getJson("/student/leaves/${encode(leaveId)}/evidence/${encode(evidenceId)}/url")
-        val dataEl = root.get("data")
-        if (dataEl != null && dataEl.isJsonPrimitive) {
-            return try { dataEl.asString } catch (_: Exception) { "" }
-        }
-        val data = KqHttp.obj(dataEl) ?: root
-        return KqHttp.str(data, "url", "downloadUrl", "presignedUrl", "fileUrl")
     }
 
     private fun getJson(path: String, query: Map<String, String> = emptyMap()): JsonObject {

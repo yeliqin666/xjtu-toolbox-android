@@ -122,29 +122,6 @@ object AttendanceRecordStore {
         return Plan.NONE
     }
 
-    /**
-     * 考勤页的全量重扫时间戳，按考勤自己的 `bh` 存。
-     * 跟 [Shard] 分开是因为两边的键对不上，共用的只是重扫节奏这条策略。
-     */
-    fun lastFullScanAt(
-        ctx: Context,
-        postgraduate: Boolean,
-        bh: String,
-        accountId: String? = AccountContext.activeAccountId,
-    ): Long =
-        prefs(ctx, postgraduate, accountId).getLong("full_scan_$bh", 0L)
-
-    fun markFullScan(
-        ctx: Context,
-        postgraduate: Boolean,
-        bh: String,
-        accountId: String? = AccountContext.activeAccountId,
-    ) {
-        prefs(ctx, postgraduate, accountId).edit()
-            .putLong("full_scan_$bh", System.currentTimeMillis())
-            .apply()
-    }
-
     fun logPlan(termCode: String, plan: Plan, shard: Shard?) {
         val age = shard?.let { (System.currentTimeMillis() - it.fetchedAt) / 60000 }
         Log.d(TAG, "$termCode: $plan（缓存 ${shard?.records?.size ?: 0} 条，${age ?: "-"} 分钟前）")

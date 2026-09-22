@@ -42,18 +42,5 @@ enum class LibraryCampus(
         val DEFAULT = XINGQING
 
         fun byId(id: String?): LibraryCampus? = entries.firstOrNull { it.id == id?.trim() }
-
-        /**
-         * 反推楼层码属于哪个校区。
-         *
-         * 只按前缀匹配，不按 [floorCodes] 精确匹配：万一学校加了一层
-         * （`yanta5floor` 之类），前缀照样认得出，不至于整个校区哑掉。
-         */
-        fun byFloorCode(floorCode: String): LibraryCampus? = when {
-            floorCode.startsWith("xingqing") -> XINGQING
-            floorCode.startsWith("yanta") -> YANTA
-            floorCode.startsWith("inno") -> INNOVATION
-            else -> null
-        }
     }
 }

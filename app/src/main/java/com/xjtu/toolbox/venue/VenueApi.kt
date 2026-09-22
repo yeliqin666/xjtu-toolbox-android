@@ -48,7 +48,6 @@ class VenueApi(private val site: SiteSession) {
         const val PAYMENT_BASE = VenueLogin.PAY_BASE_URL
         const val BROWSER_LOGIN_URL = VenueLogin.VENUE_OAUTH_URL
 
-        private const val MAX_ORDER_PAGES = 100
         private const val VENUE_PAGE_SIZE = 8
         private val gson = Gson()
 
@@ -208,15 +207,6 @@ class VenueApi(private val site: SiteSession) {
     data class OrderActionResult(
         val success: Boolean,
         val message: String
-    )
-
-    private data class TimeSlotInfo(
-        val timeNo: String,
-        val stockId: Long,
-        val price: Double,
-        val allCount: Int,
-        val usingNum: Int,
-        val surplus: Int
     )
 
     // ─── API 方法 ─────────────────────────────────────────
@@ -440,26 +430,6 @@ class VenueApi(private val site: SiteSession) {
         return parseOrderPage(body, page, pageSize)
     }
 
-    /** 与旧客户端命名保持兼容，供其它入口按需读取单页订单。 */
-    fun getOrders(page: Int = 1, pageSize: Int = 20): OrderPage =
-        fetchOrders(page, pageSize)
-
-    /** 拉取全部订单；保留分页 API 供页面按需加载。 */
-    fun fetchAllOrders(pageSize: Int = 20): List<OrderInfo> {
-        val result = mutableListOf<OrderInfo>()
-        var page = 1
-        while (page <= MAX_ORDER_PAGES) {
-            val current = fetchOrders(page, pageSize)
-            result += current.orders
-            if (!current.hasMore || current.orders.isEmpty()) break
-            page++
-        }
-        return result.sortedWith(
-            compareByDescending<OrderInfo> { it.createdAt.ifBlank { "0000-00-00 00:00:00" } }
-                .thenByDescending { it.orderId }
-        )
-    }
-
     /** 取消订单。服务端成功码通常是 `1`，同时兼容旧部署的布尔/文本返回值。 */
     fun cancelOrder(orderId: String): OrderActionResult {
         require(orderId.isNotBlank()) { "订单号不能为空" }
@@ -496,9 +466,6 @@ class VenueApi(private val site: SiteSession) {
     /** 支付页面 URL（订单支付需要在系统浏览器中完成 CAS 会话接力）。 */
     fun paymentUrl(orderId: String): String =
         "$PAYMENT_BASE/pay/show.html?id=${java.net.URLEncoder.encode(orderId, Charsets.UTF_8.name())}"
-
-    /** PR #54 中使用的命名别名。 */
-    fun payUrl(orderId: String): String = paymentUrl(orderId)
 
     private fun parseOrderPage(body: String, page: Int, pageSize: Int): OrderPage {
         val root = try {

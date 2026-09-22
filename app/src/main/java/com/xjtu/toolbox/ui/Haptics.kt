@@ -112,7 +112,6 @@ class HapticsController internal constructor(
     }
 
     fun tick() = play(HapticFeel.TICK)
-    fun click() = play(HapticFeel.CLICK)
     fun lowTick() = play(HapticFeel.LOW_TICK)
     fun success() = play(HapticFeel.SUCCESS)
     fun error() = play(HapticFeel.ERROR)

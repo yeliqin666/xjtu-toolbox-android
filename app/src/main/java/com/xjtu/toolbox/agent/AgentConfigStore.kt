@@ -97,19 +97,6 @@ data class AgentConfig(
             SEARCH_AUTO, SEARCH_DDG, SEARCH_SO360, SEARCH_BING, SEARCH_WECHAT, SEARCH_WIKI
         )
 
-        /**
-         * 给 system prompt 用的接入方式说明。
-         *
-         * 不复用 [providerLabel]：那是设置页的下拉选项文案，带着「（推荐）」这种
-         * 面向用户的修饰词，塞进 prompt 里只会让模型莫名其妙。
-         */
-        fun providerPromptLabel(p: String) = when (p) {
-            PROVIDER_DEEPSEEK -> "DeepSeek 官方 API"
-            PROVIDER_OPENAI -> "OpenAI 官方 API"
-            PROVIDER_CUSTOM -> "用户自填的兼容端点（可能是中转）"
-            else -> p
-        }
-
         fun providerLabel(p: String) = when (p) {
             PROVIDER_DEEPSEEK -> "DeepSeek（推荐）"
             PROVIDER_OPENAI -> "OpenAI"

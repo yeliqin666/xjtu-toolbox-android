@@ -16,23 +16,10 @@ class CouponApi(private val site: SiteSession) {
     companion object {
         private const val BASE_URL = "https://egc.xjtu.edu.cn"
         private const val RECEIVE_URL = "$BASE_URL/page/cas/receiveCas.html?version=SAFT_VERSION"
-        private const val TYPE_LIST_URL = "$BASE_URL/app/voucher/query.type.list"
-        private const val AUTO_SWITCH_URL = "$BASE_URL/app/voucher/get.auto.receive.switch"
         private const val PAGE_LIST_URL = "$BASE_URL/app/voucher/query.page.list"
         private const val DETAIL_URL = "$BASE_URL/app/voucher/query.details"
         private const val ACTIVATE_URL = "$BASE_URL/app/voucher/activate"
-        private const val ACTIVATE_PERCENT_URL = "$BASE_URL/app/voucher/get.activate.percent"
         private val JSON = "application/json;charset=UTF-8".toMediaType()
-    }
-
-    fun getAutoReceiveSwitch(): String {
-        val root = executeVoucherJson(AUTO_SWITCH_URL, "", allowRetry = true)
-        return root.safeGet("data").safeString()
-    }
-
-    fun getCouponTypes(): List<CouponType> {
-        val root = executeVoucherJson(TYPE_LIST_URL, """{"json":true}""", allowRetry = true)
-        return CouponJsonParser.parseTypes(root)
     }
 
     fun queryCoupons(
@@ -66,13 +53,6 @@ class CouponApi(private val site: SiteSession) {
     fun activateCoupon(showCardId: String) {
         val body = """{"cardId":"$showCardId","json":true}"""
         executeVoucherJson(ACTIVATE_URL, body, allowRetry = true)
-    }
-
-    fun getActivatePercent(batchId: String): String {
-        if (batchId.isBlank()) return ""
-        val body = """{"batchId":"$batchId","json":true}"""
-        val root = executeVoucherJson(ACTIVATE_PERCENT_URL, body, allowRetry = true)
-        return root.safeGet("data").safeString()
     }
 
     private fun executeVoucherJson(url: String, jsonBody: String, allowRetry: Boolean): JsonObject {

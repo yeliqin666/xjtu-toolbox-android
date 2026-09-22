@@ -61,11 +61,6 @@ object SessionKeepAlive {
         loopJob = null
     }
 
-    /** 立即触发一轮保活（不影响循环）。 */
-    fun pokeNow() {
-        scope.launch { runOnce() }
-    }
-
     /** 设置变更后调用：立即重启循环以应用新间隔/开关。 */
     fun applyConfigChange(context: Context) {
         stop()

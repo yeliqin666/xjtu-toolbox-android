@@ -1,13 +1,10 @@
 package com.xjtu.toolbox.agent
 
+import com.xjtu.toolbox.ui.components.pressScale
 import android.content.Context
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -550,43 +547,22 @@ private fun SectionTitle(text: String) {
     )
 }
 
-/** 进场动画：按序号错开 45ms 依次浮上来。只播一次。 */
+/** 进场动画：全 App 共用的那一份（见 ui/components/Motion.kt），按序号错开依次浮上来，只播一次。 */
 @Composable
-private fun rememberEnter(index: Int): Animatable<Float, *> {
-    val a = remember { Animatable(0f) }
-    LaunchedEffect(Unit) {
-        delay(index * 45L)
-        a.animateTo(1f, tween(320, easing = FastOutSlowInEasing))
-    }
-    return a
-}
-
-/** 按下时缩一点、松手弹回来，让卡片摸起来是「软」的。 */
-@Composable
-private fun pressScale(source: androidx.compose.foundation.interaction.MutableInteractionSource): Float {
-    val pressed by source.collectIsPressedAsState()
-    val s by androidx.compose.animation.core.animateFloatAsState(
-        if (pressed) 0.95f else 1f,
-        androidx.compose.animation.core.spring(dampingRatio = 0.5f, stiffness = 600f),
-        label = "press",
-    )
-    return s
-}
+private fun rememberEnter(index: Int) = com.xjtu.toolbox.ui.components.rememberEnterProgress(index)
 
 @Composable
 private fun SuggestionCard(s: Suggestion, index: Int, modifier: Modifier, onClick: () -> Unit) {
     val enter = rememberEnter(index + 2)
     val accent = if (s.warn) MiuixTheme.colorScheme.error else s.tint
     val source = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-    val scale = pressScale(source)
     Box(
         modifier
             .graphicsLayer {
                 alpha = enter.value
                 translationY = (1f - enter.value) * 16.dp.toPx()
-                scaleX = scale
-                scaleY = scale
             }
+            .pressScale(source, pressed = 0.95f)
             .heightIn(min = 116.dp)
             .clip(RoundedCornerShape(20.dp))
             .background(
@@ -644,14 +620,10 @@ private fun SuggestionCard(s: Suggestion, index: Int, modifier: Modifier, onClic
 private fun CapabilityChip(cap: Capability, tint: Color, index: Int, onClick: () -> Unit) {
     val enter = rememberEnter(index)
     val source = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-    val scale = pressScale(source)
     Row(
         Modifier
-            .graphicsLayer {
-                alpha = enter.value
-                scaleX = scale
-                scaleY = scale
-            }
+            .graphicsLayer { alpha = enter.value }
+            .pressScale(source, pressed = 0.95f)
             .clip(RoundedCornerShape(14.dp))
             .background(com.xjtu.toolbox.ui.components.AppCardColor)
             .clickable(interactionSource = source, indication = null, onClick = onClick)
@@ -676,15 +648,11 @@ private fun CapabilityChip(cap: Capability, tint: Color, index: Int, onClick: ()
 private fun PlayfulChip(p: Playful, index: Int, onClick: () -> Unit) {
     val enter = rememberEnter(index)
     val source = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-    val scale = pressScale(source)
     val primary = MiuixTheme.colorScheme.primary
     Row(
         Modifier
-            .graphicsLayer {
-                alpha = enter.value
-                scaleX = scale
-                scaleY = scale
-            }
+            .graphicsLayer { alpha = enter.value }
+            .pressScale(source, pressed = 0.95f)
             .clip(RoundedCornerShape(20.dp))
             .background(Brush.linearGradient(listOf(primary.copy(alpha = 0.10f), TintRose.copy(alpha = 0.08f))))
             .clickable(interactionSource = source, indication = null, onClick = onClick)
@@ -703,16 +671,14 @@ private fun SetupCard(onOpenConfig: () -> Unit) {
     val primary = MiuixTheme.colorScheme.primary
     val enter = rememberEnter(2)
     val source = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-    val scale = pressScale(source)
     Column(
         Modifier
             .fillMaxWidth()
             .graphicsLayer {
                 alpha = enter.value
                 translationY = (1f - enter.value) * 16.dp.toPx()
-                scaleX = scale
-                scaleY = scale
             }
+            .pressScale(source, pressed = 0.95f)
             .clip(RoundedCornerShape(24.dp))
             .background(Brush.linearGradient(listOf(primary, TintViolet.copy(alpha = 0.85f))))
             .drawBehind {

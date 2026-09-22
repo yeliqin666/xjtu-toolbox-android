@@ -181,9 +181,6 @@ internal object AgentWeb {
         return BINARY_TYPES.any { t.startsWith(it) }
     }
 
-    fun parseHtml(bytes: ByteArray, baseUrl: String) =
-        Jsoup.parse(bytes.inputStream(), null, baseUrl)
-
     /**
      * Cline：cheerio 去掉 chrome 后再 turndown。
      * smolagents：markdownify 后把连续空行收成两行。

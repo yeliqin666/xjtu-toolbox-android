@@ -453,20 +453,6 @@ class CampusCardApi(private val site: SiteSession) {
         return DayTypeStats.from("工作日", weekday) to DayTypeStats.from("周末", weekend)
     }
 
-    /**
-     * 每日消费分布（按日期聚合）
-     */
-    fun dailySpending(transactions: List<Transaction>): Map<LocalDate, Double> {
-        return transactions.filter { it.amount < 0 }
-            .groupBy { tx ->
-                try {
-                    LocalDate.parse(tx.time.substringBefore(" "), dateFormat)
-                } catch (_: Exception) { LocalDate.now() }
-            }
-            .mapValues { (_, txs) -> -txs.sumOf { it.amount } }
-            .toSortedMap()
-    }
-
     private fun classifyMerchant(merchant: String, description: String): String {
         val m = merchant.lowercase()
         val d = description.lowercase()

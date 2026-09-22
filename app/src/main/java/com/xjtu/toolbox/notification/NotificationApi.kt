@@ -101,9 +101,6 @@ enum class NotificationSource(
     XMTXY("新媒体学院", "https://xmtxy.xjtu.edu.cn/xwgg/tzgg.htm", SourceCategory.HUMANITIES);
 
     companion object {
-        fun fromDisplayName(name: String): NotificationSource? =
-            entries.find { it.displayName == name }
-
         fun byCategory(cat: SourceCategory): List<NotificationSource> =
             entries.filter { it.category == cat }
     }
@@ -904,12 +901,4 @@ class NotificationApi(
         return getMergedNotificationsWithSkipped(sources, page).items
     }
 
-    suspend fun getAllNotifications(page: Int = 1): List<Notification> {
-        return getMergedNotifications(NotificationSource.entries, page)
-    }
-
-    /** 清除域名失败缓存（例如切换网络后调用） */
-    fun clearFailedDomainCache() {
-        failedDomains.clear()
-    }
 }

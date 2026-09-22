@@ -128,22 +128,6 @@ class LmsApi(private val site: SiteSession) {
     }
 
     /**
-     * 获取课程详细信息
-     */
-    fun getCourseDetail(courseId: Int): LmsCourseDetail {
-        val data = getJson("$baseUrl/api/courses/$courseId")
-            ?: throw RuntimeException("获取课程详情失败")
-        val summary = extractCourseSummary(data)
-        return LmsCourseDetail(
-            summary = summary,
-            subjectCode = data.get("subject_code").safeString() ?: "",
-            displayName = data.get("display_name").safeString() ?: "",
-            publicScope = data.get("public_scope").safeString() ?: "",
-            cover = data.get("cover").safeString() ?: ""
-        )
-    }
-
-    /**
      * 获取课程活动列表
      */
     fun getCourseActivities(courseId: Int): List<LmsActivity> {

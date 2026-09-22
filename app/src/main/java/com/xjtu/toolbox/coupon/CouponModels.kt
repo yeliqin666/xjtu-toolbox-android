@@ -60,11 +60,6 @@ data class CouponDetail(
     val amountYuan: Double get() = amountFen / 100.0
 }
 
-data class CouponType(
-    val id: Int,
-    val name: String
-)
-
 object CouponJsonParser {
     fun parsePage(root: JsonObject): CouponPage {
         val data = root.safeGet("data")?.asJsonObjectOrNull()
@@ -74,27 +69,6 @@ object CouponJsonParser {
             ?.mapNotNull { it.asJsonObjectOrNull()?.let(::parseRecord) }
             .orEmpty()
         return CouponPage(records, total)
-    }
-
-    fun parseTypes(root: JsonObject): List<CouponType> {
-        val data = root.safeGet("data") ?: return emptyList()
-        val array = when {
-            data.isJsonArray -> data.asJsonArray
-            data.isJsonObject -> data.asJsonObject.safeGet("records")?.asJsonArrayOrNull()
-                ?: data.asJsonObject.safeGet("list")?.asJsonArrayOrNull()
-            else -> null
-        } ?: return emptyList()
-
-        return array.mapNotNull { element ->
-            val obj = element.asJsonObjectOrNull() ?: return@mapNotNull null
-            val id = obj.safeGet("typeId").safeInt(
-                obj.safeGet("id").safeInt(obj.safeGet("value").safeInt(0))
-            )
-            val name = obj.safeGet("typeName").safeString(
-                obj.safeGet("name").safeString(obj.safeGet("label").safeString())
-            )
-            if (id == 0 && name.isBlank()) null else CouponType(id, name)
-        }
     }
 
     fun parseDetail(root: JsonObject, showCardId: String): CouponDetail {

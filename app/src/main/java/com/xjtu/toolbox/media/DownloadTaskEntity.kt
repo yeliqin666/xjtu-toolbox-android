@@ -50,16 +50,6 @@ data class DownloadTaskEntity(
         get() = status == "downloading" || status == "paused" || status == "pending"
 }
 
-/** 下载配置 (用于创建新任务) */
-data class DownloadConfig(
-    val activityId: Int,
-    val courseName: String,
-    val activityTitle: String,
-    val cameraType: String,
-    val videoUrl: String,
-    val audioSource: String
-)
-
 /** DAO 接口 */
 @Dao
 interface DownloadTaskDao {

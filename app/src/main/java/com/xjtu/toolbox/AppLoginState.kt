@@ -76,16 +76,6 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
         android.util.Log.w("AppLoginState", "password invalidated by site=$siteName")
     }
 
-    /** 仅在响应消息含明确凭据无效关键字时为 true，避免把网络故障误判成密码错。 */
-    private fun isPasswordError(result: com.xjtu.toolbox.auth.LoginResult): Boolean {
-        if (result.state != com.xjtu.toolbox.auth.LoginState.FAIL) return false
-        val msg = result.message
-        return msg.contains("用户名或密码", ignoreCase = true) ||
-                msg.contains("密码错误", ignoreCase = true) ||
-                msg.contains("账号或密码", ignoreCase = true) ||
-                msg.contains("401")
-    }
-
     // [已移除] sharedConnectionPool：连接池现由 SessionBackend 持有（每 backend 一个，
     // 8 连接 / 5 分钟 keep-alive），最后一个使用者 doLoginWebVpn 已随 WebVPN 统一而删除。
 
@@ -358,43 +348,12 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
         activeUsername = username
     }
 
-    /** 从 EncryptedSharedPreferences 恢复凭据和缓存 */
-    fun restoreCredentials(store: CredentialStore) {
-        credentialStoreRef = store
-        val creds = store.load() ?: return
-        savedUsername = creds.first
-        savedPassword = creds.second
-        // 恢复 activeUsername → isLoggedIn 为 true，离线冷启动也显示欢迎称呼
-        if (savedUsername.isNotEmpty()) activeUsername = savedUsername
-        // 恢复持久化的 fpVisitorId（保持设备一致性，避免 MFA）
-        firstVisitorId = store.loadFpVisitorId()
-        // 恢复 RSA 公钥缓存（24h 有效期）
-        cachedRsaKey = store.loadRsaPublicKey()
-        // 恢复缓存昵称（欢迎卡片秒显示）
-        cachedNickname = store.loadNickname()
-        accountType = store.accountType
-        // 同步至新会话架构
-        sessionManager?.let {
-            it.setCredentials(savedUsername, savedPassword)
-            it.accountType = selectedCasAccountType()
-            it.fpVisitorId = firstVisitorId
-            it.cachedRsaKey = cachedRsaKey
-        }
-    }
-
     /** 持久化凭据和缓存到 EncryptedSharedPreferences */
     fun persistCredentials(store: CredentialStore) {
         if (hasCredentials) store.save(savedUsername, savedPassword)
         firstVisitorId?.let { store.saveFpVisitorId(it) }
         cachedRsaKey?.let { store.saveRsaPublicKey(it) }
     }
-
-    /**
-     * 携带 CAS TGC 的共享 client —— 现在就是 SessionManager 直连 backend 的 client。
-     * （旧的 sharedClient 字段已删除：它只在「校外别名成 vpnClient」时被赋值，首次永远为 null。）
-     */
-    fun getSharedClient(): okhttp3.OkHttpClient? =
-        sessionManager?.backend(com.xjtu.toolbox.auth.AccessMode.NORMAL)?.client
 
     /** 清除指定子系统的会话（用于 reAuth 失败后强制 full login）。 */
     fun clearLogin(type: LoginType) {
