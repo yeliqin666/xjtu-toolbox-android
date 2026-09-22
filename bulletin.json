@@ -1,58 +1,22 @@
 {
   "bulletins": [
     {
-      "id": "2026-09-19-crash-reinstall",
-      "level": "warn",
-      "title": "4.9.4、4.9.5 闪退？请更新到 4.9.6",
-      "body": "如果 4.9.4、4.9.5 版本使用中闪退，请更新到 4.9.6 及以上版本！",
-      "url": "https://github.com/yeliqin666/xjtu-toolbox-android/releases/latest",
-      "mustAck": false,
-      "block": false,
-      "maxVersion": "4.9.5",
-      "endsAt": "2026-09-26T00:00:00+08:00"
-    },
-    {
-      "id": "2026-09-14-attendance-kq-mismatch",
-      "level": "warn",
-      "title": "新考勤系统数据可能有误",
-      "body": "有同学反馈新考勤系统（kq.xjtu.edu.cn）的数据和旧系统（bkkq.xjtu.edu.cn）不一致，人脸签到后新系统仍可能显示缺勤。这不是本应用的问题，建议留意学校官方通知，别急着反馈，第二周以后再说。",
-      "mustAck": false,
-      "block": false
-    },
-    {
-      "id": "2026-09-19-recommend-4.9.6",
-      "level": "force_update",
-      "title": "请立即更新到 4.9.6",
-      "body": "修复打开成绩查询、屁岱闪退，以及「我的」页姓名头像丢失；安装包缩小近一半，冷启动快约两成；课表调课停课与 10 月后冬令时时间修正；思源学堂截止时间与页面内容修正。",
-      "url": "https://github.com/yeliqin666/xjtu-toolbox-android/releases/latest",
-      "targetVersion": "4.9.6",
-      "targetVersionCode": 62,
-      "mustAck": false,
-      "block": false
-    },
-    {
-      "id": "2026-09-17-feature-trim-poll",
+      "id": "2026-09-22-poll-5.0",
       "level": "info",
-      "title": "你觉得岱宗盒子可以丢弃哪些功能？",
-      "body": "丢一些无人在意的功能！",
-      "mustAck": true,
+      "title": "5.0 用下来，最满意哪里？",
+      "body": "可以不答。有问题或建议，写在「其他」里。",
+      "minVersion": "5.0",
+      "endsAt": "2026-10-20T00:00:00+08:00",
+      "mustAck": false,
       "block": false,
       "options": [
-        "匹配交友",
-        "校园黄页",
-        "教师主页",
-        "教材全文",
-        "课程查询",
-        "屁岱-皮肤",
-        "屁岱-灵动气泡",
-        "版本弹窗与问卷调研",
-        "学辅资料站",
-        "各类提醒（图书馆签到、课表变更、考试、作业截止等）",
-        "扫码登录",
-        "校园卡-消费分析",
-        "快速考勤流水",
-        "class课程回放（非思源学堂）",
-        "电子成绩单"
+        "首页",
+        "玻璃界面与动效",
+        "平板 / 大屏排版",
+        "日程",
+        "「我的」页",
+        "屁岱",
+        "小游戏与联机"
       ],
       "allowMultiple": true,
       "allowOther": true
