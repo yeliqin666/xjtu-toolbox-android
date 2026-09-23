@@ -148,7 +148,7 @@ private fun ProfileInfoCard(p: com.xjtu.toolbox.hello.HelloProfile, modifier: Mo
 /**
  * 辅导员 / 班主任一行：姓名 + 电话。
  *
- * 电话点一下进系统拨号盘，长按复制。原来号码只是被涂成 primary 色，没有任何点击
+ * 电话点一下进系统拨号盘，长按复制原文。原来号码只是被涂成 primary 色，没有任何点击
  * 处理，看着像链接、按下去没反应（issue #80）。现在只有 [toDialableTel] 真解析出号码
  * 时才画成可点的蓝色；解析不出来的（「见年级群」这类）保持普通文字，免得给出一个
  * 点了也拨不出去的假链接。
@@ -208,16 +208,28 @@ private fun MentorLine(label: String, name: String, phone: String) {
                             }
                         },
                         onLongClick = {
+                            // 复制屏幕上看到的原文而不是解析结果：「82668888-101」
+                            // 解析后只剩主号码，复制出去分机号就丢了。
                             scope.launch {
                                 clipboard.setClipEntry(
-                                    ClipEntry(ClipData.newPlainText("tel", number))
+                                    ClipEntry(ClipData.newPlainText("tel", phone))
                                 )
-                                Toast.makeText(context, "已复制：$number", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "已复制：$phone", Toast.LENGTH_SHORT).show()
                             }
                         },
                     )
                     // 字形本身只有十几 dp 高，靠这圈 padding 把触控区撑到 48dp
                     .padding(horizontal = 8.dp, vertical = 14.dp)
+            )
+        } else if (phone.isNotBlank()) {
+            // 解析不出号码（「见年级群」这类）：原文照常显示，只是不画成可点的蓝色。
+            Spacer(Modifier.width(8.dp))
+            Text(
+                phone,
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                maxLines = 1,
+                modifier = Modifier.padding(horizontal = 8.dp)
             )
         }
     }
