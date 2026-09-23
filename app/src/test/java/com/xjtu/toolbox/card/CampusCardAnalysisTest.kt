@@ -75,22 +75,29 @@ class CampusCardAnalysisTest {
     }
 
     @Test
-    fun dailyInsight_usesSelectedDayCount() {
-        val line = CampusCardAnalysis.dailyInsight(
-            totalSpend = 3650.0,
-            start = LocalDate.of(2023, 1, 1),
-            end = LocalDate.of(2023, 12, 31),
-            monthCount = 12
+    fun personaTags_onlyTagsStrongSignals() {
+        val meals = mapOf(
+            "早餐" to MealTimeStats(count = 2, totalAmount = 10.0, avgAmount = 5.0),
+            "午餐" to MealTimeStats(count = 40, totalAmount = 480.0, avgAmount = 12.0),
+            "夜宵" to MealTimeStats(count = 12, totalAmount = 120.0, avgAmount = 10.0),
         )
-        assertTrue(line!!.contains("365天"))
-        assertTrue(line.contains("月均"))
-        assertNull(
-            CampusCardAnalysis.dailyInsight(
-                100.0,
-                LocalDate.of(2023, 1, 1),
-                LocalDate.of(2023, 1, 5),
-                1
-            )
+        val tags = CampusCardAnalysis.personaTags(
+            food = mapOf("面食" to 400.0, "米饭" to 200.0),
+            meals = meals,
+            activeDays = 40,
+            foodSpend = 610.0,
+            topMerchant = MerchantStat("康桥苑一楼面食", 300.0, 30),
+            spendCount = 100,
+        ).map { it.second }
+        assertEquals(listOf("面食派", "基本不吃早饭", "夜宵常客", "「康桥苑一楼面」老主顾"), tags)
+
+        // 样本太少：什么都不贴
+        assertTrue(
+            CampusCardAnalysis.personaTags(
+                food = mapOf("面食" to 10.0, "米饭" to 10.0, "自选" to 10.0, "汤粥" to 10.0),
+                meals = mapOf("夜宵" to MealTimeStats(2, 20.0, 10.0)),
+                activeDays = 3, foodSpend = 40.0, topMerchant = null, spendCount = 4,
+            ).isEmpty()
         )
     }
 

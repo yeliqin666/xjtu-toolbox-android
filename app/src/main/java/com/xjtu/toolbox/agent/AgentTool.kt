@@ -248,10 +248,6 @@ class AgentToolRegistry(
             }
 
         if (lines.isEmpty()) return@withContext ""
-        // 山东彩蛋
-        val isShandong = sid.length >= 5 && sid.substring(3, 5) == "37"
-        if (isShandong) lines.add("- 彩蛋：用户是山东人，可适时调侃一句「沙东人太狠了」")
-
         lines.joinToString("\n")
     }
 

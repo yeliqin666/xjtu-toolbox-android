@@ -94,7 +94,7 @@ fun GamesScreen(
             GameEntry(
                 route = Routes.GAME_2048,
                 title = "GPA 2048",
-                summary = "1.0 一路合到 4.3",
+                summary = com.xjtu.toolbox.game.g2048.Gpa2048Texts.SUMMARY,
                 icon = Icons.Default.GridOn,
                 color = Color(0xFFE39A1B),
                 statLabel = "最高分",

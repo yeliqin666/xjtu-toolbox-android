@@ -237,7 +237,7 @@ fun Gpa2048Screen(onBack: () -> Unit) {
             Spacer(Modifier.height(10.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "滑动合并，两个 F 合成 D，一路冲到 A+",
+                    Gpa2048Texts.HOWTO,
                     style = MiuixTheme.textStyles.footnote1,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.weight(1f),
@@ -265,15 +265,15 @@ fun Gpa2048Screen(onBack: () -> Unit) {
                 overlay = {
                     when {
                         state.isOver -> ResultOverlay(
-                            title = "绩点定格在 ${boardGpa(state.board)}",
+                            title = Gpa2048Texts.gameOverTitle(boardGpa(state.board)),
                             subtitle = "本局 ${state.score} 分",
-                            primary = "再来一局" to { restart() },
-                            secondary = if (undoLeft > 0 && history.isNotEmpty()) "撤销一步（剩 $undoLeft）" to { undo() } else null,
+                            primary = Gpa2048Texts.RESTART to { restart() },
+                            secondary = if (undoLeft > 0 && history.isNotEmpty()) Gpa2048Texts.undoLeft(undoLeft) to { undo() } else null,
                         )
                         state.hasWon && !winDismissed -> ResultOverlay(
-                            title = "拿到 A+ 了！",
-                            subtitle = "满绩点达成，还能接着合更多 A+",
-                            primary = "继续冲分" to { winDismissed = true },
+                            title = Gpa2048Texts.WIN_TITLE,
+                            subtitle = Gpa2048Texts.WIN_BODY,
+                            primary = Gpa2048Texts.WIN_CONTINUE to { winDismissed = true },
                             secondary = "重新开始" to { restart() },
                         )
                     }
@@ -298,7 +298,7 @@ private fun boardGpa(board: Board): String {
 private fun ScoreRow(score: Int, best: Int, boardGpa: String, lastGain: Int, gainStamp: Int) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Box(Modifier.weight(1f)) {
-            ScoreCard("分数", score.toString(), highlight = true)
+            ScoreCard(Gpa2048Texts.SCORE, score.toString(), highlight = true)
             // 加分飘字：每次合成从分数卡上冒出来再淡掉
             if (lastGain > 0) {
                 val anim = remember(gainStamp) { Animatable(0f) }
@@ -318,8 +318,8 @@ private fun ScoreRow(score: Int, best: Int, boardGpa: String, lastGain: Int, gai
                 )
             }
         }
-        ScoreCard("最高分", best.toString(), modifier = Modifier.weight(1f))
-        ScoreCard("盘面绩点", boardGpa, modifier = Modifier.weight(1f))
+        ScoreCard(Gpa2048Texts.BEST, best.toString(), modifier = Modifier.weight(1f))
+        ScoreCard(Gpa2048Texts.BOARD_GPA, boardGpa, modifier = Modifier.weight(1f))
     }
 }
 
@@ -533,7 +533,7 @@ private fun LevelLadder(highest: Int) {
     val dark = LocalIsDarkTheme.current
     Column(Modifier.fillMaxWidth()) {
         Text(
-            "绩点阶梯",
+            Gpa2048Texts.LADDER,
             style = MiuixTheme.textStyles.footnote1,
             fontWeight = FontWeight.SemiBold,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,

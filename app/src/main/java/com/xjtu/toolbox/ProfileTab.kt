@@ -463,10 +463,12 @@ private fun ProfileHeroCard(
                 )
                 if (isLoggedIn) {
                     Spacer(Modifier.height(8.dp))
+                    // 书院 + 班级。年级和校区去掉了：年级从学号就能看出来，
+                    // 校区绝大多数人一辈子只有一个，摆在这儿占着位置、还把书院挤没。
+                    // academyName 是书院（本科生特有），学院是 departmentName，别搞混。
                     val tags = listOfNotNull(
                         profile?.academyName?.takeIf { it.isNotBlank() },
-                        profile?.grade?.takeIf { it > 0 }?.let { "$it 级" },
-                        profile?.campusName?.takeIf { it.isNotBlank() },
+                        profile?.className?.takeIf { it.isNotBlank() },
                     )
                     if (tags.isNotEmpty()) {
                         // 用 FlowRow 而不是 Row：三个标签（学院 / 年级 / 校区）横着放不下时，

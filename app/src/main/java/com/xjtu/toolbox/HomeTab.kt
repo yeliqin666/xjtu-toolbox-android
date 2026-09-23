@@ -93,6 +93,8 @@ private fun HomeHero(
     isFocusLoaded: Boolean,
     reminder: ScheduleReminderInfo?,
     balance: Float,
+    /** 近 30 天在校日均，<0 表示还没算出来；和校园卡页「约够几天」同一个数。 */
+    dailyRate: Float,
     todaySpend: Float,
     exam: com.xjtu.toolbox.home.HomeStat?,
     status: HeroStatus?,
@@ -178,12 +180,17 @@ private fun HomeHero(
                     Modifier.fillMaxWidth().height(IntrinsicSize.Min),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    val lowBalance = balance in 0f..30f
+                    val runway = com.xjtu.toolbox.card.runwayDays(
+                        balance.toDouble(), dailyRate.takeIf { it > 0f }?.toDouble()
+                    )
+                    // 有日均时按「还够几天」判断，没有才退回按金额
+                    val lowBalance = if (runway != null) runway <= 3 else balance in 0f..30f
                     HeroGlance(
                         icon = Icons.Default.CreditCard,
                         label = if (lowBalance) "余额不多了" else "校园卡余额",
                         value = if (balance >= 0f) "¥${"%.2f".format(balance)}" else "—",
                         number = balance.takeIf { it >= 0f }?.toDouble(),
+                        caption = runway?.let { if (it <= 2) "撑不过 3 天" else "约够 $it 天" },
                         valueColor = if (lowBalance) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.onSurface,
                         onClick = onOpenCard,
                         modifier = Modifier.weight(1f).fillMaxHeight(),
@@ -374,6 +381,8 @@ private fun HeroGlance(
     valueColor: Color = MiuixTheme.colorScheme.onSurface,
     /** 金额类传数值：第一次从 0 滚上来，之后随缓存刷新从旧值滚到新值。 */
     number: Double? = null,
+    /** 数值下面的一行小字，比如余额的「约够 4 天」。 */
+    caption: String? = null,
 ) {
     val muted = MiuixTheme.colorScheme.onSurfaceVariantSummary
     Column(
@@ -409,6 +418,9 @@ private fun HeroGlance(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+        }
+        if (caption != null) {
+            Text(caption, style = MiuixTheme.textStyles.footnote2, color = muted, maxLines = 1)
         }
     }
 }
@@ -490,9 +502,11 @@ internal fun HomeTab(
     }
     var cachedBalance by remember { mutableStateOf(cardPrefs.getFloat("card_balance_cache", -1f)) }
     var cachedTodaySpend by remember { mutableStateOf(cardPrefs.getFloat("card_today_spend_cache", -1f)) }
+    var cachedDailyRate by remember { mutableStateOf(cardPrefs.getFloat("card_daily_rate_cache", -1f)) }
     LaunchedEffect(loginState.campusCardCacheVersion) {
         cachedBalance = cardPrefs.getFloat("card_balance_cache", -1f)
         cachedTodaySpend = cardPrefs.getFloat("card_today_spend_cache", -1f)
+        cachedDailyRate = cardPrefs.getFloat("card_daily_rate_cache", -1f)
     }
     LaunchedEffect(loginState.accountId) {
         if (loginState.accountId.isEmpty()) return@LaunchedEffect
@@ -502,6 +516,7 @@ internal fun HomeTab(
         currentWeekNumber = 0
         cachedBalance = cardPrefs.getFloat("card_balance_cache", -1f)
         cachedTodaySpend = cardPrefs.getFloat("card_today_spend_cache", -1f)
+        cachedDailyRate = cardPrefs.getFloat("card_daily_rate_cache", -1f)
         val loadedFocus = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 val dataCache = com.xjtu.toolbox.util.DataCache(heroContext)
@@ -722,6 +737,7 @@ internal fun HomeTab(
         // 校园卡由 refresher 写进 CampusCardCache 的 prefs，不经过 homeStats，单独重读一次。
         cachedBalance = cardPrefs.getFloat("card_balance_cache", -1f)
         cachedTodaySpend = cardPrefs.getFloat("card_today_spend_cache", -1f)
+        cachedDailyRate = cardPrefs.getFloat("card_daily_rate_cache", -1f)
     }
 
     // 常用入口：按使用频率取 4 个，放进 Hero 卡底部。它是**额外**的入口，分类里照常保留。
@@ -802,6 +818,7 @@ internal fun HomeTab(
                 isFocusLoaded = isScheduleReminderLoaded,
                 reminder = scheduleReminderState,
                 balance = cachedBalance,
+                dailyRate = cachedDailyRate,
                 todaySpend = cachedTodaySpend,
                 exam = homeStats[com.xjtu.toolbox.home.EXAM_KEY],
                 status = heroStatus,

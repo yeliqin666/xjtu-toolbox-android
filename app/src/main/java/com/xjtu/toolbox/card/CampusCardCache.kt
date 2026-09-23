@@ -33,6 +33,42 @@ fun todaySummaryOf(transactions: List<Transaction>, today: LocalDate = LocalDate
     )
 }
 
+private val UTILITY_KEYS = listOf("电控", "水控", "能源", "电量", "电费", "水费")
+
+/**
+ * 近 30 天的在校日均：支出 ÷ 有消费的天数。
+ *
+ * 分母只数刷过卡的日子——放假整周不刷卡，那些天摊进来日均会被压低、可用天数被高估，
+ * 正好在快没钱的时候给出最乐观的数。水电一次充几十上百，不是「吃法」，不算进来。
+ * 有消费的天数不足 7 天时样本太少，返回 null。
+ *
+ * 首页、概览、分析三处的「约够几天」都从这里来，数字才对得上。
+ */
+fun dailySpendRate(transactions: List<Transaction>, today: LocalDate = LocalDate.now()): Double? {
+    val since = today.minusDays(29).toString()
+    val until = today.toString()
+    val spends = transactions.filter { tx ->
+        val date = tx.time.take(10)
+        tx.amount < 0 && date >= since && date <= until &&
+            UTILITY_KEYS.none { tx.merchant.contains(it) || tx.description.contains(it) }
+    }
+    val days = spends.map { it.time.take(10) }.distinct().size
+    if (days < 7) return null
+    return spends.sumOf { -it.amount } / days
+}
+
+/** 余额按日均 [rate] 还能撑几天；算不出来返回 null。 */
+fun runwayDays(balance: Double, rate: Double?): Int? =
+    if (rate == null || rate <= 0 || balance < 0) null else (balance / rate).toInt()
+
+/** 「照现在的吃法约够 N 天」。三天以内改口催充值。 */
+fun runwayText(days: Int): String =
+    if (days <= 2) "照现在的吃法撑不过 3 天" else "照现在的吃法约够 $days 天"
+
+/** 写进 [CampusCardCache.cardPrefs]，首页读；算不出来时保留上一次的值。 */
+fun android.content.SharedPreferences.Editor.putDailyRate(rate: Double?): android.content.SharedPreferences.Editor =
+    if (rate == null) this else putFloat("card_daily_rate_cache", rate.toFloat())
+
 /** 写入 [CampusCardCache.cardPrefs] 里首页卡片与校园卡小组件读取的那组 key。 */
 fun android.content.SharedPreferences.Editor.putTodaySummary(s: TodaySpendSummary): android.content.SharedPreferences.Editor =
     putFloat("card_today_spend_cache", s.total.toFloat())

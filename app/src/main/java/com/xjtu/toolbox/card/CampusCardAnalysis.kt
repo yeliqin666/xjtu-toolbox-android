@@ -130,20 +130,60 @@ object CampusCardAnalysis {
         }
     }
 
-    fun dailyInsight(
-        totalSpend: Double,
-        start: LocalDate,
-        end: LocalDate,
-        monthCount: Int,
-    ): String? {
-        val days = calendarDays(start, end)
-        if (totalSpend <= 0 || days < 8) return null
-        val monthDivisor = monthCount.coerceAtLeast(1)
-        return "统计区间（${days}天）日均消费 ¥%.1f，月均 ¥%.0f".format(
-            totalSpend / days,
-            totalSpend / monthDivisor
-        )
+    /**
+     * 吃饭画像：从主食构成、各餐天数、每顿均价里挑几个够显著的特征，最多四个。
+     * 阈值都偏保守——宁可少贴一个标签，也别给只吃过两次夜宵的人贴「夜宵常客」。
+     */
+    fun personaTags(
+        food: Map<String, Double>,
+        meals: Map<String, MealTimeStats>,
+        activeDays: Int,
+        foodSpend: Double,
+        topMerchant: MerchantStat?,
+        spendCount: Int,
+    ): List<Pair<String, String>> {
+        val tags = mutableListOf<Pair<String, String>>()
+        val foodTotal = food.values.sum()
+        food.maxByOrNull { it.value }?.let { (name, amount) ->
+            if (foodTotal > 0 && amount / foodTotal >= 0.3) {
+                FOOD_PERSONA[name]?.let(tags::add)
+            }
+        }
+        if (activeDays >= 7) {
+            val breakfastRate = (meals["早餐"]?.count ?: 0).toDouble() / activeDays
+            when {
+                breakfastRate >= 0.6 -> tags += "🌅" to "早饭从不落"
+                breakfastRate <= 0.2 -> tags += "😴" to "基本不吃早饭"
+            }
+            val night = meals["夜宵"]?.count ?: 0
+            if (night >= 5 && night >= activeDays * 0.15) tags += "🌙" to "夜宵常客"
+        }
+        val mealCount = meals.values.sumOf { it.count }
+        if (mealCount >= 10 && foodSpend > 0) {
+            val perMeal = foodSpend / mealCount
+            when {
+                perMeal < 9 -> tags += "🪙" to "精打细算"
+                perMeal > 20 -> tags += "🍱" to "吃得不含糊"
+            }
+        }
+        // 「电子账户」是没带商户名的扫码付，不是哪一家店
+        if (topMerchant != null && "电子账户" !in topMerchant.name &&
+            spendCount >= 20 && topMerchant.count >= spendCount * 0.2
+        ) {
+            tags += "📌" to "「${topMerchant.name.take(6)}」老主顾"
+        }
+        return tags.take(4)
     }
+
+    private val FOOD_PERSONA = mapOf(
+        "面食" to ("🍜" to "面食派"),
+        "米饭" to ("🍚" to "米饭党"),
+        "自选" to ("🥗" to "自选党"),
+        "汤粥" to ("🥣" to "汤粥党"),
+        "饺包" to ("🥟" to "饺子包子党"),
+        "小吃" to ("🍢" to "小吃党"),
+        "饮品" to ("🧋" to "奶茶续命"),
+    )
 
     private fun consecutiveTail(stats: List<MonthlyStats>): Pair<MonthlyStats, MonthlyStats>? {
         val sorted = stats.sortedByDescending { it.month }
