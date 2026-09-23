@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.webvpn
 
+import com.xjtu.toolbox.util.redactUrl
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -183,7 +184,7 @@ fun WebVpnConverterScreen(
                                     if (it.isBlank()) error = "无法解析此 WebVPN 网址，请确认格式正确"
                                 }
                             }
-                            Log.d("WebVpnConverter", "convert reversed=$isReversed input=$normalized output=$convertedUrl")
+                            Log.d("WebVpnConverter", "convert reversed=$isReversed input=$normalized output=${convertedUrl.redactUrl()}")
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) { Text("转换") }

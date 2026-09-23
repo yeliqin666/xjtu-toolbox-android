@@ -78,14 +78,14 @@ object CrashReporter {
     }
 
     /**
-     * 去掉异常 message 里可能的隐私：URL 查询串（ticket/token 常在这里）、
-     * 6 位以上连续数字（学号、手机号、卡号）、长串 base64/hex（token、cookie 值）。
+     * 去掉异常 message 里可能的隐私。先走统一规则 [com.xjtu.toolbox.util.LogRedact]
+     * （凭据参数、JSON 敏感字段、CAS 隐藏表单、学号类长数字、token 类长串），
+     * 再把剩余的整段 URL 查询串折叠掉——崩溃报告会上传，宁可多删。
      * 堆栈帧本身只有类名方法名行号，不受影响。
      */
-    internal fun redact(s: String): String = s
-        .replace(Regex("""\?[^\s"')]*"""), "?…")
-        .replace(Regex("""\d{6,}"""), "#")
-        .replace(Regex("""[A-Za-z0-9+/_\-]{32,}={0,2}"""), "<redacted>")
+    internal fun redact(s: String): String =
+        com.xjtu.toolbox.util.LogRedact.redact(s)
+            .replace(Regex("""\?[^\s"')]*"""), "?…")
 
     /**
      * 启动后在后台线程调用：把上次留下的崩溃日志报掉。

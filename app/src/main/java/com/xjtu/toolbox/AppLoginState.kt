@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.runtime.*
 import com.xjtu.toolbox.auth.*
+import com.xjtu.toolbox.card.putDailyRate
 import com.xjtu.toolbox.card.putTodaySummary
 import com.xjtu.toolbox.util.CredentialStore
 import com.xjtu.toolbox.widget.CampusCardWidgetUpdater
@@ -612,6 +613,7 @@ internal suspend fun refreshCampusCardCache(
         .putString("card_name_cache", info.name)
         .putLong("card_cache_time", System.currentTimeMillis())
         .putTodaySummary(com.xjtu.toolbox.card.todaySummaryOf(recentTx))
+        .putDailyRate(com.xjtu.toolbox.card.dailySpendRate(recentTx))
         .apply()
     CampusCardWidgetUpdater.requestUpdate(appContext)
     true

@@ -346,9 +346,15 @@ fun GlassBottomTabs(
                             layerBlock = {
                                 scaleX = dampedDrag.scaleX
                                 scaleY = dampedDrag.scaleY
-                                val v = dampedDrag.velocity / 10f
-                                scaleX /= 1f - (v * 0.75f).coerceIn(-0.2f, 0.2f)
-                                scaleY *= 1f - (v * 0.25f).coerceIn(-0.2f, 0.2f)
+                                // 速度取绝对值：拖得快就横向拉长、纵向压扁，**两个方向一样**。
+                                // 原来用的是带符号速度，往右 scaleX 被放大、往左反而被压窄；
+                                // 而 backdrop 采样只按 LayoutCoordinates 定位，不反解 layerBlock
+                                // 的缩放（见 DrawBackdropNode：layerBlock 是 placeWithLayer 施加的），
+                                // 于是滑块本体和它透出的强调色层对不齐——表现就是从右往左拖时
+                                // 蓝色块稳定偏移，往右拖却看不出来。
+                                val v = abs(dampedDrag.velocity) / 10f
+                                scaleX /= 1f - (v * 0.75f).coerceIn(0f, 0.2f)
+                                scaleY *= 1f - (v * 0.25f).coerceIn(0f, 0.2f)
                             },
                             onDrawSurface = {
                                 val progress = dampedDrag.pressProgress

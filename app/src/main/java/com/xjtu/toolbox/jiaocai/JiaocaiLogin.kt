@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.jiaocai
 
+import com.xjtu.toolbox.util.redactBody
+import com.xjtu.toolbox.util.redactUrl
 import android.util.Log
 import com.xjtu.toolbox.auth.XJTULogin
 import com.xjtu.toolbox.util.safeParseJsonObject
@@ -48,7 +50,7 @@ class JiaocaiLogin(
 
     override fun postLogin(response: Response) {
         val finalUrl = response.request.url.toString()
-        Log.d(TAG, "postLogin: finalUrl=$finalUrl, bodyLen=${lastResponseBody.length}")
+        Log.d(TAG, "postLogin: finalUrl=${finalUrl.redactUrl()}, bodyLen=${lastResponseBody.length}")
         tryFetchUserInfo()
     }
 
@@ -60,7 +62,7 @@ class JiaocaiLogin(
                 .build()
             val resp = client.newCall(req).execute()
             val text = resp.body?.use { it.string() } ?: ""
-            Log.d(TAG, "user-info: ${text.take(200)}")
+            Log.d(TAG, "user-info: ${text.redactBody(200)}")
 
             val json = text.safeParseJsonObject()
             val data = json.getAsJsonObject("data")

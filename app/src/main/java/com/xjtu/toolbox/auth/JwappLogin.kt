@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.auth
 
+import com.xjtu.toolbox.util.redactBody
 import android.util.Log
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -37,7 +38,7 @@ class JwappLogin(
             .takeIf { it.isNotEmpty() }
             ?: throw RuntimeException("登录失败：无法获取教务 Token")
         tokenObtainedAt = System.currentTimeMillis()
-        Log.d(TAG, "postLogin: token obtained, len=${authToken?.length}, prefix=${authToken?.take(40)}")
+        Log.d(TAG, "postLogin: token obtained, len=${authToken?.length}")
         // 诊断：jwapp 域 cookies 名单（不暴露值），定位 401 是否是缺 session cookie
         try {
             val jar = client.cookieJar
@@ -201,12 +202,12 @@ class JwappLogin(
             else -> false
         }
         if (needReAuth) {
-            val oldTokenPrefix = authToken?.take(40) ?: ""
-            Log.d(TAG, "executeWithReAuth: auth failure (code=${response.code}, ct=${response.header("Content-Type")}), attempting reAuth (old token prefix=$oldTokenPrefix)")
+            // 只记录 token 是否变化，不落任何 token 内容
+            val oldToken = authToken
+            Log.d(TAG, "executeWithReAuth: auth failure (code=${response.code}, ct=${response.header("Content-Type")}), attempting reAuth")
             response.close()
             if (reAuthenticate()) {
-                val newTokenPrefix = authToken?.take(40) ?: ""
-                Log.d(TAG, "executeWithReAuth: reAuth ok, new token prefix=$newTokenPrefix (changed=${oldTokenPrefix != newTokenPrefix})")
+                Log.d(TAG, "executeWithReAuth: reAuth ok (token changed=${oldToken != authToken})")
                 val retryResp = client.newCall(
                     requestBuilder.header("Authorization", authToken ?: "").build()
                 ).execute()
@@ -222,7 +223,7 @@ class JwappLogin(
                         val fail = "authentication error" in body
                             || Regex("\"code\"\\s*:\\s*401").containsMatchIn(body)
                             || Regex("\"code\"\\s*:\\s*403").containsMatchIn(body)
-                        if (fail) Log.w(TAG, "executeWithReAuth: retry still auth-failed, body head=${body.take(200)}")
+                        if (fail) Log.w(TAG, "executeWithReAuth: retry still auth-failed, body head=${body.redactBody(200)}")
                         fail
                     }
                     else -> false

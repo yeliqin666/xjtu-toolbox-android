@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.auth
 
+import com.xjtu.toolbox.util.redactBody
+import com.xjtu.toolbox.util.redactUrl
 import android.util.Log
 import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -75,8 +77,8 @@ class DzpzLogin(
         val finalUrl = response.request.url.toString()
         val bodyHead = try { response.peekBody(800).string() } catch (_: Exception) { "<peekBody failed>" }
         Log.w(TAG, "postLogin: loginidweaver not found")
-        Log.w(TAG, "postLogin: finalUrl=$finalUrl")
-        Log.w(TAG, "postLogin: bodyHead=${bodyHead.replace("\n", " ").take(600)}")
+        Log.w(TAG, "postLogin: finalUrl=${finalUrl.redactUrl()}")
+        Log.w(TAG, "postLogin: bodyHead=${bodyHead.redactBody(600)}")
         // dump 现有 cookie 名（不暴露 value）便于排查
         try {
             val jar = client.cookieJar
@@ -159,8 +161,8 @@ class DzpzLogin(
             val bodyHead = try { resp.peekBody(400).string() } catch (_: Exception) { "" }
             val id = findLoginIdWeaver(resp)
             resp.close()
-            Log.d(TAG, "retryOauthRound: finalUrl=$finalUrl, userId=$id")
-            if (id == null) Log.d(TAG, "retryOauthRound: bodyHead=${bodyHead.replace("\n", " ").take(240)}")
+            Log.d(TAG, "retryOauthRound: finalUrl=${finalUrl.redactUrl()}, userIdFound=${id != null}")
+            if (id == null) Log.d(TAG, "retryOauthRound: bodyHead=${bodyHead.redactBody(240)}")
             id ?: fetchUserIdFromApi()
         } catch (e: Exception) {
             Log.w(TAG, "retryOauthRound failed: ${e.message}")

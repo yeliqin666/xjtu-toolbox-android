@@ -53,6 +53,28 @@ data class Transaction(
         type = (type as String?) ?: "",
         description = (description as String?) ?: "",
     )
+
+    /**
+     * 展示与统计一律用这个，不要直接读 [merchant]。
+     *
+     * 接口的 `toMerchant` 对扫码点餐、充值返回的是空字符串，解析时已经兜了一次；
+     * 但**落盘缓存里存的是解析后的结果**，老缓存里那批空串不会因为解析改好就自动变好。
+     * 在这里再兜一次，历史数据不用等刷新也能显示出名字。
+     */
+    val displayMerchant: String
+        get() = merchant.ifBlank { merchantFromResume(description) }
+}
+
+/**
+ * 商户名缺失时从 `resume` 里取一个能看的名字。
+ *
+ * resume 的形状是「商户-渠道」（`珍念水饺-电子账户消费`）或只有渠道
+ * （`电子账户消费`、`充值-支付宝转账`）。取第一段即可；只剩渠道时去掉「消费」后缀，
+ * 免得流水里一行写着「电子账户消费」还配一个「消费」类型。
+ */
+internal fun merchantFromResume(resume: String): String {
+    val head = resume.substringBefore("-").trim()
+    return head.removeSuffix("消费").trim().ifBlank { head.ifBlank { "未知商户" } }
 }
 
 /** 月度统计 */
@@ -142,10 +164,58 @@ class CampusCardApi(private val site: SiteSession) {
             "馒头", "饼", "糕", "果汁", "茶", "鸡", "鱼", "肉", "蛋",
             // 2026-08 缓存里漏进「其他」的档口
             "苑", "粉", "粉丝", "瓦罐", "寿司", "日料", "小笼", "馄饨", "汤包",
-            "自选", "豆花", "豆苗", "江记", "旧迹", "丸子", "肠粉",
+            // 「饺」而不是「饺子」：珍念水饺、轻食水饺这类写的是「水饺」，
+            // 只配「饺子」会整家店漏进「其他」（实测 8 笔 ¥144 就是这么漏的）
+            "饺", "自选", "豆花", "豆苗", "江记", "旧迹", "丸子", "肠粉",
             "迈德思客", "麦当劳", "肯德基", "汉堡", "披萨", "必胜客",
             "风味", "拉面", "米皮", "凉粉", "胡辣汤", "砂锅", "麻食",
         )
+
+        /**
+         * 餐饮内部的主食分类。
+         *
+         * 顶层分类（餐饮/超市/洗浴/水电）对食堂党没有信息量——实测一份 600 条的流水里
+         * 餐饮占 97.7%，那张饼图等于只有一块。真正有区分度的是「今天吃面还是吃饭」，
+         * 所以在餐饮内部再切一层。
+         *
+         * 顺序即优先级，从上往下第一个命中的生效：
+         * 「临沂炒鸡拌饭」既有「炒」也有「饭」，归米饭比归小吃贴切，所以米饭排在前面；
+         * 「丸子粉丝汤」有「粉」也有「汤」，它是汤粉不是拌面，靠汤羹在面食之前拦下。
+         */
+        private val FOOD_SUB_RULES: List<Pair<String, Array<String>>> = listOf(
+            "饮品" to arrayOf("水吧", "吧台", "咖啡", "奶茶", "茶", "果汁", "豆浆", "饮"),
+            "汤粥" to arrayOf("粥", "汤", "瓦罐", "砂锅", "胡辣", "馄饨", "丸子"),
+            "饺包" to arrayOf("饺", "包子", "小笼", "生煎", "馒头"),
+            "自选" to arrayOf("自选", "自助", "称量", "智盘", "菜组", "小碗菜", "蒸菜"),
+            "米饭" to arrayOf("饭", "盖浇", "烧腊", "煲"),
+            "面食" to arrayOf("面", "粉", "米线", "饸络", "凉皮", "米皮", "麻食", "削筋"),
+            // 小吃排在最后，当兜底用：这里的「卤」「鱼」「炒」不会抢走前面的分类，
+            // 卤肉饭/酸菜鱼米饭先被「米饭」接走，五谷鱼粉先被「面食」接走。
+            "小吃" to arrayOf(
+                "小吃", "肉夹馍", "肠粉", "饼", "糕", "烧烤", "串", "寿司", "日料", "豆花",
+                "快餐", "炒", "卤", "鱼", "迈德思客",
+            ),
+        )
+    }
+
+    /**
+     * 这笔餐饮属于哪类主食。不是餐饮、或认不出来时返回 null，调用方自行归入「其他」。
+     */
+    fun foodSubCategory(tx: Transaction): String? {
+        if (classifyMerchant(tx.displayMerchant, tx.description, tx.time) != "餐饮") return null
+        val m = tx.displayMerchant.lowercase()
+        return FOOD_SUB_RULES.firstOrNull { (_, keys) -> keys.any { m.contains(it) } }?.first
+    }
+
+    /** 餐饮支出按主食分类汇总，金额降序。 */
+    fun breakdownFood(transactions: List<Transaction>): Map<String, Double> {
+        val out = mutableMapOf<String, Double>()
+        for (tx in transactions) {
+            if (tx.amount >= 0) continue
+            val sub = foodSubCategory(tx) ?: continue
+            out[sub] = (out[sub] ?: 0.0) + (-tx.amount)
+        }
+        return out.toList().sortedByDescending { it.second }.toMap()
     }
 
     /**
@@ -206,8 +276,11 @@ class CampusCardApi(private val site: SiteSession) {
             val icon = rec.get("icon")?.asString ?: ""
             val turnoverType = rec.get("turnoverType")?.asString?.trim() ?: ""
             val resume = rec.get("resume")?.asString?.trim() ?: ""
-            val merchant = rec.get("toMerchant")?.asString?.trim()
-                ?: resume.substringBefore("-").trim()
+            // takeIf 不能省：toMerchant 常常是**空字符串而不是 null**（扫码点餐、充值都这样），
+            // 只写 `?:` 的话兜底永远不触发，商户名就是一串空白——分析页的排行、流水列表里
+            // 都会出现没有名字的行。实测 600 条里有 22 条是这种（12 笔消费 + 10 笔充值）。
+            val merchant = rec.get("toMerchant")?.asString?.trim()?.takeIf { it.isNotBlank() }
+                ?: merchantFromResume(resume)
             val typeFrom = rec.get("typeFrom")?.asString?.trim()
             val toAccount = rec.get("toAccount")
                 ?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asLong
@@ -331,7 +404,7 @@ class CampusCardApi(private val site: SiteSession) {
             val txList = byMonth[month].orEmpty()
             val spending = txList.filter { it.amount < 0 }
             val income = txList.filter { it.amount > 0 }
-            val merchantStats = spending.groupBy { it.merchant }
+            val merchantStats = spending.groupBy { it.displayMerchant }
                 .map { (name, txs) ->
                     MerchantStat(
                         name = name,
@@ -371,7 +444,7 @@ class CampusCardApi(private val site: SiteSession) {
         val categories = mutableMapOf<String, Double>()
         for (tx in transactions) {
             if (tx.amount >= 0) continue  // 只分析支出
-            val category = classifyMerchant(tx.merchant, tx.description)
+            val category = classifyMerchant(tx.displayMerchant, tx.description, tx.time)
             categories[category] = (categories[category] ?: 0.0) + (-tx.amount)
         }
         return categories.toList().sortedByDescending { it.second }.toMap()
@@ -382,6 +455,18 @@ class CampusCardApi(private val site: SiteSession) {
      * 返回每个时段的次数由【天数】统计（同一天同时段多笔交易算一天）
      * 同时返回"在校天数"——至少有一顿正餐记录的自然日数（用于早餐率分母）
      */
+    /** 餐饮消费按钟点计笔数，下标即 0–23 点。 */
+    fun hourlyMeals(transactions: List<Transaction>): List<Int> {
+        val out = IntArray(24)
+        for (tx in transactions) {
+            if (tx.amount >= 0) continue
+            if (classifyMerchant(tx.displayMerchant, tx.description, tx.time) != "餐饮") continue
+            val hour = tx.time.substringAfter(" ").substringBefore(":").toIntOrNull() ?: continue
+            if (hour in 0..23) out[hour]++
+        }
+        return out.toList()
+    }
+
     fun analyzeMealTimes(transactions: List<Transaction>): Pair<Map<String, MealTimeStats>, Int> {
         // 先按时段收集所有交易，再按日期聚合
         val rawMeals = mutableMapOf<String, MutableMap<String, MutableList<Double>>>()
@@ -391,7 +476,7 @@ class CampusCardApi(private val site: SiteSession) {
 
         for (tx in transactions) {
             if (tx.amount >= 0) continue
-            val category = classifyMerchant(tx.merchant, tx.description)
+            val category = classifyMerchant(tx.displayMerchant, tx.description, tx.time)
             if (category != "餐饮") continue
 
             val hour = try {
@@ -453,7 +538,19 @@ class CampusCardApi(private val site: SiteSession) {
         return DayTypeStats.from("工作日", weekday) to DayTypeStats.from("周末", weekend)
     }
 
-    private fun classifyMerchant(merchant: String, description: String): String {
+    /**
+     * 没有商户名的「电子账户消费」按时段判。
+     *
+     * 扫码点餐这类不回传档口名，只给一句「电子账户消费」，名字里没有任何餐饮特征词，
+     * 全部落进「其他」。但它们清一色出现在饭点、金额也在一餐的量级，当成餐饮比当成
+     * 「其他」贴近事实。落在饭点之外的仍旧算不出来，保持「其他」。
+     */
+    private fun mealHour(time: String): Boolean {
+        val h = time.substringAfter(" ").substringBefore(":").toIntOrNull() ?: return false
+        return h in 6..9 || h in 11..13 || h in 17..19
+    }
+
+    private fun classifyMerchant(merchant: String, description: String, time: String = ""): String {
         val m = merchant.lowercase()
         val d = description.lowercase()
         fun hit(haystack: String, keys: Array<String>): Boolean = keys.any { haystack.contains(it) }
@@ -469,6 +566,8 @@ class CampusCardApi(private val site: SiteSession) {
             hit(m, FOOD_MERCHANT_KEYS) -> "餐饮"
             hit(m, arrayOf("医院", "药", "诊所", "卫生")) -> "医疗"
             hit(d, arrayOf("圈存", "充值", "转账")) -> "充值"
+            // 只有渠道名、没有档口名，且发生在饭点，见 [mealHour]
+            hit(m, arrayOf("电子账户")) && mealHour(time) -> "餐饮"
             else -> "其他"
         }
     }

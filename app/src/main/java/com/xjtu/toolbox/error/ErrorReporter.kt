@@ -2,6 +2,7 @@ package com.xjtu.toolbox.error
 
 import android.content.Context
 import android.util.Log
+import com.xjtu.toolbox.util.LogRedact
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -36,13 +37,15 @@ class FileErrorReporter(private val appContext: Context) : ErrorReporter {
             val ts = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date())
             val sb = StringBuilder()
             sb.append("[").append(ts).append("] ").append(tag).append(": ")
-            sb.append(throwable.javaClass.simpleName).append(": ").append(throwable.message ?: "")
+            // message / extra 可能带 URL 参数、学号、token，落盘前统一脱敏
+            sb.append(throwable.javaClass.simpleName).append(": ")
+                .append(LogRedact.redact(throwable.message ?: ""))
             sb.append("\n")
             throwable.stackTrace.take(20).forEach {
                 sb.append("    at ").append(it.toString()).append("\n")
             }
             if (extra.isNotEmpty()) {
-                sb.append("    extra=").append(extra).append("\n")
+                sb.append("    extra=").append(LogRedact.redact(extra.toString())).append("\n")
             }
             file.appendText(sb.toString())
         } catch (e: Exception) {

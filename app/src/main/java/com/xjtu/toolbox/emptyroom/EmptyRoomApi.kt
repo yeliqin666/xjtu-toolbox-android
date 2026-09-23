@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.emptyroom
 
+import com.xjtu.toolbox.util.redactBody
 import android.content.Context
 import com.xjtu.toolbox.util.HttpClients
 import com.xjtu.toolbox.util.safeParseJsonObject
@@ -378,7 +379,7 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient, private val cac
         if (!resp.isSuccessful) throw RuntimeException("校区代码请求失败: HTTP ${resp.code}")
         val body = resp.body?.string().orEmpty()
         val map = parseCodeMap(body)
-        android.util.Log.d(TAG, "campus code count=${map.size}, bodyPrefix=${body.take(160)}")
+        android.util.Log.d(TAG, "campus code count=${map.size}, bodyPrefix=${body.redactBody(160)}")
         if (map.isEmpty()) throw RuntimeException("校区代码为空")
         cache?.writeCodeMap("direct_campus_codes", map)
         cachedCampusCodes = map to System.currentTimeMillis()
@@ -409,7 +410,7 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient, private val cac
         if (!resp.isSuccessful) throw RuntimeException("教学楼代码请求失败: HTTP ${resp.code}")
         val body = resp.body?.string().orEmpty()
         val map = parseCodeMap(body)
-        android.util.Log.d(TAG, "building code count=${map.size}, bodyPrefix=${body.take(160)}")
+        android.util.Log.d(TAG, "building code count=${map.size}, bodyPrefix=${body.redactBody(160)}")
         if (map.isEmpty()) throw RuntimeException("教学楼代码为空")
         cache?.writeCodeMap("direct_building_codes", map)
         cachedBuildingCodes = map to System.currentTimeMillis()
@@ -478,7 +479,7 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient, private val cac
         ).execute()
         if (!resp.isSuccessful) throw RuntimeException("空闲教室查询失败: HTTP ${resp.code}")
         val body = resp.body?.string().orEmpty()
-        android.util.Log.d(TAG, "queryRooms date=$date start=$startTime end=$endTime http=${resp.code} bodyPrefix=${body.take(120)}")
+        android.util.Log.d(TAG, "queryRooms date=$date start=$startTime end=$endTime http=${resp.code} bodyPrefix=${body.redactBody(120)}")
         // safeParseJsonObject 会自动检测 HTML 响应并抛出友好的错误信息
         val root = body.safeParseJsonObject()
         val datas = root.getAsJsonObject("datas")

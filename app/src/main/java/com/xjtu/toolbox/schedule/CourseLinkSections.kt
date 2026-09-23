@@ -30,7 +30,6 @@ import androidx.compose.material.icons.filled.School
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -46,7 +45,6 @@ import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.LocalAppLoginState
 import com.xjtu.toolbox.Routes
 import com.xjtu.toolbox.attendance.WaterType
-import com.xjtu.toolbox.jiaocai1.Jiaocai1Book
 import com.xjtu.toolbox.util.CredentialStore
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
@@ -97,22 +95,10 @@ fun CourseLinkSections(
         CourseLinks.textbooksFor(course.courseName, textbooks, course.courseCode)
     }
 
-    // ── 教材全文 ──
-    //
-    // 每本书各自一个状态，而不是"整门课只留第一本查到的"：一门课的三本教材
-    // 各有各的结局，把它们并成一个，另外两本就永远显示成第一本的结论。
-    val fulltext = remember(course.courseName) {
-        mutableStateMapOf<String, CourseLinks.Fulltext>()
-    }
-    // key 用 ISBN 串而不是 mine：list 每次重组都是新实例，会让协程不停被取消重启。
-    val isbnKey = remember(mine) { mine.joinToString(",") { it.isbn } }
-    LaunchedEffect(isbnKey) {
-        for (t in mine) {
-            fulltext[fulltextKey(t)] = CourseLinks.fulltextByIsbn(
-                manager, t.isbn, byTitle = t.textbookName, byAuthor = t.author,
-            )
-        }
-    }
+    // 教材不再自动去全文库找对应的书：全文库把 ISBN 和索书号检索都下线了
+    // （检索页源码原话「此处注释了普通搜索的索书号和ISBN号」），只剩书名可查，
+    // 而同名多版本无从分辨——《固体物理学》库里黄昆 2009 和陆栋 2010 并存，
+    // 认错版本就是给人翻开另一本书。要读全文请走首页的「教材全文」自行检索。
 
     // 考勤跟角标共用开关：要单独登录一次考勤站点，没开的人不该为点开一门课付这个代价。
     val store = remember { CredentialStore(context) }
@@ -180,13 +166,7 @@ fun CourseLinkSections(
 
     if (hasBook) {
         mine.forEach { book ->
-            TextbookRow(
-                book = book,
-                // 状态还没写进来就是"正在查"。注意别用 ISBN 以外的东西认：
-                // 教材列表刷新后 mine 里是新的 TextbookItem 实例，按引用认永远为假。
-                fulltext = fulltext[fulltextKey(book)],
-                onRead = { b -> onNavigate(Routes.jiaocai1Reader(b.ssno, b.title)) },
-            )
+            TextbookRow(book = book)
         }
     }
 
@@ -214,11 +194,12 @@ fun CourseLinkSections(
 internal fun courseDetailTileColor(): Color = MiuixTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f)
 
 /**
- * 教材缓存键：归一化后的 ISBN，没有 ISBN 的退回书名。
+ * 一本书的身份：归一化后的 ISBN，没有 ISBN 的退回书名。
  *
- * 同一本书在两批 [TextbookItem] 里是不同实例，必须按内容认而不是按引用。
+ * 同一本书在两批 [TextbookItem] 里是不同实例，展开状态必须按内容认而不是按引用，
+ * 否则教材列表一刷新，用户展开的那本就自己收起来了。
  */
-private fun fulltextKey(book: TextbookItem): String =
+private fun bookKey(book: TextbookItem): String =
     book.isbn.filter { it.isDigit() || it.equals('X', ignoreCase = true) }
         .takeIf { it.length >= 10 } ?: book.textbookName.trim()
 
@@ -226,20 +207,11 @@ private fun fulltextKey(book: TextbookItem): String =
  * 一本教材。
  *
  * **点开看详情这件事不依赖任何网络结果**：作者、出版社、版次、ISBN、定价
- * 全都来自教务的教材报表，已经在手里了。全文只是详情里的一个附加动作。
- *
- * 之前这一行是反过来的——只有全文库命中才给 `onClick`，于是"还在查"、
- * 「没 ISBN」、「教材站点没登上」、「库里没有」四种情况长得一模一样：
- * 一行点不动的字。用户报上来就是"教材具体信息打不开了"。
+ * 全都来自教务的教材报表，已经在手里了，展开即看，不依赖任何网络结果。
  */
 @Composable
-private fun TextbookRow(
-    book: TextbookItem,
-    /** null = 还在查。 */
-    fulltext: CourseLinks.Fulltext?,
-    onRead: (Jiaocai1Book) -> Unit,
-) {
-    var expanded by remember(fulltextKey(book)) { mutableStateOf(false) }
+private fun TextbookRow(book: TextbookItem) {
+    var expanded by remember(bookKey(book)) { mutableStateOf(false) }
     val arrow by animateFloatAsState(if (expanded) 180f else 0f, tween(220), label = "bookArrow")
 
     // 标题行和展开的详情同在一块里：展开的内容属于这本书，不该漂在块外面。
@@ -251,8 +223,7 @@ private fun TextbookRow(
     ) {
         LinkRowContent(
             icon = Icons.AutoMirrored.Filled.MenuBook,
-            tint = if (fulltext is CourseLinks.Fulltext.Found) MiuixTheme.colorScheme.primary
-            else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             title = book.textbookName.ifBlank { "未命名教材" },
             subtitle = textbookSummary(book),
             onClick = { expanded = !expanded },
@@ -293,39 +264,9 @@ private fun TextbookRow(
                         }
                     }
                 }
-                Spacer(Modifier.height(4.dp))
-                // 全文这一项把话说清楚：在查 / 没 ISBN 没法查 / 这次没连上 / 库里没有 / 能读。
-                when (fulltext) {
-                    is CourseLinks.Fulltext.Found -> Text(
-                        "在线阅读全文 ›",
-                        Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .clickable { onRead(fulltext.book) }
-                            .padding(vertical = 3.dp, horizontal = 2.dp),
-                        style = MiuixTheme.textStyles.footnote1,
-                        fontWeight = FontWeight.Medium,
-                        color = MiuixTheme.colorScheme.primary,
-                    )
-
-                    null -> FulltextNote("正在查全文库…")
-                    CourseLinks.Fulltext.NoKey -> FulltextNote("这本教材没有 ISBN，查不了全文")
-                    CourseLinks.Fulltext.NotFound -> FulltextNote("全文库里没有这本")
-                    CourseLinks.Fulltext.SiteUnavailable ->
-                        FulltextNote("教材库这次没连上，重开一次课程详情再试")
-                }
             }
         }
     }
-}
-
-@Composable
-private fun FulltextNote(text: String) {
-    Text(
-        text,
-        Modifier.padding(vertical = 3.dp, horizontal = 2.dp),
-        style = MiuixTheme.textStyles.footnote2,
-        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-    )
 }
 
 /** 报表里"无教材"的行会带一串 978000000000 的假 ISBN，原样显示会让人以为真有这本书。 */

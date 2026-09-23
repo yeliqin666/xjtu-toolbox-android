@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.auth
 
+import com.xjtu.toolbox.util.redactUrl
 import android.util.Log
 import com.xjtu.toolbox.card.CampusCardContract
 import com.xjtu.toolbox.util.safeParseJsonObject
@@ -62,7 +63,7 @@ class CampusCardLogin(
 
     override fun postLogin(response: Response) {
         val finalUrl = response.request.url.toString()
-        Log.d(TAG, "postLogin: finalUrl=$finalUrl")
+        Log.d(TAG, "postLogin: finalUrl=${finalUrl.redactUrl()}")
         if (tryExtractTicketAndGetToken(finalUrl)) return
 
         // CAS POST 后 finalUrl 经常停在中转页（org.xjtu / cas/login?service=callbackAuthorize），
@@ -74,7 +75,7 @@ class CampusCardLogin(
             val retryResp = client.newCall(Request.Builder().url(LOGIN_URL).get().build()).execute()
             retryResp.body?.use { it.string() }
             val retryUrl = retryResp.request.url.toString()
-            Log.d(TAG, "postLogin: retry finalUrl=$retryUrl")
+            Log.d(TAG, "postLogin: retry finalUrl=${retryUrl.redactUrl()}")
             if (tryExtractTicketAndGetToken(retryUrl)) return
         } catch (e: Exception) {
             Log.e(TAG, "postLogin: retry failed", e)
@@ -121,7 +122,8 @@ class CampusCardLogin(
                     .build()
             ).execute()
             val bodyStr = resp.body?.use { it.string() } ?: return false
-            Log.d(TAG, "exchangeTicketForToken: code=${resp.code}, body=${bodyStr.take(100)}")
+            // 响应体里就是 access_token，只记状态码和长度
+            Log.d(TAG, "exchangeTicketForToken: code=${resp.code}, bodyLen=${bodyStr.length}")
             val json = bodyStr.safeParseJsonObject()
             val token = json.get("access_token")?.asString ?: return false
             accessToken = token
@@ -166,7 +168,7 @@ class CampusCardLogin(
             val resp = client.newCall(Request.Builder().url(LOGIN_URL).get().build()).execute()
             resp.body?.use { it.string() }
             val finalUrl = resp.request.url.toString()
-            Log.d(TAG, "reAuthenticate: finalUrl=$finalUrl")
+            Log.d(TAG, "reAuthenticate: finalUrl=${finalUrl.redactUrl()}")
             tryExtractTicketAndGetToken(finalUrl)
         } catch (e: Exception) {
             Log.e(TAG, "reAuthenticate failed", e)

@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.qrlogin
 
+import com.xjtu.toolbox.util.redactBody
+import com.xjtu.toolbox.util.redactUrl
 import android.net.Uri
 import android.util.Log
 import com.xjtu.toolbox.auth.SessionManager
@@ -111,7 +113,7 @@ object CasQrLogin {
                 if (r1.code == 404 || r1.code == 410) {
                     return Result.Expired("二维码已失效（${r1.code}），请在电脑上重新生成")
                 }
-                Log.d(TAG, "scan http=${r1.code} final=${r1.request.url}")
+                Log.d(TAG, "scan http=${r1.code} final=${r1.request.url.redactUrl()}")
             }
             val authorizeUrl = "https://$HOST/cas/qr/authorize/${ctx.ticket}?locale=zh_CN"
             ctx.client.newCall(ctx.build(authorizeUrl).get().build()).execute().use { r2 ->
@@ -137,7 +139,7 @@ object CasQrLogin {
                 .build()
             ctx.client.newCall(post).execute().use { r3 ->
                 val body = r3.body?.string().orEmpty()
-                Log.d(TAG, "auth http=${r3.code} body=${body.take(160)}")
+                Log.d(TAG, "auth http=${r3.code} body=${body.redactBody(160)}")
                 parseAuthResult(r3.code, body)
             }
         } catch (e: Exception) {

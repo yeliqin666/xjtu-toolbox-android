@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.newattendance
 
+import com.xjtu.toolbox.util.redactUrl
 import android.util.Log
 import com.google.gson.JsonObject
 import com.xjtu.toolbox.auth.SafetyVerifyRequiredException
@@ -356,7 +357,7 @@ class NewAttendanceLogin(
             val code = json.get("code")?.takeIf { !it.isJsonNull }?.asInt ?: -1
             if (code != 0) {
                 val msg = json.get("message")?.takeIf { !it.isJsonNull }?.asString ?: "code=$code"
-                Log.w(TAG, "exchange failed at $baseUrl: code=$code msg=$msg")
+                Log.w(TAG, "exchange failed at ${baseUrl.redactUrl()}: code=$code msg=$msg")
                 throw RuntimeException(friendlyExchangeError(code, msg))
             }
             return json.getAsJsonObject("data")

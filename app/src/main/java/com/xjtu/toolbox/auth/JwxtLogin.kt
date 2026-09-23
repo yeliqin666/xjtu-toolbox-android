@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.auth
 
+import com.xjtu.toolbox.util.redactUrl
 import okhttp3.OkHttpClient
 
 /**
@@ -23,7 +24,7 @@ class JwxtLogin(
         // finalUrl 卡在 cas/login?service=callbackAuthorize 阶段。
         // 此时 TGC 已建立——重访 JWXT_URL，CAS 看到 TGC 直接 302 把整条链走完。
         if (com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(finalUrl, "jwxt.xjtu.edu.cn")) return
-        android.util.Log.w("JwxtLogin", "postLogin: finalUrl not at jwxt ($finalUrl), retry LOGIN_URL with TGC")
+        android.util.Log.w("JwxtLogin", "postLogin: finalUrl not at jwxt (${finalUrl.redactUrl()}), retry LOGIN_URL with TGC")
         val retryResp: okhttp3.Response
         val retryBody: String
         try {
@@ -43,10 +44,10 @@ class JwxtLogin(
             throw SafetyVerifyRequiredException(retryResp, retryBody)
         }
         if (com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(retryUrl, "jwxt.xjtu.edu.cn")) {
-            android.util.Log.d("JwxtLogin", "postLogin: retry succeeded, finalUrl=$retryUrl")
+            android.util.Log.d("JwxtLogin", "postLogin: retry succeeded, finalUrl=${retryUrl.redactUrl()}")
             return
         }
-        android.util.Log.w("JwxtLogin", "postLogin: retry still not at jwxt, finalUrl=$retryUrl")
+        android.util.Log.w("JwxtLogin", "postLogin: retry still not at jwxt, finalUrl=${retryUrl.redactUrl()}")
         throw RuntimeException("教务系统 SSO 未完成跳转，需要重新登录")
     }
 

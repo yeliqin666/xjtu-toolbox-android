@@ -9,9 +9,6 @@ import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.SessionManager
 import com.xjtu.toolbox.auth.ensureSite
-import com.xjtu.toolbox.jiaocai1.Jiaocai1Api
-import com.xjtu.toolbox.jiaocai1.Jiaocai1Book
-import com.xjtu.toolbox.jiaocai1.Jiaocai1SearchField
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -64,101 +61,6 @@ object CourseLinks {
             val n = it.courseName.normalizedCourseName()
             n.isNotEmpty() && (n.contains(target) || target.contains(n))
         }.filter { it.hasSubstantiveTextbook }
-    }
-
-    /**
-     * 书名归一化：去掉书名号、括注、空白与标点，统一大小写。
-     *
-     * 两边对同一本书的写法常有出入（《固体物理学》/ 固体物理学（第二版）），
-     * 但去掉这些装饰之后应当完全相等——用等值而不是包含，
-     * 是为了不把「固体物理学」配到「固体物理学导论」上去。
-     */
-    private fun normalizedTitle(raw: String): String =
-        raw.replace(Regex("""[（(\[【][^）)\]】]*[）)\]】]"""), "")
-            .filter { it.isLetterOrDigit() }
-            .lowercase()
-
-    /**
-     * 教材全文的查询结局。
-     *
-     * 刻意不折成一个 `Jiaocai1Book?`：四种结局对用户意味着完全不同的事——
-     * 「还在查」该等，「这本书没 ISBN」永远不会有结果，「教材站点这次没登上」
-     * 下次可能就好了，「库里没有」是确定的没有。折成一个可空值，界面就只剩
-     * "那一行点不动"一种表现，用户既不知道该等、该重试还是该死心。
-     */
-    sealed interface Fulltext {
-        data class Found(val book: Jiaocai1Book) : Fulltext
-
-        /** 教材报表里这本书没有能用来检索的 ISBN，书名也兜不住。 */
-        data object NoKey : Fulltext
-
-        /** 全文库确实没有这本书。这是确定的结论，可以缓存。 */
-        data object NotFound : Fulltext
-
-        /** 教材站点这次没登上或请求失败。是暂时的，**不缓存**，下次再来。 */
-        data object SiteUnavailable : Fulltext
-    }
-
-    /**
-     * 查这本教材在全文库里有没有。
-     *
-     * @param byTitle ISBN 查不到时用来兜底的书名；传 null 表示不兜底。
-     * @param byAuthor 同名多版本时用来消歧的作者，可空。
-     */
-    suspend fun fulltextByIsbn(
-        manager: SessionManager?,
-        isbn: String,
-        byTitle: String? = null,
-        byAuthor: String? = null,
-    ): Fulltext {
-        val key = isbn.filter { it.isDigit() || it.equals('X', ignoreCase = true) }
-        if (key.length < 10) return Fulltext.NoKey
-        val c = caches()
-        c.fulltext[key]?.let { return it.value }
-        // 用户正开着课程详情等这一行，豁免站点级失败冷却——与下面的考勤同一个道理。
-        val site = manager.siteOrNull(LoginType.JIAOCAI, userInitiated = true)
-            ?: return Fulltext.SiteUnavailable
-        return withContext(Dispatchers.IO) {
-            // 两种写法都试。教材报表里的 ISBN 常带连字符（978-7-04-039663-9），
-            // 而全文库存的是哪一种没有保证——之前只发原文，库里存纯数字时就一条也搜不到，
-            // 表现就是"明明有 ISBN 却从来匹配不上全文"。
-            // 先发规范化的纯数字/X 形态，再退回原文。
-            val candidates = listOf(key, isbn.trim()).filter { it.isNotEmpty() }.distinct()
-            val outcome = runCatching {
-                val hit = candidates.firstNotNullOfOrNull { kw ->
-                    Jiaocai1Api(site).search(keyword = kw, field = Jiaocai1SearchField.ISBN)
-                        .books.firstOrNull()
-                } ?: byTitle?.takeIf { it.isNotBlank() }?.let { title ->
-                    // ISBN 搜不到时按书名兜底，但**只认归一化后完全相同**的。
-                    //
-                    // 这里原本完全不做回退，理由是"按书名搜出来的第一条经常是另一本书"。
-                    // 那个顾虑针对的是"取第一条"，不是书名检索本身：实测《固体物理学》
-                    // 按 ISBN 搜 0 条（全文库没索引它的 ISBN），按书名搜到 5 条，
-                    // 严格等值能准确挑出那一本，并自动排除「固体物理学（上册）」
-                    // 「高等学校教材 固体物理学」这类。
-                    val r = Jiaocai1Api(site).search(keyword = title, field = Jiaocai1SearchField.BOOK_NAME)
-                    val exact = r.books.filter { normalizedTitle(it.title) == normalizedTitle(title) }
-                    // 同名多版本时用作者消歧；作者也对不上就放弃，不猜版本。
-                    val wantAuthor = byAuthor?.let { normalizedTitle(it) }?.takeIf { it.isNotEmpty() }
-                    when {
-                        exact.size <= 1 -> exact.firstOrNull()
-                        wantAuthor == null -> exact.first()
-                        else -> exact.firstOrNull { normalizedTitle(it.author).contains(wantAuthor) }
-                            ?: exact.first()
-                    }
-                }
-                if (hit != null) Fulltext.Found(hit) else Fulltext.NotFound
-            }.rethrowCancellation().getOrElse {
-                Log.w(TAG, "fulltext by isbn=$isbn failed", it)
-                Fulltext.SiteUnavailable
-            }
-            // 只缓存确定的结论。站点没登上是暂时的，缓存它会让这个面板
-            // 在整个会话里都以为"这本书没有全文"，而其实只是那一下没登上。
-            if (outcome !is Fulltext.SiteUnavailable && c.isCurrent()) {
-                c.fulltext[key] = Box(outcome)
-            }
-            outcome
-        }
     }
 
     /**
@@ -429,7 +331,6 @@ object CourseLinks {
      * 多张课程卡片的 LaunchedEffect 会并发查询，所以容器必须线程安全。
      */
     private class Caches(val accountId: String?) {
-        val fulltext = ConcurrentHashMap<String, Box<Fulltext>>()
         @Volatile var lmsCourses: Box<List<com.xjtu.toolbox.lms.LmsCourseSummary>>? = null
         @Volatile var attendance: Pair<String, Box<AttendanceIndex>>? = null
 

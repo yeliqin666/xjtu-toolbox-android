@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.calendar
 
+import com.xjtu.toolbox.util.redactUrl
 import com.xjtu.toolbox.ui.components.enterOnce
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -96,7 +97,7 @@ fun SchoolCalendarScreen(onBack: () -> Unit) {
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
-            android.util.Log.w("SchoolCalendar", "校历图片下载失败: ${image.url}", e)
+            android.util.Log.w("SchoolCalendar", "校历图片下载失败: ${image.url.redactUrl()}", e)
             null
         }
     }

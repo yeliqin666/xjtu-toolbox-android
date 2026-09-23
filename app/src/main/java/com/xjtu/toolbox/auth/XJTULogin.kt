@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.auth
 
+import com.xjtu.toolbox.util.redactBody
+import com.xjtu.toolbox.util.redactUrl
 import android.util.Base64
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
@@ -14,7 +16,6 @@ import com.xjtu.toolbox.util.safeParseJsonObject
 import java.net.CookieManager
 import java.net.CookiePolicy
 import java.io.IOException
-import java.util.UUID
 import java.security.MessageDigest
 
 /**
@@ -225,7 +226,7 @@ class MFAContext(
                 .build()
 
             val secResponse = login.client.newCall(secRequest).execute()
-            android.util.Log.d("XJTULogin", "Safety verify final submit → ${secResponse.code} ${secResponse.request.url}")
+            android.util.Log.d("XJTULogin", "Safety verify final submit → ${secResponse.code} ${secResponse.request.url.redactUrl()}")
             // 缓存最终响应，供 XJTULogin.consumeSafetyVerifyFinalResponse() 读取
             login.lastSafetyVerifyResponse = secResponse
         }
@@ -326,7 +327,7 @@ open class XJTULogin(
 
     init {
         val TAG = "XJTULogin"
-        android.util.Log.d(TAG, "init: loginUrl=$loginUrl, hasExistingClient=${existingClient != null}")
+        android.util.Log.d(TAG, "init: loginUrl=${loginUrl.redactUrl()}, hasExistingClient=${existingClient != null}")
 
         // 访问登录页面，获取 postUrl 和 execution
         val request = Request.Builder()
@@ -344,7 +345,7 @@ open class XJTULogin(
             )
         } catch (_: Exception) { "" }
 
-        android.util.Log.d(TAG, "init: responseCode=${response.code}, postUrl=$postUrl")
+        android.util.Log.d(TAG, "init: responseCode=${response.code}, postUrl=${postUrl.redactUrl()}")
         android.util.Log.d(TAG, "init: responseBodyLen=${responseBody.length}")
 
         // 走 WebVPN 时 postUrl 的域名段是 AES 加密的十六进制，光看日志根本不知道 404 的是
@@ -352,7 +353,7 @@ open class XJTULogin(
         // 的原始地址还原出来打印，下次一眼定位，不必再靠事后手工解密猜。
         if (response.code >= 400) {
             val chain = generateSequence(response) { it.priorResponse }.toList().reversed()
-            android.util.Log.w(TAG, "init: HTTP ${response.code} for loginUrl=$loginUrl")
+            android.util.Log.w(TAG, "init: HTTP ${response.code} for loginUrl=${loginUrl.redactUrl()}")
             chain.forEachIndexed { i, r ->
                 val raw = r.request.url.toString()
                 val plain = com.xjtu.toolbox.util.WebVpnUtil.getOriginalUrl(raw) ?: raw
@@ -408,11 +409,11 @@ open class XJTULogin(
         } else if (executionInput.isEmpty() && existingClient != null && response.code >= 400) {
             // 无登录表单但状态码异常（如目标服务 404/5xx）：不能判定为 SSO 成功，
             // 也不应走"正常登录"流程（那是给账密表单场景用的，与此处无关）。
-            android.util.Log.w(TAG, "init: SSO attempt got error status ${response.code}, not treating as success. Body preview: ${responseBody.take(500)}")
+            android.util.Log.w(TAG, "init: SSO attempt got error status ${response.code}, not treating as success. Body preview: ${responseBody.redactBody(500)}")
             ssoErrorMessage = "目标服务返回错误（HTTP ${response.code}），可能暂时不可用"
         } else if (executionInput.isEmpty() && existingClient == null) {
             // 无 existingClient 但页面不是登录表单 → 可能是错误页面
-            android.util.Log.w(TAG, "init: No execution found and no existingClient! Body preview: ${responseBody.take(500)}")
+            android.util.Log.w(TAG, "init: No execution found and no existingClient! Body preview: ${responseBody.redactBody(500)}")
         } else {
             // 正常登录页面，需要用户输入凭据
             mfaEnabled = extractMfaEnabled(responseBody)
@@ -562,10 +563,10 @@ open class XJTULogin(
 
         // 使用原始 client（自动重定向）。凭据 POST 经 CasGate 全局串行 + 限频，防风控。
         // 刚在本次 login() 内做过 mfa/detect 时，登录 POST 属于同一流程，免去重复间隔平滑。
-        android.util.Log.d("XJTULogin", "login: POST to $postUrl")
+        android.util.Log.d("XJTULogin", "login: POST to ${postUrl.redactUrl()}")
         val loginResponse = CasGate.withCredentialPost(sameFlow = detectedInThisFlow) { client.newCall(request).execute() }
         val loginBody = loginResponse.body?.string() ?: ""
-        android.util.Log.d("XJTULogin", "login: POST response code=${loginResponse.code}, finalUrl=${loginResponse.request.url}, bodyLen=${loginBody.length}")
+        android.util.Log.d("XJTULogin", "login: POST response code=${loginResponse.code}, finalUrl=${loginResponse.request.url.redactUrl()}, bodyLen=${loginBody.length}")
 
         return processLoginResponse(loginResponse, loginBody)
     }
@@ -642,7 +643,7 @@ open class XJTULogin(
         val triggerUrl = response.request.url.toString()
         val eventIdValue = extractHiddenInput(body, "_eventId").ifEmpty { "submit" }
         val submitValue = extractHiddenInput(body, "submit").ifEmpty { "Login1" }
-        android.util.Log.d("XJTULogin", "captureSafetyVerify: SAFETY_VERIFY captured, triggerUrl=$triggerUrl")
+        android.util.Log.d("XJTULogin", "captureSafetyVerify: SAFETY_VERIFY captured, triggerUrl=${triggerUrl.redactUrl()}")
         mfaContext = MFAContext(this, secStateValue, required = true, flow = MFAFlow.SAFETY_VERIFY).also {
             it.secState = secStateValue
             it.mfaExecution = mfaExecValue
@@ -722,7 +723,7 @@ open class XJTULogin(
         val casResp = client.newCall(Request.Builder().url(casUrl).get().build()).execute()
         val casBody = casResp.body?.string() ?: ""
         val casFinalUrl = casResp.request.url.toString()
-        android.util.Log.d("XJTULogin", "casAuthenticate: GET $casUrl → code=${casResp.code}, finalUrl=$casFinalUrl")
+        android.util.Log.d("XJTULogin", "casAuthenticate: GET ${casUrl.redactUrl()} → code=${casResp.code}, finalUrl=${casFinalUrl.redactUrl()}")
 
         val execution = extractExecutionValue(casBody)
         if (execution.isEmpty()) {
@@ -758,7 +759,7 @@ open class XJTULogin(
         }
         val loginBody = loginResp.body?.string() ?: ""
         val loginFinalUrl = loginResp.request.url.toString()
-        android.util.Log.d("XJTULogin", "casAuthenticate: POST → code=${loginResp.code}, finalUrl=$loginFinalUrl")
+        android.util.Log.d("XJTULogin", "casAuthenticate: POST → code=${loginResp.code}, finalUrl=${loginFinalUrl.redactUrl()}")
         // 检测 MFA 页面：若返回含 secState 则说明 TGC 过期后重新登录触发了 MFA，
         // 静默重认证无法处理 MFA，返回 null 让调用方回退到完整登录流程
         if (loginBody.contains("name=\"secState\"")) {
@@ -793,7 +794,7 @@ open class XJTULogin(
         if (body.contains("<html", ignoreCase = true) || body.contains("<HTML", ignoreCase = true)) {
             throw IOException("RSA 公钥接口返回 HTML 错误页面，可能是网络代理拦截")
         }
-        android.util.Log.d("XJTULogin", "fetchRsaPublicKey: ${body.take(80)}...")
+        android.util.Log.d("XJTULogin", "fetchRsaPublicKey: ${body.redactBody(80)}...")
         return body
     }
 
@@ -895,12 +896,28 @@ open class XJTULogin(
     }
 
     /**
-     * 生成设备指纹 ID
+     * 生成设备指纹 ID（兜底用）。
+     *
+     * 正常路径下 [fpVisitorId] 由外部传入 [AppLoginState.ensureStableFpVisitorId] 派生的稳定值
+     * （ANDROID_ID + 机型 + 账号）；此函数仅在未传入 visitorId 时兜底。
+     *
+     * 必须**确定性**：以前用 `UUID.randomUUID()`，每次构造 XJTULogin 都得到不同指纹，
+     * 一旦走到这条兜底就会被学校当成一台新设备，反而多触发一次 MFA 验证。
+     * 改为完全基于稳定的 [android.os.Build] 字段派生，同一台设备恒定；不含随机成分。
+     * 这里拿不到 Context（无 ANDROID_ID / 账号），所以与稳定路径的取值不一定相同，
+     * 但保证「同设备同值」，足以避免兜底路径自造新设备。
      */
     private fun generateFpVisitorId(): String {
-        val fingerprint = "${System.getProperty("os.name")}|${System.getProperty("os.arch")}|${UUID.randomUUID()}"
+        val seed = listOf(
+            "android",
+            android.os.Build.MANUFACTURER,
+            android.os.Build.BRAND,
+            android.os.Build.MODEL,
+            android.os.Build.DEVICE,
+            System.getProperty("os.arch") ?: ""
+        ).joinToString("|")
         val digest = MessageDigest.getInstance("SHA-256")
-        val hash = digest.digest(fingerprint.toByteArray())
+        val hash = digest.digest(seed.toByteArray())
         return hash.joinToString("") { "%02x".format(it) }.take(32)
     }
 

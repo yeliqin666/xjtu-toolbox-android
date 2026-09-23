@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.library
 
+import com.xjtu.toolbox.util.redactBody
+import com.xjtu.toolbox.util.redactUrl
 import android.util.Log
 import com.xjtu.toolbox.auth.SiteSession
 import kotlinx.coroutines.runBlocking
@@ -255,7 +257,7 @@ class LibraryApi(private val site: SiteSession) {
         response.close()
         if (!response.isSuccessful) throw RuntimeException("楼层信息加载失败: HTTP ${response.code}")
         if (!looksLikeJson(body)) {
-            Log.e(TAG, "qspace(floor=$floorCode) not JSON: ${body.take(300)}")
+            Log.e(TAG, "qspace(floor=$floorCode) not JSON: ${body.redactBody(300)}")
             throw RuntimeException("图书馆楼层信息接口返回异常（非 JSON 响应）")
         }
         val json = org.json.JSONObject(body)
@@ -389,7 +391,7 @@ class LibraryApi(private val site: SiteSession) {
         }
         // 检查是否返回了 HTML 而非 JSON
         if (!looksLikeJson(body)) {
-            Log.e(TAG, "qspace did not return JSON. ContentType=$contentType, body preview: ${body.take(500)}")
+            Log.e(TAG, "qspace did not return JSON. ContentType=$contentType, body preview: ${body.redactBody(500)}")
             throw RuntimeException("图书馆楼层信息接口返回异常（非 JSON 响应）")
         }
         val json = org.json.JSONObject(body)
@@ -443,7 +445,7 @@ class LibraryApi(private val site: SiteSession) {
         }
 
         val finalUrl = response.request.url.toString()
-        Log.d(TAG, "qseat: code=${response.code}, url=$finalUrl, len=${body.length}")
+        Log.d(TAG, "qseat: code=${response.code}, url=${finalUrl.redactUrl()}, len=${body.length}")
 
         if (isRedirectedToLogin(body, finalUrl))
             return SeatResult.AuthError("认证已失效")
@@ -453,7 +455,7 @@ class LibraryApi(private val site: SiteSession) {
         // 若服务器没返回 JSON（错误页/登录页），说明这次查询没拿到数据
         val contentType = response.header("Content-Type")?.lowercase() ?: ""
         if (!looksLikeJson(body)) {
-            Log.e(TAG, "qseat did not return JSON. ContentType=$contentType, body preview: ${body.take(500)}")
+            Log.e(TAG, "qseat did not return JSON. ContentType=$contentType, body preview: ${body.redactBody(500)}")
             return SeatResult.Error("图书馆服务器返回异常（非 JSON 响应），请稍后重试")
         }
 
@@ -507,7 +509,7 @@ class LibraryApi(private val site: SiteSession) {
         response.close()
         if (!response.isSuccessful) throw RuntimeException("平面图数据加载失败: HTTP ${response.code}")
         if (!looksLikeJson(body)) {
-            Log.e(TAG, "qseatuist not JSON: ${body.take(300)}")
+            Log.e(TAG, "qseatuist not JSON: ${body.redactBody(300)}")
             throw RuntimeException("图书馆平面图接口返回异常（非 JSON 响应）")
         }
         return LibraryPages.parseSeatLayout(body)
@@ -689,7 +691,7 @@ class LibraryApi(private val site: SiteSession) {
             val (response, html) = executeWithReAuth(buildRequest(normalizedUrl, referer = "$BASE_URL$pagePath"))
             response.close()
             val finalUrl = response.request.url.toString()
-            Log.d(TAG, "action: url=$actionUrl finalUrl=$finalUrl len=${html.length}")
+            Log.d(TAG, "action: url=${actionUrl.redactUrl()} finalUrl=${finalUrl.redactUrl()} len=${html.length}")
 
             val doc = Jsoup.parse(html)
             val bodyText = doc.body()?.text() ?: ""
@@ -710,7 +712,7 @@ class LibraryApi(private val site: SiteSession) {
             val label = LibraryPages.labelOfActionUrl(normalizedUrl)
             val after = fetchMyBooking()
             val verdict = LibraryPages.actionVerdict(label, after.getOrNull(), fetched = after.isSuccess)
-            Log.d(TAG, "action $label -> $verdict (body ${bodyText.take(80)})")
+            Log.d(TAG, "action $label -> $verdict (body ${bodyText.redactBody(80)})")
             return when (verdict) {
                 LibraryPages.ActionVerdict.DONE -> BookResult(true, msg.ifBlank { "✓ 已完成" }, finalUrl)
                 LibraryPages.ActionVerdict.NOT_DONE -> BookResult(
