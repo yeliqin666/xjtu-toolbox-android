@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.iclassface
 
+import com.xjtu.toolbox.util.redactUrl
 import android.util.Log
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -30,7 +31,7 @@ class IclassfaceLogin(
 
     override fun postLogin(response: Response) {
         val finalUrl = response.request.url.toString()
-        Log.d(TAG, "postLogin: finalUrl=$finalUrl")
+        Log.d(TAG, "postLogin: finalUrl=${finalUrl.redactUrl()}")
         // 走 WebVPN 时 finalUrl 形如 https://webvpn.xjtu.edu.cn/https/{AES加密域名}/face/detect，
         // 明文 "iclassface.xjtu.edu.cn" 根本不出现——原来的字符串包含判断必然为 false，
         // 于是明明已经 200 落在 /face/detect 上，却仍被判为"登录回调异常"。

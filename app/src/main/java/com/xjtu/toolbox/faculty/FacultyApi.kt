@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.faculty
 
+import com.xjtu.toolbox.util.redactBody
 import android.util.Log
 import com.xjtu.toolbox.util.HttpClients
 import kotlinx.coroutines.Dispatchers
@@ -163,7 +164,7 @@ class FacultyApi(
         val body = fetchText(url.toString(), referer = "$FACULTY_HOST/search.jsp")
 
         if (!looksLikeJson(body)) {
-            Log.e(TAG, "advancesearch 未返回 JSON, preview=${body.take(500)}")
+            Log.e(TAG, "advancesearch 未返回 JSON, preview=${body.redactBody(500)}")
             throw RuntimeException("教师检索接口返回异常（非 JSON 响应）")
         }
 

@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.dzpz
 
+import com.xjtu.toolbox.util.redactUrl
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonObject
@@ -678,7 +679,7 @@ class TranscriptApi(private val site: SiteSession) {
     // ══════════════════════════════════════
 
     fun downloadPdf(url: String): ByteArray {
-        Log.d(TAG, "downloadPdf: url=${url.take(100)}")
+        Log.d(TAG, "downloadPdf: url=${url.redactUrl()}")
         val request = Request.Builder()
             .url(url)
             .header("Referer", "$BASE/spa/workflow/static4form/index.html")

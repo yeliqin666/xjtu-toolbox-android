@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.auth
 
+import com.xjtu.toolbox.util.redactUrl
 import android.util.Log
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -55,7 +56,7 @@ class VenueLogin(
         private set
 
     override fun postLogin(response: Response) {
-        Log.d(TAG, "postLogin: finalUrl=${response.request.url}")
+        Log.d(TAG, "postLogin: finalUrl=${response.request.url.redactUrl()}")
 
         // 首页里带 userno 才算真拿到身份；只看落点 URL 不够，未登录时同样会停在站内
         sessionValid = runCatching {

@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.jwapp
 
+import com.xjtu.toolbox.util.redactBody
 import android.util.Log
 import com.google.gson.Gson
 import com.xjtu.toolbox.auth.SiteSession
@@ -221,7 +222,7 @@ class JwappApi(private val site: SiteSession) {
             .post(body)
 
         val responseBody = execute(request)
-        Log.d(TAG, "scoreDetail id=$courseId body=${responseBody.take(240)}")
+        Log.d(TAG, "scoreDetail id=$courseId body=${responseBody.redactBody(240)}")
         val root = responseBody.safeParseJsonObject()
 
         val resultCode = root.get("code").safeInt(-1)

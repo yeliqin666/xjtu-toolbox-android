@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.schedule
 
+import com.xjtu.toolbox.util.redactBody
+import com.xjtu.toolbox.util.redactUrl
 import android.util.Log
 import com.xjtu.toolbox.auth.SiteSession
 import kotlinx.coroutines.runBlocking
@@ -312,10 +314,10 @@ class ScheduleApi(private val site: SiteSession) {
             .header("Referer", "$frUrl?__cumulatepagenumber__=false")
             .build()
         var html = runBlocking { site.executeWithReAuth(initRequest) }.use { resp ->
-            Log.d(TAG, "getTextbooks: init code=${resp.code}, url=${resp.request.url}")
+            Log.d(TAG, "getTextbooks: init code=${resp.code}, url=${resp.request.url.redactUrl()}")
             resp.body?.string() ?: ""
         }
-        Log.d(TAG, "getTextbooks: init response len=${html.length}, preview=${html.take(500)}")
+        Log.d(TAG, "getTextbooks: init response len=${html.length}, preview=${html.redactBody(500)}")
 
         // Step 2: 检测 JS 自动提交表单 → 手动提取并重新 POST
         // 服务器可能返回中间页: <form submitForm> + <script>submit()</script>
@@ -331,7 +333,7 @@ class ScheduleApi(private val site: SiteSession) {
                 val value = input.attr("value")
                 if (name.isNotEmpty()) {
                     formBuilder.add(name, value)
-                    Log.d(TAG, "getTextbooks: form field $name=${value.take(80)}")
+                    Log.d(TAG, "getTextbooks: form field $name=${value.redactBody(80)}")
                 }
             }
             val resubmitRequest = Request.Builder()
@@ -340,10 +342,10 @@ class ScheduleApi(private val site: SiteSession) {
                 .header("Referer", "$frUrl?__cumulatepagenumber__=false")
                 .build()
             html = runBlocking { site.executeWithReAuth(resubmitRequest) }.use { resp ->
-                Log.d(TAG, "getTextbooks: resubmit code=${resp.code}, url=${resp.request.url}")
+                Log.d(TAG, "getTextbooks: resubmit code=${resp.code}, url=${resp.request.url.redactUrl()}")
                 resp.body?.string() ?: ""
             }
-            Log.d(TAG, "getTextbooks: resubmit response len=${html.length}, preview=${html.take(500)}")
+            Log.d(TAG, "getTextbooks: resubmit response len=${html.length}, preview=${html.redactBody(500)}")
         }
 
         // 检测是否被重定向到登录页
@@ -368,7 +370,7 @@ class ScheduleApi(private val site: SiteSession) {
         // Step 4: 提取 FR Session ID → 走 page_content 流程
         val sessionId = extractFrSessionId(html)
         if (sessionId == null) {
-            Log.w(TAG, "getTextbooks: no sessionID found in HTML, response: ${html.take(2000)}")
+            Log.w(TAG, "getTextbooks: no sessionID found in HTML, response: ${html.redactBody(2000)}")
             throw RuntimeException("教材报表初始化失败（未获取到会话ID），请重试")
         }
         Log.d(TAG, "getTextbooks: sessionId=$sessionId")
@@ -441,11 +443,11 @@ class ScheduleApi(private val site: SiteSession) {
             .header("Referer", frUrl)
             .build()
         val firstPageHtml = runBlocking { site.executeWithReAuth(firstPageReq) }.use { it.body?.string() ?: "" }
-        Log.d(TAG, "getTextbooks: page 1 len=${firstPageHtml.length}, preview=${firstPageHtml.take(300)}")
+        Log.d(TAG, "getTextbooks: page 1 len=${firstPageHtml.length}, preview=${firstPageHtml.redactBody(300)}")
 
         // 检测 FineReport 错误页
         if (firstPageHtml.contains("FR-Engine_Error") || firstPageHtml.contains("error_iframe")) {
-            Log.w(TAG, "getTextbooks: FineReport returned error page: ${firstPageHtml.take(1000)}")
+            Log.w(TAG, "getTextbooks: FineReport returned error page: ${firstPageHtml.redactBody(1000)}")
             throw RuntimeException("教材报表服务端渲染失败，请稍后重试")
         }
 
@@ -510,7 +512,7 @@ class ScheduleApi(private val site: SiteSession) {
         // ── 策略3: 全文本暴力提取 ──
         // 如果以上都失败，从全文中查找所有文本节点
         val allText = doc.body()?.text() ?: ""
-        Log.d(TAG, "parseTextbookTable: body text len=${allText.length}, preview=${allText.take(500)}")
+        Log.d(TAG, "parseTextbookTable: body text len=${allText.length}, preview=${allText.redactBody(500)}")
         Log.w(TAG, "parseTextbookTable: all strategies failed, html structure: " +
                 "tables=${tables.size}, divs=${textDivs.size}, body_preview=${doc.body()?.html()?.take(1000)}")
         return emptyList()

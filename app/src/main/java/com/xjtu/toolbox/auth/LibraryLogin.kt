@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.auth
 
+import com.xjtu.toolbox.util.redactUrl
 import android.util.Log
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -62,7 +63,7 @@ class LibraryLogin(
     override fun postLogin(response: Response) {
         val finalUrl = response.request.url.toString()
         val body = lastResponseBody  // body 已在 XJTULogin 中读取并存储
-        Log.d(TAG, "postLogin: finalUrl=$finalUrl, bodyLen=${body.length}")
+        Log.d(TAG, "postLogin: finalUrl=${finalUrl.redactUrl()}, bodyLen=${body.length}")
 
         // 因为 loginUrl 就是座位系统，init 成功后 response 已经是座位页面。
         // WebVPN 模式下 finalUrl 是 webvpn.xjtu.edu.cn/http-8086/... 包装域名，
@@ -89,7 +90,7 @@ class LibraryLogin(
             val seatBody = seatResponse.body?.use { it.string() } ?: ""
             val seatFinalUrl = seatResponse.request.url.toString()
 
-            Log.d(TAG, "postLogin retry: code=${seatResponse.code}, finalUrl=$seatFinalUrl, bodyLen=${seatBody.length}")
+            Log.d(TAG, "postLogin retry: code=${seatResponse.code}, finalUrl=${seatFinalUrl.redactUrl()}, bodyLen=${seatBody.length}")
 
             if (looksLikeSeatPage(seatBody)) {
                 seatSystemReady = true

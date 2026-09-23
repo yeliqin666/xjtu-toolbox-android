@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.jiaocai
 
+import com.xjtu.toolbox.util.redactBody
 import android.util.Log
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.PortalRedirect
@@ -73,7 +74,7 @@ class JiaocaiApi(private val site: SiteSession) {
                     "&searchStrategy=0" +
                     "&searchId=$SEARCH_ID"
             val body = get(url)
-            Log.d(TAG, "search[$keyword]: ${body.take(200)}")
+            Log.d(TAG, "search[$keyword]: ${body.redactBody(200)}")
             val json = body.safeParseJsonObject()
             val list = json.getAsJsonObject("data")?.getAsJsonArray("dataList") ?: return emptyList()
             var loggedSample = false
@@ -83,7 +84,7 @@ class JiaocaiApi(private val site: SiteSession) {
                     val raw = obj.get("content")?.safeString() ?: ""
                     if (!loggedSample) {
                         loggedSample = true
-                        Log.w(TAG, "content 样本: ${raw.replace(Regex("""\s+"""), " ").take(1200)}")
+                        Log.w(TAG, "content 样本: ${raw.redactBody(1200)}")
                         Log.w(TAG, "ssno=${SSNO_RE.find(raw)?.groupValues?.get(1)}")
                     }
                     JiaocaiBook(
@@ -124,7 +125,7 @@ class JiaocaiApi(private val site: SiteSession) {
                         "appId=${book.appId} -> $it (len=${html.length})"
                 )
                 if (it == null) {
-                    Log.w(TAG, "detail body=${html.replace(Regex("""\s+"""), " ").take(1500)}")
+                    Log.w(TAG, "detail body=${html.redactBody(1500)}")
                 }
             }
         } catch (e: Exception) {

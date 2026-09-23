@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.browser
 
+import com.xjtu.toolbox.util.redactUrl
 import com.xjtu.toolbox.util.releaseSafely
 import com.xjtu.toolbox.util.WebVpnUtil
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -411,7 +412,7 @@ fun BrowserScreen(
                         // （那时 onPageStarted 已经把 cookie 补进去了，所以一点就过）。
                         syncCookiesToWebView(site, cookieDomains)
                         syncCookiesToWebView(cookieClient, cookieDomains)
-                        Log.d(TAG, "load initialUrl=$normalizedInitialUrl")
+                        Log.d(TAG, "load initialUrl=${normalizedInitialUrl.redactUrl()}")
                         loadUrl(normalizedInitialUrl)
                     }
                 }

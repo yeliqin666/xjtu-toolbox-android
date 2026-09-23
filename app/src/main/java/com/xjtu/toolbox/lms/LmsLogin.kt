@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.lms
 
+import com.xjtu.toolbox.util.redactUrl
 import android.util.Log
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -45,7 +46,7 @@ class LmsLogin(
 
     override fun postLogin(response: Response) {
         val finalUrl = response.request.url.toString()
-        Log.d(TAG, "postLogin: finalUrl=$finalUrl")
+        Log.d(TAG, "postLogin: finalUrl=${finalUrl.redactUrl()}")
 
         if (com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(finalUrl, "lms.xjtu.edu.cn")) {
             sessionValid = true
@@ -65,7 +66,7 @@ class LmsLogin(
             indexResp.close()
 
             sessionValid = com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(indexFinalUrl, "lms.xjtu.edu.cn")
-            Log.d(TAG, "postLogin: manual access finalUrl=$indexFinalUrl, valid=$sessionValid")
+            Log.d(TAG, "postLogin: manual access finalUrl=${indexFinalUrl.redactUrl()}, valid=$sessionValid")
         } catch (e: Exception) {
             Log.e(TAG, "postLogin: manual access failed", e)
         }
@@ -137,7 +138,7 @@ class LmsLogin(
             val result = casAuthenticate("$BASE_URL/user/index") ?: return false
             val (_, finalUrl) = result
             sessionValid = com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(finalUrl, "lms.xjtu.edu.cn")
-            Log.d(TAG, "reAuthenticate: CAS re-auth, finalUrl=$finalUrl, valid=$sessionValid")
+            Log.d(TAG, "reAuthenticate: CAS re-auth, finalUrl=${finalUrl.redactUrl()}, valid=$sessionValid")
             return sessionValid
         } catch (e: Exception) {
             Log.e(TAG, "reAuthenticate: CAS re-auth failed", e)

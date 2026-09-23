@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.pay
 
+import com.xjtu.toolbox.util.redactBody
 import android.util.Log
 import com.google.gson.JsonArray
 import com.xjtu.toolbox.auth.SiteSession
@@ -79,7 +80,7 @@ class PaymentCodeApi(private val site: SiteSession) {
 
         val resp = runBlocking { site.executeWithReAuth(request) }
         val text = resp.body?.use { it.string() } ?: throw RuntimeException("空响应")
-        Log.d(TAG, "getBarCode: code=${resp.code}, body=${text.take(200)}")
+        Log.d(TAG, "getBarCode: code=${resp.code}, body=${text.redactBody(200)}")
 
         val root = text.safeParseJsonObject()
         if (root.get("success")?.asBoolean != true) {
