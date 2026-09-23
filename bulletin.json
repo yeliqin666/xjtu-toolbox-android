@@ -1,13 +1,23 @@
 {
   "bulletins": [
     {
-      "id": "2026-09-22-force-5.0.3",
+      "id": "2026-09-24-force-5.0.6",
       "level": "force_update",
-      "title": "请更新到 5.0.3",
-      "body": "空闲教室改看实时状态；首页可扫图书馆座位码预约，图书馆新增座位平面图；新增研究生评教、思源学堂批量下载；修复部分机型扫码失败等问题。",
+      "title": "请更新到 5.0.6",
+      "body": "校园卡分析重做，首页能看余额还够吃几天；日志与崩溃上报统一脱敏；修复校区名被裁、底栏拖动错位等问题。",
       "url": "https://github.com/yeliqin666/xjtu-toolbox-android/releases/latest",
-      "targetVersion": "5.0.3",
-      "targetVersionCode": 82,
+      "targetVersion": "5.0.6",
+      "targetVersionCode": 83,
+      "mustAck": false,
+      "block": false
+    },
+    {
+      "id": "2026-09-24-tips-5.0.6",
+      "level": "info",
+      "title": "5.0.6：余额还够吃几天",
+      "body": "校园卡消费分析更智能、更美观、更准确！",
+      "minVersion": "5.0.6",
+      "endsAt": "2026-10-15T00:00:00+08:00",
       "mustAck": false,
       "block": false
     },
