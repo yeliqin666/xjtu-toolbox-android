@@ -350,6 +350,7 @@ private val TINT_AMBER = Color(0xFFE39A1B)
  * 高度固定：第三行在档案没加载到时换成一句提示，而不是空着——以前专业那一行要等档案回来
  * 才出现，整块往下一挤，看着像「抽了一下」。
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ProfileHeroCard(
     isLoggedIn: Boolean,
@@ -455,7 +456,9 @@ private fun ProfileHeroCard(
                     else "登录以使用全部功能",
                     style = MiuixTheme.textStyles.footnote1,
                     color = muted,
-                    maxLines = 1,
+                    // 给两行：专业名长一点（「能源与动力工程（钱学森班）」这类）挤在一行里
+                    // 只能吃省略号，而学号在前面，被截掉的正好是专业名。
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (isLoggedIn) {
@@ -466,13 +469,22 @@ private fun ProfileHeroCard(
                         profile?.campusName?.takeIf { it.isNotBlank() },
                     )
                     if (tags.isNotEmpty()) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        // 用 FlowRow 而不是 Row：三个标签（学院 / 年级 / 校区）横着放不下时，
+                        // Row 会把最后一个按剩余宽度硬裁——而这些 Text 只设了 maxLines 没设
+                        // overflow，于是从字中间切断，「兴庆校区」显示成「兴庆校」。
+                        // 换行放得下就不会裁，学院名长的账号也能完整看到校区。
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
                             tags.forEach { tag ->
                                 Text(
                                     tag,
                                     style = MiuixTheme.textStyles.footnote2,
                                     color = primary,
                                     maxLines = 1,
+                                    // 极端窄屏下真放不下时，好歹是「兴庆…」而不是切一半的字
+                                    overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier
                                         .squircleBackground(primary.copy(alpha = 0.10f), 8.dp)
                                         .padding(horizontal = 8.dp, vertical = 2.dp),
