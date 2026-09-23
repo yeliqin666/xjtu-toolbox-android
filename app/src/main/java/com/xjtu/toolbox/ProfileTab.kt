@@ -1,5 +1,9 @@
 package com.xjtu.toolbox
 
+import android.content.ClipData
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -7,10 +11,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
@@ -36,6 +42,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -48,6 +56,7 @@ import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.appCardShadow
 import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.util.CredentialStore
+import com.xjtu.toolbox.util.toDialableTel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -125,28 +134,103 @@ private fun ProfileInfoCard(p: com.xjtu.toolbox.hello.HelloProfile, modifier: Mo
                             ?.let { Triple("辅导员", it, p.counselorPhone) },
                         p.classTeacherName.takeIf { it.isNotBlank() }
                             ?.let { Triple("班主任", it, p.classTeacherPhone) },
-                    ).forEachIndexed { index, (label, name, phone) ->
-                        if (index > 0) Spacer(Modifier.height(8.dp))
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                label,
-                                style = MiuixTheme.textStyles.body2,
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                modifier = Modifier.width(64.dp)
-                            )
-                            Text(name, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium)
-                            if (phone.isNotBlank()) {
-                                Spacer(Modifier.weight(1f))
-                                Text(phone, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.primary)
-                            }
-                        }
-                    }
+                    ).forEach { (label, name, phone) -> MentorLine(label, name, phone) }
                     p.counselorOffice.takeIf { it.isNotBlank() }?.let {
                         Spacer(Modifier.height(8.dp))
                         InfoLine("办公室", it)
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * 辅导员 / 班主任一行：姓名 + 电话。
+ *
+ * 电话点一下进系统拨号盘，长按复制原文。原来号码只是被涂成 primary 色，没有任何点击
+ * 处理，看着像链接、按下去没反应（issue #80）。现在只有 [toDialableTel] 真解析出号码
+ * 时才画成可点的蓝色；解析不出来的（「见年级群」这类）保持普通文字，免得给出一个
+ * 点了也拨不出去的假链接。
+ *
+ * 行高给到 48dp：号码是 footnote1，字形的触控区只有十几 dp 高，长按基本按不中。
+ * 姓名加 weight 配省略号收尾，否则长名字会把号码顶出屏幕，能拨也点不着。
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun MentorLine(label: String, name: String, phone: String) {
+    val context = LocalContext.current
+    val clipboard = LocalClipboard.current
+    val scope = rememberCoroutineScope()
+    // 显示原文（可能带分机号），拨的用解析出来的号码。
+    val number = remember(phone) { phone.toDialableTel() }
+
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            label,
+            style = MiuixTheme.textStyles.body2,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            modifier = Modifier.width(64.dp)
+        )
+        Text(
+            name,
+            style = MiuixTheme.textStyles.body2,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            // weight 放在姓名上而不是「垫一个 Spacer」：Row 先量不加权的电话，
+            // 再把剩余宽度给姓名，于是电话始终右对齐，名字过长时省略号收尾而不是
+            // 把电话顶出屏幕。
+            modifier = Modifier.weight(1f)
+        )
+        if (number.isNotBlank()) {
+            Spacer(Modifier.width(8.dp))
+            Text(
+                phone,
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.primary,
+                maxLines = 1,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .combinedClickable(
+                        onClickLabel = "拨打 $number",
+                        onLongClickLabel = "复制号码",
+                        onClick = {
+                            // 没装拨号器的设备（平板、部分精简系统）直接放弃：静默吞掉，
+                            // 与黄页 DepartmentCard 的行为保持一致。
+                            runCatching {
+                                context.startActivity(
+                                    Intent(Intent.ACTION_DIAL, Uri.parse("tel:$number"))
+                                )
+                            }
+                        },
+                        onLongClick = {
+                            // 复制屏幕上看到的原文而不是解析结果：「82668888-101」
+                            // 解析后只剩主号码，复制出去分机号就丢了。
+                            scope.launch {
+                                clipboard.setClipEntry(
+                                    ClipEntry(ClipData.newPlainText("tel", phone))
+                                )
+                                Toast.makeText(context, "已复制：$phone", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                    )
+                    // 字形本身只有十几 dp 高，靠这圈 padding 把触控区撑到 48dp
+                    .padding(horizontal = 8.dp, vertical = 14.dp)
+            )
+        } else if (phone.isNotBlank()) {
+            // 解析不出号码（「见年级群」这类）：原文照常显示，只是不画成可点的蓝色。
+            Spacer(Modifier.width(8.dp))
+            Text(
+                phone,
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                maxLines = 1,
+                modifier = Modifier.padding(horizontal = 8.dp)
+            )
         }
     }
 }

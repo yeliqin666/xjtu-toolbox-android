@@ -6,6 +6,7 @@ import com.google.gson.JsonParser
 import com.google.gson.annotations.SerializedName
 import com.xjtu.toolbox.util.DataCache
 import com.xjtu.toolbox.util.HttpClients
+import com.xjtu.toolbox.util.toDialableTel
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.time.LocalDateTime
@@ -37,8 +38,8 @@ data class YellowPageDepartment(
             .map { it.trim() }
             .filter { it.isNotEmpty() }
 
-    fun dialNumber(item: String): String =
-        Regex("""\d{7,}""").find(item)?.value.orEmpty()
+    /** 取这一项里能拨的号码，解析规则与学籍档案共用，见 [toDialableTel]。 */
+    fun dialNumber(item: String): String = item.toDialableTel()
 
     /** 磁盘缓存反序列化兜底，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。 */
     fun sanitized(): YellowPageDepartment = copy(
