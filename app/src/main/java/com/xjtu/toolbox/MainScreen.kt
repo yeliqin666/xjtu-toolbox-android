@@ -1077,11 +1077,17 @@ internal fun MainScreen(
             }
 
             // 登录恢复非阻塞提示条（底部，不遮挡欢迎卡片）
+            //
+            // 必须自己让开悬浮底栏：底栏走的是 Scaffold 的 floatingToolbar 槽位、浮在内容之上，
+            // 不占 contentPadding。各 tab 是靠 extraBottomPadding = floatingBarReserve 补的，
+            // 这条横幅直接挂在内容 Box 上，漏了补——于是正好压在半透明的玻璃底栏下面。
             androidx.compose.animation.AnimatedVisibility(
                 visible = isRestoring,
                 enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
                 exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
-                modifier = Modifier.align(Alignment.BottomCenter)
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = floatingBarReserve)
             ) {
                 Surface(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
