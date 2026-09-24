@@ -34,6 +34,16 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "5.0.8" to VersionChangelog(
+            items = listOf(
+                "🪶" to "为者常成，行者常至。",
+                "📱" to "底部小白条沉浸：内容铺到屏幕底边，从小白条和半透明底栏下面滚过（iOS 式）",
+                "🗓️" to "日程默认打开周视图；「本学期没有课程」「这周没课」的空状态也能下拉刷新了",
+                "🔄" to "课表同步落地后，首页「下一项安排」即时更新，不再需要退出重登",
+                "🩹" to "修复冷启动时课表加载抢在登录完成前、落成「本学期没有课程」的问题",
+                "🧭" to "首页分清「接下来两周都没课」和「课表还没同步」，后者会引导去同步课表",
+            )
+        ),
         "5.0.7" to VersionChangelog(
             items = listOf(
                 "🪶" to "独学而无友，则孤陋而寡闻。",
