@@ -70,6 +70,22 @@ object XjtuTime {
         return "$start-$end"
     }
 
+    /**
+     * 这对钟点是不是作息表上的标准时间（夏令或冬令任一套）。
+     *
+     * 连堂课的结束钟点可能只是第一小节的下课时间（1–2 节给 08:00–08:50），
+     * 所以结束钟点落在区间内任一节的标准下课时间都算。
+     */
+    fun isStandardSpan(startSection: Int, endSection: Int, startMinute: Int, endMinute: Int): Boolean =
+        listOf(true, false).any { summer ->
+            val s = getClassTime(startSection, summer)?.start
+            s != null && s.hour * 60 + s.minute == startMinute &&
+                (startSection..endSection).any { section ->
+                    val e = getClassTime(section, summer)?.end
+                    e != null && e.hour * 60 + e.minute == endMinute
+                }
+        }
+
     /** 全天时间表（用于 UI 侧栏显示） */
     fun getAllTimes(summer: Boolean = isSummerTime()): List<Pair<Int, ClassTime>> {
         val schedule = if (summer) SUMMER_SCHEDULE else WINTER_SCHEDULE

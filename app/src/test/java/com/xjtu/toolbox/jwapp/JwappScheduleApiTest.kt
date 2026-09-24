@@ -255,6 +255,9 @@ class JwappScheduleApiTest {
         // 抓包：10 月以后 jwapp 仍给周一第 5 节 14:30（夏令时），要交给 UI 按日期换算
         assertEquals(-1 to -1, api.clockTimes(5, 6, 14 * 60 + 30, 16 * 60 + 20))
         assertEquals(-1 to -1, api.clockTimes(5, 6, 14 * 60, 15 * 60 + 50))
+        // 连堂课 endtime 只给第一小节的下课时间，也交给 UI 按节次补全
+        assertEquals(-1 to -1, api.clockTimes(1, 2, 8 * 60, 8 * 60 + 50))
+        assertEquals(-1 to -1, api.clockTimes(5, 6, 14 * 60 + 30, 15 * 60 + 20))
         // 作息表外的特殊钟点保留
         assertEquals(13 * 60 to 15 * 60, api.clockTimes(5, 6, 13 * 60, 15 * 60))
         assertEquals(-1 to -1, api.clockTimes(5, 6, -1, 900))
