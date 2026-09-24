@@ -28,6 +28,15 @@ object HomeSignals {
     var scheduleReminder by mutableStateOf<ScheduleFocus?>(null)
 
     /**
+     * 课表缓存版本号：网络课表落地（日程页 paintCourses / refreshSchedule 写缓存）后自增。
+     *
+     * 首页 Hero 的「下一项安排」直接读课表缓存，而它的加载只认 accountId——
+     * 在日程页同步课表后首页不会重算，要退出重登才刷新。把首页的加载 key 上这个
+     * 版本号，同步一落地首页就跟着重读。
+     */
+    var scheduleVersion by mutableIntStateOf(0)
+
+    /**
      * 图书馆座位当前有没有"必须马上做"的操作，有的话是哪一个（入馆签到 / 中途返回）。
      *
      * 单独一条信号而不是让提醒规则去解析 [HomeStat] 里的状态文本：
