@@ -276,7 +276,9 @@ fun ScheduleScreen(
     fun editableWeeks(): Int = totalWeeks.takeIf { it > 0 }
         ?: customCourses.maxOfOrNull { it.weekBits.length }?.takeIf { it > 0 }
         ?: TermWeeks.DEFAULT_TOTAL_WEEKS
-    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    // 默认落在周视图：课表的主形态就是它，今日/学期是补充视角。rememberSaveable
+    // 保证本次会话里用户切走再回来还停在自己选的那栏，只有冷启动才回到周视图。
+    var selectedTab by rememberSaveable { mutableIntStateOf(1) }
 
     /** 今日 / 学期两级点课后要弹的详情。周视图有自己那份，见 ScheduleTabContent。 */
     var unifiedSelectedCourse by remember { mutableStateOf<CourseItem?>(null) }
@@ -493,6 +495,9 @@ fun ScheduleScreen(
                                 haptics.success()
                                 try { dataCache.put("schedule_$termCode", gson.toJson(freshCourses)) } catch (_: Exception) {}
                                 try { dataCache.put(ScheduleCache.optimizedScheduleKey(termCode), optimizedJson) } catch (_: Exception) {}
+                                // 课表缓存变了就叫醒首页：Hero 的「下一项安排」key 在 HomeSignals.scheduleVersion 上，
+                                // 不 bump 的话同步完课表首页还停在旧状态，要退出重登才刷新。
+                                com.xjtu.toolbox.home.HomeSignals.scheduleVersion++
                                 if (contentChanged && cachedOptimizedJson != null) {
                                     scope.launch { snackbarHostState.showSnackbar("日程有更新", duration = SnackbarDuration.Short) }
                                 }
@@ -678,6 +683,17 @@ fun ScheduleScreen(
                     courses = apiCourses
                     showingStaleData = false
                     dataCache.put("schedule_$termCode", gson.toJson(apiCourses))
+                    // optimized 键也要跟上：首页 Hero 读的是 readOptimizedCourses，它只认
+                    // optimized 键、不管 raw 更新没更新，漏写的话下拉刷新拉到了新课，
+                    // 首页还在读旧缓存。与 paintCourses 同样按节假日过滤后再落。
+                    try {
+                        ScheduleCache.writeOptimizedCourses(
+                            dataCache, gson, termCode,
+                            ScheduleCache.filterByHolidays(apiCourses, startOfTerm, holidayDates),
+                        )
+                    } catch (_: Exception) {}
+                    // 同 paintCourses：下拉刷新拉到新课后也叫醒首页的「下一项安排」
+                    com.xjtu.toolbox.home.HomeSignals.scheduleVersion++
                 }
             } catch (e: Exception) {
                 android.util.Log.w("ScheduleUI", "refreshSchedule failed", e)
@@ -813,6 +829,23 @@ fun ScheduleScreen(
         if (!appeared) return@LaunchedEffect
         if (isLoading || isSwitching || isRefreshingFromNetwork) return@LaunchedEffect
         loadInitialData()
+    }
+
+    // site 对象存在 ≠ 已登录：冷启动时 CAS 登录是异步的（往返 login.xjtu.edu.cn 要几秒），
+    // 首屏加载常抢在登录完成前发请求、全被 CAS 登录页顶包（getTermList 报「返回了网页而非
+    // 数据」），落成「本学期没有课程」，而登录成功后没人重试。上面那个效果只管 site **出现**，
+    // 管不到「site 一直在、hasLogin 翻真」。这里轮询 hasLogin（HomeTab 等子系统就绪是同一套），
+    // 登录一完成就补一次加载；最多等 5 分钟，离线场景不空转。
+    LaunchedEffect(activeSite) {
+        val site = activeSite ?: return@LaunchedEffect
+        if (site.hasLogin) return@LaunchedEffect
+        repeat(300) {
+            if (site.hasLogin) {
+                if (!isSwitching && !isRefreshingFromNetwork) loadInitialData()
+                return@LaunchedEffect
+            }
+            delay(1_000)
+        }
     }
 
     // 设置里换了「当前学期课表来源」以后回到这里：按新来源重新加载一遍。
@@ -1982,10 +2015,13 @@ private fun ScheduleTabContent(
         // 判的是 courses（含自定义日程）而不是 totalWeeks：后者只数教务课表，
         // 教务为空时用户自己加的日程也会被这一句挡住，加了等于没加。
         if (courses.isEmpty()) {
+            // 空状态也要能下拉刷新（副文案就是这么引导的）：PullToRefresh 的拖动量
+            // 全靠嵌套滚动分发，内容不满一屏又没有滚动容器时手势根本传不到它，
+            // 垫一层 verticalScroll 只为建立滚动链，内容没有可滚的距离、视觉无变化。
             EmptyState(
                 title = "本学期没有课程",
                 subtitle = "教务还没排课或还没选课。可以下拉刷新、在右上角「更多」里切换学期，或点 + 添加自己的日程",
-                modifier = Modifier.fillMaxSize().padding(top = gridTopPadding, bottom = bottomPadding)
+                modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = gridTopPadding, bottom = bottomPadding)
             )
             return@Column
         }
@@ -2032,7 +2068,8 @@ private fun ScheduleTabContent(
                     EmptyState(
                         title = "这周没课",
                         subtitle = "第${weekN}周整周空着",
-                        modifier = Modifier.fillMaxSize().padding(top = gridTopPadding, bottom = bottomPadding)
+                        // 同上：整周空着时页面没有滚动容器，PullToRefresh 收不到拖动量
+                        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = gridTopPadding, bottom = bottomPadding)
                     )
                 } else {
                     ScheduleGrid(
