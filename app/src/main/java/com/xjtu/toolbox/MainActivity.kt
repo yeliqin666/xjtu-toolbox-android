@@ -215,6 +215,7 @@ object Routes {
     const val WEBVPN_CONVERTER = "webvpn_converter"
     const val AGENT = "agent"
     const val FEEDBACK = "feedback"
+    const val COMMUNITY = "community"
     const val FACULTY = "faculty"
     const val ICLASSFACE = "iclassface"
 
@@ -1252,6 +1253,14 @@ fun AppNavigation(
                     showQuickActions = v
                     credentialStore.showQuickActions = v
                 },
+            )
+        }
+
+        // ── 社区（GitHub Discussions）──
+        entry<AppRoute.Community>(transition = expand(AppRoute.Community::class)) {
+            com.xjtu.toolbox.community.CommunityScreen(
+                onBack = { navController.popBackStack() },
+                onOpenLegacyFeedback = { navController.navigate(Routes.FEEDBACK) }
             )
         }
 

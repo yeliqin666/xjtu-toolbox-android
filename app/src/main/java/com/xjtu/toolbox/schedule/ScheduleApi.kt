@@ -60,15 +60,26 @@ data class CourseItem(
      * 后面 [getWeeks]/[isInWeek] 等在 Composable 的 remember{} 里被直接调用，不在任何
      * try/catch 里，一踩到 null 就是未捕获 NPE 崩全局——所有从缓存反序列化出来的
      * [CourseItem] 读完就地调用本函数兜底，而不是指望每个消费点自己判空。
+     *
+     * 旧版本缓存里连堂课可能存着只到第一小节下课的钟点（1–2 节 08:00–08:50），
+     * 教务的课读出来时顺手清掉标准钟点，交给 UI 按节次换算；自建日程的钟点是用户定的，不动。
      */
-    fun sanitized(): CourseItem = copy(
-        courseName = (courseName as String?) ?: "",
-        teacher = (teacher as String?) ?: "",
-        location = (location as String?) ?: "",
-        weekBits = (weekBits as String?) ?: "",
-        courseCode = (courseCode as String?) ?: "",
-        courseType = (courseType as String?) ?: "",
-    )
+    fun sanitized(): CourseItem {
+        val code = (courseCode as String?) ?: ""
+        val standardClock = !code.startsWith(CUSTOM_COURSE_CODE_PREFIX) &&
+            startMinuteOfDay >= 0 && endMinuteOfDay >= 0 &&
+            XjtuTime.isStandardSpan(startSection, endSection, startMinuteOfDay, endMinuteOfDay)
+        return copy(
+            courseName = (courseName as String?) ?: "",
+            teacher = (teacher as String?) ?: "",
+            location = (location as String?) ?: "",
+            weekBits = (weekBits as String?) ?: "",
+            courseCode = code,
+            courseType = (courseType as String?) ?: "",
+            startMinuteOfDay = if (standardClock) -1 else startMinuteOfDay,
+            endMinuteOfDay = if (standardClock) -1 else endMinuteOfDay,
+        )
+    }
 }
 
 data class ExamItem(

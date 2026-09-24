@@ -19,6 +19,14 @@
 | --- | --- | --- |
 | 玻璃底栏及各处玻璃 | Kyant0/AndroidLiquidGlass（backdrop 库 + 示例 App） | Apache-2.0 |
 
+社区（GitHub Discussions）：
+
+| 用在哪 | 第三方来源 | 许可证 |
+| --- | --- | --- |
+| 社区页的讨论列表、详情、楼中楼、发帖、GitHub 设备码登录 | JoyinJoester/Etoile | GPL-3.0 |
+| 社区页的 Markdown 渲染 | mikepenz/multiplatform-markdown-renderer（核心模块 + coil3 模块） | Apache-2.0 |
+| 社区页的头像与帖子图片 | coil-kt/coil（coil-compose、coil-network-okhttp） | Apache-2.0 |
+
 玻璃底栏和 C9 校徽素材的说明见文末。
 
 ---
@@ -272,3 +280,14 @@ SOFTWARE.
 本项目将其用于非商业的校园工具类应用中的小游戏，属于识别性使用。
 如收到任何一所高校的异议，应立即从仓库与发行版本中移除对应素材——
 游戏本身在素材缺失时会自动退回到 `drawPlaceholder()` 画的纯色圆加校名，仍可正常运行。
+
+---
+
+## 社区（GitHub Discussions）
+
+`app/src/main/java/com/xjtu/toolbox/community/` 下的代码大部分改编自
+[JoyinJoester/Etoile](https://github.com/JoyinJoester/Etoile)（GPL-3.0），每个文件开头注明了对应的原文件。
+改动：数据层（GraphQL 查询、设备码登录、评论分页加载）基本沿用，补了头像、时间、点赞、分类筛选、
+楼中楼预览；界面全部用 MIUIX 按论坛样式重写（帖子卡片、楼层、楼主标记、楼中楼、底部回帖栏、编辑 / 预览），
+顶栏用本 App 的玻璃栏；登录只保留设备码方式，token 不过期、不做刷新。
+本项目自 2026-09-24 起以 GPL-3.0 发布，与之兼容。

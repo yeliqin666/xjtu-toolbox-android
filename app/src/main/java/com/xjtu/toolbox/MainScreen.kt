@@ -1062,7 +1062,7 @@ internal fun MainScreen(
                                         scrollBehavior = profileScrollBehavior,
                                         onNavigateToDownloads = { navController.navigate(Routes.DOWNLOAD_MANAGER) },
                                         onNavigateToSettings = { navController.navigate(Routes.SETTINGS) },
-                                        onNavigateToFeedback = { navController.navigate(Routes.FEEDBACK) },
+                                        onNavigateToCommunity = { navController.navigate(Routes.COMMUNITY) },
                                         onNavigateToAccounts = { navController.navigate(com.xjtu.toolbox.Routes.ACCOUNTS) },
                                         extraBottomPadding = floatingBarReserve,
                                         onWarmupRequest = onWarmupRequest,

@@ -3,8 +3,8 @@
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Android-green?logo=android" alt="Android" />
   <img src="https://img.shields.io/badge/minSdk-31%20(Android%2012)-blue" alt="minSdk 31" />
-  <img src="https://img.shields.io/badge/version-5.0.3-orange" alt="version 5.0.3" />
-  <img src="https://img.shields.io/badge/license-MIT-lightgrey" alt="MIT License" />
+  <img src="https://img.shields.io/badge/version-5.0.7-orange" alt="version 5.0.7" />
+  <img src="https://img.shields.io/badge/license-GPL--3.0-blue" alt="GPL-3.0 License" />
 </p>
 
 面向西安交通大学学生的 Android 校园工具箱。使用 Kotlin 与 Jetpack Compose 原生开发，便捷使用教务、图书馆、校园卡、思源学堂等学校服务，**不经过任何自建业务中转服务器**——账号凭据与数据只在设备和学校系统之间流动。
@@ -35,6 +35,7 @@
 | 校园信息 | 教务处 / 学院通知聚合与站内搜索、校园黄页、体测成绩、电子教材、校历 |
 | 评教 | GSTE 与常规评教（即将更换新系统） |
 | 课余 | 合成仙交大、GPA 2048 等小游戏与棋类，支持联机对弈；课表匹配交友 |
+| 社区 | 基于本仓库 GitHub Discussions 的原生论坛：分区浏览、发帖、楼层与楼中楼、@ 提及、点赞、采纳答案；GitHub 设备码登录 |
 
 
 多账号下，各账号的课表、成绩、对话与校园卡数据相互隔离。
@@ -59,6 +60,7 @@
 
 - Kotlin、Jetpack Compose、[MIUIX](https://github.com/miuix-kotlin-multiplatform/miuix)
 - OkHttp、Brotli、Jsoup、Gson
+- [multiplatform-markdown-renderer](https://github.com/mikepenz/multiplatform-markdown-renderer)、Coil（社区的 Markdown 与图片）
 - Room、KSP、Kotlin Coroutines
 - Android Gradle Plugin 9、Gradle 9、JDK 21
 - `minSdk 31`、`targetSdk 36`、`compileSdk 37`
@@ -127,6 +129,8 @@ Release 会启用代码压缩与资源收缩。未提供签名配置时生成未
 
 ## 参与贡献
 
+日常提问、建议和交流可以去 [Discussions](https://github.com/yeliqin666/xjtu-toolbox-android/discussions)，App 里「我的 → 社区讨论」看到的就是这里；确定是 bug 也欢迎直接提 Issue。
+
 欢迎 Issue 和 PR。提问题时请说明应用版本、机型系统、涉及模块与复现步骤；**不要粘贴账号、密码、Cookie 或 API Key**。
 
 学校系统接口变动、系统维护是功能失效最主要的来源。如果你发现问题，欢迎直接提 issue。
@@ -149,9 +153,10 @@ Release 会启用代码压缩与资源收缩。未提供签名配置时生成未
 - [XJTUToolBox](https://github.com/yan-xiaoo/XJTUToolBox) —— 桌面端仙交百宝箱
 - [XJTU-Course-Genius](https://github.com/Hz162/XJTU-Course-Genius)
 - [zyxf](https://github.com/Guochaoo/zyxf) —— 仲英学辅资料站
+- [Etoile](https://github.com/JoyinJoester/Etoile) —— Android 原生 GitHub 客户端，社区功能的登录与讨论区代码改编自它
 
 ---
 
 ## 许可
 
-[MIT](LICENSE)
+[GPL-3.0](LICENSE)

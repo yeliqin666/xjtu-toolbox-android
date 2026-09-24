@@ -514,7 +514,7 @@ internal fun ProfileTab(
     scrollBehavior: ScrollBehavior? = null,
     onNavigateToDownloads: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
-    onNavigateToFeedback: () -> Unit = {},
+    onNavigateToCommunity: () -> Unit = {},
     onNavigateToAccounts: () -> Unit = {},
     /** 悬浮底栏的总占位高度（= MainScreen 的 floatingBarReserve）：底栏浮在内容之上，页面末尾得自己留出来。 */
     extraBottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
@@ -922,7 +922,7 @@ internal fun ProfileTab(
                 MenuGroup(Modifier.enterOnce(2)) {
                     ProfileMenuRow(Icons.Outlined.Settings, TINT_SLATE, "设置", onClick = onNavigateToSettings)
                     MenuDivider()
-                    ProfileMenuRow(Icons.Outlined.ChatBubbleOutline, TINT_AMBER, "反馈与建议", onClick = onNavigateToFeedback, subtitle = "说说哪儿不好用，或想加什么")
+                    ProfileMenuRow(Icons.Outlined.Forum, TINT_AMBER, "社区讨论", onClick = onNavigateToCommunity, subtitle = "提建议、报问题，和大家交流")
                 }
             } else {
                 // ━━ 已登录 ━━
@@ -948,7 +948,7 @@ internal fun ProfileTab(
                 MenuGroup(Modifier.enterOnce(3)) {
                     ProfileMenuRow(Icons.Outlined.Settings, TINT_SLATE, "设置", onClick = onNavigateToSettings)
                     MenuDivider()
-                    ProfileMenuRow(Icons.Outlined.ChatBubbleOutline, TINT_AMBER, "反馈与建议", onClick = onNavigateToFeedback, subtitle = "说说哪儿不好用，或想加什么")
+                    ProfileMenuRow(Icons.Outlined.Forum, TINT_AMBER, "社区讨论", onClick = onNavigateToCommunity, subtitle = "提建议、报问题，和大家交流")
                 }
                 Spacer(Modifier.height(PROFILE_GAP))
 

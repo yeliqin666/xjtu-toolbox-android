@@ -738,6 +738,12 @@ fun SettingsScreen(
                     onClick = { uriHandler.openUri("https://github.com/zfdang/chinese-chess-fish-android") }
                 )
                 ArrowPreference(
+                    title = "Etoile by JoyinJoester",
+                    summary = "社区讨论区与 GitHub 登录 · GPL-3.0",
+                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
+                    onClick = { uriHandler.openUri("https://github.com/JoyinJoester/Etoile") }
+                )
+                ArrowPreference(
                     title = "blackstone by haslam22",
                     summary = "五子棋 AI 的思路来源（未并入代码）· MIT",
                     startAction = { SettingsIcon(MiuixIcons.Info, cLime) },

@@ -25,8 +25,8 @@ android {
         applicationId = "com.xjtu.toolbox"
         minSdk = 31
         targetSdk = 36
-        versionCode = 83
-        versionName = "5.0.6"
+        versionCode = 84
+        versionName = "5.0.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -187,6 +187,12 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material.icons)
+    // 社区（GitHub Discussions）：Markdown 渲染用不依赖 Material 3 的核心模块，配色取自 MIUIX；
+    // 头像和帖子图片走 Coil，网络层复用 OkHttp 4.12
+    implementation(libs.markdown.renderer)
+    implementation(libs.markdown.renderer.coil3)
+    implementation(libs.coil.compose)
+    implementation(libs.coil.network.okhttp)
     implementation(libs.okhttp)
     implementation(libs.okhttp.brotli)
     implementation(libs.okhttp.urlconnection)

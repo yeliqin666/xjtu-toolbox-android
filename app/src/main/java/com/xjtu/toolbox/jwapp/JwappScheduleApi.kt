@@ -468,15 +468,11 @@ class JwappScheduleApi(site: SiteSession) {
      *
      * 所以钟点和作息表对得上（夏令或冬令任一套）就不留，交给 UI 按当天日期换算；
      * 只保留作息表外的特殊钟点（比如体育课、实验课单独排的时间）。
+     * 连堂课的 `endtime` 可能只到第一小节下课，也按标准处理，见 [XjtuTime.isStandardSpan]。
      */
     internal fun clockTimes(startSection: Int, endSection: Int, startMinute: Int, endMinute: Int): Pair<Int, Int> {
         if (startMinute < 0 || endMinute < 0) return -1 to -1
-        val standard = listOf(true, false).any { summer ->
-            val s = XjtuTime.getClassTime(startSection, summer)?.start
-            val e = XjtuTime.getClassTime(endSection, summer)?.end
-            s != null && e != null &&
-                s.hour * 60 + s.minute == startMinute && e.hour * 60 + e.minute == endMinute
-        }
+        val standard = XjtuTime.isStandardSpan(startSection, endSection, startMinute, endMinute)
         return if (standard) -1 to -1 else startMinute to endMinute
     }
 
