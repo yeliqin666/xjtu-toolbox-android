@@ -34,6 +34,16 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "5.0.7" to VersionChangelog(
+            items = listOf(
+                "🪶" to "独学而无友，则孤陋而寡闻。",
+                "💬" to "新增社区：「我的」→「社区讨论」，登录 GitHub 就能发帖、回帖、盖楼、点赞",
+                "📣" to "回复里输入 @ 可以提到别人，对方会收到 GitHub 通知",
+                "🗂️" to "分区：求助与反馈、功能建议、校园闲聊、皮肤分享",
+                "📮" to "原来的页内反馈挪进社区，即将停用",
+                "⚖️" to "开源协议改为 GPL-3.0",
+            )
+        ),
         "5.0.6" to VersionChangelog(
             items = listOf(
                 "🪶" to "大成若缺，其用不弊。",
