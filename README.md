@@ -4,7 +4,7 @@
   <img src="https://img.shields.io/badge/platform-Android-green?logo=android" alt="Android" />
   <img src="https://img.shields.io/badge/minSdk-31%20(Android%2012)-blue" alt="minSdk 31" />
   <img src="https://img.shields.io/badge/version-5.0.3-orange" alt="version 5.0.3" />
-  <img src="https://img.shields.io/badge/license-MIT-lightgrey" alt="MIT License" />
+  <img src="https://img.shields.io/badge/license-GPL--3.0-blue" alt="GPL-3.0 License" />
 </p>
 
 面向西安交通大学学生的 Android 校园工具箱。使用 Kotlin 与 Jetpack Compose 原生开发，便捷使用教务、图书馆、校园卡、思源学堂等学校服务，**不经过任何自建业务中转服务器**——账号凭据与数据只在设备和学校系统之间流动。
@@ -154,4 +154,4 @@ Release 会启用代码压缩与资源收缩。未提供签名配置时生成未
 
 ## 许可
 
-[MIT](LICENSE)
+[GPL-3.0](LICENSE)
