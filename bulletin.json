@@ -1,13 +1,13 @@
 {
   "bulletins": [
     {
-      "id": "2026-09-24-force-5.0.6",
+      "id": "2026-09-24-force-5.0.7",
       "level": "force_update",
-      "title": "请更新到 5.0.6",
-      "body": "校园卡分析重做，首页能看余额还够吃几天；日志与崩溃上报统一脱敏；修复校区名被裁、底栏拖动错位等问题。",
+      "title": "请更新到 5.0.7",
+      "body": "新增社区：「我的」→「社区讨论」，登录 GitHub 就能发帖、回帖、@ 别人；原来的页内反馈挪进社区，即将停用。",
       "url": "https://github.com/yeliqin666/xjtu-toolbox-android/releases/latest",
-      "targetVersion": "5.0.6",
-      "targetVersionCode": 83,
+      "targetVersion": "5.0.7",
+      "targetVersionCode": 84,
       "mustAck": false,
       "block": false
     },
@@ -20,12 +20,33 @@
       "block": false
     },
     {
+      "id": "2026-09-24-tips-5.0.7",
+      "level": "info",
+      "title": "5.0.7：社区上线了",
+      "body": "「我的」→「社区讨论」，登录 GitHub 就能发帖、盖楼、@ 别人。分区有求助与反馈、功能建议、校园闲聊、皮肤分享。另外，这几天更新实在太频繁，给大家添麻烦了，抱歉！接下来会攒一攒再发。",
+      "minVersion": "5.0.7",
+      "endsAt": "2026-10-15T00:00:00+08:00",
+      "mustAck": false,
+      "block": false
+    },
+    {
       "id": "2026-09-24-lag-feedback-5.0",
       "level": "info",
       "title": "用着有没有明显卡顿？",
       "body": "如果某个页面卡、掉帧或者反应慢，麻烦告诉我们是哪个页面、做了什么操作、手机型号。可以去「反馈」页提交，也可以在 GitHub 提 Issue。",
       "url": "https://github.com/yeliqin666/xjtu-toolbox-android/issues",
       "minVersion": "5.0",
+      "mustAck": false,
+      "block": false,
+      "maxVersion": "5.0.6"
+    },
+    {
+      "id": "2026-09-24-lag-feedback-5.0.7",
+      "level": "info",
+      "title": "用着有没有明显卡顿？",
+      "body": "如果某个页面卡、掉帧或者反应慢，麻烦到「我的」→「社区讨论」发个帖，写清是哪个页面、做了什么操作、手机型号。",
+      "url": "https://github.com/yeliqin666/xjtu-toolbox-android/discussions",
+      "minVersion": "5.0.7",
       "mustAck": false,
       "block": false
     },
