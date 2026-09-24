@@ -91,6 +91,7 @@ private fun HomeHero(
     weekNumber: Int,
     isLoggedIn: Boolean,
     isFocusLoaded: Boolean,
+    isScheduleDataMissing: Boolean,
     reminder: ScheduleReminderInfo?,
     balance: Float,
     /** 近 30 天在校日均，<0 表示还没算出来；和校园卡页「约够几天」同一个数。 */
@@ -171,6 +172,7 @@ private fun HomeHero(
             HeroNextUp(
                 isLoggedIn = isLoggedIn,
                 isFocusLoaded = isFocusLoaded,
+                isScheduleDataMissing = isScheduleDataMissing,
                 reminder = reminder,
                 onClick = if (isLoggedIn) onOpenCourses else onOpenProfile,
             )
@@ -284,6 +286,7 @@ private fun HeroStatusLine(status: HeroStatus, onClick: () -> Unit) {
 private fun HeroNextUp(
     isLoggedIn: Boolean,
     isFocusLoaded: Boolean,
+    isScheduleDataMissing: Boolean,
     reminder: ScheduleReminderInfo?,
     onClick: () -> Unit,
 ) {
@@ -340,6 +343,9 @@ private fun HeroNextUp(
             val (icon, t, d) = when {
                 !isLoggedIn -> Triple(Icons.AutoMirrored.Filled.Login, "登录后查看课表和余额", "课表、校园卡会显示在这里")
                 !isFocusLoaded -> Triple(Icons.Default.CalendarMonth, "正在读取今日安排…", null)
+                // 学期代码 / 开学日期缺失或缓存读挂了，和「真没课」不是一回事：
+                // 这里说「去同步」，真没课才说「接下来两周都没课」。点击都是进课表页。
+                isScheduleDataMissing -> Triple(Icons.Default.CloudOff, "课表还没同步", "同步课表后，这里会显示接下来的安排")
                 else -> Triple(Icons.Default.EventAvailable, "接下来两周都没课", "空出来的日子怎么过，可以问问屁岱")
             }
             ExpressiveIcon(icon = icon, color = primary, size = 38.dp, iconSize = 20.dp)
@@ -496,6 +502,9 @@ internal fun HomeTab(
     val heroContext = LocalContext.current
     var scheduleReminderState by remember { mutableStateOf<ScheduleReminderInfo?>(null) }
     var isScheduleReminderLoaded by remember { mutableStateOf(false) }
+    // true 表示「下一项安排」算不出来是因为课表数据不可用（学期代码 / 开学日期缺失、
+    // 读缓存抛异常），而不是真的未来两周没课——两种情况在 Hero 卡上要分开说话。
+    var scheduleDataMissing by remember { mutableStateOf(false) }
     var currentWeekNumber by remember { mutableIntStateOf(0) }
     val cardPrefs = remember(com.xjtu.toolbox.account.AccountContext.activeAccountId) {
         com.xjtu.toolbox.card.CampusCardCache.cardPrefs(heroContext)
@@ -508,22 +517,27 @@ internal fun HomeTab(
         cachedTodaySpend = cardPrefs.getFloat("card_today_spend_cache", -1f)
         cachedDailyRate = cardPrefs.getFloat("card_daily_rate_cache", -1f)
     }
-    LaunchedEffect(loginState.accountId) {
+    // key 上 HomeSignals.scheduleVersion：日程页同步/下拉刷新落了新课后会 bump 它，
+    // 这里跟着重读课表缓存，Hero 的「下一项安排」不用退出重登才更新。
+    LaunchedEffect(loginState.accountId, com.xjtu.toolbox.home.HomeSignals.scheduleVersion) {
         if (loginState.accountId.isEmpty()) return@LaunchedEffect
         // 账号切换：先清旧账号的提醒与校园卡缓存内存态，再从新账号命名空间重读
         isScheduleReminderLoaded = false
         scheduleReminderState = null
+        scheduleDataMissing = false
         currentWeekNumber = 0
         cachedBalance = cardPrefs.getFloat("card_balance_cache", -1f)
         cachedTodaySpend = cardPrefs.getFloat("card_today_spend_cache", -1f)
         cachedDailyRate = cardPrefs.getFloat("card_daily_rate_cache", -1f)
+        // 返回 Triple(下一项安排, 当前周次, 课表数据是否不可用)。第三位 true 时
+        // Hero 卡显示「课表还没同步」而不是「接下来两周都没课」，见 scheduleDataMissing。
         val loadedFocus = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 val dataCache = com.xjtu.toolbox.util.DataCache(heroContext)
                 val gson = com.google.gson.Gson()
                 // 本学期统一认 readCurrentTerm：学期列表第一个可能是教务已挂出的下学期
                 val termCode = com.xjtu.toolbox.schedule.ScheduleCache.readCurrentTerm(dataCache, gson)
-                    ?: return@withContext Pair(null, 0)
+                    ?: return@withContext Triple(null, 0, true)
                 val apiCourses = com.xjtu.toolbox.schedule.ScheduleCache
                     .readOptimizedCourses(dataCache, gson, termCode, Long.MAX_VALUE)
                     ?: com.xjtu.toolbox.schedule.ScheduleCache
@@ -546,7 +560,7 @@ internal fun HomeTab(
                     0
                 }
                 if (startDate == null) {
-                    return@withContext Pair(null, weekNumber)
+                    return@withContext Triple(null, weekNumber, true)
                 }
                 val holidayDates = try {
                     com.xjtu.toolbox.schedule.HolidayApi.getHolidayDates(heroContext)
@@ -595,7 +609,7 @@ internal fun HomeTab(
                                 else -> null
                             }
                         }
-                        return@withContext Pair(
+                        return@withContext Triple(
                             ScheduleReminderInfo(
                                 name = schedule.name,
                                 location = schedule.location,
@@ -603,16 +617,18 @@ internal fun HomeTab(
                                 endAt = endAt
                             ),
                             weekNumber,
+                            false,
                         )
                     }
                 }
-                Pair(null, weekNumber)
+                Triple(null, weekNumber, false)
             } catch (_: Exception) {
-                Pair(null, 0)
+                Triple(null, 0, true)
             }
         }
         scheduleReminderState = loadedFocus.first
         currentWeekNumber = loadedFocus.second
+        scheduleDataMissing = loadedFocus.third
         isScheduleReminderLoaded = true
         // 提醒评估在 MainScreen 层跑，够不到这里的状态，用共享信号带过去。
         com.xjtu.toolbox.home.HomeSignals.scheduleReminder = loadedFocus.first?.let {
@@ -816,6 +832,7 @@ internal fun HomeTab(
                 weekNumber = currentWeekNumber,
                 isLoggedIn = loginState.isLoggedIn,
                 isFocusLoaded = isScheduleReminderLoaded,
+                isScheduleDataMissing = scheduleDataMissing,
                 reminder = scheduleReminderState,
                 balance = cachedBalance,
                 dailyRate = cachedDailyRate,

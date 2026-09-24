@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.*
@@ -121,7 +122,17 @@ class MainActivity : ComponentActivity() {
         val launchTab = intent?.getStringExtra(EXTRA_LAUNCH_TAB)
         launchRouteState.value = launchRoute
         launchTabState.value = launchTab ?: if (launchRoute == Routes.SCHEDULE) BottomTab.COURSES.name else null
-        enableEdgeToEdge()
+        // 底部导航条（小白条）背景强制全透明：默认样式在 API 29–34 上会往
+        // window.navigationBarColor 写一层半透明 scrim（浅色是 90% 白），内容从
+        // 小白条下面滚过时会被罩一层灰。auto 传全透明后，手势导航全透明；
+        // 三键导航由系统自动垫对比度（isNavigationBarContrastEnforced），按钮不会看不见。
+        // API 35+ 上 navigationBarColor 已废弃、edge-to-edge 强制透明，此参数无副作用。
+        enableEdgeToEdge(
+            navigationBarStyle = SystemBarStyle.auto(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT,
+            ),
+        )
         val prefs = getSharedPreferences("app_settings", MODE_PRIVATE)
         darkModeOverrideState.value = prefs.getString("dark_mode", "system") ?: "system"
         dynamicColorState.value = prefs.getBoolean("dynamic_color", false)

@@ -364,19 +364,18 @@ internal fun MainScreen(
     //   外加底部留白（有系统导航条时 26dp + inset，否则 36dp）。
     val navInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val glassBarBottomGap = if (navInset > 0.dp) 8.dp else 20.dp
-    // 两种悬浮底栏都挂在 Scaffold 的 floatingToolbar 槽位里，而槽位底边自己就让开了系统
-    // 导航条（contentWindowInsets 的 bottom）、还额外减了 4dp —— Scaffold.kt 里那个 private
-    // 的 FloatingToolbarSpacing，取不到只能照抄数值。所以槽位内容必须按「槽位已经让了
-    // 多少」来补，两种底栏各补各的：
-    //   - 玻璃底栏自己不垫底，只补「想要的留白 − 4dp」；再加一次 navInset 就是算两遍，
-    //     底栏会被整体抬高 navInset + 4dp（这台机器上实测多出 20dp）；
-    //   - 平板竖屏的 miuix 胶囊内部已经垫了 26dp + inset（NavigationBar.kt 的
-    //     bottomPaddingValue），要反过来把槽位多让的 navInset + 4dp 压回去，否则同样高
-    //     20dp（实测底边 62dp 而不是 42dp），顶端还会压住内容区最后一截。
+    // 两种悬浮底栏都挂在 Scaffold 的 floatingToolbar 槽位里。contentWindowInsets 的手机
+    // 分支已经把底部导航条排除掉（内容要从小白条下面穿过，见下方 Scaffold 参数处），
+    // 所以槽位底边只比屏幕底边高 Scaffold.kt 里那个 private 的 FloatingToolbarSpacing
+    // 的 4dp，取不到只能照抄数值。槽位内容按「想要的位置 − 槽位已给的位置」补偿：
+    //   - 玻璃底栏自己不垫底，补「navInset + 想要的留白 − 4dp」：底边仍落在
+    //     navInset + 8dp（没有导航条时 20dp）处，视觉与旧版完全一致；
+    //   - 平板竖屏的 miuix 胶囊内部自己垫了 26dp + inset（NavigationBar.kt 的
+    //     bottomPaddingValue），槽位多让的只有那 4dp，向下压回去即可。
     val miuixFloatingToolbarSpacing = 4.dp
     val glassBarSlotBottomPadding =
-        (glassBarBottomGap - miuixFloatingToolbarSpacing).coerceAtLeast(0.dp)
-    val floatingBarSlotOffsetY = navInset + miuixFloatingToolbarSpacing
+        (navInset + glassBarBottomGap - miuixFloatingToolbarSpacing).coerceAtLeast(0.dp)
+    val floatingBarSlotOffsetY = miuixFloatingToolbarSpacing
     val floatingBarReserve = when {
         useGlassBar -> GLASS_BAR_HEIGHT + glassBarBottomGap + navInset
         !isWide && navBarStyle == "floating" ->
@@ -646,7 +645,12 @@ internal fun MainScreen(
                 ),
             )
         } else {
-            WindowInsets.systemBars.union(WindowInsets.displayCutout)
+            // 手机端：底部导航条（小白条）不参与内容留白，内容一直铺到屏幕底边，
+            // 从透明小白条和半透明玻璃底栏下面滚过（iOS 效果）。列表末尾的净空由
+            // 各 tab 的 extraBottomPadding = floatingBarReserve 自己补（内含 navInset）。
+            WindowInsets.systemBars
+                .union(WindowInsets.displayCutout)
+                .only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
         },
         // 不再自己垫高：两种悬浮底栏都走 floatingToolbar 槽位，miuix Scaffold 会把提示条放在
         // 整个槽位（底栏 + 头顶的屁岱气泡）之上；经典底栏走 bottomBar，同样自动让开。
