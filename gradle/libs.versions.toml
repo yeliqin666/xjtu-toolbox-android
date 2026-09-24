@@ -16,6 +16,10 @@ composeBom = "2026.08.00"
 # material-icons-extended 已经冻结在 1.7.x，这个 BOM 带的是 1.7.8（原来解析到 1.7.7）。
 # 不另外钉版本：普通版本号压不过 BOM 的约束，写了也不生效，反而误导人。
 okhttp = "4.12.0"
+# 社区（GitHub Discussions）的 Markdown 渲染
+markdownRenderer = "0.45.0"
+# 社区的头像和帖子图片。coil-network-okhttp 3.6.3 要求的正是 OkHttp 4.12.0，不会把 OkHttp 抬到 5.x
+coil = "3.6.3"
 jsoup = "1.18.3"
 flexmark = "0.64.8"
 gson = "2.11.0"
@@ -52,6 +56,10 @@ androidx-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
 androidx-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
 androidx-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
 androidx-material3 = { group = "androidx.compose.material3", name = "material3" }
+markdown-renderer = { group = "com.mikepenz", name = "multiplatform-markdown-renderer", version.ref = "markdownRenderer" }
+markdown-renderer-coil3 = { group = "com.mikepenz", name = "multiplatform-markdown-renderer-coil3", version.ref = "markdownRenderer" }
+coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
+coil-network-okhttp = { group = "io.coil-kt.coil3", name = "coil-network-okhttp", version.ref = "coil" }
 androidx-material-icons = { group = "androidx.compose.material", name = "material-icons-extended" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 okhttp-brotli = { group = "com.squareup.okhttp3", name = "okhttp-brotli", version.ref = "okhttp" }
