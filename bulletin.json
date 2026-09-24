@@ -20,6 +20,16 @@
       "block": false
     },
     {
+      "id": "2026-09-24-lag-feedback-5.0",
+      "level": "info",
+      "title": "用着有没有明显卡顿？",
+      "body": "如果某个页面卡、掉帧或者反应慢，麻烦告诉我们是哪个页面、做了什么操作、手机型号。可以去「反馈」页提交，也可以在 GitHub 提 Issue。",
+      "url": "https://github.com/yeliqin666/xjtu-toolbox-android/issues",
+      "minVersion": "5.0",
+      "mustAck": false,
+      "block": false
+    },
+    {
       "id": "2026-09-24-tips-5.0.6",
       "level": "info",
       "title": "5.0.6：余额还够吃几天",
