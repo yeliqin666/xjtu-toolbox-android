@@ -12,6 +12,14 @@
       "block": false
     },
     {
+      "id": "2026-09-24-no-ios",
+      "level": "info",
+      "title": "iOS 版别催了 🙏",
+      "body": "整个 App 迁到 iOS 几乎等于重写一遍，工作量实在太大；老登也快毕业了，没精力再开一条线；上架 App Store 还得每年给苹果交开发者年费。短期内不会有 iOS 版，请大家理解。",
+      "mustAck": false,
+      "block": false
+    },
+    {
       "id": "2026-09-24-tips-5.0.6",
       "level": "info",
       "title": "5.0.6：余额还够吃几天",
