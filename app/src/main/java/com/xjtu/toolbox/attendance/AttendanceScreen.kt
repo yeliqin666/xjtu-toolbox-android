@@ -58,7 +58,6 @@ import com.xjtu.toolbox.ui.components.AppTabPager
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -91,17 +90,9 @@ import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import com.xjtu.toolbox.nav.AppRoute
-
-private data class AttendanceSnapshot(
-    val studentName: String,
-    val terms: List<TermInfo>,
-    val termBh: String,
-    val records: List<AttendanceWaterRecord>,
-    val streams: List<AttendanceStream>,
-    val stats: List<CourseAttendanceStat>,
-    val window: LeaveSemesterWindow?,
-    val leaves: List<LeaveRecord>,
-)
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.createSavedStateHandle
+import androidx.lifecycle.viewmodel.compose.viewModel
 
 @Composable
 fun AttendanceScreen(
@@ -109,86 +100,27 @@ fun AttendanceScreen(
     onBack: () -> Unit,
     onOpenIclassface: () -> Unit,
 ) {
-    val api = remember(site) { AttendanceApi(site) }
-    val leaveApi = remember(site) { LeaveApi(site) }
+    val vm: AttendanceViewModel = viewModel(key = "attendance-${System.identityHashCode(site)}") {
+        AttendanceViewModel(site, createSavedStateHandle())
+    }
+    val state by vm.state.collectAsStateWithLifecycle()
     val appLoginState = LocalAppLoginState.current
-    val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
-    var studentName by remember { mutableStateOf("") }
-    var termList by remember { mutableStateOf<List<TermInfo>>(emptyList()) }
-    var selectedTermBh by rememberSaveable { mutableStateOf("") }
-    var records by remember { mutableStateOf<List<AttendanceWaterRecord>>(emptyList()) }
-    var streams by remember { mutableStateOf<List<AttendanceStream>>(emptyList()) }
-    var courseStats by remember { mutableStateOf<List<CourseAttendanceStat>>(emptyList()) }
-    var leaves by remember { mutableStateOf<List<LeaveRecord>>(emptyList()) }
-    var semesterWindow by remember { mutableStateOf<LeaveSemesterWindow?>(null) }
-    var loading by remember { mutableStateOf(true) }
-    var refreshing by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
     var showForm by remember { mutableStateOf(false) }
     var detail by remember { mutableStateOf<LeaveRecord?>(null) }
     var pendingAction by remember { mutableStateOf<Pair<LeaveAction, LeaveRecord>?>(null) }
-    var loadJob by remember { mutableStateOf<Job?>(null) }
 
     fun expired() = appLoginState.handleAuthExpired(AppRoute.Attendance, onBack)
-
-    fun load(fromPull: Boolean = false) {
-        loadJob?.cancel()
-        if (fromPull) refreshing = true else loading = true
-        error = null
-        loadJob = scope.launch {
-            try {
-                val snapshot = withContext(Dispatchers.IO) {
-                    val name = api.getStudentInfo()["name"] as? String ?: ""
-                    val terms = api.getTermList()
-                    val bh = selectedTermBh.ifBlank { api.getTermBh() }
-                    val term = terms.firstOrNull { it.bh == bh }
-                    val fetched = api.getWaterRecords(bh, term?.startDate.orEmpty(), term?.endDate.orEmpty())
-                    val stats = try {
-                        if (bh == api.getTermBh()) api.getKqtjCurrentWeek() else api.computeCourseStatsFromRecords(fetched)
-                    } catch (_: Exception) {
-                        api.computeCourseStatsFromRecords(fetched)
-                    }
-                    // 打卡流水只是原始刷卡数据，拉不到不影响其它 tab，单独兜底成空表。
-                    val streamRows = try {
-                        api.getStreams(term?.startDate.orEmpty(), term?.endDate.orEmpty())
-                    } catch (e: AuthExpiredException) {
-                        throw e
-                    } catch (_: Exception) {
-                        emptyList()
-                    }
-                    AttendanceSnapshot(
-                        studentName = name,
-                        terms = terms,
-                        termBh = bh,
-                        records = fetched,
-                        streams = streamRows,
-                        stats = stats,
-                        window = runCatching { leaveApi.getSemesterWindow() }.getOrNull(),
-                        leaves = leaveApi.getLeavePage().records,
-                    )
-                }
-                studentName = snapshot.studentName
-                termList = snapshot.terms
-                selectedTermBh = snapshot.termBh
-                records = snapshot.records
-                courseStats = snapshot.stats
-                semesterWindow = snapshot.window
-                leaves = snapshot.leaves
-            } catch (e: AuthExpiredException) {
-                expired()
-            } catch (e: Exception) {
-                error = e.message ?: "加载失败"
-            } finally {
-                loading = false
-                refreshing = false
+    LaunchedEffect(vm) {
+        vm.events.collect { event ->
+            when (event) {
+                AttendanceEvent.AuthExpired -> expired()
+                is AttendanceEvent.Message -> snackbarHostState.showSnackbar(event.text)
             }
         }
     }
-
-    LaunchedEffect(Unit) { load() }
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     val pullToRefreshState = rememberPullToRefreshState()
@@ -223,7 +155,7 @@ fun AttendanceScreen(
                 // 四个分栏标签不跟着滚：挂在顶栏里和顶栏一起做一整块玻璃。
                 // 没数据（加载中 / 出错）时不显示，那时点了也没东西可切
                 bottomContent = {
-                    if (records.isNotEmpty() || leaves.isNotEmpty() || !(loading || error != null)) {
+                    if (state.hasData || !(state.loading || state.error != null)) {
                         CompositionLocalProvider(LocalOnGlassBar provides (glass != null)) {
                             AppSegmentedTabs(
                                 tabs = listOf("流水", "打卡流水", "统计", "请假"),
@@ -243,15 +175,15 @@ fun AttendanceScreen(
         // 姓名 · 学期 + 学期选择。请假栏不分学期，不放选择器
         val listHeader: @Composable (Int) -> Unit = { tab ->
             Column(Modifier.readableWidth().fillMaxWidth()) {
-                if (studentName.isNotBlank()) {
+                if (state.studentName.isNotBlank()) {
                     Text(
-                        text = studentName + (semesterWindow?.semesterName?.let { " · $it" } ?: ""),
+                        text = state.studentName + (state.window?.semesterName?.let { " · $it" } ?: ""),
                         style = MiuixTheme.textStyles.subtitle,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                     )
                 }
-                if (termList.isNotEmpty() && tab != 3) {
+                if (state.terms.isNotEmpty() && tab != 3) {
                     Card(
                         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                         colors = CardDefaults.defaultColors(color = AppCardColor)
@@ -259,19 +191,16 @@ fun AttendanceScreen(
                         OverlaySpinnerPreference(
                             title = "学期",
                             summary = "选择要查询的学期",
-                            items = termList.map { DropdownItem(text = it.name) },
-                            selectedIndex = termList.indexOfFirst { it.bh == selectedTermBh }.coerceAtLeast(0),
-                            onSelectedIndexChange = {
-                                selectedTermBh = termList[it].bh
-                                load()
-                            }
+                            items = state.terms.map { DropdownItem(text = it.name) },
+                            selectedIndex = state.terms.indexOfFirst { it.bh == state.termBh }.coerceAtLeast(0),
+                            onSelectedIndexChange = { vm.selectTerm(state.terms[it].bh) }
                         )
                     }
                 }
             }
         }
         when {
-            loading && records.isEmpty() && leaves.isEmpty() && error == null -> {
+            state.loading && !state.hasData && state.error == null -> {
                 LazyColumn(
                     Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
                     contentPadding = PaddingValues(top = glassTop)
@@ -279,20 +208,20 @@ fun AttendanceScreen(
                     item { Box(Modifier.fillParentMaxSize()) { com.xjtu.toolbox.ui.components.SkeletonList(Modifier.fillMaxSize(), rows = 6, rowHeight = 88.dp) } }
                 }
             }
-            error != null && records.isEmpty() && leaves.isEmpty() -> {
+            state.error != null && !state.hasData -> {
                 LazyColumn(
                     Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
                     contentPadding = PaddingValues(top = glassTop)
                 ) {
-                    item { Box(Modifier.fillParentMaxSize()) { ErrorState(message = error!!, onRetry = { load() }, modifier = Modifier.fillMaxSize()) } }
+                    item { Box(Modifier.fillParentMaxSize()) { ErrorState(message = state.error.orEmpty(), onRetry = { vm.load() }, modifier = Modifier.fillMaxSize()) } }
                 }
             }
             else -> {
                 PullToRefresh(
                     refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
-                    isRefreshing = refreshing,
+                    isRefreshing = state.refreshing,
                     pullToRefreshState = pullToRefreshState,
-                    onRefresh = { load(fromPull = true) },
+                    onRefresh = { vm.load(fromPull = true) },
                     topAppBarScrollBehavior = scrollBehavior,
                     contentPadding = PaddingValues(top = glassTop),
                     modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass)
@@ -306,11 +235,11 @@ fun AttendanceScreen(
                     ) { tab ->
                         val header: @Composable () -> Unit = { listHeader(tab) }
                         when (tab) {
-                            0 -> RecordList(records, glassTop, header)
-                            1 -> StreamList(streams, glassTop, header)
-                            2 -> StatList(courseStats, glassTop, header)
+                            0 -> RecordList(state.records, glassTop, header)
+                            1 -> StreamList(state.streams, glassTop, header)
+                            2 -> StatList(state.stats, glassTop, header)
                             else -> LeaveList(
-                                leaves = leaves,
+                                leaves = state.leaves,
                                 onOpen = { detail = it },
                                 onWithdraw = { pendingAction = LeaveAction.WITHDRAW to it },
                                 onCancel = { pendingAction = LeaveAction.CANCEL to it },
@@ -352,24 +281,7 @@ fun AttendanceScreen(
                         modifier = Modifier.weight(1f),
                         onClick = {
                             pendingAction = null
-                            scope.launch {
-                                try {
-                                    withContext(Dispatchers.IO) {
-                                        when (action) {
-                                            LeaveAction.WITHDRAW -> leaveApi.withdrawLeave(rec.leaveId, "学生撤回")
-                                            LeaveAction.CANCEL -> leaveApi.cancelLeave(rec.leaveId)
-                                        }
-                                    }
-                                    snackbarHostState.showSnackbar(
-                                        if (action == LeaveAction.WITHDRAW) "请假申请已撤回" else "已提交销假申请"
-                                    )
-                                    load()
-                                } catch (e: AuthExpiredException) {
-                                    expired()
-                                } catch (e: Exception) {
-                                    snackbarHostState.showSnackbar(e.message ?: "操作失败")
-                                }
-                            }
+                            vm.act(action, rec)
                         },
                     )
                 }
@@ -378,14 +290,13 @@ fun AttendanceScreen(
 
         if (showForm) {
             LeaveFormDialog(
-                leaveApi = leaveApi,
-                window = semesterWindow,
+                leaveApi = vm.leaveApi,
+                window = state.window,
                 onDismiss = { showForm = false },
                 onExpired = { expired() },
                 onSubmitted = {
                     showForm = false
-                    scope.launch { snackbarHostState.showSnackbar("请假申请已提交") }
-                    load()
+                    vm.submitted()
                 }
             )
         }
@@ -439,8 +350,6 @@ fun AttendanceScreen(
         }
     }
 }
-
-private enum class LeaveAction { WITHDRAW, CANCEL }
 
 /**
  * 四个分栏共用的列表外壳：[topPadding]（玻璃顶栏连同标签行的高度）放进列表顶部留白，
