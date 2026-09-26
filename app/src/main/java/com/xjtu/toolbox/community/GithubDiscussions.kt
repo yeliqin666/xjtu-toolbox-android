@@ -126,12 +126,17 @@ class GithubDiscussionsRepository(
         buildJsonObject { put("input", buildJsonObject { put("id", id) }) }
     ) { Unit }
 
-    /** 给帖子或评论点赞 / 取消点赞（GitHub 的 upvote）。 */
+    /** 给帖子或评论点赞 / 取消点赞（👍 表情回应）。 */
     suspend fun upvote(subjectId: String, add: Boolean): Result<Unit> {
-        val mutation = if (add) "addUpvote" else "removeUpvote"
-        val input = if (add) "AddUpvoteInput" else "RemoveUpvoteInput"
+        val mutation = if (add) "addReaction" else "removeReaction"
+        val input = if (add) "AddReactionInput" else "RemoveReactionInput"
         return execute("mutation(\$input:$input!){$mutation(input:\$input){clientMutationId}}",
-            buildJsonObject { put("input", buildJsonObject { put("subjectId", subjectId) }) }) { Unit }
+            buildJsonObject {
+                put("input", buildJsonObject {
+                    put("subjectId", subjectId)
+                    put("content", THUMBS_UP)
+                })
+            }) { Unit }
     }
 
     suspend fun categories(owner: String, name: String): Result<List<GithubDiscussionCategory>> = execute(
@@ -191,9 +196,9 @@ class GithubDiscussionsRepository(
         value["createdAt"]?.jsonPrimitive?.contentOrNull.orEmpty(),
         value["replies"]?.takeUnless { it is JsonNull }?.jsonObject?.get("totalCount")?.jsonPrimitive?.intOrNull ?: 0,
         avatar(value),
-        value["upvoteCount"]?.jsonPrimitive?.intOrNull ?: 0,
-        value["viewerHasUpvoted"]?.jsonPrimitive?.booleanOrNull ?: false,
-        value["viewerCanUpvote"]?.jsonPrimitive?.booleanOrNull ?: false,
+        likeCount(value),
+        liked(value),
+        canLike(value),
         value["replies"]?.takeUnless { it is JsonNull }?.jsonObject?.get("nodes")?.jsonArray
             ?.map { comment(it.jsonObject) }.orEmpty(),
         isAdmin(value),
@@ -216,17 +221,32 @@ class GithubDiscussionsRepository(
         value["createdAt"]?.jsonPrimitive?.contentOrNull.orEmpty(),
         value["updatedAt"]?.jsonPrimitive?.contentOrNull.orEmpty(),
         avatar(value),
-        value["upvoteCount"]?.jsonPrimitive?.intOrNull ?: 0,
-        value["viewerHasUpvoted"]?.jsonPrimitive?.booleanOrNull ?: false,
-        value["viewerCanUpvote"]?.jsonPrimitive?.booleanOrNull ?: false,
+        likeCount(value),
+        liked(value),
+        canLike(value),
         value["viewerCanDelete"]?.jsonPrimitive?.booleanOrNull ?: false,
         isAdmin(value))
+
+    private fun thumbsUp(value: JsonObject): JsonObject? =
+        value["reactionGroups"]?.takeUnless { it is JsonNull }?.jsonArray
+            ?.map { it.jsonObject }
+            ?.firstOrNull { it["content"]?.jsonPrimitive?.contentOrNull == THUMBS_UP }
+
+    private fun likeCount(value: JsonObject) =
+        thumbsUp(value)?.get("reactors")?.jsonObject?.get("totalCount")?.jsonPrimitive?.intOrNull ?: 0
+
+    private fun liked(value: JsonObject) =
+        thumbsUp(value)?.get("viewerHasReacted")?.jsonPrimitive?.booleanOrNull ?: false
+
+    private fun canLike(value: JsonObject) = value["viewerCanReact"]?.jsonPrimitive?.booleanOrNull ?: false
     private fun JsonObject.text(key: String) = getValue(key).jsonPrimitive.content
     private companion object {
         const val AUTHOR = "author{login avatarUrl(size:80)}"
-        const val UPVOTE = "upvoteCount viewerHasUpvoted viewerCanUpvote"
-        const val REPLY_FIELDS = "id body createdAt $AUTHOR authorAssociation $UPVOTE isAnswer viewerCanMarkAsAnswer viewerCanUnmarkAsAnswer viewerCanUpdate viewerCanDelete"
+        const val THUMBS_UP = "THUMBS_UP"
+        // 点赞用 👍 表情回应：upvote 不对 GitHub App 令牌开放（Resource not accessible by integration）
+        const val LIKE = "viewerCanReact reactionGroups{content viewerHasReacted reactors{totalCount}}"
+        const val REPLY_FIELDS = "id body createdAt $AUTHOR authorAssociation $LIKE isAnswer viewerCanMarkAsAnswer viewerCanUnmarkAsAnswer viewerCanUpdate viewerCanDelete"
         const val COMMENT_FIELDS = "$REPLY_FIELDS replies(first:2){totalCount nodes{$REPLY_FIELDS}}"
-        const val FIELDS = "viewerCanUpdate viewerCanDelete authorAssociation id number title body url createdAt updatedAt $AUTHOR $UPVOTE category{id name isAnswerable} comments{totalCount} answer{id}"
+        const val FIELDS = "viewerCanUpdate viewerCanDelete authorAssociation id number title body url createdAt updatedAt $AUTHOR $LIKE category{id name isAnswerable} comments{totalCount} answer{id}"
     }
 }
