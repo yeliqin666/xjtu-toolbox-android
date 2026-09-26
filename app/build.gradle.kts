@@ -209,7 +209,7 @@ dependencies {
     implementation(libs.coil.network.okhttp)
     implementation(libs.okhttp)
     implementation(libs.okhttp.brotli)
-    implementation(libs.okhttp.urlconnection)
+    implementation(libs.okhttp.java.net.cookiejar)
     implementation(libs.jsoup)
     implementation(libs.flexmark.html2md)
     implementation(libs.gson)

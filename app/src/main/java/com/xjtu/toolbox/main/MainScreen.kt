@@ -637,9 +637,9 @@ private fun TabHost(
     }
     val tabSlideDistance = with(LocalDensity.current) { 28.dp.toPx() }
     Box(modifier.fillMaxSize()) {
-        BottomTab.entries.forEach { tab ->
+        // 别在 key {} 里 return@key：Kotlin 2.4.20 会生成 R8 无法转 dex 的方法名
+        BottomTab.entries.filter { it in composedTabs }.forEach { tab ->
             key(tab) {
-                if (tab !in composedTabs) return@key
                 val isActive = selectedTab == tab
                 val tabAlpha by animateFloatAsState(
                     targetValue = if (isActive) 1f else 0f,

@@ -7,6 +7,7 @@ import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.brotli.BrotliInterceptor
+import okhttp3.java.net.cookiejar.JavaNetCookieJar
 import org.jsoup.Jsoup
 import java.security.KeyFactory
 import java.security.spec.X509EncodedKeySpec
