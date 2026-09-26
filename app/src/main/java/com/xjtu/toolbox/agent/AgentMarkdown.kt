@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.agent
 
+import com.xjtu.toolbox.network.HttpClients
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -365,7 +366,7 @@ private object MdImageLoader {
     }
     private val failed = java.util.Collections.synchronizedSet(mutableSetOf<String>())
     private val client by lazy {
-        okhttp3.OkHttpClient.Builder()
+        HttpClients.base.newBuilder()
             .connectTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
             .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
             .build()

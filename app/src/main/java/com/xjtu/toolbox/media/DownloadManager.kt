@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.media
 
+import com.xjtu.toolbox.network.HttpClients
 import android.content.Context
 import android.os.Environment
 import android.util.Log
@@ -62,7 +63,7 @@ class DownloadManager private constructor(private val context: Context) {
 
     // OkHttp 客户端 (不设置超时以支持大文件下载)
     private val httpClient: OkHttpClient by lazy {
-        OkHttpClient.Builder()
+        HttpClients.base.newBuilder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS) // 无限制
             .writeTimeout(0, TimeUnit.MILLISECONDS)

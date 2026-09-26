@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.schedule
 
+import com.xjtu.toolbox.network.HttpClients
 import android.content.Context
 import android.util.Log
 import com.google.gson.JsonObject
@@ -7,7 +8,6 @@ import com.xjtu.toolbox.data.DataCache
 import com.xjtu.toolbox.util.safeParseJsonObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -17,7 +17,7 @@ private const val TAG = "HolidayApi"
 private const val CACHE_KEY = "holiday_dates"
 
 object HolidayApi {
-    private val client = OkHttpClient.Builder()
+    private val client = HttpClients.base.newBuilder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
         .build()

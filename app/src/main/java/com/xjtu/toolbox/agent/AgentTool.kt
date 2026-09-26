@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.agent
 
+import com.xjtu.toolbox.network.HttpClients
 import android.content.Intent
 import android.provider.AlarmClock
 import android.content.Context
@@ -1584,7 +1585,7 @@ class AgentToolRegistry(
     }
 
     private val webClient by lazy {
-        AgentWeb.applyPublicNetworkPolicy(okhttp3.OkHttpClient.Builder())
+        AgentWeb.applyPublicNetworkPolicy(HttpClients.base.newBuilder())
             .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
             .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
             .followRedirects(true)

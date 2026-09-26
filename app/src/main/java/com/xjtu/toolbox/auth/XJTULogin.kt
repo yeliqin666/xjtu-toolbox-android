@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.auth
 
+import com.xjtu.toolbox.network.HttpClients
 import com.xjtu.toolbox.util.redactBody
 import com.xjtu.toolbox.util.redactUrl
 import android.util.Base64
@@ -252,7 +253,7 @@ open class XJTULogin(
     }
 
     // OkHttp 客户端（带 Cookie 管理和重定向）
-    val client: OkHttpClient = existingClient ?: OkHttpClient.Builder()
+    val client: OkHttpClient = existingClient ?: HttpClients.base.newBuilder()
         .addInterceptor(BrotliInterceptor)
         .cookieJar(cookieJar ?: JavaNetCookieJar(cookieManager))
         .followRedirects(true)

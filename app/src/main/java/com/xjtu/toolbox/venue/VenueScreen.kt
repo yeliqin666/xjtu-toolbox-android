@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.venue
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -74,7 +75,7 @@ fun VenueScreen(
     val context = LocalContext.current
 
     val favoritesManager = remember { VenueFavorites(context) }
-    val favoriteIds by favoritesManager.favoriteIds.collectAsState()
+    val favoriteIds by favoritesManager.favoriteIds.collectAsStateWithLifecycle()
 
     val showFavoriteToast = remember { mutableStateOf<String?>(null) }
     LaunchedEffect(showFavoriteToast.value) {

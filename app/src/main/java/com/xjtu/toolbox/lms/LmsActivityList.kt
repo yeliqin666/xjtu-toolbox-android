@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.lms
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -65,7 +66,7 @@ internal fun ActivityListPage(
     var selecting by remember { mutableStateOf(false) }
     val picked = remember { mutableStateListOf<Int>() }
     var showBatchDialog by remember { mutableStateOf(false) }
-    val batchState by LmsBatchDownload.state.collectAsState()
+    val batchState by LmsBatchDownload.state.collectAsStateWithLifecycle()
     BackHandler(enabled = selecting) { selecting = false; picked.clear() }
 
     LaunchedEffect(selectedType) { cache.selectedTypes[course.id] = selectedType }

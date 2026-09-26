@@ -4,6 +4,7 @@ package com.xjtu.toolbox.community
 // DiscussionCommentActions.kt。界面改用 MIUIX，按论坛楼层重排：主帖卡片、N 楼、楼主标记、楼中楼预览、
 // 点赞、底部回帖栏、全屏编辑页（编辑 / 预览），删除走二次确认。
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.material.icons.filled.ThumbUp
@@ -66,7 +67,7 @@ fun DiscussionDetailScreen(
     fun update(value: GithubDiscussion) { discussion = value; onChanged(value) }
 
     val loader = remember(initial.id) { DiscussionCommentsLoader(scope) { cursor -> repo.comments(initial.id, cursor) } }
-    val comments by loader.state.collectAsState()
+    val comments by loader.state.collectAsStateWithLifecycle()
     var refreshing by remember { mutableStateOf(false) }
     var editor by remember { mutableStateOf<EditorTarget?>(null) }
     var deleting by remember { mutableStateOf<GithubDiscussionComment?>(null) }

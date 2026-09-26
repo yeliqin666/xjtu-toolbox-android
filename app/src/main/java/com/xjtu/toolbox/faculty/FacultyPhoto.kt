@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.faculty
 
+import com.xjtu.toolbox.network.HttpClients
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.LruCache
@@ -60,7 +61,7 @@ object FacultyPhotoLoader {
     private val failed = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
     private val client: OkHttpClient by lazy {
-        OkHttpClient.Builder()
+        HttpClients.base.newBuilder()
             .connectTimeout(8, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
             .build()

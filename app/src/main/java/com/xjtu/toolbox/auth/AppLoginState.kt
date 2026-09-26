@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.auth
 
+import com.xjtu.toolbox.network.HttpClients
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.async
@@ -391,7 +392,7 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
     }
 
     private val campusProbeClient by lazy {
-        okhttp3.OkHttpClient.Builder()
+        HttpClients.base.newBuilder()
             .connectTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
             .readTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
             .followRedirects(false)

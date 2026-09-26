@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.agent
 
+import com.xjtu.toolbox.network.HttpClients
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
@@ -33,7 +34,7 @@ class AgentRunner(private val tools: AgentToolRegistry) {
 
     companion object {
         // 共享连接池：每次 sendMessage 重用同一 OkHttpClient，避免泄漏
-        private val httpClient = OkHttpClient.Builder()
+        private val httpClient = HttpClients.base.newBuilder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(120, TimeUnit.SECONDS)   // 流式期间连接需保持更久
             .build()

@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.zyxf
 
+import com.xjtu.toolbox.network.HttpClients
 import android.content.Context
 import android.util.Log
 import com.xjtu.toolbox.lms.LmsDownloadStore
@@ -28,7 +29,7 @@ object ZyxfDownloader {
     private const val TAG = "ZyxfDownloader"
 
     private val client: OkHttpClient by lazy {
-        OkHttpClient.Builder()
+        HttpClients.base.newBuilder()
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
             .followRedirects(true)

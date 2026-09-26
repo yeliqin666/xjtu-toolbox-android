@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.update
 
+import com.xjtu.toolbox.network.HttpClients
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -12,7 +13,6 @@ import com.xjtu.toolbox.BuildConfig
 import com.xjtu.toolbox.bulletin.BulletinRules
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.security.MessageDigest
@@ -43,7 +43,7 @@ object AppUpdater {
         "GitHub",
     )
 
-    private val client = OkHttpClient.Builder()
+    private val client = HttpClients.base.newBuilder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
         .followRedirects(true)

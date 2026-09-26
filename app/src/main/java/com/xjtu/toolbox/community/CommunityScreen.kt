@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.community
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -46,7 +47,7 @@ fun CommunityScreen(onBack: () -> Unit, onOpenLegacyFeedback: () -> Unit) {
 private fun CommunityContent(onBack: () -> Unit, onOpenLegacyFeedback: () -> Unit) {
     val context = LocalContext.current
     val session = remember { GithubSession.get(context) }
-    val login by session.login.collectAsState()
+    val login by session.login.collectAsStateWithLifecycle()
     // 登录 / 退出时两套界面淡入淡出地换
     Crossfade(targetState = login, animationSpec = tween(300), label = "communityLogin") { signedIn ->
         if (signedIn == null) {
@@ -77,7 +78,7 @@ private fun CommunityForum(
         // miuix-nav 的页面没有 SavedStateRegistryOwner，不能 createSavedStateHandle()（会直接崩），草稿只放内存
         DiscussionsViewModel(CommunityRepo.OWNER, CommunityRepo.NAME, repo)
     }
-    val state by vm.state.collectAsState()
+    val state by vm.state.collectAsStateWithLifecycle()
     var open by remember { mutableStateOf<GithubDiscussion?>(null) }
     var accountDialog by remember { mutableStateOf(false) }
     val uriHandler = LocalUriHandler.current

@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.zyxf
 
+import com.xjtu.toolbox.network.HttpClients
 import android.util.Log
 import okhttp3.OkHttpClient
 import okhttp3.MediaType.Companion.toMediaType
@@ -49,7 +50,7 @@ object ZyxfApi {
     private const val MAX_TEXT_BYTES = 256 * 1024
 
     private val client: OkHttpClient by lazy {
-        OkHttpClient.Builder()
+        HttpClients.base.newBuilder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .build()

@@ -1,12 +1,12 @@
 package com.xjtu.toolbox.agent
 
+import com.xjtu.toolbox.network.HttpClients
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
@@ -32,7 +32,7 @@ import java.util.concurrent.TimeUnit
 object AgentTitleGen {
 
     private val json = "application/json; charset=utf-8".toMediaType()
-    private val client = OkHttpClient.Builder()
+    private val client = HttpClients.base.newBuilder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .build()

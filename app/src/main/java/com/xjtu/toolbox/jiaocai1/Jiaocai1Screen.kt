@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.jiaocai1
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -30,7 +31,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -115,7 +115,7 @@ internal fun Jiaocai1ShelfContent(
     loader: Jiaocai1PageLoader,
     onOpenBook: (ssno: String, title: String) -> Unit,
 ) {
-    val shelf by vm.shelf.collectAsState()
+    val shelf by vm.shelf.collectAsStateWithLifecycle()
     ShelfTab(
         items = shelf,
         loader = loader,

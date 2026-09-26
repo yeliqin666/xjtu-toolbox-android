@@ -1,9 +1,9 @@
 package com.xjtu.toolbox.agent.skin
 
+import com.xjtu.toolbox.network.HttpClients
 import com.google.gson.JsonParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -14,7 +14,7 @@ object PidaiSkinGithub {
     private const val MAX_JSON_BYTES = 1_048_576L
     private const val MAX_IMAGE_BYTES = 4 * 1_048_576L
     private val ownerRepo = Regex("^[A-Za-z0-9_.-]+$")
-    private val client = OkHttpClient.Builder()
+    private val client = HttpClients.base.newBuilder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .callTimeout(30, TimeUnit.SECONDS)

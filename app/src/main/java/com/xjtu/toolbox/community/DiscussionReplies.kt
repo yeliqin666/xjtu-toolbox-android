@@ -3,6 +3,7 @@ package com.xjtu.toolbox.community
 // 改编自 JoyinJoester/Etoile（GPL-3.0）：github/feature/discussions/DiscussionReplies.kt。
 // 改成论坛的「楼中楼」：默认露出前两条，点「查看全部」再拉完整列表；回复框统一走详情页的编辑页。
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.material.icons.filled.ThumbUp
@@ -36,7 +37,7 @@ internal fun DiscussionReplies(
 ) {
     val scope = rememberCoroutineScope()
     val loader = remember(comment.id) { DiscussionCommentsLoader(scope, load) }
-    val connection by loader.state.collectAsState()
+    val connection by loader.state.collectAsStateWithLifecycle()
     var full by remember(comment.id) { mutableStateOf(false) }
     var preview by remember(comment.id) { mutableStateOf(comment.previewReplies) }
     var deleted by remember(comment.id) { mutableIntStateOf(0) }
