@@ -4,6 +4,7 @@ package com.xjtu.toolbox.community
 // DiscussionCommentActions.kt。界面改用 MIUIX，按论坛楼层重排：主帖卡片、N 楼、楼主标记、楼中楼预览、
 // 表情回应、投票、引用、分享、关闭 / 锁定 / 折叠、底部回帖栏、全屏编辑页（编辑 / 预览）。
 
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
@@ -63,13 +64,17 @@ fun DiscussionDetailScreen(
     onDeleted: () -> Unit,
     onBack: () -> Unit,
 ) {
-    val scope = rememberCoroutineScope()
     val uriHandler = LocalUriHandler.current
-    var discussion by remember(initial.id) { mutableStateOf(initial) }
-    fun update(value: GithubDiscussion) { discussion = value; onChanged(value) }
-
-    val loader = remember(initial.id) { DiscussionCommentsLoader(scope) { cursor -> repo.comments(initial.id, cursor) } }
+    val context = LocalContext.current
+    val vm: DiscussionDetailViewModel = viewModel(key = "discussion-${initial.id}") { DiscussionDetailViewModel(initial, repo) }
+    val discussion = vm.discussion
+    val loader = vm.loader
     val comments by loader.state.collectAsStateWithLifecycle()
+    LaunchedEffect(vm) { vm.onShown() }
+    LaunchedEffect(vm) { vm.deleted.collect { onDeleted() } }
+    // 点赞、回复、编辑后把最新的帖子写回列表
+    LaunchedEffect(discussion) { onChanged(discussion) }
+
     var refreshing by remember { mutableStateOf(false) }
     var editor by remember { mutableStateOf<EditorTarget?>(null) }
     var deleting by remember { mutableStateOf<GithubDiscussionComment?>(null) }
@@ -77,13 +82,6 @@ fun DiscussionDetailScreen(
     var minimizing by remember { mutableStateOf<GithubDiscussionComment?>(null) }
     var closing by remember { mutableStateOf(false) }
     var locking by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf<String?>(null) }
-    // 某一楼刚收到新回复：把它的楼中楼展开并重新拉一遍
-    val replyRefresh = remember(initial.id) { mutableStateMapOf<String, Int>() }
-    // 楼中楼不在 loader 里：编辑 / 删除了其中一条，靠这个补丁通知各楼自己改
-    var patch by remember(initial.id) { mutableStateOf<ReplyPatch?>(null) }
-    // 刚发了新楼：拉完以后滚到最后一楼
-    var scrollToEnd by remember(initial.id) { mutableStateOf(false) }
     // 本帖参与者，写回复时 @ 联想用
     val participants = remember(discussion, comments.items) {
         buildList {
@@ -94,69 +92,14 @@ fun DiscussionDetailScreen(
             }
         }.distinctBy { it.login }
     }
-
-    fun reloadAll() {
-        loader.fetch(true)
-        scope.launch {
-            repo.detail(CommunityRepo.OWNER, CommunityRepo.NAME, initial.number).onSuccess { update(it) }
-        }
-    }
-    LaunchedEffect(initial.id) { reloadAll() }
     LaunchedEffect(comments.loading) { if (!comments.loading) refreshing = false }
 
-    fun reactDiscussion(content: String) {
-        val before = discussion
-        update(before.copy(reactions = before.reactions.toggled(content)))
-        scope.launch {
-            repo.react(before.id, content, !before.reactions.mine(content))
-                .onFailure { update(before); message = failureText("回应", it) }
-        }
-    }
-    fun reactComment(comment: GithubDiscussionComment, content: String, apply: (GithubDiscussionComment) -> Unit) {
-        apply(comment.copy(reactions = comment.reactions.toggled(content)))
-        scope.launch {
-            repo.react(comment.id, content, !comment.reactions.mine(content))
-                .onFailure { apply(comment); message = failureText("回应", it) }
-        }
-    }
-    fun vote(option: GithubPollOption) {
-        val before = discussion
-        val poll = before.poll ?: return
-        update(before.copy(poll = poll.votedFor(option.id)))
-        scope.launch { repo.vote(option.id).onFailure { update(before); message = failureText("投票", it) } }
-    }
-    /** 楼层和楼中楼都可能是它：两边都通知一遍。 */
-    fun patchComment(comment: GithubDiscussionComment) {
-        loader.edited(comment)
-        patch = ReplyPatch(edited = comment, deletedId = null, seq = (patch?.seq ?: 0) + 1)
-    }
-    /** 改帖子状态（关闭、锁定、采纳…），成功后整帖重拉拿最新权限。 */
-    fun moderate(action: String, call: suspend () -> Result<Unit>) {
-        scope.launch { call().fold(onSuccess = { reloadAll() }, onFailure = { message = failureText(action, it) }) }
-    }
-    fun minimize(comment: GithubDiscussionComment, classifier: String) {
-        scope.launch {
-            repo.minimize(comment.id, classifier).fold(
-                onSuccess = { patchComment(comment.copy(minimizedReason = classifier, canMinimize = false, canUnminimize = true)) },
-                onFailure = { message = failureText("折叠", it) },
-            )
-        }
-    }
-    fun unminimize(comment: GithubDiscussionComment) {
-        scope.launch {
-            repo.unminimize(comment.id).fold(
-                onSuccess = { patchComment(comment.copy(minimizedReason = null, canMinimize = true, canUnminimize = false)) },
-                onFailure = { message = failureText("取消折叠", it) },
-            )
-        }
-    }
-    val context = LocalContext.current
     // 楼层和楼中楼共用的「…」菜单
     fun commentMenu(comment: GithubDiscussionComment) = buildList {
         add(MenuAction("引用回复") { editor = EditorTarget.Quote(comment) })
         if (comment.url.isNotEmpty()) add(MenuAction("分享") { shareLink(context, discussion.title, comment.url) })
         if (comment.canEdit) add(MenuAction("编辑") { editor = EditorTarget.EditComment(comment) })
-        if (comment.canUnminimize && comment.minimized) add(MenuAction("取消折叠") { unminimize(comment) })
+        if (comment.canUnminimize && comment.minimized) add(MenuAction("取消折叠") { vm.unminimize(comment) })
         else if (comment.canMinimize && !comment.minimized) add(MenuAction("折叠") { minimizing = comment })
         if (comment.canDelete) add(MenuAction("删除", danger = true) { deleting = comment })
     }
@@ -174,11 +117,11 @@ fun DiscussionDetailScreen(
     LaunchedEffect(nearEnd, comments.cursor, comments.failed) {
         if (nearEnd && comments.cursor != null && !comments.failed && !comments.loading) loader.fetch(false)
     }
-    LaunchedEffect(scrollToEnd, comments.loading, comments.items.size) {
-        if (scrollToEnd && !comments.loading && comments.items.isNotEmpty()) {
+    LaunchedEffect(vm.scrollToEnd, comments.loading, comments.items.size) {
+        if (vm.scrollToEnd && !comments.loading && comments.items.isNotEmpty()) {
             // 前面有主帖和「全部回复」两项
             listState.animateScrollToItem(1 + comments.items.size)
-            scrollToEnd = false
+            vm.scrollToEnd = false
         }
     }
 
@@ -191,17 +134,7 @@ fun DiscussionDetailScreen(
             onDismiss = { deleting = null },
             onConfirm = {
                 deleting = null
-                scope.launch {
-                    repo.deleteComment(comment.id).fold(
-                        onSuccess = {
-                            val topLevel = comments.items.any { it.id == comment.id }
-                            loader.deleted(comment.id)
-                            if (topLevel) update(discussion.copy(comments = (discussion.comments - 1).coerceAtLeast(0)))
-                            else patch = ReplyPatch(edited = null, deletedId = comment.id, seq = (patch?.seq ?: 0) + 1)
-                        },
-                        onFailure = { message = failureText("删除", it) },
-                    )
-                }
+                vm.deleteComment(comment)
             },
         )
     }
@@ -213,12 +146,7 @@ fun DiscussionDetailScreen(
             onDismiss = { deletingPost = false },
             onConfirm = {
                 deletingPost = false
-                scope.launch {
-                    repo.deleteDiscussion(discussion.id).fold(
-                        onSuccess = { onDeleted() },
-                        onFailure = { message = failureText("删除", it) },
-                    )
-                }
+                vm.deleteDiscussion()
             },
         )
     }
@@ -228,7 +156,7 @@ fun DiscussionDetailScreen(
             summary = "折叠后默认只显示原因，别人点开仍能看到。",
             reasons = MINIMIZE_REASONS,
             onDismiss = { minimizing = null },
-            onPick = { minimizing = null; minimize(comment, it) },
+            onPick = { minimizing = null; vm.minimize(comment, it) },
         )
     }
     if (closing) {
@@ -237,7 +165,7 @@ fun DiscussionDetailScreen(
             summary = "关闭后仍可查看和回复，随时能重新打开。",
             reasons = CLOSE_REASONS,
             onDismiss = { closing = false },
-            onPick = { reason -> closing = false; moderate("关闭") { repo.close(discussion.id, reason) } },
+            onPick = { reason -> closing = false; vm.moderate("关闭") { close(discussion.id, reason) } },
         )
     }
     if (locking) {
@@ -246,11 +174,11 @@ fun DiscussionDetailScreen(
             summary = "锁定后只有管理员能回复和回应。",
             confirm = "锁定",
             onDismiss = { locking = false },
-            onConfirm = { locking = false; moderate("锁定") { repo.lock(discussion.id, true) } },
+            onConfirm = { locking = false; vm.moderate("锁定") { lock(discussion.id, true) } },
         )
     }
-    message?.let { text ->
-        LaunchedEffect(text) { kotlinx.coroutines.delay(2500); message = null }
+    vm.message?.let { text ->
+        LaunchedEffect(text) { kotlinx.coroutines.delay(2500); vm.message = null }
     }
 
 
@@ -268,22 +196,7 @@ fun DiscussionDetailScreen(
             discussion = discussion,
             onClose = { editor = null },
             mentionCandidates = participants,
-            onSubmit = { title, body ->
-                when (target) {
-                    EditorTarget.NewComment, is EditorTarget.Quote -> repo.reply(discussion.id, body).map {
-                        update(discussion.copy(comments = discussion.comments + 1))
-                        loader.fetch(true)
-                        scrollToEnd = true
-                    }
-                    is EditorTarget.ReplyTo -> repo.replyToComment(discussion.id, target.comment.id, body).map {
-                        comments.items.firstOrNull { it.id == target.comment.id }
-                            ?.let { loader.edited(it.copy(replyCount = it.replyCount + 1)) }
-                        replyRefresh[target.comment.id] = (replyRefresh[target.comment.id] ?: 0) + 1
-                    }
-                    is EditorTarget.EditComment -> repo.editComment(target.comment.id, body).map { patchComment(it) }
-                    EditorTarget.EditDiscussion -> repo.edit(discussion.id, title.orEmpty(), body).map { update(it) }
-                }
-            },
+            onSubmit = { title, body -> vm.submit(target, title, body) },
         )
     } else {
     CommunityPage(
@@ -298,14 +211,14 @@ fun DiscussionDetailScreen(
                 discussion = discussion,
                 canReply = canReply,
                 onReply = { editor = EditorTarget.NewComment },
-                onLike = { reactDiscussion(LIKE) },
+                onLike = { vm.reactDiscussion(LIKE) },
             )
         },
     ) { top ->
         PullToRefresh(
             refreshTexts = AppRefreshTexts,
             isRefreshing = refreshing,
-            onRefresh = { refreshing = true; reloadAll() },
+            onRefresh = { refreshing = true; vm.reloadAll() },
             contentPadding = PaddingValues(top = top),
             modifier = Modifier.fillMaxSize(),
         ) {
@@ -318,16 +231,16 @@ fun DiscussionDetailScreen(
                 item(key = "op") {
                     OriginalPost(
                         discussion = discussion,
-                        onReact = ::reactDiscussion,
-                        onVote = ::vote,
+                        onReact = vm::reactDiscussion,
+                        onVote = vm::vote,
                         menu = buildList {
                             if (discussion.canEdit) add(MenuAction("编辑") { editor = EditorTarget.EditDiscussion })
                             if (discussion.canClose && !discussion.closed) add(MenuAction("关闭帖子") { closing = true })
                             if (discussion.canReopen && discussion.closed) {
-                                add(MenuAction("重新打开") { moderate("重新打开") { repo.reopen(discussion.id) } })
+                                add(MenuAction("重新打开") { vm.moderate("重新打开") { reopen(discussion.id) } })
                             }
                             if (discussion.canModerate) {
-                                if (discussion.locked) add(MenuAction("解除锁定") { moderate("解除锁定") { repo.lock(discussion.id, false) } })
+                                if (discussion.locked) add(MenuAction("解除锁定") { vm.moderate("解除锁定") { lock(discussion.id, false) } })
                                 else add(MenuAction("锁定帖子") { locking = true })
                             }
                             if (discussion.canDelete) add(MenuAction("删除帖子", danger = true) { deletingPost = true })
@@ -339,7 +252,7 @@ fun DiscussionDetailScreen(
                         Text("全部回复", style = MiuixTheme.textStyles.headline2, fontWeight = FontWeight.SemiBold)
                         Spacer(Modifier.width(6.dp))
                         Text("${discussion.comments}", style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                        message?.let {
+                        vm.message?.let {
                             Spacer(Modifier.weight(1f))
                             Text(it, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.error)
                         }
@@ -352,15 +265,15 @@ fun DiscussionDetailScreen(
                         comment = comment,
                         op = discussion.author,
                         answerable = discussion.category.acceptsAnswers,
-                        refreshKey = replyRefresh[comment.id] ?: 0,
+                        refreshKey = vm.replyRefresh[comment.id] ?: 0,
                         repo = repo,
                         canReply = canReply,
-                        onReact = ::reactComment,
-                        onReactFloor = { content -> reactComment(comment, content) { loader.edited(it) } },
+                        onReact = vm::reactComment,
+                        onReactFloor = { content -> vm.reactComment(comment, content) { loader.edited(it) } },
                         onReply = { mention -> editor = EditorTarget.ReplyTo(comment, mention) },
                         menu = ::commentMenu,
-                        onToggleAnswer = { moderate("采纳") { repo.markAnswer(comment.id, !comment.isAnswer) } },
-                        patch = patch,
+                        onToggleAnswer = { vm.moderate("采纳") { markAnswer(comment.id, !comment.isAnswer) } },
+                        patch = vm.patch,
                     )
                 }
                 item(key = "footer") {
@@ -718,22 +631,4 @@ private fun CommunityEditorPage(
             }
         }
     }
-}
-
-/** 失败提示：带上 GitHub 返回的原因（权限 / 限流 / 网络），并写日志。 */
-private fun failureText(action: String, error: Throwable): String {
-    android.util.Log.w("Community", "$action failed", error)
-    val reason = when (error) {
-        is GithubSignedOutException -> "请先登录 GitHub"
-        is GithubApiException -> when {
-            error.rateLimited -> "GitHub 请求太频繁，等一会儿再试"
-            error.statusCode == 401 -> "GitHub 登录已失效，请重新登录"
-            error.statusCode == 403 -> "GitHub 拒绝了这次操作（HTTP 403）"
-            else -> "GitHub 返回 HTTP ${error.statusCode}"
-        }
-        is GithubDiscussionException -> error.message
-        is java.io.IOException -> "网络不通，检查网络后重试"
-        else -> error.message
-    }
-    return if (reason.isNullOrBlank()) "${action}没成功，稍后再试" else "${action}没成功：$reason"
 }
