@@ -3,7 +3,11 @@ package com.xjtu.toolbox.card
 import android.util.Log
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withTimeout
 import okhttp3.Request
 import java.time.LocalDate
 import java.time.YearMonth
@@ -104,19 +108,19 @@ class CampusCardApi(private val site: SiteSession) {
     private val baseUrl = "https://ncard.xjtu.edu.cn"
     private val dateFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd")
 
-    private fun execute(request: Request): String =
-        runBlocking { site.executeWithReAuth(request) }.use { response ->
+    private suspend fun execute(request: Request): String =
+        site.executeWithReAuth(request).use { response ->
             response.body?.string() ?: throw RuntimeException("空响应")
         }
 
     /**
      * 获取校园卡信息（余额、状态等）
      */
-    fun getCardInfo(): CardInfo {
+    suspend fun getCardInfo(): CardInfo {
         return getCardInfoInternal(allowRetry = true)
     }
 
-    private fun getCardInfoInternal(allowRetry: Boolean): CardInfo {
+    private suspend fun getCardInfoInternal(allowRetry: Boolean): CardInfo {
         val url = "$baseUrl/berserker-app/ykt/tsm/queryCard?synAccessSource=h5"
         val responseBody = execute(Request.Builder().url(url).get().build())
         Log.d(TAG, "getCardInfo: bodyLen=${responseBody.length}")
@@ -226,14 +230,14 @@ class CampusCardApi(private val site: SiteSession) {
      * @param pageSize 每页条数
      * @return Pair<总条数, 当页交易列表>
      */
-    fun getTransactions(
+    suspend fun getTransactions(
         startDate: LocalDate = LocalDate.now().minusMonths(3),
         endDate: LocalDate = LocalDate.now(),
         page: Int = 1,
         pageSize: Int = 30
     ): Pair<Int, List<Transaction>> = getTransactionsInternal(startDate, endDate, page, pageSize, allowRetry = true)
 
-    private fun getTransactionsInternal(
+    private suspend fun getTransactionsInternal(
         startDate: LocalDate,
         endDate: LocalDate,
         page: Int,
@@ -304,7 +308,7 @@ class CampusCardApi(private val site: SiteSession) {
      *
      * @param allowIncomplete 首页冷启动可以先拿前几页，其余走“加载更多”。
      */
-    fun getAllTransactions(
+    suspend fun getAllTransactions(
         startDate: LocalDate = LocalDate.now().minusMonths(3),
         endDate: LocalDate = LocalDate.now(),
         maxPages: Int = 80,
@@ -330,17 +334,17 @@ class CampusCardApi(private val site: SiteSession) {
         }
         if (records.size == total || totalPages <= 1) return records
 
-        val remaining = (2..totalPages).toList()
-        val executor = java.util.concurrent.Executors.newFixedThreadPool(minOf(remaining.size, 3))
-        try {
-            val futures = remaining.map { page ->
-                page to executor.submit<Pair<Int, List<Transaction>>> {
-                    getTransactions(startDate, endDate, page, pageSize)
-                }
+        // 其余分页最多 3 路并发，每页 45 秒超时
+        val pageDispatcher = Dispatchers.IO.limitedParallelism(3)
+        coroutineScope {
+            val pages = (2..totalPages).map { page ->
+                page to async(pageDispatcher) { withTimeout(45_000) { getTransactions(startDate, endDate, page, pageSize) } }
             }
-            for ((page, future) in futures) {
+            for ((page, deferred) in pages) {
                 val (pageTotal, batch) = try {
-                    future.get(45, java.util.concurrent.TimeUnit.SECONDS)
+                    deferred.await()
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     throw RuntimeException("查询校园卡流水第${page}页失败：${e.message ?: "网络异常"}", e)
                 }
@@ -358,8 +362,6 @@ class CampusCardApi(private val site: SiteSession) {
                     throw RuntimeException("查询校园卡流水返回的流水记录超过总数")
                 }
             }
-        } finally {
-            executor.shutdownNow()
         }
         if (records.size == total) return records
         if (allowIncomplete) return records

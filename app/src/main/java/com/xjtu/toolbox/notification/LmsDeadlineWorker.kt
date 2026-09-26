@@ -62,7 +62,7 @@ class LmsDeadlineWorker(
 
     private class Due(val id: String, val line: String)
 
-    private fun collectDue(api: LmsApi): List<Due> {
+    private suspend fun collectDue(api: LmsApi): List<Due> {
         val now = Instant.now()
         val horizon = now.plus(Duration.ofHours(AHEAD_HOURS))
         val result = mutableListOf<Pair<Instant, Due>>()

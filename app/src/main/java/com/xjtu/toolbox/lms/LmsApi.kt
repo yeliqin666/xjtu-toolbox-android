@@ -6,7 +6,6 @@ import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
-import kotlinx.coroutines.runBlocking
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -83,7 +82,7 @@ class LmsApi(private val site: SiteSession) {
      * 获取当前登录用户基本信息
      * 返回值来自 /user/index 页面中的 globalData.user
      */
-    fun getUserInfo(refresh: Boolean = false): LmsUserInfo {
+    suspend fun getUserInfo(refresh: Boolean = false): LmsUserInfo {
         if (cachedUserInfo != null && !refresh) return cachedUserInfo!!
 
         val page = getIndexPage()
@@ -113,7 +112,7 @@ class LmsApi(private val site: SiteSession) {
     /**
      * 获取我的课程列表
      */
-    fun getMyCourses(): List<LmsCourseSummary> {
+    suspend fun getMyCourses(): List<LmsCourseSummary> {
         val data = postJson("$baseUrl/api/my-courses")
         val courses = data?.getAsJsonArray("courses") ?: return emptyList()
         return courses.mapNotNull { elem ->
@@ -130,7 +129,7 @@ class LmsApi(private val site: SiteSession) {
     /**
      * 获取课程活动列表
      */
-    fun getCourseActivities(courseId: Int): List<LmsActivity> {
+    suspend fun getCourseActivities(courseId: Int): List<LmsActivity> {
         val data = getJson("$baseUrl/api/courses/$courseId/activities")
         if (data == null) {
             Log.w(TAG, "getCourseActivities($courseId): 响应为空或非 JSON 对象")
@@ -163,7 +162,7 @@ class LmsApi(private val site: SiteSession) {
      * [brief] 传列表里那条（[getCourseActivities] 的返回值）：**详情接口不返回 `deadline`**
      * （实测 79 个键里没有，只有列表有），不传就只能退回 `endTime`。
      */
-    fun getActivityDetail(activityId: Int, brief: LmsActivity? = null): LmsActivity {
+    suspend fun getActivityDetail(activityId: Int, brief: LmsActivity? = null): LmsActivity {
         val data = getJson("$baseUrl/api/activities/$activityId")
             ?: throw RuntimeException("获取活动详情失败")
         var detail = extractActivityDetail(data)
@@ -184,7 +183,7 @@ class LmsApi(private val site: SiteSession) {
 
     // ── 内部方法 ──────────────────────
 
-    private fun injectMarkedAttachments(sub: LmsSubmissionItem): LmsSubmissionItem {
+    private suspend fun injectMarkedAttachments(sub: LmsSubmissionItem): LmsSubmissionItem {
         if (sub.uploads.isEmpty()) return sub
         return try {
             val data = getJson("$baseUrl/api/submissions/${sub.id}/marked_attachments") ?: return sub
@@ -218,19 +217,19 @@ class LmsApi(private val site: SiteSession) {
      * 活动未结束时 200 或 302 到 media.xjtu.edu.cn（带 timestamp/token）；
      * 已结束时学堂直接 403。不要再换别的 URL。
      */
-    fun downloadToStream(url: String, outputStream: java.io.OutputStream): Boolean {
+    suspend fun downloadToStream(url: String, outputStream: java.io.OutputStream): Boolean {
         return pullToStream(url, outputStream) == LmsDownloadResult.Ok
     }
 
-    fun downloadUpload(upload: LmsUpload, outputStream: java.io.OutputStream): LmsDownloadResult {
+    suspend fun downloadUpload(upload: LmsUpload, outputStream: java.io.OutputStream): LmsDownloadResult {
         val url = blobUrl(upload) ?: upload.attachmentUrl.takeIf { it.isNotBlank() }
         if (url.isNullOrBlank()) return LmsDownloadResult.Failed
         return pullToStream(url, outputStream)
     }
 
-    fun downloadBytes(url: String): ByteArray? = pullToBytes(url)
+    suspend fun downloadBytes(url: String): ByteArray? = pullToBytes(url)
 
-    fun downloadUploadBytes(upload: LmsUpload): ByteArray? {
+    suspend fun downloadUploadBytes(upload: LmsUpload): ByteArray? {
         val url = blobUrl(upload) ?: return null
         return pullToBytes(url)
     }
@@ -241,9 +240,9 @@ class LmsApi(private val site: SiteSession) {
         else -> null
     }
 
-    private fun pullToStream(url: String, outputStream: java.io.OutputStream): LmsDownloadResult {
+    private suspend fun pullToStream(url: String, outputStream: java.io.OutputStream): LmsDownloadResult {
         return try {
-            val resp = runBlocking { site.executeWithReAuth(authenticatedRequest(url).get().build()) }
+            val resp = site.executeWithReAuth(authenticatedRequest(url).get().build())
             resp.use { r ->
                 when {
                     r.code == 403 -> {
@@ -267,9 +266,9 @@ class LmsApi(private val site: SiteSession) {
         }
     }
 
-    private fun pullToBytes(url: String): ByteArray? {
+    private suspend fun pullToBytes(url: String): ByteArray? {
         return try {
-            val resp = runBlocking { site.executeWithReAuth(authenticatedRequest(url).get().build()) }
+            val resp = site.executeWithReAuth(authenticatedRequest(url).get().build())
             resp.use { r ->
                 if (!r.isSuccessful) {
                     Log.w(TAG, "downloadBytes $url → HTTP ${r.code}")
@@ -283,16 +282,16 @@ class LmsApi(private val site: SiteSession) {
         }
     }
 
-    private fun getIndexPage(): String {
+    private suspend fun getIndexPage(): String {
         val req = authenticatedRequest("$baseUrl/user/index").get().build()
-        val resp = runBlocking { site.executeWithReAuth(req) }
+        val resp = site.executeWithReAuth(req)
         return resp.body?.use { it.string() } ?: ""
     }
 
-    private fun getJson(url: String, headers: Map<String, String>? = null): JsonObject? {
+    private suspend fun getJson(url: String, headers: Map<String, String>? = null): JsonObject? {
         val builder = authenticatedRequest(url).get()
         headers?.forEach { (k, v) -> builder.header(k, v) }
-        val resp = runBlocking { site.executeWithReAuth(builder.build()) }
+        val resp = site.executeWithReAuth(builder.build())
         val body = resp.body?.use { it.string() } ?: return null
         return try {
             body.safeParseJsonObject()
@@ -302,12 +301,12 @@ class LmsApi(private val site: SiteSession) {
         }
     }
 
-    private fun postJson(url: String): JsonObject? {
+    private suspend fun postJson(url: String): JsonObject? {
         val emptyBody = "".toRequestBody("application/json".toMediaType())
         val req = authenticatedRequest(url)
             .post(emptyBody)
             .build()
-        val resp = runBlocking { site.executeWithReAuth(req) }
+        val resp = site.executeWithReAuth(req)
         val body = resp.body?.use { it.string() } ?: return null
         return try {
             body.safeParseJsonObject()
@@ -326,7 +325,7 @@ class LmsApi(private val site: SiteSession) {
 
     // ── 作业提交列表 ──────────────────────
 
-    private fun getSubmissionList(
+    private suspend fun getSubmissionList(
         activityId: Int,
         userId: Int? = null,
         groupId: Int? = null,
@@ -354,7 +353,7 @@ class LmsApi(private val site: SiteSession) {
 
     // ── 课堂回放视频 ──────────────────────
 
-    private fun getLessonPlayerUrl(lessonActivityId: Int): String {
+    private suspend fun getLessonPlayerUrl(lessonActivityId: Int): String {
         val data = getJson("$baseUrl/api/lessons/$lessonActivityId/player-url?from_page=course")
             ?: throw RuntimeException("获取播放器 URL 失败")
         return data.get("url").safeString()
@@ -362,7 +361,7 @@ class LmsApi(private val site: SiteSession) {
             ?: throw RuntimeException("播放器 URL 为空")
     }
 
-    private fun getLessonPlayerToken(lessonActivityId: Int): String {
+    private suspend fun getLessonPlayerToken(lessonActivityId: Int): String {
         playerTokenCache[lessonActivityId]?.let { return it }
         val playerUrl = getLessonPlayerUrl(lessonActivityId)
         val token = try {
@@ -373,7 +372,7 @@ class LmsApi(private val site: SiteSession) {
         return token
     }
 
-    private fun exchangeEmbedToken(playerToken: String): String {
+    private suspend fun exchangeEmbedToken(playerToken: String): String {
         val data = getJson("$rmsBaseUrl/api/v1/auth/embed-token?token=$playerToken")
             ?: throw RuntimeException("embed-token 交换失败")
 
@@ -392,7 +391,7 @@ class LmsApi(private val site: SiteSession) {
             ?: throw RuntimeException("embed-token 返回空 rms_token")
     }
 
-    private fun getLessonRmsToken(lessonActivityId: Int): String {
+    private suspend fun getLessonRmsToken(lessonActivityId: Int): String {
         rmsTokenCache[lessonActivityId]?.let { return it }
         val playerToken = getLessonPlayerToken(lessonActivityId)
         val rmsToken = exchangeEmbedToken(playerToken)
@@ -400,7 +399,7 @@ class LmsApi(private val site: SiteSession) {
         return rmsToken
     }
 
-    private fun getReplayVideos(
+    private suspend fun getReplayVideos(
         replayCode: String,
         lessonActivityId: Int? = null
     ): List<LmsReplayVideo> {
@@ -543,7 +542,7 @@ class LmsApi(private val site: SiteSession) {
         )
     }
 
-    private fun extractActivityDetail(obj: JsonObject): LmsActivity {
+    private suspend fun extractActivityDetail(obj: JsonObject): LmsActivity {
         val typeStr = obj.get("type").safeString() ?: ""
         val type = LmsActivityType.fromString(typeStr)
         val dataObj = obj.get("data").safeObject()

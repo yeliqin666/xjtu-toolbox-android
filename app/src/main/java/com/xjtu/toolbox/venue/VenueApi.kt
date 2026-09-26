@@ -10,7 +10,6 @@ import com.xjtu.toolbox.auth.AuthExpiredException
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.VenueLogin
 import com.xjtu.toolbox.auth.XJTULogin
-import kotlinx.coroutines.runBlocking
 import okhttp3.FormBody
 import okhttp3.Request
 import org.jsoup.Jsoup
@@ -72,11 +71,11 @@ class VenueApi(private val site: SiteSession) {
     private fun ajaxRequest(url: String, referer: String): Request.Builder =
         request(url, referer).header("X-Requested-With", "XMLHttpRequest")
 
-    private fun execute(builder: Request.Builder) =
-        runBlocking { site.executeWithReAuth(builder.build()) }
+    private suspend fun execute(builder: Request.Builder) =
+        site.executeWithReAuth(builder.build())
 
     /** 取 JSON 文本；拿到 HTML 说明服务端在讲人话（多半是「未到预订时间」）。 */
-    private fun fetchJson(builder: Request.Builder): String {
+    private suspend fun fetchJson(builder: Request.Builder): String {
         val response = execute(builder)
         val code = response.code
         val contentType = response.header("Content-Type").orEmpty().lowercase()
@@ -212,7 +211,7 @@ class VenueApi(private val site: SiteSession) {
     // ─── API 方法 ─────────────────────────────────────────
 
     /** 场馆列表。分页拉到返回不足一页为止。 */
-    fun fetchVenueList(): List<Venue> {
+    suspend fun fetchVenueList(): List<Venue> {
         val venues = mutableListOf<Venue>()
         var page = 1
         while (page <= 20) {
@@ -247,14 +246,14 @@ class VenueApi(private val site: SiteSession) {
      * 某天的时段。findOkArea 给可订的，findLockArea 给已被占的，
      * 两者合并后 UI 才能把「满了」和「没有这个时段」区分开。
      */
-    fun fetchAvailableSlots(serviceid: Int, date: String): List<AreaSlot> {
+    suspend fun fetchAvailableSlots(serviceid: Int, date: String): List<AreaSlot> {
         val ok = fetchSlots("findOkArea", serviceid, date)
         val locked = runCatching { fetchSlots("findLockArea", serviceid, date) }
             .getOrDefault(emptyList())
         return (ok + locked).sortedWith(compareBy({ it.timeSlot }, { it.areaName }))
     }
 
-    private fun fetchSlots(action: String, serviceid: Int, date: String): List<AreaSlot> {
+    private suspend fun fetchSlots(action: String, serviceid: Int, date: String): List<AreaSlot> {
         val url = "$BASE/product/$action.html?s_date=$date&serviceid=$serviceid"
         val body = fetchJson(ajaxRequest(url, "$BASE/product/show.html?id=$serviceid"))
         val root = runCatching { JsonParser.parseString(body) }.getOrNull() ?: return emptyList()
@@ -285,7 +284,7 @@ class VenueApi(private val site: SiteSession) {
     }
 
     /** 滑块验证码。注意在站点根路径，不带 `/web/`。 */
-    fun generateCaptcha(serviceid: Int): CaptchaData {
+    suspend fun generateCaptcha(serviceid: Int): CaptchaData {
         val body = fetchJson(ajaxRequest("$ROOT/gen", "$BASE/product/show.html?id=$serviceid"))
         val json = gson.fromJson(body, JsonObject::class.java)
         val captcha = json.getAsJsonObject("captcha")
@@ -337,7 +336,7 @@ class VenueApi(private val site: SiteSession) {
      * 服务端有两个已知怪癖，都靠重试同一份请求解决：首次 POST 可能直接返回 404；
      * 即便 200，同一个 yzm 首次提交也可能被误判成「验证码有误」。
      */
-    fun submitBooking(
+    suspend fun submitBooking(
         serviceid: Int,
         pendingOrder: PendingOrder,
         captchaId: String,
@@ -405,7 +404,7 @@ class VenueApi(private val site: SiteSession) {
      * 不同版本服务端上既可能是 JSON 数组，也可能包在 `rows`/`object` 中，
      * 解析器会统一兼容。
      */
-    fun fetchOrders(page: Int = 1, pageSize: Int = 20): OrderPage {
+    suspend fun fetchOrders(page: Int = 1, pageSize: Int = 20): OrderPage {
         require(page >= 1) { "订单页码必须从 1 开始" }
         require(pageSize in 1..100) { "订单分页大小无效" }
 
@@ -431,7 +430,7 @@ class VenueApi(private val site: SiteSession) {
     }
 
     /** 取消订单。服务端成功码通常是 `1`，同时兼容旧部署的布尔/文本返回值。 */
-    fun cancelOrder(orderId: String): OrderActionResult {
+    suspend fun cancelOrder(orderId: String): OrderActionResult {
         require(orderId.isNotBlank()) { "订单号不能为空" }
         val form = FormBody.Builder()
             .add("orderid", orderId)

@@ -14,7 +14,7 @@ import com.xjtu.toolbox.util.safeString
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.coroutineScope
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 
@@ -39,7 +39,7 @@ class JwappScheduleApi(site: SiteSession) {
     private val jsonType = "application/json".toMediaType()
 
     /** 学期代码与总周数。jwapp 自己说当前学期是哪个，比外部猜一个可靠。 */
-    fun basis(): TimeTableBasis = api.getTimeTableBasis()
+    suspend fun basis(): TimeTableBasis = api.getTimeTableBasis()
 
     /**
      * 整学期课表。
@@ -47,7 +47,7 @@ class JwappScheduleApi(site: SiteSession) {
      * @param termCode 学期代码，必须是 jwapp 的当前学期
      * @param maxWeekNum 学期总周数，来自 [basis]
      */
-    fun getSchedule(termCode: String, maxWeekNum: Int): JwappScheduleResult {
+    suspend fun getSchedule(termCode: String, maxWeekNum: Int): JwappScheduleResult {
         require(maxWeekNum in 1..MAX_REASONABLE_WEEKS) { "jwapp 给的学期周数不可信：$maxWeekNum" }
 
         val weekly = queryAllWeeks(maxWeekNum, termCode)
@@ -79,14 +79,14 @@ class JwappScheduleApi(site: SiteSession) {
      * 一口气把二十个连接甩给学校网关。`executeWithReAuth` 本身按登录代数处理并发
      * 重认证，几个协程同时撞上令牌过期也只会重登一次。
      */
-    private fun queryAllWeeks(maxWeekNum: Int, termCode: String): List<Pair<Int, WeekRaw>> =
-        runBlocking {
+    private suspend fun queryAllWeeks(maxWeekNum: Int, termCode: String): List<Pair<Int, WeekRaw>> =
+        coroutineScope {
             (1..maxWeekNum).chunked(WEEK_FETCH_CONCURRENCY).flatMap { chunk ->
                 chunk.map { week -> async(Dispatchers.IO) { week to queryWeek(week, termCode) } }.awaitAll()
             }
         }
 
-    private fun queryWeek(week: Int, termCode: String): WeekRaw {
+    private suspend fun queryWeek(week: Int, termCode: String): WeekRaw {
         val payload = JsonObject().apply {
             addProperty("skzc", week)
             addProperty("xnxqdm", termCode)

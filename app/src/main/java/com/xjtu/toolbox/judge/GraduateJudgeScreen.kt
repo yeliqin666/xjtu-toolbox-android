@@ -81,7 +81,7 @@ fun GraduateJudgeScreen(
     suspend fun ensureApi(): GraduateJudgeApi = api ?: withContext(Dispatchers.IO) {
         GraduateJudgeApi(
             gste = sessionManager.ensureSite("gste", userInitiated = true),
-            gmisProvider = { kotlinx.coroutines.runBlocking { sessionManager.ensureSite("gmis", userInitiated = true) } },
+            gmisProvider = { sessionManager.ensureSite("gmis", userInitiated = true) },
         )
     }.also { api = it }
 

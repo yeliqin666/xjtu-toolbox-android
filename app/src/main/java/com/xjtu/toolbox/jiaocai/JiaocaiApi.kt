@@ -8,7 +8,6 @@ import com.xjtu.toolbox.util.safeParseJsonObject
 import com.xjtu.toolbox.util.safeString
 import com.xjtu.toolbox.util.safeInt
 import okhttp3.Request
-import kotlinx.coroutines.runBlocking
 
 private const val TAG = "JiaocaiApi"
 
@@ -40,7 +39,7 @@ class JiaocaiApi(private val site: SiteSession) {
     private val PAGE_ID get() = "13858"
     private val SEARCH_ID get() = "10700"
 
-    private fun get(url: String): String {
+    private suspend fun get(url: String): String {
         val req = Request.Builder().url(url)
             .header("Referer", "$BASE/")
             .header("X-Requested-With", "XMLHttpRequest")
@@ -59,11 +58,11 @@ class JiaocaiApi(private val site: SiteSession) {
         return body
     }
 
-    private fun exec(request: Request): String =
-        runBlocking { site.executeWithReAuth(request) }.use { it.body?.string() ?: "" }
+    private suspend fun exec(request: Request): String =
+        site.executeWithReAuth(request).use { it.body?.string() ?: "" }
 
     /** 搜索教材，返回书目列表 */
-    fun search(keyword: String, page: Int = 1, pageSize: Int = 20): List<JiaocaiBook> {
+    suspend fun search(keyword: String, page: Int = 1, pageSize: Int = 20): List<JiaocaiBook> {
         return try {
             val url = "$BASE/engine2/search/search-list" +
                     "?wfwfid=$FID" +
@@ -111,7 +110,7 @@ class JiaocaiApi(private val site: SiteSession) {
      * search-list 返回的 `content` 已经被服务端剥掉了 `<a>`，只剩"获取方式一：本地全文"
      * 这段文字，链接和 ssno 都不在里面；详情接口才带完整富文本。所以进详情页时补一次。
      */
-    fun fetchSsno(book: JiaocaiBook): String? {
+    suspend fun fetchSsno(book: JiaocaiBook): String? {
         val numericId = book.id.substringAfterLast('_').takeIf { it.isNotBlank() } ?: return null
         return try {
             val html = get(

@@ -5,7 +5,6 @@ import com.google.gson.JsonObject
 import com.xjtu.toolbox.auth.AuthExpiredException
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
-import kotlinx.coroutines.runBlocking
 import okhttp3.Request
 
 /**
@@ -106,8 +105,8 @@ class HelloApi(private val site: SiteSession) {
     }
 
     /** 拉取学生档案。失败抛异常，由调用方决定是否退回缓存。 */
-    fun getProfile(): HelloProfile {
-        val body = runBlocking { site.executeWithReAuth(api("/yingxin/user/afterLogin").get().build()) }
+    suspend fun getProfile(): HelloProfile {
+        val body = site.executeWithReAuth(api("/yingxin/user/afterLogin").get().build())
             .use { it.body?.string() ?: throw RuntimeException("个人信息接口返回空响应") }
 
         val json = body.safeParseJsonObject()

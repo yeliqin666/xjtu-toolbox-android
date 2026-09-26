@@ -2090,7 +2090,7 @@ class AgentToolRegistry(
         }
     }
 
-    private fun librarySeatsIn(
+    private suspend fun librarySeatsIn(
         api: com.xjtu.toolbox.library.LibraryApi,
         campus: com.xjtu.toolbox.library.LibraryCampus,
         area: String?,
@@ -2347,7 +2347,7 @@ class AgentToolRegistry(
         }
     }
 
-    private fun findLmsCourse(
+    private suspend fun findLmsCourse(
         api: com.xjtu.toolbox.lms.LmsApi,
         course: String?
     ): com.xjtu.toolbox.lms.LmsCourseSummary? {
@@ -2358,7 +2358,7 @@ class AgentToolRegistry(
         }
     }
 
-    private fun findLmsActivity(
+    private suspend fun findLmsActivity(
         api: com.xjtu.toolbox.lms.LmsApi,
         courseId: Int,
         activity: String?

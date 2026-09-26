@@ -8,7 +8,6 @@ import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.FormBody
 import okhttp3.Request
-import kotlinx.coroutines.runBlocking
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -37,10 +36,10 @@ class TranscriptApi(private val site: SiteSession) {
     private val userId get() = site.localToken["user_id"] ?: error("未登录")
     private val gson = Gson()
 
-    private fun execute(request: Request): String =
-        runBlocking { site.executeWithReAuth(request) }.use { it.body?.string().orEmpty() }
+    private suspend fun execute(request: Request): String =
+        site.executeWithReAuth(request).use { it.body?.string().orEmpty() }
 
-    private fun execute(builder: Request.Builder): String = execute(builder.build())
+    private suspend fun execute(builder: Request.Builder): String = execute(builder.build())
 
     // ══════════════════════════════════════
     //  数据类
@@ -94,7 +93,7 @@ class TranscriptApi(private val site: SiteSession) {
     //  Step 1: 加载创建表单
     // ══════════════════════════════════════
 
-    fun loadCreateForm(workflowId: Int): FormContext {
+    suspend fun loadCreateForm(workflowId: Int): FormContext {
         Log.d(TAG, "loadCreateForm: workflowId=$workflowId")
         val body = FormBody.Builder()
             .add("beagenter", "0")
@@ -170,7 +169,7 @@ class TranscriptApi(private val site: SiteSession) {
     //  Step 2: 联动查询 — 获取学号/入学年/模板
     // ══════════════════════════════════════
 
-    fun getLinkageData(ctx: FormContext, typeValue: Int): LinkageResult {
+    suspend fun getLinkageData(ctx: FormContext, typeValue: Int): LinkageResult {
         Log.d(TAG, "getLinkageData: typeValue=$typeValue")
 
         // 联动 1: 获取学号和入学年（触发字段 field7250=userId + field7243）
@@ -257,7 +256,7 @@ class TranscriptApi(private val site: SiteSession) {
     //  Step 3: 生成成绩单预览 PDF
     // ══════════════════════════════════════
 
-    fun generatePreviewPdf(workflowId: Int, typeValue: Int): String {
+    suspend fun generatePreviewPdf(workflowId: Int, typeValue: Int): String {
         Log.d(TAG, "generatePreviewPdf: wfId=$workflowId, type=$typeValue")
         val body = FormBody.Builder()
             .add("reqid", "-1")
@@ -283,7 +282,7 @@ class TranscriptApi(private val site: SiteSession) {
     //  Step 4: 第一次提交（创建流程 → 获取 requestId）
     // ══════════════════════════════════════
 
-    fun submitCreate(
+    suspend fun submitCreate(
         ctx: FormContext,
         linkage: LinkageResult,
         typeValue: Int,
@@ -389,7 +388,7 @@ class TranscriptApi(private val site: SiteSession) {
     //  Step 5: 重新加载 → 校验 → 第二次提交
     // ══════════════════════════════════════
 
-    fun reloadAndForward(
+    suspend fun reloadAndForward(
         ctx: FormContext,
         firstResult: SubmitResult,
         typeValue: Int
@@ -610,7 +609,7 @@ class TranscriptApi(private val site: SiteSession) {
     //  Step 6: 获取下载链接
     // ══════════════════════════════════════
 
-    fun getDownloadInfo(secondResult: SubmitResult): DownloadInfo {
+    suspend fun getDownloadInfo(secondResult: SubmitResult): DownloadInfo {
         Log.d(TAG, "getDownloadInfo: requestId=${secondResult.requestId}")
 
         val body = FormBody.Builder()
@@ -678,14 +677,14 @@ class TranscriptApi(private val site: SiteSession) {
     //  Step 7: 下载 PDF
     // ══════════════════════════════════════
 
-    fun downloadPdf(url: String): ByteArray {
+    suspend fun downloadPdf(url: String): ByteArray {
         Log.d(TAG, "downloadPdf: url=${url.redactUrl()}")
         val request = Request.Builder()
             .url(url)
             .header("Referer", "$BASE/spa/workflow/static4form/index.html")
             .get()
             .build()
-        val response = runBlocking { site.executeWithReAuth(request) }
+        val response = site.executeWithReAuth(request)
         if (response.code != 200) {
             error("下载失败：HTTP ${response.code}")
         }

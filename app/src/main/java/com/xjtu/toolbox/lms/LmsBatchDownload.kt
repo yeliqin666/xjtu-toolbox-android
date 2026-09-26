@@ -218,7 +218,7 @@ object LmsBatchDownload {
     internal fun sanitize(name: String): String =
         name.replace(Regex("""[\\/:*?"<>| -]+"""), "_").trim().trim('.').ifBlank { "file" }.take(120)
 
-    private fun save(context: Context, api: LmsApi, f: FileJob): LmsDownloadResult {
+    private suspend fun save(context: Context, api: LmsApi, f: FileJob): LmsDownloadResult {
         val mime = f.upload?.type?.takeIf { '/' in it } ?: guessMime(f.name)
         val cv = ContentValues().apply {
             put(MediaStore.Downloads.DISPLAY_NAME, f.name)

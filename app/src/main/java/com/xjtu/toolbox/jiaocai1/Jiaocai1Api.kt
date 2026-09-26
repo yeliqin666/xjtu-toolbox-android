@@ -5,7 +5,6 @@ import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.PortalRedirect
 import com.xjtu.toolbox.util.safeParseJsonObject
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import okhttp3.FormBody
@@ -96,7 +95,7 @@ data class Jiaocai1BookHandle(
  */
 class Jiaocai1Api(private val site: SiteSession) {
 
-    private fun fetch(request: Request): String {
+    private suspend fun fetch(request: Request): String {
         var body = exec(request, "biz")
         var round = 0
         while (PortalRedirect.needsLogin(body) && round < PortalRedirect.MAX_ROUNDS) {
@@ -111,13 +110,13 @@ class Jiaocai1Api(private val site: SiteSession) {
         return body
     }
 
-    private fun exec(request: Request, @Suppress("UNUSED_PARAMETER") tag: String): String =
-        runBlocking { site.executeWithReAuth(request) }.use { resp ->
+    private suspend fun exec(request: Request, @Suppress("UNUSED_PARAMETER") tag: String): String =
+        site.executeWithReAuth(request).use { resp ->
             val bytes = resp.body?.bytes() ?: ByteArray(0)
             bytes.decodeSmart()
         }
 
-    private fun get(url: String, referer: String = "$BASE/front/"): String =
+    private suspend fun get(url: String, referer: String = "$BASE/front/"): String =
         fetch(
             Request.Builder().url(url)
                 .header("Referer", referer)
@@ -128,7 +127,7 @@ class Jiaocai1Api(private val site: SiteSession) {
     // ── 分类树 ───────────────────────────────────────────────────────
 
     /** 四级中图法分类树，返回顶层节点。 */
-    fun classifyTree(): List<Jiaocai1Category> {
+    suspend fun classifyTree(): List<Jiaocai1Category> {
         var body = ""
         return try {
             body = get("$BASE/front/classify/info?channeltype=$CHANNEL")
@@ -168,7 +167,7 @@ class Jiaocai1Api(private val site: SiteSession) {
      *
      * 请求体按 UTF-8 编码，服务端 URIEncoding 就是 UTF-8。
      */
-    fun search(
+    suspend fun search(
         keyword: String = "",
         field: Jiaocai1SearchField = Jiaocai1SearchField.BOOK_NAME,
         cls: String = "",
@@ -233,7 +232,7 @@ class Jiaocai1Api(private val site: SiteSession) {
     /**
      * 用 [ssno] 换阅读句柄。同一本书并发 open 会让先拿到的令牌失效，所以按 ssno 单飞。
      */
-    fun openBook(ssno: String): Jiaocai1BookHandle? = runBlocking {
+    suspend fun openBook(ssno: String): Jiaocai1BookHandle? {
         val (wait, mine) = openMutex.withLock {
             opening[ssno]?.let { it to false } ?: run {
                 val deferred = CompletableDeferred<Jiaocai1BookHandle?>()
@@ -241,8 +240,8 @@ class Jiaocai1Api(private val site: SiteSession) {
                 deferred to true
             }
         }
-        if (!mine) return@runBlocking wait.await()
-        try {
+        if (!mine) return wait.await()
+        return try {
             val result = openBookOnce(ssno)
             wait.complete(result)
             result
@@ -254,7 +253,7 @@ class Jiaocai1Api(private val site: SiteSession) {
         }
     }
 
-    private fun openBookOnce(ssno: String): Jiaocai1BookHandle? {
+    private suspend fun openBookOnce(ssno: String): Jiaocai1BookHandle? {
         parseReader(ssno, get("$BASE/front/reader/goRead?ssno=$ssno&channel=$CHANNEL&jpgread=1"))
             ?.let { return it }
         return try {

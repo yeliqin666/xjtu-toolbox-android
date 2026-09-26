@@ -21,12 +21,12 @@ class AttendanceApi(private val site: SiteSession) {
     private val jsonType = "application/json".toMediaType()
     @Volatile private var cachedTerms: List<TermInfo> = emptyList()
 
-    private fun getJson(path: String, query: Map<String, String> = emptyMap()): JsonObject {
+    private suspend fun getJson(path: String, query: Map<String, String> = emptyMap()): JsonObject {
         val req = Request.Builder().url(KqHttp.buildUrl(site, path, query)).get().build()
         return KqHttp.execute(site, req, path, retryable = true)
     }
 
-    fun getStudentInfo(): Map<String, Any> {
+    suspend fun getStudentInfo(): Map<String, Any> {
         val root = getJson("/student/profile")
         var obj = KqHttp.dataObject(root)
         obj = KqHttp.obj(obj.get("user")) ?: KqHttp.obj(obj.get("student")) ?: obj
@@ -39,7 +39,7 @@ class AttendanceApi(private val site: SiteSession) {
         )
     }
 
-    fun getTermList(): List<TermInfo> {
+    suspend fun getTermList(): List<TermInfo> {
         val root = getJson("/student/service/timetable/semesters")
         val rows = KqHttp.rows(root.get("data")).ifEmpty { KqHttp.rows(root) }
         val terms = rows.mapNotNull { row ->
@@ -72,7 +72,7 @@ class AttendanceApi(private val site: SiteSession) {
      * 标志位，也不用为此多打一次请求。日期兜底只在列表异常（比如年初还没排出新学期）
      * 时才用得上。
      */
-    fun getTermBh(): String {
+    suspend fun getTermBh(): String {
         val terms = cachedTerms.ifEmpty { getTermList() }
         if (terms.isEmpty()) return ""
         val first = terms.first()
@@ -86,7 +86,7 @@ class AttendanceApi(private val site: SiteSession) {
             ?: first.bh
     }
 
-    fun getWaterRecords(termBh: String? = null, startDate: String = "", endDate: String = ""): List<AttendanceWaterRecord> {
+    suspend fun getWaterRecords(termBh: String? = null, startDate: String = "", endDate: String = ""): List<AttendanceWaterRecord> {
         val terms = cachedTerms.ifEmpty { runCatching { getTermList() }.getOrDefault(emptyList()) }
         val bh = termBh ?: getTermBh()
         val term = terms.firstOrNull { it.bh == bh }
@@ -121,7 +121,7 @@ class AttendanceApi(private val site: SiteSession) {
         }.sortedWith(compareByDescending<AttendanceWaterRecord> { it.date }.thenByDescending { it.startTime })
     }
 
-    fun getKqtjCurrentWeek(): List<CourseAttendanceStat> {
+    suspend fun getKqtjCurrentWeek(): List<CourseAttendanceStat> {
         return try {
             val root = getJson("/student/pc/home/attendance-statistics")
             parseCourseStats(root.get("data")).ifEmpty { parseCourseStats(root) }
@@ -137,7 +137,7 @@ class AttendanceApi(private val site: SiteSession) {
         }
     }
 
-    fun getKqtjByTime(startDate: String, endDate: String): List<CourseAttendanceStat> {
+    suspend fun getKqtjByTime(startDate: String, endDate: String): List<CourseAttendanceStat> {
         val bh = getTermBh()
         val rows = try {
             fetchAttendanceRecords(bh, normalizeDate(startDate), normalizeDate(endDate))
@@ -155,7 +155,7 @@ class AttendanceApi(private val site: SiteSession) {
      * 靠 weekRanges 区分，如 "1-8,10-16"）。调用方（[com.xjtu.toolbox.schedule.ScheduleSourceRouter]）
      * 负责按 (name, teacher, room, day, start, end) 合并这些行。
      */
-    fun getWeeklyTimetable(semesterId: String): List<KqTimetableRow> {
+    suspend fun getWeeklyTimetable(semesterId: String): List<KqTimetableRow> {
         val root = getJson("/student/service/timetable/weekly", mapOf("semesterId" to semesterId))
         val data = KqHttp.obj(root.get("data"))
         val courseRows = data?.get("courses")?.let { KqHttp.rows(it) } ?: KqHttp.rows(root.get("data"))
@@ -205,7 +205,7 @@ class AttendanceApi(private val site: SiteSession) {
      * 这类跨端共用的接口才没有这一段。我们登录时申请的就是 `student-pc` 终端，
      * 路径也要对上同一个终端。
      */
-    private fun fetchAttendanceRecords(term: String, startDate: String, endDate: String): List<JsonObject> {
+    private suspend fun fetchAttendanceRecords(term: String, startDate: String, endDate: String): List<JsonObject> {
         val data = JsonObject().apply {
             addProperty("startDate", startDate)
             addProperty("endDate", endDate)
@@ -231,7 +231,7 @@ class AttendanceApi(private val site: SiteSession) {
     /**
      * 考勤打卡流水分页，跟 [fetchAttendanceRecords] 同一套接口形状，字段不同。
      */
-    fun getStreams(startDate: String, endDate: String): List<AttendanceStream> {
+    suspend fun getStreams(startDate: String, endDate: String): List<AttendanceStream> {
         val data = JsonObject().apply {
             addProperty("startDate", startDate)
             addProperty("endDate", endDate)
@@ -252,7 +252,7 @@ class AttendanceApi(private val site: SiteSession) {
      * （2000 条），避免账号数据异常时无限翻页。以前是单页 pageSize=500 硬取，
      * 数据量一旦超过 500 条（比如整年流水）后面的就直接丢了。
      */
-    private fun fetchAllPages(path: String, data: JsonObject): List<JsonObject> {
+    private suspend fun fetchAllPages(path: String, data: JsonObject): List<JsonObject> {
         val pageSize = 50
         val maxPages = 40
         val result = mutableListOf<JsonObject>()

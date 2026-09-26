@@ -10,7 +10,6 @@ import com.xjtu.toolbox.util.safeInt
 import com.xjtu.toolbox.util.safeDouble
 import okhttp3.FormBody
 import okhttp3.Request
-import kotlinx.coroutines.runBlocking
 
 private const val TAG = "SchoolCourseApi"
 private const val BASE_URL = "https://jwxt.xjtu.edu.cn"
@@ -98,14 +97,14 @@ class SchoolCourseApi(private val site: SiteSession) {
     /**
      * 确保应用会话就绪：先访问 kcbcx 首页让服务器初始化 session
      */
-    private fun ensureAppInitialized() {
+    private suspend fun ensureAppInitialized() {
         if (appInitialized) return
         try {
             val req = Request.Builder()
                 .url("$appBase/*default/index.do")
                 .header("Accept", "text/html")
                 .build()
-            runBlocking { site.executeWithReAuth(req) }.close()
+            site.executeWithReAuth(req).close()
             appInitialized = true
         } catch (e: Exception) {
             Log.w(TAG, "ensureAppInitialized failed", e)
@@ -115,7 +114,7 @@ class SchoolCourseApi(private val site: SiteSession) {
     // ── 下拉选项查询 ──
 
     /** 获取当前学期 */
-    fun getCurrentTerm(): String {
+    suspend fun getCurrentTerm(): String {
         ensureAppInitialized()
         val request = kcbcxPost("$appBase/modules/bjkcb/dqxnxq.do")
 
@@ -128,7 +127,7 @@ class SchoolCourseApi(private val site: SiteSession) {
     }
 
     /** 获取所有学期列表 */
-    fun getTermList(): List<TermOption> {
+    suspend fun getTermList(): List<TermOption> {
         ensureAppInitialized()
         val request = kcbcxPost(
             "$appBase/modules/bjkcb/xnxqcx.do",
@@ -152,7 +151,7 @@ class SchoolCourseApi(private val site: SiteSession) {
     }
 
     /** 获取开课单位列表 */
-    fun getDepartments(): List<DepartmentOption> {
+    suspend fun getDepartments(): List<DepartmentOption> {
         ensureAppInitialized()
         // /jwapp/code/* 与空教室的校区字典同类：不带 kcbcx Referer + XHR 头时 rows 经常是空的。
         val request = kcbcxPost("$BASE_URL/jwapp/code/44e02e19-e31b-4916-91b2-0a04380cbd3a.do")
@@ -214,7 +213,7 @@ class SchoolCourseApi(private val site: SiteSession) {
      * @param pageSize 每页条数
      * @param pageNumber 页码
      */
-    fun queryCourses(
+    suspend fun queryCourses(
         termCode: String,
         courseName: String? = null,
         courseCode: String? = null,
@@ -387,6 +386,6 @@ class SchoolCourseApi(private val site: SiteSession) {
             .header("Referer", kcbcxReferer)
             .build()
 
-    private fun execute(request: Request): String =
-        runBlocking { site.executeWithReAuth(request) }.use { it.body?.string().orEmpty() }
+    private suspend fun execute(request: Request): String =
+        site.executeWithReAuth(request).use { it.body?.string().orEmpty() }
 }

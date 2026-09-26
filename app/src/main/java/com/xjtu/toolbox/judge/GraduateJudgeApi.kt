@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.judge
 
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
@@ -11,7 +13,6 @@ import com.xjtu.toolbox.util.safeBoolean
 import com.xjtu.toolbox.util.safeParseJsonObject
 import com.xjtu.toolbox.util.safeString
 import com.xjtu.toolbox.util.safeStringOrNull
-import kotlinx.coroutines.runBlocking
 import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -155,18 +156,22 @@ data class GraduateLessonInfo(
  */
 class GraduateJudgeApi(
     private val gste: SiteSession,
-    private val gmisProvider: () -> SiteSession,
+    private val gmisProvider: suspend () -> SiteSession,
 ) {
-    private val gmis: SiteSession by lazy { gmisProvider() }
+    private val gmisLock = Mutex()
+    private var gmisSession: SiteSession? = null
 
-    private fun execute(site: SiteSession, request: Request): String =
-        runBlocking { site.executeWithReAuth(request) }.use { response ->
+    private suspend fun gmis(): SiteSession =
+        gmisSession ?: gmisLock.withLock { gmisSession ?: gmisProvider().also { gmisSession = it } }
+
+    private suspend fun execute(site: SiteSession, request: Request): String =
+        site.executeWithReAuth(request).use { response ->
             if (!response.isSuccessful) throw RuntimeException("${site.siteName} HTTP ${response.code}")
             response.body?.string() ?: ""
         }
 
     /** 本学期全部问卷；已评 / 待评看 [GraduateQuestionnaire.finished]。 */
-    fun getQuestionnaires(): List<GraduateQuestionnaire> {
+    suspend fun getQuestionnaires(): List<GraduateQuestionnaire> {
         val body = execute(gste, Request.Builder().url(GsteSession.LIST_URL).get().build())
         val array = runCatching { JsonParser.parseString(body).asJsonArray }.getOrNull()
             ?: throw RuntimeException("评教问卷列表格式错误")
@@ -185,7 +190,7 @@ class GraduateJudgeApi(
         }
     }
 
-    fun getQuestionnaireData(q: GraduateQuestionnaire): GraduateQuestionnaireData {
+    suspend fun getQuestionnaireData(q: GraduateQuestionnaire): GraduateQuestionnaireData {
         val url = FORM_URL.toHttpUrl().newBuilder().apply {
             q.params().forEach { (k, v) -> addQueryParameter(k, v) }
         }.build()
@@ -194,22 +199,21 @@ class GraduateJudgeApi(
     }
 
     /** gmis 课程详情；学年按 9 月切换，与网页默认一致。 */
-    fun getLessonInfo(kcbh: String, today: LocalDate = LocalDate.now()): GraduateLessonInfo {
+    suspend fun getLessonInfo(kcbh: String, today: LocalDate = LocalDate.now()): GraduateLessonInfo {
         val year = if (today.monthValue >= 9) today.year else today.year - 1
-        val html = execute(
-            gmis,
+        val html = execute(gmis(),
             Request.Builder().url("https://gmis.xjtu.edu.cn/pyxx/pygl/kckk/view/new/$kcbh/$year").get().build()
         )
         return parseLessonInfo(Jsoup.parse(html))
     }
 
     /** 成绩页「学位课程」表里的课程名，用来判断问卷的「选修情况」。 */
-    fun getDegreeCourseNames(): Set<String> {
-        val html = execute(gmis, Request.Builder().url(GmisSession.SCORE_URL).get().build())
+    suspend fun getDegreeCourseNames(): Set<String> {
+        val html = execute(gmis(), Request.Builder().url(GmisSession.SCORE_URL).get().build())
         return parseDegreeCourseNames(Jsoup.parse(html))
     }
 
-    fun submitQuestionnaire(q: GraduateQuestionnaire, data: GraduateQuestionnaireData) {
+    suspend fun submitQuestionnaire(q: GraduateQuestionnaire, data: GraduateQuestionnaireData) {
         val missing = data.unansweredRequired()
         if (missing.isNotEmpty()) throw IllegalStateException("「${q.kcmc}」还有 ${missing.size} 道必填题没填")
         val fields = LinkedHashMap<String, String>().apply {
@@ -227,7 +231,7 @@ class GraduateJudgeApi(
     }
 
     /** 自动评完一门：拉题目 → 取课程信息 → 填写 → 提交。 */
-    fun autoJudge(q: GraduateQuestionnaire, degreeCourses: Set<String>, grade: Int = 3) {
+    suspend fun autoJudge(q: GraduateQuestionnaire, degreeCourses: Set<String>, grade: Int = 3) {
         val data = getQuestionnaireData(q)
         val lesson = getLessonInfo(q.kcbh)
         completeQuestionnaire(q, data, lesson, isDegreeCourse = q.kcmc in degreeCourses, grade = grade)

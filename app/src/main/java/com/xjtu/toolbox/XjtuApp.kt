@@ -24,7 +24,8 @@ import kotlinx.coroutines.launch
  * 其余启动钩子（性能打点 / 渠道开关）保持空。
  */
 class XjtuApp : Application() {
-    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    /** 应用级协程作用域：跟随进程存活，给页面销毁后仍要做完的收尾工作（如保存进度）用。 */
+    val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /**
      * 已下线功能留在本机的数据。功能删了，数据留着既无用处也不该留（交晓智会话里是
@@ -58,13 +59,13 @@ class XjtuApp : Application() {
     override fun onCreate() {
         super.onCreate()
         CrashReporter.install(this)
-        appScope.launch { CrashReporter.uploadPending(this@XjtuApp) }
-        appScope.launch { removeRetiredFeatureData() }
+        applicationScope.launch { CrashReporter.uploadPending(this@XjtuApp) }
+        applicationScope.launch { removeRetiredFeatureData() }
         AppNotificationChannels.ensureChannels(this)
         ErrorReporting.install(FileErrorReporter(this))
         // 后台调度要读账号（AccountStore → 加密存储首次打开要走 keystore），不占主线程。
         // 顺带预热了 SecurePrefs 的缓存，首帧里界面再取账号时直接命中。
-        appScope.launch {
+        applicationScope.launch {
             com.xjtu.toolbox.notification.NoticeWatchScheduler.apply(this@XjtuApp)
             com.xjtu.toolbox.notification.ScheduleWatchScheduler.apply(this@XjtuApp)
             com.xjtu.toolbox.notification.LmsDeadlineScheduler.apply(this@XjtuApp)

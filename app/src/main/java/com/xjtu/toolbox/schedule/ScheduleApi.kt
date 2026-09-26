@@ -4,7 +4,6 @@ import com.xjtu.toolbox.util.redactBody
 import com.xjtu.toolbox.util.redactUrl
 import android.util.Log
 import com.xjtu.toolbox.auth.SiteSession
-import kotlinx.coroutines.runBlocking
 import com.google.gson.JsonObject
 import com.xjtu.toolbox.util.safeInt
 import com.xjtu.toolbox.util.safeParseJsonObject
@@ -153,12 +152,12 @@ class ScheduleApi(private val site: SiteSession) {
         if (mc != null) termNameCache[code] = mc
     }
 
-    private fun execute(request: Request): String =
-        runBlocking { site.executeWithReAuth(request) }.use { response ->
+    private suspend fun execute(request: Request): String =
+        site.executeWithReAuth(request).use { response ->
             response.body?.string() ?: throw RuntimeException("空响应")
         }
 
-    fun getCurrentTerm(): String {
+    suspend fun getCurrentTerm(): String {
         cachedTermCode?.let { return it }
         val request = Request.Builder()
             .url("$baseUrl/jwapp/sys/wdkb/modules/jshkcb/dqxnxq.do")
@@ -187,7 +186,7 @@ class ScheduleApi(private val site: SiteSession) {
         return code
     }
 
-    fun getSchedule(termCode: String? = null): List<CourseItem> {
+    suspend fun getSchedule(termCode: String? = null): List<CourseItem> {
         val term = termCode ?: getCurrentTerm()
         val formBody = FormBody.Builder().add("XNXQDM", term).build()
         val request = Request.Builder()
@@ -230,7 +229,7 @@ class ScheduleApi(private val site: SiteSession) {
         }
     }
 
-    fun getExamSchedule(termCode: String? = null): List<ExamItem> {
+    suspend fun getExamSchedule(termCode: String? = null): List<ExamItem> {
         val term = termCode ?: getCurrentTerm()
         val formBody = FormBody.Builder()
             .add("XNXQDM", term)
@@ -275,7 +274,7 @@ class ScheduleApi(private val site: SiteSession) {
         }
     }
 
-    fun getStartOfTerm(termCode: String? = null): LocalDate {
+    suspend fun getStartOfTerm(termCode: String? = null): LocalDate {
         val term = termCode ?: getCurrentTerm()
         val parts = term.split("-")
         val formBody = FormBody.Builder()
@@ -305,7 +304,7 @@ class ScheduleApi(private val site: SiteSession) {
      * @param termCode 学期代码
      * @return 教材列表
      */
-    fun getTextbooks(studentId: String, termCode: String? = null): List<TextbookItem> {
+    suspend fun getTextbooks(studentId: String, termCode: String? = null): List<TextbookItem> {
         val term = termCode ?: getCurrentTerm()
         Log.d(TAG, "getTextbooks: studentId=$studentId, term=$term")
 
@@ -322,7 +321,7 @@ class ScheduleApi(private val site: SiteSession) {
             .post(initBody)
             .header("Referer", "$frUrl?__cumulatepagenumber__=false")
             .build()
-        var html = runBlocking { site.executeWithReAuth(initRequest) }.use { resp ->
+        var html = site.executeWithReAuth(initRequest).use { resp ->
             Log.d(TAG, "getTextbooks: init code=${resp.code}, url=${resp.request.url.redactUrl()}")
             resp.body?.string() ?: ""
         }
@@ -350,7 +349,7 @@ class ScheduleApi(private val site: SiteSession) {
                 .post(formBuilder.build())
                 .header("Referer", "$frUrl?__cumulatepagenumber__=false")
                 .build()
-            html = runBlocking { site.executeWithReAuth(resubmitRequest) }.use { resp ->
+            html = site.executeWithReAuth(resubmitRequest).use { resp ->
                 Log.d(TAG, "getTextbooks: resubmit code=${resp.code}, url=${resp.request.url.redactUrl()}")
                 resp.body?.string() ?: ""
             }
@@ -441,7 +440,7 @@ class ScheduleApi(private val site: SiteSession) {
         return pattern.find(html)?.groupValues?.get(1)?.toIntOrNull() ?: 1
     }
 
-    private fun fetchAndParseContent(sessionId: String): List<TextbookItem> {
+    private suspend fun fetchAndParseContent(sessionId: String): List<TextbookItem> {
         val frUrl = "$baseUrl/jwapp/sys/frReport2/show.do"
         // 获取第一页（需要 X-Requested-With + Referer 模拟 AJAX 请求，否则 FR 返回错误页）
         val firstPageUrl = "$frUrl?_=${System.currentTimeMillis()}&__boxModel__=true&op=page_content&sessionID=$sessionId&pn=1"
@@ -451,7 +450,7 @@ class ScheduleApi(private val site: SiteSession) {
             .header("X-Requested-With", "XMLHttpRequest")
             .header("Referer", frUrl)
             .build()
-        val firstPageHtml = runBlocking { site.executeWithReAuth(firstPageReq) }.use { it.body?.string() ?: "" }
+        val firstPageHtml = site.executeWithReAuth(firstPageReq).use { it.body?.string() ?: "" }
         Log.d(TAG, "getTextbooks: page 1 len=${firstPageHtml.length}, preview=${firstPageHtml.redactBody(300)}")
 
         // 检测 FineReport 错误页
@@ -475,7 +474,7 @@ class ScheduleApi(private val site: SiteSession) {
                 .header("X-Requested-With", "XMLHttpRequest")
                 .header("Referer", frUrl)
                 .build()
-            val pageHtml = runBlocking { site.executeWithReAuth(pageReq) }.use { it.body?.string() ?: "" }
+            val pageHtml = site.executeWithReAuth(pageReq).use { it.body?.string() ?: "" }
             Log.d(TAG, "getTextbooks: page $pn len=${pageHtml.length}")
             allItems.addAll(parseTextbookTable(pageHtml))
         }
@@ -686,7 +685,7 @@ class ScheduleApi(private val site: SiteSession) {
      * 获取可用学期列表（从教务系统查询）
      * @return 学期代码列表，如 ["2024-2025-2", "2024-2025-1", "2023-2024-2", ...]
      */
-    fun getTermList(): List<String> {
+    suspend fun getTermList(): List<String> {
         // 注意：execute 也要包进 try——它抛异常时必须回退生成学期，否则上层拿到空列表，学期切换永远不显示
         return try {
             val request = Request.Builder()
@@ -713,7 +712,7 @@ class ScheduleApi(private val site: SiteSession) {
     }
 
     /** 基于当前学期生成最近 8 个学期；网络拿不到当前学期时按本地日期推算，保证永不为空。 */
-    private fun generateRecentTerms(): List<String> {
+    private suspend fun generateRecentTerms(): List<String> {
         val current = runCatching { getCurrentTerm() }.getOrNull()
             ?.takeIf { it.split("-").size == 3 && it.split("-").all { p -> p.toIntOrNull() != null } }
             ?: currentTermFromDate()

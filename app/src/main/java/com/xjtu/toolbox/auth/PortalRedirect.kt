@@ -57,7 +57,7 @@ object PortalRedirect {
      * 跟完整条链。[fetchPage] 负责发一次 GET 并返回页面文本。
      * 返回 true 表示链条自然走完（可以重发原请求），false 表示中途打转或失败。
      */
-    fun follow(startPage: String, tag: String, fetchPage: (String) -> String): Boolean {
+    suspend fun follow(startPage: String, tag: String, fetchPage: suspend (String) -> String): Boolean {
         var page = startPage
         val seen = mutableSetOf<String>()
         repeat(MAX_HOPS) { i ->

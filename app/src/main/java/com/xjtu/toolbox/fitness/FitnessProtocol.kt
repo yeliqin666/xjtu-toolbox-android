@@ -6,7 +6,6 @@ import com.google.gson.JsonParser
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.webvpn.WebVpnUtil
 import com.xjtu.toolbox.util.safeParseJsonObject
-import kotlinx.coroutines.runBlocking
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -161,7 +160,7 @@ object FitnessProtocol {
         }
     }
 
-    fun postEncrypted(
+    suspend fun postEncrypted(
         site: SiteSession,
         path: String,
         extra: Map<String, Any>,
@@ -171,7 +170,7 @@ object FitnessProtocol {
             ?: throw RuntimeException("体测会话未初始化")
         val payload = buildApiPayload(session, extra)
         val request = encryptedRequest("$API_V3/$path", payload, referer)
-        return runBlocking { site.executeWithReAuth(request) }.use { response ->
+        return site.executeWithReAuth(request).use { response ->
             val text = response.body?.string().orEmpty()
             if (!response.isSuccessful) throw RuntimeException("体测服务响应 ${response.code}")
             text

@@ -4,7 +4,6 @@ import com.xjtu.toolbox.util.redactBody
 import android.util.Log
 import com.google.gson.Gson
 import com.xjtu.toolbox.auth.SiteSession
-import kotlinx.coroutines.runBlocking
 import com.xjtu.toolbox.util.safeString
 import com.xjtu.toolbox.util.safeStringOrNull
 import com.xjtu.toolbox.util.safeDouble
@@ -144,8 +143,8 @@ class JwappApi(private val site: SiteSession) {
             .url(url)
             .header("User-Agent", BROWSER_UA)
 
-    internal fun execute(request: okhttp3.Request.Builder): String =
-        runBlocking { site.executeWithReAuth(request.build()) }.use { response ->
+    internal suspend fun execute(request: okhttp3.Request.Builder): String =
+        site.executeWithReAuth(request.build()).use { response ->
             response.body?.string() ?: throw RuntimeException("空响应")
         }
 
@@ -155,7 +154,7 @@ class JwappApi(private val site: SiteSession) {
     private var cachedBasisTime: Long = 0L
     private val BASIS_TTL_MS = 60L * 60 * 1000L  // 1 小时
 
-    fun getGrade(termCode: String? = null): List<TermScore> {
+    suspend fun getGrade(termCode: String? = null): List<TermScore> {
         val code = termCode ?: "*"
         val json = gson.toJson(mapOf("termCode" to code))
         val body = json.toRequestBody("application/json".toMediaType())
@@ -214,7 +213,7 @@ class JwappApi(private val site: SiteSession) {
         }
     }
 
-    fun getDetail(courseId: String): ScoreDetail {
+    suspend fun getDetail(courseId: String): ScoreDetail {
         val json = gson.toJson(mapOf("id" to courseId))
         val body = json.toRequestBody("application/json".toMediaType())
 
@@ -275,7 +274,7 @@ class JwappApi(private val site: SiteSession) {
         )
     }
 
-    fun getTimeTableBasis(): TimeTableBasis {
+    suspend fun getTimeTableBasis(): TimeTableBasis {
         // [J1] 优先返回缓存（1h TTL，防跨学期过期）
         cachedBasis?.let {
             if (System.currentTimeMillis() - cachedBasisTime < BASIS_TTL_MS) return it
@@ -310,9 +309,9 @@ class JwappApi(private val site: SiteSession) {
         ).also { cachedBasis = it; cachedBasisTime = System.currentTimeMillis() }
     }
 
-    fun getCurrentTerm(): String = getTimeTableBasis().termCode
+    suspend fun getCurrentTerm(): String = getTimeTableBasis().termCode
 
-    fun getTermList(): List<Pair<String, String>> {
+    suspend fun getTermList(): List<Pair<String, String>> {
         val allGrades = getGrade(null)
         return allGrades.map { it.termCode to it.termName }
     }

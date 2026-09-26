@@ -4,7 +4,6 @@ import android.util.Log
 import com.xjtu.toolbox.auth.AuthExpiredException
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.XJTULogin
-import kotlinx.coroutines.runBlocking
 import okhttp3.FormBody
 import okhttp3.Request
 import org.jsoup.Jsoup
@@ -23,8 +22,8 @@ class IclassfaceApi(private val site: SiteSession) {
         private const val TAG = "IclassfaceApi"
     }
 
-    private fun execute(builder: Request.Builder) =
-        runBlocking { site.executeWithReAuth(builder.build()) }
+    private suspend fun execute(builder: Request.Builder) =
+        site.executeWithReAuth(builder.build())
 
     /** 一条签到/刷卡记录 */
     data class CheckinRecord(
@@ -39,7 +38,7 @@ class IclassfaceApi(private val site: SiteSession) {
      * 查询指定日期的签到记录（默认今天）。
      * 返回空列表表示当天确实没有任何记录（含"还没刷上卡"的情况）。
      */
-    fun fetchRecords(date: LocalDate = LocalDate.now()): List<CheckinRecord> {
+    suspend fun fetchRecords(date: LocalDate = LocalDate.now()): List<CheckinRecord> {
         val dateStr = date.toString()
         val formBody = FormBody.Builder().add("date", dateStr).build()
         val response = execute(

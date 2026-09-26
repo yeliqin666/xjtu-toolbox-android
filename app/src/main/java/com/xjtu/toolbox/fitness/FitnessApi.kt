@@ -4,7 +4,6 @@ import com.google.gson.JsonObject
 import com.xjtu.toolbox.auth.AuthExpiredException
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
-import kotlinx.coroutines.runBlocking
 import okhttp3.FormBody
 import okhttp3.Request
 
@@ -86,7 +85,7 @@ class FitnessApi(private val site: SiteSession) {
     private val refererUrl
         get() = site.localToken["referer_url"] ?: FitnessProtocol.H5_HOME_URL
 
-    fun getYears(): List<FitnessYear> {
+    suspend fun getYears(): List<FitnessYear> {
         val data = fetchData(
             v3Path = "fitness/fitnessYear",
             extra = mapOf("from" to 1),
@@ -109,7 +108,7 @@ class FitnessApi(private val site: SiteSession) {
         }
     }
 
-    fun getScore(yearNum: String): FitnessScore {
+    suspend fun getScore(yearNum: String): FitnessScore {
         val data = fetchData(
             v3Path = "Report/getStudentScore",
             extra = mapOf("year_num" to yearNum),
@@ -153,7 +152,7 @@ class FitnessApi(private val site: SiteSession) {
         )
     }
 
-    private fun fetchData(
+    private suspend fun fetchData(
         v3Path: String,
         extra: Map<String, Any>,
         phpPath: String,
@@ -183,9 +182,8 @@ class FitnessApi(private val site: SiteSession) {
         return dataElement.asJsonObject
     }
 
-    private fun postLegacy(url: String, body: FormBody) =
-        runBlocking {
-            site.executeWithReAuth(
+    private suspend fun postLegacy(url: String, body: FormBody) =
+        site.executeWithReAuth(
                 Request.Builder()
                     .url(url)
                     .header("Origin", FitnessProtocol.ORIGIN)
@@ -193,8 +191,7 @@ class FitnessApi(private val site: SiteSession) {
                     .header("X-Requested-With", "XMLHttpRequest")
                     .post(body)
                     .build()
-            )
-        }.use { response ->
+            ).use { response ->
             val text = response.body?.string().orEmpty()
             if (!response.isSuccessful) throw RuntimeException("体测服务响应 ${response.code}")
             val root = text.safeParseJsonObject()

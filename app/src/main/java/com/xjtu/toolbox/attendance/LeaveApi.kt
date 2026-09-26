@@ -14,7 +14,7 @@ class LeaveApi(private val site: SiteSession) {
 
     private val jsonType = "application/json".toMediaType()
 
-    fun getSemesterWindow(): LeaveSemesterWindow {
+    suspend fun getSemesterWindow(): LeaveSemesterWindow {
         val data = KqHttp.dataObject(getJson("/student/leaves/semester-window"))
         return LeaveSemesterWindow(
             semesterId = KqHttp.str(data, "semesterId", "termId", "id"),
@@ -26,7 +26,7 @@ class LeaveApi(private val site: SiteSession) {
         )
     }
 
-    fun getFlowPreview(type: LeaveType): LeaveFlowPreview {
+    suspend fun getFlowPreview(type: LeaveType): LeaveFlowPreview {
         val data = KqHttp.dataObject(getJson("/student/leaves/flow-preview", mapOf("leaveType" to type.code)))
         val approvers = KqHttp.rows(data.get("nextApprovers")).map { parseApprover(it) }
         val nodes = KqHttp.rows(data.get("nodes")).map { node ->
@@ -45,7 +45,7 @@ class LeaveApi(private val site: SiteSession) {
         )
     }
 
-    fun getLeavePage(
+    suspend fun getLeavePage(
         pageNum: Int = 1,
         pageSize: Int = 20,
         status: String = "",
@@ -77,7 +77,7 @@ class LeaveApi(private val site: SiteSession) {
         return LeavePage(parsed, KqHttp.int(data, "total", "totalCount", "count"), remotePage, remoteSize)
     }
 
-    fun uploadEvidence(fileName: String, contentType: String, bytes: ByteArray): JsonObject {
+    suspend fun uploadEvidence(fileName: String, contentType: String, bytes: ByteArray): JsonObject {
         val mime = contentType.ifBlank { "application/octet-stream" }
         val body = MultipartBody.Builder().setType(MultipartBody.FORM)
             .addFormDataPart(
@@ -95,7 +95,7 @@ class LeaveApi(private val site: SiteSession) {
         return data
     }
 
-    fun createLeave(
+    suspend fun createLeave(
         type: LeaveType,
         startTime: String,
         endTime: String,
@@ -119,7 +119,7 @@ class LeaveApi(private val site: SiteSession) {
         return KqHttp.str(data, "leaveId", "id")
     }
 
-    fun withdrawLeave(leaveId: String, reason: String, requestId: String = UUID.randomUUID().toString()) {
+    suspend fun withdrawLeave(leaveId: String, reason: String, requestId: String = UUID.randomUUID().toString()) {
         val body = JsonObject().apply {
             addProperty("requestId", requestId)
             addProperty("reason", reason)
@@ -127,17 +127,17 @@ class LeaveApi(private val site: SiteSession) {
         postJson("/student/leaves/${encode(leaveId)}/withdraw", body, retryable = false)
     }
 
-    fun cancelLeave(leaveId: String, requestId: String = UUID.randomUUID().toString()) {
+    suspend fun cancelLeave(leaveId: String, requestId: String = UUID.randomUUID().toString()) {
         val body = JsonObject().apply { addProperty("requestId", requestId) }
         postJson("/student/leaves/${encode(leaveId)}/cancel", body, retryable = false)
     }
 
-    private fun getJson(path: String, query: Map<String, String> = emptyMap()): JsonObject {
+    private suspend fun getJson(path: String, query: Map<String, String> = emptyMap()): JsonObject {
         val req = Request.Builder().url(KqHttp.buildUrl(site, path, query)).get().build()
         return KqHttp.execute(site, req, path, retryable = true)
     }
 
-    private fun postJson(path: String, body: JsonObject, retryable: Boolean): JsonObject {
+    private suspend fun postJson(path: String, body: JsonObject, retryable: Boolean): JsonObject {
         val req = Request.Builder()
             .url(KqHttp.buildUrl(site, path))
             .post(body.toString().toRequestBody(jsonType))

@@ -6,7 +6,6 @@ import com.xjtu.toolbox.util.safeParseJsonObject
 import com.xjtu.toolbox.util.safeString
 import com.xjtu.toolbox.util.safeStringOrNull
 import com.xjtu.toolbox.util.safeInt
-import kotlinx.coroutines.runBlocking
 import okhttp3.FormBody
 import okhttp3.Request
 
@@ -153,8 +152,8 @@ class JudgeApi(private val site: SiteSession) {
     private var cachedTerm: String? = null
     private var appInitialized = false
 
-    private fun execute(request: Request): String =
-        runBlocking { site.executeWithReAuth(request) }.use { response ->
+    private suspend fun execute(request: Request): String =
+        site.executeWithReAuth(request).use { response ->
             response.body?.string() ?: ""
         }
 
@@ -162,7 +161,7 @@ class JudgeApi(private val site: SiteSession) {
      * jwapp 框架要求每个 app 模块先 GET 入口让服务端注册 module session，
      * 否则后续业务 API 返回 `{"code":"404"}`。参见 SchoolCourseApi / CjcxApi 同款预热。
      */
-    private fun ensureAppInitialized() {
+    private suspend fun ensureAppInitialized() {
         if (appInitialized) return
         try {
             val req = Request.Builder()
@@ -170,7 +169,7 @@ class JudgeApi(private val site: SiteSession) {
                 .header("Accept", "text/html")
                 .get()
                 .build()
-            runBlocking { site.executeWithReAuth(req) }.close()
+            site.executeWithReAuth(req).close()
             appInitialized = true
         } catch (_: Exception) {
             // 预热失败不阻塞业务，下游接口会自行报错
@@ -188,7 +187,7 @@ class JudgeApi(private val site: SiteSession) {
     /**
      * 获取当前学期的字符串表示，如 "2024-2025-1"
      */
-    fun getCurrentTerm(): String {
+    suspend fun getCurrentTerm(): String {
         ensureAppInitialized()
         val formBody = FormBody.Builder()
             .add(
@@ -228,7 +227,7 @@ class JudgeApi(private val site: SiteSession) {
      * @param term 学年学期代码，如 "2024-2025-1"
      * @param finished true=已评, false=未评
      */
-    fun getQuestionnaires(type: String, term: String, finished: Boolean): List<Questionnaire> {
+    suspend fun getQuestionnaires(type: String, term: String, finished: Boolean): List<Questionnaire> {
         ensureAppInitialized()
         val formBody = FormBody.Builder()
             .add("PGLXDM", type)
@@ -276,7 +275,7 @@ class JudgeApi(private val site: SiteSession) {
     /**
      * 获取所有未完成的评教问卷（期末 + 过程）
      */
-    fun unfinishedQuestionnaires(term: String? = null): List<Questionnaire> {
+    suspend fun unfinishedQuestionnaires(term: String? = null): List<Questionnaire> {
         val t = term ?: run {
             if (cachedTerm == null) cachedTerm = getCurrentTerm()
             cachedTerm!!
@@ -289,7 +288,7 @@ class JudgeApi(private val site: SiteSession) {
     /**
      * 获取所有已完成的评教问卷（期末 + 过程）
      */
-    fun finishedQuestionnaires(term: String? = null): List<Questionnaire> {
+    suspend fun finishedQuestionnaires(term: String? = null): List<Questionnaire> {
         val t = term ?: run {
             if (cachedTerm == null) cachedTerm = getCurrentTerm()
             cachedTerm!!
@@ -302,7 +301,7 @@ class JudgeApi(private val site: SiteSession) {
     /**
      * 获取某问卷的题目信息
      */
-    fun getQuestionnaireData(q: Questionnaire, username: String): List<QuestionnaireData> {
+    suspend fun getQuestionnaireData(q: Questionnaire, username: String): List<QuestionnaireData> {
         ensureAppInitialized()
         val formBody = FormBody.Builder()
             .add("WJDM", q.WJDM)
@@ -347,7 +346,7 @@ class JudgeApi(private val site: SiteSession) {
      * 获取某问卷所有题目的选项
      * @return Map: ZBDM -> 该题目的选项列表
      */
-    fun getQuestionnaireOptions(
+    suspend fun getQuestionnaireOptions(
         q: Questionnaire,
         username: String,
         finished: Boolean = false
@@ -410,7 +409,7 @@ class JudgeApi(private val site: SiteSession) {
      * 提交已完成的问卷
      * @return Pair<是否成功, 服务器消息>
      */
-    fun submitQuestionnaire(q: Questionnaire, data: List<QuestionnaireData>): Pair<Boolean, String> {
+    suspend fun submitQuestionnaire(q: Questionnaire, data: List<QuestionnaireData>): Pair<Boolean, String> {
         ensureAppInitialized()
         val wjysjgJson = gson.toJson(data.map { it.toJsonMap() })
         val requestParamStr = gson.toJson(
@@ -451,7 +450,7 @@ class JudgeApi(private val site: SiteSession) {
      * 移植自 Python 的 editQuestionnaire()
      * @return Pair<是否成功, 服务器消息>
      */
-    fun editQuestionnaire(q: Questionnaire, username: String): Pair<Boolean, String> {
+    suspend fun editQuestionnaire(q: Questionnaire, username: String): Pair<Boolean, String> {
         ensureAppInitialized()
         val endpointCandidates = listOf(
             "https://jwxt.xjtu.edu.cn/jwapp/sys/wspjyyapp/WspjwjController/updateCprZt.do",
@@ -538,7 +537,7 @@ class JudgeApi(private val site: SiteSession) {
      * @param score 选择题分值排序值，"1"=最优(100分)
      * @return 已填好答案的题目列表，可直接用于 submitQuestionnaire
      */
-    fun autoFillQuestionnaire(
+    suspend fun autoFillQuestionnaire(
         q: Questionnaire,
         username: String,
         score: String = "1"

@@ -300,7 +300,7 @@ object HomeStatsRefresher {
      * 成本控制：逐门课查活动是 N 次请求，这里只取该学期前 [LMS_MAX_COURSES] 门，
      * 且整个源一天只刷一次。
      */
-    private fun lmsLatest(site: SiteSession, ctx: Context): HomeStat? {
+    private suspend fun lmsLatest(site: SiteSession, ctx: Context): HomeStat? {
         val api = com.xjtu.toolbox.lms.LmsApi(site)
         val courses = runCatching { api.getMyCourses() }
             .onFailure { Log.w(TAG, "lms: getMyCourses 失败 ${it.message}") }
@@ -485,7 +485,7 @@ object HomeStatsRefresher {
      * 到期只在 [COUPON_EXPIRY_WARN_DAYS] 天内才写提醒信号——一个月后到期的券天天念叨，
      * 到真该用的时候人已经免疫了。
      */
-    private fun couponStatus(ctx: android.content.Context, site: SiteSession): HomeStat? {
+    private suspend fun couponStatus(ctx: android.content.Context, site: SiteSession): HomeStat? {
         val api = com.xjtu.toolbox.coupon.CouponApi(site)
         val available = runCatching {
             api.queryCoupons(com.xjtu.toolbox.coupon.CouponFilter.AVAILABLE, pageSize = 20)
@@ -529,7 +529,7 @@ object HomeStatsRefresher {
     /** 到期提醒的提前量。太早提醒等于没提醒，到真该用的时候人已经免疫了。 */
     private const val COUPON_EXPIRY_WARN_DAYS = 3
 
-    private fun attendanceWeeklyRate(ctx: android.content.Context, site: SiteSession): HomeStat? {
+    private suspend fun attendanceWeeklyRate(ctx: android.content.Context, site: SiteSession): HomeStat? {
         val stats = runCatching {
             com.xjtu.toolbox.attendance.AttendanceApi(site).getKqtjCurrentWeek()
         }.getOrNull().orEmpty()

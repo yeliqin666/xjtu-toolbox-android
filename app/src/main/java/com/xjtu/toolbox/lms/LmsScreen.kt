@@ -335,9 +335,9 @@ internal fun downloadToast(result: LmsDownloadResult): String = when (result) {
     LmsDownloadResult.Forbidden -> "活动已结束，学堂已关闭下载"
     LmsDownloadResult.Failed -> "下载失败"
 }
-internal fun saveUploadToDownloads(context: Context, upload: LmsUpload, api: LmsApi): LmsDownloadResult =
+internal suspend fun saveUploadToDownloads(context: Context, upload: LmsUpload, api: LmsApi): LmsDownloadResult =
     saveToDownloads(context, upload.name, upload.type, url = null, api = api, upload = upload)
-internal fun saveToDownloads(
+internal suspend fun saveToDownloads(
     context: Context,
     name: String,
     mimeType: String,

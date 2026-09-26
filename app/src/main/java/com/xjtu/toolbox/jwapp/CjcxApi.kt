@@ -6,7 +6,6 @@ import com.xjtu.toolbox.util.safeDouble
 import com.xjtu.toolbox.util.safeParseJsonObject
 import com.xjtu.toolbox.util.safeString
 import com.xjtu.toolbox.util.safeStringOrNull
-import kotlinx.coroutines.runBlocking
 import okhttp3.FormBody
 import okhttp3.Request
 
@@ -23,8 +22,8 @@ class CjcxApi(private val site: SiteSession) {
     @Volatile private var lastSessionTime = 0L
     private val sessionTtl = 5 * 60 * 1000L // 5分钟内不重复初始化
 
-    private fun execute(request: Request): String =
-        runBlocking { site.executeWithReAuth(request) }.use { response ->
+    private suspend fun execute(request: Request): String =
+        site.executeWithReAuth(request).use { response ->
             if (!response.isSuccessful) throw RuntimeException("xscjcx.do HTTP ${response.code}")
             response.body?.string() ?: throw RuntimeException("空响应")
         }
@@ -48,11 +47,11 @@ class CjcxApi(private val site: SiteSession) {
         val kclbdm: String,
     )
 
-    private fun ensureSession() {
+    private suspend fun ensureSession() {
         val now = System.currentTimeMillis()
         if (now - lastSessionTime < sessionTtl) return
         try {
-            runBlocking { site.executeWithReAuth(Request.Builder().url("$baseUrl/*default/index.do").get().build()) }.close()
+            site.executeWithReAuth(Request.Builder().url("$baseUrl/*default/index.do").get().build()).close()
             lastSessionTime = now
         } catch (e: Exception) {
             Log.w(TAG, "session init: ${e.message}")
@@ -60,7 +59,7 @@ class CjcxApi(private val site: SiteSession) {
     }
 
     /** 获取全部有效成绩（自动分页） */
-    fun getAllScores(): List<CjcxScore> {
+    suspend fun getAllScores(): List<CjcxScore> {
         ensureSession()
         val all = mutableListOf<CjcxScore>()
         var page = 1

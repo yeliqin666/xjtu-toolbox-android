@@ -1,25 +1,25 @@
 package com.xjtu.toolbox.attendance
 
+import kotlinx.coroutines.delay
 import android.util.Log
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.xjtu.toolbox.auth.AuthExpiredException
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
-import kotlinx.coroutines.runBlocking
 import okhttp3.Request
 import java.net.URLEncoder
 
 internal object KqHttp {
     private const val TAG = "KqHttp"
 
-    fun execute(site: SiteSession, request: Request, path: String, retryable: Boolean = true): JsonObject {
+    suspend fun execute(site: SiteSession, request: Request, path: String, retryable: Boolean = true): JsonObject {
         var lastError: Exception? = null
         val attempts = if (retryable) 3 else 1
         repeat(attempts) { attempt ->
-            if (attempt > 0) Thread.sleep(if (attempt == 1) 600L else 1500L)
+            if (attempt > 0) delay(if (attempt == 1) 600L else 1500L)
             try {
-                val (code, body) = runBlocking { site.executeWithReAuth(request) }.use { resp ->
+                val (code, body) = site.executeWithReAuth(request).use { resp ->
                     resp.code to (resp.body?.string() ?: "")
                 }
                 if (code in 500..599 || body.isBlank()) {

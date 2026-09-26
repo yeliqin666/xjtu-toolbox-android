@@ -7,7 +7,6 @@ import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeGet
 import com.xjtu.toolbox.util.safeParseJsonObject
 import com.xjtu.toolbox.util.safeString
-import kotlinx.coroutines.runBlocking
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -65,7 +64,7 @@ class PaymentCodeApi(private val site: SiteSession) {
      * 获取付款码数字。
      * @return 付款码数字字符串（如 "40806400076085649835"）
      */
-    fun getBarCode(): String {
+    suspend fun getBarCode(): String {
         val token = site.localToken["access_token"]
             ?: throw RuntimeException("校园卡未登录，无法获取付款码")
 
@@ -78,7 +77,7 @@ class PaymentCodeApi(private val site: SiteSession) {
             .get()
             .build()
 
-        val resp = runBlocking { site.executeWithReAuth(request) }
+        val resp = site.executeWithReAuth(request)
         val text = resp.body?.use { it.string() } ?: throw RuntimeException("空响应")
         Log.d(TAG, "getBarCode: code=${resp.code}, body=${text.redactBody(200)}")
 
@@ -98,12 +97,12 @@ class PaymentCodeApi(private val site: SiteSession) {
         return arr[0].asString
     }
 
-    fun getVouchers(): List<PaymentVoucher> {
+    suspend fun getVouchers(): List<PaymentVoucher> {
         val request = authRequest(VOUCHERS_URL)
             .header("Referer", REFERER)
             .get()
             .build()
-        val resp = runBlocking { site.executeWithReAuth(request) }
+        val resp = site.executeWithReAuth(request)
         val text = resp.body?.use { it.string() } ?: throw RuntimeException("空响应")
         val root = text.safeParseJsonObject()
         if (root.get("success")?.asBoolean != true) {
@@ -126,7 +125,7 @@ class PaymentCodeApi(private val site: SiteSession) {
         }
     }
 
-    fun updateVoucherStatus(selectedIds: Collection<String>) {
+    suspend fun updateVoucherStatus(selectedIds: Collection<String>) {
         val arr = JsonArray().apply {
             selectedIds.filter { it.isNotBlank() }.distinct().forEach { add(it) }
         }
@@ -134,7 +133,7 @@ class PaymentCodeApi(private val site: SiteSession) {
             .header("Referer", REFERER)
             .post(arr.toString().toRequestBody(JSON))
             .build()
-        val resp = runBlocking { site.executeWithReAuth(request) }
+        val resp = site.executeWithReAuth(request)
         val text = resp.body?.use { it.string() } ?: throw RuntimeException("空响应")
         val root = text.safeParseJsonObject()
         if (root.get("success")?.asBoolean != true) {

@@ -7,7 +7,6 @@ import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeGet
 import com.xjtu.toolbox.util.safeParseJsonObject
 import com.xjtu.toolbox.util.safeString
-import kotlinx.coroutines.runBlocking
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -22,7 +21,7 @@ class CouponApi(private val site: SiteSession) {
         private val JSON = "application/json;charset=UTF-8".toMediaType()
     }
 
-    fun queryCoupons(
+    suspend fun queryCoupons(
         filter: CouponFilter,
         page: Int = 1,
         pageSize: Int = 20
@@ -44,18 +43,18 @@ class CouponApi(private val site: SiteSession) {
         return CouponJsonParser.parsePage(root)
     }
 
-    fun getCouponDetail(showCardId: String): CouponDetail {
+    suspend fun getCouponDetail(showCardId: String): CouponDetail {
         val body = """{"cardId":"$showCardId","json":true}"""
         val root = executeVoucherJson(DETAIL_URL, body, allowRetry = true)
         return CouponJsonParser.parseDetail(root, showCardId)
     }
 
-    fun activateCoupon(showCardId: String) {
+    suspend fun activateCoupon(showCardId: String) {
         val body = """{"cardId":"$showCardId","json":true}"""
         executeVoucherJson(ACTIVATE_URL, body, allowRetry = true)
     }
 
-    private fun executeVoucherJson(url: String, jsonBody: String, allowRetry: Boolean): JsonObject {
+    private suspend fun executeVoucherJson(url: String, jsonBody: String, allowRetry: Boolean): JsonObject {
         val text = executeRaw(url, jsonBody, allowRetry)
         if (text.isBlank()) throw RuntimeException("服务器返回空数据")
         if (text.contains("<html", ignoreCase = true)) {
@@ -77,7 +76,7 @@ class CouponApi(private val site: SiteSession) {
         return root
     }
 
-    private fun executeRaw(url: String, jsonBody: String, allowRetry: Boolean): String {
+    private suspend fun executeRaw(url: String, jsonBody: String, allowRetry: Boolean): String {
         val request = Request.Builder()
             .url(url)
             .post(jsonBody.toRequestBody(JSON))
@@ -87,7 +86,7 @@ class CouponApi(private val site: SiteSession) {
             .header("Referer", RECEIVE_URL)
             .header("X-Requested-With", "XMLHttpRequest")
             .build()
-        val response = runBlocking { site.executeWithReAuth(request) }
+        val response = site.executeWithReAuth(request)
         return response.use {
             val text = response.body?.string().orEmpty()
             if (!response.isSuccessful) throw RuntimeException("加餐券接口请求失败: HTTP ${response.code}")

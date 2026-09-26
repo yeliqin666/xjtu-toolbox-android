@@ -2,7 +2,6 @@ package com.xjtu.toolbox.ywtb
 
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
-import kotlinx.coroutines.runBlocking
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import java.time.LocalDate
@@ -29,10 +28,10 @@ class YwtbApi(private val site: SiteSession) {
             .header("Referer", "https://ywtb.xjtu.edu.cn/main.html")
     }
 
-    fun getUserInfo(): UserInfo {
+    suspend fun getUserInfo(): UserInfo {
         val request = baseRequest("https://authx-service.xjtu.edu.cn/personal/api/v1/personal/me/user")
             .get()
-        val (responseCode, body) = runBlocking { site.executeWithReAuth(request.build()) }.use { response ->
+        val (responseCode, body) = site.executeWithReAuth(request.build()).use { response ->
             response.code to (response.body?.string() ?: throw RuntimeException("空响应"))
         }
         val json = body.safeParseJsonObject()
@@ -52,7 +51,7 @@ class YwtbApi(private val site: SiteSession) {
         )
     }
 
-    fun getStartOfTerm(timestamp: String): String {
+    suspend fun getStartOfTerm(timestamp: String): String {
         val parts = timestamp.split("-")
         require(parts.size == 3) { "格式错误，应为 YYYY-YYYY-S" }
         val yearStart = parts[0]
@@ -83,7 +82,7 @@ class YwtbApi(private val site: SiteSession) {
             .build()
 
         val request = baseRequest(url.toString()).get()
-        val responseBody = runBlocking { site.executeWithReAuth(request.build()) }.use { response ->
+        val responseBody = site.executeWithReAuth(request.build()).use { response ->
             response.body?.string() ?: throw RuntimeException("空响应")
         }
         val json = responseBody.safeParseJsonObject()

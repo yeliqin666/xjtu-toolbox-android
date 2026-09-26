@@ -478,7 +478,7 @@ private fun loadCurrentTermTextbooks(context: android.content.Context): List<Tex
  * 这次没有改它（改动面会波及全文库检索/分类浏览，超出本 PR 范围）。
  * [FullTextOutcome.Failed] 分支留着兜运行时异常（比如空指针），不是摆设。
  */
-private fun resolveFullText(site: SiteSession, item: TextbookItem): FullTextOutcome = try {
+private suspend fun resolveFullText(site: SiteSession, item: TextbookItem): FullTextOutcome = try {
     val isbn = item.isbn.trim()
     val result = if (isbn.isNotBlank()) {
         Jiaocai1Api(site).search(keyword = normalizeIsbn(isbn), field = Jiaocai1SearchField.ISBN)

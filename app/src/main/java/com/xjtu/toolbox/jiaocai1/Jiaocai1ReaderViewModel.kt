@@ -14,7 +14,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
+import com.xjtu.toolbox.XjtuApp
 import kotlinx.coroutines.withContext
 
 class Jiaocai1ReaderViewModel : ViewModel() {
@@ -147,8 +147,9 @@ class Jiaocai1ReaderViewModel : ViewModel() {
         val context = appContext
         val h = handle
         val index = pageIndex
+        // viewModelScope 此时已取消，最后一次进度交给应用级作用域保存，不阻塞主线程
         if (context != null && h != null) {
-            runBlocking {
+            (context as XjtuApp).applicationScope.launch {
                 AppDatabase.getInstance(context).jiaocai1ShelfDao()
                     .updateProgress(h.ssno, index, System.currentTimeMillis(), h.pages.size)
             }
