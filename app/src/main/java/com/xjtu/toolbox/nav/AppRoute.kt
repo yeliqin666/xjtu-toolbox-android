@@ -7,23 +7,13 @@ import kotlinx.serialization.Serializable
 import top.yukonga.miuix.kmp.nav.core.NavKey
 
 /**
- * 应用里所有能去的地方。
+ * 应用里所有能去的地方，全应用唯一的一套路由。打开一律走 [com.xjtu.toolbox.main.AppRouter.open]。
  *
- * 全应用只有这一套路由：返回栈里放的是它，页面之间跳转传的是它，首页服务表、统计、
- * 登录拦截认的也是它。字符串只出现在两个边界上——
- * - [id]：稳定 ID。服务表、首页统计键、深链、桌面快捷方式、小组件、通知都存的是它，
- *   有些已经写进了用户的本地数据，所以**一个字都不能改**（例如考勤仍是 `new_attendance`、
- *   匹配交友仍是 `schedule_match`）；
- * - [appRouteOf]：把外面来的字符串（深链、快捷方式、通知、屁岱给的跳转建议）解析回对象。
+ * [id] 已写进用户数据（服务表、首页统计、深链、快捷方式、小组件、通知），**不能改**；
+ * 外面来的字符串用 [appRouteOf] 解析。
  *
- * 每个路由自己声明进入前的要求：要登录哪个站点（[loginType]）、没网能不能进
- * （[needsNetwork] / [offlineCapable]）。统一入口见 MainScreen 的 `open(route)`。
- *
- * 规矩（miuix-nav 文档「Save and restore」一节）：
- * - 每一个都必须 `@Serializable`：返回栈跟着 rememberSaveable 存盘，漏一个就在切到后台时崩；
- * - 必须是 `data object` / `data class`：每页的可保存状态以 `toString()` 为键，
- *   默认那种带对象地址的 toString 在进程被杀后会变，状态就悄悄丢了；
- * - [id] 和几个声明都写成 getter，不占序列化字段。
+ * miuix-nav 要求：每个都 `@Serializable`（返回栈要存盘），且是 `data object/class`
+ * （页面状态以 toString 为键）。属性都写成 getter，不占序列化字段。
  */
 @Serializable
 sealed interface AppRoute : NavKey {
@@ -35,7 +25,7 @@ sealed interface AppRoute : NavKey {
     /** 不用登录、但没网打开也没用的页面（纯网络功能）。 */
     val needsNetwork: Boolean get() = false
 
-    /** 有本地缓存、断网或登录失败时仍可以打开的页面。 */
+    /** 有本地缓存，断网或登录失败时仍可打开。 */
     val offlineCapable: Boolean get() = false
 
     @Serializable data object Main : AppRoute { override val id get() = "main" }
@@ -48,7 +38,7 @@ sealed interface AppRoute : NavKey {
         override val offlineCapable get() = true
     }
 
-    /** 屁岱。0 级 tab，没网也能进（进去看到的是空对话 + 提示）。 */
+    /** 屁岱 tab，没网也能进。 */
     @Serializable data object Agent : AppRoute { override val id get() = "agent" }
 
     // ── 覆盖层：付款码盖在当前页上面，不进返回栈 ──
@@ -62,7 +52,7 @@ sealed interface AppRoute : NavKey {
 
     @Serializable data object EmptyRoom : AppRoute {
         override val id get() = "empty_room"
-        // 不在入口登录：默认的实时状态要登智慧教室，直查才要教务，CDN 不用登，由页面按数据源自己登
+        // 按数据源不同要登的站点不同，由页面自己登
         override val needsNetwork get() = true
     }
     @Serializable data object Notification : AppRoute {
@@ -75,7 +65,7 @@ sealed interface AppRoute : NavKey {
     }
     @Serializable data object Judge : AppRoute {
         override val id get() = "judge"
-        // 研究生评教走 gste + gmis，由评教页自己按需登录，不在入口先登教务
+        // 研究生评教走 gste + gmis，由页面自己登
         override val loginType get() = if (isPostgraduateSession()) null else LoginType.JWXT
     }
     @Serializable data object JwappScore : AppRoute {
@@ -119,7 +109,7 @@ sealed interface AppRoute : NavKey {
         override val loginType get() = LoginType.JIAOCAI
     }
 
-    /** 教材全文库（jiaocai1.lib）。只认 IP、不做 CAS，借教材中心的会话拿它的 OkHttp 客户端。 */
+    /** 教材全文库（jiaocai1.lib），借教材中心的会话。 */
     @Serializable data object Jiaocai1 : AppRoute {
         override val id get() = "jiaocai1"
         override val loginType get() = LoginType.JIAOCAI
@@ -152,14 +142,12 @@ sealed interface AppRoute : NavKey {
     @Serializable data object Feedback : AppRoute { override val id get() = "feedback" }
     @Serializable data object Community : AppRoute { override val id get() = "community" }
 
-    /** 教师主页检索。faculty.xjtu.edu.cn 与 gr.xjtu.edu.cn 都是公开站点，无需登录。 */
+    /** 教师主页检索，公开站点。 */
     @Serializable data object Faculty : AppRoute { override val id get() = "faculty" }
     @Serializable data object Accounts : AppRoute { override val id get() = "accounts" }
     @Serializable data object WebVpnConverter : AppRoute { override val id get() = "webvpn_converter" }
 
-    // ── 小游戏 ──
-    // Games 是合集页，各游戏自己一条路由：合集页只是最常见的入口，
-    // 不该是唯一入口——全局搜索搜「五子棋」应该能直接进去，而不是先落到合集页。
+    // ── 小游戏：各游戏单独一条路由，全局搜索能直达 ──
     @Serializable data object Games : AppRoute { override val id get() = "games" }
     @Serializable data object Game2048 : AppRoute { override val id get() = "game_2048" }
     @Serializable data object GameMerge : AppRoute { override val id get() = "game_merge" }
@@ -167,11 +155,7 @@ sealed interface AppRoute : NavKey {
     @Serializable data object GameGo : AppRoute { override val id get() = "game_go" }
     @Serializable data object GameXiangqi : AppRoute { override val id get() = "game_xiangqi" }
 
-    /**
-     * 匹配交友。全程读本地缓存，不碰任何校园系统，所以不要求登录。
-     * ID 沿用 #72 删掉之前的 "schedule_match"：它是服务表里的键，改掉的话
-     * 老用户固定在首页的入口会对不上。
-     */
+    /** 匹配交友，只读本地缓存。ID 是历史遗留的服务表键，不能改。 */
     @Serializable data object Match : AppRoute { override val id get() = "schedule_match" }
 }
 
@@ -189,15 +173,8 @@ private val simpleRoutes: Map<String, AppRoute> = listOf(
 ).associateBy { it.id }
 
 /**
- * 把路由字符串解析成 [AppRoute]。解析不了返回 null，调用方负责兜底（写日志、原地不动），不能闪退：
- * 它可能来自旧版本存下的快捷方式或者一条过时的深链。
- *
- * 带参数的三种写法必须认：深链、桌面快捷方式、通知存的都是这种字符串。
- * - `lms` / `lms?courseId=123`
- * - `browser?url=<URL 编码>`（也认不带参数的 `browser`）
- * - `jiaocai1_reader/<ssno>?title=<URL 编码>`
- *
- * 参数值是 URL 编码的，这里解码后放进对象，[AppRoute.id] 再编码回去，两边对称。
+ * 把 [AppRoute.id] 解析回路由；认不出返回 null（可能是旧版本存下的快捷方式），调用方别闪退。
+ * 带参数的：`lms?courseId=`、`browser?url=`、`jiaocai1_reader/<ssno>?title=`，参数 URL 编码。
  */
 fun appRouteOf(id: String): AppRoute? {
     simpleRoutes[id]?.let { return it }
@@ -218,13 +195,10 @@ fun appRouteOf(id: String): AppRoute? {
     }
 }
 
-/**
- * 学校系统维护中的页面 → 提示里用的名字。命中 → 入口处直接提示，不触发任何登录或界面跳转，
- * 保护账号免遭批量 401。平时为空，出事时往里加一项即可。
- */
+/** 学校系统维护中的页面 → 显示名。命中时入口直接提示，不登录也不跳转（免得批量 401）。 */
 val maintenanceRoutes: Map<AppRoute, String> = mapOf()
 
-/** 当前账号是否研究生身份（一网通办判定，见 [com.xjtu.toolbox.auth.AccountType.fromIdentityName]）。 */
+/** 当前账号是否研究生。 */
 fun isPostgraduateSession(): Boolean =
     SessionManager.active?.accountType == XJTULogin.AccountType.POSTGRADUATE
 

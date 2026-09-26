@@ -135,11 +135,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.time.Duration
 import java.time.LocalDateTime
 
-/**
- * 主界面：底栏（手机）/ 侧栏（宽屏）+ 五个 tab，是返回栈的栈底。
- *
- * 跳转一律走 [router]；选中哪个 tab 由 [tabs] 持有（提在导航根部，深链、快捷方式能直接切 tab）。
- */
+/** 主界面（返回栈栈底）：底栏 / 宽屏侧栏 + 五个 tab。跳转走 [router]，选中的 tab 在 [tabs]。 */
 @Composable
 internal fun MainScreen(
     router: AppRouter,
@@ -183,21 +179,17 @@ internal fun MainScreen(
         }
     }
 
-    // miuix：底栏条目可单独设选中色。选中跟主题色（含取色），未选中仍走容器字色。
-    // 底栏图标两个状态共用一枚实心图标（见 BottomTab），所以这两个色值是选中/未选中的
-    // 全部差别所在：经典底栏走下面的 NavigationBarItemColors，玻璃底栏自己取它们给图标和文字。
+    // 选中 / 未选中只靠颜色区分（两态共用同一枚图标）
     val navSelectedContent = MiuixTheme.colorScheme.primary
     val navUnselectedContent = MiuixTheme.colorScheme.onSurfaceContainer
     val navItemColors = NavigationBarDefaults.navigationBarItemColors(
         selectedContentColor = navSelectedContent,
         unselectedContentColor = navUnselectedContent,
     )
-    // 各格图标的光学尺寸不同（见 BottomTab.iconSize），统一放进这么大的框里居中：不统一的话
-    // 每格「图标 + 文字」的总高会差出几 dp，五格的文字基线就错开了。
+    // 图标统一放进同样高的框里，五格文字基线才对齐
     val navIconBox = remember { BottomTab.entries.maxOf { it.iconSize } }
 
-    // 富触感（PR T）：只有用户自己点底栏 / 侧栏切 tab 才震一下轻 tick。
-    // 深链、快捷方式、搜索跳 tab 走 router，不震——那不是手上的动作。
+    // 只有手动点 tab 才震动，程序切 tab 不震
     val haptics = rememberHaptics()
     fun userSelectTab(tab: BottomTab) {
         if (tab != selectedTab) haptics.tick()
@@ -211,40 +203,23 @@ internal fun MainScreen(
     val profileScrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     val agentScrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
 
-    // 大屏适配：宽屏（侧边 NavigationRail）与否由导航根部统一算好向下提供，
-    // 规则见 ui/WindowSize.kt。平板、折叠屏内屏、手机横屏都可能进这一支。
     val isWide = isWideLayout()
 
-    // 界面风格（plan2 §17 第 12 条）：沿用原来「底栏风格」的取值，"floating" = 玻璃（默认），
-    // "classic" = 经典。选经典时，底栏回到经典样式，所有玻璃点（底栏、侧栏、气泡、搜索浮层、
-    // 二级页顶栏）一起退回不透明；经典同时就是「性能模式」，不另设玻璃开关。
+    // 界面风格：玻璃（默认）或经典；经典下所有玻璃效果一起关掉，兼作性能模式
     val glassStyle = navBarStyle == CredentialStore.NAV_STYLE_FLOATING
-    // 玻璃底栏只在手机竖屏换（宽度 < 600dp 且不是宽屏）。平板竖屏保留原来的悬浮胶囊：
-    // 那里刚在 PR A 修过，不再动。
+    // 玻璃底栏只用于手机竖屏，平板竖屏用 miuix 悬浮胶囊
     val useGlassBar = glassStyle && !isWide && currentWindowSize() == WindowSize.Compact
-    // 玻璃的采样源：录下各 tab 的页面内容（见下面 tab 内容区的 layerBackdrop）。
-    // 只录内容区，不录整个 Scaffold：底栏在 Scaffold 里面，录整个 Scaffold 就成了
-    // 「玻璃采样自己」的环，RenderThread 会直接 SIGSEGV。
+    // 玻璃采样源只录 tab 内容区；录整个 Scaffold 会让底栏采样自己，RenderThread 直接崩
     val appBackdrop = rememberLayerBackdrop()
-    // 玻璃底栏把自己导出成一层，屁岱气泡的尖角伸到底栏上时采的是「页面 + 底栏」合起来的样子，
-    // 不然尖角下面透出来的是页面，和底栏断开（plan2 §16.6）。
+    // 底栏导出成一层，屁岱气泡尖角伸到底栏上时采的是「页面 + 底栏」
     val glassBarExport = rememberLayerBackdrop()
     val phoneBubbleBackdrop = rememberCombinedBackdrop(appBackdrop, glassBarExport)
 
-    // 悬浮底栏的总占位高度。
-    // - 玻璃底栏：本体 58dp（GLASS_BAR_HEIGHT），离系统导航条 8dp（没有导航条时离屏幕底边 20dp）；
-    // - 平板竖屏的悬浮胶囊：取自 miuix FloatingNavigationBar 的实现，胶囊本体最小 52dp，
-    //   外加底部留白（有系统导航条时 26dp + inset，否则 36dp）。
+    // 悬浮底栏的总占位：玻璃底栏 58dp + 离导航条 8dp（无导航条 20dp）；
+    // 平板悬浮胶囊 52dp + 26dp + inset（无导航条 36dp），数值照 miuix 实现
     val navInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val glassBarBottomGap = if (navInset > 0.dp) 8.dp else 20.dp
-    // 两种悬浮底栏都挂在 Scaffold 的 floatingToolbar 槽位里。contentWindowInsets 的手机
-    // 分支已经把底部导航条排除掉（内容要从小白条下面穿过，见下方 Scaffold 参数处），
-    // 所以槽位底边只比屏幕底边高 Scaffold.kt 里那个 private 的 FloatingToolbarSpacing
-    // 的 4dp，取不到只能照抄数值。槽位内容按「想要的位置 − 槽位已给的位置」补偿：
-    //   - 玻璃底栏自己不垫底，补「navInset + 想要的留白 − 4dp」：底边仍落在
-    //     navInset + 8dp（没有导航条时 20dp）处，视觉与旧版完全一致；
-    //   - 平板竖屏的 miuix 胶囊内部自己垫了 26dp + inset（NavigationBar.kt 的
-    //     bottomPaddingValue），槽位多让的只有那 4dp，向下压回去即可。
+    // floatingToolbar 槽位离屏幕底边有 miuix 私有的 4dp（FloatingToolbarSpacing），这里补偿掉
     val miuixFloatingToolbarSpacing = 4.dp
     val glassBarSlotBottomPadding = (navInset + glassBarBottomGap - miuixFloatingToolbarSpacing).coerceAtLeast(0.dp)
     val floatingBarReserve = when {
@@ -258,19 +233,12 @@ internal fun MainScreen(
     var courseHeaderActions by remember { mutableStateOf<(@Composable RowScope.() -> Unit)?>(null) }
     var courseHeaderBottomContent by remember { mutableStateOf<(@Composable () -> Unit)?>(null) }
 
-    // PIDAI tab 的标题与顶栏按钮。屁岱作为 0 级页不再自带 Scaffold/TopAppBar，
-    // 标题（助手名字可改）和「会话列表 / 设置」两个按钮由它反向送上来，
-    // 走的是 COURSES tab 已有的同一套 slot 机制。
+    // PIDAI tab 的标题与顶栏按钮，由屁岱页反向送上来
     var agentTitle by remember { mutableStateOf("屁岱") }
     var agentHeaderActions by remember { mutableStateOf<(@Composable RowScope.() -> Unit)?>(null) }
     var agentHeaderNavIcon by remember { mutableStateOf<(@Composable () -> Unit)?>(null) }
 
-    // ── 首页数据的主动拉取 ──
-    //
-    // 挂在 MainScreen 而不是 HomeTab：tab 是懒加载的（`composedTabs` 只在选中过之后才加），
-    // 而默认启动 Tab 允许设成日程/学辅/我的。挂在 HomeTab 上就意味着
-    // **用户不点一次首页，主动拉取一次都不会跑**——校园卡余额、成绩、图书馆状态全是空的，
-    // 依赖它们的屁岱提醒自然也永远不触发。
+    // 首页数据拉取挂在这里而不是 HomeTab：tab 懒加载，默认启动 tab 不是首页时也要拉
     LaunchedEffect(loginState.accountId, loginState.campusCardCacheVersion) {
         if (loginState.accountId.isEmpty()) return@LaunchedEffect
         HomeStatsRefresher.refreshDue(context, loginState.sessionManager, loginState.accountType)
@@ -279,16 +247,14 @@ internal fun MainScreen(
 
     ProactiveReminderLoop(loginState)
 
-    // 待在屁岱这一页时不让它自动冒泡：人已经在跟它聊了，从底栏探头说闲话既遮输入框也很怪。
+    // 在屁岱页时不自动冒泡（会遮输入框）
     LaunchedEffect(selectedTab) {
         ProactiveBubbleHost.autoSuppressed = selectedTab == BottomTab.PIDAI
     }
 
-    // 点屁岱：切到它的 tab，同时让它说句闲话。几种底栏行为必须一致，所以提到这里共用一份。
+    // 点屁岱：切 tab，并让它在首屏说句闲话（底栏上的闲话气泡收掉，正事气泡保留）
     val onPidaiTap: () -> Unit = {
         userSelectTab(BottomTab.PIDAI)
-        // 点了就是要进屁岱页：闲话不再从底栏冒泡（气泡会压住输入框），交给首屏的屁岱说。
-        // 正事气泡（余额不足、要上课了）不动，离开屁岱页后照常显示。
         if (ProactiveBubbleHost.message?.id == ProactiveRules.CHATTER_ID) ProactiveBubbleHost.clear()
         ProactiveRules.pickOnTap(context)?.let { line ->
             ProactiveRules.markTapped(context, line)
@@ -304,24 +270,18 @@ internal fun MainScreen(
         onPidaiTap = onPidaiTap,
     )
 
-    // 气泡冒出来的那一刻给一下 LOW_TICK（PR T §11.3）：按气泡 id 触发，同一条气泡重组不会重复震
+    // 新气泡出现时轻震一下
     val bubbleId = ProactiveBubbleHost.message?.id
     LaunchedEffect(bubbleId) {
         if (bubbleId != null) haptics.lowTick()
     }
 
-    // ── 屁岱主动提醒气泡 ──
-    //
-    // 挂在**底栏自己身上**，不挂 Scaffold 内容层：气泡和导航栏是同一个 Column 里的上下邻居，
-    // 位置由布局自己得出，绘制层级也自然在最上。底栏版和侧栏版只差「朝哪个方向、摆在哪」，
-    // 三个回调（打开/关掉/超时）必须完全一致，所以提出来一份，两个展示位各自只负责定位。
+    // 屁岱提醒气泡，底栏版和侧栏版共用这一份，各自只管定位
     val bubbleView: @Composable (ProactiveMessage, BubbleArrowSide, Dp) -> Unit = { msg, arrowSide, maxWidth ->
         ProactiveBubbleView(
             message = msg,
             arrowSide = arrowSide,
             maxWidth = maxWidth,
-            // 底栏上的气泡采「页面 + 玻璃底栏」合起来那一层；侧栏气泡和平板竖屏的旧胶囊上
-            // 只采页面内容（那两种底栏本身不是玻璃，没有导出层）
             backdrop = if (arrowSide == BubbleArrowSide.Bottom && useGlassBar) phoneBubbleBackdrop else appBackdrop,
             glass = glassStyle,
             onOpen = {
@@ -345,11 +305,9 @@ internal fun MainScreen(
         )
     }
 
-    // 气泡外面套了个"零高度"的 layout：照常测量、往上溢出绘制，但对外宣称高度为 0。
-    // 不这么做的话，气泡一出现就会把底栏撑高，Scaffold 重算 contentPadding，整页内容跟着往上跳一下。
+    // 零高度 layout 往上溢出绘制：气泡出现不撑高底栏，页面不跳
     val proactiveBubbleSlot: @Composable () -> Unit = {
         val msg = ProactiveBubbleHost.message
-        // 在屁岱页不画底栏气泡：它会压住输入框，而且人已经在跟屁岱说话了
         if (msg != null && selectedTab != BottomTab.PIDAI) {
             val screenWidth = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() }
             Box(
@@ -366,28 +324,18 @@ internal fun MainScreen(
         }
     }
 
-    // 侧栏屁岱按钮在根坐标系里的位置，宽屏气泡靠它定位。
+    // 宽屏气泡定位用：侧栏屁岱的根坐标，减去覆盖层自己的根坐标（转场平移时两者会不同）
     var pidaiAnchor by remember { mutableStateOf<Rect?>(null) }
-    // 覆盖层自己的根坐标。两者相减才是气泡该放的本地偏移：MainScreen 在返回栈里，
-    // push 子页的转场动画会把整页横向平移，直接拿根坐标当本地坐标用就会在那几帧里偏掉。
     var overlayOrigin by remember { mutableStateOf(Offset.Zero) }
 
-    // 骨架：Row 包 Scaffold，不是 Scaffold 包 Row。
-    //
-    // 侧栏若挂在 Scaffold 的内容区里，外面套着 `.padding(padding)`——而 padding.top
-    // 就是顶栏高度，各 tab 的顶栏又不一样高（屁岱是小标题、别的是会折叠的大标题、
-    // 日程还多一条副标题和 bottomContent）。于是切 tab、滚动列表时侧栏跟着上下跳。
-    // 搬到 Scaffold 外面，侧栏就只受窗口约束，顶栏怎么折叠都跟它无关。
-    // 对照 miuix 示例 example/shared/.../AppContent.kt 的 Row { rail; NavDisplay }。
-    //
-    // 手机上 isWide == false，Row 里只剩 Scaffold 一个孩子。
+    // Row 包 Scaffold：侧栏放在 Scaffold 外面，才不会随各 tab 顶栏高度变化上下跳
     Box(
         Modifier
             .fillMaxSize()
             .onGloballyPositioned { overlayOrigin = it.positionInRoot() },
     ) {
         val railState = rememberNavigationRailState()
-        // 和 miuix 侧栏内部同一条弹簧（阻尼 1、刚度 322、收尾阈值 0.001），用来判断「侧栏还在动」
+        // 与 miuix 侧栏内部同一条弹簧，用来判断侧栏是否还在动
         val railProgress = animateFloatAsState(
             targetValue = if (railState.isExpanded) 1f else 0f,
             animationSpec = spring(dampingRatio = 1f, stiffness = 322f, visibilityThreshold = 0.001f),
@@ -401,27 +349,19 @@ internal fun MainScreen(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    // 宽屏下 tab 切换动画会横向平移内容，不裁剪的话会画到侧栏上。
                     .then(if (isWide) Modifier.clipToBounds() else Modifier)
-                    // 侧栏展开 / 收起期间，内容区一直按**终点宽度**排版，只随侧栏平移、被裁剪：
-                    // 不这样的话每帧都按新宽度把整个 tab 重新测量一遍，玻璃顶栏也跟着每帧重模糊。
                     .then(if (isWide) Modifier.railSettledWidth(railState, railProgress) else Modifier),
-                // 宽屏时左侧的刘海/侧边导航条已经被侧栏自己吃掉了（NavigationRail 的
-                // defaultWindowInsetsPadding），这里再留一次就是双重留白。同 miuix 示例 WideScreenContent。
+                // 宽屏时起始侧 inset 已被侧栏吃掉，别再留一次
                 contentWindowInsets = if (isWide) {
                     WindowInsets.systemBars.union(
                         WindowInsets.displayCutout.exclude(WindowInsets.displayCutout.only(WindowInsetsSides.Start)),
                     )
                 } else {
-                    // 手机端：底部导航条（小白条）不参与内容留白，内容一直铺到屏幕底边，
-                    // 从透明小白条和半透明玻璃底栏下面滚过（iOS 效果）。列表末尾的净空由
-                    // 各 tab 的 extraBottomPadding = floatingBarReserve 自己补（内含 navInset）。
+                    // 手机：内容铺到屏幕底边，从小白条和玻璃底栏下面滚过；末尾净空由各 tab 自己补
                     WindowInsets.systemBars
                         .union(WindowInsets.displayCutout)
                         .only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
                 },
-                // 不再自己垫高：两种悬浮底栏都走 floatingToolbar 槽位，miuix Scaffold 会把提示条放在
-                // 整个槽位（底栏 + 头顶的屁岱气泡）之上；经典底栏走 bottomBar，同样自动让开。
                 snackbarHost = { SnackbarHost(router.messages) },
                 topBar = {
                     MainTopBar(
@@ -469,11 +409,8 @@ internal fun MainScreen(
                     }
                 },
             ) { padding ->
-                // 玻璃风格下，每个 tab 的内容都铺到顶栏下面，所以顶部留白不在这一层统一加，
-                // 交给各 tab 放进自己的滚动内容（contentTopPadding）。经典风格照旧整体下移。
-                // 顶栏高度只能在布局阶段读：miuix 给的 padding 内部是个 state，折叠时每帧都变。
-                // 在组合阶段读它再当参数传给每个打开过的 tab，顶栏每折叠一帧所有 tab 都重组一遍，明显掉帧；
-                // 所以各 tab 拿「见过的最大顶栏高度」这个稳定值，差额由 followTopBar 在布局阶段补位移。
+                // 玻璃风格下内容铺到顶栏下面，顶部留白交给各 tab 的滚动内容。顶栏高度折叠时每帧在变，
+                // 各 tab 只拿稳定的最大值，差额由 followTopBar 在布局阶段补，避免每帧重组
                 val stableTopBar = rememberStableTopPadding(padding)
                 val tabTopPadding = if (glassStyle) stableTopBar.value else 0.dp
                 val layoutDirection = LocalLayoutDirection.current
@@ -494,7 +431,6 @@ internal fun MainScreen(
                 ) {
                     TabHost(
                         selectedTab = selectedTab,
-                        // 玻璃的采样源就是这一层：各 tab 的页面内容。经典风格下不录，省一次离屏绘制。
                         modifier = if (glassStyle) Modifier.layerBackdrop(appBackdrop) else Modifier,
                         tabModifier = { if (glassStyle) Modifier.followTopBar({ stableTopBar.value }, padding) else Modifier },
                     ) { tab ->
@@ -515,9 +451,7 @@ internal fun MainScreen(
                                 contentTopPadding = tabTopPadding,
                             )
                             BottomTab.PIDAI -> AgentScreen(
-                                // 悬浮胶囊底栏是**浮在内容上**的，不占 Scaffold 的 contentPadding。
-                                // 别的 tab 是滚动列表，底部被盖住无所谓；屁岱有个钉在底边的输入栏，
-                                // 不补这段高度就会被胶囊压住。经典底栏本身占位，无需额外补。
+                                // 输入栏钉在底边，要让开浮在上面的底栏
                                 extraBottomPadding = floatingBarReserve,
                                 hostBottomPadding = padding.calculateBottomPadding(),
                                 scrollBehavior = agentScrollBehavior,
@@ -537,7 +471,6 @@ internal fun MainScreen(
                                 onActionsChange = { courseHeaderActions = it },
                                 onBottomContentChange = { courseHeaderBottomContent = it },
                             )
-                            // 仲英学辅资料站（zyxf.top）：列表、检索、下载走它的公开只读接口，原生排版
                             BottomTab.TOOLS -> ZyxfBrowseScreen(
                                 contentPadding = PaddingValues(bottom = floatingBarReserve),
                                 scrollBehavior = toolsScrollBehavior,
@@ -556,9 +489,6 @@ internal fun MainScreen(
                         }
                     }
 
-                    // 登录恢复的非阻塞提示条（底部，不遮挡欢迎卡片）。
-                    // 必须自己让开悬浮底栏：底栏浮在内容之上、不占 contentPadding，
-                    // 漏了补就正好压在半透明的玻璃底栏下面。
                     RestoreBanner(
                         visible = isRestoring,
                         step = restoreStep,
@@ -569,9 +499,7 @@ internal fun MainScreen(
                     PasswordInvalidatedDialog(loginState, onUpdatePassword = { router.open(AppRoute.Settings) })
                 }
 
-                // 全局搜索覆盖层（跨 tab 共用同一个浮层，渲染优先级高于普通导航）
                 if (showGlobalSearch) {
-                    // 搜索浮层盖在整页上面，用页面内容做玻璃背景；经典风格下给 null，退回不透明
                     CompositionLocalProvider(LocalAppBackdrop provides if (glassStyle) appBackdrop else null) {
                         GlobalSearchScreen(
                             onBack = { showGlobalSearch = false },
@@ -589,12 +517,11 @@ internal fun MainScreen(
                     }
                 }
 
-                // 扫码登录覆盖层（首页左上角入口）
                 if (showQrLogin) {
                     QrLoginScreen(
                         sessionManager = accountManager.sessionManager,
                         onBack = { showQrLogin = false },
-                        // 图书馆桌面座位码：进图书馆页，定位到那个区并弹出这个座位的预约确认
+                        // 图书馆座位码：进图书馆页并定位到这个座位
                         onLibrarySeat = { qr ->
                             showQrLogin = false
                             LibraryFocus.request(
@@ -621,10 +548,7 @@ internal fun MainScreen(
     }
 }
 
-/**
- * 主界面的顶栏。五个 tab 都是玻璃（经典风格除外），和二级页顶栏同一套画法，见 glassBarSurface；
- * 采样源是 tab 内容区，顶栏不在那一层里面，不会形成环。
- */
+/** 主界面顶栏，玻璃风格下采样 tab 内容区。 */
 @Composable
 private fun MainTopBar(
     selectedTab: BottomTab,
@@ -643,7 +567,7 @@ private fun MainTopBar(
     val tint = glassBarTint()
     val color = if (glassStyle) Color.Transparent else MiuixTheme.colorScheme.surface
     val modifier = if (glassStyle) Modifier.glassBarSurface(backdrop, tint) else Modifier
-    // 屁岱永远用折叠态标题：它是从下往上长的聊天，大标题会随滚动忽大忽小。
+    // 屁岱是自下而上的聊天，只用小标题
     if (selectedTab == BottomTab.PIDAI) {
         SmallTopAppBar(
             title = agentTitle,
@@ -670,7 +594,6 @@ private fun MainTopBar(
         subtitle = if (selectedTab == BottomTab.COURSES) courseSubtitle else "",
         scrollBehavior = scrollBehavior,
         navigationIcon = {
-            // 首页左上角：扫一扫入口（扫码登录 / 图书馆座位码）
             if (selectedTab == BottomTab.HOME) {
                 IconButton(onClick = onScan) {
                     Icon(Icons.Default.QrCodeScanner, contentDescription = "扫一扫", tint = MiuixTheme.colorScheme.onSurface)
@@ -679,7 +602,6 @@ private fun MainTopBar(
         },
         actions = {
             if (selectedTab == BottomTab.COURSES) courseActions?.invoke(this)
-            // 首页全局搜索入口
             if (selectedTab == BottomTab.HOME) {
                 IconButton(onClick = onSearch) {
                     Icon(Icons.Default.Search, contentDescription = "搜索", tint = MiuixTheme.colorScheme.onSurface)
@@ -688,8 +610,7 @@ private fun MainTopBar(
         },
         bottomContent = {
             if (selectedTab == BottomTab.COURSES) {
-                // 日程 tab 的顶栏（连同标签行、周标题栏）做成一整块玻璃（plan2 Y2）：只用一个 drawBackdrop，
-                // 三块各做各的会在接缝处出现三条模糊边。挂在玻璃顶栏下面的标签行、周胶囊，底色跟着换成半透明
+                // 日程的标签行、周标题栏和顶栏是一整块玻璃，分开画接缝处会有模糊边
                 CompositionLocalProvider(LocalOnGlassBar provides glassStyle) {
                     courseBottomContent?.invoke()
                 }
@@ -698,10 +619,7 @@ private fun MainTopBar(
     )
 }
 
-/**
- * 五个 tab 的内容区：懒加载（选中过才进组合），切走的 tab 留在组合里只是透明，
- * 切换时带一点横移 + 缩放的过渡。
- */
+/** 五个 tab 的内容区：选中过才进组合，切走的留在组合里只是透明；切换带横移 + 缩放。 */
 @Composable
 private fun TabHost(
     selectedTab: BottomTab,
@@ -745,9 +663,7 @@ private fun TabHost(
                 Box(
                     Modifier
                         .fillMaxSize()
-                        // 藏起来的 tab 沿用它最后一次的测量约束：它们只是透明度为 0，仍在组合里，
-                        // 不冻住的话宽屏侧栏展开 / 收起时内容区宽度逐帧在变，打开过的每个 tab
-                        // 都跟着逐帧重新测量布局——实测打开过三个 tab 时每帧 37ms，动画掉到 30 帧。
+                        // 隐藏的 tab 冻结测量约束，侧栏动画时不跟着逐帧重排
                         .freezeLayoutWhile { !isActive && tabAlpha == 0f }
                         .then(tabModifier())
                         .zIndex(if (isActive) 1f else 0f)
@@ -767,7 +683,7 @@ private fun TabHost(
                             }
                         },
                 ) {
-                    // 切走的 tab 仍在组合里，靠它让里面的常驻动画（首页渐变）停下
+                    // 让隐藏 tab 里的常驻动画停下
                     CompositionLocalProvider(LocalPageVisible provides isActive) {
                         content(tab)
                     }
@@ -778,12 +694,8 @@ private fun TabHost(
 }
 
 /**
- * 屁岱主动提醒：只算文案，不管展示。算完塞进 [ProactiveBubbleHost]，展示位是屁岱头顶的气泡。
- * 数据全部读本地缓存，不为提醒额外发任何请求。
- *
- * 挂在 MainScreen 层而不是某个 tab 里，理由同首页数据的主动拉取（tab 是懒加载的）。
- * 循环评估而不是只算一次：余额变化、临近上课、新成绩落盘都在运行期发生，
- * 只在冷启动算一次的话表现就是"冒过一次以后再也不冒了"。真正的节流交给 [ProactiveRules.pick] 里的冷却判断。
+ * 屁岱主动提醒：定时用本地缓存算一条提醒塞进 [ProactiveBubbleHost]，不发请求。
+ * 节流由 [ProactiveRules.pick] 的冷却负责。
  */
 @Composable
 private fun ProactiveReminderLoop(loginState: AppLoginState) {
@@ -795,13 +707,10 @@ private fun ProactiveReminderLoop(loginState: AppLoginState) {
             val balance = cardPrefs.getFloat("card_balance_cache", -1f).takeIf { it >= 0f }?.toDouble()
             val focus = HomeSignals.scheduleReminder
             val minutes = focus?.let { Duration.between(LocalDateTime.now(), it.startAt).toMinutes() }
-            // 成绩与通知由 HomeStatsRefresher 抓取后留下游标，这里只读不抓——
-            // 「一次抓取、两处消费」，气泡不为自己额外发请求。图书馆同理。
             val pendingScores = HomeStats.pendingNewScores(context)
             val unseenNotice = HomeStats.unseenNoticeTitle(context)
             val unseenNoticeLink = HomeStats.unseenNoticeLink(context)
             val libraryTodo = HomeSignals.libraryUrgentAction
-            // 考试同样是"只读不抓"：日程页每次加载都会把考试表写进 DataCache，这里直接读那份。
             val nextExam = withContext(Dispatchers.IO) { ExamCountdown.fromCache(context) }
             val msg = ProactiveRules.pick(
                 ctx = context,
@@ -825,16 +734,14 @@ private fun ProactiveReminderLoop(loginState: AppLoginState) {
             )
             if (msg != null && ProactiveBubbleHost.message == null && !ProactiveBubbleHost.autoSuppressed) {
                 ProactiveRules.markShown(context, msg)
-                // 冒过就消费掉，避免同一条反复提醒。冷却只管"多久不再说"，
-                // 不负责"这件事已经说过了"——两者混用会导致冷却一过又推一遍旧消息。
+                // 说过就消费掉，否则冷却一过会重推同一条
                 when (msg.id) {
                     "grade" -> HomeStats.setPendingNewScores(context, 0)
                     "notice" -> HomeStats.clearUnseenNotice(context)
                     "schedule_change" -> ScheduleDiff.setPending(context, null)
                     "attendance" -> HomeSignals.attendanceAlert = null
                     "coupon" -> HomeSignals.couponAlert = null
-                    // 清空而非重查：待办是否还在只有图书馆服务端知道，这里现拉一次会给冒泡加一次网络等待。
-                    // 下一轮 HomeStatsRefresher 会按最新状态重新填上，签完到则不再填。
+                    // 清空即可，下一轮刷新会按服务端状态重填
                     "library" -> HomeSignals.libraryUrgentAction = null
                 }
                 ProactiveBubbleHost.message = msg
@@ -844,14 +751,13 @@ private fun ProactiveReminderLoop(loginState: AppLoginState) {
     }
 }
 
-/** 日程 tab：顶栏的副标题、按钮、标签行由日程页反向送上来，挂到主界面的顶栏里。 */
+/** 日程 tab：副标题、按钮、标签行由日程页送上来挂到主顶栏。 */
 @Composable
 private fun CoursesTab(
     loginState: AppLoginState,
     onNavigate: (AppRoute) -> Unit,
     scrollBehavior: ScrollBehavior,
     extraBottomPadding: Dp,
-    /** 玻璃顶栏盖在内容上面时顶栏的高度，交给日程页各栏做顶部留白（Y2）。 */
     contentTopPadding: Dp,
     onSubtitleChange: (String) -> Unit,
     onActionsChange: ((@Composable RowScope.() -> Unit)?) -> Unit,
@@ -868,8 +774,6 @@ private fun CoursesTab(
             contentBottomPadding = extraBottomPadding,
             contentTopPadding = contentTopPadding,
             topAppBarScrollBehavior = scrollBehavior,
-            // 详情面板的下钻目标（教材全文 / 课程回放 / 考勤）都在别的子系统里，
-            // 走带登录拦截的 router，免得落地页自己再弹一次未登录。
             onNavigate = onNavigate,
         )
     }
@@ -934,16 +838,9 @@ private fun PasswordInvalidatedDialog(loginState: AppLoginState, onUpdatePasswor
     }
 }
 
-/**
- * [frozen] 为真时，用上一次（未冻结时）的约束测量子内容，外面的约束怎么变都不传进去。
- *
- * 约束没变，Compose 就跳过子树的重新测量，于是整棵子树不跟着父布局的尺寸动画逐帧重排。
- * 自己报给父布局的尺寸仍按当前约束收紧，不会撑破父布局。
- * [frozen] 在布局阶段读，状态变了只触发重新布局、不触发重组。
- */
+/** [frozen] 为真时沿用上一次的测量约束，子树不跟着父布局尺寸动画重排。 */
 @Composable
 private fun Modifier.freezeLayoutWhile(frozen: () -> Boolean): Modifier {
-    // remember 住：MainScreen 重组时修饰符会重建，不记住的话冻结期间一重组就丢了原来的约束
     val last = remember { arrayOfNulls<Constraints>(1) }
     return this.layout { measurable, constraints ->
         val use = if (frozen()) last[0] ?: constraints else constraints.also { last[0] = it }

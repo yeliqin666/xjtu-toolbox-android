@@ -58,14 +58,10 @@ import top.yukonga.miuix.kmp.nav.transition.NavTransition
 import kotlin.reflect.KClass
 
 /**
- * 返回栈里每一种页面长什么样。
+ * 返回栈里每种页面画什么；跳转一律交给 [router]。转场用 miuix-nav 默认，首页格子进来的页面从那一格放大。
  *
- * 页面之间的跳转一律交给 [router]（它负责登录拦截、切 tab 之类），这里只管「这一页画什么」。
- * 转场、跟手侧滑返回、系统预测式返回、圆角裁剪和变暗都用 miuix-nav 的默认值，
- * 除了首页格子进来的页面用「从那一格放大」（[expandFromOrigin]）。
- *
- * @param mainContent 栈底的主界面（底栏 + 各 tab）。
- * @param onOpenWithWebVpn WebVPN 转换页里「用 WebVPN 打开」：先确认 WebVPN 会话可用再开浏览器。
+ * @param mainContent 栈底的主界面
+ * @param onOpenWithWebVpn WebVPN 转换页「用 WebVPN 打开」
  */
 @Composable
 fun AppNavHost(
@@ -77,8 +73,7 @@ fun AppNavHost(
     onOpenWithWebVpn: (String) -> Unit,
     mainContent: @Composable () -> Unit,
 ) {
-    // 首页格子 → 功能页的放大转场。全屏时的圆角对齐屏幕的物理圆角，每种页面一份，
-    // 缓存起来：转场对象每次重组都换新的话，页面的元数据也跟着变
+    // 放大转场按页面类型缓存，每次重组换新对象会让页面元数据跟着变
     val screenCornerPx = with(LocalDensity.current) { rememberNavSystemCornerRadius().toPx() }
     val expandTransitions = remember(screenCornerPx) { mutableMapOf<KClass<out AppRoute>, NavTransition>() }
     fun expand(type: KClass<out AppRoute>): NavTransition =
@@ -86,7 +81,7 @@ fun AppNavHost(
 
     val back: () -> Unit = router::back
 
-    /** 进页面时拿站点会话；拿不到（会话被清掉、账号切走）就退回去，不闪退。 */
+    /** 拿站点会话，拿不到（被清掉、切了账号）就退回。 */
     @Composable
     fun WithSite(siteKey: String, content: @Composable (SiteSession) -> Unit) {
         val site = loginState.sessionManager?.getSiteOrNull(siteKey)
@@ -136,7 +131,6 @@ fun AppNavHost(
                 CampusCardScreen(
                     site = it,
                     onBack = back,
-                    // 顶栏玻璃跟随「界面风格」（Y1）；进页面时读一次就够，设置页改了再进来就生效
                     glass = credentialStore.navBarStyle == CredentialStore.NAV_STYLE_FLOATING,
                 )
             }
@@ -169,7 +163,6 @@ fun AppNavHost(
             }
         }
         entry<AppRoute.Jiaocai1>(transition = expand(AppRoute.Jiaocai1::class)) {
-            // 全文库只认 IP、不做 CAS，借 jiaocai 会话是为了拿它的 OkHttp 客户端
             WithSite("jiaocai") {
                 Jiaocai1Screen(
                     site = it,
@@ -178,7 +171,7 @@ fun AppNavHost(
                 )
             }
         }
-        // 阅读器横向翻页，关掉页内侧滑返回免得抢手势；系统返回手势不受影响
+        // 横向翻页，关掉页内侧滑返回
         entry<AppRoute.Jiaocai1Reader>(
             transition = expand(AppRoute.Jiaocai1Reader::class),
             swipeDismiss = NavSwipeDirection.None,
@@ -202,7 +195,7 @@ fun AppNavHost(
         entry<AppRoute.Iclassface>(transition = expand(AppRoute.Iclassface::class)) {
             WithSite("iclassface") { IclassfaceScreen(site = it, onBack = back) }
         }
-        // WebView 里常有横向滚动，关掉页内侧滑返回；系统返回手势不受影响
+        // WebView 常有横向滚动，关掉页内侧滑返回
         entry<AppRoute.Browser>(
             transition = expand(AppRoute.Browser::class),
             swipeDismiss = NavSwipeDirection.None,
@@ -235,7 +228,6 @@ fun AppNavHost(
             FacultyScreen(onBack = back, onOpenUrl = { url -> router.open(AppRoute.Browser(url)) })
         }
 
-        // 小游戏：合集页只是最常见的入口，各游戏自己也能直接进（全局搜索搜「五子棋」）
         entry<AppRoute.Games>(transition = expand(AppRoute.Games::class)) {
             GamesScreen(onBack = back, onNavigate = router::open)
         }
@@ -264,7 +256,6 @@ fun AppNavHost(
             WebVpnConverterScreen(
                 isWebVpnReady = loginState.webVpnClientOrNull != null,
                 onBack = back,
-                // 不在这里先返回：若登录失败，用户应留在转换页看到状态，而不是被踢回首页
                 onOpenWithWebVpn = onOpenWithWebVpn,
             )
         }
@@ -272,10 +263,7 @@ fun AppNavHost(
     }
 }
 
-/**
- * 等站点会话出现再显示 [content]：从登录拦截那边刚登上来时，会话可能晚一两帧才注册到
- * SessionManager。最多等约 1.5 秒，还没有就 [onTimeout]。
- */
+/** 等站点会话出现再显示（刚登上时可能晚一两帧注册），约 1.5 秒还没有就 [onTimeout]。 */
 @Composable
 fun AwaitSite(
     loginState: AppLoginState,

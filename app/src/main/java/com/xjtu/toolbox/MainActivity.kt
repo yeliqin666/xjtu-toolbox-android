@@ -42,15 +42,8 @@ class MainActivity : ComponentActivity() {
     private val launchTab = mutableStateOf<BottomTab?>(null)
 
     /**
-     * 手机锁竖屏，平板（含折叠屏展开）随意转。
-     *
-     * 手机和平板按经典分界线分：最短边 ≥ 600dp 才算平板。手机横过来宽也有七八百 dp，
-     * 以前按窗口宽度判断就进了平板的侧栏 + 分栏排布，高度只剩三百多 dp，处处挤。
-     * 折叠屏合上 / 展开时 smallestScreenSize 会变，Manifest 里声明了自己处理，
-     * 这里在 onConfigurationChanged 里重新判断一次。
-     *
-     * 只在「手机 / 平板」这个结论变了时才动 requestedOrientation：视频全屏会临时请求横屏
-     * （VideoPlayer），转过去也会触发 onConfigurationChanged，每次都重设就把它掰回竖屏了。
+     * 手机锁竖屏，平板（最短边 ≥ 600dp，含折叠屏展开）随意转。
+     * 只在手机 / 平板结论变化时才改方向，否则会把视频全屏的横屏掰回去。
      */
     private var lastIsTablet: Boolean? = null
 
@@ -76,17 +69,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         applyOrientationPolicy(resources.configuration)
         consumeLaunchIntent(intent)
-        // 底部导航条（小白条）背景强制全透明：默认样式在 API 29–34 上会往
-        // window.navigationBarColor 写一层半透明 scrim（浅色是 90% 白），内容从
-        // 小白条下面滚过时会被罩一层灰。auto 传全透明后，手势导航全透明；
-        // 三键导航由系统自动垫对比度（isNavigationBarContrastEnforced），按钮不会看不见。
-        // API 35+ 上 navigationBarColor 已废弃、edge-to-edge 强制透明，此参数无副作用。
+        // 导航条全透明：默认样式在 API 29–34 上会加一层半透明 scrim，三键导航由系统自己保证对比度
         enableEdgeToEdge(
             navigationBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT),
         )
-        // 屁岱形象（形状/颜色）在首帧前读入，免得底栏先闪一下默认圆再跳到用户选的样子
-        PidaiAppearanceHost.load(this)
-        // 后台保活：循环读 KeepAlivePrefs，真正续期走 sessionRefresher。
+        PidaiAppearanceHost.load(this) // 首帧前读入，免得底栏先闪默认形象
         SessionKeepAlive.start(this)
 
         val appearance = AppearanceSettings.get(this)
@@ -111,10 +98,7 @@ class MainActivity : ComponentActivity() {
         consumeLaunchIntent(intent)
     }
 
-    /**
-     * 解析启动意图：深链优先于 [EXTRA_LAUNCH_ROUTE]。解析不了的路由（旧版本存下的快捷方式、
-     * 过时的深链）当作没有，落在默认首页。深链或 [EXTRA_LAUNCH_PROMPT] 带的 prompt 一次性交给屁岱。
-     */
+    /** 解析启动意图：深链优先；认不出的路由当作没有；带的 prompt 交给屁岱。 */
     private fun consumeLaunchIntent(intent: Intent?) {
         val deepLink = intent?.let(DeepLinkRouter::resolve)
         launchRoute.value = deepLink?.route

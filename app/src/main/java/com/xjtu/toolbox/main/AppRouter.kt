@@ -29,7 +29,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import top.yukonga.miuix.kmp.basic.SnackbarDuration
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
 
-/** 主界面当前选中的底栏 tab。提到导航根部，跳转时能直接切 tab，不用再绕一道「待切 tab」。 */
+/** 主界面选中的底栏 tab，放在导航根部，跳转时可直接切。 */
 @Stable
 class MainTabState(initial: BottomTab) {
     var selected by mutableStateOf(initial)
@@ -43,17 +43,9 @@ class MainTabState(initial: BottomTab) {
 }
 
 /**
- * 全应用唯一的「去某个地方」入口：首页格子、全局搜索、屁岱、深链、快捷方式、通知、
- * 各功能页之间的跳转都调 [open]。
- *
- * 一个路由怎么打开由它自己的声明决定（见 [AppRoute]）：
- * - 维护中 → 直接提示，不登录也不跳转；
- * - 要登录（[AppRoute.loginType]）→ 站点已登录直接进；否则用保存的凭据自动登录，
- *   期间显示「自动登录中」，失败时有缓存的页面（[AppRoute.offlineCapable]）照样打开；
- * - 纯网络功能（[AppRoute.needsNetwork]）→ 没网就提示；
- * - 底栏 tab（日程、屁岱）→ 切 tab；付款码 → 盖一层覆盖层；其余压栈。
- *
- * 提示走 [messages]（主界面的 Snackbar）；不在主界面时退回 Toast，免得提示藏在子页下面。
+ * 全应用唯一的跳转入口 [open]。按路由自己的声明处理：维护中提示、按需自动登录
+ * （失败时可离线的页面照样打开）、没网提示；日程/屁岱切 tab，付款码开覆盖层，其余压栈。
+ * 提示在主界面走 Snackbar，在子页走 Toast。
  */
 @Stable
 class AppRouter(
@@ -101,8 +93,7 @@ class AppRouter(
     fun selectTab(tab: BottomTab) {
         tabs.selected = tab
         if (navigator.backStack.size > 1) {
-            // 首页马上要切到别的 tab，原来那一格不在原处了，返回动画不能再往那儿缩
-            ExpandOrigins.clear()
+            ExpandOrigins.clear() // 首页格子不在原处了，返回动画别再往那儿缩
             navigator.popUntil { it == AppRoute.Main }
         }
     }
@@ -129,9 +120,7 @@ class AppRouter(
     }
 
     private fun openWithLogin(route: AppRoute, type: LoginType) {
-        // 记录使用轨迹：下次冷启动据此做免密 SSO 预热
-        runCatching { credentialStore.recordRecentSite(type.siteKey()) }
-        // 断网处理优先于所有登录检查
+        runCatching { credentialStore.recordRecentSite(type.siteKey()) } // 冷启动据此预热 SSO
         if (!isOnline()) {
             if (route.offlineCapable) {
                 go(route)
@@ -149,7 +138,6 @@ class AppRouter(
             notify("请先登录后使用${type.label}")
             return
         }
-        // 用户主动点击：永远允许立即登录（即使刚才取消过 MFA），由用户自己决定再次取消还是验证。
         cancelAutoLogin()
         autoLoginJob = scope.launch { autoLogin(route, type, retried = false) }
     }
@@ -158,14 +146,13 @@ class AppRouter(
         autoLoginMessage = if (retried) "正在重新登录${type.label}…" else "正在连接${type.label}…"
         try {
             val site = withTimeoutOrNull(autoLoginTimeoutMs(type)) {
-                // 用户正在等这个页面：豁免站点失败冷却，别让「点了没反应」发生
+                // 用户在等：豁免站点失败冷却
                 loginState.sessionManager?.ensureSite(type, userInitiated = true)
             }
             autoLoginMessage = null
             when {
                 site != null -> go(route)
                 retried -> notify("${type.label}暂未就绪")
-                // 登录未完成：可能是网络不通 / 密码错误 / 服务故障，SessionManager 已按网络环境处理
                 route.offlineCapable -> {
                     go(route)
                     notify("${type.label}暂未连通，展示已缓存数据")
@@ -180,7 +167,7 @@ class AppRouter(
             Log.e(TAG, "ensureSite($type) failed for ${route.id}", e)
             when {
                 retried -> notify("${type.label}暂未就绪")
-                // 登录态失效（reAuth 失败）→ 清站点会话，再完整登录一次（CAS 触发 MFA 时会自动弹窗）
+                // 登录态失效：清站点会话再完整登一次
                 e is AuthExpiredException -> {
                     Log.w(TAG, "AuthExpired for $type, retrying full SiteSession login")
                     loginState.sessionManager?.getSiteOrNull(type.siteKey())?.invalidateLogin()
@@ -222,10 +209,7 @@ class AppRouter(
     private companion object {
         const val TAG = "AppRouter"
 
-        /**
-         * 场馆/电子凭证等走「CAS OAuth → org 中转 → 业务站」多跳链路，
-         * 叠加 CasGate 限频与 WebVPN 改写后 25s 常不够用，超时即表现为"打不开"。
-         */
+        /** 多跳 OAuth 链路（加餐券、体测、考勤）明显更慢。 */
         fun autoLoginTimeoutMs(type: LoginType): Long = when (type) {
             LoginType.COUPON, LoginType.FITNESS, LoginType.ATTENDANCE -> 180_000L
             else -> 60_000L

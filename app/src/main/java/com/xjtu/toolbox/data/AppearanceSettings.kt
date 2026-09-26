@@ -7,14 +7,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * 外观相关设置的可观察视图：深色模式、动态取色、界面风格、首页主题、常用功能开关。
- *
- * 写入仍走 [CredentialStore] 的同名属性（设置页、屁岱的「改设置」工具都是这么写的），
- * 这里监听同一份 `app_settings`，谁改了界面都跟着变——主题、底栏、首页不再需要
- * 一路往下传回调，屁岱改设置也不必再经过运行时钩子通知界面。
- *
- * 进程内只有一份（[get]），监听器由它强引用持有：SharedPreferences 对监听器是弱引用，
- * 不持有的话会被 GC 悄悄回收，表现为「改了设置界面没反应」。
+ * 外观设置的可观察视图。写入仍走 [CredentialStore]，这里监听同一份文件，谁改了界面都跟着变。
+ * 进程单例；监听器必须强引用持有（SharedPreferences 只弱引用它）。
  */
 class AppearanceSettings private constructor(context: Context) {
 

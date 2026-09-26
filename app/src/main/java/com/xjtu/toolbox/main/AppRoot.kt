@@ -84,15 +84,13 @@ fun AppRoot(
     onInitialTabConsumed: () -> Unit,
     onReady: () -> Unit,
 ) {
-    // ViewModel 保证登录状态跨 Configuration Change 存活
     val viewModel: AppLoginStateViewModel = viewModel()
     val loginState = viewModel.loginState
     val credentialStore = viewModel.credentialStore
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // 返回栈的类型参数必须显式写成父类型 AppRoute：只写 rememberNavBackStack(AppRoute.Main)
-    // 会推断成 AppRoute.Main，推入别的页面以后，切到后台存状态时序列化失败（miuix-nav 文档特别提醒）。
+    // 类型参数必须写父类型，否则推断成 AppRoute.Main，存盘时序列化失败
     val backStack = rememberNavBackStack<AppRoute>(AppRoute.Main)
     val navigator = remember(backStack) { AppNavigator(backStack) }
     val tabs = rememberSaveable(saver = MainTabState.Saver) {
@@ -109,8 +107,7 @@ fun AppRoot(
         onInitialTabConsumed()
         if (initialTab == BottomTab.COURSES) prewarmJwxt(context, loginState)
     }
-    // 不在这里直接打开：付款码、校园卡等要登录的页面在会话未就绪时会立刻退回。
-    // 等凭据恢复（restoreGateReady）以后再交给 router.open。
+    // 等登录恢复完再打开：要登录的页面在会话未就绪时会立刻退回
     var pendingLaunchRoute by remember { mutableStateOf<AppRoute?>(null) }
     LaunchedEffect(initialRoute) {
         val route = initialRoute ?: return@LaunchedEffect
@@ -119,7 +116,6 @@ fun AppRoot(
         onInitialRouteConsumed()
     }
 
-    // ── 登录恢复（Splash 只做启动，登录在主界面后台进行） ──
     val restore = rememberSessionRestore(loginState, onReady)
     LaunchedEffect(pendingLaunchRoute, restore.gateReady) {
         if (!restore.gateReady) return@LaunchedEffect
@@ -128,8 +124,7 @@ fun AppRoot(
         router.open(route)
     }
 
-    // 页面里抛 AuthExpiredException 时（见 handleAuthExpired）：页面已经自己退回，
-    // 这里等退场动画走完再重新打开它，途中按需登录（含 MFA），对用户透明。
+    // 页面登录过期已自行退回（handleAuthExpired），等退场动画走完重新打开它
     LaunchedEffect(loginState.pendingRetry) {
         val route = loginState.pendingRetry ?: return@LaunchedEffect
         loginState.pendingRetry = null
@@ -137,7 +132,7 @@ fun AppRoot(
         router.open(route)
     }
 
-    // 拿到一网通办的姓名就缓存下来（下次启动秒显示），并同步到当前账号的记录（多账号隔离）
+    // 缓存一网通办姓名，下次启动秒显示
     LaunchedEffect(loginState.ywtbUserInfo) {
         val name = loginState.ywtbUserInfo?.userName
         if (name.isNullOrBlank()) return@LaunchedEffect
@@ -150,8 +145,7 @@ fun AppRoot(
     CampusCardResumeRefresh(loginState)
     NetworkChangeWatcher(loginState, navigator)
 
-    // 首次登录 / 切账号后 isOnCampus 可能仍是 null（启动探测被没凭据跳过，
-    // 网络回调又要求已登录）。徽标空着时补探一次，有缓存则立刻返回。
+    // 首次登录 / 切账号后校园网状态可能还没探过，补探一次
     LaunchedEffect(loginState.isLoggedIn, loginState.accountId) {
         if (!loginState.isLoggedIn || loginState.isOnCampus != null) return@LaunchedEffect
         withContext(Dispatchers.IO) {
@@ -160,7 +154,7 @@ fun AppRoot(
         }
     }
 
-    // ── 用户协议（首次启动或协议更新后强制展示，同意前不渲染主界面） ──
+    // 用户协议：同意前不渲染主界面
     var eulaAccepted by remember { mutableStateOf(credentialStore.isEulaAccepted()) }
     if (!eulaAccepted) {
         EulaScreen(onAccept = {
@@ -170,8 +164,7 @@ fun AppRoot(
         return
     }
 
-    // ── 首启：直接把新用户送到登录页 ──
-    // 功能介绍由首页承担——它本来就是功能总览。等 gateReady 是为了让凭据与会话状态先落定，避免误判成新用户。
+    // 首启直接送新用户去登录；等 gateReady 免得把老用户误判成新用户
     LaunchedEffect(restore.gateReady) {
         if (!restore.gateReady || !OnboardingStore.needsFirstRunLogin(context)) return@LaunchedEffect
         OnboardingStore.markDone(context)
@@ -181,9 +174,7 @@ fun AppRoot(
     val notices = rememberLaunchNotices(credentialStore)
     LaunchNoticeDialogs(notices)
 
-    // WebVPN 转换页「用 WebVPN 打开」：即使 vpnClient 不为 null，会话也可能在后台失效。
-    // 直接打开浏览器会让 webvpn 网页提示用户输账号密码（甚至要 MFA），违反「App 内完成认证」约定，
-    // 所以先探活，失效则走 loginWebVpn（含 App 内 MFA 弹窗），成功后再开浏览器。
+    // 「用 WebVPN 打开」：先探活，失效就在 App 内重登，免得网页里让用户输密码
     var webVpnJob by remember { mutableStateOf<Job?>(null) }
     val openWithWebVpn: (String) -> Unit = { url ->
         webVpnJob?.cancel()
@@ -193,23 +184,17 @@ fun AppRoot(
         }
     }
 
-    // 宽屏判断在导航根部算一次向下提供（见 ui/WindowSize.kt）：各页面若各算各的，
-    // 同一帧里可能得出不一致的结论（侧栏认为宽屏、内容区认为窄屏），布局就会错位。
-    // 界面风格（玻璃 / 经典）给二级页的玻璃顶栏用（ui/glass/GlassTopBar.kt）。
+    // 宽屏判断在根部算一次往下传，保证同一帧各处结论一致
     val navStyle by AppearanceSettings.get(context).navBarStyle.collectAsStateWithLifecycle()
     CompositionLocalProvider(
         LocalAppLoginState provides loginState,
         LocalIsWideLayout provides calculateIsWideLayout(),
         LocalGlassStyle provides (navStyle == CredentialStore.NAV_STYLE_FLOATING),
     ) {
-        // MFA 短信验证弹窗全应用只挂这一处：WindowDialog 自带窗口，不依赖页面 Scaffold，
-        // 放在导航外层才能覆盖所有子页面触发的重认证，见 MfaDialogHost 注释。
+        // 全应用唯一的 MFA 弹窗，放导航外层才能覆盖所有页面
         MfaDialogHost(loginState.sessionManager)
 
-        // 注意：不要在这里套一层 Scaffold 来给 overlay 弹窗提供宿主。miuix 的 ScaffoldLayout
-        // 内部是 SubcomposeLayout，套在这里等于把整棵导航树塞进一个 subcompose 槽，测量条件变化时
-        // 内容会被丢弃重建，页面里 rememberCoroutineScope 拿到的 scope 随之失效（真机表现为日程页
-        // ForgottenCoroutineScopeException，已验证并回退）。弹窗要写进各自页面 Scaffold 的 content 里。
+        // 别在这里套 Scaffold 给弹窗当宿主：SubcomposeLayout 会让整棵导航树被丢弃重建
         AppNavHost(
             backStack = backStack,
             router = router,
@@ -236,7 +221,6 @@ fun AppRoot(
         AutoLoginDialog(router)
 
         if (router.showPaymentCode) {
-            // 独立窗口、不限宽度，盖在当前页上面。付款码复用校园卡登录（ncard JWT 访问 /berserker-app/authCode）
             Dialog(
                 onDismissRequest = { router.showPaymentCode = false },
                 properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -249,7 +233,7 @@ fun AppRoot(
     }
 }
 
-/** 「自动登录中」。挂在导航外层的独立窗口里，从子页面发起的跳转也看得见。 */
+/** 「自动登录中」，独立窗口，子页面也看得见。 */
 @Composable
 private fun AutoLoginDialog(router: AppRouter) {
     val message = router.autoLoginMessage ?: return
@@ -264,7 +248,7 @@ private fun AutoLoginDialog(router: AppRouter) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            MorphingLoader() // 整页加载统一用形变加载器
+            MorphingLoader()
             TextButton(text = "取消", onClick = router::cancelAutoLogin, modifier = Modifier.fillMaxWidth())
         }
     }
@@ -279,19 +263,14 @@ private class SessionRestore(
     var isRestoring by mutableStateOf(false)
     var step by mutableStateOf("")
 
-    /** 凭据与会话状态已经落定：待打开的启动路由、首启引导都等它。 */
+    /** 登录恢复已落定。 */
     var gateReady by mutableStateOf(false)
 
     private var lastWarmupAt = 0L
 
     /**
-     * 后台预热登录：只做最低限度的「SSO 建立」。
-     *
-     * 2026-05 以前一股脑登 11 个子系统，触发 11 次 mfa/detect，服务端会风控
-     * （即便 trustAgent="true" 也常被反复 MFA）。现在：
-     * - 先直连教务建立 CAS TGC 共享 cookie；
-     * - 此后各站点登录是**纯 SSO 免密跳转**，只预热「上次用过的几个」，串行 + 静默
-     *   （撞 MFA 即退出，不弹窗不发短信）。一次密码都不提交，只覆盖用户真正会用的少数几个。
+     * 后台预热：先登教务建立 CAS 会话，再对最近用过的几个站点做静默 SSO（不提交密码、撞 MFA 即停）。
+     * 不要一次登全部站点，服务端会风控。
      */
     fun warmup(force: Boolean = false) {
         val now = System.currentTimeMillis()
@@ -300,7 +279,7 @@ private class SessionRestore(
         scope.launch(Dispatchers.IO) {
             try {
                 runCatching { loginState.sessionManager?.ensureSite(LoginType.JWXT) }
-                // 已下线的站点（如移除的课程回放）会一直占着「最近」名额，顺手清掉
+                // 清掉已下线的站点
                 val stored = credentialStore.recentSiteKeys
                 val recent = stored.filter { loginState.sessionManager?.getSiteOrNull(it) != null }
                 if (recent.size != stored.size) credentialStore.recentSiteKeys = recent
@@ -316,19 +295,14 @@ private class SessionRestore(
     }
 
     /**
-     * 有凭据且尚未建立任何登录会话 → 后台恢复。
-     *
-     * 启动期只做教务一道探针（课表是用户最常用的核心功能）。教务通过 Safety Verify 后，
-     * CAS 服务端会话即被标记为可信，其余子系统在用户进入对应页面时按需登录，多走 SSO，不再触发 MFA。
-     * 不再预热校园卡余额、一网通办姓名——冷启动除教务外没有任何额外的主动认证。
+     * 有凭据但还没有任何会话时，后台只登教务一个站点；其余站点进页面时按需走 SSO，
+     * 冷启动不做别的主动认证。
      */
     suspend fun run() {
-        // 注意：isLoggedIn 可能仅因 username 已设而为 true，但实际登录实例为 0
         if (loginState.hasCredentials && (loginState.sessionManager?.activeSiteCount ?: 0) == 0) {
             isRestoring = true
             withContext(Dispatchers.IO) {
-                // 主动探测一次网络环境。isOnCampus / AccessMode 只有系统网络回调触发时才会更新——
-                // 冷启动时网络早已稳定、回调不来，就会一直停在初始值，不反映实际所在的网络。
+                // 冷启动时网络回调可能不来，主动探一次校园网
                 try {
                     loginState.ensureCampusDetected()
                 } catch (e: Exception) {
@@ -356,9 +330,9 @@ private fun rememberSessionRestore(loginState: AppLoginState, onReady: () -> Uni
     val scope = rememberCoroutineScope()
     val restore = remember { SessionRestore(loginState, CredentialStore(context), scope) }
     LaunchedEffect(Unit) {
-        // 等首帧实际绘制到屏幕后再解除 Splash（避免白屏闪烁）
+        // 首帧真正画出后再撤 Splash，免得白屏一闪
         suspendCancellableCoroutine { cont -> view.post { cont.resume(Unit) } }
-        // 强制刷新桌面小组件（修复升级后旧实例点击行为滞后，需要重建才能生效的问题）
+        // 升级后旧的小组件实例点击行为滞后，重建一次
         runCatching {
             ScheduleWidgetUpdater.requestUpdate(context, resetToToday = false)
             CampusCardWidgetUpdater.requestUpdate(context)
@@ -370,11 +344,7 @@ private fun rememberSessionRestore(loginState: AppLoginState, onReady: () -> Uni
     return restore
 }
 
-/**
- * 从日程 tab 启动时提前把教务登上。失败了日程页自己会再登、会给出错误态，所以这里把异常吞掉：
- * 教务偶尔整体返回 404/5xx，ensureSite 抛 IOException，冲出 LaunchedEffect 就是主线程闪退
- * （4.9.6 线上崩溃「教务系统 登录失败：目标服务返回错误（HTTP 404）」就是这里）。
- */
+/** 从日程 tab 启动时提前登教务。失败交给日程页处理，异常必须吞掉，否则主线程闪退。 */
 private suspend fun prewarmJwxt(context: Context, loginState: AppLoginState) {
     if (loginState.sessionManager?.getSiteOrNull("jwxt")?.hasLogin == true || !loginState.hasCredentials) return
     val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
@@ -393,11 +363,8 @@ private suspend fun prewarmJwxt(context: Context, loginState: AppLoginState) {
 }
 
 /**
- * 从后台回来时刷新校园卡缓存（只用已有会话，一分钟最多一次）。
- *
- * 不再于 ON_RESUME 逐站点 ensureLogin 探活：它与 SessionKeepAlive（10 分钟周期）和
- * executeWithReAuth（请求级自愈）三重冗余，而且每次回到前台串行 N 个网络往返、持有各站点
- * loginLock，用户此刻点进任何功能页都要排队等它——是全局加载缓慢的主因之一。
+ * 回到前台时刷新校园卡缓存（只用已有会话，一分钟最多一次）。
+ * 不在这里逐站点探活：保活已由 SessionKeepAlive 和请求级重登负责，探活会占住登录锁拖慢所有页面。
  */
 @Composable
 private fun CampusCardResumeRefresh(loginState: AppLoginState) {
@@ -430,12 +397,7 @@ private fun CampusCardResumeRefresh(loginState: AppLoginState) {
 }
 
 /**
- * 网络变化监听：默认网络（WiFi / 蜂窝 / VPN）切换、能力变化、链路属性变化时重探校园网。
- * 不拦截每一次 HTTP——那会把探针打爆，只听 ConnectivityManager 的默认网络。
- *
- * - **3 秒防抖**：等网络真正稳定（detectCampusNetwork 自身还有一次间隔 1.5s 的二次确认）；
- * - **默认网络一变就强制重探**：不走 10 分钟缓存；未登录也更新徽标；
- * - **已登录且访问方式真变了**：清旧会话，当前页面标记失效并重新打开。
+ * 默认网络变化时（3 秒防抖）重探校园网；访问方式真变了且在要登录的页面上，就让该页重新打开。
  */
 @Composable
 private fun NetworkChangeWatcher(loginState: AppLoginState, navigator: AppNavigator) {

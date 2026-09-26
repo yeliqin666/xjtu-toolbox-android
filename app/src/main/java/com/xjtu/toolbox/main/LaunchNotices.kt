@@ -33,10 +33,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import java.time.Instant
 
-/**
- * 启动时要给用户看的东西：远端公告（首页堆叠条 + 最重要的那条弹框）、自动检查到的新版本、
- * 本地「这次更新了什么」。启动必检，不看「启动时检查更新」开关。
- */
+/** 启动时的公告（首页堆叠条 + 最重要的一条弹框）、自动检查到的新版本、本地更新日志。 */
 @Stable
 class LaunchNotices(
     private val context: Context,
@@ -51,10 +48,7 @@ class LaunchNotices(
     /** 自上次已见之后的全部新版本更新日志，堆叠展示。 */
     val pendingChangelog = AppChangelog.since(credentialStore.lastSeenChangelogVersion ?: previousRunVersion)
 
-    /**
-     * 全新安装没有「上一版」可言，给第一次打开的人看更新公告是噪音。
-     * 这里不写 lastSeenChangelogVersion，所以下次真正升级时照常提示。
-     */
+    /** 全新安装不弹更新日志。 */
     val showChangelog = mutableStateOf(pendingChangelog.isNotEmpty() && previousRunVersion != null)
 
     /** 首页顶部的公告堆叠条。 */
@@ -147,10 +141,7 @@ class LaunchNotices(
         if (bulletin.level == BulletinLevel.FORCE_UPDATE) openPendingUpdate(bulletin.url)
     }
 
-    /**
-     * 跟 FeedbackPromptSheet 一个原则：提交失败静默丢弃，不为这一下额外打扰用户。
-     * 本地先标记已答，不等网络结果——避免提交失败时反复重弹同一条投票。
-     */
+    /** 投票：本地先标记已答，提交失败静默丢弃，免得反复重弹。 */
     internal fun submitPoll(bulletin: Bulletin, selected: List<String>) {
         scope.launch {
             runCatching {
@@ -239,10 +230,7 @@ fun rememberLaunchNotices(credentialStore: CredentialStore): LaunchNotices {
     return notices
 }
 
-/**
- * 启动弹框。WindowBottomSheet 同时只能稳妥挂一个：冷启动若强制更新和重要通知各弹一层，
- * 后开的会把先开的顶掉。首页堆叠条照常全显示，框只弹优先级最高的那条。
- */
+/** 启动弹框，同一时刻只弹优先级最高的一个（WindowBottomSheet 叠两层会互相顶掉）。 */
 @Composable
 fun LaunchNoticeDialogs(notices: LaunchNotices) {
     val bulletin = notices.launchDialogBulletin
