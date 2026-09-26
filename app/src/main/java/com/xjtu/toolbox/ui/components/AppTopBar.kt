@@ -14,8 +14,8 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** 顶栏左上角的返回按钮。 */
 @Composable
-fun BackButton(onClick: () -> Unit) {
-    IconButton(onClick = onClick) {
+fun BackButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    IconButton(onClick = onClick, modifier = modifier) {
         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
     }
 }
