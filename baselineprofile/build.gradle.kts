@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "com.xjtu.toolbox.baselineprofile"
-    // 与 :app 一致：composite build 里 miuix 的 AAR metadata 要求 compileSdk 不低于 37
+    // 与 :app 一致：miuix 的 AAR metadata 要求 compileSdk 不低于 37
     compileSdk {
         version = release(37)
     }

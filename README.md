@@ -65,7 +65,7 @@
 - Android Gradle Plugin 9、Gradle 9、JDK 21
 - `minSdk 31`、`targetSdk 36`、`compileSdk 37`
 
-MIUIX 通过 Gradle composite build 直接引用源码，依赖目录为仓库根目录下的 `miuix-ref`。
+MIUIX 从 Maven Central 引入，始终跟随最新正式版（见 `gradle/libs.versions.toml`）。
 
 ---
 
@@ -77,14 +77,11 @@ MIUIX 通过 Gradle composite build 直接引用源码，依赖目录为仓库�
 - JDK 21
 - Git
 
-### 获取源码与依赖
-
-`miuix-ref` 不是子模块，需要单独 Clone ，否则 Gradle 同步会因找不到 composite build 而失败。
+### 获取源码
 
 ```bash
 git clone https://github.com/yeliqin666/xjtu-toolbox-android.git
 cd xjtu-toolbox-android
-git clone --depth 1 https://github.com/miuix-kotlin-multiplatform/miuix.git miuix-ref
 ```
 
 ### 编译

@@ -21,17 +21,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Checkout Miuix main source
-        run: |
-          # 固定到已验证的提交，不追 main：上游自动升依赖（如 AGP 9.4.0→9.4.1）会让
-          # composite build 出现两套 AGP 直接失败。升级 miuix 时连同本仓库 AGP 一起改这里。
-          MIUIX_REF=63529058dc5cbbb450707547090544f33f1a66ef
-          git init -q miuix-ref
-          git -C miuix-ref fetch -q --depth 1 https://github.com/miuix-kotlin-multiplatform/miuix.git "$MIUIX_REF"
-          git -C miuix-ref checkout -q FETCH_HEAD
-          # 本仓库 AGP 跟随 miuix（9.4.0）。composite build 不允许两套 AGP。
-          # compileSdk 已跟随 miuix 升到 37，下一步装 SDK 37 与之匹配。
-
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
@@ -48,7 +37,7 @@ jobs:
         run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
       - name: Install Android SDK 37
-        # 与 app/build.gradle.kts 的 compileSdk 37 保持一致（miuix 主线要求）；
+        # 与 app/build.gradle.kts 的 compileSdk 37 保持一致（miuix AAR 要求的最低 compileSdk）；
         # 同时保留 36 供 targetSdk 使用
         run: $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-37.0" "build-tools;37.0.0" "platforms;android-36" "build-tools;36.0.0" --channel=3
 
@@ -83,29 +72,20 @@ jobs:
           FEEDBACK_BASE_TOKEN: ${{ secrets.FEEDBACK_BASE_TOKEN }}
           FEEDBACK_TABLE_SUBMIT: ${{ secrets.FEEDBACK_TABLE_SUBMIT }}
           FEEDBACK_TABLE_REPLY: ${{ secrets.FEEDBACK_TABLE_REPLY }}
-        run: ./gradlew assembleRelease
+        run: ./gradlew :app:assembleRelease
 
-      # assembleRelease 是根任务，:app 与 :wear 都会构建。
-      # :wear 已配置与 :app 相同的 signingConfig，读的是上一步同一批环境变量，
-      # 因此产物是 wear-release.apk（未配签名时才会是 wear-release-unsigned.apk）。
-      - name: Verify wear APK is signed
+      - name: Verify release APK is signed
         if: github.ref == 'refs/heads/main'
         run: |
-          if [ ! -f wear/build/outputs/apk/release/wear-release.apk ]; then
-            echo "::error::wear-release.apk 不存在——签名配置未生效，请检查 keystore secrets"
-            ls -la wear/build/outputs/apk/release/ || true
-            exit 1
-          fi
-          echo "wear APK: $(wc -c < wear/build/outputs/apk/release/wear-release.apk) bytes"
+          # 未配签名时产物名是 app-release-unsigned.apk
+          test -f app/build/outputs/apk/release/app-release.apk             || { echo "::error::app-release.apk 不存在——签名配置未生效，请检查 keystore secrets"; ls -la app/build/outputs/apk/release/ || true; exit 1; }
 
       - name: Upload artifact
         if: github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v4
         with:
           name: app-release
-          path: |
-            app/build/outputs/apk/release/app-release.apk
-            wear/build/outputs/apk/release/wear-release.apk
+          path: app/build/outputs/apk/release/app-release.apk
 
       # 崩溃上报回来的堆栈是 R8 混淆过的，要靠这份 mapping 用 retrace 还原。
       # 同一个 versionName 可能重新发包（mapping 随之变），所以按 run id 区分。
@@ -129,9 +109,7 @@ jobs:
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: ${{ steps.version.outputs.tag }}
-          files: |
-            app/build/outputs/apk/release/app-release.apk
-            wear/build/outputs/apk/release/wear-release.apk
+          files: app/build/outputs/apk/release/app-release.apk
           generate_release_notes: true
           make_latest: true
           prerelease: ${{ contains(steps.version.outputs.version, 'alpha') || contains(steps.version.outputs.version, 'beta') }}
@@ -199,7 +177,6 @@ jobs:
           OWNER="yeliqin666"
           REPO="xjtu-toolbox-android"
           APK_PATH="app/build/outputs/apk/release/app-release.apk"
-          WEAR_APK_PATH="wear/build/outputs/apk/release/wear-release.apk"
 
           # 配置 Gitee remote
           git remote add gitee "https://yeliqin666:${GITEE_TOKEN}@gitee.com/${OWNER}/${REPO}.git" 2>/dev/null || \
@@ -244,12 +221,10 @@ jobs:
           fi
           echo "Created Gitee release $RELEASE_ID"
 
-          # 上传 APK：每个包最多 3 次，失败间隔 30s / 60s，单次超时 1 小时。
-          # 手机包三次仍失败则让本步失败（外层 continue-on-error 再接手）；
-          # 手表包失败只警告。
+          # 上传 APK：最多 3 次，失败间隔 30s / 60s，单次超时 1 小时。
+          # 三次仍失败则让本步失败（外层 continue-on-error 再接手）。
           upload_apk() {
             local APK="$1"
-            local REQUIRED="$2"
             local NAME
             NAME="$(basename "$APK")"
             echo "Uploading $NAME: $(wc -c < "$APK") bytes"
@@ -271,24 +246,15 @@ jobs:
               fi
               ATTEMPT=$((ATTEMPT + 1))
             done
-            if [ "$REQUIRED" = "true" ]; then
-              echo "::error::$NAME upload failed after 3 attempts"
-              return 1
-            fi
-            echo "::warning::$NAME upload failed after 3 attempts, continuing"
-            return 0
+            echo "::error::$NAME upload failed after 3 attempts"
+            return 1
           }
 
           if [ -f "$APK_PATH" ]; then
-            upload_apk "$APK_PATH" true || exit 1
+            upload_apk "$APK_PATH" || exit 1
           else
             echo "::error::phone APK missing at $APK_PATH"
             exit 1
-          fi
-          if [ -f "$WEAR_APK_PATH" ]; then
-            upload_apk "$WEAR_APK_PATH" false
-          else
-            echo "Skip missing $WEAR_APK_PATH"
           fi
 
       # ── dev 专属步骤：构建预览包并发布 GitHub Pre-release ──
@@ -333,7 +299,6 @@ jobs:
           FEEDBACK_BASE_TOKEN: ${{ secrets.FEEDBACK_BASE_TOKEN }}
           FEEDBACK_TABLE_SUBMIT: ${{ secrets.FEEDBACK_TABLE_SUBMIT }}
           FEEDBACK_TABLE_REPLY: ${{ secrets.FEEDBACK_TABLE_REPLY }}
-        # 只构建 :app，:wear 没有 preview 构建类型
         run: ./gradlew :app:assemblePreview
 
       - name: Verify preview APK

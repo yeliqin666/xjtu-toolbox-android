@@ -8,6 +8,10 @@ coreKtx = "1.15.0"
 coreSplashscreen = "1.0.1"
 lifecycleRuntimeKtx = "2.8.7"
 activityCompose = "1.12.0"
+# miuix 不钉版本：始终解析 Maven Central 上的最新正式版（rc/alpha/beta 会被
+# app/build.gradle.kts 里的 componentSelection 规则拒掉）。每次构建都会查一次远端，
+# 本地 Gradle 缓存只是缓存；离线构建（--offline）用缓存里最近解析到的那一版。
+miuix = "latest.release"
 # Compose 的实际版本由 miuix 带进来的 JetBrains Compose 决定（冲突仲裁取最高版本），
 # 这里的 BOM 必须和实际解析结果一致，否则 toml 里写的和真正用的对不上，出了问题很难查。
 # 2026.08.00 对应 ui / foundation / animation 1.12.0。升级 miuix 以后重跑一次
@@ -33,7 +37,7 @@ media3 = "1.6.1"
 backdrop = "2.0.1"
 # 形状形变（加载动画），不依赖 material3。
 graphicsShapes = "1.1.0"
-# miuix-nav 的返回栈要靠它序列化，版本和 miuix-ref 保持一致。
+# miuix-nav 的返回栈要靠它序列化，版本不低于 miuix 所用的版本。
 kotlinxSerialization = "1.11.0"
 junit = "4.13.2"
 junitVersion = "1.1.5"
@@ -55,7 +59,6 @@ androidx-ui = { group = "androidx.compose.ui", name = "ui" }
 androidx-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
 androidx-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
 androidx-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
-androidx-material3 = { group = "androidx.compose.material3", name = "material3" }
 markdown-renderer = { group = "com.mikepenz", name = "multiplatform-markdown-renderer", version.ref = "markdownRenderer" }
 markdown-renderer-coil3 = { group = "com.mikepenz", name = "multiplatform-markdown-renderer-coil3", version.ref = "markdownRenderer" }
 coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
@@ -78,6 +81,11 @@ androidx-lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lif
 media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3" }
 media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "media3" }
 media3-exoplayer-hls = { group = "androidx.media3", name = "media3-exoplayer-hls", version.ref = "media3" }
+miuix-ui = { group = "top.yukonga.miuix.kmp", name = "miuix-ui-android", version.ref = "miuix" }
+miuix-preference = { group = "top.yukonga.miuix.kmp", name = "miuix-preference-android", version.ref = "miuix" }
+miuix-icons = { group = "top.yukonga.miuix.kmp", name = "miuix-icons-android", version.ref = "miuix" }
+miuix-squircle = { group = "top.yukonga.miuix.kmp", name = "miuix-squircle-android", version.ref = "miuix" }
+miuix-nav = { group = "top.yukonga.miuix.kmp", name = "miuix-nav-android", version.ref = "miuix" }
 kyant-backdrop = { group = "io.github.kyant0", name = "backdrop", version.ref = "backdrop" }
 androidx-graphics-shapes = { group = "androidx.graphics", name = "graphics-shapes", version.ref = "graphicsShapes" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
