@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.home
 
+import com.xjtu.toolbox.ui.components.BackButton
 import com.xjtu.toolbox.nav.AppRoute
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
@@ -59,7 +60,6 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.TravelExplore
 import androidx.compose.material.icons.outlined.ChevronRight
@@ -210,9 +210,7 @@ fun GlobalSearchScreen(
                         title = "搜索",
                         color = scaffoldColor,
                         navigationIcon = {
-                            IconButton(onClick = onBack) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                            }
+                            BackButton(onBack)
                         },
                         actions = {
                             if (query.isNotEmpty()) {

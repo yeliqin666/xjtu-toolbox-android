@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.card
 
+import com.xjtu.toolbox.ui.components.BackButton
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
@@ -9,7 +10,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.TrendingDown
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.*
@@ -154,9 +154,7 @@ fun CampusCardScreen(
                 largeTitle = "校园卡",
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回")
-                    }
+                    BackButton(onBack)
                 },
                 actions = {
                     // 时间范围收进顶栏菜单：它同时作用于概览、流水、分析三栏，是整页的设置，

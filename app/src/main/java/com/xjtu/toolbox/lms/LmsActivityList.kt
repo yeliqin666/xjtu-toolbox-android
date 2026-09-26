@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.lms
 
+import com.xjtu.toolbox.ui.components.BackButton
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.util.Log
 import androidx.activity.compose.BackHandler
@@ -10,7 +11,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
 import com.xjtu.toolbox.auth.LocalAppLoginState
@@ -113,9 +113,7 @@ internal fun ActivityListPage(
                 modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
+                    BackButton(onBack)
                 },
                 actions = {
                     if (activities.any { it.type in BATCH_TYPES }) {

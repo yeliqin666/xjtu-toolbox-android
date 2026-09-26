@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.emptyroom
 
+import com.xjtu.toolbox.ui.components.BackButton
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xjtu.toolbox.ui.components.enterOnce
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -44,7 +45,6 @@ import androidx.compose.foundation.verticalScroll
 
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Apartment
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -327,9 +327,7 @@ fun EmptyRoomScreen(
                 largeTitle = "空闲教室",
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
+                    BackButton(onBack)
                 },
                 actions = {
                     Box {

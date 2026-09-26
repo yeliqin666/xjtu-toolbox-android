@@ -1,10 +1,10 @@
 package com.xjtu.toolbox.calendar
 
+import com.xjtu.toolbox.ui.components.BackButton
 import com.xjtu.toolbox.util.redactUrl
 import com.xjtu.toolbox.ui.components.enterOnce
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -14,7 +14,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -112,9 +111,7 @@ fun SchoolCalendarScreen(onBack: () -> Unit) {
                 color = glassBarColor(glass),
                 modifier = Modifier.glassTopBar(glass),
                 navigationIcon = {
-                    IconButton(onClick = onBack, modifier = Modifier.padding(start = 8.dp)) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
+                    BackButton(onBack, modifier = Modifier.padding(start = 8.dp))
                 },
                 scrollBehavior = scrollBehavior
             )

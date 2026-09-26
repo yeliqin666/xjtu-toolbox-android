@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.game.merge
 
+import com.xjtu.toolbox.ui.components.BackButton
 import android.annotation.SuppressLint
 import android.content.Context
 import android.view.ViewGroup
@@ -11,8 +12,6 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableStateOf
@@ -26,8 +25,6 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.xjtu.toolbox.game.GameIds
 import com.xjtu.toolbox.game.GameStore
 import com.xjtu.toolbox.util.releaseSafely
-import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -78,9 +75,7 @@ fun MergeGameScreen(onBack: () -> Unit) {
                 title = "合成西交大",
                 color = MiuixTheme.colorScheme.surface,
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
+                    BackButton(onBack)
                 }
             )
         }

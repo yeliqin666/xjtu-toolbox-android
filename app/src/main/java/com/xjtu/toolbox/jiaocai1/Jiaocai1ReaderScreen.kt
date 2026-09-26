@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.jiaocai1
 
+import com.xjtu.toolbox.ui.components.BackButton
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -21,7 +22,6 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.SwapVert
@@ -127,9 +127,7 @@ private fun ReaderShell(title: String, onBack: () -> Unit, body: @Composable () 
                 title = title,
                 color = MiuixTheme.colorScheme.surface,
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
+                    BackButton(onBack)
                 }
             )
         }
@@ -202,9 +200,7 @@ private fun ReaderContent(
                     color = com.xjtu.toolbox.ui.glass.glassBarColor(glass),
                     modifier = Modifier.glassTopBar(glass),
                     navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                        }
+                        BackButton(onBack)
                     },
                     actions = {
                         Box {
