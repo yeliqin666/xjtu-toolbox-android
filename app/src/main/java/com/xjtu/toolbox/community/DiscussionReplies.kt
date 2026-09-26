@@ -6,14 +6,10 @@ package com.xjtu.toolbox.community
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
-import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Reply
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -29,10 +25,10 @@ internal fun DiscussionReplies(
     op: String?,
     refreshKey: Int,
     load: suspend (String?) -> Result<GithubDiscussionComments>,
-    onUpvote: (GithubDiscussionComment, (GithubDiscussionComment) -> Unit) -> Unit,
+    canReply: Boolean,
+    onReact: (GithubDiscussionComment, String, (GithubDiscussionComment) -> Unit) -> Unit,
     onReply: (GithubDiscussionComment) -> Unit,
-    onEdit: (GithubDiscussionComment) -> Unit,
-    onDelete: (GithubDiscussionComment) -> Unit,
+    menu: (GithubDiscussionComment) -> List<MenuAction>,
     patch: ReplyPatch?,
 ) {
     val scope = rememberCoroutineScope()
@@ -79,27 +75,26 @@ internal fun DiscussionReplies(
     ) {
         shown.forEach { reply ->
             key(reply.id) {
+                var expanded by remember { mutableStateOf(false) }
+                val apply = { updated: GithubDiscussionComment ->
+                    if (connection.items.any { it.id == updated.id }) loader.edited(updated)
+                    preview = preview.map { if (it.id == updated.id) updated else it }
+                }
                 AuthorLine(reply, op, avatar = 22.dp)
                 Column(Modifier.padding(start = 32.dp)) {
-                    MarkdownText(reply.body)
+                    val reason = reply.minimizedReason
+                    if (reason != null && !expanded) {
+                        MinimizedNotice(reason) { expanded = true }
+                    } else {
+                        MarkdownText(reply.body)
+                        ReactionChips(reply.reactions, reply.canReact) { onReact(reply, it, apply) }
+                    }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        CommunityAction(
-                            Icons.Outlined.ThumbUp,
-                            if (reply.upvotes > 0) "${reply.upvotes}" else "",
-                            active = reply.upvoted,
-                            activeIcon = Icons.Filled.ThumbUp,
-                            enabled = reply.canUpvote || reply.upvoted,
-                            onClick = {
-                                onUpvote(reply) { updated ->
-                                    if (connection.items.any { it.id == updated.id }) loader.edited(updated)
-                                    preview = preview.map { if (it.id == updated.id) updated else it }
-                                }
-                            },
-                        )
-                        CommunityAction(Icons.AutoMirrored.Outlined.Reply, "回复", onClick = { onReply(reply) })
+                        LikeAction(reply.reactions, reply.canReact, "") { onReact(reply, LIKE, apply) }
+                        ReactionButton(reply.reactions, reply.canReact) { onReact(reply, it, apply) }
+                        if (canReply) CommunityAction(Icons.AutoMirrored.Outlined.Reply, "回复", onClick = { onReply(reply) })
                         Spacer(Modifier.weight(1f))
-                        if (reply.canEdit) CommunityAction(Icons.Outlined.Edit, "", onClick = { onEdit(reply) })
-                        if (reply.canDelete) CommunityAction(Icons.Outlined.Delete, "", onClick = { onDelete(reply) })
+                        MoreMenu(menu(reply))
                     }
                 }
             }

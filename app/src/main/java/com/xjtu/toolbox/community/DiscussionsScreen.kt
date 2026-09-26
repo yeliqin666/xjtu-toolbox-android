@@ -1,7 +1,7 @@
 package com.xjtu.toolbox.community
 
 // 改编自 JoyinJoester/Etoile（GPL-3.0）：github/feature/discussions/DiscussionsScreen.kt。
-// 界面改用 MIUIX，按论坛帖子列表重排：作者头像、时间、分类、回复数、点赞，分类筛选，下拉刷新，滑到底自动翻页。
+// 界面改用 MIUIX，按论坛帖子列表重排：作者头像、时间、分类、回复数、点赞、状态标签，分类筛选，下拉刷新，滑到底自动翻页。
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -15,7 +15,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
-import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Forum
 import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.runtime.*
@@ -194,19 +193,15 @@ private fun DiscussionCard(discussion: GithubDiscussion, onClick: () -> Unit, mo
         Spacer(Modifier.height(10.dp))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             CountLabel(Icons.Outlined.ChatBubbleOutline, if (discussion.comments > 0) "${discussion.comments}" else "回复")
+            val liked = discussion.reactions.mine(LIKE)
+            val likes = discussion.reactions.count(LIKE)
             CountLabel(
-                if (discussion.upvoted) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
-                if (discussion.upvotes > 0) "${discussion.upvotes}" else "赞",
-                active = discussion.upvoted,
+                if (liked) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
+                if (likes > 0) "$likes" else "赞",
+                active = liked,
             )
             Spacer(Modifier.weight(1f))
-            if (discussion.answered) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Outlined.CheckCircle, null, tint = COMMUNITY_GREEN, modifier = Modifier.size(14.dp))
-                    Spacer(Modifier.width(3.dp))
-                    Text("已解答", style = MiuixTheme.textStyles.footnote1, color = COMMUNITY_GREEN)
-                }
-            }
+            DiscussionStateTags(discussion)
         }
     }
 }
@@ -221,8 +216,10 @@ private fun CountLabel(icon: ImageVector, text: String, active: Boolean = false)
     }
 }
 
-/** GitHub 的「已解答」绿。 */
+/** GitHub 的「已解答」绿、「已关闭」紫、置顶橙。 */
 internal val COMMUNITY_GREEN = Color(0xFF2DA44E)
+internal val COMMUNITY_PURPLE = Color(0xFF8250DF)
+internal val COMMUNITY_ORANGE = Color(0xFFBC4C00)
 
 /** 发帖页：选分类、写标题和正文，可切到预览看 Markdown 效果。 */
 @Composable
