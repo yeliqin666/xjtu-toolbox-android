@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.venue
 
+import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.FullPageState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -35,12 +36,10 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.PullToRefresh
 import top.yukonga.miuix.kmp.basic.ScrollBehavior
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.Surface
-import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -67,15 +66,12 @@ fun VenueOrdersContent(
     /** 玻璃顶栏（含标签行）的高度，放进列表顶部留白。 */
     topPadding: androidx.compose.ui.unit.Dp = 0.dp,
 ) {
-    val pullToRefreshState = rememberPullToRefreshState()
-    PullToRefresh(
-        refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
+    AppPullToRefresh(
         isRefreshing = isLoading && orders.isNotEmpty(),
         onRefresh = onRefresh,
-        pullToRefreshState = pullToRefreshState,
-        topAppBarScrollBehavior = scrollBehavior,
-        contentPadding = PaddingValues(top = topPadding),
-        modifier = modifier.fillMaxSize()
+        scrollBehavior = scrollBehavior,
+        topPadding = topPadding,
+        modifier = modifier.fillMaxSize(),
     ) {
     when {
         isLoading && orders.isEmpty() -> FullPageState(Modifier.fillMaxSize().padding(top = topPadding)) { LoadingState(message = "加载订单...", modifier = Modifier.fillMaxSize()) }

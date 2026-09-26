@@ -3,6 +3,7 @@ package com.xjtu.toolbox.community
 // 改编自 JoyinJoester/Etoile（GPL-3.0）：github/feature/discussions/DiscussionsScreen.kt。
 // 界面改用 MIUIX，按论坛帖子列表重排：作者头像、时间、分类、回复数、点赞、状态标签，分类筛选，下拉刷新，滑到底自动翻页。
 
+import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -34,7 +35,6 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.AppFilterChip
-import com.xjtu.toolbox.ui.components.AppRefreshTexts
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
@@ -80,11 +80,10 @@ fun DiscussionsScreen(
             }
         },
     ) { top ->
-        PullToRefresh(
-            refreshTexts = AppRefreshTexts,
+        AppPullToRefresh(
             isRefreshing = pulling && state.loading,
             onRefresh = { pulling = true; onRefresh() },
-            contentPadding = PaddingValues(top = top),
+            topPadding = top,
             modifier = Modifier.fillMaxSize(),
         ) {
             LazyColumn(

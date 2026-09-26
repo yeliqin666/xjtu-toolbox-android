@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.notification
 
+import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
@@ -313,18 +314,16 @@ fun NotificationScreen(
                     } else {
                         var isPullRefreshing by remember { mutableStateOf(false) }
                         LaunchedEffect(vm.isLoading) { if (!vm.isLoading) isPullRefreshing = false }
-                        top.yukonga.miuix.kmp.basic.PullToRefresh(
-                            refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
-                            // 顶栏折叠交给下拉刷新协调：往下拉先展开大标题，展开完才算下拉刷新。不传的话下拉刷新先把拖动吃掉，慢慢拉只会刷新、标题展不开
-                            topAppBarScrollBehavior = scrollBehavior,
+                        AppPullToRefresh(
                             isRefreshing = isPullRefreshing,
                             onRefresh = {
                                 isPullRefreshing = true
                                 vm.refresh()
                             },
+                            scrollBehavior = scrollBehavior,
                             // 下拉指示器从玻璃顶栏（含分类、来源两行）下面出来
-                            contentPadding = PaddingValues(top = glassTop),
-                            modifier = Modifier.fillMaxSize()
+                            topPadding = glassTop,
+                            modifier = Modifier.fillMaxSize(),
                         ) {
                         // 宽屏分两三列排卡片（见 AdaptiveCardGrid），窄屏和原来的单列一样
                         com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid(

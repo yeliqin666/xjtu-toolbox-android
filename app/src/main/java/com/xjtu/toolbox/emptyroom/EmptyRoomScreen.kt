@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.emptyroom
 
+import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xjtu.toolbox.ui.components.enterOnce
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -20,8 +21,6 @@ import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
-import top.yukonga.miuix.kmp.basic.PullToRefresh
-import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.basic.RangeSlider
 import com.xjtu.toolbox.ui.glass.*
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
@@ -408,7 +407,6 @@ fun EmptyRoomScreen(
                 )
             }
         }
-        val pullToRefreshState = rememberPullToRefreshState()
         val glassTop = padding.glassTop(glass)
         val showFilterSheet = remember { mutableStateOf(false) }
         var buildingQuery by rememberSaveable { mutableStateOf("") }
@@ -516,13 +514,11 @@ fun EmptyRoomScreen(
         // - 筛选压成一张紧凑的卡：第一行楼栋胶囊 + 日期，第二行节次和时间，下面一根滑条，最后一行快捷筛选；
         // - 整块筛选区作为列表的前几项跟着滚，往上一推，教室列表就占满整屏（也才能从玻璃顶栏下面滚过去）。
         // 滑条是横向拖动，放进纵向列表里不会和滚动、下拉刷新抢手势。
-        PullToRefresh(
-            refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
+        AppPullToRefresh(
             isRefreshing = vm.isLoading && (if (isLive) vm.liveSnapshot != null else rooms.isNotEmpty()),
             onRefresh = { vm.refresh() },
-            pullToRefreshState = pullToRefreshState,
-            topAppBarScrollBehavior = scrollBehavior,
-            contentPadding = PaddingValues(top = glassTop),
+            scrollBehavior = scrollBehavior,
+            topPadding = glassTop,
             modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
         ) {
             val groupedRooms = remember(displayRooms, vm.selectedBuildings) {

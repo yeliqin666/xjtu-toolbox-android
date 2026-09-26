@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.schedule
 
+import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.mutableLongStateOf
 import com.xjtu.toolbox.ui.glass.glassSource
@@ -32,8 +33,6 @@ import top.yukonga.miuix.kmp.basic.ListPopupColumn
 import top.yukonga.miuix.kmp.basic.DropdownImpl
 import top.yukonga.miuix.kmp.basic.PopupPositionProvider
 import top.yukonga.miuix.kmp.utils.overScrollVertical
-import top.yukonga.miuix.kmp.basic.PullToRefresh
-import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.snapshotFlow
@@ -596,7 +595,6 @@ fun ScheduleScreen(
                             // 选周是浮在课表底部、底栏上方的一颗玻璃胶囊（WeekFloatingPill），
                             // 不在顶栏、也不单独占一行。它采样的是下面这层课表。
                             val weekTopPadding = listTopPadding
-                            val schedulePull = rememberPullToRefreshState()
                             val pillBackdrop = com.xjtu.toolbox.ui.glass.rememberPageGlass()
                             // 课表在滚：胶囊先淡出让路，停下来 700ms 后再浮上来
                             var scrolledAt by remember { mutableLongStateOf(0L) }
@@ -618,16 +616,12 @@ fun ScheduleScreen(
                                 kotlinx.coroutines.delay(700)
                                 pillHidden = false
                             }
-                            PullToRefresh(
-                                refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
-                                // 顶栏折叠交给下拉刷新协调：往下拉先展开大标题，展开完才算下拉刷新。不传的话下拉刷新先把拖动吃掉，慢慢拉只会刷新、标题展不开
-                                topAppBarScrollBehavior = topAppBarScrollBehavior,
+                            AppPullToRefresh(
                                 isRefreshing = vm.isRefreshingFromNetwork,
                                 // 考试倒计时横幅在每个 tab 上都常驻，下拉刷新时顺带把它也刷了。
                                 onRefresh = { vm.refreshSchedule(); vm.refreshExams() },
-                                pullToRefreshState = schedulePull,
-                                // 内容铺到玻璃顶栏下面时，指示器也要从顶栏下面出来，而不是屏幕顶边
-                                contentPadding = PaddingValues(top = weekTopPadding),
+                                scrollBehavior = topAppBarScrollBehavior,
+                                topPadding = weekTopPadding,
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .nestedScroll(scrollWatcher)
@@ -685,16 +679,11 @@ fun ScheduleScreen(
                             )
                         }
                         "today" -> {
-                            val todayPull = rememberPullToRefreshState()
-                            PullToRefresh(
-                                refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
-                                // 顶栏折叠交给下拉刷新协调：往下拉先展开大标题，展开完才算下拉刷新。不传的话下拉刷新先把拖动吃掉，慢慢拉只会刷新、标题展不开
-                                topAppBarScrollBehavior = topAppBarScrollBehavior,
+                            AppPullToRefresh(
                                 isRefreshing = vm.isRefreshingFromNetwork,
                                 onRefresh = { vm.refreshSchedule(); vm.refreshExams() },
-                                pullToRefreshState = todayPull,
-                                // 内容铺到玻璃顶栏下面时，指示器也要从顶栏下面出来，而不是屏幕顶边
-                                contentPadding = PaddingValues(top = listTopPadding),
+                                scrollBehavior = topAppBarScrollBehavior,
+                                topPadding = listTopPadding,
                                 modifier = Modifier.fillMaxSize(),
                             ) {
                                 TodayTimeline(
@@ -720,19 +709,14 @@ fun ScheduleScreen(
                             }
                         }
                         "semester" -> {
-                            val semPull = rememberPullToRefreshState()
-                            PullToRefresh(
-                                refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
-                                // 顶栏折叠交给下拉刷新协调：往下拉先展开大标题，展开完才算下拉刷新。不传的话下拉刷新先把拖动吃掉，慢慢拉只会刷新、标题展不开
-                                topAppBarScrollBehavior = topAppBarScrollBehavior,
+                            AppPullToRefresh(
                                 isRefreshing = vm.textbooksRefreshing,
                                 onRefresh = {
                                     vm.refreshExams()
                                     vm.reloadTextbooks()
                                 },
-                                pullToRefreshState = semPull,
-                                // 内容铺到玻璃顶栏下面时，指示器也要从顶栏下面出来，而不是屏幕顶边
-                                contentPadding = PaddingValues(top = listTopPadding),
+                                scrollBehavior = topAppBarScrollBehavior,
+                                topPadding = listTopPadding,
                                 modifier = Modifier.fillMaxSize(),
                             ) {
                                 SemesterCourseList(

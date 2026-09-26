@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.score
 
+import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.FullPageState
 import com.xjtu.toolbox.ui.glass.*
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
@@ -11,8 +12,6 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
-import top.yukonga.miuix.kmp.basic.PullToRefresh
-import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
@@ -135,7 +134,6 @@ fun ScoreReportScreen(
     LaunchedEffect(Unit) { loadData() }
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
-    val pullToRefreshState = rememberPullToRefreshState()
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
     Scaffold(
@@ -150,14 +148,12 @@ fun ScoreReportScreen(
     ) { padding ->
         // 内容铺到顶栏下面，顶部留白放进各个列表里；下拉指示器也从顶栏下面出来
         val glassTop = padding.glassTop(glass)
-        PullToRefresh(
-            refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
+        AppPullToRefresh(
             isRefreshing = isRefreshing,
             onRefresh = { loadData(silent = true) },
-            pullToRefreshState = pullToRefreshState,
-            topAppBarScrollBehavior = scrollBehavior,
-            contentPadding = PaddingValues(top = glassTop),
-            modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass)
+            scrollBehavior = scrollBehavior,
+            topPadding = glassTop,
+            modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
         ) {
             when {
             isLoading -> {

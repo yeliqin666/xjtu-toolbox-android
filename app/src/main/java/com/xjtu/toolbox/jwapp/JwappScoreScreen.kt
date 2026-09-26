@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.jwapp
 
+import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.FullPageState
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xjtu.toolbox.ui.adaptive.AdaptiveRowGrid
@@ -27,8 +28,6 @@ import top.yukonga.miuix.kmp.basic.Checkbox
 import top.yukonga.miuix.kmp.basic.DropdownImpl
 import top.yukonga.miuix.kmp.basic.ListPopupColumn
 import top.yukonga.miuix.kmp.basic.PopupPositionProvider
-import top.yukonga.miuix.kmp.basic.PullToRefresh
-import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.overlay.OverlayListPopup
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.utils.overScrollVertical
@@ -187,7 +186,6 @@ fun JwappScoreScreen(
     }
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
-    val pullToRefreshState = rememberPullToRefreshState()
     var termMenuExpanded by remember { mutableStateOf(false) }
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
@@ -270,14 +268,12 @@ fun JwappScoreScreen(
             }
 
             else -> {
-                PullToRefresh(
-                    refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
+                AppPullToRefresh(
                     isRefreshing = vm.isRefreshing,
                     onRefresh = { if (vm.canRefresh) vm.load(silent = true) },
-                    pullToRefreshState = pullToRefreshState,
-                    topAppBarScrollBehavior = scrollBehavior,
-                    contentPadding = PaddingValues(top = glassTop),
-                    modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass)
+                    scrollBehavior = scrollBehavior,
+                    topPadding = glassTop,
+                    modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
                 ) {
                     // 宽屏：GPA、筛选、学期标题横跨全宽，一门门课分两三列排（见 AdaptiveRowGrid：卡片会竖着展开，按行对齐，展开一张别的卡不挪位置）。
                     // 以前整页限宽 720 居中，平板横屏两边各空一大块。

@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.library
 
+import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.pressScale
 import com.xjtu.toolbox.ui.components.enterOnce
 import androidx.compose.foundation.verticalScroll
@@ -297,10 +298,7 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
         }
         // 内容铺到顶栏下面，顶部留白放进列表；下拉指示器也从顶栏下面出来
         val glassTop = padding.glassTop(glass)
-        top.yukonga.miuix.kmp.basic.PullToRefresh(
-            refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
-            // 顶栏折叠交给下拉刷新协调：往下拉先展开大标题，展开完才算下拉刷新。不传的话下拉刷新先把拖动吃掉，慢慢拉只会刷新、标题展不开
-            topAppBarScrollBehavior = scrollBehavior,
+        AppPullToRefresh(
             isRefreshing = isPullRefreshing,
             onRefresh = {
                 isPullRefreshing = true
@@ -308,8 +306,9 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                 vm.refreshMyBooking()
                 vm.bookingResult = null
             },
-            contentPadding = PaddingValues(top = glassTop),
-            modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass)
+            scrollBehavior = scrollBehavior,
+            topPadding = glassTop,
+            modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
         ) {
         // 上面这一整叠卡片：预约状态 / 校区楼层区域 / 座位统计。
         //

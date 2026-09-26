@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.judge
 
+import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.FullPageState
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
@@ -36,12 +37,10 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
-import top.yukonga.miuix.kmp.basic.PullToRefresh
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -71,7 +70,6 @@ private fun <Q> JudgeContent(title: String, vm: JudgeViewModel<Q>, onBack: () ->
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var confirming by remember { mutableStateOf(false) }
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
-    val pullToRefreshState = rememberPullToRefreshState()
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
     Scaffold(
@@ -122,15 +120,13 @@ private fun <Q> JudgeContent(title: String, vm: JudgeViewModel<Q>, onBack: () ->
                 }
             }
 
-            PullToRefresh(
-                refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
+            AppPullToRefresh(
                 isRefreshing = vm.isRefreshing,
                 onRefresh = { vm.load(silent = true) },
-                pullToRefreshState = pullToRefreshState,
-                topAppBarScrollBehavior = scrollBehavior,
+                scrollBehavior = scrollBehavior,
                 // 下拉指示器从玻璃顶栏（含标签行）下面出来
-                contentPadding = PaddingValues(top = glassTop),
-                modifier = Modifier.fillMaxSize()
+                topPadding = glassTop,
+                modifier = Modifier.fillMaxSize(),
             ) {
                 when {
                     vm.isLoading -> FullPageState(Modifier.fillMaxSize().padding(top = glassTop)) { LoadingState(message = "正在加载评教列表...", modifier = Modifier.fillMaxSize()) }

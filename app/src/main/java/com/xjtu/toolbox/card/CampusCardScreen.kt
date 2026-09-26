@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.card
 
+import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.BackButton
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
@@ -278,19 +279,17 @@ fun CampusCardScreen(
                         .then(if (isWide) Modifier else Modifier.readableWidth())
                         .nestedScroll(scrollBehavior.nestedScrollConnection)
                 ) {
-                    top.yukonga.miuix.kmp.basic.PullToRefresh(
-                        refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
-                        // 顶栏折叠交给下拉刷新协调：往下拉先展开大标题，展开完才算下拉刷新。不传的话下拉刷新先把拖动吃掉，慢慢拉只会刷新、标题展不开
-                        topAppBarScrollBehavior = scrollBehavior,
+                    AppPullToRefresh(
                         isRefreshing = isPullRefreshing,
                         onRefresh = {
                             isPullRefreshing = true
                             vm.load(silent = true)
                         },
-                        modifier = Modifier.fillMaxSize(),
+                        scrollBehavior = scrollBehavior,
                         // 内容从顶栏下面穿过以后，这一层铺满整页、从屏幕顶边算起；
                         // 不告诉它顶栏和标签行有多高，指示器就会从屏幕顶边拉出来，而不是大标题下面。
-                        contentPadding = PaddingValues(top = topContentPadding),
+                        topPadding = topContentPadding,
+                        modifier = Modifier.fillMaxSize(),
                     ) {
                         // 横滑切栏（概览/流水/分析），用契约组件 AppTabPager；标签行仍由下面的
                         // AppSegmentedTabs 负责点击切换，两者共用同一个 selectedTab。挂上

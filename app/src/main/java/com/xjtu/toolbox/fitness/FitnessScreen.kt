@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.fitness
 
+import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.FullPageState
 import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.auth.LocalAppLoginState
@@ -56,8 +57,6 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
-import top.yukonga.miuix.kmp.basic.PullToRefresh
-import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
@@ -175,7 +174,6 @@ fun FitnessScreen(
     LaunchedEffect(site) { loadYears() }
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
-    val pullToRefreshState = rememberPullToRefreshState()
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
 
@@ -190,14 +188,12 @@ fun FitnessScreen(
         }
     ) { padding ->
         val glassTop = padding.glassTop(glass)
-        PullToRefresh(
-            refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
+        AppPullToRefresh(
             isRefreshing = isRefreshing,
             onRefresh = { scope.launch { refreshCurrent() } },
-            pullToRefreshState = pullToRefreshState,
-            topAppBarScrollBehavior = scrollBehavior,
-            contentPadding = PaddingValues(top = glassTop),
-            modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass)
+            scrollBehavior = scrollBehavior,
+            topPadding = glassTop,
+            modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
         ) {
         when {
             loading && score == null -> FullPageState(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) { LoadingState("正在读取体测成绩…", Modifier.fillMaxSize()) }

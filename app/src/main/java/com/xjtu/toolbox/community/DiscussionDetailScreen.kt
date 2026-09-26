@@ -4,6 +4,7 @@ package com.xjtu.toolbox.community
 // DiscussionCommentActions.kt。界面改用 MIUIX，按论坛楼层重排：主帖卡片、N 楼、楼主标记、楼中楼预览、
 // 表情回应、投票、引用、分享、关闭 / 锁定 / 折叠、底部回帖栏、全屏编辑页（编辑 / 预览）。
 
+import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.activity.compose.BackHandler
@@ -34,7 +35,6 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.components.AppCardColor
-import com.xjtu.toolbox.ui.components.AppRefreshTexts
 import com.xjtu.toolbox.ui.components.ErrorState
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.*
@@ -215,11 +215,10 @@ fun DiscussionDetailScreen(
             )
         },
     ) { top ->
-        PullToRefresh(
-            refreshTexts = AppRefreshTexts,
+        AppPullToRefresh(
             isRefreshing = refreshing,
             onRefresh = { refreshing = true; vm.reloadAll() },
-            contentPadding = PaddingValues(top = top),
+            topPadding = top,
             modifier = Modifier.fillMaxSize(),
         ) {
             LazyColumn(

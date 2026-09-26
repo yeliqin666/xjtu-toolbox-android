@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.attendance
 
+import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.FullPageState
 import androidx.compose.ui.graphics.Color
 import com.xjtu.toolbox.ui.adaptive.readableWidth
@@ -68,14 +69,12 @@ import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
-import top.yukonga.miuix.kmp.basic.PullToRefresh
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SnackbarHost
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
-import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.preference.ArrowPreference
@@ -122,7 +121,6 @@ fun AttendanceScreen(
     }
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
-    val pullToRefreshState = rememberPullToRefreshState()
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
     Scaffold(
@@ -206,14 +204,12 @@ fun AttendanceScreen(
                 ) { ErrorState(message = state.error.orEmpty(), onRetry = { vm.load() }, modifier = Modifier.fillMaxSize()) }
             }
             else -> {
-                PullToRefresh(
-                    refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
+                AppPullToRefresh(
                     isRefreshing = state.refreshing,
-                    pullToRefreshState = pullToRefreshState,
                     onRefresh = { vm.load(fromPull = true) },
-                    topAppBarScrollBehavior = scrollBehavior,
-                    contentPadding = PaddingValues(top = glassTop),
-                    modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass)
+                    scrollBehavior = scrollBehavior,
+                    topPadding = glassTop,
+                    modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
                 ) {
                     // 宽屏：姓名和学期块限宽居中，下面的记录分两三列铺开（见 AdaptiveCardGrid）
                     AppTabPager(

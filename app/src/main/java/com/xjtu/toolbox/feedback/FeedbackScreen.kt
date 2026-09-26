@@ -1,12 +1,12 @@
 package com.xjtu.toolbox.feedback
 
+import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -46,9 +46,7 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
-import top.yukonga.miuix.kmp.basic.PullToRefresh
 import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
@@ -203,11 +201,7 @@ fun FeedbackScreen(
         }
     ) { padding ->
         val glassTop = padding.glassTop(glass)
-        val pullState = rememberPullToRefreshState()
-        PullToRefresh(
-            refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
-            // 顶栏折叠交给下拉刷新协调：往下拉先展开大标题，展开完才算下拉刷新。不传的话下拉刷新先把拖动吃掉，慢慢拉只会刷新、标题展不开
-            topAppBarScrollBehavior = scrollBehavior,
+        AppPullToRefresh(
             isRefreshing = refreshing,
             onRefresh = {
                 refreshing = true
@@ -216,8 +210,8 @@ fun FeedbackScreen(
                     refreshing = false
                 }
             },
-            pullToRefreshState = pullState,
-            contentPadding = PaddingValues(top = glassTop),
+            scrollBehavior = scrollBehavior,
+            topPadding = glassTop,
             modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
         ) {
         Column(

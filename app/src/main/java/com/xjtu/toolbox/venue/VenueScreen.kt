@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.venue
 
+import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.FullPageState
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -675,16 +676,13 @@ private fun VenueListContent(
     val sortedVenues = remember(venues, favoriteIds) {
         venues.sortedByDescending { it.id in favoriteIds }
     }
-    val pullToRefreshState = rememberPullToRefreshState()
 
-    PullToRefresh(
-        refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
+    AppPullToRefresh(
         isRefreshing = isRefreshing,
         onRefresh = onRefresh,
-        pullToRefreshState = pullToRefreshState,
-        topAppBarScrollBehavior = scrollBehavior,
-        contentPadding = PaddingValues(top = topPadding),
-        modifier = modifier.fillMaxSize()
+        scrollBehavior = scrollBehavior,
+        topPadding = topPadding,
+        modifier = modifier.fillMaxSize(),
     ) {
     when {
         isLoading -> FullPageState(Modifier.fillMaxSize().padding(top = topPadding)) { LoadingState(message = "加载场馆列表...", modifier = Modifier.fillMaxSize()) }
@@ -814,16 +812,13 @@ private fun SlotSelectionContent(
     /** 玻璃顶栏（含标签行、日期条）的高度，放进列表顶部留白。日期条在顶栏里，见 VenueScreen。 */
     topPadding: androidx.compose.ui.unit.Dp = 0.dp,
 ) {
-    val pullToRefreshState = rememberPullToRefreshState()
     Column(modifier = modifier.fillMaxSize()) {
-        PullToRefresh(
-            refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
+        AppPullToRefresh(
             isRefreshing = isRefreshing,
             onRefresh = onRefresh,
-            pullToRefreshState = pullToRefreshState,
-            topAppBarScrollBehavior = scrollBehavior,
-            contentPadding = PaddingValues(top = topPadding),
-            modifier = Modifier.weight(1f).fillMaxWidth()
+            scrollBehavior = scrollBehavior,
+            topPadding = topPadding,
+            modifier = Modifier.weight(1f).fillMaxWidth(),
         ) {
         when {
             isLoading -> FullPageState(Modifier.fillMaxSize().padding(top = topPadding)) { LoadingState(message = "加载可用时段...", modifier = Modifier.fillMaxSize()) }

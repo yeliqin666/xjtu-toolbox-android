@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.yellowpage
 
+import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.FullPageState
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import androidx.compose.foundation.lazy.staggeredgrid.itemsIndexed
@@ -59,11 +60,9 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
-import top.yukonga.miuix.kmp.basic.PullToRefresh
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
@@ -75,7 +74,6 @@ fun YellowPageScreen(onBack: () -> Unit) {
     val api = remember(LocalAppLoginState.current.accountId) { YellowPageApi(context) }
     val scope = rememberCoroutineScope()
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
-    val pullToRefreshState = rememberPullToRefreshState()
 
     var data by remember { mutableStateOf<YellowPageData?>(null) }
     var loading by remember { mutableStateOf(true) }
@@ -128,14 +126,12 @@ fun YellowPageScreen(onBack: () -> Unit) {
         }
     ) { padding ->
         val glassTop = padding.glassTop(glass)
-        PullToRefresh(
-            refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
+        AppPullToRefresh(
             isRefreshing = refreshing,
             onRefresh = { scope.launch { load(force = true) } },
-            pullToRefreshState = pullToRefreshState,
-            topAppBarScrollBehavior = scrollBehavior,
-            contentPadding = PaddingValues(top = glassTop),
-            modifier = Modifier.padding(padding.withoutTop(glass)).glassSource(glass).fillMaxSize()
+            scrollBehavior = scrollBehavior,
+            topPadding = glassTop,
+            modifier = Modifier.padding(padding.withoutTop(glass)).glassSource(glass).fillMaxSize(),
         ) {
         when {
             loading -> FullPageState(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) { com.xjtu.toolbox.ui.components.SkeletonList(Modifier.fillMaxSize(), rows = 8, rowHeight = 64.dp) }

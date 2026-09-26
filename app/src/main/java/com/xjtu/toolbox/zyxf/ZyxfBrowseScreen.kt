@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.zyxf
 
+import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -49,9 +50,7 @@ import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.PullToRefresh
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
@@ -158,19 +157,15 @@ fun ZyxfBrowseScreen(
             }
         }
 
-        val pullState = rememberPullToRefreshState()
-        PullToRefresh(
-            refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
-            // 顶栏折叠交给下拉刷新协调：往下拉先展开大标题，展开完才算下拉刷新。不传的话下拉刷新先把拖动吃掉，慢慢拉只会刷新、标题展不开
-            topAppBarScrollBehavior = scrollBehavior,
+        AppPullToRefresh(
             isRefreshing = refreshing,
             onRefresh = {
                 refreshing = true
                 vm.reload()
             },
-            pullToRefreshState = pullState,
+            scrollBehavior = scrollBehavior,
             // 下拉指示器从玻璃顶栏下面出来，不藏到玻璃后面
-            contentPadding = PaddingValues(top = contentTopPadding),
+            topPadding = contentTopPadding,
             modifier = Modifier.fillMaxSize(),
         ) {
             LazyColumn(

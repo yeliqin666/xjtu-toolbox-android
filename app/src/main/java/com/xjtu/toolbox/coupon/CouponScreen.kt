@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.coupon
 
+import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.FullPageState
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xjtu.toolbox.ui.adaptive.readableWidth
@@ -64,8 +65,6 @@ import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
-import top.yukonga.miuix.kmp.basic.PullToRefresh
-import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import com.xjtu.toolbox.nav.AppRoute
@@ -80,7 +79,6 @@ fun CouponScreen(
     val vm: CouponViewModel = viewModel(key = "coupon-${System.identityHashCode(site)}") { CouponViewModel(context, site) }
     LaunchedEffect(vm) { vm.authExpired.collect { appLoginState.handleAuthExpired(AppRoute.Coupon, onBack) } }
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
-    val pullToRefreshState = rememberPullToRefreshState()
     val selectedFilter = vm.filter
 
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
@@ -114,15 +112,13 @@ fun CouponScreen(
                 .glassSource(glass)
                 .fillMaxSize()
         ) {
-            PullToRefresh(
-                refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
+            AppPullToRefresh(
                 isRefreshing = vm.isRefreshing,
                 onRefresh = vm::refresh,
-                pullToRefreshState = pullToRefreshState,
-                topAppBarScrollBehavior = scrollBehavior,
+                scrollBehavior = scrollBehavior,
                 // 下拉指示器从玻璃顶栏（含标签行）下面出来
-                contentPadding = PaddingValues(top = glassTop),
-                modifier = Modifier.fillMaxSize()
+                topPadding = glassTop,
+                modifier = Modifier.fillMaxSize(),
             ) {
                 // 四个分类左右滑动切换，和别的分段标签页一样用 AppTabPager。
                 // 列表只有当前分类那一份（切分类时重新请求），所以滑动途中露出来的相邻页先显示加载中，
