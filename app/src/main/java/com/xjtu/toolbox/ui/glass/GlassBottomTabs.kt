@@ -297,20 +297,27 @@ fun GlassBottomTabs(
                         .layerBackdrop(tabsBackdrop)
                         .graphicsLayer { translationX = panelOffset }
                         .drawBackdrop(
-                            backdrop = backdrop,
+                            // 有主胶囊导出的那一层（已模糊、已铺底色）就直接采它，省一次对页面的模糊；
+                            // 滑块里透出的底也和旁边的胶囊完全一致
+                            backdrop = exportedBackdrop ?: backdrop,
                             shape = { pillShape },
                             effects = {
                                 val progress = dampedDrag.pressProgress
-                                // 和上面的主胶囊同一套采样范围，指示器透出来的底才对得上
-                                padding = maxOf(padding, 16.dp.toPx())
-                                vibrancy()
-                                blur(8.dp.toPx())
+                                if (exportedBackdrop == null) {
+                                    padding = maxOf(padding, 16.dp.toPx())
+                                    vibrancy()
+                                    blur(8.dp.toPx())
+                                }
                                 lens(24.dp.toPx() * progress, 24.dp.toPx() * progress)
                             },
                             highlight = {
                                 Highlight.Default.copy(alpha = dampedDrag.pressProgress)
                             },
-                            onDrawSurface = { drawRect(containerColor) },
+                            onDrawSurface = if (exportedBackdrop == null) {
+                                { drawRect(containerColor) }
+                            } else {
+                                null
+                            },
                         )
                         .then(interactiveHighlight.modifier)
                         .height(innerHeight)
