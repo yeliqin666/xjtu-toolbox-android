@@ -45,8 +45,6 @@ class DataCache(
     companion object {
         /** 默认 TTL: 7 天（日程/成绩在学期内基本稳定） */
         const val DEFAULT_TTL_MS = 7L * 24 * 60 * 60 * 1000L
-        /** 短 TTL: 30 分钟（座位等实时数据） */
-        const val SHORT_TTL_MS = 30L * 60 * 1000L
         /** 学期内稳定数据 TTL: 90 天，足以覆盖最长学期；过期后自然重新拉新学期数据。 */
         const val TERM_TTL_MS = 90L * 24 * 60 * 60 * 1000L
 

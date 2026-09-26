@@ -8,7 +8,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
@@ -45,8 +44,6 @@ import top.yukonga.miuix.kmp.utils.SinkFeedback
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import com.xjtu.toolbox.nav.AppRoute
 import androidx.lifecycle.viewmodel.compose.viewModel
-
-private const val TAG = "SchoolCourseScreen"
 
 // ── 主屏幕 ────────────────────────────────
 

@@ -1362,22 +1362,6 @@ private fun ServiceStatCell(
     }
 }
 
-/** 主页小节标题：主色强调条 + 粗体标题，全页统一。 */
-@Composable
-internal fun HomeSectionHeader(title: String, modifier: Modifier = Modifier) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = modifier) {
-        Box(
-            Modifier
-                .width(4.dp)
-                .height(15.dp)
-                .clip(RoundedCornerShape(2.dp))
-                .background(MiuixTheme.colorScheme.primary)
-        )
-        Spacer(Modifier.width(8.dp))
-        Text(title, style = MiuixTheme.textStyles.headline1, fontWeight = FontWeight.Bold)
-    }
-}
-
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun HomeQuickAction(

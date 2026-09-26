@@ -41,10 +41,6 @@ data class DownloadTaskEntity(
             else -> status
         }
 
-    /** 是否可恢复 (暂停或失败的任务可以恢复) */
-    val isResumable: Boolean
-        get() = status == "paused" || status == "failed"
-
     /** 是否活跃 (正在下载或暂停) */
     val isActive: Boolean
         get() = status == "downloading" || status == "paused" || status == "pending"
@@ -61,9 +57,6 @@ interface DownloadTaskDao {
 
     @Query("SELECT * FROM download_tasks ORDER BY createTime DESC")
     suspend fun getAll(): List<DownloadTaskEntity>
-
-    @Query("SELECT * FROM download_tasks WHERE activityId = :activityId ORDER BY createTime DESC")
-    suspend fun getByActivity(activityId: Int): List<DownloadTaskEntity>
 
     @Query("SELECT * FROM download_tasks WHERE status IN ('downloading', 'paused', 'pending') ORDER BY createTime DESC")
     suspend fun getActiveTasks(): List<DownloadTaskEntity>
@@ -88,9 +81,6 @@ interface DownloadTaskDao {
 
     @Query("DELETE FROM download_tasks WHERE status = 'completed'")
     suspend fun deleteCompleted()
-
-    @Query("DELETE FROM download_tasks WHERE activityId = :activityId")
-    suspend fun deleteByActivity(activityId: Int)
 
     @Query("UPDATE download_tasks SET status = :status, errorMessage = :errorMessage WHERE id = :id")
     suspend fun updateStatus(id: Long, status: String, errorMessage: String? = null)

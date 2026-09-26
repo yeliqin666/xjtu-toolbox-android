@@ -12,8 +12,6 @@ import android.webkit.WebView
  */
 object WebViewNightMode {
 
-    const val DARKREADER_VERSION = "4.9.128"
-
     private const val ASSET = "darkreader.min.js"
 
     @Volatile

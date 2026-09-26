@@ -505,7 +505,7 @@ class AppLoginStateViewModel(application: android.app.Application) : androidx.li
     val sessionManager = com.xjtu.toolbox.auth.SessionManager(application)
 
     /** 多账号编排器。 */
-    val accountManager = com.xjtu.toolbox.account.AccountManager(application, accountStore, credentialStore)
+    val accountManager = com.xjtu.toolbox.account.AccountManager(application, accountStore)
 
     init {
         // 注入会话管家（无需 LaunchedEffect，ViewModel 创建时即完成）

@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.jiaocai
 
-import kotlinx.serialization.json.JsonNull
 import com.xjtu.toolbox.util.stringValue
 import com.xjtu.toolbox.util.isNull
 import com.xjtu.toolbox.util.obj
@@ -38,7 +37,6 @@ class JiaocaiLogin(
         private const val TAG = "JiaocaiLogin"
         const val BASE_URL = "https://jiaocai.lib.xjtu.edu.cn"
         const val FID = "17071"
-        const val WEBSITE_ID = "12950"
         const val PAGE_ID = "13858"
         const val SEARCH_ID = "10700"
     }

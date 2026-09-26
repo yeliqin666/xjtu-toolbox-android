@@ -35,7 +35,6 @@ import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.window.WindowDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-private const val TAG = "LmsScreen"
 /**
  * 会话内页面缓存。
  *

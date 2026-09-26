@@ -1,7 +1,6 @@
 package com.xjtu.toolbox.agent
 
 import kotlinx.serialization.json.jsonObject
-import com.xjtu.toolbox.util.safeDoubleOrNull
 import com.xjtu.toolbox.util.safeStringOrNull
 import com.xjtu.toolbox.util.AppJson
 import kotlinx.serialization.json.add
@@ -590,7 +589,6 @@ class AgentToolRegistry(
     // 工具参数：模型偶尔把数字写成字符串，按内容解析
     private fun JsonObject.str(key: String): String? = this[key].safeStringOrNull()
     private fun JsonObject.int(key: String): Int? = this[key].safeStringOrNull()?.let { it.toIntOrNull() ?: it.toDoubleOrNull()?.toInt() }
-    private fun JsonObject.double(key: String): Double? = this[key].safeDoubleOrNull()
     private fun JsonObject.bool(key: String): Boolean? = this[key].safeStringOrNull()?.let { it.equals("true", ignoreCase = true) }
 
     suspend fun execute(name: String, argsJson: String): String = withContext(Dispatchers.IO) {

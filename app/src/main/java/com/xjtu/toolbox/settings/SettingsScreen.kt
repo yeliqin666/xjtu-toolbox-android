@@ -247,7 +247,6 @@ fun SettingsScreen(
     val cIndigo = Color(0xFF5C6BC0)
     val cBlueGray = Color(0xFF78909C)
     val cRed = Color(0xFFEF5350)
-    val cBrown = Color(0xFFA1887F)
     val cOrange = Color(0xFFFFA726)
     val cDeepOrange = Color(0xFFFF7043)
     val cGreen = Color(0xFF66BB6A)

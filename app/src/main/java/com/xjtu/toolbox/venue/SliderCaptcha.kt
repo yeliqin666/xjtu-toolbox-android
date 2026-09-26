@@ -122,7 +122,6 @@ fun SliderCaptchaView(
     // 滑块显示尺寸（按相同比例缩放）
     val scaleRatio = displayWidthPx / bgW
     val sliderDisplayWidthPx = slW * scaleRatio
-    val sliderDisplayHeightPx = slH * scaleRatio
     val sliderDisplayWidthDp = with(density) { sliderDisplayWidthPx.toDp() }
 
     // 最大滑动距离

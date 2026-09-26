@@ -176,49 +176,6 @@ class YwtbLogin(
         return false
     }
 
-    /**
-     * 执行带自动重认证的请求
-     * 1. 如果 token 已知过期（JWT exp），先 proactive 刷新
-     * 2. 如果请求返回 401/403，reactive 刷新并重试一次
-     */
-    fun executeWithReAuth(requestBuilder: Request.Builder): Response {
-        // Proactive: 如果 JWT 已过期，先刷新
-        if (!isTokenValid()) {
-            Log.d(TAG, "executeWithReAuth: token expired, proactive reAuth")
-            reAuthenticate()
-        }
-
-        val response = client.newCall(
-            requestBuilder
-                .header("x-id-token", idToken ?: "")
-                .build()
-        ).execute()
-
-        val needReAuth = when {
-            response.code in listOf(401, 403) -> true
-            response.code == 200 -> {
-                val ct = response.header("Content-Type") ?: ""
-                if ("html" in ct || "text" in ct) {
-                    XJTULogin.isAuthFailureResponse(response.peekBody(8192).string())
-                } else false
-            }
-            else -> false
-        }
-        if (needReAuth) {
-            Log.d(TAG, "executeWithReAuth: auth failure (code=${response.code}), reactive reAuth")
-            response.close()
-            if (reAuthenticate()) {
-                return client.newCall(
-                    requestBuilder
-                        .header("x-id-token", idToken ?: "")
-                        .build()
-                ).execute()
-            }
-            throw AuthExpiredException("一网通办")
-        }
-        return response
-    }
-
     companion object {
         const val YWTB_LOGIN_URL =
             "https://login.xjtu.edu.cn/cas/login?service=https%3A%2F%2Fywtb.xjtu.edu.cn%2F%3Fpath%3Dhttps%253A%252F%252Fywtb.xjtu.edu.cn%252Fmain.html%2523%252FIndex"

@@ -1,17 +1,12 @@
 package com.xjtu.toolbox.ui.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.graphics.Brush
@@ -23,7 +18,6 @@ import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.squircle.squircleSurface
-import top.yukonga.miuix.kmp.utils.SinkFeedback
 
 /**
  * 页面层级用色，解决"灰卡片踩灰背景"。
@@ -118,35 +112,4 @@ fun ExpressiveIcon(
         }
         Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(iconSize))
     }
-}
-
-@Composable
-fun ExpressivePanel(
-    modifier: Modifier = Modifier,
-    accent: Color,
-    cornerRadius: Dp = 24.dp,
-    onClick: (() -> Unit)? = null,
-    content: @Composable BoxScope.() -> Unit,
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    Box(
-        modifier = modifier
-            .appCardShadow(shape = RoundedCornerShape(cornerRadius))
-            .squircleSurface(
-                color = accent.copy(alpha = 0.08f),
-                cornerRadius = cornerRadius,
-            )
-            .then(
-                if (onClick != null) {
-                    Modifier.clickable(
-                        interactionSource = interactionSource,
-                        indication = SinkFeedback(),
-                        onClick = onClick,
-                    )
-                } else {
-                    Modifier
-                },
-            ),
-        content = content,
-    )
 }

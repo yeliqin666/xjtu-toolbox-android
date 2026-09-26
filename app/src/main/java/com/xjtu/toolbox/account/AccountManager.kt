@@ -8,7 +8,6 @@ import com.xjtu.toolbox.auth.SessionManager
 import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.card.CampusCardCache
 import com.xjtu.toolbox.data.AppDatabase
-import com.xjtu.toolbox.data.CredentialStore
 import com.xjtu.toolbox.network.PersistentCookieJar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -32,7 +31,6 @@ import java.io.File
 class AccountManager(
     private val context: Context,
     private val accountStore: AccountStore,
-    private val credentialStore: CredentialStore,
 ) {
 
     lateinit var sessionManager: SessionManager

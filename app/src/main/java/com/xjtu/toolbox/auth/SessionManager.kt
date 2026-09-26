@@ -160,10 +160,8 @@ class SessionManager(context: Context) {
 
     // ── 密码全局失效 ─────────────────────────────────────
     private val _passwordInvalidated = MutableStateFlow(false)
-    val passwordInvalidated: StateFlow<Boolean> = _passwordInvalidated
 
     private val _passwordInvalidatedSite = MutableStateFlow("")
-    val passwordInvalidatedSite: StateFlow<String> = _passwordInvalidatedSite
 
     /**
      * 任一站点确认凭据无效时调用。所有后续 ensureLogin 将立即抛 [PasswordInvalidatedException]，

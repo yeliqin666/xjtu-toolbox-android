@@ -78,21 +78,6 @@ class CouponLogin(
         return tokenObtainedAt == 0L || System.currentTimeMillis() - tokenObtainedAt < TOKEN_TTL_MS
     }
 
-    fun authenticatedRequest(url: String, jsonBody: String): Request.Builder {
-        if (!isTokenValid() && !reAuthenticate()) {
-            throw com.xjtu.toolbox.auth.AuthExpiredException("加餐券")
-        }
-        return Request.Builder()
-            .url(url)
-            .post(jsonBody.toRequestBody(JSON))
-            .header("Accept", "application/json, text/javascript, */*; q=0.01")
-            .header("Content-Type", "application/json;charset=UTF-8")
-            .header("Origin", BASE_URL)
-            .header("Referer", RECEIVE_URL)
-            .header("X-Requested-With", "XMLHttpRequest")
-            .header("Authorization", authToken ?: "")
-    }
-
     override fun validateLogin(): Boolean {
         return isTokenValid()
     }
@@ -123,28 +108,6 @@ class CouponLogin(
             Log.e(COUPON_TAG, "reAuthenticate failed", e)
         }
         false
-    }
-
-    fun executeWithReAuth(requestBuilder: Request.Builder): Response {
-        val response = client.newCall(requestBuilder.build()).execute()
-        val needReAuth = when {
-            response.code in listOf(401, 403) -> true
-            response.code == 200 -> {
-                val ct = response.header("Content-Type") ?: ""
-                if ("html" in ct || "text" in ct) {
-                    XJTULogin.isAuthFailureResponse(response.peekBody(8192).string())
-                } else false
-            }
-            else -> false
-        }
-        if (needReAuth) {
-            response.close()
-            if (reAuthenticate()) {
-                return client.newCall(requestBuilder.header("Authorization", authToken ?: "").build()).execute()
-            }
-            throw AuthExpiredException("加餐券")
-        }
-        return response
     }
 
     private fun exchangeCodeForToken(params: CallbackParams) {

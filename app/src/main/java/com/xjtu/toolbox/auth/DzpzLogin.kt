@@ -173,15 +173,6 @@ class DzpzLogin(
     }
 
     /**
-     * 构建带 session cookies 的请求
-     */
-    fun authenticatedRequest(url: String): Request.Builder {
-        return Request.Builder()
-            .url(url)
-            .header("Referer", "$BASE_URL/spa/workflow/static4form/index.html")
-    }
-
-    /**
      * 探活用 getOSinfo 而非 /api/ecode/sync —— 后者匿名访问同样返回 200 空 body、不跳 CAS，
      * 会把已失效的会话判成有效。
      */
@@ -243,32 +234,4 @@ class DzpzLogin(
         return@synchronized false
     }
 
-    /**
-     * 执行带自动重认证的请求
-     * 如果请求返回 302 到 CAS、401/403 或被 Safety Verify 拦截，自动重认证并重试
-     */
-    fun executeWithReAuth(request: Request.Builder): Response {
-        val response = client.newCall(request.build()).execute()
-        val finalUrl = response.request.url.toString()
-
-        val needReAuth = when {
-            finalUrl.contains("login.xjtu.edu.cn/cas/login", ignoreCase = true) -> true
-            response.code in listOf(401, 403) -> true
-            response.code == 200 -> {
-                val ct = response.header("Content-Type") ?: ""
-                if ("html" in ct || "text" in ct) {
-                    XJTULogin.isAuthFailureResponse(response.peekBody(8192).string())
-                } else false
-            }
-            else -> false
-        }
-        if (needReAuth) {
-            response.close()
-            if (reAuthenticate()) {
-                return client.newCall(request.build()).execute()
-            }
-            throw AuthExpiredException("电子打印证")
-        }
-        return response
-    }
 }

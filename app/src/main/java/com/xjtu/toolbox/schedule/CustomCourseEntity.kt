@@ -94,19 +94,6 @@ fun parseWeeksString(weeksStr: String): List<Int> {
     return weeks.sorted()
 }
 
-/**
- * 将周次列表转换为长度为 maxWeeks 的 0/1 位图字符串（e.g. "11110000..."）
- */
-fun List<Int>.toWeekBits(maxWeeks: Int = 20): String {
-    val chars = CharArray(maxWeeks) { '0' }
-    for (w in this) {
-        if (w in 1..maxWeeks) {
-            chars[w - 1] = '1'
-        }
-    }
-    return String(chars)
-}
-
 @Dao
 interface CustomCourseDao {
     @Query("SELECT * FROM custom_courses WHERE accountId = :accountId AND termCode = :termCode ORDER BY dayOfWeek, startSection, startMinuteOfDay")
@@ -124,9 +111,6 @@ interface CustomCourseDao {
 
     @Delete
     suspend fun delete(course: CustomCourseEntity)
-
-    @Query("DELETE FROM custom_courses WHERE accountId = :accountId AND termCode = :termCode")
-    suspend fun deleteByTerm(accountId: String, termCode: String)
 
     @Query("SELECT * FROM custom_courses WHERE accountId = :accountId ORDER BY termCode DESC, dayOfWeek, startSection, startMinuteOfDay")
     suspend fun getAll(accountId: String): List<CustomCourseEntity>

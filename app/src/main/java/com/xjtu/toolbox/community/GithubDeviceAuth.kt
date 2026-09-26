@@ -33,7 +33,6 @@ data class GithubDeviceAccessToken(
     val refreshToken: String? = null,
     val expiresAtEpochMillis: Long? = null,
     val refreshExpiresAtEpochMillis: Long? = null,
-    val authorizationSource: String = "oauth"
 ) {
     override fun toString(): String =
         "GithubDeviceAccessToken(accessToken=<redacted>, tokenType=$tokenType, scopes=$scopes)"

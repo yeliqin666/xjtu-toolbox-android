@@ -49,11 +49,6 @@ data class HelloProfile(
     /** 本条数据的抓取时刻，用于"多久前更新"与静默刷新判定 */
     val fetchedAt: Long = 0L,
 ) {
-    val sexLabel: String get() = when (sex) {
-        1 -> "男"
-        2 -> "女"
-        else -> ""
-    }
 
     /** 有没有值得展示的内容——全空时不渲染卡片，避免出现一张空壳。 */
     fun hasContent(): Boolean =

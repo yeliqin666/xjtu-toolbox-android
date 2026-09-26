@@ -47,15 +47,6 @@ class DiscussionsViewModel(
     private var categoriesJob: Job? = null
     private var createJob: Job? = null
 
-    fun cancelPendingRequests(clearAccountData: Boolean = true) {
-        loadJob?.cancel(); categoriesJob?.cancel(); createJob?.cancel()
-        if (clearAccountData) {
-            mutable.value = DiscussionsUiState()
-            saveDraft()
-        }
-        else mutable.update { it.copy(loading = false, submitting = false) }
-    }
-
     init { load(); loadCategories() }
 
     private fun restoreDraft(): DiscussionsUiState {

@@ -205,10 +205,6 @@ class OnlineGameSession(
         transport.send(NetCodec.encode(NetCodec.move(seq, code)))
     }
 
-    suspend fun requestUndo() = transport.send(NetCodec.encode(NetCodec.simple(NetMsgType.UNDO_REQ)))
-    suspend fun answerUndo(accept: Boolean) =
-        transport.send(NetCodec.encode(NetEnvelope(NetMsgType.UNDO_ACK, ok = accept)))
-
     suspend fun requestDraw() = transport.send(NetCodec.encode(NetCodec.simple(NetMsgType.DRAW_REQ)))
     suspend fun answerDraw(accept: Boolean) =
         transport.send(NetCodec.encode(NetEnvelope(NetMsgType.DRAW_ACK, ok = accept)))

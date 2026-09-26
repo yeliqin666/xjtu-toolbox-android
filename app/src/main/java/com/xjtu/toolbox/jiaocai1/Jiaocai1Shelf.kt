@@ -40,15 +40,6 @@ interface Jiaocai1ShelfDao {
     )
     suspend fun updateProgress(ssno: String, index: Int, at: Long, totalPages: Int)
 
-    @Query(
-        """
-        UPDATE jiaocai1_shelf
-        SET title = :title, author = :author, coverUrl = :coverUrl, totalPages = :totalPages
-        WHERE ssno = :ssno
-        """
-    )
-    suspend fun updateMeta(ssno: String, title: String, author: String, coverUrl: String, totalPages: Int)
-
     @Query("DELETE FROM jiaocai1_shelf WHERE ssno = :ssno")
     suspend fun delete(ssno: String)
 

@@ -24,7 +24,6 @@ data class DownloadProgress(
     val totalBytes: Long,
     val progress: Float, // 0.0 ~ 1.0
     val status: String,  // downloading/paused/completed/failed
-    val speedBytesPerSec: Long = 0  // 下载速度(字节/秒)
 )
 
 /**

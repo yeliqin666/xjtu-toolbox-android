@@ -4,11 +4,8 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -17,14 +14,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import top.yukonga.miuix.kmp.utils.overScrollVertical
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -34,7 +27,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -235,60 +227,6 @@ private fun toDisplayScheduleSlot(
 }
 
 // ── 周选择器（左右箭头式）────────────────
-
-@Composable
-fun WeekSelector(currentWeek: Int, totalWeeks: Int, onWeekChange: (Int) -> Unit) {
-    var dragOffsetX by remember { mutableFloatStateOf(0f) }
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
-            .pointerInput(currentWeek, totalWeeks) {
-                detectHorizontalDragGestures(
-                    onDragEnd = {
-                        when {
-                            dragOffsetX < -80f && currentWeek < totalWeeks -> onWeekChange(currentWeek + 1)
-                            dragOffsetX > 80f && currentWeek > 1 -> onWeekChange(currentWeek - 1)
-                        }
-                        dragOffsetX = 0f
-                    },
-                    onHorizontalDrag = { _, dragAmount -> dragOffsetX += dragAmount }
-                )
-            },
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        IconButton(
-            onClick = { if (currentWeek > 1) onWeekChange(currentWeek - 1) },
-            enabled = currentWeek > 1
-        ) {
-            Icon(
-                Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                contentDescription = "上一周",
-                tint = if (currentWeek > 1) MiuixTheme.colorScheme.primary
-                       else MiuixTheme.colorScheme.outline
-            )
-        }
-        Text(
-            "第 $currentWeek 周",
-            style = MiuixTheme.textStyles.subtitle,
-            fontWeight = FontWeight.Bold,
-            color = MiuixTheme.colorScheme.primary,
-            modifier = Modifier.padding(horizontal = 20.dp)
-        )
-        IconButton(
-            onClick = { if (currentWeek < totalWeeks) onWeekChange(currentWeek + 1) },
-            enabled = currentWeek < totalWeeks
-        ) {
-            Icon(
-                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = "下一周",
-                tint = if (currentWeek < totalWeeks) MiuixTheme.colorScheme.primary
-                       else MiuixTheme.colorScheme.outline
-            )
-        }
-    }
-}
 
 // ── 日程网格（绝对定位，完美对齐）────────
 

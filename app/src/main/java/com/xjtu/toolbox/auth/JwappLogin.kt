@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.auth
 
-import com.xjtu.toolbox.util.redactBody
 import android.util.Log
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -65,24 +64,6 @@ class JwappLogin(
             return false
         }
         return true
-    }
-
-    /**
-     * 获取带 Authorization 头的请求 Builder。
-     *
-     * [UA] yan-xiaoo 在 `get_session()` 中给 `requests.Session` 注入了 Mozilla UA。
-     * 我们的 OkHttp client 默认 UA 是 `okhttp/4.x`，jwapp 服务端会风控阻断默认 UA，返
-     * `{"code":401,"msg":"Authentication error: ..."}`。务必在 JWAPP 业务请求带浏览器 UA。
-     *
-     * [token null 兜底] 之前 token==null 直接抛 RuntimeException("未登录") 让 UI 显示
-     * 「加载失败: 未登录」，破坏 onRetry 链路。改为带空 Authorization，让请求自然 401，
-     * 由 executeWithReAuth 触发 reAuth（清 jwapp cookie + 重新走 OAuth 拿 token）。
-     */
-    fun authenticatedRequest(url: String): Request.Builder {
-        return Request.Builder()
-            .url(url)
-            .header("Authorization", authToken ?: "")
-            .header("User-Agent", BROWSER_UA)
     }
 
     /**
@@ -171,89 +152,11 @@ class JwappLogin(
         return false
     }
 
-    /**
-     * 执行带自动重认证的请求
-     * 如果请求返回 401/403 或被 CAS Safety Verify / 登录页拦截，自动 reAuthenticate 并重试一次
-     */
-    fun executeWithReAuth(requestBuilder: Request.Builder): Response {
-        val response = client.newCall(
-            requestBuilder.header("Authorization", authToken ?: "").build()
-        ).execute()
-        val needReAuth = when {
-            response.code in listOf(401, 403) -> true
-            response.code == 200 -> {
-                val ct = response.header("Content-Type") ?: ""
-                when {
-                    // jwapp 业务接口失效时返回 HTTP 200 + JSON 体含 "authentication error"，
-                    // 比如 {"code":401,"msg":"authentication error: /api/biz/v410/score/termScore"}。
-                    // 必须把这种「业务级 token 失效」识别为 auth failure 才能触发 reAuth。
-                    "json" in ct -> {
-                        val body = response.peekBody(4096).string()
-                        "authentication error" in body
-                            || Regex("\"code\"\\s*:\\s*401").containsMatchIn(body)
-                            || Regex("\"code\"\\s*:\\s*403").containsMatchIn(body)
-                    }
-                    "html" in ct || "text" in ct -> {
-                        XJTULogin.isAuthFailureResponse(response.peekBody(8192).string())
-                    }
-                    else -> false
-                }
-            }
-            else -> false
-        }
-        if (needReAuth) {
-            // 只记录 token 是否变化，不落任何 token 内容
-            val oldToken = authToken
-            Log.d(TAG, "executeWithReAuth: auth failure (code=${response.code}, ct=${response.header("Content-Type")}), attempting reAuth")
-            response.close()
-            if (reAuthenticate()) {
-                Log.d(TAG, "executeWithReAuth: reAuth ok (token changed=${oldToken != authToken})")
-                val retryResp = client.newCall(
-                    requestBuilder.header("Authorization", authToken ?: "").build()
-                ).execute()
-                // 关键：重试响应也必须 check。jwapp 业务接口可能在 reAuth 后**仍然** 401
-                // （比如服务端 session 黑名单生效、token 没真正轮换、或权限不足）。
-                // 这种情况若把 401 当正常响应返回，业务层会把 msg 当作"网络异常"提示给用户。
-                // 一律抛 AuthExpiredException 让 markStaleAndRetry 走 full login（含 MFA）路径。
-                val ct2 = retryResp.header("Content-Type") ?: ""
-                val stillFail = when {
-                    retryResp.code in listOf(401, 403) -> true
-                    retryResp.code == 200 && "json" in ct2 -> {
-                        val body = retryResp.peekBody(4096).string()
-                        val fail = "authentication error" in body
-                            || Regex("\"code\"\\s*:\\s*401").containsMatchIn(body)
-                            || Regex("\"code\"\\s*:\\s*403").containsMatchIn(body)
-                        if (fail) Log.w(TAG, "executeWithReAuth: retry still auth-failed, body head=${body.redactBody(200)}")
-                        fail
-                    }
-                    else -> false
-                }
-                if (stillFail) {
-                    retryResp.close()
-                    authToken = null
-                    tokenObtainedAt = 0L
-                    throw AuthExpiredException("移动教务")
-                }
-                return retryResp
-            }
-            // reAuth 失败 → 清空 token，确保下次 getCached 返回 null，
-            // 状态机进入 full login 流程（含 SAFETY_VERIFY MFA dialog）。
-            authToken = null
-            tokenObtainedAt = 0L
-            throw AuthExpiredException("移动教务")
-        }
-        return response
-    }
-
     companion object {
         const val JWAPP_URL =
             "https://org.xjtu.edu.cn/openplatform/oauth/authorize?appId=1370&redirectUri=http://jwapp.xjtu.edu.cn/app/index&responseType=code&scope=user_info&state=1234"
 
         /** Token 预估 TTL：1 小时（jwapp token 通常较短命） */
         private const val TOKEN_TTL_MS = 60 * 60 * 1000L
-
-        /** [UA] 浏览器 UA，绕过 jwapp 服务端对 `okhttp/4.x` 默认 UA 的风控。 */
-        private const val BROWSER_UA =
-            "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
     }
 }

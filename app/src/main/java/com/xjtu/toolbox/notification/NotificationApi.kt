@@ -33,7 +33,6 @@ data class Notification(
     val description: String = "",
     val tags: List<String> = emptyList(),
     val date: LocalDate = LocalDate.now(),
-    val isRead: Boolean = false
 )
 
 /** 某一页的抓取结果。[hasMore] 表示站点分页里还有下一页，不是「这一页是不是空的」。 */

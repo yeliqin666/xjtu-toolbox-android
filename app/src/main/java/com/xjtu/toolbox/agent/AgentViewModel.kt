@@ -650,15 +650,4 @@ class AgentViewModel : ViewModel() {
         }
     }
 
-    /** 清空当前会话内容，但保留会话条目本身。 */
-    fun clearMessages() {
-        messages.clear()
-        llmHistory = mutableListOf()
-        errorMessage = null
-        lastTotalTokens = null
-        contextExhausted = false
-        contextExhaustedJustTriggered = false
-        // tools 保留（loginFailedAt 冷却状态有价值），不在 clearMessages 时重置
-        persist()
-    }
 }

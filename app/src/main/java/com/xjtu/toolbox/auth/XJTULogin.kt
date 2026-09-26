@@ -317,11 +317,6 @@ open class XJTULogin(
     protected var rawPassword: String? = null
         private set
 
-    /** 明文用户名（供子类访问） */
-    protected val storedUsername: String? get() = username
-
-    // 账户选择响应
-    private var chooseAccountResponse: Response? = null
     private var chooseAccountBody: String? = null
 
     /** 最近一次 postLogin 调用前的 response body（供子类在 postLogin 中使用） */
@@ -556,12 +551,6 @@ open class XJTULogin(
             .add("mfaState", mfaState)
             .add("geolocation", "")
             .add("trustAgent", trustAgentStr)
-            .build()
-
-        // 发送登录请求（禁用自动重定向以便处理 302）
-        val noRedirectClient = client.newBuilder()
-            .followRedirects(false)
-            .followSslRedirects(false)
             .build()
 
         val request = Request.Builder()

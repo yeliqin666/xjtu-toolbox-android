@@ -166,11 +166,6 @@ class CredentialStore(context: Context) {
         get() = appPrefs.getString(KEY_NETWORK_MODE, NETWORK_AUTO) ?: NETWORK_AUTO
         set(value) { appPrefs.edit().putString(KEY_NETWORK_MODE, value).apply() }
 
-    /** 旧开关，启动路径不再读取。保留以免旧安装读到 false 还要迁一次。 */
-    var autoCheckUpdate: Boolean
-        get() = appPrefs.getBoolean(KEY_AUTO_CHECK_UPDATE, true)
-        set(value) { appPrefs.edit().putBoolean(KEY_AUTO_CHECK_UPDATE, value).apply() }
-
     var updateChannel: String
         get() = AppUpdater.normalizeChannel(appPrefs.getString(KEY_UPDATE_CHANNEL, CHANNEL_GITEE))
         set(value) { appPrefs.edit().putString(KEY_UPDATE_CHANNEL, AppUpdater.normalizeChannel(value)).apply() }
@@ -260,7 +255,6 @@ class CredentialStore(context: Context) {
         private const val KEY_DYNAMIC_COLOR = "dynamic_color"
         private const val KEY_DEFAULT_TAB = "default_tab"
         private const val KEY_NETWORK_MODE = "network_mode"
-        private const val KEY_AUTO_CHECK_UPDATE = "auto_check_update"
         private const val KEY_UPDATE_CHANNEL = "update_channel"
         private const val KEY_RECEIVE_PREVIEW = "receive_preview_updates"
         private const val KEY_ROLLOUT_ID = "rollout_id"

@@ -193,9 +193,6 @@ class VenueApi(private val site: SiteSession) {
         val venueName: String
             get() = details.firstOrNull { it.serviceName.isNotBlank() }?.serviceName.orEmpty()
 
-        val firstDate: String
-            get() = details.firstOrNull()?.date.orEmpty()
-
         /** 待支付订单可直接唤起支付引导。 */
         val canPay: Boolean get() = status == 0
 

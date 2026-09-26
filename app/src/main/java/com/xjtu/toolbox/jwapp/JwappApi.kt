@@ -174,8 +174,6 @@ class JwappApi(private val site: SiteSession) {
                 val s = scoreEl.jsonObject
                 val rawScore = s.get("score").safeString()
                 val numericScore = rawScore.toDoubleOrNull()
-                val apiGpa = s.get("gpa").safeDoubleOrNull()
-                val apiPassFlag = s.get("passFlag")
 
                 val courseName = s.get("courseName").safeString()
 

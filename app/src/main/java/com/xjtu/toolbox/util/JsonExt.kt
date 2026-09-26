@@ -108,9 +108,6 @@ fun String?.safeParseJson(): JsonElement {
 fun String?.safeParseJsonObject(): JsonObject =
     safeParseJson() as? JsonObject ?: throw RuntimeException("服务器返回了非预期的数据格式：${preview()}")
 
-fun String?.safeParseJsonArray(): JsonArray =
-    safeParseJson() as? JsonArray ?: throw RuntimeException("服务器返回了非预期的数据格式：${preview()}")
-
 private fun String?.preview() = orEmpty().take(100).replace("\n", " ")
 
 val JsonPrimitive.isNumber: Boolean get() = !isString && this !is JsonNull && content.toDoubleOrNull() != null
