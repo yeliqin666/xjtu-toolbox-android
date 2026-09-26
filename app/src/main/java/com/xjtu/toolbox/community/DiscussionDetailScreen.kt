@@ -103,21 +103,21 @@ fun DiscussionDetailScreen(
         val add = !before.upvoted
         update(before.copy(upvoted = add, upvotes = before.upvotes + if (add) 1 else -1))
         scope.launch {
-            repo.upvote(before.id, add).onFailure { update(before); message = "点赞没成功，稍后再试" }
+            repo.upvote(before.id, add).onFailure { update(before); message = failureText("点赞", it) }
         }
     }
     fun toggleCommentUpvote(comment: GithubDiscussionComment, apply: (GithubDiscussionComment) -> Unit) {
         val add = !comment.upvoted
         apply(comment.copy(upvoted = add, upvotes = comment.upvotes + if (add) 1 else -1))
         scope.launch {
-            repo.upvote(comment.id, add).onFailure { apply(comment); message = "点赞没成功，稍后再试" }
+            repo.upvote(comment.id, add).onFailure { apply(comment); message = failureText("点赞", it) }
         }
     }
     fun toggleAnswer(comment: GithubDiscussionComment) {
         scope.launch {
             repo.markAnswer(comment.id, !comment.isAnswer).fold(
                 onSuccess = { reloadAll() },
-                onFailure = { message = "操作没成功，稍后再试" },
+                onFailure = { message = failureText("操作", it) },
             )
         }
     }
@@ -164,7 +164,7 @@ fun DiscussionDetailScreen(
                                     if (topLevel) update(discussion.copy(comments = (discussion.comments - 1).coerceAtLeast(0)))
                                     if (!topLevel) patch = ReplyPatch(edited = null, deletedId = comment.id, seq = (patch?.seq ?: 0) + 1)
                                 },
-                                onFailure = { message = "删除没成功，稍后再试" },
+                                onFailure = { message = failureText("删除", it) },
                             )
                         }
                     },
@@ -191,7 +191,7 @@ fun DiscussionDetailScreen(
                         scope.launch {
                             repo.deleteDiscussion(discussion.id).fold(
                                 onSuccess = { onDeleted() },
-                                onFailure = { message = "删除没成功，稍后再试" },
+                                onFailure = { message = failureText("删除", it) },
                             )
                         }
                     },
@@ -635,4 +635,22 @@ private fun CommunityEditorPage(
             }
         }
     }
+}
+
+/** 失败提示：带上 GitHub 返回的原因（权限 / 限流 / 网络），并写日志。 */
+private fun failureText(action: String, error: Throwable): String {
+    android.util.Log.w("Community", "$action failed", error)
+    val reason = when (error) {
+        is GithubSignedOutException -> "请先登录 GitHub"
+        is GithubApiException -> when {
+            error.rateLimited -> "GitHub 请求太频繁，等一会儿再试"
+            error.statusCode == 401 -> "GitHub 登录已失效，请重新登录"
+            error.statusCode == 403 -> "GitHub 拒绝了这次操作（HTTP 403）"
+            else -> "GitHub 返回 HTTP ${error.statusCode}"
+        }
+        is GithubDiscussionException -> error.message
+        is java.io.IOException -> "网络不通，检查网络后重试"
+        else -> error.message
+    }
+    return if (reason.isNullOrBlank()) "${action}没成功，稍后再试" else "${action}没成功：$reason"
 }

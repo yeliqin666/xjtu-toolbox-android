@@ -60,6 +60,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.outlined.Build
 import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
@@ -777,7 +778,7 @@ private fun ChatPanel(
         Box(Modifier.weight(1f).clipToBounds()) {
             key(vm.currentSessionId) {
                 val listState = rememberLazyListState()
-                val chatRows = groupAgentRows(vm.messages)
+                val chatRows = groupAgentRows(vm.messages, config.showReasoning)
                 LaunchedEffect(chatRows.size, vm.isLoading) {
                     if (chatRows.isNotEmpty()) listState.scrollToItem(chatRows.lastIndex)
                 }
@@ -823,15 +824,18 @@ private fun ChatPanel(
                         showReasoning = config.showReasoning,
                         onNavigate = onNavigate,
                         toolEvents = row.tools,
+                        streaming = vm.isLoading && row === chatRows.last() && row.msg.content.isBlank() &&
+                            vm.messages.lastOrNull()?.role?.let(::isToolRole) != true,
                         onAskFromWidget = ::askFromWidget,
                     )
                 }
             }
             val last = vm.messages.lastOrNull()
+            // 还没有任何在动的东西可看时给一条「思考中」占位：刚发出去，或者模型在想但思考不显示
             val showThinking = vm.isLoading && when {
                 last == null || last.role == "user" -> true
                 isToolRole(last.role) -> false
-                last.content.isBlank() && last.reasoningContent.isBlank() -> true
+                last.content.isBlank() -> last.reasoningContent.isBlank() || !config.showReasoning
                 else -> false
             }
             if (showThinking) {
@@ -1212,8 +1216,11 @@ private sealed class AgentRow {
     ) : AgentRow()
 }
 
-/** 一轮里的调用记录挂到该回答末尾；结果小卡仍在正文里。 */
-private fun groupAgentRows(messages: List<ChatMessage>): List<AgentRow> {
+/**
+ * 把消息流排成聊天行：连续的思考合并成一条挂在下一段正文上（有正文才分段），
+ * 不显示思考时纯思考消息不出行；工具记录、结果小卡、跳转按钮归到该轮最后一行。
+ */
+private fun groupAgentRows(messages: List<ChatMessage>, showReasoning: Boolean): List<AgentRow> {
     val out = mutableListOf<AgentRow>()
     var i = 0
     while (i < messages.size) {
@@ -1227,43 +1234,104 @@ private fun groupAgentRows(messages: List<ChatMessage>): List<AgentRow> {
         val tools = mutableListOf<ChatMessage>()
         val block = mutableListOf<ChatMessage>()
         while (i < messages.size && messages[i].role != "user") {
-            if (isToolRole(messages[i].role)) tools += messages[i]
-            else block += messages[i]
+            if (isToolRole(messages[i].role)) tools += messages[i] else block += messages[i]
             i++
         }
         val allWidgets = block.flatMap { it.widgets }
         val allNav = block.flatMap { it.navSuggestions }.distinctBy { it.second }
-        val assistants = mutableListOf<AgentRow.Assistant>()
-        block.forEachIndexed { idx, a ->
-            val last = idx == block.lastIndex
-            val widgets = if (last) allWidgets else emptyList()
-            val nav = if (last) allNav else emptyList()
-            val visible = a.content.isNotBlank() ||
-                a.reasoningContent.isNotBlank() ||
-                (last && (widgets.isNotEmpty() || nav.isNotEmpty()))
-            if (visible) {
-                assistants += AgentRow.Assistant(
-                    a.copy(widgets = widgets, navSuggestions = nav),
-                    "a-${a.timestamp}-$start-$idx",
+
+        // key 取段内第一条消息：思考变长、正文出来时仍是同一行，不闪
+        val rows = mutableListOf<AgentRow.Assistant>()
+        val reasoning = mutableListOf<String>()
+        var segmentStart: ChatMessage? = null
+        fun mergedReasoning() = if (showReasoning) reasoning.joinToString("\n\n") else ""
+        for (a in block) {
+            val first = segmentStart ?: a.also { segmentStart = it }
+            if (a.reasoningContent.isNotBlank()) reasoning += a.reasoningContent.trim()
+            if (a.content.isNotBlank()) {
+                rows += AgentRow.Assistant(
+                    a.copy(reasoningContent = mergedReasoning()),
+                    "a-${first.timestamp}-$start-${rows.size}",
                 )
+                reasoning.clear()
+                segmentStart = null
             }
         }
-        if (assistants.isEmpty() && block.isNotEmpty() && (allWidgets.isNotEmpty() || allNav.isNotEmpty())) {
-            val last = block.last()
-            assistants += AgentRow.Assistant(
-                last.copy(widgets = allWidgets, navSuggestions = allNav),
-                "a-w-${last.timestamp}-$start",
+        val tailStart = segmentStart
+        if (tailStart != null && mergedReasoning().isNotBlank()) {
+            rows += AgentRow.Assistant(
+                block.last().copy(content = "", reasoningContent = mergedReasoning()),
+                "a-${tailStart.timestamp}-$start-${rows.size}",
             )
         }
-        if (assistants.isNotEmpty()) {
-            val last = assistants.last()
-            assistants[assistants.lastIndex] = last.copy(tools = tools)
-            out += assistants
+        if (rows.isEmpty() && (allWidgets.isNotEmpty() || allNav.isNotEmpty())) {
+            val last = block.last()
+            rows += AgentRow.Assistant(last.copy(content = "", reasoningContent = ""), "a-w-${last.timestamp}-$start")
+        }
+        if (rows.isNotEmpty()) {
+            val last = rows.last()
+            rows[rows.lastIndex] = last.copy(
+                msg = last.msg.copy(widgets = allWidgets, navSuggestions = allNav),
+                tools = tools,
+            )
+            out += rows
         } else if (tools.isNotEmpty()) {
             out += AgentRow.Tools(tools, "t-${tools.first().timestamp}-$start")
         }
     }
     return out
+}
+
+/** 思考、工具调用共用的过程小卡：收起时一行摘要，点开看全部。 */
+@Composable
+private fun AgentTraceCard(
+    label: String,
+    summary: String,
+    accent: Color,
+    expandable: Boolean,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+    leading: @Composable () -> Unit = {},
+    trailing: @Composable () -> Unit = {},
+    details: @Composable () -> Unit = {},
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MiuixTheme.colorScheme.surfaceVariant,
+        modifier = modifier
+            .widthIn(max = 340.dp)
+            .then(if (expandable) Modifier.clickable(onClick = onToggle) else Modifier),
+    ) {
+        Column(Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                leading()
+                Text(label, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Bold, color = accent)
+                if (!expanded && summary.isNotBlank()) {
+                    Text(
+                        summary,
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                }
+                trailing()
+                if (expandable) {
+                    Icon(
+                        if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        contentDescription = if (expanded) "收起$label" else "展开$label",
+                        modifier = Modifier.size(16.dp),
+                        tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                }
+            }
+            AnimatedVisibility(visible = expanded && expandable) {
+                Column(Modifier.padding(top = 6.dp)) { details() }
+            }
+        }
+    }
 }
 
 @Composable
@@ -1273,110 +1341,69 @@ private fun ReasoningBar(
     onNavigate: (AppRoute) -> Unit = {},
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
-    Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = MiuixTheme.colorScheme.surfaceVariant,
-        modifier = Modifier
-            .widthIn(max = 340.dp)
-            .then(
-                if (text.isNotBlank()) Modifier.clickable { expanded = !expanded }
-                else Modifier
-            ),
-    ) {
-        Column(Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
-            ) {
-                Text(
-                    "思考",
-                    style = MiuixTheme.textStyles.footnote1,
-                    fontWeight = FontWeight.Bold,
-                    color = MiuixTheme.colorScheme.primary,
-                )
-                when {
-                    streaming && text.isBlank() -> ThinkingDots()
-                    !expanded && text.isNotBlank() -> Text(
-                        text.replace(Regex("\\s+"), " ").trim(),
-                        style = MiuixTheme.textStyles.footnote1,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                    else -> Spacer(Modifier.weight(1f))
-                }
-                if (text.isNotBlank()) {
-                    Icon(
-                        if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                        contentDescription = if (expanded) "收起思考过程" else "展开思考过程",
-                        modifier = Modifier.size(16.dp),
-                        tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    )
-                }
-            }
-            if (expanded && text.isNotBlank()) {
-                Spacer(Modifier.height(6.dp))
-                MarkdownText(
-                    text = text,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    onLink = { url ->
-                        onNavigate(AppRoute.Browser(url))
-                    },
-                )
-            }
-        }
-    }
+    AgentTraceCard(
+        label = "思考",
+        summary = text.replace(Regex("\\s+"), " ").trim(),
+        accent = MiuixTheme.colorScheme.primary,
+        expandable = text.isNotBlank(),
+        expanded = expanded,
+        onToggle = { expanded = !expanded },
+        trailing = { if (streaming) ThinkingDots() },
+        details = {
+            MarkdownText(
+                text = text,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                onLink = { url -> onNavigate(AppRoute.Browser(url)) },
+            )
+        },
+    )
 }
 
 private fun toolLabel(msg: ChatMessage) = msg.content.removeSuffix("…").trim()
 
+/** 一轮里调用过的工具，收成一张小卡；多个或出错时可展开看每一次。 */
 @Composable
-private fun ToolCallNote(events: List<ChatMessage>) {
+private fun ToolCallNote(events: List<ChatMessage>, modifier: Modifier = Modifier) {
     if (events.isEmpty()) return
     val running = events.any { it.isToolCall }
     val hasError = events.any { it.toolError != null }
     var expanded by remember(events.first().timestamp) { mutableStateOf(false) }
     val labels = events.map { toolLabel(it) }.filter { it.isNotBlank() }
     val summary = when {
-        running -> labels.lastOrNull().orEmpty().ifBlank { "调用中" }
+        running -> labels.lastOrNull().orEmpty()
         hasError -> labels.joinToString(" · ").ifBlank { "调用失败" }
         else -> labels.joinToString(" · ")
     }
-    val muted = if (hasError) MiuixTheme.colorScheme.error.copy(alpha = 0.85f)
-    else MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.72f)
-    val canExpand = events.size > 1 || hasError || events.any { it.toolError != null }
-    Column(Modifier.padding(top = 12.dp)) {
-        Row(
-            modifier = if (canExpand) Modifier.clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-            ) { expanded = !expanded } else Modifier,
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            if (running) CircularProgressIndicator(size = 10.dp, strokeWidth = 1.5.dp)
-            Text(
-                summary,
-                style = MiuixTheme.textStyles.footnote2,
-                color = muted,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        AnimatedVisibility(visible = expanded && canExpand) {
-            Column(Modifier.padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+    val muted = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    val tint = if (hasError) MiuixTheme.colorScheme.error else muted
+    AgentTraceCard(
+        label = if (running) "调用中" else "工具",
+        summary = summary,
+        accent = tint,
+        expandable = events.size > 1 || hasError,
+        expanded = expanded,
+        onToggle = { expanded = !expanded },
+        modifier = modifier,
+        leading = {
+            if (running) {
+                CircularProgressIndicator(size = 11.dp, strokeWidth = 1.5.dp)
+            } else {
+                Icon(Icons.Outlined.Build, contentDescription = null, modifier = Modifier.size(13.dp), tint = tint)
+            }
+        },
+        details = {
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 events.forEach { event ->
                     val err = event.toolError
                     Text(
                         if (err != null) "${toolLabel(event)} · $err" else toolLabel(event),
                         style = MiuixTheme.textStyles.footnote2,
-                        color = if (err != null) MiuixTheme.colorScheme.error.copy(alpha = 0.85f) else muted,
+                        color = if (err != null) MiuixTheme.colorScheme.error else muted,
                     )
                 }
             }
-        }
-    }
+        },
+    )
 }
 
 @Composable
@@ -1387,6 +1414,8 @@ private fun MessageBubble(
     canEdit: Boolean = false,
     onEdit: () -> Unit = {},
     toolEvents: List<ChatMessage> = emptyList(),
+    /** 这一行是正在生成、还没出正文的最后一行：思考卡上显示跳动的点。 */
+    streaming: Boolean = false,
     /** 卡片替用户问一句（如资料卡上点"打开目录"）。 */
     onAskFromWidget: (String) -> Unit = {},
 ) {
@@ -1447,8 +1476,8 @@ private fun MessageBubble(
                 horizontalAlignment = Alignment.Start
             ) {
                 if (showReasoning && msg.reasoningContent.isNotBlank()) {
-                    ReasoningBar(text = msg.reasoningContent, onNavigate = onNavigate)
-                    Spacer(Modifier.height(6.dp))
+                    ReasoningBar(text = msg.reasoningContent, streaming = streaming, onNavigate = onNavigate)
+                    if (msg.content.isNotBlank()) Spacer(Modifier.height(6.dp))
                 }
                 if (msg.content.isNotBlank()) {
                     MarkdownText(
@@ -1512,7 +1541,7 @@ private fun MessageBubble(
                     }
                 }
                 if (toolEvents.isNotEmpty()) {
-                    ToolCallNote(toolEvents)
+                    ToolCallNote(toolEvents, Modifier.padding(top = 8.dp))
                 }
             }
         }
