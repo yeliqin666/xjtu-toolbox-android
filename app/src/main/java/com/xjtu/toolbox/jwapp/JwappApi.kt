@@ -306,13 +306,6 @@ class JwappApi(private val site: SiteSession) {
         val allGrades = getGrade(null)
         return allGrades.map { it.termCode to it.termName }
     }
-
-    /**
-     * GPA 计算：二等级制不参与，优先 xscjcx.do 精确值，fallback 本地映射。
-     * passFlag 对等级制课程可能错误返回 false，需 GPA/分数二次兜底。
-     */
-    fun calculateGpaForCourses(courses: List<ScoreItem>): GpaInfo =
-        com.xjtu.toolbox.score.ScoreCalculator.calculateGpaForCourses(courses)
 }
 
 internal fun isNoScoreDetailMessage(msg: String?): Boolean {
