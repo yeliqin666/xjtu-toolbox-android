@@ -21,9 +21,7 @@ internal object ChatterFactsLoader {
     fun load(ctx: Context, today: LocalDate = LocalDate.now()): ChatterFacts = runCatching {
         val cache = DataCache(ctx)
         val holidays = HolidayApi.peekCached(ctx)
-        val nextHoliday = (1..14).firstNotNullOfOrNull { d ->
-            holidays[today.plusDays(d.toLong())]?.let { it to d }
-        }
+        val nextHoliday = nextHoliday(holidays, today)
 
         val term = ScheduleCache.readCurrentTerm(cache, gson)
         val courses: List<CourseItem> = term?.let {
@@ -49,4 +47,15 @@ internal object ChatterFactsLoader {
             nextHoliday = nextHoliday,
         )
     }.getOrDefault(ChatterFacts())
+
+    /**
+     * 两周内下一段假期的名字和距今天数。假期表是逐日展开的，只认每段假期的第一天，
+     * 否则放假当中会算出「距中秋节 1 天」。
+     */
+    internal fun nextHoliday(holidays: Map<LocalDate, String>, today: LocalDate): Pair<String, Int>? =
+        (1..14).firstNotNullOfOrNull { d ->
+            val date = today.plusDays(d.toLong())
+            val name = holidays[date] ?: return@firstNotNullOfOrNull null
+            if (holidays[date.minusDays(1)] == name) null else name to d
+        }
 }
