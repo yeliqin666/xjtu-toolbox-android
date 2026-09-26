@@ -1,8 +1,9 @@
 package com.xjtu.toolbox.agent
 
 import android.content.Context
-import com.google.gson.Gson
 import com.xjtu.toolbox.account.AccountContext
+import com.xjtu.toolbox.util.AppJson
+import kotlinx.serialization.Serializable
 import java.io.File
 import java.util.UUID
 
@@ -10,37 +11,24 @@ import java.util.UUID
  * 一个会话的元数据（用于抽屉列表）。
  * 会话是带 id/title/时间戳的持久实体，标题由首条消息自动生成。
  */
+@Serializable
 data class AgentSession(
-    val id: String,
-    val title: String,
-    val createdAt: Long,
-    val updatedAt: Long,
+    val id: String = "",
+    val title: String = "",
+    val createdAt: Long = 0L,
+    val updatedAt: Long = 0L,
     /** true=标题已由用户改名或 AI 总结锁定，不再被首条消息自动覆盖。 */
     val locked: Boolean = false
-) {
-    /** 磁盘缓存反序列化兜底，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。 */
-    fun sanitized(): AgentSession = copy(
-        id = (id as String?) ?: "",
-        title = (title as String?) ?: "",
-    )
-}
+)
 
-data class StoredWidget(
-    val type: String,
-    val json: String
-) {
-    /** 落盘反序列化兜底，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。 */
-    fun sanitized(): StoredWidget? {
-        val t = (type as String?) ?: return null
-        val j = (json as String?) ?: return null
-        return copy(type = t, json = j)
-    }
-}
+@Serializable
+data class StoredWidget(val type: String = "", val json: String = "")
 
 /** 持久化用的精简消息。 */
+@Serializable
 data class StoredMessage(
-    val role: String,
-    val content: String,
+    val role: String = "assistant",
+    val content: String = "",
     val nav: List<List<String>> = emptyList(),   // [[label, route], ...]
     val widgets: List<StoredWidget>? = emptyList(),
     val reasoningContent: String? = null,
@@ -48,29 +36,16 @@ data class StoredMessage(
     val toolError: String? = null,
     /** 图片附件的本地路径。老会话没有这个字段，反序列化得到 null。 */
     val images: List<String>? = null,
-) {
-    /** 落盘反序列化兜底，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。 */
-    fun sanitized(): StoredMessage = copy(
-        role = (role as String?) ?: "assistant",
-        content = (content as String?) ?: "",
-        nav = (nav as List<List<String>?>?)?.filterNotNull() ?: emptyList(),
-        widgets = widgets?.mapNotNull { it?.sanitized() },
-    )
-}
+)
 
 /** 一个会话的完整内容：UI 消息 + 供续聊的 LLM 历史（JsonArray 的字符串形式）。 */
+@Serializable
 data class StoredConversation(
     val messages: List<StoredMessage> = emptyList(),
     val llmHistory: String = "[]",
     val lastTotalTokens: Long? = null,
     val contextExhausted: Boolean = false
-) {
-    /** 落盘反序列化兜底，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。 */
-    fun sanitized(): StoredConversation = copy(
-        messages = (messages as List<StoredMessage?>?)?.mapNotNull { it?.sanitized() } ?: emptyList(),
-        llmHistory = (llmHistory as String?) ?: "[]",
-    )
-}
+)
 
 /**
  * Agent 多会话持久化存储。
@@ -84,7 +59,6 @@ data class StoredConversation(
 class AgentSessionStore(context: Context) {
 
     private val appContext = context.applicationContext
-    private val gson = Gson()
 
     /** 当前账号命名空间下的会话目录，每次调用动态解析以响应账号切换。 */
     private val dir: File
@@ -120,7 +94,7 @@ class AgentSessionStore(context: Context) {
     fun load(id: String): StoredConversation? {
         val f = convoFile(id)
         if (!f.exists()) return null
-        return runCatching { gson.fromJson(f.readText(), StoredConversation::class.java)?.sanitized() }.getOrNull()
+        return runCatching { AppJson.decodeFromString<StoredConversation>(f.readText()) }.getOrNull()
     }
 
     /** 保存会话内容，并把 title/updatedAt 同步进 index（不存在则补登记）。保留已有 locked 标志。 */
@@ -144,17 +118,14 @@ class AgentSessionStore(context: Context) {
 
     private fun readIndex(): List<AgentSession> =
         if (!indexFile.exists()) emptyList()
-        else runCatching {
-            gson.fromJson(indexFile.readText(), Array<AgentSession>::class.java)?.toList().orEmpty()
-                .map { it.sanitized() }
-        }.getOrDefault(emptyList())
+        else runCatching { AppJson.decodeFromString<List<AgentSession>>(indexFile.readText()) }.getOrDefault(emptyList())
 
     private fun writeIndex(list: List<AgentSession>) {
-        runCatching { indexFile.writeText(gson.toJson(list)) }
+        runCatching { indexFile.writeText(AppJson.encodeToString(list)) }
     }
 
     private fun writeConvo(id: String, convo: StoredConversation) {
-        runCatching { convoFile(id).writeText(gson.toJson(convo)) }
+        runCatching { convoFile(id).writeText(AppJson.encodeToString(convo)) }
     }
 
     companion object {

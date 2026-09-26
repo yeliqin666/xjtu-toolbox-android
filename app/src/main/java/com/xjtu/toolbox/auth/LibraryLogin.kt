@@ -47,7 +47,7 @@ class LibraryLogin(
                 .get()
                 .build()
             val seatResponse = client.newCall(seatRequest).execute()
-            val seatBody = seatResponse.body?.use { it.string() } ?: ""
+            val seatBody = seatResponse.body.use { it.string() }
             if (looksLikeSeatPage(seatBody)) {
                 seatSystemReady = true
                 diagnosticInfo = "座位系统已就绪"
@@ -87,7 +87,7 @@ class LibraryLogin(
                 .get()
                 .build()
             val seatResponse = client.newCall(seatRequest).execute()
-            val seatBody = seatResponse.body?.use { it.string() } ?: ""
+            val seatBody = seatResponse.body.use { it.string() }
             val seatFinalUrl = seatResponse.request.url.toString()
 
             Log.d(TAG, "postLogin retry: code=${seatResponse.code}, finalUrl=${seatFinalUrl.redactUrl()}, bodyLen=${seatBody.length}")
@@ -111,7 +111,7 @@ class LibraryLogin(
         if (finalUrl.contains("login.xjtu.edu.cn")) return false
         if (finalUrl.contains("rg.lib.xjtu.edu.cn")) return true
         // WebVPN 模式：还原 webvpn 包装 URL 后再判断
-        val original = com.xjtu.toolbox.util.WebVpnUtil.getOriginalUrl(finalUrl)
+        val original = com.xjtu.toolbox.webvpn.WebVpnUtil.getOriginalUrl(finalUrl)
         return original?.contains("rg.lib.xjtu.edu.cn") == true
     }
 

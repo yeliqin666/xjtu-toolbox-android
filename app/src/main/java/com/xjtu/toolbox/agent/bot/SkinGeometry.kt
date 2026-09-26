@@ -124,7 +124,6 @@ class SkinTransform(
         }
 
     companion object {
-        val IDENTITY = SkinTransform(1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
 
         /** 先绕 pivot 缩放、再绕 pivot 旋转，最后平移 (cx, cy)。 */
         fun of(

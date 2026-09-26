@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.iclassface
 
+import com.xjtu.toolbox.ui.components.AppPullToRefresh
+import com.xjtu.toolbox.ui.components.FullPageState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -18,7 +20,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Warning
@@ -34,10 +35,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.LocalAppLoginState
-import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.auth.AuthExpiredException
-import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.handleAuthExpired
 import com.xjtu.toolbox.ui.components.AppCardColor
@@ -54,15 +53,13 @@ import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
-import top.yukonga.miuix.kmp.basic.PullToRefresh
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TopAppBar
-import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import java.time.LocalDate
+import com.xjtu.toolbox.nav.AppRoute
 
 /**
  * 人脸识别签到查询页。
@@ -94,7 +91,7 @@ fun IclassfaceScreen(
             try {
                 records = withContext(Dispatchers.IO) { api.fetchRecords(date) }
             } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(LoginType.ICLASSFACE, Routes.ICLASSFACE, onBack)
+                appLoginState.handleAuthExpired(AppRoute.Iclassface, onBack)
             } catch (e: Exception) {
                 error = e.message ?: "查询失败"
             } finally {
@@ -107,24 +104,17 @@ fun IclassfaceScreen(
     LaunchedEffect(Unit) { load(selectedDate) }
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
-    val pullToRefreshState = rememberPullToRefreshState()
     val isToday = selectedDate == LocalDate.now()
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            GlassTopAppBar(
                 title = "快速考勤流水",
-                largeTitle = "快速考勤流水",
-                color = glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
+                glass = glass,
                 scrollBehavior = scrollBehavior,
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                }
+                onBack = onBack,
             )
         }
     ) { padding ->
@@ -143,29 +133,21 @@ fun IclassfaceScreen(
                 load(it, silent = true)
             }
         )
-        PullToRefresh(
-            refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
+        AppPullToRefresh(
             isRefreshing = isRefreshing,
             onRefresh = { load(selectedDate, silent = true) },
-            pullToRefreshState = pullToRefreshState,
-            topAppBarScrollBehavior = scrollBehavior,
-            contentPadding = PaddingValues(top = glassTop),
-            modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass)
+            scrollBehavior = scrollBehavior,
+            topPadding = glassTop,
+            modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
         ) {
         when {
-            loading -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
-                item { Box(Modifier.fillParentMaxSize()) { LoadingState(message = "查询签到记录...", modifier = Modifier.fillMaxSize()) } }
-            }
-            error != null && records.isEmpty() -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
-                item {
-                    Box(Modifier.fillParentMaxSize()) {
-                        ErrorState(
-                            message = error!!,
-                            onRetry = { load(selectedDate) },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-                }
+            loading -> FullPageState(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) { LoadingState(message = "查询签到记录...", modifier = Modifier.fillMaxSize()) }
+            error != null && records.isEmpty() -> FullPageState(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
+                ErrorState(
+                    message = error!!,
+                    onRetry = { load(selectedDate) },
+                    modifier = Modifier.fillMaxSize()
+                )
             }
             else -> LazyColumn(
                 modifier = Modifier

@@ -1,9 +1,13 @@
 package com.xjtu.toolbox.judge
 
-import com.google.gson.JsonArray
-import com.google.gson.JsonElement
-import com.google.gson.JsonObject
-import com.google.gson.JsonParser
+import com.xjtu.toolbox.util.isArray
+import com.xjtu.toolbox.util.AppJson
+import kotlinx.serialization.json.jsonArray
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.auth.GmisSession
 import com.xjtu.toolbox.auth.GsteSession
 import com.xjtu.toolbox.auth.SiteSession
@@ -11,7 +15,6 @@ import com.xjtu.toolbox.util.safeBoolean
 import com.xjtu.toolbox.util.safeParseJsonObject
 import com.xjtu.toolbox.util.safeString
 import com.xjtu.toolbox.util.safeStringOrNull
-import kotlinx.coroutines.runBlocking
 import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -155,24 +158,28 @@ data class GraduateLessonInfo(
  */
 class GraduateJudgeApi(
     private val gste: SiteSession,
-    private val gmisProvider: () -> SiteSession,
+    private val gmisProvider: suspend () -> SiteSession,
 ) {
-    private val gmis: SiteSession by lazy { gmisProvider() }
+    private val gmisLock = Mutex()
+    private var gmisSession: SiteSession? = null
 
-    private fun execute(site: SiteSession, request: Request): String =
-        runBlocking { site.executeWithReAuth(request) }.use { response ->
+    private suspend fun gmis(): SiteSession =
+        gmisSession ?: gmisLock.withLock { gmisSession ?: gmisProvider().also { gmisSession = it } }
+
+    private suspend fun execute(site: SiteSession, request: Request): String =
+        site.executeWithReAuth(request).use { response ->
             if (!response.isSuccessful) throw RuntimeException("${site.siteName} HTTP ${response.code}")
             response.body?.string() ?: ""
         }
 
     /** 本学期全部问卷；已评 / 待评看 [GraduateQuestionnaire.finished]。 */
-    fun getQuestionnaires(): List<GraduateQuestionnaire> {
+    suspend fun getQuestionnaires(): List<GraduateQuestionnaire> {
         val body = execute(gste, Request.Builder().url(GsteSession.LIST_URL).get().build())
-        val array = runCatching { JsonParser.parseString(body).asJsonArray }.getOrNull()
+        val array = runCatching { AppJson.parseToJsonElement(body).jsonArray }.getOrNull()
             ?: throw RuntimeException("评教问卷列表格式错误")
         return array.mapNotNull { el ->
             val o = el as? JsonObject ?: return@mapNotNull null
-            val raw = o.entrySet().associate { (k, v) -> k.lowercase() to v.safeString() }
+            val raw = o.entries.associate { (k, v) -> k.lowercase() to v.safeString() }
             GraduateQuestionnaire(
                 assessment = raw["assessment"].orEmpty(),
                 kcbh = raw["kcbh"].orEmpty(),
@@ -185,7 +192,7 @@ class GraduateJudgeApi(
         }
     }
 
-    fun getQuestionnaireData(q: GraduateQuestionnaire): GraduateQuestionnaireData {
+    suspend fun getQuestionnaireData(q: GraduateQuestionnaire): GraduateQuestionnaireData {
         val url = FORM_URL.toHttpUrl().newBuilder().apply {
             q.params().forEach { (k, v) -> addQueryParameter(k, v) }
         }.build()
@@ -194,22 +201,21 @@ class GraduateJudgeApi(
     }
 
     /** gmis 课程详情；学年按 9 月切换，与网页默认一致。 */
-    fun getLessonInfo(kcbh: String, today: LocalDate = LocalDate.now()): GraduateLessonInfo {
+    suspend fun getLessonInfo(kcbh: String, today: LocalDate = LocalDate.now()): GraduateLessonInfo {
         val year = if (today.monthValue >= 9) today.year else today.year - 1
-        val html = execute(
-            gmis,
+        val html = execute(gmis(),
             Request.Builder().url("https://gmis.xjtu.edu.cn/pyxx/pygl/kckk/view/new/$kcbh/$year").get().build()
         )
         return parseLessonInfo(Jsoup.parse(html))
     }
 
     /** 成绩页「学位课程」表里的课程名，用来判断问卷的「选修情况」。 */
-    fun getDegreeCourseNames(): Set<String> {
-        val html = execute(gmis, Request.Builder().url(GmisSession.SCORE_URL).get().build())
+    suspend fun getDegreeCourseNames(): Set<String> {
+        val html = execute(gmis(), Request.Builder().url(GmisSession.SCORE_URL).get().build())
         return parseDegreeCourseNames(Jsoup.parse(html))
     }
 
-    fun submitQuestionnaire(q: GraduateQuestionnaire, data: GraduateQuestionnaireData) {
+    suspend fun submitQuestionnaire(q: GraduateQuestionnaire, data: GraduateQuestionnaireData) {
         val missing = data.unansweredRequired()
         if (missing.isNotEmpty()) throw IllegalStateException("「${q.kcmc}」还有 ${missing.size} 道必填题没填")
         val fields = LinkedHashMap<String, String>().apply {
@@ -227,7 +233,7 @@ class GraduateJudgeApi(
     }
 
     /** 自动评完一门：拉题目 → 取课程信息 → 填写 → 提交。 */
-    fun autoJudge(q: GraduateQuestionnaire, degreeCourses: Set<String>, grade: Int = 3) {
+    suspend fun autoJudge(q: GraduateQuestionnaire, degreeCourses: Set<String>, grade: Int = 3) {
         val data = getQuestionnaireData(q)
         val lesson = getLessonInfo(q.kcbh)
         completeQuestionnaire(q, data, lesson, isDegreeCourse = q.kcmc in degreeCourses, grade = grade)
@@ -293,14 +299,14 @@ class GraduateJudgeApi(
             val start = html.indexOf('{', eq).takeIf { it >= 0 } ?: return null
             val end = matchingBrace(html, start) ?: return null
             val text = html.substring(start, end).replace(Regex(""":\s*webix\.rules\.\w+"""), ": \"isNotEmpty\"")
-            val form = (runCatching { JsonParser.parseString(text) }.getOrNull()
-                ?: runCatching { JsonParser.parseString(text.replace(Regex(""",\s*([}\]])"""), "$1")) }.getOrNull())
+            val form = (runCatching { AppJson.parseToJsonElement(text) }.getOrNull()
+                ?: runCatching { AppJson.parseToJsonElement(text.replace(Regex(""",\s*([}\]])"""), "$1")) }.getOrNull())
                 as? JsonObject ?: return null
 
             val questions = mutableListOf<GraduateQuestionItem>()
             val meta = LinkedHashMap<String, String>()
             walk(form, null, -1, questions, meta)
-            val required = (form.get("rules") as? JsonObject)?.keySet()?.toSet().orEmpty()
+            val required = (form.get("rules") as? JsonObject)?.keys?.toSet().orEmpty()
             return GraduateQuestionnaireData(questions, meta, required)
         }
 
@@ -340,8 +346,8 @@ class GraduateJudgeApi(
             questions: MutableList<GraduateQuestionItem>,
             meta: MutableMap<String, String>,
         ) {
-            if (node.isJsonArray) {
-                node.asJsonArray.forEach { walk(it, null, -1, questions, meta) }
+            if (node.isArray) {
+                node.jsonArray.forEach { walk(it, null, -1, questions, meta) }
                 return
             }
             val obj = node as? JsonObject ?: return

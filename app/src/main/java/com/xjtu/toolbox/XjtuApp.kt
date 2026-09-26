@@ -24,7 +24,8 @@ import kotlinx.coroutines.launch
  * 其余启动钩子（性能打点 / 渠道开关）保持空。
  */
 class XjtuApp : Application() {
-    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    /** 应用级协程作用域：跟随进程存活，给页面销毁后仍要做完的收尾工作（如保存进度）用。 */
+    val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /**
      * 已下线功能留在本机的数据。功能删了，数据留着既无用处也不该留（交晓智会话里是
@@ -46,25 +47,25 @@ class XjtuApp : Application() {
         super.attachBaseContext(base)
         // 进程里最早的钩子，早于所有 ContentProvider（WorkManager 自动初始化后可能立刻
         // 跑 Worker）和 onCreate。换包后的旧格式缓存必须在任何代码读到它之前清掉，见方法注释。
-        com.xjtu.toolbox.util.DataCache.clearIfPackageChanged(base)
+        com.xjtu.toolbox.data.DataCache.clearIfPackageChanged(base)
         // 首帧 AppLoginStateViewModel 要读账号表、协议版本；趁装 Provider 的空档在后台先解锁
-        com.xjtu.toolbox.util.SecurePrefs.prewarm(
+        com.xjtu.toolbox.data.SecurePrefs.prewarm(
             base,
             com.xjtu.toolbox.account.AccountStore.FILE_NAME,
-            com.xjtu.toolbox.util.CredentialStore.FILE_NAME,
+            com.xjtu.toolbox.data.CredentialStore.FILE_NAME,
         )
     }
 
     override fun onCreate() {
         super.onCreate()
         CrashReporter.install(this)
-        appScope.launch { CrashReporter.uploadPending(this@XjtuApp) }
-        appScope.launch { removeRetiredFeatureData() }
+        applicationScope.launch { CrashReporter.uploadPending(this@XjtuApp) }
+        applicationScope.launch { removeRetiredFeatureData() }
         AppNotificationChannels.ensureChannels(this)
         ErrorReporting.install(FileErrorReporter(this))
         // 后台调度要读账号（AccountStore → 加密存储首次打开要走 keystore），不占主线程。
         // 顺带预热了 SecurePrefs 的缓存，首帧里界面再取账号时直接命中。
-        appScope.launch {
+        applicationScope.launch {
             com.xjtu.toolbox.notification.NoticeWatchScheduler.apply(this@XjtuApp)
             com.xjtu.toolbox.notification.ScheduleWatchScheduler.apply(this@XjtuApp)
             com.xjtu.toolbox.notification.LmsDeadlineScheduler.apply(this@XjtuApp)

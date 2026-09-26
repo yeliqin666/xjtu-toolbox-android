@@ -12,7 +12,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalDensity
-import com.xjtu.toolbox.GradientAppIcon
+import com.xjtu.toolbox.home.GradientAppIcon
 import com.xjtu.toolbox.nav.expandOriginSource
 import com.xjtu.toolbox.nav.rememberExpandOriginSource
 import com.xjtu.toolbox.ui.components.AppCardColor
@@ -49,7 +49,6 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.Routes
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import com.xjtu.toolbox.ui.glass.*
 import top.yukonga.miuix.kmp.basic.Icon
@@ -63,18 +62,19 @@ import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
+import com.xjtu.toolbox.nav.AppRoute
 
 /**
  * 小游戏合集页。
  *
  * 每张卡带一行「战绩」：分数类显示最高分，对弈类显示各难度胜负。
  * 这一行是合集页存在的理由——否则它就只是一个多余的中转层，
- * 各游戏本来就能从全局搜索直接进（见 Routes 里各自的路由）。
+ * 各游戏本来就能从全局搜索直接进（见 [AppRoute] 里各自的路由）。
  */
 @Composable
 fun GamesScreen(
     onBack: () -> Unit,
-    onNavigate: (String) -> Unit,
+    onNavigate: (AppRoute) -> Unit,
 ) {
     val context = LocalContext.current
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
@@ -83,7 +83,7 @@ fun GamesScreen(
     val arcade = remember {
         listOf(
             GameEntry(
-                route = Routes.GAME_MERGE,
+                route = AppRoute.GameMerge,
                 title = "合成西交大",
                 summary = "同级校徽相碰就合成",
                 icon = Icons.Default.Grain,
@@ -92,7 +92,7 @@ fun GamesScreen(
                 stat = GameStore.bestScore(context, GameIds.MERGE).takeIf { it > 0 }?.toString(),
             ),
             GameEntry(
-                route = Routes.GAME_2048,
+                route = AppRoute.Game2048,
                 title = "GPA 2048",
                 summary = com.xjtu.toolbox.game.g2048.Gpa2048Texts.SUMMARY,
                 icon = Icons.Default.GridOn,
@@ -105,7 +105,7 @@ fun GamesScreen(
     val boards = remember {
         listOf(
             GameEntry(
-                route = Routes.GAME_GOMOKU,
+                route = AppRoute.GameGomoku,
                 title = "五子棋",
                 summary = "西交执黑，对面是上交 AI",
                 icon = Icons.Default.Dashboard,
@@ -114,7 +114,7 @@ fun GamesScreen(
                 stat = battleRecord(context, GameIds.GOMOKU, listOf("easy", "hard", "hell", "local", "online")),
             ),
             GameEntry(
-                route = Routes.GAME_GO,
+                route = AppRoute.GameGo,
                 title = "围棋",
                 summary = "9 / 13 / 19 路",
                 icon = Icons.Default.Casino,
@@ -123,7 +123,7 @@ fun GamesScreen(
                 stat = battleRecord(context, GameIds.GO, listOf("local", "online")),
             ),
             GameEntry(
-                route = Routes.GAME_XIANGQI,
+                route = AppRoute.GameXiangqi,
                 title = "象棋",
                 summary = "红方西交、黑方上交",
                 icon = Icons.Default.School,
@@ -210,7 +210,7 @@ fun GamesScreen(
 }
 
 private data class GameEntry(
-    val route: String,
+    val route: AppRoute,
     val title: String,
     val summary: String,
     val icon: ImageVector,
@@ -258,7 +258,7 @@ private fun ArcadeCard(entry: GameEntry, onClick: () -> Unit, modifier: Modifier
                 interactionSource = remember { MutableInteractionSource() },
                 indication = SinkFeedback(),
                 onClick = {
-                    origin.arm(entry.route, 26.dp, density)
+                    origin.arm(entry.route.id, 26.dp, density)
                     onClick()
                 },
             ),
@@ -314,7 +314,7 @@ private fun BoardGameRow(entry: GameEntry, onClick: () -> Unit) {
                 interactionSource = remember { MutableInteractionSource() },
                 indication = SinkFeedback(),
                 onClick = {
-                    origin.arm(entry.route, 18.dp, density)
+                    origin.arm(entry.route.id, 18.dp, density)
                     onClick()
                 },
             )

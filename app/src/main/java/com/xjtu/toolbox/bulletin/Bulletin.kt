@@ -1,6 +1,18 @@
 package com.xjtu.toolbox.bulletin
 
-import com.google.gson.JsonParser
+import com.xjtu.toolbox.util.requireArr
+import com.xjtu.toolbox.util.isNumber
+import kotlinx.serialization.json.JsonElement
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.intValue
+import com.xjtu.toolbox.util.booleanValue
+import com.xjtu.toolbox.util.isObject
+import com.xjtu.toolbox.util.isArray
+import com.xjtu.toolbox.util.isPrimitive
+import com.xjtu.toolbox.util.AppJson
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonPrimitive
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -72,46 +84,46 @@ object BulletinRules {
     fun parsePayload(json: String): List<Bulletin> {
         val trimmed = json.trim()
         if (trimmed.isEmpty()) return emptyList()
-        val root = runCatching { JsonParser.parseString(trimmed) }.getOrNull() ?: return emptyList()
+        val root = runCatching { AppJson.parseToJsonElement(trimmed) }.getOrNull() ?: return emptyList()
         val array = when {
-            root.isJsonArray -> root.asJsonArray
-            root.isJsonObject && root.asJsonObject.has("bulletins") ->
-                root.asJsonObject.getAsJsonArray("bulletins")
+            root.isArray -> root.jsonArray
+            root.isObject && root.jsonObject.containsKey("bulletins") ->
+                root.jsonObject.requireArr("bulletins")
             else -> return emptyList()
         }
         return array.mapNotNull { el ->
-            if (!el.isJsonObject) return@mapNotNull null
-            val obj = el.asJsonObject
-            val id = obj.get("id")?.takeIf { it.isJsonPrimitive }?.asString?.trim().orEmpty()
-            val title = obj.get("title")?.takeIf { it.isJsonPrimitive }?.asString?.trim().orEmpty()
+            if (!el.isObject) return@mapNotNull null
+            val obj = el.jsonObject
+            val id = obj.get("id")?.takeIf { it.isPrimitive }?.stringValue?.trim().orEmpty()
+            val title = obj.get("title")?.takeIf { it.isPrimitive }?.stringValue?.trim().orEmpty()
             if (id.isEmpty() || title.isEmpty()) return@mapNotNull null
-            val level = BulletinLevel.parse(obj.get("level")?.takeIf { it.isJsonPrimitive }?.asString)
+            val level = BulletinLevel.parse(obj.get("level")?.takeIf { it.isPrimitive }?.stringValue)
             val mustAck = when {
-                obj.has("mustAck") && obj.get("mustAck").isJsonPrimitive -> obj.get("mustAck").asBoolean
+                obj.containsKey("mustAck") && obj.get("mustAck").isPrimitive -> obj.get("mustAck").booleanValue
                 else -> level == BulletinLevel.CRITICAL
             }
             Bulletin(
                 id = id,
                 level = level,
                 title = title,
-                body = obj.get("body")?.takeIf { it.isJsonPrimitive }?.asString.orEmpty(),
-                url = obj.get("url")?.takeIf { it.isJsonPrimitive }?.asString?.trim()?.ifBlank { null },
-                startsAt = parseInstant(obj.get("startsAt")?.takeIf { it.isJsonPrimitive }?.asString),
-                endsAt = parseInstant(obj.get("endsAt")?.takeIf { it.isJsonPrimitive }?.asString),
-                minVersion = obj.get("minVersion")?.takeIf { it.isJsonPrimitive }?.asString?.trim()?.ifBlank { null },
-                maxVersion = obj.get("maxVersion")?.takeIf { it.isJsonPrimitive }?.asString?.trim()?.ifBlank { null },
-                targetVersion = obj.get("targetVersion")?.takeIf { it.isJsonPrimitive }?.asString?.trim()?.ifBlank { null },
+                body = obj.get("body")?.takeIf { it.isPrimitive }?.stringValue.orEmpty(),
+                url = obj.get("url")?.takeIf { it.isPrimitive }?.stringValue?.trim()?.ifBlank { null },
+                startsAt = parseInstant(obj.get("startsAt")?.takeIf { it.isPrimitive }?.stringValue),
+                endsAt = parseInstant(obj.get("endsAt")?.takeIf { it.isPrimitive }?.stringValue),
+                minVersion = obj.get("minVersion")?.takeIf { it.isPrimitive }?.stringValue?.trim()?.ifBlank { null },
+                maxVersion = obj.get("maxVersion")?.takeIf { it.isPrimitive }?.stringValue?.trim()?.ifBlank { null },
+                targetVersion = obj.get("targetVersion")?.takeIf { it.isPrimitive }?.stringValue?.trim()?.ifBlank { null },
                 targetVersionCode = parseInt(obj.get("targetVersionCode")),
-                forceBelow = obj.get("forceBelow")?.takeIf { it.isJsonPrimitive }?.asString?.trim()?.ifBlank { null },
+                forceBelow = obj.get("forceBelow")?.takeIf { it.isPrimitive }?.stringValue?.trim()?.ifBlank { null },
                 mustAck = mustAck,
-                block = obj.get("block")?.takeIf { it.isJsonPrimitive }?.asBoolean ?: false,
-                active = obj.get("active")?.takeIf { it.isJsonPrimitive }?.asBoolean ?: true,
-                options = obj.get("options")?.takeIf { it.isJsonArray }
-                    ?.asJsonArray
-                    ?.mapNotNull { o -> o.takeIf { it.isJsonPrimitive }?.asString?.trim()?.ifBlank { null } }
+                block = obj.get("block")?.takeIf { it.isPrimitive }?.booleanValue ?: false,
+                active = obj.get("active")?.takeIf { it.isPrimitive }?.booleanValue ?: true,
+                options = obj.get("options")?.takeIf { it.isArray }
+                    ?.jsonArray
+                    ?.mapNotNull { o -> o.takeIf { it.isPrimitive }?.stringValue?.trim()?.ifBlank { null } }
                     .orEmpty(),
-                allowMultiple = obj.get("allowMultiple")?.takeIf { it.isJsonPrimitive }?.asBoolean ?: false,
-                allowOther = obj.get("allowOther")?.takeIf { it.isJsonPrimitive }?.asBoolean ?: false,
+                allowMultiple = obj.get("allowMultiple")?.takeIf { it.isPrimitive }?.booleanValue ?: false,
+                allowOther = obj.get("allowOther")?.takeIf { it.isPrimitive }?.booleanValue ?: false,
             )
         }
     }
@@ -216,11 +228,11 @@ object BulletinRules {
     fun pickLaunchDialog(items: List<Bulletin>): Bulletin? =
         items.firstOrNull { !it.synthesized && shouldShowLaunchDialog(it) }
 
-    private fun parseInt(el: com.google.gson.JsonElement?): Int? {
-        if (el == null || !el.isJsonPrimitive) return null
-        val p = el.asJsonPrimitive
-        if (p.isNumber) return runCatching { p.asInt }.getOrNull()
-        return p.asString.trim().toIntOrNull()
+    private fun parseInt(el: JsonElement?): Int? {
+        if (el == null || !el.isPrimitive) return null
+        val p = el.jsonPrimitive
+        if (p.isNumber) return runCatching { p.intValue }.getOrNull()
+        return p.stringValue.trim().toIntOrNull()
     }
 
     fun parseInstant(raw: String?): Instant? {

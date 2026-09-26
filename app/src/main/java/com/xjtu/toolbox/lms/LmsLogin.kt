@@ -33,9 +33,6 @@ class LmsLogin(
         /** 思源学堂基础地址 */
         const val BASE_URL = "https://lms.xjtu.edu.cn"
 
-        /** RMS 回放服务地址 */
-        const val RMS_BASE_URL = "https://rms-v5.xjtu.edu.cn"
-
         /** CAS 登录入口 — OkHttp 自动跟随重定向到 login.xjtu.edu.cn */
         const val LMS_LOGIN_URL = "https://lms.xjtu.edu.cn"
     }
@@ -48,7 +45,7 @@ class LmsLogin(
         val finalUrl = response.request.url.toString()
         Log.d(TAG, "postLogin: finalUrl=${finalUrl.redactUrl()}")
 
-        if (com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(finalUrl, "lms.xjtu.edu.cn")) {
+        if (com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(finalUrl, "lms.xjtu.edu.cn")) {
             sessionValid = true
             Log.d(TAG, "postLogin: session established via redirect chain")
             return
@@ -65,7 +62,7 @@ class LmsLogin(
             val indexFinalUrl = indexResp.request.url.toString()
             indexResp.close()
 
-            sessionValid = com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(indexFinalUrl, "lms.xjtu.edu.cn")
+            sessionValid = com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(indexFinalUrl, "lms.xjtu.edu.cn")
             Log.d(TAG, "postLogin: manual access finalUrl=${indexFinalUrl.redactUrl()}, valid=$sessionValid")
         } catch (e: Exception) {
             Log.e(TAG, "postLogin: manual access failed", e)
@@ -74,16 +71,6 @@ class LmsLogin(
         if (!sessionValid) {
             throw RuntimeException("登录失败：无法建立思源学堂会话")
         }
-    }
-
-    /**
-     * 构建带 session cookies 的请求
-     */
-    fun authenticatedRequest(url: String): Request.Builder {
-        return Request.Builder()
-            .url(url)
-            .header("Referer", "$BASE_URL/user/courses")
-            .header("Accept", "application/json, text/plain, */*")
     }
 
     override fun validateLogin(): Boolean {
@@ -122,7 +109,7 @@ class LmsLogin(
                 .post(ByteArray(0).toRequestBody(null))
                 .build()
             val checkResp = client.newCall(checkReq).execute()
-            val body = checkResp.body?.use { it.string() } ?: ""
+            val body = checkResp.body.use { it.string() }
 
             if (checkResp.code == 200 && body.contains("courses")) {
                 sessionValid = true
@@ -137,7 +124,7 @@ class LmsLogin(
         try {
             val result = casAuthenticate("$BASE_URL/user/index") ?: return false
             val (_, finalUrl) = result
-            sessionValid = com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(finalUrl, "lms.xjtu.edu.cn")
+            sessionValid = com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(finalUrl, "lms.xjtu.edu.cn")
             Log.d(TAG, "reAuthenticate: CAS re-auth, finalUrl=${finalUrl.redactUrl()}, valid=$sessionValid")
             return sessionValid
         } catch (e: Exception) {
@@ -146,32 +133,4 @@ class LmsLogin(
         }
     }
 
-    /**
-     * 执行请求，自动在会话过期时重新认证并重试
-     * 如果请求返回 302 到 CAS、401/403 或被 Safety Verify 拦截，自动重认证并重试
-     */
-    fun executeWithReAuth(requestBuilder: Request.Builder): okhttp3.Response {
-        val request = requestBuilder.build()
-        val response = client.newCall(request).execute()
-
-        val needReAuth = when {
-            response.request.url.toString().contains("login.xjtu.edu.cn/cas/login", ignoreCase = true) -> true
-            response.code in listOf(401, 403) -> true
-            response.code == 200 -> {
-                val ct = response.header("Content-Type") ?: ""
-                if ("html" in ct || "text" in ct) {
-                    com.xjtu.toolbox.auth.XJTULogin.isAuthFailureResponse(response.peekBody(8192).string())
-                } else false
-            }
-            else -> false
-        }
-        if (needReAuth) {
-            response.close()
-            if (reAuthenticate()) {
-                return client.newCall(request).execute()
-            }
-            throw com.xjtu.toolbox.auth.AuthExpiredException("思源学堂")
-        }
-        return response
-    }
 }

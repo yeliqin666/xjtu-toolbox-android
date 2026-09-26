@@ -6,7 +6,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Cached
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.OpenInBrowser
@@ -20,15 +19,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.glass.*
-import com.xjtu.toolbox.util.WebVpnUtil
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -60,17 +56,11 @@ fun WebVpnConverterScreen(
     val glass = rememberPageGlass()
     Scaffold(
         topBar = {
-            TopAppBar(
+            GlassTopAppBar(
                 title = "WebVPN",
-                largeTitle = "WebVPN",
-                color = glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
+                glass = glass,
                 scrollBehavior = scrollBehavior,
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                }
+                onBack = onBack,
             )
         }
     ) { padding ->
@@ -243,7 +233,7 @@ fun WebVpnConverterScreen(
                         "教务系统" to "https://jwxt.xjtu.edu.cn/",
                         "图书馆主页" to "https://www.lib.xjtu.edu.cn/",
                         "一网通办" to "https://ywtb.xjtu.edu.cn/",
-                        "新版考勤" to "https://kq.xjtu.edu.cn/"
+                        "考勤" to "https://kq.xjtu.edu.cn/"
                     )
                     examples.forEach { (name, url) ->
                         Row(

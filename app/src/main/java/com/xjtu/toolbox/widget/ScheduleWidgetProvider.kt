@@ -9,22 +9,21 @@ import android.content.Intent
 import android.net.Uri
 import android.view.View
 import android.widget.RemoteViews
-import com.google.gson.Gson
-import com.xjtu.toolbox.BottomTab
+import com.xjtu.toolbox.main.BottomTab
 import com.xjtu.toolbox.MainActivity
 import com.xjtu.toolbox.R
-import com.xjtu.toolbox.Routes
 import com.xjtu.toolbox.schedule.CourseItem
 import com.xjtu.toolbox.schedule.ScheduleCache
-import com.xjtu.toolbox.util.AppDatabase
-import com.xjtu.toolbox.util.DataCache
-import com.xjtu.toolbox.util.XjtuTime
+import com.xjtu.toolbox.data.AppDatabase
+import com.xjtu.toolbox.data.DataCache
+import com.xjtu.toolbox.schedule.XjtuTime
 import java.io.File
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import com.xjtu.toolbox.nav.AppRoute
 
 enum class WidgetSize { SMALL, LARGE }
 
@@ -79,8 +78,6 @@ object ScheduleWidgetUpdater {
     private const val KEY_DAY_OF_WEEK = "day_of_week"
     private const val MIN_WEEK_OFFSET = -30
     private const val MAX_WEEK_OFFSET = 30
-
-    private val gson = Gson()
 
     private val holidayFetchInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
 
@@ -191,7 +188,7 @@ object ScheduleWidgetUpdater {
 
     private fun buildLaunchPendingIntent(context: Context, requestCode: Int): PendingIntent {
         val launchIntent = Intent(context, MainActivity::class.java).apply {
-            putExtra(MainActivity.EXTRA_LAUNCH_ROUTE, Routes.MAIN)
+            putExtra(MainActivity.EXTRA_LAUNCH_ROUTE, AppRoute.Main.id)
             putExtra(MainActivity.EXTRA_LAUNCH_TAB, BottomTab.COURSES.name)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
@@ -433,9 +430,7 @@ object ScheduleWidgetUpdater {
     }
 
     private fun allCoursesOf(context: Context, cache: DataCache, termCode: String): List<CourseItem> {
-        val apiCourses = ScheduleCache.readOptimizedCourses(cache, gson, termCode)
-            ?: ScheduleCache.readRawCourses(cache, gson, termCode)
-            ?: emptyList()
+        val apiCourses = ScheduleCache.readCourses(cache, termCode).orEmpty()
         val customCourses = runCatching {
             runBlocking {
                 AppDatabase.getInstance(context)
@@ -447,11 +442,7 @@ object ScheduleWidgetUpdater {
         return apiCourses + customCourses
     }
 
-    private fun readStartDate(cache: DataCache, termCode: String): LocalDate? {
-        val raw = cache.get("start_date_$termCode", Long.MAX_VALUE)
-        if (raw.isNullOrBlank()) return null
-        return runCatching { LocalDate.parse(gson.fromJson(raw, String::class.java)) }.getOrNull()
-    }
+    private fun readStartDate(cache: DataCache, termCode: String): LocalDate? = ScheduleCache.readStartDate(cache, termCode)
 
     /**
      * Widget 进程入口可能未经 MainActivity，AccountContext 未初始化；
@@ -485,9 +476,7 @@ object ScheduleWidgetUpdater {
                 hasCache = false
             )
 
-        val apiCourses = ScheduleCache.readOptimizedCourses(cache, gson, termCode)
-            ?: ScheduleCache.readRawCourses(cache, gson, termCode)
-            ?: emptyList()
+        val apiCourses = ScheduleCache.readCourses(cache, termCode).orEmpty()
 
         val customCourses = runCatching {
             runBlocking {
@@ -500,15 +489,7 @@ object ScheduleWidgetUpdater {
 
         val allCourses = apiCourses + customCourses
 
-        val startDateRaw = cache.get("start_date_$termCode", Long.MAX_VALUE)
-        val startDate = if (!startDateRaw.isNullOrBlank()) {
-            runCatching {
-                val dateStr = gson.fromJson(startDateRaw, String::class.java)
-                LocalDate.parse(dateStr)
-            }.getOrNull()
-        } else {
-            null
-        }
+        val startDate = ScheduleCache.readStartDate(cache, termCode)
 
         val baseWeek = startDate?.let {
             com.xjtu.toolbox.schedule.TermWeeks.weekOf(it, nowDate)
@@ -675,19 +656,12 @@ object ScheduleWidgetUpdater {
     private fun resolveTermCode(context: Context, cache: DataCache): String? {
         // 桌面上永远显示本学期：不能读 schedule_last_term（用户上一次翻到的学期），
         // 翻一眼去年的课表，桌面小组件就变成去年的了。见 ScheduleCache.readCurrentTerm。
-        val termFromLast = com.xjtu.toolbox.schedule.ScheduleCache.readCurrentTerm(cache, gson)
+        val termFromLast = ScheduleCache.readCurrentTerm(cache)
         if (!termFromLast.isNullOrBlank() && hasScheduleCache(cache, termFromLast)) {
             return termFromLast
         }
 
-        val termListJson = cache.get("schedule_term_list", Long.MAX_VALUE)
-        val termFromList = if (termListJson != null) {
-            runCatching { gson.fromJson(termListJson, Array<String>::class.java)?.toList().orEmpty() }
-                .getOrDefault(emptyList())
-                .firstOrNull { hasScheduleCache(cache, it) }
-        } else {
-            null
-        }
+        val termFromList = ScheduleCache.readTermList(cache).firstOrNull { hasScheduleCache(cache, it) }
         if (!termFromList.isNullOrBlank()) return termFromList
 
         if (!termFromLast.isNullOrBlank()) return termFromLast
@@ -719,20 +693,8 @@ object ScheduleWidgetUpdater {
         return null
     }
 
-    private fun hasScheduleCache(cache: DataCache, termCode: String): Boolean {
-        if (termCode.isBlank()) return false
-        val optimizedJson = cache.get(ScheduleCache.optimizedScheduleKey(termCode), Long.MAX_VALUE)
-        if (!optimizedJson.isNullOrBlank()) {
-            return runCatching {
-                gson.fromJson(optimizedJson, Array<CourseItem>::class.java)?.isNotEmpty() == true
-            }.getOrDefault(false)
-        }
-        val scheduleJson = cache.get("schedule_$termCode", Long.MAX_VALUE)
-        if (scheduleJson.isNullOrBlank()) return false
-        return runCatching {
-            gson.fromJson(scheduleJson, Array<CourseItem>::class.java)?.isNotEmpty() == true
-        }.getOrDefault(false)
-    }
+    private fun hasScheduleCache(cache: DataCache, termCode: String): Boolean =
+        termCode.isNotBlank() && !ScheduleCache.readCourses(cache, termCode).isNullOrEmpty()
 }
 
 class ScheduleWidget2x2Provider : AppWidgetProvider() {

@@ -1,8 +1,10 @@
 package com.xjtu.toolbox.ywtb
 
+import com.xjtu.toolbox.util.requireArr
+import com.xjtu.toolbox.util.requireObj
+import com.xjtu.toolbox.util.stringValue
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
-import kotlinx.coroutines.runBlocking
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import java.time.LocalDate
@@ -29,30 +31,30 @@ class YwtbApi(private val site: SiteSession) {
             .header("Referer", "https://ywtb.xjtu.edu.cn/main.html")
     }
 
-    fun getUserInfo(): UserInfo {
+    suspend fun getUserInfo(): UserInfo {
         val request = baseRequest("https://authx-service.xjtu.edu.cn/personal/api/v1/personal/me/user")
             .get()
-        val (responseCode, body) = runBlocking { site.executeWithReAuth(request.build()) }.use { response ->
+        val (responseCode, body) = site.executeWithReAuth(request.build()).use { response ->
             response.code to (response.body?.string() ?: throw RuntimeException("空响应"))
         }
         val json = body.safeParseJsonObject()
 
         if (responseCode != 200) {
-            throw RuntimeException(json.get("message")?.asString ?: "服务器错误")
+            throw RuntimeException(json.get("message")?.stringValue ?: "服务器错误")
         }
 
-        val data = json.getAsJsonObject("data")
-        val attributes = data.getAsJsonObject("attributes")
+        val data = json.requireObj("data")
+        val attributes = data.requireObj("attributes")
 
         return UserInfo(
-            userName = attributes.get("userName")?.asString ?: data.get("username")?.asString ?: "",
-            userUid = attributes.get("userUid")?.asString ?: "",
-            identityTypeName = attributes.get("identityTypeName")?.asString ?: "",
-            organizationName = attributes.get("organizationName")?.asString ?: ""
+            userName = attributes.get("userName")?.stringValue ?: data.get("username")?.stringValue ?: "",
+            userUid = attributes.get("userUid")?.stringValue ?: "",
+            identityTypeName = attributes.get("identityTypeName")?.stringValue ?: "",
+            organizationName = attributes.get("organizationName")?.stringValue ?: ""
         )
     }
 
-    fun getStartOfTerm(timestamp: String): String {
+    suspend fun getStartOfTerm(timestamp: String): String {
         val parts = timestamp.split("-")
         require(parts.size == 3) { "格式错误，应为 YYYY-YYYY-S" }
         val yearStart = parts[0]
@@ -83,19 +85,19 @@ class YwtbApi(private val site: SiteSession) {
             .build()
 
         val request = baseRequest(url.toString()).get()
-        val responseBody = runBlocking { site.executeWithReAuth(request.build()) }.use { response ->
+        val responseBody = site.executeWithReAuth(request.build()).use { response ->
             response.body?.string() ?: throw RuntimeException("空响应")
         }
         val json = responseBody.safeParseJsonObject()
-        val dataObj = json.getAsJsonObject("data").getAsJsonObject("data")
-        val dateArray = dataObj.getAsJsonArray("date")
-        val semesterAliList = dataObj.getAsJsonArray("semesterAlilist")
-        val semesterList = dataObj.getAsJsonArray("semesterlist")
+        val dataObj = json.requireObj("data").requireObj("data")
+        val dateArray = dataObj.requireArr("date")
+        val semesterAliList = dataObj.requireArr("semesterAlilist")
+        val semesterList = dataObj.requireArr("semesterlist")
 
-        for (i in 0 until dateArray.size()) {
-            val weekStr = dateArray[i].asString
-            val semesterName = semesterAliList[i].asString
-            val semesterId = semesterList[i].asString
+        for (i in 0 until dateArray.size) {
+            val weekStr = dateArray[i].stringValue
+            val semesterName = semesterAliList[i].stringValue
+            val semesterId = semesterList[i].stringValue
             val dateStr = validDates[i]
 
             if (semesterId == "$yearStart-$yearEnd" && semesterName == rightSemester && weekStr == "1") {

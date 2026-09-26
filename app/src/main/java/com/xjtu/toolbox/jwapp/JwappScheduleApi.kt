@@ -1,20 +1,27 @@
 package com.xjtu.toolbox.jwapp
 
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.buildJsonObject
+import com.xjtu.toolbox.util.isObject
+import com.xjtu.toolbox.util.isArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
 import android.util.Log
-import com.google.gson.JsonArray
-import com.google.gson.JsonElement
-import com.google.gson.JsonObject
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.schedule.CourseItem
 import com.xjtu.toolbox.schedule.ScheduleChangeEvent
-import com.xjtu.toolbox.util.XjtuTime
+import com.xjtu.toolbox.schedule.XjtuTime
 import com.xjtu.toolbox.util.safeInt
 import com.xjtu.toolbox.util.safeParseJsonObject
 import com.xjtu.toolbox.util.safeString
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.coroutineScope
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 
@@ -39,7 +46,7 @@ class JwappScheduleApi(site: SiteSession) {
     private val jsonType = "application/json".toMediaType()
 
     /** 学期代码与总周数。jwapp 自己说当前学期是哪个，比外部猜一个可靠。 */
-    fun basis(): TimeTableBasis = api.getTimeTableBasis()
+    suspend fun basis(): TimeTableBasis = api.getTimeTableBasis()
 
     /**
      * 整学期课表。
@@ -47,7 +54,7 @@ class JwappScheduleApi(site: SiteSession) {
      * @param termCode 学期代码，必须是 jwapp 的当前学期
      * @param maxWeekNum 学期总周数，来自 [basis]
      */
-    fun getSchedule(termCode: String, maxWeekNum: Int): JwappScheduleResult {
+    suspend fun getSchedule(termCode: String, maxWeekNum: Int): JwappScheduleResult {
         require(maxWeekNum in 1..MAX_REASONABLE_WEEKS) { "jwapp 给的学期周数不可信：$maxWeekNum" }
 
         val weekly = queryAllWeeks(maxWeekNum, termCode)
@@ -61,7 +68,7 @@ class JwappScheduleApi(site: SiteSession) {
             }
 
         if (merged == null) {
-            if (weekly.any { it.second.changes.size() > 0 }) {
+            if (weekly.any { it.second.changes.size > 0 }) {
                 Log.w(TAG, "调休记录存在但未能合并，本次课表不含调休调整")
             }
             val fallback = aggregate(weekly.map { (week, raw) -> week to raw.theory }, maxWeekNum)
@@ -79,17 +86,17 @@ class JwappScheduleApi(site: SiteSession) {
      * 一口气把二十个连接甩给学校网关。`executeWithReAuth` 本身按登录代数处理并发
      * 重认证，几个协程同时撞上令牌过期也只会重登一次。
      */
-    private fun queryAllWeeks(maxWeekNum: Int, termCode: String): List<Pair<Int, WeekRaw>> =
-        runBlocking {
+    private suspend fun queryAllWeeks(maxWeekNum: Int, termCode: String): List<Pair<Int, WeekRaw>> =
+        coroutineScope {
             (1..maxWeekNum).chunked(WEEK_FETCH_CONCURRENCY).flatMap { chunk ->
                 chunk.map { week -> async(Dispatchers.IO) { week to queryWeek(week, termCode) } }.awaitAll()
             }
         }
 
-    private fun queryWeek(week: Int, termCode: String): WeekRaw {
-        val payload = JsonObject().apply {
-            addProperty("skzc", week)
-            addProperty("xnxqdm", termCode)
+    private suspend fun queryWeek(week: Int, termCode: String): WeekRaw {
+        val payload = buildJsonObject {
+            put("skzc", week)
+            put("xnxqdm", termCode)
         }
         val request = api.authenticatedRequest("$BASE_URL/api/biz/v410/schedule/querySchedule")
             .post(payload.toString().toRequestBody(jsonType))
@@ -98,11 +105,11 @@ class JwappScheduleApi(site: SiteSession) {
         val code = root.get("code").safeInt(-1)
         if (code != 200) throw RuntimeException(root.get("msg").safeString("移动教务课表请求失败（$code）"))
 
-        val data = root.get("data")?.takeIf { it.isJsonObject }?.asJsonObject
-            ?: return WeekRaw(emptyList(), JsonArray())
-        val theory = data.get("theorySchedule")?.takeIf { it.isJsonArray }?.asJsonArray ?: JsonArray()
-        val changes = data.get("changeSchedule")?.takeIf { it.isJsonArray }?.asJsonArray ?: JsonArray()
-        return WeekRaw(theory.mapNotNull { it.takeIf { e -> e.isJsonObject }?.asJsonObject?.toOccurrence() }, changes)
+        val data = root.get("data")?.takeIf { it.isObject }?.jsonObject
+            ?: return WeekRaw(emptyList(), JsonArray(emptyList()))
+        val theory = data.get("theorySchedule")?.takeIf { it.isArray }?.jsonArray ?: JsonArray(emptyList())
+        val changes = data.get("changeSchedule")?.takeIf { it.isArray }?.jsonArray ?: JsonArray(emptyList())
+        return WeekRaw(theory.mapNotNull { it.takeIf { e -> e.isObject }?.jsonObject?.toOccurrence() }, changes)
     }
 
     // ── 调休合并 ────────────────────────────────────────────
@@ -134,7 +141,7 @@ class JwappScheduleApi(site: SiteSession) {
         val observed = LinkedHashMap<String, Pair<JsonObject, MutableSet<Int>>>()
         for ((week, raw) in weekly) {
             for (element in raw.changes) {
-                val row = element.takeIf { it.isJsonObject }?.asJsonObject ?: continue
+                val row = element.takeIf { it.isObject }?.jsonObject ?: continue
                 val entry = observed.getOrPut(row.toString()) { row to linkedSetOf() }
                 entry.second += week
             }

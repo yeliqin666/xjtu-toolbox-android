@@ -8,9 +8,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.xjtu.toolbox.auth.AuthExpiredException
 import com.xjtu.toolbox.auth.SiteSession
-import com.xjtu.toolbox.util.AppDatabase
-import com.xjtu.toolbox.util.DataCache
-import com.google.gson.Gson
+import com.xjtu.toolbox.data.AppDatabase
+import com.xjtu.toolbox.data.DataCache
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -156,14 +155,10 @@ internal suspend fun loadCategoryTree(
     site: SiteSession,
 ): List<Jiaocai1Category> = withContext(Dispatchers.IO) {
     val cache = DataCache(context)
-    val gson = Gson()
-    cache.get(CATEGORY_CACHE_KEY, CATEGORY_TTL_MS)?.let { json ->
-        runCatching {
-            gson.fromJson(json, Array<Jiaocai1Category>::class.java).toList().map { it.sanitized() }
-        }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { return@withContext it }
-    }
+    cache.read<List<Jiaocai1Category>>(CATEGORY_CACHE_KEY, CATEGORY_TTL_MS)
+        ?.takeIf { it.isNotEmpty() }?.let { return@withContext it }
     val fresh = Jiaocai1Api(site).classifyTree()
-    if (fresh.isNotEmpty()) cache.put(CATEGORY_CACHE_KEY, gson.toJson(fresh))
+    if (fresh.isNotEmpty()) cache.write(CATEGORY_CACHE_KEY, fresh)
     fresh
 }
 

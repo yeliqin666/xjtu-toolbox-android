@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.zyxf
 
+import com.xjtu.toolbox.ui.components.AppPullToRefresh
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -25,21 +27,16 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,17 +47,10 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.PullToRefresh
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
@@ -88,92 +78,12 @@ fun ZyxfBrowseScreen(
     contentTopPadding: androidx.compose.ui.unit.Dp = 0.dp,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val scope = rememberCoroutineScope()
-
-    /** 目录栈。栈底是根目录，用于面包屑和返回。 */
-    val stack = remember { mutableStateListOf(Crumb(0, "全部资料")) }
-    var entries by remember { mutableStateOf<List<ZyxfApi.Entry>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
+    val vm: ZyxfBrowseViewModel = viewModel { ZyxfBrowseViewModel(context) }
+    val stack = vm.stack
+    val entries = vm.entries
+    val searching = vm.searching
     var refreshing by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-
-    var query by remember { mutableStateOf("") }
-    var searching by remember { mutableStateOf(false) }
-    var truncated by remember { mutableStateOf(false) }
-
-    // 排序跟网页版一致：默认是管理员手工排的顺序，再点同一项翻转升降序。
-    var sort by remember { mutableStateOf(ZyxfApi.Sort.MANUAL) }
-    var desc by remember { mutableStateOf(false) }
-
-    /** 每个文件的下载状态，key 是文件 ID。 */
-    val downloadState = remember { mutableStateMapOf<Int, String>() }
-
-    /** 正在预览的文件；非空时盖住整页。 */
-    var previewing by remember { mutableStateOf<ZyxfApi.Entry?>(null) }
-
-    /**
-     * 这次预览是不是在宽屏分栏里选的。
-     *
-     * 分栏时点文件只是「右栏换一份内容」，不等于「打开全屏预览」。两者共用 [previewing]，
-     * 以前横屏选了文件、切到别的 tab、再转回竖屏，窄屏那一支一看 previewing 非空，
-     * 立刻把它当成全屏预览弹出来。转成窄屏时，分栏选的那一份直接作废。
-     */
-    var previewFromSplit by remember { mutableStateOf(false) }
-
-    suspend fun loadFolder(id: Int) {
-        loading = true
-        error = null
-        runCatching { withContext(Dispatchers.IO) { ZyxfApi.listFolder(id, sort, desc) } }
-            .onSuccess { entries = it; truncated = false }
-            .onFailure { error = it.message ?: "加载失败" }
-        loading = false
-    }
-
-    fun openFolder(entry: ZyxfApi.Entry) {
-        query = ""
-        searching = false
-        stack.add(Crumb(entry.id, entry.name))
-        scope.launch { loadFolder(entry.id) }
-    }
-
-    fun goTo(index: Int) {
-        if (index >= stack.lastIndex) return
-        while (stack.lastIndex > index) stack.removeAt(stack.lastIndex)
-        query = ""
-        searching = false
-        scope.launch { loadFolder(stack.last().id) }
-    }
-
-    fun runSearch() {
-        val q = query.trim()
-        if (q.isEmpty()) {
-            searching = false
-            scope.launch { loadFolder(stack.last().id) }
-            return
-        }
-        searching = true
-        loading = true
-        error = null
-        scope.launch {
-            runCatching { withContext(Dispatchers.IO) { ZyxfApi.search(q) } }
-                .onSuccess { entries = it.entries; truncated = it.truncated }
-                .onFailure { error = it.message ?: "检索失败" }
-            loading = false
-        }
-    }
-
-    fun download(entry: ZyxfApi.Entry) {
-        if (downloadState[entry.id] == DOWNLOADING) return
-        downloadState[entry.id] = DOWNLOADING
-        scope.launch {
-            val saved = withContext(Dispatchers.IO) {
-                runCatching { ZyxfApi.download(context, entry.id) }.getOrNull()
-            }
-            downloadState[entry.id] = if (saved != null) "已保存到下载" else "下载失败"
-        }
-    }
-
-    LaunchedEffect(Unit) { loadFolder(0) }
+    LaunchedEffect(vm.loading) { if (!vm.loading) refreshing = false }
 
     val isWide = com.xjtu.toolbox.ui.isWideLayout()
 
@@ -182,23 +92,23 @@ fun ZyxfBrowseScreen(
     // 窄屏下预览是弹窗，它自己接返回。
     BackHandler(enabled = stack.size > 1 || searching) {
         when {
-            searching -> { query = ""; searching = false; scope.launch { loadFolder(stack.last().id) } }
-            else -> goTo(stack.lastIndex - 1)
+            searching -> vm.clearSearch()
+            else -> vm.goTo(stack.lastIndex - 1)
         }
     }
 
 
     // 宽屏分栏里选的预览，转成窄屏后作废（见 previewFromSplit）。在组合里就判断、不渲染，
     // 所以不会先闪一下全屏再关掉；状态的清理放到 SideEffect 里，不在组合过程中写状态。
-    val splitPreviewStale = !isWide && previewFromSplit && previewing != null
-    if (splitPreviewStale) SideEffect { previewing = null; previewFromSplit = false }
+    val splitPreviewStale = !isWide && vm.previewFromSplit && vm.previewing != null
+    if (splitPreviewStale) SideEffect { vm.previewing = null; vm.previewFromSplit = false }
 
     // 窄屏的预览是接近全高的底部弹窗（盖住底部 Tab 栏），一直留在组合里、按有没有选中文件开合。
     // 宽屏不走这一支：预览已经长在右栏里。
     ZyxfPreviewSheet(
-        file = if (!isWide && !splitPreviewStale) previewing else null,
-        onDismiss = { previewing = null },
-        onDownload = { download(it) },
+        file = if (!isWide && !splitPreviewStale) vm.previewing else null,
+        onDismiss = { vm.previewing = null },
+        onDownload = vm::download,
     )
 
     // 宽屏：左栏列表、右栏预览。窄屏下 TwoPane 只渲染列表，预览走上面那个底部弹窗。
@@ -214,34 +124,30 @@ fun ZyxfBrowseScreen(
         val header: androidx.compose.foundation.lazy.LazyListScope.() -> Unit = {
             item(key = "search", contentType = "header") {
                 SearchField(
-                    value = query,
-                    onValueChange = { query = it },
-                    onSearch = { runSearch() },
-                    onClear = { query = ""; searching = false; scope.launch { loadFolder(stack.last().id) } },
+                    value = vm.query,
+                    onValueChange = { vm.query = it },
+                    onSearch = vm::runSearch,
+                    onClear = vm::clearSearch,
                 )
             }
             if (!searching && stack.size > 1) {
                 item(key = "crumb", contentType = "header") {
-                    Breadcrumb(stack = stack, onJump = ::goTo)
+                    Breadcrumb(stack = stack, onJump = vm::goTo)
                 }
             }
             if (!searching) {
                 item(key = "sort", contentType = "header") {
                     SortBar(
-                        sort = sort,
-                        desc = desc,
-                        onPick = { picked ->
-                            // 再点当前项＝翻转方向，换一项＝切字段并回到升序。
-                            if (picked == sort) desc = !desc else { sort = picked; desc = picked == ZyxfApi.Sort.TIME }
-                            scope.launch { loadFolder(stack.last().id) }
-                        },
+                        sort = vm.sort,
+                        desc = vm.desc,
+                        onPick = vm::pickSort,
                     )
                 }
             }
             if (searching) {
                 item(key = "searchInfo", contentType = "header") {
                     Text(
-                        if (truncated) "检索结果（较多，已截断；关键词更具体能看到更多）"
+                        if (vm.truncated) "检索结果（较多，已截断；关键词更具体能看到更多）"
                         else "检索结果 · ${entries.size} 条",
                         style = MiuixTheme.textStyles.footnote1,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -251,22 +157,15 @@ fun ZyxfBrowseScreen(
             }
         }
 
-        val pullState = rememberPullToRefreshState()
-        PullToRefresh(
-            refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
-            // 顶栏折叠交给下拉刷新协调：往下拉先展开大标题，展开完才算下拉刷新。不传的话下拉刷新先把拖动吃掉，慢慢拉只会刷新、标题展不开
-            topAppBarScrollBehavior = scrollBehavior,
+        AppPullToRefresh(
             isRefreshing = refreshing,
             onRefresh = {
                 refreshing = true
-                scope.launch {
-                    if (searching) runSearch() else loadFolder(stack.last().id)
-                    refreshing = false
-                }
+                vm.reload()
             },
-            pullToRefreshState = pullState,
+            scrollBehavior = scrollBehavior,
             // 下拉指示器从玻璃顶栏下面出来，不藏到玻璃后面
-            contentPadding = PaddingValues(top = contentTopPadding),
+            topPadding = contentTopPadding,
             modifier = Modifier.fillMaxSize(),
         ) {
             LazyColumn(
@@ -290,8 +189,8 @@ fun ZyxfBrowseScreen(
                 header()
                 // 加载、出错、空目录也是列表里的一项：头部照样在，能改搜索词、能点面包屑回上一级
                 val stateText = when {
-                    loading && entries.isEmpty() -> null
-                    error != null -> error
+                    vm.loading && entries.isEmpty() -> null
+                    vm.error != null -> vm.error
                     entries.isEmpty() -> if (searching) "没有匹配的资料" else "这个目录是空的"
                     else -> ""
                 }
@@ -320,11 +219,11 @@ fun ZyxfBrowseScreen(
                     val folders = entries.filter { it.isFolder }
                     val files = entries.filterNot { it.isFolder }
                     val onEntryClick: (ZyxfApi.Entry) -> Unit = { entry ->
-                        if (entry.isFolder) openFolder(entry)
+                        if (entry.isFolder) vm.openFolder(entry)
                         else if (ZyxfApi.previewable(entry.ext)) {
-                            previewing = entry
-                            previewFromSplit = isWide
-                        } else download(entry)
+                            vm.previewing = entry
+                            vm.previewFromSplit = isWide
+                        } else vm.download(entry)
                     }
                     if (folders.isNotEmpty()) {
                         item(key = "folderHead", contentType = "section") { SectionLabel("文件夹", folders.size) }
@@ -345,11 +244,11 @@ fun ZyxfBrowseScreen(
                         itemsIndexed(files, key = { _, it -> "file-${it.id}" }, contentType = { _, _ -> "file" }) { i, entry ->
                             FileRow(
                                 entry = entry,
-                                state = downloadState[entry.id],
+                                state = vm.downloadState[entry.id],
                                 first = i == 0,
                                 last = i == files.lastIndex,
                                 onClick = { onEntryClick(entry) },
-                                onDownload = { download(entry) },
+                                onDownload = { vm.download(entry) },
                             )
                         }
                     }
@@ -364,15 +263,15 @@ fun ZyxfBrowseScreen(
         detail = {
           // 右栏的预览不跟着列表滚，整栏让出顶栏高度
           Box(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface).padding(top = contentTopPadding)) {
-            val file = previewing
+            val file = vm.previewing
             if (file != null) {
                 // 不包 Dialog：它就长在右栏里。
                 PreviewContent(
                     fileId = file.id,
                     fileName = file.name,
                     sizeBytes = file.sizeBytes,
-                    onBack = { previewing = null },
-                    onDownload = { download(file) },
+                    onBack = { vm.previewing = null },
+                    onDownload = { vm.download(file) },
                     embedded = true,
                 )
             } else {
@@ -395,9 +294,7 @@ fun ZyxfBrowseScreen(
     )
 }
 
-private const val DOWNLOADING = "下载中…"
 
-private data class Crumb(val id: Int, val name: String)
 
 @Composable
 private fun SearchField(

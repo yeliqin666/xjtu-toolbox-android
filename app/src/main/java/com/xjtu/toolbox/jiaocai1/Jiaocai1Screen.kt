@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.jiaocai1
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -30,7 +31,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,7 +47,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.Routes
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.AppFilterChip
@@ -79,6 +78,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
 import top.yukonga.miuix.kmp.utils.SinkFeedback
 import top.yukonga.miuix.kmp.utils.overScrollVertical
+import com.xjtu.toolbox.nav.AppRoute
 
 /**
  * 教材全文库入口：书架 + 五种字段检索 + 中图法分类树。
@@ -101,7 +101,7 @@ fun Jiaocai1Screen(
         onOpenBook = onOpenBook,
         initialTab = 2,
         initialKeyword = initialKeyword,
-        authExpiredRoute = Routes.JIAOCAI1,
+        authExpiredRoute = AppRoute.Jiaocai1,
     )
 }
 
@@ -115,7 +115,7 @@ internal fun Jiaocai1ShelfContent(
     loader: Jiaocai1PageLoader,
     onOpenBook: (ssno: String, title: String) -> Unit,
 ) {
-    val shelf by vm.shelf.collectAsState()
+    val shelf by vm.shelf.collectAsStateWithLifecycle()
     ShelfTab(
         items = shelf,
         loader = loader,

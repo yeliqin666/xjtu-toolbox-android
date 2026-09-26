@@ -1,21 +1,20 @@
 # MIUIX Reference
 
-Project version: `top.yukonga.miuix.kmp:miuix-ui-android:0.9.2`,
-`miuix-preference-android:0.9.2`, `miuix-icons-android:0.9.2`.
+Artifacts: `top.yukonga.miuix.kmp:miuix-{ui,preference,icons,squircle,nav}-android`,
+resolved from Maven Central. The version is `latest.release` (see
+`gradle/libs.versions.toml`): every build picks the newest stable release, and
+pre-releases are rejected in `app/build.gradle.kts`.
 
 Upstream: https://github.com/compose-miuix-ui/miuix
 
-Latest checked release: `v0.9.2` (2026-06-05). The 0.9.2 line also has newer
-snapshot packages, but this app depends on the stable 0.9.2 artifacts.
-
 ## Modules
 
-Use the split 0.9.x modules:
-
 ```kotlin
-implementation("top.yukonga.miuix.kmp:miuix-ui-android:0.9.2")
-implementation("top.yukonga.miuix.kmp:miuix-preference-android:0.9.2")
-implementation("top.yukonga.miuix.kmp:miuix-icons-android:0.9.2")
+implementation(libs.miuix.ui)
+implementation(libs.miuix.preference)
+implementation(libs.miuix.icons)
+implementation(libs.miuix.squircle)
+implementation(libs.miuix.nav)
 ```
 
 0.9.x renamed the old `Super*` era API into the current packages:

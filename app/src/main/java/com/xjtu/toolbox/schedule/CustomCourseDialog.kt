@@ -23,13 +23,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.ui.DAY_END_HOUR
-import com.xjtu.toolbox.ui.DAY_START_HOUR
-import com.xjtu.toolbox.ui.MAX_SECTIONS
 import kotlin.math.ceil
 import kotlin.math.floor
-import com.xjtu.toolbox.util.XjtuTime
-
 data class CustomCourseDraft(
     val courseName: String = "",
     val location: String = "",

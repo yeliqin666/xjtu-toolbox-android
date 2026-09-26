@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.schedule
 
+import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.mutableLongStateOf
 import com.xjtu.toolbox.ui.glass.glassSource
@@ -16,19 +17,13 @@ import androidx.activity.compose.BackHandler
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
-import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
-import top.yukonga.miuix.kmp.basic.HorizontalDivider
-import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.TopAppBar
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.window.WindowDialog
@@ -38,8 +33,6 @@ import top.yukonga.miuix.kmp.basic.ListPopupColumn
 import top.yukonga.miuix.kmp.basic.DropdownImpl
 import top.yukonga.miuix.kmp.basic.PopupPositionProvider
 import top.yukonga.miuix.kmp.utils.overScrollVertical
-import top.yukonga.miuix.kmp.basic.PullToRefresh
-import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.snapshotFlow
@@ -49,66 +42,40 @@ import kotlinx.coroutines.flow.drop
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.GridView
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.EventNote
 import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.EventNote
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Business
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.SwapHoriz
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.IosShare
-import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.EventAvailable
-import com.xjtu.toolbox.account.AccountContext
-import com.xjtu.toolbox.ui.components.AppDropdownMenu
-import com.xjtu.toolbox.ui.components.AppDropdownMenuItem
-import com.xjtu.toolbox.ui.components.AppTopBar
 import top.yukonga.miuix.kmp.basic.SnackbarDuration
 import top.yukonga.miuix.kmp.basic.SnackbarHost
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.graphics.Color
-import com.xjtu.toolbox.LocalAppLoginState
-import com.xjtu.toolbox.Routes
-import com.xjtu.toolbox.auth.AuthExpiredException
-import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.auth.SiteSession
-import com.xjtu.toolbox.auth.ensureSite
 import androidx.compose.foundation.text.selection.SelectionContainer
-import com.xjtu.toolbox.ui.DAY_START_HOUR
-import com.xjtu.toolbox.ui.ScheduleGrid
-import com.xjtu.toolbox.ui.WeekSelector
-import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.LoadingState
@@ -116,48 +83,12 @@ import com.xjtu.toolbox.ui.components.ErrorState
 import top.yukonga.miuix.kmp.basic.VerticalDivider
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
-import com.xjtu.toolbox.widget.ScheduleWidgetUpdater
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
-
-private data class ScheduleDiskSnapshot(
-    val termList: List<String> = emptyList(),
-    val termCode: String = "",
-    val courses: List<CourseItem> = emptyList(),
-    val exams: List<ExamItem> = emptyList(),
-    val startDate: LocalDate? = null,
-)
-
-private fun readScheduleDiskSnapshot(
-    dataCache: com.xjtu.toolbox.util.DataCache,
-    gson: com.google.gson.Gson,
-): ScheduleDiskSnapshot {
-    val termList = dataCache.get("schedule_term_list", Long.MAX_VALUE)?.let { json ->
-        try { gson.fromJson(json, Array<String>::class.java).toList() } catch (_: Exception) { emptyList() }
-    }.orEmpty()
-    val termCode = dataCache.get("schedule_last_term", Long.MAX_VALUE)
-        ?.trim('"')
-        .orEmpty()
-        .ifEmpty { termList.firstOrNull().orEmpty() }
-    if (termCode.isEmpty()) return ScheduleDiskSnapshot(termList = termList)
-    val courses = ScheduleCache.readOptimizedCourses(dataCache, gson, termCode)
-        ?: dataCache.get("schedule_$termCode", Long.MAX_VALUE)?.let { json ->
-            try { gson.fromJson(json, Array<CourseItem>::class.java).toList().map { it.sanitized() } } catch (_: Exception) { null }
-        }
-        ?: emptyList()
-    val exams = dataCache.get("exams_$termCode", Long.MAX_VALUE)?.let { json ->
-        try { gson.fromJson(json, Array<ExamItem>::class.java).toList().map { it.sanitized() } } catch (_: Exception) { emptyList() }
-    }.orEmpty()
-    val startDate = dataCache.get("start_date_$termCode", Long.MAX_VALUE)?.let { json ->
-        try { LocalDate.parse(json.trim('"')) } catch (_: Exception) { null }
-    }
-    return ScheduleDiskSnapshot(termList, termCode, courses, exams, startDate)
-}
+import com.xjtu.toolbox.nav.AppRoute
+import androidx.lifecycle.viewmodel.compose.viewModel
 
 @Composable
 fun ScheduleScreen(
@@ -176,839 +107,107 @@ fun ScheduleScreen(
     /** 首页日程 tab 的顶栏折叠行为（顶栏在 MainScreen 里），交给各栏的下拉刷新协调。 */
     topAppBarScrollBehavior: top.yukonga.miuix.kmp.basic.ScrollBehavior? = null,
     /** 课程详情面板里的下钻入口（教材全文 / 课程回放 / 考勤）要能跳到别的功能页。 */
-    onNavigate: (String) -> Unit = {},
+    onNavigate: (AppRoute) -> Unit = {},
 ) {
-    // 大屏适配由屏内 Composable 自己根据 currentWindowSize() 判断，调用方不再透传
+    // 大屏适配由屏内 Composable 自己根据 currentWindowSize() 判断
     val isWideLayout = com.xjtu.toolbox.ui.isWideLayout()
     val appLoginState = LocalAppLoginState.current
-    var activeSite by remember(site) { mutableStateOf(site) }
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
-    // PR T（计划 §11）：切周、课表加载完成的触感反馈，见下面 haptics.tick()/success() 调用处。
     val haptics = com.xjtu.toolbox.ui.rememberHaptics()
-    // DataCache 构造时绑定账号，切账号后必须换新实例，见 DataCache 类注释
-    val dataCache = remember(appLoginState.accountId) {
-        com.xjtu.toolbox.util.DataCache(context, appLoginState.accountId.ifEmpty { null })
-    }
-    val gson = remember { com.google.gson.Gson() }
-    val api = remember(activeSite) { activeSite?.let { ScheduleApi(it) } }
-    fun termLabel(code: String): String = ScheduleTermStore.display(code, dataCache, gson, api)
-
-    // 课表走用户选的来源；历史学期、以及非教务源取不到时都退回教务，见 ScheduleSourceRouter。
-    // 考试、教材、学期表这些只有教务有，照旧直接用 api。
-    suspend fun fetchSchedule(
-        scheduleApi: ScheduleApi,
-        term: String,
-        userInitiated: Boolean = false,
-    ): List<CourseItem> = ScheduleSourceRouter.getSchedule(
-        context = context,
-        jwxt = scheduleApi,
-        termCode = term,
-        manager = appLoginState.sessionManager,
-        accountType = appLoginState.accountType,
-        userInitiated = userInitiated,
-    )
+    val vm: ScheduleViewModel = viewModel(key = "schedule") { ScheduleViewModel(context, appLoginState) }
     val snackbarHostState = remember { SnackbarHostState() }
-    val disk = remember { readScheduleDiskSnapshot(dataCache, gson) }
-
-    // Room 数据库 - 自定义课程
-    val db = remember { com.xjtu.toolbox.util.AppDatabase.getInstance(context) }
-    val customCourseDao = remember { db.customCourseDao() }
-    var customCourses by remember { mutableStateOf<List<CustomCourseEntity>>(emptyList()) }
-    var showAddCourseDialog by remember { mutableStateOf(false) }
-    var editingCourse by remember { mutableStateOf<CustomCourseEntity?>(null) }
-    var addScheduleDraft by remember { mutableStateOf(CustomCourseDraft()) }
-
-    var courses by remember { mutableStateOf(disk.courses) }
-    var exams by remember { mutableStateOf(disk.exams) }
-    // 「接下来」用的作业截止数据。只读别处已经写好的落盘缓存，日程页不为此发任何请求，见 LmsDueStore。
-    var homeworkDue by remember { mutableStateOf<List<com.xjtu.toolbox.lms.LmsDue>>(emptyList()) }
-    var textbooks by remember { mutableStateOf<List<TextbookItem>>(emptyList()) }
-    var textbooksLoading by remember { mutableStateOf(false) }
-    var textbooksError by remember { mutableStateOf<String?>(null) }
-    var textbooksLoaded by remember { mutableStateOf(false) }
-    var textbooksRefreshing by remember { mutableStateOf(false) }
-    // 后台加载（课程详情顺带取教材）的失败原因。跟 textbooksError 分开放：
-    // 那个是教材页自己的提示条，不该被一次后台请求改写，反过来也一样。
-    var textbooksBackgroundError by remember { mutableStateOf<String?>(null) }
-    var examsRefreshing by remember { mutableStateOf(false) }
-    var isLoading by remember { mutableStateOf(disk.courses.isEmpty()) }
-    var isSwitching by remember { mutableStateOf(false) }  // 学期切换中（保留旧日程显示）
-    var isRefreshingFromNetwork by remember { mutableStateOf(false) } // 缓存已显示，后台刷新中
-    var loadJob by remember { mutableStateOf<Job?>(null) }
-    val loadGen = remember { java.util.concurrent.atomic.AtomicInteger(0) }
-    var lastLoadedAccount by remember { mutableStateOf<String?>(null) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    val initialWeek = remember(disk.startDate) {
-        val startDate = disk.startDate ?: return@remember 0
-        try {
-            val w = TermWeeks.weekOf(startDate)
-            // 这里还拿不到 totalWeeks（依赖 courses），先用磁盘快照估一次。
-            val diskWeeks = disk.courses.maxOfOrNull { it.weekBits.length }?.takeIf { it > 0 } ?: 30
-            if (w in 1..diskWeeks) w else 0
-        } catch (_: Exception) { 0 }
-    }
-    var currentWeek by rememberSaveable { mutableIntStateOf(if (initialWeek > 0) initialWeek else 1) }
-    var realCurrentWeek by remember { mutableIntStateOf(initialWeek) }  // 实际当前周（0=未知），用于时间线显示判断
-    /**
-     * 学期周数。取 `weekBits` 的长度——那是教务下发的周次位串，长度就是周数。
-     * 原来写死 20，于是暑假、短学期也能滑到第 20 周，后面全是空网格。
-     * 为 0 表示这学期没课，由 [ScheduleTabContent] 落空状态。
-     */
-    val totalWeeks = remember(courses) {
-        courses.maxOfOrNull { it.weekBits.length }?.takeIf { it > 0 } ?: 0
-    }
-
-    /**
-     * 现算一遍学期周数，不走 [totalWeeks] 那个 remember。
-     *
-     * 加载流程里"先赋值 courses，紧接着算周次"是同一帧内的事，而 `totalWeeks` 是本次
-     * 组合期间算好的 val，那一刻还是旧值（冷启动时就是 0）。0 会被当成"学期只有 0 周"，
-     * 于是任何周次都 > 0，页面报"学期已结束"。这里直接读 state，拿到的永远是最新的。
-     */
-    fun knownTotalWeeks(): Int = courses.maxOfOrNull { it.weekBits.length }?.takeIf { it > 0 } ?: 0
-
-    /**
-     * 添加/编辑日程弹窗用的周数。教务课表为空时 [totalWeeks] 是 0，弹窗里一格周都
-     * 选不了、「添加」按钮永远灰着——表现就是「点加号没反应」。空的时候退到
-     * 自定义日程里最长的周数，再退到学期默认周数。
-     */
-    fun editableWeeks(): Int = totalWeeks.takeIf { it > 0 }
-        ?: customCourses.maxOfOrNull { it.weekBits.length }?.takeIf { it > 0 }
-        ?: TermWeeks.DEFAULT_TOTAL_WEEKS
-    // 默认落在周视图：课表的主形态就是它，今日/学期是补充视角。rememberSaveable
-    // 保证本次会话里用户切走再回来还停在自己选的那栏，只有冷启动才回到周视图。
-    var selectedTab by rememberSaveable { mutableIntStateOf(1) }
-
-    /** 今日 / 学期两级点课后要弹的详情。周视图有自己那份，见 ScheduleTabContent。 */
-    var unifiedSelectedCourse by remember { mutableStateOf<CourseItem?>(null) }
-
-    /** 今日那一级点课时带上今天；学期那一级说不出是哪一次，保持 null。 */
-    var unifiedOccurrence by remember { mutableStateOf<Occurrence?>(null) }
-
-    /**
-     * tab 序号 → 这一页放什么。固定今日 / 日程 / 学期三格（plan2 §1.5），
-     * 页面里凡是要问"现在是不是在课表页"的地方都走这个函数，别再去比 selectedTab == 0。
-     */
-    fun contentOf(tab: Int): String = when (tab) { 0 -> "today"; 1 -> "week"; else -> "semester" }
-    val currentContent = contentOf(selectedTab)
-    var weekNote by remember { mutableStateOf<String?>(null) } // "距开学X周" / "学期已结束"
-
-    // 学期相关
-    var termList by remember { mutableStateOf(disk.termList) }
-    var selectedTermCode by remember { mutableStateOf(disk.termCode) }
-    var currentTermCode by remember { mutableStateOf(disk.termCode) }  // 当前学期，用于判断是否缓存考试
-
-    /**
-     * 本次会话里用户有没有主动切过学期。
-     *
-     * 切过就不该再被"当前学期"拽回去。用 rememberSaveable 是为了跨越
-     * 导航到子页面再返回（那会让本 composable 被销毁重建）；
-     * 进程重启后回到 false，于是新会话仍然从当前学期开始——
-     * 不然开学后会永远停在上学期。
-     */
-    var userPickedTerm by rememberSaveable { mutableStateOf(false) }
-    /** 当前学期课表为空、但按日期推算的学期有课时，要自动切过去的学期代码。见 loadInitialData。 */
-    var autoTermSuggestion by remember { mutableStateOf<String?>(null) }
-    var termDropdownExpanded by remember { mutableStateOf(false) }
-
-    // 周视图 vs 总览（每次启动默认周视图，不保存状态）
-    var showAllWeeks by remember { mutableStateOf(false) }
-
-    // 周选择器弹窗（§1.4）：标签行下面的胶囊点开
-    var showWeekPicker by remember { mutableStateOf(false) }
-
-    // 是否正在显示缓存数据（网络失败时提示）
-    var showingStaleData by remember { mutableStateOf(disk.courses.isNotEmpty()) }
-
-    // 开学日期（导出 ICS 用）
-    var startOfTerm by remember { mutableStateOf(disk.startDate) }
-    
-    // 法定节假日
-    var holidayDates by remember { mutableStateOf(HolidayApi.peekCached(context)) }
-
-    // 导出菜单
-    var showExportMenu by remember { mutableStateOf(false) }
-
-    // 通知外层（MainScreen TopAppBar）当前学期。第几周已经挪到标签行下面的周选择胶囊里，
-    // 副标题不用再重复一遍。
-    LaunchedEffect(selectedTermCode, termList) {
-        onSubtitleChange(termLabel(selectedTermCode))
-    }
-
-    fun readCachedTerms(): List<String> {
-        val json = dataCache.get("schedule_term_list", Long.MAX_VALUE) ?: return emptyList()
-        return try { gson.fromJson(json, Array<String>::class.java).toList() } catch (_: Exception) { emptyList() }
-    }
-
-    fun applyTermStart(startDate: LocalDate) {
-        startOfTerm = startDate
-        try {
-            // totalWeeks 取自 courses，这一帧里 courses 可能刚被赋值而它还是旧的；
-            // 直接现算一遍，别让"课表已经到了但周数还是 0"的中间态判成学期结束。
-            val weeks = knownTotalWeeks()
-            val status = TermWeeks.statusOf(
-                startOfTerm = startDate,
-                totalWeeks = weeks,
-                firstTeachWeek = TermWeeks.firstTeachWeekOf(courses),
-            )
-            if (status is TermWeeks.Status.InTerm) realCurrentWeek = status.week
-            if (status is TermWeeks.Status.AfterTerm) showAllWeeks = true
-            currentWeek = TermWeeks.displayWeekOf(status)
-            weekNote = TermWeeks.noteOf(status)
-        } catch (_: Exception) {
-            currentWeek = 1
-            weekNote = null
-        }
-    }
-
-    /** 磁盘缓存立刻上屏，不碰网络。 */
-    fun paintCache(termCode: String): Int {
-        if (termCode.isEmpty()) return -1
-        selectedTermCode = termCode
-        currentTermCode = termCode
-        val optimized = ScheduleCache.readOptimizedCourses(dataCache, gson, termCode)
-        if (optimized != null) {
-            courses = optimized
-        } else {
-            val cached = dataCache.get("schedule_$termCode", Long.MAX_VALUE)
-            if (cached != null) {
-                try { courses = gson.fromJson(cached, Array<CourseItem>::class.java).toList().map { it.sanitized() } } catch (_: Exception) {}
-            }
-        }
-        dataCache.get("exams_$termCode", Long.MAX_VALUE)?.let { json ->
-            try { exams = gson.fromJson(json, Array<ExamItem>::class.java).toList().map { it.sanitized() } } catch (_: Exception) {}
-        }
-        dataCache.get("start_date_$termCode", Long.MAX_VALUE)?.let { json ->
-            try { applyTermStart(LocalDate.parse(json.trim('"'))) } catch (_: Exception) { currentWeek = 1 }
-        }
-        return courses.size
-    }
-
-    // 初始加载：有缓存先上屏，课表接口一到就停转圈；考试/学期列表后台补。
-    fun loadInitialData() {
-        loadJob?.cancel()
-        errorMessage = null
-        val keepShowing = courses.isNotEmpty()
-        if (!keepShowing) isLoading = true
-        isRefreshingFromNetwork = false
-        showingStaleData = false
-        val gen = loadGen.incrementAndGet()
-        // 本次加载属于哪个账号。切账号时 SessionManager 是原地重配、api 背后的站点会被
-        // 换成新账号的会话；本任务虽会被 LaunchedEffect(accountId) 取消，但取消只在挂起点
-        // 生效，恰好在那之前拿到的结果可能已是新账号的数据。每次联网结果落地前核对一次，
-        // 账号变了就按取消处理，既不刷界面也不写缓存（dataCache 绑定的是本任务的账号）。
-        val jobAccount = AccountContext.activeAccountId
-        fun ensureSameAccount() {
-            if (AccountContext.activeAccountId != jobAccount) {
-                throw kotlinx.coroutines.CancellationException("account switched during schedule load")
-            }
-        }
-        loadJob = scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    val cachedTerms = readCachedTerms()
-                    if (cachedTerms.isNotEmpty()) termList = cachedTerms
-                    val lastTerm = dataCache.get("schedule_last_term", Long.MAX_VALUE)
-                        ?.trim('"')
-                        .orEmpty()
-                        .ifEmpty { cachedTerms.firstOrNull().orEmpty() }
-                    if (lastTerm.isNotEmpty() && paintCache(lastTerm) > 0) {
-                        isLoading = false
-                        isRefreshingFromNetwork = api != null
-                        showingStaleData = true
-                    }
-
-                    if (api == null) {
-                        if (courses.isEmpty()) throw RuntimeException("暂无缓存日程")
-                        showingStaleData = true
-                        return@withContext
-                    }
-
-                    // ── 在线模式 ──
-                    // 学期接口和课表并行：有上次学期时先按缓存学期拉课表并立刻上屏，学期代码回来再对一下。
-                    try {
-                        supervisorScope {
-                            val termDeferred = async {
-                                try {
-                                    api.getCurrentTerm()
-                                } catch (e: AuthExpiredException) {
-                                    throw e
-                                } catch (e: Exception) {
-                                    android.util.Log.w("ScheduleUI", "getCurrentTerm failed, trying cache", e)
-                                    // 没缓存学期也别直接报错：按日期推一个学期代码去拉课表。
-                                    // 教务的「当前学期」接口偶发返回空行或超时，不该把整页拖成错误页。
-                                    lastTerm.ifEmpty {
-                                        com.xjtu.toolbox.util.XjtuTime.expectedTermCode()
-                                            ?: throw RuntimeException("网络不可用且无缓存学期数据，请连网后重试")
-                                    }
-                                }
-                            }
-                            val schedulePrefetch = lastTerm.takeIf { it.isNotEmpty() }?.let { cached ->
-                                async {
-                                    try {
-                                        fetchSchedule(api, cached)
-                                    } catch (e: AuthExpiredException) {
-                                        throw e
-                                    } catch (_: Exception) {
-                                        null
-                                    }
-                                }
-                            }
-                            val examsDeferred = async {
-                                val termForExam = lastTerm.ifEmpty { termDeferred.await() }
-                                try {
-                                    api.getExamSchedule(termForExam)
-                                } catch (e: kotlinx.coroutines.CancellationException) {
-                                    throw e
-                                } catch (e: AuthExpiredException) {
-                                    throw e
-                                } catch (e: Exception) {
-                                    android.util.Log.w("ScheduleUI", "getExamSchedule failed; keeping cached/empty exams", e)
-                                    exams
-                                }
-                            }
-                            val startDateDeferred = async {
-                                val termForStart = lastTerm.ifEmpty { termDeferred.await() }
-                                try { api.getStartOfTerm(termForStart) } catch (_: Exception) { null }
-                            }
-                            val termListDeferred = async {
-                                try { api.getTermList() } catch (_: Exception) { emptyList() }
-                            }
-
-                            fun paintCourses(termCode: String, freshCourses: List<CourseItem>, startDate: LocalDate?) {
-                                ensureSameAccount()
-                                val holidays = holidayDates.ifEmpty { HolidayApi.peekCached(context) }
-                                if (holidays.isNotEmpty()) holidayDates = holidays
-                                val optimized = ScheduleCache.filterByHolidays(freshCourses, startDate, holidays)
-                                val optimizedJson = gson.toJson(optimized)
-                                val cachedOptimizedJson =
-                                    dataCache.get(ScheduleCache.optimizedScheduleKey(termCode), Long.MAX_VALUE)
-                                val contentChanged = cachedOptimizedJson == null || optimizedJson != cachedOptimizedJson
-                                if (courses.isEmpty() || contentChanged) {
-                                    courses = optimized
-                                }
-                                showingStaleData = false
-                                isLoading = false
-                                isRefreshingFromNetwork = false
-                                // PR T：paintCourses 是网络课表落地的唯一入口（见上面的注释），课表加载完成在这里报一次成功触感。
-                                haptics.success()
-                                try { dataCache.put("schedule_$termCode", gson.toJson(freshCourses)) } catch (_: Exception) {}
-                                try { dataCache.put(ScheduleCache.optimizedScheduleKey(termCode), optimizedJson) } catch (_: Exception) {}
-                                // 课表缓存变了就叫醒首页：Hero 的「下一项安排」key 在 HomeSignals.scheduleVersion 上，
-                                // 不 bump 的话同步完课表首页还停在旧状态，要退出重登才刷新。
-                                com.xjtu.toolbox.home.HomeSignals.scheduleVersion++
-                                if (contentChanged && cachedOptimizedJson != null) {
-                                    scope.launch { snackbarHostState.showSnackbar("日程有更新", duration = SnackbarDuration.Short) }
-                                }
-                                // 变更检测放在这个漏斗里：paintCourses 是网络课表落地的唯一入口，
-                                // 读缓存的路径不经过它。缓存和快照本来就是同一份，比了也永远无变化。
-                                // 用未过滤节假日的 freshCourses 比，否则放假会被误判成"课被取消了"。
-                                val changes = ScheduleDiff.diffAndStore(context, termCode, freshCourses)
-                                ScheduleDiff.summarize(changes)?.let { msg ->
-                                    ScheduleDiff.setPending(context, msg)
-                                    scope.launch {
-                                        snackbarHostState.showSnackbar(msg, duration = SnackbarDuration.Long)
-                                    }
-                                }
-                            }
-
-                            val prefetched = schedulePrefetch?.await()
-                            if (prefetched != null) {
-                                paintCourses(lastTerm, prefetched, startOfTerm)
-                            }
-
-                            val termCode = termDeferred.await()
-                            ensureSameAccount()
-                            currentTermCode = termCode
-                            ScheduleCache.writeCurrentTerm(dataCache, gson, termCode)
-                            // 用户本次进来主动切过学期时，不要再把视图拽回"当前学期"。
-                            // 这段以前是无条件执行的：从课程详情跳去思源学堂再返回，
-                            // ScheduleScreen 重新组合 → loadInitialData 重跑 →
-                            // selectedTermCode 被覆盖成当前学期，连 schedule_last_term
-                            // 也被一起改写，用户刚翻到的历史学期就这么没了。
-                            val keepUserTerm = userPickedTerm && lastTerm.isNotEmpty() && lastTerm != termCode
-                            if (!keepUserTerm) {
-                                selectedTermCode = termCode
-                                try { dataCache.put("schedule_last_term", gson.toJson(termCode)) } catch (_: Exception) {}
-                            }
-                            if (!keepUserTerm && termCode != lastTerm && lastTerm.isNotEmpty()) {
-                                if (paintCache(termCode) > 0) {
-                                    isLoading = false
-                                    isRefreshingFromNetwork = true
-                                    showingStaleData = true
-                                }
-                                schedulePrefetch?.cancel()
-                                examsDeferred.cancel()
-                                startDateDeferred.cancel()
-                                val freshCourses = fetchSchedule(api, termCode)
-                                val startDate = try { api.getStartOfTerm(termCode) } catch (_: Exception) { startOfTerm }
-                                paintCourses(termCode, freshCourses, startDate)
-                                if (startDate != null) {
-                                    applyTermStart(startDate)
-                                    try { dataCache.put("start_date_$termCode", gson.toJson(startDate.toString())) } catch (_: Exception) {}
-                                }
-                                val freshExams = try { api.getExamSchedule(termCode) } catch (_: Exception) { exams }
-                                ensureSameAccount()
-                                exams = freshExams
-                                if (freshExams.isNotEmpty()) {
-                                    try { dataCache.put("exams_$termCode", gson.toJson(freshExams)) } catch (_: Exception) {}
-                                }
-                            } else {
-                                // 留在用户选的学期时，这一支要认那一个学期——
-                                // examsDeferred / startDateDeferred / prefetched 本来就是按
-                                // lastTerm 发的，只有这里的标签之前写成了 termCode。
-                                val viewTerm = if (keepUserTerm) lastTerm else termCode
-                                val freshCourses = prefetched ?: fetchSchedule(api, viewTerm)
-                                if (prefetched == null) {
-                                    paintCourses(viewTerm, freshCourses, startOfTerm)
-                                }
-                                val startDate = startDateDeferred.await() ?: startOfTerm
-                                ensureSameAccount()
-                                if (startDate != null) {
-                                    applyTermStart(startDate)
-                                    try { dataCache.put("start_date_$viewTerm", gson.toJson(startDate.toString())) } catch (_: Exception) {}
-                                    if (holidayDates.isNotEmpty()) {
-                                        courses = ScheduleCache.filterByHolidays(freshCourses, startDate, holidayDates)
-                                    }
-                                }
-                                val freshExams = examsDeferred.await()
-                                ensureSameAccount()
-                                exams = freshExams
-                                if (freshExams.isNotEmpty()) {
-                                    try { dataCache.put("exams_$viewTerm", gson.toJson(freshExams)) } catch (_: Exception) {}
-                                }
-                            }
-                            // 换季那几周教务的「当前学期」常常还指着短学期/暑假，课表是空的，
-                            // 而新学期的课其实已经能查到。此时页面只剩一句「本学期没有课程」，
-                            // 用户并不知道要去切学期。按日期推一个该在的学期探一下，有课就切过去。
-                            if (!keepUserTerm && courses.isEmpty()) {
-                                val expected = com.xjtu.toolbox.util.XjtuTime.expectedTermCode()
-                                if (expected != null && expected != termCode) {
-                                    val probe = try { fetchSchedule(api, expected) } catch (_: Exception) { emptyList() }
-                                    if (probe.isNotEmpty()) autoTermSuggestion = expected
-                                }
-                            }
-                            val availableTerms = (termListDeferred.await() + readCachedTerms()).distinct()
-                            ensureSameAccount()
-                            try { ScheduleTermStore.merge(dataCache, gson, api.termNames()) } catch (_: Exception) {}
-                            if (availableTerms.isNotEmpty()) {
-                                termList = availableTerms
-                                try { dataCache.put("schedule_term_list", gson.toJson(availableTerms)) } catch (_: Exception) {}
-                            }
-                        }
-                    } catch (e: kotlinx.coroutines.CancellationException) {
-                        throw e
-                    } catch (e: AuthExpiredException) {
-                        throw e
-                    } catch (e: Exception) {
-                        if (courses.isNotEmpty()) {
-                            showingStaleData = true
-                            isRefreshingFromNetwork = false
-                            if (termList.isEmpty()) {
-                                val t = readCachedTerms()
-                                if (t.isNotEmpty()) termList = t
-                            }
-                            scope.launch { snackbarHostState.showSnackbar("网络异常，显示的可能不是最新数据", duration = SnackbarDuration.Long) }
-                            android.util.Log.w("ScheduleUI", "Network failed, showing cached data", e)
-                        } else {
-                            android.util.Log.w("ScheduleUI", "Online failed, falling back to cache", e)
-                            val t = readCachedTerms()
-                            if (t.isNotEmpty()) termList = t
-                            val fallbackTerm = selectedTermCode.ifEmpty { t.firstOrNull().orEmpty() }
-                            if (fallbackTerm.isNotEmpty()) paintCache(fallbackTerm)
-                            if (courses.isNotEmpty()) {
-                                showingStaleData = true
-                                isRefreshingFromNetwork = false
-                                scope.launch { snackbarHostState.showSnackbar("网络异常 · 显示缓存日程", duration = SnackbarDuration.Long) }
-                            } else {
-                                throw RuntimeException("网络不可用且无缓存数据，请连网后重试")
-                            }
-                        }
-                    }
-                }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(LoginType.JWXT, Routes.SCHEDULE, onBack)
-            } catch (e: Exception) {
-                errorMessage = com.xjtu.toolbox.util.FriendlyError.of(e, "加载课表")
-            } finally {
-                if (gen == loadGen.get()) {
-                    isLoading = false
-                    isRefreshingFromNetwork = false
-                    ScheduleWidgetUpdater.requestUpdate(context)
-                }
+    LaunchedEffect(vm) {
+        vm.events.collect { event ->
+            when (event) {
+                ScheduleEvent.AuthExpired -> appLoginState.handleAuthExpired(AppRoute.Schedule, onBack)
+                ScheduleEvent.Loaded -> haptics.success()
+                is ScheduleEvent.Message -> snackbarHostState.showSnackbar(
+                    event.text, duration = if (event.long) SnackbarDuration.Long else SnackbarDuration.Short,
+                )
             }
         }
     }
-
-    /**
-     * 手动刷新：刷新**正在看的学期**，不要去拉「当前学期」再把视图切回去。
-     * 人已经翻到历史学期了，下拉却弹回本学期，等于白切。
-     */
-    fun refreshSchedule(force: Boolean = true) {
-        if (api == null) return
-        if (isRefreshingFromNetwork) return
-        isRefreshingFromNetwork = true
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    val viewing = selectedTermCode
-                    val actualCurrent = try {
-                        api.getCurrentTerm()
-                    } catch (e: Exception) {
-                        viewing.ifEmpty {
-                            val cachedTermList = dataCache.get("schedule_term_list", Long.MAX_VALUE)
-                            val cachedTerms = if (cachedTermList != null) {
-                                try { gson.fromJson(cachedTermList, Array<String>::class.java).toList() } catch (_: Exception) { emptyList() }
-                            } else emptyList()
-                            cachedTerms.firstOrNull() ?: throw e
-                        }
-                    }
-                    if (actualCurrent.isNotEmpty()) {
-                        currentTermCode = actualCurrent
-                        ScheduleCache.writeCurrentTerm(dataCache, gson, actualCurrent)
-                    }
-                    try { ScheduleTermStore.merge(dataCache, gson, api.termNames()) } catch (_: Exception) {}
-                    val termCode = viewing.ifEmpty { actualCurrent }
-                    if (viewing.isEmpty() && termCode.isNotEmpty()) selectedTermCode = termCode
-                    val apiCourses = try {
-                        fetchSchedule(api, termCode, userInitiated = true)
-                    } catch (e: Exception) {
-                        android.util.Log.w("ScheduleUI", "refreshSchedule getSchedule failed", e)
-                        return@withContext
-                    }
-                    // courses 只放教务结果；自定义课由 mergedCourses 再拼，避免刷新后重复
-                    courses = apiCourses
-                    showingStaleData = false
-                    dataCache.put("schedule_$termCode", gson.toJson(apiCourses))
-                    // optimized 键也要跟上：首页 Hero 读的是 readOptimizedCourses，它只认
-                    // optimized 键、不管 raw 更新没更新，漏写的话下拉刷新拉到了新课，
-                    // 首页还在读旧缓存。与 paintCourses 同样按节假日过滤后再落。
-                    try {
-                        ScheduleCache.writeOptimizedCourses(
-                            dataCache, gson, termCode,
-                            ScheduleCache.filterByHolidays(apiCourses, startOfTerm, holidayDates),
-                        )
-                    } catch (_: Exception) {}
-                    // 同 paintCourses：下拉刷新拉到新课后也叫醒首页的「下一项安排」
-                    com.xjtu.toolbox.home.HomeSignals.scheduleVersion++
-                }
-            } catch (e: Exception) {
-                android.util.Log.w("ScheduleUI", "refreshSchedule failed", e)
-                errorMessage = com.xjtu.toolbox.util.FriendlyError.of(e, "刷新课表")
-            } finally {
-                isRefreshingFromNetwork = false
-            }
-        }
-    }
-
-    fun refreshExams() {
-        val scheduleApi = api
-        if (scheduleApi == null || selectedTermCode.isEmpty() || examsRefreshing) return
-        examsRefreshing = true
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    val fresh = scheduleApi.getExamSchedule(selectedTermCode)
-                    exams = fresh
-                    dataCache.put("exams_$selectedTermCode", gson.toJson(fresh))
-                }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(LoginType.JWXT, Routes.SCHEDULE, onBack)
-            } catch (e: Exception) {
-                snackbarHostState.showSnackbar(com.xjtu.toolbox.util.FriendlyError.of(e, "刷新考试"))
-            } finally {
-                examsRefreshing = false
-            }
-        }
-    }
-
-    /**
-     * 加载教材。
-     *
-     * [background] 说的是**谁在等这个结果**，而不是"用哪种转圈"：
-     * true 表示没人在等——课程详情面板点开一门课时顺带取的，于是不占页面的
-     * 加载态、不写教材页的提示条、失败也不抢导航。用户自己点刷新时传 false，
-     * 首屏还是空的就铺加载态、已经有内容就走下拉刷新的那一个，由
-     * [textbooksLoaded] 自己决定，调用方不必操心。
-     *
-     * 这两件事以前挤在一个 `silent` 里，于是同时错了两头：课程详情那条路
-     * **跳过了缓存**（缓存是本地的，读它既不慢也不打扰谁），失败又只写进
-     * 教材页才看得到的 [textbooksError]——"教务这次没请求成功"在课程详情里的
-     * 表现就是教材那一行整个不见，不给任何解释；而用户手动刷新一旦变成
-     * `silent = textbooksLoaded`，又反过来被当成了没人在等。最要命的是
-     * AuthExpired 会走 handleAuthExpired → onBack()：点开一门课，人就被弹出
-     * 日程页去重登一次。
-     */
-    fun loadTextbooks(termCode: String, background: Boolean = false) {
-        android.util.Log.d("ScheduleUI", "loadTextbooks called: studentId='$studentId', termCode='$termCode' background=$background")
-        val jw = api
-        val blocked = when {
-            jw == null -> "尚未登录教务系统"
-            studentId.isBlank() -> "未获取到学号"
-            else -> null
-        }
-        if (jw == null || blocked != null) {
-            if (background) textbooksBackgroundError = blocked else textbooksError = blocked
-            return
-        }
-        if (background) {
-            // 后台那条路要防重入：面板反复开合会一直打这个请求。
-            // 用户自己点的刷新不拦——切学期时上一发还没回来，新的那一发必须跑。
-            if (textbooksRefreshing) return
-            textbooksRefreshing = true
-            textbooksBackgroundError = null
-        } else {
-            // 已经有内容了就别把它换成一屏加载态——下拉刷新自己有指示器。
-            if (textbooksLoaded) textbooksRefreshing = true else textbooksLoading = true
-            textbooksError = null
-        }
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    // 先上缓存，两条路径一视同仁：网络那一下失败时，手里有什么先给什么。
-                    ScheduleCache.readTextbooks(dataCache, gson, termCode, Long.MAX_VALUE)?.let { cached ->
-                        textbooks = cached.sortedBy { item -> if (item.hasSubstantiveTextbook) 0 else 1 }
-                        textbooksLoaded = true
-                    }
-                    val raw = jw.getTextbooks(studentId, termCode)
-                    // 排序：有教材的在前，无教材的在后
-                    textbooks = raw.sortedBy { item ->
-                        if (item.hasSubstantiveTextbook) 0 else 1
-                    }
-                    ScheduleCache.writeTextbooks(dataCache, gson, termCode, textbooks)
-                }
-                android.util.Log.d("ScheduleUI", "loadTextbooks done: ${textbooks.size} items")
-                textbooksLoaded = true
-                if (background) textbooksBackgroundError = null
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: AuthExpiredException) {
-                android.util.Log.w("ScheduleUI", "loadTextbooks 登录过期 background=$background")
-                // 静默路径不抢导航：用户只是点开了一门课，不该因此被弹回登录。
-                // 教务真过期了，页面上任何一个正经操作都会撞到，由那一次去处理。
-                if (background) textbooksBackgroundError = "教务登录已过期，去教材页刷新一次"
-                else appLoginState.handleAuthExpired(LoginType.JWXT, Routes.SCHEDULE, onBack)
-            } catch (e: Exception) {
-                android.util.Log.e("ScheduleUI", "loadTextbooks failed background=$background", e)
-                val msg = com.xjtu.toolbox.util.FriendlyError.of(e, "查询教材")
-                if (background) textbooksBackgroundError = msg else textbooksError = msg
-            } finally {
-                textbooksLoading = false
-                textbooksRefreshing = false
-            }
-        }
-    }
-
-    LaunchedEffect(appLoginState.accountId) {
-        val id = appLoginState.accountId
-        if (lastLoadedAccount != null && lastLoadedAccount != id) {
-            courses = emptyList()
-            exams = emptyList()
-            customCourses = emptyList()
-        }
-        lastLoadedAccount = id
-        loadInitialData()
-        try { holidayDates = HolidayApi.getHolidayDates(context) } catch (_: Exception) {}
-        // 「接下来」的作业数据，纯读缓存（plan2 §5.2）。
-        homeworkDue = withContext(Dispatchers.IO) {
-            runCatching { com.xjtu.toolbox.lms.LmsDueStore.load(context, id) }.getOrDefault(emptyList())
-        }
-    }
-
-    // 先进来时还没登录、稍后 JWXT 会话才就绪：补一次在线刷新。入页时已经有 site 就不要再打一遍。
-    var hadSite by remember { mutableStateOf(site != null) }
-    LaunchedEffect(activeSite) {
-        val now = activeSite != null
-        val appeared = now && !hadSite
-        hadSite = now
-        if (!appeared) return@LaunchedEffect
-        if (isLoading || isSwitching || isRefreshingFromNetwork) return@LaunchedEffect
-        loadInitialData()
-    }
-
-    // site 对象存在 ≠ 已登录：冷启动时 CAS 登录是异步的（往返 login.xjtu.edu.cn 要几秒），
-    // 首屏加载常抢在登录完成前发请求、全被 CAS 登录页顶包（getTermList 报「返回了网页而非
-    // 数据」），落成「本学期没有课程」，而登录成功后没人重试。上面那个效果只管 site **出现**，
-    // 管不到「site 一直在、hasLogin 翻真」。这里轮询 hasLogin（HomeTab 等子系统就绪是同一套），
-    // 登录一完成就补一次加载；最多等 5 分钟，离线场景不空转。
-    LaunchedEffect(activeSite) {
-        val site = activeSite ?: return@LaunchedEffect
-        if (site.hasLogin) return@LaunchedEffect
-        repeat(300) {
-            if (site.hasLogin) {
-                if (!isSwitching && !isRefreshingFromNetwork) loadInitialData()
-                return@LaunchedEffect
-            }
-            delay(1_000)
-        }
-    }
-
-    // 设置里换了「当前学期课表来源」以后回到这里：按新来源重新加载一遍。
-    // 日程是首页的一个 tab，组合一次就一直留着，从设置页返回不会重新加载；而学期列表只在
-    // 教务系统那条路径上拉取。默认来源是移动教务，那时教务可能一直没登录、学期列表是空的，
-    // 切到教务系统回来右上角就没有「切换学期」，要重启才出现。
+    LaunchedEffect(appLoginState.accountId, site, studentId) { vm.bind(appLoginState.accountId, site, studentId) }
+    LaunchedEffect(vm.activeSite, appLoginState.hasCredentials) { vm.autoLoginIfNeeded() }
+    // 从设置页回来时检查课表来源有没有换
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-    var lastSource by remember { mutableStateOf(com.xjtu.toolbox.util.CredentialStore(context).scheduleSource) }
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event != androidx.lifecycle.Lifecycle.Event.ON_RESUME) return@LifecycleEventObserver
-            val now = com.xjtu.toolbox.util.CredentialStore(context).scheduleSource
-            if (now == lastSource) return@LifecycleEventObserver
-            lastSource = now
-            if (!isLoading && !isSwitching && !isRefreshingFromNetwork) loadInitialData()
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) vm.onResume()
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    var attemptingAutoLogin by remember { mutableStateOf(false) }
-    LaunchedEffect(activeSite, appLoginState.hasCredentials) {
-        if (activeSite != null) return@LaunchedEffect
-        if (!appLoginState.hasCredentials) return@LaunchedEffect
-        if (attemptingAutoLogin) return@LaunchedEffect
-        // 网络检查
-        val cm = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
-        val online = cm?.activeNetwork != null &&
-            cm.getNetworkCapabilities(cm.activeNetwork)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
-        if (!online) return@LaunchedEffect
-        attemptingAutoLogin = true
-        try {
-            android.util.Log.d("ScheduleUI", "site==null + online + has credentials -> background ensureSite(JWXT)")
-            activeSite = withContext(Dispatchers.IO) { appLoginState.sessionManager?.ensureSite(LoginType.JWXT) }
-        } catch (_: Exception) {}
-        attemptingAutoLogin = false
+    var showAddCourseDialog by remember { mutableStateOf(false) }
+    var editingCourse by remember { mutableStateOf<CustomCourseEntity?>(null) }
+    // 默认落在周视图；本次会话里切走再回来还停在自己选的那栏
+    var selectedTab by rememberSaveable { mutableIntStateOf(1) }
+    /** 今日 / 学期两级点课后要弹的详情。周视图有自己那份，见 ScheduleTabContent。 */
+    var unifiedSelectedCourse by remember { mutableStateOf<CourseItem?>(null) }
+    /** 今日那一级点课时带上今天；学期那一级说不出是哪一次，保持 null。 */
+    var unifiedOccurrence by remember { mutableStateOf<Occurrence?>(null) }
+    var termDropdownExpanded by remember { mutableStateOf(false) }
+    var showWeekPicker by remember { mutableStateOf(false) }
+    var showExportMenu by remember { mutableStateOf(false) }
+
+    /** tab 序号 → 这一页放什么：固定今日 / 周视图 / 学期三格。 */
+    fun contentOf(tab: Int): String = when (tab) { 0 -> "today"; 1 -> "week"; else -> "semester" }
+    val currentContent = contentOf(selectedTab)
+
+    // 通知外层顶栏当前学期
+    LaunchedEffect(vm.selectedTermCode, vm.termList) { onSubtitleChange(vm.termLabel(vm.selectedTermCode)) }
+
+    // 教务课程 + 自定义日程，剔除命中法定节假日的周次
+    val mergedCourses = remember(vm.courses, vm.customCourses) { vm.courses + vm.customCourses.map { it.toCourseItem() } }
+    val filteredMergedCourses = remember(mergedCourses, vm.startOfTerm, vm.holidayDates) {
+        ScheduleCache.filterByHolidays(mergedCourses, vm.startOfTerm, vm.holidayDates)
     }
+    // 「接下来」：今日两处 TodayTimeline（窄屏 tab、宽屏常驻栏）共用
+    val upcomingItems = remember(vm.exams, vm.homeworkDue) { buildUpcoming(vm.exams, vm.homeworkDue) }
 
-    // 自定义日程：订阅数据库，学期或账号一变就换一条订阅。
-    // 以前只在切学期时读一次，屁岱在侧栏里加的日程要重进页面才看得到。
-    LaunchedEffect(selectedTermCode, appLoginState.accountId) {
-        if (selectedTermCode.isEmpty()) return@LaunchedEffect
-        customCourseDao.observeByTerm(AccountContext.activeAccountId ?: "", selectedTermCode)
-            .collect { customCourses = it }
-    }
-
-    // 合并 API 课程 + 自定义课程
-    val mergedCourses = remember(courses, customCourses) {
-        courses + customCourses.map { it.toCourseItem() }
-    }
-
-    // 剔除命中法定节假日的周次
-    val filteredMergedCourses = remember(mergedCourses, startOfTerm, holidayDates) {
-        ScheduleCache.filterByHolidays(mergedCourses, startOfTerm, holidayDates)
-    }
-
-    // 「接下来」：今日两处 TodayTimeline（窄屏 tab、宽屏常驻栏）共用同一份，见 plan2 §5.3。
-    val upcomingItems = remember(exams, homeworkDue) { buildUpcoming(exams, homeworkDue) }
-
-    // 自定义课程操作
-    //
-    // 冲突不再自动删旧的：以前只比星期和节次、不比周次，第 4 周和第 8 周同一时段的实验
-    // 会被判成冲突，旧的被静默删掉且无法恢复。现在只有周次、星期、时间都重叠才算冲突，
-    // 而且交给用户选：替换 / 都保留 / 取消。
-    var pendingSave by remember { mutableStateOf<Pair<CustomCourseEntity, List<CustomCourseEntity>>?>(null) }
-
-    fun commitCustomCourse(entity: CustomCourseEntity, replacing: List<CustomCourseEntity>) {
-        scope.launch {
-            val accountId = entity.accountId
-            replacing.forEach { customCourseDao.delete(it) }
-            if (entity.id == 0L) {
-                customCourseDao.insert(entity)
-                addScheduleDraft = CustomCourseDraft()
-            } else {
-                customCourseDao.update(entity)
-            }
-            customCourses = customCourseDao.getByTerm(accountId, selectedTermCode)
-            ScheduleWidgetUpdater.requestUpdate(context)
-            val verb = if (entity.id == 0L) "已添加日程" else "已更新日程"
-            val msg = if (replacing.isEmpty()) verb
-                else "$verb，并替换了「${replacing.joinToString("、") { it.courseName }}」"
-            snackbarHostState.showSnackbar(msg, duration = SnackbarDuration.Short)
-        }
-    }
-
-    fun saveCustomCourse(entity: CustomCourseEntity) {
-        scope.launch {
-            val accountId = AccountContext.activeAccountId ?: ""
-            val withAccount = if (entity.accountId.isBlank()) entity.copy(accountId = accountId) else entity
-            // DAO 只按星期和节次粗筛，周次与分钟级时间在这里精判。
-            val conflicts = customCourseDao
-                .getConflicts(accountId, withAccount.termCode, withAccount.dayOfWeek, withAccount.startSection, withAccount.endSection)
-                .filter { it.id != withAccount.id && CustomCourseConflicts.conflicts(withAccount, it) }
-            if (conflicts.isEmpty()) {
-                commitCustomCourse(withAccount, emptyList())
-            } else {
-                pendingSave = withAccount to conflicts
-            }
-        }
-    }
-
-    pendingSave?.let { (entity, conflicts) ->
+    vm.pendingSave?.let { (entity, conflicts) ->
         val lines = conflicts.joinToString("\n") { other ->
             val weeks = CustomCourseConflicts.sharedWeeks(entity.weekBits, other.weekBits)
             "「${other.courseName}」：${CustomCourseConflicts.describeWeeks(weeks)}"
         }
-        // Window* 自带窗口，不依赖外层 Scaffold 宿主（同 CustomCourseDialog 的删除确认）。
-        BackHandler { pendingSave = null }
+        // Window* 自带窗口，不依赖外层 Scaffold 宿主
+        BackHandler { vm.pendingSave = null }
         WindowDialog(
             show = true,
             title = "时间冲突",
             summary = "「${entity.courseName}」与以下日程在同一时段重叠：\n$lines",
-            onDismissRequest = { pendingSave = null },
+            onDismissRequest = { vm.pendingSave = null },
         ) {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(
                     text = "都保留",
-                    onClick = {
-                        pendingSave = null
-                        commitCustomCourse(entity, emptyList())
-                    },
+                    onClick = { vm.commitCustomCourse(entity, emptyList()) },
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.textButtonColorsPrimary(),
                 )
                 TextButton(
                     text = "替换原有日程",
-                    onClick = {
-                        pendingSave = null
-                        commitCustomCourse(entity, conflicts)
-                    },
+                    onClick = { vm.commitCustomCourse(entity, conflicts) },
                     modifier = Modifier.fillMaxWidth(),
                 )
-                TextButton(
-                    text = "取消",
-                    onClick = { pendingSave = null },
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                TextButton(text = "取消", onClick = { vm.pendingSave = null }, modifier = Modifier.fillMaxWidth())
             }
         }
     }
-    fun deleteCustomCourse(entity: CustomCourseEntity) {
-        scope.launch {
-            val accountId = AccountContext.activeAccountId ?: ""
-            customCourseDao.delete(entity)
-            customCourses = customCourseDao.getByTerm(accountId, selectedTermCode)
-            ScheduleWidgetUpdater.requestUpdate(context)
-            snackbarHostState.showSnackbar("已删除「${entity.courseName}」", duration = SnackbarDuration.Short)
-        }
-    }
 
-    // 自定义课程弹窗
+    // 自定义日程弹窗
     val showAddCourseState = remember { mutableStateOf(false) }
     LaunchedEffect(showAddCourseDialog) { showAddCourseState.value = showAddCourseDialog }
     if (showAddCourseDialog) {
         CustomCourseDialog(
             show = showAddCourseState,
-            termCode = selectedTermCode,
-            totalWeeks = editableWeeks(),
-            draft = addScheduleDraft,
-            onAutoSave = { addScheduleDraft = it },
-            // 草稿等真正写库后再清（commitCustomCourse）：撞上冲突选「取消」时，
-            // 重新打开添加弹窗还能看到刚才填的内容。
-            onSave = { saveCustomCourse(it) },
+            termCode = vm.selectedTermCode,
+            totalWeeks = vm.editableWeeks(),
+            draft = vm.addScheduleDraft,
+            onAutoSave = { vm.addScheduleDraft = it },
+            onSave = vm::saveCustomCourse,
             onDismiss = { showAddCourseDialog = false }
         )
     }
@@ -1017,158 +216,17 @@ fun ScheduleScreen(
         CustomCourseDialog(
             show = showEditCourseState,
             existing = entity,
-            termCode = selectedTermCode,
-            totalWeeks = editableWeeks(),
-            onSave = ::saveCustomCourse,
-            onDelete = ::deleteCustomCourse,
+            termCode = vm.selectedTermCode,
+            totalWeeks = vm.editableWeeks(),
+            onSave = vm::saveCustomCourse,
+            onDelete = vm::deleteCustomCourse,
             onDismiss = { editingCourse = null }
         )
     }
 
-    // 安全触发: 当 Tab 已在教材且数据未加载时自动加载
-    // 关键修复：把 api 也加入 key。
-    // 之前只用 selectedTab/selectedTermCode/textbooksLoaded —— 当用户首次切到「教材」tab 时
-    // jwxtLogin == null → api == null → loadTextbooks 立即报错；之后即使 jwxtLogin 异步登好
-    // 让 api 从 null 变 non-null，LaunchedEffect 因 key 没变也不会重启 → 教材永远不刷新。
-    // 只有关闭 App 重开（jwxtLogin 启动时已就绪）才能首次成功——这就是「关掉重开就好」的根因。
-    LaunchedEffect(selectedTab, selectedTermCode, textbooksLoaded, api) {
-        val wantsTextbooks = contentOf(selectedTab) in setOf("book", "semester")
-        if (wantsTextbooks && api != null && !textbooksLoaded && !textbooksLoading && selectedTermCode.isNotEmpty()) {
-            android.util.Log.d("ScheduleUI", "LaunchedEffect auto-loading textbooks: term=$selectedTermCode (api just became ready)")
-            // api 刚变非空时之前可能设了「尚未登录」错误，要清掉再加载
-            textbooksError = null
-            loadTextbooks(selectedTermCode)
-        }
-    }
-
-    // 切换学期
-    fun switchTerm(newTermCode: String) {
-        if (newTermCode == selectedTermCode) return
-        userPickedTerm = true
-        selectedTermCode = newTermCode
-        try { dataCache.put("schedule_last_term", gson.toJson(newTermCode)) } catch (_: Exception) {}
-        textbooksLoaded = false
-        textbooks = emptyList()
-        // 考试也要清。不清的话，新学期没有缓存考试时，屏幕上留着的是**上一个学期**的
-        // 考试安排——比空着更糟，用户会照着一个早就过去的日期去考试。
-        exams = emptyList()
-        showingStaleData = false
-        scope.launch {
-            isSwitching = true
-            errorMessage = null
-            try {
-                withContext(Dispatchers.IO) {
-                    val isOldTerm = newTermCode != currentTermCode
-
-                    // 先尝试从缓存加载
-                    val cachedOptimizedCourses = ScheduleCache.readOptimizedCourses(dataCache, gson, newTermCode)
-                    val cachedExams = dataCache.get("exams_$newTermCode", com.xjtu.toolbox.util.DataCache.TERM_TTL_MS)
-                    if (cachedOptimizedCourses != null) {
-                        courses = cachedOptimizedCourses
-                        if (cachedExams != null) {
-                            try { exams = gson.fromJson(cachedExams, Array<ExamItem>::class.java).toList().map { it.sanitized() } } catch (_: Exception) {}
-                        }
-                        android.util.Log.d("ScheduleUI", "Optimized term from cache: $newTermCode")
-                    } else {
-                        val cachedCourses = dataCache.get("schedule_$newTermCode", Long.MAX_VALUE)
-                        if (cachedCourses != null) {
-                        try {
-                            courses = gson.fromJson(cachedCourses, Array<CourseItem>::class.java).toList().map { it.sanitized() }
-                            if (cachedExams != null) exams = gson.fromJson(cachedExams, Array<ExamItem>::class.java).toList().map { it.sanitized() }
-                            android.util.Log.d("ScheduleUI", "Term from cache: $newTermCode")
-                        } catch (_: Exception) {}
-                        }
-                    }
-
-                    // 已结束且本地是全的：一个请求都不发，想强制重拉走下拉刷新。
-                    val sealed = ScheduleCache.isSealed(dataCache, gson, newTermCode)
-                    if (sealed) {
-                        android.util.Log.d("ScheduleUI", "学期 $newTermCode 已封存，直接用缓存")
-                    }
-
-                    // 在线时更新
-                    if (api != null && !sealed) {
-                        try {
-                            val freshCourses = fetchSchedule(api, newTermCode, userInitiated = true)
-                            exams = api.getExamSchedule(newTermCode)
-                            val freshStartDate = try { api.getStartOfTerm(newTermCode) } catch (_: Exception) { null }
-                            val freshHolidays = try { HolidayApi.getHolidayDates(context, forceRefresh = true) } catch (_: Exception) { emptyMap() }
-                            holidayDates = freshHolidays
-                            courses = ScheduleCache.filterByHolidays(freshCourses, freshStartDate, freshHolidays)
-                            // 缓存。
-                            //
-                            // 考试**不分当前/历史**一律落盘：以前跟着 isOldTerm 一起只在
-                            // 历史学期写，于是这学期看过的考试从来没进过缓存；等它变成历史学期，
-                            // 课表封存（sealed）后连网络都不再请求 —— 翻回去就永远没有考试。
-                            // 这就是「历史学期没有考试」的来源。
-                            try {
-                                dataCache.put("exams_$newTermCode", gson.toJson(exams))
-                            } catch (_: Exception) {}
-                            if (isOldTerm) {
-                                try {
-                                    dataCache.put("schedule_$newTermCode", gson.toJson(freshCourses))
-                                    ScheduleCache.writeOptimizedCourses(dataCache, gson, newTermCode, courses)
-                                    if (freshStartDate != null) {
-                                        dataCache.put("start_date_$newTermCode", gson.toJson(freshStartDate.toString()))
-                                    }
-                                } catch (_: Exception) {}
-                            }
-                            if (freshStartDate != null) startOfTerm = freshStartDate
-                        } catch (e: Exception) {
-                            if (courses.isEmpty()) throw e
-                            showingStaleData = true
-                            scope.launch { snackbarHostState.showSnackbar("网络异常，显示缓存数据", duration = SnackbarDuration.Short) }
-                        }
-                    } else if (api == null) {
-                        showingStaleData = true
-                    }
-
-                    // 计算当前周
-                    try {
-                        val startDate = if (api != null && !sealed) {
-                            try { api.getStartOfTerm(newTermCode) } catch (_: Exception) { null }
-                        } else {
-                            val cs = dataCache.get("start_date_$newTermCode", Long.MAX_VALUE)
-                            if (cs != null) try { LocalDate.parse(cs.trim('"')) } catch (_: Exception) { null } else null
-                        }
-                        if (startDate != null) {
-                            startOfTerm = startDate
-                            if (api != null) try { dataCache.put("start_date_$newTermCode", gson.toJson(startDate.toString())) } catch (_: Exception) {}
-                            val status = TermWeeks.statusOf(
-                                startOfTerm = startDate,
-                                totalWeeks = knownTotalWeeks(),
-                                firstTeachWeek = TermWeeks.firstTeachWeekOf(courses),
-                            )
-                            if (status is TermWeeks.Status.AfterTerm) showAllWeeks = true
-                            currentWeek = TermWeeks.displayWeekOf(status)
-                            weekNote = TermWeeks.noteOf(status)
-                        } else {
-                            currentWeek = 1; weekNote = null
-                        }
-                    } catch (_: Exception) { currentWeek = 1; weekNote = null }
-                }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(LoginType.JWXT, Routes.SCHEDULE, onBack)
-            } catch (e: Exception) {
-                errorMessage = com.xjtu.toolbox.util.FriendlyError.of(e, "切换学期")
-            } finally {
-                isSwitching = false
-                ScheduleWidgetUpdater.requestUpdate(context)
-            }
-        }
-    }
-
-    LaunchedEffect(autoTermSuggestion) {
-        val target = autoTermSuggestion ?: return@LaunchedEffect
-        autoTermSuggestion = null
-        if (target == selectedTermCode) return@LaunchedEffect
-        switchTerm(target)
-        snackbarHostState.showSnackbar(
-            "教务的当前学期还没有课表，已切到${termLabel(target)}",
-            duration = SnackbarDuration.Long,
-        )
+    // 学期栏要教材：没加载过就拉；教务会话晚到时随 api 变化补上
+    LaunchedEffect(selectedTab, vm.selectedTermCode, vm.textbooksLoaded, vm.api) {
+        if (contentOf(selectedTab) == "semester") vm.ensureTextbooks()
     }
 
     // 注入 TopAppBar actions：[+] [⋮] 两个独立按钮
@@ -1179,20 +237,13 @@ fun ScheduleScreen(
             // 只看到一个按不动的加号，不知道为什么；先按日期推一个学期，实在推不出再说明。
             IconButton(
                 onClick = {
-                    if (selectedTermCode.isEmpty()) {
-                        val fallback = currentTermCode.ifEmpty {
-                            termList.firstOrNull()
-                                ?: com.xjtu.toolbox.util.XjtuTime.expectedTermCode().orEmpty()
+                    if (vm.ensureTermForAdd()) {
+                        showAddCourseDialog = true
+                    } else {
+                        scope.launch {
+                            snackbarHostState.showSnackbar("还没拿到学期信息，下拉刷新后再添加", duration = SnackbarDuration.Short)
                         }
-                        if (fallback.isEmpty()) {
-                            scope.launch {
-                                snackbarHostState.showSnackbar("还没拿到学期信息，下拉刷新后再添加", duration = SnackbarDuration.Short)
-                            }
-                            return@IconButton
-                        }
-                        selectedTermCode = fallback
                     }
-                    showAddCourseDialog = true
                 },
             ) {
                 Icon(Icons.Default.Add, contentDescription = "添加日程")
@@ -1213,7 +264,7 @@ fun ScheduleScreen(
                 ListPopupColumn {
                     // 视图切换已经提到工具栏上了，这里不再重复一份——
                     // 同一个开关两个入口，用户按了哪个都得再确认一次状态。
-                    if (termList.isNotEmpty()) {
+                    if (vm.termList.isNotEmpty()) {
                         ScheduleMenuRow(
                             icon = Icons.Default.SwapHoriz,
                             text = "切换学期",
@@ -1225,7 +276,7 @@ fun ScheduleScreen(
                         text = "导出日历 (ICS)",
                         onClick = {
                             showExportMenu = false
-                            val st = startOfTerm
+                            val st = vm.startOfTerm
                             if (st == null) {
                                 android.widget.Toast.makeText(context, "无法获取开学日期，ICS 导出不可用", android.widget.Toast.LENGTH_SHORT).show()
                                 return@ScheduleMenuRow
@@ -1234,16 +285,16 @@ fun ScheduleScreen(
                                 android.widget.Toast.makeText(context, "正在导出日历…", android.widget.Toast.LENGTH_SHORT).show()
                                 try {
                                     val holidays = HolidayApi.getHolidayDates(context).keys
-                                    val ics = ScheduleExport.generateIcs(filteredMergedCourses, st, selectedTermCode, holidays)
-                                    ScheduleExport.shareTextFile(context, ics, "${selectedTermCode}_日程.ics", "text/calendar")
+                                    val ics = ScheduleExport.generateIcs(filteredMergedCourses, st, vm.selectedTermCode, holidays)
+                                    ScheduleExport.shareTextFile(context, ics, "${vm.selectedTermCode}_日程.ics", "text/calendar")
                                 } catch (e: Exception) {
                                     android.widget.Toast.makeText(
                                         context,
                                         "节假日获取失败，已按普通课表导出",
                                         android.widget.Toast.LENGTH_SHORT
                                     ).show()
-                                    val ics = ScheduleExport.generateIcs(filteredMergedCourses, st, selectedTermCode, emptySet())
-                                    ScheduleExport.shareTextFile(context, ics, "${selectedTermCode}_日程.ics", "text/calendar")
+                                    val ics = ScheduleExport.generateIcs(filteredMergedCourses, st, vm.selectedTermCode, emptySet())
+                                    ScheduleExport.shareTextFile(context, ics, "${vm.selectedTermCode}_日程.ics", "text/calendar")
                                 }
                             }
                         }
@@ -1251,21 +302,21 @@ fun ScheduleScreen(
                 }
             }
             // 学期切换 popup（独立，由"切换学期"菜单项触发）
-            val termSelectedIdxTb = termList.indexOf(selectedTermCode).coerceAtLeast(0)
+            val termSelectedIdxTb = vm.termList.indexOf(vm.selectedTermCode).coerceAtLeast(0)
             OverlayListPopup(
                 show = termDropdownExpanded,
                 alignment = PopupPositionProvider.Align.End,
                 onDismissRequest = { termDropdownExpanded = false }
             ) {
                 ListPopupColumn {
-                    termList.forEachIndexed { idx, term ->
+                    vm.termList.forEachIndexed { idx, term ->
                         DropdownImpl(
-                            text = termLabel(term),
-                            optionSize = termList.size,
+                            text = vm.termLabel(term),
+                            optionSize = vm.termList.size,
                             isSelected = idx == termSelectedIdxTb,
                             onSelectedIndexChange = {
                                 termDropdownExpanded = false
-                                switchTerm(term)
+                                vm.switchTerm(term)
                             },
                             index = idx
                         )
@@ -1283,9 +334,7 @@ fun ScheduleScreen(
                 onTabSelected = { tab ->
                     selectedTab = tab
                     // 学期栏第一次打开时才加载教材，别的栏用不上。
-                    if (tab == 2 && !textbooksLoaded && !textbooksLoading && selectedTermCode.isNotEmpty()) {
-                        loadTextbooks(selectedTermCode)
-                    }
+                    if (tab == 2) vm.ensureTextbooks(requireApi = false)
                 },
             )
         }
@@ -1293,7 +342,7 @@ fun ScheduleScreen(
 
     // 周选择弹窗（§1.4③）：网格选任意一周，或者切到「全学期总览」。
     if (showWeekPicker) {
-        val pageWeeksForPicker = totalWeeks.takeIf { it > 0 }
+        val pageWeeksForPicker = vm.totalWeeks.takeIf { it > 0 }
             ?: filteredMergedCourses.maxOfOrNull { it.weekBits.length }?.takeIf { it > 0 }
             ?: TermWeeks.DEFAULT_TOTAL_WEEKS
         val pickerShow = remember { mutableStateOf(true) }
@@ -1311,14 +360,14 @@ fun ScheduleScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        if (realCurrentWeek > 0) "本周第 $realCurrentWeek 周 · 共 $pageWeeksForPicker 周" else "共 $pageWeeksForPicker 周",
+                        if (vm.realCurrentWeek > 0) "本周第 $vm.realCurrentWeek 周 · 共 $pageWeeksForPicker 周" else "共 $pageWeeksForPicker 周",
                         style = MiuixTheme.textStyles.body2,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         modifier = Modifier.weight(1f),
                     )
                     // 「回本周」原来在整行周标题的右端，那一行删了，挪到这里
-                    val viewingCurrentTerm = selectedTermCode.isEmpty() || selectedTermCode == currentTermCode
-                    if (viewingCurrentTerm && realCurrentWeek > 0 && (showAllWeeks || currentWeek != realCurrentWeek)) {
+                    val viewingCurrentTerm = vm.selectedTermCode.isEmpty() || vm.selectedTermCode == vm.currentTermCode
+                    if (viewingCurrentTerm && vm.realCurrentWeek > 0 && (vm.showAllWeeks || vm.currentWeek != vm.realCurrentWeek)) {
                         Text(
                             "回本周",
                             style = MiuixTheme.textStyles.body2,
@@ -1329,14 +378,14 @@ fun ScheduleScreen(
                                 .clip(RoundedCornerShape(12.dp))
                                 .clickable {
                                     haptics.tick()
-                                    showAllWeeks = false
-                                    currentWeek = realCurrentWeek
+                                    vm.showAllWeeks = false
+                                    vm.currentWeek = vm.realCurrentWeek
                                     showWeekPicker = false
                                 }
                                 .padding(horizontal = 10.dp, vertical = 8.dp),
                         )
                     }
-                    val allSelected = showAllWeeks
+                    val allSelected = vm.showAllWeeks
                     Row(
                         Modifier
                             .clip(RoundedCornerShape(12.dp))
@@ -1346,7 +395,7 @@ fun ScheduleScreen(
                             )
                             .clickable {
                                 haptics.tick()
-                                showAllWeeks = true
+                                vm.showAllWeeks = true
                                 showWeekPicker = false
                             }
                             .padding(horizontal = 12.dp, vertical = 8.dp),
@@ -1367,15 +416,15 @@ fun ScheduleScreen(
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         rowWeeks.forEach { weekN ->
                             val hasCourse = filteredMergedCourses.any { it.isInWeek(weekN) }
-                            val isSelected = !showAllWeeks && weekN == currentWeek
+                            val isSelected = !vm.showAllWeeks && weekN == vm.currentWeek
                             Surface(
                                 modifier = Modifier
                                     .weight(1f)
                                     .clip(RoundedCornerShape(10.dp))
                                     .clickable {
                                         haptics.tick()
-                                        showAllWeeks = false
-                                        currentWeek = weekN
+                                        vm.showAllWeeks = false
+                                        vm.currentWeek = weekN
                                         showWeekPicker = false
                                     }
                                     .alpha(if (hasCourse) 1f else com.xjtu.toolbox.ui.components.ExpiredStyle.CONTENT_ALPHA),
@@ -1393,7 +442,7 @@ fun ScheduleScreen(
                                         fontWeight = FontWeight.Bold,
                                         color = if (isSelected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface,
                                     )
-                                    if (weekN == realCurrentWeek) {
+                                    if (weekN == vm.realCurrentWeek) {
                                         Text(
                                             "本周",
                                             style = MiuixTheme.textStyles.footnote2,
@@ -1413,10 +462,10 @@ fun ScheduleScreen(
             }
         }
     }
-    // 顶栏按钮是一段 lambda 交给外层 Scaffold 拿着的，闭包里 currentContent / api 这类
-    // 普通 val 是发布那一刻的值：只发布一次的话，切到考试页加号还在、登录晚到 api 仍是 null。
+    // 顶栏按钮是一段 lambda 交给外层 Scaffold 拿着的，闭包里 currentContent / vm.api 这类
+    // 普通 val 是发布那一刻的值：只发布一次的话，切到考试页加号还在、登录晚到 vm.api 仍是 null。
     // 这两个变了就重发一份，别用 SideEffect 每帧发——外层重组会再重组这里，转起来没头。
-    DisposableEffect(currentContent, api) {
+    DisposableEffect(currentContent, vm.api) {
         onActionsChange(headerActionsContent)
         onBottomContentChange(headerBottomContent)
         onDispose {
@@ -1448,14 +497,14 @@ fun ScheduleScreen(
             // 顶栏是玻璃、盖在内容上面时（contentTopPadding > 0）：
             // 下面几条不滚动的横幅（缓存提示、切周进度条、考试倒计时）出现时，横幅本身先让出顶栏高度，
             // 列表就不用再留；没有横幅时把留白交给各栏的滚动内容，内容才会从顶栏下面滚过去。
-            val staticHeaderShown = (showingStaleData && !isLoading) ||
-                (!isLoading && errorMessage == null &&
-                    ((currentContent == "week" && isSwitching) || ExamCountdown.next(exams) != null))
+            val staticHeaderShown = (vm.showingStaleData && !vm.isLoading) ||
+                (!vm.isLoading && vm.errorMessage == null &&
+                    ((currentContent == "week" && vm.isSwitching) || ExamCountdown.next(vm.exams) != null))
             if (staticHeaderShown && contentTopPadding > 0.dp) Spacer(Modifier.height(contentTopPadding))
             val listTopPadding = if (staticHeaderShown) 0.dp else contentTopPadding
 
             // 缓存数据提示：刷新失败但有缓存时，顶部一条小 banner 告知用户「这可能是旧数据」
-            if (showingStaleData && !isLoading) {
+            if (vm.showingStaleData && !vm.isLoading) {
                 Surface(
                     color = MiuixTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f),
                     modifier = Modifier
@@ -1483,7 +532,7 @@ fun ScheduleScreen(
                         androidx.compose.foundation.layout.Box(
                             modifier = Modifier
                                 .height(20.dp)
-                                .clickable { if (!isRefreshingFromNetwork && api != null) refreshSchedule(true) }
+                                .clickable { vm.refreshSchedule() }
                                 .padding(horizontal = 8.dp, vertical = 2.dp),
                             contentAlignment = androidx.compose.ui.Alignment.Center,
                         ) {
@@ -1492,47 +541,16 @@ fun ScheduleScreen(
                     }
                 }
             }
-            if (isLoading) {
+            if (vm.isLoading) {
                 LoadingState(message = "\u52a0\u8f7d\u65e5\u7a0b...", modifier = Modifier.fillMaxSize())
-            } else if (errorMessage != null) {
+            } else if (vm.errorMessage != null) {
                 ErrorState(
-                    message = errorMessage!!,
-                    onRetry = {
-                        // 用户主动重试：interactive=true 让 MFA 弹窗能正常工作（不被背景策略跳过）
-                        if (activeSite == null && appLoginState.hasCredentials) {
-                            scope.launch {
-                                attemptingAutoLogin = true
-                                errorMessage = null
-                                isLoading = true
-                                try {
-                                    withContext(Dispatchers.IO) {
-                                        activeSite = appLoginState.sessionManager?.ensureSite(LoginType.JWXT)
-                                    }
-                                } catch (_: Exception) {}
-                                attemptingAutoLogin = false
-                                if (activeSite == null) loadInitialData()
-                            }
-                        } else if (activeSite != null) {
-                            scope.launch {
-                                errorMessage = null
-                                isLoading = true
-                                try {
-                                    withContext(Dispatchers.IO) {
-                                        appLoginState.sessionManager?.credentials?.let { creds ->
-                                            activeSite?.ensureLogin(creds.first, creds.second, force = true)
-                                        }
-                                    }
-                                } catch (_: Exception) {}
-                                loadInitialData()
-                            }
-                        } else {
-                            loadInitialData()
-                        }
-                    },
+                    message = vm.errorMessage!!,
+                    onRetry = vm::retry,
                     modifier = Modifier.fillMaxSize()
                 )
             } else {
-                if (currentContent == "week" && isSwitching) {
+                if (currentContent == "week" && vm.isSwitching) {
                     LinearProgressIndicator(
                         modifier = Modifier.fillMaxWidth(),
                         height = 2.dp
@@ -1541,7 +559,7 @@ fun ScheduleScreen(
                 // 没有独立的「考试」tab，改成常驻横幅——功能不能因为改版就消失。
                 // 点开是完整考试列表。
                 var showExamSheet by remember { mutableStateOf(false) }
-                val nextExam = remember(exams) { ExamCountdown.next(exams) }
+                val nextExam = remember(vm.exams) { ExamCountdown.next(vm.exams) }
                 nextExam?.let { n ->
                     ExamCountdownBanner(
                         n,
@@ -1555,7 +573,7 @@ fun ScheduleScreen(
                     val examSheetShow = remember { mutableStateOf(true) }
                     ExamListSheet(
                         show = examSheetShow,
-                        exams = exams,
+                        exams = vm.exams,
                         onDismiss = { showExamSheet = false },
                     )
                 }
@@ -1568,9 +586,7 @@ fun ScheduleScreen(
                     onTabSelected = { tab ->
                         selectedTab = tab
                         // 学期栏第一次打开时才加载教材，别的栏用不上（和点标签行的逻辑一致）
-                        if (tab == 2 && !textbooksLoaded && !textbooksLoading && selectedTermCode.isNotEmpty()) {
-                            loadTextbooks(selectedTermCode)
-                        }
+                        if (tab == 2) vm.ensureTextbooks(requireApi = false)
                     },
                     modifier = Modifier.fillMaxSize(),
                 ) { tab ->
@@ -1579,7 +595,6 @@ fun ScheduleScreen(
                             // 选周是浮在课表底部、底栏上方的一颗玻璃胶囊（WeekFloatingPill），
                             // 不在顶栏、也不单独占一行。它采样的是下面这层课表。
                             val weekTopPadding = listTopPadding
-                            val schedulePull = rememberPullToRefreshState()
                             val pillBackdrop = com.xjtu.toolbox.ui.glass.rememberPageGlass()
                             // 课表在滚：胶囊先淡出让路，停下来 700ms 后再浮上来
                             var scrolledAt by remember { mutableLongStateOf(0L) }
@@ -1601,16 +616,12 @@ fun ScheduleScreen(
                                 kotlinx.coroutines.delay(700)
                                 pillHidden = false
                             }
-                            PullToRefresh(
-                                refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
-                                // 顶栏折叠交给下拉刷新协调：往下拉先展开大标题，展开完才算下拉刷新。不传的话下拉刷新先把拖动吃掉，慢慢拉只会刷新、标题展不开
-                                topAppBarScrollBehavior = topAppBarScrollBehavior,
-                                isRefreshing = isRefreshingFromNetwork,
+                            AppPullToRefresh(
+                                isRefreshing = vm.isRefreshingFromNetwork,
                                 // 考试倒计时横幅在每个 tab 上都常驻，下拉刷新时顺带把它也刷了。
-                                onRefresh = { if (api != null) { refreshSchedule(true); refreshExams() } },
-                                pullToRefreshState = schedulePull,
-                                // 内容铺到玻璃顶栏下面时，指示器也要从顶栏下面出来，而不是屏幕顶边
-                                contentPadding = PaddingValues(top = weekTopPadding),
+                                onRefresh = { vm.refreshSchedule(); vm.refreshExams() },
+                                scrollBehavior = topAppBarScrollBehavior,
+                                topPadding = weekTopPadding,
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .nestedScroll(scrollWatcher)
@@ -1620,29 +631,25 @@ fun ScheduleScreen(
                             ) {
                                 ScheduleTabContent(
                                     courses = filteredMergedCourses,
-                                    currentWeek = currentWeek,
-                                    totalWeeks = totalWeeks,
-                                    showAllWeeks = showAllWeeks,
-                                    weekNote = weekNote,
-                                    realCurrentWeek = realCurrentWeek,
-                                    selectedTermCode = selectedTermCode,
-                                    startOfTerm = startOfTerm,
-                                    currentTermCode = currentTermCode,
-                                    onWeekChange = { currentWeek = it },
-                                    onToggleMode = { showAllWeeks = !showAllWeeks },
-                                    holidayDates = holidayDates,
-                                    customCourses = customCourses,
+                                    currentWeek = vm.currentWeek,
+                                    totalWeeks = vm.totalWeeks,
+                                    showAllWeeks = vm.showAllWeeks,
+                                    weekNote = vm.weekNote,
+                                    realCurrentWeek = vm.realCurrentWeek,
+                                    selectedTermCode = vm.selectedTermCode,
+                                    startOfTerm = vm.startOfTerm,
+                                    currentTermCode = vm.currentTermCode,
+                                    onWeekChange = { vm.currentWeek = it },
+                                    onToggleMode = { vm.showAllWeeks = !vm.showAllWeeks },
+                                    holidayDates = vm.holidayDates,
+                                    customCourses = vm.customCourses,
                                     onEditCustomCourse = { editingCourse = it },
                                     // 多留一截给悬浮的选周胶囊，最后一节课能滚到它上面
                                     bottomPadding = contentBottomPadding + 64.dp,
                                     topPadding = weekTopPadding,
-                                    textbooks = textbooks,
-                                    textbooksProblem = textbooksBackgroundError,
-                                    onRequestTextbooks = {
-                                        if (!textbooksLoaded && selectedTermCode.isNotEmpty()) {
-                                            loadTextbooks(selectedTermCode, background = true)
-                                        }
-                                    },
+                                    textbooks = vm.textbooks,
+                                    textbooksProblem = vm.textbooksBackgroundError,
+                                    onRequestTextbooks = vm::requestTextbooksInBackground,
                                     onNavigate = onNavigate,
                                     // 宽屏：周视图点课不再弹窗，写进与今日 / 学期两级同一份选中状态，
                                     // 由右栏展示。三个入口一个面板。
@@ -1658,13 +665,13 @@ fun ScheduleScreen(
                             }
                             WeekFloatingPill(
                                 backdrop = pillBackdrop,
-                                label = if (showAllWeeks) "全学期" else "第 $currentWeek 周",
-                                offWeek = showAllWeeks || (realCurrentWeek > 0 && currentWeek != realCurrentWeek),
-                                canPrev = !showAllWeeks && currentWeek > 1,
-                                canNext = !showAllWeeks && currentWeek < (totalWeeks.takeIf { it > 0 } ?: TermWeeks.DEFAULT_TOTAL_WEEKS),
+                                label = if (vm.showAllWeeks) "全学期" else "第 $vm.currentWeek 周",
+                                offWeek = vm.showAllWeeks || (vm.realCurrentWeek > 0 && vm.currentWeek != vm.realCurrentWeek),
+                                canPrev = !vm.showAllWeeks && vm.currentWeek > 1,
+                                canNext = !vm.showAllWeeks && vm.currentWeek < (vm.totalWeeks.takeIf { it > 0 } ?: TermWeeks.DEFAULT_TOTAL_WEEKS),
                                 hidden = pillHidden,
-                                onPrev = { haptics.tick(); currentWeek -= 1 },
-                                onNext = { haptics.tick(); currentWeek += 1 },
+                                onPrev = { haptics.tick(); vm.currentWeek -= 1 },
+                                onNext = { haptics.tick(); vm.currentWeek += 1 },
                                 onPick = { showWeekPicker = true },
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
@@ -1672,64 +679,52 @@ fun ScheduleScreen(
                             )
                         }
                         "today" -> {
-                            val todayPull = rememberPullToRefreshState()
-                            PullToRefresh(
-                                refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
-                                // 顶栏折叠交给下拉刷新协调：往下拉先展开大标题，展开完才算下拉刷新。不传的话下拉刷新先把拖动吃掉，慢慢拉只会刷新、标题展不开
-                                topAppBarScrollBehavior = topAppBarScrollBehavior,
-                                isRefreshing = isRefreshingFromNetwork,
-                                onRefresh = { if (api != null) { refreshSchedule(true); refreshExams() } },
-                                pullToRefreshState = todayPull,
-                                // 内容铺到玻璃顶栏下面时，指示器也要从顶栏下面出来，而不是屏幕顶边
-                                contentPadding = PaddingValues(top = listTopPadding),
+                            AppPullToRefresh(
+                                isRefreshing = vm.isRefreshingFromNetwork,
+                                onRefresh = { vm.refreshSchedule(); vm.refreshExams() },
+                                scrollBehavior = topAppBarScrollBehavior,
+                                topPadding = listTopPadding,
                                 modifier = Modifier.fillMaxSize(),
                             ) {
                                 TodayTimeline(
-                                    courses = remember(filteredMergedCourses, realCurrentWeek) {
-                                        filteredMergedCourses.filter { it.isInWeek(realCurrentWeek) }
+                                    courses = remember(filteredMergedCourses, vm.realCurrentWeek) {
+                                        filteredMergedCourses.filter { it.isInWeek(vm.realCurrentWeek) }
                                     },
-                                    exams = exams,
+                                    exams = vm.exams,
                                     today = java.time.LocalDate.now(),
                                     allCourseNames = remember(filteredMergedCourses) {
                                         filteredMergedCourses.map { it.courseName }.distinct().sorted()
                                     },
                                     onCourseClick = {
                                         unifiedOccurrence = Occurrence(
-                                            java.time.LocalDate.now(), realCurrentWeek,
+                                            java.time.LocalDate.now(), vm.realCurrentWeek,
                                         )
                                         unifiedSelectedCourse = it
                                     },
                                     bottomPadding = contentBottomPadding,
                                     topPadding = listTopPadding,
                                     upcoming = upcomingItems,
-                                    todayHomework = homeworkDue,
+                                    todayHomework = vm.homeworkDue,
                                 )
                             }
                         }
                         "semester" -> {
-                            val semPull = rememberPullToRefreshState()
-                            PullToRefresh(
-                                refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
-                                // 顶栏折叠交给下拉刷新协调：往下拉先展开大标题，展开完才算下拉刷新。不传的话下拉刷新先把拖动吃掉，慢慢拉只会刷新、标题展不开
-                                topAppBarScrollBehavior = topAppBarScrollBehavior,
-                                isRefreshing = textbooksRefreshing,
+                            AppPullToRefresh(
+                                isRefreshing = vm.textbooksRefreshing,
                                 onRefresh = {
-                                    refreshExams()
-                                    if (selectedTermCode.isNotEmpty()) {
-                                        loadTextbooks(selectedTermCode)
-                                    }
+                                    vm.refreshExams()
+                                    vm.reloadTextbooks()
                                 },
-                                pullToRefreshState = semPull,
-                                // 内容铺到玻璃顶栏下面时，指示器也要从顶栏下面出来，而不是屏幕顶边
-                                contentPadding = PaddingValues(top = listTopPadding),
+                                scrollBehavior = topAppBarScrollBehavior,
+                                topPadding = listTopPadding,
                                 modifier = Modifier.fillMaxSize(),
                             ) {
                                 SemesterCourseList(
                                     courses = filteredMergedCourses,
-                                    textbooks = textbooks,
+                                    textbooks = vm.textbooks,
                                     // 分级布局没有独立的「考试」页，整学期的考试就落在这一级——
                                     // 「这学期还有哪些考试」本来就是学期尺度的问题。
-                                    exams = exams,
+                                    exams = vm.exams,
                                     // 学期一级一行代表整学期，说不出是哪一次课，
                                     // 所以不给回放也不给本次考勤。
                                     onCourseClick = {
@@ -1760,8 +755,8 @@ fun ScheduleScreen(
                     // 「今日」栏左边已经是今天的时间轴，右栏再放一遍「今天的课」就是纯重复。
                     // 这时右栏自动选中现在或下一节课、直接给出它的详情（教材、考勤、回放入口）；
                     // 今天的课都上完了或者今天没课，就给本周概览。「周视图」「学期」两栏照旧：右栏放今天的课是补充。
-                    val weekCourses = remember(filteredMergedCourses, realCurrentWeek) {
-                        filteredMergedCourses.filter { it.isInWeek(realCurrentWeek) }
+                    val weekCourses = remember(filteredMergedCourses, vm.realCurrentWeek) {
+                        filteredMergedCourses.filter { it.isInWeek(vm.realCurrentWeek) }
                     }
                     val onTodayTab = contentOf(selectedTab) == "today"
                     val todayFocus = if (unifiedSelectedCourse == null && onTodayTab) {
@@ -1789,19 +784,15 @@ fun ScheduleScreen(
                             }
                             CourseDetailContent(
                                 course = picked,
-                                textbooks = textbooks,
-                                textbooksProblem = textbooksBackgroundError,
-                                termCode = selectedTermCode,
+                                textbooks = vm.textbooks,
+                                textbooksProblem = vm.textbooksBackgroundError,
+                                termCode = vm.selectedTermCode,
                                 occurrence = if (todayFocus != null) {
-                                    Occurrence(java.time.LocalDate.now(), realCurrentWeek)
+                                    Occurrence(java.time.LocalDate.now(), vm.realCurrentWeek)
                                 } else {
                                     unifiedOccurrence
                                 },
-                                onRequestTextbooks = {
-                                    if (!textbooksLoaded && selectedTermCode.isNotEmpty()) {
-                                        loadTextbooks(selectedTermCode, background = true)
-                                    }
-                                },
+                                onRequestTextbooks = vm::requestTextbooksInBackground,
                                 onNavigate = onNavigate,
                             )
                         }
@@ -1816,20 +807,20 @@ fun ScheduleScreen(
                         )
                         TodayTimeline(
                             courses = weekCourses,
-                            exams = exams,
+                            exams = vm.exams,
                             today = java.time.LocalDate.now(),
                             allCourseNames = remember(filteredMergedCourses) {
                                 filteredMergedCourses.map { it.courseName }.distinct().sorted()
                             },
                             onCourseClick = {
                                 unifiedOccurrence = Occurrence(
-                                    java.time.LocalDate.now(), realCurrentWeek,
+                                    java.time.LocalDate.now(), vm.realCurrentWeek,
                                 )
                                 unifiedSelectedCourse = it
                             },
                             bottomPadding = contentBottomPadding,
                             upcoming = upcomingItems,
-                            todayHomework = homeworkDue,
+                            todayHomework = vm.homeworkDue,
                         )
                     }
                 }
@@ -1849,15 +840,11 @@ fun ScheduleScreen(
             show = showDetail,
             course = course,
             onDismiss = { unifiedSelectedCourse = null },
-            textbooks = textbooks,
-            textbooksProblem = textbooksBackgroundError,
-            termCode = selectedTermCode,
+            textbooks = vm.textbooks,
+            textbooksProblem = vm.textbooksBackgroundError,
+            termCode = vm.selectedTermCode,
             occurrence = unifiedOccurrence,
-            onRequestTextbooks = {
-                if (!textbooksLoaded && selectedTermCode.isNotEmpty()) {
-                    loadTextbooks(selectedTermCode, background = true)
-                }
-            },
+            onRequestTextbooks = vm::requestTextbooksInBackground,
             onNavigate = onNavigate,
         )
     }
@@ -1924,7 +911,7 @@ private fun ScheduleTabContent(
     /** 教材没取到时的原因，null 表示没问题。见 CourseLinkSections。 */
     textbooksProblem: String? = null,
     onRequestTextbooks: () -> Unit = {},
-    onNavigate: (String) -> Unit = {},
+    onNavigate: (AppRoute) -> Unit = {},
     /**
      * 宽屏：点课不再弹详情，而是把选中送给课表右侧的常驻详情栏（由调用方持有）。
      * 窄屏传 null，走下面的本地选中 + 弹窗，行为与改造前一致。
@@ -1949,7 +936,7 @@ private fun ScheduleTabContent(
     // 考勤角标。三条约束都是"别因为考勤把课表拖坏"：默认关、旁路加载、失败即无角标。
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val loginStateForBadge = LocalAppLoginState.current
-    val badgeEnabled = remember { com.xjtu.toolbox.util.CredentialStore(ctx).scheduleAttendanceBadge }
+    val badgeEnabled = remember { com.xjtu.toolbox.data.CredentialStore(ctx).scheduleAttendanceBadge }
     var attendanceIndex by remember { mutableStateOf<CourseLinks.AttendanceIndex?>(null) }
     LaunchedEffect(badgeEnabled, selectedTermCode, startOfTerm, totalWeeks) {
         if (!badgeEnabled) { attendanceIndex = null; return@LaunchedEffect }
@@ -1973,17 +960,17 @@ private fun ScheduleTabContent(
     val absenceColor = Color(0xFFE5484D)
     val lateColor = Color(0xFFF5A524)
     val leaveColor = Color(0xFF9BA1A6)
-    fun badgeOf(slot: com.xjtu.toolbox.ui.ScheduleSlot, week: Int): com.xjtu.toolbox.ui.SlotMark? {
+    fun badgeOf(slot: com.xjtu.toolbox.schedule.ScheduleSlot, week: Int): com.xjtu.toolbox.schedule.SlotMark? {
         val idx = attendanceIndex ?: return null
         return when (idx.statusOf(week, slot.slotDayOfWeek, slot.slotStartSection)) {
-            com.xjtu.toolbox.attendance.WaterType.ABSENCE -> com.xjtu.toolbox.ui.SlotMark(absenceColor)
-            com.xjtu.toolbox.attendance.WaterType.LATE -> com.xjtu.toolbox.ui.SlotMark(lateColor)
-            com.xjtu.toolbox.attendance.WaterType.LEAVE -> com.xjtu.toolbox.ui.SlotMark(leaveColor)
+            com.xjtu.toolbox.attendance.WaterType.ABSENCE -> com.xjtu.toolbox.schedule.SlotMark(absenceColor)
+            com.xjtu.toolbox.attendance.WaterType.LATE -> com.xjtu.toolbox.schedule.SlotMark(lateColor)
+            com.xjtu.toolbox.attendance.WaterType.LEAVE -> com.xjtu.toolbox.schedule.SlotMark(leaveColor)
             // 正常出勤也标，用中性色。只标异常的话，全勤的人整学期一个点都看不到；
             // 而这个点本身有信息——这节课已经上过且记了考勤，没点的就是还没上。
-            com.xjtu.toolbox.attendance.WaterType.NORMAL -> com.xjtu.toolbox.ui.SlotMark()
+            com.xjtu.toolbox.attendance.WaterType.NORMAL -> com.xjtu.toolbox.schedule.SlotMark()
             // 未识别状态：标出来但不判定好坏，用中性色提示"有记录但看不懂"。
-            com.xjtu.toolbox.attendance.WaterType.UNKNOWN -> com.xjtu.toolbox.ui.SlotMark(leaveColor)
+            com.xjtu.toolbox.attendance.WaterType.UNKNOWN -> com.xjtu.toolbox.schedule.SlotMark(leaveColor)
             // 查无此格（未来的课、或没有考勤的课）不标。
             null -> null
         }
@@ -2173,7 +1160,7 @@ private fun CourseDetailContent(
     /** 这一次课是哪天、第几周；学期总览给不出，传 null。 */
     occurrence: Occurrence? = null,
     onRequestTextbooks: () -> Unit = {},
-    onNavigate: (String) -> Unit = {},
+    onNavigate: (AppRoute) -> Unit = {},
 ) {
     val isAgenda = course.courseType == "日程"
         // 异步获取教室座位数
@@ -2319,7 +1306,7 @@ private fun CourseDetailDialog(
     /** 这一次课是哪天、第几周；学期总览给不出，传 null。 */
     occurrence: Occurrence? = null,
     onRequestTextbooks: () -> Unit = {},
-    onNavigate: (String) -> Unit = {},
+    onNavigate: (AppRoute) -> Unit = {},
 ) {
     val close = { show.value = false; onDismiss() }
     BackHandler(enabled = show.value) { close() }

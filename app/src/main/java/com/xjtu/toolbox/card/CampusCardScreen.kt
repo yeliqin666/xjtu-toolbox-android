@@ -1,9 +1,10 @@
 package com.xjtu.toolbox.card
 
-import android.util.Log
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import com.xjtu.toolbox.ui.components.AppPullToRefresh
+import com.xjtu.toolbox.ui.components.BackButton
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -11,7 +12,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.TrendingDown
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.*
@@ -26,9 +26,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -36,10 +34,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
-import com.xjtu.toolbox.LocalAppLoginState
-import com.xjtu.toolbox.Routes
-import com.xjtu.toolbox.auth.AuthExpiredException
-import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.handleAuthExpired
 import com.xjtu.toolbox.ui.adaptive.readableWidth
@@ -58,10 +53,6 @@ import com.xjtu.toolbox.ui.glass.glassBarTint
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import kotlin.math.abs
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -74,7 +65,6 @@ import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import top.yukonga.miuix.kmp.basic.ListPopupColumn
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.PopupPositionProvider
-import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SnackbarDuration
 import top.yukonga.miuix.kmp.basic.SnackbarHost
@@ -82,7 +72,6 @@ import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
@@ -90,27 +79,14 @@ import top.yukonga.miuix.kmp.overlay.OverlayListPopup
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
+import com.xjtu.toolbox.nav.AppRoute
+import androidx.lifecycle.createSavedStateHandle
+import androidx.lifecycle.viewmodel.compose.viewModel
 
 // ==================== 时间范围枚举 ====================
 
-private enum class TimeRange(val label: String, val months: Int?) {
-    ONE_MONTH("1个月", 1),
-    THREE_MONTHS("3个月", 3),
-    SIX_MONTHS("半年", 6),
-    ONE_YEAR("1年", 12),
-    CUSTOM("自定义", null);
-}
-
 private val CardDateFmt: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy/M/d")
 private val CardDateChipFmt: DateTimeFormatter = DateTimeFormatter.ofPattern("M/d")
-
-private fun TimeRange.resolve(customStart: LocalDate, customEnd: LocalDate): Pair<LocalDate, LocalDate> {
-    if (this == TimeRange.CUSTOM) {
-        return if (customStart.isAfter(customEnd)) customEnd to customStart else customStart to customEnd
-    }
-    val months = this.months ?: 1
-    return LocalDate.now().minusMonths(months.toLong()) to LocalDate.now()
-}
 
 private fun formatRangeChip(start: LocalDate, end: LocalDate): String {
     return if (start.year == end.year) {
@@ -129,207 +105,41 @@ fun CampusCardScreen(
     // 接上设置项之前先按「经典」的不透明样式来，不在没接设置项的分支里提前显示玻璃。
     glass: Boolean = false,
 ) {
-    val api = remember(site) { CampusCardApi(site) }
-    val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val appLoginState = LocalAppLoginState.current
-
-    var isLoading by remember { mutableStateOf(true) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    var cardInfo by remember { mutableStateOf<CardInfo?>(null) }
-    var transactions by remember { mutableStateOf<List<Transaction>>(emptyList()) }
-    var monthlyStats by remember { mutableStateOf<List<MonthlyStats>>(emptyList()) }
-    var categorySpending by remember { mutableStateOf<Map<String, Double>>(emptyMap()) }
-    /** 餐饮内部的主食构成。顶层分类里餐饮常年 95%+，真正能看出差别的是这一层。 */
-    var foodBreakdown by remember { mutableStateOf<Map<String, Double>>(emptyMap()) }
-    var mealTimeStats by remember { mutableStateOf<Map<String, MealTimeStats>>(emptyMap()) }
-    var activeCampusDays by remember { mutableIntStateOf(0) }
-    var hourlyMeals by remember { mutableStateOf<List<Int>>(emptyList()) }
-    /** 近 30 天在校日均，「约够几天」用；见 [dailySpendRate]。 */
-    var dailyRate by remember { mutableStateOf<Double?>(null) }
+    val vm: CampusCardViewModel = viewModel(key = "card-${System.identityHashCode(site)}") {
+        CampusCardViewModel(context, site, createSavedStateHandle())
+    }
+    LaunchedEffect(vm) {
+        vm.events.collect { event ->
+            when (event) {
+                CampusCardEvent.AuthExpired -> appLoginState.handleAuthExpired(AppRoute.CampusCard, onBack)
+                // 首页 tab 一直留在组合里，只认这个版本号：不递增的话充值后回到首页还是旧余额
+                CampusCardEvent.CacheUpdated -> appLoginState.campusCardCacheVersion++
+                is CampusCardEvent.Message -> snackbarHostState.showSnackbar(
+                    event.text, duration = if (event.long) SnackbarDuration.Long else SnackbarDuration.Short,
+                )
+            }
+        }
+    }
+    val transactions = vm.transactions
+    val cardInfo = vm.cardInfo
+    val stats = vm.stats
     val todaySummary = remember(transactions) { todaySummaryOf(transactions) }
-    var weekdayWeekend by remember { mutableStateOf<Pair<DayTypeStats, DayTypeStats>?>(null) }
-    var totalRecords by remember { mutableIntStateOf(0) }
 
     // 选项卡: 0=概览 1=流水 2=分析
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
-    // 时间范围
-    var selectedTimeRange by rememberSaveable { mutableStateOf(TimeRange.ONE_MONTH) }
-    var customStart by rememberSaveable { mutableStateOf(LocalDate.now().minusMonths(1).toString()) }
-    var customEnd by rememberSaveable { mutableStateOf(LocalDate.now().toString()) }
     var showCustomRange by remember { mutableStateOf(false) }
-    // 流水加载
-    var isLoadingMore by remember { mutableStateOf(false) }
-    var currentPage by rememberSaveable { mutableIntStateOf(1) }
-    var loadGeneration by remember { mutableIntStateOf(0) }
-    // 切换时间范围用：不阻塞整页，只在 Tab 顶部细进度条提示
-    var isReloadingRange by remember { mutableStateOf(false) }
-    // 搜索
     var searchQuery by rememberSaveable { mutableStateOf("") }
-
-    fun currentRangeDates(): Pair<LocalDate, LocalDate> {
-        val start = runCatching { LocalDate.parse(customStart) }.getOrDefault(LocalDate.now().minusMonths(1))
-        val end = runCatching { LocalDate.parse(customEnd) }.getOrDefault(LocalDate.now())
-        return selectedTimeRange.resolve(start, end)
-    }
-
-    fun applyTransactions(
-        allTx: List<Transaction>,
-        accountId: String? = com.xjtu.toolbox.account.AccountContext.activeAccountId,
-    ) {
-        transactions = allTx
-        totalRecords = allTx.size
-        currentPage = (allTx.size + 49) / 50
-        dailyRate = dailySpendRate(allTx)
-        CampusCardCache.cardPrefs(context, accountId).edit()
-            .putTodaySummary(todaySummaryOf(allTx))
-            .putDailyRate(dailyRate)
-            .apply()
-        com.xjtu.toolbox.widget.CampusCardWidgetUpdater.requestUpdate(context)
-
-        val (startDate, endDate) = currentRangeDates()
-        val stats = api.calculateMonthlyStats(allTx, startDate, endDate)
-        monthlyStats = stats
-        categorySpending = api.categorizeSpending(allTx)
-        foodBreakdown = api.breakdownFood(allTx)
-        hourlyMeals = api.hourlyMeals(allTx)
-        val (meals, campusDays) = api.analyzeMealTimes(allTx)
-        mealTimeStats = meals
-        activeCampusDays = campusDays
-        weekdayWeekend = api.analyzeWeekdayVsWeekend(allTx)
-    }
-
-    fun loadData(range: TimeRange = selectedTimeRange, silent: Boolean = false) {
-        val hasContent = transactions.isNotEmpty() || cardInfo != null
-        if (silent || hasContent) isReloadingRange = true else isLoading = true
-        errorMessage = null
-        val myGeneration = ++loadGeneration
-        // 发请求前定下账号，缓存读写都落在它名下；中途切了账号，结果直接丢弃
-        val accountId = com.xjtu.toolbox.account.AccountContext.activeAccountId
-        fun accountSwitched() = com.xjtu.toolbox.account.AccountContext.activeAccountId != accountId
-        scope.launch {
-            try {
-                val customS = runCatching { LocalDate.parse(customStart) }.getOrDefault(LocalDate.now().minusMonths(1))
-                val customE = runCatching { LocalDate.parse(customEnd) }.getOrDefault(LocalDate.now())
-                val (startDate, endDate) = range.resolve(customS, customE)
-
-                // 先获取卡信息（回填 cardAccount），再并行抓流水
-                val info = withContext(Dispatchers.IO) { api.getCardInfo() }
-                if (accountSwitched()) return@launch
-                cardInfo = info
-                // 缓存余额 + 姓名 供首页智能卡片使用
-                CampusCardCache.cardPrefs(context, accountId).edit()
-                    .putFloat("card_balance_cache", info.balance.toFloat())
-                    .putString("card_name_cache", info.name)
-                    .putLong("card_cache_time", System.currentTimeMillis())
-                    .apply()
-                val allTx = withContext(Dispatchers.IO) {
-                    val cached = CampusCardCache.load(context, accountId)
-                    val cachedStart = cached?.rangeStart?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
-                    if (cached != null && cachedStart != null && !cachedStart.isAfter(startDate)) {
-                        val refreshStart = endDate.minusDays(7).coerceAtLeast(startDate)
-                        val fresh = api.getAllTransactions(refreshStart, endDate, maxPages = 20, allowIncomplete = true)
-                        (fresh + cached.transactions.filter {
-                            val date = runCatching { LocalDate.parse(it.time.substringBefore(" ")) }.getOrNull()
-                            date != null && date in startDate..endDate
-                        }).distinctBy { "${it.time}|${it.merchant}|${it.amount}|${it.balance}|${it.description}" }
-                            .sortedByDescending { it.time }
-                    } else {
-                        api.getAllTransactions(startDate, endDate, maxPages = 12, allowIncomplete = true)
-                    }
-                }
-                if (myGeneration != loadGeneration || accountSwitched()) return@launch
-                applyTransactions(allTx, accountId)
-                CampusCardCache.save(context, info, allTx, startDate, endDate, accountId)
-                // 余额和今日消费都已落盘，通知首页重读。首页 tab 一直留在组合里，
-                // 只认这个版本号：不递增的话充值后刷新了这里，回到首页还是旧余额。
-                appLoginState.campusCardCacheVersion++
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: AuthExpiredException) {
-                // 会话失效 → 静默触发重新登录（nav 监听 pendingRetry）
-                appLoginState.handleAuthExpired(LoginType.CAMPUS_CARD, Routes.CAMPUS_CARD, onBack)
-            } catch (e: Exception) {
-                errorMessage = "加载失败: ${e.message}"
-                if (transactions.isNotEmpty()) {
-                    snackbarHostState.showSnackbar("更新失败，当前显示上次缓存的数据", duration = SnackbarDuration.Long)
-                }
-            } finally {
-                if (myGeneration == loadGeneration) {
-                    isLoading = false
-                    isReloadingRange = false
-                }
-            }
-        }
-    }
-
-    fun loadMore() {
-        if (isLoadingMore) return
-        isLoadingMore = true
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    val (startDate, endDate) = currentRangeDates()
-                    val (_, txList) = api.getTransactions(
-                        startDate = startDate,
-                        endDate = endDate,
-                        page = currentPage + 1,
-                        pageSize = 50
-                    )
-                    if (txList.isNotEmpty()) {
-                        transactions = transactions + txList
-                        currentPage++
-                        monthlyStats = api.calculateMonthlyStats(transactions, startDate, endDate)
-                        categorySpending = api.categorizeSpending(transactions)
-                        foodBreakdown = api.breakdownFood(transactions)
-                        hourlyMeals = api.hourlyMeals(transactions)
-                        dailyRate = dailySpendRate(transactions)
-                        val (mealStats4, campusDays4) = api.analyzeMealTimes(transactions)
-                        mealTimeStats = mealStats4
-                        activeCampusDays = campusDays4
-                        weekdayWeekend = api.analyzeWeekdayVsWeekend(transactions)
-                    }
-                }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(LoginType.CAMPUS_CARD, Routes.CAMPUS_CARD, onBack)
-            } catch (e: Exception) {
-                Log.w("CampusCardScreen", "loadMore failed: ${e.message}")
-                scope.launch {
-                    snackbarHostState.showSnackbar("加载更多失败，请重试", duration = SnackbarDuration.Short)
-                }
-            }
-            finally { isLoadingMore = false }
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        CampusCardCache.load(context)?.let { cached ->
-            cardInfo = cached.cardInfo
-            // 缓存覆盖的区间可能比当前选中的时间范围宽得多。整份铺上去，首屏会按更宽的
-            // 数据算统计（「早午餐分析」这类面板因此出现），等网络结果按当前范围回来又
-            // 整块消失——用户看到的就是一闪而过。先裁到当前范围，首屏与最终结果一致。
-            val (cacheStart, cacheEnd) = currentRangeDates()
-            applyTransactions(
-                cached.transactions.filter { tx ->
-                    runCatching { LocalDate.parse(tx.time.substringBefore(" ")) }
-                        .getOrNull()?.let { it in cacheStart..cacheEnd } == true
-                }
-            )
-            isLoading = false
-        }
-        loadData(silent = transactions.isNotEmpty())
-    }
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     var showRangeMenu by remember { mutableStateOf(false) }
     // 当前时间范围的一句话说法：顶栏菜单按钮的无障碍描述、流水和分析栏的小字共用
-    val rangeLabel = if (selectedTimeRange == TimeRange.CUSTOM) {
-        currentRangeDates().let { (start, end) -> formatRangeChip(start, end) }
+    val rangeLabel = if (vm.timeRange == TimeRange.CUSTOM) {
+        vm.range.let { (start, end) -> formatRangeChip(start, end) }
     } else {
-        "近${selectedTimeRange.label}"
+        "近${vm.timeRange.label}"
     }
     // 这一页自己的采样源：顶栏采它，不用全局的 LocalAppBackdrop（这是二级页，有自己
     // 的 Scaffold/TopAppBar）。
@@ -346,9 +156,7 @@ fun CampusCardScreen(
                 largeTitle = "校园卡",
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回")
-                    }
+                    BackButton(onBack)
                 },
                 actions = {
                     // 时间范围收进顶栏菜单：它同时作用于概览、流水、分析三栏，是整页的设置，
@@ -367,16 +175,11 @@ fun CampusCardScreen(
                                     DropdownImpl(
                                         text = if (range == TimeRange.CUSTOM) "自定义…" else "近${range.label}",
                                         optionSize = TimeRange.entries.size,
-                                        isSelected = range == selectedTimeRange,
+                                        isSelected = range == vm.timeRange,
                                         onSelectedIndexChange = {
                                             showRangeMenu = false
-                                            if (range == TimeRange.CUSTOM) {
-                                                showCustomRange = true
-                                            } else if (range != selectedTimeRange) {
-                                                selectedTimeRange = range
-                                                currentPage = 1
-                                                loadData(range, silent = true)
-                                            }
+                                            if (range == TimeRange.CUSTOM) showCustomRange = true
+                                            else vm.selectRange(range)
                                         },
                                         index = idx,
                                     )
@@ -392,7 +195,7 @@ fun CampusCardScreen(
                         Column {
                             // 整页在转圈 / 报错时（下面 when 的前两支）没有东西可切，不挂标签
                             val showTabs = !(cardInfo == null && transactions.isEmpty() &&
-                                (isLoading || errorMessage != null))
+                                (vm.isLoading || vm.errorMessage != null))
                             if (!showTabs) {
                                 // 什么都不放
                             } else if (isWideTop) {
@@ -414,7 +217,7 @@ fun CampusCardScreen(
                                     modifier = Modifier.readableWidth(),
                                 )
                             }
-                            if (isReloadingRange) {
+                            if (vm.isReloadingRange) {
                                 LinearProgressIndicator(
                                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                                     height = 2.dp,
@@ -434,26 +237,22 @@ fun CampusCardScreen(
             )
         }
     ) { padding ->
-        val rangeDates = currentRangeDates()
+        val rangeDates = vm.range
         CustomRangeDialog(
             show = showCustomRange,
             initialStart = rangeDates.first,
             initialEnd = rangeDates.second,
             onDismiss = { showCustomRange = false },
             onConfirm = { start, end ->
-                customStart = start.toString()
-                customEnd = end.toString()
-                selectedTimeRange = TimeRange.CUSTOM
                 showCustomRange = false
-                currentPage = 1
-                loadData(TimeRange.CUSTOM, silent = true)
+                vm.selectCustomRange(start, end)
             }
         )
         when {
-            isLoading && cardInfo == null && transactions.isEmpty() ->
+            vm.isLoading && cardInfo == null && transactions.isEmpty() ->
                 LoadingState("正在加载校园卡数据...", Modifier.fillMaxSize().padding(padding))
-            errorMessage != null && transactions.isEmpty() && cardInfo == null ->
-                ErrorState(errorMessage!!, { loadData() }, Modifier.fillMaxSize().padding(padding))
+            vm.errorMessage != null && transactions.isEmpty() && cardInfo == null ->
+                ErrorState(vm.errorMessage.orEmpty(), { vm.load() }, Modifier.fillMaxSize().padding(padding))
             else -> {
                 // 内容改成从顶栏下面穿过（plan2 §16.2）：不再用 Scaffold 的 padding 把整页
                 // 往下推，而是让横滑翻页器铺满整个 Box（从 y=0 开始），列表用
@@ -467,8 +266,8 @@ fun CampusCardScreen(
                 val topContentPadding = topInset
 
                 var isPullRefreshing by remember { mutableStateOf(false) }
-                LaunchedEffect(isLoading, isReloadingRange) {
-                    if (!isLoading && !isReloadingRange) isPullRefreshing = false
+                LaunchedEffect(vm.isLoading, vm.isReloadingRange) {
+                    if (!vm.isLoading && !vm.isReloadingRange) isPullRefreshing = false
                 }
 
                 // 平板横屏：左栏概览、右栏「流水 / 分析」，一屏同时看到余额、汇总和明细。
@@ -481,19 +280,17 @@ fun CampusCardScreen(
                         .then(if (isWide) Modifier else Modifier.readableWidth())
                         .nestedScroll(scrollBehavior.nestedScrollConnection)
                 ) {
-                    top.yukonga.miuix.kmp.basic.PullToRefresh(
-                        refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
-                        // 顶栏折叠交给下拉刷新协调：往下拉先展开大标题，展开完才算下拉刷新。不传的话下拉刷新先把拖动吃掉，慢慢拉只会刷新、标题展不开
-                        topAppBarScrollBehavior = scrollBehavior,
+                    AppPullToRefresh(
                         isRefreshing = isPullRefreshing,
                         onRefresh = {
                             isPullRefreshing = true
-                            loadData(silent = true)
+                            vm.load(silent = true)
                         },
-                        modifier = Modifier.fillMaxSize(),
+                        scrollBehavior = scrollBehavior,
                         // 内容从顶栏下面穿过以后，这一层铺满整页、从屏幕顶边算起；
                         // 不告诉它顶栏和标签行有多高，指示器就会从屏幕顶边拉出来，而不是大标题下面。
-                        contentPadding = PaddingValues(top = topContentPadding),
+                        topPadding = topContentPadding,
+                        modifier = Modifier.fillMaxSize(),
                     ) {
                         // 横滑切栏（概览/流水/分析），用契约组件 AppTabPager；标签行仍由下面的
                         // AppSegmentedTabs 负责点击切换，两者共用同一个 selectedTab。挂上
@@ -503,8 +300,8 @@ fun CampusCardScreen(
                                 Box(Modifier.weight(0.42f).fillMaxHeight()) {
                                     // 右栏就是完整的流水，左栏不再重复「最近交易」
                                     OverviewTab(
-                                        cardInfo, monthlyStats, emptyList(), todaySummary, dailyRate,
-                                        activeCampusDays, rangeDates.first, rangeDates.second, topInset,
+                                        cardInfo, stats.monthly, emptyList(), todaySummary, stats.dailyRate,
+                                        stats.activeDays, rangeDates.first, rangeDates.second, topInset,
                                     )
                                 }
                                 Box(Modifier.weight(0.58f).fillMaxHeight()) {
@@ -516,14 +313,14 @@ fun CampusCardScreen(
                                     ) { tab ->
                                         when (tab) {
                                             0 -> TransactionTab(
-                                                transactions, totalRecords, isLoadingMore, searchQuery,
-                                                onSearchChange = { searchQuery = it }, onLoadMore = ::loadMore,
+                                                transactions, transactions.size, vm.isLoadingMore, searchQuery,
+                                                onSearchChange = { searchQuery = it }, onLoadMore = vm::loadMore,
                                                 topContentPadding = topContentPadding, rangeLabel = rangeLabel,
                                             )
                                             else -> AnalyticsTab(
-                                                monthlyStats, categorySpending, mealTimeStats, weekdayWeekend,
-                                                activeCampusDays, rangeDates.first, rangeDates.second,
-                                                cardInfo?.balance ?: 0.0, dailyRate, foodBreakdown, hourlyMeals,
+                                                stats.monthly, stats.categories, stats.mealTimes, stats.weekdayWeekend,
+                                                stats.activeDays, rangeDates.first, rangeDates.second,
+                                                cardInfo?.balance ?: 0.0, stats.dailyRate, stats.food, stats.hourly,
                                                 topContentPadding = topContentPadding, rangeLabel = rangeLabel,
                                             )
                                         }
@@ -538,18 +335,18 @@ fun CampusCardScreen(
                         ) { tab ->
                             when (tab) {
                                 0 -> OverviewTab(
-                                    cardInfo, monthlyStats, transactions.take(5), todaySummary, dailyRate,
-                                    activeCampusDays, rangeDates.first, rangeDates.second, topContentPadding,
+                                    cardInfo, stats.monthly, transactions.take(5), todaySummary, stats.dailyRate,
+                                    stats.activeDays, rangeDates.first, rangeDates.second, topContentPadding,
                                 )
                                 1 -> TransactionTab(
-                                    transactions, totalRecords, isLoadingMore, searchQuery,
-                                    onSearchChange = { searchQuery = it }, onLoadMore = ::loadMore,
+                                    transactions, transactions.size, vm.isLoadingMore, searchQuery,
+                                    onSearchChange = { searchQuery = it }, onLoadMore = vm::loadMore,
                                     topContentPadding = topContentPadding, rangeLabel = rangeLabel,
                                 )
                                 2 -> AnalyticsTab(
-                                    monthlyStats, categorySpending, mealTimeStats, weekdayWeekend,
-                                    activeCampusDays, rangeDates.first, rangeDates.second,
-                                    cardInfo?.balance ?: 0.0, dailyRate, foodBreakdown, hourlyMeals,
+                                    stats.monthly, stats.categories, stats.mealTimes, stats.weekdayWeekend,
+                                    stats.activeDays, rangeDates.first, rangeDates.second,
+                                    cardInfo?.balance ?: 0.0, stats.dailyRate, stats.food, stats.hourly,
                                     topContentPadding = topContentPadding, rangeLabel = rangeLabel,
                                 )
                             }
@@ -1267,7 +1064,7 @@ private fun CategoryCard(categories: Map<String, Double>) {
     val categoryIcons = mapOf(
         "餐饮" to Icons.Default.Restaurant, "超市" to Icons.Default.ShoppingCart,
         "洗浴" to Icons.Default.Shower, "水电" to Icons.Default.ElectricBolt,
-        "学习" to Icons.Default.MenuBook, "洗衣" to Icons.Default.LocalLaundryService,
+        "学习" to Icons.AutoMirrored.Filled.MenuBook, "洗衣" to Icons.Default.LocalLaundryService,
         "交通" to Icons.Default.DirectionsBus, "医疗" to Icons.Default.LocalHospital,
         "充值" to Icons.Default.AddCard, "其他" to Icons.Default.MoreHoriz)
     val categoryColors = listOf(
@@ -1592,7 +1389,7 @@ private fun getTransactionIcon(tx: Transaction): ImageVector {
         m.contains("浴室") || m.contains("澡堂") -> Icons.Default.Shower
         m.contains("能源") || d.contains("电费") || m.contains("电控") -> Icons.Default.ElectricBolt
         m.contains("超市") || m.contains("超级市场") || m.contains("商店") || m.contains("便利") || m.contains("卖场") -> Icons.Default.ShoppingCart
-        m.contains("图书") || m.contains("打印") || m.contains("复印") -> Icons.Default.MenuBook
+        m.contains("图书") || m.contains("打印") || m.contains("复印") -> Icons.AutoMirrored.Filled.MenuBook
         m.contains("洗衣") || m.contains("洗涤") -> Icons.Default.LocalLaundryService
         m.contains("医院") || m.contains("药") -> Icons.Default.LocalHospital
         tx.type.contains("充值") || tx.type.contains("圈存") -> Icons.Default.AddCard

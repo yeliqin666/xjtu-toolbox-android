@@ -1,112 +1,92 @@
 package com.xjtu.toolbox.schedule
 
-import com.google.gson.Gson
-import com.xjtu.toolbox.util.DataCache
+import com.xjtu.toolbox.data.DataCache
 import java.time.LocalDate
 
 /**
- * 课表/教材缓存层。
- *
- * ### TTL 策略
- * - 默认 TTL = 90 天：`Long.MAX_VALUE` 会让旧学期课表一直留下来，9 月开学后
- *   仍然显示上学期的课表，bug 排查极难定位。用 90 天保险，学期内持续有效，
- *   跨学期后自动重新拉取。
- * - 显式传入的 ttlMs 仍接受（便于测试 / 临时覆盖）。
+ * 课表 / 考试 / 教材 / 学期的本地缓存，键名集中在这里。
+ * 学期内的数据按 90 天过期：永不过期会让上学期的课表在开学后一直留着。
  */
 object ScheduleCache {
-    /** 学期内稳定数据的 TTL。90 天足以覆盖任何正常学期的最大长度。 */
     private const val TERM_TTL_MS = 90L * 24 * 60 * 60 * 1000L
+    private const val FOREVER = Long.MAX_VALUE
 
     /**
-     * 「当前学期」：日程页从教务拿到的真正的本学期，不是用户上一次翻到的那个。
-     *
-     * `schedule_last_term` 记的是**上一次看的**学期，日程页切到历史学期时也会改写它。
-     * 屁岱的考试倒计时、桌面小组件、匹配交友以前都读它，于是用户只是翻了一眼去年的课表，
-     * 这几处就全都当成「本学期」了。要「本学期」的地方一律读这个键（[readCurrentTerm]）。
+     * 「当前学期」：教务给的本学期。「上次看的学期」在翻历史学期时会被改写，
+     * 要「本学期」的地方一律读这个键。
      */
     private const val CURRENT_TERM_KEY = "schedule_current_term"
-
-    fun writeCurrentTerm(cache: DataCache, gson: Gson, termCode: String) {
-        if (termCode.isBlank()) return
-        runCatching { cache.put(CURRENT_TERM_KEY, gson.toJson(termCode)) }
-    }
-
-    /**
-     * 读当前学期。老版本升级上来、还没打开过日程页时这个键是空的，
-     * 依次退回 `schedule_last_term`（那时它基本就是本学期）、学期列表的第一个。
-     */
-    fun readCurrentTerm(cache: DataCache, gson: Gson): String? {
-        fun readString(key: String): String? = runCatching {
-            cache.get(key, Long.MAX_VALUE)?.let { gson.fromJson(it, String::class.java) }
-        }.getOrNull()?.takeIf { it.isNotBlank() }
-        return readString(CURRENT_TERM_KEY)
-            ?: readString("schedule_last_term")
-            ?: runCatching {
-                cache.get("schedule_term_list", Long.MAX_VALUE)
-                    ?.let { gson.fromJson(it, Array<String>::class.java)?.firstOrNull() }
-            }.getOrNull()
-    }
+    private const val LAST_TERM_KEY = "schedule_last_term"
+    private const val TERM_LIST_KEY = "schedule_term_list"
 
     fun optimizedScheduleKey(termCode: String): String = "schedule_optimized_$termCode"
     fun textbookKey(termCode: String): String = "schedule_textbooks_$termCode"
+    private fun rawKey(termCode: String) = "schedule_$termCode"
+    private fun examsKey(termCode: String) = "exams_$termCode"
+    private fun startKey(termCode: String) = "start_date_$termCode"
 
-    fun readOptimizedCourses(
-        cache: DataCache,
-        gson: Gson,
-        termCode: String,
-        ttlMs: Long = TERM_TTL_MS
-    ): List<CourseItem>? {
-        if (termCode.isBlank()) return null
-        val json = cache.get(optimizedScheduleKey(termCode), ttlMs) ?: return null
-        return runCatching {
-            gson.fromJson(json, Array<CourseItem>::class.java)?.toList().orEmpty().map { it.sanitized() }
-        }.getOrNull()
+    fun writeCurrentTerm(cache: DataCache, termCode: String) {
+        if (termCode.isNotBlank()) runCatching { cache.write(CURRENT_TERM_KEY, termCode) }
     }
 
-    fun writeOptimizedCourses(
-        cache: DataCache,
-        gson: Gson,
-        termCode: String,
-        courses: List<CourseItem>
-    ) {
-        if (termCode.isBlank()) return
-        cache.put(optimizedScheduleKey(termCode), gson.toJson(courses))
+    /** 老版本升级上来还没打开过日程页时这个键是空的，依次退回上次看的学期、学期列表第一个。 */
+    fun readCurrentTerm(cache: DataCache): String? =
+        cache.read<String>(CURRENT_TERM_KEY, FOREVER)?.takeIf { it.isNotBlank() }
+            ?: readLastTerm(cache)
+            ?: readTermList(cache).firstOrNull()
+
+    fun readLastTerm(cache: DataCache): String? = cache.read<String>(LAST_TERM_KEY, FOREVER)?.takeIf { it.isNotBlank() }
+    fun writeLastTerm(cache: DataCache, termCode: String) { runCatching { cache.write(LAST_TERM_KEY, termCode) } }
+
+    fun readTermList(cache: DataCache): List<String> = cache.read<List<String>>(TERM_LIST_KEY, FOREVER).orEmpty()
+    fun writeTermList(cache: DataCache, terms: List<String>) { runCatching { cache.write(TERM_LIST_KEY, terms) } }
+
+    fun readStartDate(cache: DataCache, termCode: String): LocalDate? =
+        cache.read<String>(startKey(termCode), FOREVER)?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+    fun writeStartDate(cache: DataCache, termCode: String, date: LocalDate) {
+        runCatching { cache.write(startKey(termCode), date.toString()) }
     }
 
-    fun readTextbooks(
-        cache: DataCache,
-        gson: Gson,
-        termCode: String,
-        ttlMs: Long = TERM_TTL_MS
-    ): List<TextbookItem>? {
-        if (termCode.isBlank()) return null
-        val json = cache.get(textbookKey(termCode), ttlMs) ?: return null
-        return runCatching {
-            gson.fromJson(json, Array<TextbookItem>::class.java)?.toList().orEmpty().map { it.sanitized() }
-        }.getOrNull()
+    fun readExams(cache: DataCache, termCode: String, ttlMs: Long = FOREVER): List<ExamItem>? =
+        cache.read<List<ExamItem>>(examsKey(termCode), ttlMs)
+    fun writeExams(cache: DataCache, termCode: String, exams: List<ExamItem>) {
+        runCatching { cache.write(examsKey(termCode), exams) }
     }
 
-    fun writeTextbooks(
-        cache: DataCache,
-        gson: Gson,
-        termCode: String,
-        textbooks: List<TextbookItem>
-    ) {
-        if (termCode.isBlank()) return
-        cache.put(textbookKey(termCode), gson.toJson(textbooks))
+    fun readOptimizedCourses(cache: DataCache, termCode: String, ttlMs: Long = TERM_TTL_MS): List<CourseItem>? =
+        if (termCode.isBlank()) null
+        else cache.read<List<CourseItem>>(optimizedScheduleKey(termCode), ttlMs)?.map { it.normalized() }
+
+    fun writeOptimizedCourses(cache: DataCache, termCode: String, courses: List<CourseItem>) {
+        if (termCode.isNotBlank()) runCatching { cache.write(optimizedScheduleKey(termCode), courses) }
     }
 
-    fun readRawCourses(
-        cache: DataCache,
-        gson: Gson,
-        termCode: String,
-        ttlMs: Long = TERM_TTL_MS
-    ): List<CourseItem>? {
-        if (termCode.isBlank()) return null
-        val json = cache.get("schedule_$termCode", ttlMs) ?: return null
-        return runCatching {
-            gson.fromJson(json, Array<CourseItem>::class.java)?.toList().orEmpty().map { it.sanitized() }
-        }.getOrNull()
+    /** 教务原样的课表（未剔除节假日），变更检测、封存判断用。 */
+    fun readRawCourses(cache: DataCache, termCode: String, ttlMs: Long = TERM_TTL_MS): List<CourseItem>? =
+        if (termCode.isBlank()) null
+        else cache.read<List<CourseItem>>(rawKey(termCode), ttlMs)?.map { it.normalized() }
+
+    fun writeRawCourses(cache: DataCache, termCode: String, courses: List<CourseItem>) {
+        if (termCode.isNotBlank()) runCatching { cache.write(rawKey(termCode), courses) }
+    }
+
+    /** 优先剔除过节假日的版本，没有再用原样的。 */
+    fun readCourses(cache: DataCache, termCode: String): List<CourseItem>? =
+        readOptimizedCourses(cache, termCode, FOREVER) ?: readRawCourses(cache, termCode, FOREVER)
+
+    /** 本学期的课表和开学日期：首页、屁岱、桌面小组件共用。 */
+    data class TermSchedule(val code: String, val courses: List<CourseItem>, val start: LocalDate?)
+
+    fun readCurrentTermSchedule(cache: DataCache): TermSchedule? {
+        val code = readCurrentTerm(cache) ?: return null
+        return TermSchedule(code, readCourses(cache, code).orEmpty(), readStartDate(cache, code))
+    }
+
+    fun readTextbooks(cache: DataCache, termCode: String, ttlMs: Long = TERM_TTL_MS): List<TextbookItem>? =
+        if (termCode.isBlank()) null else cache.read<List<TextbookItem>>(textbookKey(termCode), ttlMs)
+
+    fun writeTextbooks(cache: DataCache, termCode: String, textbooks: List<TextbookItem>) {
+        if (termCode.isNotBlank()) runCatching { cache.write(textbookKey(termCode), textbooks) }
     }
 
     fun filterByHolidays(
@@ -136,38 +116,20 @@ object ScheduleCache {
         }
     }
 
-    // ── 学期终态 ─────────────────────────────────────────
-
     /**
-     * 按**学期自己的起止**判断有没有结束，不依赖"当前学期是哪个"。
-     *
-     * 更可靠：`currentTermCode` 在冷启动阶段会被 `paintCache` 覆盖成正在画的那个学期，
-     * 拿它做比较会一直判成"没结束"。而开学日期 + 周数是这个学期自带的事实，
-     * 什么时候算都对。
-     *
-     * @param weeks 学期周数，取 `weekBits` 的长度（见日程页的 totalWeeks）。
+     * 按学期自己的起止判断有没有结束（多留一周缓冲：最后一周还可能补录考勤、传回放）。
+     * 不依赖「当前学期是哪个」：冷启动时它会被正在画的学期覆盖。
      */
     fun isFinishedByDate(startOfTerm: LocalDate?, weeks: Int, today: LocalDate = LocalDate.now()): Boolean {
         if (startOfTerm == null || weeks <= 0) return false
-        // 多留一周缓冲：最后一周还可能补录考勤、传回放。
         return TermWeeks.weekOf(startOfTerm, today) > weeks + 1
     }
 
-    /**
-     * 这个学期的数据是否已经封存：结束了，而且本地该有的都有。
-     *
-     * 封存之后不再为它发任何请求——课表、考试、开学日期都不会变了。
-     * 判据是"还会不会变"，不是"过了多久"，所以不涉及 TTL。
-     */
-    fun isSealed(dataCache: DataCache, gson: Gson, term: String): Boolean {
+    /** 已结束且本地该有的都有：封存后不再为它发请求。 */
+    fun isSealed(cache: DataCache, term: String): Boolean {
         if (term.isBlank()) return false
-        val start = dataCache.get("start_date_$term", Long.MAX_VALUE)
-            ?.let { runCatching { LocalDate.parse(it.trim('"')) }.getOrNull() } ?: return false
-        val courses = readOptimizedCourses(dataCache, gson, term)
-            ?: dataCache.get("schedule_$term", Long.MAX_VALUE)?.let {
-                runCatching { gson.fromJson(it, Array<CourseItem>::class.java).toList().map { c -> c.sanitized() } }.getOrNull()
-            } ?: return false
-        val weeks = courses.maxOfOrNull { it.weekBits.length } ?: 0
-        return isFinishedByDate(start, weeks)
+        val start = readStartDate(cache, term) ?: return false
+        val courses = readCourses(cache, term) ?: return false
+        return isFinishedByDate(start, courses.maxOfOrNull { it.weekBits.length } ?: 0)
     }
 }

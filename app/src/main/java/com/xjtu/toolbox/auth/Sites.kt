@@ -1,14 +1,14 @@
 package com.xjtu.toolbox.auth
 
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.intValue
+import com.xjtu.toolbox.util.isNull
 import android.util.Log
 import com.xjtu.toolbox.util.safeParseJsonObject
-import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.IOException
-import java.net.URLDecoder
 
 // ─────────────────────────────────────────────────────────────────────
 //  13 个业务子系统的 SiteSession 实现。
@@ -38,7 +38,7 @@ class JwxtSession : CasSiteSession("jwxt", "教务系统", mustUseWebVpn = false
             // WebVPN 下被踢回 CAS 时 URL 是 webvpn.xjtu.edu.cn/https/{加密login域名}/cas/login…，
             // 明文 "login.xjtu.edu.cn" 不出现，`!in` 反而成立 → 失效会话被误判为"仍然有效"，
             // 于是跳过重登，后续接口拿到的是登录页。isAtTargetSite 兼容直连/WebVPN 两种模式。
-            resp.code == 200 && com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(finalUrl, "jwxt.xjtu.edu.cn")
+            resp.code == 200 && com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(finalUrl, "jwxt.xjtu.edu.cn")
         } finally { resp.close() }
     }
 
@@ -131,7 +131,7 @@ class LibrarySession : CasSiteSession("library", "图书馆", mustUseWebVpn = tr
             val finalUrl = resp.request.url.toString()
             // 同 JwxtSession：WebVPN 下明文域名判断会把失效会话误判为有效。
             resp.code in 200..399 &&
-                com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(finalUrl, "rg.lib.xjtu.edu.cn")
+                com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(finalUrl, "rg.lib.xjtu.edu.cn")
         } finally { resp.close() }
     }
 }
@@ -161,32 +161,32 @@ class IclassfaceSession : CasSiteSession("iclassface", "快速考勤流水", mus
         com.xjtu.toolbox.iclassface.IclassfaceLogin(session = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
 }
 
-// ── NEW ATTENDANCE 新版考勤 kq.xjtu.edu.cn ──────────────────────────────
+// ── ATTENDANCE 考勤 kq.xjtu.edu.cn ──────────────────────────────
 
 // mustUseWebVpn=true：考勤这几个域名只在校内网络可达，校外直连连不上（443 端口
 // 连超时都不给，卡满 12 秒）。写成 false 会被 SessionManager 永久锁死在直连，
 // 校外必然打不开——旧考勤一直是走网关的，这里跟齐。
-class NewAttendanceSession : CasSiteSession("new_attendance", "新版考勤", mustUseWebVpn = true) {
+class AttendanceSession : CasSiteSession("new_attendance", "考勤", mustUseWebVpn = true) {
 
     /** 当前账号所属的考勤站点根地址（本科 bk-kq / 研究生 yjs-kq），登录成功时写入。原始域名，不含网关。 */
     fun baseUrl(): String =
-        localToken[BASE_URL_KEY] ?: com.xjtu.toolbox.newattendance.NewAttendanceLogin.BASE_URL
+        localToken[BASE_URL_KEY] ?: com.xjtu.toolbox.attendance.AttendanceLogin.BASE_URL
 
     override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
-        com.xjtu.toolbox.newattendance.NewAttendanceLogin(
+        com.xjtu.toolbox.attendance.AttendanceLogin(
             session = client,
             visitorId = visitorId,
             cachedRsaKey = cachedRsaKey,
             useWebVpn = currentAccessMode == AccessMode.WEBVPN,
             // 账号类型来自一网通办身份判断（见 AccountType.fromIdentityName），跟
             // ScheduleSourceRouter 挑 kq 部署用的是同一个信号。已知的话直接登对应
-            // 业务站，省掉门户那三次往返；NewAttendanceLogin.postLogin 里若直连失败
+            // 业务站，省掉门户那三次往返；AttendanceLogin.postLogin 里若直连失败
             // 会自动退回门户流程，不会因为猜错身份就登不上。
             knownAccountType = accountType,
         )
 
     override fun onLoginSuccess(login: XJTULogin) {
-        val kq = login as? com.xjtu.toolbox.newattendance.NewAttendanceLogin
+        val kq = login as? com.xjtu.toolbox.attendance.AttendanceLogin
         val token = kq?.authToken
         if (!token.isNullOrBlank()) localToken["business_token"] = token
         // 本科与研究生是两套部署（bk-kq / kq），业务请求必须打到签发令牌的那一套。
@@ -194,11 +194,11 @@ class NewAttendanceSession : CasSiteSession("new_attendance", "新版考勤", mu
     }
 
     override fun decorateRequest(builder: Request.Builder): Request.Builder {
-        localToken["business_token"]?.let { builder.header(com.xjtu.toolbox.newattendance.NewAttendanceLogin.TOKEN_HEADER, it) }
+        localToken["business_token"]?.let { builder.header(com.xjtu.toolbox.attendance.AttendanceLogin.TOKEN_HEADER, it) }
         // 网页端每个业务请求都带这一条，跟着带上，免得日后服务端开始校验。
         builder.header(
-            com.xjtu.toolbox.newattendance.NewAttendanceLogin.SYSTEM_HEADER,
-            com.xjtu.toolbox.newattendance.NewAttendanceLogin.SYSTEM_VALUE,
+            com.xjtu.toolbox.attendance.AttendanceLogin.SYSTEM_HEADER,
+            com.xjtu.toolbox.attendance.AttendanceLogin.SYSTEM_VALUE,
         )
         return builder
     }
@@ -219,27 +219,27 @@ class NewAttendanceSession : CasSiteSession("new_attendance", "新版考勤", mu
         // 免得服务端哪天开始校验就把探活单独漏掉。
         val resp = client.newCall(
             Request.Builder()
-                .url(com.xjtu.toolbox.newattendance.KqHttp.buildUrl(this@NewAttendanceSession, "/student/home"))
-                .header(com.xjtu.toolbox.newattendance.NewAttendanceLogin.TOKEN_HEADER, token)
+                .url(com.xjtu.toolbox.attendance.KqHttp.buildUrl(this@AttendanceSession, "/student/home"))
+                .header(com.xjtu.toolbox.attendance.AttendanceLogin.TOKEN_HEADER, token)
                 .header(
-                    com.xjtu.toolbox.newattendance.NewAttendanceLogin.SYSTEM_HEADER,
-                    com.xjtu.toolbox.newattendance.NewAttendanceLogin.SYSTEM_VALUE,
+                    com.xjtu.toolbox.attendance.AttendanceLogin.SYSTEM_HEADER,
+                    com.xjtu.toolbox.attendance.AttendanceLogin.SYSTEM_VALUE,
                 )
                 .get()
                 .build()
         ).execute()
         try {
             if (resp.code != 200) return@withIo false
-            val body = resp.body?.string() ?: return@withIo false
+            val body = resp.body.string()
             if (XJTULogin.isAuthFailureResponse(body)) return@withIo false
-            body.safeParseJsonObject().get("code")?.takeIf { !it.isJsonNull }?.asInt == 0
+            body.safeParseJsonObject().get("code")?.takeIf { !it.isNull }?.intValue == 0
         } finally {
             resp.close()
         }
     }
 }
 
-/** [NewAttendanceSession.localToken] 里存考勤站点根地址的键。 */
+/** [AttendanceSession.localToken] 里存考勤站点根地址的键。 */
 const val BASE_URL_KEY = "kq_base_url"
 
 // ── HELLO 迎新/个人信息 ────────────────────────────────────────────────
@@ -294,9 +294,9 @@ class HelloSession : CasSiteSession("hello", "个人信息", mustUseWebVpn = tru
         ).execute()
         try {
             if (resp.code != 200) return@withIo false
-            val body = resp.body?.string() ?: return@withIo false
+            val body = resp.body.string()
             if (XJTULogin.isAuthFailureResponse(body)) return@withIo false
-            runCatching { body.safeParseJsonObject().get("state")?.asInt }.getOrNull() == 200
+            runCatching { body.safeParseJsonObject().get("state")?.intValue }.getOrNull() == 200
         } finally {
             resp.close()
         }
@@ -306,12 +306,12 @@ class HelloSession : CasSiteSession("hello", "个人信息", mustUseWebVpn = tru
         if (super.isAuthFailureResponse(response, bodyPreview)) return true
         val body = bodyPreview ?: return false
         val json = runCatching { body.safeParseJsonObject() }.getOrNull() ?: return false
-        val state = json.get("state")?.takeIf { !it.isJsonNull }
-            ?.runCatching { asInt }?.getOrNull() ?: return false
+        val state = json.get("state")?.takeIf { !it.isNull }
+            ?.runCatching { intValue }?.getOrNull() ?: return false
         if (state == 200) return false
         val path = response.request.url.encodedPath
         if ("/yingxin/user/" in path) return true
-        val message = json.get("message")?.takeIf { !it.isJsonNull }?.asString.orEmpty()
+        val message = json.get("message")?.takeIf { !it.isNull }?.stringValue.orEmpty()
         return state == 401 || state == 403 ||
             message.contains("未登录") ||
             message.contains("过期") ||
@@ -414,8 +414,8 @@ class DzpzSession : CasSiteSession("dzpz", "电子凭证", mustUseWebVpn = false
         ).execute()
         try {
             if (resp.code != 200) return@withIo false
-            val id = (resp.body?.string()).safeParseJsonObject()
-                .get("resourceid")?.takeIf { !it.isJsonNull }?.asString
+            val id = (resp.body.string()).safeParseJsonObject()
+                .get("resourceid")?.takeIf { !it.isNull }?.stringValue
                 ?.takeIf { it.isNotBlank() && it != "0" } ?: return@withIo false
             localToken["user_id"] = id
             true
@@ -472,7 +472,7 @@ class CampusCardSession : CasSiteSession("campus_card", "校园卡", mustUseWebV
         ).execute()
         try {
             if (!resp.isSuccessful) return@withIo false
-            val body = resp.body?.string() ?: return@withIo false
+            val body = resp.body.string()
             if (isAuthFailureResponse(resp, body)) return@withIo false
             val root = runCatching { body.safeParseJsonObject() }.getOrNull() ?: return@withIo false
             if (com.xjtu.toolbox.card.CampusCardContract.businessCode(root) != "200") return@withIo false
@@ -496,7 +496,7 @@ class CampusCardSession : CasSiteSession("campus_card", "校园卡", mustUseWebV
                 .build()
         ).execute()
         resp.use {
-            val body = it.body?.string() ?: throw RuntimeException("校园卡用户资料请求失败")
+            val body = it.body.string()
             if (!it.isSuccessful) throw RuntimeException("校园卡用户资料请求失败")
             val root = body.safeParseJsonObject()
             com.xjtu.toolbox.card.CampusCardContract.requireSuccess(root, "校园卡用户资料")
@@ -522,11 +522,11 @@ private class LandingCasLogin(
     cachedRsaKey: String?,
 ) : XJTULogin(entryUrl, existingClient, visitorId, cachedRsaKey) {
     override fun postLogin(response: Response) {
-        if (com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(response.request.url.toString(), targetHost)) return
+        if (com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(response.request.url.toString(), targetHost)) return
         client.newCall(Request.Builder().url(entryUrl).get().build()).execute().use { retry ->
-            val body = retry.body?.string().orEmpty()
+            val body = retry.body.string()
             if (XJTULogin.isSafetyVerifyPage(body)) throw SafetyVerifyRequiredException(retry, body)
-            if (!com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(retry.request.url.toString(), targetHost)) {
+            if (!com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(retry.request.url.toString(), targetHost)) {
                 throw IOException("$targetHost SSO 未完成跳转，需要重新登录")
             }
         }
@@ -546,8 +546,8 @@ class GsteSession : CasSiteSession("gste", "研究生评教", mustUseWebVpn = tr
     override suspend fun validateLogin(): Boolean = withIo {
         client.newCall(Request.Builder().url(LIST_URL).get().build()).execute().use { resp ->
             resp.code == 200 &&
-                com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(resp.request.url.toString(), "gste.xjtu.edu.cn") &&
-                resp.body?.string().orEmpty().trimStart().startsWith("[")
+                com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(resp.request.url.toString(), "gste.xjtu.edu.cn") &&
+                resp.body.string().trimStart().startsWith("[")
         }
     }
 
@@ -567,7 +567,7 @@ class GmisSession : CasSiteSession("gmis", "研究生管理信息系统", mustUs
     override suspend fun validateLogin(): Boolean = withIo {
         client.newCall(Request.Builder().url(SCORE_URL).get().build()).execute().use { resp ->
             resp.code == 200 &&
-                com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(resp.request.url.toString(), "gmis.xjtu.edu.cn")
+                com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(resp.request.url.toString(), "gmis.xjtu.edu.cn")
         }
     }
 

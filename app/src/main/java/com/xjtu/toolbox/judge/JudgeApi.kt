@@ -1,12 +1,16 @@
 package com.xjtu.toolbox.judge
 
-import com.google.gson.Gson
+import com.xjtu.toolbox.util.requireArr
+import com.xjtu.toolbox.util.requireObj
+import com.xjtu.toolbox.util.obj
+import com.xjtu.toolbox.util.arr
+import kotlinx.serialization.json.jsonObject
+import com.xjtu.toolbox.util.toJsonElement
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
 import com.xjtu.toolbox.util.safeString
 import com.xjtu.toolbox.util.safeStringOrNull
 import com.xjtu.toolbox.util.safeInt
-import kotlinx.coroutines.runBlocking
 import okhttp3.FormBody
 import okhttp3.Request
 
@@ -149,12 +153,11 @@ data class QuestionnaireOptionData(
  */
 class JudgeApi(private val site: SiteSession) {
 
-    private val gson = Gson()
     private var cachedTerm: String? = null
     private var appInitialized = false
 
-    private fun execute(request: Request): String =
-        runBlocking { site.executeWithReAuth(request) }.use { response ->
+    private suspend fun execute(request: Request): String =
+        site.executeWithReAuth(request).use { response ->
             response.body?.string() ?: ""
         }
 
@@ -162,7 +165,7 @@ class JudgeApi(private val site: SiteSession) {
      * jwapp 框架要求每个 app 模块先 GET 入口让服务端注册 module session，
      * 否则后续业务 API 返回 `{"code":"404"}`。参见 SchoolCourseApi / CjcxApi 同款预热。
      */
-    private fun ensureAppInitialized() {
+    private suspend fun ensureAppInitialized() {
         if (appInitialized) return
         try {
             val req = Request.Builder()
@@ -170,7 +173,7 @@ class JudgeApi(private val site: SiteSession) {
                 .header("Accept", "text/html")
                 .get()
                 .build()
-            runBlocking { site.executeWithReAuth(req) }.close()
+            site.executeWithReAuth(req).close()
             appInitialized = true
         } catch (_: Exception) {
             // 预热失败不阻塞业务，下游接口会自行报错
@@ -188,7 +191,7 @@ class JudgeApi(private val site: SiteSession) {
     /**
      * 获取当前学期的字符串表示，如 "2024-2025-1"
      */
-    fun getCurrentTerm(): String {
+    suspend fun getCurrentTerm(): String {
         ensureAppInitialized()
         val formBody = FormBody.Builder()
             .add(
@@ -213,11 +216,11 @@ class JudgeApi(private val site: SiteSession) {
             throw com.xjtu.toolbox.auth.AuthExpiredException("教务评教（会话过期）")
         }
         val root = responseBody.safeParseJsonObject()
-        return root.getAsJsonObject("datas")
-            ?.getAsJsonObject("cxxtcs")
-            ?.getAsJsonArray("rows")
-            ?.takeIf { it.size() > 0 }
-            ?.get(0)?.asJsonObject
+        return root.obj("datas")
+            ?.obj("cxxtcs")
+            ?.arr("rows")
+            ?.takeIf { it.size > 0 }
+            ?.get(0)?.jsonObject
             ?.get("CSZA")?.safeString()
             ?: throw RuntimeException("评教学期数据为空（学期未开放评教？）")
     }
@@ -228,7 +231,7 @@ class JudgeApi(private val site: SiteSession) {
      * @param term 学年学期代码，如 "2024-2025-1"
      * @param finished true=已评, false=未评
      */
-    fun getQuestionnaires(type: String, term: String, finished: Boolean): List<Questionnaire> {
+    suspend fun getQuestionnaires(type: String, term: String, finished: Boolean): List<Questionnaire> {
         ensureAppInitialized()
         val formBody = FormBody.Builder()
             .add("PGLXDM", type)
@@ -248,12 +251,12 @@ class JudgeApi(private val site: SiteSession) {
 
         val responseBody = execute(request).ifEmpty { throw RuntimeException("空响应") }
         val root = responseBody.safeParseJsonObject()
-        val rows = root.getAsJsonObject("datas")
-            .getAsJsonObject("cxdwpj")
-            .getAsJsonArray("rows")
+        val rows = root.requireObj("datas")
+            .requireObj("cxdwpj")
+            .requireArr("rows")
 
         return rows.map { el ->
-            val obj = el.asJsonObject
+            val obj = el.jsonObject
             Questionnaire(
                 BPJS = obj.get("BPJS").safeString(),
                 BPR = obj.get("BPR").safeString(),
@@ -276,7 +279,7 @@ class JudgeApi(private val site: SiteSession) {
     /**
      * 获取所有未完成的评教问卷（期末 + 过程）
      */
-    fun unfinishedQuestionnaires(term: String? = null): List<Questionnaire> {
+    suspend fun unfinishedQuestionnaires(term: String? = null): List<Questionnaire> {
         val t = term ?: run {
             if (cachedTerm == null) cachedTerm = getCurrentTerm()
             cachedTerm!!
@@ -289,7 +292,7 @@ class JudgeApi(private val site: SiteSession) {
     /**
      * 获取所有已完成的评教问卷（期末 + 过程）
      */
-    fun finishedQuestionnaires(term: String? = null): List<Questionnaire> {
+    suspend fun finishedQuestionnaires(term: String? = null): List<Questionnaire> {
         val t = term ?: run {
             if (cachedTerm == null) cachedTerm = getCurrentTerm()
             cachedTerm!!
@@ -302,7 +305,7 @@ class JudgeApi(private val site: SiteSession) {
     /**
      * 获取某问卷的题目信息
      */
-    fun getQuestionnaireData(q: Questionnaire, username: String): List<QuestionnaireData> {
+    suspend fun getQuestionnaireData(q: Questionnaire, username: String): List<QuestionnaireData> {
         ensureAppInitialized()
         val formBody = FormBody.Builder()
             .add("WJDM", q.WJDM)
@@ -319,12 +322,12 @@ class JudgeApi(private val site: SiteSession) {
 
         val responseBody = execute(request).ifEmpty { throw RuntimeException("空响应") }
         val root = responseBody.safeParseJsonObject()
-        val rows = root.getAsJsonObject("datas")
-            .getAsJsonObject("cxwjzb")
-            .getAsJsonArray("rows")
+        val rows = root.requireObj("datas")
+            .requireObj("cxwjzb")
+            .requireArr("rows")
 
         return rows.map { el ->
-            val obj = el.asJsonObject
+            val obj = el.jsonObject
             QuestionnaireData(
                 WJDM = obj.get("WJDM").safeString(),
                 CPR = username,
@@ -347,13 +350,13 @@ class JudgeApi(private val site: SiteSession) {
      * 获取某问卷所有题目的选项
      * @return Map: ZBDM -> 该题目的选项列表
      */
-    fun getQuestionnaireOptions(
+    suspend fun getQuestionnaireOptions(
         q: Questionnaire,
         username: String,
         finished: Boolean = false
     ): Map<String, List<QuestionnaireOptionData>> {
         ensureAppInitialized()
-        val querySetting = gson.toJson(
+        val querySetting = (
             listOf(
                 mapOf("name" to "BPR", "value" to q.BPR, "linkOpt" to "AND", "builder" to "equal"),
                 mapOf("name" to "CPR", "value" to username, "linkOpt" to "AND", "builder" to "equal"),
@@ -362,7 +365,7 @@ class JudgeApi(private val site: SiteSession) {
                 mapOf("name" to "WJDM", "value" to q.WJDM, "linkOpt" to "AND", "builder" to "equal"),
                 mapOf("name" to "PCDM", "value" to q.PCDM, "linkOpt" to "AND", "builder" to "equal")
             )
-        )
+        ).toJsonElement().toString()
 
         val formBody = FormBody.Builder()
             .add("WJDM", q.WJDM)
@@ -384,13 +387,13 @@ class JudgeApi(private val site: SiteSession) {
 
         val responseBody = execute(request).ifEmpty { throw RuntimeException("空响应") }
         val root = responseBody.safeParseJsonObject()
-        val rows = root.getAsJsonObject("datas")
-            .getAsJsonObject("cxxswjzbxq")
-            .getAsJsonArray("rows")
+        val rows = root.requireObj("datas")
+            .requireObj("cxxswjzbxq")
+            .requireArr("rows")
 
         val result = mutableMapOf<String, MutableList<QuestionnaireOptionData>>()
         for (el in rows) {
-            val obj = el.asJsonObject
+            val obj = el.jsonObject
             val zbdm = obj.get("ZBDM").safeString()
             val optionData = QuestionnaireOptionData(
                 ZBDM = zbdm,
@@ -410,10 +413,10 @@ class JudgeApi(private val site: SiteSession) {
      * 提交已完成的问卷
      * @return Pair<是否成功, 服务器消息>
      */
-    fun submitQuestionnaire(q: Questionnaire, data: List<QuestionnaireData>): Pair<Boolean, String> {
+    suspend fun submitQuestionnaire(q: Questionnaire, data: List<QuestionnaireData>): Pair<Boolean, String> {
         ensureAppInitialized()
-        val wjysjgJson = gson.toJson(data.map { it.toJsonMap() })
-        val requestParamStr = gson.toJson(
+        val wjysjgJson = data.map { it.toJsonMap() }.toJsonElement().toString()
+        val requestParamStr = (
             mapOf(
                 "WJDM" to q.WJDM,
                 "PCDM" to q.PCDM,
@@ -421,7 +424,7 @@ class JudgeApi(private val site: SiteSession) {
                 "SFTJ" to "1",
                 "WJYSJG" to wjysjgJson
             )
-        )
+        ).toJsonElement().toString()
 
         val formBody = FormBody.Builder()
             .add("requestParamStr", requestParamStr)
@@ -438,7 +441,7 @@ class JudgeApi(private val site: SiteSession) {
         val responseBody = execute(request).ifEmpty { throw RuntimeException("空响应") }
         val root = responseBody.safeParseJsonObject()
         val code = root.get("code").safeString("-1")
-        val datasObj = root.getAsJsonObject("datas")
+        val datasObj = root.obj("datas")
         val datasCode = datasObj?.get("code").safeString("-1")
         val msg = datasObj?.get("msg").safeString("未知错误")
 
@@ -451,7 +454,7 @@ class JudgeApi(private val site: SiteSession) {
      * 移植自 Python 的 editQuestionnaire()
      * @return Pair<是否成功, 服务器消息>
      */
-    fun editQuestionnaire(q: Questionnaire, username: String): Pair<Boolean, String> {
+    suspend fun editQuestionnaire(q: Questionnaire, username: String): Pair<Boolean, String> {
         ensureAppInitialized()
         val endpointCandidates = listOf(
             "https://jwxt.xjtu.edu.cn/jwapp/sys/wspjyyapp/WspjwjController/updateCprZt.do",
@@ -492,7 +495,7 @@ class JudgeApi(private val site: SiteSession) {
         endpointLoop@ for (endpoint in endpointCandidates) {
             for (payload in payloadVariants) {
                 try {
-                    val requestParamStr = gson.toJson(payload)
+                    val requestParamStr = payload.toJsonElement().toString()
                     val formBody = FormBody.Builder()
                         .add("requestParamStr", requestParamStr)
                         .build()
@@ -508,7 +511,7 @@ class JudgeApi(private val site: SiteSession) {
                     val responseBody = execute(request).ifEmpty { throw RuntimeException("空响应") }
                     val root = responseBody.safeParseJsonObject()
                     val code = root.get("code").safeString("-1")
-                    val datasObj = root.getAsJsonObject("datas")
+                    val datasObj = root.obj("datas")
                     val datasCode = datasObj?.get("code").safeString("-1")
                     val msg = datasObj?.get("msg").safeString("未知错误")
                     val success = (code == "0" && datasCode == "0") ||
@@ -538,7 +541,7 @@ class JudgeApi(private val site: SiteSession) {
      * @param score 选择题分值排序值，"1"=最优(100分)
      * @return 已填好答案的题目列表，可直接用于 submitQuestionnaire
      */
-    fun autoFillQuestionnaire(
+    suspend fun autoFillQuestionnaire(
         q: Questionnaire,
         username: String,
         score: String = "1"

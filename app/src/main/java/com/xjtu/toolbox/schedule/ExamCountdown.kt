@@ -116,16 +116,9 @@ object ExamCountdown {
      * 而且那会变成一次后台登录。缓存是空的（还没进过日程页）就不提醒，可以接受。
      */
     fun fromCache(ctx: android.content.Context): Next? = try {
-        val dc = com.xjtu.toolbox.util.DataCache(ctx)
-        val gson = com.google.gson.Gson()
-        // 本学期的考试才需要倒计时。不能读 schedule_last_term：那是用户上一次翻到的学期，
-        // 翻了一眼去年的课表，倒计时就会拿去年的考试来算。见 ScheduleCache.readCurrentTerm。
-        val term = ScheduleCache.readCurrentTerm(dc, gson)
-        term?.let { t ->
-            dc.get("exams_$t", Long.MAX_VALUE)?.let { json ->
-                next(gson.fromJson(json, Array<ExamItem>::class.java).toList().map { it.sanitized() })
-            }
-        }
+        val dc = com.xjtu.toolbox.data.DataCache(ctx)
+        // 只算本学期的考试：不能读「上次看的学期」，翻了一眼去年的课表倒计时就会拿去年的算
+        ScheduleCache.readCurrentTerm(dc)?.let { term -> ScheduleCache.readExams(dc, term)?.let(::next) }
     } catch (_: Exception) {
         null
     }

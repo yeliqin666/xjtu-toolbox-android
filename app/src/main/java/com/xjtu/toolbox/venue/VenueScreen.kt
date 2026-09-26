@@ -1,5 +1,10 @@
 package com.xjtu.toolbox.venue
 
+import com.xjtu.toolbox.ui.components.AppPullToRefresh
+import com.xjtu.toolbox.ui.components.FullPageState
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -15,7 +20,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.staggeredgrid.items
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
@@ -24,12 +28,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.runtime.*
-import com.xjtu.toolbox.LocalAppLoginState
-import com.xjtu.toolbox.Routes
-import com.xjtu.toolbox.auth.AuthExpiredException
-import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
@@ -48,17 +48,12 @@ import com.xjtu.toolbox.ui.glass.*
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
-import com.xjtu.toolbox.util.CredentialStore
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import kotlin.coroutines.cancellation.CancellationException
+import com.xjtu.toolbox.data.CredentialStore
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import java.time.LocalDate
-import java.time.format.DateTimeFormatter
+import com.xjtu.toolbox.nav.AppRoute
 
 /**
  * 体育场馆预订主页面
@@ -72,347 +67,36 @@ fun VenueScreen(
     onBack: () -> Unit
 ) {
     val appLoginState = LocalAppLoginState.current
-    val scope = rememberCoroutineScope()
-    val api = remember(site) { VenueApi(site) }
     val context = LocalContext.current
-
-    val favoritesManager = remember { VenueFavorites(context) }
-    val favoriteIds by favoritesManager.favoriteIds.collectAsState()
-
-    val showFavoriteToast = remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(showFavoriteToast.value) {
-        showFavoriteToast.value?.let { message ->
-            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-            showFavoriteToast.value = null
+    val vm: VenueViewModel = viewModel(key = "venue-${System.identityHashCode(site)}") {
+        VenueViewModel(site) { credentialStore.venueAutoSolveCaptchaEnabled }
+    }
+    LaunchedEffect(vm) {
+        vm.events.collect { event ->
+            when (event) {
+                VenueEvent.AuthExpired -> appLoginState.handleAuthExpired(AppRoute.Venue, onBack)
+                is VenueEvent.Message -> Toast.makeText(context, event.text, Toast.LENGTH_SHORT).show()
+            }
         }
     }
+
+    val favoritesManager = remember { VenueFavorites(context) }
+    val favoriteIds by favoritesManager.favoriteIds.collectAsStateWithLifecycle()
 
     val prefs = remember { context.getSharedPreferences("feature_hints", Context.MODE_PRIVATE) }
     val showHint = remember { mutableStateOf(!prefs.getBoolean("venue_hint_shown", false)) }
 
-    // ─── 导航状态 ───
-    var currentPage by remember { mutableStateOf<VenuePage>(VenuePage.VenueList) }
-    var selectedTab by remember { mutableIntStateOf(0) }
-
-    // ─── 场馆列表 ───
-    var venues by remember { mutableStateOf<List<VenueApi.Venue>>(emptyList()) }
-    var venueLoading by remember { mutableStateOf(true) }
-    var venueRefreshing by remember { mutableStateOf(false) }
-    var venueError by remember { mutableStateOf<String?>(null) }
-
-    // ─── 时段选择 ───
-    var selectedVenue by remember { mutableStateOf<VenueApi.Venue?>(null) }
-    var selectedDate by remember { mutableStateOf(LocalDate.now()) }
-    var availableSlots by remember { mutableStateOf<List<VenueApi.AreaSlot>>(emptyList()) }
-    var slotsLoading by remember { mutableStateOf(false) }
-    var slotsRefreshing by remember { mutableStateOf(false) }
-    var slotsError by remember { mutableStateOf<String?>(null) }
-    var selectedSlots by remember { mutableStateOf<Set<VenueApi.AreaSlot>>(emptySet()) }
-
-    // ─── 预订 ───
-    var bookingInProgress by remember { mutableStateOf(false) }
-    var bookingResult by remember { mutableStateOf<VenueApi.BookingResult?>(null) }
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var showBookingConfirm by remember { mutableStateOf(false) }
-    val showCaptchaDialog = remember { mutableStateOf(false) }
-    var pendingOrder by remember { mutableStateOf<VenueApi.PendingOrder?>(null) }
-    var captchaData by remember { mutableStateOf<VenueApi.CaptchaData?>(null) }
-    var captchaLoading by remember { mutableStateOf(false) }
-    var captchaError by remember { mutableStateOf<String?>(null) }
-    var captchaAutoSolving by remember { mutableStateOf(false) }
-    var captchaNotice by remember { mutableStateOf<String?>(null) }
-    // 每次加载/关闭验证码都递增，丢弃旧协程返回的结果，避免换图后旧识别结果误提交。
-    var captchaRequestToken by remember { mutableIntStateOf(0) }
-    val showResultDialog = remember { mutableStateOf(false) }
-
-    // ─── 订单 ───
-    var orders by remember { mutableStateOf<List<VenueApi.OrderInfo>>(emptyList()) }
-    var ordersLoading by remember { mutableStateOf(false) }
-    var ordersLoadingMore by remember { mutableStateOf(false) }
-    var ordersError by remember { mutableStateOf<String?>(null) }
-    var ordersHasMore by remember { mutableStateOf(false) }
-    var nextOrderPage by remember { mutableIntStateOf(1) }
     var orderDetail by remember { mutableStateOf<VenueApi.OrderInfo?>(null) }
     var cancelTarget by remember { mutableStateOf<VenueApi.OrderInfo?>(null) }
     var payTarget by remember { mutableStateOf<VenueApi.OrderInfo?>(null) }
-    var orderActionLoading by remember { mutableStateOf(false) }
-
-    // ─── 加载函数 ───
-    fun loadVenues(silent: Boolean = false) {
-        if (silent) venueRefreshing = true else venueLoading = true
-        venueError = null
-        scope.launch {
-            try {
-                val result = withContext(Dispatchers.IO) { api.fetchVenueList() }
-                venues = result
-            } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(LoginType.VENUE, Routes.VENUE, onBack)
-            } catch (e: Exception) {
-                venueError = e.message ?: "加载场馆列表失败"
-            } finally {
-                venueLoading = false
-                venueRefreshing = false
-            }
-        }
-    }
-
-    fun loadSlots(silent: Boolean = false) {
-        if (silent) slotsRefreshing = true else slotsLoading = true
-        slotsError = null
-        if (!silent) selectedSlots = emptySet()
-        scope.launch {
-            try {
-                val date = selectedDate.format(DateTimeFormatter.ISO_LOCAL_DATE)
-                val venueId = selectedVenue!!.id
-                val ok = withContext(Dispatchers.IO) { api.fetchAvailableSlots(venueId, date) }
-                availableSlots = ok
-            } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(LoginType.VENUE, Routes.VENUE, onBack)
-            } catch (e: Exception) {
-                slotsError = e.message ?: "加载时段失败"
-            } finally {
-                slotsLoading = false
-                slotsRefreshing = false
-            }
-        }
-    }
-
-    fun doBooking(sliderResult: SliderResult) {
-        val order = pendingOrder ?: return
-        val captcha = captchaData ?: return
-        if (bookingInProgress) return
-        // 自动识别协程此时已经完成；让任何仍在运行的旧加载协程失效。
-        captchaRequestToken++
-        captchaLoading = false
-        captchaAutoSolving = false
-        bookingInProgress = true
-        scope.launch {
-            try {
-                val result = withContext(Dispatchers.IO) {
-                    api.submitBooking(
-                        serviceid = selectedVenue!!.id,
-                        pendingOrder = order,
-                        captchaId = captcha.id,
-                        sliderTrackJson = sliderResult.toJson()
-                    )
-                }
-                bookingResult = result
-                showCaptchaDialog.value = false
-                showResultDialog.value = true
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                bookingResult = VenueApi.BookingResult(false, message = e.message ?: "预订失败")
-                showCaptchaDialog.value = false
-                showResultDialog.value = true
-            } finally { bookingInProgress = false }
-        }
-    }
-
-    /**
-     * 把验证码交给自动识别器；自动识别是设置项，默认开启。
-     * 识别失败只显示提示并保留当前验证码，用户仍可直接手动滑动。
-     */
-    suspend fun processCaptcha(
-        data: VenueApi.CaptchaData,
-        requestToken: Int,
-        autoSolve: Boolean
-    ) {
-        if (requestToken != captchaRequestToken || !showCaptchaDialog.value) return
-        captchaData = data
-        captchaNotice = null
-        if (!autoSolve) return
-
-        captchaAutoSolving = true
-        val solved = try {
-            withContext(Dispatchers.Default) { VenueCaptchaSolver.solve(data) }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            android.util.Log.w("VenueScreen", "automatic captcha solving failed", e)
-            null
-        }
-        if (requestToken != captchaRequestToken || !showCaptchaDialog.value) return
-
-        captchaAutoSolving = false
-        if (solved == null) {
-            captchaNotice = "自动识别未通过，请手动滑动滑块"
-        } else {
-            android.util.Log.d(
-                "VenueScreen",
-                "automatic captcha solve succeeded: target=${solved.targetX}, " +
-                    "confidence=${"%.3f".format(solved.confidence)}"
-            )
-            doBooking(solved.sliderResult)
-        }
-    }
-
-    /** 加载订单第一页；保留旧列表，让刷新过程中页面仍可操作。 */
-    fun loadOrders(reset: Boolean = true) {
-        if (ordersLoading || ordersLoadingMore) return
-        if (!reset && !ordersHasMore) return
-
-        val page = if (reset) 1 else nextOrderPage
-        if (reset) {
-            ordersLoading = true
-            ordersError = null
-            nextOrderPage = 1
-            ordersHasMore = false
-        } else {
-            ordersLoadingMore = true
-            ordersError = null
-        }
-
-        scope.launch {
-            try {
-                val result = withContext(Dispatchers.IO) { api.fetchOrders(page = page, pageSize = 20) }
-                orders = if (reset) {
-                    result.orders
-                } else {
-                    (orders + result.orders).distinctBy { it.orderId }
-                }
-                nextOrderPage = result.page + 1
-                ordersHasMore = result.hasMore
-            } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(LoginType.VENUE, Routes.VENUE, onBack)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                ordersError = e.message ?: "加载订单失败"
-            } finally {
-                if (reset) ordersLoading = false else ordersLoadingMore = false
-            }
-        }
-    }
-
-    fun performCancel(order: VenueApi.OrderInfo) {
-        if (orderActionLoading) return
-        cancelTarget = null
-        orderActionLoading = true
-        scope.launch {
-            try {
-                val result = withContext(Dispatchers.IO) { api.cancelOrder(order.orderId) }
-                Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
-                if (result.success && selectedTab == 1) loadOrders(reset = true)
-            } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(LoginType.VENUE, Routes.VENUE, onBack)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Toast.makeText(context, e.message ?: "取消订单失败", Toast.LENGTH_SHORT).show()
-            } finally {
-                orderActionLoading = false
-            }
-        }
-    }
 
     fun openExternalUrl(url: String) {
         try {
             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             Toast.makeText(context, "没有可用的浏览器", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    fun startBookingFlow() {
-        val venue = selectedVenue
-        if (venue == null) {
-            android.util.Log.w("VenueScreen", "startBookingFlow: selectedVenue is null, aborted")
-            return
-        }
-        showBookingConfirm = false
-        android.util.Log.d("VenueScreen", "startBookingFlow: venue=${venue.id} slots=${selectedSlots.size}")
-        showCaptchaDialog.value = true
-        val requestToken = captchaRequestToken + 1
-        captchaRequestToken = requestToken
-        val autoSolve = credentialStore.venueAutoSolveCaptchaEnabled
-        captchaLoading = true
-        captchaAutoSolving = false
-        captchaError = null
-        captchaNotice = null
-        pendingOrder = null
-        captchaData = null
-        scope.launch {
-            try {
-                val order = withContext(Dispatchers.IO) {
-                    api.prepareOrder(venue.id, selectedSlots.toList())
-                }
-                if (requestToken != captchaRequestToken || !showCaptchaDialog.value) return@launch
-                pendingOrder = order
-                android.util.Log.d("VenueScreen", "startBookingFlow: prepareOrder ok")
-
-                val data = withContext(Dispatchers.IO) { api.generateCaptcha(venue.id) }
-                processCaptcha(data, requestToken, autoSolve)
-                android.util.Log.d("VenueScreen", "startBookingFlow: captcha ready id=${data.id}")
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: AuthExpiredException) {
-                if (requestToken == captchaRequestToken) {
-                    showCaptchaDialog.value = false
-                    captchaRequestToken++
-                    appLoginState.handleAuthExpired(LoginType.VENUE, Routes.VENUE, onBack)
-                }
-            } catch (e: Exception) {
-                if (requestToken == captchaRequestToken) {
-                    android.util.Log.e("VenueScreen", "startBookingFlow failed", e)
-                    captchaError = e.message ?: "获取验证码失败"
-                }
-            } finally {
-                if (requestToken == captchaRequestToken) {
-                    captchaLoading = false
-                    captchaAutoSolving = false
-                }
-            }
-        }
-    }
-
-    fun loadCaptcha() {
-        val venue = selectedVenue ?: return
-        val requestToken = captchaRequestToken + 1
-        captchaRequestToken = requestToken
-        val autoSolve = credentialStore.venueAutoSolveCaptchaEnabled
-        captchaLoading = true
-        captchaAutoSolving = false
-        captchaError = null
-        captchaNotice = null
-        captchaData = null
-        scope.launch {
-            try {
-                val data = withContext(Dispatchers.IO) { api.generateCaptcha(venue.id) }
-                processCaptcha(data, requestToken, autoSolve)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: AuthExpiredException) {
-                if (requestToken == captchaRequestToken) {
-                    showCaptchaDialog.value = false
-                    captchaRequestToken++
-                    appLoginState.handleAuthExpired(LoginType.VENUE, Routes.VENUE, onBack)
-                }
-            } catch (e: Exception) {
-                if (requestToken == captchaRequestToken) {
-                    captchaError = e.message ?: "获取验证码失败"
-                }
-            } finally {
-                if (requestToken == captchaRequestToken) {
-                    captchaLoading = false
-                    captchaAutoSolving = false
-                }
-            }
-        }
-    }
-
-    // 初始加载
-    LaunchedEffect(Unit) { loadVenues() }
-
-    LaunchedEffect(selectedTab) {
-        if (selectedTab == 1 && orders.isEmpty() && !ordersLoading) {
-            loadOrders(reset = true)
-        }
-    }
-
-    // 切换日期/场馆时重新加载时段
-    LaunchedEffect(selectedDate) {
-        if (selectedVenue != null && currentPage is VenuePage.SlotSelection) {
-            loadSlots(silent = availableSlots.isNotEmpty())
         }
     }
 
@@ -423,20 +107,18 @@ fun VenueScreen(
     // 翻页器滑动停稳都会走这里，切到「我的订单」时顺带首次拉一页。
     val onSelectTab: (Int) -> Unit = { index ->
         selectedTab = index
-        if (index == 1 && orders.isEmpty() && !ordersLoading) {
-            loadOrders(reset = true)
-        }
+        if (index == 1) vm.loadOrdersOnce()
     }
     Scaffold(
         topBar = {
             TopAppBar(
-                title = if (selectedTab == 1) "我的订单" else when (currentPage) {
+                title = if (selectedTab == 1) "我的订单" else when (vm.page) {
                     VenuePage.VenueList -> "场馆预订"
-                    is VenuePage.SlotSelection -> selectedVenue?.name ?: "选择时段"
+                    VenuePage.SlotSelection -> vm.selectedVenue?.name ?: "选择时段"
                 },
-                largeTitle = if (selectedTab == 1) "我的订单" else when (currentPage) {
+                largeTitle = if (selectedTab == 1) "我的订单" else when (vm.page) {
                     VenuePage.VenueList -> "场馆预订"
-                    is VenuePage.SlotSelection -> selectedVenue?.name ?: "选择时段"
+                    VenuePage.SlotSelection -> vm.selectedVenue?.name ?: "选择时段"
                 },
                 color = glassBarColor(glass),
                 modifier = Modifier.glassTopBar(glass),
@@ -446,12 +128,9 @@ fun VenueScreen(
                         if (selectedTab == 1) {
                             selectedTab = 0
                         } else {
-                            when (currentPage) {
+                            when (vm.page) {
                                 VenuePage.VenueList -> onBack()
-                                is VenuePage.SlotSelection -> {
-                                    currentPage = VenuePage.VenueList
-                                    selectedSlots = emptySet()
-                                }
+                                VenuePage.SlotSelection -> vm.closeVenue()
                             }
                         }
                     }) {
@@ -471,14 +150,14 @@ fun VenueScreen(
                                 modifier = Modifier.readableWidth(),
                             )
                             // 选时段时的日期条。放在下拉刷新外面，避免和横向选日抢手势
-                            val venue = selectedVenue
+                            val venue = vm.selectedVenue
                             AnimatedVisibility(
-                                visible = selectedTab == 0 && currentPage is VenuePage.SlotSelection && venue != null,
+                                visible = selectedTab == 0 && vm.page == VenuePage.SlotSelection && venue != null,
                             ) {
                                 if (venue != null) {
                                     DateSelector(
-                                        selectedDate = selectedDate,
-                                        onDateChange = { selectedDate = it },
+                                        selectedDate = vm.selectedDate,
+                                        onDateChange = vm::selectDate,
                                         advanceDay = venue.advanceDay,
                                     )
                                 }
@@ -542,18 +221,18 @@ fun VenueScreen(
                 // 「场馆预订」栏内部还有一层「场馆列表 → 选时段」的子导航；
                 // 只在停在场馆列表时允许横滑切顶层标签，选时段中途横滑容易和
                 // 返回按钮的语义（回到场馆列表）打架，所以关掉。
-                swipeEnabled = currentPage is VenuePage.VenueList,
+                swipeEnabled = vm.page == VenuePage.VenueList,
             ) { tabPage ->
                 if (tabPage == 1) {
                     VenueOrdersContent(
-                        orders = orders,
-                        isLoading = ordersLoading,
-                        isLoadingMore = ordersLoadingMore,
-                        error = ordersError,
-                        hasMore = ordersHasMore,
-                        onRetry = { loadOrders(reset = true) },
-                        onRefresh = { loadOrders(reset = true) },
-                        onLoadMore = { loadOrders(reset = false) },
+                        orders = vm.orders,
+                        isLoading = vm.ordersLoading,
+                        isLoadingMore = vm.ordersLoadingMore,
+                        error = vm.ordersError,
+                        hasMore = vm.ordersHasMore,
+                        onRetry = { vm.loadOrders(reset = true) },
+                        onRefresh = { vm.loadOrders(reset = true) },
+                        onLoadMore = { vm.loadOrders(reset = false) },
                         onDetail = { orderDetail = it },
                         onCancel = { cancelTarget = it },
                         onPay = { payTarget = it },
@@ -563,10 +242,10 @@ fun VenueScreen(
                     )
                 } else {
                     AnimatedContent(
-                        targetState = currentPage,
+                        targetState = vm.page,
                         modifier = Modifier.fillMaxSize(),
                         transitionSpec = {
-                            if (targetState is VenuePage.SlotSelection) {
+                            if (targetState == VenuePage.SlotSelection) {
                                 (slideInHorizontally { it / 3 } + fadeIn()) togetherWith
                                         (slideOutHorizontally { -it / 3 } + fadeOut())
                             } else {
@@ -577,39 +256,33 @@ fun VenueScreen(
                         label = "VenuePage"
                     ) { page ->
                         when (page) {
-                            VenuePage.VenueList ->                         VenueListContent(
-                                venues = venues,
-                                isLoading = venueLoading,
-                                isRefreshing = venueRefreshing,
-                                error = venueError,
-                                onRetry = { loadVenues() },
-                                onRefresh = { loadVenues(silent = true) },
-                                onVenueSelected = { venue ->
-                                    selectedVenue = venue
-                                    currentPage = VenuePage.SlotSelection
-                                    loadSlots()
-                                },
+                            VenuePage.VenueList -> VenueListContent(
+                                venues = vm.venues,
+                                isLoading = vm.venueLoading,
+                                isRefreshing = vm.venueRefreshing,
+                                error = vm.venueError,
+                                onRetry = { vm.loadVenues() },
+                                onRefresh = { vm.loadVenues(silent = true) },
+                                onVenueSelected = vm::openVenue,
                                 favoriteIds = favoriteIds,
                                 onToggleFavorite = { venue ->
                                     val isFavorite = favoritesManager.toggleFavorite(venue.id)
-                                    showFavoriteToast.value = if (isFavorite) "已收藏 ${venue.name}" else "已取消收藏 ${venue.name}"
+                                    Toast.makeText(context, if (isFavorite) "已收藏 ${venue.name}" else "已取消收藏 ${venue.name}", Toast.LENGTH_SHORT).show()
                                 },
                                 modifier = Modifier.fillMaxSize(),
                                 scrollBehavior = scrollBehavior,
                                 topPadding = glassTop,
                             )
 
-                            is VenuePage.SlotSelection -> SlotSelectionContent(
-                                availableSlots = availableSlots,
-                                selectedSlots = selectedSlots,
-                                onToggleSlot = { slot ->
-                                    selectedSlots = if (slot in selectedSlots) selectedSlots - slot else selectedSlots + slot
-                                },
-                                isLoading = slotsLoading,
-                                isRefreshing = slotsRefreshing,
-                                error = slotsError,
-                                onRetry = { loadSlots() },
-                                onRefresh = { loadSlots(silent = true) },
+                            VenuePage.SlotSelection -> SlotSelectionContent(
+                                availableSlots = vm.availableSlots,
+                                selectedSlots = vm.selectedSlots,
+                                onToggleSlot = vm::toggleSlot,
+                                isLoading = vm.slotsLoading,
+                                isRefreshing = vm.slotsRefreshing,
+                                error = vm.slotsError,
+                                onRetry = { vm.loadSlots() },
+                                onRefresh = { vm.loadSlots(silent = true) },
                                 onConfirm = { showBookingConfirm = true },
                                 modifier = Modifier.fillMaxSize(),
                                 scrollBehavior = scrollBehavior,
@@ -639,11 +312,11 @@ fun VenueScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        "确定预订以下 ${selectedSlots.size} 个时段吗？",
+                        "确定预订以下 ${vm.selectedSlots.size} 个时段吗？",
                         style = MiuixTheme.textStyles.body1,
                         fontWeight = FontWeight.Medium
                     )
-                    selectedSlots.sortedWith(compareBy({ it.date }, { it.timeSlot }, { it.areaName }))
+                    vm.selectedSlots.sortedWith(compareBy({ it.date }, { it.timeSlot }, { it.areaName }))
                         .forEach { slot ->
                             Text(
                                 listOf(slot.date, slot.timeSlot, slot.areaName)
@@ -654,7 +327,7 @@ fun VenueScreen(
                             )
                         }
                     Text(
-                        "合计：¥${"%.2f".format(selectedSlots.sumOf { it.price })}",
+                        "合计：¥${"%.2f".format(vm.selectedSlots.sumOf { it.price })}",
                         style = MiuixTheme.textStyles.body1,
                         color = MiuixTheme.colorScheme.primary,
                         fontWeight = FontWeight.Bold
@@ -668,7 +341,7 @@ fun VenueScreen(
                         Spacer(Modifier.width(20.dp))
                         TextButton(
                             text = "继续预约",
-                            onClick = { startBookingFlow() },
+                            onClick = { showBookingConfirm = false; vm.startBooking() },
                             modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.textButtonColorsPrimary()
                         )
@@ -678,52 +351,43 @@ fun VenueScreen(
         }
 
         // ─── 验证码弹窗 ───
-        if (showCaptchaDialog.value) {
-            BackHandler {
-                showCaptchaDialog.value = false
-                captchaRequestToken++
-                captchaLoading = false
-                captchaAutoSolving = false
-            }
+        if (vm.showCaptcha) {
+            BackHandler(onBack = vm::closeCaptcha)
             OverlayDialog(
                 title = "滑动验证",
-                show = showCaptchaDialog.value,
-                onDismissRequest = {
-                    showCaptchaDialog.value = false
-                    captchaRequestToken++
-                    captchaLoading = false
-                    captchaAutoSolving = false
-                }
+                show = true,
+                onDismissRequest = vm::closeCaptcha,
             ) {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     when {
-                        bookingInProgress -> {
+                        vm.bookingInProgress -> {
                             Spacer(Modifier.height(32.dp))
                             com.xjtu.toolbox.ui.components.MorphingLoader()  // 整页加载统一用形变加载器
                             Spacer(Modifier.height(8.dp))
                             Text("正在预订...", style = MiuixTheme.textStyles.body2)
                             Spacer(Modifier.height(32.dp))
                         }
-                        captchaLoading -> {
+                        vm.captchaLoading -> {
                             Spacer(Modifier.height(32.dp))
                             com.xjtu.toolbox.ui.components.MorphingLoader()  // 整页加载统一用形变加载器
                             Spacer(Modifier.height(8.dp))
                             Text(
-                                if (captchaAutoSolving) "正在自动识别验证码..." else "加载验证码...",
+                                if (vm.captchaAutoSolving) "正在自动识别验证码..." else "加载验证码...",
                                 style = MiuixTheme.textStyles.body2
                             )
                             Spacer(Modifier.height(32.dp))
                         }
-                        captchaError != null -> {
-                            Text(captchaError!!, color = MiuixTheme.colorScheme.error)
+                        vm.captchaError != null -> {
+                            Text(vm.captchaError!!, color = MiuixTheme.colorScheme.error)
                             Spacer(Modifier.height(12.dp))
-                            TextButton(text = "重试", onClick = { startBookingFlow() })
+                            TextButton(text = "重试", onClick = vm::startBooking)
                         }
-                        captchaData != null -> {
-                            captchaNotice?.let { notice ->
+                        vm.captchaData != null -> {
+                            val captcha = vm.captchaData!!
+                            vm.captchaNotice?.let { notice ->
                                 Text(
                                     notice,
                                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -732,16 +396,16 @@ fun VenueScreen(
                                 Spacer(Modifier.height(8.dp))
                             }
                             SliderCaptchaView(
-                                backgroundImageBase64 = captchaData!!.backgroundImage,
-                                sliderImageBase64 = captchaData!!.sliderImage,
-                                bgOriginalWidth = captchaData!!.bgWidth,
-                                bgOriginalHeight = captchaData!!.bgHeight,
-                                sliderOriginalWidth = captchaData!!.sliderWidth,
-                                sliderOriginalHeight = captchaData!!.sliderHeight,
-                                onSlideComplete = { result -> doBooking(result) }
+                                backgroundImageBase64 = captcha.backgroundImage,
+                                sliderImageBase64 = captcha.sliderImage,
+                                bgOriginalWidth = captcha.bgWidth,
+                                bgOriginalHeight = captcha.bgHeight,
+                                sliderOriginalWidth = captcha.sliderWidth,
+                                sliderOriginalHeight = captcha.sliderHeight,
+                                onSlideComplete = vm::submitBooking
                             )
                             Spacer(Modifier.height(8.dp))
-                            TextButton(text = "换一张", onClick = { loadCaptcha() })
+                            TextButton(text = "换一张", onClick = vm::reloadCaptcha)
                         }
                     }
                 }
@@ -749,28 +413,18 @@ fun VenueScreen(
         }
 
         // ─── 预订结果弹窗 ───
-        if (showResultDialog.value && bookingResult != null) {
-            BackHandler {
-                showResultDialog.value = false
-                if (bookingResult!!.success) { selectedSlots = emptySet(); loadSlots() }
-            }
+        vm.bookingResult?.let { result ->
+            BackHandler { vm.dismissResult(refresh = true) }
             OverlayDialog(
-                title = if (bookingResult!!.success) "预订成功" else "预订失败",
-                show = showResultDialog.value,
-                onDismissRequest = {
-                    showResultDialog.value = false
-                    if (bookingResult!!.success) {
-                        selectedSlots = emptySet()
-                        loadSlots()
-                    }
-                }
+                title = if (result.success) "预订成功" else "预订失败",
+                show = true,
+                onDismissRequest = { vm.dismissResult(refresh = true) },
             ) {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    val result = bookingResult!!
                     if (result.success) {
                         Icon(
                             Icons.Default.CheckCircle,
@@ -808,7 +462,7 @@ fun VenueScreen(
                         TextButton(
                             text = "去支付",
                             onClick = {
-                                showResultDialog.value = false
+                                vm.dismissResult(refresh = false)
                                 payTarget = VenueApi.OrderInfo(
                                     orderId = result.orderId,
                                     status = 0,
@@ -823,13 +477,7 @@ fun VenueScreen(
                     }
                     TextButton(
                         text = "确定",
-                        onClick = {
-                            showResultDialog.value = false
-                            if (result.success) {
-                                selectedSlots = emptySet()
-                                loadSlots()
-                            }
-                        },
+                        onClick = { vm.dismissResult(refresh = true) },
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -925,11 +573,11 @@ fun VenueScreen(
 
         // ─── 取消确认 ───
         cancelTarget?.let { order ->
-            BackHandler { if (!orderActionLoading) cancelTarget = null }
+            BackHandler { if (!vm.orderActionLoading) cancelTarget = null }
             OverlayDialog(
                 title = "取消订单",
                 show = true,
-                onDismissRequest = { if (!orderActionLoading) cancelTarget = null }
+                onDismissRequest = { if (!vm.orderActionLoading) cancelTarget = null }
             ) {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
@@ -953,7 +601,7 @@ fun VenueScreen(
                         Spacer(Modifier.width(20.dp))
                         TextButton(
                             text = "确认取消",
-                            onClick = { performCancel(order) },
+                            onClick = { cancelTarget = null; vm.cancelOrder(order) },
                             modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.textButtonColors(
                                 textColor = MiuixTheme.colorScheme.error
@@ -996,7 +644,7 @@ fun VenueScreen(
                             text = "去支付",
                             onClick = {
                                 payTarget = null
-                                openExternalUrl(api.paymentUrl(order.orderId))
+                                openExternalUrl(vm.api.paymentUrl(order.orderId))
                             },
                             modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.textButtonColorsPrimary()
@@ -1006,12 +654,6 @@ fun VenueScreen(
             }
         }
     }
-}
-
-// ─── 页面状态 ───
-private sealed class VenuePage {
-    data object VenueList : VenuePage()
-    data object SlotSelection : VenuePage()
 }
 
 // ─── 场馆列表页 ───
@@ -1034,27 +676,18 @@ private fun VenueListContent(
     val sortedVenues = remember(venues, favoriteIds) {
         venues.sortedByDescending { it.id in favoriteIds }
     }
-    val pullToRefreshState = rememberPullToRefreshState()
 
-    PullToRefresh(
-        refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
+    AppPullToRefresh(
         isRefreshing = isRefreshing,
         onRefresh = onRefresh,
-        pullToRefreshState = pullToRefreshState,
-        topAppBarScrollBehavior = scrollBehavior,
-        contentPadding = PaddingValues(top = topPadding),
-        modifier = modifier.fillMaxSize()
+        scrollBehavior = scrollBehavior,
+        topPadding = topPadding,
+        modifier = modifier.fillMaxSize(),
     ) {
     when {
-        isLoading -> LazyColumn(Modifier.fillMaxSize().padding(top = topPadding)) {
-            item { Box(Modifier.fillParentMaxSize()) { LoadingState(message = "加载场馆列表...", modifier = Modifier.fillMaxSize()) } }
-        }
-        error != null && venues.isEmpty() -> LazyColumn(Modifier.fillMaxSize().padding(top = topPadding)) {
-            item { Box(Modifier.fillParentMaxSize()) { ErrorState(message = error, onRetry = onRetry, modifier = Modifier.fillMaxSize()) } }
-        }
-        sortedVenues.isEmpty() -> LazyColumn(Modifier.fillMaxSize().padding(top = topPadding)) {
-            item { Box(Modifier.fillParentMaxSize()) { EmptyState(title = "暂无可预订场馆", modifier = Modifier.fillMaxSize()) } }
-        }
+        isLoading -> FullPageState(Modifier.fillMaxSize().padding(top = topPadding)) { LoadingState(message = "加载场馆列表...", modifier = Modifier.fillMaxSize()) }
+        error != null && venues.isEmpty() -> FullPageState(Modifier.fillMaxSize().padding(top = topPadding)) { ErrorState(message = error, onRetry = onRetry, modifier = Modifier.fillMaxSize()) }
+        sortedVenues.isEmpty() -> FullPageState(Modifier.fillMaxSize().padding(top = topPadding)) { EmptyState(title = "暂无可预订场馆", modifier = Modifier.fillMaxSize()) }
         // 宽屏场馆卡分两三列（见 AdaptiveCardGrid）
         else -> com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid(
             modifier = Modifier
@@ -1179,27 +812,18 @@ private fun SlotSelectionContent(
     /** 玻璃顶栏（含标签行、日期条）的高度，放进列表顶部留白。日期条在顶栏里，见 VenueScreen。 */
     topPadding: androidx.compose.ui.unit.Dp = 0.dp,
 ) {
-    val pullToRefreshState = rememberPullToRefreshState()
     Column(modifier = modifier.fillMaxSize()) {
-        PullToRefresh(
-            refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
+        AppPullToRefresh(
             isRefreshing = isRefreshing,
             onRefresh = onRefresh,
-            pullToRefreshState = pullToRefreshState,
-            topAppBarScrollBehavior = scrollBehavior,
-            contentPadding = PaddingValues(top = topPadding),
-            modifier = Modifier.weight(1f).fillMaxWidth()
+            scrollBehavior = scrollBehavior,
+            topPadding = topPadding,
+            modifier = Modifier.weight(1f).fillMaxWidth(),
         ) {
         when {
-            isLoading -> LazyColumn(Modifier.fillMaxSize().padding(top = topPadding)) {
-                item { Box(Modifier.fillParentMaxSize()) { LoadingState(message = "加载可用时段...", modifier = Modifier.fillMaxSize()) } }
-            }
-            error != null && availableSlots.isEmpty() -> LazyColumn(Modifier.fillMaxSize().padding(top = topPadding)) {
-                item { Box(Modifier.fillParentMaxSize()) { ErrorState(message = error, onRetry = onRetry, modifier = Modifier.fillMaxSize()) } }
-            }
-            availableSlots.isEmpty() -> LazyColumn(Modifier.fillMaxSize().padding(top = topPadding)) {
-                item { Box(Modifier.fillParentMaxSize()) { EmptyState(title = "该日期暂无可预订时段", subtitle = "请尝试其他日期", modifier = Modifier.fillMaxSize()) } }
-            }
+            isLoading -> FullPageState(Modifier.fillMaxSize().padding(top = topPadding)) { LoadingState(message = "加载可用时段...", modifier = Modifier.fillMaxSize()) }
+            error != null && availableSlots.isEmpty() -> FullPageState(Modifier.fillMaxSize().padding(top = topPadding)) { ErrorState(message = error, onRetry = onRetry, modifier = Modifier.fillMaxSize()) }
+            availableSlots.isEmpty() -> FullPageState(Modifier.fillMaxSize().padding(top = topPadding)) { EmptyState(title = "该日期暂无可预订时段", subtitle = "请尝试其他日期", modifier = Modifier.fillMaxSize()) }
             else -> {
                 // 按时段分组（同一时段可能有多个场地）
                 val slotsByTime = remember(availableSlots) {

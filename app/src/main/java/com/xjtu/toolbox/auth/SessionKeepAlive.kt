@@ -61,12 +61,6 @@ object SessionKeepAlive {
         loopJob = null
     }
 
-    /** 设置变更后调用：立即重启循环以应用新间隔/开关。 */
-    fun applyConfigChange(context: Context) {
-        stop()
-        start(context)
-    }
-
     private suspend fun runOnce() {
         sessionRefresher?.let {
             try {
@@ -87,7 +81,6 @@ class KeepAlivePrefs(context: Context) {
     fun setEnabled(value: Boolean) = sp.edit { putBoolean(KEY_ENABLED, value) }
 
     fun intervalMinutes(): Long = sp.getLong(KEY_INTERVAL_MIN, SessionKeepAlive.DEFAULT_INTERVAL_MIN)
-    fun setIntervalMinutes(value: Long) = sp.edit { putLong(KEY_INTERVAL_MIN, value.coerceAtLeast(1)) }
 
     companion object {
         private const val KEY_ENABLED = "enabled"

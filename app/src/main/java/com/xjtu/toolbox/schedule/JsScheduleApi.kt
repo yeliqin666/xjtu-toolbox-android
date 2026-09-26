@@ -1,6 +1,16 @@
 package com.xjtu.toolbox.schedule
 
-import com.google.gson.JsonObject
+import com.xjtu.toolbox.util.intValue
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.buildJsonObject
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.isNull
+import com.xjtu.toolbox.util.isObject
+import com.xjtu.toolbox.util.isArray
+import com.xjtu.toolbox.util.isPrimitive
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.auth.JsLogin
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
@@ -53,12 +63,12 @@ class JsScheduleApi(private val site: SiteSession) {
     }
 
     private suspend fun queryWeek(termCode: String, week: Int): List<JsCell> {
-        val payload = JsonObject().apply {
-            addProperty("jasmc", "")
-            addProperty("kcm", "")
-            addProperty("checkDate", "")
-            addProperty("xnxqdm", termCode)
-            addProperty("skzc", week.toString())
+        val payload = buildJsonObject {
+            put("jasmc", "")
+            put("kcm", "")
+            put("checkDate", "")
+            put("xnxqdm", termCode)
+            put("skzc", week.toString())
         }.toString()
         val request = Request.Builder()
             .url("${JsLogin.BASE_URL}/server/onlineSchedule/dataList")
@@ -91,22 +101,22 @@ private const val MAX_SECTION = 14
 /** 解析一周的 dataList 响应。格式对不上就抛，让路由器退回教务。 */
 internal fun parseJsWeek(body: String, week: Int): List<JsCell> {
     val root = body.safeParseJsonObject()
-    when (val code = root.get("code")?.takeIf { !it.isJsonNull }?.runCatching { asInt }?.getOrNull()) {
+    when (val code = root.get("code")?.takeIf { !it.isNull }?.runCatching { intValue }?.getOrNull()) {
         0 -> Unit
         400 -> return emptyList()
         else -> throw java.io.IOException("智慧教室课表第${week}周：code=$code")
     }
-    val days = root.get("data")?.takeIf { it.isJsonObject }?.asJsonObject
-        ?.get("dataList")?.takeIf { it.isJsonArray }?.asJsonArray
+    val days = root.get("data")?.takeIf { it.isObject }?.jsonObject
+        ?.get("dataList")?.takeIf { it.isArray }?.jsonArray
         ?: return emptyList()
-    if (days.size() > 7) throw java.io.IOException("智慧教室课表第${week}周：一周给了 ${days.size()} 天")
+    if (days.size > 7) throw java.io.IOException("智慧教室课表第${week}周：一周给了 ${days.size} 天")
     val cells = mutableListOf<JsCell>()
     days.forEachIndexed { index, dayEl ->
-        val classInfo = dayEl.takeIf { it.isJsonObject }?.asJsonObject
-            ?.get("classInfo")?.takeIf { it.isJsonArray }?.asJsonArray ?: return@forEachIndexed
+        val classInfo = dayEl.takeIf { it.isObject }?.jsonObject
+            ?.get("classInfo")?.takeIf { it.isArray }?.jsonArray ?: return@forEachIndexed
         for (slotEl in classInfo) {
-            val slot = slotEl.takeIf { it.isJsonObject }?.asJsonObject ?: continue
-            val data = slot.get("classData")?.takeIf { it.isJsonObject }?.asJsonObject ?: continue
+            val slot = slotEl.takeIf { it.isObject }?.jsonObject ?: continue
+            val data = slot.get("classData")?.takeIf { it.isObject }?.jsonObject ?: continue
             val section = slot.str("classJc")?.toIntOrNull()
                 ?: throw java.io.IOException("智慧教室课表第${week}周：节次缺失")
             if (section !in 1..MAX_SECTION) throw java.io.IOException("智慧教室课表第${week}周：节次 $section 不合理")
@@ -169,4 +179,4 @@ internal fun mergeJsWeeks(weekly: List<Pair<Int, List<JsCell>>>): List<CourseIte
 }
 
 private fun JsonObject.str(key: String): String? =
-    get(key)?.takeIf { !it.isJsonNull && it.isJsonPrimitive }?.asString?.trim()
+    get(key)?.takeIf { !it.isNull && it.isPrimitive }?.stringValue?.trim()

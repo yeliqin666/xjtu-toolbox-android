@@ -1,27 +1,20 @@
 package com.xjtu.toolbox.score
 
 import com.xjtu.toolbox.auth.SiteSession
-import kotlinx.coroutines.runBlocking
 import okhttp3.Request
 import org.jsoup.Jsoup
 
 /**
  * 成绩报表数据
  */
+@kotlinx.serialization.Serializable
 data class ReportedGrade(
-    val courseName: String,
-    val coursePoint: Double,
-    val score: String,      // 可能是数字或等级（如 "优秀"）
-    val gpa: Double?,
-    val term: String        // 学期代码 "2024-2025-1"
-) {
-    /** 磁盘缓存反序列化兜底，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。 */
-    fun sanitized(): ReportedGrade = copy(
-        courseName = (courseName as String?) ?: "",
-        score = (score as String?) ?: "",
-        term = (term as String?) ?: "",
-    )
-}
+    val courseName: String = "",
+    val coursePoint: Double = 0.0,
+    val score: String = "",      // 可能是数字或等级（如 "优秀"）
+    val gpa: Double? = null,
+    val term: String = "",       // 学期代码 "2024-2025-1"
+)
 
 /**
  * 教务系统成绩报表查询 (FR Report)
@@ -130,7 +123,7 @@ class ScoreReportApi(private val site: SiteSession) {
             if (courseName in listOf("课程", "学分", "成绩") || creditText.toDoubleOrNull() == null) continue
 
             val credit = creditText.toDoubleOrNull() ?: continue
-            val gpa = com.xjtu.toolbox.util.ScoreCalculator.scoreToGpa(scoreText)
+            val gpa = com.xjtu.toolbox.score.ScoreCalculator.scoreToGpa(scoreText)
 
             courses.add(ReportedGrade(courseName, credit, scoreText, gpa, currentTerm))
         }
@@ -144,11 +137,11 @@ class ScoreReportApi(private val site: SiteSession) {
      * @param filterTerms 可选的学期过滤列表
      * @return 课程成绩列表
      */
-    fun getReportedGrade(studentId: String, filterTerms: List<String>? = null): List<ReportedGrade> {
+    suspend fun getReportedGrade(studentId: String, filterTerms: List<String>? = null): List<ReportedGrade> {
         // 第1步：获取帆软报表初始页面
         val initUrl = "$FR_REPORT_URL?reportlet=bkdsglxjtu/XAJTDX_BDS_CJ.cpt&xh=$studentId"
         val initRequest = Request.Builder().url(initUrl).get().build()
-        val initHtml = runBlocking { site.executeWithReAuth(initRequest) }.use { it.body?.string() ?: "" }
+        val initHtml = site.executeWithReAuth(initRequest).use { it.body?.string() ?: "" }
 
         // 第2步：提取 FR Session ID
         val sessionId = extractFrSessionId(initHtml)
@@ -156,7 +149,7 @@ class ScoreReportApi(private val site: SiteSession) {
         // 第3步：获取第一页内容
         val firstPageUrl = "$FR_REPORT_URL?_=${System.currentTimeMillis()}&__boxModel__=true&op=page_content&sessionID=$sessionId&pn=1"
         val firstPageRequest = Request.Builder().url(firstPageUrl).get().build()
-        val firstPageHtml = runBlocking { site.executeWithReAuth(firstPageRequest) }.use { it.body?.string() ?: "" }
+        val firstPageHtml = site.executeWithReAuth(firstPageRequest).use { it.body?.string() ?: "" }
 
         val totalPages = extractTotalPages(firstPageHtml)
 
@@ -167,7 +160,7 @@ class ScoreReportApi(private val site: SiteSession) {
         for (pn in 2..totalPages) {
             val pageUrl = "$FR_REPORT_URL?_=${System.currentTimeMillis()}&__boxModel__=true&op=page_content&sessionID=$sessionId&pn=$pn"
             val pageRequest = Request.Builder().url(pageUrl).get().build()
-            val pageHtml = runBlocking { site.executeWithReAuth(pageRequest) }.use { it.body?.string() ?: "" }
+            val pageHtml = site.executeWithReAuth(pageRequest).use { it.body?.string() ?: "" }
             allCourses.addAll(parseCoursesFromHtml(pageHtml))
         }
 

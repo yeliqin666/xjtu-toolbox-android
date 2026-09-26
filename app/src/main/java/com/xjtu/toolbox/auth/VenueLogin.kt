@@ -62,7 +62,7 @@ class VenueLogin(
         sessionValid = runCatching {
             client.newCall(
                 Request.Builder().url("$BASE_URL/web/index.html").get().build()
-            ).execute().use { it.body?.string().orEmpty() }
+            ).execute().use { it.body.string() }
         }.getOrDefault("").hasUserNo()
 
         if (!sessionValid) {
@@ -78,7 +78,7 @@ class VenueLogin(
                 .header("Referer", "$BASE_URL/web/index.html")
                 .get().build()
         ).execute().use { resp ->
-            val body = resp.body?.string().orEmpty()
+            val body = resp.body.string()
             // 未登录时这里会返回登录跳转页而非 JSON 数组
             resp.code == 200 && body.trimStart().startsWith("[") && body.trimStart() != "[]"
         }

@@ -1,11 +1,9 @@
 package com.xjtu.toolbox.attendance
 
+import kotlinx.serialization.Serializable
+
 /**
  * 考勤状态
- *
- * 这几个数据类原来跟旧版考勤（bkkq/yjskq，域名已停用）的网络调用代码挤在同一个文件里；
- * 新版考勤（newattendance 包，kq.xjtu.edu.cn）复用的正是这几个类型，所以旧版下线时
- * 把它们单独挪出来，新旧版都不用改一行引用（包名没变，只是搬了文件）。
  */
 enum class WaterType(val value: Int) {
     NORMAL(1),     // 正常
@@ -43,39 +41,24 @@ enum class WaterType(val value: Int) {
 /**
  * 考勤流水记录（已结束的课程）
  */
+@Serializable
 data class AttendanceWaterRecord(
-    val sbh: String,
-    val termString: String,
-    val startTime: Int,
-    val endTime: Int,
-    val week: Int,
-    val location: String,
-    val courseName: String,
+    val sbh: String = "",
+    val termString: String = "",
+    val startTime: Int = 0,
+    val endTime: Int = 0,
+    val week: Int = 0,
+    val location: String = "",
+    val courseName: String = "",
     /**
      * 学校课程号，与教务课表的 `courseCode` 是同一个编码（实测 `PHYS405309` 两边逐字相同）。
      * 用它跟课表关联比用课程名可靠：课名带「（甲）」「(实验)」后缀时两边写法未必一致。
      */
-    val courseCode: String,
-    val teacher: String,
-    val status: WaterType,
-    val date: String
-) {
-    /**
-     * 磁盘缓存反序列化兜底，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。
-     * 这条路径的消费点（[com.xjtu.toolbox.schedule.CourseLinks]）没有任何 try/catch，
-     * 缺字段的旧缓存一读就是未捕获 NPE，风险高于其它同类场景。
-     */
-    fun sanitized(): AttendanceWaterRecord = copy(
-        sbh = (sbh as String?) ?: "",
-        termString = (termString as String?) ?: "",
-        location = (location as String?) ?: "",
-        courseName = (courseName as String?) ?: "",
-        courseCode = (courseCode as String?) ?: "",
-        teacher = (teacher as String?) ?: "",
-        status = (status as WaterType?) ?: WaterType.UNKNOWN,
-        date = (date as String?) ?: "",
-    )
-}
+    val courseCode: String = "",
+    val teacher: String = "",
+    val status: WaterType = WaterType.UNKNOWN,
+    val date: String = "",
+)
 
 /**
  * 打卡流水（考勤记录之外的原始刷卡数据）

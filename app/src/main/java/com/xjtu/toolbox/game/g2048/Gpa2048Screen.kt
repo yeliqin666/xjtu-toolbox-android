@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.game.g2048
 
+import com.xjtu.toolbox.ui.components.BackButton
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.MutableTransitionState
@@ -29,7 +30,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.runtime.Composable
@@ -196,9 +196,7 @@ fun Gpa2048Screen(onBack: () -> Unit) {
             TopAppBar(
                 title = "GPA 2048",
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
+                    BackButton(onBack)
                 },
                 color = MiuixTheme.colorScheme.background,
             )

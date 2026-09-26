@@ -66,7 +66,7 @@ internal object HeadlessSessions {
                 register(com.xjtu.toolbox.auth.JwappSession())
                 register(com.xjtu.toolbox.auth.LibrarySession())
                 register(com.xjtu.toolbox.auth.LmsSession())
-                register(com.xjtu.toolbox.auth.NewAttendanceSession())
+                register(com.xjtu.toolbox.auth.AttendanceSession())
             }
             manager.reconfigureForAccount("_" + account.accountId.replace(Regex("[^a-zA-Z0-9]"), "_"))
             manager.setCredentials(account.accountId, account.password)

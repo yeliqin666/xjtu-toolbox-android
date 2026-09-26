@@ -1,7 +1,9 @@
 package com.xjtu.toolbox.notification
 
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.booleanValue
 import android.util.Log
-import com.xjtu.toolbox.util.HttpClients
+import com.xjtu.toolbox.network.HttpClients
 import com.xjtu.toolbox.util.safeParseJsonObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -31,7 +33,6 @@ data class Notification(
     val description: String = "",
     val tags: List<String> = emptyList(),
     val date: LocalDate = LocalDate.now(),
-    val isRead: Boolean = false
 )
 
 /** 某一页的抓取结果。[hasMore] 表示站点分页里还有下一页，不是「这一页是不是空的」。 */
@@ -277,7 +278,7 @@ private fun getPage(client: OkHttpClient, url: String, domain: String): String {
         if (it.code == 404 || it.code >= 500) {
             throw java.io.IOException("HTTP ${it.code} for $url")
         }
-        return it.body?.string() ?: ""
+        return it.body.string()
     }
 }
 
@@ -301,7 +302,7 @@ private fun solveChallenge(client: OkHttpClient, url: String, challenge: Website
             Log.w(TAG, "challenge HTTP ${resp.code} for $url")
             return null
         }
-        resp.body?.string() ?: return null
+        resp.body.string()
     }
 
     val json = try {
@@ -310,11 +311,11 @@ private fun solveChallenge(client: OkHttpClient, url: String, challenge: Website
         Log.w(TAG, "challenge response not JSON for $url")
         return null
     }
-    if (json.get("success")?.asBoolean != true) {
-        Log.w(TAG, "challenge rejected for $url: ${json.get("message")?.asString}")
+    if (json.get("success")?.booleanValue != true) {
+        Log.w(TAG, "challenge rejected for $url: ${json.get("message")?.stringValue}")
         return null
     }
-    return json.get("client_id")?.asString?.takeIf { it.isNotBlank() }
+    return json.get("client_id")?.stringValue?.takeIf { it.isNotBlank() }
 }
 
 /**
@@ -574,7 +575,7 @@ private class GenericXjtuCrawler(
     private fun tryFetchDoc(url: String): Document? {
         return try {
             val doc = fetchDocumentWithChallenge(client, url)
-            val bodyLen = doc.body()?.text()?.length ?: 0
+            val bodyLen = doc.body().text().length
             if (bodyLen < 50) null else doc
         } catch (e: Exception) {
             Log.w(TAG, "GenericCrawler[${source.displayName}] fetch error at $url: ${e.message}")
@@ -800,7 +801,7 @@ private class OaNoticeCrawler(
             return NotificationPage(emptyList(), false)
         }
         val items = doc.select("a.noa_list").mapNotNull { parseRow(it) }.distinctBy { it.link }
-        val hasMore = PAGE_META_RE.find(doc.body()?.text().orEmpty())?.let { match ->
+        val hasMore = PAGE_META_RE.find(doc.body().text())?.let { match ->
             val current = match.groupValues[1].toIntOrNull() ?: pageNo
             val total = match.groupValues[2].toIntOrNull() ?: current
             current < total
@@ -828,11 +829,11 @@ private class OaNoticeCrawler(
             .build()
         val html = client.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) throw java.io.IOException("HTTP ${resp.code} for OA search")
-            resp.body?.string().orEmpty()
+            resp.body.string()
         }
         val doc = Jsoup.parse(html, INDEX_URL)
         val items = doc.select("a.noa_list").mapNotNull { parseRow(it) }.distinctBy { it.link }
-        val hasMore = PAGE_META_RE.find(doc.body()?.text().orEmpty())?.let { match ->
+        val hasMore = PAGE_META_RE.find(doc.body().text())?.let { match ->
             val current = match.groupValues[1].toIntOrNull() ?: pageNo
             val total = match.groupValues[2].toIntOrNull() ?: current
             current < total
@@ -1005,7 +1006,7 @@ internal object XjtuSiteFetcher {
         cachedClientId(domain)?.let { builder.header("Cookie", "client_id=$it") }
         notificationClient.newCall(builder.build()).execute().use { resp ->
             if (!resp.isSuccessful) throw java.io.IOException("HTTP ${resp.code} for $url")
-            return resp.body?.bytes() ?: throw java.io.IOException("空响应：$url")
+            return resp.body.bytes()
         }
     }
 }

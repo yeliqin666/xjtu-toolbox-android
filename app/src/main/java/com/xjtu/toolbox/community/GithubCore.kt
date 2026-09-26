@@ -2,6 +2,7 @@ package com.xjtu.toolbox.community
 
 // 改编自 JoyinJoester/Etoile（GPL-3.0）的 github/data/GithubNetwork.kt、GithubAuthenticatedRequests.kt
 
+import com.xjtu.toolbox.network.HttpClients
 import kotlinx.coroutines.CancellationException
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -23,7 +24,7 @@ object CommunityRepo {
 
 object GithubNetwork {
     val client: OkHttpClient by lazy {
-        OkHttpClient.Builder()
+        HttpClients.base.newBuilder()
             .connectTimeout(12, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
             .callTimeout(20, TimeUnit.SECONDS)

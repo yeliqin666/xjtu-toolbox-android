@@ -24,19 +24,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "XJTUToolBox"
 include(":app")
-include(":wear")
 // 只在本地/CI 手动跑 generateBaselineProfile 时用到；日常 assemble 不会构建它的测试代码
 include(":baselineprofile")
-
-includeBuild("miuix-ref") {
-    dependencySubstitution {
-        substitute(module("top.yukonga.miuix.kmp:miuix-ui-android")).using(project(":miuix-ui"))
-        substitute(module("top.yukonga.miuix.kmp:miuix-preference-android")).using(project(":miuix-preference"))
-        substitute(module("top.yukonga.miuix.kmp:miuix-icons-android")).using(project(":miuix-icons"))
-        // 超椭圆圆角（MIUI/iOS 那种平滑拐角）。设备不支持 RuntimeShader 时库内部
-        // 自动退回普通 RoundedCornerShape，minSdk 31 上安全。
-        substitute(module("top.yukonga.miuix.kmp:miuix-squircle-android")).using(project(":miuix-squircle"))
-        // 导航运行时。它的 minSdk 是 24，和本项目的 31 不冲突
-        substitute(module("top.yukonga.miuix.kmp:miuix-nav-android")).using(project(":miuix-nav"))
-    }
-}

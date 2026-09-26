@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.dzpz
 
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.graphics.graphicsLayer
 import android.content.ContentValues
 import android.content.Context
@@ -14,19 +16,14 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
-import com.xjtu.toolbox.LocalAppLoginState
-import com.xjtu.toolbox.Routes
-import com.xjtu.toolbox.auth.AuthExpiredException
-import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -39,12 +36,10 @@ import com.xjtu.toolbox.lms.LmsDownloadStore
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.glass.*
-import com.xjtu.toolbox.util.CredentialStore
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import com.xjtu.toolbox.data.CredentialStore
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import com.xjtu.toolbox.nav.AppRoute
 
 /**
  * 电子成绩单下载页面
@@ -61,110 +56,13 @@ fun TranscriptScreen(
     document: DzpzDocument = DzpzDocuments.TRANSCRIPT,
 ) {
     val appLoginState = LocalAppLoginState.current
-    val api = remember(site) { TranscriptApi(site) }
-    val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    val credentialStore = remember(context) { CredentialStore(context) }
-
+    val vm: TranscriptViewModel = viewModel(key = "transcript-${document.hashCode()}-${System.identityHashCode(site)}") {
+        val postgrad = CredentialStore(context).accountType == com.xjtu.toolbox.auth.AccountType.POSTGRADUATE
+        TranscriptViewModel(site, document, if (postgrad) DzpzIdentity.POSTGRAD else DzpzIdentity.UNDERGRAD)
+    }
+    LaunchedEffect(vm) { vm.authExpired.collect { appLoginState.handleAuthExpired(AppRoute.Transcript, onBack) } }
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
-
-    // ── State ──
-    var isLoading by remember { mutableStateOf(true) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    var formContext by remember { mutableStateOf<TranscriptApi.FormContext?>(null) }
-    var selectedTypeIndex by remember { mutableIntStateOf(0) }
-
-    // 身份：校友身份从账号上判断不出来（本科生/研究生账号体系里没有这一档），
-    // 默认值按当前登录账号的类型来，用户可以在页面顶部手动切换成校友身份。
-    val defaultIdentity = remember(credentialStore) {
-        if (credentialStore.accountType == com.xjtu.toolbox.auth.AccountType.POSTGRADUATE) {
-            DzpzIdentity.POSTGRAD
-        } else {
-            DzpzIdentity.UNDERGRAD
-        }
-    }
-    var selectedIdentity by remember { mutableStateOf(defaultIdentity) }
-
-    // 工作流状态
-    var workflowState by remember { mutableStateOf(WorkflowState.IDLE) }
-    var workflowProgress by remember { mutableStateOf("") }
-    var downloadInfo by remember { mutableStateOf<TranscriptApi.DownloadInfo?>(null) }
-    var pdfBytes by remember { mutableStateOf<ByteArray?>(null) }
-
-    // ── 加载表单 ──
-    // P1 修的 bug：原来这里的默认参数永远取 WORKFLOW_MAP 的第一个值（在校本科生
-    // 29），两个调用点都没传参，所有身份都被当成本科生处理。现在按 document +
-    // 选中的身份查 workflowId。
-    fun loadForm(identity: DzpzIdentity = selectedIdentity) {
-        val workflowId = document.workflowIds[identity] ?: return
-        isLoading = true
-        errorMessage = null
-        workflowState = WorkflowState.IDLE
-        downloadInfo = null
-        pdfBytes = null
-        scope.launch {
-            try {
-                val ctx = withContext(Dispatchers.IO) {
-                    api.loadCreateForm(workflowId)
-                }
-                formContext = ctx
-            } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(LoginType.DZPZ, Routes.TRANSCRIPT, onBack)
-            } catch (e: Exception) {
-                errorMessage = "加载失败: ${e.message}"
-            } finally {
-                isLoading = false
-            }
-        }
-    }
-
-    // ── 一键申请 ──
-    fun startWorkflow() {
-        val ctx = formContext ?: return
-        val typeOption = ctx.typeOptions.getOrNull(selectedTypeIndex) ?: return
-
-        workflowState = WorkflowState.RUNNING
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    // Step 1: 联动查询
-                    workflowProgress = "正在获取学籍信息..."
-                    val linkage = api.getLinkageData(ctx, typeOption.value)
-
-                    // Step 2: 生成成绩单
-                    workflowProgress = "正在生成成绩单..."
-                    val docId = api.generatePreviewPdf(ctx.workflowId, typeOption.value)
-
-                    // Step 3: 第一次提交
-                    workflowProgress = "正在提交申请..."
-                    val firstResult = api.submitCreate(ctx, linkage, typeOption.value, docId)
-
-                    // Step 4: 自动转发
-                    workflowProgress = "正在处理签章..."
-                    val secondResult = api.reloadAndForward(ctx, firstResult, typeOption.value)
-
-                    // Step 5: 获取下载链接
-                    workflowProgress = "正在获取下载链接..."
-                    val dlInfo = api.getDownloadInfo(secondResult)
-                    downloadInfo = dlInfo
-
-                    // Step 6: 自动下载
-                    workflowProgress = "正在下载成绩单..."
-                    val bytes = api.downloadPdf(dlInfo.downloadUrl)
-                    pdfBytes = bytes
-                }
-                workflowState = WorkflowState.SUCCESS
-                workflowProgress = "成绩单已生成"
-            } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(LoginType.DZPZ, Routes.TRANSCRIPT, onBack)
-            } catch (e: Exception) {
-                workflowState = WorkflowState.ERROR
-                workflowProgress = "申请失败: ${e.message}"
-            }
-        }
-    }
-
-    LaunchedEffect(Unit) { loadForm() }
 
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
@@ -172,38 +70,32 @@ fun TranscriptScreen(
     // ── UI ──
     Scaffold(
         topBar = {
-            TopAppBar(
+            GlassTopAppBar(
                 title = "电子成绩单",
-                largeTitle = "电子成绩单",
-                color = glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
+                glass = glass,
                 scrollBehavior = scrollBehavior,
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                }
+                onBack = onBack,
             )
         }
     ) { padding ->
         val glassTop = padding.glassTop(glass)
         when {
-            isLoading -> LoadingState(
+            vm.isLoading -> LoadingState(
                 message = "正在连接成绩单服务...",
                 modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass).padding(top = glassTop)
             )
-            errorMessage != null -> ErrorState(
-                message = errorMessage!!,
-                onRetry = { loadForm() },
+            vm.errorMessage != null -> ErrorState(
+                message = vm.errorMessage.orEmpty(),
+                onRetry = vm::loadForm,
                 modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass).padding(top = glassTop)
             )
             else -> {
-                val ctx = formContext ?: return@Scaffold
+                val ctx = vm.formContext ?: return@Scaffold
                 val listState = rememberLazyListState()
 
                 // 成功后自动滚动到底部
-                LaunchedEffect(workflowState) {
-                    if (workflowState == WorkflowState.SUCCESS) {
+                LaunchedEffect(vm.workflowState) {
+                    if (vm.workflowState == WorkflowState.SUCCESS) {
                         listState.animateScrollToItem(listState.layoutInfo.totalItemsCount - 1)
                     }
                 }
@@ -221,11 +113,10 @@ fun TranscriptScreen(
                     // ── 身份选择：默认按账号类型，校友身份需要手动切换 ──
                     item {
                         IdentitySelector(
-                            selected = selectedIdentity,
-                            enabled = workflowState != WorkflowState.RUNNING,
+                            selected = vm.identity,
+                            enabled = vm.workflowState != WorkflowState.RUNNING,
                             onSelect = { identity ->
-                                selectedIdentity = identity
-                                loadForm(identity)
+                                vm.selectIdentity(identity)
                             }
                         )
                     }
@@ -234,9 +125,9 @@ fun TranscriptScreen(
                     item {
                         TranscriptTypeSelector(
                             options = ctx.typeOptions,
-                            selectedIndex = selectedTypeIndex,
-                            enabled = workflowState != WorkflowState.RUNNING,
-                            onSelect = { selectedTypeIndex = it }
+                            selectedIndex = vm.selectedTypeIndex,
+                            enabled = vm.workflowState != WorkflowState.RUNNING,
+                            onSelect = { vm.selectedTypeIndex = it }
                         )
                     }
 
@@ -255,19 +146,19 @@ fun TranscriptScreen(
                     // ── 工作流状态 ──
                     item {
                         WorkflowProgressCard(
-                            state = workflowState,
-                            progress = workflowProgress,
-                            onStart = { startWorkflow() },
-                            enabled = workflowState != WorkflowState.RUNNING
+                            state = vm.workflowState,
+                            progress = vm.workflowProgress,
+                            onStart = vm::start,
+                            enabled = vm.workflowState != WorkflowState.RUNNING
                         )
                     }
 
                     // ── 下载完成区域 ──
-                    if (workflowState == WorkflowState.SUCCESS && pdfBytes != null) {
+                    if (vm.workflowState == WorkflowState.SUCCESS && vm.pdfBytes != null) {
                         item {
                             DownloadSuccessCard(
-                                info = downloadInfo!!,
-                                pdfBytes = pdfBytes!!,
+                                info = vm.downloadInfo!!,
+                                pdfBytes = vm.pdfBytes!!,
                                 context = context
                             )
                         }
@@ -582,7 +473,7 @@ private fun StepsPreview() {
     val steps = listOf(
         Icons.Default.Person to "验证学籍",
         Icons.Default.Description to "生成成绩单",
-        Icons.Default.Send to "提交审核",
+        Icons.AutoMirrored.Filled.Send to "提交审核",
         Icons.Default.Verified to "签章认证",
         Icons.Default.Download to "下载文件"
     )

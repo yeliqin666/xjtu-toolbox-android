@@ -1,5 +1,15 @@
 package com.xjtu.toolbox.agent
 
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.buildJsonObject
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.isNull
+import com.xjtu.toolbox.util.arr
+import com.xjtu.toolbox.util.AppJson
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
 import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -7,20 +17,18 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.gson.JsonArray
-import com.google.gson.Gson
-import com.google.gson.JsonObject
-import com.google.gson.JsonParser
-import com.xjtu.toolbox.AppLoginState
-import com.xjtu.toolbox.util.DataCache
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import com.xjtu.toolbox.auth.AppLoginState
+import com.xjtu.toolbox.data.DataCache
+import com.xjtu.toolbox.nav.AppRoute
 import kotlinx.coroutines.launch
-import java.time.LocalDate
 
 /**
  * 聊天消息 UI 模型。
  *
- * @param navSuggestions 本轮涉及的功能页跳转建议，List<Pair<displayLabel, routeKey>>。
- *   routeKey 与 Routes 常量对应（schedule / empty_room / attendance / …）。
+ * @param navSuggestions 本轮涉及的功能页跳转建议，List<Pair<显示文字, [AppRoute.id]>>。
+ *   存字符串而不是路由对象：聊天记录要落盘，点按钮时再用 [com.xjtu.toolbox.nav.appRouteOf] 解析回来。
  */
 data class ChatMessage(
     val role: String,          // "user" | "assistant" | "tool_event"
@@ -91,7 +99,7 @@ class AgentViewModel : ViewModel() {
 
     // LLM 多轮历史（含 system prompt + 所有轮次），与 messages（UI 专用）独立维护。
     // 保持历史稳定以利用 provider 端 prefix cache：system prompt 只在首轮写入一次。
-    private var llmHistory = JsonArray()
+    private var llmHistory: MutableList<JsonElement> = mutableListOf()
 
     // AgentToolRegistry 保持在 ViewModel 级别，使 loginFailedAt 冷却状态跨消息保留
     private var tools: AgentToolRegistry? = null
@@ -104,7 +112,6 @@ class AgentViewModel : ViewModel() {
      * 免得没登录的人每条消息都先干等一轮网络超时。见 [sendMessage]。
      */
     private var userContextProbe: String? = null
-    private val gson = Gson()
 
     // 当前生成任务，供"停止生成"取消
     private var currentJob: kotlinx.coroutines.Job? = null
@@ -134,10 +141,10 @@ class AgentViewModel : ViewModel() {
         if (uiIdx >= 0) {
             while (messages.size > uiIdx) messages.removeAt(messages.lastIndex)
         }
-        val items = (0 until llmHistory.size()).map { llmHistory[it].asJsonObject }
-        val lastUser = items.indexOfLast { it.get("role")?.asString == "user" }
+        val items = (0 until llmHistory.size).map { llmHistory[it].jsonObject }
+        val lastUser = items.indexOfLast { it.get("role")?.stringValue == "user" }
         if (lastUser >= 0) {
-            llmHistory = JsonArray().apply { items.take(lastUser).forEach { add(it) } }
+            llmHistory = items.take(lastUser).toMutableList<JsonElement>()
         }
         persist()
     }
@@ -163,20 +170,20 @@ class AgentViewModel : ViewModel() {
      * 用于自愈此前因取消/掉线/后台中断而损坏的会话（否则会永久报 must be followed by tool messages）。
      */
     private fun sanitizeHistory() {
-        val items = (0 until llmHistory.size()).map { llmHistory[it].asJsonObject }
+        val items = (0 until llmHistory.size).map { llmHistory[it].jsonObject }
         val out = ArrayList<JsonObject>()
         var i = 0
         while (i < items.size) {
             val m = items[i]
-            val role = m.get("role")?.asString
-            val tcs = if (m.has("tool_calls") && !m.get("tool_calls").isJsonNull) m.getAsJsonArray("tool_calls") else null
+            val role = m.get("role")?.stringValue
+            val tcs = if (m.containsKey("tool_calls") && !m.get("tool_calls").isNull) m.arr("tool_calls") else null
             when {
                 role == "assistant" && tcs != null -> {
-                    val ids = tcs.mapNotNull { it.asJsonObject.get("id")?.asString }.toSet()
+                    val ids = tcs.mapNotNull { it.jsonObject.get("id")?.stringValue }.toSet()
                     val toolMsgs = ArrayList<JsonObject>()
                     var j = i + 1
-                    while (j < items.size && items[j].get("role")?.asString == "tool") { toolMsgs.add(items[j]); j++ }
-                    val covered = toolMsgs.mapNotNull { it.get("tool_call_id")?.asString }.toSet()
+                    while (j < items.size && items[j].get("role")?.stringValue == "tool") { toolMsgs.add(items[j]); j++ }
+                    val covered = toolMsgs.mapNotNull { it.get("tool_call_id")?.stringValue }.toSet()
                     if (ids.isNotEmpty() && ids.all { it in covered }) {
                         out.add(m); toolMsgs.forEach { out.add(it) }
                     } // 否则：丢弃该 assistant 及其不完整 tool 回应
@@ -186,7 +193,7 @@ class AgentViewModel : ViewModel() {
                 else -> { out.add(m); i++ }
             }
         }
-        if (out.size != items.size) llmHistory = JsonArray().apply { out.forEach { add(it) } }
+        if (out.size != items.size) llmHistory = out.toMutableList<JsonElement>()
     }
 
     // ── 会话管理 ────────────────────────────────────────────────────────
@@ -205,7 +212,7 @@ class AgentViewModel : ViewModel() {
         currentJob?.cancel(); applyLoading(false)   // 取消进行中的生成，避免写入新会话造成错乱
         val s = store.create()
         currentSessionId = s.id
-        messages.clear(); llmHistory = JsonArray(); tools = null; errorMessage = null
+        messages.clear(); llmHistory = mutableListOf(); tools = null; errorMessage = null
         lastTotalTokens = null; contextExhausted = false; contextExhaustedJustTriggered = false
         refreshSessions()
     }
@@ -222,7 +229,7 @@ class AgentViewModel : ViewModel() {
                 role = m.role,
                 content = m.content,
                 navSuggestions = m.nav.mapNotNull { if (it.size >= 2) it[0] to it[1] else null },
-                widgets = m.widgets.orEmpty().mapNotNull { storedToWidget(it, gson) },
+                widgets = m.widgets.orEmpty().mapNotNull { storedToWidget(it) },
                 reasoningContent = m.reasoningContent.orEmpty(),
                 // 图片文件可能已被清掉（清缓存、换账号），这里只过滤掉不存在的，
                 // 气泡少显示一张图，比留个破图标好。
@@ -232,7 +239,7 @@ class AgentViewModel : ViewModel() {
                 toolError = m.toolError,
             ))
         }
-        llmHistory = runCatching { JsonParser.parseString(convo.llmHistory).asJsonArray }.getOrDefault(JsonArray())
+        llmHistory = runCatching { AppJson.parseToJsonElement(convo.llmHistory).jsonArray.toMutableList() }.getOrDefault(mutableListOf())
         lastTotalTokens = convo.lastTotalTokens
         contextExhausted = convo.contextExhausted
         contextExhaustedJustTriggered = false
@@ -264,7 +271,7 @@ class AgentViewModel : ViewModel() {
                 it.role,
                 it.content,
                 it.navSuggestions.map { p -> listOf(p.first, p.second) },
-                it.widgets.map { widget -> widget.toStored(gson) }.filter { widget -> widget.type.isNotEmpty() },
+                it.widgets.map { widget -> widget.toStored() },
                 it.reasoningContent.takeIf { reasoning -> reasoning.isNotBlank() },
                 it.timestamp,
                 it.toolError,
@@ -274,7 +281,7 @@ class AgentViewModel : ViewModel() {
         val title = if (store.isLocked(id))
             sessions.firstOrNull { it.id == id }?.title ?: deriveTitle()
         else deriveTitle()
-        store.save(id, StoredConversation(stored, llmHistory.toString(), lastTotalTokens, contextExhausted), title)
+        store.save(id, StoredConversation(stored, JsonArray(llmHistory).toString(), lastTotalTokens, contextExhausted), title)
         refreshSessions()
     }
 
@@ -402,8 +409,8 @@ class AgentViewModel : ViewModel() {
                 // 之后原样复用。名字、皮肤、偏好、画像中途变了，都从下一个新对话起生效——
                 // 中途改写等于篡改上下文：前几轮按旧设定答的，前后人设对不上，前缀缓存也整段作废。
                 // 会变的时间和模型走每条消息头（nowTag），不在这里。
-                val hasSystem = llmHistory.size() > 0 && runCatching {
-                    llmHistory[0].asJsonObject.get("role")?.asString == "system"
+                val hasSystem = llmHistory.size > 0 && runCatching {
+                    llmHistory[0].jsonObject.get("role")?.stringValue == "system"
                 }.getOrDefault(false)
                 if (!hasSystem) {
                     // 联网补齐姓名/学院只在登录态变过之后再试：没登录时每个新对话都去撞一次网络，
@@ -420,15 +427,15 @@ class AgentViewModel : ViewModel() {
                         skinPersonaBlock = PidaiAppearanceHost.personaPromptBlock(resolvedAssistantName),
                     )
                     // system 必须待在第 0 位：整段历史是 provider 端 prefix cache 的比对前缀
-                    val rebuilt = JsonArray()
-                    rebuilt.add(JsonObject().apply {
-                        addProperty("role", "system")
-                        addProperty("content", systemPrompt)
+                    val rebuilt = mutableListOf<JsonElement>()
+                    rebuilt.add(buildJsonObject {
+                        put("role", "system")
+                        put("content", systemPrompt)
                     })
-                    (0 until llmHistory.size())
+                    (0 until llmHistory.size)
                         .map { llmHistory[it] }
                         .filterNot { el ->
-                            runCatching { el.asJsonObject.get("role")?.asString == "system" }
+                            runCatching { el.jsonObject.get("role")?.stringValue == "system" }
                                 .getOrDefault(false)
                         }
                         .forEach { rebuilt.add(it) }
@@ -449,10 +456,10 @@ class AgentViewModel : ViewModel() {
                     }
                     append(userText.ifBlank { "（见图）" })
                 }
-                llmHistory.add(JsonObject().apply {
-                    addProperty("role", "user")
+                llmHistory.add(buildJsonObject {
+                    put("role", "user")
                     // 无图时这里仍是纯字符串，历史结构和以前完全一致。
-                    add("content", AgentVision.userContent(llmUser, images))
+                    put("content", AgentVision.userContent(llmUser, images))
                 })
                 sanitizeHistory()   // 自愈：清掉上一次中断留下的 tool_calls 残体
                 // 只留最近两轮的图：整段历史每轮都要重发一遍，不裁剪的话
@@ -577,28 +584,25 @@ class AgentViewModel : ViewModel() {
                     messages[mfaBubbleIdx] = messages[mfaBubbleIdx].copy(isToolCall = false)
                 }
 
-                // 考勤路由根据实际登录类型动态选择，避免研究生跳转到本科考勤页
-                val attendanceRoute = if (loginState.sessionManager?.getSiteOrNull("pg_attendance")?.hasLogin == true)
-                    "postgraduate_attendance" else "attendance"
-
+                // 存的是 [AppRoute.id]：聊天记录要落盘，点按钮时再用 appRouteOf 解析回来
                 val navSuggestions = calledTools.mapNotNull { toolName ->
                     when (toolName) {
-                        "get_schedule", "get_exam_schedule", "add_schedule_event" -> "查看课表" to "schedule"
-                        "get_calendar"                      -> "查看校历"   to "school_calendar"
-                        "search_school_courses"             -> "全校课程"   to "school_course"
-                        "get_empty_rooms"                   -> "空闲教室"   to "empty_room"
-                        "get_attendance"                    -> "查看考勤"   to attendanceRoute
-                        "get_grades"                        -> "成绩查询"   to "jwapp_score"
-                        "get_card_info"                      -> "校园卡"     to "campus_card"
-                        "get_notifications"                 -> "通知公告"   to "notification"
-                        "search_yellow_page"                -> "校园黄页"   to "yellow_page"
-                        "get_library"                       -> "图书馆"     to "library"
-                        "get_textbooks"                     -> "日程教材"   to "schedule"
-                        "get_coupons"                       -> "加餐券"     to "coupon"
-                        "get_lms", "get_lms_activity"       -> "思源学堂"   to "lms"
-                        "app_setting"                       -> "设置"       to "settings"
+                        "get_schedule", "get_exam_schedule", "add_schedule_event" -> "查看课表" to AppRoute.Schedule
+                        "get_calendar"                      -> "查看校历"   to AppRoute.SchoolCalendar
+                        "search_school_courses"             -> "全校课程"   to AppRoute.SchoolCourse
+                        "get_empty_rooms"                   -> "空闲教室"   to AppRoute.EmptyRoom
+                        "get_attendance"                    -> "查看考勤"   to AppRoute.Attendance
+                        "get_grades"                        -> "成绩查询"   to AppRoute.JwappScore
+                        "get_card_info"                     -> "校园卡"     to AppRoute.CampusCard
+                        "get_notifications"                 -> "通知公告"   to AppRoute.Notification
+                        "search_yellow_page"                -> "校园黄页"   to AppRoute.YellowPage
+                        "get_library"                       -> "图书馆"     to AppRoute.Library
+                        "get_textbooks"                     -> "日程教材"   to AppRoute.Schedule
+                        "get_coupons"                       -> "加餐券"     to AppRoute.Coupon
+                        "get_lms", "get_lms_activity"       -> "思源学堂"   to AppRoute.Lms()
+                        "app_setting"                       -> "设置"       to AppRoute.Settings
                         else                                -> null
-                    }
+                    }?.let { (label, route) -> label to route.id }
                 }.distinctBy { it.second }
 
                 val widgets = registry.drainWidgets()
@@ -646,15 +650,4 @@ class AgentViewModel : ViewModel() {
         }
     }
 
-    /** 清空当前会话内容，但保留会话条目本身。 */
-    fun clearMessages() {
-        messages.clear()
-        llmHistory = JsonArray()
-        errorMessage = null
-        lastTotalTokens = null
-        contextExhausted = false
-        contextExhaustedJustTriggered = false
-        // tools 保留（loginFailedAt 冷却状态有价值），不在 clearMessages 时重置
-        persist()
-    }
 }

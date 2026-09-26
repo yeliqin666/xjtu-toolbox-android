@@ -76,7 +76,7 @@ class ScheduleWatchWorker(
     }
 
     /** 同一场考试只提醒一次：游标记「课程名+日期」，改期算新的一场，会再提醒。 */
-    private fun checkUpcomingExam(context: Context, api: ScheduleApi, term: String) {
+    private suspend fun checkUpcomingExam(context: Context, api: ScheduleApi, term: String) {
         val exams = runCatching { api.getExamSchedule(term) }.getOrElse {
             Log.w(TAG, "考试表拉取失败：${it.message}")
             return

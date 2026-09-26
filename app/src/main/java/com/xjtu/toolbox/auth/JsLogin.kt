@@ -1,7 +1,14 @@
 package com.xjtu.toolbox.auth
 
+import com.xjtu.toolbox.util.longValue
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.buildJsonObject
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.isNull
+import com.xjtu.toolbox.util.isObject
+import kotlinx.serialization.json.jsonObject
 import android.util.Log
-import com.xjtu.toolbox.util.WebVpnUtil
+import com.xjtu.toolbox.webvpn.WebVpnUtil
 import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
@@ -25,7 +32,7 @@ import java.io.IOException
  *
  * 结果不能放在带初始化器的字段里：[XJTULogin] 走 SSO 时在父类构造期间就调 [postLogin]，
  * 子类字段初始化器随后才跑，会把刚拿到的令牌冲掉（考勤那边为此用了 WeakHashMap，
- * 见 NewAttendanceLogin）。这里用 lateinit：它不生成构造期赋值，postLogin 写进去的值留得住。
+ * 见 AttendanceLogin）。这里用 lateinit：它不生成构造期赋值，postLogin 写进去的值留得住。
  */
 class JsLogin(
     session: OkHttpClient? = null,
@@ -50,7 +57,7 @@ class JsLogin(
      */
     private fun retryForTicket(): String {
         client.newCall(Request.Builder().url(LOGIN_URL).get().build()).execute().use { retry ->
-            val body = retry.body?.string().orEmpty()
+            val body = retry.body.string()
             if (XJTULogin.isSafetyVerifyPage(body)) throw SafetyVerifyRequiredException(retry, body)
             return findTicket(retry) ?: throw IOException("智慧教室登录失败：CAS 没有回跳到 js.xjtu.edu.cn")
         }
@@ -89,9 +96,9 @@ class JsLogin(
 
         /** POST loginCas，把 service ticket 换成 TOKEN-AUTH。 */
         internal fun exchangeTicket(client: OkHttpClient, ticket: String): JsGrant {
-            val payload = com.google.gson.JsonObject().apply {
-                addProperty("ticket", ticket)
-                addProperty("serviceUrl", SERVICE_URL)
+            val payload = buildJsonObject {
+                put("ticket", ticket)
+                put("serviceUrl", SERVICE_URL)
             }.toString()
             val request = Request.Builder()
                 .url("$BASE_URL/server/cas/loginCas")
@@ -102,18 +109,18 @@ class JsLogin(
                 .header("Referer", SERVICE_URL)
                 .build()
             client.newCall(request).execute().use { resp ->
-                val text = resp.body?.string().orEmpty()
+                val text = resp.body.string()
                 if (!resp.isSuccessful) throw IOException("智慧教室换取令牌失败：HTTP ${resp.code}")
                 val root = runCatching { text.safeParseJsonObject() }.getOrNull()
                     ?: throw IOException("智慧教室换取令牌失败：响应不是 JSON")
-                val data = root.get("data")?.takeIf { it.isJsonObject }?.asJsonObject
-                val token = data?.get("tokenValue")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                val data = root.get("data")?.takeIf { it.isObject }?.jsonObject
+                val token = data?.get("tokenValue")?.takeIf { !it.isNull }?.stringValue?.trim().orEmpty()
                 if (token.isEmpty()) {
-                    val msg = root.get("message")?.takeIf { !it.isJsonNull }?.asString
+                    val msg = root.get("message")?.takeIf { !it.isNull }?.stringValue
                     throw IOException("智慧教室换取令牌失败：${msg ?: "未返回令牌"}")
                 }
-                val timeout = data?.get("tokenTimeout")?.takeIf { !it.isJsonNull }
-                    ?.runCatching { asLong }?.getOrNull()
+                val timeout = data?.get("tokenTimeout")?.takeIf { !it.isNull }
+                    ?.runCatching { longValue }?.getOrNull()
                     ?.takeIf { it > 0 } ?: DEFAULT_TIMEOUT_SECONDS
                 return JsGrant(token, timeout, System.currentTimeMillis())
             }

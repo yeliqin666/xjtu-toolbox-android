@@ -1,8 +1,10 @@
 package com.xjtu.toolbox.jwapp
 
+import com.xjtu.toolbox.ui.components.AppPullToRefresh
+import com.xjtu.toolbox.ui.components.FullPageState
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xjtu.toolbox.ui.adaptive.AdaptiveRowGrid
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import com.xjtu.toolbox.ui.components.enterOnce
 import androidx.activity.compose.BackHandler
@@ -26,9 +28,6 @@ import top.yukonga.miuix.kmp.basic.Checkbox
 import top.yukonga.miuix.kmp.basic.DropdownImpl
 import top.yukonga.miuix.kmp.basic.ListPopupColumn
 import top.yukonga.miuix.kmp.basic.PopupPositionProvider
-import top.yukonga.miuix.kmp.basic.PullToRefresh
-import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
-import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.overlay.OverlayListPopup
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.utils.overScrollVertical
@@ -37,19 +36,15 @@ import top.yukonga.miuix.kmp.utils.SinkFeedback
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
@@ -61,26 +56,15 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.SelectAll
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material.icons.filled.CheckCircle
 import top.yukonga.miuix.kmp.basic.SnackbarDuration
 import top.yukonga.miuix.kmp.basic.SnackbarHost
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import com.xjtu.toolbox.LocalAppLoginState
-import com.xjtu.toolbox.Routes
-import com.xjtu.toolbox.auth.AuthExpiredException
-import com.xjtu.toolbox.auth.LoginType
-import com.xjtu.toolbox.auth.handleAuthExpired
+import com.xjtu.toolbox.auth.LocalAppLoginState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.verticalScroll
@@ -93,18 +77,12 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import com.xjtu.toolbox.auth.SiteSession
-import com.xjtu.toolbox.score.ScoreReportApi
-import com.xjtu.toolbox.score.ReportedGrade
-import com.xjtu.toolbox.judge.JudgeApi
 import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.AppSearchBar
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.glass.*
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 @Composable
 fun JwappScoreScreen(
@@ -115,25 +93,21 @@ fun JwappScoreScreen(
     onOpenReport: () -> Unit = {}
 ) {
     val appLoginState = LocalAppLoginState.current
-    val api = remember(site) { site?.let { JwappApi(it) } }
-    val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
-    // DataCache 构造时绑定账号，切账号后必须换新实例，见 DataCache 类注释
-    val dataCache = remember(appLoginState.accountId) {
-        com.xjtu.toolbox.util.DataCache(context, appLoginState.accountId.ifEmpty { null })
+    val vm: JwappScoreViewModel = viewModel(key = "score-${appLoginState.accountId}-${System.identityHashCode(site)}") {
+        JwappScoreViewModel(context, appLoginState.accountId, site, jwxtSite, studentId, appLoginState)
     }
-    val gson = remember { com.google.gson.Gson() }
     val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(vm) {
+        vm.messages.collect {
+            snackbarHostState.showSnackbar(it.text, duration = if (it.long) SnackbarDuration.Long else SnackbarDuration.Short)
+        }
+    }
+    val allTermScores = vm.allTermScores
+    val termList = vm.termList
 
-    var isLoading by remember { mutableStateOf(true) }
-    var isRefreshing by remember { mutableStateOf(false) }  // 缓存已显示，后台刷新中
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    var allTermScores by remember { mutableStateOf<List<TermScore>>(emptyList()) }
-    var termList by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var selectedTermIndex by rememberSaveable { mutableIntStateOf(0) }
     var expandedCourseId by rememberSaveable { mutableStateOf<String?>(null) }
-    var courseDetails by remember { mutableStateOf<Map<String, ScoreDetail>>(emptyMap()) }
-    var detailLoading by remember { mutableStateOf<String?>(null) }
 
     // GPA 选课计算模式
     var gpaSelectMode by rememberSaveable { mutableStateOf(false) }
@@ -146,231 +120,6 @@ fun JwappScoreScreen(
 
     // GPA 精度（点击循环 2→3→4→2）
     var gpaPrecision by rememberSaveable { mutableIntStateOf(2) }
-
-    // 未评教课程名集合
-    var unevaluatedCourses by remember { mutableStateOf<Set<String>>(emptySet()) }
-    // 报表补充提示
-    var reportHint by remember { mutableStateOf<String?>(null) }
-
-    fun loadScoreData(silent: Boolean = false) {
-        if (silent) isRefreshing = true else isLoading = true
-        if (!silent) isRefreshing = false
-        errorMessage = null
-        scope.launch {
-            // 先尝试从缓存秒显（Stale-While-Revalidate）
-            val cacheKey = "score_all_terms"
-            var cachedScoreCount = -1
-            if (!silent) {
-            try {
-                // 未登录态使用极长 TTL 以确保能加载缓存
-                val ttl = if (api != null) com.xjtu.toolbox.util.DataCache.DEFAULT_TTL_MS else Long.MAX_VALUE
-                val cached = dataCache.get(cacheKey, ttl)
-                if (cached != null) {
-                    // Gson 反序列化不认 Kotlin 的非空约束：磁盘上的旧版本/半截缓存里
-                    // 一旦某个学期缺了 scoreList 字段，这里会得到运行时为 null、编译期类型
-                    // 却是 List<ScoreItem> 的脏对象——下面 sumOf{}/后面 flatMap{} 一读它就是
-                    // NPE，且 flatMap 那几处在 Composable 主体里，不在任何 try/catch 里，
-                    // 直接把 App 崩掉。落盘反序列化处就地兜底，后面全部按非空缓存消费。
-                    val cachedGrades = gson.fromJson(cached, Array<TermScore?>::class.java)
-                        .mapNotNull { it?.sanitized() }
-                    if (cachedGrades.isNotEmpty()) {
-                        allTermScores = cachedGrades
-                        termList = cachedGrades.map { it.termCode to it.termName }
-                        cachedScoreCount = cachedGrades.sumOf { it.scoreList.size }
-                        isLoading = false  // 缓存已可用，主界面立即显示
-                        isRefreshing = api != null  // 仅登录后才后台刷新
-                        android.util.Log.d("ScoreUI", "Loaded from cache: $cachedScoreCount scores, hasApi=${api != null}")
-                    }
-                }
-            } catch (_: Exception) { /* 缓存读取失败，正常加载 */ }
-            }
-
-            // 未登录态 → 仅展示缓存
-            if (api == null) {
-                isRefreshing = false
-                if (allTermScores.isEmpty()) {
-                    errorMessage = "暂无成绩缓存"
-                }
-                isLoading = false
-                return@launch
-            }
-
-            try {
-                withContext(Dispatchers.IO) {
-                    val grades = api.getGrade(null).toMutableList()
-
-                    // CjcxApi 精确化：ZCJ/XFJD 替换 JWAPP 数据
-                    if (jwxtSite != null) {
-                        try {
-                            val cjcxApi = CjcxApi(jwxtSite)
-                            val preciseScores = cjcxApi.getAllScores()
-                            val lookup = cjcxApi.buildLookup(preciseScores)
-                            val preciseByKch = preciseScores.associateBy { it.kch }
-
-                            var matchCount = 0
-                            for (i in grades.indices) {
-                                val ts = grades[i]
-                                val enrichedList = ts.scoreList.map { score ->
-                                    val key = "${ts.termCode}|${CjcxApi.normalizeName(score.courseName)}"
-                                    val precise = lookup[key]
-                                        ?: score.courseCode?.let { preciseByKch[it] }
-                                    if (precise != null) {
-                                        matchCount++
-                                        score.copy(
-                                            scoreValue = precise.zcj,
-                                            gpa = precise.xfjd,
-                                            courseCategory = precise.kclbdm.ifBlank { null },
-                                            courseCode = precise.kch.ifBlank { score.courseCode }
-                                        )
-                                    } else {
-                                        android.util.Log.w("Score", "xscjcx.do 未匹配: ${score.courseName} (code=${score.courseCode}, key=$key)")
-                                        score
-                                    }
-                                }
-                                grades[i] = ts.copy(scoreList = enrichedList)
-                            }
-                            val totalScores = grades.sumOf { it.scoreList.size }
-                            android.util.Log.d("Score", "CjcxApi: $matchCount/$totalScores 匹配")
-                        } catch (e: Exception) {
-                            android.util.Log.w("Score", "CjcxApi 失败(fallback JWAPP): ${e.message}")
-                        }
-
-                        // 课程号前缀分类（通核/通选）
-                        for (i in grades.indices) {
-                            val ts = grades[i]
-                            val classified = ts.scoreList.map { score ->
-                                val code = score.courseCode?.uppercase()
-                                val group = when {
-                                    code != null && code.startsWith("CORE") -> CourseGroup.GEN_CORE
-                                    code != null && code.startsWith("GNED") -> CourseGroup.GEN_ELECTIVE
-                                    else -> null
-                                }
-                                if (group != null) score.copy(courseGroup = group) else score
-                            }
-                            grades[i] = ts.copy(scoreList = classified)
-                        }
-                    }
-
-                    // 课程名标准化（空格/全角/符号统一）
-                    fun normalizeKey(term: String, name: String): String {
-                        val n = name.trim()
-                            .replace("\u3000", " ")  // 全角空格
-                            .replace("\u00A0", " ")  // 不间断空格
-                            .replace(Regex("\\s+"), " ")
-                            .replace("（", "(").replace("）", ")")
-                            .replace("＋", "+").replace("－", "-")
-                            .replace(Regex("[◇◆◎○●★☆※▲△▼▽]"), "")  // 去除课程标记符号
-                            .replace(Regex("\\([A-Z]{2,}\\d{4,}\\)$"), "")  // 去除末尾课程代码如(PHYS546609)
-                            .trim()
-                            .lowercase()
-                        return "${term.trim()}|$n"
-                    }
-
-                    val existingKeys = grades.flatMap { ts ->
-                        ts.scoreList.map { normalizeKey(ts.termCode, it.courseName) }
-                    }.toMutableSet()
-
-                    // 报表补充未评教课程
-                    if (jwxtSite != null && studentId.isNotEmpty()) {
-                        var unevalSet = emptySet<String>()
-                        try {
-                            val judgeApi = JudgeApi(jwxtSite)
-                            val unfinished = judgeApi.unfinishedQuestionnaires()
-                            unevalSet = unfinished.map { it.KCM }.toSet()
-                            unevaluatedCourses = unevalSet
-                        } catch (e: Exception) {
-                            android.util.Log.w("Score", "未评教查询失败: ${e.message}")
-                        }
-
-                        if (unevalSet.isNotEmpty()) {
-                            try {
-                                val reportGrades = ScoreReportApi(jwxtSite).getReportedGrade(studentId)
-                                val supplementByTerm = mutableMapOf<String, MutableList<ScoreItem>>()
-                                for (rg in reportGrades) {
-                                    if (rg.courseName !in unevalSet) continue
-                                    val key = normalizeKey(rg.term, rg.courseName)
-                                    if (key !in existingKeys) {
-                                        existingKeys.add(key)
-                                        val item = rg.toScoreItem()
-                                        supplementByTerm.getOrPut(rg.term) { mutableListOf() }.add(item)
-                                    }
-                                }
-                                if (supplementByTerm.isNotEmpty()) {
-                                    val newGrades = grades.map { ts ->
-                                        val extras = supplementByTerm.remove(ts.termCode)
-                                        if (extras != null) ts.copy(scoreList = ts.scoreList + extras) else ts
-                                    }.toMutableList()
-                                    for ((termCode, items) in supplementByTerm) {
-                                        val termName = termCode.replace("-", "—").let { "报表·$it" }
-                                        newGrades.add(TermScore(termCode, termName, items))
-                                    }
-                                    grades.clear()
-                                    grades.addAll(newGrades)
-                                    val totalReport = grades.flatMap { it.scoreList }.count { it.source == ScoreSource.REPORT }
-                                    if (totalReport > 0) reportHint = "已从报表补充 $totalReport 门未评教课程成绩"
-                                }
-                            } catch (e: Exception) {
-                                android.util.Log.w("Score", "报表加载失败: ${e.message}")
-                            }
-                        } else {
-                            // 无未评教课程，跳过报表补充
-                        }
-                    }
-
-                    allTermScores = grades
-                    termList = grades.map { it.termCode to it.termName }
-
-                    // 写缓存（加工后的完成品）
-                    try { dataCache.put(cacheKey, gson.toJson(grades)) } catch (_: Exception) {}
-
-                    // 检测是否有新成绩
-                    val freshScoreCount = grades.sumOf { it.scoreList.size }
-                    if (cachedScoreCount >= 0 && freshScoreCount > cachedScoreCount) {
-                        val newCount = freshScoreCount - cachedScoreCount
-                        scope.launch {
-                            snackbarHostState.showSnackbar(
-                                "有 $newCount 门新成绩",
-                                duration = SnackbarDuration.Short
-                            )
-                        }
-                    } else if (cachedScoreCount >= 0 && freshScoreCount != cachedScoreCount) {
-                        scope.launch {
-                            snackbarHostState.showSnackbar("成绩数据已更新", duration = SnackbarDuration.Short)
-                        }
-                    }
-                }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: AuthExpiredException) {
-                // [policy] JWAPP token 服务端拒绝时（reAuth 后重试也失败），
-                // 不再立即 popBackStack 弹回主页（之前会和 markStaleAndRetry 形成"进-退-进"死循环）。
-                // 改为停留当前页，展示缓存（若有）+ snackbar/errorMessage 引导用户。
-                // 注意：login 缓存已被 reAuth 流程清掉，下次主动重试会走 full login 拿新 token。
-                if (allTermScores.isNotEmpty()) {
-                    scope.launch {
-                        snackbarHostState.showSnackbar("成绩同步暂不可用，显示缓存数据。下拉刷新可重试", duration = SnackbarDuration.Long)
-                    }
-                } else {
-                    errorMessage = "成绩查询服务暂不可用：${e.message ?: "请稍后重试"}"
-                }
-            } catch (e: Exception) {
-                // 网络失败但有缓存 → 不报错，提示数据可能不是最新
-                if (allTermScores.isNotEmpty()) {
-                    scope.launch {
-                        snackbarHostState.showSnackbar("网络异常，显示的可能不是最新数据", duration = SnackbarDuration.Long)
-                    }
-                } else {
-                    errorMessage = "加载失败: ${e.message}"
-                }
-            } finally {
-                isLoading = false
-                isRefreshing = false
-            }
-        }
-    }
-
-    // [修复] 监听 site 变化：重登后 SiteSession token 会刷新，触发本 effect 重新加载。
-    LaunchedEffect(site) { loadScoreData() }
 
     val currentTermScores = if (selectedTermIndex == 0 && allTermScores.isNotEmpty()) {
         // "所有学期" 选项
@@ -401,14 +150,14 @@ fun JwappScoreScreen(
     // 当前筛选范围 GPA
     val displayGpaInfo = remember(filteredScores) {
         if (filteredScores.isNotEmpty()) {
-            api?.calculateGpaForCourses(filteredScores)
+            com.xjtu.toolbox.score.ScoreCalculator.calculateGpaForCourses(filteredScores)
         } else null
     }
 
     val selectedGpaInfo = remember(selectedCourseIds, allTermScores) {
         if (selectedCourseIds.isNotEmpty()) {
             val selected = allTermScores.flatMap { it.scoreList }.filter { it.id in selectedCourseIds }
-            api?.calculateGpaForCourses(selected)
+            com.xjtu.toolbox.score.ScoreCalculator.calculateGpaForCourses(selected)
         } else null
     }
 
@@ -437,7 +186,6 @@ fun JwappScoreScreen(
     }
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
-    val pullToRefreshState = rememberPullToRefreshState()
     var termMenuExpanded by remember { mutableStateOf(false) }
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
@@ -499,58 +247,33 @@ fun JwappScoreScreen(
         // 内容铺到顶栏下面，顶部留白放进各个列表里；下拉指示器也从顶栏下面出来
         val glassTop = padding.glassTop(glass)
         when {
-            isLoading -> {
-                LazyColumn(
+            vm.isLoading -> {
+                FullPageState(
                     Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
                     contentPadding = PaddingValues(top = glassTop),
-                ) {
-                    item {
-                        Box(Modifier.fillParentMaxSize()) {
-                            LoadingState(message = "正在加载成绩数据...", modifier = Modifier.fillMaxSize())
-                        }
-                    }
-                }
+                ) { LoadingState(message = "正在加载成绩数据...", modifier = Modifier.fillMaxSize()) }
             }
 
-            errorMessage != null -> {
-                LazyColumn(
+            vm.errorMessage != null -> {
+                FullPageState(
                     Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
                     contentPadding = PaddingValues(top = glassTop),
                 ) {
-                    item {
-                        Box(Modifier.fillParentMaxSize()) {
-                            ErrorState(
-                                message = errorMessage!!,
-                                onRetry = {
-                                    scope.launch {
-                                        isLoading = true
-                                        errorMessage = null
-                                        try {
-                                            withContext(Dispatchers.IO) {
-                                                appLoginState.sessionManager?.credentials?.let { creds ->
-                                                    site?.ensureLogin(creds.first, creds.second, force = true)
-                                                }
-                                            }
-                                        } catch (_: Exception) {}
-                                        loadScoreData()
-                                    }
-                                },
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-                    }
+                    ErrorState(
+                        message = vm.errorMessage.orEmpty(),
+                        onRetry = vm::retry,
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
             }
 
             else -> {
-                PullToRefresh(
-                    refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
-                    isRefreshing = isRefreshing,
-                    onRefresh = { if (api != null) loadScoreData(silent = true) },
-                    pullToRefreshState = pullToRefreshState,
-                    topAppBarScrollBehavior = scrollBehavior,
-                    contentPadding = PaddingValues(top = glassTop),
-                    modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass)
+                AppPullToRefresh(
+                    isRefreshing = vm.isRefreshing,
+                    onRefresh = { if (vm.canRefresh) vm.load(silent = true) },
+                    scrollBehavior = scrollBehavior,
+                    topPadding = glassTop,
+                    modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
                 ) {
                     // 宽屏：GPA、筛选、学期标题横跨全宽，一门门课分两三列排（见 AdaptiveRowGrid：卡片会竖着展开，按行对齐，展开一张别的卡不挪位置）。
                     // 以前整页限宽 720 居中，平板横屏两边各空一大块。
@@ -578,7 +301,7 @@ fun JwappScoreScreen(
                                 Spacer(Modifier.height(8.dp))
                                 GpaModeBreakdown(
                                     scores = filteredScores,
-                                    calculateGpa = { api?.calculateGpaForCourses(it) },
+                                    calculateGpa = { com.xjtu.toolbox.score.ScoreCalculator.calculateGpaForCourses(it) },
                                     precision = gpaPrecision,
                                     embedded = true,
                                 )
@@ -686,9 +409,9 @@ fun JwappScoreScreen(
                                     }
                                 }
                             }
-                            if (reportHint != null) {
+                            if (vm.reportHint != null) {
                                 Text(
-                                    reportHint!!,
+                                    vm.reportHint.orEmpty(),
                                     style = MiuixTheme.textStyles.footnote1,
                                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                     modifier = Modifier.padding(top = 6.dp)
@@ -718,10 +441,10 @@ fun JwappScoreScreen(
                             }
                             itemsIndexed(termScores, key = { _, it -> "${termCode}_${it.id}" }) { rowIndex, scoreItem ->
                                             val isFromReport = scoreItem.source == ScoreSource.REPORT
-                                            val isUnevaluated = scoreItem.courseName in unevaluatedCourses
+                                            val isUnevaluated = scoreItem.courseName in vm.unevaluatedCourses
                                             val isExpanded = expandedCourseId == scoreItem.id
-                                            val detail = courseDetails[scoreItem.id]
-                                            val isDetailLoading = detailLoading == scoreItem.id
+                                            val detail = vm.courseDetails[scoreItem.id]
+                                            val isDetailLoading = vm.detailLoading == scoreItem.id
                                             val isSelected = scoreItem.id in selectedCourseIds
                                             ScoreRow(
                                                 // 第一屏错峰淡入，后面的直接就位
@@ -746,32 +469,7 @@ fun JwappScoreScreen(
                                                             expandedCourseId = null
                                                         } else {
                                                             expandedCourseId = scoreItem.id
-                                                            if (detail == null && !isDetailLoading) {
-                                                                detailLoading = scoreItem.id
-                                                                scope.launch {
-                                                                    try {
-                                                                        val d = withContext(Dispatchers.IO) { api?.getDetail(scoreItem.id) }
-                                                                        if (d != null) courseDetails = courseDetails + (scoreItem.id to d)
-                                                                    } catch (e: kotlinx.coroutines.CancellationException) {
-                                                                        throw e
-                                                                    } catch (e: NoScoreDetailException) {
-                                                                        android.util.Log.i("Score", "无分项: ${scoreItem.courseName} ${e.message}")
-                                                                        courseDetails = courseDetails + (scoreItem.id to scoreItem.asEmptyDetail())
-                                                                    } catch (e: Exception) {
-                                                                        android.util.Log.w("Score", "getDetail ${scoreItem.courseName}: ${e.message}")
-                                                                        if (isNoScoreDetailMessage(e.message)) {
-                                                                            courseDetails = courseDetails + (scoreItem.id to scoreItem.asEmptyDetail())
-                                                                        } else {
-                                                                            scope.launch {
-                                                                                snackbarHostState.showSnackbar(
-                                                                                    "加载分项成绩失败，请重试",
-                                                                                    duration = SnackbarDuration.Short
-                                                                                )
-                                                                            }
-                                                                        }
-                                                                    } finally { detailLoading = null }
-                                                                }
-                                                            }
+                                                            vm.loadDetail(scoreItem)
                                                         }
                                                     }
                                                 }
@@ -955,7 +653,7 @@ private fun ScoreRow(
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val reallyPassed = com.xjtu.toolbox.util.ScoreCalculator.isPassed(scoreItem)
+    val reallyPassed = com.xjtu.toolbox.score.ScoreCalculator.isPassed(scoreItem)
     val scoreColor = when {
         !reallyPassed -> MiuixTheme.colorScheme.error
         scoreItem.scoreValue != null && scoreItem.scoreValue >= 90 -> MiuixTheme.colorScheme.primary
@@ -963,7 +661,7 @@ private fun ScoreRow(
         scoreItem.scoreValue == null && reallyPassed -> MiuixTheme.colorScheme.primary
         else -> MiuixTheme.colorScheme.onSurface
     }
-    val courseGpa = com.xjtu.toolbox.util.ScoreCalculator.courseGpa(scoreItem)
+    val courseGpa = com.xjtu.toolbox.score.ScoreCalculator.courseGpa(scoreItem)
     val meta = buildList {
         add("${scoreItem.coursePoint} 学分")
         scoreItem.courseGroup?.let { add(it.shortLabel) }
@@ -1161,24 +859,6 @@ fun GpaMappingDialog(show: MutableState<Boolean>) {
         Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
     }
 }
-
-/** 报表成绩转 ScoreItem */
-private fun ReportedGrade.toScoreItem(): ScoreItem = ScoreItem(
-    id = "report_${term}_${courseName.hashCode()}",
-    termCode = term,
-    courseName = courseName,
-    score = score,
-    scoreValue = score.toDoubleOrNull(),
-    passFlag = gpa?.let { it > 0.0 } ?: (score.toDoubleOrNull()?.let { it >= 60.0 } ?: false),
-    specificReason = null,
-    coursePoint = coursePoint,
-    examType = "",
-    majorFlag = null,
-    examProp = "",
-    replaceFlag = false,
-    gpa = gpa,
-    source = ScoreSource.REPORT
-)
 
 /** 三种 GPA 模式概览卡片：全部 / 排除通选 / 排除所有通识 */
 @Composable

@@ -1,13 +1,21 @@
 package com.xjtu.toolbox.schedule
 
+import kotlinx.serialization.json.JsonPrimitive
+import com.xjtu.toolbox.util.requireArr
+import com.xjtu.toolbox.util.requireObj
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.booleanValue
+import com.xjtu.toolbox.util.isNull
+import com.xjtu.toolbox.util.obj
+import kotlinx.serialization.json.jsonObject
+import com.xjtu.toolbox.network.HttpClients
 import android.content.Context
 import android.util.Log
-import com.google.gson.JsonObject
-import com.xjtu.toolbox.util.DataCache
+import kotlinx.serialization.json.JsonObject
+import com.xjtu.toolbox.data.DataCache
 import com.xjtu.toolbox.util.safeParseJsonObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -17,7 +25,7 @@ private const val TAG = "HolidayApi"
 private const val CACHE_KEY = "holiday_dates"
 
 object HolidayApi {
-    private val client = OkHttpClient.Builder()
+    private val client = HttpClients.base.newBuilder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
         .build()
@@ -60,16 +68,16 @@ object HolidayApi {
                 response.body?.string() ?: throw RuntimeException("Empty response")
             }
             val root = jsonStr.safeParseJsonObject()
-            val years = root.getAsJsonObject("Years")
+            val years = root.requireObj("Years")
             val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
             
-            years.keySet().forEach { yearStr ->
-                val yearArray = years.getAsJsonArray(yearStr)
+            years.keys.forEach { yearStr ->
+                val yearArray = years.requireArr(yearStr)
                 yearArray.forEach { ev ->
-                    val obj = ev.asJsonObject
-                    val name = obj.get("Name").asString
-                    val startStr = obj.get("StartDate").asString
-                    val endStr = obj.get("EndDate").asString
+                    val obj = ev.jsonObject
+                    val name = obj.get("Name").stringValue
+                    val startStr = obj.get("StartDate").stringValue
+                    val endStr = obj.get("EndDate").stringValue
                     val startDate = LocalDate.parse(startStr, formatter)
                     val endDate = LocalDate.parse(endStr, formatter)
                     
@@ -99,13 +107,13 @@ object HolidayApi {
                         if (response.isSuccessful) {
                             val jsonStr = response.body?.string() ?: continue
                             val root = jsonStr.safeParseJsonObject()
-                            val days = root.getAsJsonArray("days")
+                            val days = root.requireArr("days")
                             days.forEach { dayItem ->
-                                val dObj = dayItem.asJsonObject
-                                if (dObj.get("isOffDay").asBoolean) {
-                                    val dateStr = dObj.get("date").asString
+                                val dObj = dayItem.jsonObject
+                                if (dObj.get("isOffDay").booleanValue) {
+                                    val dateStr = dObj.get("date").stringValue
                                     val nameObj = dObj.get("name")
-                                    val name = if (nameObj != null && !nameObj.isJsonNull) nameObj.asString else "节假日"
+                                    val name = if (nameObj != null && !nameObj.isNull) nameObj.stringValue else "节假日"
                                     holidays[LocalDate.parse(dateStr, formatter)] = name
                                 }
                             }
@@ -144,8 +152,8 @@ object HolidayApi {
         return try {
             val root = json.safeParseJsonObject()
             val formatter = DateTimeFormatter.ISO_LOCAL_DATE
-            root.entrySet().associate { (date, name) ->
-                LocalDate.parse(date, formatter) to name.asString
+            root.entries.associate { (date, name) ->
+                LocalDate.parse(date, formatter) to name.stringValue
             }
         } catch (e: Exception) {
             Log.w(TAG, "Failed to parse cached holidays", e)
@@ -154,10 +162,6 @@ object HolidayApi {
     }
 
     private fun serializeHolidays(holidays: Map<LocalDate, String>): String {
-        val root = JsonObject()
-        holidays.forEach { (date, name) ->
-            root.addProperty(date.toString(), name)
-        }
-        return root.toString()
+        return JsonObject(holidays.entries.associate { (date, name) -> date.toString() to JsonPrimitive(name) }).toString()
     }
 }

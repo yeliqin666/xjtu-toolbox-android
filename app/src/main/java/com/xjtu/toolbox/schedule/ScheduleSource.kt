@@ -1,15 +1,17 @@
 package com.xjtu.toolbox.schedule
 
+import kotlinx.serialization.json.decodeFromJsonElement
 import android.content.Context
 import android.util.Log
-import com.google.gson.Gson
+import com.xjtu.toolbox.util.AppJson
+import kotlinx.serialization.json.jsonArray
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.SessionManager
 import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.auth.siteKey
 import com.xjtu.toolbox.jwapp.JwappScheduleApi
-import com.xjtu.toolbox.util.CredentialStore
+import com.xjtu.toolbox.data.CredentialStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -27,7 +29,7 @@ private const val TAG = "ScheduleSource"
 enum class ScheduleSource(val key: String, val label: String, val summary: String) {
     JWXT(CredentialStore.SCHEDULE_SOURCE_JWXT, "教务系统", "一次拉整学期，最快"),
     JWAPP(CredentialStore.SCHEDULE_SOURCE_JWAPP, "移动教务", "按周拉，含分钟级上下课时间"),
-    BKKQ(CredentialStore.SCHEDULE_SOURCE_BKKQ, "考勤系统", "按周拉，与刷卡签到同一份排课"),
+    ATTENDANCE(CredentialStore.SCHEDULE_SOURCE_ATTENDANCE, "考勤系统", "按周拉，与刷卡签到同一份排课"),
     JS(CredentialStore.SCHEDULE_SOURCE_JS, "智慧教室平台", "按周拉，XJTUToolBox 的备用课表源");
 
     companion object {
@@ -67,7 +69,7 @@ object ScheduleSourceRouter {
             withContext(Dispatchers.IO) {
                 when (source) {
                     ScheduleSource.JWAPP -> fromJwapp(manager, termCode, userInitiated)
-                    ScheduleSource.BKKQ -> fromBkkq(manager, accountType, termCode, userInitiated)
+                    ScheduleSource.ATTENDANCE -> fromAttendance(manager, accountType, termCode, userInitiated)
                     ScheduleSource.JS -> fromJs(manager, termCode, userInitiated)
                     ScheduleSource.JWXT -> null
                 }
@@ -135,9 +137,9 @@ object ScheduleSourceRouter {
         val json = context.applicationContext
             .getSharedPreferences(PREFS_CHANGES, Context.MODE_PRIVATE)
             .getString(termCode, null) ?: return emptyList()
-        return runCatching {
-            gson.fromJson(json, Array<ScheduleChangeEvent?>::class.java)?.mapNotNull { it?.sanitized() }
-        }.getOrNull().orEmpty()
+        // 逐条解码：缺了 kind 的条目单独丢掉，不连累整份
+        return runCatching { AppJson.parseToJsonElement(json).jsonArray }.getOrNull().orEmpty()
+            .mapNotNull { runCatching { AppJson.decodeFromJsonElement<ScheduleChangeEvent>(it) }.getOrNull() }
     }
 
     private fun rememberChanges(context: Context, termCode: String, events: List<ScheduleChangeEvent>) {
@@ -146,11 +148,9 @@ object ScheduleSourceRouter {
         if (events.isEmpty()) {
             prefs.edit().remove(termCode).apply()
         } else {
-            prefs.edit().putString(termCode, gson.toJson(events)).apply()
+            prefs.edit().putString(termCode, AppJson.encodeToString(events)).apply()
         }
     }
-
-    private val gson = Gson()
     private const val PREFS_CHANGES = "schedule_changes"
 
     private suspend fun fromJwapp(
@@ -170,32 +170,31 @@ object ScheduleSourceRouter {
     }
 
     /**
-     * 考勤系统课表源（新版考勤 kq.xjtu.edu.cn，函数名沿用 BKKQ 枚举的历史命名，
-     * 未改动对外的 [ScheduleSource.BKKQ] 键值以免影响用户已保存的设置）。
+     * 考勤系统课表源（kq.xjtu.edu.cn + bk-kq/yjs-kq.xjtu.edu.cn）。
+     * 持久化键值仍是旧版考勤时代的 "bkkq"，见 [CredentialStore.SCHEDULE_SOURCE_ATTENDANCE]。
      *
-     * 旧版考勤（bkkq/yjskq.xjtu.edu.cn）域名已停用，迁到了新版考勤（kq.xjtu.edu.cn +
-     * bk-kq/yjs-kq.xjtu.edu.cn）。新版考勤按周查排课走的是
+     * 按周查排课走的是
      * `/sa/student/service/timetable/weekly?semesterId=…`（见上游 PR #72 抓包验证），
      * 一次请求返回整学期的行，同一门课跨周段拆成多行，靠 [KqWeekRanges] 合并。
      *
-     * 登录用的是 [LoginType.NEW_ATTENDANCE]，站点在本科/研究生两套部署间自动切换
-     * （[com.xjtu.toolbox.auth.NewAttendanceSession]），跟考勤记录共用同一套登录。
+     * 登录用的是 [LoginType.ATTENDANCE]，站点在本科/研究生两套部署间自动切换
+     * （[com.xjtu.toolbox.auth.AttendanceSession]），跟考勤记录共用同一套登录。
      *
      * 保守起见：解析过程任何一步出问题都直接返回 null，让路由器退回教务源——
      * 猜错了字段结构是静默拉错课表，比"这个源暂时不能用"糟得多。
      */
-    private suspend fun fromBkkq(
+    private suspend fun fromAttendance(
         manager: SessionManager,
         accountType: AccountType,
         termCode: String,
         userInitiated: Boolean,
     ): SourceResult? {
-        val site = manager.siteOrNull(LoginType.NEW_ATTENDANCE, userInitiated) ?: return null
+        val site = manager.siteOrNull(LoginType.ATTENDANCE, userInitiated) ?: return null
         return try {
-            val api = com.xjtu.toolbox.newattendance.NewAttendanceApi(site)
+            val api = com.xjtu.toolbox.attendance.AttendanceApi(site)
             val terms = api.getTermList()
             val term = terms.firstOrNull { it.code.isNotBlank() && sameTerm(it.code, termCode) } ?: run {
-                Log.d(TAG, "新版考勤没有找到学期 $termCode，走教务")
+                Log.d(TAG, "考勤没有找到学期 $termCode，走教务")
                 return null
             }
             val rows = api.getWeeklyTimetable(term.bh)
@@ -206,7 +205,7 @@ object ScheduleSourceRouter {
             // 学期总周数：优先用接口给的 weeks；给不了就用观察到的最大周次兜底，
             // 至少不短于任何一行实际出现的周次。
             val observedMax = grouped.values.flatten().maxOfOrNull { row ->
-                com.xjtu.toolbox.newattendance.KqWeekRanges.parse(row.weekRanges).maxOrNull() ?: 0
+                com.xjtu.toolbox.attendance.KqWeekRanges.parse(row.weekRanges).maxOrNull() ?: 0
             } ?: 0
             val maxWeekNum = term.weeks.takeIf { it > 0 } ?: observedMax.coerceAtLeast(1)
             val courses = grouped.map { (key, group) ->
@@ -214,7 +213,7 @@ object ScheduleSourceRouter {
                     courseName = key.courseName,
                     teacher = key.teacher,
                     location = key.location,
-                    weekBits = com.xjtu.toolbox.newattendance.KqWeekRanges.mergeToBits(group.map { it.weekRanges }, maxWeekNum),
+                    weekBits = com.xjtu.toolbox.attendance.KqWeekRanges.mergeToBits(group.map { it.weekRanges }, maxWeekNum),
                     dayOfWeek = key.dayOfWeek,
                     startSection = key.startSection,
                     endSection = key.endSection,
@@ -227,7 +226,7 @@ object ScheduleSourceRouter {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
-            Log.w(TAG, "新版考勤取课表失败：${e.javaClass.simpleName} ${e.message}")
+            Log.w(TAG, "考勤取课表失败：${e.javaClass.simpleName} ${e.message}")
             null
         }
     }

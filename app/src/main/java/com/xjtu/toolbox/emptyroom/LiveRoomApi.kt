@@ -1,6 +1,15 @@
 package com.xjtu.toolbox.emptyroom
 
-import com.google.gson.JsonObject
+import com.xjtu.toolbox.util.intValue
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.isNull
+import com.xjtu.toolbox.util.isObject
+import com.xjtu.toolbox.util.isArray
+import com.xjtu.toolbox.util.isPrimitive
+import com.xjtu.toolbox.util.arr
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.auth.JsLogin
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
@@ -12,32 +21,25 @@ import okhttp3.Request
 /**
  * 实时状态里的一间教室，来自智慧教室平台 `classroomStatus/classroomStatusList`。
  *
- * 这个类会随屁岱的卡片（[com.xjtu.toolbox.agent.LiveRoomWidget]）用 Gson 存进会话记录，
- * 字段名由 proguard-rules.pro 锁住。状态故意用 Int 而不是枚举：Gson 读枚举靠
- * getEnumConstants()，R8 的枚举优化会把它弄断（见规则文件里 ScoreSource 那段）。
+ * 会随屁岱的卡片（[com.xjtu.toolbox.agent.LiveRoomWidget]）存进会话记录，字段名即存盘格式。
  */
+@kotlinx.serialization.Serializable
 data class LiveRoom(
     /** 教室全名，如 "东1东-303"、"1-2050"，和 CDN / 教务的教室名同一套写法。 */
-    val name: String,
+    val name: String = "",
     /** 楼名，已换成 App 里的叫法（创新港 "1" → "1号巨构"），见 [liveBuildingName]。 */
-    val building: String,
+    val building: String = "",
     /** [LiveRoomStatus] 之一。 */
-    val status: Int,
+    val status: Int = 0,
     /** 当前人数。使用中 = 平台统计的在场人数；上课中 = 这门课的人数；空闲为 0。 */
-    val people: Int,
-    val seats: Int,
-    val course: String?,
-    val teacher: String?,
+    val people: Int = 0,
+    val seats: Int = 0,
+    val course: String? = null,
+    val teacher: String? = null,
 ) {
     val isFree: Boolean get() = status == LiveRoomStatus.FREE
     val isInUse: Boolean get() = status == LiveRoomStatus.IN_USE
     val isInClass: Boolean get() = status == LiveRoomStatus.IN_CLASS
-
-    /** 磁盘反序列化兜底，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。 */
-    fun sanitized(): LiveRoom = copy(
-        name = (name as String?) ?: "",
-        building = (building as String?) ?: "",
-    )
 }
 
 /**
@@ -170,27 +172,27 @@ class LiveRoomApi(private val site: SiteSession, private val cache: EmptyRoomCac
 /** 解析 classroomStatusList 的响应。code != 0 时抛出，交给调用方报错。 */
 internal fun parseLiveSnapshot(campus: String, body: String, fetchedAt: Long): LiveSnapshot {
     val root = body.safeParseJsonObject()
-    val code = root.get("code")?.takeIf { !it.isJsonNull }?.runCatching { asInt }?.getOrNull()
+    val code = root.get("code")?.takeIf { !it.isNull }?.runCatching { intValue }?.getOrNull()
     if (code != 0) {
-        val msg = root.get("message")?.takeIf { !it.isJsonNull }?.asString
+        val msg = root.get("message")?.takeIf { !it.isNull }?.stringValue
         throw java.io.IOException("实时状态查询失败：${msg ?: "code=$code"}")
     }
-    val data = root.get("data")?.takeIf { it.isJsonObject }?.asJsonObject
+    val data = root.get("data")?.takeIf { it.isObject }?.jsonObject
         ?: throw NoDataException("实时状态为空")
-    val order = data.getAsJsonArray("buildingData")
-        ?.mapNotNull { it.takeIf { e -> !e.isJsonNull }?.asString }
+    val order = data.arr("buildingData")
+        ?.mapNotNull { it.takeIf { e -> !e.isNull }?.stringValue }
         .orEmpty()
-    val byBuilding = data.get("classroomStatusData")?.takeIf { it.isJsonObject }?.asJsonObject
+    val byBuilding = data.get("classroomStatusData")?.takeIf { it.isObject }?.jsonObject
         ?: throw NoDataException("实时状态为空")
 
     val rooms = mutableListOf<LiveRoom>()
     // 按平台给的楼顺序走，不在 buildingData 里的楼（理论上不会有）排在后面
-    val keys = order + byBuilding.keySet().filter { it !in order }
+    val keys = order + byBuilding.keys.filter { it !in order }
     for (rawBuilding in keys) {
-        val arr = byBuilding.get(rawBuilding)?.takeIf { it.isJsonArray }?.asJsonArray ?: continue
+        val arr = byBuilding.get(rawBuilding)?.takeIf { it.isArray }?.jsonArray ?: continue
         val building = liveBuildingName(campus, rawBuilding)
         for (el in arr) {
-            val o = el.takeIf { it.isJsonObject }?.asJsonObject ?: continue
+            val o = el.takeIf { it.isObject }?.jsonObject ?: continue
             val name = o.str("classroomName") ?: continue
             rooms.add(
                 LiveRoom(
@@ -213,4 +215,4 @@ internal fun parseLiveSnapshot(campus: String, body: String, fetchedAt: Long): L
 
 /** 数字字段有时是数字有时是字符串（seatNum 就是字符串），统一按字符串取。 */
 private fun JsonObject.str(key: String): String? =
-    get(key)?.takeIf { !it.isJsonNull && it.isJsonPrimitive }?.asString?.trim()
+    get(key)?.takeIf { !it.isNull && it.isPrimitive }?.stringValue?.trim()

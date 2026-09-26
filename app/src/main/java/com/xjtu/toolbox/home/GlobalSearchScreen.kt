@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.home
 
+import com.xjtu.toolbox.ui.components.BackButton
+import com.xjtu.toolbox.nav.AppRoute
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
@@ -58,7 +60,6 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.TravelExplore
 import androidx.compose.material.icons.outlined.ChevronRight
@@ -77,7 +78,7 @@ internal sealed class SearchEntry {
     data class Screen(
         override val title: String,
         override val subtitle: String,
-        val route: String,
+        val route: AppRoute,
         override val aliases: List<String> = emptyList(),
     ) : SearchEntry()
 
@@ -138,7 +139,7 @@ private val QuickChips = listOf("课表", "空教室", "校园卡", "成绩", "�
 @Composable
 fun GlobalSearchScreen(
     onBack: () -> Unit,
-    onNavigate: (String) -> Unit,
+    onNavigate: (AppRoute) -> Unit,
     onAskAgent: (String) -> Unit,
     accountType: AccountType = AccountType.UNDERGRADUATE,
 ) {
@@ -209,9 +210,7 @@ fun GlobalSearchScreen(
                         title = "搜索",
                         color = scaffoldColor,
                         navigationIcon = {
-                            IconButton(onClick = onBack) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                            }
+                            BackButton(onBack)
                         },
                         actions = {
                             if (query.isNotEmpty()) {
@@ -332,7 +331,7 @@ private fun SearchEmptyHints(
 private fun SearchResultList(
     query: String,
     results: List<SearchEntry>,
-    onNavigate: (String) -> Unit,
+    onNavigate: (AppRoute) -> Unit,
     onAskAgent: (String) -> Unit,
 ) {
     val screens = results.filterIsInstance<SearchEntry.Screen>()
@@ -351,7 +350,7 @@ private fun SearchResultList(
                     modifier = Modifier.padding(bottom = 2.dp, top = 4.dp),
                 )
             }
-            items(screens, key = { "s-${it.route}-${it.title}" }) { entry ->
+            items(screens, key = { "s-${it.route.id}-${it.title}" }) { entry ->
                 SearchResultRow(
                     title = entry.title,
                     subtitle = entry.subtitle,

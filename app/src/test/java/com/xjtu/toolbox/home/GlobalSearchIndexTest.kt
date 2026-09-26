@@ -1,11 +1,11 @@
 package com.xjtu.toolbox.home
 
-import com.xjtu.toolbox.Routes
 import com.xjtu.toolbox.auth.AccountType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.xjtu.toolbox.nav.AppRoute
 
 /**
  * GlobalSearchIndex 单元测试。
@@ -66,7 +66,7 @@ class GlobalSearchIndexTest {
         val results = GlobalSearchIndex.search("体测")
         assertTrue(
             "expected 体测查询 screen, got ${results.map { it.title }}",
-            results.any { it is SearchEntry.Screen && it.route == Routes.FITNESS }
+            results.any { it is SearchEntry.Screen && it.route == AppRoute.Fitness }
         )
     }
 
@@ -81,19 +81,19 @@ class GlobalSearchIndexTest {
     }
 
     @Test
-    fun newAttendance_isSearchableForBothUndergradAndPostgrad() {
-        // 新版考勤（kq.xjtu.edu.cn）本研统一，取代了旧版按学籍分开的两个入口，
+    fun attendance_isSearchableForBothUndergradAndPostgrad() {
+        // 考勤（kq.xjtu.edu.cn）本研统一，取代了旧版按学籍分开的两个入口，
         // 两边都应该搜得到、首页都应该看得见。
         assertTrue(
-            AppServices.all.any { it.route == Routes.NEW_ATTENDANCE && it.showOnHome },
+            AppServices.all.any { it.route == AppRoute.Attendance && it.showOnHome },
         )
         for (accountType in listOf(AccountType.UNDERGRADUATE, AccountType.POSTGRADUATE)) {
             val homeRoutes = AppServices.homeFor(accountType).map { it.route }
-            assertTrue("$accountType 首页应包含新版考勤", Routes.NEW_ATTENDANCE in homeRoutes)
+            assertTrue("$accountType 首页应包含考勤", AppRoute.Attendance in homeRoutes)
             val results = GlobalSearchIndex.search("考勤", accountType)
             assertTrue(
-                "$accountType 搜索「考勤」应命中新版考勤，got ${results.map { it.title }}",
-                results.any { it is SearchEntry.Screen && it.route == Routes.NEW_ATTENDANCE },
+                "$accountType 搜索「考勤」应命中考勤，got ${results.map { it.title }}",
+                results.any { it is SearchEntry.Screen && it.route == AppRoute.Attendance },
             )
         }
     }
@@ -101,6 +101,6 @@ class GlobalSearchIndexTest {
     @Test
     fun postgraduate_cannotSeeUndergraduateOnlyIclassface() {
         val homeRoutes = AppServices.homeFor(AccountType.POSTGRADUATE).map { it.route }
-        assertFalse(Routes.ICLASSFACE in homeRoutes)
+        assertFalse(AppRoute.Iclassface in homeRoutes)
     }
 }

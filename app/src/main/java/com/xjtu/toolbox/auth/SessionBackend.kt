@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.auth
 
-import com.xjtu.toolbox.util.PersistentCookieJar
+import com.xjtu.toolbox.network.HttpClients
+import com.xjtu.toolbox.network.PersistentCookieJar
 import kotlinx.coroutines.sync.Mutex
 import okhttp3.ConnectionPool
 import okhttp3.Dispatcher
@@ -29,7 +30,7 @@ class SessionBackend(
      * OkHttpClient—持有 cookies + 连接池 + WEBVPN 时的 URL 改写拦截器。
      * WEBVPN backend 的拦截器自动将 jwxt/jwapp/… 等原域名 URL 改写为 webvpn 加密形式，业务层无感知。
      */
-    val client: OkHttpClient = OkHttpClient.Builder()
+    val client: OkHttpClient = HttpClients.base.newBuilder()
         .addInterceptor(BrotliInterceptor)
         .apply { if (webVpnInterceptor != null) addInterceptor(webVpnInterceptor) }
         .cookieJar(cookieJar)

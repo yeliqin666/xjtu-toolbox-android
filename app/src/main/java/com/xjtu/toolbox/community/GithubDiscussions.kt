@@ -1,8 +1,8 @@
 package com.xjtu.toolbox.community
 
 // 改编自 JoyinJoester/Etoile（GPL-3.0）：github/domain/GithubDiscussion.kt、
-// github/data/GithubDiscussionsRepositoryImpl.kt。补了头像、时间、点赞、楼中楼回复数、分类筛选，
-// 评论解析合成一处；401（授权被撤销）时回调 onUnauthorized。
+// github/data/GithubDiscussionsRepositoryImpl.kt。补了头像、时间、表情回应、楼中楼、分类筛选、
+// 置顶展示、关闭 / 锁定 / 折叠、投票；401（授权被撤销）时回调 onUnauthorized。
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -11,25 +11,50 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 
 data class GithubDiscussionCategory(val id: String, val name: String, val acceptsAnswers: Boolean)
+
+/** 一种表情回应：[content] 是 GitHub 的 ReactionContent 枚举名。 */
+data class GithubReaction(val content: String, val count: Int, val mine: Boolean)
+
+data class GithubPollOption(val id: String, val text: String, val votes: Int, val mine: Boolean)
+data class GithubPoll(
+    val question: String, val options: List<GithubPollOption>, val total: Int,
+    val canVote: Boolean, val voted: Boolean,
+)
+
 data class GithubDiscussion(
     val id: String, val number: Int, val title: String, val body: String,
     val url: String, val author: String?, val category: GithubDiscussionCategory,
     val comments: Int, val answered: Boolean, val canEdit: Boolean = false,
     val createdAt: String = "", val updatedAt: String = "", val authorAvatar: String? = null,
-    val upvotes: Int = 0, val upvoted: Boolean = false, val canUpvote: Boolean = false,
+    val reactions: List<GithubReaction> = emptyList(), val canReact: Boolean = false,
     val canDelete: Boolean = false, val authorIsAdmin: Boolean = false,
-)
+    /** 关闭原因：RESOLVED / OUTDATED / DUPLICATE；没关闭为 null。 */
+    val closedReason: String? = null, val canClose: Boolean = false, val canReopen: Boolean = false,
+    val locked: Boolean = false,
+    /** 能锁帖（仓库 triage 及以上权限）。 */
+    val canModerate: Boolean = false,
+    val poll: GithubPoll? = null,
+    val pinned: Boolean = false,
+) {
+    val closed get() = closedReason != null
+}
 data class GithubDiscussionPage(val repositoryId: String, val items: List<GithubDiscussion>, val nextCursor: String?)
 data class GithubDiscussionComment(
     val id: String, val body: String, val author: String?, val isAnswer: Boolean,
     val canMarkAnswer: Boolean = false, val canUnmarkAnswer: Boolean = false,
     val canEdit: Boolean = false, val canDelete: Boolean = false,
     val createdAt: String = "", val replyCount: Int = 0, val authorAvatar: String? = null,
-    val upvotes: Int = 0, val upvoted: Boolean = false, val canUpvote: Boolean = false,
+    val reactions: List<GithubReaction> = emptyList(), val canReact: Boolean = false,
     /** 楼中楼的前两条，列表里直接露出来；更多的点开再拉。 */
     val previewReplies: List<GithubDiscussionComment> = emptyList(),
     val authorIsAdmin: Boolean = false,
-)
+    val url: String = "",
+    /** 被折叠的原因（GitHub 返回的小写分类，如 spam）；没折叠为 null。 */
+    val minimizedReason: String? = null,
+    val canMinimize: Boolean = false, val canUnminimize: Boolean = false,
+) {
+    val minimized get() = minimizedReason != null
+}
 data class GithubDiscussionComments(val items: List<GithubDiscussionComment>, val nextCursor: String?)
 
 class GithubDiscussionException(message: String? = null) :
@@ -104,14 +129,19 @@ class GithubDiscussionsRepository(
         buildJsonObject { put("id", id); put("cursor", cursor) }
     ) { data -> comments(data.getValue("node").jsonObject.getValue("comments").jsonObject) }
 
+    /** 第一页顺带拉置顶帖，排在最前面。 */
     suspend fun list(owner: String, name: String, cursor: String?, categoryId: String? = null): Result<GithubDiscussionPage> = execute(
-        "query(\$owner:String!,\$name:String!,\$cursor:String,\$category:ID){repository(owner:\$owner,name:\$name){id discussions(first:20,after:\$cursor,categoryId:\$category,orderBy:{field:UPDATED_AT,direction:DESC}){nodes{$FIELDS} pageInfo{hasNextPage endCursor}}}}",
-        buildJsonObject { put("owner", owner); put("name", name); put("cursor", cursor); put("category", categoryId) }
+        "query(\$owner:String!,\$name:String!,\$cursor:String,\$category:ID,\$top:Boolean!){repository(owner:\$owner,name:\$name){id pinnedDiscussions(first:10) @include(if:\$top){nodes{discussion{$FIELDS}}} discussions(first:20,after:\$cursor,categoryId:\$category,orderBy:{field:UPDATED_AT,direction:DESC}){nodes{$FIELDS} pageInfo{hasNextPage endCursor}}}}",
+        buildJsonObject { put("owner", owner); put("name", name); put("cursor", cursor); put("category", categoryId); put("top", cursor == null) }
     ) { data ->
         val repo = data.getValue("repository").jsonObject
+        val pinned = repo.obj("pinnedDiscussions")?.getValue("nodes")?.jsonArray.orEmpty()
+            .map { discussion(it.jsonObject.getValue("discussion").jsonObject).copy(pinned = true) }
+            .filter { categoryId == null || it.category.id == categoryId }
         val connection = repo.getValue("discussions").jsonObject
         val page = connection.getValue("pageInfo").jsonObject
-        GithubDiscussionPage(repo.text("id"), connection.getValue("nodes").jsonArray.map { discussion(it.jsonObject) },
+        val items = connection.getValue("nodes").jsonArray.map { discussion(it.jsonObject) }
+        GithubDiscussionPage(repo.text("id"), (pinned + items).distinctBy { it.id },
             if (page.getValue("hasNextPage").jsonPrimitive.boolean) page.text("endCursor") else null)
     }
 
@@ -126,13 +156,31 @@ class GithubDiscussionsRepository(
         buildJsonObject { put("input", buildJsonObject { put("id", id) }) }
     ) { Unit }
 
-    /** 给帖子或评论点赞 / 取消点赞（GitHub 的 upvote）。 */
-    suspend fun upvote(subjectId: String, add: Boolean): Result<Unit> {
-        val mutation = if (add) "addUpvote" else "removeUpvote"
-        val input = if (add) "AddUpvoteInput" else "RemoveUpvoteInput"
-        return execute("mutation(\$input:$input!){$mutation(input:\$input){clientMutationId}}",
-            buildJsonObject { put("input", buildJsonObject { put("subjectId", subjectId) }) }) { Unit }
-    }
+    /** 给帖子或评论加 / 撤一个表情回应（点赞就是 👍）。 */
+    suspend fun react(subjectId: String, content: String, add: Boolean): Result<Unit> =
+        if (add) mutate("addReaction", "AddReactionInput", buildJsonObject { put("subjectId", subjectId); put("content", content) })
+        else mutate("removeReaction", "RemoveReactionInput", buildJsonObject { put("subjectId", subjectId); put("content", content) })
+
+    /** 关闭帖子，[reason] 为 RESOLVED / OUTDATED / DUPLICATE。 */
+    suspend fun close(id: String, reason: String): Result<Unit> =
+        mutate("closeDiscussion", "CloseDiscussionInput", buildJsonObject { put("discussionId", id); put("reason", reason) })
+
+    suspend fun reopen(id: String): Result<Unit> =
+        mutate("reopenDiscussion", "ReopenDiscussionInput", buildJsonObject { put("discussionId", id) })
+
+    suspend fun lock(id: String, locked: Boolean): Result<Unit> =
+        if (locked) mutate("lockLockable", "LockLockableInput", buildJsonObject { put("lockableId", id) })
+        else mutate("unlockLockable", "UnlockLockableInput", buildJsonObject { put("lockableId", id) })
+
+    /** 折叠回复，[classifier] 为 ReportedContentClassifiers 枚举名。 */
+    suspend fun minimize(id: String, classifier: String): Result<Unit> =
+        mutate("minimizeComment", "MinimizeCommentInput", buildJsonObject { put("subjectId", id); put("classifier", classifier) })
+
+    suspend fun unminimize(id: String): Result<Unit> =
+        mutate("unminimizeComment", "UnminimizeCommentInput", buildJsonObject { put("subjectId", id) })
+
+    suspend fun vote(optionId: String): Result<Unit> =
+        mutate("addDiscussionPollVote", "AddDiscussionPollVoteInput", buildJsonObject { put("pollOptionId", optionId) })
 
     suspend fun categories(owner: String, name: String): Result<List<GithubDiscussionCategory>> = execute(
         "query(\$owner:String!,\$name:String!){repository(owner:\$owner,name:\$name){discussionCategories(first:100){nodes{id name isAnswerable}}}}",
@@ -154,6 +202,10 @@ class GithubDiscussionsRepository(
             buildJsonObject { put("input", buildJsonObject { put("discussionId", discussionId); put("body", body) }) }
         ) { it.getValue("addDiscussionComment").jsonObject.getValue("comment").jsonObject.text("id") }
     }
+
+    private suspend fun mutate(mutation: String, inputType: String, input: JsonObject): Result<Unit> =
+        execute("mutation(\$input:$inputType!){$mutation(input:\$input){clientMutationId}}",
+            buildJsonObject { put("input", input) }) { Unit }
 
     private suspend fun <T> execute(query: String, variables: JsonObject, decode: (JsonObject) -> T): Result<T> = withContext(Dispatchers.IO) {
         githubRunCatching {
@@ -181,52 +233,90 @@ class GithubDiscussionsRepository(
     }
 
     private fun comment(value: JsonObject): GithubDiscussionComment = GithubDiscussionComment(
-        value.text("id"), value.text("body"),
-        value["author"]?.takeUnless { it is JsonNull }?.jsonObject?.text("login"),
-        value.getValue("isAnswer").jsonPrimitive.boolean,
-        value["viewerCanMarkAsAnswer"]?.jsonPrimitive?.booleanOrNull ?: false,
-        value["viewerCanUnmarkAsAnswer"]?.jsonPrimitive?.booleanOrNull ?: false,
-        value["viewerCanUpdate"]?.jsonPrimitive?.booleanOrNull ?: false,
-        value["viewerCanDelete"]?.jsonPrimitive?.booleanOrNull ?: false,
-        value["createdAt"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-        value["replies"]?.takeUnless { it is JsonNull }?.jsonObject?.get("totalCount")?.jsonPrimitive?.intOrNull ?: 0,
-        avatar(value),
-        value["upvoteCount"]?.jsonPrimitive?.intOrNull ?: 0,
-        value["viewerHasUpvoted"]?.jsonPrimitive?.booleanOrNull ?: false,
-        value["viewerCanUpvote"]?.jsonPrimitive?.booleanOrNull ?: false,
-        value["replies"]?.takeUnless { it is JsonNull }?.jsonObject?.get("nodes")?.jsonArray
-            ?.map { comment(it.jsonObject) }.orEmpty(),
-        isAdmin(value),
+        id = value.text("id"),
+        body = value.text("body"),
+        author = login(value),
+        isAnswer = value.flag("isAnswer"),
+        canMarkAnswer = value.flag("viewerCanMarkAsAnswer"),
+        canUnmarkAnswer = value.flag("viewerCanUnmarkAsAnswer"),
+        canEdit = value.flag("viewerCanUpdate"),
+        canDelete = value.flag("viewerCanDelete"),
+        createdAt = value.optText("createdAt").orEmpty(),
+        replyCount = value.obj("replies")?.get("totalCount")?.jsonPrimitive?.intOrNull ?: 0,
+        authorAvatar = avatar(value),
+        reactions = reactions(value),
+        canReact = value.flag("viewerCanReact"),
+        previewReplies = value.obj("replies")?.get("nodes")?.jsonArray?.map { comment(it.jsonObject) }.orEmpty(),
+        authorIsAdmin = isAdmin(value),
+        url = value.optText("url").orEmpty(),
+        minimizedReason = if (value.flag("isMinimized")) value.optText("minimizedReason").orEmpty() else null,
+        canMinimize = value.flag("viewerCanMinimize"),
+        canUnminimize = value.flag("viewerCanUnminimize"),
     )
 
     /** 仓库主人、组织成员、协作者都算管理员。 */
     private fun isAdmin(value: JsonObject) =
         value["authorAssociation"]?.jsonPrimitive?.contentOrNull in setOf("OWNER", "MEMBER", "COLLABORATOR")
 
-    private fun avatar(value: JsonObject) =
-        value["author"]?.takeUnless { it is JsonNull }?.jsonObject?.get("avatarUrl")?.jsonPrimitive?.contentOrNull
+    private fun avatar(value: JsonObject) = value.obj("author")?.optText("avatarUrl")
+    private fun login(value: JsonObject) = value.obj("author")?.text("login")
 
-    private fun category(value: JsonObject) = GithubDiscussionCategory(value.text("id"), value.text("name"), value.getValue("isAnswerable").jsonPrimitive.boolean)
-    private fun discussion(value: JsonObject) = GithubDiscussion(value.text("id"), value.getValue("number").jsonPrimitive.int,
-        value.text("title"), value.text("body"), value.text("url"),
-        value["author"]?.takeUnless { it is JsonNull }?.jsonObject?.text("login"),
-        category(value.getValue("category").jsonObject), value.getValue("comments").jsonObject.getValue("totalCount").jsonPrimitive.int,
-        value["answer"]?.let { it !is JsonNull } == true,
-        value["viewerCanUpdate"]?.jsonPrimitive?.booleanOrNull ?: false,
-        value["createdAt"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-        value["updatedAt"]?.jsonPrimitive?.contentOrNull.orEmpty(),
-        avatar(value),
-        value["upvoteCount"]?.jsonPrimitive?.intOrNull ?: 0,
-        value["viewerHasUpvoted"]?.jsonPrimitive?.booleanOrNull ?: false,
-        value["viewerCanUpvote"]?.jsonPrimitive?.booleanOrNull ?: false,
-        value["viewerCanDelete"]?.jsonPrimitive?.booleanOrNull ?: false,
-        isAdmin(value))
+    private fun category(value: JsonObject) = GithubDiscussionCategory(value.text("id"), value.text("name"), value.flag("isAnswerable"))
+    private fun discussion(value: JsonObject) = GithubDiscussion(
+        id = value.text("id"),
+        number = value.getValue("number").jsonPrimitive.int,
+        title = value.text("title"),
+        body = value.text("body"),
+        url = value.text("url"),
+        author = login(value),
+        category = category(value.getValue("category").jsonObject),
+        comments = value.getValue("comments").jsonObject.getValue("totalCount").jsonPrimitive.int,
+        answered = value.obj("answer") != null,
+        canEdit = value.flag("viewerCanUpdate"),
+        createdAt = value.optText("createdAt").orEmpty(),
+        updatedAt = value.optText("updatedAt").orEmpty(),
+        authorAvatar = avatar(value),
+        reactions = reactions(value),
+        canReact = value.flag("viewerCanReact"),
+        canDelete = value.flag("viewerCanDelete"),
+        authorIsAdmin = isAdmin(value),
+        closedReason = if (value.flag("closed")) value.optText("stateReason") ?: "RESOLVED" else null,
+        canClose = value.flag("viewerCanClose"),
+        canReopen = value.flag("viewerCanReopen"),
+        locked = value.flag("locked"),
+        canModerate = value.obj("repository")?.optText("viewerPermission") in setOf("ADMIN", "MAINTAIN", "WRITE", "TRIAGE"),
+        poll = value.obj("poll")?.let(::poll),
+    )
+
+    private fun poll(value: JsonObject) = GithubPoll(
+        question = value.text("question"),
+        options = value.getValue("options").jsonObject.getValue("nodes").jsonArray.map {
+            val o = it.jsonObject
+            GithubPollOption(o.text("id"), o.text("option"), o.getValue("totalVoteCount").jsonPrimitive.int, o.flag("viewerHasVoted"))
+        },
+        total = value.getValue("totalVoteCount").jsonPrimitive.int,
+        canVote = value.flag("viewerCanVote"),
+        voted = value.flag("viewerHasVoted"),
+    )
+
+    private fun reactions(value: JsonObject): List<GithubReaction> =
+        value["reactionGroups"]?.takeUnless { it is JsonNull }?.jsonArray.orEmpty().map { it.jsonObject }.mapNotNull {
+            val count = it.obj("reactors")?.get("totalCount")?.jsonPrimitive?.intOrNull ?: 0
+            val mine = it.flag("viewerHasReacted")
+            if (count > 0 || mine) GithubReaction(it.text("content"), count, mine) else null
+        }
+
     private fun JsonObject.text(key: String) = getValue(key).jsonPrimitive.content
+    private fun JsonObject.optText(key: String) = get(key)?.takeUnless { it is JsonNull }?.jsonPrimitive?.contentOrNull
+    private fun JsonObject.flag(key: String) = get(key)?.takeUnless { it is JsonNull }?.jsonPrimitive?.booleanOrNull ?: false
+    private fun JsonObject.obj(key: String) = get(key)?.takeUnless { it is JsonNull }?.jsonObject
+
     private companion object {
         const val AUTHOR = "author{login avatarUrl(size:80)}"
-        const val UPVOTE = "upvoteCount viewerHasUpvoted viewerCanUpvote"
-        const val REPLY_FIELDS = "id body createdAt $AUTHOR authorAssociation $UPVOTE isAnswer viewerCanMarkAsAnswer viewerCanUnmarkAsAnswer viewerCanUpdate viewerCanDelete"
+        const val REACTIONS = "viewerCanReact reactionGroups{content viewerHasReacted reactors{totalCount}}"
+        const val REPLY_FIELDS = "id url body createdAt $AUTHOR authorAssociation $REACTIONS isAnswer viewerCanMarkAsAnswer viewerCanUnmarkAsAnswer viewerCanUpdate viewerCanDelete isMinimized minimizedReason viewerCanMinimize viewerCanUnminimize"
         const val COMMENT_FIELDS = "$REPLY_FIELDS replies(first:2){totalCount nodes{$REPLY_FIELDS}}"
-        const val FIELDS = "viewerCanUpdate viewerCanDelete authorAssociation id number title body url createdAt updatedAt $AUTHOR $UPVOTE category{id name isAnswerable} comments{totalCount} answer{id}"
+        const val POLL = "poll{question totalVoteCount viewerCanVote viewerHasVoted options(first:20){nodes{id option totalVoteCount viewerHasVoted}}}"
+        const val FIELDS = "viewerCanUpdate viewerCanDelete viewerCanClose viewerCanReopen authorAssociation id number title body url createdAt updatedAt closed stateReason locked repository{viewerPermission} $AUTHOR $REACTIONS $POLL category{id name isAnswerable} comments{totalCount} answer{id}"
     }
 }

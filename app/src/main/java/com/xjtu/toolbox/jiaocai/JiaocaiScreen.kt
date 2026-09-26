@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.jiaocai
 
+import com.xjtu.toolbox.schedule.ScheduleCache
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.spring
@@ -10,7 +11,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -26,21 +26,18 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.google.gson.Gson
-import com.xjtu.toolbox.Routes
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.jiaocai1.Jiaocai1Api
 import com.xjtu.toolbox.jiaocai1.Jiaocai1SearchField
 import com.xjtu.toolbox.schedule.TextbookItem
 import com.xjtu.toolbox.ui.components.AppSearchBar
 import com.xjtu.toolbox.ui.components.AppSuggestionChip
-import com.xjtu.toolbox.ui.components.rememberRetainedLazyListState
 import com.xjtu.toolbox.ui.components.rememberRetainedLazyStaggeredGridState
 import com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import androidx.compose.foundation.lazy.staggeredgrid.items
-import com.xjtu.toolbox.util.DataCache
+import com.xjtu.toolbox.data.DataCache
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -48,6 +45,7 @@ import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
+import com.xjtu.toolbox.nav.AppRoute
 
 @Composable
 fun JiaocaiScreen(
@@ -63,7 +61,7 @@ fun JiaocaiScreen(
         onBack = onBack,
         onOpenBook = onOpenFullText,
         initialTab = 0,
-        authExpiredRoute = Routes.JIAOCAI,
+        authExpiredRoute = AppRoute.Jiaocai,
     )
 }
 
@@ -453,21 +451,11 @@ private fun MyTextbookRow(
     }
 }
 
-/** 读当前学期（term_list 第一个）的选用教材缓存，过滤掉"无教材"这类空信息。 */
+/** 本学期的选用教材缓存，滤掉「无教材」这类空信息。 */
 private fun loadCurrentTermTextbooks(context: android.content.Context): List<TextbookItem> {
     val dc = DataCache(context)
-    val gson = Gson()
-    val term = runCatching {
-        dc.get("schedule_term_list", Long.MAX_VALUE)
-            ?.let { gson.fromJson(it, Array<String>::class.java)?.firstOrNull() }
-    }.getOrNull() ?: return emptyList()
-    return runCatching {
-        dc.get("schedule_textbooks_$term", Long.MAX_VALUE)?.let { json ->
-            gson.fromJson(json, Array<TextbookItem>::class.java)
-                .map { it.sanitized() }
-                .filter { it.hasSubstantiveTextbook }
-        }
-    }.getOrNull().orEmpty()
+    val term = ScheduleCache.readCurrentTerm(dc) ?: return emptyList()
+    return ScheduleCache.readTextbooks(dc, term, Long.MAX_VALUE).orEmpty().filter { it.hasSubstantiveTextbook }
 }
 
 /**
@@ -480,7 +468,7 @@ private fun loadCurrentTermTextbooks(context: android.content.Context): List<Tex
  * 这次没有改它（改动面会波及全文库检索/分类浏览，超出本 PR 范围）。
  * [FullTextOutcome.Failed] 分支留着兜运行时异常（比如空指针），不是摆设。
  */
-private fun resolveFullText(site: SiteSession, item: TextbookItem): FullTextOutcome = try {
+private suspend fun resolveFullText(site: SiteSession, item: TextbookItem): FullTextOutcome = try {
     val isbn = item.isbn.trim()
     val result = if (isbn.isNotBlank()) {
         Jiaocai1Api(site).search(keyword = normalizeIsbn(isbn), field = Jiaocai1SearchField.ISBN)

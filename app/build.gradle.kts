@@ -1,4 +1,5 @@
 import java.util.Properties
+import java.util.concurrent.TimeUnit
 
 plugins {
     alias(libs.plugins.android.application)
@@ -13,8 +14,8 @@ plugins {
 
 android {
     namespace = "com.xjtu.toolbox"
-    // compileSdk 跟随 miuix（BuildConfig.COMPILE_SDK = 37）：composite build 要求消费方的
-    // compileSdk 不低于依赖方，否则 CheckAarMetadata 直接失败。这只是「用哪套 SDK 编译」，
+    // compileSdk 跟随 miuix（其 AAR metadata 声明 minCompileSdk = 37）：
+    // 消费方的 compileSdk 低于它时 CheckAarMetadata 直接失败。这只是「用哪套 SDK 编译」，
     // 不影响设备兼容范围。minSdk / targetSdk 保持不动。
     compileSdk {
         version = release(37) {
@@ -27,8 +28,6 @@ android {
         targetSdk = 36
         versionCode = 85
         versionName = "5.0.8"
-
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // 反馈后端（飞书多维表格）的凭据。优先读环境变量（CI），否则读
         // 仓库根目录 feedback.properties（已 gitignore）。两者都没有时留空字符串——
@@ -149,6 +148,11 @@ android {
         compose = true
         buildConfig = true
     }
+    // App 只有中英文；依赖库带进来的其他几十种语言不打包
+    androidResources {
+        localeFilters += listOf("zh", "en")
+    }
+
     packaging {
         // minSdk≥28 时 AGP 默认把 dex 不压缩、按页对齐存进 APK，好让 ART 直接 mmap。
         // 本应用 dex 约 8.8MB，占 APK 八成，用户却是整包下载（Gitee/GitHub Release），
@@ -168,12 +172,29 @@ androidComponents {
     }
 }
 
+// miuix 走 latest.release：拒掉预发布版本；解析到的最新版本号缓存 30 分钟，
+// 既能跟上新版本，又不会因为一次网络抖动让构建失败
+configurations.configureEach {
+    resolutionStrategy {
+        cacheDynamicVersionsFor(30, TimeUnit.MINUTES)
+        componentSelection.all {
+            if (candidate.group == "top.yukonga.miuix.kmp" &&
+                Regex("(?i)(alpha|beta|rc|dev|snapshot)").containsMatchIn(candidate.version)
+            ) {
+                reject("miuix 只跟正式版")
+            }
+        }
+    }
+}
+
 // 插件只会把 profile 打进非 debuggable 变体（release），debug 不做 AOT、拿它没用。
 baselineProfile {
     // 每次构建都重新采集会要求构建机常驻真机——本项目的 CI 没有设备，
     // 所以用「生成的 profile 提交进仓库」的模式，靠手动跑 generateBaselineProfile 刷新。
     automaticGenerationDuringBuild = false
     saveInSrc = true
+    // 按 startup profile 把启动要用的类排进主 dex，冷启动少读页
+    dexLayoutOptimization = true
 }
 
 dependencies {
@@ -195,10 +216,9 @@ dependencies {
     implementation(libs.coil.network.okhttp)
     implementation(libs.okhttp)
     implementation(libs.okhttp.brotli)
-    implementation(libs.okhttp.urlconnection)
+    implementation(libs.okhttp.java.net.cookiejar)
     implementation(libs.jsoup)
     implementation(libs.flexmark.html2md)
-    implementation(libs.gson)
     implementation(libs.coroutines.android)
     implementation(libs.security.crypto)
     implementation(libs.zxing.core)
@@ -222,21 +242,20 @@ dependencies {
     // profile 的来源模块；只是数据依赖，不进 APK
     baselineProfile(project(":baselineprofile"))
     ksp(libs.androidx.room.compiler)
-    // 版本号仅为占位：settings.gradle.kts 的 dependencySubstitution 会把这三个坐标
-    // 替换成 includeBuild("miuix-ref") 里的本地工程，实际编译的永远是源码树当前状态。
-    implementation("top.yukonga.miuix.kmp:miuix-ui-android:0.9.3")
-    implementation("top.yukonga.miuix.kmp:miuix-preference-android:0.9.3")
-    implementation("top.yukonga.miuix.kmp:miuix-icons-android:0.9.3")
-    implementation("top.yukonga.miuix.kmp:miuix-squircle-android:0.9.3")
-    // 导航运行时（连续栈、跟手侧滑返回、预测式返回），同样替换成 miuix-ref 里的本地工程
-    implementation("top.yukonga.miuix.kmp:miuix-nav-android:0.9.3")
+    // MIUIX：版本见 libs.versions.toml，始终取 Maven Central 最新正式版
+    implementation(libs.miuix.ui)
+    implementation(libs.miuix.preference)
+    implementation(libs.miuix.icons)
+    // 超椭圆圆角（MIUI/iOS 那种平滑拐角）。设备不支持 RuntimeShader 时库内部
+    // 自动退回普通 RoundedCornerShape，minSdk 31 上安全。
+    implementation(libs.miuix.squircle)
+    // 导航运行时（连续栈、跟手侧滑返回、预测式返回）
+    implementation(libs.miuix.nav)
     implementation(libs.kotlinx.serialization.json)
     // 液态玻璃（Kyant0/AndroidLiquidGlass，Apache-2.0）
     implementation(libs.kyant.backdrop)
     // 形状形变（加载动画）
     implementation(libs.androidx.graphics.shapes)
     testImplementation(libs.junit)
-    androidTestImplementation(libs.androidx.junit)
-    androidTestImplementation(libs.androidx.espresso.core)
     debugImplementation(libs.androidx.ui.tooling)
 }

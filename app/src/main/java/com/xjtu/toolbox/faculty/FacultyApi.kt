@@ -2,7 +2,7 @@ package com.xjtu.toolbox.faculty
 
 import com.xjtu.toolbox.util.redactBody
 import android.util.Log
-import com.xjtu.toolbox.util.HttpClients
+import com.xjtu.toolbox.network.HttpClients
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive

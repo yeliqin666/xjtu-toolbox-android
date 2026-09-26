@@ -1,7 +1,14 @@
 package com.xjtu.toolbox.auth
 
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.isNull
+import com.xjtu.toolbox.util.isObject
+import com.xjtu.toolbox.util.isArray
+import com.xjtu.toolbox.util.isPrimitive
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
 import android.util.Log
-import com.google.gson.JsonElement
+import kotlinx.serialization.json.JsonElement
 import com.xjtu.toolbox.util.safeGet
 import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.MediaType.Companion.toMediaType
@@ -71,21 +78,6 @@ class CouponLogin(
         return tokenObtainedAt == 0L || System.currentTimeMillis() - tokenObtainedAt < TOKEN_TTL_MS
     }
 
-    fun authenticatedRequest(url: String, jsonBody: String): Request.Builder {
-        if (!isTokenValid() && !reAuthenticate()) {
-            throw com.xjtu.toolbox.auth.AuthExpiredException("加餐券")
-        }
-        return Request.Builder()
-            .url(url)
-            .post(jsonBody.toRequestBody(JSON))
-            .header("Accept", "application/json, text/javascript, */*; q=0.01")
-            .header("Content-Type", "application/json;charset=UTF-8")
-            .header("Origin", BASE_URL)
-            .header("Referer", RECEIVE_URL)
-            .header("X-Requested-With", "XMLHttpRequest")
-            .header("Authorization", authToken ?: "")
-    }
-
     override fun validateLogin(): Boolean {
         return isTokenValid()
     }
@@ -105,7 +97,7 @@ class CouponLogin(
         try {
             Log.d(COUPON_TAG, "reAuthenticate: start")
             val response = client.newCall(Request.Builder().url(buildCouponOAuthUrl()).get().build()).execute()
-            val body = response.body?.string().orEmpty()
+            val body = response.body.string()
             val params = extractCallbackParams(response.request.url.toString())
                 ?: extractCallbackParams(body)
                 ?: return false
@@ -116,28 +108,6 @@ class CouponLogin(
             Log.e(COUPON_TAG, "reAuthenticate failed", e)
         }
         false
-    }
-
-    fun executeWithReAuth(requestBuilder: Request.Builder): Response {
-        val response = client.newCall(requestBuilder.build()).execute()
-        val needReAuth = when {
-            response.code in listOf(401, 403) -> true
-            response.code == 200 -> {
-                val ct = response.header("Content-Type") ?: ""
-                if ("html" in ct || "text" in ct) {
-                    XJTULogin.isAuthFailureResponse(response.peekBody(8192).string())
-                } else false
-            }
-            else -> false
-        }
-        if (needReAuth) {
-            response.close()
-            if (reAuthenticate()) {
-                return client.newCall(requestBuilder.header("Authorization", authToken ?: "").build()).execute()
-            }
-            throw AuthExpiredException("加餐券")
-        }
-        return response
     }
 
     private fun exchangeCodeForToken(params: CallbackParams) {
@@ -159,7 +129,7 @@ class CouponLogin(
             .build()
 
         client.newCall(request).execute().use { response ->
-            val text = response.body?.string().orEmpty()
+            val text = response.body.string()
             Log.d(COUPON_TAG, "exchangeCodeForToken: response code=${response.code}, bodyLen=${text.length}")
             val headerToken = response.header("Authorization")?.normalizeToken()
             val bodyToken = extractToken(text)
@@ -201,20 +171,20 @@ class CouponLogin(
     }
 
     private fun findTokenInJson(element: JsonElement?): String? {
-        if (element == null || element.isJsonNull) return null
-        if (element.isJsonPrimitive) {
-            val value = element.asString.normalizeToken()
+        if (element == null || element.isNull) return null
+        if (element.isPrimitive) {
+            val value = element.stringValue.normalizeToken()
             return value.takeIf { it.startsWith("eyJ") }
         }
-        if (element.isJsonObject) {
-            val obj = element.asJsonObject
+        if (element.isObject) {
+            val obj = element.jsonObject
             listOf("Authorization", "authorization", "token", "accessToken", "access_token", "jwt", "data").forEach { key ->
                 findTokenInJson(obj.safeGet(key))?.let { return it }
             }
-            obj.entrySet().forEach { (_, value) -> findTokenInJson(value)?.let { return it } }
+            obj.entries.forEach { (_, value) -> findTokenInJson(value)?.let { return it } }
         }
-        if (element.isJsonArray) {
-            element.asJsonArray.forEach { value -> findTokenInJson(value)?.let { return it } }
+        if (element.isArray) {
+            element.jsonArray.forEach { value -> findTokenInJson(value)?.let { return it } }
         }
         return null
     }

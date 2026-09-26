@@ -1,9 +1,13 @@
 package com.xjtu.toolbox.agent
 
-import com.google.gson.JsonParser
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.obj
+import com.xjtu.toolbox.util.arr
+import com.xjtu.toolbox.util.AppJson
+import kotlinx.serialization.json.jsonObject
+import com.xjtu.toolbox.network.HttpClients
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
 
@@ -15,7 +19,7 @@ import java.util.concurrent.TimeUnit
  */
 object AgentModelFetcher {
 
-    private val client = OkHttpClient.Builder()
+    private val client = HttpClients.base.newBuilder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .build()
@@ -35,17 +39,17 @@ object AgentModelFetcher {
         val body = response.body?.string().orEmpty()
         if (!response.isSuccessful) {
             val msg = runCatching {
-                JsonParser.parseString(body).asJsonObject
-                    .getAsJsonObject("error")?.get("message")?.asString
+                AppJson.parseToJsonElement(body).jsonObject
+                    .obj("error")?.get("message")?.stringValue
             }.getOrNull() ?: "HTTP ${response.code}"
             throw RuntimeException(msg)
         }
 
         val data = runCatching {
-            JsonParser.parseString(body).asJsonObject.getAsJsonArray("data")
+            AppJson.parseToJsonElement(body).jsonObject.arr("data")
         }.getOrNull() ?: throw RuntimeException("响应格式无法解析")
 
-        data.mapNotNull { it.asJsonObject.get("id")?.asString }
+        data.mapNotNull { it.jsonObject.get("id")?.stringValue }
             .distinct()
             .sorted()
             .ifEmpty { throw RuntimeException("服务商未返回任何模型") }

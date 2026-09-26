@@ -4,14 +4,11 @@ import android.content.Context
 import android.util.Log
 import com.xjtu.toolbox.auth.AccessMode
 import com.xjtu.toolbox.auth.AccountType
-import com.xjtu.toolbox.auth.LoginState
 import com.xjtu.toolbox.auth.SessionManager
-import com.xjtu.toolbox.auth.XJTULogin
 import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.card.CampusCardCache
-import com.xjtu.toolbox.util.AppDatabase
-import com.xjtu.toolbox.util.CredentialStore
-import com.xjtu.toolbox.util.PersistentCookieJar
+import com.xjtu.toolbox.data.AppDatabase
+import com.xjtu.toolbox.network.PersistentCookieJar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -34,7 +31,6 @@ import java.io.File
 class AccountManager(
     private val context: Context,
     private val accountStore: AccountStore,
-    private val credentialStore: CredentialStore,
 ) {
 
     lateinit var sessionManager: SessionManager

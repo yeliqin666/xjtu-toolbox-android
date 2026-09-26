@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.feedback
 
+import com.xjtu.toolbox.network.HttpClients
 import android.os.Build
 import com.xjtu.toolbox.BuildConfig
 import kotlinx.coroutines.Dispatchers
@@ -34,7 +35,7 @@ object FeedbackApi {
     private val JSON = "application/json; charset=utf-8".toMediaType()
 
     private val client: OkHttpClient by lazy {
-        OkHttpClient.Builder()
+        HttpClients.base.newBuilder()
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
             .build()

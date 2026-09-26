@@ -44,7 +44,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.KeyboardOptions
-import com.xjtu.toolbox.AppLoginState
+import com.xjtu.toolbox.auth.AppLoginState
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.ui.glass.*
 import kotlinx.coroutines.CancellationException

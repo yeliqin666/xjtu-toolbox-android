@@ -21,7 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.BuildConfig
-import com.xjtu.toolbox.util.ServiceUsageTracker
+import com.xjtu.toolbox.home.ServiceUsageTracker
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.ButtonDefaults

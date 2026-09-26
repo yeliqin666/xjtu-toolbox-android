@@ -181,7 +181,7 @@ internal object ChatterPool {
         ChatterLine("app_where", "问我下节课在哪"),
         ChatterLine("app_spend", "钱花哪了看消费分析"),
         ChatterLine("app_transcript", "成绩单能一键申请"),
-        ChatterLine("app_leave", "请假在新版考勤里"),
+        ChatterLine("app_leave", "请假在考勤页里"),
         ChatterLine("app_webvpn", "校外进内网用WebVPN"),
         ChatterLine("app_exampaper", "历年卷去学辅站找", months = 5..7),
         ChatterLine("app_exampaper_b", "历年卷去学辅站找", months = 11..12),

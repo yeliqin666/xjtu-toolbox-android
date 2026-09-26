@@ -3,8 +3,8 @@
 // 许可证 Apache License 2.0。改动（对照计划 §9.3）：
 //   1. 强调色从写死的 iOS 蓝改成 MiuixTheme.colorScheme.primary；容器色改成跟随本项目主题的
 //      surfaceContainerHigh，深浅色模式跟随本项目的 LocalIsDarkTheme（不是 isSystemInDarkTheme）。
-//   2. 每一格是否在「染色那一遍」里被染色由调用方按格子指定（[GlassTab.tintExempt]），
-//      不再是整行统一染色；被排除的格子在染色那一遍里只画一个同尺寸空占位，不重新创建一份
+//   2. 「染色那一遍」改成每格按选中态画（不再整行 ColorFilter，徽标保持原色）；是否参与由调用方
+//      按格子指定（[GlassTab.tintExempt]）；被排除的格子在染色那一遍里只画一个同尺寸空占位，不重新创建一份
 //      内容（原版两遍都创建同一份 content，给屁岱用会跑出两个实例，见计划 §9.3 第 3 条）。
 //   3. 原版只接收一个 `content: @Composable RowScope.() -> Unit`，点击行为由外部各自的
 //      LiquidBottomTab(onClick = ...) 决定；这里改成显式的 `tabs: List<GlassTab>` +
@@ -42,9 +42,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -61,11 +62,12 @@ import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
-import com.xjtu.toolbox.GLASS_BAR_HEIGHT
+import com.xjtu.toolbox.main.GLASS_BAR_HEIGHT
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlin.math.sign
 
 /**
@@ -118,6 +120,8 @@ fun GlassBottomTabs(
         if (glass) it.copy(alpha = 0.4f) else it
     }
     val barShadow = remember(accentColor, isDark) { floatingGlassShadow(accentColor, isDark) }
+    // 滑块静止时的底色
+    val restTint = if (isDark) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.1f)
     // 圆角按设计给的 28dp 写死，不额外依赖 io.github.kyant0:shapes 的 Capsule——那只是
     // backdrop 的传递依赖，不在本项目的编译期 classpath 上（加它要改
     // gradle/libs.versions.toml，是热点文件，见收尾报告的胶合清单）。RoundedCornerShape
@@ -208,6 +212,16 @@ fun GlassBottomTabs(
             )
         }
 
+        // 静止（没按住、滑块停在整格、形变和高光都回位）时，染色层和滑块玻璃画出来
+        // 与「选中格按选中态画 + 一层淡色胶囊」逐像素相同，这时两层都跳过不画
+        val glassActive by remember(dampedDrag, interactiveHighlight) {
+            derivedStateOf {
+                dampedDrag.pressProgress > 0f || interactiveHighlight.pressProgress > 0f ||
+                    dampedDrag.scaleX != 1f || dampedDrag.scaleY != 1f ||
+                    abs(dampedDrag.value - dampedDrag.value.roundToInt()) > 0.001f
+            }
+        }
+
         fun tabOnClick(index: Int): () -> Unit = {
             if (currentIndex != index) {
                 currentIndex = index
@@ -232,7 +246,7 @@ fun GlassBottomTabs(
             }
         }
 
-        // 第二遍：整体强调色染色、alpha = 0，只给滑块当采样源用。
+        // 第二遍：每格都按选中态画（强调色）、alpha = 0，只给滑块当采样源用。
         // tintExempt 的格子（屁岱）在这一遍只放一个同尺寸空占位，不重新创建内容。
         val tintedContent: @Composable RowScope.() -> Unit = {
             tabs.forEachIndexed { index, tab ->
@@ -240,7 +254,7 @@ fun GlassBottomTabs(
                     GlassNavTabSlot(onClick = null) {}
                 } else {
                     GlassNavTabSlot(onClick = tabOnClick(index)) {
-                        tab.content(this, index == currentIndex)
+                        tab.content(this, true)
                     }
                 }
             }
@@ -259,7 +273,9 @@ fun GlassBottomTabs(
                                 padding = maxOf(padding, 16.dp.toPx())
                                 vibrancy()
                                 blur(8.dp.toPx())
-                                lens(24.dp.toPx(), 24.dp.toPx())
+                                // 折射只在按住 / 拖动时随进度出现，静止时省掉这一遍着色器
+                                val progress = dampedDrag.pressProgress
+                                lens(24.dp.toPx() * progress, 24.dp.toPx() * progress)
                             },
                             layerBlock = {
                                 val progress = dampedDrag.pressProgress
@@ -294,29 +310,36 @@ fun GlassBottomTabs(
                     Modifier
                         .clearAndSetSemantics {}
                         .alpha(0f)
+                        .drawWithContent { if (glassActive) drawContent() }
                         .layerBackdrop(tabsBackdrop)
                         .graphicsLayer { translationX = panelOffset }
                         .drawBackdrop(
-                            backdrop = backdrop,
+                            // 有主胶囊导出的那一层（已模糊、已铺底色）就直接采它，省一次对页面的模糊；
+                            // 滑块里透出的底也和旁边的胶囊完全一致
+                            backdrop = exportedBackdrop ?: backdrop,
                             shape = { pillShape },
                             effects = {
                                 val progress = dampedDrag.pressProgress
-                                // 和上面的主胶囊同一套采样范围，指示器透出来的底才对得上
-                                padding = maxOf(padding, 16.dp.toPx())
-                                vibrancy()
-                                blur(8.dp.toPx())
+                                if (exportedBackdrop == null) {
+                                    padding = maxOf(padding, 16.dp.toPx())
+                                    vibrancy()
+                                    blur(8.dp.toPx())
+                                }
                                 lens(24.dp.toPx() * progress, 24.dp.toPx() * progress)
                             },
                             highlight = {
                                 Highlight.Default.copy(alpha = dampedDrag.pressProgress)
                             },
-                            onDrawSurface = { drawRect(containerColor) },
+                            onDrawSurface = if (exportedBackdrop == null) {
+                                { drawRect(containerColor) }
+                            } else {
+                                null
+                            },
                         )
                         .then(interactiveHighlight.modifier)
                         .height(innerHeight)
                         .fillMaxWidth()
-                        .padding(horizontal = 4.dp)
-                        .graphicsLayer(colorFilter = ColorFilter.tint(accentColor)),
+                        .padding(horizontal = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     content = tintedContent,
                 )
@@ -335,6 +358,10 @@ fun GlassBottomTabs(
                         }
                         .then(interactiveHighlight.gestureModifier)
                         .then(dampedDrag.modifier)
+                        .drawWithContent {
+                            if (glassActive) drawContent()
+                            else drawOutline(pillShape.createOutline(size, layoutDirection, this), restTint)
+                        }
                         .drawBackdrop(
                             backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop),
                             shape = { pillShape },
@@ -358,10 +385,7 @@ fun GlassBottomTabs(
                             },
                             onDrawSurface = {
                                 val progress = dampedDrag.pressProgress
-                                drawRect(
-                                    color = if (!isDark) Color.Black.copy(alpha = 0.1f) else Color.White.copy(alpha = 0.1f),
-                                    alpha = 1f - progress,
-                                )
+                                drawRect(restTint, alpha = 1f - progress)
                                 drawRect(Color.Black.copy(alpha = 0.03f * progress))
                             },
                         )

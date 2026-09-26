@@ -1,13 +1,12 @@
 package com.xjtu.toolbox.social
 
 import android.content.Context
-import com.google.gson.Gson
+import com.xjtu.toolbox.schedule.ScheduleCache
 import com.xjtu.toolbox.hello.HelloProfile
 import com.xjtu.toolbox.hello.HelloProfileStore
 import com.xjtu.toolbox.schedule.CourseItem
 import com.xjtu.toolbox.schedule.ExamItem
-import com.xjtu.toolbox.schedule.TextbookItem
-import com.xjtu.toolbox.util.DataCache
+import com.xjtu.toolbox.data.DataCache
 
 /**
  * 匹配交友的取数层。
@@ -68,30 +67,24 @@ object MatchData {
      */
     fun read(ctx: Context, term: String? = null): Local {
         val dc = DataCache(ctx)
-        val gson = Gson()
-        val terms = runCatching {
-            dc.get("schedule_term_list", Long.MAX_VALUE)
-                ?.let { gson.fromJson(it, Array<String>::class.java)?.toList() }
-                .orEmpty()
-        }.getOrDefault(emptyList())
-        // 本学期读日程页记下的「当前学期」，不读 schedule_last_term：后者是用户上一次翻到的学期，
-        // 在日程页看了一眼去年的课表，这里就会把去年当成本学期。
-        val thisTerm = com.xjtu.toolbox.schedule.ScheduleCache.readCurrentTerm(dc, gson)
+        val terms = ScheduleCache.readTermList(dc)
+        // 本学期读「当前学期」，不读上次翻到的学期：看一眼去年的课表，这里就会把去年当成本学期
+        val thisTerm = ScheduleCache.readCurrentTerm(dc)
         val current = term ?: thisTerm
         // 能选的学期：本地有课表缓存的那些，本学期排最前
         val available = (listOfNotNull(thisTerm) + terms).distinct()
-            .filter { it == thisTerm || readCourses(dc, gson, it).isNotEmpty() }
-        val nameMap = com.xjtu.toolbox.schedule.ScheduleTermStore.read(dc, gson)
+            .filter { it == thisTerm || readCourses(dc, it).isNotEmpty() }
+        val nameMap = com.xjtu.toolbox.schedule.ScheduleTermStore.read(dc)
         val termNames = available.associateWith {
             com.xjtu.toolbox.schedule.ScheduleTermStore.display(it, emptyMap(), nameMap)
         }
 
-        val courses = current?.let { readCourses(dc, gson, it) }.orEmpty()
+        val courses = current?.let { readCourses(dc, it) }.orEmpty()
         // 往期只取课程号。逛过几个学期就有几个学期，没逛过的学期缓存里根本没有。
         val past = LinkedHashSet<String>()
         var pastTerms = 0
         for (t in terms.filter { it != current }) {
-            val list = readCourses(dc, gson, t)
+            val list = readCourses(dc, t)
             if (list.isEmpty()) continue
             pastTerms++
             list.forEach { c ->
@@ -102,26 +95,13 @@ object MatchData {
         // 当前学期的课不算"往期"，否则同课那一维会跟它自己重复一遍。
         past.removeAll(courses.map { it.courseCode.trim() }.toSet())
 
-        val textbooks = current?.let { t ->
-            runCatching {
-                dc.get("schedule_textbooks_$t", Long.MAX_VALUE)?.let { json ->
-                    gson.fromJson(json, Array<TextbookItem>::class.java)
-                        .map { it.sanitized() }
-                        .filter { it.hasSubstantiveTextbook }
-                        .map { it.textbookName.trim() }
-                        .filter { it.isNotEmpty() }
-                        .distinct()
-                }
-            }.getOrNull()
-        }.orEmpty()
+        val textbooks = current?.let { ScheduleCache.readTextbooks(dc, it, Long.MAX_VALUE) }.orEmpty()
+            .filter { it.hasSubstantiveTextbook }
+            .map { it.textbookName.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
 
-        val exams = current?.let { t ->
-            runCatching {
-                dc.get("exams_$t", Long.MAX_VALUE)?.let { json ->
-                    gson.fromJson(json, Array<ExamItem>::class.java).toList().map { it.sanitized() }
-                }
-            }.getOrNull()
-        }.orEmpty()
+        val exams = current?.let { ScheduleCache.readExams(dc, it) }.orEmpty()
 
         return Local(
             term = current,
@@ -141,15 +121,5 @@ object MatchData {
         )
     }
 
-    /**
-     * 和日程页读法一致：先读 ScheduleCache 的优化格式，没有再读原始的 schedule_<学期>。
-     * 只读原始格式的话，某些路径只写了优化格式，这边就读成空。
-     */
-    private fun readCourses(dc: DataCache, gson: Gson, term: String): List<CourseItem> =
-        runCatching {
-            com.xjtu.toolbox.schedule.ScheduleCache.readOptimizedCourses(dc, gson, term, Long.MAX_VALUE)
-                ?: dc.get("schedule_$term", Long.MAX_VALUE)?.let { json ->
-                    gson.fromJson(json, Array<CourseItem>::class.java).toList().map { it.sanitized() }
-                }
-        }.getOrNull().orEmpty()
+    private fun readCourses(dc: DataCache, term: String): List<CourseItem> = ScheduleCache.readCourses(dc, term).orEmpty()
 }

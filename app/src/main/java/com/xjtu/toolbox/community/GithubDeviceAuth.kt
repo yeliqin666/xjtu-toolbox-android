@@ -33,7 +33,6 @@ data class GithubDeviceAccessToken(
     val refreshToken: String? = null,
     val expiresAtEpochMillis: Long? = null,
     val refreshExpiresAtEpochMillis: Long? = null,
-    val authorizationSource: String = "oauth"
 ) {
     override fun toString(): String =
         "GithubDeviceAccessToken(accessToken=<redacted>, tokenType=$tokenType, scopes=$scopes)"
@@ -133,7 +132,7 @@ class GithubOAuthDeviceAuthRepository(
                 if (!response.isSuccessful) throw GithubApiException.of(response)
                 val payload = json.decodeFromString(
                     DeviceCodeResponse.serializer(),
-                    response.body?.string().orEmpty()
+                    response.body.string()
                 )
                 payload.toDomain(nowEpochMillis(), loginBaseUrl.host)
             }
@@ -154,7 +153,7 @@ class GithubOAuthDeviceAuthRepository(
                 if (!response.isSuccessful) throw GithubApiException.of(response)
                 json.decodeFromString(
                     AccessTokenResponse.serializer(),
-                    response.body?.string().orEmpty()
+                    response.body.string()
                 ).toDomain(nowEpochMillis())
             }
         }

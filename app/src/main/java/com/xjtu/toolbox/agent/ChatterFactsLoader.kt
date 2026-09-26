@@ -1,12 +1,11 @@
 package com.xjtu.toolbox.agent
 
 import android.content.Context
-import com.google.gson.Gson
 import com.xjtu.toolbox.schedule.CourseItem
 import com.xjtu.toolbox.schedule.HolidayApi
 import com.xjtu.toolbox.schedule.ScheduleCache
 import com.xjtu.toolbox.schedule.TermWeeks
-import com.xjtu.toolbox.util.DataCache
+import com.xjtu.toolbox.data.DataCache
 import java.time.LocalDate
 
 /**
@@ -16,24 +15,14 @@ import java.time.LocalDate
  */
 internal object ChatterFactsLoader {
 
-    private val gson = Gson()
-
     fun load(ctx: Context, today: LocalDate = LocalDate.now()): ChatterFacts = runCatching {
         val cache = DataCache(ctx)
         val holidays = HolidayApi.peekCached(ctx)
-        val nextHoliday = (1..14).firstNotNullOfOrNull { d ->
-            holidays[today.plusDays(d.toLong())]?.let { it to d }
-        }
+        val nextHoliday = nextHoliday(holidays, today)
 
-        val term = ScheduleCache.readCurrentTerm(cache, gson)
-        val courses: List<CourseItem> = term?.let {
-            ScheduleCache.readOptimizedCourses(cache, gson, it) ?: ScheduleCache.readRawCourses(cache, gson, it)
-        }.orEmpty()
-        val start = term?.let {
-            runCatching {
-                cache.get("start_date_$it", Long.MAX_VALUE)?.let { raw -> LocalDate.parse(gson.fromJson(raw, String::class.java)) }
-            }.getOrNull()
-        }
+        val schedule = ScheduleCache.readCurrentTermSchedule(cache)
+        val courses: List<CourseItem> = schedule?.courses.orEmpty()
+        val start = schedule?.start
 
         fun coursesOn(date: LocalDate): List<CourseItem> {
             if (start == null || holidays.containsKey(date)) return emptyList()
@@ -49,4 +38,15 @@ internal object ChatterFactsLoader {
             nextHoliday = nextHoliday,
         )
     }.getOrDefault(ChatterFacts())
+
+    /**
+     * 两周内下一段假期的名字和距今天数。假期表是逐日展开的，只认每段假期的第一天，
+     * 否则放假当中会算出「距中秋节 1 天」。
+     */
+    internal fun nextHoliday(holidays: Map<LocalDate, String>, today: LocalDate): Pair<String, Int>? =
+        (1..14).firstNotNullOfOrNull { d ->
+            val date = today.plusDays(d.toLong())
+            val name = holidays[date] ?: return@firstNotNullOfOrNull null
+            if (holidays[date.minusDays(1)] == name) null else name to d
+        }
 }

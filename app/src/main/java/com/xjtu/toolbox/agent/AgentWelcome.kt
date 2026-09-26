@@ -61,14 +61,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.google.gson.Gson
 import com.xjtu.toolbox.schedule.CourseItem
 import com.xjtu.toolbox.schedule.ExamCountdown
 import com.xjtu.toolbox.schedule.HolidayApi
 import com.xjtu.toolbox.schedule.ScheduleCache
 import com.xjtu.toolbox.schedule.TermWeeks
-import com.xjtu.toolbox.util.DataCache
-import com.xjtu.toolbox.util.XjtuTime
+import com.xjtu.toolbox.data.DataCache
+import com.xjtu.toolbox.schedule.XjtuTime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -104,21 +103,14 @@ internal data class WelcomeFacts(
 )
 
 internal object WelcomeFactsLoader {
-    private val gson = Gson()
 
     fun load(ctx: Context, now: LocalDateTime = LocalDateTime.now()): WelcomeFacts = runCatching {
         val today = now.toLocalDate()
         val cache = DataCache(ctx)
         val holidays = HolidayApi.peekCached(ctx)
-        val term = ScheduleCache.readCurrentTerm(cache, gson)
-        val courses: List<CourseItem> = term?.let {
-            ScheduleCache.readOptimizedCourses(cache, gson, it) ?: ScheduleCache.readRawCourses(cache, gson, it)
-        }.orEmpty()
-        val start = term?.let {
-            runCatching {
-                cache.get("start_date_$it", Long.MAX_VALUE)?.let { raw -> LocalDate.parse(gson.fromJson(raw, String::class.java)) }
-            }.getOrNull()
-        }
+        val schedule = ScheduleCache.readCurrentTermSchedule(cache)
+        val courses: List<CourseItem> = schedule?.courses.orEmpty()
+        val start = schedule?.start
         fun on(date: LocalDate): List<CourseItem> {
             if (start == null || holidays.containsKey(date)) return emptyList()
             val week = TermWeeks.weekOf(start, date)
@@ -281,7 +273,7 @@ internal fun AgentWelcome(
     val facts by produceState(WelcomeFacts(), context) {
         value = withContext(Dispatchers.IO) { WelcomeFactsLoader.load(context, now) }
     }
-    val greeting = com.xjtu.toolbox.util.Greeting.of(now.toLocalTime())
+    val greeting = com.xjtu.toolbox.home.Greeting.of(now.toLocalTime())
     val primary = MiuixTheme.colorScheme.primary
 
     Column(

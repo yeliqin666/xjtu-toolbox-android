@@ -2,9 +2,9 @@ package com.xjtu.toolbox.auth
 
 import android.content.Context
 import android.util.Log
-import com.xjtu.toolbox.util.PersistentCookieJar
-import com.xjtu.toolbox.util.WebVpnInterceptor
-import com.xjtu.toolbox.util.WebVpnUtil
+import com.xjtu.toolbox.network.PersistentCookieJar
+import com.xjtu.toolbox.webvpn.WebVpnInterceptor
+import com.xjtu.toolbox.webvpn.WebVpnUtil
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -160,10 +160,8 @@ class SessionManager(context: Context) {
 
     // ── 密码全局失效 ─────────────────────────────────────
     private val _passwordInvalidated = MutableStateFlow(false)
-    val passwordInvalidated: StateFlow<Boolean> = _passwordInvalidated
 
     private val _passwordInvalidatedSite = MutableStateFlow("")
-    val passwordInvalidatedSite: StateFlow<String> = _passwordInvalidatedSite
 
     /**
      * 任一站点确认凭据无效时调用。所有后续 ensureLogin 将立即抛 [PasswordInvalidatedException]，
@@ -283,7 +281,7 @@ class SessionManager(context: Context) {
                         // 不做这个判断的后果（已发生）：网关明明是好的，却被判失败并触发
                         // 60 秒登录冷却，期间所有走 WebVPN 的站点全部连不上。
                         if (backend.cookieJar.findCookieByName(WEBVPN_TICKET_COOKIE) != null ||
-                            com.xjtu.toolbox.util.WebVpnUtil.getOriginalUrl(login.finalUrl) != null
+                            com.xjtu.toolbox.webvpn.WebVpnUtil.getOriginalUrl(login.finalUrl) != null
                         ) {
                             backend.markWebVpnReady()
                             clearLoginFailure("webvpn")

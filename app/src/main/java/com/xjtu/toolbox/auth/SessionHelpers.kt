@@ -12,7 +12,7 @@ fun LoginType.siteKey(): String = when (this) {
     LoginType.JIAOCAI -> "jiaocai"
     LoginType.COUPON -> "coupon"
     LoginType.FITNESS -> "fitness"
-    LoginType.NEW_ATTENDANCE -> "new_attendance"
+    LoginType.ATTENDANCE -> "new_attendance"
     LoginType.ICLASSFACE -> "iclassface"
 }
 

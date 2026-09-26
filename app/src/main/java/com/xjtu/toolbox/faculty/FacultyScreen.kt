@@ -2,6 +2,7 @@
 
 package com.xjtu.toolbox.faculty
 
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -25,7 +26,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
@@ -50,7 +50,6 @@ import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.rememberRetainedLazyListState
 import com.xjtu.toolbox.ui.glass.*
-import kotlinx.coroutines.delay
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
@@ -60,8 +59,6 @@ import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -89,154 +86,36 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
  * 用进程内单例保存最后一次的检索状态。只在本次运行期间有效，
  * 不做持久化：教师名录不是用户数据，重启后重新拉一次没有代价。
  */
-private object FacultySearchState {
-    var nameQuery: String = ""
-    var college: FacultyOption? = null
-    var discipline: FacultyOption? = null
-    var proRank: String = ""
-    var members: List<FacultyMember> = emptyList()
-    var total: Int = 0
-    var page: Int = 1
-    var totalPage: Int = 1
-    var filters: FacultyFilters = FacultyFilters()
-
-    /** 正在查看的教师。跳到浏览器再返回时要把详情弹窗原样恢复，否则等于被强行关掉 */
-    var detail: FacultyMember? = null
-
-    val hasResult: Boolean get() = members.isNotEmpty()
-}
-
 @Composable
 fun FacultyScreen(
     onBack: () -> Unit,
     onOpenUrl: (String) -> Unit,
 ) {
-    val api = remember { FacultyApi() }
+    val vm: FacultyViewModel = viewModel()
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     val listState = rememberRetainedLazyListState("faculty_results")
-
-    var nameQuery by remember { mutableStateOf(FacultySearchState.nameQuery) }
-    var college by remember { mutableStateOf(FacultySearchState.college) }
-    var discipline by remember { mutableStateOf(FacultySearchState.discipline) }
-    var proRank by remember { mutableStateOf(FacultySearchState.proRank) }
-
-    var filters by remember { mutableStateOf(FacultySearchState.filters) }
-    var members by remember { mutableStateOf(FacultySearchState.members) }
-    var total by remember { mutableStateOf(FacultySearchState.total) }
-    var page by remember { mutableStateOf(FacultySearchState.page) }
-    var totalPage by remember { mutableStateOf(FacultySearchState.totalPage) }
-
-    var loading by remember { mutableStateOf(!FacultySearchState.hasResult) }
-    var loadingMore by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-
-    var detail by remember { mutableStateOf(FacultySearchState.detail) }
     var picker by remember { mutableStateOf<PickerTarget?>(null) }
+    val members = vm.members
 
-    // 重试计数器。ErrorState 的 onRetry 不能靠给条件自赋值来触发——
-    // 值没变 LaunchedEffect 就不会重启，必须有个真正变化的 key。
-    var reloadTick by remember { mutableStateOf(0) }
-
-    // 详情弹窗的开合也要记住：从栏目链接跳浏览器返回后应当仍停在这位老师身上
-    LaunchedEffect(detail) { FacultySearchState.detail = detail }
-
-    /** 每完成一次「新查询」自增，用来驱动列表回到顶部 */
-    var searchGeneration by remember { mutableStateOf(0) }
-
-    fun currentQuery() = FacultySearchQuery(
-        name = nameQuery.trim(),
-        collegeId = college?.id ?: 0,
-        disciplineId = discipline?.id ?: 0,
-        proRank = proRank,
-    )
-
-    // 筛选表只拉一次：页面 400 KB，且学院/学科一年也变不了几次。
-    // 失败必须留痕——之前这里静默吞异常，线上三个下拉全空却没有任何日志可查。
-    LaunchedEffect(Unit) {
-        if (!filters.isEmpty) return@LaunchedEffect
-        runCatching { api.loadFilters() }
-            .onSuccess { filters = it; FacultySearchState.filters = it }
-            .onFailure { android.util.Log.w("FacultyScreen", "筛选项加载失败", it) }
+    // 回到顶部单独一个 effect：放在查询成功的回调里时列表还没渲染（仍在转圈），scrollToItem 会一直挂起
+    LaunchedEffect(vm.searchGeneration) {
+        if (vm.searchGeneration > 0 && !vm.loading && members.isNotEmpty()) runCatching { listState.scrollToItem(0) }
     }
-
-    // 条件变化后防抖重查。350ms 是照着输入法上屏节奏定的，再短会把每个拼音都打成一次请求
-    var restoredOnce by remember { mutableStateOf(false) }
-    LaunchedEffect(nameQuery, college, discipline, proRank, reloadTick) {
-        // 从浏览器返回时条件没变、结果还在，直接沿用，不再冷加载一次
-        if (!restoredOnce && FacultySearchState.hasResult) {
-            restoredOnce = true
-            return@LaunchedEffect
-        }
-        restoredOnce = true
-        delay(350)
-        loading = true
-        error = null
-        page = 1
-        runCatching { api.search(currentQuery(), page = 1) }
-            .onSuccess {
-                members = it.members
-                total = it.total
-                totalPage = it.totalPage
-                searchGeneration++
-                FacultySearchState.also { st ->
-                    st.nameQuery = nameQuery; st.college = college
-                    st.discipline = discipline; st.proRank = proRank
-                    st.members = it.members; st.total = it.total
-                    st.page = 1; st.totalPage = it.totalPage
-                }
-            }
-            .onFailure {
-                android.util.Log.w("FacultyScreen", "教师检索失败", it)
-                error = it.message ?: "加载失败"
-            }
-        loading = false
-    }
-
-    // 回到顶部必须单独一个 effect。
-    // 曾经把 listState.scrollToItem(0) 直接写在上面的 onSuccess 里，结果是死锁：
-    // 那一刻 loading 仍为 true、界面渲染的是 LoadingState 而不是 LazyColumn，
-    // 列表不存在 → scrollToItem 这个挂起函数永远等不到布局 → 后面的 loading = false
-    // 永不执行 → 界面永久转圈。放到 loading 落回 false 之后就安全了。
-    LaunchedEffect(searchGeneration) {
-        if (searchGeneration > 0 && !loading && members.isNotEmpty()) {
-            runCatching { listState.scrollToItem(0) }
-        }
-    }
-
     // 触底加载下一页
-    LaunchedEffect(listState, members.size, totalPage) {
+    LaunchedEffect(listState, members.size) {
         snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index }
-            .collect { last ->
-                if (last == null || loading || loadingMore || page >= totalPage) return@collect
-                if (last < members.size - 3) return@collect
-                loadingMore = true
-                runCatching { api.search(currentQuery(), page = page + 1) }
-                    .onSuccess { result ->
-                        val seen = members.mapTo(mutableSetOf()) { it.teacherId }
-                        members = members + result.members.filter { seen.add(it.teacherId) }
-                        page += 1
-                        FacultySearchState.members = members
-                        FacultySearchState.page = page
-                    }
-                loadingMore = false
-            }
+            .collect { last -> if (last != null && last >= members.size - 3) vm.loadMore() }
     }
 
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
     Scaffold(
         topBar = {
-            TopAppBar(
+            GlassTopAppBar(
                 title = "教师主页",
-                largeTitle = "教师主页",
-                color = glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
+                glass = glass,
                 scrollBehavior = scrollBehavior,
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
+                onBack = onBack,
             )
         }
     ) { padding ->
@@ -262,8 +141,8 @@ fun FacultyScreen(
             // 每改一个字都会重新检索，要是那几种状态把列表换掉，搜索框跟着换位置就会丢焦点。
             val searchBar: @Composable () -> Unit = {
             AppSearchBar(
-                query = nameQuery,
-                onQueryChange = { nameQuery = it },
+                query = vm.nameQuery,
+                onQueryChange = vm::changeName,
                 label = "搜索教师姓名",
                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp),
             )
@@ -284,26 +163,26 @@ fun FacultyScreen(
             ) {
                 FilterSegment(
                     label = "学院",
-                    value = college?.name,
+                    value = vm.college?.name,
                     onClick = { picker = PickerTarget.COLLEGE },
                     modifier = Modifier.weight(1f),
                 )
                 FilterSegmentDivider()
                 FilterSegment(
                     label = "学科",
-                    value = discipline?.name,
+                    value = vm.discipline?.name,
                     onClick = { picker = PickerTarget.DISCIPLINE },
                     modifier = Modifier.weight(1f),
                 )
                 FilterSegmentDivider()
                 FilterSegment(
                     label = "职称",
-                    value = proRank.ifBlank { null },
+                    value = vm.proRank.ifBlank { null },
                     onClick = { picker = PickerTarget.PRO_RANK },
                     modifier = Modifier.weight(1f),
                 )
-                if (college != null || discipline != null || proRank.isNotBlank()) {
-                    IconButton(onClick = { college = null; discipline = null; proRank = "" }) {
+                if (vm.college != null || vm.discipline != null || vm.proRank.isNotBlank()) {
+                    IconButton(onClick = vm::clearFilters) {
                         Icon(
                             Icons.Outlined.Close,
                             contentDescription = "清除筛选",
@@ -327,8 +206,8 @@ fun FacultyScreen(
                     Box(Modifier.fillMaxWidth().padding(top = 48.dp), contentAlignment = Alignment.Center) { body() }
                 }
                 when {
-                    loading -> item(key = "state") { stateBox { LoadingState("正在检索教师…") } }
-                    error != null -> item(key = "state") { stateBox { ErrorState(error!!, onRetry = { reloadTick++ }) } }
+                    vm.loading -> item(key = "state") { stateBox { LoadingState("正在检索教师…") } }
+                    vm.error != null -> item(key = "state") { stateBox { ErrorState(vm.error.orEmpty(), onRetry = vm::retry) } }
                     members.isEmpty() -> item(key = "state") {
                         stateBox {
                             EmptyState(
@@ -342,17 +221,17 @@ fun FacultyScreen(
                     item(key = "count") {
                         // 服务端 totalnum 对姓名检索是模糊计数，标注清楚免得用户以为漏了人
                         Text(
-                            if (nameQuery.isBlank()) "共 $total 位教师"
-                            else "约 $total 位相关教师，精确匹配排在前面",
+                            if (vm.nameQuery.isBlank()) "共 $vm.total 位教师"
+                            else "约 $vm.total 位相关教师，精确匹配排在前面",
                             style = MiuixTheme.textStyles.footnote1,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
                         )
                     }
                     items(members, key = { it.teacherId }) { member ->
-                        FacultyCard(member) { detail = member }
+                        FacultyCard(member) { vm.detail = member }
                     }
-                    if (loadingMore) {
+                    if (vm.loadingMore) {
                         item { LoadingState("正在加载更多…") }
                     }
                     }
@@ -364,13 +243,13 @@ fun FacultyScreen(
             top.yukonga.miuix.kmp.basic.VerticalDivider()
             Box(Modifier.weight(1f).fillMaxHeight()) {
                 // 宽屏选中的老师不算一层页面：返回直接退出教师主页，不先清右栏
-                val picked = detail
+                val picked = vm.detail
                 if (picked != null) {
                     // 按老师分开记滚动位置：不 key 的话换一位老师还停在上一位滚到的地方，顶部被顶栏盖住
                     androidx.compose.runtime.key(picked.teacherId) {
                         FacultyDetailPane(
                             member = picked,
-                            api = api,
+                            api = vm.api,
                             onOpenUrl = onOpenUrl,
                             topPadding = padding.glassTop(glass),
                         )
@@ -394,16 +273,16 @@ fun FacultyScreen(
         // 同时 show 必须由外部布尔驱动（false→true），不能条件式创建后把 show 初值设成 true。
         // 宽屏详情在右栏，不弹窗
         FacultyDetailSheet(
-            member = if (isWide) null else detail,
-            api = api,
+            member = if (isWide) null else vm.detail,
+            api = vm.api,
             onOpenUrl = onOpenUrl,
-            onDismiss = { detail = null },
+            onDismiss = { vm.detail = null },
         )
 
         val pickerTarget = picker
         val pickerOptions = when (pickerTarget) {
-            PickerTarget.COLLEGE -> filters.colleges
-            PickerTarget.DISCIPLINE -> filters.disciplines
+            PickerTarget.COLLEGE -> vm.filters.colleges
+            PickerTarget.DISCIPLINE -> vm.filters.disciplines
             PickerTarget.PRO_RANK -> FacultyFilters.proRanksFrom(members)
                 .mapIndexed { i, name -> FacultyOption(id = i + 1, name = name, depth = 0) }
             null -> emptyList()
@@ -422,9 +301,9 @@ fun FacultyScreen(
                 "职称取自当前已加载的教师，向下翻页可发现更多" else "",
             onPick = { option ->
                 when (pickerTarget) {
-                    PickerTarget.COLLEGE -> college = option
-                    PickerTarget.DISCIPLINE -> discipline = option
-                    PickerTarget.PRO_RANK -> proRank = option?.name.orEmpty()
+                    PickerTarget.COLLEGE -> vm.pickCollege(option)
+                    PickerTarget.DISCIPLINE -> vm.pickDiscipline(option)
+                    PickerTarget.PRO_RANK -> vm.pickProRank(option?.name.orEmpty())
                     null -> Unit
                 }
                 picker = null

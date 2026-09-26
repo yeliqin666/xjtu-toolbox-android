@@ -1,8 +1,8 @@
 package com.xjtu.toolbox.card
 
 import android.content.Context
-import com.google.gson.Gson
 import com.xjtu.toolbox.account.AccountContext
+import com.xjtu.toolbox.util.AppJson
 import java.time.LocalDate
 
 /** 今日消费汇总：总支出与早（5–10 点）中（11–14 点）晚（17–21 点）三餐，单位元。 */
@@ -78,18 +78,19 @@ fun android.content.SharedPreferences.Editor.putTodaySummary(s: TodaySpendSummar
         // 以前还写一份最近 5 条流水的 JSON，全仓没有任何地方读，顺手清掉旧值
         .remove("card_recent_tx_cache")
 
+/** 没有卡信息的快照没意义：cardInfo 不给默认值，缺了整份读失败，当无缓存处理。 */
+@kotlinx.serialization.Serializable
 data class CampusCardSnapshot(
     val cardInfo: CardInfo,
-    val transactions: List<Transaction>,
-    val rangeStart: String,
-    val rangeEnd: String,
-    val savedAt: Long
+    val transactions: List<Transaction> = emptyList(),
+    val rangeStart: String = "",
+    val rangeEnd: String = "",
+    val savedAt: Long = 0L,
 )
 
 object CampusCardCache {
     private const val PREFS_PREFIX = "campus_card_data_cache"
     private const val KEY = "snapshot"
-    private val gson = Gson()
 
     private fun prefsName(accountId: String? = AccountContext.activeAccountId): String =
         PREFS_PREFIX + AccountContext.suffixFor(accountId)
@@ -97,18 +98,7 @@ object CampusCardCache {
     fun load(context: Context, accountId: String? = AccountContext.activeAccountId): CampusCardSnapshot? {
         val raw = context.getSharedPreferences(prefsName(accountId), Context.MODE_PRIVATE)
             .getString(KEY, null) ?: return null
-        return runCatching {
-            gson.fromJson(raw, CampusCardSnapshot::class.java)?.let { snapshot ->
-                // cardInfo 本身也可能因缺字段被 Gson 置空；整份快照没有卡信息就没意义，当无缓存处理。
-                val cardInfo = (snapshot.cardInfo as CardInfo?)?.sanitized() ?: return@let null
-                snapshot.copy(
-                    cardInfo = cardInfo,
-                    transactions = (snapshot.transactions as List<Transaction>?)
-                        ?.map { it.sanitized() }
-                        ?: emptyList(),
-                )
-            }
-        }.getOrNull()
+        return runCatching { AppJson.decodeFromString<CampusCardSnapshot>(raw) }.getOrNull()
     }
 
     fun save(
@@ -128,7 +118,7 @@ object CampusCardCache {
         )
         context.getSharedPreferences(prefsName(accountId), Context.MODE_PRIVATE)
             .edit()
-            .putString(KEY, gson.toJson(snapshot))
+            .putString(KEY, AppJson.encodeToString(snapshot))
             .apply()
     }
 

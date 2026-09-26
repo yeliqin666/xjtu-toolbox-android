@@ -1,10 +1,10 @@
 package com.xjtu.toolbox.bulletin
 
+import com.xjtu.toolbox.network.HttpClients
 import android.util.Log
 import com.xjtu.toolbox.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
 
@@ -17,7 +17,7 @@ object BulletinApi {
     const val GITHUB_URL =
         "https://raw.githubusercontent.com/yeliqin666/xjtu-toolbox-android/announce/bulletin.json"
 
-    private val client = OkHttpClient.Builder()
+    private val client = HttpClients.base.newBuilder()
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(8, TimeUnit.SECONDS)
         .followRedirects(true)

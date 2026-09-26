@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.auth
 
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.obj
 import com.xjtu.toolbox.util.redactUrl
 import android.util.Log
 import com.xjtu.toolbox.card.CampusCardContract
@@ -7,7 +9,6 @@ import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody
 import okhttp3.Response
 import java.net.URLDecoder
 
@@ -73,7 +74,7 @@ class CampusCardLogin(
         Log.w(TAG, "postLogin: ticket missing in finalUrl, retry LOGIN_URL with TGC")
         try {
             val retryResp = client.newCall(Request.Builder().url(LOGIN_URL).get().build()).execute()
-            retryResp.body?.use { it.string() }
+            retryResp.body.use { it.string() }
             val retryUrl = retryResp.request.url.toString()
             Log.d(TAG, "postLogin: retry finalUrl=${retryUrl.redactUrl()}")
             if (tryExtractTicketAndGetToken(retryUrl)) return
@@ -88,8 +89,8 @@ class CampusCardLogin(
         // 直连模式：URL 必含 ncard.xjtu.edu.cn；
         // WebVPN 模式：URL 是 webvpn.xjtu.edu.cn/<encoded>/... 解码后含 ncard.xjtu.edu.cn。
         val isNcard = "ncard.xjtu.edu.cn" in url ||
-            (com.xjtu.toolbox.util.WebVpnUtil.isWebVpnUrl(url) &&
-             com.xjtu.toolbox.util.WebVpnUtil.getOriginalUrl(url)?.contains("ncard.xjtu.edu.cn") == true)
+            (com.xjtu.toolbox.webvpn.WebVpnUtil.isWebVpnUrl(url) &&
+             com.xjtu.toolbox.webvpn.WebVpnUtil.getOriginalUrl(url)?.contains("ncard.xjtu.edu.cn") == true)
         if (!isNcard) return false
 
         val queryStr = url.substringAfter("?", "")
@@ -121,11 +122,11 @@ class CampusCardLogin(
                     .post(body)
                     .build()
             ).execute()
-            val bodyStr = resp.body?.use { it.string() } ?: return false
+            val bodyStr = resp.body.use { it.string() }
             // 响应体里就是 access_token，只记状态码和长度
             Log.d(TAG, "exchangeTicketForToken: code=${resp.code}, bodyLen=${bodyStr.length}")
             val json = bodyStr.safeParseJsonObject()
-            val token = json.get("access_token")?.asString ?: return false
+            val token = json.get("access_token")?.stringValue ?: return false
             accessToken = token
             true
         } catch (e: Exception) {
@@ -137,13 +138,13 @@ class CampusCardLogin(
     private fun fetchUserInfo(): Boolean {
         return try {
             val resp = client.newCall(makeAuthRequest(USER_URL)).execute()
-            val bodyStr = resp.body?.use { it.string() } ?: return false
+            val bodyStr = resp.body.use { it.string() }
             if (!resp.isSuccessful) return false
             val json = bodyStr.safeParseJsonObject()
             if (CampusCardContract.businessCode(json) != null &&
                 CampusCardContract.businessCode(json) != "200"
             ) return false
-            val data = json.getAsJsonObject("data") ?: return false
+            val data = json.obj("data") ?: return false
             cardAccount = CampusCardContract.requiredText(data, "cardAccount", "校园卡用户资料")
             userName = CampusCardContract.requiredText(data, "name", "校园卡用户资料")
             studentNo = CampusCardContract.requiredText(data, "sno", "校园卡用户资料")
@@ -166,7 +167,7 @@ class CampusCardLogin(
         systemReady = false
         return try {
             val resp = client.newCall(Request.Builder().url(LOGIN_URL).get().build()).execute()
-            resp.body?.use { it.string() }
+            resp.body.use { it.string() }
             val finalUrl = resp.request.url.toString()
             Log.d(TAG, "reAuthenticate: finalUrl=${finalUrl.redactUrl()}")
             tryExtractTicketAndGetToken(finalUrl)

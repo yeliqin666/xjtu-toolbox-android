@@ -1,5 +1,9 @@
 package com.xjtu.toolbox.agent
 
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.isArray
+import com.xjtu.toolbox.util.AppJson
+import kotlinx.serialization.json.jsonArray
 import com.vladsch.flexmark.html2md.converter.FlexmarkHtmlConverter
 import org.jsoup.Jsoup
 import java.net.Inet4Address
@@ -348,17 +352,17 @@ internal object AgentWeb {
 
     /** 中文维基 OpenSearch：`[query, titles[], descs[], urls[]]`，无验证码。 */
     fun parseWikiOpenSearch(body: String, limit: Int): List<Triple<String, String, String>> {
-        val arr = runCatching { com.google.gson.JsonParser.parseString(body).asJsonArray }.getOrNull()
+        val arr = runCatching { AppJson.parseToJsonElement(body).jsonArray }.getOrNull()
             ?: return emptyList()
-        if (arr.size() < 4) return emptyList()
-        val titles = arr[1].takeIf { it.isJsonArray }?.asJsonArray ?: return emptyList()
-        val descs = arr[2].takeIf { it.isJsonArray }?.asJsonArray ?: return emptyList()
-        val urls = arr[3].takeIf { it.isJsonArray }?.asJsonArray ?: return emptyList()
-        val n = minOf(titles.size(), descs.size(), urls.size(), limit.coerceAtLeast(1))
+        if (arr.size < 4) return emptyList()
+        val titles = arr[1].takeIf { it.isArray }?.jsonArray ?: return emptyList()
+        val descs = arr[2].takeIf { it.isArray }?.jsonArray ?: return emptyList()
+        val urls = arr[3].takeIf { it.isArray }?.jsonArray ?: return emptyList()
+        val n = minOf(titles.size, descs.size, urls.size, limit.coerceAtLeast(1))
         return (0 until n).mapNotNull { i ->
-            val title = runCatching { titles[i].asString.trim() }.getOrDefault("")
-            val url = runCatching { urls[i].asString.trim() }.getOrDefault("")
-            val desc = runCatching { descs[i].asString.trim() }.getOrDefault("")
+            val title = runCatching { titles[i].stringValue.trim() }.getOrDefault("")
+            val url = runCatching { urls[i].stringValue.trim() }.getOrDefault("")
+            val desc = runCatching { descs[i].stringValue.trim() }.getOrDefault("")
             if (title.isBlank() || !url.startsWith("http")) null
             else Triple(title, url, desc)
         }

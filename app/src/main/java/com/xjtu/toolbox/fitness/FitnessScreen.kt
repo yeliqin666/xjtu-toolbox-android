@@ -1,10 +1,11 @@
 package com.xjtu.toolbox.fitness
 
+import androidx.compose.material.icons.automirrored.filled.DirectionsRun
+import com.xjtu.toolbox.ui.components.AppPullToRefresh
+import com.xjtu.toolbox.ui.components.FullPageState
 import com.xjtu.toolbox.ui.components.enterOnce
-import com.xjtu.toolbox.LocalAppLoginState
-import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.auth.AuthExpiredException
-import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.SiteSession
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -21,7 +22,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -29,8 +29,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.DirectionsRun
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -41,7 +39,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -57,16 +54,13 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
-import top.yukonga.miuix.kmp.basic.PullToRefresh
-import top.yukonga.miuix.kmp.basic.TopAppBar
-import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
+import com.xjtu.toolbox.nav.AppRoute
 
 @Composable
 fun FitnessScreen(
@@ -120,7 +114,7 @@ fun FitnessScreen(
             }
         } catch (e: Exception) {
             if (e is AuthExpiredException) {
-                loginState.markStaleAndRetry(LoginType.FITNESS, Routes.FITNESS)
+                loginState.markStaleAndRetry(AppRoute.Fitness)
                 onBack()
                 return
             }
@@ -138,7 +132,7 @@ fun FitnessScreen(
             score = withContext(Dispatchers.IO) { api.getScore(year.yearNum) }
         } catch (e: Exception) {
             if (e is AuthExpiredException) {
-                loginState.markStaleAndRetry(LoginType.FITNESS, Routes.FITNESS)
+                loginState.markStaleAndRetry(AppRoute.Fitness)
                 onBack()
                 return
             }
@@ -158,7 +152,7 @@ fun FitnessScreen(
                     score = withContext(Dispatchers.IO) { api.getScore(year.yearNum) }
                 } catch (e: Exception) {
                     if (e is AuthExpiredException) {
-                        loginState.markStaleAndRetry(LoginType.FITNESS, Routes.FITNESS)
+                        loginState.markStaleAndRetry(AppRoute.Fitness)
                         onBack()
                         return
                     }
@@ -180,50 +174,31 @@ fun FitnessScreen(
     LaunchedEffect(site) { loadYears() }
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
-    val pullToRefreshState = rememberPullToRefreshState()
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            GlassTopAppBar(
                 title = "体测查询",
-                largeTitle = "体测查询",
-                color = glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
+                glass = glass,
                 scrollBehavior = scrollBehavior,
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                }
+                onBack = onBack,
             )
         }
     ) { padding ->
         val glassTop = padding.glassTop(glass)
-        PullToRefresh(
-            refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
+        AppPullToRefresh(
             isRefreshing = isRefreshing,
             onRefresh = { scope.launch { refreshCurrent() } },
-            pullToRefreshState = pullToRefreshState,
-            topAppBarScrollBehavior = scrollBehavior,
-            contentPadding = PaddingValues(top = glassTop),
-            modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass)
+            scrollBehavior = scrollBehavior,
+            topPadding = glassTop,
+            modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
         ) {
         when {
-            loading && score == null -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
-                item { Box(Modifier.fillParentMaxSize()) { LoadingState("正在读取体测成绩…", Modifier.fillMaxSize()) } }
-            }
-            years.isEmpty() && error != null && score == null -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
-                item {
-                    Box(Modifier.fillParentMaxSize()) {
-                        ErrorState("查询失败：$error", onRetry = { scope.launch { loadYears() } }, modifier = Modifier.fillMaxSize())
-                    }
-                }
-            }
-            years.isEmpty() -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
-                item { Box(Modifier.fillParentMaxSize()) { EmptyState("暂无可查询的体测学年", modifier = Modifier.fillMaxSize()) } }
-            }
+            loading && score == null -> FullPageState(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) { LoadingState("正在读取体测成绩…", Modifier.fillMaxSize()) }
+            years.isEmpty() && error != null && score == null -> FullPageState(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) { ErrorState("查询失败：$error", onRetry = { scope.launch { loadYears() } }, modifier = Modifier.fillMaxSize()) }
+            years.isEmpty() -> FullPageState(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) { EmptyState("暂无可查询的体测学年", modifier = Modifier.fillMaxSize()) }
             else -> {
             // 宽屏两栏：左边学年 + 总分，右边各项目成绩。以前一列卡片横跨整个平板，
             // 项目名在最左、分数在最右，中间隔着大半个屏幕。
@@ -357,7 +332,7 @@ private fun ScoreHero(score: FitnessScore) {
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    Icons.Default.DirectionsRun,
+                    Icons.AutoMirrored.Filled.DirectionsRun,
                     contentDescription = null,
                     tint = Color.White,
                     modifier = Modifier.size(26.dp)

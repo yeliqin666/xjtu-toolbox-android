@@ -1,9 +1,11 @@
 package com.xjtu.toolbox.agent.skin
 
-import com.google.gson.JsonParser
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.AppJson
+import kotlinx.serialization.json.jsonObject
+import com.xjtu.toolbox.network.HttpClients
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -14,7 +16,7 @@ object PidaiSkinGithub {
     private const val MAX_JSON_BYTES = 1_048_576L
     private const val MAX_IMAGE_BYTES = 4 * 1_048_576L
     private val ownerRepo = Regex("^[A-Za-z0-9_.-]+$")
-    private val client = OkHttpClient.Builder()
+    private val client = HttpClients.base.newBuilder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .callTimeout(30, TimeUnit.SECONDS)
@@ -61,7 +63,7 @@ object PidaiSkinGithub {
             if (!response.isSuccessful) throw PidaiSkinFormatException("GitHub 仓库信息读取失败（HTTP ${response.code}）")
             val bytes = readLimited(response, "仓库信息", MAX_JSON_BYTES)
             return try {
-                JsonParser.parseString(bytes.toString(Charsets.UTF_8)).asJsonObject["default_branch"].asString
+                AppJson.parseToJsonElement(bytes.toString(Charsets.UTF_8)).jsonObject["default_branch"].stringValue
             } catch (_: Exception) {
                 throw PidaiSkinFormatException("GitHub 仓库没有可用的默认分支")
             }

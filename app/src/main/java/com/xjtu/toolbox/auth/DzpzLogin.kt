@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.auth
 
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.isNull
 import com.xjtu.toolbox.util.redactBody
 import com.xjtu.toolbox.util.redactUrl
 import android.util.Log
@@ -82,7 +84,7 @@ class DzpzLogin(
         // dump 现有 cookie 名（不暴露 value）便于排查
         try {
             val jar = client.cookieJar
-            if (jar is com.xjtu.toolbox.util.PersistentCookieJar) {
+            if (jar is com.xjtu.toolbox.network.PersistentCookieJar) {
                 val all = jar.getCookiesForDomain("webvpn.xjtu.edu.cn") + jar.getCookiesForDomain(".webvpn.xjtu.edu.cn")
                 Log.w(TAG, "postLogin: webvpn-cookies(names)=${all.map { it.name }}")
             }
@@ -118,7 +120,7 @@ class DzpzLogin(
                 ?.let { return it }
         }
         val jar = client.cookieJar
-        if (jar is com.xjtu.toolbox.util.PersistentCookieJar) {
+        if (jar is com.xjtu.toolbox.network.PersistentCookieJar) {
             jar.findCookieByName("loginidweaver")?.value?.let { return it }
         }
         return jar.loadForRequest(BASE_URL.toHttpUrl())
@@ -137,9 +139,9 @@ class DzpzLogin(
                 .get()
                 .build()
             val resp = client.newCall(req).execute()
-            val body = resp.use { it.body?.string() ?: "" }
+            val body = resp.use { it.body.string() }
             val id = body.safeParseJsonObject()
-                .get("resourceid")?.takeIf { !it.isJsonNull }?.asString
+                .get("resourceid")?.takeIf { !it.isNull }?.stringValue
                 ?.takeIf { it.isNotBlank() && it != "0" }
             Log.d(TAG, "fetchUserIdFromApi: resourceid=$id")
             id
@@ -168,15 +170,6 @@ class DzpzLogin(
             Log.w(TAG, "retryOauthRound failed: ${e.message}")
             null
         }
-    }
-
-    /**
-     * 构建带 session cookies 的请求
-     */
-    fun authenticatedRequest(url: String): Request.Builder {
-        return Request.Builder()
-            .url(url)
-            .header("Referer", "$BASE_URL/spa/workflow/static4form/index.html")
     }
 
     /**
@@ -216,10 +209,10 @@ class DzpzLogin(
             Log.d(TAG, "reAuthenticate: session expired, trying SSO via login entry")
             val ssoReq = Request.Builder().url(DZPZ_LOGIN_ENTRY).get().build()
             val ssoResp = client.newCall(ssoReq).execute()
-            ssoResp.body?.string()
+            ssoResp.body.string()
             val ssoFinalUrl = ssoResp.request.url.toString()
 
-            if (com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(ssoFinalUrl, "dzpz.xjtu.edu.cn")) {
+            if (com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(ssoFinalUrl, "dzpz.xjtu.edu.cn")) {
                 userId = findLoginIdWeaver(ssoResp) ?: fetchUserIdFromApi()
                 lastUserIdFromPostLogin = userId
                 Log.d(TAG, "reAuthenticate: SSO success, userId=$userId")
@@ -241,32 +234,4 @@ class DzpzLogin(
         return@synchronized false
     }
 
-    /**
-     * 执行带自动重认证的请求
-     * 如果请求返回 302 到 CAS、401/403 或被 Safety Verify 拦截，自动重认证并重试
-     */
-    fun executeWithReAuth(request: Request.Builder): Response {
-        val response = client.newCall(request.build()).execute()
-        val finalUrl = response.request.url.toString()
-
-        val needReAuth = when {
-            finalUrl.contains("login.xjtu.edu.cn/cas/login", ignoreCase = true) -> true
-            response.code in listOf(401, 403) -> true
-            response.code == 200 -> {
-                val ct = response.header("Content-Type") ?: ""
-                if ("html" in ct || "text" in ct) {
-                    XJTULogin.isAuthFailureResponse(response.peekBody(8192).string())
-                } else false
-            }
-            else -> false
-        }
-        if (needReAuth) {
-            response.close()
-            if (reAuthenticate()) {
-                return client.newCall(request.build()).execute()
-            }
-            throw AuthExpiredException("电子打印证")
-        }
-        return response
-    }
 }

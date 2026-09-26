@@ -19,8 +19,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import com.google.gson.Gson
-import com.google.gson.annotations.SerializedName
+import com.xjtu.toolbox.util.AppJson
+import kotlinx.serialization.Serializable
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlin.math.roundToInt
@@ -30,27 +30,26 @@ private const val TAG = "SliderCaptcha"
 /**
  * 滑动轨迹中的单个点
  */
+@Serializable
 data class TrackPoint(
-    @SerializedName("x") val x: Int,
-    @SerializedName("y") val y: Int,
-    @SerializedName("type") val type: String,  // "down", "move", "up"
-    @SerializedName("t") val t: Long        // 相对时间戳（ms）
+    val x: Int,
+    val y: Int,
+    val type: String,  // "down", "move", "up"
+    val t: Long        // 相对时间戳（ms）
 )
 
-/**
- * 滑动验证码结果。字段名是服务端验证码协议的一部分，@SerializedName 锁死——
- * 这个 JSON 是发给服务器验证的，字段名被 R8 改了服务器就认不出来，验证码会一直过不去。
- */
+/** 滑动验证码结果，发给服务器验证；字段名是服务端协议的一部分（含拼写 entSlidingTime），不能改。 */
+@Serializable
 data class SliderResult(
-    @SerializedName("bgImageWidth") val bgImageWidth: Int,
-    @SerializedName("bgImageHeight") val bgImageHeight: Int,
-    @SerializedName("sliderImageWidth") val sliderImageWidth: Int,
-    @SerializedName("sliderImageHeight") val sliderImageHeight: Int,
-    @SerializedName("startSlidingTime") val startSlidingTime: String,   // ISO 8601
-    @SerializedName("entSlidingTime") val entSlidingTime: String,     // ISO 8601
-    @SerializedName("trackList") val trackList: List<TrackPoint>
+    val bgImageWidth: Int,
+    val bgImageHeight: Int,
+    val sliderImageWidth: Int,
+    val sliderImageHeight: Int,
+    val startSlidingTime: String,   // ISO 8601
+    val entSlidingTime: String,     // ISO 8601
+    val trackList: List<TrackPoint>
 ) {
-    fun toJson(): String = Gson().toJson(this)
+    fun toJson(): String = AppJson.encodeToString(this)
 }
 
 /**
@@ -123,7 +122,6 @@ fun SliderCaptchaView(
     // 滑块显示尺寸（按相同比例缩放）
     val scaleRatio = displayWidthPx / bgW
     val sliderDisplayWidthPx = slW * scaleRatio
-    val sliderDisplayHeightPx = slH * scaleRatio
     val sliderDisplayWidthDp = with(density) { sliderDisplayWidthPx.toDp() }
 
     // 最大滑动距离

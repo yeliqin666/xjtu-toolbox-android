@@ -1,8 +1,24 @@
 package com.xjtu.toolbox.agent
 
-import com.google.gson.JsonArray
-import com.google.gson.JsonObject
-import com.google.gson.JsonParser
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.intValue
+import com.xjtu.toolbox.util.longValue
+import com.xjtu.toolbox.util.isNull
+import com.xjtu.toolbox.util.isObject
+import com.xjtu.toolbox.util.obj
+import com.xjtu.toolbox.util.arr
+import com.xjtu.toolbox.util.AppJson
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
+import com.xjtu.toolbox.network.HttpClients
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
@@ -33,7 +49,7 @@ class AgentRunner(private val tools: AgentToolRegistry) {
 
     companion object {
         // 共享连接池：每次 sendMessage 重用同一 OkHttpClient，避免泄漏
-        private val httpClient = OkHttpClient.Builder()
+        private val httpClient = HttpClients.base.newBuilder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(120, TimeUnit.SECONDS)   // 流式期间连接需保持更久
             .build()
@@ -129,7 +145,7 @@ class AgentRunner(private val tools: AgentToolRegistry) {
      *                 调用方持有同一引用，下次调用时历史自动延续。
      */
     suspend fun run(
-        messages: JsonArray,
+        messages: MutableList<JsonElement>,
         config: AgentConfig,
         onToolCall: (name: String) -> Unit = {},
         onToolResult: (name: String, success: Boolean, errorMessage: String?) -> Unit = { _, _, _ -> },
@@ -137,7 +153,7 @@ class AgentRunner(private val tools: AgentToolRegistry) {
         onReasoningDelta: suspend (String) -> Unit = {},
         onUsage: (Long) -> Unit = {}
     ): String {
-        val toolDefs = JsonParser.parseString(tools.toolDefinitions).asJsonArray
+        val toolDefs = AppJson.parseToJsonElement(tools.toolDefinitions).jsonArray
         var toolCallCount = 0
         val assembled = StringBuilder()
         var lengthContinues = 0
@@ -145,12 +161,12 @@ class AgentRunner(private val tools: AgentToolRegistry) {
         while (true) {
             // 保险丝烧了，这一轮不带 tools，逼模型直接作答
             val allowTools = toolCallCount < TOOL_CALL_FUSE
-            val reqBody = JsonObject().apply {
-                addProperty("model", config.effectiveModel)
-                add("messages", messagesForProvider(messages, config))
-                addProperty("stream", true)
+            val reqBody = buildJsonObject {
+                put("model", config.effectiveModel)
+                put("messages", messagesForProvider(messages, config))
+                put("stream", true)
                 if (config.provider == AgentConfig.PROVIDER_DEEPSEEK) {
-                    add("stream_options", JsonObject().apply { addProperty("include_usage", true) })
+                    put("stream_options", buildJsonObject { put("include_usage", true) })
                     // DeepSeek 新版思考参数族：档位是 none / low / high / max，
                     // 而且 `reasoning_effort` **两处都能放**——顶层，或 `thinking` 对象里。
                     // 官方示例两处都给，这里照做：中转服务商往往只认其中一处，
@@ -163,15 +179,15 @@ class AgentRunner(private val tools: AgentToolRegistry) {
                         config.reasoningEffort != AgentConfig.REASONING_AUTO -> config.reasoningEffort
                         else -> null
                     }
-                    add("thinking", JsonObject().apply {
-                        addProperty("type", if (config.thinkingEnabled) "enabled" else "disabled")
-                        effort?.let { addProperty("reasoning_effort", it) }
+                    put("thinking", buildJsonObject {
+                        put("type", if (config.thinkingEnabled) "enabled" else "disabled")
+                        effort?.let { put("reasoning_effort", it) }
                     })
-                    effort?.let { addProperty("reasoning_effort", it) }
+                    effort?.let { put("reasoning_effort", it) }
                 }
                 if (allowTools) {
-                    add("tools", toolDefs)
-                    addProperty("tool_choice", "auto")
+                    put("tools", toolDefs)
+                    put("tool_choice", "auto")
                 }
             }
 
@@ -188,21 +204,21 @@ class AgentRunner(private val tools: AgentToolRegistry) {
                 return "模型推理资源暂时不足，请稍后重试。"
 
             // 组装 assistant 消息写回历史（保持 OpenAI 结构，供续聊）
-            val assistantMsg = JsonObject().apply {
-                addProperty("role", "assistant")
-                addProperty("content", sr.content)
+            val assistantMsg = buildJsonObject {
+                put("role", "assistant")
+                put("content", sr.content)
                 if (sr.reasoningContent.isNotBlank()) {
-                    addProperty("reasoning_content", sr.reasoningContent)
+                    put("reasoning_content", sr.reasoningContent)
                 }
                 if (sr.toolCalls.isNotEmpty()) {
-                    add("tool_calls", JsonArray().apply {
+                    put("tool_calls", buildJsonArray {
                         sr.toolCalls.forEach { tc ->
-                            add(JsonObject().apply {
-                                addProperty("id", tc.id)
-                                addProperty("type", "function")
-                                add("function", JsonObject().apply {
-                                    addProperty("name", tc.name)
-                                    addProperty("arguments", tc.arguments)
+                            add(buildJsonObject {
+                                put("id", tc.id)
+                                put("type", "function")
+                                put("function", buildJsonObject {
+                                    put("name", tc.name)
+                                    put("arguments", tc.arguments)
                                 })
                             })
                         }
@@ -218,9 +234,9 @@ class AgentRunner(private val tools: AgentToolRegistry) {
                 // 有正文却被 length 截断时，把已写部分入历史并续写，尽量拿到完整结尾。
                 if (sr.finishReason == "length" && sr.content.isNotBlank() && lengthContinues < 2) {
                     messages.add(assistantMsg)
-                    messages.add(JsonObject().apply {
-                        addProperty("role", "user")
-                        addProperty("content", "（系统）上一条回复因长度被截断。从断处接着写，不重复，不解释。")
+                    messages.add(buildJsonObject {
+                        put("role", "user")
+                        put("content", "（系统）上一条回复因长度被截断。从断处接着写，不重复，不解释。")
                     })
                     lengthContinues++
                     continue
@@ -264,15 +280,15 @@ class AgentRunner(private val tools: AgentToolRegistry) {
                 }
                 onToolResult(tc.name, toolErrorMsg == null, toolErrorMsg)
                 toolCallCount++
-                toolResults.add(JsonObject().apply {
-                    addProperty("role", "tool")
-                    addProperty("tool_call_id", tc.id)
-                    addProperty("content", capToolResult(result, tc.name))
+                toolResults.add(buildJsonObject {
+                    put("role", "tool")
+                    put("tool_call_id", tc.id)
+                    put("content", capToolResult(result, tc.name))
                 })
             }
             remainingToolHint(toolCallCount)?.let { hint ->
                 val last = toolResults.lastOrNull() ?: return@let
-                last.addProperty("content", last.get("content").asString + hint)
+                toolResults[toolResults.lastIndex] = JsonObject(last + ("content" to JsonPrimitive(last["content"].stringValue + hint)))
             }
             messages.add(assistantMsg)
             toolResults.forEach { messages.add(it) }
@@ -317,8 +333,8 @@ class AgentRunner(private val tools: AgentToolRegistry) {
                 if (!resp.isSuccessful) {
                     val errBody = resp.body?.string().orEmpty()
                     val errMsg = runCatching {
-                        JsonParser.parseString(errBody).asJsonObject
-                            .getAsJsonObject("error")?.get("message")?.asString
+                        AppJson.parseToJsonElement(errBody).jsonObject
+                            .obj("error")?.get("message")?.stringValue
                     }.getOrNull() ?: "HTTP ${resp.code}"
                     throw RuntimeException("LLM 请求失败：$errMsg")
                 }
@@ -340,34 +356,34 @@ class AgentRunner(private val tools: AgentToolRegistry) {
                     if (!line.startsWith("data:")) continue
                     val data = line.substring(5).trim()
                     if (data == "[DONE]") break
-                    val chunk = runCatching { JsonParser.parseString(data).asJsonObject }.getOrNull() ?: continue
-                    chunk.get("usage")?.takeIf { !it.isJsonNull && it.isJsonObject }?.asJsonObject
+                    val chunk = runCatching { AppJson.parseToJsonElement(data).jsonObject }.getOrNull() ?: continue
+                    chunk.get("usage")?.takeIf { !it.isNull && it.isObject }?.jsonObject
                         ?.get("total_tokens")
-                        ?.takeIf { !it.isJsonNull }?.asLong?.let { totalTokens = it }
-                    val choices = chunk.getAsJsonArray("choices") ?: continue
-                    if (choices.size() == 0) continue
-                    val choice = choices[0].asJsonObject
-                    choice.get("finish_reason")?.takeIf { !it.isJsonNull }?.asString?.let { finishReason = it }
-                    val delta = choice.getAsJsonObject("delta") ?: continue
+                        ?.takeIf { !it.isNull }?.longValue?.let { totalTokens = it }
+                    val choices = chunk.arr("choices") ?: continue
+                    if (choices.size == 0) continue
+                    val choice = choices[0].jsonObject
+                    choice.get("finish_reason")?.takeIf { !it.isNull }?.stringValue?.let { finishReason = it }
+                    val delta = choice.obj("delta") ?: continue
 
-                    delta.get("reasoning_content")?.takeIf { !it.isJsonNull }?.asString?.let {
+                    delta.get("reasoning_content")?.takeIf { !it.isNull }?.stringValue?.let {
                         reasoningSb.append(it)
                         withContext(Dispatchers.Main.immediate) { onReasoningDelta(it) }
                     }
-                    delta.get("content")?.takeIf { !it.isJsonNull }?.asString?.let { frag ->
+                    delta.get("content")?.takeIf { !it.isNull }?.stringValue?.let { frag ->
                         if (frag.isNotEmpty()) {
                             contentSb.append(frag)
                             withContext(Dispatchers.Main.immediate) { onDelta(frag) }
                         }
                     }
-                    delta.get("tool_calls")?.takeIf { !it.isJsonNull }?.asJsonArray?.forEach { el ->
-                        val o = el.asJsonObject
-                        val idx = o.get("index")?.takeIf { !it.isJsonNull }?.asInt ?: 0
+                    delta.get("tool_calls")?.takeIf { !it.isNull }?.jsonArray?.forEach { el ->
+                        val o = el.jsonObject
+                        val idx = o.get("index")?.takeIf { !it.isNull }?.intValue ?: 0
                         val acc = toolMap.getOrPut(idx) { ToolCallAcc() }
-                        o.get("id")?.takeIf { !it.isJsonNull }?.asString?.let { acc.id = it }
-                        o.getAsJsonObject("function")?.let { f ->
-                            f.get("name")?.takeIf { !it.isJsonNull }?.asString?.let { acc.name = it }
-                            f.get("arguments")?.takeIf { !it.isJsonNull }?.asString?.let { acc.args.append(it) }
+                        o.get("id")?.takeIf { !it.isNull }?.stringValue?.let { acc.id = it }
+                        o.obj("function")?.let { f ->
+                            f.get("name")?.takeIf { !it.isNull }?.stringValue?.let { acc.name = it }
+                            f.get("arguments")?.takeIf { !it.isNull }?.stringValue?.let { acc.args.append(it) }
                         }
                     }
                 }
@@ -384,14 +400,14 @@ class AgentRunner(private val tools: AgentToolRegistry) {
         }
     }
 
-    private fun messagesForProvider(messages: JsonArray, config: AgentConfig): JsonArray {
-        if (config.provider == AgentConfig.PROVIDER_DEEPSEEK) return messages
-        return JsonArray().apply {
+    private fun messagesForProvider(messages: List<JsonElement>, config: AgentConfig): JsonArray {
+        if (config.provider == AgentConfig.PROVIDER_DEEPSEEK) return JsonArray(messages)
+        return buildJsonArray {
             messages.forEach { el ->
-                val src = el.asJsonObject
-                add(JsonObject().apply {
-                    src.entrySet().forEach { (key, value) ->
-                        if (key != "reasoning_content") add(key, value.deepCopy())
+                val src = el.jsonObject
+                add(buildJsonObject {
+                    src.entries.forEach { (key, value) ->
+                        if (key != "reasoning_content") put(key, value)
                     }
                 })
             }

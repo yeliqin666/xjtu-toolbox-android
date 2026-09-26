@@ -1,10 +1,21 @@
 package com.xjtu.toolbox.jwapp
 
+import com.xjtu.toolbox.network.MOBILE_UA
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.buildJsonObject
+import com.xjtu.toolbox.util.requireArr
+import com.xjtu.toolbox.util.requireObj
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.intValue
+import com.xjtu.toolbox.util.isNull
+import com.xjtu.toolbox.util.isObject
+import com.xjtu.toolbox.util.isArray
+import com.xjtu.toolbox.util.obj
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
 import com.xjtu.toolbox.util.redactBody
 import android.util.Log
-import com.google.gson.Gson
 import com.xjtu.toolbox.auth.SiteSession
-import kotlinx.coroutines.runBlocking
 import com.xjtu.toolbox.util.safeString
 import com.xjtu.toolbox.util.safeStringOrNull
 import com.xjtu.toolbox.util.safeDouble
@@ -12,14 +23,11 @@ import com.xjtu.toolbox.util.safeDoubleOrNull
 import com.xjtu.toolbox.util.safeInt
 import com.xjtu.toolbox.util.safeBoolean
 import com.xjtu.toolbox.util.safeParseJsonObject
+import kotlinx.serialization.Serializable
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 
 private const val TAG = "JwappGPA"
-
-/** jwapp 网关按 UA 拦非浏览器请求，所有 jwapp 请求统一顶这个头。 */
-internal const val BROWSER_UA =
-    "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
 
 // ── 数据类 ──────────────────────────────
 
@@ -30,36 +38,26 @@ enum class CourseGroup(val label: String, val shortLabel: String) {
     GEN_ELECTIVE("通选", "通选");
 }
 
+@Serializable
 data class ScoreItem(
-    val id: String,
-    val termCode: String,
-    val courseName: String,
-    val score: String,
-    val scoreValue: Double?,
-    val passFlag: Boolean,
-    val specificReason: String?,
-    val coursePoint: Double,
-    val examType: String,
-    val majorFlag: String?,
-    val examProp: String,
-    val replaceFlag: Boolean,
+    val id: String = "",
+    val termCode: String = "",
+    val courseName: String = "",
+    val score: String = "",
+    val scoreValue: Double? = null,
+    val passFlag: Boolean = false,
+    val specificReason: String? = null,
+    val coursePoint: Double = 0.0,
+    val examType: String = "",
+    val majorFlag: String? = null,
+    val examProp: String = "",
+    val replaceFlag: Boolean = false,
     val gpa: Double? = null,
     val source: ScoreSource = ScoreSource.JWAPP,
     val courseCategory: String? = null,
     val courseCode: String? = null,
     val courseGroup: CourseGroup? = null,
 ) {
-    /** 磁盘缓存反序列化兜底，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。 */
-    fun sanitized(): ScoreItem = copy(
-        id = (id as String?) ?: "",
-        termCode = (termCode as String?) ?: "",
-        courseName = (courseName as String?) ?: "",
-        score = (score as String?) ?: "",
-        examType = (examType as String?) ?: "",
-        examProp = (examProp as String?) ?: "",
-        source = (source as ScoreSource?) ?: ScoreSource.JWAPP,
-    )
-
     fun asEmptyDetail(): ScoreDetail = ScoreDetail(
         courseName = courseName,
         coursePoint = coursePoint,
@@ -69,8 +67,8 @@ data class ScoreItem(
         replaceFlag = replaceFlag,
         score = score,
         scoreValue = scoreValue,
-        gpa = com.xjtu.toolbox.util.ScoreCalculator.courseGpa(this) ?: 0.0,
-        passFlag = com.xjtu.toolbox.util.ScoreCalculator.isPassed(this),
+        gpa = com.xjtu.toolbox.score.ScoreCalculator.courseGpa(this) ?: 0.0,
+        passFlag = com.xjtu.toolbox.score.ScoreCalculator.isPassed(this),
         specificReason = specificReason,
         itemList = emptyList(),
     )
@@ -100,18 +98,12 @@ data class ScoreDetail(
     val itemList: List<ScoreDetailItem>
 )
 
+@Serializable
 data class TermScore(
-    val termCode: String,
-    val termName: String,
-    val scoreList: List<ScoreItem>
-) {
-    /** 磁盘缓存反序列化兜底，连同每门课一起处理，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。 */
-    fun sanitized(): TermScore = copy(
-        termCode = (termCode as String?) ?: "",
-        termName = (termName as String?) ?: "",
-        scoreList = (scoreList as List<ScoreItem?>?)?.mapNotNull { it?.sanitized() } ?: emptyList(),
-    )
-}
+    val termCode: String = "",
+    val termName: String = "",
+    val scoreList: List<ScoreItem> = emptyList(),
+)
 
 data class TimeTableBasis(
     val termCode: String,
@@ -137,16 +129,15 @@ class JwappApi(private val site: SiteSession) {
     // 校园网直连模式下 jwapp 把 http 请求 302 到 https → token 丢失 → 服务端返 401 "Authentication error"。
     // WebVPN 模式下因为请求经 webvpn.xjtu.edu.cn（https 一跳到位）而能正常工作。
     private val baseUrl = "https://jwapp.xjtu.edu.cn"
-    private val gson = Gson()
 
     internal fun authenticatedRequest(url: String): okhttp3.Request.Builder =
         okhttp3.Request.Builder()
             .url(url)
-            .header("User-Agent", BROWSER_UA)
+            .header("User-Agent", MOBILE_UA)
 
-    internal fun execute(request: okhttp3.Request.Builder): String =
-        runBlocking { site.executeWithReAuth(request.build()) }.use { response ->
-            response.body?.string() ?: throw RuntimeException("空响应")
+    internal suspend fun execute(request: okhttp3.Request.Builder): String =
+        site.executeWithReAuth(request.build()).use { response ->
+            response.body.string()
         }
 
     // [J1] TimeTableBasis 内存缓存（学期内不变，避免重复网络请求）
@@ -155,9 +146,9 @@ class JwappApi(private val site: SiteSession) {
     private var cachedBasisTime: Long = 0L
     private val BASIS_TTL_MS = 60L * 60 * 1000L  // 1 小时
 
-    fun getGrade(termCode: String? = null): List<TermScore> {
+    suspend fun getGrade(termCode: String? = null): List<TermScore> {
         val code = termCode ?: "*"
-        val json = gson.toJson(mapOf("termCode" to code))
+        val json = buildJsonObject { put("termCode", code) }.toString()
         val body = json.toRequestBody("application/json".toMediaType())
 
         val request = authenticatedRequest("$baseUrl/api/biz/v410/score/termScore")
@@ -166,22 +157,20 @@ class JwappApi(private val site: SiteSession) {
         val responseBody = execute(request)
         val root = responseBody.safeParseJsonObject()
 
-        val resultCode = root.get("code").asInt
+        val resultCode = root.get("code").intValue
         if (resultCode != 200) {
-            throw RuntimeException(root.get("msg")?.asString ?: "服务器错误 ($resultCode)")
+            throw RuntimeException(root.get("msg")?.stringValue ?: "服务器错误 ($resultCode)")
         }
 
-        val termScoreList = root.getAsJsonObject("data")
-            .getAsJsonArray("termScoreList")
+        val termScoreList = root.requireObj("data")
+            .requireArr("termScoreList")
 
         return termScoreList.map { termElement ->
-            val termObj = termElement.asJsonObject
-            val scores = termObj.getAsJsonArray("scoreList").map { scoreEl ->
-                val s = scoreEl.asJsonObject
+            val termObj = termElement.jsonObject
+            val scores = termObj.requireArr("scoreList").map { scoreEl ->
+                val s = scoreEl.jsonObject
                 val rawScore = s.get("score").safeString()
                 val numericScore = rawScore.toDoubleOrNull()
-                val apiGpa = s.get("gpa").safeDoubleOrNull()
-                val apiPassFlag = s.get("passFlag")
 
                 val courseName = s.get("courseName").safeString()
 
@@ -214,8 +203,8 @@ class JwappApi(private val site: SiteSession) {
         }
     }
 
-    fun getDetail(courseId: String): ScoreDetail {
-        val json = gson.toJson(mapOf("id" to courseId))
+    suspend fun getDetail(courseId: String): ScoreDetail {
+        val json = buildJsonObject { put("id", courseId) }.toString()
         val body = json.toRequestBody("application/json".toMediaType())
 
         val request = authenticatedRequest("$baseUrl/api/biz/v410/score/scoreDetail")
@@ -228,7 +217,7 @@ class JwappApi(private val site: SiteSession) {
         val resultCode = root.get("code").safeInt(-1)
         val msg = root.get("msg").safeString("服务器错误 ($resultCode)")
         val dataEl = root.get("data")
-        if (resultCode != 200 || dataEl == null || dataEl.isJsonNull || !dataEl.isJsonObject) {
+        if (resultCode != 200 || dataEl == null || dataEl.isNull || !dataEl.isObject) {
             Log.w(TAG, "scoreDetail empty/fail code=$resultCode msg=$msg data=${dataEl}")
             if (resultCode == 200 || resultCode == 401 || resultCode == 404 || isNoScoreDetailMessage(msg)) {
                 throw NoScoreDetailException(msg.ifBlank { "该课程暂无分项成绩" })
@@ -236,13 +225,13 @@ class JwappApi(private val site: SiteSession) {
             throw RuntimeException(msg)
         }
 
-        val data = dataEl.asJsonObject
+        val data = dataEl.jsonObject
 
         val itemEl = data.get("itemList")
-        val items = if (itemEl == null || itemEl.isJsonNull || !itemEl.isJsonArray) {
+        val items = if (itemEl == null || itemEl.isNull || !itemEl.isArray) {
             emptyList()
-        } else itemEl.asJsonArray.map { el ->
-            val item = el.asJsonObject
+        } else itemEl.jsonArray.map { el ->
+            val item = el.jsonObject
             val percentStr = item.get("itemPercent").safeString("0")
             val percent = percentStr.trimEnd('%').toDoubleOrNull()?.let { it / 100.0 } ?: 0.0
             ScoreDetailItem(
@@ -257,7 +246,7 @@ class JwappApi(private val site: SiteSession) {
         val serverGpa = data.get("gpa").safeDouble()
         // 如果服务器 GPA 为 0 但课程已通过，用本地映射兜底
         val effectiveGpa = if (serverGpa > 0.0) serverGpa
-            else com.xjtu.toolbox.util.ScoreCalculator.scoreToGpa(rawScore) ?: 0.0
+            else com.xjtu.toolbox.score.ScoreCalculator.scoreToGpa(rawScore) ?: 0.0
 
         return ScoreDetail(
             courseName = data.get("courseName").safeString(),
@@ -275,7 +264,7 @@ class JwappApi(private val site: SiteSession) {
         )
     }
 
-    fun getTimeTableBasis(): TimeTableBasis {
+    suspend fun getTimeTableBasis(): TimeTableBasis {
         // [J1] 优先返回缓存（1h TTL，防跨学期过期）
         cachedBasis?.let {
             if (System.currentTimeMillis() - cachedBasisTime < BASIS_TTL_MS) return it
@@ -288,17 +277,13 @@ class JwappApi(private val site: SiteSession) {
         val body = execute(request)
         val root = body.safeParseJsonObject()
 
-        val resultCode = root.get("code").asInt
+        val resultCode = root.get("code").intValue
         if (resultCode != 200) {
-            throw RuntimeException(root.get("msg")?.asString ?: "服务器错误 ($resultCode)")
+            throw RuntimeException(root.get("msg")?.stringValue ?: "服务器错误 ($resultCode)")
         }
 
         // API 可能返回 {code, data:{...}} 或直接平铺字段
-        val obj = if (root.has("data") && root.get("data").isJsonObject) {
-            root.getAsJsonObject("data")
-        } else {
-            root
-        }
+        val obj = root.obj("data") ?: root
 
         return TimeTableBasis(
             termCode = obj.get("xnxqdm").safeString(),
@@ -310,19 +295,12 @@ class JwappApi(private val site: SiteSession) {
         ).also { cachedBasis = it; cachedBasisTime = System.currentTimeMillis() }
     }
 
-    fun getCurrentTerm(): String = getTimeTableBasis().termCode
+    suspend fun getCurrentTerm(): String = getTimeTableBasis().termCode
 
-    fun getTermList(): List<Pair<String, String>> {
+    suspend fun getTermList(): List<Pair<String, String>> {
         val allGrades = getGrade(null)
         return allGrades.map { it.termCode to it.termName }
     }
-
-    /**
-     * GPA 计算：二等级制不参与，优先 xscjcx.do 精确值，fallback 本地映射。
-     * passFlag 对等级制课程可能错误返回 false，需 GPA/分数二次兜底。
-     */
-    fun calculateGpaForCourses(courses: List<ScoreItem>): GpaInfo =
-        com.xjtu.toolbox.util.ScoreCalculator.calculateGpaForCourses(courses)
 }
 
 internal fun isNoScoreDetailMessage(msg: String?): Boolean {

@@ -1,5 +1,13 @@
 package com.xjtu.toolbox.auth
 
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.buildJsonObject
+import com.xjtu.toolbox.util.requireObj
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.intValue
+import com.xjtu.toolbox.util.booleanValue
+import com.xjtu.toolbox.util.obj
+import com.xjtu.toolbox.network.HttpClients
 import com.xjtu.toolbox.util.redactBody
 import com.xjtu.toolbox.util.redactUrl
 import android.util.Base64
@@ -7,11 +15,11 @@ import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.brotli.BrotliInterceptor
+import okhttp3.java.net.cookiejar.JavaNetCookieJar
 import org.jsoup.Jsoup
 import java.security.KeyFactory
 import java.security.spec.X509EncodedKeySpec
 import javax.crypto.Cipher
-import com.google.gson.Gson
 import com.xjtu.toolbox.util.safeParseJsonObject
 import java.net.CookieManager
 import java.net.CookiePolicy
@@ -140,21 +148,21 @@ class MFAContext(
         val request = Request.Builder().url(url).get().build()
 
         val response = login.client.newCall(request).execute()
-        val json = response.body?.string().safeParseJsonObject()
-        if (json.get("code").asInt == 0) {
-            val data = json.getAsJsonObject("data")
-            gid = data.get("gid").asString
-            phoneNumber = data.get("securePhone").asString
+        val json = response.body.string().safeParseJsonObject()
+        if (json.get("code").intValue == 0) {
+            val data = json.requireObj("data")
+            gid = data.get("gid").stringValue
+            phoneNumber = data.get("securePhone").stringValue
             return phoneNumber!!
         } else {
-            throw RuntimeException("获取手机号失败: ${json.get("message")?.asString ?: "未知错误"}")
+            throw RuntimeException("获取手机号失败: ${json.get("message")?.stringValue ?: "未知错误"}")
         }
     }
 
     /** 发送验证码到手机 */
     fun sendVerifyCode(): String {
         val phone = getPhoneNumber()
-        val json = Gson().toJson(mapOf("gid" to gid))
+        val json = buildJsonObject { put("gid", gid) }.toString()
         val body = json.toRequestBody("application/json".toMediaType())
         val request = Request.Builder()
             .url("https://login.xjtu.edu.cn/attest/api/guard/securephone/send")
@@ -162,11 +170,11 @@ class MFAContext(
             .build()
 
         val response = login.client.newCall(request).execute()
-        val result = response.body?.string().safeParseJsonObject()
-        if (result.get("code").asInt == 0) {
+        val result = response.body.string().safeParseJsonObject()
+        if (result.get("code").intValue == 0) {
             return phone
         } else {
-            throw RuntimeException(result.get("message").asString)
+            throw RuntimeException(result.get("message").stringValue)
         }
     }
 
@@ -178,7 +186,7 @@ class MFAContext(
     fun verifyCode(code: String) {
         if (gid == null) throw RuntimeException("必须先发送验证码")
 
-        val json = Gson().toJson(mapOf("gid" to gid, "code" to code))
+        val json = buildJsonObject { put("gid", gid); put("code", code) }.toString()
         val body = json.toRequestBody("application/json".toMediaType())
         val request = Request.Builder()
             .url("https://login.xjtu.edu.cn/attest/api/guard/securephone/valid")
@@ -186,14 +194,14 @@ class MFAContext(
             .build()
 
         val response = login.client.newCall(request).execute()
-        val result = response.body?.string().safeParseJsonObject()
-        if (result.get("code").asInt != 0) {
-            throw RuntimeException(result.get("message").asString)
+        val result = response.body.string().safeParseJsonObject()
+        if (result.get("code").intValue != 0) {
+            throw RuntimeException(result.get("message").stringValue)
         }
         // status 字段进一步确认
-        result.getAsJsonObject("data")?.get("status")?.asString?.let { status ->
+        result.obj("data")?.get("status")?.stringValue?.let { status ->
             if (status != "2") {
-                throw RuntimeException(result.get("message")?.asString ?: "验证码验证失败")
+                throw RuntimeException(result.get("message")?.stringValue ?: "验证码验证失败")
             }
         }
 
@@ -251,7 +259,7 @@ open class XJTULogin(
     }
 
     // OkHttp 客户端（带 Cookie 管理和重定向）
-    val client: OkHttpClient = existingClient ?: OkHttpClient.Builder()
+    val client: OkHttpClient = existingClient ?: HttpClients.base.newBuilder()
         .addInterceptor(BrotliInterceptor)
         .cookieJar(cookieJar ?: JavaNetCookieJar(cookieManager))
         .followRedirects(true)
@@ -309,11 +317,6 @@ open class XJTULogin(
     protected var rawPassword: String? = null
         private set
 
-    /** 明文用户名（供子类访问） */
-    protected val storedUsername: String? get() = username
-
-    // 账户选择响应
-    private var chooseAccountResponse: Response? = null
     private var chooseAccountBody: String? = null
 
     /** 最近一次 postLogin 调用前的 response body（供子类在 postLogin 中使用） */
@@ -336,7 +339,7 @@ open class XJTULogin(
             .build()
 
         val response = client.newCall(request).execute()
-        val responseBody = response.body?.string() ?: ""
+        val responseBody = response.body.string()
         postUrl = response.request.url.toString()
         serviceUrl = try {
             java.net.URLDecoder.decode(
@@ -356,7 +359,7 @@ open class XJTULogin(
             android.util.Log.w(TAG, "init: HTTP ${response.code} for loginUrl=${loginUrl.redactUrl()}")
             chain.forEachIndexed { i, r ->
                 val raw = r.request.url.toString()
-                val plain = com.xjtu.toolbox.util.WebVpnUtil.getOriginalUrl(raw) ?: raw
+                val plain = com.xjtu.toolbox.webvpn.WebVpnUtil.getOriginalUrl(raw) ?: raw
                 android.util.Log.w(TAG, "  hop$i ${r.code} $plain")
                 // Location 原文是判断"谁把我们打回根路径"的唯一证据：是目标站自己 302 到 /，
                 // 还是网关改写 Location 时丢了 /https/{hex} 前缀。二者修法完全不同。
@@ -376,7 +379,7 @@ open class XJTULogin(
         // 必须用 title + secState 字段联合判定（与 upstream `is_safety_verify_page` 一致）。
         val initialSafetyVerify = isSafetyVerifyPage(responseBody)
 
-        android.util.Log.d(TAG, "init: executionInput.isEmpty=${executionInput.isEmpty()}, initialSafetyVerify=$initialSafetyVerify, existingClient=${existingClient != null}")
+        android.util.Log.d(TAG, "init: executionInput.isEmpty()=${executionInput.isEmpty()}, initialSafetyVerify=$initialSafetyVerify, existingClient=${existingClient != null}")
 
         if (initialSafetyVerify) {
             // 入口页面直接就是 Safety Verify（webvpn session 已建立，CAS 跳转 OAuth2 1675 时强制二次认证）。
@@ -487,7 +490,7 @@ open class XJTULogin(
         // 这里直接拿这份响应走成功/账户选择/错误处理流程，避免重复 POST 登录。
         lastSafetyVerifyResponse?.let { safetyResp ->
             lastSafetyVerifyResponse = null
-            val body = try { safetyResp.body?.string() ?: "" } catch (_: Exception) { "" }
+            val body = try { safetyResp.body.string() } catch (_: Exception) { "" }
             return processLoginResponse(safetyResp, body)
         }
 
@@ -509,18 +512,18 @@ open class XJTULogin(
 
             // mfa/detect 携带密码，同样计入风控闸门
             val response = CasGate.withCredentialPost { client.newCall(request).execute() }
-            val responseStr = response.body?.string() ?: "{}"
+            val responseStr = response.body.string()
             android.util.Log.d("XJTULogin", "login: MFA detect response code=${response.code}, body=$responseStr")
             val data = try {
                 responseStr.safeParseJsonObject()
-                    .getAsJsonObject("data")
+                    .requireObj("data")
             } catch (e: Exception) {
                 android.util.Log.e("XJTULogin", "login: MFA detect parse error", e)
                 throw RuntimeException("MFA 检测返回数据异常: $responseStr")
             }
 
-            val state = data.get("state").asString
-            val need = data.get("need").asBoolean
+            val state = data.get("state").stringValue
+            val need = data.get("need").booleanValue
             mfaContext = MFAContext(this, state, need)
             detectedInThisFlow = true
 
@@ -550,12 +553,6 @@ open class XJTULogin(
             .add("trustAgent", trustAgentStr)
             .build()
 
-        // 发送登录请求（禁用自动重定向以便处理 302）
-        val noRedirectClient = client.newBuilder()
-            .followRedirects(false)
-            .followSslRedirects(false)
-            .build()
-
         val request = Request.Builder()
             .url(postUrl)
             .post(formBody)
@@ -565,7 +562,7 @@ open class XJTULogin(
         // 刚在本次 login() 内做过 mfa/detect 时，登录 POST 属于同一流程，免去重复间隔平滑。
         android.util.Log.d("XJTULogin", "login: POST to ${postUrl.redactUrl()}")
         val loginResponse = CasGate.withCredentialPost(sameFlow = detectedInThisFlow) { client.newCall(request).execute() }
-        val loginBody = loginResponse.body?.string() ?: ""
+        val loginBody = loginResponse.body.string()
         android.util.Log.d("XJTULogin", "login: POST response code=${loginResponse.code}, finalUrl=${loginResponse.request.url.redactUrl()}, bodyLen=${loginBody.length}")
 
         return processLoginResponse(loginResponse, loginBody)
@@ -692,7 +689,7 @@ open class XJTULogin(
             .build()
 
         val response = client.newCall(request).execute()
-        lastResponseBody = response.body?.string() ?: ""
+        lastResponseBody = response.body.string()
         chooseAccountBody = null
         hasLogin = true
         postLogin(response)
@@ -721,7 +718,7 @@ open class XJTULogin(
             java.net.URLEncoder.encode(serviceUrl, "UTF-8")
         }"
         val casResp = client.newCall(Request.Builder().url(casUrl).get().build()).execute()
-        val casBody = casResp.body?.string() ?: ""
+        val casBody = casResp.body.string()
         val casFinalUrl = casResp.request.url.toString()
         android.util.Log.d("XJTULogin", "casAuthenticate: GET ${casUrl.redactUrl()} → code=${casResp.code}, finalUrl=${casFinalUrl.redactUrl()}")
 
@@ -757,7 +754,7 @@ open class XJTULogin(
             android.util.Log.w("XJTULogin", "casAuthenticate: throttled by CasGate: ${e.message}")
             return null
         }
-        val loginBody = loginResp.body?.string() ?: ""
+        val loginBody = loginResp.body.string()
         val loginFinalUrl = loginResp.request.url.toString()
         android.util.Log.d("XJTULogin", "casAuthenticate: POST → code=${loginResp.code}, finalUrl=${loginFinalUrl.redactUrl()}")
         // 检测 MFA 页面：若返回含 secState 则说明 TGC 过期后重新登录触发了 MFA，
@@ -788,8 +785,7 @@ open class XJTULogin(
             .get()
             .build()
         val response = client.newCall(request).execute()
-        val body = response.body?.string()
-            ?: throw IOException("RSA 公钥接口返回空响应 (HTTP ${response.code})")
+        val body = response.body.string()
         // 检测 HTML 错误页面 / 非 PEM 响应
         if (body.contains("<html", ignoreCase = true) || body.contains("<HTML", ignoreCase = true)) {
             throw IOException("RSA 公钥接口返回 HTML 错误页面，可能是网络代理拦截")
@@ -1074,15 +1070,6 @@ open class XJTULogin(
             return hasLoginForm && hasLoginMarker
         }
 
-        // 常用登录地址
-        /** 本科生考勤系统 OAuth 登录（直连模式，经 org.xjtu.edu.cn 中转） */
-        const val ATTENDANCE_URL = "https://org.xjtu.edu.cn/openplatform/oauth/authorize?appId=1372&redirectUri=https://bkkq.xjtu.edu.cn/berserker-auth/auth/attendance-pc/casReturn&responseType=code&scope=user_info&state=1234"
-        /** 本科生考勤系统直连登录（WebVPN 模式，直接访问 bkkq，更短的 CAS 链） */
-        const val ATTENDANCE_WEBVPN_URL = "http://bkkq.xjtu.edu.cn"
-        /** 研究生考勤系统 OAuth 登录（appId=1245，redirect 到 yjskq；上游 4757a093 已切 https） */
-        const val POSTGRADUATE_ATTENDANCE_URL = "https://org.xjtu.edu.cn/openplatform/oauth/authorize?appId=1245&redirectUri=https://yjskq.xjtu.edu.cn/berserker-auth/auth/attendance-pc/casReturn&responseType=code&scope=user_info&state=1234"
-        /** 研究生考勤系统直连登录（WebVPN 模式） */
-        const val POSTGRADUATE_ATTENDANCE_WEBVPN_URL = "http://yjskq.xjtu.edu.cn"
         const val JWXT_URL = "https://jwxt.xjtu.edu.cn/jwapp/sys/homeapp/index.do"
     }
 }

@@ -324,9 +324,6 @@ data class LmsReplayVideo(
     val fileKey: String = "",
     val size: Int = 0
 ) {
-    /** 播放时优先用 playUrl；缺失才回退 downloadUrl（容错，防止个别活动类型没给这个字段）。 */
-    val streamUrl: String
-        get() = playUrl.ifBlank { downloadUrl }
 
     /** 人类可读的标签 */
     val readableLabel: String

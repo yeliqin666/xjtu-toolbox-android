@@ -1,7 +1,8 @@
 package com.xjtu.toolbox.yellowpage
 
+import com.xjtu.toolbox.ui.components.AppPullToRefresh
+import com.xjtu.toolbox.ui.components.FullPageState
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
-import androidx.compose.foundation.lazy.staggeredgrid.items
 import androidx.compose.foundation.lazy.staggeredgrid.itemsIndexed
 import androidx.compose.foundation.lazy.itemsIndexed
 import com.xjtu.toolbox.ui.components.enterOnce
@@ -22,13 +23,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Business
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.ContactPhone
@@ -50,26 +48,21 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.LocalAppLoginState
+import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.ui.glass.*
 import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
-import com.xjtu.toolbox.ui.components.LoadingState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
-import top.yukonga.miuix.kmp.basic.PullToRefresh
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TopAppBar
-import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
@@ -81,7 +74,6 @@ fun YellowPageScreen(onBack: () -> Unit) {
     val api = remember(LocalAppLoginState.current.accountId) { YellowPageApi(context) }
     val scope = rememberCoroutineScope()
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
-    val pullToRefreshState = rememberPullToRefreshState()
 
     var data by remember { mutableStateOf<YellowPageData?>(null) }
     var loading by remember { mutableStateOf(true) }
@@ -125,44 +117,30 @@ fun YellowPageScreen(onBack: () -> Unit) {
     val glass = rememberPageGlass()
     Scaffold(
         topBar = {
-            TopAppBar(
+            GlassTopAppBar(
                 title = "校园黄页",
-                largeTitle = "校园黄页",
-                color = glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
+                glass = glass,
                 scrollBehavior = scrollBehavior,
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                }
+                onBack = onBack,
             )
         }
     ) { padding ->
         val glassTop = padding.glassTop(glass)
-        PullToRefresh(
-            refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
+        AppPullToRefresh(
             isRefreshing = refreshing,
             onRefresh = { scope.launch { load(force = true) } },
-            pullToRefreshState = pullToRefreshState,
-            topAppBarScrollBehavior = scrollBehavior,
-            contentPadding = PaddingValues(top = glassTop),
-            modifier = Modifier.padding(padding.withoutTop(glass)).glassSource(glass).fillMaxSize()
+            scrollBehavior = scrollBehavior,
+            topPadding = glassTop,
+            modifier = Modifier.padding(padding.withoutTop(glass)).glassSource(glass).fillMaxSize(),
         ) {
         when {
-            loading -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
-                item { Box(Modifier.fillParentMaxSize()) { com.xjtu.toolbox.ui.components.SkeletonList(Modifier.fillMaxSize(), rows = 8, rowHeight = 64.dp) } }
-            }
-            error != null && data == null -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
-                item {
-                    Box(Modifier.fillParentMaxSize()) {
-                        ErrorState(
-                            "加载失败：$error",
-                            onRetry = { scope.launch { load(force = true) } },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-                }
+            loading -> FullPageState(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) { com.xjtu.toolbox.ui.components.SkeletonList(Modifier.fillMaxSize(), rows = 8, rowHeight = 64.dp) }
+            error != null && data == null -> FullPageState(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
+                ErrorState(
+                    "加载失败：$error",
+                    onRetry = { scope.launch { load(force = true) } },
+                    modifier = Modifier.fillMaxSize()
+                )
             }
             // 宽屏机构卡分两三列（见 AdaptiveCardGrid）。卡片自带左右 16dp 外边距，列间距给 0。
             else -> com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid(

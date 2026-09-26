@@ -10,41 +10,29 @@ package com.xjtu.toolbox.schedule
  *
  * 只有课表源选 jwapp 时才有这份数据；jwxt 不返回变更记录，bkkq 未核实是否有等价字段。
  */
+@kotlinx.serialization.Serializable
 data class ScheduleChangeEvent(
-    val courseName: String,
-    val courseCode: String,
+    val courseName: String = "",
+    val courseCode: String = "",
+    /** 不给默认值：缺了这条就没法描述，读的时候整条丢掉。 */
     val kind: Kind,
     /** 原时段；停课/移课有效。新增课没有原时段，值为 0。 */
-    val fromDay: Int,
-    val fromStartSection: Int,
-    val fromEndSection: Int,
+    val fromDay: Int = 0,
+    val fromStartSection: Int = 0,
+    val fromEndSection: Int = 0,
     /** 新时段/新教室；移课/新增课有效。停课没有新时段，day 为 0。 */
-    val toDay: Int,
-    val toStartSection: Int,
-    val toEndSection: Int,
-    val toLocation: String,
+    val toDay: Int = 0,
+    val toStartSection: Int = 0,
+    val toEndSection: Int = 0,
+    val toLocation: String = "",
     /** 官方调课备注（`bz`）。可能为空——不是每条变更都会填。 */
-    val reason: String,
+    val reason: String = "",
     /** 原时段在哪几周被停/被调走；新增课为空。旧版本落盘的数据没有这个字段。 */
     val weeks: List<Int> = emptyList(),
     /** 新时段落在哪几周；停课为空。调课可以跨周（第 4 周的课挪到第 6 周周末补）。 */
     val toWeeks: List<Int> = emptyList(),
 ) {
     enum class Kind { MOVED, CANCELLED, ADDED }
-
-    /** 落盘反序列化兜底，原理见 [CourseItem.sanitized]。kind 缺失的条目无法描述，返回 null。 */
-    fun sanitized(): ScheduleChangeEvent? {
-        val k = (kind as Kind?) ?: return null
-        return copy(
-            courseName = (courseName as String?) ?: "",
-            courseCode = (courseCode as String?) ?: "",
-            kind = k,
-            toLocation = (toLocation as String?) ?: "",
-            reason = (reason as String?) ?: "",
-            weeks = (weeks as List<Int>?).orEmpty(),
-            toWeeks = (toWeeks as List<Int>?).orEmpty(),
-        )
-    }
 
     /** 一句话人话描述，不含课程名（调用方按需拼在课程名后面）。 */
     fun describe(): String {

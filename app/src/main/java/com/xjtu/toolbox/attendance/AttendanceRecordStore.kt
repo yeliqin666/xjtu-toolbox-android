@@ -2,8 +2,8 @@ package com.xjtu.toolbox.attendance
 
 import android.content.Context
 import android.util.Log
-import com.google.gson.Gson
 import com.xjtu.toolbox.account.AccountContext
+import com.xjtu.toolbox.util.AppJson
 
 private const val TAG = "AttendanceStore"
 
@@ -30,16 +30,15 @@ object AttendanceRecordStore {
     /** 全量重扫间隔，用来捞老师事后修改的早期记录。 */
     const val FULL_RESCAN_MS = 3L * 24 * 60 * 60 * 1000
 
+    @kotlinx.serialization.Serializable
     data class Shard(
-        val termCode: String,
-        val records: List<AttendanceWaterRecord>,
+        val termCode: String = "",
+        val records: List<AttendanceWaterRecord> = emptyList(),
         /** 上次任意刷新的时刻。 */
-        val fetchedAt: Long,
+        val fetchedAt: Long = 0L,
         /** 上次**全量**刷新的时刻。增量刷新不更新它。 */
-        val fullScanAt: Long,
+        val fullScanAt: Long = 0L,
     )
-
-    private val gson = Gson()
 
     /** [accountId] 由调用方在发起拉取时定下，避免结果回来时已切账号而写错命名空间。 */
     private fun prefs(ctx: Context, postgraduate: Boolean, accountId: String?) = ctx.getSharedPreferences(
@@ -56,16 +55,7 @@ object AttendanceRecordStore {
     ): Shard? {
         if (termCode.isBlank()) return null
         val raw = prefs(ctx, postgraduate, accountId).getString(termCode, null) ?: return null
-        // 消费点（CourseLinks.fetchAttendanceIndex 的 NONE 分支）没有 try/catch，
-        // 缺字段的旧缓存必须在这里就地兜底，而不是指望调用方判空。
-        return runCatching {
-            gson.fromJson(raw, Shard::class.java)?.let { shard ->
-                val records = (shard.records as List<AttendanceWaterRecord>?)
-                    ?.map { it.sanitized() }
-                    ?: emptyList()
-                shard.copy(records = records)
-            }
-        }.getOrNull()
+        return runCatching { AppJson.decodeFromString<Shard>(raw) }.getOrNull()
             ?.takeIf { it.records.isNotEmpty() }
     }
 
@@ -77,7 +67,7 @@ object AttendanceRecordStore {
     ) {
         runCatching {
             prefs(ctx, postgraduate, accountId).edit()
-                .putString(shard.termCode, gson.toJson(shard))
+                .putString(shard.termCode, AppJson.encodeToString(shard))
                 .apply()
         }
     }

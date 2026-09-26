@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.media
 
+import com.xjtu.toolbox.network.HttpClients
 import android.content.Context
 import android.os.Environment
 import android.util.Log
@@ -23,7 +24,6 @@ data class DownloadProgress(
     val totalBytes: Long,
     val progress: Float, // 0.0 ~ 1.0
     val status: String,  // downloading/paused/completed/failed
-    val speedBytesPerSec: Long = 0  // 下载速度(字节/秒)
 )
 
 /**
@@ -62,7 +62,7 @@ class DownloadManager private constructor(private val context: Context) {
 
     // OkHttp 客户端 (不设置超时以支持大文件下载)
     private val httpClient: OkHttpClient by lazy {
-        OkHttpClient.Builder()
+        HttpClients.base.newBuilder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS) // 无限制
             .writeTimeout(0, TimeUnit.MILLISECONDS)
@@ -71,7 +71,7 @@ class DownloadManager private constructor(private val context: Context) {
 
     // 数据库 DAO (internal 以便页面访问)
     internal val dao by lazy {
-        com.xjtu.toolbox.util.AppDatabase.getInstance(context).downloadTaskDao()
+        com.xjtu.toolbox.data.AppDatabase.getInstance(context).downloadTaskDao()
     }
 
     // 协程作用域
@@ -221,7 +221,7 @@ class DownloadManager private constructor(private val context: Context) {
 
             // 解析文件大小
             val contentRange = response.header("Content-Range")
-            val contentLength = response.body?.contentLength() ?: -1
+            val contentLength = response.body.contentLength()
 
             val totalSize = if (contentRange != null) {
                 // Content-Range: bytes 100-499/500
@@ -240,7 +240,7 @@ class DownloadManager private constructor(private val context: Context) {
                 outputStream.seek(existingBytes)
             }
 
-            response.body?.byteStream()?.use { inputStream ->
+            response.body.byteStream().use { inputStream ->
                 val buffer = ByteArray(8192)
                 var downloaded = existingBytes
                 var lastProgressTime = 0L
