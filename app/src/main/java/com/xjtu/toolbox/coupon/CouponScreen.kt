@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.coupon
 
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import androidx.compose.foundation.lazy.staggeredgrid.items
@@ -32,14 +33,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import com.xjtu.toolbox.auth.LocalAppLoginState
-import com.xjtu.toolbox.auth.AuthExpiredException
 import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,7 +54,6 @@ import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.glass.*
 import com.xjtu.toolbox.auth.SiteSession
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 import top.yukonga.miuix.kmp.basic.Button
@@ -83,113 +79,12 @@ fun CouponScreen(
     onBack: () -> Unit
 ) {
     val appLoginState = LocalAppLoginState.current
-    val api = remember(site) { CouponApi(site) }
-    val scope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val vm: CouponViewModel = viewModel(key = "coupon-${System.identityHashCode(site)}") { CouponViewModel(context, site) }
+    LaunchedEffect(vm) { vm.authExpired.collect { appLoginState.handleAuthExpired(AppRoute.Coupon, onBack) } }
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
-
-    val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
-    // 首页摘要用：-1 表示本次会话还没查过该分类，不参与拼接
-    var pendingCount by remember { mutableIntStateOf(-1) }
-    var usableCount by remember { mutableIntStateOf(-1) }
-
-    var selectedFilter by rememberSaveable { mutableStateOf(CouponFilter.USABLE) }
-    var records by remember { mutableStateOf<List<CouponRecord>>(emptyList()) }
-    var total by remember { mutableIntStateOf(0) }
-    var currentPage by rememberSaveable { mutableIntStateOf(1) }
-    var isLoading by remember { mutableStateOf(true) }
-    var isLoadingMore by remember { mutableStateOf(false) }
-    var isRefreshing by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    var loadMoreError by remember { mutableStateOf<String?>(null) }
-    var statusMessage by remember { mutableStateOf<String?>(null) }
-    var receivingIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     val pullToRefreshState = rememberPullToRefreshState()
-
-    fun loadPage(filter: CouponFilter = selectedFilter, page: Int = 1, append: Boolean = false, silent: Boolean = false) {
-        when {
-            append -> isLoadingMore = true
-            silent -> {}  // silent: 由外部 isRefreshing 控制下拉指示器，保留当前列表
-            else -> isLoading = true
-        }
-        errorMessage = null
-        loadMoreError = null
-        scope.launch {
-            try {
-                val pageData = withContext(Dispatchers.IO) {
-                    api.queryCoupons(filter = filter, page = page, pageSize = 20)
-                }
-                total = pageData.total
-                currentPage = page
-                records = if (append) records + pageData.records else pageData.records
-                // 顺手把摘要留给首页（首页自己不发请求，见 HomeStats）。
-                // 只在第一页、且是「可领取/可使用」这两个用户真正关心的分类时记，
-                // 「已用完/已过期」的条数写上去只会误导。
-                if (!append && filter == CouponFilter.AVAILABLE) pendingCount = pageData.total
-                if (!append && filter == CouponFilter.USABLE) usableCount = pageData.total
-                if (pendingCount >= 0 || usableCount >= 0) {
-                    val parts = buildList {
-                        if (pendingCount > 0) add("$pendingCount 个待领取")
-                        if (usableCount > 0) add("$usableCount 个待使用")
-                    }
-                    com.xjtu.toolbox.home.HomeStats.push(
-                        appContext,
-                        AppRoute.Coupon,
-                        parts.firstOrNull() ?: "暂无可用",
-                        parts.drop(1).firstOrNull()
-                    )
-                }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(AppRoute.Coupon, onBack)
-            } catch (e: Exception) {
-                // 翻页失败只提示，保住已加载的列表；整页失败才切到错误页
-                if (append) {
-                    loadMoreError = e.message ?: "加载更多失败"
-                } else {
-                    errorMessage = e.message ?: "加载失败"
-                }
-            } finally {
-                isLoading = false
-                isLoadingMore = false
-                isRefreshing = false
-            }
-        }
-    }
-
-    fun receiveCoupon(coupon: CouponRecord) {
-        val id = coupon.showCardId
-        if (id.isBlank() || id in receivingIds) return
-        receivingIds = receivingIds + id
-        statusMessage = null
-        scope.launch {
-            try {
-                val detail = withContext(Dispatchers.IO) {
-                    val fetched = runCatching { api.getCouponDetail(id) }.getOrNull()
-                    api.activateCoupon(id)
-                    fetched
-                }
-                statusMessage = detail?.title?.takeIf { it.isNotBlank() }
-                    ?: "已领取 ${coupon.voucherName}"
-                loadPage(selectedFilter, page = 1, append = false, silent = true)
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(AppRoute.Coupon, onBack)
-            } catch (e: Exception) {
-                statusMessage = "领取失败：${e.message ?: "网络异常"}"
-            } finally {
-                receivingIds = receivingIds - id
-            }
-        }
-    }
-
-    LaunchedEffect(selectedFilter) {
-        records = emptyList()
-        total = 0
-        currentPage = 1
-        loadPage(selectedFilter)
-    }
+    val selectedFilter = vm.filter
 
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
@@ -212,7 +107,7 @@ fun CouponScreen(
                         AppSegmentedTabs(
                             tabs = CouponFilter.entries.map { it.label },
                             selectedTabIndex = CouponFilter.entries.indexOf(selectedFilter),
-                            onTabSelected = { selectedFilter = CouponFilter.entries[it] },
+                            onTabSelected = { vm.selectFilter(CouponFilter.entries[it]) },
                             modifier = Modifier.readableWidth(),
                         )
                     }
@@ -230,11 +125,8 @@ fun CouponScreen(
         ) {
             PullToRefresh(
                 refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
-                isRefreshing = isRefreshing,
-                onRefresh = {
-                    isRefreshing = true
-                    loadPage(selectedFilter, page = 1, append = false, silent = true)
-                },
+                isRefreshing = vm.isRefreshing,
+                onRefresh = vm::refresh,
                 pullToRefreshState = pullToRefreshState,
                 topAppBarScrollBehavior = scrollBehavior,
                 // 下拉指示器从玻璃顶栏（含标签行）下面出来
@@ -248,25 +140,25 @@ fun CouponScreen(
                 com.xjtu.toolbox.ui.components.AppTabPager(
                     pageCount = CouponFilter.entries.size,
                     selectedTabIndex = filterIndex,
-                    onTabSelected = { selectedFilter = CouponFilter.entries[it] },
+                    onTabSelected = { vm.selectFilter(CouponFilter.entries[it]) },
                     modifier = Modifier.fillMaxSize(),
                 ) { page ->
                 when {
                     page != filterIndex -> LoadingState("正在加载加餐券...", Modifier.fillMaxSize().padding(top = glassTop))
-                    isLoading -> LazyColumn(Modifier.fillMaxSize().padding(top = glassTop)) {
+                    vm.isLoading -> LazyColumn(Modifier.fillMaxSize().padding(top = glassTop)) {
                         item { Box(Modifier.fillParentMaxSize()) { LoadingState("正在加载加餐券...", Modifier.fillMaxSize()) } }
                     }
-                    errorMessage != null -> LazyColumn(Modifier.fillMaxSize().padding(top = glassTop)) {
+                    vm.errorMessage != null -> LazyColumn(Modifier.fillMaxSize().padding(top = glassTop)) {
                         item { Box(Modifier.fillParentMaxSize()) {
                             ErrorState(
-                                message = errorMessage ?: "加载失败",
-                                onRetry = { loadPage(selectedFilter) },
+                                message = vm.errorMessage ?: "加载失败",
+                                onRetry = { vm.load() },
                                 modifier = Modifier.fillMaxSize(),
                                 icon = Icons.Default.ErrorOutline
                             )
                         } }
                     }
-                    records.isEmpty() -> LazyColumn(Modifier.fillMaxSize().padding(top = glassTop)) {
+                    vm.records.isEmpty() -> LazyColumn(Modifier.fillMaxSize().padding(top = glassTop)) {
                         item { Box(Modifier.fillParentMaxSize()) {
                             EmptyState(
                                 title = selectedFilter.emptyTitle,
@@ -278,16 +170,16 @@ fun CouponScreen(
                     }
                     else -> CouponList(
                         site = site,
-                        records = records,
-                        total = total,
+                        records = vm.records,
+                        total = vm.total,
                         filter = selectedFilter,
-                        statusMessage = statusMessage,
-                        receivingIds = receivingIds,
-                        onReceive = ::receiveCoupon,
-                        isLoadingMore = isLoadingMore,
+                        statusMessage = vm.statusMessage,
+                        receivingIds = vm.receivingIds,
+                        onReceive = vm::receive,
+                        isLoadingMore = vm.isLoadingMore,
                         // 翻页失败时停止自动加载，否则会对着挂掉的接口无限重试
-                        loadMoreError = loadMoreError,
-                        onLoadMore = { loadPage(selectedFilter, currentPage + 1, append = true) },
+                        loadMoreError = vm.loadMoreError,
+                        onLoadMore = vm::loadMore,
                         topPadding = glassTop,
                     )
                 }
