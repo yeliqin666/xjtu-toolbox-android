@@ -288,7 +288,8 @@ class CredentialStore(context: Context) {
         // ── 设置值常量 ──
         const val SCHEDULE_SOURCE_JWXT = "jwxt"
         const val SCHEDULE_SOURCE_JWAPP = "jwapp"
-        const val SCHEDULE_SOURCE_BKKQ = "bkkq"
+        /** 值沿用旧版考勤（bkkq）时代的写法：已经写进用户设置，不能改。 */
+        const val SCHEDULE_SOURCE_ATTENDANCE = "bkkq"
         const val SCHEDULE_SOURCE_JS = "js"
         const val NAV_STYLE_FLOATING = "floating"
         const val NAV_STYLE_CLASSIC = "classic"

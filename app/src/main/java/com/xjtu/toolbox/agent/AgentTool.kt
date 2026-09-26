@@ -54,7 +54,7 @@ private const val APP_GUIDE = """App 功能与入口：
 - 日程（底栏）：课表与教材、考试安排、自建日程；可切学期、导出日历（ICS）。
 - 成绩查询：各学期成绩、GPA、成绩报表。电子成绩单另有一页：一键向学校申请并下载 PDF。
 - 空闲教室：默认看此刻实时状态（空闲 / 其它使用及人数 / 上课中，兴庆、雁塔、创新港）；右上角可切到 CDN 课表或直查教务，按今天、明天逐节查，可筛「现在空闲」「刚解放」「大教室」。
-- 新版考勤：考勤流水、打卡流水、统计，以及请假的提交、撤回和销假；另有快速考勤流水（人脸 / 班牌打卡）。
+- 考勤：考勤流水、打卡流水、统计，以及请假的提交、撤回和销假；另有快速考勤流水（人脸 / 班牌打卡）。
 - 校园卡：余额、流水、消费分析；付款码单独一页。
 - 加餐券：领取和使用。
 - 图书馆：座位查询、预约等。
@@ -1349,10 +1349,10 @@ class AgentToolRegistry(
     }
 
     private suspend fun getAttendance(limit: Int): String {
-        val site = ensureSite(LoginType.NEW_ATTENDANCE)
-            ?: return loginHint(LoginType.NEW_ATTENDANCE)
+        val site = ensureSite(LoginType.ATTENDANCE)
+            ?: return loginHint(LoginType.ATTENDANCE)
         return try {
-            val api = com.xjtu.toolbox.attendance.attendanceProvider(site)
+            val api = com.xjtu.toolbox.attendance.AttendanceApi(site)
             val termBh = runCatching { api.getTermBh() }.getOrNull()
             val termStartDate = termBh?.let {
                 runCatching { api.getTermList().firstOrNull { t -> t.bh == it }?.startDate }.getOrNull()

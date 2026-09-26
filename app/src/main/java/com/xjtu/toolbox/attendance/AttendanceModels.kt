@@ -2,10 +2,6 @@ package com.xjtu.toolbox.attendance
 
 /**
  * 考勤状态
- *
- * 这几个数据类原来跟旧版考勤（bkkq/yjskq，域名已停用）的网络调用代码挤在同一个文件里；
- * 新版考勤（newattendance 包，kq.xjtu.edu.cn）复用的正是这几个类型，所以旧版下线时
- * 把它们单独挪出来，新旧版都不用改一行引用（包名没变，只是搬了文件）。
  */
 enum class WaterType(val value: Int) {
     NORMAL(1),     // 正常

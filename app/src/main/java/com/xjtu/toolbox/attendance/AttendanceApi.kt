@@ -1,7 +1,6 @@
-package com.xjtu.toolbox.newattendance
+package com.xjtu.toolbox.attendance
 
 import com.google.gson.JsonObject
-import com.xjtu.toolbox.attendance.AttendanceProvider
 import com.xjtu.toolbox.attendance.AttendanceStream
 import com.xjtu.toolbox.attendance.AttendanceWaterRecord
 import com.xjtu.toolbox.attendance.CourseAttendanceStat
@@ -19,7 +18,10 @@ import java.time.LocalTime
 import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
 
-class NewAttendanceApi(private val site: SiteSession) : AttendanceProvider {
+/**
+ * 考勤（kq.xjtu.edu.cn）接口。site 应当是 `ensureSite(LoginType.ATTENDANCE)` 拿到的会话。
+ */
+class AttendanceApi(private val site: SiteSession) {
 
     private val jsonType = "application/json".toMediaType()
     @Volatile private var cachedTerms: List<TermInfo> = emptyList()
@@ -42,7 +44,7 @@ class NewAttendanceApi(private val site: SiteSession) : AttendanceProvider {
         )
     }
 
-    override fun getTermList(): List<TermInfo> {
+    fun getTermList(): List<TermInfo> {
         val root = getJson("/student/service/timetable/semesters")
         val rows = KqHttp.rows(root.get("data")).ifEmpty { KqHttp.rows(root) }
         val terms = rows.mapNotNull { row ->
@@ -75,7 +77,7 @@ class NewAttendanceApi(private val site: SiteSession) : AttendanceProvider {
      * 标志位，也不用为此多打一次请求。日期兜底只在列表异常（比如年初还没排出新学期）
      * 时才用得上。
      */
-    override fun getTermBh(): String {
+    fun getTermBh(): String {
         val terms = cachedTerms.ifEmpty { getTermList() }
         if (terms.isEmpty()) return ""
         val first = terms.first()
@@ -89,7 +91,7 @@ class NewAttendanceApi(private val site: SiteSession) : AttendanceProvider {
             ?: first.bh
     }
 
-    override fun getWaterRecords(termBh: String?, startDate: String, endDate: String): List<AttendanceWaterRecord> {
+    fun getWaterRecords(termBh: String? = null, startDate: String = "", endDate: String = ""): List<AttendanceWaterRecord> {
         val terms = cachedTerms.ifEmpty { runCatching { getTermList() }.getOrDefault(emptyList()) }
         val bh = termBh ?: getTermBh()
         val term = terms.firstOrNull { it.bh == bh }
@@ -124,7 +126,7 @@ class NewAttendanceApi(private val site: SiteSession) : AttendanceProvider {
         }.sortedWith(compareByDescending<AttendanceWaterRecord> { it.date }.thenByDescending { it.startTime })
     }
 
-    override fun getKqtjCurrentWeek(): List<CourseAttendanceStat> {
+    fun getKqtjCurrentWeek(): List<CourseAttendanceStat> {
         return try {
             val root = getJson("/student/pc/home/attendance-statistics")
             parseCourseStats(root.get("data")).ifEmpty { parseCourseStats(root) }
@@ -140,7 +142,7 @@ class NewAttendanceApi(private val site: SiteSession) : AttendanceProvider {
         }
     }
 
-    override fun getKqtjByTime(startDate: String, endDate: String): List<CourseAttendanceStat> {
+    fun getKqtjByTime(startDate: String, endDate: String): List<CourseAttendanceStat> {
         val bh = getTermBh()
         val rows = try {
             fetchAttendanceRecords(bh, normalizeDate(startDate), normalizeDate(endDate))

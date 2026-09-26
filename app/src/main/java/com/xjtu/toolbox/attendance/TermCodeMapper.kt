@@ -1,11 +1,11 @@
-package com.xjtu.toolbox.newattendance
+package com.xjtu.toolbox.attendance
 
 /**
- * 把新版考勤 (academicYear, semesterName) 拼成 jwxt 课表风格的学期码，如
+ * 把考勤 (academicYear, semesterName) 拼成 jwxt 课表风格的学期码，如
  * "2026-2027-1"。[com.xjtu.toolbox.schedule.CourseLinks] 靠这个码对齐教务课表的
  * termCode——以前直接用人类可读名"2026-2027 第一学期"，跟课表那边的
  * "2026-2027-1"怎么比都对不上，考勤记录整学期全部被过滤掉。单独抽出来是为了能
- * 脱离 [NewAttendanceApi]（需要 SiteSession）单独做 JVM 单测。
+ * 脱离 [AttendanceApi]（需要 SiteSession）单独做 JVM 单测。
  */
 object TermCodeMapper {
     fun termCodeOf(year: String, semesterName: String): String {

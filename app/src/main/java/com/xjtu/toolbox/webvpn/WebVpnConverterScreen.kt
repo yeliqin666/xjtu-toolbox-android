@@ -243,7 +243,7 @@ fun WebVpnConverterScreen(
                         "教务系统" to "https://jwxt.xjtu.edu.cn/",
                         "图书馆主页" to "https://www.lib.xjtu.edu.cn/",
                         "一网通办" to "https://ywtb.xjtu.edu.cn/",
-                        "新版考勤" to "https://kq.xjtu.edu.cn/"
+                        "考勤" to "https://kq.xjtu.edu.cn/"
                     )
                     examples.forEach { (name, url) ->
                         Row(

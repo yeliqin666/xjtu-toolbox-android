@@ -1,4 +1,4 @@
-package com.xjtu.toolbox.newattendance
+package com.xjtu.toolbox.attendance
 
 import androidx.compose.ui.graphics.Color
 import com.xjtu.toolbox.ui.adaptive.readableWidth
@@ -98,7 +98,7 @@ import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 
-private data class NewAttendanceSnapshot(
+private data class AttendanceSnapshot(
     val studentName: String,
     val terms: List<TermInfo>,
     val termBh: String,
@@ -110,12 +110,12 @@ private data class NewAttendanceSnapshot(
 )
 
 @Composable
-fun NewAttendanceScreen(
+fun AttendanceScreen(
     site: SiteSession,
     onBack: () -> Unit,
     onOpenIclassface: () -> Unit,
 ) {
-    val api = remember(site) { NewAttendanceApi(site) }
+    val api = remember(site) { AttendanceApi(site) }
     val leaveApi = remember(site) { LeaveApi(site) }
     val appLoginState = LocalAppLoginState.current
     val scope = rememberCoroutineScope()
@@ -138,7 +138,7 @@ fun NewAttendanceScreen(
     var pendingAction by remember { mutableStateOf<Pair<LeaveAction, LeaveRecord>?>(null) }
     var loadJob by remember { mutableStateOf<Job?>(null) }
 
-    fun expired() = appLoginState.handleAuthExpired(LoginType.NEW_ATTENDANCE, Routes.NEW_ATTENDANCE, onBack)
+    fun expired() = appLoginState.handleAuthExpired(LoginType.ATTENDANCE, Routes.ATTENDANCE, onBack)
 
     fun load(fromPull: Boolean = false) {
         loadJob?.cancel()
@@ -165,7 +165,7 @@ fun NewAttendanceScreen(
                     } catch (_: Exception) {
                         emptyList()
                     }
-                    NewAttendanceSnapshot(
+                    AttendanceSnapshot(
                         studentName = name,
                         terms = terms,
                         termBh = bh,
@@ -204,8 +204,8 @@ fun NewAttendanceScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = "新版考勤",
-                largeTitle = "新版考勤",
+                title = "考勤",
+                largeTitle = "考勤",
                 color = glassBarColor(glass),
                 modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
@@ -750,7 +750,7 @@ private fun LeaveFormDialog(
     ) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
             Text(
-                "新版考勤系统不支持补假。请假开始时间须为当前之后的整点。",
+                "考勤系统不支持补假。请假开始时间须为当前之后的整点。",
                 style = MiuixTheme.textStyles.body2,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )

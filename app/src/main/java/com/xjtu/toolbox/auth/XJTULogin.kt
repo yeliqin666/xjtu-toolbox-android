@@ -1074,15 +1074,6 @@ open class XJTULogin(
             return hasLoginForm && hasLoginMarker
         }
 
-        // 常用登录地址
-        /** 本科生考勤系统 OAuth 登录（直连模式，经 org.xjtu.edu.cn 中转） */
-        const val ATTENDANCE_URL = "https://org.xjtu.edu.cn/openplatform/oauth/authorize?appId=1372&redirectUri=https://bkkq.xjtu.edu.cn/berserker-auth/auth/attendance-pc/casReturn&responseType=code&scope=user_info&state=1234"
-        /** 本科生考勤系统直连登录（WebVPN 模式，直接访问 bkkq，更短的 CAS 链） */
-        const val ATTENDANCE_WEBVPN_URL = "http://bkkq.xjtu.edu.cn"
-        /** 研究生考勤系统 OAuth 登录（appId=1245，redirect 到 yjskq；上游 4757a093 已切 https） */
-        const val POSTGRADUATE_ATTENDANCE_URL = "https://org.xjtu.edu.cn/openplatform/oauth/authorize?appId=1245&redirectUri=https://yjskq.xjtu.edu.cn/berserker-auth/auth/attendance-pc/casReturn&responseType=code&scope=user_info&state=1234"
-        /** 研究生考勤系统直连登录（WebVPN 模式） */
-        const val POSTGRADUATE_ATTENDANCE_WEBVPN_URL = "http://yjskq.xjtu.edu.cn"
         const val JWXT_URL = "https://jwxt.xjtu.edu.cn/jwapp/sys/homeapp/index.do"
     }
 }

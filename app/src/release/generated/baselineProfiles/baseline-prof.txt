@@ -14239,9 +14239,9 @@ HSPLcom/xjtu/toolbox/auth/LibrarySession;-><init>()V
 Lcom/xjtu/toolbox/auth/LmsSession;
 HSPLcom/xjtu/toolbox/auth/LmsSession;-><clinit>()V
 HSPLcom/xjtu/toolbox/auth/LmsSession;-><init>()V
-Lcom/xjtu/toolbox/auth/NewAttendanceSession;
-HSPLcom/xjtu/toolbox/auth/NewAttendanceSession;-><clinit>()V
-HSPLcom/xjtu/toolbox/auth/NewAttendanceSession;-><init>()V
+Lcom/xjtu/toolbox/auth/AttendanceSession;
+HSPLcom/xjtu/toolbox/auth/AttendanceSession;-><clinit>()V
+HSPLcom/xjtu/toolbox/auth/AttendanceSession;-><init>()V
 Lcom/xjtu/toolbox/auth/PasswordInvalidatedException;
 Lcom/xjtu/toolbox/auth/SessionBackend;
 HSPLcom/xjtu/toolbox/auth/SessionBackend;-><clinit>()V

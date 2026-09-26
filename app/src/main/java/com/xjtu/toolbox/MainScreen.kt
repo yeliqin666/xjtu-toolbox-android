@@ -227,7 +227,7 @@ internal fun MainScreen(
             val autoLoginTimeoutMs = when (type) {
                 LoginType.COUPON,
                 LoginType.FITNESS,
-                LoginType.NEW_ATTENDANCE -> 180_000L
+                LoginType.ATTENDANCE -> 180_000L
                 // 场馆/电子凭证等走「CAS OAuth → org 中转 → 业务站」多跳链路，
                 // 叠加 CasGate 限频与 WebVPN 改写后 25s 常不够用，超时即表现为"打不开"。
                 else -> 60_000L

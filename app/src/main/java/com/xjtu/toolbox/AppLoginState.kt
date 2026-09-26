@@ -374,7 +374,7 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
      * 单点探针只要那一台下线就全盘误判，所以并行探几台互不相干的内网服务：
      * - 图书馆座位系统 `rg.lib.xjtu.edu.cn:8086`：非标准端口不对公网开放，
      *   见 [com.xjtu.toolbox.auth.SiteSession.mustUseWebVpn]；
-     * - 快速考勤流水 iclassface、新版考勤 kq：两个都标了 mustUseWebVpn，校外连不上。
+     * - 快速考勤流水 iclassface、考勤 kq：两个都标了 mustUseWebVpn，校外连不上。
      */
     private suspend fun probeCampusOnce(): Boolean = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         kotlinx.coroutines.coroutineScope {
@@ -523,7 +523,7 @@ class AppLoginStateViewModel(application: android.app.Application) : androidx.li
             register(com.xjtu.toolbox.auth.CouponSession())
             register(com.xjtu.toolbox.auth.DzpzSession())
             register(com.xjtu.toolbox.auth.VenueSession())
-            register(com.xjtu.toolbox.auth.NewAttendanceSession())
+            register(com.xjtu.toolbox.auth.AttendanceSession())
             register(com.xjtu.toolbox.auth.CampusCardSession())
             register(com.xjtu.toolbox.auth.FitnessSession())
             register(com.xjtu.toolbox.auth.IclassfaceSession())

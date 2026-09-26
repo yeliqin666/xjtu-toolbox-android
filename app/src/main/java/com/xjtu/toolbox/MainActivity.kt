@@ -197,7 +197,7 @@ object Routes {
     const val MAIN = "main"
     const val EMPTY_ROOM = "empty_room"
     const val NOTIFICATION = "notification"
-    const val NEW_ATTENDANCE = "new_attendance"
+    const val ATTENDANCE = "new_attendance"
     const val SCHEDULE = "schedule"
     const val JUDGE = "judge"
     const val JWAPP_SCORE = "jwapp_score"
@@ -255,7 +255,7 @@ fun isPostgraduateSession(): Boolean =
 
 /** shortcut / 搜索 / 深链进功能页时，对应要先登录的站点。null = 无需登录可直达。 */
 fun loginTypeForRoute(route: String): LoginType? = when (route) {
-    Routes.NEW_ATTENDANCE -> LoginType.NEW_ATTENDANCE
+    Routes.ATTENDANCE -> LoginType.ATTENDANCE
     Routes.LIBRARY -> LoginType.LIBRARY
     Routes.CAMPUS_CARD, Routes.PAYMENT_CODE -> LoginType.CAMPUS_CARD
     Routes.JWAPP_SCORE -> LoginType.JWAPP
@@ -1037,9 +1037,9 @@ fun AppNavigation(
                 }
             )
         }
-        entry<AppRoute.NewAttendance>(transition = expand(AppRoute.NewAttendance::class)) {
+        entry<AppRoute.Attendance>(transition = expand(AppRoute.Attendance::class)) {
             loginState.sessionManager?.getSiteOrNull("new_attendance")?.let {
-                com.xjtu.toolbox.newattendance.NewAttendanceScreen(
+                com.xjtu.toolbox.attendance.AttendanceScreen(
                     site = it,
                     onBack = { navController.popBackStack() },
                     onOpenIclassface = {
@@ -1397,7 +1397,6 @@ private fun siteKeyForBrowserUrl(url: String): String {
         "jwapp.xjtu.edu.cn" in host -> "jwapp"
         "ywtb.xjtu.edu.cn" in host -> "ywtb"
         "ncard.xjtu.edu.cn" in host -> "campus_card"
-        "bkkq.xjtu.edu.cn" in host -> "attendance"
         "kq.xjtu.edu.cn" in host -> "new_attendance"
         "lms.xjtu.edu.cn" in host -> "lms"
         else -> "jwxt"

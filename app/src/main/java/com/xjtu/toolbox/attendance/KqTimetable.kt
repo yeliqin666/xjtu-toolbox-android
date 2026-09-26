@@ -1,7 +1,7 @@
-package com.xjtu.toolbox.newattendance
+package com.xjtu.toolbox.attendance
 
 /**
- * 新版考勤 `/student/service/timetable/weekly` 返回的一行原始课表数据。
+ * 考勤 `/student/service/timetable/weekly` 返回的一行原始课表数据。
  * 同一门课跨越不同周段时会拆成多行，`weekRanges` 只覆盖这一行自己的周次。
  */
 data class KqTimetableRow(

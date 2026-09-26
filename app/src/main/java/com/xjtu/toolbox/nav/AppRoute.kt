@@ -27,7 +27,7 @@ sealed interface AppRoute : NavKey {
     @Serializable data object Main : AppRoute { override val id get() = Routes.MAIN }
     @Serializable data object EmptyRoom : AppRoute { override val id get() = Routes.EMPTY_ROOM }
     @Serializable data object Notification : AppRoute { override val id get() = Routes.NOTIFICATION }
-    @Serializable data object NewAttendance : AppRoute { override val id get() = Routes.NEW_ATTENDANCE }
+    @Serializable data object Attendance : AppRoute { override val id get() = Routes.ATTENDANCE }
 
     /** 日程是底栏 tab，这一条只是给旧入口兜底：进来就立刻切到日程 tab。 */
     @Serializable data object Schedule : AppRoute { override val id get() = Routes.SCHEDULE }
@@ -75,7 +75,7 @@ sealed interface AppRoute : NavKey {
 
 /** 不带参数的路由：字符串和对象一一对应。 */
 private val simpleRoutes: Map<String, AppRoute> = listOf(
-    AppRoute.Main, AppRoute.EmptyRoom, AppRoute.Notification, AppRoute.NewAttendance,
+    AppRoute.Main, AppRoute.EmptyRoom, AppRoute.Notification, AppRoute.Attendance,
     AppRoute.Schedule, AppRoute.Judge, AppRoute.JwappScore, AppRoute.Library,
     AppRoute.CampusCard, AppRoute.Coupon, AppRoute.ScoreReport, AppRoute.Transcript,
     AppRoute.Venue, AppRoute.DownloadManager, AppRoute.Jiaocai, AppRoute.Jiaocai1,

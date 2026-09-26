@@ -154,8 +154,8 @@ object HomeStatsRefresher {
             withContext(Dispatchers.IO) { couponStatus(ctx, site) }
         },
 
-        // 考勤：两天一次。新版考勤本研统一，不再像旧版那样只覆盖本科生。
-        Source(Routes.NEW_ATTENDANCE, 2 * DAY, LoginType.NEW_ATTENDANCE) { ctx, site ->
+        // 考勤：两天一次。本研统一。
+        Source(Routes.ATTENDANCE, 2 * DAY, LoginType.ATTENDANCE) { ctx, site ->
             site ?: return@Source null
             withContext(Dispatchers.IO) { attendanceWeeklyRate(ctx, site) }
         },
@@ -532,7 +532,7 @@ object HomeStatsRefresher {
 
     private fun attendanceWeeklyRate(ctx: android.content.Context, site: SiteSession): HomeStat? {
         val stats = runCatching {
-            com.xjtu.toolbox.attendance.attendanceProvider(site).getKqtjCurrentWeek()
+            com.xjtu.toolbox.attendance.AttendanceApi(site).getKqtjCurrentWeek()
         }.getOrNull().orEmpty()
         Log.d(TAG, "attendance: 本周统计 ${stats.size} 门课")
         if (stats.isEmpty()) return null

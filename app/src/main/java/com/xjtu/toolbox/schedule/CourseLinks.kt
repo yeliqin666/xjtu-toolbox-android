@@ -224,10 +224,10 @@ object CourseLinks {
         shard: AttendanceRecordStore.Shard?,
         plan: AttendanceRecordStore.Plan,
     ): AttendanceIndex? {
-        val site = manager.siteOrNull(LoginType.NEW_ATTENDANCE, userInitiated) ?: return null
+        val site = manager.siteOrNull(LoginType.ATTENDANCE, userInitiated) ?: return null
         return withContext(Dispatchers.IO) {
             val index = runCatching {
-                val api = com.xjtu.toolbox.attendance.attendanceProvider(site)
+                val api = com.xjtu.toolbox.attendance.AttendanceApi(site)
                 // 必须显式指定学期，不能用 getWaterRecords() 的默认值。
                 // 默认走 getNearTerm，暑假期间它返回的是还没有任何流水的新学期，
                 // 结果就是稳定拉到 0 条——这正是"考勤那一行始终不显示"的原因。

@@ -656,7 +656,7 @@ internal fun HomeTab(
         Routes.EMPTY_ROOM to Icons.Default.MeetingRoom,
         Routes.LMS to Icons.Default.School,
         Routes.SCHOOL_COURSE to Icons.Default.TravelExplore,
-        Routes.NEW_ATTENDANCE to Icons.Default.AssignmentTurnedIn,
+        Routes.ATTENDANCE to Icons.Default.AssignmentTurnedIn,
         Routes.ICLASSFACE to Icons.Default.Face,
         Routes.JWAPP_SCORE to Icons.Default.Assessment,
         Routes.JUDGE to Icons.Default.RateReview,
@@ -875,8 +875,8 @@ internal fun HomeTab(
                 val statOf: (String) -> Pair<String, String?>? = { key ->
                     when (key) {
                         Routes.CAMPUS_CARD, Routes.SCHOOL_CALENDAR -> null
-                        // 快速考勤流水不再单列在首页，今天刷过卡就借新版考勤这一格露出来
-                        Routes.NEW_ATTENDANCE -> homeStats[Routes.NEW_ATTENDANCE]?.let { att ->
+                        // 快速考勤流水不再单列在首页，今天刷过卡就借考勤这一格露出来
+                        Routes.ATTENDANCE -> homeStats[Routes.ATTENDANCE]?.let { att ->
                             val punch = homeStats[Routes.ICLASSFACE]
                             val detail = if (punch != null && punch.value != "今日未刷卡") {
                                 "今日已刷 ${punch.value}" + (punch.detail?.takeIf { it.isNotBlank() }?.let { " · $it" } ?: "")

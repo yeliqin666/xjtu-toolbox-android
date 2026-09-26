@@ -161,32 +161,32 @@ class IclassfaceSession : CasSiteSession("iclassface", "快速考勤流水", mus
         com.xjtu.toolbox.iclassface.IclassfaceLogin(session = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
 }
 
-// ── NEW ATTENDANCE 新版考勤 kq.xjtu.edu.cn ──────────────────────────────
+// ── ATTENDANCE 考勤 kq.xjtu.edu.cn ──────────────────────────────
 
 // mustUseWebVpn=true：考勤这几个域名只在校内网络可达，校外直连连不上（443 端口
 // 连超时都不给，卡满 12 秒）。写成 false 会被 SessionManager 永久锁死在直连，
 // 校外必然打不开——旧考勤一直是走网关的，这里跟齐。
-class NewAttendanceSession : CasSiteSession("new_attendance", "新版考勤", mustUseWebVpn = true) {
+class AttendanceSession : CasSiteSession("new_attendance", "考勤", mustUseWebVpn = true) {
 
     /** 当前账号所属的考勤站点根地址（本科 bk-kq / 研究生 yjs-kq），登录成功时写入。原始域名，不含网关。 */
     fun baseUrl(): String =
-        localToken[BASE_URL_KEY] ?: com.xjtu.toolbox.newattendance.NewAttendanceLogin.BASE_URL
+        localToken[BASE_URL_KEY] ?: com.xjtu.toolbox.attendance.AttendanceLogin.BASE_URL
 
     override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
-        com.xjtu.toolbox.newattendance.NewAttendanceLogin(
+        com.xjtu.toolbox.attendance.AttendanceLogin(
             session = client,
             visitorId = visitorId,
             cachedRsaKey = cachedRsaKey,
             useWebVpn = currentAccessMode == AccessMode.WEBVPN,
             // 账号类型来自一网通办身份判断（见 AccountType.fromIdentityName），跟
             // ScheduleSourceRouter 挑 kq 部署用的是同一个信号。已知的话直接登对应
-            // 业务站，省掉门户那三次往返；NewAttendanceLogin.postLogin 里若直连失败
+            // 业务站，省掉门户那三次往返；AttendanceLogin.postLogin 里若直连失败
             // 会自动退回门户流程，不会因为猜错身份就登不上。
             knownAccountType = accountType,
         )
 
     override fun onLoginSuccess(login: XJTULogin) {
-        val kq = login as? com.xjtu.toolbox.newattendance.NewAttendanceLogin
+        val kq = login as? com.xjtu.toolbox.attendance.AttendanceLogin
         val token = kq?.authToken
         if (!token.isNullOrBlank()) localToken["business_token"] = token
         // 本科与研究生是两套部署（bk-kq / kq），业务请求必须打到签发令牌的那一套。
@@ -194,11 +194,11 @@ class NewAttendanceSession : CasSiteSession("new_attendance", "新版考勤", mu
     }
 
     override fun decorateRequest(builder: Request.Builder): Request.Builder {
-        localToken["business_token"]?.let { builder.header(com.xjtu.toolbox.newattendance.NewAttendanceLogin.TOKEN_HEADER, it) }
+        localToken["business_token"]?.let { builder.header(com.xjtu.toolbox.attendance.AttendanceLogin.TOKEN_HEADER, it) }
         // 网页端每个业务请求都带这一条，跟着带上，免得日后服务端开始校验。
         builder.header(
-            com.xjtu.toolbox.newattendance.NewAttendanceLogin.SYSTEM_HEADER,
-            com.xjtu.toolbox.newattendance.NewAttendanceLogin.SYSTEM_VALUE,
+            com.xjtu.toolbox.attendance.AttendanceLogin.SYSTEM_HEADER,
+            com.xjtu.toolbox.attendance.AttendanceLogin.SYSTEM_VALUE,
         )
         return builder
     }
@@ -219,11 +219,11 @@ class NewAttendanceSession : CasSiteSession("new_attendance", "新版考勤", mu
         // 免得服务端哪天开始校验就把探活单独漏掉。
         val resp = client.newCall(
             Request.Builder()
-                .url(com.xjtu.toolbox.newattendance.KqHttp.buildUrl(this@NewAttendanceSession, "/student/home"))
-                .header(com.xjtu.toolbox.newattendance.NewAttendanceLogin.TOKEN_HEADER, token)
+                .url(com.xjtu.toolbox.attendance.KqHttp.buildUrl(this@AttendanceSession, "/student/home"))
+                .header(com.xjtu.toolbox.attendance.AttendanceLogin.TOKEN_HEADER, token)
                 .header(
-                    com.xjtu.toolbox.newattendance.NewAttendanceLogin.SYSTEM_HEADER,
-                    com.xjtu.toolbox.newattendance.NewAttendanceLogin.SYSTEM_VALUE,
+                    com.xjtu.toolbox.attendance.AttendanceLogin.SYSTEM_HEADER,
+                    com.xjtu.toolbox.attendance.AttendanceLogin.SYSTEM_VALUE,
                 )
                 .get()
                 .build()
@@ -239,7 +239,7 @@ class NewAttendanceSession : CasSiteSession("new_attendance", "新版考勤", mu
     }
 }
 
-/** [NewAttendanceSession.localToken] 里存考勤站点根地址的键。 */
+/** [AttendanceSession.localToken] 里存考勤站点根地址的键。 */
 const val BASE_URL_KEY = "kq_base_url"
 
 // ── HELLO 迎新/个人信息 ────────────────────────────────────────────────

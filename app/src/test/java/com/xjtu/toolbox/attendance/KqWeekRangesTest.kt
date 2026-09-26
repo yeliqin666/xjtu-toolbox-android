@@ -1,4 +1,4 @@
-package com.xjtu.toolbox.newattendance
+package com.xjtu.toolbox.attendance
 
 import org.junit.Assert.assertEquals
 import org.junit.Test

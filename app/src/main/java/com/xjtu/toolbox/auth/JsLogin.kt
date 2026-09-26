@@ -25,7 +25,7 @@ import java.io.IOException
  *
  * 结果不能放在带初始化器的字段里：[XJTULogin] 走 SSO 时在父类构造期间就调 [postLogin]，
  * 子类字段初始化器随后才跑，会把刚拿到的令牌冲掉（考勤那边为此用了 WeakHashMap，
- * 见 NewAttendanceLogin）。这里用 lateinit：它不生成构造期赋值，postLogin 写进去的值留得住。
+ * 见 AttendanceLogin）。这里用 lateinit：它不生成构造期赋值，postLogin 写进去的值留得住。
  */
 class JsLogin(
     session: OkHttpClient? = null,

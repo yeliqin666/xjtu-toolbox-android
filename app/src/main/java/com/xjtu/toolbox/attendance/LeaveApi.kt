@@ -1,4 +1,4 @@
-package com.xjtu.toolbox.newattendance
+package com.xjtu.toolbox.attendance
 
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject

@@ -1,4 +1,4 @@
-package com.xjtu.toolbox.newattendance
+package com.xjtu.toolbox.attendance
 
 import com.xjtu.toolbox.util.redactUrl
 import android.util.Log
@@ -18,13 +18,13 @@ import java.util.Collections
 import java.util.WeakHashMap
 
 /**
- * 新版考勤（kq.xjtu.edu.cn/sa）登录。
+ * 考勤（kq.xjtu.edu.cn/sa）登录。
  *
  * 入口走 CAS，回调带 `loginRequestId` + `ticket`，再 POST `/sa/auth/cas/exchange`
  * 换成业务令牌。令牌不能放在带初始化器的子类字段里：[XJTULogin] 构造期间就会调
  * [postLogin]，子类属性初始化器随后会把值冲掉。
  */
-class NewAttendanceLogin(
+class AttendanceLogin(
     session: OkHttpClient? = null,
     visitorId: String? = null,
     cachedRsaKey: String? = null,
@@ -32,7 +32,7 @@ class NewAttendanceLogin(
      * 走 WebVPN 网关而非直连。
      *
      * 考勤这几个域名只在校内网络可达（校外直连 443 端口连超时都不给，直接 12 秒卡死）。
-     * 以前 [com.xjtu.toolbox.auth.NewAttendanceSession] 写的是 `mustUseWebVpn = false`，
+     * 以前 [com.xjtu.toolbox.auth.AttendanceSession] 写的是 `mustUseWebVpn = false`，
      * 被永久锁在直连，于是校外「死活打不开」。旧考勤一直是走网关的。
      */
     private val useWebVpn: Boolean = false,
@@ -237,7 +237,7 @@ class NewAttendanceLogin(
             return
         }
         // 门户不签业务令牌，只告诉你「还得选一个系统」。以前这里当成失败直接抛
-        // 「交换登录票据未返回业务令牌」，表现就是新版考勤怎么都打不开。
+        // 「交换登录票据未返回业务令牌」，表现就是考勤怎么都打不开。
         if (data.get("systemSelectionRequired")?.takeIf { !it.isJsonNull }?.asBoolean == true) {
             selectBusinessSystem(data, hops)
             return
@@ -444,9 +444,9 @@ class NewAttendanceLogin(
     }
 
     companion object {
-        private const val TAG = "NewAttendanceLogin"
-        private val tokens = Collections.synchronizedMap(WeakHashMap<NewAttendanceLogin, String>())
-        private val bases = Collections.synchronizedMap(WeakHashMap<NewAttendanceLogin, String>())
+        private const val TAG = "AttendanceLogin"
+        private val tokens = Collections.synchronizedMap(WeakHashMap<AttendanceLogin, String>())
+        private val bases = Collections.synchronizedMap(WeakHashMap<AttendanceLogin, String>())
         /** 门户，只负责认人和分流，不签业务令牌。 */
         const val HOST = "kq.xjtu.edu.cn"
         const val BASE_URL = "https://kq.xjtu.edu.cn/sa"
