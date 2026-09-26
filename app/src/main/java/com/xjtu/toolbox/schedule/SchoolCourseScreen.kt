@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.schedule
 
-import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -23,7 +22,6 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import com.xjtu.toolbox.auth.LocalAppLoginState
-import com.xjtu.toolbox.auth.AuthExpiredException
 import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,10 +38,6 @@ import com.xjtu.toolbox.ui.glass.*
 import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
@@ -51,6 +45,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.SinkFeedback
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import com.xjtu.toolbox.nav.AppRoute
+import androidx.lifecycle.viewmodel.compose.viewModel
 
 private const val TAG = "SchoolCourseScreen"
 
@@ -68,17 +63,8 @@ fun SchoolCourseScreen(
         return
     }
 
-    val scope = rememberCoroutineScope()
-    val api = remember(site) { SchoolCourseApi(site) }
-
-    // ── 状态 ──
-    var isInitializing by remember { mutableStateOf(true) }
-    var initError by remember { mutableStateOf<String?>(null) }
-
-    // 下拉选项
-    var termList by remember { mutableStateOf<List<TermOption>>(emptyList()) }
-    var departmentList by remember { mutableStateOf<List<DepartmentOption>>(emptyList()) }
-    var currentTermCode by remember { mutableStateOf("") }
+    val vm: SchoolCourseViewModel = viewModel(key = "school-course-${System.identityHashCode(site)}") { SchoolCourseViewModel(site) }
+    LaunchedEffect(vm) { vm.authExpired.collect { appLoginState.handleAuthExpired(AppRoute.SchoolCourse, onBack) } }
 
     // 搜索条件
     var selectedTermCode by rememberSaveable { mutableStateOf("") }
@@ -93,85 +79,31 @@ fun SchoolCourseScreen(
     var selectedEndSection by rememberSaveable { mutableIntStateOf(0) }
     var isPublicElectiveFilter by rememberSaveable { mutableStateOf<Boolean?>(null) }
     var selectedElectiveCat by rememberSaveable { mutableStateOf("") }
+    // 学期默认选当前学期
+    LaunchedEffect(vm.currentTermCode) {
+        if (selectedTermCode.isBlank() && vm.currentTermCode.isNotBlank()) selectedTermCode = vm.currentTermCode
+    }
 
-    // 搜索结果
-    var result by remember { mutableStateOf<SchoolCourseResult?>(null) }
-    var isSearching by remember { mutableStateOf(false) }
-    var searchError by remember { mutableStateOf<String?>(null) }
-    var currentPage by rememberSaveable { mutableIntStateOf(1) }
-
-    // 高级筛选展开
     var showAdvancedFilter by rememberSaveable { mutableStateOf(false) }
-
-    // 课程详情
     var detailCourse by remember { mutableStateOf<SchoolCourse?>(null) }
-
-    // Snackbar
     val snackbarState = remember { SnackbarHostState() }
 
-    // ── 初始化加载 ──
-    LaunchedEffect(Unit) {
-        isInitializing = true
-        try {
-            withContext(Dispatchers.IO) {
-                val termsFuture = async(Dispatchers.IO) { api.getTermList() }
-                val deptFuture = async(Dispatchers.IO) { api.getDepartments() }
-                val currentFuture = async(Dispatchers.IO) { api.getCurrentTerm() }
-                termList = termsFuture.await()
-                departmentList = deptFuture.await()
-                currentTermCode = currentFuture.await()
-            }
-            if (selectedTermCode.isBlank() && currentTermCode.isNotBlank()) {
-                selectedTermCode = currentTermCode
-            }
-            initError = null
-        } catch (e: AuthExpiredException) {
-            appLoginState.handleAuthExpired(AppRoute.SchoolCourse, onBack)
-        } catch (e: Exception) {
-            Log.e(TAG, "init failed", e)
-            initError = "初始化失败: ${e.message}"
-        } finally {
-            isInitializing = false
-        }
-    }
-
-    // ── 搜索函数 ──
-    fun doSearch(page: Int = 1) {
-        if (selectedTermCode.isBlank()) return
-        isSearching = true
-        searchError = null
-        currentPage = page
-        scope.launch {
-            try {
-                val r = withContext(Dispatchers.IO) {
-                    api.queryCourses(
-                        termCode = selectedTermCode,
-                        courseName = searchCourseName.ifBlank { null },
-                        courseCode = searchCourseCode.ifBlank { null },
-                        teacher = searchTeacher.ifBlank { null },
-                        departmentCode = selectedDeptCode.ifBlank { null },
-                        className = searchClassName.ifBlank { null },
-                        campusCode = selectedCampusCode.ifBlank { null },
-                        isPublicElective = isPublicElectiveFilter,
-                        electiveCategoryCode = selectedElectiveCat.ifBlank { null },
-                        weekday = if (selectedWeekday > 0) selectedWeekday else null,
-                        startSection = if (selectedStartSection > 0) selectedStartSection else null,
-                        endSection = if (selectedEndSection > 0) selectedEndSection else null,
-                        pageSize = 20,
-                        pageNumber = page
-                    )
-                }
-                result = r
-            } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(AppRoute.SchoolCourse, onBack)
-            } catch (e: Exception) {
-                Log.e(TAG, "search failed", e)
-                searchError = "查询失败: ${e.message}"
-            } finally {
-                isSearching = false
-            }
-        }
-    }
+    fun doSearch() = vm.search(
+        SchoolCourseQuery(
+            termCode = selectedTermCode,
+            courseName = searchCourseName,
+            courseCode = searchCourseCode,
+            teacher = searchTeacher,
+            departmentCode = selectedDeptCode,
+            className = searchClassName,
+            campusCode = selectedCampusCode,
+            isPublicElective = isPublicElectiveFilter,
+            electiveCategoryCode = selectedElectiveCat,
+            weekday = selectedWeekday,
+            startSection = selectedStartSection,
+            endSection = selectedEndSection,
+        )
+    )
 
     // Scaffold 布局
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
@@ -195,31 +127,13 @@ fun SchoolCourseScreen(
         snackbarHost = { SnackbarHost(snackbarState) }
     ) { padding ->
         val glassTop = padding.glassTop(glass)
-        if (isInitializing) {
+        if (vm.isInitializing) {
             LoadingState("正在加载课程查询...", Modifier.padding(padding.withoutTop(glass)).glassSource(glass))
             return@Scaffold
         }
 
-        if (initError != null) {
-            ErrorState(initError!!, onRetry = {
-                initError = null
-                isInitializing = true
-                scope.launch {
-                    try {
-                        withContext(Dispatchers.IO) {
-                            termList = api.getTermList()
-                            departmentList = api.getDepartments()
-                            currentTermCode = api.getCurrentTerm()
-                        }
-                        if (selectedTermCode.isBlank()) selectedTermCode = currentTermCode
-                        initError = null
-                    } catch (e: Exception) {
-                        initError = "初始化失败: ${e.message}"
-                    } finally {
-                        isInitializing = false
-                    }
-                }
-            }, modifier = Modifier.padding(padding.withoutTop(glass)).glassSource(glass))
+        if (vm.initError != null) {
+            ErrorState(vm.initError.orEmpty(), onRetry = vm::loadOptions, modifier = Modifier.padding(padding.withoutTop(glass)).glassSource(glass))
             return@Scaffold
         }
 
@@ -239,8 +153,8 @@ fun SchoolCourseScreen(
         ) {
             // ── 学期选择 ──
             fullLineItem(key = "term_selector") {
-                val termEntries = termList.map { DropdownItem(title = it.name) }
-                val selectedIdx = termList.indexOfFirst { it.code == selectedTermCode }.coerceAtLeast(0)
+                val termEntries = vm.termList.map { DropdownItem(title = it.name) }
+                val selectedIdx = vm.termList.indexOfFirst { it.code == selectedTermCode }.coerceAtLeast(0)
 
                 Card(Modifier.readableWidth().fillMaxWidth(), cornerRadius = 16.dp) {
                     if (termEntries.isNotEmpty()) {
@@ -249,7 +163,7 @@ fun SchoolCourseScreen(
                             selectedIndex = selectedIdx,
                             title = "学期",
                             onSelectedIndexChange = { idx ->
-                                selectedTermCode = termList.getOrNull(idx)?.code ?: ""
+                                selectedTermCode = vm.termList.getOrNull(idx)?.code ?: ""
                             },
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -344,17 +258,17 @@ fun SchoolCourseScreen(
                                 // 开课单位
                                 val deptEntries = buildList {
                                     add(DropdownItem(title = "不限"))
-                                    departmentList.forEach { add(DropdownItem(title = it.name)) }
+                                    vm.departmentList.forEach { add(DropdownItem(title = it.name)) }
                                 }
                                 val deptIdx = if (selectedDeptCode.isBlank()) 0
-                                    else (departmentList.indexOfFirst { it.code == selectedDeptCode } + 1).coerceAtLeast(0)
+                                    else (vm.departmentList.indexOfFirst { it.code == selectedDeptCode } + 1).coerceAtLeast(0)
                                 Card(Modifier.fillMaxWidth(), cornerRadius = 12.dp) {
                                     OverlaySpinnerPreference(
                                         items = deptEntries,
                                         selectedIndex = deptIdx,
                                         title = "开课单位",
                                         onSelectedIndexChange = { idx ->
-                                            selectedDeptCode = if (idx == 0) "" else departmentList.getOrNull(idx - 1)?.code ?: ""
+                                            selectedDeptCode = if (idx == 0) "" else vm.departmentList.getOrNull(idx - 1)?.code ?: ""
                                         },
                                         modifier = Modifier.fillMaxWidth()
                                     )
@@ -365,7 +279,7 @@ fun SchoolCourseScreen(
                                 // 校区筛选
                                 Text("校区", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium)
                                 Spacer(Modifier.height(6.dp))
-                                val campusList = api.getCampusList()
+                                val campusList = vm.campusList
                                 FlowRow(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -477,7 +391,7 @@ fun SchoolCourseScreen(
                                         Spacer(Modifier.height(8.dp))
                                         Text("公选课类别", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium)
                                         Spacer(Modifier.height(6.dp))
-                                        val categories = api.getElectiveCategories()
+                                        val categories = vm.electiveCategories
                                         FlowRow(
                                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                                             verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -504,22 +418,22 @@ fun SchoolCourseScreen(
 
                         // 搜索按钮
                         Button(
-                            onClick = { doSearch(1) },
+                            onClick = { doSearch() },
                             modifier = Modifier.fillMaxWidth(),
-                            enabled = !isSearching && selectedTermCode.isNotBlank()
+                            enabled = !vm.isSearching && selectedTermCode.isNotBlank()
                         ) {
-                            if (isSearching) {
+                            if (vm.isSearching) {
                                 CircularProgressIndicator(modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(8.dp))
                             }
-                            Text(if (isSearching) "搜索中..." else "搜索")
+                            Text(if (vm.isSearching) "搜索中..." else "搜索")
                         }
                     }
                 }
             }
 
             // ── 搜索结果统计 ──
-            result?.let { r ->
+            vm.result?.let { r ->
                 fullLineItem(key = "result_stats") {
                     Card(Modifier.fillMaxWidth(), cornerRadius = 16.dp) {
                         Row(
@@ -545,22 +459,22 @@ fun SchoolCourseScreen(
             }
 
             // ── 搜索错误 ──
-            if (searchError != null) {
+            if (vm.searchError != null) {
                 fullLineItem(key = "search_error") {
-                    ErrorState(searchError!!, onRetry = { doSearch(currentPage) })
+                    ErrorState(vm.searchError.orEmpty(), onRetry = { vm.goToPage(vm.currentPage) })
                 }
             }
 
             // ── 搜索中/空状态 ──
-            if (isSearching && result == null) {
+            if (vm.isSearching && vm.result == null) {
                 fullLineItem(key = "loading") {
                     LoadingState("正在查询...")
                 }
             }
 
             // ── 课程列表 ──
-            result?.let { r ->
-                if (r.courses.isEmpty() && !isSearching) {
+            vm.result?.let { r ->
+                if (r.courses.isEmpty() && !vm.isSearching) {
                     fullLineItem(key = "empty") {
                         Box(
                             Modifier
@@ -601,8 +515,8 @@ fun SchoolCourseScreen(
                         PaginationBar(
                             currentPage = r.pageNumber,
                             totalPages = r.totalPages,
-                            isSearching = isSearching,
-                            onPageChange = { doSearch(it) }
+                            isSearching = vm.isSearching,
+                            onPageChange = vm::goToPage
                         )
                     }
                 }
