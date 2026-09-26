@@ -1,17 +1,9 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
-
 # ── 调试信息 ──────────────────────────
 -keepattributes SourceFile,LineNumberTable
 -renamesourcefileattribute SourceFile
 
 # ── OkHttp ────────────────────────────
-# 不再整包 keep：okhttp 4.12.0 自带 META-INF/proguard/okhttp3.pro，PublicSuffixDatabase
-# 那条 keepnames 也是逐字重复。-dontwarn 留着（缺失的可选依赖类否则会让 R8 直接构建失败）。
+# OkHttp 自带 consumer 规则；-dontwarn 防止缺失的可选依赖让 R8 失败
 -dontwarn okhttp3.**
 -dontwarn okio.**
 
@@ -21,13 +13,10 @@
 -dontwarn org.brotli.**
 
 # ── Gson ──────────────────────────────
-# 不再整包 keep：gson 2.11.0 自带 META-INF/proguard/gson.pro，已覆盖 Signature/注解、
-# TypeAdapterFactory/JsonSerializer/JsonDeserializer 无参构造、@SerializedName 字段、
-# 以及反射用到的 TypeToken 匿名子类。app 这边原来的 `-keep class com.google.gson.**`
-# 反而会阻止 Gson 自身被裁剪。
+# Gson 自带 consumer 规则（Signature、@SerializedName、TypeToken 子类）
 
 # ── Jsoup ─────────────────────────────
-# 没有自带 proguard 规则，但代码里也没有对它按名反射，keep 可以去掉，dontwarn 留着。
+# 不按名反射，无需 keep
 -dontwarn org.jsoup.**
 
 # ── flexmark HTML→Markdown（web_fetch，对应 smolagents markdownify）──
@@ -42,8 +31,7 @@
 -dontwarn androidx.compose.**
 
 # ── Miuix UI Library ──────────────────
-# composite build 源码依赖，没有按类名反射（唯一用 KClass 当 map key 的 miuix-nav
-# 本项目未依赖），keep 去掉，dontwarn 留着。
+# 不按名反射，无需 keep
 -dontwarn top.yukonga.miuix.**
 
 # ── AndroidX Security (EncryptedSharedPreferences) ──
