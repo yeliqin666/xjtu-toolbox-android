@@ -148,6 +148,11 @@ android {
         compose = true
         buildConfig = true
     }
+    // App 只有中英文；依赖库带进来的其他几十种语言不打包
+    androidResources {
+        localeFilters += listOf("zh", "en")
+    }
+
     packaging {
         // minSdk≥28 时 AGP 默认把 dex 不压缩、按页对齐存进 APK，好让 ART 直接 mmap。
         // 本应用 dex 约 8.8MB，占 APK 八成，用户却是整包下载（Gitee/GitHub Release），
@@ -188,6 +193,8 @@ baselineProfile {
     // 所以用「生成的 profile 提交进仓库」的模式，靠手动跑 generateBaselineProfile 刷新。
     automaticGenerationDuringBuild = false
     saveInSrc = true
+    // 按 startup profile 把启动要用的类排进主 dex，冷启动少读页
+    dexLayoutOptimization = true
 }
 
 dependencies {
