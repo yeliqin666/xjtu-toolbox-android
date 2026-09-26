@@ -45,6 +45,8 @@ internal class GlassInteractiveHighlight(
 
     private var startPosition = Offset.Zero
 
+    val pressProgress: Float get() = pressProgressAnimation.value
+
     private val shader =
         if (isRuntimeShaderSupported()) {
             RuntimeShader(
