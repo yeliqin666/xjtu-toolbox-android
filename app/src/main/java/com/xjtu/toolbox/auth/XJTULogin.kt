@@ -148,7 +148,7 @@ class MFAContext(
         val request = Request.Builder().url(url).get().build()
 
         val response = login.client.newCall(request).execute()
-        val json = response.body?.string().safeParseJsonObject()
+        val json = response.body.string().safeParseJsonObject()
         if (json.get("code").intValue == 0) {
             val data = json.requireObj("data")
             gid = data.get("gid").stringValue
@@ -170,7 +170,7 @@ class MFAContext(
             .build()
 
         val response = login.client.newCall(request).execute()
-        val result = response.body?.string().safeParseJsonObject()
+        val result = response.body.string().safeParseJsonObject()
         if (result.get("code").intValue == 0) {
             return phone
         } else {
@@ -194,7 +194,7 @@ class MFAContext(
             .build()
 
         val response = login.client.newCall(request).execute()
-        val result = response.body?.string().safeParseJsonObject()
+        val result = response.body.string().safeParseJsonObject()
         if (result.get("code").intValue != 0) {
             throw RuntimeException(result.get("message").stringValue)
         }
@@ -339,7 +339,7 @@ open class XJTULogin(
             .build()
 
         val response = client.newCall(request).execute()
-        val responseBody = response.body?.string() ?: ""
+        val responseBody = response.body.string()
         postUrl = response.request.url.toString()
         serviceUrl = try {
             java.net.URLDecoder.decode(
@@ -490,7 +490,7 @@ open class XJTULogin(
         // 这里直接拿这份响应走成功/账户选择/错误处理流程，避免重复 POST 登录。
         lastSafetyVerifyResponse?.let { safetyResp ->
             lastSafetyVerifyResponse = null
-            val body = try { safetyResp.body?.string() ?: "" } catch (_: Exception) { "" }
+            val body = try { safetyResp.body.string() } catch (_: Exception) { "" }
             return processLoginResponse(safetyResp, body)
         }
 
@@ -512,7 +512,7 @@ open class XJTULogin(
 
             // mfa/detect 携带密码，同样计入风控闸门
             val response = CasGate.withCredentialPost { client.newCall(request).execute() }
-            val responseStr = response.body?.string() ?: "{}"
+            val responseStr = response.body.string()
             android.util.Log.d("XJTULogin", "login: MFA detect response code=${response.code}, body=$responseStr")
             val data = try {
                 responseStr.safeParseJsonObject()
@@ -562,7 +562,7 @@ open class XJTULogin(
         // 刚在本次 login() 内做过 mfa/detect 时，登录 POST 属于同一流程，免去重复间隔平滑。
         android.util.Log.d("XJTULogin", "login: POST to ${postUrl.redactUrl()}")
         val loginResponse = CasGate.withCredentialPost(sameFlow = detectedInThisFlow) { client.newCall(request).execute() }
-        val loginBody = loginResponse.body?.string() ?: ""
+        val loginBody = loginResponse.body.string()
         android.util.Log.d("XJTULogin", "login: POST response code=${loginResponse.code}, finalUrl=${loginResponse.request.url.redactUrl()}, bodyLen=${loginBody.length}")
 
         return processLoginResponse(loginResponse, loginBody)
@@ -689,7 +689,7 @@ open class XJTULogin(
             .build()
 
         val response = client.newCall(request).execute()
-        lastResponseBody = response.body?.string() ?: ""
+        lastResponseBody = response.body.string()
         chooseAccountBody = null
         hasLogin = true
         postLogin(response)
@@ -718,7 +718,7 @@ open class XJTULogin(
             java.net.URLEncoder.encode(serviceUrl, "UTF-8")
         }"
         val casResp = client.newCall(Request.Builder().url(casUrl).get().build()).execute()
-        val casBody = casResp.body?.string() ?: ""
+        val casBody = casResp.body.string()
         val casFinalUrl = casResp.request.url.toString()
         android.util.Log.d("XJTULogin", "casAuthenticate: GET ${casUrl.redactUrl()} → code=${casResp.code}, finalUrl=${casFinalUrl.redactUrl()}")
 
@@ -754,7 +754,7 @@ open class XJTULogin(
             android.util.Log.w("XJTULogin", "casAuthenticate: throttled by CasGate: ${e.message}")
             return null
         }
-        val loginBody = loginResp.body?.string() ?: ""
+        val loginBody = loginResp.body.string()
         val loginFinalUrl = loginResp.request.url.toString()
         android.util.Log.d("XJTULogin", "casAuthenticate: POST → code=${loginResp.code}, finalUrl=${loginFinalUrl.redactUrl()}")
         // 检测 MFA 页面：若返回含 secState 则说明 TGC 过期后重新登录触发了 MFA，
@@ -785,8 +785,7 @@ open class XJTULogin(
             .get()
             .build()
         val response = client.newCall(request).execute()
-        val body = response.body?.string()
-            ?: throw IOException("RSA 公钥接口返回空响应 (HTTP ${response.code})")
+        val body = response.body.string()
         // 检测 HTML 错误页面 / 非 PEM 响应
         if (body.contains("<html", ignoreCase = true) || body.contains("<HTML", ignoreCase = true)) {
             throw IOException("RSA 公钥接口返回 HTML 错误页面，可能是网络代理拦截")

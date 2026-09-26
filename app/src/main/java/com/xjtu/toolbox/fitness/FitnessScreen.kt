@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.fitness
 
+import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.FullPageState
 import com.xjtu.toolbox.ui.components.enterOnce
@@ -28,7 +29,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.DirectionsRun
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -332,7 +332,7 @@ private fun ScoreHero(score: FitnessScore) {
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    Icons.Default.DirectionsRun,
+                    Icons.AutoMirrored.Filled.DirectionsRun,
                     contentDescription = null,
                     tint = Color.White,
                     modifier = Modifier.size(26.dp)

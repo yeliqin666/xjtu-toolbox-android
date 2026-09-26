@@ -97,7 +97,7 @@ class CouponLogin(
         try {
             Log.d(COUPON_TAG, "reAuthenticate: start")
             val response = client.newCall(Request.Builder().url(buildCouponOAuthUrl()).get().build()).execute()
-            val body = response.body?.string().orEmpty()
+            val body = response.body.string()
             val params = extractCallbackParams(response.request.url.toString())
                 ?: extractCallbackParams(body)
                 ?: return false
@@ -129,7 +129,7 @@ class CouponLogin(
             .build()
 
         client.newCall(request).execute().use { response ->
-            val text = response.body?.string().orEmpty()
+            val text = response.body.string()
             Log.d(COUPON_TAG, "exchangeCodeForToken: response code=${response.code}, bodyLen=${text.length}")
             val headerToken = response.header("Authorization")?.normalizeToken()
             val bodyToken = extractToken(text)

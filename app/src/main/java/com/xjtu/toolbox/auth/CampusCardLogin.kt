@@ -74,7 +74,7 @@ class CampusCardLogin(
         Log.w(TAG, "postLogin: ticket missing in finalUrl, retry LOGIN_URL with TGC")
         try {
             val retryResp = client.newCall(Request.Builder().url(LOGIN_URL).get().build()).execute()
-            retryResp.body?.use { it.string() }
+            retryResp.body.use { it.string() }
             val retryUrl = retryResp.request.url.toString()
             Log.d(TAG, "postLogin: retry finalUrl=${retryUrl.redactUrl()}")
             if (tryExtractTicketAndGetToken(retryUrl)) return
@@ -122,7 +122,7 @@ class CampusCardLogin(
                     .post(body)
                     .build()
             ).execute()
-            val bodyStr = resp.body?.use { it.string() } ?: return false
+            val bodyStr = resp.body.use { it.string() }
             // 响应体里就是 access_token，只记状态码和长度
             Log.d(TAG, "exchangeTicketForToken: code=${resp.code}, bodyLen=${bodyStr.length}")
             val json = bodyStr.safeParseJsonObject()
@@ -138,7 +138,7 @@ class CampusCardLogin(
     private fun fetchUserInfo(): Boolean {
         return try {
             val resp = client.newCall(makeAuthRequest(USER_URL)).execute()
-            val bodyStr = resp.body?.use { it.string() } ?: return false
+            val bodyStr = resp.body.use { it.string() }
             if (!resp.isSuccessful) return false
             val json = bodyStr.safeParseJsonObject()
             if (CampusCardContract.businessCode(json) != null &&
@@ -167,7 +167,7 @@ class CampusCardLogin(
         systemReady = false
         return try {
             val resp = client.newCall(Request.Builder().url(LOGIN_URL).get().build()).execute()
-            resp.body?.use { it.string() }
+            resp.body.use { it.string() }
             val finalUrl = resp.request.url.toString()
             Log.d(TAG, "reAuthenticate: finalUrl=${finalUrl.redactUrl()}")
             tryExtractTicketAndGetToken(finalUrl)

@@ -230,7 +230,7 @@ class AttendanceSession : CasSiteSession("new_attendance", "考勤", mustUseWebV
         ).execute()
         try {
             if (resp.code != 200) return@withIo false
-            val body = resp.body?.string() ?: return@withIo false
+            val body = resp.body.string()
             if (XJTULogin.isAuthFailureResponse(body)) return@withIo false
             body.safeParseJsonObject().get("code")?.takeIf { !it.isNull }?.intValue == 0
         } finally {
@@ -294,7 +294,7 @@ class HelloSession : CasSiteSession("hello", "个人信息", mustUseWebVpn = tru
         ).execute()
         try {
             if (resp.code != 200) return@withIo false
-            val body = resp.body?.string() ?: return@withIo false
+            val body = resp.body.string()
             if (XJTULogin.isAuthFailureResponse(body)) return@withIo false
             runCatching { body.safeParseJsonObject().get("state")?.intValue }.getOrNull() == 200
         } finally {
@@ -414,7 +414,7 @@ class DzpzSession : CasSiteSession("dzpz", "电子凭证", mustUseWebVpn = false
         ).execute()
         try {
             if (resp.code != 200) return@withIo false
-            val id = (resp.body?.string()).safeParseJsonObject()
+            val id = (resp.body.string()).safeParseJsonObject()
                 .get("resourceid")?.takeIf { !it.isNull }?.stringValue
                 ?.takeIf { it.isNotBlank() && it != "0" } ?: return@withIo false
             localToken["user_id"] = id
@@ -472,7 +472,7 @@ class CampusCardSession : CasSiteSession("campus_card", "校园卡", mustUseWebV
         ).execute()
         try {
             if (!resp.isSuccessful) return@withIo false
-            val body = resp.body?.string() ?: return@withIo false
+            val body = resp.body.string()
             if (isAuthFailureResponse(resp, body)) return@withIo false
             val root = runCatching { body.safeParseJsonObject() }.getOrNull() ?: return@withIo false
             if (com.xjtu.toolbox.card.CampusCardContract.businessCode(root) != "200") return@withIo false
@@ -496,7 +496,7 @@ class CampusCardSession : CasSiteSession("campus_card", "校园卡", mustUseWebV
                 .build()
         ).execute()
         resp.use {
-            val body = it.body?.string() ?: throw RuntimeException("校园卡用户资料请求失败")
+            val body = it.body.string()
             if (!it.isSuccessful) throw RuntimeException("校园卡用户资料请求失败")
             val root = body.safeParseJsonObject()
             com.xjtu.toolbox.card.CampusCardContract.requireSuccess(root, "校园卡用户资料")
@@ -524,7 +524,7 @@ private class LandingCasLogin(
     override fun postLogin(response: Response) {
         if (com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(response.request.url.toString(), targetHost)) return
         client.newCall(Request.Builder().url(entryUrl).get().build()).execute().use { retry ->
-            val body = retry.body?.string().orEmpty()
+            val body = retry.body.string()
             if (XJTULogin.isSafetyVerifyPage(body)) throw SafetyVerifyRequiredException(retry, body)
             if (!com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(retry.request.url.toString(), targetHost)) {
                 throw IOException("$targetHost SSO 未完成跳转，需要重新登录")
@@ -547,7 +547,7 @@ class GsteSession : CasSiteSession("gste", "研究生评教", mustUseWebVpn = tr
         client.newCall(Request.Builder().url(LIST_URL).get().build()).execute().use { resp ->
             resp.code == 200 &&
                 com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(resp.request.url.toString(), "gste.xjtu.edu.cn") &&
-                resp.body?.string().orEmpty().trimStart().startsWith("[")
+                resp.body.string().trimStart().startsWith("[")
         }
     }
 

@@ -368,7 +368,7 @@ class LibraryApi(private val site: SiteSession) {
      */
     private suspend fun executeWithReAuth(request: Request): Pair<okhttp3.Response, String> {
         val response = site.executeWithReAuth(request)
-        val body = response.body?.string() ?: ""
+        val body = response.body.string()
         if (isRedirectedToLogin(body, response.request.url.toString())) {
             response.close()
             throw com.xjtu.toolbox.auth.AuthExpiredException("图书馆")
@@ -524,7 +524,7 @@ class LibraryApi(private val site: SiteSession) {
         site.executeWithReAuth(req).use { resp ->
             // 认文件头而不是 Content-Type：经 WebVPN 转发时类型头不一定还在；
             // 登录页、404 页是 HTML，头两个字节对不上 JPEG / PNG。
-            val bytes = if (resp.isSuccessful) resp.body?.bytes() else null
+            val bytes = if (resp.isSuccessful) resp.body.bytes() else null
             bytes?.takeIf { it.size > 4 && (isJpeg(it) || isPng(it)) }
         }
     } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
@@ -565,7 +565,7 @@ class LibraryApi(private val site: SiteSession) {
 
         // 已有预约时，使用 /updateseat/ 端点直接换座（HAR 验证的真实流程）
         if (autoSwap) {
-            val bodyText = Jsoup.parse(html).body()?.text() ?: ""
+            val bodyText = Jsoup.parse(html).body().text()
             if ("已有预约" in bodyText || "已预约" in bodyText || "换座" in bodyText
                 || "已经预约" in bodyText || "存在预约" in bodyText) {
                 Log.d(TAG, "bookSeat: existing booking detected, using /updateseat/ endpoint")
@@ -592,7 +592,7 @@ class LibraryApi(private val site: SiteSession) {
             val cookieUrl = "https://webvpn.xjtu.edu.cn/wengine-vpn/cookie" +
                 "?method=get&host=rg.lib.xjtu.edu.cn&scheme=http&path=$path" +
                 "&vpn_timestamp=${System.currentTimeMillis()}"
-            site.client.newCall(buildRequest(cookieUrl)).execute().use { it.body?.string() }
+            site.client.newCall(buildRequest(cookieUrl)).execute().use { it.body.string() }
         }
     }
 
@@ -694,7 +694,7 @@ class LibraryApi(private val site: SiteSession) {
             Log.d(TAG, "action: url=${actionUrl.redactUrl()} finalUrl=${finalUrl.redactUrl()} len=${html.length}")
 
             val doc = Jsoup.parse(html)
-            val bodyText = doc.body()?.text() ?: ""
+            val bodyText = doc.body().text()
             val msg = LibraryPages.extractAlertText(doc, ".alert, .msg, .message, .success, .error")
 
             // 取消预约：以「我的预约是否已消失」为准判定，最可靠

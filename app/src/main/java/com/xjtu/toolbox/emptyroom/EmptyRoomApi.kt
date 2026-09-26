@@ -121,8 +121,7 @@ class EmptyRoomApi(context: Context? = null) {
             throw RuntimeException("请求失败: HTTP ${response.code}")
         }
 
-        val body = response.body?.string()
-            ?: throw RuntimeException("响应为空")
+        val body = response.body.string()
 
         val json = body.safeParseJsonObject()
         cache?.writeJson("cdn_day_$date", body)
@@ -333,7 +332,7 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient, private val cac
                     .get()
                     .build()
             ).execute()
-            val body = resp.body?.string() ?: return
+            val body = resp.body.string()
             val json = body.safeParseJsonObject()
             val datas = json.obj("datas") ?: return
             val groups = datas.arr("userGroups") ?: return
@@ -349,7 +348,7 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient, private val cac
             }
             if (currentRoleName != "学生" && studentRoleId != null) {
                 android.util.Log.d(TAG, "switching role $currentRoleName → 学生 ($studentRoleId)")
-                val form = okhttp3.FormBody.Builder().add("appRole", studentRoleId!!).build()
+                val form = okhttp3.FormBody.Builder().add("appRole", studentRoleId).build()
                 httpClient.newCall(
                     Request.Builder().url(CHANGE_ROLE_API).post(form).build()
                 ).execute().close()
@@ -382,7 +381,7 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient, private val cac
                 .build()
         ).execute()
         if (!resp.isSuccessful) throw RuntimeException("校区代码请求失败: HTTP ${resp.code}")
-        val body = resp.body?.string().orEmpty()
+        val body = resp.body.string()
         val map = parseCodeMap(body)
         android.util.Log.d(TAG, "campus code count=${map.size}, bodyPrefix=${body.redactBody(160)}")
         if (map.isEmpty()) throw RuntimeException("校区代码为空")
@@ -413,7 +412,7 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient, private val cac
                 .build()
         ).execute()
         if (!resp.isSuccessful) throw RuntimeException("教学楼代码请求失败: HTTP ${resp.code}")
-        val body = resp.body?.string().orEmpty()
+        val body = resp.body.string()
         val map = parseCodeMap(body)
         android.util.Log.d(TAG, "building code count=${map.size}, bodyPrefix=${body.redactBody(160)}")
         if (map.isEmpty()) throw RuntimeException("教学楼代码为空")
@@ -483,7 +482,7 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient, private val cac
                 .build()
         ).execute()
         if (!resp.isSuccessful) throw RuntimeException("空闲教室查询失败: HTTP ${resp.code}")
-        val body = resp.body?.string().orEmpty()
+        val body = resp.body.string()
         android.util.Log.d(TAG, "queryRooms date=$date start=$startTime end=$endTime http=${resp.code} bodyPrefix=${body.redactBody(120)}")
         // safeParseJsonObject 会自动检测 HTML 响应并抛出友好的错误信息
         val root = body.safeParseJsonObject()

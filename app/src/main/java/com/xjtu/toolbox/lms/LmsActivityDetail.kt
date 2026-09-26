@@ -1,5 +1,9 @@
 package com.xjtu.toolbox.lms
 
+import androidx.compose.material.icons.automirrored.filled.ScreenShare
+import androidx.compose.material.icons.automirrored.filled.Comment
+import androidx.compose.material.icons.automirrored.filled.TrendingDown
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.util.Log
@@ -139,7 +143,7 @@ internal fun ActivityDetailPage(
                 isLoading -> LoadingIndicator("加载活动详情…")
                 errorMsg != null -> ErrorRetry(errorMsg!!) { loadDetail() }
                 detail != null -> {
-                    val d = detail!!
+                    val d = detail
 
                     // 视频源要求带同源请求头，否则 CDN 直接 403。
                     // 直播分支一直带着这两个头能正常播，回放分支之前传的是 emptyMap()，
@@ -162,10 +166,10 @@ internal fun ActivityDetailPage(
                         if (!d.description.isNullOrBlank()) {
                             item(key = "desc") {
                                 val plainText = remember(d.description) {
-                                    val doc = Jsoup.parse(d.description!!)
+                                    val doc = Jsoup.parse(d.description)
                                     doc.select("br").forEach { it.before("\n") }
                                     doc.select("p").forEach { it.after("\n") }
-                                    doc.body()?.wholeOwnText()?.trim()?.ifBlank { null }
+                                    doc.body().wholeOwnText().trim().ifBlank { null }
                                         ?: doc.text()
                                 }
                                 SectionHeader(if (d.type == LmsActivityType.HOMEWORK) "作业描述" else "内容")
@@ -419,8 +423,8 @@ private fun ActivityInfoCard(activity: LmsActivity) {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                         activity.hasScoreCount?.let { InfoChip("已批阅 $it 人", Icons.Default.People) }
                         activity.averageScore?.let { InfoChip("平均 ${"%.1f".format(it)}", Icons.Default.Analytics) }
-                        activity.highestScore?.let { InfoChip("最高 ${"%.1f".format(it)}", Icons.Default.TrendingUp) }
-                        activity.lowestScore?.let { InfoChip("最低 ${"%.1f".format(it)}", Icons.Default.TrendingDown) }
+                        activity.highestScore?.let { InfoChip("最高 ${"%.1f".format(it)}", Icons.AutoMirrored.Filled.TrendingUp) }
+                        activity.lowestScore?.let { InfoChip("最低 ${"%.1f".format(it)}", Icons.AutoMirrored.Filled.TrendingDown) }
                     }
                 }
             }
@@ -666,7 +670,7 @@ private fun SubmissionCard(
 
             if (sub.submittedAt != null) {
                 Spacer(Modifier.height(4.dp))
-                Text("提交于 ${formatLmsTime(sub.submittedAt!!)}", fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                Text("提交于 ${formatLmsTime(sub.submittedAt)}", fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
 
             if (sub.content.isNotBlank()) {
@@ -677,7 +681,7 @@ private fun SubmissionCard(
             if (sub.instructorComment.isNotBlank()) {
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.Top) {
-                    Icon(Icons.Default.Comment, null, Modifier.size(14.dp), tint = Color(0xFFFF9800))
+                    Icon(Icons.AutoMirrored.Filled.Comment, null, Modifier.size(14.dp), tint = Color(0xFFFF9800))
                     Spacer(Modifier.width(4.dp))
                     Text("教师评语: ${sub.instructorComment}", fontSize = 13.sp, color = Color(0xFFFF9800))
                 }
@@ -794,7 +798,7 @@ private fun LiveStreamCard(stream: LmsLiveStream, onPlay: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                if (stream.isInstructor) Icons.Default.Videocam else Icons.Default.ScreenShare,
+                if (stream.isInstructor) Icons.Default.Videocam else Icons.AutoMirrored.Filled.ScreenShare,
                 null, tint = Color(0xFFC62828), modifier = Modifier.size(32.dp)
             )
             Spacer(Modifier.width(12.dp))
@@ -845,7 +849,7 @@ private fun LiveInfoCard(activity: LmsActivity) {
                         "live_in_progress" -> "● 直播中"
                         "live_ended" -> "已结束"
                         "live_not_started" -> "未开始"
-                        else -> activity.liveStatus!!
+                        else -> activity.liveStatus
                     }
                     Icon(Icons.Default.Circle, null, Modifier.size(10.dp), tint = statusColor)
                     Spacer(Modifier.width(8.dp))

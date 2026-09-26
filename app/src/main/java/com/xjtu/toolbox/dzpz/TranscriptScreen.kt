@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.dzpz
 
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.graphics.graphicsLayer
 import android.content.ContentValues
@@ -472,7 +473,7 @@ private fun StepsPreview() {
     val steps = listOf(
         Icons.Default.Person to "验证学籍",
         Icons.Default.Description to "生成成绩单",
-        Icons.Default.Send to "提交审核",
+        Icons.AutoMirrored.Filled.Send to "提交审核",
         Icons.Default.Verified to "签章认证",
         Icons.Default.Download to "下载文件"
     )

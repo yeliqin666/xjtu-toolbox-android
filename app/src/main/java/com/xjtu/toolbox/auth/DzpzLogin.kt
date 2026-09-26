@@ -139,7 +139,7 @@ class DzpzLogin(
                 .get()
                 .build()
             val resp = client.newCall(req).execute()
-            val body = resp.use { it.body?.string() ?: "" }
+            val body = resp.use { it.body.string() }
             val id = body.safeParseJsonObject()
                 .get("resourceid")?.takeIf { !it.isNull }?.stringValue
                 ?.takeIf { it.isNotBlank() && it != "0" }
@@ -209,7 +209,7 @@ class DzpzLogin(
             Log.d(TAG, "reAuthenticate: session expired, trying SSO via login entry")
             val ssoReq = Request.Builder().url(DZPZ_LOGIN_ENTRY).get().build()
             val ssoResp = client.newCall(ssoReq).execute()
-            ssoResp.body?.string()
+            ssoResp.body.string()
             val ssoFinalUrl = ssoResp.request.url.toString()
 
             if (com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(ssoFinalUrl, "dzpz.xjtu.edu.cn")) {

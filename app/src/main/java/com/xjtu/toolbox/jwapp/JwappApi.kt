@@ -137,7 +137,7 @@ class JwappApi(private val site: SiteSession) {
 
     internal suspend fun execute(request: okhttp3.Request.Builder): String =
         site.executeWithReAuth(request.build()).use { response ->
-            response.body?.string() ?: throw RuntimeException("空响应")
+            response.body.string()
         }
 
     // [J1] TimeTableBasis 内存缓存（学期内不变，避免重复网络请求）

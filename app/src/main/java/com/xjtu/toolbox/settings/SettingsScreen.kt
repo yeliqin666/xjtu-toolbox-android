@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.settings
 
+import androidx.compose.material.icons.automirrored.filled.Assignment
+import androidx.compose.material.icons.automirrored.filled.FactCheck
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -38,12 +40,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.Assignment
 import androidx.compose.material.icons.filled.BatteryAlert
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.EventSeat
-import androidx.compose.material.icons.filled.FactCheck
 import androidx.compose.material.icons.filled.Tab
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Palette
@@ -443,7 +443,7 @@ fun SettingsScreen(
                         "需额外登录考勤系统，已关闭"
                     },
                     checked = attendanceBadge,
-                    startAction = { SettingsIcon(Icons.Default.FactCheck, cGreen) },
+                    startAction = { SettingsIcon(Icons.AutoMirrored.Filled.FactCheck, cGreen) },
                     onCheckedChange = {
                         attendanceBadge = it
                         credentialStore.scheduleAttendanceBadge = it
@@ -537,7 +537,7 @@ fun SettingsScreen(
                         "需在后台登录思源学堂逐课查作业，默认关闭"
                     },
                     checked = reminderLms,
-                    startAction = { SettingsIcon(Icons.Default.Assignment, cGreen) },
+                    startAction = { SettingsIcon(Icons.AutoMirrored.Filled.Assignment, cGreen) },
                     onCheckedChange = { on -> applyReminder(ReminderKind.LMS, on) }
                 )
                 ArrowPreference(

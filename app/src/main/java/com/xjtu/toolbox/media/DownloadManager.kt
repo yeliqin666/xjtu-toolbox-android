@@ -221,7 +221,7 @@ class DownloadManager private constructor(private val context: Context) {
 
             // 解析文件大小
             val contentRange = response.header("Content-Range")
-            val contentLength = response.body?.contentLength() ?: -1
+            val contentLength = response.body.contentLength()
 
             val totalSize = if (contentRange != null) {
                 // Content-Range: bytes 100-499/500
@@ -240,7 +240,7 @@ class DownloadManager private constructor(private val context: Context) {
                 outputStream.seek(existingBytes)
             }
 
-            response.body?.byteStream()?.use { inputStream ->
+            response.body.byteStream().use { inputStream ->
                 val buffer = ByteArray(8192)
                 var downloaded = existingBytes
                 var lastProgressTime = 0L

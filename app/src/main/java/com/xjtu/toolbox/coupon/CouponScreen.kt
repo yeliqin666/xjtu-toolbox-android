@@ -425,7 +425,7 @@ private fun CouponImage(site: SiteSession, url: String) {
         imageBytes = withContext(Dispatchers.IO) {
             runCatching {
                 site.client.newCall(Request.Builder().url(url).get().build()).execute().use { response ->
-                    if (!response.isSuccessful) null else response.body?.bytes()
+                    if (!response.isSuccessful) null else response.body.bytes()
                 }
             }.getOrNull()
         }

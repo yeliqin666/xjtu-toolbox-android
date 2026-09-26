@@ -115,7 +115,7 @@ class AttendanceLogin(
 
     private fun fallbackToPortal() {
         client.newCall(Request.Builder().url(via(LOGIN_URL)).get().build()).execute().use { retry ->
-            val body = retry.body?.string().orEmpty()
+            val body = retry.body.string()
             if (!consumeLanding(retry.request.url, body)) {
                 throw RuntimeException("考勤系统登录失败：未取得 CAS 回调票据")
             }
@@ -155,7 +155,7 @@ class AttendanceLogin(
                     .build()
             ).execute().use { resp ->
                 if (resp.code != 200) return false
-                val body = resp.body?.string() ?: return false
+                val body = resp.body.string()
                 if (isAuthFailureResponse(body)) return false
                 body.safeParseJsonObject().get("code")?.takeIf { !it.isNull }?.intValue == 0
             }
@@ -256,7 +256,7 @@ class AttendanceLogin(
             throw RuntimeException("考勤系统登录失败：${msg ?: "交换登录票据未返回业务令牌"}")
         }
         followHandoff(handoff).use { resp ->
-            val body = resp.body?.string().orEmpty()
+            val body = resp.body.string()
             if (!consumeLanding(resp.request.url, body, hops + 1)) {
                 throw RuntimeException("考勤系统研究生交接后仍未取得业务令牌")
             }
@@ -313,7 +313,7 @@ class AttendanceLogin(
             .get()
             .build()
         client.newCall(request).execute().use { resp ->
-            val body = resp.body?.string().orEmpty()
+            val body = resp.body.string()
             if (!resp.isSuccessful) throw RuntimeException("考勤门户读取失败 (HTTP ${resp.code})")
             val json = body.safeParseJsonObject()
             if (json.get("code")?.takeIf { !it.isNull }?.intValue != 0) {
@@ -358,7 +358,7 @@ class AttendanceLogin(
                 .post(payload.toString().toRequestBody(jsonType))
                 .build()
         ).execute().use { resp ->
-            val body = resp.body?.string().orEmpty()
+            val body = resp.body.string()
             if (!resp.isSuccessful) throw RuntimeException("考勤系统登录交换失败 (HTTP ${resp.code})")
             val json = body.safeParseJsonObject()
             val code = json.get("code")?.takeIf { !it.isNull }?.intValue ?: -1

@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.media
 
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import android.content.Context
 import android.content.Intent
@@ -434,7 +435,7 @@ private fun LmsDownloadCard(
             LeadingIconWell(
                 icon = when (record.category) {
                     LmsDownloadStore.CATEGORY_TRANSCRIPT -> Icons.Default.PictureAsPdf
-                    LmsDownloadStore.CATEGORY_ZYXF -> Icons.Default.MenuBook
+                    LmsDownloadStore.CATEGORY_ZYXF -> Icons.AutoMirrored.Filled.MenuBook
                     else -> Icons.Default.Description
                 }
             )

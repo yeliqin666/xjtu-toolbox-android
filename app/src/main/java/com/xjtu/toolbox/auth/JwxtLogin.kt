@@ -31,7 +31,7 @@ class JwxtLogin(
             retryResp = client.newCall(
                 okhttp3.Request.Builder().url(JWXT_URL).get().build()
             ).execute()
-            retryBody = retryResp.body?.string() ?: ""
+            retryBody = retryResp.body.string()
         } catch (e: Exception) {
             android.util.Log.e("JwxtLogin", "postLogin: retry failed", e)
             throw RuntimeException("教务系统 SSO 未完成跳转，需要重新登录")

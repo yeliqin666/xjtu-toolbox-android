@@ -47,7 +47,7 @@ class LibraryLogin(
                 .get()
                 .build()
             val seatResponse = client.newCall(seatRequest).execute()
-            val seatBody = seatResponse.body?.use { it.string() } ?: ""
+            val seatBody = seatResponse.body.use { it.string() }
             if (looksLikeSeatPage(seatBody)) {
                 seatSystemReady = true
                 diagnosticInfo = "座位系统已就绪"
@@ -87,7 +87,7 @@ class LibraryLogin(
                 .get()
                 .build()
             val seatResponse = client.newCall(seatRequest).execute()
-            val seatBody = seatResponse.body?.use { it.string() } ?: ""
+            val seatBody = seatResponse.body.use { it.string() }
             val seatFinalUrl = seatResponse.request.url.toString()
 
             Log.d(TAG, "postLogin retry: code=${seatResponse.code}, finalUrl=${seatFinalUrl.redactUrl()}, bodyLen=${seatBody.length}")

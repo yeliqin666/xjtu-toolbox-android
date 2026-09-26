@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.lms
 
+import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import android.content.ContentValues
 import android.content.Context
 import android.provider.MediaStore
@@ -327,7 +329,7 @@ internal fun activityTypeVisual(type: LmsActivityType): Pair<ImageVector, Color>
     LmsActivityType.FORUM -> Icons.Default.Forum to Color(0xFF6D4C41)
     LmsActivityType.QUESTIONNAIRE -> Icons.Default.Quiz to Color(0xFFAD1457)
     LmsActivityType.ONLINE_VIDEO -> Icons.Default.PlayCircle to Color(0xFF00838F)
-    LmsActivityType.UNKNOWN -> Icons.Default.HelpOutline to Color(0xFF757575)
+    LmsActivityType.UNKNOWN -> Icons.AutoMirrored.Filled.HelpOutline to Color(0xFF757575)
 }
 internal fun downloadToast(result: LmsDownloadResult): String = when (result) {
     LmsDownloadResult.Ok -> "已保存到下载"
@@ -390,7 +392,7 @@ internal fun fileTypeIcon(type: String): ImageVector = when {
     type.contains("video", true) -> Icons.Default.VideoFile
     type.contains("audio", true) -> Icons.Default.AudioFile
     type.contains("zip", true) || type.contains("rar", true) -> Icons.Default.FolderZip
-    else -> Icons.Default.InsertDriveFile
+    else -> Icons.AutoMirrored.Filled.InsertDriveFile
 }
 /**
  * 活动时间行（详情页信息卡）。

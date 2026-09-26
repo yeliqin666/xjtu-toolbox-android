@@ -132,7 +132,7 @@ class GithubOAuthDeviceAuthRepository(
                 if (!response.isSuccessful) throw GithubApiException.of(response)
                 val payload = json.decodeFromString(
                     DeviceCodeResponse.serializer(),
-                    response.body?.string().orEmpty()
+                    response.body.string()
                 )
                 payload.toDomain(nowEpochMillis(), loginBaseUrl.host)
             }
@@ -153,7 +153,7 @@ class GithubOAuthDeviceAuthRepository(
                 if (!response.isSuccessful) throw GithubApiException.of(response)
                 json.decodeFromString(
                     AccessTokenResponse.serializer(),
-                    response.body?.string().orEmpty()
+                    response.body.string()
                 ).toDomain(nowEpochMillis())
             }
         }

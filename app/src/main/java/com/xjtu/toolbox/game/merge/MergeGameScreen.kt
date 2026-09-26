@@ -18,7 +18,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -95,8 +95,6 @@ fun MergeGameScreen(onBack: () -> Unit) {
                     settings.domStorageEnabled = true // 本地最高分存在 localStorage 里
                     settings.allowFileAccess = false
                     settings.allowContentAccess = false
-                    settings.allowFileAccessFromFileURLs = false
-                    settings.allowUniversalAccessFromFileURLs = false
                     settings.cacheMode = WebSettings.LOAD_NO_CACHE
                     settings.setSupportZoom(false)
                     settings.builtInZoomControls = false

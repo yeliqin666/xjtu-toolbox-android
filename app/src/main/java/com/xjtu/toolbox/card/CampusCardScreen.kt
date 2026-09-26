@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.card
 
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.BackButton
 import androidx.activity.compose.BackHandler
@@ -1063,7 +1064,7 @@ private fun CategoryCard(categories: Map<String, Double>) {
     val categoryIcons = mapOf(
         "餐饮" to Icons.Default.Restaurant, "超市" to Icons.Default.ShoppingCart,
         "洗浴" to Icons.Default.Shower, "水电" to Icons.Default.ElectricBolt,
-        "学习" to Icons.Default.MenuBook, "洗衣" to Icons.Default.LocalLaundryService,
+        "学习" to Icons.AutoMirrored.Filled.MenuBook, "洗衣" to Icons.Default.LocalLaundryService,
         "交通" to Icons.Default.DirectionsBus, "医疗" to Icons.Default.LocalHospital,
         "充值" to Icons.Default.AddCard, "其他" to Icons.Default.MoreHoriz)
     val categoryColors = listOf(
@@ -1388,7 +1389,7 @@ private fun getTransactionIcon(tx: Transaction): ImageVector {
         m.contains("浴室") || m.contains("澡堂") -> Icons.Default.Shower
         m.contains("能源") || d.contains("电费") || m.contains("电控") -> Icons.Default.ElectricBolt
         m.contains("超市") || m.contains("超级市场") || m.contains("商店") || m.contains("便利") || m.contains("卖场") -> Icons.Default.ShoppingCart
-        m.contains("图书") || m.contains("打印") || m.contains("复印") -> Icons.Default.MenuBook
+        m.contains("图书") || m.contains("打印") || m.contains("复印") -> Icons.AutoMirrored.Filled.MenuBook
         m.contains("洗衣") || m.contains("洗涤") -> Icons.Default.LocalLaundryService
         m.contains("医院") || m.contains("药") -> Icons.Default.LocalHospital
         tx.type.contains("充值") || tx.type.contains("圈存") -> Icons.Default.AddCard

@@ -63,7 +63,7 @@ class JiaocaiLogin(
                 .get()
                 .build()
             val resp = client.newCall(req).execute()
-            val text = resp.body?.use { it.string() } ?: ""
+            val text = resp.body.use { it.string() }
             Log.d(TAG, "user-info: ${text.redactBody(200)}")
 
             val json = text.safeParseJsonObject()

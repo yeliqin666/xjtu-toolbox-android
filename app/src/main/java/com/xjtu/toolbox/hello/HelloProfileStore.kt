@@ -157,7 +157,7 @@ object HelloProfileStore {
                     Log.w(TAG, "avatar download HTTP ${it.code}")
                     return
                 }
-                val bytes = it.body?.bytes() ?: return
+                val bytes = it.body.bytes()
                 if (bytes.isEmpty()) return
                 // 先写临时文件再改名，避免下载中途被读到半张图
                 val tmp = File(target.absolutePath + ".tmp")

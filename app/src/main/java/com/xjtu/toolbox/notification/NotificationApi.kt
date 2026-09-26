@@ -278,7 +278,7 @@ private fun getPage(client: OkHttpClient, url: String, domain: String): String {
         if (it.code == 404 || it.code >= 500) {
             throw java.io.IOException("HTTP ${it.code} for $url")
         }
-        return it.body?.string() ?: ""
+        return it.body.string()
     }
 }
 
@@ -302,7 +302,7 @@ private fun solveChallenge(client: OkHttpClient, url: String, challenge: Website
             Log.w(TAG, "challenge HTTP ${resp.code} for $url")
             return null
         }
-        resp.body?.string() ?: return null
+        resp.body.string()
     }
 
     val json = try {
@@ -575,7 +575,7 @@ private class GenericXjtuCrawler(
     private fun tryFetchDoc(url: String): Document? {
         return try {
             val doc = fetchDocumentWithChallenge(client, url)
-            val bodyLen = doc.body()?.text()?.length ?: 0
+            val bodyLen = doc.body().text().length
             if (bodyLen < 50) null else doc
         } catch (e: Exception) {
             Log.w(TAG, "GenericCrawler[${source.displayName}] fetch error at $url: ${e.message}")
@@ -801,7 +801,7 @@ private class OaNoticeCrawler(
             return NotificationPage(emptyList(), false)
         }
         val items = doc.select("a.noa_list").mapNotNull { parseRow(it) }.distinctBy { it.link }
-        val hasMore = PAGE_META_RE.find(doc.body()?.text().orEmpty())?.let { match ->
+        val hasMore = PAGE_META_RE.find(doc.body().text())?.let { match ->
             val current = match.groupValues[1].toIntOrNull() ?: pageNo
             val total = match.groupValues[2].toIntOrNull() ?: current
             current < total
@@ -829,11 +829,11 @@ private class OaNoticeCrawler(
             .build()
         val html = client.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) throw java.io.IOException("HTTP ${resp.code} for OA search")
-            resp.body?.string().orEmpty()
+            resp.body.string()
         }
         val doc = Jsoup.parse(html, INDEX_URL)
         val items = doc.select("a.noa_list").mapNotNull { parseRow(it) }.distinctBy { it.link }
-        val hasMore = PAGE_META_RE.find(doc.body()?.text().orEmpty())?.let { match ->
+        val hasMore = PAGE_META_RE.find(doc.body().text())?.let { match ->
             val current = match.groupValues[1].toIntOrNull() ?: pageNo
             val total = match.groupValues[2].toIntOrNull() ?: current
             current < total
@@ -1006,7 +1006,7 @@ internal object XjtuSiteFetcher {
         cachedClientId(domain)?.let { builder.header("Cookie", "client_id=$it") }
         notificationClient.newCall(builder.build()).execute().use { resp ->
             if (!resp.isSuccessful) throw java.io.IOException("HTTP ${resp.code} for $url")
-            return resp.body?.bytes() ?: throw java.io.IOException("空响应：$url")
+            return resp.body.bytes()
         }
     }
 }

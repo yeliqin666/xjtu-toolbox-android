@@ -109,7 +109,7 @@ class LmsLogin(
                 .post(ByteArray(0).toRequestBody(null))
                 .build()
             val checkResp = client.newCall(checkReq).execute()
-            val body = checkResp.body?.use { it.string() } ?: ""
+            val body = checkResp.body.use { it.string() }
 
             if (checkResp.code == 200 && body.contains("courses")) {
                 sessionValid = true

@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.agent
 
+import kotlin.coroutines.resume
 import com.xjtu.toolbox.network.MOBILE_UA
 import kotlinx.serialization.json.jsonObject
 import com.xjtu.toolbox.util.safeStringOrNull
@@ -1771,22 +1772,22 @@ class AgentToolRegistry(
                     val call = try {
                         client.newCall(req.get().build())
                     } catch (_: Exception) {
-                        cont.resume(null) {}
+                        cont.resume(null)
                         return@suspendCancellableCoroutine
                     }
                     cont.invokeOnCancellation { call.cancel() }
                     call.enqueue(object : okhttp3.Callback {
                         override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
-                            cont.resume(null) {}
+                            cont.resume(null)
                         }
                         override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
                             val result = runCatching {
                                 response.use { resp ->
                                     if (!resp.isSuccessful) null
-                                    else resp.body?.string()?.let { it to resp.request.url.toString() }
+                                    else resp.body.string() to resp.request.url.toString()
                                 }
                             }.getOrNull()
-                            cont.resume(result) {}
+                            cont.resume(result)
                         }
                     })
                 }
@@ -2073,7 +2074,7 @@ class AgentToolRegistry(
         } catch (e: Exception) {
             return ToolReply.failed("get_library.seats", e.message)
         } finally {
-            if (switched && current != null) {
+            if (switched) {
                 withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) { runCatching { api.switchCampus(current) } }
             }
         }
@@ -2812,7 +2813,7 @@ class AgentToolRegistry(
             webClient.newCall(req.get().build()).execute().use { resp ->
                 if (!resp.isSuccessful) return@use null
                 val finalUrl = resp.request.url.toString()
-                val body = resp.body ?: return@use null
+                val body = resp.body
                 if (AgentWeb.isBinaryContentType(resp.header("Content-Type") ?: body.contentType()?.toString())) {
                     return@use null
                 }

@@ -89,7 +89,7 @@ class VenueApi(private val site: SiteSession) {
         val response = execute(builder)
         val code = response.code
         val contentType = response.header("Content-Type").orEmpty().lowercase()
-        val body = response.body?.string().orEmpty()
+        val body = response.body.string()
         response.close()
 
         if (code !in 200..299) throw RuntimeException("请求失败（HTTP $code）")
@@ -106,7 +106,7 @@ class VenueApi(private val site: SiteSession) {
         val doc = runCatching { Jsoup.parse(html) }.getOrNull() ?: return "服务暂时不可用"
         val title = doc.title().trim().fixGbk()
         if (title.isNotBlank()) return title
-        val text = doc.body()?.text()?.trim()?.fixGbk().orEmpty()
+        val text = doc.body().text().trim().fixGbk().orEmpty()
         return text.take(80).ifBlank { "服务暂时不可用" }
     }
 
@@ -367,7 +367,7 @@ class VenueApi(private val site: SiteSession) {
                     .post(form)
             )
             val code = response.code
-            val body = response.body?.string().orEmpty()
+            val body = response.body.string()
             response.close()
 
             if (code !in 200..299) {
@@ -419,7 +419,7 @@ class VenueApi(private val site: SiteSession) {
             "?page=$page&rows=$pageSize&status=&iscomment=" +
             "&stockSDate=&stockEDate=&_=${System.currentTimeMillis()}"
         val response = execute(ajaxRequest(url, "$BASE/yyuser/searchorder.html"))
-        val body = response.body?.string().orEmpty()
+        val body = response.body.string()
         val code = response.code
         response.close()
 
@@ -447,7 +447,7 @@ class VenueApi(private val site: SiteSession) {
             ajaxRequest("$BASE/order/delorder.html", "$BASE/yyuser/searchorder.html")
                 .post(form)
         )
-        val body = response.body?.string().orEmpty()
+        val body = response.body.string()
         val code = response.code
         response.close()
 

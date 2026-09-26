@@ -119,7 +119,7 @@ class JwappLogin(
             val token = client.newCall(request).execute().use { response ->
                 val finalUrl = response.request.url.toString()
                 // 即使不读 body 也要 string() 触发 body close（OkHttp 自动）
-                runCatching { response.body?.string() }
+                runCatching { response.body.string() }
                 finalUrl.substringAfter("token=", "")
                     .substringBefore("&")
                     .takeIf { it.isNotEmpty() }

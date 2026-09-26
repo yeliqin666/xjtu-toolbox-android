@@ -91,7 +91,7 @@ class YellowPageApi(context: Context) {
             .get()
             .build()
     ).execute().use { response ->
-        val body = response.body?.string() ?: throw RuntimeException("黄页接口无响应")
+        val body = response.body.string()
         if (!response.isSuccessful) throw RuntimeException("黄页接口 HTTP ${response.code}")
         AppJson.parseToJsonElement(body).jsonObject.also {
             if (it.get("e")?.intValue != 0) {
