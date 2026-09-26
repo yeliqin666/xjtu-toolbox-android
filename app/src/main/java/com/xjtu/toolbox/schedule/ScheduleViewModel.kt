@@ -155,6 +155,7 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
     private var loadJob: Job? = null
     private var loadGen = 0
     private var loadedAccount: String? = null
+    private var loadedAt = 0L
     private var loginWatch: Job? = null
     private var lastSource = CredentialStore(this.context).scheduleSource
     private var attemptingAutoLogin = false
@@ -185,7 +186,11 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
     fun bind(account: String, site: SiteSession?, studentId: String) {
         this.studentId = studentId
         bindSite(site)
-        if (account == loadedAccount) return
+        if (account == loadedAccount) {
+            // 隔了一阵子再切回这个 tab：静默刷新一次（用户切过的学期保留）
+            if (System.currentTimeMillis() - loadedAt > STALE_MS && !isLoading && !isSwitching && !isRefreshingFromNetwork) loadInitialData()
+            return
+        }
         if (loadedAccount != null) {
             courses = emptyList()
             exams = emptyList()
@@ -346,6 +351,7 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
         isRefreshingFromNetwork = false
         showingStaleData = false
         val gen = ++loadGen
+        loadedAt = System.currentTimeMillis()
         val api = api
         // 切账号时 SessionManager 原地重配，api 背后的站点会换成新账号的会话；
         // 每次联网结果落地前核对账号，变了就按取消处理，既不刷界面也不写缓存
@@ -856,5 +862,6 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
 
     private companion object {
         const val TAG = "ScheduleViewModel"
+        const val STALE_MS = 30 * 60_000L
     }
 }
