@@ -5,10 +5,8 @@ import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.Icon
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Inbox
@@ -18,6 +16,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+
+/**
+ * 整页的加载 / 出错 / 空状态外壳：放进一个能滚动的容器里占满一屏，
+ * 外层的下拉刷新在这时照样能拉。
+ */
+@Composable
+fun FullPageState(
+    modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(0.dp),
+    content: @Composable BoxScope.() -> Unit,
+) {
+    LazyColumn(modifier, contentPadding = contentPadding) {
+        item { Box(Modifier.fillParentMaxSize(), content = content) }
+    }
+}
 
 /**
  * 统一加载状态组件

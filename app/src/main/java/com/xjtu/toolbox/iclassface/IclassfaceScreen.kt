@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.iclassface
 
+import com.xjtu.toolbox.ui.components.FullPageState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -152,19 +153,13 @@ fun IclassfaceScreen(
             modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass)
         ) {
         when {
-            loading -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
-                item { Box(Modifier.fillParentMaxSize()) { LoadingState(message = "查询签到记录...", modifier = Modifier.fillMaxSize()) } }
-            }
-            error != null && records.isEmpty() -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
-                item {
-                    Box(Modifier.fillParentMaxSize()) {
-                        ErrorState(
-                            message = error!!,
-                            onRetry = { load(selectedDate) },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-                }
+            loading -> FullPageState(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) { LoadingState(message = "查询签到记录...", modifier = Modifier.fillMaxSize()) }
+            error != null && records.isEmpty() -> FullPageState(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
+                ErrorState(
+                    message = error!!,
+                    onRetry = { load(selectedDate) },
+                    modifier = Modifier.fillMaxSize()
+                )
             }
             else -> LazyColumn(
                 modifier = Modifier

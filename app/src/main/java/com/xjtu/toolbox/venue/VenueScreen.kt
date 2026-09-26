@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.venue
 
+import com.xjtu.toolbox.ui.components.FullPageState
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -18,7 +19,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.staggeredgrid.items
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
@@ -687,15 +687,9 @@ private fun VenueListContent(
         modifier = modifier.fillMaxSize()
     ) {
     when {
-        isLoading -> LazyColumn(Modifier.fillMaxSize().padding(top = topPadding)) {
-            item { Box(Modifier.fillParentMaxSize()) { LoadingState(message = "加载场馆列表...", modifier = Modifier.fillMaxSize()) } }
-        }
-        error != null && venues.isEmpty() -> LazyColumn(Modifier.fillMaxSize().padding(top = topPadding)) {
-            item { Box(Modifier.fillParentMaxSize()) { ErrorState(message = error, onRetry = onRetry, modifier = Modifier.fillMaxSize()) } }
-        }
-        sortedVenues.isEmpty() -> LazyColumn(Modifier.fillMaxSize().padding(top = topPadding)) {
-            item { Box(Modifier.fillParentMaxSize()) { EmptyState(title = "暂无可预订场馆", modifier = Modifier.fillMaxSize()) } }
-        }
+        isLoading -> FullPageState(Modifier.fillMaxSize().padding(top = topPadding)) { LoadingState(message = "加载场馆列表...", modifier = Modifier.fillMaxSize()) }
+        error != null && venues.isEmpty() -> FullPageState(Modifier.fillMaxSize().padding(top = topPadding)) { ErrorState(message = error, onRetry = onRetry, modifier = Modifier.fillMaxSize()) }
+        sortedVenues.isEmpty() -> FullPageState(Modifier.fillMaxSize().padding(top = topPadding)) { EmptyState(title = "暂无可预订场馆", modifier = Modifier.fillMaxSize()) }
         // 宽屏场馆卡分两三列（见 AdaptiveCardGrid）
         else -> com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid(
             modifier = Modifier
@@ -832,15 +826,9 @@ private fun SlotSelectionContent(
             modifier = Modifier.weight(1f).fillMaxWidth()
         ) {
         when {
-            isLoading -> LazyColumn(Modifier.fillMaxSize().padding(top = topPadding)) {
-                item { Box(Modifier.fillParentMaxSize()) { LoadingState(message = "加载可用时段...", modifier = Modifier.fillMaxSize()) } }
-            }
-            error != null && availableSlots.isEmpty() -> LazyColumn(Modifier.fillMaxSize().padding(top = topPadding)) {
-                item { Box(Modifier.fillParentMaxSize()) { ErrorState(message = error, onRetry = onRetry, modifier = Modifier.fillMaxSize()) } }
-            }
-            availableSlots.isEmpty() -> LazyColumn(Modifier.fillMaxSize().padding(top = topPadding)) {
-                item { Box(Modifier.fillParentMaxSize()) { EmptyState(title = "该日期暂无可预订时段", subtitle = "请尝试其他日期", modifier = Modifier.fillMaxSize()) } }
-            }
+            isLoading -> FullPageState(Modifier.fillMaxSize().padding(top = topPadding)) { LoadingState(message = "加载可用时段...", modifier = Modifier.fillMaxSize()) }
+            error != null && availableSlots.isEmpty() -> FullPageState(Modifier.fillMaxSize().padding(top = topPadding)) { ErrorState(message = error, onRetry = onRetry, modifier = Modifier.fillMaxSize()) }
+            availableSlots.isEmpty() -> FullPageState(Modifier.fillMaxSize().padding(top = topPadding)) { EmptyState(title = "该日期暂无可预订时段", subtitle = "请尝试其他日期", modifier = Modifier.fillMaxSize()) }
             else -> {
                 // 按时段分组（同一时段可能有多个场地）
                 val slotsByTime = remember(availableSlots) {

@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.coupon
 
+import com.xjtu.toolbox.ui.components.FullPageState
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
@@ -18,7 +19,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -145,28 +145,22 @@ fun CouponScreen(
                 ) { page ->
                 when {
                     page != filterIndex -> LoadingState("正在加载加餐券...", Modifier.fillMaxSize().padding(top = glassTop))
-                    vm.isLoading -> LazyColumn(Modifier.fillMaxSize().padding(top = glassTop)) {
-                        item { Box(Modifier.fillParentMaxSize()) { LoadingState("正在加载加餐券...", Modifier.fillMaxSize()) } }
+                    vm.isLoading -> FullPageState(Modifier.fillMaxSize().padding(top = glassTop)) { LoadingState("正在加载加餐券...", Modifier.fillMaxSize()) }
+                    vm.errorMessage != null -> FullPageState(Modifier.fillMaxSize().padding(top = glassTop)) {
+                        ErrorState(
+                            message = vm.errorMessage ?: "加载失败",
+                            onRetry = { vm.load() },
+                            modifier = Modifier.fillMaxSize(),
+                            icon = Icons.Default.ErrorOutline
+                        )
                     }
-                    vm.errorMessage != null -> LazyColumn(Modifier.fillMaxSize().padding(top = glassTop)) {
-                        item { Box(Modifier.fillParentMaxSize()) {
-                            ErrorState(
-                                message = vm.errorMessage ?: "加载失败",
-                                onRetry = { vm.load() },
-                                modifier = Modifier.fillMaxSize(),
-                                icon = Icons.Default.ErrorOutline
-                            )
-                        } }
-                    }
-                    vm.records.isEmpty() -> LazyColumn(Modifier.fillMaxSize().padding(top = glassTop)) {
-                        item { Box(Modifier.fillParentMaxSize()) {
-                            EmptyState(
-                                title = selectedFilter.emptyTitle,
-                                subtitle = "下拉可刷新重试",
-                                icon = Icons.Outlined.ConfirmationNumber,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } }
+                    vm.records.isEmpty() -> FullPageState(Modifier.fillMaxSize().padding(top = glassTop)) {
+                        EmptyState(
+                            title = selectedFilter.emptyTitle,
+                            subtitle = "下拉可刷新重试",
+                            icon = Icons.Outlined.ConfirmationNumber,
+                            modifier = Modifier.fillMaxSize()
+                        )
                     }
                     else -> CouponList(
                         site = site,

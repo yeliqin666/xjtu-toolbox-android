@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.yellowpage
 
+import com.xjtu.toolbox.ui.components.FullPageState
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import androidx.compose.foundation.lazy.staggeredgrid.itemsIndexed
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -21,7 +22,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -147,19 +147,13 @@ fun YellowPageScreen(onBack: () -> Unit) {
             modifier = Modifier.padding(padding.withoutTop(glass)).glassSource(glass).fillMaxSize()
         ) {
         when {
-            loading -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
-                item { Box(Modifier.fillParentMaxSize()) { com.xjtu.toolbox.ui.components.SkeletonList(Modifier.fillMaxSize(), rows = 8, rowHeight = 64.dp) } }
-            }
-            error != null && data == null -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
-                item {
-                    Box(Modifier.fillParentMaxSize()) {
-                        ErrorState(
-                            "加载失败：$error",
-                            onRetry = { scope.launch { load(force = true) } },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-                }
+            loading -> FullPageState(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) { com.xjtu.toolbox.ui.components.SkeletonList(Modifier.fillMaxSize(), rows = 8, rowHeight = 64.dp) }
+            error != null && data == null -> FullPageState(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
+                ErrorState(
+                    "加载失败：$error",
+                    onRetry = { scope.launch { load(force = true) } },
+                    modifier = Modifier.fillMaxSize()
+                )
             }
             // 宽屏机构卡分两三列（见 AdaptiveCardGrid）。卡片自带左右 16dp 外边距，列间距给 0。
             else -> com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid(

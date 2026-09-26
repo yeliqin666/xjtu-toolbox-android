@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.attendance
 
+import com.xjtu.toolbox.ui.components.FullPageState
 import androidx.compose.ui.graphics.Color
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
@@ -201,20 +202,16 @@ fun AttendanceScreen(
         }
         when {
             state.loading && !state.hasData && state.error == null -> {
-                LazyColumn(
+                FullPageState(
                     Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
                     contentPadding = PaddingValues(top = glassTop)
-                ) {
-                    item { Box(Modifier.fillParentMaxSize()) { com.xjtu.toolbox.ui.components.SkeletonList(Modifier.fillMaxSize(), rows = 6, rowHeight = 88.dp) } }
-                }
+                ) { com.xjtu.toolbox.ui.components.SkeletonList(Modifier.fillMaxSize(), rows = 6, rowHeight = 88.dp) }
             }
             state.error != null && !state.hasData -> {
-                LazyColumn(
+                FullPageState(
                     Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
                     contentPadding = PaddingValues(top = glassTop)
-                ) {
-                    item { Box(Modifier.fillParentMaxSize()) { ErrorState(message = state.error.orEmpty(), onRetry = { vm.load() }, modifier = Modifier.fillMaxSize()) } }
-                }
+                ) { ErrorState(message = state.error.orEmpty(), onRetry = { vm.load() }, modifier = Modifier.fillMaxSize()) }
             }
             else -> {
                 PullToRefresh(

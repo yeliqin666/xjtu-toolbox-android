@@ -1,8 +1,8 @@
 package com.xjtu.toolbox.judge
 
+import com.xjtu.toolbox.ui.components.FullPageState
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.staggeredgrid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -141,20 +141,8 @@ private fun <Q> JudgeContent(title: String, vm: JudgeViewModel<Q>, onBack: () ->
                 modifier = Modifier.fillMaxSize()
             ) {
                 when {
-                    vm.isLoading -> LazyColumn(Modifier.fillMaxSize().padding(top = glassTop)) {
-                        item {
-                            Box(Modifier.fillParentMaxSize()) {
-                                LoadingState(message = "正在加载评教列表...", modifier = Modifier.fillMaxSize())
-                            }
-                        }
-                    }
-                    vm.errorMessage != null -> LazyColumn(Modifier.fillMaxSize().padding(top = glassTop)) {
-                        item {
-                            Box(Modifier.fillParentMaxSize()) {
-                                ErrorState(message = vm.errorMessage.orEmpty(), onRetry = { vm.load() }, modifier = Modifier.fillMaxSize())
-                            }
-                        }
-                    }
+                    vm.isLoading -> FullPageState(Modifier.fillMaxSize().padding(top = glassTop)) { LoadingState(message = "正在加载评教列表...", modifier = Modifier.fillMaxSize()) }
+                    vm.errorMessage != null -> FullPageState(Modifier.fillMaxSize().padding(top = glassTop)) { ErrorState(message = vm.errorMessage.orEmpty(), onRetry = { vm.load() }, modifier = Modifier.fillMaxSize()) }
                     else -> AppTabPager(
                         pageCount = 2,
                         selectedTabIndex = selectedTab,
@@ -163,16 +151,12 @@ private fun <Q> JudgeContent(title: String, vm: JudgeViewModel<Q>, onBack: () ->
                     ) { tab ->
                         val list = if (tab == 0) vm.unfinished else vm.finished
                         if (list.isEmpty()) {
-                            LazyColumn(Modifier.fillMaxSize().padding(top = glassTop)) {
-                                item {
-                                    Box(Modifier.fillParentMaxSize()) {
-                                        EmptyState(
-                                            title = if (tab == 0) "暂无待评课程" else "暂无已评课程",
-                                            subtitle = if (tab == 0) "本学期所有课程均已完成评教" else "尚未完成任何课程评教",
-                                            modifier = Modifier.fillMaxSize()
-                                        )
-                                    }
-                                }
+                            FullPageState(Modifier.fillMaxSize().padding(top = glassTop)) {
+                                EmptyState(
+                                    title = if (tab == 0) "暂无待评课程" else "暂无已评课程",
+                                    subtitle = if (tab == 0) "本学期所有课程均已完成评教" else "尚未完成任何课程评教",
+                                    modifier = Modifier.fillMaxSize()
+                                )
                             }
                         } else {
                             com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid(

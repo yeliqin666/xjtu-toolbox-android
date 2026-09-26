@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.score
 
+import com.xjtu.toolbox.ui.components.FullPageState
 import com.xjtu.toolbox.ui.glass.*
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -19,7 +20,6 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ExpandLess
@@ -170,22 +170,16 @@ fun ScoreReportScreen(
         ) {
             when {
             isLoading -> {
-                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
-                    item { Box(Modifier.fillParentMaxSize()) { LoadingState(message = "正在加载成绩报表...", modifier = Modifier.fillMaxSize()) } }
-                }
+                FullPageState(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) { LoadingState(message = "正在加载成绩报表...", modifier = Modifier.fillMaxSize()) }
             }
 
             errorMessage != null && allGrades.isEmpty() -> {
-                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
-                    item {
-                        Box(Modifier.fillParentMaxSize()) {
-                            ErrorState(
-                                message = errorMessage!!,
-                                onRetry = { loadData() },
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-                    }
+                FullPageState(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
+                    ErrorState(
+                        message = errorMessage!!,
+                        onRetry = { loadData() },
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
             }
 

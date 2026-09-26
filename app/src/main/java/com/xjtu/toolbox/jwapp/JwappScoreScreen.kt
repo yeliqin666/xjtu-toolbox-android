@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.jwapp
 
+import com.xjtu.toolbox.ui.components.FullPageState
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xjtu.toolbox.ui.adaptive.AdaptiveRowGrid
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
@@ -45,7 +46,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
@@ -250,32 +250,22 @@ fun JwappScoreScreen(
         val glassTop = padding.glassTop(glass)
         when {
             vm.isLoading -> {
-                LazyColumn(
+                FullPageState(
                     Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
                     contentPadding = PaddingValues(top = glassTop),
-                ) {
-                    item {
-                        Box(Modifier.fillParentMaxSize()) {
-                            LoadingState(message = "正在加载成绩数据...", modifier = Modifier.fillMaxSize())
-                        }
-                    }
-                }
+                ) { LoadingState(message = "正在加载成绩数据...", modifier = Modifier.fillMaxSize()) }
             }
 
             vm.errorMessage != null -> {
-                LazyColumn(
+                FullPageState(
                     Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
                     contentPadding = PaddingValues(top = glassTop),
                 ) {
-                    item {
-                        Box(Modifier.fillParentMaxSize()) {
-                            ErrorState(
-                                message = vm.errorMessage.orEmpty(),
-                                onRetry = vm::retry,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-                    }
+                    ErrorState(
+                        message = vm.errorMessage.orEmpty(),
+                        onRetry = vm::retry,
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
             }
 

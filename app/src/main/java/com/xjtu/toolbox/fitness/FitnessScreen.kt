@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.fitness
 
+import com.xjtu.toolbox.ui.components.FullPageState
 import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.auth.AuthExpiredException
@@ -208,19 +209,9 @@ fun FitnessScreen(
             modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass)
         ) {
         when {
-            loading && score == null -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
-                item { Box(Modifier.fillParentMaxSize()) { LoadingState("正在读取体测成绩…", Modifier.fillMaxSize()) } }
-            }
-            years.isEmpty() && error != null && score == null -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
-                item {
-                    Box(Modifier.fillParentMaxSize()) {
-                        ErrorState("查询失败：$error", onRetry = { scope.launch { loadYears() } }, modifier = Modifier.fillMaxSize())
-                    }
-                }
-            }
-            years.isEmpty() -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) {
-                item { Box(Modifier.fillParentMaxSize()) { EmptyState("暂无可查询的体测学年", modifier = Modifier.fillMaxSize()) } }
-            }
+            loading && score == null -> FullPageState(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) { LoadingState("正在读取体测成绩…", Modifier.fillMaxSize()) }
+            years.isEmpty() && error != null && score == null -> FullPageState(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) { ErrorState("查询失败：$error", onRetry = { scope.launch { loadYears() } }, modifier = Modifier.fillMaxSize()) }
+            years.isEmpty() -> FullPageState(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = glassTop)) { EmptyState("暂无可查询的体测学年", modifier = Modifier.fillMaxSize()) }
             else -> {
             // 宽屏两栏：左边学年 + 总分，右边各项目成绩。以前一列卡片横跨整个平板，
             // 项目名在最左、分数在最右，中间隔着大半个屏幕。
