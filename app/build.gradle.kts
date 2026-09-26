@@ -167,11 +167,11 @@ androidComponents {
     }
 }
 
-// miuix 走 latest.release：拒掉预发布版本，并且每次构建都向远端确认最新版
-// （Gradle 默认把动态版本缓存 24 小时）。只作用于 miuix 这一个 group，其余依赖都是钉死的版本。
+// miuix 走 latest.release：拒掉预发布版本；解析到的最新版本号缓存 30 分钟，
+// 既能跟上新版本，又不会因为一次网络抖动让构建失败
 configurations.configureEach {
     resolutionStrategy {
-        cacheDynamicVersionsFor(0, TimeUnit.SECONDS)
+        cacheDynamicVersionsFor(30, TimeUnit.MINUTES)
         componentSelection.all {
             if (candidate.group == "top.yukonga.miuix.kmp" &&
                 Regex("(?i)(alpha|beta|rc|dev|snapshot)").containsMatchIn(candidate.version)
