@@ -438,4 +438,4 @@ private fun MdImage(alt: String, url: String, linkColor: Color, onClick: () -> U
     }
 }
 
-private fun android.graphics.Bitmap.asImageBitmapCompat() = asImageBitmap()
+internal fun android.graphics.Bitmap.asImageBitmapCompat() = asImageBitmap()
