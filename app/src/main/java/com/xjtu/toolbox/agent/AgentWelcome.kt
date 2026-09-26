@@ -160,7 +160,7 @@ private val TintRose = Color(0xFFF43F5E)
 private val TintViolet = Color(0xFF8B5CF6)
 private val TintGreen = Color(0xFF22C55E)
 
-internal fun hhmm(t: LocalTime?): String = t?.let { "%02d:%02d".format(it.hour, it.minute) } ?: ""
+private fun hhmm(t: LocalTime?): String = t?.let { "%02d:%02d".format(it.hour, it.minute) } ?: ""
 
 /** 按时段排好的问题卡片，最多 4 张（两列排两行正好）。 */
 private fun buildSuggestions(f: WelcomeFacts, now: LocalDateTime): List<Suggestion> {

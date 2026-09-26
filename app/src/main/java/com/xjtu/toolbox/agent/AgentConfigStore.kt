@@ -142,7 +142,7 @@ class AgentConfigStore(context: Context) {
  *   所以必须按 `safeSuffix()` 分别缓存。
  */
 private val securePrefsCache = java.util.concurrent.ConcurrentHashMap<String, SharedPreferences>()
-internal val prefsCache = java.util.concurrent.ConcurrentHashMap<String, SharedPreferences>()
+private val prefsCache = java.util.concurrent.ConcurrentHashMap<String, SharedPreferences>()
 
 private val securePrefs: SharedPreferences
     get() = securePrefsCache.getOrPut(AccountContext.safeSuffix()) {
