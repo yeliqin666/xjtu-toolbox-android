@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.webvpn
 
-import com.xjtu.toolbox.ui.components.BackButton
 import com.xjtu.toolbox.util.redactUrl
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -26,7 +25,6 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -58,15 +56,11 @@ fun WebVpnConverterScreen(
     val glass = rememberPageGlass()
     Scaffold(
         topBar = {
-            TopAppBar(
+            GlassTopAppBar(
                 title = "WebVPN",
-                largeTitle = "WebVPN",
-                color = glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
+                glass = glass,
                 scrollBehavior = scrollBehavior,
-                navigationIcon = {
-                    BackButton(onBack)
-                }
+                onBack = onBack,
             )
         }
     ) { padding ->

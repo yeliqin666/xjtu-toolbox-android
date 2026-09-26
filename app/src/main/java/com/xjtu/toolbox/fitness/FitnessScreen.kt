@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.fitness
 
-import com.xjtu.toolbox.ui.components.BackButton
 import com.xjtu.toolbox.ui.components.FullPageState
 import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.auth.LocalAppLoginState
@@ -58,7 +57,6 @@ import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.PullToRefresh
-import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -183,15 +181,11 @@ fun FitnessScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            GlassTopAppBar(
                 title = "体测查询",
-                largeTitle = "体测查询",
-                color = glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
+                glass = glass,
                 scrollBehavior = scrollBehavior,
-                navigationIcon = {
-                    BackButton(onBack)
-                }
+                onBack = onBack,
             )
         }
     ) { padding ->

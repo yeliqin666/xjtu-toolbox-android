@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.lms
 
-import com.xjtu.toolbox.ui.components.BackButton
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.util.Log
@@ -126,15 +125,11 @@ internal fun ActivityDetailPage(
     val glass = rememberPageGlass()
     Scaffold(
         topBar = {
-            TopAppBar(
+            GlassTopAppBar(
                 title = activity.title,
-                largeTitle = activity.title,
-                color = glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
+                glass = glass,
                 scrollBehavior = scrollBehavior,
-                navigationIcon = {
-                    BackButton(onBack)
-                }
+                onBack = onBack,
             )
         }
     ) { padding ->

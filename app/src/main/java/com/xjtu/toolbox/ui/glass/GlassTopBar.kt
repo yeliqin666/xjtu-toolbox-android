@@ -28,6 +28,10 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import com.xjtu.toolbox.ui.components.BackButton
+import androidx.compose.foundation.layout.RowScope
+import top.yukonga.miuix.kmp.basic.ScrollBehavior
+import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -106,6 +110,29 @@ private class TopBarFollow(initial: Dp) {
 }
 
 private val topBarFollows = java.util.WeakHashMap<LayerBackdrop, TopBarFollow>()
+
+/** 二级页的标准顶栏：玻璃（经典风格下不透明）、大标题随滚动折叠、左上角返回。 */
+@Composable
+fun GlassTopAppBar(
+    title: String,
+    glass: LayerBackdrop?,
+    scrollBehavior: ScrollBehavior,
+    onBack: () -> Unit,
+    largeTitle: String = title,
+    actions: @Composable RowScope.() -> Unit = {},
+    bottomContent: @Composable () -> Unit = {},
+) {
+    TopAppBar(
+        title = title,
+        largeTitle = largeTitle,
+        color = glassBarColor(glass),
+        modifier = Modifier.glassTopBar(glass),
+        scrollBehavior = scrollBehavior,
+        navigationIcon = { BackButton(onBack) },
+        actions = actions,
+        bottomContent = bottomContent,
+    )
+}
 
 /** 顶栏底色：玻璃时透明，否则是 surface。 */
 @Composable

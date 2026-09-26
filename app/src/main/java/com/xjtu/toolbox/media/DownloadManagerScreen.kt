@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.media
 
-import com.xjtu.toolbox.ui.components.BackButton
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import android.content.Context
 import android.content.Intent
@@ -134,15 +133,11 @@ fun DownloadManagerScreen(
                     }
                 )
             } else {
-                TopAppBar(
+                GlassTopAppBar(
                     title = "下载管理",
-                    largeTitle = "下载管理",
-                    color = glassBarColor(glass),
-                    modifier = Modifier.glassTopBar(glass),
+                    glass = glass,
                     scrollBehavior = scrollBehavior,
-                    navigationIcon = {
-                        BackButton(onBack)
-                    },
+                    onBack = onBack,
                     actions = {
                         // 信息按钮 - 显示下载目录
                         IconButton(onClick = { showDirInfo.value = true }) {
@@ -155,7 +150,7 @@ fun DownloadManagerScreen(
                                 Icon(Icons.Default.DeleteSweep, contentDescription = "批量管理")
                             }
                         }
-                    }
+                    },
                 )
             }
         },

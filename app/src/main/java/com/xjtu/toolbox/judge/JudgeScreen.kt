@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.judge
 
-import com.xjtu.toolbox.ui.components.BackButton
 import com.xjtu.toolbox.ui.components.FullPageState
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
@@ -42,7 +41,6 @@ import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
@@ -78,15 +76,11 @@ private fun <Q> JudgeContent(title: String, vm: JudgeViewModel<Q>, onBack: () ->
     val glass = rememberPageGlass()
     Scaffold(
         topBar = {
-            TopAppBar(
+            GlassTopAppBar(
                 title = title,
-                color = glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
-                largeTitle = title,
+                glass = glass,
                 scrollBehavior = scrollBehavior,
-                navigationIcon = {
-                    BackButton(onBack)
-                },
+                onBack = onBack,
                 // 分段标签不跟着滚：挂在顶栏里和顶栏一起做一整块玻璃，课程卡从它下面滚过去
                 bottomContent = {
                     CompositionLocalProvider(LocalOnGlassBar provides (glass != null)) {

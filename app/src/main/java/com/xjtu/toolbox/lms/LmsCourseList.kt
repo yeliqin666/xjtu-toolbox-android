@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.lms
 
-import com.xjtu.toolbox.ui.components.BackButton
 import android.util.Log
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -95,15 +94,11 @@ internal fun CourseListPage(
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            GlassTopAppBar(
                 title = "思源学堂",
-                largeTitle = "思源学堂",
-                color = glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
+                glass = glass,
                 scrollBehavior = scrollBehavior,
-                navigationIcon = {
-                    BackButton(onBack)
-                }
+                onBack = onBack,
             )
         }
     ) { padding ->

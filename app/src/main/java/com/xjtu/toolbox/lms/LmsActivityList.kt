@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.lms
 
-import com.xjtu.toolbox.ui.components.BackButton
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.util.Log
 import androidx.activity.compose.BackHandler
@@ -106,15 +105,11 @@ internal fun ActivityListPage(
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            GlassTopAppBar(
                 title = course.name,
-                largeTitle = course.name,
-                color = glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
+                glass = glass,
                 scrollBehavior = scrollBehavior,
-                navigationIcon = {
-                    BackButton(onBack)
-                },
+                onBack = onBack,
                 actions = {
                     if (activities.any { it.type in BATCH_TYPES }) {
                         IconButton(onClick = {

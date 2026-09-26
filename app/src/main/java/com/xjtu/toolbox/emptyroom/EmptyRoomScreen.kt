@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.emptyroom
 
-import com.xjtu.toolbox.ui.components.BackButton
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xjtu.toolbox.ui.components.enterOnce
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -16,7 +15,6 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import androidx.activity.compose.BackHandler
-import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.basic.TextButton
@@ -320,15 +318,11 @@ fun EmptyRoomScreen(
     val glass = rememberPageGlass()
     Scaffold(
         topBar = {
-            TopAppBar(
+            GlassTopAppBar(
                 title = "空闲教室",
-                color = glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
-                largeTitle = "空闲教室",
+                glass = glass,
                 scrollBehavior = scrollBehavior,
-                navigationIcon = {
-                    BackButton(onBack)
-                },
+                onBack = onBack,
                 actions = {
                     Box {
                         IconButton(onClick = { showActionsMenu = true }) {
@@ -386,7 +380,7 @@ fun EmptyRoomScreen(
                             }
                         }
                     }
-                }
+                },
             )
         }
     ) { padding ->

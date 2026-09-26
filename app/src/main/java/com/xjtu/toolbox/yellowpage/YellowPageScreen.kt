@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.yellowpage
 
-import com.xjtu.toolbox.ui.components.BackButton
 import com.xjtu.toolbox.ui.components.FullPageState
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import androidx.compose.foundation.lazy.staggeredgrid.itemsIndexed
@@ -64,7 +63,6 @@ import top.yukonga.miuix.kmp.basic.PullToRefresh
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -121,15 +119,11 @@ fun YellowPageScreen(onBack: () -> Unit) {
     val glass = rememberPageGlass()
     Scaffold(
         topBar = {
-            TopAppBar(
+            GlassTopAppBar(
                 title = "校园黄页",
-                largeTitle = "校园黄页",
-                color = glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
+                glass = glass,
                 scrollBehavior = scrollBehavior,
-                navigationIcon = {
-                    BackButton(onBack)
-                }
+                onBack = onBack,
             )
         }
     ) { padding ->

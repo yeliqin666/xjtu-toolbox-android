@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.attendance
 
-import com.xjtu.toolbox.ui.components.BackButton
 import com.xjtu.toolbox.ui.components.FullPageState
 import androidx.compose.ui.graphics.Color
 import com.xjtu.toolbox.ui.adaptive.readableWidth
@@ -76,7 +75,6 @@ import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
-import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
@@ -130,15 +128,11 @@ fun AttendanceScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            TopAppBar(
+            GlassTopAppBar(
                 title = "考勤",
-                largeTitle = "考勤",
-                color = glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
+                glass = glass,
                 scrollBehavior = scrollBehavior,
-                navigationIcon = {
-                    BackButton(onBack)
-                },
+                onBack = onBack,
                 actions = {
                     // 快速考勤流水（电子班牌刷卡、人脸签到）：另一个系统的打卡记录，
                     // 首页不再单独放入口，改从这里进去，做法照搬成绩页右上角的「成绩报表」。

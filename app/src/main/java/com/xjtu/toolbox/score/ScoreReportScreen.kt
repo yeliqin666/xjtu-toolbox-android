@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.score
 
-import com.xjtu.toolbox.ui.components.BackButton
 import com.xjtu.toolbox.ui.components.FullPageState
 import com.xjtu.toolbox.ui.glass.*
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
@@ -10,7 +9,6 @@ import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.basic.PullToRefresh
@@ -142,15 +140,11 @@ fun ScoreReportScreen(
     val glass = rememberPageGlass()
     Scaffold(
         topBar = {
-            TopAppBar(
+            GlassTopAppBar(
                 title = "成绩报表",
-                color = glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
-                largeTitle = "成绩报表",
+                glass = glass,
                 scrollBehavior = scrollBehavior,
-                navigationIcon = {
-                    BackButton(onBack)
-                }
+                onBack = onBack,
             )
         }
     ) { padding ->

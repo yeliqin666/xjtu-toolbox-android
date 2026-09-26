@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.schedule
 
-import com.xjtu.toolbox.ui.components.BackButton
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -112,14 +111,11 @@ fun SchoolCourseScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            GlassTopAppBar(
                 title = "全校课程查询",
-                color = glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
+                glass = glass,
                 scrollBehavior = scrollBehavior,
-                navigationIcon = {
-                    BackButton(onBack)
-                }
+                onBack = onBack,
             )
         },
         snackbarHost = { SnackbarHost(snackbarState) }

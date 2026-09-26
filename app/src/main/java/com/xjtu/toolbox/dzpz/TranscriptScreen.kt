@@ -1,7 +1,6 @@
 package com.xjtu.toolbox.dzpz
 
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.xjtu.toolbox.ui.components.BackButton
 import androidx.compose.ui.graphics.graphicsLayer
 import android.content.ContentValues
 import android.content.Context
@@ -70,15 +69,11 @@ fun TranscriptScreen(
     // ── UI ──
     Scaffold(
         topBar = {
-            TopAppBar(
+            GlassTopAppBar(
                 title = "电子成绩单",
-                largeTitle = "电子成绩单",
-                color = glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
+                glass = glass,
                 scrollBehavior = scrollBehavior,
-                navigationIcon = {
-                    BackButton(onBack)
-                }
+                onBack = onBack,
             )
         }
     ) { padding ->

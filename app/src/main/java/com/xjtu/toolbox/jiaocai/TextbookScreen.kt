@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.jiaocai
 
-import com.xjtu.toolbox.ui.components.BackButton
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,7 +31,6 @@ import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SnackbarHost
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
-import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import com.xjtu.toolbox.nav.AppRoute
 
@@ -109,15 +107,11 @@ fun TextbookScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            TopAppBar(
+            GlassTopAppBar(
                 title = "教材",
-                largeTitle = "教材",
-                color = glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
+                glass = glass,
                 scrollBehavior = scrollBehavior,
-                navigationIcon = {
-                    BackButton(onBack)
-                },
+                onBack = onBack,
                 // 分段标签挂在顶栏里，和顶栏一起做一整块玻璃
                 bottomContent = {
                     CompositionLocalProvider(LocalOnGlassBar provides (glass != null)) {
