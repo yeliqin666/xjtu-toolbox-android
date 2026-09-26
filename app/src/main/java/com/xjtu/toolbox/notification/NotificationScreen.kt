@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.notification
 
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import com.xjtu.toolbox.ui.glass.*
@@ -27,7 +28,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -35,7 +35,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Merge
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -47,11 +46,6 @@ import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.AppSuggestionChip
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
-import com.xjtu.toolbox.ui.components.LoadingState
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 import com.xjtu.toolbox.nav.AppRoute
@@ -61,172 +55,44 @@ fun NotificationScreen(
     onBack: () -> Unit,
     onNavigate: (AppRoute) -> Unit = {}
 ) {
-    val api = remember { NotificationApi() }
-    val scope = rememberCoroutineScope()
-
-    // ── 状态 ──
-    var selectedCategory by rememberSaveable { mutableStateOf<SourceCategory?>(null) } // null = 全部分类
-    var selectedSource by rememberSaveable { mutableStateOf(NotificationSource.JWC) }
-    var mergeMode by rememberSaveable { mutableStateOf(false) }
-    var selectedSources by rememberSaveable { mutableStateOf(setOf(NotificationSource.JWC)) }
-
-    var notifications by remember { mutableStateOf<List<Notification>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
-    var isLoadingMore by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    /**
-     * 本轮哪些通知源被静默跳过（域名级失败/异常）：用于顶部 banner 告知用户
-     * 「这些来源可能没拉到，不要以为是没人发通知」。
-     */
-    var skippedSourceNotice by remember { mutableStateOf<String?>(null) }
-    var searchQuery by rememberSaveable { mutableStateOf("") }
-    var currentPage by rememberSaveable { mutableIntStateOf(1) }
-    var hasMorePages by remember { mutableStateOf(true) }
-
-    // 缓存
-    val cache = remember { mutableMapOf<Any, List<Notification>>() }
+    val vm: NotificationViewModel = viewModel()
+    val notifications = vm.notifications
+    val searching = vm.searching
     val listState = androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState()
 
     // 当前分类下的来源
-    val sourcesInCategory = remember(selectedCategory) {
-        if (selectedCategory == null) NotificationSource.entries.toList()
-        else NotificationSource.byCategory(selectedCategory!!)
-    }
-
-    // 缓存 key
-    val cacheKey: Any = if (mergeMode) selectedSources.toSortedSet().joinToString(",") else selectedSource
-
-    // ── 站内搜索 ──
-    // 以前只在已经抓回来的一两页里按标题筛，半年前的通知永远搜不到。现在停手 0.5 秒后
-    // 用各站自己的检索查全站（见 NotificationApi.search）；结果回来之前先拿本地筛的顶着，不空屏。
-    val searching = searchQuery.isNotBlank()
-    var searchResults by remember { mutableStateOf<List<Notification>?>(null) }
-    var searchLoading by remember { mutableStateOf(false) }
-    var searchNotice by remember { mutableStateOf<String?>(null) }
-    val searchSources = if (mergeMode) selectedSources.toList() else listOf(selectedSource)
-    LaunchedEffect(searchQuery, cacheKey) {
-        searchResults = null
-        searchNotice = null
-        val kw = searchQuery.trim()
-        if (kw.isEmpty()) { searchLoading = false; return@LaunchedEffect }
-        searchLoading = true
-        kotlinx.coroutines.delay(500)
-        try {
-            val r = api.search(searchSources, kw)
-            searchResults = r.items
-            searchNotice = r.skipped.takeIf { it.isNotEmpty() }
-                ?.joinToString("、") { it.displayName }?.let { "$it 这次没搜成，可能是网络问题或站点维护" }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            searchNotice = "站内搜索失败：${e.message ?: "未知错误"}，下面只是已加载通知里的匹配"
-        } finally {
-            searchLoading = false
-        }
+    val sourcesInCategory = remember(vm.selectedCategory) {
+        vm.selectedCategory?.let { NotificationSource.byCategory(it) } ?: NotificationSource.entries.toList()
     }
 
     // 展示的通知：没在搜就是列表；在搜时是站内结果，外加本地已加载里的匹配（合并去重、按日期）
-    val filteredNotifications = remember(notifications, searchQuery, searchResults) {
+    val filteredNotifications = remember(notifications, vm.searchQuery, vm.searchResults) {
         if (!searching) notifications
         else {
-            val local = notifications.filter { it.title.contains(searchQuery.trim(), ignoreCase = true) }
-            val remote = searchResults
+            val local = notifications.filter { it.title.contains(vm.searchQuery.trim(), ignoreCase = true) }
+            val remote = vm.searchResults
             if (remote == null) local
             else (remote + local).distinctBy { it.link }.sortedByDescending { it.date }
         }
     }
 
-    // ── 加载通知（suspend 版，由 LaunchedEffect / scope.launch 调用） ──
-    suspend fun loadNotifications(page: Int = 1, append: Boolean = false) {
-        if (!append && cache[cacheKey] == null) isLoading = true
-        errorMessage = null
-        try {
-            val fetched = withContext(Dispatchers.IO) {
-                if (mergeMode) {
-                    api.getMergedNotificationsWithSkipped(selectedSources.toList(), page)
-                } else {
-                    val pageResult = try {
-                        api.getNotificationPage(selectedSource, page)
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (_: Exception) {
-                        NotificationPage(emptyList(), false)
-                    }
-                    MergedNotificationPage(pageResult.items, emptySet(), pageResult.hasMore)
-                }
-            }
-            skippedSourceNotice = if (fetched.skipped.isNotEmpty()) {
-                fetched.skipped.joinToString("、") { it.displayName } + " 暂不可达，可能是网络问题或站点维护"
-            } else null
-
-            val incoming = fetched.items
-            if (append) {
-                val seen = notifications.map { it.link }.toHashSet()
-                val fresh = incoming.filter { it.link !in seen }
-                if (fresh.isEmpty()) hasMorePages = false
-                else {
-                    notifications = notifications + fresh
-                    cache[cacheKey] = notifications
-                    hasMorePages = fetched.hasMore
-                }
-            } else {
-                notifications = incoming
-                cache[cacheKey] = incoming
-                hasMorePages = fetched.hasMore
-            }
-            currentPage = page
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            if (!append) errorMessage = "加载失败: ${e.message}"
-            else hasMorePages = false
-        } finally {
-            isLoading = false
-            isLoadingMore = false
-        }
-    }
-
-    // 来源/模式切换 → 加载 + 滚动归顶
-    LaunchedEffect(selectedSource, mergeMode, selectedSources.size) {
-        currentPage = 1
-        hasMorePages = true
-        cache[cacheKey]?.let { notifications = it }
-        loadNotifications()
-        // scrollToItem 必须在 loadNotifications 之后：
-        // 首次加载时 LazyColumn 不存在（显示 LoadingState），
-        // 如果先 scroll 会无限挂起导致 loadNotifications 永不执行
-        try {
-            listState.scrollToItem(0)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {}
+    // 换来源 / 模式后的内容回来了：滚回顶部
+    LaunchedEffect(vm.reloadGeneration) {
+        if (vm.reloadGeneration > 0) runCatching { listState.scrollToItem(0) }
     }
 
     // 滑动到底自动翻页
-    val shouldLoadMore by remember(hasMorePages) {
+    val shouldLoadMore by remember(vm.hasMorePages) {
         derivedStateOf {
-            if (!hasMorePages) return@derivedStateOf false
+            if (!vm.hasMorePages) return@derivedStateOf false
             // 瀑布流里可见项不一定按下标排好，取最大的下标
             val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.maxOfOrNull { it.index } ?: return@derivedStateOf false
             val totalItems = listState.layoutInfo.totalItemsCount
             totalItems > 0 && lastVisibleIndex >= totalItems - 3
         }
     }
-
-    // 和加餐券页一样：真正的请求丢进 scope，不要写在这个 Effect 里。
-    // 若把 isLoadingMore 当 key 又在 Effect 里 await，状态一改 Effect 就会被取消；
-    // CancellationException 再被当成普通失败，hasMorePages 会被关掉，之后怎么拉都不翻页。
-    fun requestLoadMore() {
-        // 搜索结果一次取齐（每个来源前两页），不跟着列表翻页
-        if (searching || isLoading || isLoadingMore || !hasMorePages || filteredNotifications.isEmpty()) return
-        isLoadingMore = true
-        scope.launch { loadNotifications(page = currentPage + 1, append = true) }
-    }
-
-    LaunchedEffect(shouldLoadMore, isLoadingMore, isLoading) {
-        if (shouldLoadMore && hasMorePages && !isLoading && !isLoadingMore && filteredNotifications.isNotEmpty()) {
-            requestLoadMore()
-        }
+    LaunchedEffect(shouldLoadMore, vm.isLoadingMore, vm.isLoading) {
+        if (shouldLoadMore) vm.loadMore()
     }
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
@@ -246,16 +112,11 @@ fun NotificationScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = {
-                        mergeMode = !mergeMode
-                        if (mergeMode && selectedSources.isEmpty()) {
-                            selectedSources = setOf(selectedSource)
-                        }
-                    }) {
+                    IconButton(onClick = vm::toggleMerge) {
                         Icon(
                             Icons.Default.Merge,
-                            contentDescription = if (mergeMode) "取消合并" else "合并模式",
-                            tint = if (mergeMode) MiuixTheme.colorScheme.primary
+                            contentDescription = if (vm.mergeMode) "取消合并" else "合并模式",
+                            tint = if (vm.mergeMode) MiuixTheme.colorScheme.primary
                             else MiuixTheme.colorScheme.onSurfaceVariantSummary
                         )
                     }
@@ -274,13 +135,13 @@ fun NotificationScreen(
                     ) {
                         val allCats = listOf<SourceCategory?>(null) + SourceCategory.entries
                         allCats.forEach { cat ->
-                            val isSelected = selectedCategory == cat
+                            val isSelected = vm.selectedCategory == cat
                             val label = cat?.displayName ?: "全部"
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(8.dp))
-                                    .clickable { selectedCategory = cat }
+                                    .clickable { vm.selectedCategory = cat }
                                     .padding(horizontal = 14.dp, vertical = 8.dp)
                             ) {
                                 Text(
@@ -322,22 +183,18 @@ fun NotificationScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         sourcesInCategory.forEach { source ->
-                            if (mergeMode) {
+                            if (vm.mergeMode) {
                                 AppFilterChip(
-                                    selected = source in selectedSources,
+                                    selected = source in vm.selectedSources,
                                     onClick = {
-                                        selectedSources = if (source in selectedSources) {
-                                            if (selectedSources.size > 1) selectedSources - source else selectedSources
-                                        } else {
-                                            selectedSources + source
-                                        }
+                                        vm.toggleSource(source)
                                     },
                                     label = source.displayName
                                 )
                             } else {
                                 AppFilterChip(
-                                    selected = source == selectedSource,
-                                    onClick = { selectedSource = source },
+                                    selected = source == vm.selectedSource,
+                                    onClick = { vm.selectedSource = source },
                                     label = source.displayName
                                 )
                             }
@@ -345,7 +202,7 @@ fun NotificationScreen(
                     }
 
                     // 合并模式提示
-                    if (mergeMode) {
+                    if (vm.mergeMode) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -360,7 +217,7 @@ fun NotificationScreen(
                                 tint = MiuixTheme.colorScheme.primary
                             )
                             Text(
-                                "已选 ${selectedSources.size} 个来源 · 按时间排列",
+                                "已选 ${vm.selectedSources.size} 个来源 · 按时间排列",
                                 style = MiuixTheme.textStyles.footnote1,
                                 color = MiuixTheme.colorScheme.primary
                             )
@@ -368,7 +225,7 @@ fun NotificationScreen(
                     }
 
                     // ═══ 加载条 ═══
-                    AnimatedVisibility((isLoading && notifications.isNotEmpty()) || searchLoading, enter = fadeIn(), exit = fadeOut()) {
+                    AnimatedVisibility((vm.isLoading && notifications.isNotEmpty()) || vm.searchLoading, enter = fadeIn(), exit = fadeOut()) {
                         LinearProgressIndicator(Modifier.fillMaxWidth())
                     }
                   }
@@ -387,8 +244,8 @@ fun NotificationScreen(
         ) {
             // 分类、来源两行在顶栏里（bottomContent）；列表把 glassTop 放进 contentPadding，
             // 不是列表的几种状态（加载中 / 出错 / 暂无）在这里让出顶栏高度
-            val listShown = !(isLoading && notifications.isEmpty()) &&
-                !(errorMessage != null && notifications.isEmpty()) &&
+            val listShown = !(vm.isLoading && notifications.isEmpty()) &&
+                !(vm.errorMessage != null && notifications.isEmpty()) &&
                 notifications.isNotEmpty()
             if (!listShown) Spacer(Modifier.height(glassTop))
 
@@ -399,14 +256,14 @@ fun NotificationScreen(
             // 输入框换了位置就会丢焦点，打字打到一半键盘收起来。
             val searchBar: @Composable (Modifier) -> Unit = { m ->
                 com.xjtu.toolbox.ui.components.AppSearchBar(
-                    query = searchQuery,
-                    onQueryChange = { searchQuery = it },
-                    label = if (mergeMode) "在已选的 ${selectedSources.size} 个来源里搜索" else "在${selectedSource.displayName}站内搜索",
+                    query = vm.searchQuery,
+                    onQueryChange = { vm.searchQuery = it },
+                    label = if (vm.mergeMode) "在已选的 ${vm.selectedSources.size} 个来源里搜索" else "在${vm.selectedSource.displayName}站内搜索",
                     modifier = m.fillMaxWidth()
                 )
             }
             // 通知源静默跳过提示：让用户知道"不是没通知，是某些源被静默"。
-            val bannerText = if (searching) searchNotice else skippedSourceNotice
+            val bannerText = if (searching) vm.searchNotice else vm.skippedSourceNotice
             val skippedNoticeBanner: @Composable (Modifier) -> Unit = { m ->
               bannerText?.let { msg ->
                 Surface(
@@ -442,14 +299,14 @@ fun NotificationScreen(
 
             // ═══ 内容区 ═══
             when {
-                isLoading && notifications.isEmpty() -> {
+                vm.isLoading && notifications.isEmpty() -> {
                     com.xjtu.toolbox.ui.components.SkeletonList(Modifier.fillMaxSize(), rows = 7, rowHeight = 84.dp)
                 }
 
-                errorMessage != null && notifications.isEmpty() -> {
+                vm.errorMessage != null && notifications.isEmpty() -> {
                     ErrorState(
-                        message = errorMessage ?: "未知错误",
-                        onRetry = { scope.launch { loadNotifications() } },
+                        message = vm.errorMessage ?: "未知错误",
+                        onRetry = vm::reload,
                         modifier = Modifier.fillMaxSize()
                     )
                 }
@@ -463,6 +320,7 @@ fun NotificationScreen(
                         )
                     } else {
                         var isPullRefreshing by remember { mutableStateOf(false) }
+                        LaunchedEffect(vm.isLoading) { if (!vm.isLoading) isPullRefreshing = false }
                         top.yukonga.miuix.kmp.basic.PullToRefresh(
                             refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
                             // 顶栏折叠交给下拉刷新协调：往下拉先展开大标题，展开完才算下拉刷新。不传的话下拉刷新先把拖动吃掉，慢慢拉只会刷新、标题展不开
@@ -470,13 +328,7 @@ fun NotificationScreen(
                             isRefreshing = isPullRefreshing,
                             onRefresh = {
                                 isPullRefreshing = true
-                                scope.launch {
-                                    cache.remove(cacheKey)
-                                    currentPage = 1
-                                    hasMorePages = true
-                                    loadNotifications()
-                                    isPullRefreshing = false
-                                }
+                                vm.refresh()
                             },
                             // 下拉指示器从玻璃顶栏（含分类、来源两行）下面出来
                             contentPadding = PaddingValues(top = glassTop),
@@ -493,7 +345,7 @@ fun NotificationScreen(
                             if (bannerText != null) {
                                 fullLineItem(key = "skipped") { skippedNoticeBanner(Modifier) }
                             }
-                            if (searching && !searchLoading && searchResults != null && filteredNotifications.isNotEmpty()) {
+                            if (searching && !vm.searchLoading && vm.searchResults != null && filteredNotifications.isNotEmpty()) {
                                 fullLineItem(key = "search_count") {
                                     Text(
                                         "站内搜到 ${filteredNotifications.size} 条 · 按时间排列",
@@ -505,7 +357,7 @@ fun NotificationScreen(
                             }
                             if (filteredNotifications.isEmpty()) {
                                 fullLineItem(key = "no_match") {
-                                    if (searching && searchLoading) {
+                                    if (searching && vm.searchLoading) {
                                         Box(Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
                                             CircularProgressIndicator(size = 24.dp)
                                         }
@@ -527,7 +379,7 @@ fun NotificationScreen(
                                 androidx.compose.foundation.layout.Box(Modifier.enterOnce(index)) {
                                 NotificationCard(
                                     notification = notification,
-                                    showSource = mergeMode,
+                                    showSource = vm.mergeMode,
                                     onClick = {
                                         onNavigate(AppRoute.Browser(notification.link))
                                     }
@@ -535,7 +387,7 @@ fun NotificationScreen(
                                 }
                             }
 
-                            if (!searching && (hasMorePages || isLoadingMore)) {
+                            if (!searching && (vm.hasMorePages || vm.isLoadingMore)) {
                                 fullLineItem {
                                     Box(
                                         modifier = Modifier.fillMaxWidth().padding(16.dp),
