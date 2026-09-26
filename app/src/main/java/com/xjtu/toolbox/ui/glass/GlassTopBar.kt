@@ -17,7 +17,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.layout.layout
@@ -63,34 +62,27 @@ fun rememberPageGlass(): LayerBackdrop? {
  */
 fun Modifier.glassSource(backdrop: LayerBackdrop?): Modifier {
     if (backdrop == null) return this
-    return this.layerBackdrop(backdrop).shiftUpBy(
-        max = { topBarFollows[backdrop]?.stable ?: 0.dp },
-        amount = {
-            val follow = topBarFollows[backdrop] ?: return@shiftUpBy 0.dp
-            follow.stable - follow.current()
-        },
-    )
+    return this.layerBackdrop(backdrop).shiftUpBy {
+        val follow = topBarFollows[backdrop] ?: return@shiftUpBy 0.dp
+        follow.stable - follow.current()
+    }
 }
 
 /**
- * 内容往上挪 [amount]（布局阶段算），底边不动。
- * 按固定的上限 [max] 多量一截高度，折叠时只改摆放位置、不改测量约束——否则顶栏每折叠一帧，
- * 整页列表都要重新测量。多出来的部分裁掉。
+ * 内容往上挪 [amount]（布局阶段算），高度补上同样的量，底边不动。
+ * 高度必须随位移变：固定多量一截的话，折叠后内容底部会落到可视区外面、滑不到。
  */
-private fun Modifier.shiftUpBy(max: () -> Dp, amount: () -> Dp): Modifier =
-    this
-        .clipToBounds()
-        .layout { measurable, constraints ->
-            val extra = max().roundToPx().coerceAtLeast(0)
-            val shift = amount().roundToPx().coerceIn(0, extra)
-            val c = if (constraints.hasBoundedHeight) {
-                constraints.copy(minHeight = constraints.minHeight + extra, maxHeight = constraints.maxHeight + extra)
-            } else constraints
-            val placeable = measurable.measure(c)
-            layout(placeable.width, constraints.constrainHeight(placeable.height - extra)) {
-                placeable.place(0, -shift)
-            }
+private fun Modifier.shiftUpBy(amount: () -> Dp): Modifier =
+    this.layout { measurable, constraints ->
+        val shift = amount().roundToPx().coerceAtLeast(0)
+        val c = if (constraints.hasBoundedHeight) {
+            constraints.copy(minHeight = constraints.minHeight + shift, maxHeight = constraints.maxHeight + shift)
+        } else constraints
+        val placeable = measurable.measure(c)
+        layout(placeable.width, constraints.constrainHeight(placeable.height - shift)) {
+            placeable.place(0, -shift)
         }
+    }
 
 /** 自己管采样层的页面（主界面各 tab、校园卡）：稳定的顶部留白，配合 [followTopBar] 补位移。 */
 @Composable
@@ -104,7 +96,7 @@ fun rememberStableTopPadding(padding: PaddingValues): androidx.compose.runtime.S
 
 /** 内容按 [stableTop] 留白排版，实际顶栏（[padding]）矮多少就往上挪多少。只在布局阶段读。 */
 fun Modifier.followTopBar(stableTop: () -> Dp, padding: PaddingValues): Modifier =
-    shiftUpBy(max = stableTop, amount = { stableTop() - padding.calculateTopPadding() })
+    shiftUpBy { stableTop() - padding.calculateTopPadding() }
 
 /** 顶栏高度：[stable] 是见过的最大值，[current] 只在布局阶段读。 */
 private class TopBarFollow(initial: Dp) {
