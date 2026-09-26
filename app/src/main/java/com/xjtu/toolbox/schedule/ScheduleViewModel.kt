@@ -10,7 +10,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.gson.Gson
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.auth.AppLoginState
 import com.xjtu.toolbox.auth.AuthExpiredException
@@ -54,25 +53,17 @@ private data class ScheduleDiskSnapshot(
     val startDate: LocalDate? = null,
 )
 
-private fun readScheduleDiskSnapshot(dataCache: DataCache, gson: Gson): ScheduleDiskSnapshot {
-    val termList = dataCache.get("schedule_term_list", Long.MAX_VALUE)?.let { json ->
-        try { gson.fromJson(json, Array<String>::class.java).toList() } catch (_: Exception) { emptyList() }
-    }.orEmpty()
-    val termCode = dataCache.get("schedule_last_term", Long.MAX_VALUE)?.trim('"').orEmpty()
-        .ifEmpty { termList.firstOrNull().orEmpty() }
+private fun readScheduleDiskSnapshot(dataCache: DataCache): ScheduleDiskSnapshot {
+    val termList = ScheduleCache.readTermList(dataCache)
+    val termCode = ScheduleCache.readLastTerm(dataCache) ?: termList.firstOrNull().orEmpty()
     if (termCode.isEmpty()) return ScheduleDiskSnapshot(termList = termList)
-    val courses = ScheduleCache.readOptimizedCourses(dataCache, gson, termCode)
-        ?: dataCache.get("schedule_$termCode", Long.MAX_VALUE)?.let { json ->
-            try { gson.fromJson(json, Array<CourseItem>::class.java).toList().map { it.sanitized() } } catch (_: Exception) { null }
-        }
-        ?: emptyList()
-    val exams = dataCache.get("exams_$termCode", Long.MAX_VALUE)?.let { json ->
-        try { gson.fromJson(json, Array<ExamItem>::class.java).toList().map { it.sanitized() } } catch (_: Exception) { emptyList() }
-    }.orEmpty()
-    val startDate = dataCache.get("start_date_$termCode", Long.MAX_VALUE)?.let { json ->
-        try { LocalDate.parse(json.trim('"')) } catch (_: Exception) { null }
-    }
-    return ScheduleDiskSnapshot(termList, termCode, courses, exams, startDate)
+    return ScheduleDiskSnapshot(
+        termList = termList,
+        termCode = termCode,
+        courses = ScheduleCache.readCourses(dataCache, termCode).orEmpty(),
+        exams = ScheduleCache.readExams(dataCache, termCode).orEmpty(),
+        startDate = ScheduleCache.readStartDate(dataCache, termCode),
+    )
 }
 
 /**
@@ -81,7 +72,6 @@ private fun readScheduleDiskSnapshot(dataCache: DataCache, gson: Gson): Schedule
  */
 internal class ScheduleViewModel(context: Context, private val login: AppLoginState) : ViewModel() {
     private val context = context.applicationContext
-    private val gson = Gson()
     private val customCourseDao = AppDatabase.getInstance(this.context).customCourseDao()
     private val eventChannel = Channel<ScheduleEvent>(Channel.BUFFERED)
     val events = eventChannel.receiveAsFlow()
@@ -89,7 +79,7 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
     private var accountId by mutableStateOf(login.accountId)
     // DataCache 构造时绑定账号，切账号后换新实例
     private var dataCache = DataCache(this.context, accountId.ifEmpty { null })
-    private val disk = readScheduleDiskSnapshot(dataCache, gson)
+    private val disk = readScheduleDiskSnapshot(dataCache)
 
     var activeSite by mutableStateOf<SiteSession?>(null); private set
     var api by mutableStateOf<ScheduleApi?>(null); private set
@@ -177,7 +167,7 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
         ?: customCourses.maxOfOrNull { it.weekBits.length }?.takeIf { it > 0 }
         ?: TermWeeks.DEFAULT_TOTAL_WEEKS
 
-    fun termLabel(code: String): String = ScheduleTermStore.display(code, dataCache, gson, api)
+    fun termLabel(code: String): String = ScheduleTermStore.display(code, dataCache, api)
 
     private fun send(event: ScheduleEvent) { viewModelScope.launch { eventChannel.send(event) } }
 
@@ -298,10 +288,7 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
             userInitiated = userInitiated,
         )
 
-    private fun readCachedTerms(): List<String> {
-        val json = dataCache.get("schedule_term_list", Long.MAX_VALUE) ?: return emptyList()
-        return try { gson.fromJson(json, Array<String>::class.java).toList() } catch (_: Exception) { emptyList() }
-    }
+    private fun readCachedTerms(): List<String> = ScheduleCache.readTermList(dataCache)
 
     private fun applyTermStart(startDate: LocalDate) {
         startOfTerm = startDate
@@ -326,20 +313,9 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
         if (termCode.isEmpty()) return -1
         selectedTermCode = termCode
         currentTermCode = termCode
-        val optimized = ScheduleCache.readOptimizedCourses(dataCache, gson, termCode)
-        if (optimized != null) {
-            courses = optimized
-        } else {
-            dataCache.get("schedule_$termCode", Long.MAX_VALUE)?.let { cached ->
-                try { courses = gson.fromJson(cached, Array<CourseItem>::class.java).toList().map { it.sanitized() } } catch (_: Exception) {}
-            }
-        }
-        dataCache.get("exams_$termCode", Long.MAX_VALUE)?.let { json ->
-            try { exams = gson.fromJson(json, Array<ExamItem>::class.java).toList().map { it.sanitized() } } catch (_: Exception) {}
-        }
-        dataCache.get("start_date_$termCode", Long.MAX_VALUE)?.let { json ->
-            try { applyTermStart(LocalDate.parse(json.trim('"'))) } catch (_: Exception) { currentWeek = 1 }
-        }
+        ScheduleCache.readCourses(dataCache, termCode)?.let { courses = it }
+        ScheduleCache.readExams(dataCache, termCode)?.let { exams = it }
+        ScheduleCache.readStartDate(dataCache, termCode)?.let { applyTermStart(it) }
         return courses.size
     }
 
@@ -365,8 +341,7 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
                 withContext(Dispatchers.IO) {
                     val cachedTerms = readCachedTerms()
                     if (cachedTerms.isNotEmpty()) termList = cachedTerms
-                    val lastTerm = dataCache.get("schedule_last_term", Long.MAX_VALUE)?.trim('"').orEmpty()
-                        .ifEmpty { cachedTerms.firstOrNull().orEmpty() }
+                    val lastTerm = ScheduleCache.readLastTerm(dataCache) ?: cachedTerms.firstOrNull().orEmpty()
                     if (lastTerm.isNotEmpty() && paintCache(lastTerm) > 0) {
                         isLoading = false
                         isRefreshingFromNetwork = api != null
@@ -453,19 +428,19 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
             val holidays = holidayDates.ifEmpty { HolidayApi.peekCached(context) }
             if (holidays.isNotEmpty()) holidayDates = holidays
             val optimized = ScheduleCache.filterByHolidays(freshCourses, startDate, holidays)
-            val optimizedJson = gson.toJson(optimized)
-            val cachedOptimizedJson = dataCache.get(ScheduleCache.optimizedScheduleKey(termCode), Long.MAX_VALUE)
-            val contentChanged = cachedOptimizedJson == null || optimizedJson != cachedOptimizedJson
+            // 比对象不比 JSON 文本：新旧版本写出的格式不同，逐字比较会误报「日程有更新」
+            val cachedOptimized = ScheduleCache.readOptimizedCourses(dataCache, termCode, Long.MAX_VALUE)
+            val contentChanged = cachedOptimized == null || cachedOptimized != optimized.map { it.normalized() }
             if (courses.isEmpty() || contentChanged) courses = optimized
             showingStaleData = false
             isLoading = false
             isRefreshingFromNetwork = false
             send(ScheduleEvent.Loaded)
-            try { dataCache.put("schedule_$termCode", gson.toJson(freshCourses)) } catch (_: Exception) {}
-            try { dataCache.put(ScheduleCache.optimizedScheduleKey(termCode), optimizedJson) } catch (_: Exception) {}
+            ScheduleCache.writeRawCourses(dataCache, termCode, freshCourses)
+            ScheduleCache.writeOptimizedCourses(dataCache, termCode, optimized)
             // 叫醒首页：Hero 的「下一项安排」认 HomeSignals.scheduleVersion
             HomeSignals.scheduleVersion++
-            if (contentChanged && cachedOptimizedJson != null) send(ScheduleEvent.Message("日程有更新"))
+            if (contentChanged && cachedOptimized != null) send(ScheduleEvent.Message("日程有更新"))
             // 用未过滤节假日的课表比，否则放假会被误判成「课被取消了」
             ScheduleDiff.summarize(ScheduleDiff.diffAndStore(context, termCode, freshCourses))?.let { msg ->
                 ScheduleDiff.setPending(context, msg)
@@ -479,12 +454,12 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
         val termCode = termDeferred.await()
         ensureSameAccount()
         currentTermCode = termCode
-        ScheduleCache.writeCurrentTerm(dataCache, gson, termCode)
+        ScheduleCache.writeCurrentTerm(dataCache, termCode)
         // 用户本次主动切过学期时，不要再把视图拽回当前学期
         val keepUserTerm = userPickedTerm && lastTerm.isNotEmpty() && lastTerm != termCode
         if (!keepUserTerm) {
             selectedTermCode = termCode
-            try { dataCache.put("schedule_last_term", gson.toJson(termCode)) } catch (_: Exception) {}
+            ScheduleCache.writeLastTerm(dataCache, termCode)
         }
         if (!keepUserTerm && termCode != lastTerm && lastTerm.isNotEmpty()) {
             if (paintCache(termCode) > 0) {
@@ -500,12 +475,12 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
             paintCourses(termCode, freshCourses, startDate)
             if (startDate != null) {
                 applyTermStart(startDate)
-                try { dataCache.put("start_date_$termCode", gson.toJson(startDate.toString())) } catch (_: Exception) {}
+                ScheduleCache.writeStartDate(dataCache, termCode, startDate)
             }
             val freshExams = try { api.getExamSchedule(termCode) } catch (_: Exception) { exams }
             ensureSameAccount()
             exams = freshExams
-            if (freshExams.isNotEmpty()) try { dataCache.put("exams_$termCode", gson.toJson(freshExams)) } catch (_: Exception) {}
+            if (freshExams.isNotEmpty()) ScheduleCache.writeExams(dataCache, termCode, freshExams)
         } else {
             // 留在用户选的学期时认那一个学期：prefetch / 考试 / 开学日期本来就是按 lastTerm 发的
             val viewTerm = if (keepUserTerm) lastTerm else termCode
@@ -515,13 +490,13 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
             ensureSameAccount()
             if (startDate != null) {
                 applyTermStart(startDate)
-                try { dataCache.put("start_date_$viewTerm", gson.toJson(startDate.toString())) } catch (_: Exception) {}
+                ScheduleCache.writeStartDate(dataCache, viewTerm, startDate)
                 if (holidayDates.isNotEmpty()) courses = ScheduleCache.filterByHolidays(freshCourses, startDate, holidayDates)
             }
             val freshExams = examsDeferred.await()
             ensureSameAccount()
             exams = freshExams
-            if (freshExams.isNotEmpty()) try { dataCache.put("exams_$viewTerm", gson.toJson(freshExams)) } catch (_: Exception) {}
+            if (freshExams.isNotEmpty()) ScheduleCache.writeExams(dataCache, viewTerm, freshExams)
         }
         // 换季那几周教务的「当前学期」常还指着短学期 / 暑假，课表是空的：按日期推一个学期探一下
         var suggestion: String? = null
@@ -534,10 +509,10 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
         }
         val availableTerms = (termListDeferred.await() + readCachedTerms()).distinct()
         ensureSameAccount()
-        try { ScheduleTermStore.merge(dataCache, gson, api.termNames()) } catch (_: Exception) {}
+        try { ScheduleTermStore.merge(dataCache, api.termNames()) } catch (_: Exception) {}
         if (availableTerms.isNotEmpty()) {
             termList = availableTerms
-            try { dataCache.put("schedule_term_list", gson.toJson(availableTerms)) } catch (_: Exception) {}
+            ScheduleCache.writeTermList(dataCache, availableTerms)
         }
         suggestion
     }
@@ -578,9 +553,9 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
                     }
                     if (actualCurrent.isNotEmpty()) {
                         currentTermCode = actualCurrent
-                        ScheduleCache.writeCurrentTerm(dataCache, gson, actualCurrent)
+                        ScheduleCache.writeCurrentTerm(dataCache, actualCurrent)
                     }
-                    try { ScheduleTermStore.merge(dataCache, gson, api.termNames()) } catch (_: Exception) {}
+                    try { ScheduleTermStore.merge(dataCache, api.termNames()) } catch (_: Exception) {}
                     val termCode = viewing.ifEmpty { actualCurrent }
                     if (viewing.isEmpty() && termCode.isNotEmpty()) selectedTermCode = termCode
                     val apiCourses = try {
@@ -592,11 +567,9 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
                     // courses 只放教务结果，自定义日程另外拼，免得刷新后重复
                     courses = apiCourses
                     showingStaleData = false
-                    dataCache.put("schedule_$termCode", gson.toJson(apiCourses))
+                    ScheduleCache.writeRawCourses(dataCache, termCode, apiCourses)
                     // optimized 键也要跟上：首页 Hero 只认它
-                    try {
-                        ScheduleCache.writeOptimizedCourses(dataCache, gson, termCode, ScheduleCache.filterByHolidays(apiCourses, startOfTerm, holidayDates))
-                    } catch (_: Exception) {}
+                    ScheduleCache.writeOptimizedCourses(dataCache, termCode, ScheduleCache.filterByHolidays(apiCourses, startOfTerm, holidayDates))
                     HomeSignals.scheduleVersion++
                 }
             } catch (e: CancellationException) {
@@ -618,7 +591,7 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
         viewModelScope.launch {
             try {
                 val fresh = withContext(Dispatchers.IO) {
-                    api.getExamSchedule(term).also { dataCache.put("exams_$term", gson.toJson(it)) }
+                    api.getExamSchedule(term).also { ScheduleCache.writeExams(dataCache, term, it) }
                 }
                 exams = fresh
             } catch (e: CancellationException) {
@@ -682,13 +655,13 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
         viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) {
-                    ScheduleCache.readTextbooks(dataCache, gson, termCode, Long.MAX_VALUE)?.let { cached ->
+                    ScheduleCache.readTextbooks(dataCache, termCode, Long.MAX_VALUE)?.let { cached ->
                         textbooks = cached.sortedBy { if (it.hasSubstantiveTextbook) 0 else 1 }
                         textbooksLoaded = true
                     }
                     // 有教材的在前
                     textbooks = jw.getTextbooks(studentId, termCode).sortedBy { if (it.hasSubstantiveTextbook) 0 else 1 }
-                    ScheduleCache.writeTextbooks(dataCache, gson, termCode, textbooks)
+                    ScheduleCache.writeTextbooks(dataCache, termCode, textbooks)
                 }
                 textbooksLoaded = true
                 if (background) textbooksBackgroundError = null
@@ -723,7 +696,7 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
         if (newTermCode == selectedTermCode) return
         if (byUser) userPickedTerm = true
         selectedTermCode = newTermCode
-        try { dataCache.put("schedule_last_term", gson.toJson(newTermCode)) } catch (_: Exception) {}
+        ScheduleCache.writeLastTerm(dataCache, newTermCode)
         textbooksLoaded = false
         textbooks = emptyList()
         // 考试也要清：新学期没缓存时留着上学期的考试，比空着更糟
@@ -750,21 +723,12 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
 
     private suspend fun loadTerm(api: ScheduleApi?, term: String) {
         val isOldTerm = term != currentTermCode
-        val cachedExams = dataCache.get("exams_$term", DataCache.TERM_TTL_MS)
-        val optimized = ScheduleCache.readOptimizedCourses(dataCache, gson, term)
-        if (optimized != null) {
-            courses = optimized
-            cachedExams?.let { try { exams = gson.fromJson(it, Array<ExamItem>::class.java).toList().map { e -> e.sanitized() } } catch (_: Exception) {} }
-        } else {
-            dataCache.get("schedule_$term", Long.MAX_VALUE)?.let { cached ->
-                try {
-                    courses = gson.fromJson(cached, Array<CourseItem>::class.java).toList().map { it.sanitized() }
-                    if (cachedExams != null) exams = gson.fromJson(cachedExams, Array<ExamItem>::class.java).toList().map { it.sanitized() }
-                } catch (_: Exception) {}
-            }
+        ScheduleCache.readCourses(dataCache, term)?.let { cached ->
+            courses = cached
+            ScheduleCache.readExams(dataCache, term, DataCache.TERM_TTL_MS)?.let { exams = it }
         }
         // 已结束且本地是全的：一个请求都不发，想强制重拉走下拉刷新
-        val sealed = ScheduleCache.isSealed(dataCache, gson, term)
+        val sealed = ScheduleCache.isSealed(dataCache, term)
         if (api != null && !sealed) {
             try {
                 val freshCourses = fetchSchedule(api, term, userInitiated = true)
@@ -774,13 +738,11 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
                 holidayDates = freshHolidays
                 courses = ScheduleCache.filterByHolidays(freshCourses, freshStartDate, freshHolidays)
                 // 考试不分当前 / 历史一律落盘：否则这学期看过的考试等它封存后就再也拿不到
-                try { dataCache.put("exams_$term", gson.toJson(exams)) } catch (_: Exception) {}
+                ScheduleCache.writeExams(dataCache, term, exams)
                 if (isOldTerm) {
-                    try {
-                        dataCache.put("schedule_$term", gson.toJson(freshCourses))
-                        ScheduleCache.writeOptimizedCourses(dataCache, gson, term, courses)
-                        if (freshStartDate != null) dataCache.put("start_date_$term", gson.toJson(freshStartDate.toString()))
-                    } catch (_: Exception) {}
+                    ScheduleCache.writeRawCourses(dataCache, term, freshCourses)
+                    ScheduleCache.writeOptimizedCourses(dataCache, term, courses)
+                    if (freshStartDate != null) ScheduleCache.writeStartDate(dataCache, term, freshStartDate)
                 }
                 if (freshStartDate != null) startOfTerm = freshStartDate
             } catch (e: CancellationException) {
@@ -798,11 +760,11 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
             val startDate = if (api != null && !sealed) {
                 try { api.getStartOfTerm(term) } catch (_: Exception) { null }
             } else {
-                dataCache.get("start_date_$term", Long.MAX_VALUE)?.let { runCatching { LocalDate.parse(it.trim('"')) }.getOrNull() }
+                ScheduleCache.readStartDate(dataCache, term)
             }
             if (startDate != null) {
                 startOfTerm = startDate
-                if (api != null) try { dataCache.put("start_date_$term", gson.toJson(startDate.toString())) } catch (_: Exception) {}
+                if (api != null) ScheduleCache.writeStartDate(dataCache, term, startDate)
                 val status = TermWeeks.statusOf(startOfTerm = startDate, totalWeeks = weeksOf(courses), firstTeachWeek = TermWeeks.firstTeachWeekOf(courses))
                 if (status is TermWeeks.Status.AfterTerm) showAllWeeks = true
                 currentWeek = TermWeeks.displayWeekOf(status)

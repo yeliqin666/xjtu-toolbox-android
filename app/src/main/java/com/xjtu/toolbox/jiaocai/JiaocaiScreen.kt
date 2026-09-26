@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.jiaocai
 
+import com.xjtu.toolbox.schedule.ScheduleCache
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.spring
@@ -25,7 +26,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.google.gson.Gson
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.jiaocai1.Jiaocai1Api
 import com.xjtu.toolbox.jiaocai1.Jiaocai1SearchField
@@ -451,21 +451,11 @@ private fun MyTextbookRow(
     }
 }
 
-/** 读当前学期（term_list 第一个）的选用教材缓存，过滤掉"无教材"这类空信息。 */
+/** 本学期的选用教材缓存，滤掉「无教材」这类空信息。 */
 private fun loadCurrentTermTextbooks(context: android.content.Context): List<TextbookItem> {
     val dc = DataCache(context)
-    val gson = Gson()
-    val term = runCatching {
-        dc.get("schedule_term_list", Long.MAX_VALUE)
-            ?.let { gson.fromJson(it, Array<String>::class.java)?.firstOrNull() }
-    }.getOrNull() ?: return emptyList()
-    return runCatching {
-        dc.get("schedule_textbooks_$term", Long.MAX_VALUE)?.let { json ->
-            gson.fromJson(json, Array<TextbookItem>::class.java)
-                .map { it.sanitized() }
-                .filter { it.hasSubstantiveTextbook }
-        }
-    }.getOrNull().orEmpty()
+    val term = ScheduleCache.readCurrentTerm(dc) ?: return emptyList()
+    return ScheduleCache.readTextbooks(dc, term, Long.MAX_VALUE).orEmpty().filter { it.hasSubstantiveTextbook }
 }
 
 /**

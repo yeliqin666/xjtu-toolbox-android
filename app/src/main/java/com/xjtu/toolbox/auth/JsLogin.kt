@@ -1,5 +1,12 @@
 package com.xjtu.toolbox.auth
 
+import com.xjtu.toolbox.util.longValue
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.buildJsonObject
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.isNull
+import com.xjtu.toolbox.util.isObject
+import kotlinx.serialization.json.jsonObject
 import android.util.Log
 import com.xjtu.toolbox.webvpn.WebVpnUtil
 import com.xjtu.toolbox.util.safeParseJsonObject
@@ -89,9 +96,9 @@ class JsLogin(
 
         /** POST loginCas，把 service ticket 换成 TOKEN-AUTH。 */
         internal fun exchangeTicket(client: OkHttpClient, ticket: String): JsGrant {
-            val payload = com.google.gson.JsonObject().apply {
-                addProperty("ticket", ticket)
-                addProperty("serviceUrl", SERVICE_URL)
+            val payload = buildJsonObject {
+                put("ticket", ticket)
+                put("serviceUrl", SERVICE_URL)
             }.toString()
             val request = Request.Builder()
                 .url("$BASE_URL/server/cas/loginCas")
@@ -106,14 +113,14 @@ class JsLogin(
                 if (!resp.isSuccessful) throw IOException("智慧教室换取令牌失败：HTTP ${resp.code}")
                 val root = runCatching { text.safeParseJsonObject() }.getOrNull()
                     ?: throw IOException("智慧教室换取令牌失败：响应不是 JSON")
-                val data = root.get("data")?.takeIf { it.isJsonObject }?.asJsonObject
-                val token = data?.get("tokenValue")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                val data = root.get("data")?.takeIf { it.isObject }?.jsonObject
+                val token = data?.get("tokenValue")?.takeIf { !it.isNull }?.stringValue?.trim().orEmpty()
                 if (token.isEmpty()) {
-                    val msg = root.get("message")?.takeIf { !it.isJsonNull }?.asString
+                    val msg = root.get("message")?.takeIf { !it.isNull }?.stringValue
                     throw IOException("智慧教室换取令牌失败：${msg ?: "未返回令牌"}")
                 }
-                val timeout = data?.get("tokenTimeout")?.takeIf { !it.isJsonNull }
-                    ?.runCatching { asLong }?.getOrNull()
+                val timeout = data?.get("tokenTimeout")?.takeIf { !it.isNull }
+                    ?.runCatching { longValue }?.getOrNull()
                     ?.takeIf { it > 0 } ?: DEFAULT_TIMEOUT_SECONDS
                 return JsGrant(token, timeout, System.currentTimeMillis())
             }

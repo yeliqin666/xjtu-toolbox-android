@@ -1,8 +1,18 @@
 package com.xjtu.toolbox.schedule
 
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.intValue
+import com.xjtu.toolbox.util.obj
+import com.xjtu.toolbox.util.arr
+import kotlinx.serialization.json.jsonObject
 import android.util.Log
-import com.google.gson.JsonArray
-import com.google.gson.JsonObject
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
 import com.xjtu.toolbox.util.safeString
@@ -120,10 +130,10 @@ class SchoolCourseApi(private val site: SiteSession) {
 
         val body = execute(request)
         val json = body.safeParseJsonObject()
-        return json.getAsJsonObject("datas")
-            ?.getAsJsonObject("dqxnxq")
-            ?.getAsJsonArray("rows")?.get(0)?.asJsonObject
-            ?.get("DM")?.asString ?: ""
+        return json.obj("datas")
+            ?.obj("dqxnxq")
+            ?.arr("rows")?.get(0)?.jsonObject
+            ?.get("DM")?.stringValue ?: ""
     }
 
     /** 获取所有学期列表 */
@@ -136,16 +146,16 @@ class SchoolCourseApi(private val site: SiteSession) {
 
         val body = execute(request)
         val json = body.safeParseJsonObject()
-        val rows = json.getAsJsonObject("datas")
-            ?.getAsJsonObject("xnxqcx")
-            ?.getAsJsonArray("rows")
+        val rows = json.obj("datas")
+            ?.obj("xnxqcx")
+            ?.arr("rows")
             ?: return emptyList()
 
         return rows.map { row ->
-            val obj = row.asJsonObject
+            val obj = row.jsonObject
             TermOption(
-                code = obj.get("DM").asString,
-                name = obj.get("MC")?.asString ?: obj.get("DM").asString
+                code = obj.get("DM").stringValue,
+                name = obj.get("MC")?.stringValue ?: obj.get("DM").stringValue
             )
         }
     }
@@ -158,16 +168,16 @@ class SchoolCourseApi(private val site: SiteSession) {
 
         val body = execute(request)
         val json = body.safeParseJsonObject()
-        val rows = json.getAsJsonObject("datas")
-            ?.getAsJsonObject("code")
-            ?.getAsJsonArray("rows")
+        val rows = json.obj("datas")
+            ?.obj("code")
+            ?.arr("rows")
             ?: return emptyList()
 
         return rows.map { row ->
-            val obj = row.asJsonObject
+            val obj = row.jsonObject
             DepartmentOption(
-                code = obj.get("id").asString,
-                name = obj.get("name").asString
+                code = obj.get("id").stringValue,
+                name = obj.get("name").stringValue
             )
         }.sortedBy { it.name }
     }
@@ -232,7 +242,7 @@ class SchoolCourseApi(private val site: SiteSession) {
         ensureAppInitialized()
 
         // 构建 querySetting JSON 数组
-        val queryParts = JsonArray()
+        val queryParts = mutableListOf<JsonElement>()
 
         // 用户输入的检索条件
         courseName?.takeIf { it.isNotBlank() }?.let { value ->
@@ -261,9 +271,9 @@ class SchoolCourseApi(private val site: SiteSession) {
         }
 
         // 学期+任务状态（必选条件）
-        val termGroup = JsonArray().apply {
+        val termGroup = buildJsonArray {
             add(buildSimpleCondition("XNXQDM", termCode, "and", "equal"))
-            add(JsonArray().apply {
+            add(buildJsonArray {
                 add(buildSimpleCondition("RWZTDM", "1", "and", "equal"))
                 add(buildSimpleConditionNoValue("RWZTDM", "or", "isNull"))
             })
@@ -273,7 +283,7 @@ class SchoolCourseApi(private val site: SiteSession) {
         // 排序
         queryParts.add(buildOrderCondition("+KKDWDM,+KCH,+KXH"))
 
-        val querySetting = queryParts.toString()
+        val querySetting = JsonArray(queryParts).toString()
         Log.d(TAG, "querySetting: $querySetting")
 
         // 构建请求
@@ -291,14 +301,14 @@ class SchoolCourseApi(private val site: SiteSession) {
         val body = execute(request)
         val json = body.safeParseJsonObject()
 
-        val datas = json.getAsJsonObject("datas")
-            ?.getAsJsonObject("qxfbkccx")
+        val datas = json.obj("datas")
+            ?.obj("qxfbkccx")
 
-        val totalSize = datas?.get("totalSize")?.asInt ?: 0
-        val rows = datas?.getAsJsonArray("rows") ?: JsonArray()
+        val totalSize = datas?.get("totalSize")?.intValue ?: 0
+        val rows = datas?.arr("rows") ?: JsonArray(emptyList())
 
         val courses = rows.map { row ->
-            val obj = row.asJsonObject
+            val obj = row.jsonObject
             SchoolCourse(
                 courseCode = obj.get("KCH").safeString(),
                 courseName = obj.get("KCM").safeString(),
@@ -315,7 +325,7 @@ class SchoolCourseApi(private val site: SiteSession) {
                 className = obj.get("SKBJ").safeString(),
                 scheduleLocation = obj.get("YPSJDD").safeString(),
                 campus = obj.get("XXXQDM_DISPLAY").safeString(),
-                isPublicElective = obj.get("SFXGXK")?.asString == "1",
+                isPublicElective = obj.get("SFXGXK")?.stringValue == "1",
                 electiveCategory = obj.get("XGXKLBDM_DISPLAY").safeString(),
                 weeklyHours = obj.get("KNZXS").safeDouble(),
                 maleEnrollCount = obj.get("NSXKRS").safeInt(),
@@ -333,48 +343,48 @@ class SchoolCourseApi(private val site: SiteSession) {
 
     private fun buildCondition(
         name: String, caption: String, linkOpt: String, builder: String, value: String
-    ): JsonObject = JsonObject().apply {
-        addProperty("name", name)
-        addProperty("caption", caption)
-        addProperty("linkOpt", linkOpt)
-        addProperty("builderList", "cbl_String")
-        addProperty("builder", builder)
-        addProperty("value", value)
+    ): JsonObject = buildJsonObject {
+        put("name", name)
+        put("caption", caption)
+        put("linkOpt", linkOpt)
+        put("builderList", "cbl_String")
+        put("builder", builder)
+        put("value", value)
     }
 
     private fun buildConditionMValue(
         name: String, caption: String, linkOpt: String, value: String
-    ): JsonObject = JsonObject().apply {
-        addProperty("name", name)
-        addProperty("caption", caption)
-        addProperty("linkOpt", linkOpt)
-        addProperty("builderList", "cbl_m_List")
-        addProperty("builder", "m_value_equal")
-        addProperty("value", value)
+    ): JsonObject = buildJsonObject {
+        put("name", name)
+        put("caption", caption)
+        put("linkOpt", linkOpt)
+        put("builderList", "cbl_m_List")
+        put("builder", "m_value_equal")
+        put("value", value)
     }
 
     private fun buildSimpleCondition(
         name: String, value: String, linkOpt: String, builder: String
-    ): JsonObject = JsonObject().apply {
-        addProperty("name", name)
-        addProperty("value", value)
-        addProperty("linkOpt", linkOpt)
-        addProperty("builder", builder)
+    ): JsonObject = buildJsonObject {
+        put("name", name)
+        put("value", value)
+        put("linkOpt", linkOpt)
+        put("builder", builder)
     }
 
     private fun buildSimpleConditionNoValue(
         name: String, linkOpt: String, builder: String
-    ): JsonObject = JsonObject().apply {
-        addProperty("name", name)
-        addProperty("linkOpt", linkOpt)
-        addProperty("builder", builder)
+    ): JsonObject = buildJsonObject {
+        put("name", name)
+        put("linkOpt", linkOpt)
+        put("builder", builder)
     }
 
-    private fun buildOrderCondition(order: String): JsonObject = JsonObject().apply {
-        addProperty("name", "*order")
-        addProperty("value", order)
-        addProperty("linkOpt", "AND")
-        addProperty("builder", "m_value_equal")
+    private fun buildOrderCondition(order: String): JsonObject = buildJsonObject {
+        put("name", "*order")
+        put("value", order)
+        put("linkOpt", "AND")
+        put("builder", "m_value_equal")
     }
 
     private fun kcbcxPost(url: String, form: FormBody = FormBody.Builder().build()): Request =

@@ -62,7 +62,6 @@ fun ScoreReportScreen(
     val dataCache = remember(appLoginState.accountId) {
         com.xjtu.toolbox.data.DataCache(context, appLoginState.accountId.ifEmpty { null })
     }
-    val gson = remember { com.google.gson.Gson() }
     // PR T（计划 §11）：成绩加载完成 / 失败的触感反馈。
     val haptics = com.xjtu.toolbox.ui.rememberHaptics()
 
@@ -96,10 +95,8 @@ fun ScoreReportScreen(
             // SWR: 先尝试缓存秒显
             val cacheKey = "score_report_${studentId}"
             if (!silent) try {
-                val cached = dataCache.get(cacheKey, com.xjtu.toolbox.data.DataCache.DEFAULT_TTL_MS)
-                if (cached != null) {
-                    val cachedGrades = gson.fromJson(cached, Array<ReportedGrade>::class.java).toList()
-                        .map { it.sanitized() }
+                val cachedGrades = dataCache.read<List<ReportedGrade>>(cacheKey, com.xjtu.toolbox.data.DataCache.DEFAULT_TTL_MS)
+                if (cachedGrades != null) {
                     if (cachedGrades.isNotEmpty()) {
                         allGrades = cachedGrades
                         termGroups = cachedGrades.groupBy { it.term }.toSortedMap(compareByDescending { it })
@@ -123,7 +120,7 @@ fun ScoreReportScreen(
                 }
                 haptics.success()
                 // 更新缓存
-                try { dataCache.put(cacheKey, gson.toJson(grades)) } catch (_: Exception) {}
+                runCatching { dataCache.write(cacheKey, grades) }
             } catch (e: AuthExpiredException) {
                 appLoginState.handleAuthExpired(AppRoute.ScoreReport, onBack)
             } catch (e: Exception) {

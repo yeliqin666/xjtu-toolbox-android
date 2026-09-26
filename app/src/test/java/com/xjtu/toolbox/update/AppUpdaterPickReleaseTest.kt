@@ -1,7 +1,12 @@
 package com.xjtu.toolbox.update
 
-import com.google.gson.JsonArray
-import com.google.gson.JsonObject
+import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -17,24 +22,19 @@ class AppUpdaterPickReleaseTest {
         prerelease: Boolean = false,
         draft: Boolean = false,
         hasApk: Boolean = true,
-    ): JsonObject {
-        val obj = JsonObject()
-        obj.addProperty("tag_name", tagName)
-        if (name != null) obj.addProperty("name", name)
-        obj.addProperty("body", body)
-        obj.addProperty("prerelease", prerelease)
-        obj.addProperty("draft", draft)
-        obj.addProperty("html_url", "https://github.com/releases/$tagName")
-
-        val assets = JsonArray()
-        if (hasApk) {
-            val apk = JsonObject()
-            apk.addProperty("name", "app-preview.apk")
-            apk.addProperty("browser_download_url", "https://github.com/download/$tagName/app.apk")
-            assets.add(apk)
+    ): JsonObject = buildJsonObject {
+        put("tag_name", tagName)
+        if (name != null) put("name", name)
+        put("body", body)
+        put("prerelease", prerelease)
+        put("draft", draft)
+        put("html_url", "https://github.com/releases/$tagName")
+        putJsonArray("assets") {
+            if (hasApk) addJsonObject {
+                put("name", "app-preview.apk")
+                put("browser_download_url", "https://github.com/download/$tagName/app.apk")
+            }
         }
-        obj.add("assets", assets)
-        return obj
     }
 
     @Test
@@ -85,7 +85,7 @@ class AppUpdaterPickReleaseTest {
 
     @Test
     fun pickRelease_previewDisabled_onlyReturnsFormal() {
-        val releases = JsonArray().apply {
+        val releases = buildJsonArray {
             add(buildReleaseJson(tagName = "v4.9.7", name = "v4.9.7", prerelease = false))
             add(buildReleaseJson(tagName = "dev-1", name = "4.9.8-dev.1", prerelease = true))
         }
@@ -104,7 +104,7 @@ class AppUpdaterPickReleaseTest {
 
     @Test
     fun pickRelease_previewEnabled_returnsPreviewIfGreater() {
-        val releases = JsonArray().apply {
+        val releases = buildJsonArray {
             add(buildReleaseJson(tagName = "v4.9.7", name = "v4.9.7", prerelease = false))
             add(buildReleaseJson(tagName = "dev-1", name = "4.9.8-dev.1", prerelease = true, body = "rollout: 100"))
         }
@@ -123,7 +123,7 @@ class AppUpdaterPickReleaseTest {
 
     @Test
     fun pickRelease_skipsDraftAndMissingApkAndMissingName() {
-        val releases = JsonArray().apply {
+        val releases = buildJsonArray {
             // Draft formal
             add(buildReleaseJson(tagName = "v4.9.9", draft = true))
             // Preview missing apk

@@ -1,9 +1,16 @@
 package com.xjtu.toolbox.jwapp
 
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.buildJsonObject
+import com.xjtu.toolbox.util.isObject
+import com.xjtu.toolbox.util.isArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
 import android.util.Log
-import com.google.gson.JsonArray
-import com.google.gson.JsonElement
-import com.google.gson.JsonObject
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.schedule.CourseItem
 import com.xjtu.toolbox.schedule.ScheduleChangeEvent
@@ -61,7 +68,7 @@ class JwappScheduleApi(site: SiteSession) {
             }
 
         if (merged == null) {
-            if (weekly.any { it.second.changes.size() > 0 }) {
+            if (weekly.any { it.second.changes.size > 0 }) {
                 Log.w(TAG, "调休记录存在但未能合并，本次课表不含调休调整")
             }
             val fallback = aggregate(weekly.map { (week, raw) -> week to raw.theory }, maxWeekNum)
@@ -87,9 +94,9 @@ class JwappScheduleApi(site: SiteSession) {
         }
 
     private suspend fun queryWeek(week: Int, termCode: String): WeekRaw {
-        val payload = JsonObject().apply {
-            addProperty("skzc", week)
-            addProperty("xnxqdm", termCode)
+        val payload = buildJsonObject {
+            put("skzc", week)
+            put("xnxqdm", termCode)
         }
         val request = api.authenticatedRequest("$BASE_URL/api/biz/v410/schedule/querySchedule")
             .post(payload.toString().toRequestBody(jsonType))
@@ -98,11 +105,11 @@ class JwappScheduleApi(site: SiteSession) {
         val code = root.get("code").safeInt(-1)
         if (code != 200) throw RuntimeException(root.get("msg").safeString("移动教务课表请求失败（$code）"))
 
-        val data = root.get("data")?.takeIf { it.isJsonObject }?.asJsonObject
-            ?: return WeekRaw(emptyList(), JsonArray())
-        val theory = data.get("theorySchedule")?.takeIf { it.isJsonArray }?.asJsonArray ?: JsonArray()
-        val changes = data.get("changeSchedule")?.takeIf { it.isJsonArray }?.asJsonArray ?: JsonArray()
-        return WeekRaw(theory.mapNotNull { it.takeIf { e -> e.isJsonObject }?.asJsonObject?.toOccurrence() }, changes)
+        val data = root.get("data")?.takeIf { it.isObject }?.jsonObject
+            ?: return WeekRaw(emptyList(), JsonArray(emptyList()))
+        val theory = data.get("theorySchedule")?.takeIf { it.isArray }?.jsonArray ?: JsonArray(emptyList())
+        val changes = data.get("changeSchedule")?.takeIf { it.isArray }?.jsonArray ?: JsonArray(emptyList())
+        return WeekRaw(theory.mapNotNull { it.takeIf { e -> e.isObject }?.jsonObject?.toOccurrence() }, changes)
     }
 
     // ── 调休合并 ────────────────────────────────────────────
@@ -134,7 +141,7 @@ class JwappScheduleApi(site: SiteSession) {
         val observed = LinkedHashMap<String, Pair<JsonObject, MutableSet<Int>>>()
         for ((week, raw) in weekly) {
             for (element in raw.changes) {
-                val row = element.takeIf { it.isJsonObject }?.asJsonObject ?: continue
+                val row = element.takeIf { it.isObject }?.jsonObject ?: continue
                 val entry = observed.getOrPut(row.toString()) { row to linkedSetOf() }
                 entry.second += week
             }

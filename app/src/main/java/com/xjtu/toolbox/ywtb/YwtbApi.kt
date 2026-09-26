@@ -1,5 +1,8 @@
 package com.xjtu.toolbox.ywtb
 
+import com.xjtu.toolbox.util.requireArr
+import com.xjtu.toolbox.util.requireObj
+import com.xjtu.toolbox.util.stringValue
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -37,17 +40,17 @@ class YwtbApi(private val site: SiteSession) {
         val json = body.safeParseJsonObject()
 
         if (responseCode != 200) {
-            throw RuntimeException(json.get("message")?.asString ?: "服务器错误")
+            throw RuntimeException(json.get("message")?.stringValue ?: "服务器错误")
         }
 
-        val data = json.getAsJsonObject("data")
-        val attributes = data.getAsJsonObject("attributes")
+        val data = json.requireObj("data")
+        val attributes = data.requireObj("attributes")
 
         return UserInfo(
-            userName = attributes.get("userName")?.asString ?: data.get("username")?.asString ?: "",
-            userUid = attributes.get("userUid")?.asString ?: "",
-            identityTypeName = attributes.get("identityTypeName")?.asString ?: "",
-            organizationName = attributes.get("organizationName")?.asString ?: ""
+            userName = attributes.get("userName")?.stringValue ?: data.get("username")?.stringValue ?: "",
+            userUid = attributes.get("userUid")?.stringValue ?: "",
+            identityTypeName = attributes.get("identityTypeName")?.stringValue ?: "",
+            organizationName = attributes.get("organizationName")?.stringValue ?: ""
         )
     }
 
@@ -86,15 +89,15 @@ class YwtbApi(private val site: SiteSession) {
             response.body?.string() ?: throw RuntimeException("空响应")
         }
         val json = responseBody.safeParseJsonObject()
-        val dataObj = json.getAsJsonObject("data").getAsJsonObject("data")
-        val dateArray = dataObj.getAsJsonArray("date")
-        val semesterAliList = dataObj.getAsJsonArray("semesterAlilist")
-        val semesterList = dataObj.getAsJsonArray("semesterlist")
+        val dataObj = json.requireObj("data").requireObj("data")
+        val dateArray = dataObj.requireArr("date")
+        val semesterAliList = dataObj.requireArr("semesterAlilist")
+        val semesterList = dataObj.requireArr("semesterlist")
 
-        for (i in 0 until dateArray.size()) {
-            val weekStr = dateArray[i].asString
-            val semesterName = semesterAliList[i].asString
-            val semesterId = semesterList[i].asString
+        for (i in 0 until dateArray.size) {
+            val weekStr = dateArray[i].stringValue
+            val semesterName = semesterAliList[i].stringValue
+            val semesterId = semesterList[i].stringValue
             val dateStr = validDates[i]
 
             if (semesterId == "$yearStart-$yearEnd" && semesterName == rightSemester && weekStr == "1") {

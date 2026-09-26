@@ -1,8 +1,15 @@
 package com.xjtu.toolbox.attendance
 
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.buildJsonObject
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.intValue
+import com.xjtu.toolbox.util.booleanValue
+import com.xjtu.toolbox.util.isNull
+import com.xjtu.toolbox.util.obj
 import com.xjtu.toolbox.util.redactUrl
 import android.util.Log
-import com.google.gson.JsonObject
+import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.auth.SafetyVerifyRequiredException
 import com.xjtu.toolbox.auth.XJTULogin
 import com.xjtu.toolbox.util.safeParseJsonObject
@@ -150,7 +157,7 @@ class AttendanceLogin(
                 if (resp.code != 200) return false
                 val body = resp.body?.string() ?: return false
                 if (isAuthFailureResponse(body)) return false
-                body.safeParseJsonObject().get("code")?.takeIf { !it.isJsonNull }?.asInt == 0
+                body.safeParseJsonObject().get("code")?.takeIf { !it.isNull }?.intValue == 0
             }
         } catch (_: Exception) {
             false
@@ -230,7 +237,7 @@ class AttendanceLogin(
 
     private fun applyExchange(loginRequestId: String, ticket: String, hops: Int) {
         val data = exchange(loginRequestId, ticket)
-        val token = data.get("tokenValue")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+        val token = data.get("tokenValue")?.takeIf { !it.isNull }?.stringValue?.trim().orEmpty()
         if (token.isNotEmpty()) {
             authToken = token
             Log.d(TAG, "got business token, length=${token.length}")
@@ -238,13 +245,13 @@ class AttendanceLogin(
         }
         // 门户不签业务令牌，只告诉你「还得选一个系统」。以前这里当成失败直接抛
         // 「交换登录票据未返回业务令牌」，表现就是考勤怎么都打不开。
-        if (data.get("systemSelectionRequired")?.takeIf { !it.isJsonNull }?.asBoolean == true) {
+        if (data.get("systemSelectionRequired")?.takeIf { !it.isNull }?.booleanValue == true) {
             selectBusinessSystem(data, hops)
             return
         }
-        val handoff = data.get("handoffPath")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+        val handoff = data.get("handoffPath")?.takeIf { !it.isNull }?.stringValue?.trim().orEmpty()
         if (!isSafeHandoffPath(handoff)) {
-            val msg = data.get("message")?.takeIf { !it.isJsonNull }?.asString
+            val msg = data.get("message")?.takeIf { !it.isNull }?.stringValue
             Log.w(TAG, "exchange gave no token: handoff=<$handoff> data=$data")
             throw RuntimeException("考勤系统登录失败：${msg ?: "交换登录票据未返回业务令牌"}")
         }
@@ -272,9 +279,9 @@ class AttendanceLogin(
         val choices = listOf("undergraduate" to UNDERGRAD_HOST, "graduate" to GRADUATE_HOST)
         val unavailable = mutableListOf<String>()
         for ((key, host) in choices) {
-            val node = context.getAsJsonObject(key) ?: continue
-            if (node.get("available")?.takeIf { !it.isJsonNull }?.asBoolean != true) {
-                node.get("message")?.takeIf { !it.isJsonNull }?.asString?.trim()
+            val node = context.obj(key) ?: continue
+            if (node.get("available")?.takeIf { !it.isNull }?.booleanValue != true) {
+                node.get("message")?.takeIf { !it.isNull }?.stringValue?.trim()
                     ?.ifBlank { null }?.let { unavailable += it }
                 continue
             }
@@ -291,8 +298,8 @@ class AttendanceLogin(
 
     /** 门户 `student-pc` / `student-h5` 这类入口后缀，由交换结果里的终端与渠道决定。 */
     private fun loginTargetOf(data: JsonObject): String {
-        val terminal = data.get("terminal")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
-        val channel = data.get("entryChannel")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+        val terminal = data.get("terminal")?.takeIf { !it.isNull }?.stringValue?.trim().orEmpty()
+        val channel = data.get("entryChannel")?.takeIf { !it.isNull }?.stringValue?.trim().orEmpty()
         val role = if (terminal.equals("TEACHER", true)) "teacher" else "student"
         val suffix = if (channel.equals("H5", true)) "h5" else "pc"
         return "$role-$suffix"
@@ -309,11 +316,11 @@ class AttendanceLogin(
             val body = resp.body?.string().orEmpty()
             if (!resp.isSuccessful) throw RuntimeException("考勤门户读取失败 (HTTP ${resp.code})")
             val json = body.safeParseJsonObject()
-            if (json.get("code")?.takeIf { !it.isJsonNull }?.asInt != 0) {
-                val msg = json.get("message")?.takeIf { !it.isJsonNull }?.asString
+            if (json.get("code")?.takeIf { !it.isNull }?.intValue != 0) {
+                val msg = json.get("message")?.takeIf { !it.isNull }?.stringValue
                 throw RuntimeException("考勤门户读取失败：${msg ?: "响应异常"}")
             }
-            return json.getAsJsonObject("data")
+            return json.obj("data")
                 ?: throw RuntimeException("考勤门户响应缺少 data")
         }
     }
@@ -339,9 +346,9 @@ class AttendanceLogin(
     }
 
     private fun exchange(loginRequestId: String, ticket: String): JsonObject {
-        val payload = JsonObject().apply {
-            addProperty("loginRequestId", loginRequestId)
-            addProperty("ticket", ticket)
+        val payload = buildJsonObject {
+            put("loginRequestId", loginRequestId)
+            put("ticket", ticket)
         }
         client.newCall(
             Request.Builder()
@@ -354,13 +361,13 @@ class AttendanceLogin(
             val body = resp.body?.string().orEmpty()
             if (!resp.isSuccessful) throw RuntimeException("考勤系统登录交换失败 (HTTP ${resp.code})")
             val json = body.safeParseJsonObject()
-            val code = json.get("code")?.takeIf { !it.isJsonNull }?.asInt ?: -1
+            val code = json.get("code")?.takeIf { !it.isNull }?.intValue ?: -1
             if (code != 0) {
-                val msg = json.get("message")?.takeIf { !it.isJsonNull }?.asString ?: "code=$code"
+                val msg = json.get("message")?.takeIf { !it.isNull }?.stringValue ?: "code=$code"
                 Log.w(TAG, "exchange failed at ${baseUrl.redactUrl()}: code=$code msg=$msg")
                 throw RuntimeException(friendlyExchangeError(code, msg))
             }
-            return json.getAsJsonObject("data")
+            return json.obj("data")
                 ?: throw RuntimeException("考勤系统登录交换响应缺少 data")
         }
     }
@@ -409,8 +416,8 @@ class AttendanceLogin(
     private fun extractToken(body: String): String? {
         if (body.isBlank()) return null
         return try {
-            val data = body.safeParseJsonObject().getAsJsonObject("data") ?: return null
-            data.get("tokenValue")?.takeIf { !it.isJsonNull }?.asString?.trim()?.takeIf { it.isNotEmpty() }
+            val data = body.safeParseJsonObject().obj("data") ?: return null
+            data.get("tokenValue")?.takeIf { !it.isNull }?.stringValue?.trim()?.takeIf { it.isNotEmpty() }
         } catch (_: Exception) {
             null
         }

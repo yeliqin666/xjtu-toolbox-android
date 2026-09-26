@@ -1,5 +1,12 @@
 package com.xjtu.toolbox.auth
 
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.buildJsonObject
+import com.xjtu.toolbox.util.requireObj
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.intValue
+import com.xjtu.toolbox.util.booleanValue
+import com.xjtu.toolbox.util.obj
 import com.xjtu.toolbox.network.HttpClients
 import com.xjtu.toolbox.util.redactBody
 import com.xjtu.toolbox.util.redactUrl
@@ -13,7 +20,6 @@ import org.jsoup.Jsoup
 import java.security.KeyFactory
 import java.security.spec.X509EncodedKeySpec
 import javax.crypto.Cipher
-import com.google.gson.Gson
 import com.xjtu.toolbox.util.safeParseJsonObject
 import java.net.CookieManager
 import java.net.CookiePolicy
@@ -143,20 +149,20 @@ class MFAContext(
 
         val response = login.client.newCall(request).execute()
         val json = response.body?.string().safeParseJsonObject()
-        if (json.get("code").asInt == 0) {
-            val data = json.getAsJsonObject("data")
-            gid = data.get("gid").asString
-            phoneNumber = data.get("securePhone").asString
+        if (json.get("code").intValue == 0) {
+            val data = json.requireObj("data")
+            gid = data.get("gid").stringValue
+            phoneNumber = data.get("securePhone").stringValue
             return phoneNumber!!
         } else {
-            throw RuntimeException("获取手机号失败: ${json.get("message")?.asString ?: "未知错误"}")
+            throw RuntimeException("获取手机号失败: ${json.get("message")?.stringValue ?: "未知错误"}")
         }
     }
 
     /** 发送验证码到手机 */
     fun sendVerifyCode(): String {
         val phone = getPhoneNumber()
-        val json = Gson().toJson(mapOf("gid" to gid))
+        val json = buildJsonObject { put("gid", gid) }.toString()
         val body = json.toRequestBody("application/json".toMediaType())
         val request = Request.Builder()
             .url("https://login.xjtu.edu.cn/attest/api/guard/securephone/send")
@@ -165,10 +171,10 @@ class MFAContext(
 
         val response = login.client.newCall(request).execute()
         val result = response.body?.string().safeParseJsonObject()
-        if (result.get("code").asInt == 0) {
+        if (result.get("code").intValue == 0) {
             return phone
         } else {
-            throw RuntimeException(result.get("message").asString)
+            throw RuntimeException(result.get("message").stringValue)
         }
     }
 
@@ -180,7 +186,7 @@ class MFAContext(
     fun verifyCode(code: String) {
         if (gid == null) throw RuntimeException("必须先发送验证码")
 
-        val json = Gson().toJson(mapOf("gid" to gid, "code" to code))
+        val json = buildJsonObject { put("gid", gid); put("code", code) }.toString()
         val body = json.toRequestBody("application/json".toMediaType())
         val request = Request.Builder()
             .url("https://login.xjtu.edu.cn/attest/api/guard/securephone/valid")
@@ -189,13 +195,13 @@ class MFAContext(
 
         val response = login.client.newCall(request).execute()
         val result = response.body?.string().safeParseJsonObject()
-        if (result.get("code").asInt != 0) {
-            throw RuntimeException(result.get("message").asString)
+        if (result.get("code").intValue != 0) {
+            throw RuntimeException(result.get("message").stringValue)
         }
         // status 字段进一步确认
-        result.getAsJsonObject("data")?.get("status")?.asString?.let { status ->
+        result.obj("data")?.get("status")?.stringValue?.let { status ->
             if (status != "2") {
-                throw RuntimeException(result.get("message")?.asString ?: "验证码验证失败")
+                throw RuntimeException(result.get("message")?.stringValue ?: "验证码验证失败")
             }
         }
 
@@ -378,7 +384,7 @@ open class XJTULogin(
         // 必须用 title + secState 字段联合判定（与 upstream `is_safety_verify_page` 一致）。
         val initialSafetyVerify = isSafetyVerifyPage(responseBody)
 
-        android.util.Log.d(TAG, "init: executionInput.isEmpty=${executionInput.isEmpty()}, initialSafetyVerify=$initialSafetyVerify, existingClient=${existingClient != null}")
+        android.util.Log.d(TAG, "init: executionInput.isEmpty()=${executionInput.isEmpty()}, initialSafetyVerify=$initialSafetyVerify, existingClient=${existingClient != null}")
 
         if (initialSafetyVerify) {
             // 入口页面直接就是 Safety Verify（webvpn session 已建立，CAS 跳转 OAuth2 1675 时强制二次认证）。
@@ -515,14 +521,14 @@ open class XJTULogin(
             android.util.Log.d("XJTULogin", "login: MFA detect response code=${response.code}, body=$responseStr")
             val data = try {
                 responseStr.safeParseJsonObject()
-                    .getAsJsonObject("data")
+                    .requireObj("data")
             } catch (e: Exception) {
                 android.util.Log.e("XJTULogin", "login: MFA detect parse error", e)
                 throw RuntimeException("MFA 检测返回数据异常: $responseStr")
             }
 
-            val state = data.get("state").asString
-            val need = data.get("need").asBoolean
+            val state = data.get("state").stringValue
+            val need = data.get("need").booleanValue
             mfaContext = MFAContext(this, state, need)
             detectedInThisFlow = true
 

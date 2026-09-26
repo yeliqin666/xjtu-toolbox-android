@@ -1,9 +1,19 @@
 package com.xjtu.toolbox.agent.skin
 
-import com.google.gson.JsonArray
-import com.google.gson.JsonElement
-import com.google.gson.JsonObject
-import com.google.gson.JsonParser
+import com.xjtu.toolbox.util.isBoolean
+import com.xjtu.toolbox.util.isNumber
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.intValue
+import com.xjtu.toolbox.util.doubleValue
+import com.xjtu.toolbox.util.booleanValue
+import com.xjtu.toolbox.util.isNull
+import com.xjtu.toolbox.util.isPrimitive
+import com.xjtu.toolbox.util.AppJson
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.agent.bot.Disc
 import com.xjtu.toolbox.agent.bot.PROFILE_SAMPLES
 import com.xjtu.toolbox.agent.bot.Point
@@ -83,9 +93,9 @@ object PidaiSkinParser {
     fun assetRefs(motionBytes: ByteArray): List<String> {
         val root = objectRoot(motionBytes, "motion.json")
         val shapes = root.optionalObject("shapes") ?: return emptyList()
-        return shapes.entrySet().mapNotNull { (_, element) ->
+        return shapes.entries.mapNotNull { (_, element) ->
             val obj = element as? JsonObject ?: return@mapNotNull null
-            if (obj.get("kind")?.asString != "image") return@mapNotNull null
+            if (obj.get("kind")?.stringValue != "image") return@mapNotNull null
             obj.optionalString("src")?.takeIf { imagePathRegex.matches(it) }
         }.distinct()
     }
@@ -130,11 +140,11 @@ object PidaiSkinParser {
     ): PidaiMotion {
         failIf(root.string("skin_id") != skinId, "motion.skin_id 与 manifest.id 不一致")
         // 底栏图标是个方框，整幅铺底必然露出方角。想要底板就自己画一层放在最下面。
-        failIf(root.has("background"), "motion.background 已移除：把底板画成最底下的一个图层")
+        failIf(root.containsKey("background"), "motion.background 已移除：把底板画成最底下的一个图层")
         val shapesObject = root.objectValue("shapes")
-        failIf(shapesObject.size() !in 1..512, "motion.shapes 数量应为 1..512")
+        failIf(shapesObject.size !in 1..512, "motion.shapes 数量应为 1..512")
         var totalSegments = 0
-        val shapes = shapesObject.entrySet().associate { (name, element) ->
+        val shapes = shapesObject.entries.associate { (name, element) ->
             val shapeId = name.validId("shape id")
             val shape = if (formatVersion == 1) {
                 PidaiShape(shapeId, outlineFromRadii(parseRadialShape(element.asObject("shape $name"), name)), null)
@@ -147,7 +157,7 @@ object PidaiSkinParser {
         failIf(totalSegments > MAX_OUTLINE_SEGMENTS, "皮肤的轮廓段数过多")
 
         val actionsArray = root.array("actions")
-        failIf(actionsArray.size() !in 1..64, "motion.actions 数量应为 1..64")
+        failIf(actionsArray.size !in 1..64, "motion.actions 数量应为 1..64")
         val actions = linkedMapOf<String, PidaiMotionAction>()
         actionsArray.forEachIndexed { index, element ->
             val obj = element.asObject("motion.actions[$index]")
@@ -156,7 +166,7 @@ object PidaiSkinParser {
             val duration = obj.double("duration").finite("action.duration")
             failIf(duration <= 0.0 || duration > 60.0, "动作 $id 时长应在 0..60 秒")
             val frameArray = obj.array("frames")
-            failIf(frameArray.size() !in 2..256, "动作 $id 至少需要 2 个关键帧")
+            failIf(frameArray.size !in 2..256, "动作 $id 至少需要 2 个关键帧")
             val frames = frameArray.mapIndexed { frameIndex, frameElement ->
                 val frame = frameElement.asObject("$id.frames[$frameIndex]")
                 val label = "$id.frames[$frameIndex]"
@@ -186,9 +196,9 @@ object PidaiSkinParser {
             action.returnTo?.let { failIf(it !in shapes && it !in actions, "动作 ${action.id} 的 return_to 不存在") }
         }
 
-        val bindings = root.optionalObject("bindings")?.entrySet()?.associate { (beat, value) ->
+        val bindings = root.optionalObject("bindings")?.entries?.associate { (beat, value) ->
             failIf(beat !in setOf("rest", "idle", "thinking", "alert", "tap"), "未知动作绑定：$beat")
-            val action = value.asString
+            val action = value.stringValue
             failIf(action !in actions, "动作绑定 $beat 引用了不存在的动作 $action")
             beat to action
         }.orEmpty()
@@ -213,7 +223,7 @@ object PidaiSkinParser {
 
     private fun freeLayers(frame: JsonObject, shapes: Map<String, PidaiShape>, label: String): List<PidaiLayer> {
         val array = frame.optionalArray("layers") ?: fail("$label 缺少 layers")
-        failIf(array.size() > 64, "$label 的图层数量应为 0..64")
+        failIf(array.size > 64, "$label 的图层数量应为 0..64")
         val keys = mutableSetOf<String>()
         return array.mapIndexed { index, element ->
             val obj = element.asObject("$label.layers[$index]")
@@ -323,11 +333,11 @@ object PidaiSkinParser {
 
     private fun flatPoints(obj: JsonObject, id: String): List<Double> {
         val array = obj.array("points")
-        failIf(array.size() !in 2..2048, "形状 $id 的 points 数量应为 2..2048")
+        failIf(array.size !in 2..2048, "形状 $id 的 points 数量应为 2..2048")
         return array.flatMapIndexed { index: Int, element: JsonElement ->
             val pair = element.asArray("$id.points[$index]")
-            failIf(pair.size() != 2, "$id.points[$index] 必须是 [x,y]")
-            listOf(pair[0].asDouble.finite("point.x"), pair[1].asDouble.finite("point.y"))
+            failIf(pair.size != 2, "$id.points[$index] 必须是 [x,y]")
+            listOf(pair[0].doubleValue.finite("point.x"), pair[1].doubleValue.finite("point.y"))
         }
     }
 
@@ -371,8 +381,8 @@ object PidaiSkinParser {
             "outline" -> {
                 val points = obj.array("points").mapIndexed { index, point ->
                     val pair = point.asArray("$name.points[$index]")
-                    failIf(pair.size() != 2, "$name.points[$index] 必须是 [x,y]")
-                    Point(pair[0].asDouble.finite("point.x"), pair[1].asDouble.finite("point.y"))
+                    failIf(pair.size != 2, "$name.points[$index] 必须是 [x,y]")
+                    Point(pair[0].doubleValue.finite("point.x"), pair[1].doubleValue.finite("point.y"))
                 }
                 failIf(points.size !in 3..512, "$name.outline 至少需要 3 个点")
                 profileFromPolygon(points, 0.0, 0.0)
@@ -385,7 +395,7 @@ object PidaiSkinParser {
                 failIf(items.size !in 1..128, "$name.circles 数量应为 1..128")
                 unionOfCirclesProfile(items)
             }
-            "radii" -> resample(obj.array("values").map { it.asDouble.finite("$name.radii") }.toDoubleArray())
+            "radii" -> resample(obj.array("values").map { it.doubleValue.finite("$name.radii") }.toDoubleArray())
             else -> fail("形状 $name 的 kind 不受支持")
         }
         failIf(radii.any { !it.isFinite() || it <= 0.001 || it > 20.0 }, "形状 $name 必须在每个方向都有有限的正半径")
@@ -402,7 +412,7 @@ object PidaiSkinParser {
         val prompt = (root.optionalString("prompt") ?: "").limited("persona.prompt", 4_000)
         val displayName = root.optionalString("display_name")?.limited("persona.display_name", 24)
         val catchphrases = root.optionalArray("catchphrases")?.mapIndexed { index, it ->
-            it.asString.limited("catchphrases[$index]", 100)
+            it.stringValue.limited("catchphrases[$index]", 100)
         }.orEmpty()
         failIf(catchphrases.size > 64, "口头禅最多 64 条")
         val mix = (root.optionalDouble("chatter_mix") ?: 0.4).finite("chatter_mix")
@@ -420,7 +430,7 @@ object PidaiSkinParser {
                 hours = obj.optionalRange("hours", 0, 23),
                 months = obj.optionalRange("months", 1, 12),
                 weekdays = obj.optionalArray("weekdays")?.map {
-                    val day = it.asInt
+                    val day = it.intValue
                     failIf(day !in 1..7, "weekdays 应使用 1..7")
                     DayOfWeek.of(day)
                 }?.toSet(),
@@ -434,10 +444,10 @@ object PidaiSkinParser {
 
     private fun verifyHashes(manifest: JsonObject, files: Map<String, ByteArray>) {
         val hashes = manifest.optionalObject("files") ?: return
-        hashes.entrySet().forEach { (name, value) ->
+        hashes.entries.forEach { (name, value) ->
             if (name != "motion.json" && name != "persona.json" && !imagePathRegex.matches(name)) return@forEach
             val bytes = files[name] ?: fail("manifest 声明了缺失文件 $name")
-            val expected = value.asString.removePrefix("sha256:").lowercase()
+            val expected = value.stringValue.removePrefix("sha256:").lowercase()
             failIf(expected.length != 64, "$name 的 SHA-256 格式无效")
             val actual = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
             failIf(actual != expected, "$name 的校验值不匹配")
@@ -511,31 +521,31 @@ object PidaiSkinParser {
     }
 
     private fun objectRoot(bytes: ByteArray, name: String): JsonObject = try {
-        JsonParser.parseString(bytes.toString(Charsets.UTF_8).removePrefix("﻿")).asJsonObject
+        AppJson.parseToJsonElement(bytes.toString(Charsets.UTF_8).removePrefix("﻿")).jsonObject
     } catch (e: Exception) {
         fail("$name 不是有效的 JSON 对象")
     }
 
     private fun JsonElement.asObject(label: String): JsonObject =
-        takeIf { isJsonObject }?.asJsonObject ?: fail("$label 必须是对象")
+        (this as? JsonObject) ?: fail("$label 必须是对象")
     private fun JsonElement.asArray(label: String): JsonArray =
-        takeIf { isJsonArray }?.asJsonArray ?: fail("$label 必须是数组")
+        (this as? JsonArray) ?: fail("$label 必须是数组")
     private fun JsonObject.string(name: String): String =
-        get(name)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString?.takeIf { it.isNotBlank() }
+        get(name)?.takeIf { it.isPrimitive && it.jsonPrimitive.isString }?.stringValue?.takeIf { it.isNotBlank() }
             ?: fail("缺少文本字段 $name")
     private fun JsonObject.optionalString(name: String): String? =
-        get(name)?.takeUnless { it.isJsonNull }?.let { if (it.isJsonPrimitive && it.asJsonPrimitive.isString) it.asString else fail("$name 必须是文本") }
+        get(name)?.takeUnless { it.isNull }?.let { if (it.isPrimitive && it.jsonPrimitive.isString) it.stringValue else fail("$name 必须是文本") }
     private fun JsonObject.double(name: String): Double =
-        get(name)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asDouble ?: fail("缺少数字字段 $name")
+        get(name)?.takeIf { it.isPrimitive && it.jsonPrimitive.isNumber }?.doubleValue ?: fail("缺少数字字段 $name")
     private fun JsonObject.optionalDouble(name: String): Double? =
-        get(name)?.takeUnless { it.isJsonNull }?.let { if (it.isJsonPrimitive && it.asJsonPrimitive.isNumber) it.asDouble else fail("$name 必须是数字") }
-    private fun JsonObject.int(name: String): Int = get(name)?.asInt ?: fail("缺少整数字段 $name")
+        get(name)?.takeUnless { it.isNull }?.let { if (it.isPrimitive && it.jsonPrimitive.isNumber) it.doubleValue else fail("$name 必须是数字") }
+    private fun JsonObject.int(name: String): Int = get(name)?.intValue ?: fail("缺少整数字段 $name")
     private fun JsonObject.optionalBoolean(name: String): Boolean? =
-        get(name)?.takeUnless { it.isJsonNull }?.let { if (it.isJsonPrimitive && it.asJsonPrimitive.isBoolean) it.asBoolean else fail("$name 必须是布尔值") }
+        get(name)?.takeUnless { it.isNull }?.let { if (it.isPrimitive && it.jsonPrimitive.isBoolean) it.booleanValue else fail("$name 必须是布尔值") }
     private fun JsonObject.array(name: String): JsonArray = get(name)?.asArray(name) ?: fail("缺少数组字段 $name")
-    private fun JsonObject.optionalArray(name: String): JsonArray? = get(name)?.takeUnless { it.isJsonNull }?.asArray(name)
+    private fun JsonObject.optionalArray(name: String): JsonArray? = get(name)?.takeUnless { it.isNull }?.asArray(name)
     private fun JsonObject.objectValue(name: String): JsonObject = get(name)?.asObject(name) ?: fail("缺少对象字段 $name")
-    private fun JsonObject.optionalObject(name: String): JsonObject? = get(name)?.takeUnless { it.isJsonNull }?.asObject(name)
+    private fun JsonObject.optionalObject(name: String): JsonObject? = get(name)?.takeUnless { it.isNull }?.asObject(name)
 
     /** 颜色槽：`none` 不画，`ink` 跟随主题前景色，`paper` 挖空（不再是底栏背景色），其余按十六进制。 */
     private fun JsonObject.optionalPaint(name: String): PidaiPaint? {
@@ -549,9 +559,9 @@ object PidaiSkinParser {
     }
 
     private fun JsonObject.optionalRange(name: String, low: Int, high: Int): IntRange? = optionalArray(name)?.let {
-        failIf(it.size() != 2, "$name 必须是 [start,end]")
-        val start = it[0].asInt
-        val end = it[1].asInt
+        failIf(it.size != 2, "$name 必须是 [start,end]")
+        val start = it[0].intValue
+        val end = it[1].intValue
         failIf(start !in low..high || end !in low..high || start > end, "$name 范围无效")
         start..end
     }

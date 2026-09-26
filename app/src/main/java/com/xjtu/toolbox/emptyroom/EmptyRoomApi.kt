@@ -1,5 +1,16 @@
 package com.xjtu.toolbox.emptyroom
 
+import kotlinx.serialization.json.JsonPrimitive
+import com.xjtu.toolbox.util.requireArr
+import com.xjtu.toolbox.util.requireObj
+import kotlinx.serialization.json.JsonObject
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.intValue
+import com.xjtu.toolbox.util.booleanValue
+import com.xjtu.toolbox.util.isNull
+import com.xjtu.toolbox.util.obj
+import com.xjtu.toolbox.util.arr
+import kotlinx.serialization.json.jsonObject
 import com.xjtu.toolbox.util.redactBody
 import android.content.Context
 import com.xjtu.toolbox.network.HttpClients
@@ -14,17 +25,12 @@ import java.util.concurrent.TimeUnit
 /**
  * 教室信息（来自 CDN 缓存）
  */
+@kotlinx.serialization.Serializable
 data class RoomInfo(
-    val name: String,      // 教室名称，如 "主楼A-101"
-    val size: Int,         // 座位数
-    val status: List<Int>  // 11 个元素，对应 1-11 节课的占用情况：0=空闲, 1=占用
-) {
-    /** 磁盘缓存反序列化兜底，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。 */
-    fun sanitized(): RoomInfo = copy(
-        name = (name as String?) ?: "",
-        status = (status as List<Int>?) ?: emptyList(),
-    )
-}
+    val name: String = "",      // 教室名称，如 "主楼A-101"
+    val size: Int = 0,          // 座位数
+    val status: List<Int> = emptyList(),  // 11 个元素，对应 1-11 节课的占用情况：0=空闲, 1=占用
+)
 
 /**
  * 校区-教学楼映射（来自 XJTUToolBox）
@@ -75,7 +81,7 @@ class EmptyRoomApi(context: Context? = null) {
     // 缓存：日期 → 完整 JSON 数据
     private var cachedDate: String? = null
     private var cachedFetchedDay: String? = null
-    private var cachedData: com.google.gson.JsonObject? = null
+    private var cachedData: JsonObject? = null
     private val cache = context?.let { EmptyRoomCache(it) }
 
     /** 教室名 → 座位数。value 为 null 表示"查过了，没有这个教室的容量数据"。 */
@@ -85,7 +91,7 @@ class EmptyRoomApi(context: Context? = null) {
      * 获取指定日期的空闲教室数据
      * @param date 日期，格式 YYYY-MM-DD
      */
-    private fun fetchDayData(date: String): com.google.gson.JsonObject {
+    private fun fetchDayData(date: String): JsonObject {
         // 命中缓存
         val today = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
         if (date == cachedDate && cachedFetchedDay == today && cachedData != null) {
@@ -135,17 +141,17 @@ class EmptyRoomApi(context: Context? = null) {
     ): List<RoomInfo> {
         if (buildingNames.isEmpty()) return emptyList()
         val data = fetchDayData(date)
-        val campusData = data.getAsJsonObject(campusName)
+        val campusData = data.obj(campusName)
             ?: throw NoDataException("暂无 $campusName 的数据")
         return buildingNames.flatMap { buildingName ->
-            val buildingData = campusData.getAsJsonObject(buildingName) ?: return@flatMap emptyList()
-            buildingData.entrySet()
-                .filter { (key, value) -> key != "null" && key.isNotBlank() && !value.isJsonNull }
+            val buildingData = campusData.obj(buildingName) ?: return@flatMap emptyList()
+            buildingData.entries
+                .filter { (key, value) -> key != "null" && key.isNotBlank() && !value.isNull }
                 .mapNotNull { (roomName, roomJson) ->
                     try {
-                        val obj = roomJson.asJsonObject
-                        val status = obj.getAsJsonArray("status").map { it.asInt }
-                        val size = obj.get("size")?.let { if (it.isJsonNull) 0 else it.asInt } ?: 0
+                        val obj = roomJson.jsonObject
+                        val status = obj.requireArr("status").map { it.intValue }
+                        val size = obj.get("size")?.let { if (it.isNull) 0 else it.intValue } ?: 0
                         RoomInfo(name = roomName, size = size, status = status)
                     } catch (_: Exception) { null }
                 }
@@ -166,19 +172,19 @@ class EmptyRoomApi(context: Context? = null) {
     ): List<RoomInfo> {
         val data = fetchDayData(date)
 
-        val campusData = data.getAsJsonObject(campusName)
+        val campusData = data.obj(campusName)
             ?: throw NoDataException("暂无 $campusName 的数据")
 
-        val buildingData = campusData.getAsJsonObject(buildingName)
+        val buildingData = campusData.obj(buildingName)
             ?: throw NoDataException("暂无 $campusName - $buildingName 的数据")
 
-        return buildingData.entrySet()
-            .filter { (key, value) -> key != "null" && key.isNotBlank() && !value.isJsonNull }
+        return buildingData.entries
+            .filter { (key, value) -> key != "null" && key.isNotBlank() && !value.isNull }
             .mapNotNull { (roomName, roomJson) ->
                 try {
-                    val obj = roomJson.asJsonObject
-                    val status = obj.getAsJsonArray("status").map { it.asInt }
-                    val size = obj.get("size")?.let { if (it.isJsonNull) 0 else it.asInt } ?: 0
+                    val obj = roomJson.jsonObject
+                    val status = obj.requireArr("status").map { it.intValue }
+                    val size = obj.get("size")?.let { if (it.isNull) 0 else it.intValue } ?: 0
                     RoomInfo(
                         name = roomName,
                         size = size,
@@ -211,8 +217,8 @@ class EmptyRoomApi(context: Context? = null) {
         seatCache[location]?.let { return it }
         cache?.readJson(EmptyRoomCache.SEAT_CACHE_KEY, EmptyRoomCache.SEAT_TTL_DAYS)?.let { raw ->
             runCatching {
-                raw.safeParseJsonObject().entrySet().forEach { (k, v) ->
-                    seatCache[k] = if (v.isJsonNull) null else v.asInt
+                raw.safeParseJsonObject().entries.forEach { (k, v) ->
+                    seatCache[k] = if (v.isNull) null else v.intValue
                 }
             }
             if (seatCache.containsKey(location)) return seatCache[location]
@@ -221,23 +227,23 @@ class EmptyRoomApi(context: Context? = null) {
         val date = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
         val data = try { fetchDayData(date) } catch (_: Exception) { return null }
 
-        for ((_, campusJson) in data.entrySet()) {
-            val campusObj = try { campusJson.asJsonObject } catch (_: Exception) { continue }
-            for ((buildingName, buildingJson) in campusObj.entrySet()) {
-                val buildingObj = try { buildingJson.asJsonObject } catch (_: Exception) { continue }
+        for ((_, campusJson) in data.entries) {
+            val campusObj = try { campusJson.jsonObject } catch (_: Exception) { continue }
+            for ((buildingName, buildingJson) in campusObj.entries) {
+                val buildingObj = try { buildingJson.jsonObject } catch (_: Exception) { continue }
                 // 尝试1: location 以 "教学楼-教室号" 形式，如 "主楼A-301" → buildingName="主楼A", room="301"
                 if (location.startsWith(buildingName)) {
                     val roomPart = location.removePrefix(buildingName).trimStart('-', ' ', '/')
-                    if (roomPart.isNotBlank() && buildingObj.has(roomPart)) {
-                        val size = buildingObj.getAsJsonObject(roomPart).get("size")
-                            ?.let { if (it.isJsonNull) null else it.asInt }
+                    if (roomPart.isNotBlank() && buildingObj.containsKey(roomPart)) {
+                        val size = buildingObj.requireObj(roomPart).get("size")
+                            ?.let { if (it.isNull) null else it.intValue }
                         if (size != null && size > 0) return rememberSeat(location, size)
                     }
                 }
                 // 尝试2: location 直接就是 room key
-                if (buildingObj.has(location)) {
-                    val size = buildingObj.getAsJsonObject(location).get("size")
-                        ?.let { if (it.isJsonNull) null else it.asInt }
+                if (buildingObj.containsKey(location)) {
+                    val size = buildingObj.requireObj(location).get("size")
+                        ?.let { if (it.isNull) null else it.intValue }
                     if (size != null && size > 0) return rememberSeat(location, size)
                 }
             }
@@ -250,8 +256,7 @@ class EmptyRoomApi(context: Context? = null) {
         seatCache[location] = size
         cache?.let { c ->
             runCatching {
-                val obj = com.google.gson.JsonObject()
-                seatCache.forEach { (k, v) -> if (v == null) obj.add(k, com.google.gson.JsonNull.INSTANCE) else obj.addProperty(k, v) }
+                val obj = JsonObject(seatCache.mapValues { (_, v) -> JsonPrimitive(v) })
                 c.writeJson(EmptyRoomCache.SEAT_CACHE_KEY, obj.toString())
             }
         }
@@ -330,15 +335,15 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient, private val cac
             ).execute()
             val body = resp.body?.string() ?: return
             val json = body.safeParseJsonObject()
-            val datas = json.getAsJsonObject("datas") ?: return
-            val groups = datas.getAsJsonArray("userGroups") ?: return
+            val datas = json.obj("datas") ?: return
+            val groups = datas.arr("userGroups") ?: return
             var currentRoleName: String? = null
             var studentRoleId: String? = null
             groups.forEach { el ->
-                val o = el.asJsonObject
-                val roleName = o.get("roleName")?.asString
-                val roleId = o.get("roleId")?.asString
-                val isCurrent = o.get("currentRole")?.takeIf { !it.isJsonNull }?.asBoolean == true
+                val o = el.jsonObject
+                val roleName = o.get("roleName")?.stringValue
+                val roleId = o.get("roleId")?.stringValue
+                val isCurrent = o.get("currentRole")?.takeIf { !it.isNull }?.booleanValue == true
                 if (isCurrent) currentRoleName = roleName
                 if (roleName == "学生") studentRoleId = roleId
             }
@@ -421,11 +426,11 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient, private val cac
         val out = LinkedHashMap<String, String>()
         try {
             val rows = body.safeParseJsonObject()
-                .getAsJsonObject("datas")
-                ?.getAsJsonObject("code")
-                ?.getAsJsonArray("rows") ?: return emptyMap()
+                .obj("datas")
+                ?.obj("code")
+                ?.arr("rows") ?: return emptyMap()
             for (el in rows) {
-                val o = el.asJsonObject
+                val o = el.jsonObject
                 val name = firstString(o, "name", "NAME", "text", "label", "MC", "DM_DISPLAY") ?: continue
                 val id = firstString(o, "id", "ID", "value", "code", "DM") ?: continue
                 out[name] = id
@@ -436,11 +441,11 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient, private val cac
         return out
     }
 
-    private fun firstString(obj: com.google.gson.JsonObject, vararg keys: String): String? {
+    private fun firstString(obj: JsonObject, vararg keys: String): String? {
         for (key in keys) {
             val el = obj.get(key)
-            if (el != null && !el.isJsonNull) {
-                val value = el.asString
+            if (el != null && !el.isNull) {
+                val value = el.stringValue
                 if (value.isNotBlank()) return value
             }
         }
@@ -482,26 +487,26 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient, private val cac
         android.util.Log.d(TAG, "queryRooms date=$date start=$startTime end=$endTime http=${resp.code} bodyPrefix=${body.redactBody(120)}")
         // safeParseJsonObject 会自动检测 HTML 响应并抛出友好的错误信息
         val root = body.safeParseJsonObject()
-        val datas = root.getAsJsonObject("datas")
+        val datas = root.obj("datas")
             ?: throw RuntimeException("空闲教室查询响应缺少 datas")
-        val rows = datas.getAsJsonObject("cxkxjs")
-            ?.getAsJsonArray("rows")
+        val rows = datas.obj("cxkxjs")
+            ?.arr("rows")
             ?: throw RuntimeException("空闲教室查询响应缺少 rows")
         val out = ArrayList<DirectRoomRow>()
         for (el in rows) {
-            val o = el.asJsonObject
+            val o = el.jsonObject
             // 上游过滤：JASLXDM null（接口幻觉教室）/ JASMC 含「测试专用」
-            if (o.get("JASLXDM")?.isJsonNull == true) continue
-            val name = o.get("JASMC")?.asString ?: continue
+            if (o.get("JASLXDM")?.isNull == true) continue
+            val name = o.get("JASMC")?.stringValue ?: continue
             if ("测试专用" in name) continue
             out.add(
                 DirectRoomRow(
                     name = name,
-                    buildingName = o.get("JXLDM_DISPLAY")?.asString ?: "",
-                    type = o.get("JASLXDM_DISPLAY")?.asString,
-                    capacity = o.get("SKZWS")?.takeIf { !it.isJsonNull }?.asInt ?: 0,
-                    examCapacity = o.get("KSZWS")?.takeIf { !it.isJsonNull }?.asInt ?: 0,
-                    campusName = o.get("XXXQDM_DISPLAY")?.asString ?: ""
+                    buildingName = o.get("JXLDM_DISPLAY")?.stringValue ?: "",
+                    type = o.get("JASLXDM_DISPLAY")?.stringValue,
+                    capacity = o.get("SKZWS")?.takeIf { !it.isNull }?.intValue ?: 0,
+                    examCapacity = o.get("KSZWS")?.takeIf { !it.isNull }?.intValue ?: 0,
+                    campusName = o.get("XXXQDM_DISPLAY")?.stringValue ?: ""
                 )
             )
         }

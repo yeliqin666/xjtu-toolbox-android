@@ -1,5 +1,8 @@
 package com.xjtu.toolbox.jiaocai
 
+import com.xjtu.toolbox.util.obj
+import com.xjtu.toolbox.util.arr
+import kotlinx.serialization.json.jsonObject
 import com.xjtu.toolbox.util.redactBody
 import android.util.Log
 import com.xjtu.toolbox.auth.SiteSession
@@ -75,11 +78,11 @@ class JiaocaiApi(private val site: SiteSession) {
             val body = get(url)
             Log.d(TAG, "search[$keyword]: ${body.redactBody(200)}")
             val json = body.safeParseJsonObject()
-            val list = json.getAsJsonObject("data")?.getAsJsonArray("dataList") ?: return emptyList()
+            val list = json.obj("data")?.arr("dataList") ?: return emptyList()
             var loggedSample = false
             list.mapNotNull { elem ->
                 try {
-                    val obj = elem.asJsonObject
+                    val obj = elem.jsonObject
                     val raw = obj.get("content")?.safeString() ?: ""
                     if (!loggedSample) {
                         loggedSample = true

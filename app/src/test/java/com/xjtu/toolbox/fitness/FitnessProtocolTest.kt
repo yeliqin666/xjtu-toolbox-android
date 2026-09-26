@@ -1,10 +1,10 @@
 package com.xjtu.toolbox.fitness
 
+import com.xjtu.toolbox.util.stringValue
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FitnessProtocolTest {
@@ -90,8 +90,8 @@ class FitnessProtocolTest {
         assertNotNull(decrypted)
         val envelope = """{"status":1,"info":"ok","is_encrypt":1,"data":"$cipher"}"""
         val user = FitnessProtocol.unwrapUserInfo(envelope)
-        assertEquals("user-id", user?.get("uid")?.asString)
-        assertEquals("user-id", FitnessProtocol.unwrapUserInfo("\n$cipher\r\n")?.get("uid")?.asString)
+        assertEquals("user-id", user?.get("uid")?.stringValue)
+        assertEquals("user-id", FitnessProtocol.unwrapUserInfo("\n$cipher\r\n")?.get("uid")?.stringValue)
         assertNull(FitnessProtocol.unwrapUserInfo("""{"status":1,"data":"not-base64"}"""))
         assertNull(FitnessProtocol.unwrapUserInfo("""{"status":1,"data":{}}"""))
     }

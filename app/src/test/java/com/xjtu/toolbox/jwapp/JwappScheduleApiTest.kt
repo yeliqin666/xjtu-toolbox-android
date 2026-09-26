@@ -1,7 +1,10 @@
 package com.xjtu.toolbox.jwapp
 
-import com.google.gson.JsonArray
-import com.google.gson.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.schedule.ScheduleChangeEvent
 import org.junit.Assert.assertEquals
@@ -176,18 +179,18 @@ class JwappScheduleApiTest {
 
     @Test
     fun `makeup class lands in the week whose response returned it`() {
-        val addition = JsonObject().apply {
-            addProperty("tklxdm", "03")
-            addProperty("xskzc", "1")
-            addProperty("kcm", "临时补课")
-            addProperty("kch", "MAKEUP")
-            addProperty("skxq", 3)
-            addProperty("ksjc", 5)
-            addProperty("jsjc", 6)
-            addProperty("xskxq", 7)
-            addProperty("xksjc", 9)
-            addProperty("xjsjc", 10)
-            addProperty("xjasmc", "中三 3301")
+        val addition = buildJsonObject {
+            put("tklxdm", "03")
+            put("xskzc", "1")
+            put("kcm", "临时补课")
+            put("kch", "MAKEUP")
+            put("skxq", 3)
+            put("ksjc", 5)
+            put("jsjc", 6)
+            put("xskxq", 7)
+            put("xksjc", 9)
+            put("xjsjc", 10)
+            put("xjasmc", "中三 3301")
         }
 
         val result = api.mergeWeeks(
@@ -207,16 +210,16 @@ class JwappScheduleApiTest {
 
     @Test
     fun `makeup without teacher borrows it from the same course`() {
-        val addition = JsonObject().apply {
-            addProperty("tklxdm", "03")
-            addProperty("kcm", "光电子学")
-            addProperty("kch", "OE101")
-            addProperty("skxq", 1)
-            addProperty("ksjc", 1)
-            addProperty("jsjc", 2)
-            addProperty("xskxq", 6)
-            addProperty("xksjc", 1)
-            addProperty("xjsjc", 2)
+        val addition = buildJsonObject {
+            put("tklxdm", "03")
+            put("kcm", "光电子学")
+            put("kch", "OE101")
+            put("skxq", 1)
+            put("ksjc", 1)
+            put("jsjc", 2)
+            put("xskxq", 6)
+            put("xksjc", 1)
+            put("xjsjc", 2)
         }
         val result = api.mergeWeeks(listOf(1 to week(listOf(occurrence()), addition)), maxWeekNum = 1)
         assertEquals("张老师", result.courses.single { it.dayOfWeek == 6 }.teacher)
@@ -237,9 +240,8 @@ class JwappScheduleApiTest {
 
     @Test
     fun `move event survives when theory response already removed origin`() {
-        val change = move("2", "1", 2, 7, 1, 2, 3, 4, "主楼 A101", "KB-1").apply {
-            addProperty("bz", "国庆节调课")
-        }
+        val base = move("2", "1", 2, 7, 1, 2, 3, 4, "主楼 A101", "KB-1")
+        val change = JsonObject(base + ("bz" to JsonPrimitive("国庆节调课")))
 
         val result = api.mergeWeeks(
             listOf(1 to week(), 2 to week(changes = arrayOf(change))),
@@ -276,7 +278,7 @@ class JwappScheduleApiTest {
     private fun week(
         theory: List<JwappScheduleApi.Occurrence> = emptyList(),
         vararg changes: JsonObject,
-    ) = JwappScheduleApi.WeekRaw(theory, JsonArray().apply { changes.forEach(::add) })
+    ) = JwappScheduleApi.WeekRaw(theory, buildJsonArray { changes.forEach(::add) })
 
     private fun occurrence(
         day: Int = 1,
@@ -300,15 +302,15 @@ class JwappScheduleApiTest {
         kbid = kbid,
     )
 
-    private fun cancel(start: Int = 1, end: Int = 2, skzc: String? = null) = JsonObject().apply {
-        addProperty("tklxdm", "02")
-        addProperty("kbid", "KB-1")
-        addProperty("kcm", "光电子学")
-        addProperty("kch", "OE101")
-        addProperty("skxq", 1)
-        addProperty("ksjc", start)
-        addProperty("jsjc", end)
-        skzc?.let { addProperty("skzc", it) }
+    private fun cancel(start: Int = 1, end: Int = 2, skzc: String? = null) = buildJsonObject {
+        put("tklxdm", "02")
+        put("kbid", "KB-1")
+        put("kcm", "光电子学")
+        put("kch", "OE101")
+        put("skxq", 1)
+        put("ksjc", start)
+        put("jsjc", end)
+        skzc?.let { put("skzc", it) }
     }
 
     private fun move(
@@ -322,21 +324,21 @@ class JwappScheduleApiTest {
         toEnd: Int,
         room: String,
         kbid: String,
-    ) = JsonObject().apply {
-        addProperty("tklxdm", "01")
-        addProperty("skzc", originWeek)
-        addProperty("xskzc", targetWeek)
-        addProperty("kbid", kbid)
-        addProperty("kcm", "光电子学")
-        addProperty("kch", "OE101")
-        addProperty("skjs", "张老师")
-        addProperty("jasmc", "西一楼")
-        addProperty("skxq", fromDay)
-        addProperty("ksjc", fromStart)
-        addProperty("jsjc", fromEnd)
-        addProperty("xskxq", toDay)
-        addProperty("xksjc", toStart)
-        addProperty("xjsjc", toEnd)
-        addProperty("xjasmc", room)
+    ) = buildJsonObject {
+        put("tklxdm", "01")
+        put("skzc", originWeek)
+        put("xskzc", targetWeek)
+        put("kbid", kbid)
+        put("kcm", "光电子学")
+        put("kch", "OE101")
+        put("skjs", "张老师")
+        put("jasmc", "西一楼")
+        put("skxq", fromDay)
+        put("ksjc", fromStart)
+        put("jsjc", fromEnd)
+        put("xskxq", toDay)
+        put("xksjc", toStart)
+        put("xjsjc", toEnd)
+        put("xjasmc", room)
     }
 }

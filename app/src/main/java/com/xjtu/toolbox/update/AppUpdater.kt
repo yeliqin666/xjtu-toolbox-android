@@ -1,14 +1,21 @@
 package com.xjtu.toolbox.update
 
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.booleanValue
+import com.xjtu.toolbox.util.isObject
+import com.xjtu.toolbox.util.isPrimitive
+import com.xjtu.toolbox.util.arr
+import com.xjtu.toolbox.util.AppJson
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
 import com.xjtu.toolbox.network.HttpClients
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
 import androidx.core.content.FileProvider
-import com.google.gson.JsonArray
-import com.google.gson.JsonObject
-import com.google.gson.JsonParser
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.BuildConfig
 import com.xjtu.toolbox.bulletin.BulletinRules
 import kotlinx.coroutines.Dispatchers
@@ -92,7 +99,7 @@ object AppUpdater {
                 if (!response.isSuccessful) error("服务器响应 ${response.code}")
                 response.body?.string() ?: error("服务器没有返回内容")
             }
-            val array = JsonParser.parseString(body).asJsonArray
+            val array = AppJson.parseToJsonElement(body).jsonArray
             val picked = pickRelease(array, BuildConfig.VERSION_NAME, includePreview = true, rolloutId = rolloutId)
             if (picked != null) {
                 return@withContext picked
@@ -150,24 +157,24 @@ object AppUpdater {
     ): AppUpdateInfo? {
         val candidates = mutableListOf<AppUpdateInfo>()
         for (el in releases) {
-            if (!el.isJsonObject) continue
-            val obj = el.asJsonObject
-            val draft = obj.get("draft")?.takeIf { it.isJsonPrimitive }?.asBoolean ?: false
+            if (!el.isObject) continue
+            val obj = el.jsonObject
+            val draft = obj.get("draft")?.takeIf { it.isPrimitive }?.booleanValue ?: false
             if (draft) continue
 
-            val isPrerelease = obj.get("prerelease")?.takeIf { it.isJsonPrimitive }?.asBoolean ?: false
-            val tagName = obj.get("tag_name")?.takeIf { it.isJsonPrimitive }?.asString.orEmpty()
-            val name = obj.get("name")?.takeIf { it.isJsonPrimitive }?.asString?.trim().orEmpty()
-            val body = obj.get("body")?.takeIf { it.isJsonPrimitive }?.asString.orEmpty()
-            val htmlUrl = obj.get("html_url")?.takeIf { it.isJsonPrimitive }?.asString.orEmpty()
+            val isPrerelease = obj.get("prerelease")?.takeIf { it.isPrimitive }?.booleanValue ?: false
+            val tagName = obj.get("tag_name")?.takeIf { it.isPrimitive }?.stringValue.orEmpty()
+            val name = obj.get("name")?.takeIf { it.isPrimitive }?.stringValue?.trim().orEmpty()
+            val body = obj.get("body")?.takeIf { it.isPrimitive }?.stringValue.orEmpty()
+            val htmlUrl = obj.get("html_url")?.takeIf { it.isPrimitive }?.stringValue.orEmpty()
 
-            val assets = obj.getAsJsonArray("assets")
+            val assets = obj.arr("assets")
             val apkAsset = assets
-                ?.mapNotNull { item -> item.takeIf { it.isJsonObject }?.asJsonObject }
+                ?.mapNotNull { item -> item.takeIf { it.isObject }?.jsonObject }
                 ?.firstOrNull { asset ->
-                    asset.get("name")?.asString?.endsWith(".apk", ignoreCase = true) == true
+                    asset.get("name")?.stringValue?.endsWith(".apk", ignoreCase = true) == true
                 }
-            val downloadUrl = apkAsset?.get("browser_download_url")?.asString
+            val downloadUrl = apkAsset?.get("browser_download_url")?.stringValue
 
             val version: String
             if (isPrerelease) {
@@ -224,7 +231,7 @@ object AppUpdater {
             if (!response.isSuccessful) error("服务器响应 ${response.code}")
             response.body?.string() ?: error("服务器没有返回内容")
         }
-        return JsonParser.parseString(body).asJsonObject.toParsedRelease(channel)
+        return AppJson.parseToJsonElement(body).jsonObject.toParsedRelease(channel)
     }
 
     suspend fun download(
@@ -299,15 +306,14 @@ object AppUpdater {
     )
 
     private fun JsonObject.toParsedRelease(channel: String): ParsedRelease {
-        val version = get("tag_name")?.asString?.removePrefix("v")
+        val version = get("tag_name")?.stringValue?.removePrefix("v")
             ?: error("版本信息缺失")
-        val assets = getAsJsonArray("assets")
-        val apkAsset = assets
-            ?.mapNotNull { it.takeIf { item -> item.isJsonObject }?.asJsonObject }
+        val apkAsset = arr("assets")
+            ?.mapNotNull { it as? JsonObject }
             ?.firstOrNull { asset ->
-                asset.get("name")?.asString?.endsWith(".apk", ignoreCase = true) == true
+                asset.get("name")?.stringValue?.endsWith(".apk", ignoreCase = true) == true
             }
-        val downloadUrl = apkAsset?.get("browser_download_url")?.asString
+        val downloadUrl = apkAsset?.get("browser_download_url")?.stringValue
             ?: if (channel.startsWith("github")) {
                 "https://github.com/yeliqin666/xjtu-toolbox-android/releases/download/v$version/app-release.apk"
             } else {
@@ -316,9 +322,9 @@ object AppUpdater {
         return ParsedRelease(
             info = AppUpdateInfo(
                 version = version,
-                notes = get("body")?.asString.orEmpty(),
+                notes = get("body")?.stringValue.orEmpty(),
                 downloadUrl = downloadUrl,
-                releaseUrl = get("html_url")?.asString.orEmpty(),
+                releaseUrl = get("html_url")?.stringValue.orEmpty(),
                 channel = channel,
                 channelLabel = channelLabel(channel),
             ),

@@ -1,8 +1,14 @@
 package com.xjtu.toolbox.fitness
 
-import com.google.gson.Gson
-import com.google.gson.JsonObject
-import com.google.gson.JsonParser
+import com.xjtu.toolbox.util.toJsonElement
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.intValue
+import com.xjtu.toolbox.util.isNull
+import com.xjtu.toolbox.util.isObject
+import com.xjtu.toolbox.util.isPrimitive
+import com.xjtu.toolbox.util.AppJson
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.webvpn.WebVpnUtil
 import com.xjtu.toolbox.util.safeParseJsonObject
@@ -49,7 +55,6 @@ object FitnessProtocol {
     )
     val ROLE_BY_USER_TYPE = mapOf("1" to 2, "2" to 1, "3" to 3)
 
-    private val gson = Gson()
     private val random = SecureRandom()
 
     fun isFitnessCallback(url: String): Boolean =
@@ -126,7 +131,7 @@ object FitnessProtocol {
     }
 
     fun encryptPayload(payload: Map<String, Any>): String {
-        val plaintext = gson.toJson(payload).toByteArray(Charsets.UTF_8)
+        val plaintext = payload.toJsonElement().toString().toByteArray(Charsets.UTF_8)
         val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
         cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(AES_KEY, "AES"), IvParameterSpec(AES_IV))
         return Base64.getEncoder().encodeToString(cipher.doFinal(plaintext))
@@ -139,7 +144,7 @@ object FitnessProtocol {
             val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
             cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(AES_KEY, "AES"), IvParameterSpec(AES_IV))
             val json = String(cipher.doFinal(encrypted), Charsets.UTF_8)
-            JsonParser.parseString(json)
+            AppJson.parseToJsonElement(json)
         } catch (_: Exception) {
             null
         }
@@ -179,7 +184,7 @@ object FitnessProtocol {
 
     fun unwrapUserInfo(body: String): JsonObject? {
         val data = parseEnvelope(body) ?: return null
-        return data.takeIf { it.entrySet().isNotEmpty() }
+        return data.takeIf { it.entries.isNotEmpty() }
     }
 
     /**
@@ -191,12 +196,12 @@ object FitnessProtocol {
         val decryptedDirect = decryptPayload(trimmed)
         if (decryptedDirect is JsonObject) return decryptedDirect
         val root = runCatching { trimmed.safeParseJsonObject() }.getOrNull() ?: return null
-        if (root.get("status")?.asInt != 1) return null
+        if (root.get("status")?.intValue != 1) return null
         val data = root.get("data") ?: return null
-        if (data.isJsonNull) return null
-        if (data.isJsonObject) return data.asJsonObject
-        if (data.isJsonPrimitive) {
-            val inner = decryptPayload(data.asString)
+        if (data.isNull) return null
+        if (data.isObject) return data.jsonObject
+        if (data.isPrimitive) {
+            val inner = decryptPayload(data.stringValue)
             if (inner is JsonObject) return inner
         }
         return null

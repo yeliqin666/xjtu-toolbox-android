@@ -1,6 +1,11 @@
 package com.xjtu.toolbox.judge
 
-import com.google.gson.Gson
+import com.xjtu.toolbox.util.requireArr
+import com.xjtu.toolbox.util.requireObj
+import com.xjtu.toolbox.util.obj
+import com.xjtu.toolbox.util.arr
+import kotlinx.serialization.json.jsonObject
+import com.xjtu.toolbox.util.toJsonElement
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
 import com.xjtu.toolbox.util.safeString
@@ -148,7 +153,6 @@ data class QuestionnaireOptionData(
  */
 class JudgeApi(private val site: SiteSession) {
 
-    private val gson = Gson()
     private var cachedTerm: String? = null
     private var appInitialized = false
 
@@ -212,11 +216,11 @@ class JudgeApi(private val site: SiteSession) {
             throw com.xjtu.toolbox.auth.AuthExpiredException("教务评教（会话过期）")
         }
         val root = responseBody.safeParseJsonObject()
-        return root.getAsJsonObject("datas")
-            ?.getAsJsonObject("cxxtcs")
-            ?.getAsJsonArray("rows")
-            ?.takeIf { it.size() > 0 }
-            ?.get(0)?.asJsonObject
+        return root.obj("datas")
+            ?.obj("cxxtcs")
+            ?.arr("rows")
+            ?.takeIf { it.size > 0 }
+            ?.get(0)?.jsonObject
             ?.get("CSZA")?.safeString()
             ?: throw RuntimeException("评教学期数据为空（学期未开放评教？）")
     }
@@ -247,12 +251,12 @@ class JudgeApi(private val site: SiteSession) {
 
         val responseBody = execute(request).ifEmpty { throw RuntimeException("空响应") }
         val root = responseBody.safeParseJsonObject()
-        val rows = root.getAsJsonObject("datas")
-            .getAsJsonObject("cxdwpj")
-            .getAsJsonArray("rows")
+        val rows = root.requireObj("datas")
+            .requireObj("cxdwpj")
+            .requireArr("rows")
 
         return rows.map { el ->
-            val obj = el.asJsonObject
+            val obj = el.jsonObject
             Questionnaire(
                 BPJS = obj.get("BPJS").safeString(),
                 BPR = obj.get("BPR").safeString(),
@@ -318,12 +322,12 @@ class JudgeApi(private val site: SiteSession) {
 
         val responseBody = execute(request).ifEmpty { throw RuntimeException("空响应") }
         val root = responseBody.safeParseJsonObject()
-        val rows = root.getAsJsonObject("datas")
-            .getAsJsonObject("cxwjzb")
-            .getAsJsonArray("rows")
+        val rows = root.requireObj("datas")
+            .requireObj("cxwjzb")
+            .requireArr("rows")
 
         return rows.map { el ->
-            val obj = el.asJsonObject
+            val obj = el.jsonObject
             QuestionnaireData(
                 WJDM = obj.get("WJDM").safeString(),
                 CPR = username,
@@ -352,7 +356,7 @@ class JudgeApi(private val site: SiteSession) {
         finished: Boolean = false
     ): Map<String, List<QuestionnaireOptionData>> {
         ensureAppInitialized()
-        val querySetting = gson.toJson(
+        val querySetting = (
             listOf(
                 mapOf("name" to "BPR", "value" to q.BPR, "linkOpt" to "AND", "builder" to "equal"),
                 mapOf("name" to "CPR", "value" to username, "linkOpt" to "AND", "builder" to "equal"),
@@ -361,7 +365,7 @@ class JudgeApi(private val site: SiteSession) {
                 mapOf("name" to "WJDM", "value" to q.WJDM, "linkOpt" to "AND", "builder" to "equal"),
                 mapOf("name" to "PCDM", "value" to q.PCDM, "linkOpt" to "AND", "builder" to "equal")
             )
-        )
+        ).toJsonElement().toString()
 
         val formBody = FormBody.Builder()
             .add("WJDM", q.WJDM)
@@ -383,13 +387,13 @@ class JudgeApi(private val site: SiteSession) {
 
         val responseBody = execute(request).ifEmpty { throw RuntimeException("空响应") }
         val root = responseBody.safeParseJsonObject()
-        val rows = root.getAsJsonObject("datas")
-            .getAsJsonObject("cxxswjzbxq")
-            .getAsJsonArray("rows")
+        val rows = root.requireObj("datas")
+            .requireObj("cxxswjzbxq")
+            .requireArr("rows")
 
         val result = mutableMapOf<String, MutableList<QuestionnaireOptionData>>()
         for (el in rows) {
-            val obj = el.asJsonObject
+            val obj = el.jsonObject
             val zbdm = obj.get("ZBDM").safeString()
             val optionData = QuestionnaireOptionData(
                 ZBDM = zbdm,
@@ -411,8 +415,8 @@ class JudgeApi(private val site: SiteSession) {
      */
     suspend fun submitQuestionnaire(q: Questionnaire, data: List<QuestionnaireData>): Pair<Boolean, String> {
         ensureAppInitialized()
-        val wjysjgJson = gson.toJson(data.map { it.toJsonMap() })
-        val requestParamStr = gson.toJson(
+        val wjysjgJson = data.map { it.toJsonMap() }.toJsonElement().toString()
+        val requestParamStr = (
             mapOf(
                 "WJDM" to q.WJDM,
                 "PCDM" to q.PCDM,
@@ -420,7 +424,7 @@ class JudgeApi(private val site: SiteSession) {
                 "SFTJ" to "1",
                 "WJYSJG" to wjysjgJson
             )
-        )
+        ).toJsonElement().toString()
 
         val formBody = FormBody.Builder()
             .add("requestParamStr", requestParamStr)
@@ -437,7 +441,7 @@ class JudgeApi(private val site: SiteSession) {
         val responseBody = execute(request).ifEmpty { throw RuntimeException("空响应") }
         val root = responseBody.safeParseJsonObject()
         val code = root.get("code").safeString("-1")
-        val datasObj = root.getAsJsonObject("datas")
+        val datasObj = root.obj("datas")
         val datasCode = datasObj?.get("code").safeString("-1")
         val msg = datasObj?.get("msg").safeString("未知错误")
 
@@ -491,7 +495,7 @@ class JudgeApi(private val site: SiteSession) {
         endpointLoop@ for (endpoint in endpointCandidates) {
             for (payload in payloadVariants) {
                 try {
-                    val requestParamStr = gson.toJson(payload)
+                    val requestParamStr = payload.toJsonElement().toString()
                     val formBody = FormBody.Builder()
                         .add("requestParamStr", requestParamStr)
                         .build()
@@ -507,7 +511,7 @@ class JudgeApi(private val site: SiteSession) {
                     val responseBody = execute(request).ifEmpty { throw RuntimeException("空响应") }
                     val root = responseBody.safeParseJsonObject()
                     val code = root.get("code").safeString("-1")
-                    val datasObj = root.getAsJsonObject("datas")
+                    val datasObj = root.obj("datas")
                     val datasCode = datasObj?.get("code").safeString("-1")
                     val msg = datasObj?.get("msg").safeString("未知错误")
                     val success = (code == "0" && datasCode == "0") ||

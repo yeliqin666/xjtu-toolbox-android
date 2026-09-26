@@ -1,5 +1,11 @@
 package com.xjtu.toolbox.library
 
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.isArray
+import com.xjtu.toolbox.util.isPrimitive
+import com.xjtu.toolbox.util.AppJson
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 
@@ -333,20 +339,20 @@ object LibraryPages {
      * 那个按钮的矩形，`spacecancel` 同类，都不是座位，丢掉。
      */
     fun parseSeatLayout(body: String): SeatLayout {
-        // 用 Gson 而不是 org.json：后者在 JVM 单测里是 android.jar 的桩，一调就抛。
-        val json = com.google.gson.JsonParser.parseString(body).asJsonObject
+        // 不用 org.json：它在 JVM 单测里是 android.jar 的桩，一调就抛。
+        val json = AppJson.parseToJsonElement(body).jsonObject
         val seats = ArrayList<PlanSeat>()
-        for ((id, value) in json.entrySet()) {
+        for ((id, value) in json.entries) {
             if (id.isBlank() || id == "cancel" || id == "spacecancel") continue
-            if (!value.isJsonArray) continue
-            val arr = value.asJsonArray
-            if (arr.size() < 4) continue
-            fun at(i: Int): String? = arr[i].takeIf { it.isJsonPrimitive }?.asString?.trim()
+            if (!value.isArray) continue
+            val arr = value.jsonArray
+            if (arr.size < 4) continue
+            fun at(i: Int): String? = arr[i].takeIf { it.isPrimitive }?.stringValue?.trim()
             val nums = (0 until 4).map { at(it)?.toFloatOrNull() }
             if (nums.any { it == null }) continue
             val (l, t, w, h) = nums.map { it!! }
             if (w <= 0f || h <= 0f) continue
-            val status = if (arr.size() >= 5) at(4)?.toIntOrNull() ?: PlanSeat.FREE else PlanSeat.FREE
+            val status = if (arr.size >= 5) at(4)?.toIntOrNull() ?: PlanSeat.FREE else PlanSeat.FREE
             seats += PlanSeat(id, l, t, w, h, status)
         }
         return SeatLayout(seats)
@@ -363,13 +369,14 @@ object LibraryPages {
 }
 
 /** 平面图上的一个座位：矩形是平面图像素坐标。 */
+@kotlinx.serialization.Serializable
 data class PlanSeat(
-    val seatId: String,
-    val left: Float,
-    val top: Float,
-    val width: Float,
-    val height: Float,
-    val status: Int,
+    val seatId: String = "",
+    val left: Float = 0f,
+    val top: Float = 0f,
+    val width: Float = 0f,
+    val height: Float = 0f,
+    val status: Int = 0,
 ) {
     val available: Boolean get() = status == FREE
     val right: Float get() = left + width

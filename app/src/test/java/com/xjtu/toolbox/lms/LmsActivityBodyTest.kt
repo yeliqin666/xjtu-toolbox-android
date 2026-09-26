@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.lms
 
-import com.google.gson.JsonParser
+import com.xjtu.toolbox.util.AppJson
+import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -12,7 +13,7 @@ import org.junit.Test
  */
 class LmsActivityBodyTest {
 
-    private fun data(json: String) = JsonParser.parseString(json).asJsonObject
+    private fun data(json: String) = AppJson.parseToJsonElement(json).jsonObject
 
     @Test
     fun homework_usesDescription() {

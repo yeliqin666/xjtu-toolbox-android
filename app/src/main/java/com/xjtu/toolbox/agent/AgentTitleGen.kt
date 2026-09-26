@@ -1,9 +1,16 @@
 package com.xjtu.toolbox.agent
 
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.isNull
+import com.xjtu.toolbox.util.obj
+import com.xjtu.toolbox.util.arr
+import com.xjtu.toolbox.util.AppJson
+import kotlinx.serialization.json.jsonObject
 import com.xjtu.toolbox.network.HttpClients
-import com.google.gson.JsonArray
-import com.google.gson.JsonObject
-import com.google.gson.JsonParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -52,10 +59,10 @@ object AgentTitleGen {
         disableThinking: Boolean,
     ): String? {
         return run {
-            val messages = JsonArray().apply {
-                add(JsonObject().apply {
-                    addProperty("role", "system")
-                    addProperty("content",
+            val messages = buildJsonArray {
+                add(buildJsonObject {
+                    put("role", "system")
+                    put("content",
                         // 光说"概括主题"不够：模型的默认倾向是**转述这次请求**
                         // （"用户询问本周是否有考试"），那是摘要不是标题。
                         // 所以既要正面给出"名词短语"的形状，也要反面点名禁掉主语开头，再给两个例子对齐。
@@ -64,28 +71,28 @@ object AgentTitleGen {
                             "例：问这周有没有考试 → 本周考试安排"
                     )
                 })
-                add(JsonObject().apply {
-                    addProperty("role", "user")
-                    addProperty("content",
+                add(buildJsonObject {
+                    put("role", "user")
+                    put("content",
                         "【用户】${userMsg.take(300)}\n【助手】${assistantMsg.take(300)}"
                     )
                 })
             }
-            val reqBody = JsonObject().apply {
-                addProperty("model", config.effectiveModel)
-                add("messages", messages)
-                addProperty("temperature", 0.3)
+            val reqBody = buildJsonObject {
+                put("model", config.effectiveModel)
+                put("messages", messages)
+                put("temperature", 0.3)
                 // 32 太紧：思考没关掉的后端连 content 都轮不到就被截断。
                 // 给到 64 仍然极便宜，但正常情况下一定能把标题写完。
-                addProperty("max_tokens", 64)
+                put("max_tokens", 64)
                 // 关掉思考：标题是直接生成任务，不需要 CoT。
                 // 两个字段一起发，覆盖两套约定：thinking 是 DeepSeek 侧的开关，
                 // reasoning_effort=none 是 OpenAI 兼容侧的写法。都不认就走上面的降级重试。
                 if (disableThinking) {
-                    add("thinking", JsonObject().apply {
-                        addProperty("type", "disabled")
+                    put("thinking", buildJsonObject {
+                        put("type", "disabled")
                     })
-                    addProperty("reasoning_effort", "none")
+                    put("reasoning_effort", "none")
                 }
             }
             runCatching {
@@ -100,11 +107,11 @@ object AgentTitleGen {
                     // 400 基本就是"这个后端不认那两个字段"，交给外层去掉参数重试。
                     if (!resp.isSuccessful) return@use null
                     val body = resp.body?.string() ?: return@use null
-                    val msg = JsonParser.parseString(body).asJsonObject
-                        .getAsJsonArray("choices")?.get(0)?.asJsonObject
-                        ?.getAsJsonObject("message") ?: return@use null
+                    val msg = AppJson.parseToJsonElement(body).jsonObject
+                        .arr("choices")?.get(0)?.jsonObject
+                        ?.obj("message") ?: return@use null
                     // 只认 content。reasoning_content 是思考链，不是答案，见类注释第 2 条。
-                    val raw = msg.get("content")?.takeIf { !it.isJsonNull }?.asString
+                    val raw = msg.get("content")?.takeIf { !it.isNull }?.stringValue
                         ?.takeIf { it.isNotBlank() }
                         ?: return@use null
                     // 推理模型偶尔把最终答案跟在思考后面并用换行分隔，取最后一行非空文本。

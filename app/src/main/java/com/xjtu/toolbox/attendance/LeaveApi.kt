@@ -1,7 +1,10 @@
 package com.xjtu.toolbox.attendance
 
-import com.google.gson.JsonArray
-import com.google.gson.JsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.buildJsonObject
+import com.xjtu.toolbox.util.obj
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.auth.SiteSession
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
@@ -51,23 +54,24 @@ class LeaveApi(private val site: SiteSession) {
         status: String = "",
         leaveType: String = "",
     ): LeavePage {
-        val filter = JsonObject()
-        when (status) {
-            "CANCELLED" -> {
-                filter.addProperty("status", "APPROVED")
-                filter.addProperty("cancelStatus", "CANCELLED")
+        val filter = buildJsonObject {
+            when (status) {
+                "CANCELLED" -> {
+                    put("status", "APPROVED")
+                    put("cancelStatus", "CANCELLED")
+                }
+                "APPROVED" -> {
+                    put("status", "APPROVED")
+                    put("cancelStatus", "PENDING_CANCEL")
+                }
+                else -> if (status.isNotBlank()) put("status", status)
             }
-            "APPROVED" -> {
-                filter.addProperty("status", "APPROVED")
-                filter.addProperty("cancelStatus", "PENDING_CANCEL")
-            }
-            else -> if (status.isNotBlank()) filter.addProperty("status", status)
+            if (leaveType.isNotBlank()) put("leaveType", leaveType)
         }
-        if (leaveType.isNotBlank()) filter.addProperty("leaveType", leaveType)
-        val body = JsonObject().apply {
-            addProperty("pageNum", pageNum.coerceAtLeast(1))
-            addProperty("pageSize", pageSize.coerceIn(1, 100))
-            add("data", filter)
+        val body = buildJsonObject {
+            put("pageNum", pageNum.coerceAtLeast(1))
+            put("pageSize", pageSize.coerceIn(1, 100))
+            put("data", filter)
         }
         val data = KqHttp.dataObject(postJson("/student/leaves/page", body, retryable = true))
         val rows = KqHttp.rows(data.get("rows")).ifEmpty { KqHttp.rows(data) }
@@ -104,31 +108,30 @@ class LeaveApi(private val site: SiteSession) {
         evidenceFiles: List<JsonObject>,
         requestId: String = UUID.randomUUID().toString(),
     ): String {
-        val files = JsonArray()
-        evidenceFiles.forEach { files.add(it) }
-        val body = JsonObject().apply {
-            addProperty("requestId", requestId)
-            addProperty("leaveType", type.code)
-            addProperty("startTime", startTime)
-            addProperty("endTime", endTime)
-            addProperty("reason", reason)
-            addProperty("nextApproverUserId", nextApproverUserId)
-            add("evidenceFiles", files)
+        val files = JsonArray(evidenceFiles)
+        val body = buildJsonObject {
+            put("requestId", requestId)
+            put("leaveType", type.code)
+            put("startTime", startTime)
+            put("endTime", endTime)
+            put("reason", reason)
+            put("nextApproverUserId", nextApproverUserId)
+            put("evidenceFiles", files)
         }
         val data = KqHttp.dataObject(postJson("/student/leaves", body, retryable = false))
         return KqHttp.str(data, "leaveId", "id")
     }
 
     suspend fun withdrawLeave(leaveId: String, reason: String, requestId: String = UUID.randomUUID().toString()) {
-        val body = JsonObject().apply {
-            addProperty("requestId", requestId)
-            addProperty("reason", reason)
+        val body = buildJsonObject {
+            put("requestId", requestId)
+            put("reason", reason)
         }
         postJson("/student/leaves/${encode(leaveId)}/withdraw", body, retryable = false)
     }
 
     suspend fun cancelLeave(leaveId: String, requestId: String = UUID.randomUUID().toString()) {
-        val body = JsonObject().apply { addProperty("requestId", requestId) }
+        val body = buildJsonObject { put("requestId", requestId) }
         postJson("/student/leaves/${encode(leaveId)}/cancel", body, retryable = false)
     }
 

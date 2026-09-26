@@ -1,11 +1,13 @@
 package com.xjtu.toolbox.judge
 
+import com.xjtu.toolbox.util.isArray
+import com.xjtu.toolbox.util.AppJson
+import kotlinx.serialization.json.jsonArray
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import com.google.gson.JsonArray
-import com.google.gson.JsonElement
-import com.google.gson.JsonObject
-import com.google.gson.JsonParser
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.auth.GmisSession
 import com.xjtu.toolbox.auth.GsteSession
 import com.xjtu.toolbox.auth.SiteSession
@@ -173,11 +175,11 @@ class GraduateJudgeApi(
     /** 本学期全部问卷；已评 / 待评看 [GraduateQuestionnaire.finished]。 */
     suspend fun getQuestionnaires(): List<GraduateQuestionnaire> {
         val body = execute(gste, Request.Builder().url(GsteSession.LIST_URL).get().build())
-        val array = runCatching { JsonParser.parseString(body).asJsonArray }.getOrNull()
+        val array = runCatching { AppJson.parseToJsonElement(body).jsonArray }.getOrNull()
             ?: throw RuntimeException("评教问卷列表格式错误")
         return array.mapNotNull { el ->
             val o = el as? JsonObject ?: return@mapNotNull null
-            val raw = o.entrySet().associate { (k, v) -> k.lowercase() to v.safeString() }
+            val raw = o.entries.associate { (k, v) -> k.lowercase() to v.safeString() }
             GraduateQuestionnaire(
                 assessment = raw["assessment"].orEmpty(),
                 kcbh = raw["kcbh"].orEmpty(),
@@ -297,14 +299,14 @@ class GraduateJudgeApi(
             val start = html.indexOf('{', eq).takeIf { it >= 0 } ?: return null
             val end = matchingBrace(html, start) ?: return null
             val text = html.substring(start, end).replace(Regex(""":\s*webix\.rules\.\w+"""), ": \"isNotEmpty\"")
-            val form = (runCatching { JsonParser.parseString(text) }.getOrNull()
-                ?: runCatching { JsonParser.parseString(text.replace(Regex(""",\s*([}\]])"""), "$1")) }.getOrNull())
+            val form = (runCatching { AppJson.parseToJsonElement(text) }.getOrNull()
+                ?: runCatching { AppJson.parseToJsonElement(text.replace(Regex(""",\s*([}\]])"""), "$1")) }.getOrNull())
                 as? JsonObject ?: return null
 
             val questions = mutableListOf<GraduateQuestionItem>()
             val meta = LinkedHashMap<String, String>()
             walk(form, null, -1, questions, meta)
-            val required = (form.get("rules") as? JsonObject)?.keySet()?.toSet().orEmpty()
+            val required = (form.get("rules") as? JsonObject)?.keys?.toSet().orEmpty()
             return GraduateQuestionnaireData(questions, meta, required)
         }
 
@@ -344,8 +346,8 @@ class GraduateJudgeApi(
             questions: MutableList<GraduateQuestionItem>,
             meta: MutableMap<String, String>,
         ) {
-            if (node.isJsonArray) {
-                node.asJsonArray.forEach { walk(it, null, -1, questions, meta) }
+            if (node.isArray) {
+                node.jsonArray.forEach { walk(it, null, -1, questions, meta) }
                 return
             }
             val obj = node as? JsonObject ?: return

@@ -1,9 +1,14 @@
 package com.xjtu.toolbox.yellowpage
 
+import kotlinx.serialization.json.decodeFromJsonElement
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.intValue
+import com.xjtu.toolbox.util.obj
+import com.xjtu.toolbox.util.requireArr
+import com.xjtu.toolbox.util.AppJson
+import kotlinx.serialization.json.jsonObject
 import android.content.Context
-import com.google.gson.Gson
-import com.google.gson.JsonParser
-import com.google.gson.annotations.SerializedName
+import kotlinx.serialization.Serializable
 import com.xjtu.toolbox.data.DataCache
 import com.xjtu.toolbox.network.HttpClients
 import com.xjtu.toolbox.util.toDialableTel
@@ -13,25 +18,18 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.TimeUnit
 
-// 字段名直接对服务器 JSON 反射取值（getData() 里 gson.fromJson 吃的是接口原始数组），
-// 不是本地缓存自产自销——@SerializedName 锁死字段名，R8 改名不会让这两个类静默变空。
-data class YellowPageCategory(
-    @SerializedName("id") val id: Int,
-    @SerializedName("name") val name: String,
-    @SerializedName("status") val status: Int,
-    @SerializedName("sort") val sort: Int
-) {
-    /** 磁盘缓存反序列化兜底，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。 */
-    fun sanitized(): YellowPageCategory = copy(name = (name as String?) ?: "")
-}
+// 字段名即服务器 JSON 的键，getData() 直接解码接口原始数组
+@Serializable
+data class YellowPageCategory(val id: Int = 0, val name: String = "", val status: Int = 0, val sort: Int = 0)
 
+@Serializable
 data class YellowPageDepartment(
-    @SerializedName("id") val id: Int,
-    @SerializedName("categoryId") val categoryId: Int,
-    @SerializedName("name") val name: String,
-    @SerializedName("phone") val phone: String,
-    @SerializedName("sort") val sort: Int,
-    @SerializedName("status") val status: Int
+    val id: Int = 0,
+    val categoryId: Int = 0,
+    val name: String = "",
+    val phone: String = "",
+    val sort: Int = 0,
+    val status: Int = 0,
 ) {
     val phoneItems: List<String>
         get() = phone.split("/")
@@ -40,72 +38,47 @@ data class YellowPageDepartment(
 
     /** 取这一项里能拨的号码，解析规则与学籍档案共用，见 [toDialableTel]。 */
     fun dialNumber(item: String): String = item.toDialableTel()
-
-    /** 磁盘缓存反序列化兜底，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。 */
-    fun sanitized(): YellowPageDepartment = copy(
-        name = (name as String?) ?: "",
-        phone = (phone as String?) ?: "",
-    )
 }
 
+@Serializable
 data class YellowPageData(
-    val categories: List<YellowPageCategory>,
-    val departments: List<YellowPageDepartment>,
-    val updateTime: String = ""
-) {
-    /** 磁盘缓存反序列化兜底，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。 */
-    fun sanitized(): YellowPageData = copy(
-        categories = (categories as List<YellowPageCategory>?)?.map { it.sanitized() } ?: emptyList(),
-        departments = (departments as List<YellowPageDepartment>?)?.map { it.sanitized() } ?: emptyList(),
-        updateTime = (updateTime as String?) ?: "",
-    )
-}
+    val categories: List<YellowPageCategory> = emptyList(),
+    val departments: List<YellowPageDepartment> = emptyList(),
+    val updateTime: String = "",
+)
 
 class YellowPageApi(context: Context) {
-    private val gson = Gson()
     private val cache = DataCache(context.applicationContext)
     private val client: OkHttpClient get() = sharedClient
 
     fun getData(forceRefresh: Boolean = false): YellowPageData {
         if (!forceRefresh) {
-            cache.get(CACHE_KEY, CACHE_TTL_MS)?.let { cached ->
-                runCatching { gson.fromJson(cached, YellowPageData::class.java)?.sanitized() }.getOrNull()
-                    ?.let { return it }
-            }
+            cache.read<YellowPageData>(CACHE_KEY, CACHE_TTL_MS)?.let { return it }
         }
 
         return try {
             val listJson = getJson("$BASE_URL/site/schoolePage/getList")
-            val data = listJson.getAsJsonObject("d")
+            val data = listJson.obj("d")
                 ?: throw RuntimeException("黄页接口缺少数据")
-            val categories = gson.fromJson(
-                data.getAsJsonArray("categories"),
-                Array<YellowPageCategory>::class.java
-            ).orEmpty()
+            val categories = AppJson.decodeFromJsonElement<List<YellowPageCategory>>(data.requireArr("categories"))
                 .filter { it.status == 1 }
                 .sortedWith(compareBy({ it.sort }, { it.id }))
-            val departments = gson.fromJson(
-                data.getAsJsonArray("departments"),
-                Array<YellowPageDepartment>::class.java
-            ).orEmpty()
+            val departments = AppJson.decodeFromJsonElement<List<YellowPageDepartment>>(data.requireArr("departments"))
                 .filter { it.status == 1 }
                 .sortedWith(compareBy({ it.sort }, { it.id }))
             val updateTime = runCatching {
                 val raw = getJson("$BASE_URL/site/schoolePage/getUpdateTime")
-                    .getAsJsonObject("d")
+                    .obj("d")
                     ?.get("page_update_time")
-                    ?.asString
+                    ?.stringValue
                     .orEmpty()
                 LocalDateTime.parse(raw).format(DateTimeFormatter.ofPattern("yyyy年MM月dd日"))
             }.getOrDefault("")
             YellowPageData(categories, departments, updateTime).also {
-                cache.put(CACHE_KEY, gson.toJson(it))
+                cache.write(CACHE_KEY, it)
             }
         } catch (e: Exception) {
-            cache.getStale(CACHE_KEY)?.let { stale ->
-                runCatching { gson.fromJson(stale, YellowPageData::class.java)?.sanitized() }.getOrNull()
-                    ?.let { return it }
-            }
+            cache.readStale<YellowPageData>(CACHE_KEY)?.let { return it }
             throw e
         }
     }
@@ -120,9 +93,9 @@ class YellowPageApi(context: Context) {
     ).execute().use { response ->
         val body = response.body?.string() ?: throw RuntimeException("黄页接口无响应")
         if (!response.isSuccessful) throw RuntimeException("黄页接口 HTTP ${response.code}")
-        JsonParser.parseString(body).asJsonObject.also {
-            if (it.get("e")?.asInt != 0) {
-                throw RuntimeException(it.get("m")?.asString ?: "黄页接口返回错误")
+        AppJson.parseToJsonElement(body).jsonObject.also {
+            if (it.get("e")?.intValue != 0) {
+                throw RuntimeException(it.get("m")?.stringValue ?: "黄页接口返回错误")
             }
         }
     }

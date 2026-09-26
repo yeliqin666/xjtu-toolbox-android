@@ -1,7 +1,9 @@
 package com.xjtu.toolbox.agent.skin
 
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.AppJson
+import kotlinx.serialization.json.jsonObject
 import com.xjtu.toolbox.network.HttpClients
-import com.google.gson.JsonParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.Request
@@ -61,7 +63,7 @@ object PidaiSkinGithub {
             if (!response.isSuccessful) throw PidaiSkinFormatException("GitHub 仓库信息读取失败（HTTP ${response.code}）")
             val bytes = readLimited(response, "仓库信息", MAX_JSON_BYTES)
             return try {
-                JsonParser.parseString(bytes.toString(Charsets.UTF_8)).asJsonObject["default_branch"].asString
+                AppJson.parseToJsonElement(bytes.toString(Charsets.UTF_8)).jsonObject["default_branch"].stringValue
             } catch (_: Exception) {
                 throw PidaiSkinFormatException("GitHub 仓库没有可用的默认分支")
             }

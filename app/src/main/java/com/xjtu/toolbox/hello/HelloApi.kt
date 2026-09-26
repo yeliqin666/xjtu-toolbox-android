@@ -1,7 +1,11 @@
 package com.xjtu.toolbox.hello
 
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.intValue
+import com.xjtu.toolbox.util.isNull
+import com.xjtu.toolbox.util.obj
 import android.util.Log
-import com.google.gson.JsonObject
+import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.auth.AuthExpiredException
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
@@ -14,9 +18,9 @@ import okhttp3.Request
  * 没有任何功能需要它，展示或落盘都只会凭空增加一份敏感数据的泄露面。同理
  * 未收录 `examNumber`。
  *
- * 这个类会被 Gson 序列化进 DataCache，字段名即缓存格式——改名要考虑旧缓存兼容
- * （反序列化时缺失字段会得到 null / 默认值，不会崩，但会丢数据直到下次刷新）。
+ * 会序列化进 DataCache，字段名即缓存格式——改名会让旧缓存的这一项丢失直到下次刷新。
  */
+@kotlinx.serialization.Serializable
 data class HelloProfile(
     val name: String = "",
     val sno: String = "",
@@ -58,26 +62,6 @@ data class HelloProfile(
     /** 辅导员/班主任任一有名字才值得单独成卡。 */
     fun hasMentor(): Boolean =
         counselorName.isNotBlank() || classTeacherName.isNotBlank()
-
-    /** 磁盘缓存反序列化兜底，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。 */
-    fun sanitized(): HelloProfile = copy(
-        name = (name as String?) ?: "",
-        sno = (sno as String?) ?: "",
-        birthdate = (birthdate as String?) ?: "",
-        campusName = (campusName as String?) ?: "",
-        academyName = (academyName as String?) ?: "",
-        departmentName = (departmentName as String?) ?: "",
-        professionName = (professionName as String?) ?: "",
-        className = (className as String?) ?: "",
-        enterSchoolDate = (enterSchoolDate as String?) ?: "",
-        cardId = (cardId as String?) ?: "",
-        pictureUrl = (pictureUrl as String?) ?: "",
-        classTeacherName = (classTeacherName as String?) ?: "",
-        classTeacherPhone = (classTeacherPhone as String?) ?: "",
-        counselorName = (counselorName as String?) ?: "",
-        counselorPhone = (counselorPhone as String?) ?: "",
-        counselorOffice = (counselorOffice as String?) ?: "",
-    )
 }
 
 /**
@@ -110,14 +94,14 @@ class HelloApi(private val site: SiteSession) {
             .use { it.body?.string() ?: throw RuntimeException("个人信息接口返回空响应") }
 
         val json = body.safeParseJsonObject()
-        val state = json.get("state")?.asInt
+        val state = json.get("state")?.intValue
         if (state != 200) {
-            val message = json.get("message")?.asString ?: "个人信息接口返回 state=$state"
+            val message = json.get("message")?.stringValue ?: "个人信息接口返回 state=$state"
             throw AuthExpiredException(site.siteName, message)
         }
-        val data = json.getAsJsonObject("data") ?: throw RuntimeException("个人信息接口缺少 data")
-        val stu = data.getAsJsonObject("studentBean") ?: throw RuntimeException("个人信息接口缺少 studentBean")
-        val teacher = stu.getAsJsonObject("teacherBean")
+        val data = json.obj("data") ?: throw RuntimeException("个人信息接口缺少 data")
+        val stu = data.obj("studentBean") ?: throw RuntimeException("个人信息接口缺少 studentBean")
+        val teacher = stu.obj("teacherBean")
 
         val profile = HelloProfile(
             name = stu.str("name"),
@@ -149,10 +133,10 @@ class HelloApi(private val site: SiteSession) {
         private const val TAG = "HelloApi"
 
         fun JsonObject?.str(key: String): String =
-            this?.get(key)?.takeIf { !it.isJsonNull }?.asString.orEmpty()
+            this?.get(key)?.takeIf { !it.isNull }?.stringValue.orEmpty()
 
         fun JsonObject?.int(key: String): Int =
-            this?.get(key)?.takeIf { !it.isJsonNull }?.runCatching { asInt }?.getOrNull() ?: 0
+            this?.get(key)?.takeIf { !it.isNull }?.runCatching { intValue }?.getOrNull() ?: 0
 
         /**
          * 专业名带教务代码前缀，如 `0940数学与应用数学…`。展示时去掉纯数字前缀，

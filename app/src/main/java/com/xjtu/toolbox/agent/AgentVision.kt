@@ -1,13 +1,22 @@
 package com.xjtu.toolbox.agent
 
+import com.xjtu.toolbox.util.requireArr
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.isArray
+import kotlinx.serialization.json.jsonObject
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.net.Uri
 import android.util.Base64
 import android.util.Log
-import com.google.gson.JsonArray
-import com.google.gson.JsonObject
+import kotlinx.serialization.json.JsonObject
 import java.io.File
 import java.util.UUID
 
@@ -140,18 +149,18 @@ object AgentVision {
      * 没有可用图片时返回**纯字符串**而不是单元素数组：纯文本对话的历史结构不该因为
      * "这个版本支持图片了"而整体改变形状，那会让所有旧会话的前缀缓存一次性失效。
      */
-    fun userContent(text: String, imagePaths: List<String>): com.google.gson.JsonElement {
+    fun userContent(text: String, imagePaths: List<String>): JsonElement {
         val uris = imagePaths.mapNotNull { dataUri(it) }
-        if (uris.isEmpty()) return com.google.gson.JsonPrimitive(text)
-        return JsonArray().apply {
-            add(JsonObject().apply {
-                addProperty("type", "text")
-                addProperty("text", text)
+        if (uris.isEmpty()) return JsonPrimitive(text)
+        return buildJsonArray {
+            add(buildJsonObject {
+                put("type", "text")
+                put("text", text)
             })
             uris.forEach { uri ->
-                add(JsonObject().apply {
-                    addProperty("type", "image_url")
-                    add("image_url", JsonObject().apply { addProperty("url", uri) })
+                add(buildJsonObject {
+                    put("type", "image_url")
+                    put("image_url", buildJsonObject { put("url", uri) })
                 })
             }
         }
@@ -163,25 +172,24 @@ object AgentVision {
      * 就地改写传入的数组。被摘掉的那条 user 消息退回纯文本，并在末尾补一句说明，
      * 免得模型对着"用户明明发过图"的空气找图。
      */
-    fun pruneOldImages(messages: JsonArray) {
-        val imageTurns = (0 until messages.size())
+    fun pruneOldImages(messages: MutableList<JsonElement>) {
+        val imageTurns = (0 until messages.size)
             .filter { i ->
                 val m = messages[i] as? JsonObject ?: return@filter false
-                m.get("role")?.asString == "user" && m.get("content")?.isJsonArray == true
+                m.get("role")?.stringValue == "user" && m.get("content")?.isArray == true
             }
         if (imageTurns.size <= KEEP_IMAGE_TURNS) return
 
         imageTurns.dropLast(KEEP_IMAGE_TURNS).forEach { i ->
-            val m = messages[i].asJsonObject
-            val parts = m.getAsJsonArray("content")
-            val text = (0 until parts.size())
+            val m = messages[i].jsonObject
+            val parts = m.requireArr("content")
+            val text = (0 until parts.size)
                 .mapNotNull { (parts[it] as? JsonObject) }
-                .filter { it.get("type")?.asString == "text" }
-                .joinToString("\n") { it.get("text")?.asString.orEmpty() }
-            val count = (0 until parts.size())
-                .count { (parts[it] as? JsonObject)?.get("type")?.asString == "image_url" }
-            m.remove("content")
-            m.addProperty("content", "$text\n（此前随这条消息发送的 $count 张图片已从上下文中移除，如需再看请重新发送。）")
+                .filter { it.get("type")?.stringValue == "text" }
+                .joinToString("\n") { it.get("text")?.stringValue.orEmpty() }
+            val count = (0 until parts.size)
+                .count { (parts[it] as? JsonObject)?.get("type")?.stringValue == "image_url" }
+            messages[i] = JsonObject(m + ("content" to JsonPrimitive("$text\n（此前随这条消息发送的 $count 张图片已从上下文中移除，如需再看请重新发送。）")))
         }
     }
 }

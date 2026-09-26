@@ -36,24 +36,11 @@ object HelloProfileStore {
     /** 防止"我的"页反复进出触发并发抓取。 */
     private val fetchLock = Mutex()
 
-    private val gson = com.google.gson.Gson()
+    // 显示用不设过期：学籍信息一学期都不变，过期了页面只剩学号反而更糟。
+    // 要不要重新拉由 fetchedAt 与 [REFRESH_AFTER_MS] 决定。
+    private fun DataCache.readProfile(): HelloProfile? = read<HelloProfile>(CACHE_KEY, Long.MAX_VALUE)
 
-    /**
-     * DataCache 只存字符串，这里自己做 JSON 序列化；解析失败当作无缓存。
-     *
-     * 落盘反序列化后就地 [HelloProfile.sanitized]：旧版本/半截缓存缺字段时，
-     * Gson 会把声明成非空 String 的属性实际置为 null，[hasContent] 和
-     * `ProfileInfoCard` 直接读这些字段又没有 try/catch，会踩 NPE 崩溃。
-     */
-    private fun DataCache.readProfile(): HelloProfile? =
-        // 显示用不设过期：学籍信息一学期都不变，过了 30 天就当没有，页面只剩学号，
-        // 反而比旧数据更糟。要不要重新拉由 fetchedAt 与 [REFRESH_AFTER_MS] 决定。
-        get(CACHE_KEY, Long.MAX_VALUE)?.let {
-            runCatching { gson.fromJson(it, HelloProfile::class.java)?.sanitized() }.getOrNull()
-        }
-
-    private fun DataCache.writeProfile(profile: HelloProfile) =
-        put(CACHE_KEY, gson.toJson(profile))
+    private fun DataCache.writeProfile(profile: HelloProfile) = write(CACHE_KEY, profile)
 
     fun cached(context: Context): HelloProfile? = DataCache(context).readProfile()
 

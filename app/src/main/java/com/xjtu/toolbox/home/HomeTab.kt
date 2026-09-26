@@ -528,24 +528,18 @@ internal fun HomeTab(
         val loadedFocus = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 val dataCache = com.xjtu.toolbox.data.DataCache(heroContext)
-                val gson = com.google.gson.Gson()
                 // 本学期统一认 readCurrentTerm：学期列表第一个可能是教务已挂出的下学期
-                val termCode = com.xjtu.toolbox.schedule.ScheduleCache.readCurrentTerm(dataCache, gson)
+                val schedule = com.xjtu.toolbox.schedule.ScheduleCache.readCurrentTermSchedule(dataCache)
                     ?: return@withContext Triple(null, 0, true)
-                val apiCourses = com.xjtu.toolbox.schedule.ScheduleCache
-                    .readOptimizedCourses(dataCache, gson, termCode, Long.MAX_VALUE)
-                    ?: com.xjtu.toolbox.schedule.ScheduleCache
-                        .readRawCourses(dataCache, gson, termCode, Long.MAX_VALUE)
-                    ?: emptyList()
+                val termCode = schedule.code
+                val apiCourses = schedule.courses
                 val customCourses = try {
                     com.xjtu.toolbox.data.AppDatabase.getInstance(heroContext)
                         .customCourseDao().getByTerm(com.xjtu.toolbox.account.AccountContext.activeAccountId ?: "", termCode)
                         .map { it.toCourseItem() }
                 } catch (_: Exception) { emptyList() }
                 val allSchedules = apiCourses + customCourses
-                val startDateJson = dataCache.get("start_date_$termCode", Long.MAX_VALUE)
-                val startDateStr = if (startDateJson != null) gson.fromJson(startDateJson, String::class.java) else null
-                val startDate = if (!startDateStr.isNullOrBlank()) runCatching { java.time.LocalDate.parse(startDateStr) }.getOrNull() else null
+                val startDate = schedule.start
                 val today = java.time.LocalDate.now()
                 val weekNumber = if (startDate != null) {
                     com.xjtu.toolbox.schedule.TermWeeks.weekOf(startDate, today)
@@ -735,7 +729,7 @@ internal fun HomeTab(
         val term = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             runCatching {
                 val dc = com.xjtu.toolbox.data.DataCache(statsCtx)
-                com.xjtu.toolbox.schedule.ScheduleCache.readCurrentTerm(dc, com.google.gson.Gson())
+                com.xjtu.toolbox.schedule.ScheduleCache.readCurrentTerm(dc)
             }.getOrNull()
         }
         homeStats = com.xjtu.toolbox.home.HomeStats.collect(statsCtx, term)

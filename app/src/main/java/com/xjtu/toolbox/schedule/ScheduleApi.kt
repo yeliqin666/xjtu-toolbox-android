@@ -1,10 +1,17 @@
 package com.xjtu.toolbox.schedule
 
+import com.xjtu.toolbox.util.requireArr
+import com.xjtu.toolbox.util.requireObj
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.obj
+import com.xjtu.toolbox.util.arr
+import kotlinx.serialization.json.jsonObject
 import com.xjtu.toolbox.util.redactBody
 import com.xjtu.toolbox.util.redactUrl
 import android.util.Log
+import kotlinx.serialization.Serializable
 import com.xjtu.toolbox.auth.SiteSession
-import com.google.gson.JsonObject
+import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.util.safeInt
 import com.xjtu.toolbox.util.safeParseJsonObject
 import com.xjtu.toolbox.util.safeString
@@ -16,16 +23,17 @@ import java.time.format.DateTimeFormatter
 
 private const val TAG = "ScheduleApi"
 
+@Serializable
 data class CourseItem(
-    val courseName: String,
-    val teacher: String,
-    val location: String,
-    val weekBits: String,
-    val dayOfWeek: Int,
-    val startSection: Int,
-    val endSection: Int,
-    val courseCode: String,
-    val courseType: String,
+    val courseName: String = "",
+    val teacher: String = "",
+    val location: String = "",
+    val weekBits: String = "",
+    val dayOfWeek: Int = 0,
+    val startSection: Int = 0,
+    val endSection: Int = 0,
+    val courseCode: String = "",
+    val courseType: String = "",
     /** 分钟级开始时间，单位：距 00:00 的分钟；-1 表示未提供 */
     val startMinuteOfDay: Int = -1,
     /** 分钟级结束时间，单位：距 00:00 的分钟；-1 表示未提供 */
@@ -46,97 +54,49 @@ data class CourseItem(
 
     /**
      * 用户自己建的日程（日程页手动添加、屁岱代加），不是教务排的课。
-     * 法定假日停的是**课**：自建日程是用户明确要在那天做的事，节假日过滤一律不碰它，
-     * 否则中秋那周加的一次性日程刚画出来就被滤掉，看着像「出现半秒就消失」。
+     * 法定假日停的是课，自建日程节假日过滤一律不碰。
      */
     val isUserCreated: Boolean get() = courseCode.startsWith(CUSTOM_COURSE_CODE_PREFIX)
 
     /**
-     * Gson 反射反序列化不认 Kotlin 的非空约束：磁盘缓存里的旧版本/半截 JSON
-     * 一旦缺了某个字段，这里几个声明成非空 String 的属性会在运行时实际是 null。
-     * 后面 [getWeeks]/[isInWeek] 等在 Composable 的 remember{} 里被直接调用，不在任何
-     * try/catch 里，一踩到 null 就是未捕获 NPE 崩全局——所有从缓存反序列化出来的
-     * [CourseItem] 读完就地调用本函数兜底，而不是指望每个消费点自己判空。
-     *
-     * 旧版本缓存里连堂课可能存着只到第一小节下课的钟点（1–2 节 08:00–08:50），
-     * 教务的课读出来时顺手清掉标准钟点，交给 UI 按节次换算；自建日程的钟点是用户定的，不动。
+     * 旧版缓存里连堂课存着只到第一小节下课的钟点（1–2 节 08:00–08:50）：教务的课读出来时
+     * 清掉标准钟点，交给 UI 按节次换算；自建日程的钟点是用户定的，不动。
      */
-    fun sanitized(): CourseItem {
-        val code = (courseCode as String?) ?: ""
-        val standardClock = !code.startsWith(CUSTOM_COURSE_CODE_PREFIX) &&
-            startMinuteOfDay >= 0 && endMinuteOfDay >= 0 &&
+    fun normalized(): CourseItem {
+        val standardClock = !isUserCreated && startMinuteOfDay >= 0 && endMinuteOfDay >= 0 &&
             XjtuTime.isStandardSpan(startSection, endSection, startMinuteOfDay, endMinuteOfDay)
-        return copy(
-            courseName = (courseName as String?) ?: "",
-            teacher = (teacher as String?) ?: "",
-            location = (location as String?) ?: "",
-            weekBits = (weekBits as String?) ?: "",
-            courseCode = code,
-            courseType = (courseType as String?) ?: "",
-            startMinuteOfDay = if (standardClock) -1 else startMinuteOfDay,
-            endMinuteOfDay = if (standardClock) -1 else endMinuteOfDay,
-        )
+        return if (standardClock) copy(startMinuteOfDay = -1, endMinuteOfDay = -1) else this
     }
 }
 
+@Serializable
 data class ExamItem(
-    val courseName: String,
-    val courseCode: String,
-    val examDate: String,
-    val examTime: String,
-    val location: String,
-    val seatNumber: String
-) {
-    /** 磁盘缓存反序列化兜底，原理见 [CourseItem.sanitized]。 */
-    fun sanitized(): ExamItem = copy(
-        courseName = (courseName as String?) ?: "",
-        courseCode = (courseCode as String?) ?: "",
-        examDate = (examDate as String?) ?: "",
-        examTime = (examTime as String?) ?: "",
-        location = (location as String?) ?: "",
-        seatNumber = (seatNumber as String?) ?: "",
-    )
-}
+    val courseName: String = "",
+    val courseCode: String = "",
+    val examDate: String = "",
+    val examTime: String = "",
+    val location: String = "",
+    val seatNumber: String = "",
+)
 
+@Serializable
 data class TextbookItem(
-    val courseName: String,
-    val textbookName: String,
+    val courseName: String = "",
+    val textbookName: String = "",
     val author: String = "",
     val publisher: String = "",
     val isbn: String = "",
     val price: String = "",
     val edition: String = "",
-    /**
-     * 课程号。
-     *
-     * 教材报表里本来就有这一列，之前 [mapHeaderColumn] 把它显式排除了
-     * （`"号" !in header`），于是教材只能按课程名去猜是哪门课——
-     * 而「大学物理」「大学物理（一）」「大学物理I」在两个系统里写法常常对不上。
-     * 有课程号就不必猜。老缓存没有这个字段，反序列化得空串，按名字匹配照旧。
-     */
+    /** 课程号：教材报表里有这一列，有它就不必按课程名去猜是哪门课。老缓存没有，按名字匹配照旧。 */
     val courseCode: String = "",
 ) {
-    /**
-     * 是否有实质性教材信息
-     * 服务端对无教材课程返回书名="无教材"
-     */
+    /** 是否有实质性教材信息；服务端对无教材课程返回书名「无教材」。 */
     val hasSubstantiveTextbook: Boolean
         get() = textbookName.trim() != "无教材"
                 && (textbookName.trim().length >= 2
                     || isbn.any { it.isDigit() }
                     || author.trim().length >= 2)
-
-    /** 磁盘缓存反序列化兜底，原理见 [CourseItem.sanitized]。 */
-    fun sanitized(): TextbookItem = copy(
-        courseName = (courseName as String?) ?: "",
-        textbookName = (textbookName as String?) ?: "",
-        author = (author as String?) ?: "",
-        publisher = (publisher as String?) ?: "",
-        isbn = (isbn as String?) ?: "",
-        price = (price as String?) ?: "",
-        edition = (edition as String?) ?: "",
-        courseCode = (courseCode as String?) ?: "",
-    )
 }
 
 class ScheduleApi(private val site: SiteSession) {
@@ -148,7 +108,7 @@ class ScheduleApi(private val site: SiteSession) {
     fun termNames(): Map<String, String> = termNameCache.toMap()
 
     private fun rememberTermName(code: String, row: JsonObject) {
-        val mc = ScheduleTermStore.usableName(code, row.get("MC")?.asString)
+        val mc = ScheduleTermStore.usableName(code, row.get("MC")?.stringValue)
         if (mc != null) termNameCache[code] = mc
     }
 
@@ -174,9 +134,9 @@ class ScheduleApi(private val site: SiteSession) {
             throw com.xjtu.toolbox.auth.AuthExpiredException("教务系统")
         }
         val json = responseBody.safeParseJsonObject()
-        val row = json.getAsJsonObject("datas")
-            .getAsJsonObject("dqxnxq")
-            .getAsJsonArray("rows")[0].asJsonObject
+        val row = json.requireObj("datas")
+            .requireObj("dqxnxq")
+            .requireArr("rows")[0].jsonObject
         val code = row.get("DM").safeString().trim()
         // 接口偶发给回空行：不能把空串当学期代码传下去，那样课表、考试、开学日期
         // 全按空学期去查，页面一片空白还没有任何报错。抛出去让调用方走兜底。
@@ -196,19 +156,19 @@ class ScheduleApi(private val site: SiteSession) {
 
         val responseBody = execute(request)
         val json = responseBody.safeParseJsonObject()
-        val rows = json.getAsJsonObject("datas")
-            .getAsJsonObject("xskcb")
-            .getAsJsonArray("rows") ?: return emptyList()
+        val rows = json.obj("datas")
+            ?.obj("xskcb")
+            ?.arr("rows") ?: return emptyList()
 
         // 首条记录打印全部字段(调试用)
-        if (rows.size() > 0) {
-            val sample = rows[0].asJsonObject
-            Log.d(TAG, "schedule sample keys: ${sample.keySet()}")
+        if (rows.size > 0) {
+            val sample = rows[0].jsonObject
+            Log.d(TAG, "schedule sample keys: ${sample.keys}")
             Log.d(TAG, "schedule KCXZDM=${sample.get("KCXZDM")}, KCXZDM_DISPLAY=${sample.get("KCXZDM_DISPLAY")}, KCXZMC=${sample.get("KCXZMC")}, KCFLMC=${sample.get("KCFLMC")}")
         }
 
         return rows.map { item ->
-            val obj = item.asJsonObject
+            val obj = item.jsonObject
             // 课程性质：优先 KCXZMC（课程性质名称），回退 KCXZDM_DISPLAY / KCFLMC
             val courseType = obj.get("KCXZMC").safeString().ifEmpty {
                 obj.get("KCXZDM_DISPLAY").safeString().ifEmpty {
@@ -243,12 +203,12 @@ class ScheduleApi(private val site: SiteSession) {
 
         val responseBody = execute(request)
         val json = responseBody.safeParseJsonObject()
-        val rows = json.getAsJsonObject("datas")
-            .getAsJsonObject("wdksap")
-            .getAsJsonArray("rows") ?: return emptyList()
+        val rows = json.obj("datas")
+            ?.obj("wdksap")
+            ?.arr("rows") ?: return emptyList()
 
         return rows.map { item ->
-            val obj = item.asJsonObject
+            val obj = item.jsonObject
             val rawDate = obj.get("KSRQ").safeString()
             val rawTimeDesc = obj.get("KSSJMS").safeString()
             // 从 KSRQ 提取日期部分（去掉时间 "2025-01-15 00:00:00" → "2025-01-15"）
@@ -289,10 +249,10 @@ class ScheduleApi(private val site: SiteSession) {
 
         val responseBody = execute(request)
         val json = responseBody.safeParseJsonObject()
-        val dateStr = json.getAsJsonObject("datas")
-            .getAsJsonObject("cxjcs")
-            .getAsJsonArray("rows")[0].asJsonObject
-            .get("XQKSRQ").asString
+        val dateStr = json.requireObj("datas")
+            .requireObj("cxjcs")
+            .requireArr("rows")[0].jsonObject
+            .get("XQKSRQ").stringValue
             .split(" ")[0]
 
         return LocalDate.parse(dateStr, DateTimeFormatter.ofPattern("yyyy-MM-dd"))
@@ -695,12 +655,12 @@ class ScheduleApi(private val site: SiteSession) {
                 .build()
             val responseBody = execute(request)
             val json = responseBody.safeParseJsonObject()
-            val rows = json.getAsJsonObject("datas")
-                .getAsJsonObject("cxxnxqgl")
-                .getAsJsonArray("rows")
+            val rows = json.requireObj("datas")
+                .requireObj("cxxnxqgl")
+                .requireArr("rows")
             val list = rows.map { el ->
-                val row = el.asJsonObject
-                val dm = row.get("DM").asString
+                val row = el.jsonObject
+                val dm = row.get("DM").stringValue
                 rememberTermName(dm, row)
                 dm
             }

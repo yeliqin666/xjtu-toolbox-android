@@ -1,5 +1,9 @@
 package com.xjtu.toolbox.jiaocai
 
+import kotlinx.serialization.json.JsonNull
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.isNull
+import com.xjtu.toolbox.util.obj
 import com.xjtu.toolbox.util.redactBody
 import com.xjtu.toolbox.util.redactUrl
 import android.util.Log
@@ -65,11 +69,11 @@ class JiaocaiLogin(
             Log.d(TAG, "user-info: ${text.redactBody(200)}")
 
             val json = text.safeParseJsonObject()
-            val data = json.getAsJsonObject("data")
+            val data = json.obj("data")
             if (data != null) {
                 // data.uid 可能为 JsonNull（首次访问 / session 未完全建立），需 null-safe
-                uid = data.get("uid")?.takeIf { !it.isJsonNull }?.asString ?: ""
-                enc = data.get("enc")?.takeIf { !it.isJsonNull }?.asString ?: ""
+                uid = data.get("uid")?.takeIf { !it.isNull }?.stringValue ?: ""
+                enc = data.get("enc")?.takeIf { !it.isNull }?.stringValue ?: ""
                 if (uid.isNotBlank()) {
                     isReady = true
                     Log.d(TAG, "jiaocai ready: uid=$uid")

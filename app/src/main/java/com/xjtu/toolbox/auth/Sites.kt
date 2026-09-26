@@ -1,5 +1,8 @@
 package com.xjtu.toolbox.auth
 
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.intValue
+import com.xjtu.toolbox.util.isNull
 import android.util.Log
 import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.OkHttpClient
@@ -229,7 +232,7 @@ class AttendanceSession : CasSiteSession("new_attendance", "考勤", mustUseWebV
             if (resp.code != 200) return@withIo false
             val body = resp.body?.string() ?: return@withIo false
             if (XJTULogin.isAuthFailureResponse(body)) return@withIo false
-            body.safeParseJsonObject().get("code")?.takeIf { !it.isJsonNull }?.asInt == 0
+            body.safeParseJsonObject().get("code")?.takeIf { !it.isNull }?.intValue == 0
         } finally {
             resp.close()
         }
@@ -293,7 +296,7 @@ class HelloSession : CasSiteSession("hello", "个人信息", mustUseWebVpn = tru
             if (resp.code != 200) return@withIo false
             val body = resp.body?.string() ?: return@withIo false
             if (XJTULogin.isAuthFailureResponse(body)) return@withIo false
-            runCatching { body.safeParseJsonObject().get("state")?.asInt }.getOrNull() == 200
+            runCatching { body.safeParseJsonObject().get("state")?.intValue }.getOrNull() == 200
         } finally {
             resp.close()
         }
@@ -303,12 +306,12 @@ class HelloSession : CasSiteSession("hello", "个人信息", mustUseWebVpn = tru
         if (super.isAuthFailureResponse(response, bodyPreview)) return true
         val body = bodyPreview ?: return false
         val json = runCatching { body.safeParseJsonObject() }.getOrNull() ?: return false
-        val state = json.get("state")?.takeIf { !it.isJsonNull }
-            ?.runCatching { asInt }?.getOrNull() ?: return false
+        val state = json.get("state")?.takeIf { !it.isNull }
+            ?.runCatching { intValue }?.getOrNull() ?: return false
         if (state == 200) return false
         val path = response.request.url.encodedPath
         if ("/yingxin/user/" in path) return true
-        val message = json.get("message")?.takeIf { !it.isJsonNull }?.asString.orEmpty()
+        val message = json.get("message")?.takeIf { !it.isNull }?.stringValue.orEmpty()
         return state == 401 || state == 403 ||
             message.contains("未登录") ||
             message.contains("过期") ||
@@ -412,7 +415,7 @@ class DzpzSession : CasSiteSession("dzpz", "电子凭证", mustUseWebVpn = false
         try {
             if (resp.code != 200) return@withIo false
             val id = (resp.body?.string()).safeParseJsonObject()
-                .get("resourceid")?.takeIf { !it.isJsonNull }?.asString
+                .get("resourceid")?.takeIf { !it.isNull }?.stringValue
                 ?.takeIf { it.isNotBlank() && it != "0" } ?: return@withIo false
             localToken["user_id"] = id
             true

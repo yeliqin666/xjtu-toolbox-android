@@ -1,11 +1,22 @@
 package com.xjtu.toolbox.venue
 
+import com.xjtu.toolbox.util.safeParseJsonObject
+import com.xjtu.toolbox.util.requireObj
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.buildJsonObject
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.intValue
+import com.xjtu.toolbox.util.isNull
+import com.xjtu.toolbox.util.isObject
+import com.xjtu.toolbox.util.isArray
+import com.xjtu.toolbox.util.obj
+import com.xjtu.toolbox.util.AppJson
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
 import android.util.Log
-import com.google.gson.Gson
-import com.google.gson.JsonArray
-import com.google.gson.JsonElement
-import com.google.gson.JsonObject
-import com.google.gson.JsonParser
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.auth.AuthExpiredException
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.VenueLogin
@@ -48,7 +59,6 @@ class VenueApi(private val site: SiteSession) {
         const val BROWSER_LOGIN_URL = VenueLogin.VENUE_OAUTH_URL
 
         private const val VENUE_PAGE_SIZE = 8
-        private val gson = Gson()
 
         /**
          * 服务端偶尔用 GBK 编码返回中文，OkHttp 按 latin-1 解会得到每个字节一个字符
@@ -218,12 +228,12 @@ class VenueApi(private val site: SiteSession) {
             val url = "$BASE/product/productData.html" +
                 "?page=$page&rows=$VENUE_PAGE_SIZE&merccode=100001&remark=defaultProList"
             val body = fetchJson(ajaxRequest(url, "$BASE/index.html"))
-            val array = runCatching { JsonParser.parseString(body) }
-                .getOrNull()?.takeIf { it.isJsonArray }?.asJsonArray
+            val array = runCatching { AppJson.parseToJsonElement(body) }
+                .getOrNull()?.takeIf { it.isArray }?.jsonArray
                 ?: break
-            if (array.size() == 0) break
+            if (array.size == 0) break
             array.forEach { element ->
-                val item = element.takeIf { it.isJsonObject }?.asJsonObject ?: return@forEach
+                val item = element.takeIf { it.isObject }?.jsonObject ?: return@forEach
                 val id = readInt(item, "id")
                 if (id <= 0) return@forEach
                 venues += Venue(
@@ -235,7 +245,7 @@ class VenueApi(private val site: SiteSession) {
                     advanceNum = readInt(item, "advancenum").takeIf { it > 0 } ?: 8,
                 )
             }
-            if (array.size() < VENUE_PAGE_SIZE) break
+            if (array.size < VENUE_PAGE_SIZE) break
             page++
         }
         Log.d(TAG, "fetchVenueList: ${venues.size} 个场馆")
@@ -256,13 +266,13 @@ class VenueApi(private val site: SiteSession) {
     private suspend fun fetchSlots(action: String, serviceid: Int, date: String): List<AreaSlot> {
         val url = "$BASE/product/$action.html?s_date=$date&serviceid=$serviceid"
         val body = fetchJson(ajaxRequest(url, "$BASE/product/show.html?id=$serviceid"))
-        val root = runCatching { JsonParser.parseString(body) }.getOrNull() ?: return emptyList()
-        val items = root.takeIf { it.isJsonObject }?.asJsonObject
-            ?.get("object")?.takeIf { it.isJsonArray }?.asJsonArray
+        val root = runCatching { AppJson.parseToJsonElement(body) }.getOrNull() ?: return emptyList()
+        val items = root.takeIf { it.isObject }?.jsonObject
+            ?.get("object")?.takeIf { it.isArray }?.jsonArray
             ?: return emptyList()
 
         return items.mapNotNull { element ->
-            val item = element.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
+            val item = element.takeIf { it.isObject }?.jsonObject ?: return@mapNotNull null
             val stock = item.get("stock")?.asObjectOrNull()
             val allCount = readInt(stock, "all_count")
             val usingNum = readInt(stock, "using_num")
@@ -286,16 +296,16 @@ class VenueApi(private val site: SiteSession) {
     /** 滑块验证码。注意在站点根路径，不带 `/web/`。 */
     suspend fun generateCaptcha(serviceid: Int): CaptchaData {
         val body = fetchJson(ajaxRequest("$ROOT/gen", "$BASE/product/show.html?id=$serviceid"))
-        val json = gson.fromJson(body, JsonObject::class.java)
-        val captcha = json.getAsJsonObject("captcha")
+        val json = body.safeParseJsonObject()
+        val captcha = json.requireObj("captcha")
         return CaptchaData(
-            id = json.get("id").asString,
-            backgroundImage = captcha.get("backgroundImage").asString,
-            sliderImage = captcha.get("sliderImage").asString,
-            bgWidth = captcha.get("backgroundImageWidth").asInt,
-            bgHeight = captcha.get("backgroundImageHeight").asInt,
-            sliderWidth = captcha.get("sliderImageWidth").asInt,
-            sliderHeight = captcha.get("sliderImageHeight").asInt
+            id = json.get("id").stringValue,
+            backgroundImage = captcha.get("backgroundImage").stringValue,
+            sliderImage = captcha.get("sliderImage").stringValue,
+            bgWidth = captcha.get("backgroundImageWidth").intValue,
+            bgHeight = captcha.get("backgroundImageHeight").intValue,
+            sliderWidth = captcha.get("sliderImageWidth").intValue,
+            sliderHeight = captcha.get("sliderImageHeight").intValue
         )
     }
 
@@ -319,15 +329,15 @@ class VenueApi(private val site: SiteSession) {
             val area = slot.areaDetailId.toString()
             stockDetail[key] = stockDetail[key]?.let { "$it,$area" } ?: area
         }
-        val param = JsonObject().apply {
-            add("stockdetail", JsonObject().apply {
-                stockDetail.forEach { (k, v) -> addProperty(k, v) }
+        val param = buildJsonObject {
+            put("stockdetail", buildJsonObject {
+                stockDetail.forEach { (k, v) -> put(k, v) }
             })
-            addProperty("venueReason", "")
-            addProperty("fileUrl", "")
-            addProperty("address", serviceid.toString())
+            put("venueReason", "")
+            put("fileUrl", "")
+            put("address", serviceid.toString())
         }
-        return gson.toJson(param)
+        return param.toString()
     }
 
     /**
@@ -369,8 +379,8 @@ class VenueApi(private val site: SiteSession) {
             }
             if (XJTULogin.isAuthFailureResponse(body)) throw AuthExpiredException("体育场馆")
 
-            val obj = runCatching { JsonParser.parseString(body) }
-                .getOrNull()?.takeIf { it.isJsonObject }?.asJsonObject
+            val obj = runCatching { AppJson.parseToJsonElement(body) }
+                .getOrNull()?.takeIf { it.isObject }?.jsonObject
             val result = readString(obj, "result").orEmpty()
             val message = readString(obj, "message").orEmpty().fixGbk()
             val orderObj = obj?.get("object")?.asObjectOrNull()
@@ -451,8 +461,8 @@ class VenueApi(private val site: SiteSession) {
             throw AuthExpiredException("体育场馆")
         }
 
-        val root = runCatching { JsonParser.parseString(body) }.getOrNull()
-        val obj = root?.takeIf { it.isJsonObject }?.asJsonObject
+        val root = runCatching { AppJson.parseToJsonElement(body) }.getOrNull()
+        val obj = root?.takeIf { it.isObject }?.jsonObject
         val result = readString(obj, "result", "code", "success").orEmpty().lowercase()
         val message = readString(obj, "message", "msg", "notice")
             ?.takeIf { it.isNotBlank() }
@@ -468,7 +478,7 @@ class VenueApi(private val site: SiteSession) {
 
     private fun parseOrderPage(body: String, page: Int, pageSize: Int): OrderPage {
         val root = try {
-            JsonParser.parseString(body)
+            AppJson.parseToJsonElement(body)
         } catch (e: Exception) {
             val text = Jsoup.parse(body).text().trim()
             throw RuntimeException(text.takeIf { it.isNotBlank() } ?: "订单接口返回格式异常", e)
@@ -477,14 +487,14 @@ class VenueApi(private val site: SiteSession) {
         val array = findOrderArray(root)
         if (array == null) {
             // 某些部署在没有订单时返回 `{object:null}`，与空数组等价。
-            if (root.isJsonObject && root.asJsonObject.entrySet().all { it.value.isJsonNull }) {
+            if (root.isObject && root.jsonObject.entries.all { it.value.isNull }) {
                 return OrderPage(emptyList(), page, pageSize, total = 0, hasMore = false)
             }
             throw RuntimeException("订单接口返回格式异常")
         }
 
         val orders = array.mapNotNull { element ->
-            element.takeIf { it.isJsonObject }?.asJsonObject?.let(::parseOrder)
+            element.takeIf { it.isObject }?.jsonObject?.let(::parseOrder)
         }.filter { it.orderId.isNotBlank() }
         val total = findTotal(root)
         val hasMore = total?.let { page * pageSize < it } ?: (orders.size >= pageSize)
@@ -495,13 +505,13 @@ class VenueApi(private val site: SiteSession) {
         val details = mutableListOf<OrderDetail>()
         val detailsElement = firstElement(item, "orderdetail", "orderDetail", "details", "items")
         val detailElements = when {
-            detailsElement?.isJsonArray == true -> detailsElement.asJsonArray.toList()
-            detailsElement?.isJsonObject == true -> listOf(detailsElement)
+            detailsElement?.isArray == true -> detailsElement.jsonArray.toList()
+            detailsElement?.isObject == true -> listOf(detailsElement)
             else -> emptyList()
         }
         detailElements.forEach { element ->
-            if (!element.isJsonObject) return@forEach
-            val detail = element.asJsonObject
+            if (!element.isObject) return@forEach
+            val detail = element.jsonObject
             val stock = firstElement(detail, "stock")?.asObjectOrNull()
             val stockDetail = firstElement(detail, "stockdetail", "stockDetail")?.asObjectOrNull()
             val service = firstElement(detail, "service", "venue", "product")?.asObjectOrNull()
@@ -525,14 +535,14 @@ class VenueApi(private val site: SiteSession) {
 
     /** 在数组/rows/object/data/list 等常见包装中寻找订单数组。 */
     private fun findOrderArray(element: JsonElement?, depth: Int = 0): JsonArray? {
-        if (element == null || element.isJsonNull || depth > 4) return null
-        if (element.isJsonArray) {
-            val array = element.asJsonArray
+        if (element == null || element.isNull || depth > 4) return null
+        if (element.isArray) {
+            val array = element.jsonArray
             // 空数组本身就是合法的「暂无订单」响应；非空数组则避免误把
             // orderdetail/其它业务数组当成订单列表。
-            if (array.size() == 0 || array.any { candidate ->
-                    candidate.isJsonObject && firstElement(
-                        candidate.asJsonObject,
+            if (array.size == 0 || array.any { candidate ->
+                    candidate.isObject && firstElement(
+                        candidate.jsonObject,
                         "orderid", "orderId", "orderStatus", "createdate", "createDate"
                     ) != null
                 }) return array
@@ -540,15 +550,15 @@ class VenueApi(private val site: SiteSession) {
                 .mapNotNull { child -> findOrderArray(child, depth + 1) }
                 .firstOrNull()
         }
-        if (!element.isJsonObject) return null
-        val obj = element.asJsonObject
+        if (!element.isObject) return null
+        val obj = element.jsonObject
         val preferred = listOf("object", "rows", "data", "list", "orders", "orderList")
         preferred.forEach { key ->
             val child = obj.get(key)
             val found = findOrderArray(child, depth + 1)
             if (found != null) return found
         }
-        obj.entrySet().forEach { (_, child) ->
+        obj.entries.forEach { (_, child) ->
             val found = findOrderArray(child, depth + 1)
             if (found != null) return found
         }
@@ -556,12 +566,12 @@ class VenueApi(private val site: SiteSession) {
     }
 
     private fun findTotal(element: JsonElement?, depth: Int = 0): Int? {
-        if (element == null || element.isJsonNull || depth > 3) return null
-        if (!element.isJsonObject) return null
-        val obj = element.asJsonObject
+        if (element == null || element.isNull || depth > 3) return null
+        if (!element.isObject) return null
+        val obj = element.jsonObject
         listOf("total", "totalCount", "records", "count").forEach { key ->
             val value = obj.get(key)
-            if (value != null && !value.isJsonNull) {
+            if (value != null && !value.isNull) {
                 readInt(value)?.let { return it }
             }
         }
@@ -575,10 +585,10 @@ class VenueApi(private val site: SiteSession) {
         if (obj == null) return null
         keys.forEach { key ->
             val direct = obj.get(key)
-            if (direct != null && !direct.isJsonNull) return direct
+            if (direct != null && !direct.isNull) return direct
         }
-        obj.entrySet().forEach { (key, value) ->
-            if (!value.isJsonNull && keys.any { it.equals(key, ignoreCase = true) }) return value
+        obj.entries.forEach { (key, value) ->
+            if (!value.isNull && keys.any { it.equals(key, ignoreCase = true) }) return value
         }
         return null
     }
@@ -587,8 +597,8 @@ class VenueApi(private val site: SiteSession) {
         readString(firstElement(obj, *keys))
 
     private fun readString(element: JsonElement?): String? {
-        if (element == null || element.isJsonNull) return null
-        return runCatching { element.asString }.getOrNull()?.trim()
+        if (element == null || element.isNull) return null
+        return runCatching { element.stringValue }.getOrNull()?.trim()
     }
 
     private fun readInt(obj: JsonObject?, vararg keys: String): Int =
@@ -611,6 +621,6 @@ class VenueApi(private val site: SiteSession) {
     }
 
     private fun JsonElement.asObjectOrNull(): JsonObject? =
-        takeIf { it.isJsonObject }?.asJsonObject
+        takeIf { it.isObject }?.jsonObject
 
 }

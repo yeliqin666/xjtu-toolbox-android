@@ -1,7 +1,8 @@
 package com.xjtu.toolbox.home
 
 import android.content.Context
-import com.google.gson.Gson
+import com.xjtu.toolbox.schedule.ScheduleCache
+import kotlinx.serialization.Serializable
 import com.xjtu.toolbox.data.DataCache
 import com.xjtu.toolbox.nav.AppRoute
 import kotlinx.coroutines.Dispatchers
@@ -9,7 +10,8 @@ import kotlinx.coroutines.withContext
 import java.time.LocalDate
 
 /** 一条首页状态：[value] 是大字主数据，[detail] 是补充说明。 */
-data class HomeStat(val value: String, val detail: String? = null)
+@Serializable
+data class HomeStat(val value: String = "", val detail: String? = null)
 
 /** 最近一场考试（名称 + 倒计时）在 [HomeStats.collect] 结果里的键。 */
 const val EXAM_KEY = "exam_next"
@@ -24,8 +26,6 @@ const val EXAM_KEY = "exam_next"
  * 也避免了为首页单独维护一套抓取逻辑。
  */
 object HomeStats {
-
-    private val gson = Gson()
 
     /** 各功能页写入的摘要缓存前缀，后接 [AppRoute.id]，与首页取值一一对应。 */
     private const val PUSHED_PREFIX = "home_stat_"
@@ -52,7 +52,7 @@ object HomeStats {
             val cache = DataCache(context, accountId)
             val k = PUSHED_PREFIX + route.id
             if (value.isNullOrBlank()) cache.invalidate(k)
-            else cache.put(k, gson.toJson(HomeStat(value, detail)))
+            else cache.write(k, HomeStat(value, detail))
         }
     }
 
@@ -112,10 +112,7 @@ object HomeStats {
     }
 
     private fun readPushed(cache: DataCache, routeKey: String): HomeStat? =
-        runCatching {
-            cache.get(PUSHED_PREFIX + routeKey, PUSHED_TTL_MS)
-                ?.let { gson.fromJson(it, HomeStat::class.java) }
-        }.getOrNull()
+        cache.read<HomeStat>(PUSHED_PREFIX + routeKey, PUSHED_TTL_MS)
 
     /**
      * 各功能页推送过摘要的路由。加新功能时只要在这里登记，首页即可显示。
@@ -252,8 +249,7 @@ object HomeStats {
 
             // ── 校历 / 教学周：由学期开始日期本地推算，不需要网络 ──
             runCatching {
-                cache.get("start_date_$termCode", Long.MAX_VALUE)?.let { raw ->
-                    val start = LocalDate.parse(raw.trim().trim('"'))
+                ScheduleCache.readStartDate(cache, termCode)?.let { start ->
                     val today = LocalDate.now()
                     val week = ((today.toEpochDay() - start.toEpochDay()) / 7 + 1).toInt()
                     if (week in 1..30) {
@@ -263,36 +259,21 @@ object HomeStats {
             }
 
             // ── 考试：最近一场 + 倒计时 ──
-            runCatching {
-                cache.get("exams_$termCode", Long.MAX_VALUE)?.let { json ->
-                    // 考试记录结构随教务返回变化，这里按「一组键值对」宽松读取，
-                    // 字段名多给几个候选，避免为它单独引一份实体类。
-                    val arr: List<Map<String, Any?>> = gson.fromJson(
-                        json,
-                        object : com.google.gson.reflect.TypeToken<List<Map<String, Any?>>>() {}.type
-                    ) ?: return@let
-                    val today = LocalDate.now()
-                    val upcoming = arr.mapNotNull { m ->
-                        val d = (m["date"] ?: m["examDate"] ?: m["ksrq"])?.toString()?.take(10) ?: return@mapNotNull null
-                        val day = runCatching { LocalDate.parse(d) }.getOrNull() ?: return@mapNotNull null
-                        if (day < today) return@mapNotNull null
-                        Triple(
-                            (m["name"] ?: m["courseName"] ?: m["kcmc"])?.toString().orEmpty(),
-                            day,
-                            (m["location"] ?: m["place"] ?: m["jsmc"])?.toString().orEmpty()
-                        )
-                    }.sortedBy { it.second }
-                    upcoming.firstOrNull()?.let { e ->
-                        val days = e.second.toEpochDay() - today.toEpochDay()
-                        // 单独一项：首页 Hero 的考试倒计时读它，不再挤占「日程」那一格
-                        out[EXAM_KEY] = HomeStat(
-                            e.first.ifBlank { "考试" },
-                            buildString {
-                                append(if (days == 0L) "就在今天" else "还有 $days 天")
-                                if (e.third.isNotBlank()) append(" · ${e.third}")
-                            }
-                        )
-                    }
+            ScheduleCache.readExams(cache, termCode)?.let { exams ->
+                val today = LocalDate.now()
+                exams.mapNotNull { e ->
+                    val day = runCatching { LocalDate.parse(e.examDate.take(10)) }.getOrNull() ?: return@mapNotNull null
+                    if (day < today) null else e to day
+                }.minByOrNull { it.second }?.let { (e, day) ->
+                    val days = day.toEpochDay() - today.toEpochDay()
+                    // 单独一项：首页 Hero 的考试倒计时读它，不挤占「日程」那一格
+                    out[EXAM_KEY] = HomeStat(
+                        e.courseName.ifBlank { "考试" },
+                        buildString {
+                            append(if (days == 0L) "就在今天" else "还有 $days 天")
+                            if (e.location.isNotBlank()) append(" · ${e.location}")
+                        }
+                    )
                 }
             }
 
@@ -300,10 +281,7 @@ object HomeStats {
             // 否则假期/短学期里它永远是空的，看着像功能坏了。
             run {
                 runCatching {
-                    val courses = com.xjtu.toolbox.schedule.ScheduleCache
-                        .readOptimizedCourses(cache, gson, termCode)
-                        ?: com.xjtu.toolbox.schedule.ScheduleCache
-                            .readRawCourses(cache, gson, termCode)
+                    val courses = ScheduleCache.readCourses(cache, termCode)
                     if (!courses.isNullOrEmpty()) {
                         out["schedule"] = HomeStat("${courses.size} 门课", "$termCode 学期")
                     }
@@ -311,13 +289,8 @@ object HomeStats {
             }
 
             // ── 教材：本学期册数 ──
-            runCatching {
-                cache.get(com.xjtu.toolbox.schedule.ScheduleCache.textbookKey(termCode), Long.MAX_VALUE)
-                    ?.let { json ->
-                        val n = gson.fromJson(json, Array<Any>::class.java)?.size ?: 0
-                        if (n > 0) out["jiaocai"] = HomeStat("$n 本", "本学期教材")
-                    }
-            }
+            val books = ScheduleCache.readTextbooks(cache, termCode, Long.MAX_VALUE)?.size ?: 0
+            if (books > 0) out["jiaocai"] = HomeStat("$books 本", "本学期教材")
 
             out
         }

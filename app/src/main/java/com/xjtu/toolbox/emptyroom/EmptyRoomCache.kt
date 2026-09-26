@@ -1,5 +1,19 @@
 package com.xjtu.toolbox.emptyroom
 
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.JsonObject
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.intValue
+import com.xjtu.toolbox.util.isNull
+import com.xjtu.toolbox.util.arr
+import com.xjtu.toolbox.util.AppJson
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
 import android.content.Context
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.util.safeParseJsonObject
@@ -60,12 +74,12 @@ class EmptyRoomCache(context: Context) {
     fun savedAt(key: String): Long = prefs.getLong("${key}_time", 0L)
 
     private fun parseRoomList(raw: String): List<RoomInfo>? = try {
-        val arr = com.google.gson.JsonParser.parseString(raw).asJsonArray
+        val arr = AppJson.parseToJsonElement(raw).jsonArray
         arr.mapNotNull { el ->
-            val obj = el.asJsonObject
-            val name = obj.get("name")?.takeIf { !it.isJsonNull }?.asString ?: return@mapNotNull null
-            val size = obj.get("size")?.takeIf { !it.isJsonNull }?.asInt ?: 0
-            val status = obj.getAsJsonArray("status")?.map { it.asInt } ?: return@mapNotNull null
+            val obj = el.jsonObject
+            val name = obj.get("name")?.takeIf { !it.isNull }?.stringValue ?: return@mapNotNull null
+            val size = obj.get("size")?.takeIf { !it.isNull }?.intValue ?: 0
+            val status = obj.arr("status")?.map { it.intValue } ?: return@mapNotNull null
             RoomInfo(name, size, status)
         }
     } catch (_: Exception) {
@@ -73,15 +87,14 @@ class EmptyRoomCache(context: Context) {
     }
 
     fun writeRoomList(key: String, rooms: List<RoomInfo>) {
-        val arr = com.google.gson.JsonArray()
-        rooms.forEach { room ->
-            val obj = com.google.gson.JsonObject()
-            obj.addProperty("name", room.name)
-            obj.addProperty("size", room.size)
-            val status = com.google.gson.JsonArray()
-            room.status.forEach { status.add(it) }
-            obj.add("status", status)
-            arr.add(obj)
+        val arr = buildJsonArray {
+            rooms.forEach { room ->
+                addJsonObject {
+                    put("name", room.name)
+                    put("size", room.size)
+                    putJsonArray("status") { room.status.forEach { add(it) } }
+                }
+            }
         }
         writeJson(key, arr.toString())
     }
@@ -89,16 +102,14 @@ class EmptyRoomCache(context: Context) {
     fun readCodeMap(key: String, maxAgeDays: Int): Map<String, String>? {
         val raw = readJson(key, maxAgeDays) ?: return null
         return try {
-            raw.safeParseJsonObject().entrySet().associate { it.key to it.value.asString }
+            raw.safeParseJsonObject().entries.associate { it.key to it.value.stringValue }
         } catch (_: Exception) {
             null
         }
     }
 
     fun writeCodeMap(key: String, data: Map<String, String>) {
-        val obj = com.google.gson.JsonObject()
-        data.forEach { (k, v) -> obj.addProperty(k, v) }
-        writeJson(key, obj.toString())
+        writeJson(key, JsonObject(data.mapValues { JsonPrimitive(it.value) }).toString())
     }
 
     companion object {

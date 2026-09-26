@@ -1,7 +1,9 @@
 package com.xjtu.toolbox.coupon
 
-import com.google.gson.JsonElement
-import com.google.gson.JsonObject
+import kotlinx.serialization.json.JsonArray
+import com.xjtu.toolbox.util.safeLong
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.util.safeGet
 import com.xjtu.toolbox.util.safeInt
 import com.xjtu.toolbox.util.safeString
@@ -134,8 +136,6 @@ private fun JsonElement?.safeLong(default: Long = 0L): Long {
     return raw.toLongOrNull() ?: raw.toDoubleOrNull()?.toLong() ?: default
 }
 
-private fun JsonElement.asJsonObjectOrNull(): JsonObject? =
-    if (isJsonObject) asJsonObject else null
+private fun JsonElement.asJsonObjectOrNull(): JsonObject? = this as? JsonObject
 
-private fun JsonElement.asJsonArrayOrNull() =
-    if (isJsonArray) asJsonArray else null
+private fun JsonElement.asJsonArrayOrNull(): JsonArray? = this as? JsonArray

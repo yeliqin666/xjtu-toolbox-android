@@ -34,8 +34,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.google.gson.Gson
 import com.xjtu.toolbox.attendance.AttendanceWaterRecord
+import com.xjtu.toolbox.util.AppJson
+import kotlinx.serialization.Serializable
 import com.xjtu.toolbox.attendance.WaterType
 import com.xjtu.toolbox.card.CardInfo
 import com.xjtu.toolbox.emptyroom.RoomInfo
@@ -59,31 +60,35 @@ import com.xjtu.toolbox.nav.AppRoute
 sealed interface AgentWidget
 
 /** 课表：courses 已按目标日期/本周过滤好，控件内部按星期分组展示。 */
-data class ScheduleWidget(val title: String, val courses: List<CourseItem>) : AgentWidget
+@Serializable
+data class ScheduleWidget(val title: String = "", val courses: List<CourseItem> = emptyList()) : AgentWidget
 
 /** 考试安排。 */
-data class ExamWidget(val exams: List<ExamItem>) : AgentWidget
+@Serializable
+data class ExamWidget(val exams: List<ExamItem> = emptyList()) : AgentWidget
 
 /** 空闲教室。currentPeriod 为 0 基节次索引，-1 表示无"当前节次"语境。 */
-data class RoomWidget(val condition: String, val rooms: List<RoomInfo>, val currentPeriod: Int) : AgentWidget
+@Serializable
+data class RoomWidget(val condition: String = "", val rooms: List<RoomInfo> = emptyList(), val currentPeriod: Int = -1) : AgentWidget
 
-/**
- * 空闲教室的实时状态（智慧教室平台）：只放空闲和"没排课但有人"的教室。
- * 类名是存盘判别式，字段名受 proguard 保护，改名要同步 proguard-rules.pro。
- */
+/** 空闲教室的实时状态（智慧教室平台）：只放空闲和"没排课但有人"的教室。 */
+@Serializable
 data class LiveRoomWidget(
-    val condition: String,
-    val rooms: List<com.xjtu.toolbox.emptyroom.LiveRoom>,
-    val fetchedAt: Long,
+    val condition: String = "",
+    val rooms: List<com.xjtu.toolbox.emptyroom.LiveRoom> = emptyList(),
+    val fetchedAt: Long = 0L,
 ) : AgentWidget
 
 /** 考勤记录。 */
-data class AttendanceWidget(val records: List<AttendanceWaterRecord>) : AgentWidget
+@Serializable
+data class AttendanceWidget(val records: List<AttendanceWaterRecord> = emptyList()) : AgentWidget
 
 /** 成绩 + 加权 GPA 汇总。 */
-data class GradeWidget(val grades: List<ReportedGrade>, val gpa: Double?, val totalPoints: Double) : AgentWidget
+@Serializable
+data class GradeWidget(val grades: List<ReportedGrade> = emptyList(), val gpa: Double? = null, val totalPoints: Double = 0.0) : AgentWidget
 
 /** 校园卡信息。 */
+@Serializable
 data class CardWidget(val info: CardInfo) : AgentWidget
 
 /**
@@ -93,94 +98,59 @@ data class CardWidget(val info: CardInfo) : AgentWidget
  * 检索结果天然是"给你一串候选，你挑一个"，纯文本把文件名和 ID 抄一遍再让用户
  * 复述给屁岱，中间那几步毫无意义。
  */
-data class ZyxfWidget(val query: String, val items: List<ZyxfEntryRef>) : AgentWidget
+@Serializable
+data class ZyxfWidget(val query: String = "", val items: List<ZyxfEntryRef> = emptyList()) : AgentWidget
 
-/** 卡片里的一条。字段全是可序列化的原始类型，卡片要随会话一起存盘。 */
+/** 卡片里的一条。卡片要随会话一起存盘。 */
+@Serializable
 data class ZyxfEntryRef(
-    val id: Int,
-    val name: String,
-    val path: String,
-    val sizeText: String,
-    val isFolder: Boolean,
-) {
-    /** 磁盘缓存反序列化兜底，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。 */
-    fun sanitized(): ZyxfEntryRef = copy(
-        name = (name as String?) ?: "",
-        path = (path as String?) ?: "",
-        sizeText = (sizeText as String?) ?: "",
-    )
-}
+    val id: Int = 0,
+    val name: String = "",
+    val path: String = "",
+    val sizeText: String = "",
+    val isFolder: Boolean = false,
+)
 
 /**
  * 图书馆某区域的平面图缩略图：底图来自平面图磁盘缓存（工具执行时已落盘），
  * 有人的座位压暗，空座就亮出来。点一下打开图书馆页并定位到这个区域。
  */
+@Serializable
 data class LibraryWidget(
-    val campusId: String,
-    val campusName: String,
-    val areaCode: String,
-    val areaName: String,
-    val imageName: String,
-    val seats: List<com.xjtu.toolbox.library.PlanSeat>,
+    val campusId: String = "",
+    val campusName: String = "",
+    val areaCode: String = "",
+    val areaName: String = "",
+    val imageName: String = "",
+    val seats: List<com.xjtu.toolbox.library.PlanSeat> = emptyList(),
 ) : AgentWidget
 
-fun AgentWidget.toStored(gson: Gson): StoredWidget =
-    StoredWidget(javaClass.simpleName, gson.toJson(this))
+/** 类型名是存盘格式的一部分（沿用旧版的类名），不要改。 */
+fun AgentWidget.toStored(): StoredWidget = when (this) {
+    is ScheduleWidget -> StoredWidget("ScheduleWidget", AppJson.encodeToString(this))
+    is ExamWidget -> StoredWidget("ExamWidget", AppJson.encodeToString(this))
+    is RoomWidget -> StoredWidget("RoomWidget", AppJson.encodeToString(this))
+    is LiveRoomWidget -> StoredWidget("LiveRoomWidget", AppJson.encodeToString(this))
+    is AttendanceWidget -> StoredWidget("AttendanceWidget", AppJson.encodeToString(this))
+    is GradeWidget -> StoredWidget("GradeWidget", AppJson.encodeToString(this))
+    is CardWidget -> StoredWidget("CardWidget", AppJson.encodeToString(this))
+    is ZyxfWidget -> StoredWidget("ZyxfWidget", AppJson.encodeToString(this))
+    is LibraryWidget -> StoredWidget("LibraryWidget", AppJson.encodeToString(this))
+}
 
-/**
- * 会话记录随磁盘缓存整体落盘，旧版本/半截写入的会话一样会踩 Gson 非空约束不生效的坑
- * （原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]）。这些控件直接在
- * [AgentWidgetView] 的 Composable 里渲染，没有 try/catch，反序列化后必须就地兜底，
- * 不能指望各个 *WidgetView 自己判空。
- */
-fun storedToWidget(stored: StoredWidget, gson: Gson): AgentWidget? = runCatching {
+/** 读不回来（旧版半截写入、未知类型）就丢掉这张卡片，不影响整段会话。 */
+fun storedToWidget(stored: StoredWidget): AgentWidget? = runCatching {
     when (stored.type) {
-        "ScheduleWidget" -> gson.fromJson(stored.json, ScheduleWidget::class.java)?.let { w ->
-            w.copy(
-                title = (w.title as String?) ?: "",
-                courses = (w.courses as List<CourseItem>?)?.map { it.sanitized() } ?: emptyList(),
-            )
-        }
-        "ExamWidget" -> gson.fromJson(stored.json, ExamWidget::class.java)?.let { w ->
-            w.copy(exams = (w.exams as List<ExamItem>?)?.map { it.sanitized() } ?: emptyList())
-        }
-        "RoomWidget" -> gson.fromJson(stored.json, RoomWidget::class.java)?.let { w ->
-            w.copy(
-                condition = (w.condition as String?) ?: "",
-                rooms = (w.rooms as List<RoomInfo>?)?.map { it.sanitized() } ?: emptyList(),
-            )
-        }
-        "LiveRoomWidget" -> gson.fromJson(stored.json, LiveRoomWidget::class.java)?.let { w ->
-            w.copy(
-                condition = (w.condition as String?) ?: "",
-                rooms = (w.rooms as List<com.xjtu.toolbox.emptyroom.LiveRoom?>?)?.filterNotNull()?.map { it.sanitized() } ?: emptyList(),
-            )
-        }
-        "AttendanceWidget" -> gson.fromJson(stored.json, AttendanceWidget::class.java)?.let { w ->
-            w.copy(records = (w.records as List<AttendanceWaterRecord>?)?.map { it.sanitized() } ?: emptyList())
-        }
-        "GradeWidget" -> gson.fromJson(stored.json, GradeWidget::class.java)?.let { w ->
-            w.copy(grades = (w.grades as List<ReportedGrade>?)?.map { it.sanitized() } ?: emptyList())
-        }
-        "CardWidget" -> gson.fromJson(stored.json, CardWidget::class.java)?.let { w ->
-            (w.info as CardInfo?)?.let { w.copy(info = it.sanitized()) }
-        }
-        "ZyxfWidget" -> gson.fromJson(stored.json, ZyxfWidget::class.java)?.let { w ->
-            w.copy(
-                query = (w.query as String?) ?: "",
-                items = (w.items as List<ZyxfEntryRef>?)?.map { it.sanitized() } ?: emptyList(),
-            )
-        }
-        "LibraryWidget" -> gson.fromJson(stored.json, LibraryWidget::class.java)?.let { w ->
-            w.copy(
-                campusId = (w.campusId as String?) ?: "",
-                campusName = (w.campusName as String?) ?: "",
-                areaCode = (w.areaCode as String?) ?: "",
-                areaName = (w.areaName as String?) ?: "",
-                imageName = (w.imageName as String?) ?: "",
-                seats = (w.seats as List<com.xjtu.toolbox.library.PlanSeat?>?)?.filterNotNull() ?: emptyList(),
-            )
-        }
+        "ScheduleWidget" -> AppJson.decodeFromString<ScheduleWidget>(stored.json)
+            .let { it.copy(courses = it.courses.map(CourseItem::normalized)) }
+        "ExamWidget" -> AppJson.decodeFromString<ExamWidget>(stored.json)
+        "RoomWidget" -> AppJson.decodeFromString<RoomWidget>(stored.json)
+        "LiveRoomWidget" -> AppJson.decodeFromString<LiveRoomWidget>(stored.json)
+        "AttendanceWidget" -> AppJson.decodeFromString<AttendanceWidget>(stored.json)
+        "GradeWidget" -> AppJson.decodeFromString<GradeWidget>(stored.json)
+        "CardWidget" -> AppJson.decodeFromString<CardWidget>(stored.json)
+        "ZyxfWidget" -> AppJson.decodeFromString<ZyxfWidget>(stored.json)
+        "LibraryWidget" -> AppJson.decodeFromString<LibraryWidget>(stored.json)
         else -> null
     }
 }.getOrNull()

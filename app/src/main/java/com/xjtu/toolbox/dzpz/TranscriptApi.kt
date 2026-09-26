@@ -1,9 +1,15 @@
 package com.xjtu.toolbox.dzpz
 
+import com.xjtu.toolbox.util.requireObj
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.intValue
+import com.xjtu.toolbox.util.longValue
+import com.xjtu.toolbox.util.obj
+import com.xjtu.toolbox.util.arr
+import kotlinx.serialization.json.jsonObject
 import com.xjtu.toolbox.util.redactUrl
 import android.util.Log
-import com.google.gson.Gson
-import com.google.gson.JsonObject
+import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.FormBody
@@ -34,7 +40,6 @@ class TranscriptApi(private val site: SiteSession) {
     }
 
     private val userId get() = site.localToken["user_id"] ?: error("未登录")
-    private val gson = Gson()
 
     private suspend fun execute(request: Request): String =
         site.executeWithReAuth(request).use { it.body?.string().orEmpty() }
@@ -112,22 +117,22 @@ class TranscriptApi(private val site: SiteSession) {
             .post(body))
         val json = responseBody.safeParseJsonObject()
 
-        val params = json.getAsJsonObject("params")
-        val submitParams = json.getAsJsonObject("submitParams")
-        val maindata = json.getAsJsonObject("maindata")
+        val params = json.requireObj("params")
+        val submitParams = json.requireObj("submitParams")
+        val maindata = json.requireObj("maindata")
 
         // 提取成绩单类型选项 (field7243 的 selectattr.selectitemlist)
-        val tableInfo = json.getAsJsonObject("tableInfo")
+        val tableInfo = json.requireObj("tableInfo")
         val typeOptions = parseTypeOptions(tableInfo)
 
-        val linkageUUID = params.get("linkageUUID")?.asString ?: ""
-        val sigAttrStr = params.get("signatureAttributesStr")?.asString ?: ""
-        val sigSecret = params.get("signatureSecretKey")?.asString ?: ""
+        val linkageUUID = params.get("linkageUUID")?.stringValue ?: ""
+        val sigAttrStr = params.get("signatureAttributesStr")?.stringValue ?: ""
+        val sigSecret = params.get("signatureSecretKey")?.stringValue ?: ""
 
         // 默认日期和请求名
-        val dt = maindata.getAsJsonObject("field7249")?.get("value")?.asString
+        val dt = maindata.obj("field7249")?.get("value")?.stringValue
             ?: SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).format(Date())
-        val reqName = maindata.getAsJsonObject("field-1")?.get("value")?.asString ?: ""
+        val reqName = maindata.obj("field-1")?.get("value")?.stringValue ?: ""
 
         Log.d(TAG, "loadCreateForm: got ${typeOptions.size} type options, linkageUUID=$linkageUUID")
 
@@ -147,16 +152,16 @@ class TranscriptApi(private val site: SiteSession) {
 
     private fun parseTypeOptions(tableInfo: JsonObject): List<TranscriptTypeOption> {
         try {
-            val mainInfo = tableInfo.getAsJsonObject("main") ?: return emptyList()
-            val fieldMap = mainInfo.getAsJsonObject("fieldinfomap") ?: return emptyList()
-            val field7243 = fieldMap.getAsJsonObject("7243") ?: return emptyList()
-            val selectAttr = field7243.getAsJsonObject("selectattr") ?: return emptyList()
-            val items = selectAttr.getAsJsonArray("selectitemlist") ?: return emptyList()
+            val mainInfo = tableInfo.obj("main") ?: return emptyList()
+            val fieldMap = mainInfo.obj("fieldinfomap") ?: return emptyList()
+            val field7243 = fieldMap.obj("7243") ?: return emptyList()
+            val selectAttr = field7243.obj("selectattr") ?: return emptyList()
+            val items = selectAttr.arr("selectitemlist") ?: return emptyList()
             return items.mapNotNull { elem ->
-                val obj = elem.asJsonObject
-                val name = obj.get("selectname")?.asString ?: return@mapNotNull null
-                val value = obj.get("selectvalue")?.asInt ?: return@mapNotNull null
-                val cancel = obj.get("cancel")?.asInt ?: 0
+                val obj = elem.jsonObject
+                val name = obj.get("selectname")?.stringValue ?: return@mapNotNull null
+                val value = obj.get("selectvalue")?.intValue ?: return@mapNotNull null
+                val cancel = obj.get("cancel")?.intValue ?: 0
                 TranscriptTypeOption(name, value, cancel == 1)
             }.filter { !it.cancelled }
         } catch (e: Exception) {
@@ -203,10 +208,10 @@ class TranscriptApi(private val site: SiteSession) {
                 .build()
         ).safeParseJsonObject()
 
-        val assign64 = json1.getAsJsonObject("assignInfo_64")
-            ?.getAsJsonObject("changeValue")
-        val studentId = assign64?.getAsJsonObject("field7237")?.get("value")?.asString ?: ""
-        val enrollYear = assign64?.getAsJsonObject("field7536")?.get("value")?.asString ?: ""
+        val assign64 = json1.obj("assignInfo_64")
+            ?.obj("changeValue")
+        val studentId = assign64?.obj("field7237")?.get("value")?.stringValue ?: ""
+        val enrollYear = assign64?.obj("field7536")?.get("value")?.stringValue ?: ""
 
         // 联动 2: 获取模板路径和业务分类名（触发字段 field7243=typeValue）
         val body2 = FormBody.Builder()
@@ -235,10 +240,10 @@ class TranscriptApi(private val site: SiteSession) {
                 .build()
         ).safeParseJsonObject()
 
-        val assign43 = json2.getAsJsonObject("assignInfo_43")
-            ?.getAsJsonObject("changeValue")
-        val templatePath = assign43?.getAsJsonObject("field7247")?.get("value")?.asString ?: ""
-        val categoryName = assign43?.getAsJsonObject("field7241")?.get("value")?.asString ?: ""
+        val assign43 = json2.obj("assignInfo_43")
+            ?.obj("changeValue")
+        val templatePath = assign43?.obj("field7247")?.get("value")?.stringValue ?: ""
+        val categoryName = assign43?.obj("field7241")?.get("value")?.stringValue ?: ""
 
         Log.d(TAG, "getLinkageData: studentId=$studentId, enrollYear=$enrollYear, " +
                 "template=$templatePath, category=$categoryName")
@@ -291,7 +296,7 @@ class TranscriptApi(private val site: SiteSession) {
         Log.d(TAG, "submitCreate: docId=$docId, typeValue=$typeValue")
 
         val token = ctx.submitParams.get("${userId}_${ctx.workflowId}_addrequest_submit_token")
-            ?.asLong ?: System.currentTimeMillis()
+            ?.longValue ?: System.currentTimeMillis()
 
         val body = FormBody.Builder()
             .add("formid", "-14")
@@ -365,19 +370,19 @@ class TranscriptApi(private val site: SiteSession) {
                 .build()
         ).safeParseJsonObject()
 
-        val data = json.getAsJsonObject("data")
-            ?: error("提交失败：${json.get("message")?.asString ?: "未知错误"}")
-        val type = data.get("type")?.asString
+        val data = json.obj("data")
+            ?: error("提交失败：${json.get("message")?.stringValue ?: "未知错误"}")
+        val type = data.get("type")?.stringValue
         if (type != "SUCCESS") {
             error("提交失败：$type")
         }
 
-        val resultInfo = data.getAsJsonObject("resultInfo")
-        val requestId = resultInfo.get("requestid").asInt
-        val sessionKey = resultInfo.get("sessionkey").asString
-        val submitData = data.getAsJsonObject("submitParams")
+        val resultInfo = data.requireObj("resultInfo")
+        val requestId = resultInfo.get("requestid").intValue
+        val sessionKey = resultInfo.get("sessionkey").stringValue
+        val submitData = data.obj("submitParams")
         val newToken = submitData?.get("${userId}_${ctx.workflowId}_addrequest_submit_token")
-            ?.asLong ?: (submitData?.get("${userId}_${requestId}_request_submit_token")?.asLong
+            ?.longValue ?: (submitData?.get("${userId}_${requestId}_request_submit_token")?.longValue
             ?: System.currentTimeMillis())
 
         Log.d(TAG, "submitCreate: requestId=$requestId, sessionKey=$sessionKey")
@@ -415,17 +420,17 @@ class TranscriptApi(private val site: SiteSession) {
                 .post(loadBody)
                 .build()
         ).safeParseJsonObject()
-        val newParams = loadJson.getAsJsonObject("params")
-        val newSubmitParams = loadJson.getAsJsonObject("submitParams")
-        val newMaindata = loadJson.getAsJsonObject("maindata")
+        val newParams = loadJson.obj("params")
+        val newSubmitParams = loadJson.obj("submitParams")
+        val newMaindata = loadJson.obj("maindata")
 
-        val authStr = newParams?.get("authStr")?.asString ?: ""
-        val authSigStr = newParams?.get("authSignatureStr")?.asString ?: ""
-        val newSigAttr = newParams?.get("signatureAttributesStr")?.asString ?: ""
-        val newSigSecret = newParams?.get("signatureSecretKey")?.asString ?: ""
-        val newLinkageUUID = newParams?.get("linkageUUID")?.asString ?: ""
-        val currentDate = newParams?.get("lastOperateDate")?.asString ?: ctx.defaultDate
-        val currentTime = newParams?.get("lastOperateTime")?.asString ?: ""
+        val authStr = newParams?.get("authStr")?.stringValue ?: ""
+        val authSigStr = newParams?.get("authSignatureStr")?.stringValue ?: ""
+        val newSigAttr = newParams?.get("signatureAttributesStr")?.stringValue ?: ""
+        val newSigSecret = newParams?.get("signatureSecretKey")?.stringValue ?: ""
+        val newLinkageUUID = newParams?.get("linkageUUID")?.stringValue ?: ""
+        val currentDate = newParams?.get("lastOperateDate")?.stringValue ?: ctx.defaultDate
+        val currentTime = newParams?.get("lastOperateTime")?.stringValue ?: ""
 
         // 5b: 提交前校验
         val checkBody = FormBody.Builder()
@@ -446,13 +451,13 @@ class TranscriptApi(private val site: SiteSession) {
 
         // 5c: 读取表单字段值
         fun fieldVal(fieldName: String): String {
-            return newMaindata?.getAsJsonObject(fieldName)?.get("value")?.asString ?: ""
+            return newMaindata?.obj(fieldName)?.get("value")?.stringValue ?: ""
         }
 
         val submitToken = newSubmitParams?.get("${userId}_${firstResult.requestId}_request_submit_token")
-            ?.asLong ?: firstResult.submitToken
+            ?.longValue ?: firstResult.submitToken
         val addToken = newSubmitParams?.get("${userId}_${ctx.workflowId}_addrequest_submit_token")
-            ?.asLong ?: firstResult.submitToken
+            ?.longValue ?: firstResult.submitToken
 
         // 5d: 第二次提交（转发到下载节点）
         val submitBody = FormBody.Builder()
@@ -499,7 +504,7 @@ class TranscriptApi(private val site: SiteSession) {
             .add("fromFlowDoc", "")
             .add("RejectNodes", "")
             .add("linkageUUID", newLinkageUUID)
-            .add("billid", newParams?.get("billid")?.asString ?: "")
+            .add("billid", newParams?.get("billid")?.stringValue ?: "")
             .add("lastnodeid", "")
             .add("uploadType", "")
             .add("isSignMustInput", "")
@@ -547,7 +552,7 @@ class TranscriptApi(private val site: SiteSession) {
             .add("field7238", fieldVal("field7238"))
             .add("field7237", fieldVal("field7237"))
             .add("field7250", fieldVal("field7250"))
-            .add("requestname", newMaindata?.getAsJsonObject("field-1")?.get("value")?.asString ?: "")
+            .add("requestname", newMaindata?.obj("field-1")?.get("value")?.stringValue ?: "")
             .add("requestlevel", "0")
             .add("field-10", "")
             .add("chatsType", "-1")
@@ -568,39 +573,39 @@ class TranscriptApi(private val site: SiteSession) {
                 .build()
         ).safeParseJsonObject()
 
-        val data = submitJson.getAsJsonObject("data")
+        val data = submitJson.obj("data")
         if (data == null) {
             // 提取详细错误信息
-            val message = submitJson.get("message")?.asString
-            val errorMsg = submitJson.get("errorMsg")?.asString
-            val tips = submitJson.get("tips")?.asString
+            val message = submitJson.get("message")?.stringValue
+            val errorMsg = submitJson.get("errorMsg")?.stringValue
+            val tips = submitJson.get("tips")?.stringValue
             val detail = errorMsg ?: message ?: tips ?: "未知错误"
             Log.e(TAG, "reloadAndForward: submit failed, no data object. detail=$detail")
             error("转发失败：$detail")
         }
         
-        val resultType = data.get("type")?.asString
+        val resultType = data.get("type")?.stringValue
         if (resultType != "SUCCESS") {
             // 提取详细错误信息
-            val msgInfo = data.getAsJsonObject("messageInfo")
-            val errorMsg = msgInfo?.get("message")?.asString
-                ?: data.get("message")?.asString
-                ?: data.get("errorMsg")?.asString
+            val msgInfo = data.obj("messageInfo")
+            val errorMsg = msgInfo?.get("message")?.stringValue
+                ?: data.get("message")?.stringValue
+                ?: data.get("errorMsg")?.stringValue
             val detail = errorMsg ?: resultType ?: "提交被拒绝"
             Log.e(TAG, "reloadAndForward: resultType=$resultType, errorMsg=$errorMsg")
             error("转发失败：$detail")
         }
 
-        val msgInfo = data.getAsJsonObject("messageInfo")
-        val resultInfo = data.getAsJsonObject("resultInfo")
-        val newSessionKey = resultInfo?.get("sessionkey")?.asString
-            ?: msgInfo?.get("sessionkey")?.asString ?: ""
-        val forwardSubmitParams = data.getAsJsonObject("submitParams")
+        val msgInfo = data.obj("messageInfo")
+        val resultInfo = data.obj("resultInfo")
+        val newSessionKey = resultInfo?.get("sessionkey")?.stringValue
+            ?: msgInfo?.get("sessionkey")?.stringValue ?: ""
+        val forwardSubmitParams = data.obj("submitParams")
         val newSubmitToken = forwardSubmitParams?.get("${userId}_${firstResult.requestId}_request_submit_token")
-            ?.asLong ?: System.currentTimeMillis()
+            ?.longValue ?: System.currentTimeMillis()
 
         Log.d(TAG, "reloadAndForward: SUCCESS, newSessionKey=$newSessionKey, " +
-                "nextNode=${msgInfo?.get("nextNodeNames")?.asString}")
+                "nextNode=${msgInfo?.get("nextNodeNames")?.stringValue}")
 
         return SubmitResult(firstResult.requestId, newSessionKey, newSubmitToken)
     }
@@ -632,19 +637,19 @@ class TranscriptApi(private val site: SiteSession) {
                 .post(body)
                 .build()
         ).safeParseJsonObject()
-        val maindata = json.getAsJsonObject("maindata")
+        val maindata = json.obj("maindata")
 
         // 从 field7564 提取下载链接
-        val field7564 = maindata?.getAsJsonObject("field7564")
-        val specialobj = field7564?.getAsJsonObject("specialobj")
-        val filedatas = specialobj?.getAsJsonArray("filedatas")
+        val field7564 = maindata?.obj("field7564")
+        val specialobj = field7564?.obj("specialobj")
+        val filedatas = specialobj?.arr("filedatas")
 
-        if (filedatas != null && filedatas.size() > 0) {
-            val fileData = filedatas[0].asJsonObject
-            val filename = fileData.get("filename")?.asString ?: "成绩单.pdf"
-            val loadlink = fileData.get("loadlink")?.asString
+        if (filedatas != null && filedatas.size > 0) {
+            val fileData = filedatas[0].jsonObject
+            val filename = fileData.get("filename")?.stringValue ?: "成绩单.pdf"
+            val loadlink = fileData.get("loadlink")?.stringValue
                 ?: error("下载链接不存在")
-            val filesize = fileData.get("filesize")?.asString ?: ""
+            val filesize = fileData.get("filesize")?.stringValue ?: ""
 
             Log.d(TAG, "getDownloadInfo: filename=$filename, size=$filesize")
             return DownloadInfo(
@@ -655,13 +660,13 @@ class TranscriptApi(private val site: SiteSession) {
         }
 
         // Fallback: 从 field7244 提取文档 ID 后构建下载 URL
-        val field7244 = maindata?.getAsJsonObject("field7244")
-        val docId = field7244?.get("value")?.asString
+        val field7244 = maindata?.obj("field7244")
+        val docId = field7244?.get("value")?.stringValue
         if (docId != null) {
-            val params2 = json.getAsJsonObject("params")
-            val authStr2 = params2?.get("authStr")?.asString ?: ""
-            val authSig2 = params2?.get("authSignatureStr")?.asString ?: ""
-            val docName = field7244.getAsJsonObject("specialobj")?.get("name")?.asString ?: "成绩单.pdf"
+            val params2 = json.obj("params")
+            val authStr2 = params2?.get("authStr")?.stringValue ?: ""
+            val authSig2 = params2?.get("authSignatureStr")?.stringValue ?: ""
+            val docName = field7244.obj("specialobj")?.get("name")?.stringValue ?: "成绩单.pdf"
             val dlUrl = "$BASE/weaver/weaver.file.FileDownload?fileid=$docId&download=1" +
                     "&requestid=${secondResult.requestId}&desrequestid=0" +
                     "&authStr=$authStr2&authSignatureStr=$authSig2" +

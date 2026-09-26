@@ -1,6 +1,10 @@
 package com.xjtu.toolbox.attendance
 
-import com.google.gson.JsonObject
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.buildJsonObject
+import com.xjtu.toolbox.util.obj
+import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.auth.AuthExpiredException
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.schedule.XjtuTime
@@ -206,13 +210,13 @@ class AttendanceApi(private val site: SiteSession) {
      * 路径也要对上同一个终端。
      */
     private suspend fun fetchAttendanceRecords(term: String, startDate: String, endDate: String): List<JsonObject> {
-        val data = JsonObject().apply {
-            addProperty("startDate", startDate)
-            addProperty("endDate", endDate)
-            addProperty("courseName", "")
-            addProperty("courseCode", "")
-            addProperty("attendanceStatus", "")
-            if (term.isNotBlank()) addProperty("semesterId", term)
+        val data = buildJsonObject {
+            put("startDate", startDate)
+            put("endDate", endDate)
+            put("courseName", "")
+            put("courseCode", "")
+            put("attendanceStatus", "")
+            if (term.isNotBlank()) put("semesterId", term)
         }
         val rows = fetchAllPages("/student/pc/attendance-records/page", data)
         // 服务端状态全集（上游 PR #72 取自前端状态标签）：PENDING / NORMAL / LATE / ABSENT / LEAVE / NOT_REQUIRED。
@@ -232,9 +236,9 @@ class AttendanceApi(private val site: SiteSession) {
      * 考勤打卡流水分页，跟 [fetchAttendanceRecords] 同一套接口形状，字段不同。
      */
     suspend fun getStreams(startDate: String, endDate: String): List<AttendanceStream> {
-        val data = JsonObject().apply {
-            addProperty("startDate", startDate)
-            addProperty("endDate", endDate)
+        val data = buildJsonObject {
+            put("startDate", startDate)
+            put("endDate", endDate)
         }
         val rows = fetchAllPages("/student/pc/attendance-streams/page", data)
         return rows.map { row ->
@@ -296,7 +300,7 @@ class AttendanceApi(private val site: SiteSession) {
         }
     }
 
-    private fun parseCourseStats(data: com.google.gson.JsonElement?): List<CourseAttendanceStat> {
+    private fun parseCourseStats(data: JsonElement?): List<CourseAttendanceStat> {
         return KqHttp.rows(data).mapNotNull { obj ->
             val name = KqHttp.str(obj, "courseName", "subjectname", "course")
             if (name.isBlank()) return@mapNotNull null

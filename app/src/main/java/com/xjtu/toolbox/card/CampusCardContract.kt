@@ -1,8 +1,20 @@
 package com.xjtu.toolbox.card
 
-import com.google.gson.JsonArray
-import com.google.gson.JsonElement
-import com.google.gson.JsonObject
+import com.xjtu.toolbox.util.isBoolean
+import com.xjtu.toolbox.util.isNumber
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.intValue
+import com.xjtu.toolbox.util.longValue
+import com.xjtu.toolbox.util.isNull
+import com.xjtu.toolbox.util.isObject
+import com.xjtu.toolbox.util.isArray
+import com.xjtu.toolbox.util.isPrimitive
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 
 internal object CampusCardContract {
     private val INCOME_MARKERS = listOf(
@@ -18,50 +30,50 @@ internal object CampusCardContract {
 
     fun businessCode(root: JsonObject): String? {
         val el = root.get("code") ?: return null
-        if (el.isJsonNull) return null
-        return runCatching { el.asString.trim() }.getOrNull()
-            ?: runCatching { el.asInt.toString() }.getOrNull()
+        if (el.isNull) return null
+        return runCatching { el.stringValue.trim() }.getOrNull()
+            ?: runCatching { el.intValue.toString() }.getOrNull()
     }
 
     fun requireSuccess(root: JsonObject, operation: String) {
         val code = businessCode(root)
         if (code != "200") {
-            val message = root.get("message")?.takeUnless { it.isJsonNull }?.asString ?: "业务请求失败"
+            val message = root.get("message")?.takeUnless { it.isNull }?.stringValue ?: "业务请求失败"
             throw RuntimeException("${operation}失败：$message")
         }
     }
 
     fun requireDataObject(root: JsonObject, operation: String): JsonObject {
         val data = root.get("data")
-        if (data == null || !data.isJsonObject) {
+        if (data == null || !data.isObject) {
             throw RuntimeException("${operation}返回的数据格式错误")
         }
-        return data.asJsonObject
+        return data.jsonObject
     }
 
     fun requireArray(data: JsonObject, key: String, operation: String): JsonArray {
         val values = data.get(key)
-        if (values == null || !values.isJsonArray) {
+        if (values == null || !values.isArray) {
             throw RuntimeException("${operation}返回的${key}格式错误")
         }
-        return values.asJsonArray
+        return values.jsonArray
     }
 
     fun requireLong(value: JsonElement?, field: String, operation: String): Long {
-        if (value == null || value.isJsonNull) {
+        if (value == null || value.isNull) {
             throw RuntimeException("${operation}返回的${field}格式错误")
         }
-        if (!value.isJsonPrimitive) {
+        if (!value.isPrimitive) {
             throw RuntimeException("${operation}返回的${field}格式错误")
         }
-        val primitive = value.asJsonPrimitive
+        val primitive = value.jsonPrimitive
         if (primitive.isBoolean) {
             throw RuntimeException("${operation}返回的${field}格式错误")
         }
         if (primitive.isNumber) {
-            return primitive.asLong
+            return primitive.longValue
         }
-        val text = primitive.asString.trim()
+        val text = primitive.stringValue.trim()
         if (text.isNotEmpty() && text.removePrefix("-").all { it.isDigit() }) {
             return text.toLong()
         }
@@ -70,14 +82,14 @@ internal object CampusCardContract {
 
     fun requiredText(data: JsonObject, field: String, operation: String): String {
         val value = data.get(field)
-        if (value == null || value.isJsonNull) {
+        if (value == null || value.isNull) {
             throw RuntimeException("${operation}缺少必要字段")
         }
-        if (!value.isJsonPrimitive || value.asJsonPrimitive.isBoolean) {
+        if (!value.isPrimitive || value.jsonPrimitive.isBoolean) {
             throw RuntimeException("${operation}缺少必要字段")
         }
-        val text = runCatching { value.asString.trim() }.getOrElse {
-            runCatching { value.asLong.toString() }.getOrDefault("")
+        val text = runCatching { value.stringValue.trim() }.getOrElse {
+            runCatching { value.longValue.toString() }.getOrDefault("")
         }
         if (text.isBlank()) throw RuntimeException("${operation}缺少必要字段")
         return text

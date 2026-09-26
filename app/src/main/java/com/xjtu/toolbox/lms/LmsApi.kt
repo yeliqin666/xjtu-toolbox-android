@@ -1,9 +1,22 @@
 package com.xjtu.toolbox.lms
 
+import com.xjtu.toolbox.util.safeString
+import com.xjtu.toolbox.util.safeInt
+import com.xjtu.toolbox.util.safeBoolean
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.intValue
+import com.xjtu.toolbox.util.doubleValue
+import com.xjtu.toolbox.util.booleanValue
+import com.xjtu.toolbox.util.isNull
+import com.xjtu.toolbox.util.isObject
+import com.xjtu.toolbox.util.isArray
+import com.xjtu.toolbox.util.arr
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
 import android.util.Log
-import com.google.gson.JsonArray
-import com.google.gson.JsonElement
-import com.google.gson.JsonObject
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.MediaType.Companion.toMediaType
@@ -13,23 +26,23 @@ import okhttp3.RequestBody.Companion.toRequestBody
 private const val TAG = "LmsApi"
 
 // ════════════════════════════════════════
-//  Gson 安全扩展
+//  JSON 安全扩展
 // ════════════════════════════════════════
 
 private fun JsonElement?.safeString(): String? =
-    if (this == null || this.isJsonNull) null else try { this.asString } catch (_: Exception) { null }
+    if (this == null || this.isNull) null else try { this.stringValue } catch (_: Exception) { null }
 
 private fun JsonElement?.safeInt(default: Int = 0): Int =
-    if (this == null || this.isJsonNull) default else try { this.asInt } catch (_: Exception) { default }
+    if (this == null || this.isNull) default else try { this.intValue } catch (_: Exception) { default }
 
 private fun JsonElement?.safeBoolean(default: Boolean = false): Boolean =
-    if (this == null || this.isJsonNull) default else try { this.asBoolean } catch (_: Exception) { default }
+    if (this == null || this.isNull) default else try { this.booleanValue } catch (_: Exception) { default }
 
 private fun JsonElement?.safeArray(): JsonArray =
-    if (this == null || this.isJsonNull || !this.isJsonArray) JsonArray() else this.asJsonArray
+    if (this == null || this.isNull || !this.isArray) JsonArray(emptyList()) else this.jsonArray
 
 private fun JsonElement?.safeObject(): JsonObject? =
-    if (this == null || this.isJsonNull || !this.isJsonObject) null else this.asJsonObject
+    if (this == null || this.isNull || !this.isObject) null else this.jsonObject
 
 /**
  * 把列表级的字段并进详情：只补详情缺的，不覆盖详情已有的。
@@ -114,10 +127,10 @@ class LmsApi(private val site: SiteSession) {
      */
     suspend fun getMyCourses(): List<LmsCourseSummary> {
         val data = postJson("$baseUrl/api/my-courses")
-        val courses = data?.getAsJsonArray("courses") ?: return emptyList()
+        val courses = data?.arr("courses") ?: return emptyList()
         return courses.mapNotNull { elem ->
             try {
-                val obj = elem.asJsonObject
+                val obj = elem.jsonObject
                 extractCourseSummary(obj)
             } catch (e: Exception) {
                 Log.w(TAG, "getMyCourses: skip bad course", e)
@@ -135,17 +148,17 @@ class LmsApi(private val site: SiteSession) {
             Log.w(TAG, "getCourseActivities($courseId): 响应为空或非 JSON 对象")
             return emptyList()
         }
-        val activities = data.getAsJsonArray("activities")
+        val activities = data.arr("activities")
         if (activities == null) {
             // 首页统计发现某些课程恒返回 0 条活动，这里把顶层键打出来，
             // 便于确认是响应结构变了（不再是 {activities:[...]}）还是课程本身没内容。
-            Log.w(TAG, "getCourseActivities($courseId): 无 activities 键，顶层键=${data.keySet()}")
+            Log.w(TAG, "getCourseActivities($courseId): 无 activities 键，顶层键=${data.keys}")
             return emptyList()
         }
-        Log.d(TAG, "getCourseActivities($courseId): ${activities.size()} 条")
+        Log.d(TAG, "getCourseActivities($courseId): ${activities.size} 条")
         return activities.mapNotNull { elem ->
             try {
-                val obj = elem.asJsonObject
+                val obj = elem.jsonObject
                 extractActivityBrief(obj)
             } catch (e: Exception) {
                 Log.w(TAG, "getCourseActivities: skip bad activity", e)
@@ -188,7 +201,7 @@ class LmsApi(private val site: SiteSession) {
         return try {
             val data = getJson("$baseUrl/api/submissions/${sub.id}/marked_attachments") ?: return sub
             val rules = data.get("rules").safeArray()
-            if (rules.isEmpty) return sub
+            if (rules.isEmpty()) return sub
             val nameToUrl = mutableMapOf<String, String>()
             for (rule in rules) {
                 val r = rule.safeObject() ?: continue
@@ -430,7 +443,7 @@ class LmsApi(private val site: SiteSession) {
         }
 
         var videosArray = data.get("lesson_videos").safeArray()
-        if (videosArray.size() == 0) {
+        if (videosArray.size == 0) {
             // 尝试嵌套结构
             data.get("data").safeObject()?.let { inner ->
                 videosArray = inner.get("lesson_videos").safeArray()
@@ -439,7 +452,7 @@ class LmsApi(private val site: SiteSession) {
 
         val videos = videosArray.mapNotNull { elem ->
             try {
-                val obj = elem.asJsonObject
+                val obj = elem.jsonObject
                 LmsReplayVideo(
                     id = obj.get("id").safeInt(),
                     label = obj.get("label").safeString() ?: "",
@@ -512,7 +525,7 @@ class LmsApi(private val site: SiteSession) {
             courseId = obj.get("course_id").safeInt(),
             type = LmsActivityType.fromString(obj.get("type").safeString() ?: ""),
             title = obj.get("title").safeString() ?: "",
-            moduleId = obj.get("module_id")?.let { if (it.isJsonNull) null else it.safeInt() },
+            moduleId = obj.get("module_id")?.let { if (it.isNull) null else it.safeInt() },
             startTime = obj.get("start_time").safeString(),
             visibleStartAt = obj.get("visible_start_at").safeString(),
             endTime = obj.get("end_time").safeString(),
@@ -552,7 +565,7 @@ class LmsApi(private val site: SiteSession) {
         val activityId = obj.get("id").safeInt()
         val courseId = obj.get("course_id").safeInt()
         val uploads = obj.get("uploads").safeArray().mapNotNull { elem ->
-            try { extractUpload(elem.asJsonObject).copy(activityId = activityId, courseId = courseId) } catch (_: Exception) { null }
+            try { extractUpload(elem.jsonObject).copy(activityId = activityId, courseId = courseId) } catch (_: Exception) { null }
         }
 
         // 正文：作业/课件在 description，页面型在 content（见 lmsActivityBody）
@@ -564,7 +577,7 @@ class LmsApi(private val site: SiteSession) {
             type = type,
             title = obj.get("title").safeString() ?: "",
             description = body,
-            moduleId = obj.get("module_id")?.let { if (it.isJsonNull) null else it.safeInt() },
+            moduleId = obj.get("module_id")?.let { if (it.isNull) null else it.safeInt() },
             startTime = obj.get("start_time").safeString(),
             visibleStartAt = obj.get("visible_start_at").safeString(),
             endTime = obj.get("end_time").safeString(),
@@ -578,15 +591,15 @@ class LmsApi(private val site: SiteSession) {
         return when (type) {
             LmsActivityType.HOMEWORK -> common.copy(
                 submitByGroup = obj.get("submit_by_group").safeBoolean(),
-                groupId = obj.get("group_id")?.let { if (it.isJsonNull) null else it.safeInt() },
+                groupId = obj.get("group_id")?.let { if (it.isNull) null else it.safeInt() },
                 groupSetName = obj.get("group_set_name").safeString(),
                 userSubmitCount = obj.get("user_submit_count").safeInt(),
-                averageScore = obj.get("average_score")?.let { if (it.isJsonNull) null else it.asDouble },
-                highestScore = obj.get("highest_score")?.let { if (it.isJsonNull) null else it.asDouble },
-                lowestScore = obj.get("lowest_score")?.let { if (it.isJsonNull) null else it.asDouble },
-                hasScoreCount = obj.get("has_score_count")?.let { if (it.isJsonNull) null else it.safeInt() },
+                averageScore = obj.get("average_score")?.let { if (it.isNull) null else it.doubleValue },
+                highestScore = obj.get("highest_score")?.let { if (it.isNull) null else it.doubleValue },
+                lowestScore = obj.get("lowest_score")?.let { if (it.isNull) null else it.doubleValue },
+                hasScoreCount = obj.get("has_score_count")?.let { if (it.isNull) null else it.safeInt() },
                 // deadline 不在这里读：详情接口不返回它，由 mergeBrief 从列表并进来（见 LmsModels）
-                submitTimes = dataObj?.get("submit_times")?.let { if (it.isJsonNull) null else it.safeInt() },
+                submitTimes = dataObj?.get("submit_times")?.let { if (it.isNull) null else it.safeInt() },
                 nonSubmitTimes = obj.get("non_submit_times").safeBoolean(),
             )
 
@@ -643,7 +656,7 @@ class LmsApi(private val site: SiteSession) {
                 // 解析 HLS 直播流（多机位）
                 val streams = external?.get("streams").safeArray()?.mapNotNull { elem ->
                     try {
-                        val s = elem.asJsonObject
+                        val s = elem.jsonObject
                         LmsLiveStream(
                             label = s.get("label").safeString() ?: "",
                             src = s.get("src").safeString()
@@ -661,7 +674,7 @@ class LmsApi(private val site: SiteSession) {
                 val replayVideosArr = external?.get("replay_videos").safeArray()
                 val liveReplayVideos = replayVideosArr?.mapNotNull { elem ->
                     try {
-                        val v = elem.asJsonObject
+                        val v = elem.jsonObject
                         LmsReplayVideo(
                             id = v.get("id").safeInt(),
                             label = v.get("label").safeString()
@@ -683,7 +696,7 @@ class LmsApi(private val site: SiteSession) {
 
                 // 如果有 replay_id 且 replay_videos 为空，尝试通过 RMS 获取回放
                 val replayId = external?.get("replay_id")?.let {
-                    if (it.isJsonNull) null
+                    if (it.isNull) null
                     else it.safeString()?.takeIf { s -> s.isNotEmpty() }
                         ?: it.safeInt().takeIf { i -> i > 0 }?.toString()
                 }
@@ -717,14 +730,14 @@ class LmsApi(private val site: SiteSession) {
     private fun extractSubmissionList(data: JsonObject): LmsSubmissionListResponse {
         val items = data.get("list").safeArray().mapNotNull { elem ->
             try {
-                val obj = elem.asJsonObject
+                val obj = elem.jsonObject
                 val uploads = obj.get("uploads").safeArray().mapNotNull { u ->
-                    try { extractUpload(u.asJsonObject) } catch (_: Exception) { null }
+                    try { extractUpload(u.jsonObject) } catch (_: Exception) { null }
                 }
                 val createdBy = obj.get("created_by").safeObject()
                 val sc = obj.get("submission_correct").safeObject()
                 val scUploads = sc?.get("uploads").safeArray()?.mapNotNull { u ->
-                    try { extractUpload(u.asJsonObject) } catch (_: Exception) { null }
+                    try { extractUpload(u.jsonObject) } catch (_: Exception) { null }
                 } ?: emptyList()
 
                 LmsSubmissionItem(
@@ -771,7 +784,7 @@ class LmsApi(private val site: SiteSession) {
         }
 
         val topUploads = data.get("uploads").safeArray().mapNotNull { u ->
-            try { extractUpload(u.asJsonObject) } catch (_: Exception) { null }
+            try { extractUpload(u.jsonObject) } catch (_: Exception) { null }
         }
 
         return LmsSubmissionListResponse(list = items, uploads = topUploads)

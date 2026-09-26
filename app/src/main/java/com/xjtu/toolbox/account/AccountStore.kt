@@ -1,11 +1,12 @@
 package com.xjtu.toolbox.account
 
+import kotlinx.serialization.json.decodeFromJsonElement
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
-import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
 import com.xjtu.toolbox.data.SecurePrefs
+import com.xjtu.toolbox.util.AppJson
+import kotlinx.serialization.json.jsonArray
 
 /**
  * 多账号持久化存储。
@@ -23,18 +24,9 @@ class AccountStore(context: Context) {
 
     private val prefs: SharedPreferences by lazy { SecurePrefs.open(appContext, FILE_NAME) }
 
-    private val gson = Gson()
-
-    /** 全部账号，按 lastUsedAt 降序。 */
+    /** 全部账号。 */
     @Synchronized
-    fun list(): List<Account> {
-        val raw = prefs.getString(KEY_ACCOUNTS, null) ?: return emptyList()
-        return runCatching {
-            val type = object : TypeToken<List<Account>>() {}.type
-            (gson.fromJson<List<Account?>>(raw, type) ?: emptyList()).mapNotNull { it?.sanitized() }
-        }.onFailure { Log.w(TAG, "list: parse failed", it) }
-            .getOrDefault(emptyList())
-    }
+    fun list(): List<Account> = decodeAccounts(prefs.getString(KEY_ACCOUNTS, null) ?: return emptyList())
 
     @Synchronized
     fun get(accountId: String): Account? = list().firstOrNull { it.accountId == accountId }
@@ -93,10 +85,18 @@ class AccountStore(context: Context) {
 
     @Synchronized
     private fun writeAccounts(list: List<Account>) {
-        prefs.edit().putString(KEY_ACCOUNTS, gson.toJson(list)).apply()
+        prefs.edit().putString(KEY_ACCOUNTS, AppJson.encodeToString(list)).apply()
     }
 
     companion object {
+        /** 逐条解码：某一条坏了只丢那一条，缺学号的条目没法用也丢掉。 */
+        internal fun decodeAccounts(raw: String): List<Account> =
+            runCatching { AppJson.parseToJsonElement(raw).jsonArray }
+                .onFailure { Log.w(TAG, "list: parse failed", it) }
+                .getOrNull().orEmpty()
+                .mapNotNull { el -> runCatching { AppJson.decodeFromJsonElement<Account>(el) }.getOrNull() }
+                .filter { it.accountId.isNotBlank() }
+
         private const val TAG = "AccountStore"
         internal const val FILE_NAME = "xjtu_accounts"
         private const val KEY_ACCOUNTS = "accounts"

@@ -1,12 +1,18 @@
 package com.xjtu.toolbox.agent
 
+import kotlinx.serialization.json.jsonObject
+import com.xjtu.toolbox.util.safeDoubleOrNull
+import com.xjtu.toolbox.util.safeStringOrNull
+import com.xjtu.toolbox.util.AppJson
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.buildJsonObject
 import com.xjtu.toolbox.network.HttpClients
 import android.content.Intent
 import android.provider.AlarmClock
 import android.content.Context
-import com.google.gson.Gson
-import com.google.gson.JsonArray
-import com.google.gson.JsonObject
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.auth.AppLoginState
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.LoginType
@@ -89,7 +95,6 @@ class AgentToolRegistry(
     private val context: Context,
     private val defaultSearchEngine: String = AgentConfig.SEARCH_AUTO
 ) {
-    private val gson = Gson()
 
     /**
      * 限流分组键：同一个后端系统的两次调用之间要隔开一点，别连着猛打学校服务器。
@@ -133,6 +138,7 @@ class AgentToolRegistry(
     fun drainWidgets(): List<AgentWidget> = pendingWidgets.toList().also { pendingWidgets.clear() }
 
     /** 一网通办拉到的身份。姓名、学院都是死数据，记下来免得为它反复联网。 */
+    @kotlinx.serialization.Serializable
     private data class YwtbIdentity(val name: String = "", val college: String = "")
 
     /** 见 [YwtbIdentity]。缓存目录本身按账号隔离，键不必再带账号。 */
@@ -163,11 +169,9 @@ class AgentToolRegistry(
         // 一网通办那一趟是这里唯一的网络开销，所以单独把结果记下来：姓名和学院是死数据，
         // 记住了就不必再为它联网。缓存目录本身按账号隔离，不会串到别的账号。
         if (name.isNullOrBlank() || college.isNullOrBlank()) {
-            dataCache.get(YWTB_IDENTITY_KEY, com.xjtu.toolbox.data.DataCache.TERM_TTL_MS)?.let { json ->
-                runCatching { gson.fromJson(json, YwtbIdentity::class.java) }.getOrNull()?.let { id ->
-                    if (name.isNullOrBlank()) name = id.name.takeIf { it.isNotBlank() }
-                    if (college.isNullOrBlank()) college = id.college.takeIf { it.isNotBlank() }
-                }
+            dataCache.read<YwtbIdentity>(YWTB_IDENTITY_KEY, com.xjtu.toolbox.data.DataCache.TERM_TTL_MS)?.let { id ->
+                if (name.isNullOrBlank()) name = id.name.takeIf { it.isNotBlank() }
+                if (college.isNullOrBlank()) college = id.college.takeIf { it.isNotBlank() }
             }
         }
         if (allowNetwork && (name.isNullOrBlank() || college.isNullOrBlank())) {
@@ -178,12 +182,7 @@ class AgentToolRegistry(
                     val fetchedName = name.orEmpty()
                     val fetchedCollege = college.orEmpty()
                     if (fetchedName.isNotBlank() || fetchedCollege.isNotBlank()) {
-                        runCatching {
-                            dataCache.put(
-                                YWTB_IDENTITY_KEY,
-                                gson.toJson(YwtbIdentity(fetchedName, fetchedCollege)),
-                            )
-                        }
+                        runCatching { dataCache.write(YWTB_IDENTITY_KEY, YwtbIdentity(fetchedName, fetchedCollege)) }
                     }
                 }
             }
@@ -388,12 +387,12 @@ class AgentToolRegistry(
     }
 
     // OpenAI function calling 格式的工具描述。
-    // 用 Gson 构建（自动转义），避免手写 JSON 在 description 里出现引号导致整串被截断。
+    // 用 JSON 构建器生成（自动转义），description 里有引号也不会截断整串。
     // 新增/修改工具：只需在 buildToolDefinitions() 里加一行 tool(...)。
     val toolDefinitions: String = buildToolDefinitions()
 
     private fun buildToolDefinitions(): String {
-        val arr = JsonArray()
+        val arr = mutableListOf<JsonObject>()
         // 描述只写「返回什么、参数怎么填、前置条件」。何时该调、怎么答由系统提示和模型自己定，
         // 不在这里举例、劝说或解释。
         arr.add(tool("get_calendar",
@@ -554,158 +553,161 @@ class AgentToolRegistry(
         arr.add(tool("calculate",
             "计算表达式：+ - * / ^ 与括号。",
             params("expression" to strProp("如 (3.7*4+4.0*3)/(4+3)。"))))
-        return arr.toString()
+        return JsonArray(arr).toString()
     }
 
     /** 构造单个 function-calling 工具对象。params 省略时为无参。 */
     private fun tool(name: String, description: String, params: JsonObject = emptyParams()): JsonObject =
-        JsonObject().apply {
-            addProperty("type", "function")
-            add("function", JsonObject().apply {
-                addProperty("name", name)
-                addProperty("description", description)
-                add("parameters", params)
+        buildJsonObject {
+            put("type", "function")
+            put("function", buildJsonObject {
+                put("name", name)
+                put("description", description)
+                put("parameters", params)
             })
         }
 
-    private fun emptyParams(): JsonObject = JsonObject().apply {
-        addProperty("type", "object")
-        add("properties", JsonObject())
-        add("required", JsonArray())
+    private fun emptyParams(): JsonObject = buildJsonObject {
+        put("type", "object")
+        put("properties", JsonObject(emptyMap()))
+        put("required", JsonArray(emptyList()))
     }
 
-    private fun params(vararg props: Pair<String, JsonObject>): JsonObject = JsonObject().apply {
-        addProperty("type", "object")
-        add("properties", JsonObject().apply { props.forEach { (k, v) -> add(k, v) } })
-        add("required", JsonArray())
+    private fun params(vararg props: Pair<String, JsonObject>): JsonObject = buildJsonObject {
+        put("type", "object")
+        put("properties", buildJsonObject { props.forEach { (k, v) -> put(k, v) } })
+        put("required", JsonArray(emptyList()))
     }
 
     private fun strProp(description: String): JsonObject = propOf("string", description)
     private fun intProp(description: String): JsonObject = propOf("integer", description)
     private fun boolProp(description: String): JsonObject = propOf("boolean", description)
-    private fun propOf(type: String, description: String): JsonObject = JsonObject().apply {
-        addProperty("type", type)
-        addProperty("description", description)
+    private fun propOf(type: String, description: String): JsonObject = buildJsonObject {
+        put("type", type)
+        put("description", description)
     }
+
+    // 工具参数：模型偶尔把数字写成字符串，按内容解析
+    private fun JsonObject.str(key: String): String? = this[key].safeStringOrNull()
+    private fun JsonObject.int(key: String): Int? = this[key].safeStringOrNull()?.let { it.toIntOrNull() ?: it.toDoubleOrNull()?.toInt() }
+    private fun JsonObject.double(key: String): Double? = this[key].safeDoubleOrNull()
+    private fun JsonObject.bool(key: String): Boolean? = this[key].safeStringOrNull()?.let { it.equals("true", ignoreCase = true) }
 
     suspend fun execute(name: String, argsJson: String): String = withContext(Dispatchers.IO) {
 
-        val args = runCatching {
-            @Suppress("UNCHECKED_CAST")
-            gson.fromJson(argsJson, Map::class.java) as Map<String, Any>
-        }.getOrDefault(emptyMap())
+        val args = runCatching { AppJson.parseToJsonElement(argsJson).jsonObject }.getOrDefault(JsonObject(emptyMap()))
 
         val widgetsBefore = pendingWidgets.size
         val result = when (name) {
             // 当前时间、节次、教学周和校历本是同一件事，合成一个工具
-            "get_calendar" -> getCurrentTime() + "\n\n" + getSchoolCalendar(args["term"] as? String)
-            "get_schedule" -> getSchedule(args["date"] as? String, args["term"] as? String)
+            "get_calendar" -> getCurrentTime() + "\n\n" + getSchoolCalendar(args.str("term"))
+            "get_schedule" -> getSchedule(args.str("date"), args.str("term"))
             "get_exam_schedule" -> getExamSchedule()
             "search_school_courses" -> searchSchoolCourses(
-                courseName = args["course_name"] as? String,
-                teacher = args["teacher"] as? String,
-                courseCode = args["course_code"] as? String,
-                className = args["class_name"] as? String,
-                department = args["department"] as? String,
-                campus = args["campus"] as? String,
-                term = args["term"] as? String,
-                weekday = (args["weekday"] as? Double)?.toInt(),
-                section = (args["section"] as? Double)?.toInt(),
-                startSection = (args["start_section"] as? Double)?.toInt(),
-                endSection = (args["end_section"] as? Double)?.toInt(),
-                publicElective = args["public_elective"] as? Boolean,
-                electiveCategory = args["elective_category"] as? String,
-                limit = (args["limit"] as? Double)?.toInt() ?: 10
+                courseName = args.str("course_name"),
+                teacher = args.str("teacher"),
+                courseCode = args.str("course_code"),
+                className = args.str("class_name"),
+                department = args.str("department"),
+                campus = args.str("campus"),
+                term = args.str("term"),
+                weekday = args.int("weekday"),
+                section = args.int("section"),
+                startSection = args.int("start_section"),
+                endSection = args.int("end_section"),
+                publicElective = args.bool("public_elective"),
+                electiveCategory = args.str("elective_category"),
+                limit = args.int("limit") ?: 10
             )
             "get_empty_rooms" -> getEmptyRooms(
-                campus = args["campus"] as? String,
-                building = args["building"] as? String,
-                section = (args["section"] as? Double)?.toInt(),
-                date = args["date"] as? String
+                campus = args.str("campus"),
+                building = args.str("building"),
+                section = args.int("section"),
+                date = args.str("date")
             )  // suspend: parallel per-building fetches inside
             "get_attendance" -> getAttendance(
-                limit = (args["limit"] as? Double)?.toInt() ?: 20
+                limit = args.int("limit") ?: 20
             )
-            "get_grades" -> getGrades(args["term"] as? String)
-            "get_card_info" -> getCardInfo((args["days"] as? Double)?.toInt())
+            "get_grades" -> getGrades(args.str("term"))
+            "get_card_info" -> getCardInfo(args.int("days"))
             "get_notifications" -> getNotifications(
-                args["source"] as? String,
-                (args["limit"] as? Double)?.toInt() ?: 10,
-                (args["keyword"] as? String)?.trim()?.takeIf { it.isNotEmpty() },
+                args.str("source"),
+                args.int("limit") ?: 10,
+                (args.str("keyword"))?.trim()?.takeIf { it.isNotEmpty() },
             )
             "search_yellow_page" -> searchYellowPage(
-                query = args["query"] as? String,
-                category = args["category"] as? String,
-                limit = (args["limit"] as? Double)?.toInt() ?: 10
+                query = args.str("query"),
+                category = args.str("category"),
+                limit = args.int("limit") ?: 10
             )
             // 给 value 是记下，不给是删掉
             "preference" -> {
-                val key = args["key"] as? String ?: ""
-                val value = (args["value"] as? String).orEmpty()
+                val key = args.str("key") ?: ""
+                val value = (args.str("value")).orEmpty()
                 if (value.isBlank()) AgentMemory.forget(context, key)
                 else AgentMemory.remember(context, key, value)
             }
             "find_faculty" -> findFaculty(
-                name = args["name"] as? String ?: "",
-                college = args["college"] as? String,
-                limit = (args["limit"] as? Double)?.toInt() ?: 3
+                name = args.str("name") ?: "",
+                college = args.str("college"),
+                limit = args.int("limit") ?: 3
             )
             "web_search" -> webSearch(
-                query = args["query"] as? String ?: "",
-                limit = (args["limit"] as? Double)?.toInt() ?: 8,
-                engine = args["engine"] as? String
+                query = args.str("query") ?: "",
+                limit = args.int("limit") ?: 8,
+                engine = args.str("engine")
             )
-            "web_fetch" -> webFetch(args["url"] as? String ?: "")
+            "web_fetch" -> webFetch(args.str("url") ?: "")
             "set_alarm" -> setAlarm(
-                hour = (args["hour"] as? Double)?.toInt(),
-                minute = (args["minute"] as? Double)?.toInt(),
-                message = args["message"] as? String,
-                days = args["days"] as? String
+                hour = args.int("hour"),
+                minute = args.int("minute"),
+                message = args.str("message"),
+                days = args.str("days")
             )
             "add_schedule_event" -> addScheduleEvent(
-                title = args["title"] as? String,
-                date = args["date"] as? String,
-                start = args["start"] as? String,
-                end = args["end"] as? String,
-                location = args["location"] as? String,
-                note = args["note"] as? String,
-                weeks = args["weeks"] as? String,
-                force = args["force"] as? Boolean ?: false,
+                title = args.str("title"),
+                date = args.str("date"),
+                start = args.str("start"),
+                end = args.str("end"),
+                location = args.str("location"),
+                note = args.str("note"),
+                weeks = args.str("weeks"),
+                force = args.bool("force") ?: false,
             )
             // 给关键词就检索，不给就按目录浏览
             "list_zyxf" -> {
-                val keyword = (args["keyword"] as? String).orEmpty()
+                val keyword = (args.str("keyword")).orEmpty()
                 if (keyword.isNotBlank()) searchZyxf(keyword)
-                else browseZyxf((args["folder_id"] as? Double)?.toInt() ?: 0)
+                else browseZyxf(args.int("folder_id") ?: 0)
             }
-            "read_zyxf_file" -> readZyxfFile((args["file_id"] as? Double)?.toInt() ?: 0)
+            "read_zyxf_file" -> readZyxfFile(args.int("file_id") ?: 0)
             // 我的预约和区域空座一次给全
             "get_library" -> getLibraryBooking() + "\n\n" +
-                getLibrarySeats(args["campus"] as? String, args["area"] as? String)
-            "get_textbooks" -> getTextbooks(args["course"] as? String, args["term"] as? String)
-            "get_coupons" -> getCoupons(args["status"] as? String)
+                getLibrarySeats(args.str("campus"), args.str("area"))
+            "get_textbooks" -> getTextbooks(args.str("course"), args.str("term"))
+            "get_coupons" -> getCoupons(args.str("status"))
             "get_lms" -> {
-                val course = (args["course"] as? String).orEmpty()
+                val course = (args.str("course")).orEmpty()
                 when {
-                    args["scope"] == "assignments" -> getLmsAssignments()
+                    args.str("scope") == "assignments" -> getLmsAssignments()
                     course.isBlank() -> getLmsCourses()
                     else -> getLmsActivities(course)
                 }
             }
             "get_lms_activity" -> {
-                val file = (args["file"] as? String).orEmpty()
-                if (file.isNotBlank()) readLmsAttachment(args["course"] as? String, args["activity"] as? String, file)
-                else getLmsActivityDetail(args["course"] as? String, args["activity"] as? String)
+                val file = (args.str("file")).orEmpty()
+                if (file.isNotBlank()) readLmsAttachment(args.str("course"), args.str("activity"), file)
+                else getLmsActivityDetail(args.str("course"), args.str("activity"))
             }
-            "get_fitness_score" -> getFitnessScore(args["year"] as? String)
+            "get_fitness_score" -> getFitnessScore(args.str("year"))
             // 给了 key 和 value 是改，否则列出全部设置
             "app_setting" -> {
-                val key = (args["key"] as? String).orEmpty()
-                val value = (args["value"] as? String).orEmpty()
+                val key = (args.str("key")).orEmpty()
+                val value = (args.str("value")).orEmpty()
                 if (key.isBlank() || value.isBlank()) getAppSettings() else setAppSetting(key, value)
             }
-            "calculate" -> calculate(args["expression"] as? String ?: "")
-            "app_guide" -> when ((args["topic"] as? String)?.trim()?.lowercase()) {
+            "calculate" -> calculate(args.str("expression") ?: "")
+            "app_guide" -> when ((args.str("topic"))?.trim()?.lowercase()) {
                 "app" -> APP_GUIDE
                 "campus", "xingqing" -> XINGQING_GUIDE
                 else -> APP_GUIDE + "\n\n" + XINGQING_GUIDE
@@ -810,13 +812,12 @@ class AgentToolRegistry(
             com.xjtu.toolbox.schedule.ScheduleTermStore.officialName(
                 code,
                 live = emptyMap(),
-                disk = com.xjtu.toolbox.schedule.ScheduleTermStore.read(dataCache, gson),
+                disk = com.xjtu.toolbox.schedule.ScheduleTermStore.read(dataCache),
             )
         }
         val weekInfo = termCode?.let {
-            val startStr = cachedStartDate(it)
-            val startDate = startStr?.let { s -> runCatching { LocalDate.parse(s) }.getOrNull() }
-            startDate?.let { sd ->
+            cachedStartDate(it)?.let { sd ->
+                val startStr = sd.toString()
                 val daysSince = java.time.temporal.ChronoUnit.DAYS.between(sd, today).toInt()
                 val w = com.xjtu.toolbox.schedule.TermWeeks.weekOf(sd, today)
                 // 含起始日与已过天数，便于推算"整学期"区间（如校园卡整学期账单天数）
@@ -849,11 +850,9 @@ class AgentToolRegistry(
      * 以前取学期列表的第一个：教务把下学期挂出来以后它就排在最前，屁岱的日程写进了
      * 日程页压根不显示的学期。
      */
-    private fun cachedTermCode(): String? = ScheduleCache.readCurrentTerm(dataCache, gson)
+    private fun cachedTermCode(): String? = ScheduleCache.readCurrentTerm(dataCache)
 
-    private fun cachedStartDate(term: String): String? = runCatching {
-        gson.fromJson(dataCache.get("start_date_$term", com.xjtu.toolbox.data.DataCache.TERM_TTL_MS), String::class.java)
-    }.getOrNull()
+    private fun cachedStartDate(term: String): LocalDate? = ScheduleCache.readStartDate(dataCache, term)
 
     private suspend fun getSchoolCalendar(term: String?): String {
         return try {
@@ -1030,9 +1029,7 @@ class AgentToolRegistry(
      */
     private suspend fun ensureScheduleLoaded(targetTerm: String? = null): String? {
         val term0 = targetTerm?.takeIf { it.isNotBlank() } ?: cachedTermCode()
-        val coursesCached = term0 != null && (
-            ScheduleCache.readOptimizedCourses(dataCache, gson, term0)
-                ?: ScheduleCache.readRawCourses(dataCache, gson, term0)) != null
+        val coursesCached = term0 != null && ScheduleCache.readCourses(dataCache, term0) != null
         if (coursesCached && cachedStartDate(term0) != null) return null
 
         val site = ensureSite(LoginType.JWXT)
@@ -1040,18 +1037,15 @@ class AgentToolRegistry(
         return try {
             val api = ScheduleApi(site)
             val term = term0 ?: api.getCurrentTerm()
-            if (term0 == null) ScheduleCache.writeCurrentTerm(dataCache, gson, term)
-            if (dataCache.get("schedule_term_list", Long.MAX_VALUE) == null) {
-                dataCache.put("schedule_term_list", gson.toJson(listOf(term)))
-            }
+            if (term0 == null) ScheduleCache.writeCurrentTerm(dataCache, term)
+            if (ScheduleCache.readTermList(dataCache).isEmpty()) ScheduleCache.writeTermList(dataCache, listOf(term))
             runCatching {
-                if (com.xjtu.toolbox.schedule.ScheduleTermStore.read(dataCache, gson).isEmpty()) {
+                if (com.xjtu.toolbox.schedule.ScheduleTermStore.read(dataCache).isEmpty()) {
                     api.getTermList()
                 }
-                com.xjtu.toolbox.schedule.ScheduleTermStore.merge(dataCache, gson, api.termNames())
+                com.xjtu.toolbox.schedule.ScheduleTermStore.merge(dataCache, api.termNames())
             }
-            if ((ScheduleCache.readOptimizedCourses(dataCache, gson, term)
-                    ?: ScheduleCache.readRawCourses(dataCache, gson, term)) == null) {
+            if (ScheduleCache.readCourses(dataCache, term) == null) {
                 val fresh = com.xjtu.toolbox.schedule.ScheduleSourceRouter.getSchedule(
                     context = context,
                     jwxt = api,
@@ -1059,10 +1053,10 @@ class AgentToolRegistry(
                     manager = loginState.sessionManager,
                     accountType = loginState.accountType,
                 )
-                ScheduleCache.writeOptimizedCourses(dataCache, gson, term, fresh)
+                ScheduleCache.writeOptimizedCourses(dataCache, term, fresh)
             }
             if (cachedStartDate(term) == null) {
-                dataCache.put("start_date_$term", gson.toJson(api.getStartOfTerm(term).toString()))
+                ScheduleCache.writeStartDate(dataCache, term, api.getStartOfTerm(term))
             }
             null
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
@@ -1081,8 +1075,7 @@ class AgentToolRegistry(
         val termCode = requested ?: currentTerm
         val isHistorical = termCode != currentTerm
 
-        val cachedCourses = ScheduleCache.readOptimizedCourses(dataCache, gson, termCode)
-            ?: ScheduleCache.readRawCourses(dataCache, gson, termCode)
+        val cachedCourses = ScheduleCache.readCourses(dataCache, termCode)
             ?: return ToolReply.failed("get_schedule", "bad_cache")
         // 合并该学期用户手动添加的日程（历史学期同样按该学期读取）
         val customCourses = runCatching {
@@ -1112,7 +1105,7 @@ class AgentToolRegistry(
         }
 
         val startDate = runCatching {
-            cachedStartDate(termCode)?.let { LocalDate.parse(it) }
+            cachedStartDate(termCode)
         }.getOrNull() ?: return ToolReply.failed("get_schedule", "no_term_start_date")
 
         // 法定假日：课表照排，但那天停课。数据源只有放假日，没有调休补课日，所以只标停课
@@ -1496,9 +1489,7 @@ class AgentToolRegistry(
         val college = listOfNotNull(
             profile?.departmentName,
             runCatching { com.xjtu.toolbox.card.CampusCardCache.load(context)?.cardInfo?.department }.getOrNull(),
-            dataCache.get(YWTB_IDENTITY_KEY, com.xjtu.toolbox.data.DataCache.TERM_TTL_MS)?.let { json ->
-                runCatching { gson.fromJson(json, YwtbIdentity::class.java)?.college }.getOrNull()
-            },
+            dataCache.read<YwtbIdentity>(YWTB_IDENTITY_KEY, com.xjtu.toolbox.data.DataCache.TERM_TTL_MS)?.college,
         ).firstNotNullOfOrNull { src.forOrg(it) }
         val academy = if (postgrad) null else src.forOrg(profile?.academyName)
         val gs = com.xjtu.toolbox.notification.NotificationSource.GS
@@ -2196,17 +2187,17 @@ class AgentToolRegistry(
         return try {
             val api = ScheduleApi(site)
             val termCode = requestedTerm ?: api.getCurrentTerm()
-            runCatching { com.xjtu.toolbox.schedule.ScheduleTermStore.merge(dataCache, gson, api.termNames()) }
+            runCatching { com.xjtu.toolbox.schedule.ScheduleTermStore.merge(dataCache, api.termNames()) }
             val studentId = loginState.activeUsername
             if (studentId.isBlank()) return ToolReply.failed("lookup", "no_student_id")
             val books = api.getTextbooks(studentId, termCode)
-            ScheduleCache.writeTextbooks(dataCache, gson, termCode, books)
+            ScheduleCache.writeTextbooks(dataCache, termCode, books)
             formatTextbooks(termCode, books, cached = false)
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
             throw e
         } catch (e: Exception) {
             if (cacheTermForFallback.isNotBlank()) {
-                ScheduleCache.readTextbooks(dataCache, gson, cacheTermForFallback)
+                ScheduleCache.readTextbooks(dataCache, cacheTermForFallback)
                     ?.let { return formatTextbooks(cacheTermForFallback, it, cached = true) }
             }
             ToolReply.failed("get_textbooks", e.message)
@@ -2665,7 +2656,7 @@ class AgentToolRegistry(
 
         ensureScheduleLoaded(null)?.let { return it }
         val termCode = cachedTermCode() ?: return ToolReply.failed("add_schedule_event", "no_term_code")
-        val termStart = cachedStartDate(termCode)?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+        val termStart = cachedStartDate(termCode)
             ?: return ToolReply.failed("add_schedule_event", "no_term_start_date")
         val maxWeeks = 20
         val week = com.xjtu.toolbox.schedule.TermWeeks.weekOf(termStart, day)
@@ -2708,9 +2699,7 @@ class AgentToolRegistry(
             }
         // 正式课按真实上课时刻比：节次换算成钟点，夏季 / 冬季作息按 date 所在月份
         val summer = XjtuTime.isSummerTime(day.monthValue)
-        val official = ScheduleCache.readOptimizedCourses(dataCache, gson, termCode)
-            ?: ScheduleCache.readRawCourses(dataCache, gson, termCode)
-            ?: emptyList()
+        val official = ScheduleCache.readCourses(dataCache, termCode).orEmpty()
         official.filter { it.dayOfWeek == entity.dayOfWeek }.forEach { c ->
             val cStart = c.startMinuteOfDay.takeIf { it >= 0 }
                 ?: XjtuTime.getClassTime(c.startSection, summer)?.start?.let { it.hour * 60 + it.minute } ?: return@forEach

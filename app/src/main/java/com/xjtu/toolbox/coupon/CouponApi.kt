@@ -1,7 +1,8 @@
 package com.xjtu.toolbox.coupon
 
-import com.google.gson.JsonElement
-import com.google.gson.JsonObject
+import com.xjtu.toolbox.util.intValue
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.auth.AuthExpiredException
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeGet
@@ -96,7 +97,7 @@ class CouponApi(private val site: SiteSession) {
 }
 
 private fun JsonElement.asIntOrNull(): Int? = try {
-    asInt
+    intValue
 } catch (_: Exception) {
     null
 }

@@ -1,9 +1,20 @@
 package com.xjtu.toolbox.attendance
 
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.buildJsonObject
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.intValue
+import com.xjtu.toolbox.util.longValue
+import com.xjtu.toolbox.util.booleanValue
+import com.xjtu.toolbox.util.isNull
+import com.xjtu.toolbox.util.isObject
+import com.xjtu.toolbox.util.isArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.coroutines.delay
 import android.util.Log
-import com.google.gson.JsonElement
-import com.google.gson.JsonObject
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.auth.AuthExpiredException
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
@@ -27,13 +38,13 @@ internal object KqHttp {
                     return@repeat
                 }
                 val json = body.safeParseJsonObject()
-                val apiCode = json.get("code")?.takeIf { !it.isJsonNull }?.let {
-                    try { it.asInt } catch (_: Exception) { null }
+                val apiCode = json.get("code")?.takeIf { !it.isNull }?.let {
+                    try { it.intValue } catch (_: Exception) { null }
                 }
                 // executeWithReAuth 已按站点规则处理过期并重放；这里只兜底 peek 漏掉的 4001。
                 if (apiCode == 4001) throw AuthExpiredException(site.siteName)
                 if (apiCode != null && apiCode != 0) {
-                    val msg = json.get("message")?.takeIf { !it.isJsonNull }?.asString
+                    val msg = json.get("message")?.takeIf { !it.isNull }?.stringValue
                         ?.ifBlank { null } ?: "考勤接口返回 code=$apiCode"
                     throw RuntimeException(msg)
                 }
@@ -73,48 +84,48 @@ internal object KqHttp {
 
     fun first(obj: JsonObject, vararg keys: String): JsonElement? =
         keys.firstNotNullOfOrNull { key ->
-            obj.get(key)?.takeIf { !it.isJsonNull }
+            obj.get(key)?.takeIf { !it.isNull }
         }
 
     fun str(obj: JsonObject, vararg keys: String): String {
         val el = first(obj, *keys) ?: return ""
-        return try { el.asString } catch (_: Exception) { "" }
+        return try { el.stringValue } catch (_: Exception) { "" }
     }
 
     fun int(obj: JsonObject, vararg keys: String): Int {
         val el = first(obj, *keys) ?: return 0
-        return try { el.asInt } catch (_: Exception) {
-            el.asString.trim().toDoubleOrNull()?.toInt() ?: 0
+        return try { el.intValue } catch (_: Exception) {
+            el.stringValue.trim().toDoubleOrNull()?.toInt() ?: 0
         }
     }
 
     fun long(obj: JsonObject, vararg keys: String): Long {
         val el = first(obj, *keys) ?: return 0L
-        return try { el.asLong } catch (_: Exception) {
-            el.asString.trim().toDoubleOrNull()?.toLong() ?: 0L
+        return try { el.longValue } catch (_: Exception) {
+            el.stringValue.trim().toDoubleOrNull()?.toLong() ?: 0L
         }
     }
 
     fun bool(obj: JsonObject, vararg keys: String): Boolean {
         val el = first(obj, *keys) ?: return false
-        return try { el.asBoolean } catch (_: Exception) {
-            el.asString.trim().lowercase() in setOf("1", "true", "yes", "y")
+        return try { el.booleanValue } catch (_: Exception) {
+            el.stringValue.trim().lowercase() in setOf("1", "true", "yes", "y")
         }
     }
 
     fun obj(el: JsonElement?): JsonObject? =
-        if (el != null && !el.isJsonNull && el.isJsonObject) el.asJsonObject else null
+        if (el != null && !el.isNull && el.isObject) el.jsonObject else null
 
     fun rows(el: JsonElement?): List<JsonObject> {
-        if (el == null || el.isJsonNull) return emptyList()
-        if (el.isJsonArray) {
-            return el.asJsonArray.mapNotNull { obj(it) }
+        if (el == null || el.isNull) return emptyList()
+        if (el.isArray) {
+            return el.jsonArray.mapNotNull { obj(it) }
         }
         val o = obj(el) ?: return emptyList()
         for (key in listOf("rows", "records", "list", "items", "content")) {
             val child = o.get(key)
-            if (child != null && child.isJsonArray) {
-                return child.asJsonArray.mapNotNull { obj(it) }
+            if (child != null && child.isArray) {
+                return child.jsonArray.mapNotNull { obj(it) }
             }
         }
         return emptyList()
@@ -123,10 +134,10 @@ internal object KqHttp {
     fun dataObject(root: JsonObject): JsonObject = obj(root.get("data")) ?: root
 
     fun pagePayload(data: JsonObject, pageNum: Int = 1, pageSize: Int = 500): JsonObject =
-        JsonObject().apply {
-            addProperty("pageNum", pageNum.coerceAtLeast(1))
-            addProperty("pageSize", pageSize.coerceIn(1, 500))
-            add("data", data)
+        buildJsonObject {
+            put("pageNum", pageNum.coerceAtLeast(1))
+            put("pageSize", pageSize.coerceIn(1, 500))
+            put("data", data)
         }
 
     /** 分页响应里的 `data.total`，取不到时返回 0（调用方据此判断是否还有下一页）。 */

@@ -1,8 +1,10 @@
 package com.xjtu.toolbox.schedule
 
+import kotlinx.serialization.json.decodeFromJsonElement
 import android.content.Context
 import android.util.Log
-import com.google.gson.Gson
+import com.xjtu.toolbox.util.AppJson
+import kotlinx.serialization.json.jsonArray
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.SessionManager
@@ -135,9 +137,9 @@ object ScheduleSourceRouter {
         val json = context.applicationContext
             .getSharedPreferences(PREFS_CHANGES, Context.MODE_PRIVATE)
             .getString(termCode, null) ?: return emptyList()
-        return runCatching {
-            gson.fromJson(json, Array<ScheduleChangeEvent?>::class.java)?.mapNotNull { it?.sanitized() }
-        }.getOrNull().orEmpty()
+        // 逐条解码：缺了 kind 的条目单独丢掉，不连累整份
+        return runCatching { AppJson.parseToJsonElement(json).jsonArray }.getOrNull().orEmpty()
+            .mapNotNull { runCatching { AppJson.decodeFromJsonElement<ScheduleChangeEvent>(it) }.getOrNull() }
     }
 
     private fun rememberChanges(context: Context, termCode: String, events: List<ScheduleChangeEvent>) {
@@ -146,11 +148,9 @@ object ScheduleSourceRouter {
         if (events.isEmpty()) {
             prefs.edit().remove(termCode).apply()
         } else {
-            prefs.edit().putString(termCode, gson.toJson(events)).apply()
+            prefs.edit().putString(termCode, AppJson.encodeToString(events)).apply()
         }
     }
-
-    private val gson = Gson()
     private const val PREFS_CHANGES = "schedule_changes"
 
     private suspend fun fromJwapp(

@@ -1,7 +1,6 @@
 package com.xjtu.toolbox.lms
 
 import android.content.Context
-import com.google.gson.Gson
 import com.xjtu.toolbox.data.DataCache
 import java.time.Duration
 import java.time.Instant
@@ -13,14 +12,15 @@ import java.time.Instant
  * 缺失退回 `endTime`），与截止提醒通知同一口径。
  * @param submitted `userSubmitCount > 0`。
  */
+@kotlinx.serialization.Serializable
 data class LmsDue(
-    val courseId: Int,
-    val courseName: String,
-    val activityId: Int,
-    val title: String,
-    val deadline: String,
-    val submitted: Boolean,
-    val fetchedAt: Long,
+    val courseId: Int = 0,
+    val courseName: String = "",
+    val activityId: Int = 0,
+    val title: String = "",
+    val deadline: String = "",
+    val submitted: Boolean = false,
+    val fetchedAt: Long = 0L,
 )
 
 /**
@@ -31,7 +31,6 @@ data class LmsDue(
  * `LmsDeadlineWorker.collectDue`），所以按 (courseId, activityId) 合并，不能直接覆盖。
  */
 object LmsDueStore {
-    private val gson = Gson()
     private const val KEY = "lms_due_items"
 
     /** 过期太久的条目没有意义留着——截止时间早于「现在减 1 天」的直接丢掉。 */
@@ -43,17 +42,14 @@ object LmsDueStore {
             val cache = DataCache(ctx, account.ifEmpty { null })
             val existing = loadRaw(cache)
             val merged = mergeDue(existing, items)
-            cache.put(KEY, gson.toJson(merged))
+            cache.write(KEY, merged)
         }
     }
 
     fun load(ctx: Context, account: String): List<LmsDue> =
         runCatching { loadRaw(DataCache(ctx, account.ifEmpty { null })) }.getOrDefault(emptyList())
 
-    private fun loadRaw(cache: DataCache): List<LmsDue> =
-        cache.get(KEY, Long.MAX_VALUE)
-            ?.let { gson.fromJson(it, Array<LmsDue>::class.java)?.toList() }
-            .orEmpty()
+    private fun loadRaw(cache: DataCache): List<LmsDue> = cache.read<List<LmsDue>>(KEY, Long.MAX_VALUE).orEmpty()
 
     /**
      * 按 (courseId, activityId) 合并：同一条以 fetchedAt 较新的为准；

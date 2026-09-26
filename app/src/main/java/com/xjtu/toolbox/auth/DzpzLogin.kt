@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.auth
 
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.isNull
 import com.xjtu.toolbox.util.redactBody
 import com.xjtu.toolbox.util.redactUrl
 import android.util.Log
@@ -139,7 +141,7 @@ class DzpzLogin(
             val resp = client.newCall(req).execute()
             val body = resp.use { it.body?.string() ?: "" }
             val id = body.safeParseJsonObject()
-                .get("resourceid")?.takeIf { !it.isJsonNull }?.asString
+                .get("resourceid")?.takeIf { !it.isNull }?.stringValue
                 ?.takeIf { it.isNotBlank() && it != "0" }
             Log.d(TAG, "fetchUserIdFromApi: resourceid=$id")
             id

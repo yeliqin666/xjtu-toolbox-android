@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.auth
 
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.obj
 import com.xjtu.toolbox.util.redactUrl
 import android.util.Log
 import com.xjtu.toolbox.card.CampusCardContract
@@ -124,7 +126,7 @@ class CampusCardLogin(
             // 响应体里就是 access_token，只记状态码和长度
             Log.d(TAG, "exchangeTicketForToken: code=${resp.code}, bodyLen=${bodyStr.length}")
             val json = bodyStr.safeParseJsonObject()
-            val token = json.get("access_token")?.asString ?: return false
+            val token = json.get("access_token")?.stringValue ?: return false
             accessToken = token
             true
         } catch (e: Exception) {
@@ -142,7 +144,7 @@ class CampusCardLogin(
             if (CampusCardContract.businessCode(json) != null &&
                 CampusCardContract.businessCode(json) != "200"
             ) return false
-            val data = json.getAsJsonObject("data") ?: return false
+            val data = json.obj("data") ?: return false
             cardAccount = CampusCardContract.requiredText(data, "cardAccount", "校园卡用户资料")
             userName = CampusCardContract.requiredText(data, "name", "校园卡用户资料")
             studentNo = CampusCardContract.requiredText(data, "sno", "校园卡用户资料")

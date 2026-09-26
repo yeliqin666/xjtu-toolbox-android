@@ -1,7 +1,12 @@
 package com.xjtu.toolbox.calendar
 
-import com.google.gson.JsonObject
-import com.google.gson.JsonParser
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.intValue
+import com.xjtu.toolbox.util.obj
+import com.xjtu.toolbox.util.arr
+import com.xjtu.toolbox.util.AppJson
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.network.HttpClients
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -87,31 +92,31 @@ class SchoolCalendarApi {
         val body = client.newCall(request).execute().use { resp ->
             resp.body?.string() ?: throw RuntimeException("校历接口无响应")
         }
-        val json = JsonParser.parseString(body).asJsonObject
-        val code = json.get("e")?.asInt ?: -1
-        if (code != 0) throw RuntimeException("校历接口返回异常：${json.get("m")?.asString}")
-        val data = json.getAsJsonObject("d") ?: throw RuntimeException("校历接口缺少数据")
-        val semesters = data.getAsJsonArray("semesters") ?: return emptyList()
-        return semesters.mapNotNull { runCatching { parseSemester(it.asJsonObject) }.getOrNull() }
+        val json = AppJson.parseToJsonElement(body).jsonObject
+        val code = json.get("e")?.intValue ?: -1
+        if (code != 0) throw RuntimeException("校历接口返回异常：${json.get("m")?.stringValue}")
+        val data = json.obj("d") ?: throw RuntimeException("校历接口缺少数据")
+        val semesters = data.arr("semesters") ?: return emptyList()
+        return semesters.mapNotNull { runCatching { parseSemester(it.jsonObject) }.getOrNull() }
             .sortedBy { it.startDate }
     }
 
     private fun parseSemester(obj: JsonObject): SchoolTerm? {
-        val start = obj.get("start_date")?.asString?.let { parseDateOrNull(it) } ?: return null
+        val start = obj.get("start_date")?.stringValue?.let { parseDateOrNull(it) } ?: return null
         // 学期"结束"取考试周结束日（含教学+考试），没有就退到教学结束日，
         // 再没有才用 end_date（那个其实是到下学期开学前，含整个寒暑假，会把"进度条"拉得没意义）。
         val end = firstValidDate(obj, "exam_end", "term_end_date", "end_date") ?: return null
 
-        val specialByTitle = obj.getAsJsonArray("specialEvents")?.associate { el ->
-            val e = el.asJsonObject
-            e.get("title")?.asString.orEmpty() to e.get("content")?.asString.orEmpty()
+        val specialByTitle = obj.arr("specialEvents")?.associate { el ->
+            val e = el.jsonObject
+            e.get("title")?.stringValue.orEmpty() to e.get("content")?.stringValue.orEmpty()
         }.orEmpty()
 
-        val events = obj.getAsJsonArray("holidays")?.mapNotNull { el ->
-            val h = el.asJsonObject
-            val hStart = h.get("start_date")?.asString?.let { parseDateOrNull(it) } ?: return@mapNotNull null
-            val hEnd = h.get("end_date")?.asString?.let { parseDateOrNull(it) } ?: hStart
-            val title = h.get("title")?.asString.orEmpty()
+        val events = obj.arr("holidays")?.mapNotNull { el ->
+            val h = el.jsonObject
+            val hStart = h.get("start_date")?.stringValue?.let { parseDateOrNull(it) } ?: return@mapNotNull null
+            val hEnd = h.get("end_date")?.stringValue?.let { parseDateOrNull(it) } ?: hStart
+            val title = h.get("title")?.stringValue.orEmpty()
             CalendarEvent(
                 id = "$title-$hStart",
                 startDate = hStart,
@@ -128,10 +133,10 @@ class SchoolCalendarApi {
             .takeWhile { !it.isAfter(end) }
             .count { it.dayOfWeek != DayOfWeek.SATURDAY && it.dayOfWeek != DayOfWeek.SUNDAY }
 
-        val year = obj.get("year")?.asString.orEmpty()
-        val semesterName = obj.get("name")?.asString.orEmpty()
+        val year = obj.get("year")?.stringValue.orEmpty()
+        val semesterName = obj.get("name")?.stringValue.orEmpty()
         return SchoolTerm(
-            id = obj.get("id")?.asString.orEmpty(),
+            id = obj.get("id")?.stringValue.orEmpty(),
             startDate = start,
             endDate = end,
             termName = "${year}学年$semesterName",
@@ -144,7 +149,7 @@ class SchoolCalendarApi {
 
     private fun firstValidDate(obj: JsonObject, vararg keys: String): LocalDate? {
         for (key in keys) {
-            obj.get(key)?.asString?.let { parseDateOrNull(it) }?.let { return it }
+            obj.get(key)?.stringValue?.let { parseDateOrNull(it) }?.let { return it }
         }
         return null
     }

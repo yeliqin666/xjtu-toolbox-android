@@ -1,5 +1,9 @@
 package com.xjtu.toolbox.jiaocai1
 
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.intValue
+import com.xjtu.toolbox.util.arr
+import kotlinx.serialization.json.jsonObject
 import android.util.Log
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.PortalRedirect
@@ -16,24 +20,15 @@ private const val TAG = "Jiaocai1Api"
 // ── 数据模型 ─────────────────────────────────────────────────────────
 
 /** 中图法分类节点。[id] 即检索参数 `cls`，如 `0O109101`。 */
+@kotlinx.serialization.Serializable
 data class Jiaocai1Category(
-    val id: String,
-    val name: String,
-    val level: Int,
-    val parentId: Int,
-    val nodeId: Int,
+    val id: String = "",
+    val name: String = "",
+    val level: Int = 0,
+    val parentId: Int = 0,
+    val nodeId: Int = 0,
     val children: List<Jiaocai1Category> = emptyList(),
-) {
-    /**
-     * 磁盘缓存反序列化兜底，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。
-     * 树形结构，子节点也是同一批反序列化出来的，必须递归处理，不能只兜底顶层。
-     */
-    fun sanitized(): Jiaocai1Category = copy(
-        id = (id as String?) ?: "",
-        name = (name as String?) ?: "",
-        children = (children as List<Jiaocai1Category>?)?.map { it.sanitized() } ?: emptyList(),
-    )
-}
+)
 
 /** [ssno] 是全文库主键，jiaocai.lib 的「本地全文」链接里带的就是它。 */
 data class Jiaocai1Book(
@@ -131,16 +126,16 @@ class Jiaocai1Api(private val site: SiteSession) {
         var body = ""
         return try {
             body = get("$BASE/front/classify/info?channeltype=$CHANNEL")
-            val arr = body.safeParseJsonObject().getAsJsonArray("classifyList") ?: return emptyList()
+            val arr = body.safeParseJsonObject().arr("classifyList") ?: return emptyList()
             val flat = arr.mapNotNull { el ->
                 try {
-                    val o = el.asJsonObject
+                    val o = el.jsonObject
                     Jiaocai1Category(
-                        id = o.get("classifyid")?.asString ?: return@mapNotNull null,
-                        name = o.get("classifyname")?.asString ?: "",
-                        level = o.get("clevel")?.asInt ?: 1,
-                        parentId = o.get("pid")?.asInt ?: 0,
-                        nodeId = o.get("id")?.asInt ?: 0,
+                        id = o.get("classifyid")?.stringValue ?: return@mapNotNull null,
+                        name = o.get("classifyname")?.stringValue ?: "",
+                        level = o.get("clevel")?.intValue ?: 1,
+                        parentId = o.get("pid")?.intValue ?: 0,
+                        nodeId = o.get("id")?.intValue ?: 0,
                     )
                 } catch (_: Exception) {
                     null

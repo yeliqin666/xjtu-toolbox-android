@@ -1,7 +1,14 @@
 package com.xjtu.toolbox.auth
 
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.isNull
+import com.xjtu.toolbox.util.isObject
+import com.xjtu.toolbox.util.isArray
+import com.xjtu.toolbox.util.isPrimitive
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
 import android.util.Log
-import com.google.gson.JsonElement
+import kotlinx.serialization.json.JsonElement
 import com.xjtu.toolbox.util.safeGet
 import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.MediaType.Companion.toMediaType
@@ -201,20 +208,20 @@ class CouponLogin(
     }
 
     private fun findTokenInJson(element: JsonElement?): String? {
-        if (element == null || element.isJsonNull) return null
-        if (element.isJsonPrimitive) {
-            val value = element.asString.normalizeToken()
+        if (element == null || element.isNull) return null
+        if (element.isPrimitive) {
+            val value = element.stringValue.normalizeToken()
             return value.takeIf { it.startsWith("eyJ") }
         }
-        if (element.isJsonObject) {
-            val obj = element.asJsonObject
+        if (element.isObject) {
+            val obj = element.jsonObject
             listOf("Authorization", "authorization", "token", "accessToken", "access_token", "jwt", "data").forEach { key ->
                 findTokenInJson(obj.safeGet(key))?.let { return it }
             }
-            obj.entrySet().forEach { (_, value) -> findTokenInJson(value)?.let { return it } }
+            obj.entries.forEach { (_, value) -> findTokenInJson(value)?.let { return it } }
         }
-        if (element.isJsonArray) {
-            element.asJsonArray.forEach { value -> findTokenInJson(value)?.let { return it } }
+        if (element.isArray) {
+            element.jsonArray.forEach { value -> findTokenInJson(value)?.let { return it } }
         }
         return null
     }

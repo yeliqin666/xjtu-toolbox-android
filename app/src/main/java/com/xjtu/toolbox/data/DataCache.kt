@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.data
 
+import com.xjtu.toolbox.util.AppJson
 import android.content.Context
 import android.util.Log
 import com.xjtu.toolbox.account.AccountContext
@@ -59,10 +60,8 @@ class DataCache(
          * 它早于所有 ContentProvider（含 WorkManager 的自动初始化）执行，升级后重新调度的
          * Worker 不可能抢在清理之前跑起来；放 onCreate 则有这个窗口。
          *
-         * 缓存里的模型类没在 proguard 里 keep，字段名由 R8 每次构建各自决定。换了安装包
-         * 还按新名字去读老文件，Gson 会把对不上的非空字段悄悄置成 null，4.9.4 就这样崩过
-         * 一轮（#51）。`sanitized()` 只能逐个类补，漏一个就又是 NPE；缓存本来就能重新拉，
-         * 换包时整体丢掉最省心。
+         * 缓存本来就能重新拉，换包时整体丢掉最省心：旧版（Gson）写的缓存字段名被 R8 混淆过，
+         * 新版读不懂；以后模型改了结构也不用考虑缓存兼容。
          *
          * 判据用 versionCode + lastUpdateTime 而不是只看 versionCode：同一个版本号重新打包
          * 发布（4.9.4、4.9.5 都发生过）时 mapping 也可能变，只有安装时间能区分。
@@ -159,6 +158,16 @@ class DataCache(
      * 未缓存返回 null。不受 TTL 限制——即使已过 TTL，只要文件还在就返回真实年龄，
      * 供调用方（如 Agent）在联网失败回退缓存时如实告知数据新鲜度。
      */
+    /** 按类型读缓存；过期、不存在或读不回来（旧格式损坏）都返回 null，调用方重新拉。 */
+    inline fun <reified T> read(key: String, ttlMs: Long = DEFAULT_TTL_MS): T? =
+        get(key, ttlMs)?.let { runCatching { AppJson.decodeFromString<T>(it) }.getOrNull() }
+
+    /** 不看过期时间，网络失败时兜底用。 */
+    inline fun <reified T> readStale(key: String): T? =
+        getStale(key)?.let { runCatching { AppJson.decodeFromString<T>(it) }.getOrNull() }
+
+    inline fun <reified T> write(key: String, value: T) = put(key, AppJson.encodeToString(value))
+
     fun ageMs(key: String): Long? {
         synchronized(lockFor(key)) {
             val file = File(cacheDir, "${key.sanitize()}.json")

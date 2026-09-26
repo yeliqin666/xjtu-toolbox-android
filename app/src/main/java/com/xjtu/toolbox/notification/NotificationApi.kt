@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.notification
 
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.booleanValue
 import android.util.Log
 import com.xjtu.toolbox.network.HttpClients
 import com.xjtu.toolbox.util.safeParseJsonObject
@@ -310,11 +312,11 @@ private fun solveChallenge(client: OkHttpClient, url: String, challenge: Website
         Log.w(TAG, "challenge response not JSON for $url")
         return null
     }
-    if (json.get("success")?.asBoolean != true) {
-        Log.w(TAG, "challenge rejected for $url: ${json.get("message")?.asString}")
+    if (json.get("success")?.booleanValue != true) {
+        Log.w(TAG, "challenge rejected for $url: ${json.get("message")?.stringValue}")
         return null
     }
-    return json.get("client_id")?.asString?.takeIf { it.isNotBlank() }
+    return json.get("client_id")?.stringValue?.takeIf { it.isNotBlank() }
 }
 
 /**

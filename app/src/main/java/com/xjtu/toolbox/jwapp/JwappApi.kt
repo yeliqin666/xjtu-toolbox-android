@@ -1,8 +1,19 @@
 package com.xjtu.toolbox.jwapp
 
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.buildJsonObject
+import com.xjtu.toolbox.util.requireArr
+import com.xjtu.toolbox.util.requireObj
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.intValue
+import com.xjtu.toolbox.util.isNull
+import com.xjtu.toolbox.util.isObject
+import com.xjtu.toolbox.util.isArray
+import com.xjtu.toolbox.util.obj
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
 import com.xjtu.toolbox.util.redactBody
 import android.util.Log
-import com.google.gson.Gson
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeString
 import com.xjtu.toolbox.util.safeStringOrNull
@@ -11,6 +22,7 @@ import com.xjtu.toolbox.util.safeDoubleOrNull
 import com.xjtu.toolbox.util.safeInt
 import com.xjtu.toolbox.util.safeBoolean
 import com.xjtu.toolbox.util.safeParseJsonObject
+import kotlinx.serialization.Serializable
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 
@@ -29,36 +41,26 @@ enum class CourseGroup(val label: String, val shortLabel: String) {
     GEN_ELECTIVE("通选", "通选");
 }
 
+@Serializable
 data class ScoreItem(
-    val id: String,
-    val termCode: String,
-    val courseName: String,
-    val score: String,
-    val scoreValue: Double?,
-    val passFlag: Boolean,
-    val specificReason: String?,
-    val coursePoint: Double,
-    val examType: String,
-    val majorFlag: String?,
-    val examProp: String,
-    val replaceFlag: Boolean,
+    val id: String = "",
+    val termCode: String = "",
+    val courseName: String = "",
+    val score: String = "",
+    val scoreValue: Double? = null,
+    val passFlag: Boolean = false,
+    val specificReason: String? = null,
+    val coursePoint: Double = 0.0,
+    val examType: String = "",
+    val majorFlag: String? = null,
+    val examProp: String = "",
+    val replaceFlag: Boolean = false,
     val gpa: Double? = null,
     val source: ScoreSource = ScoreSource.JWAPP,
     val courseCategory: String? = null,
     val courseCode: String? = null,
     val courseGroup: CourseGroup? = null,
 ) {
-    /** 磁盘缓存反序列化兜底，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。 */
-    fun sanitized(): ScoreItem = copy(
-        id = (id as String?) ?: "",
-        termCode = (termCode as String?) ?: "",
-        courseName = (courseName as String?) ?: "",
-        score = (score as String?) ?: "",
-        examType = (examType as String?) ?: "",
-        examProp = (examProp as String?) ?: "",
-        source = (source as ScoreSource?) ?: ScoreSource.JWAPP,
-    )
-
     fun asEmptyDetail(): ScoreDetail = ScoreDetail(
         courseName = courseName,
         coursePoint = coursePoint,
@@ -99,18 +101,12 @@ data class ScoreDetail(
     val itemList: List<ScoreDetailItem>
 )
 
+@Serializable
 data class TermScore(
-    val termCode: String,
-    val termName: String,
-    val scoreList: List<ScoreItem>
-) {
-    /** 磁盘缓存反序列化兜底，连同每门课一起处理，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。 */
-    fun sanitized(): TermScore = copy(
-        termCode = (termCode as String?) ?: "",
-        termName = (termName as String?) ?: "",
-        scoreList = (scoreList as List<ScoreItem?>?)?.mapNotNull { it?.sanitized() } ?: emptyList(),
-    )
-}
+    val termCode: String = "",
+    val termName: String = "",
+    val scoreList: List<ScoreItem> = emptyList(),
+)
 
 data class TimeTableBasis(
     val termCode: String,
@@ -136,7 +132,6 @@ class JwappApi(private val site: SiteSession) {
     // 校园网直连模式下 jwapp 把 http 请求 302 到 https → token 丢失 → 服务端返 401 "Authentication error"。
     // WebVPN 模式下因为请求经 webvpn.xjtu.edu.cn（https 一跳到位）而能正常工作。
     private val baseUrl = "https://jwapp.xjtu.edu.cn"
-    private val gson = Gson()
 
     internal fun authenticatedRequest(url: String): okhttp3.Request.Builder =
         okhttp3.Request.Builder()
@@ -156,7 +151,7 @@ class JwappApi(private val site: SiteSession) {
 
     suspend fun getGrade(termCode: String? = null): List<TermScore> {
         val code = termCode ?: "*"
-        val json = gson.toJson(mapOf("termCode" to code))
+        val json = buildJsonObject { put("termCode", code) }.toString()
         val body = json.toRequestBody("application/json".toMediaType())
 
         val request = authenticatedRequest("$baseUrl/api/biz/v410/score/termScore")
@@ -165,18 +160,18 @@ class JwappApi(private val site: SiteSession) {
         val responseBody = execute(request)
         val root = responseBody.safeParseJsonObject()
 
-        val resultCode = root.get("code").asInt
+        val resultCode = root.get("code").intValue
         if (resultCode != 200) {
-            throw RuntimeException(root.get("msg")?.asString ?: "服务器错误 ($resultCode)")
+            throw RuntimeException(root.get("msg")?.stringValue ?: "服务器错误 ($resultCode)")
         }
 
-        val termScoreList = root.getAsJsonObject("data")
-            .getAsJsonArray("termScoreList")
+        val termScoreList = root.requireObj("data")
+            .requireArr("termScoreList")
 
         return termScoreList.map { termElement ->
-            val termObj = termElement.asJsonObject
-            val scores = termObj.getAsJsonArray("scoreList").map { scoreEl ->
-                val s = scoreEl.asJsonObject
+            val termObj = termElement.jsonObject
+            val scores = termObj.requireArr("scoreList").map { scoreEl ->
+                val s = scoreEl.jsonObject
                 val rawScore = s.get("score").safeString()
                 val numericScore = rawScore.toDoubleOrNull()
                 val apiGpa = s.get("gpa").safeDoubleOrNull()
@@ -214,7 +209,7 @@ class JwappApi(private val site: SiteSession) {
     }
 
     suspend fun getDetail(courseId: String): ScoreDetail {
-        val json = gson.toJson(mapOf("id" to courseId))
+        val json = buildJsonObject { put("id", courseId) }.toString()
         val body = json.toRequestBody("application/json".toMediaType())
 
         val request = authenticatedRequest("$baseUrl/api/biz/v410/score/scoreDetail")
@@ -227,7 +222,7 @@ class JwappApi(private val site: SiteSession) {
         val resultCode = root.get("code").safeInt(-1)
         val msg = root.get("msg").safeString("服务器错误 ($resultCode)")
         val dataEl = root.get("data")
-        if (resultCode != 200 || dataEl == null || dataEl.isJsonNull || !dataEl.isJsonObject) {
+        if (resultCode != 200 || dataEl == null || dataEl.isNull || !dataEl.isObject) {
             Log.w(TAG, "scoreDetail empty/fail code=$resultCode msg=$msg data=${dataEl}")
             if (resultCode == 200 || resultCode == 401 || resultCode == 404 || isNoScoreDetailMessage(msg)) {
                 throw NoScoreDetailException(msg.ifBlank { "该课程暂无分项成绩" })
@@ -235,13 +230,13 @@ class JwappApi(private val site: SiteSession) {
             throw RuntimeException(msg)
         }
 
-        val data = dataEl.asJsonObject
+        val data = dataEl.jsonObject
 
         val itemEl = data.get("itemList")
-        val items = if (itemEl == null || itemEl.isJsonNull || !itemEl.isJsonArray) {
+        val items = if (itemEl == null || itemEl.isNull || !itemEl.isArray) {
             emptyList()
-        } else itemEl.asJsonArray.map { el ->
-            val item = el.asJsonObject
+        } else itemEl.jsonArray.map { el ->
+            val item = el.jsonObject
             val percentStr = item.get("itemPercent").safeString("0")
             val percent = percentStr.trimEnd('%').toDoubleOrNull()?.let { it / 100.0 } ?: 0.0
             ScoreDetailItem(
@@ -287,17 +282,13 @@ class JwappApi(private val site: SiteSession) {
         val body = execute(request)
         val root = body.safeParseJsonObject()
 
-        val resultCode = root.get("code").asInt
+        val resultCode = root.get("code").intValue
         if (resultCode != 200) {
-            throw RuntimeException(root.get("msg")?.asString ?: "服务器错误 ($resultCode)")
+            throw RuntimeException(root.get("msg")?.stringValue ?: "服务器错误 ($resultCode)")
         }
 
         // API 可能返回 {code, data:{...}} 或直接平铺字段
-        val obj = if (root.has("data") && root.get("data").isJsonObject) {
-            root.getAsJsonObject("data")
-        } else {
-            root
-        }
+        val obj = root.obj("data") ?: root
 
         return TimeTableBasis(
             termCode = obj.get("xnxqdm").safeString(),

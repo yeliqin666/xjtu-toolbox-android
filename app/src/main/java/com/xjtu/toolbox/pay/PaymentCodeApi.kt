@@ -1,8 +1,17 @@
 package com.xjtu.toolbox.pay
 
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
+import com.xjtu.toolbox.util.safeLong
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.booleanValue
+import com.xjtu.toolbox.util.isObject
+import com.xjtu.toolbox.util.obj
+import com.xjtu.toolbox.util.arr
+import kotlinx.serialization.json.jsonObject
 import com.xjtu.toolbox.util.redactBody
 import android.util.Log
-import com.google.gson.JsonArray
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeGet
 import com.xjtu.toolbox.util.safeParseJsonObject
@@ -82,19 +91,19 @@ class PaymentCodeApi(private val site: SiteSession) {
         Log.d(TAG, "getBarCode: code=${resp.code}, body=${text.redactBody(200)}")
 
         val root = text.safeParseJsonObject()
-        if (root.get("success")?.asBoolean != true) {
-            val msg = root.get("msg")?.asString ?: text.take(100)
+        if (root.get("success")?.booleanValue != true) {
+            val msg = root.get("msg")?.stringValue ?: text.take(100)
             throw RuntimeException("获取付款码失败：$msg")
         }
-        val data = root.getAsJsonObject("data")
+        val data = root.obj("data")
             ?: throw RuntimeException("响应缺少 data 字段")
-        val barCodeVo = data.getAsJsonObject("barCodeVo")
+        val barCodeVo = data.obj("barCodeVo")
             ?: throw RuntimeException("响应缺少 barCodeVo 字段")
-        val arr = barCodeVo.getAsJsonArray("barcode")
-        if (arr == null || arr.size() == 0) {
+        val arr = barCodeVo.arr("barcode")
+        if (arr == null || arr.size == 0) {
             throw RuntimeException("付款码数组为空")
         }
-        return arr[0].asString
+        return arr[0].stringValue
     }
 
     suspend fun getVouchers(): List<PaymentVoucher> {
@@ -105,13 +114,13 @@ class PaymentCodeApi(private val site: SiteSession) {
         val resp = site.executeWithReAuth(request)
         val text = resp.body?.use { it.string() } ?: throw RuntimeException("空响应")
         val root = text.safeParseJsonObject()
-        if (root.get("success")?.asBoolean != true) {
-            val msg = root.get("msg")?.asString ?: text.take(100)
+        if (root.get("success")?.booleanValue != true) {
+            val msg = root.get("msg")?.stringValue ?: text.take(100)
             throw RuntimeException("获取可用加餐券失败：$msg")
         }
-        val data = root.getAsJsonArray("data") ?: return emptyList()
+        val data = root.arr("data") ?: return emptyList()
         return data.mapNotNull { element ->
-            val obj = element.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
+            val obj = element.takeIf { it.isObject }?.jsonObject ?: return@mapNotNull null
             val id = obj.safeGet("showCardId").safeString()
             if (id.isBlank()) return@mapNotNull null
             PaymentVoucher(
@@ -126,7 +135,7 @@ class PaymentCodeApi(private val site: SiteSession) {
     }
 
     suspend fun updateVoucherStatus(selectedIds: Collection<String>) {
-        val arr = JsonArray().apply {
+        val arr = buildJsonArray {
             selectedIds.filter { it.isNotBlank() }.distinct().forEach { add(it) }
         }
         val request = authRequest(UPDATE_VOUCHERS_URL)
@@ -136,8 +145,8 @@ class PaymentCodeApi(private val site: SiteSession) {
         val resp = site.executeWithReAuth(request)
         val text = resp.body?.use { it.string() } ?: throw RuntimeException("空响应")
         val root = text.safeParseJsonObject()
-        if (root.get("success")?.asBoolean != true) {
-            val msg = root.get("msg")?.asString ?: text.take(100)
+        if (root.get("success")?.booleanValue != true) {
+            val msg = root.get("msg")?.stringValue ?: text.take(100)
             throw RuntimeException("更新加餐券选择失败：$msg")
         }
     }
@@ -153,7 +162,7 @@ class PaymentCodeApi(private val site: SiteSession) {
     }
 }
 
-private fun com.google.gson.JsonElement?.safeLong(default: Long = 0L): Long {
+private fun JsonElement?.safeLong(default: Long = 0L): Long {
     val raw = this.safeString()
     return raw.toLongOrNull() ?: raw.toDoubleOrNull()?.toLong() ?: default
 }

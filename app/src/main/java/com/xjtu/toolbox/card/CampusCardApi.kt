@@ -1,5 +1,13 @@
 package com.xjtu.toolbox.card
 
+import com.xjtu.toolbox.util.isNumber
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.intValue
+import com.xjtu.toolbox.util.longValue
+import com.xjtu.toolbox.util.isObject
+import com.xjtu.toolbox.util.isPrimitive
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import android.util.Log
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
@@ -18,46 +26,30 @@ private const val TAG = "CampusCardApi"
 // ==================== 数据类 ====================
 
 /** 校园卡基本信息 */
+@kotlinx.serialization.Serializable
 data class CardInfo(
-    val account: String,
-    val name: String,
-    val studentNo: String,
-    val balance: Double,         // 电子钱包余额（元）
-    val pendingAmount: Double,   // 待入账金额
-    val lostFlag: Boolean,       // 是否挂失
-    val frozenFlag: Boolean,     // 是否冻结
-    val expireDate: String,      // 过期日期
-    val cardType: String,        // 卡类型名称
-    val department: String = ""  // 学院（从 HTML 提取）
-) {
-    /** 磁盘缓存反序列化兜底，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。 */
-    fun sanitized(): CardInfo = copy(
-        account = (account as String?) ?: "",
-        name = (name as String?) ?: "",
-        studentNo = (studentNo as String?) ?: "",
-        expireDate = (expireDate as String?) ?: "",
-        cardType = (cardType as String?) ?: "",
-        department = (department as String?) ?: "",
-    )
-}
+    val account: String = "",
+    val name: String = "",
+    val studentNo: String = "",
+    val balance: Double = 0.0,         // 电子钱包余额（元）
+    val pendingAmount: Double = 0.0,   // 待入账金额
+    val lostFlag: Boolean = false,     // 是否挂失
+    val frozenFlag: Boolean = false,   // 是否冻结
+    val expireDate: String = "",       // 过期日期
+    val cardType: String = "",         // 卡类型名称
+    val department: String = "",       // 学院（从 HTML 提取）
+)
 
 /** 单笔交易记录 */
+@kotlinx.serialization.Serializable
 data class Transaction(
-    val time: String,            // 交易时间
-    val merchant: String,        // 商户名称
-    val amount: Double,          // 交易金额（负=支出，正=收入）
-    val balance: Double,         // 交易后余额
-    val type: String,            // 交易类型
-    val description: String      // 详细描述
+    val time: String = "",            // 交易时间
+    val merchant: String = "",        // 商户名称
+    val amount: Double = 0.0,         // 交易金额（负=支出，正=收入）
+    val balance: Double = 0.0,        // 交易后余额
+    val type: String = "",            // 交易类型
+    val description: String = "",     // 详细描述
 ) {
-    /** 磁盘缓存反序列化兜底，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。 */
-    fun sanitized(): Transaction = copy(
-        time = (time as String?) ?: "",
-        merchant = (merchant as String?) ?: "",
-        type = (type as String?) ?: "",
-        description = (description as String?) ?: "",
-    )
-
     /**
      * 展示与统计一律用这个，不要直接读 [merchant]。
      *
@@ -138,10 +130,10 @@ class CampusCardApi(private val site: SiteSession) {
         CampusCardContract.requireSuccess(root, "查询校园卡")
         val data = CampusCardContract.requireDataObject(root, "查询校园卡")
         val cardArr = CampusCardContract.requireArray(data, "card", "查询校园卡")
-        if (cardArr.size() == 0) throw RuntimeException("查询校园卡返回了空卡片数据")
+        if (cardArr.size == 0) throw RuntimeException("查询校园卡返回了空卡片数据")
         val cardEl = cardArr.get(0)
-        if (!cardEl.isJsonObject) throw RuntimeException("查询校园卡返回的卡片数据格式错误")
-        val card = cardEl.asJsonObject
+        if (!cardEl.isObject) throw RuntimeException("查询校园卡返回的卡片数据格式错误")
+        val card = cardEl.jsonObject
         val elecAmt = CampusCardContract.requireLong(card.get("elec_accamt"), "余额", "查询校园卡")
         val unsettled = CampusCardContract.requireLong(card.get("unsettle_amount"), "未结算金额", "查询校园卡")
 
@@ -151,10 +143,10 @@ class CampusCardApi(private val site: SiteSession) {
             studentNo = site.localToken["student_no"].orEmpty(),
             balance = elecAmt / 100.0,
             pendingAmount = unsettled / 100.0,
-            lostFlag = card.get("barflag")?.asInt == 1,
-            frozenFlag = card.get("freezeflag")?.asInt == 1,
-            expireDate = formatExpDate(card.get("expdate")?.asString ?: ""),
-            cardType = card.get("cardname")?.asString?.trim() ?: ""
+            lostFlag = card.get("barflag")?.intValue == 1,
+            frozenFlag = card.get("freezeflag")?.intValue == 1,
+            expireDate = formatExpDate(card.get("expdate")?.stringValue ?: ""),
+            cardType = card.get("cardname")?.stringValue?.trim() ?: ""
         )
     }
 
@@ -274,23 +266,23 @@ class CampusCardApi(private val site: SiteSession) {
         val records = CampusCardContract.requireArray(data, "records", "查询校园卡流水")
 
         val transactions = records.map { recEl ->
-            if (!recEl.isJsonObject) throw RuntimeException("查询校园卡流水返回的流水记录格式错误")
-            val rec = recEl.asJsonObject
+            if (!recEl.isObject) throw RuntimeException("查询校园卡流水返回的流水记录格式错误")
+            val rec = recEl.jsonObject
             val tranAmt = CampusCardContract.requireLong(rec.get("tranamt"), "流水金额", "查询校园卡流水")
-            val icon = rec.get("icon")?.asString ?: ""
-            val turnoverType = rec.get("turnoverType")?.asString?.trim() ?: ""
-            val resume = rec.get("resume")?.asString?.trim() ?: ""
+            val icon = rec.get("icon")?.stringValue ?: ""
+            val turnoverType = rec.get("turnoverType")?.stringValue?.trim() ?: ""
+            val resume = rec.get("resume")?.stringValue?.trim() ?: ""
             // takeIf 不能省：toMerchant 常常是**空字符串而不是 null**（扫码点餐、充值都这样），
             // 只写 `?:` 的话兜底永远不触发，商户名就是一串空白——分析页的排行、流水列表里
             // 都会出现没有名字的行。实测 600 条里有 22 条是这种（12 笔消费 + 10 笔充值）。
-            val merchant = rec.get("toMerchant")?.asString?.trim()?.takeIf { it.isNotBlank() }
+            val merchant = rec.get("toMerchant")?.stringValue?.trim()?.takeIf { it.isNotBlank() }
                 ?: merchantFromResume(resume)
-            val typeFrom = rec.get("typeFrom")?.asString?.trim()
+            val typeFrom = rec.get("typeFrom")?.stringValue?.trim()
             val toAccount = rec.get("toAccount")
-                ?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asLong
-            val fromAccount = rec.get("fromAccount")?.asString?.trim()?.toLongOrNull()
+                ?.takeIf { it.isPrimitive && it.jsonPrimitive.isNumber }?.longValue
+            val fromAccount = rec.get("fromAccount")?.stringValue?.trim()?.toLongOrNull()
             Transaction(
-                time = rec.get("jndatetimeStr")?.asString ?: "",
+                time = rec.get("jndatetimeStr")?.stringValue ?: "",
                 merchant = merchant,
                 amount = CampusCardContract.signedAmountCents(tranAmt, turnoverType, icon, typeFrom, toAccount, fromAccount) / 100.0,
                 balance = CampusCardContract.requireLong(rec.get("cardBalance"), "流水余额", "查询校园卡流水") / 100.0,

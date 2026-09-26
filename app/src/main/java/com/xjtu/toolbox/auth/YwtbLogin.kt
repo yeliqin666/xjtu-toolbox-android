@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.auth
 
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.longValue
 import android.util.Base64
 import android.util.Log
 import com.xjtu.toolbox.util.safeParseJsonObject
@@ -61,11 +63,11 @@ class YwtbLogin(
         }
         val payloadJson = String(Base64.decode(payload64, Base64.URL_SAFE or Base64.NO_WRAP))
         val payload = payloadJson.safeParseJsonObject()
-        idToken = payload.get("idToken")?.asString
+        idToken = payload.get("idToken")?.stringValue
             ?: throw RuntimeException("JWT 中未找到 idToken")
 
         // 提取 exp 字段（JWT 标准，单位：秒）
-        tokenExpireAt = payload.get("exp")?.asLong ?: 0L
+        tokenExpireAt = payload.get("exp")?.longValue ?: 0L
         tokenObtainedAt = System.currentTimeMillis()
 
         if (tokenExpireAt > 0) {

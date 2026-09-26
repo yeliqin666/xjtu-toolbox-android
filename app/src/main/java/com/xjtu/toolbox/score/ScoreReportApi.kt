@@ -7,20 +7,14 @@ import org.jsoup.Jsoup
 /**
  * 成绩报表数据
  */
+@kotlinx.serialization.Serializable
 data class ReportedGrade(
-    val courseName: String,
-    val coursePoint: Double,
-    val score: String,      // 可能是数字或等级（如 "优秀"）
-    val gpa: Double?,
-    val term: String        // 学期代码 "2024-2025-1"
-) {
-    /** 磁盘缓存反序列化兜底，原理见 [com.xjtu.toolbox.schedule.CourseItem.sanitized]。 */
-    fun sanitized(): ReportedGrade = copy(
-        courseName = (courseName as String?) ?: "",
-        score = (score as String?) ?: "",
-        term = (term as String?) ?: "",
-    )
-}
+    val courseName: String = "",
+    val coursePoint: Double = 0.0,
+    val score: String = "",      // 可能是数字或等级（如 "优秀"）
+    val gpa: Double? = null,
+    val term: String = "",       // 学期代码 "2024-2025-1"
+)
 
 /**
  * 教务系统成绩报表查询 (FR Report)

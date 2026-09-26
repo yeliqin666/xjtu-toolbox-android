@@ -219,7 +219,6 @@ dependencies {
     implementation(libs.okhttp.java.net.cookiejar)
     implementation(libs.jsoup)
     implementation(libs.flexmark.html2md)
-    implementation(libs.gson)
     implementation(libs.coroutines.android)
     implementation(libs.security.crypto)
     implementation(libs.zxing.core)
