@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.emptyroom
 
+import com.xjtu.toolbox.network.MOBILE_UA
 import kotlinx.serialization.json.JsonPrimitive
 import com.xjtu.toolbox.util.requireArr
 import com.xjtu.toolbox.util.requireObj
@@ -301,7 +302,6 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient, private val cac
         private const val JWXT_BASE = "https://jwxt.xjtu.edu.cn"
         private const val REFERER = "$JWXT_BASE/jwapp/sys/kxjas/*default/index.do"
         private const val FORM_CT = "application/x-www-form-urlencoded; charset=UTF-8"
-        private const val BROWSER_UA = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
         // 上游 jwxt/empty_room.py 的 UUID（不可变）
         private const val CAMPUS_CODE_API = "$JWXT_BASE/jwapp/code/83a986fc-e677-400e-99a4-c7bb39c2ca35.do"
         private const val BUILDING_CODE_API = "$JWXT_BASE/jwapp/code/551fbcc3-cf07-4566-af1e-fc7ce272ddc1.do"
@@ -329,7 +329,7 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient, private val cac
                     .url(USER_INFO_API)
                     .header("Accept", "application/json, text/javascript, */*; q=0.01")
                     .header("Referer", "$JWXT_BASE/jwapp/sys/homeapp/home/index.html?av=&contextPath=/jwapp")
-                    .header("User-Agent", BROWSER_UA)
+                    .header("User-Agent", MOBILE_UA)
                     .get()
                     .build()
             ).execute()
@@ -377,7 +377,7 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient, private val cac
                 .header("Content-Type", FORM_CT)
                 .header("X-Requested-With", "XMLHttpRequest")
                 .header("Referer", REFERER)
-                .header("User-Agent", BROWSER_UA)
+                .header("User-Agent", MOBILE_UA)
                 .post(okhttp3.FormBody.Builder().build())
                 .build()
         ).execute()
@@ -408,7 +408,7 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient, private val cac
                 .header("Content-Type", FORM_CT)
                 .header("X-Requested-With", "XMLHttpRequest")
                 .header("Referer", REFERER)
-                .header("User-Agent", BROWSER_UA)
+                .header("User-Agent", MOBILE_UA)
                 .post(okhttp3.FormBody.Builder().build())
                 .build()
         ).execute()
@@ -478,7 +478,7 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient, private val cac
                 .header("Content-Type", FORM_CT)
                 .header("X-Requested-With", "XMLHttpRequest")
                 .header("Referer", REFERER)
-                .header("User-Agent", BROWSER_UA)
+                .header("User-Agent", MOBILE_UA)
                 .post(form)
                 .build()
         ).execute()

@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.agent
 
+import com.xjtu.toolbox.network.MOBILE_UA
 import kotlinx.serialization.json.jsonObject
 import com.xjtu.toolbox.util.safeStringOrNull
 import com.xjtu.toolbox.util.AppJson
@@ -1605,8 +1606,6 @@ class AgentToolRegistry(
             }
             .build()
     }
-    private val webUa =
-        "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
     private val wechatUa =
         "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36 MicroMessenger/8.0.50.2701(0x2800323B) NetType/WIFI Language/zh_CN"
 
@@ -2839,7 +2838,7 @@ class AgentToolRegistry(
     private fun fetchReadablePage(startUrl: String): FetchedPage? {
         var url = startUrl
         if (AgentWeb.isSogouJumpUrl(url)) url = AgentWeb.withSogouClickParams(url)
-        val firstUa = if (AgentWeb.isWeChatUrl(url) || AgentWeb.isSogouJumpUrl(url)) wechatUa else webUa
+        val firstUa = if (AgentWeb.isWeChatUrl(url) || AgentWeb.isSogouJumpUrl(url)) wechatUa else MOBILE_UA
         var page = getUrl(url, firstUa)
         val html = page?.html.orEmpty()
         val blocked = html.isNotEmpty() && (

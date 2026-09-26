@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.jwapp
 
+import com.xjtu.toolbox.network.MOBILE_UA
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.buildJsonObject
 import com.xjtu.toolbox.util.requireArr
@@ -27,10 +28,6 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 
 private const val TAG = "JwappGPA"
-
-/** jwapp 网关按 UA 拦非浏览器请求，所有 jwapp 请求统一顶这个头。 */
-internal const val BROWSER_UA =
-    "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
 
 // ── 数据类 ──────────────────────────────
 
@@ -136,7 +133,7 @@ class JwappApi(private val site: SiteSession) {
     internal fun authenticatedRequest(url: String): okhttp3.Request.Builder =
         okhttp3.Request.Builder()
             .url(url)
-            .header("User-Agent", BROWSER_UA)
+            .header("User-Agent", MOBILE_UA)
 
     internal suspend fun execute(request: okhttp3.Request.Builder): String =
         site.executeWithReAuth(request.build()).use { response ->
