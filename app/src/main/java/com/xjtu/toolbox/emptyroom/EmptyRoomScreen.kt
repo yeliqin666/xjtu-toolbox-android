@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.emptyroom
 
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xjtu.toolbox.ui.components.enterOnce
 import androidx.compose.foundation.lazy.itemsIndexed
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
@@ -68,8 +69,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
@@ -77,11 +76,10 @@ import kotlin.math.roundToInt
 import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.AppSearchBar
 import com.xjtu.toolbox.auth.AccountType
-import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.data.CredentialStore
 
 /** 空闲教室的数据源。[key] 存进偏好，改名别动它。 */
-private enum class RoomSource(val key: String) {
+internal enum class RoomSource(val key: String) {
     /** 智慧教室平台的此刻状态：含上课、没排课但有人（带人数）。默认。 */
     LIVE("live"),
     /** 预生成的课表数据，免登录，可看今天/明天。 */
@@ -91,7 +89,7 @@ private enum class RoomSource(val key: String) {
 }
 
 /** 新键：旧的 empty_room_use_direct_query 是 CDN/直查二选一时代的，实时状态上线后默认改回实时，不沿用。 */
-private const val SOURCE_PREF_KEY = "empty_room_source"
+internal const val SOURCE_PREF_KEY = "empty_room_source"
 
 /** 实时状态的快捷筛选。第一个是默认。 */
 private val LIVE_FILTERS = listOf("空闲", "其它使用", "上课中", "全部")
@@ -237,346 +235,32 @@ fun EmptyRoomScreen(
     val context = LocalContext.current
     val credentialStore = remember(context) { CredentialStore(context) }
     val accountType = remember { credentialStore.accountType }
-    val api = remember(context) { EmptyRoomApi(context) }
-    val uncachedApi = remember { EmptyRoomApi() }
-    val emptyRoomCache = remember(context) { EmptyRoomCache(context) }
-    val prefs = remember { context.getSharedPreferences("empty_room", 0) }
-    var rooms by remember { mutableStateOf<List<RoomInfo>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    /**
-     * 显示的是过期缓存的标识：联网失败时若磁盘上有缓存可读，会把缓存灌入 [rooms] 并把这条
-     * 信息显示出来——比"空白页 + 红字错误"更友好。
-     * 格式：「数据可能不是最新 · 缓存于 HH:mm」；null 表示当前显示的是实时数据。
-     */
-    var staleNote by remember { mutableStateOf<String?>(null) }
-    // 数据源：默认实时状态；CDN 和直查教务是同一份课表数据的两条取法，只在右上角切过去时才出现今天/明天
-    var source by rememberSaveable {
-        val saved = RoomSource.entries.firstOrNull { it.key == prefs.getString(SOURCE_PREF_KEY, null) }
-        mutableStateOf(
-            when {
-                saved == null -> RoomSource.LIVE
-                saved == RoomSource.DIRECT && accountType == AccountType.POSTGRADUATE -> RoomSource.CDN
-                else -> saved
-            }
-        )
-    }
-    val isLive = source == RoomSource.LIVE
-    val useDirectQuery = source == RoomSource.DIRECT
+    val vm: EmptyRoomViewModel = viewModel { EmptyRoomViewModel(context, sessionManager, accountType) }
+    val rooms = vm.rooms
+    val source = vm.source
+    val isLive = vm.isLive
     var showCdnTip by remember { mutableStateOf(!credentialStore.hasReadEmptyRoomCdnTip && source == RoomSource.CDN) }
-    var directProgress by remember { mutableStateOf<Pair<Int, Int>?>(null) }
-
-    // 实时状态：整个校区一次拿回来，楼的筛选在本地做
-    val liveApi = remember(sessionManager, emptyRoomCache) {
-        sessionManager?.getSiteOrNull(com.xjtu.toolbox.auth.JsSession.SITE_KEY)?.let { LiveRoomApi(it, emptyRoomCache) }
-    }
-    var liveSnapshot by remember { mutableStateOf<LiveSnapshot?>(null) }
-    // 当天课表（CDN），按教室名对上实时状态，用来画节次条、算"能用到第几节"。拿不到就不画。
-    var liveSchedule by remember { mutableStateOf<Map<String, RoomInfo>>(emptyMap()) }
-
-    // 校区按名字记，不按下标：实时状态只有三个校区，两套列表的下标对不上
-    val campusNames = if (isLive) LIVE_CAMPUSES.keys.toList() else CAMPUS_BUILDINGS.keys.toList()
-    var selectedCampusName by rememberSaveable {
-        mutableStateOf(prefs.getString("empty_room_last_campus", null) ?: campusNames.first())
-    }
-    // 记住的校区不在当前数据源里（实时状态下选过曲江/苏州）时先落到第一个，不改用户记住的选择
-    val selectedCampus = selectedCampusName.takeIf { it in campusNames } ?: campusNames.first()
+    val campusNames = vm.campusNames
+    val selectedCampus = vm.campus
     val selectedCampusIndex = campusNames.indexOf(selectedCampus)
-
-    val buildings = remember(selectedCampus) { CAMPUS_BUILDINGS[selectedCampus] ?: emptyList() }
-    // 教学楼多选
-    var selectedBuildings by rememberSaveable(selectedCampus) {
-        val saved = prefs.getString("empty_room_last_buildings_$selectedCampus", null)
-            ?.split("|")
-            ?.map { it.trim() }
-            ?.filter { it.isNotEmpty() }
-            ?.toSet()
-            ?.filterTo(mutableSetOf()) { it in buildings }
-            ?.takeIf { it.isNotEmpty() }
-        mutableStateOf(saved ?: setOf(buildings.firstOrNull().orEmpty()))
-    }
-    // 实时状态的楼单独记：平台的楼和课表的楼不是同一批（多了国防中心、西1楼，少了仲英楼等）。
-    // 空集合 = 全部楼——一次请求本来就是整个校区，默认全看最自然。
-    val liveBuildings = liveSnapshot?.takeIf { it.campus == selectedCampus }?.buildings.orEmpty()
-    var liveSelected by rememberSaveable(selectedCampus) {
-        mutableStateOf(
-            prefs.getString("empty_room_live_buildings_$selectedCampus", null)
-                ?.split("|")?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet()
-                ?: emptySet()
-        )
-    }
-    // 平台上已经没有的楼（改名、下线）不算数；全筛没了就回到全部
-    val liveEffective = liveSelected.filter { it in liveBuildings }.toSet()
-        .takeIf { it.isNotEmpty() && it.size < liveBuildings.size } ?: emptySet()
-
-    // 选楼弹窗两种数据源共用：课表按楼查询，实时按楼本地筛选
-    val sheetBuildings = if (isLive) liveBuildings else buildings
-    val sheetSelected = if (isLive) liveEffective.ifEmpty { liveBuildings.toSet() } else selectedBuildings
-    fun setSheetSelected(newSet: Set<String>) {
-        if (isLive) {
-            liveSelected = if (newSet.size >= liveBuildings.size) emptySet() else newSet
-            prefs.edit().putString("empty_room_live_buildings_$selectedCampus", liveSelected.joinToString("|")).apply()
-        } else {
-            selectedBuildings = newSet
-        }
-    }
-
-    val availableDates = remember { api.getAvailableDates() }
-    var selectedDate by rememberSaveable { mutableStateOf(availableDates.firstOrNull() ?: "") }
+    val liveEffective = vm.liveEffective
+    val sheetBuildings = vm.sheetBuildings
+    val sheetSelected = vm.sheetSelected
+    val availableDates = vm.availableDates
+    val selectedDate = vm.selectedDate
 
     // 智能筛选
     var smartFilter by rememberSaveable { mutableStateOf("现在空闲") }
-
     // 用户自选节数区间（1-based）
     var startPeriod by rememberSaveable { mutableIntStateOf(1) }
     var endPeriod by rememberSaveable { mutableIntStateOf(11) }
 
-    fun persistBuildingSelection() {
-        prefs.edit()
-            .putString("empty_room_last_campus", selectedCampus)
-            .putString("empty_room_last_buildings_$selectedCampus", selectedBuildings.filter { it.isNotBlank() }.joinToString("|"))
-            .apply()
-    }
-
-    LaunchedEffect(selectedCampus, selectedBuildings) {
-        if (!isLive) persistBuildingSelection()
-    }
-
-    LaunchedEffect(source) {
-        if (accountType == AccountType.POSTGRADUATE && source == RoomSource.DIRECT) {
-            source = RoomSource.CDN
-        } else {
-            prefs.edit().putString(SOURCE_PREF_KEY, source.key).apply()
-        }
-    }
-
-    // 当前节次
     val currentPeriod = remember { getCurrentPeriod() }
     val isToday = selectedDate == LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
     val effectivePeriod = if (isToday) currentPeriod else -1
-    val smartFilters = if (isToday) {
-        listOf("现在空闲", "刚解放", "大教室", "全部")
-    } else {
-        listOf("大教室", "全部")
-    }
-
+    val smartFilters = if (isToday) listOf("现在空闲", "刚解放", "大教室", "全部") else listOf("大教室", "全部")
     LaunchedEffect(isToday) {
-        if (!isToday && smartFilter in listOf("现在空闲", "刚解放")) {
-            smartFilter = "全部"
-        }
-    }
-
-    // 自动查询（选择改变 / 数据源切换即触发）
-    // [取消语义] LaunchedEffect 在 keys 变化时自动 cancel 旧 coroutine。
-    // OkHttp 阻塞调用本身不响应 cancel，但我们在每个 building / period 循环开头主动
-    // ensureActive()：cancel 后立即抛 CancellationException → 不再发起新请求 → UI 不会被
-    // 旧结果污染。正在飞的单次 HTTP 调用最多多跑完一次后丢弃，整体行为符合「杀死旧的、开新的」。
-    // [优化] 单楼缓存：key = "campus|building|date"，value = 该楼当天教室列表。
-    // 用户重复勾选同一建筑（A→AB→A）时，命中缓存的不会重新发请求；
-    // 仅 cache miss 的建筑才进网络。日期/校区变化时缓存自然失效（不参与命中的 key 不同）。
-
-    /**
-     * 网络失败时从磁盘读 [EmptyRoomCache.readRoomListStale] 兜底：
-     * 缓存有数据 → 写入 [rooms] 并把 [staleNote] 标为「数据可能不是最新 · 缓存于 HH:mm」。
-     * 缓存为空 → [staleNote] 仍为 null，由 errorMessage 单独展示。
-     */
-    fun fallbackToStaleCache(activeBuildings: Collection<String>, date: String, reason: String): Boolean {
-        val source = if (useDirectQuery) "direct" else "cdn"
-        val merged = mutableListOf<RoomInfo>()
-        var newestSavedAt = 0L
-        var anyHit = false
-        for (b in activeBuildings) {
-            val key = "$source|$selectedCampus|$b|$date"
-            val stale = emptyRoomCache.readRoomListStale(key)
-            if (stale != null) {
-                merged.addAll(stale)
-                val savedAt = emptyRoomCache.savedAt(key)
-                if (savedAt > newestSavedAt) newestSavedAt = savedAt
-                anyHit = true
-            }
-        }
-        if (anyHit && merged.isNotEmpty()) {
-            rooms = merged.sortedBy { it.name }
-            val ts = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(newestSavedAt)
-            staleNote = "数据可能不是最新 · 缓存于今天 $ts · $reason"
-            android.util.Log.i("EmptyRoomScreen", "fallback to stale cache: $newestSavedAt, reason=$reason")
-            return true
-        }
-        staleNote = null
-        return false
-    }
-    val buildingCache = remember { mutableStateMapOf<String, Pair<String, List<RoomInfo>>>() }
-
-    // [并发计数] 每次 LaunchedEffect 启动 +1，用 generation 标记当前查询。
-    // 旧 coroutine 在新 LaunchedEffect 启动后 myGen != queryGenCount，禁止更新 UI。
-    // 这比 coroutineContext[Job].isActive 更可靠：Compose Coroutines 在 withContext 后
-    // 父 Job 状态判断有时不及时，导致旧 coroutine 误判 active 继续写 UI。
-    val queryGeneration = remember { java.util.concurrent.atomic.AtomicInteger(0) }
-    val refreshNonce = remember { mutableIntStateOf(0) }
-    val handledRefreshNonce = remember { mutableIntStateOf(0) }
-
-    LaunchedEffect(selectedCampus, selectedBuildings, selectedDate, source, refreshNonce.intValue) {
-        val myGen = queryGeneration.incrementAndGet()
-        fun isLatest(): Boolean = myGen == queryGeneration.get()
-        val forceRefresh = refreshNonce.intValue != handledRefreshNonce.intValue
-        handledRefreshNonce.intValue = refreshNonce.intValue
-
-        if (source == RoomSource.LIVE) {
-            // 实时状态：一个校区一次请求，楼只在本地筛，所以不跟 selectedBuildings/日期走
-            isLoading = true
-            errorMessage = null
-            directProgress = null
-            try {
-                val liveSite = liveApi ?: throw RuntimeException("实时状态暂不可用，可在右上角切换到课表数据")
-                val snapshot = withContext(Dispatchers.IO) {
-                    val mgr = sessionManager ?: throw RuntimeException("实时状态暂不可用")
-                    if (mgr.credentials == null) throw RuntimeException("实时状态需要先登录统一身份认证，未登录可在右上角切换到 CDN 课表")
-                    mgr.ensureSite(com.xjtu.toolbox.auth.JsSession.SITE_KEY, userInitiated = true)
-                    liveSite.fetchCampus(selectedCampus, if (forceRefresh) 0L else LiveRoomApi.FRESH_MS)
-                }
-                if (!isLatest()) return@LaunchedEffect
-                liveSnapshot = snapshot
-                staleNote = null
-                // 当天课表只做点缀：拿不到照样显示实时状态
-                val today = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
-                val schedule = withContext(Dispatchers.IO) {
-                    runCatching {
-                        api.getEmptyRoomsMulti(selectedCampus, snapshot.buildings.toSet(), today)
-                            .associateBy { it.name }
-                    }.getOrDefault(emptyMap())
-                }
-                if (isLatest()) liveSchedule = schedule
-            } catch (e: kotlin.coroutines.cancellation.CancellationException) {
-                android.util.Log.d("EmptyRoomScreen", "live gen=$myGen cancelled")
-            } catch (e: Exception) {
-                if (isLatest()) {
-                    val stale = liveApi?.readStale(selectedCampus)
-                    if (stale != null) {
-                        liveSnapshot = stale
-                        val ts = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(stale.fetchedAt)
-                        staleNote = "实时状态没刷出来，下面是 $ts 的状态（${rawError(e)}）"
-                        errorMessage = null
-                    } else {
-                        liveSnapshot = null
-                        staleNote = null
-                        errorMessage = rawError(e)
-                    }
-                }
-            } finally {
-                if (isLatest()) isLoading = false
-            }
-            return@LaunchedEffect
-        }
-
-        // [debounce] 用户在 BottomSheet 里连续勾选多个教学楼时，selectedBuildings 短时间变化多次。
-        // 350ms 防抖：连续操作只触发最后一次。这一步本身 suspend，coroutine cancel 会立即跳过。
-        kotlinx.coroutines.delay(350L)
-        if (!isLatest()) return@LaunchedEffect
-
-        val active = selectedBuildings.filter { it.isNotEmpty() }.toSet()
-        if (active.isEmpty()) {
-            rooms = emptyList()
-            isLoading = false
-            directProgress = null
-            return@LaunchedEffect
-        }
-
-        // 拆分 cache hit vs miss
-        val cacheDay = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
-        buildingCache.entries.removeAll { it.value.first != cacheDay || it.value.second.isEmpty() }
-        val cachedRows = mutableListOf<RoomInfo>()
-        val toFetch = mutableListOf<String>()
-        for (b in active) {
-            val sourceKey = if (useDirectQuery) "direct" else "cdn"
-            val key = "$sourceKey|$selectedCampus|$b|$selectedDate"
-            val hit = buildingCache[key]
-            if (!forceRefresh && hit != null && hit.first == cacheDay && hit.second.isNotEmpty()) {
-                cachedRows.addAll(hit.second)
-            } else {
-                buildingCache.remove(key)
-                toFetch.add(b)
-            }
-        }
-        // 全部命中 cache → 不发任何请求
-        if (toFetch.isEmpty()) {
-            android.util.Log.d("EmptyRoomScreen", "gen=$myGen all ${active.size} buildings cache hit")
-            rooms = cachedRows.sortedBy { it.name }
-            errorMessage = null
-            staleNote = null
-            isLoading = false
-            directProgress = null
-            return@LaunchedEffect
-        }
-
-        // 部分需要网络
-        isLoading = true
-        errorMessage = null
-        directProgress = null
-        try {
-            val queryResult: Pair<List<RoomInfo>, List<Pair<String, List<RoomInfo>>>> = withContext(Dispatchers.IO) {
-                if (useDirectQuery) {
-                    // 入口不再先登教务（默认数据源是实时状态），切到直查时才登
-                    val mgr = sessionManager ?: throw RuntimeException("直查教务暂不可用，可切换到 CDN 缓存")
-                    if (mgr.credentials == null) throw RuntimeException("直查教务需要先登录，未登录可切换到 CDN 缓存")
-                    val jwxtClient = mgr.ensureSite(com.xjtu.toolbox.auth.LoginType.JWXT, userInitiated = true).client
-                    val direct = if (forceRefresh) EmptyRoomDirectQuery(jwxtClient) else EmptyRoomDirectQuery(jwxtClient, emptyRoomCache)
-                    val merged = mutableListOf<RoomInfo>().also { it.addAll(cachedRows) }
-                    val fetched = mutableListOf<Pair<String, List<RoomInfo>>>()
-                    val totalBuildings = toFetch.size
-                    toFetch.forEachIndexed { idx, building ->
-                        if (!isLatest()) {
-                            throw kotlinx.coroutines.CancellationException("superseded by newer query")
-                        }
-                        try {
-                            val rows = direct.queryDay(selectedCampus, building, selectedDate) { period, total ->
-                                if (isLatest()) {
-                                    directProgress = (idx * total + period) to (totalBuildings * total)
-                                }
-                            }
-                            fetched.add(building to rows)
-                            merged.addAll(rows)
-                        } catch (e: NoDataException) {
-                            android.util.Log.w("EmptyRoomScreen", "direct skip $building: ${e.message}")
-                        }
-                    }
-                    merged.sortedBy { it.name } to fetched
-                } else {
-                    val cdnApi = if (forceRefresh) uncachedApi else api
-                    cdnApi.getEmptyRoomsMulti(selectedCampus, active, selectedDate) to emptyList<Pair<String, List<RoomInfo>>>()
-                }
-            }
-            val (result, fetchedRows) = queryResult
-            if (isLatest()) {
-                fetchedRows.forEach { (building, rowsForBuilding) ->
-                    if (rowsForBuilding.isNotEmpty()) {
-                        buildingCache["direct|$selectedCampus|$building|$selectedDate"] = cacheDay to rowsForBuilding
-                    }
-                }
-                rooms = result
-            }
-        } catch (e: kotlin.coroutines.cancellation.CancellationException) {
-            // 旧查询被新查询取代，不更新 UI；不再 rethrow（rethrow 会让 LaunchedEffect 抛异常）
-            android.util.Log.d("EmptyRoomScreen", "gen=$myGen cancelled (newer gen ${queryGeneration.get()})")
-        } catch (e: NoDataException) {
-            if (isLatest()) {
-                errorMessage = e.message
-                rooms = emptyList()
-                staleNote = null
-            }
-        } catch (e: Exception) {
-            if (isLatest()) {
-                // 有缓存就显示缓存（顶部黄条写明原因），没有才整页报错。
-                // 以前两者同时置上，报错块排在列表前面，读回来的缓存根本露不出来。
-                val reason = rawError(e)
-                errorMessage = if (fallbackToStaleCache(active, selectedDate, reason)) null else reason
-            }
-        } finally {
-            // 只有最新一代查询才能更新 isLoading=false，避免旧 coroutine 覆盖新 coroutine 的 isLoading=true
-            if (isLatest()) {
-                isLoading = false
-                directProgress = null
-            }
-        }
+        if (!isToday && smartFilter in listOf("现在空闲", "刚解放")) smartFilter = "全部"
     }
 
     // 智能排序 + 筛选
@@ -605,8 +289,8 @@ fun EmptyRoomScreen(
 
     // 实时状态的筛选与排序。楼的顺序跟平台一致（groupBy 保留首次出现顺序）。
     var liveFilter by rememberSaveable { mutableStateOf(LIVE_FILTERS.first()) }
-    val liveInScope = remember(liveSnapshot, liveEffective, selectedCampus) {
-        val snap = liveSnapshot?.takeIf { it.campus == selectedCampus } ?: return@remember emptyList()
+    val liveInScope = remember(vm.liveSnapshot, liveEffective, selectedCampus) {
+        val snap = vm.liveSnapshot?.takeIf { it.campus == selectedCampus } ?: return@remember emptyList()
         if (liveEffective.isEmpty()) snap.rooms else snap.rooms.filter { it.building in liveEffective }
     }
     val liveCounts = remember(liveInScope) {
@@ -689,12 +373,10 @@ fun EmptyRoomScreen(
                                     onClick = {
                                         showActionsMenu = false
                                         if (source != option) {
-                                            source = option
+                                            vm.selectSource(option)
                                             if (option == RoomSource.CDN && !credentialStore.hasReadEmptyRoomCdnTip) {
                                                 showCdnTip = true
                                             }
-                                            errorMessage = null
-                                            staleNote = null
                                         }
                                     },
                                     trailingIcon = {
@@ -759,12 +441,7 @@ fun EmptyRoomScreen(
                     AppSegmentedTabs(
                         tabs = campusNames.map { it.removeSuffix("校区") },
                         selectedTabIndex = selectedCampusIndex,
-                        onTabSelected = {
-                            selectedCampusName = campusNames.getOrElse(it) { selectedCampus }
-                            prefs.edit()
-                                .putString("empty_room_last_campus", selectedCampusName)
-                                .apply()
-                        },
+                        onTabSelected = vm::selectCampus,
                         embedded = true,
                     )
 
@@ -781,7 +458,7 @@ fun EmptyRoomScreen(
                     )
                     if (isLive && sheetBuildings.isEmpty()) {
                         Text(
-                            if (isLoading) "正在读取这个校区的楼…" else "这个校区的实时状态还没拿到",
+                            if (vm.isLoading) "正在读取这个校区的楼…" else "这个校区的实时状态还没拿到",
                             style = MiuixTheme.textStyles.body2,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             modifier = Modifier.padding(horizontal = 4.dp, vertical = 12.dp),
@@ -794,8 +471,7 @@ fun EmptyRoomScreen(
                         selected = allSelected,
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
                     ) {
-                        setSheetSelected(if (allSelected) setOf(sheetBuildings.firstOrNull() ?: "") else sheetBuildings.toSet())
-                        if (!isLive) persistBuildingSelection()
+                        vm.setSheetSelected(if (allSelected) setOf(sheetBuildings.firstOrNull() ?: "") else sheetBuildings.toSet())
                     }
                     HorizontalDivider(Modifier.padding(vertical = 4.dp))
                     val visibleBuildings = sheetBuildings
@@ -812,7 +488,7 @@ fun EmptyRoomScreen(
                                     selected = isSelected,
                                     modifier = Modifier.weight(1f)
                                 ) {
-                                    setSheetSelected(
+                                    vm.setSheetSelected(
                                         if (isSelected) {
                                             val newSet = sheetSelected - building
                                             if (newSet.isEmpty()) sheetSelected else newSet
@@ -820,7 +496,6 @@ fun EmptyRoomScreen(
                                             sheetSelected + building
                                         }
                                     )
-                                    if (!isLive) persistBuildingSelection()
                                 }
                             }
                             if (rowBuildings.size == 1) Spacer(Modifier.weight(1f))
@@ -851,16 +526,16 @@ fun EmptyRoomScreen(
         // 滑条是横向拖动，放进纵向列表里不会和滚动、下拉刷新抢手势。
         PullToRefresh(
             refreshTexts = com.xjtu.toolbox.ui.components.AppRefreshTexts,
-            isRefreshing = isLoading && (if (isLive) liveSnapshot != null else rooms.isNotEmpty()),
-            onRefresh = { refreshNonce.intValue++ },
+            isRefreshing = vm.isLoading && (if (isLive) vm.liveSnapshot != null else rooms.isNotEmpty()),
+            onRefresh = { vm.refresh() },
             pullToRefreshState = pullToRefreshState,
             topAppBarScrollBehavior = scrollBehavior,
             contentPadding = PaddingValues(top = glassTop),
             modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
         ) {
-            val groupedRooms = remember(displayRooms, selectedBuildings) {
+            val groupedRooms = remember(displayRooms, vm.selectedBuildings) {
                 displayRooms.groupBy { room ->
-                    selectedBuildings
+                    vm.selectedBuildings
                         .sortedByDescending { it.length }
                         .firstOrNull { room.name.startsWith(it) }
                         ?: room.name.substringBefore("-").substringBefore(" ")
@@ -898,9 +573,9 @@ fun EmptyRoomScreen(
                                     Text(
                                         if (isLive) {
                                             if (liveEffective.isEmpty()) "全部教学楼"
-                                            else liveBuildings.filter { it in liveEffective }.joinToString("、")
+                                            else vm.liveBuildings.filter { it in liveEffective }.joinToString("、")
                                         } else {
-                                            selectedBuildings.joinToString("、").ifEmpty { "选择教学楼" }
+                                            vm.selectedBuildings.joinToString("、").ifEmpty { "选择教学楼" }
                                         },
                                         style = MiuixTheme.textStyles.body2,
                                         fontWeight = FontWeight.Bold,
@@ -923,7 +598,7 @@ fun EmptyRoomScreen(
                                     )
                                 }
                                 if (isLive) {
-                                    val snap = liveSnapshot?.takeIf { it.campus == selectedCampus }
+                                    val snap = vm.liveSnapshot?.takeIf { it.campus == selectedCampus }
                                     Text(
                                         if (snap == null) "实时"
                                         else "实时 · " + java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(snap.fetchedAt),
@@ -940,7 +615,7 @@ fun EmptyRoomScreen(
                                 if (!isLive) availableDates.forEachIndexed { index, date ->
                                     AppFilterChip(
                                         selected = selectedDate == date,
-                                        onClick = { selectedDate = date },
+                                        onClick = { vm.selectDate(date) },
                                         label = when (index) {
                                             0 -> "今天"
                                             1 -> "明天"
@@ -973,7 +648,7 @@ fun EmptyRoomScreen(
                                     style = MiuixTheme.textStyles.footnote1,
                                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                 )
-                                if (isLoading && liveSnapshot != null) {
+                                if (vm.isLoading && vm.liveSnapshot != null) {
                                     Spacer(Modifier.height(8.dp))
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         CircularProgressIndicator(size = 12.dp, strokeWidth = 1.5.dp)
@@ -1037,13 +712,13 @@ fun EmptyRoomScreen(
                                     )
                                 }
                             }
-                            if (isLoading && rooms.isNotEmpty()) {
+                            if (vm.isLoading && rooms.isNotEmpty()) {
                                 Spacer(Modifier.height(8.dp))
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     CircularProgressIndicator(size = 12.dp, strokeWidth = 1.5.dp)
                                     Spacer(Modifier.width(6.dp))
                                     Text(
-                                        directProgress?.let { "直查教务更新中…${it.first}/${it.second}" }
+                                        vm.directProgress?.let { "直查教务更新中…${it.first}/${it.second}" }
                                             ?: "正在更新结果",
                                         style = MiuixTheme.textStyles.footnote1,
                                         color = MiuixTheme.colorScheme.primary,
@@ -1074,8 +749,8 @@ fun EmptyRoomScreen(
                 minColumnWidth = 320.dp,
             ) {
                 // 网络失败兜底提示：展示磁盘缓存 + 「缓存于 HH:mm」标识。
-                // 与下面 errorMessage 的区别：errorMessage 是红字无数据；staleNote 是黄底有数据可看。
-                staleNote?.let { note ->
+                // 与下面 vm.errorMessage 的区别：vm.errorMessage 是红字无数据；vm.staleNote 是黄底有数据可看。
+                vm.staleNote?.let { note ->
                     fullLineItem(key = "stale") {
                         Surface(
                             color = MiuixTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f),
@@ -1113,12 +788,11 @@ fun EmptyRoomScreen(
                     }
                 }
                 val switchToCdn: () -> Unit = {
-                    source = RoomSource.CDN
-                    errorMessage = null
+                    vm.selectSource(RoomSource.CDN)
                     if (!credentialStore.hasReadEmptyRoomCdnTip) showCdnTip = true
                 }
                 if (isLive) when {
-                    isLoading && liveInScope.isEmpty() -> stateBox {
+                    vm.isLoading && liveInScope.isEmpty() -> stateBox {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             com.xjtu.toolbox.ui.components.MorphingLoader()
                             Spacer(Modifier.height(8.dp))
@@ -1126,14 +800,14 @@ fun EmptyRoomScreen(
                         }
                     }
 
-                    errorMessage != null -> stateBox {
+                    vm.errorMessage != null -> stateBox {
                         RoomStateBlock(
                             icon = Icons.Outlined.CloudOff,
                             title = "实时状态加载失败",
-                            detail = errorMessage,
+                            detail = vm.errorMessage,
                             isError = true,
                             primaryLabel = "重试",
-                            onPrimary = { refreshNonce.intValue++ },
+                            onPrimary = { vm.refresh() },
                             secondaryLabel = "改用 CDN 课表",
                             onSecondary = switchToCdn,
                         )
@@ -1178,16 +852,16 @@ fun EmptyRoomScreen(
                                 }
                             }
                             itemsIndexed(buildingRooms, key = { _, it -> "live_${it.name}" }) { i, room ->
-                                Box(Modifier.enterOnce(i + 1)) { LiveRoomCard(room, liveSchedule[room.name], nowPeriod) }
+                                Box(Modifier.enterOnce(i + 1)) { LiveRoomCard(room, vm.liveSchedule[room.name], nowPeriod) }
                             }
                         }
                     }
                 } else when {
-                    isLoading && rooms.isEmpty() -> stateBox {
+                    vm.isLoading && rooms.isEmpty() -> stateBox {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             com.xjtu.toolbox.ui.components.MorphingLoader()  // 整页加载统一用形变加载器
                             Spacer(Modifier.height(8.dp))
-                            val pg = directProgress
+                            val pg = vm.directProgress
                             Text(
                                 if (pg != null) "直查教务更新中…${pg.first}/${pg.second}" else "正在查询...",
                                 style = MiuixTheme.textStyles.body2,
@@ -1195,18 +869,18 @@ fun EmptyRoomScreen(
                         }
                     }
 
-                    errorMessage != null -> stateBox {
+                    vm.errorMessage != null -> stateBox {
                         RoomStateBlock(
                             icon = Icons.Outlined.CloudOff,
-                            title = if (useDirectQuery) "直查教务失败" else "课表数据加载失败",
-                            detail = errorMessage,
+                            title = if (source == RoomSource.DIRECT) "直查教务失败" else "课表数据加载失败",
+                            detail = vm.errorMessage,
                             isError = true,
                             primaryLabel = "重试",
-                            onPrimary = { refreshNonce.intValue++ },
+                            onPrimary = { vm.refresh() },
                         )
                     }
 
-                    rooms.isEmpty() && selectedBuildings.all { it.isEmpty() } -> stateBox {
+                    rooms.isEmpty() && vm.selectedBuildings.all { it.isEmpty() } -> stateBox {
                         RoomStateBlock(
                             icon = Icons.Default.Apartment,
                             title = "选择教学楼后自动查询",
@@ -1515,7 +1189,7 @@ private fun LiveRoomCard(room: LiveRoom, schedule: RoomInfo?, currentPeriod: Int
 // ══════ 加载失败 / 空结果 ══════
 
 /** 报错不翻译：原文最准。没有 message 的给类名，至少知道是哪一类错。 */
-private fun rawError(e: Throwable): String =
+internal fun rawError(e: Throwable): String =
     e.message?.trim()?.takeIf { it.isNotEmpty() } ?: e.javaClass.simpleName
 
 /**
