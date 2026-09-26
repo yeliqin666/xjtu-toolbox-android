@@ -8,8 +8,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.xjtu.toolbox.auth.AuthExpiredException
 import com.xjtu.toolbox.auth.SiteSession
-import com.xjtu.toolbox.util.AppDatabase
-import com.xjtu.toolbox.util.DataCache
+import com.xjtu.toolbox.data.AppDatabase
+import com.xjtu.toolbox.data.DataCache
 import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job

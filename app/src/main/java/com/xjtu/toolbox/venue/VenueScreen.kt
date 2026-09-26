@@ -24,12 +24,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.runtime.*
-import com.xjtu.toolbox.LocalAppLoginState
-import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.auth.AuthExpiredException
-import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
@@ -48,7 +45,7 @@ import com.xjtu.toolbox.ui.glass.*
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
-import com.xjtu.toolbox.util.CredentialStore
+import com.xjtu.toolbox.data.CredentialStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -56,9 +53,9 @@ import kotlin.coroutines.cancellation.CancellationException
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import com.xjtu.toolbox.nav.AppRoute
 
 /**
  * 体育场馆预订主页面
@@ -145,7 +142,7 @@ fun VenueScreen(
                 val result = withContext(Dispatchers.IO) { api.fetchVenueList() }
                 venues = result
             } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(LoginType.VENUE, Routes.VENUE, onBack)
+                appLoginState.handleAuthExpired(AppRoute.Venue, onBack)
             } catch (e: Exception) {
                 venueError = e.message ?: "加载场馆列表失败"
             } finally {
@@ -166,7 +163,7 @@ fun VenueScreen(
                 val ok = withContext(Dispatchers.IO) { api.fetchAvailableSlots(venueId, date) }
                 availableSlots = ok
             } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(LoginType.VENUE, Routes.VENUE, onBack)
+                appLoginState.handleAuthExpired(AppRoute.Venue, onBack)
             } catch (e: Exception) {
                 slotsError = e.message ?: "加载时段失败"
             } finally {
@@ -273,7 +270,7 @@ fun VenueScreen(
                 nextOrderPage = result.page + 1
                 ordersHasMore = result.hasMore
             } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(LoginType.VENUE, Routes.VENUE, onBack)
+                appLoginState.handleAuthExpired(AppRoute.Venue, onBack)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -294,7 +291,7 @@ fun VenueScreen(
                 Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
                 if (result.success && selectedTab == 1) loadOrders(reset = true)
             } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(LoginType.VENUE, Routes.VENUE, onBack)
+                appLoginState.handleAuthExpired(AppRoute.Venue, onBack)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -349,7 +346,7 @@ fun VenueScreen(
                 if (requestToken == captchaRequestToken) {
                     showCaptchaDialog.value = false
                     captchaRequestToken++
-                    appLoginState.handleAuthExpired(LoginType.VENUE, Routes.VENUE, onBack)
+                    appLoginState.handleAuthExpired(AppRoute.Venue, onBack)
                 }
             } catch (e: Exception) {
                 if (requestToken == captchaRequestToken) {
@@ -385,7 +382,7 @@ fun VenueScreen(
                 if (requestToken == captchaRequestToken) {
                     showCaptchaDialog.value = false
                     captchaRequestToken++
-                    appLoginState.handleAuthExpired(LoginType.VENUE, Routes.VENUE, onBack)
+                    appLoginState.handleAuthExpired(AppRoute.Venue, onBack)
                 }
             } catch (e: Exception) {
                 if (requestToken == captchaRequestToken) {

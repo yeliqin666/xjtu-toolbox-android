@@ -42,12 +42,13 @@ import com.xjtu.toolbox.emptyroom.RoomInfo
 import com.xjtu.toolbox.schedule.CourseItem
 import com.xjtu.toolbox.schedule.ExamItem
 import com.xjtu.toolbox.score.ReportedGrade
-import com.xjtu.toolbox.util.XjtuTime
+import com.xjtu.toolbox.schedule.XjtuTime
 import top.yukonga.miuix.kmp.basic.Text
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import com.xjtu.toolbox.nav.AppRoute
 
 /**
  * Agent 回复可携带的富控件。工具执行时由 [AgentToolRegistry] 产出结构化数据，
@@ -197,7 +198,7 @@ fun AgentWidgetView(
     widget: AgentWidget,
     modifier: Modifier = Modifier,
     onAsk: (String) -> Unit = {},
-    onNavigate: (String) -> Unit = {},
+    onNavigate: (AppRoute) -> Unit = {},
 ) {
     when (widget) {
         is LibraryWidget    -> LibraryWidgetView(widget, modifier, onNavigate)
@@ -385,7 +386,7 @@ private fun ScheduleWidgetView(w: ScheduleWidget, modifier: Modifier) {
             if (byDay.size > 1) WidgetGroupLabel(DAY_NAMES.getOrElse(day) { "" })
             list.forEach { c ->
                 val (start, end) = courseClock(c)
-                val color = com.xjtu.toolbox.ui.courseColor(c.courseName, names)
+                val color = com.xjtu.toolbox.schedule.courseColor(c.courseName, names)
                 Row(
                     Modifier.fillMaxWidth().padding(vertical = 5.dp).height(IntrinsicSize.Min),
                     verticalAlignment = Alignment.CenterVertically,
@@ -764,7 +765,7 @@ private val FOLDER_TINT = Color(0xFFE0A030)
 // ── 图书馆平面图 ──────────────────────────────────────────────────────────
 
 @Composable
-private fun LibraryWidgetView(w: LibraryWidget, modifier: Modifier, onNavigate: (String) -> Unit) {
+private fun LibraryWidgetView(w: LibraryWidget, modifier: Modifier, onNavigate: (AppRoute) -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val dark = LocalIsDarkTheme.current
     // 底图工具执行时已经进了磁盘缓存；历史会话里缓存过期被清掉了，就只剩文字
@@ -801,7 +802,7 @@ private fun LibraryWidgetView(w: LibraryWidget, modifier: Modifier, onNavigate: 
             com.xjtu.toolbox.library.LibraryFocus.request(
                 com.xjtu.toolbox.library.LibraryFocus.Target(w.campusId, w.areaCode)
             )
-            onNavigate(com.xjtu.toolbox.Routes.LIBRARY)
+            onNavigate(AppRoute.Library)
         },
     ) {
         val d = decoded

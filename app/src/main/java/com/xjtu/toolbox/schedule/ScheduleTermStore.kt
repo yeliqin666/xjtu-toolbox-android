@@ -2,9 +2,7 @@ package com.xjtu.toolbox.schedule
 
 import com.google.gson.Gson
 import com.google.gson.JsonObject
-import com.xjtu.toolbox.util.DataCache
-import com.xjtu.toolbox.util.XjtuTime
-
+import com.xjtu.toolbox.data.DataCache
 /**
  * 学期可读名：与日程页同一来源。
  * 优先教务学期列表/当前学期接口里的 `MC`，没有才用代码末位译名。

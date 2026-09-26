@@ -121,7 +121,7 @@ jobs:
           python3 - <<'PY' > /tmp/release_body.md
           import re, sys, os
           ver = "${{ steps.version.outputs.version }}"
-          src = open('app/src/main/java/com/xjtu/toolbox/util/AppChangelog.kt', encoding='utf-8').read()
+          src = open('app/src/main/java/com/xjtu/toolbox/update/AppChangelog.kt', encoding='utf-8').read()
           # 匹配 "X.Y.Z" to VersionChangelog( ... ),
           pattern = rf'"{re.escape(ver)}"\s*to\s*VersionChangelog\((.*?)\n\s*\)\s*,?\s*(?:"|//|$)'
           m = re.search(pattern, src, re.S)
@@ -279,7 +279,7 @@ jobs:
           fi
           # 防呆：AppChangelog 启动时 require 当前版本（预览版按 X.Y.Z 匹配）有条目，
           # 缺了的话构建照样成功，但每个装上预览版的人一打开就崩。
-          if ! grep -qE "\"${BASE//./\\.}\"[[:space:]]*to[[:space:]]*VersionChangelog" app/src/main/java/com/xjtu/toolbox/util/AppChangelog.kt; then
+          if ! grep -qE "\"${BASE//./\\.}\"[[:space:]]*to[[:space:]]*VersionChangelog" app/src/main/java/com/xjtu/toolbox/update/AppChangelog.kt; then
             echo "::error::AppChangelog.kt 缺少 \"$BASE\" 条目，预览包会启动即崩。升版本号时请同时在 ENTRIES 顶部加一个条目（可先占位）"
             exit 1
           fi

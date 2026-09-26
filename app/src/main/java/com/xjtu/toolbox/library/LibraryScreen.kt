@@ -9,7 +9,6 @@ import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
@@ -31,9 +30,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.horizontalScroll
@@ -43,30 +39,23 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.EventSeat
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.runtime.*
-import com.xjtu.toolbox.LocalAppLoginState
-import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.auth.AuthExpiredException
-import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import top.yukonga.miuix.kmp.utils.SinkFeedback
 import androidx.compose.foundation.layout.FlowRow
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
@@ -78,6 +67,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.cancellation.CancellationException
+import com.xjtu.toolbox.nav.AppRoute
 
 // ══════ 收藏座位 ══════
 
@@ -288,7 +278,7 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                 }
             } catch (e: CancellationException) { throw e }
             catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(LoginType.LIBRARY, Routes.LIBRARY, onBack)
+                appLoginState.handleAuthExpired(AppRoute.Library, onBack)
             }
             catch (e: Exception) {
                 if (generation == seatLoadGeneration.get()) {
@@ -354,7 +344,7 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(LoginType.LIBRARY, Routes.LIBRARY, onBack)
+                appLoginState.handleAuthExpired(AppRoute.Library, onBack)
             } catch (e: Exception) {
                 if (gen == planGeneration.get()) planError = e.message ?: "平面图加载失败"
             }
@@ -401,7 +391,7 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(LoginType.LIBRARY, Routes.LIBRARY, onBack)
+                appLoginState.handleAuthExpired(AppRoute.Library, onBack)
                 isLoading = false
             } catch (e: Exception) {
                 floorAreas = emptyMap()

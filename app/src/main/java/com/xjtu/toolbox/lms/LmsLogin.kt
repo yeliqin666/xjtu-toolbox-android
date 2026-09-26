@@ -48,7 +48,7 @@ class LmsLogin(
         val finalUrl = response.request.url.toString()
         Log.d(TAG, "postLogin: finalUrl=${finalUrl.redactUrl()}")
 
-        if (com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(finalUrl, "lms.xjtu.edu.cn")) {
+        if (com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(finalUrl, "lms.xjtu.edu.cn")) {
             sessionValid = true
             Log.d(TAG, "postLogin: session established via redirect chain")
             return
@@ -65,7 +65,7 @@ class LmsLogin(
             val indexFinalUrl = indexResp.request.url.toString()
             indexResp.close()
 
-            sessionValid = com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(indexFinalUrl, "lms.xjtu.edu.cn")
+            sessionValid = com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(indexFinalUrl, "lms.xjtu.edu.cn")
             Log.d(TAG, "postLogin: manual access finalUrl=${indexFinalUrl.redactUrl()}, valid=$sessionValid")
         } catch (e: Exception) {
             Log.e(TAG, "postLogin: manual access failed", e)
@@ -137,7 +137,7 @@ class LmsLogin(
         try {
             val result = casAuthenticate("$BASE_URL/user/index") ?: return false
             val (_, finalUrl) = result
-            sessionValid = com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(finalUrl, "lms.xjtu.edu.cn")
+            sessionValid = com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(finalUrl, "lms.xjtu.edu.cn")
             Log.d(TAG, "reAuthenticate: CAS re-auth, finalUrl=${finalUrl.redactUrl()}, valid=$sessionValid")
             return sessionValid
         } catch (e: Exception) {

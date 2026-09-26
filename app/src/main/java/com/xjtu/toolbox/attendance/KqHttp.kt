@@ -65,7 +65,7 @@ internal object KqHttp {
         // 基址存的是原始域名；校外要经网关才够得着，在这里统一改写。
         // 漏掉这一步的话登录走了网关、业务请求还在直连，照样连不上。
         return if (site.currentAccessMode == com.xjtu.toolbox.auth.AccessMode.WEBVPN) {
-            com.xjtu.toolbox.util.WebVpnUtil.getVpnUrl(plain)
+            com.xjtu.toolbox.webvpn.WebVpnUtil.getVpnUrl(plain)
         } else {
             plain
         }

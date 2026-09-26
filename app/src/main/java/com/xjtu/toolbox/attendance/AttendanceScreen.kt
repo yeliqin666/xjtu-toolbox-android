@@ -47,14 +47,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.LocalAppLoginState
-import com.xjtu.toolbox.Routes
-import com.xjtu.toolbox.attendance.AttendanceStream
-import com.xjtu.toolbox.attendance.AttendanceWaterRecord
-import com.xjtu.toolbox.attendance.CourseAttendanceStat
-import com.xjtu.toolbox.attendance.TermInfo
+import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.auth.AuthExpiredException
-import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.handleAuthExpired
 import com.xjtu.toolbox.ui.components.AppCardColor
@@ -63,7 +57,6 @@ import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.components.AppTabPager
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
-import com.xjtu.toolbox.ui.components.LoadingState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -97,6 +90,7 @@ import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
+import com.xjtu.toolbox.nav.AppRoute
 
 private data class AttendanceSnapshot(
     val studentName: String,
@@ -138,7 +132,7 @@ fun AttendanceScreen(
     var pendingAction by remember { mutableStateOf<Pair<LeaveAction, LeaveRecord>?>(null) }
     var loadJob by remember { mutableStateOf<Job?>(null) }
 
-    fun expired() = appLoginState.handleAuthExpired(LoginType.ATTENDANCE, Routes.ATTENDANCE, onBack)
+    fun expired() = appLoginState.handleAuthExpired(AppRoute.Attendance, onBack)
 
     fun load(fromPull: Boolean = false) {
         loadJob?.cancel()

@@ -3,7 +3,7 @@ package com.xjtu.toolbox.jiaocai
 import com.xjtu.toolbox.util.redactBody
 import android.util.Log
 import com.xjtu.toolbox.auth.SiteSession
-import com.xjtu.toolbox.util.PortalRedirect
+import com.xjtu.toolbox.auth.PortalRedirect
 import com.xjtu.toolbox.util.safeParseJsonObject
 import com.xjtu.toolbox.util.safeString
 import com.xjtu.toolbox.util.safeInt

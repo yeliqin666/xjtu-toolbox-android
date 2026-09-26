@@ -34,10 +34,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.LocalAppLoginState
-import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.auth.AuthExpiredException
-import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.handleAuthExpired
 import com.xjtu.toolbox.ui.components.AppCardColor
@@ -63,6 +61,7 @@ import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import java.time.LocalDate
+import com.xjtu.toolbox.nav.AppRoute
 
 /**
  * 人脸识别签到查询页。
@@ -94,7 +93,7 @@ fun IclassfaceScreen(
             try {
                 records = withContext(Dispatchers.IO) { api.fetchRecords(date) }
             } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(LoginType.ICLASSFACE, Routes.ICLASSFACE, onBack)
+                appLoginState.handleAuthExpired(AppRoute.Iclassface, onBack)
             } catch (e: Exception) {
                 error = e.message ?: "查询失败"
             } finally {

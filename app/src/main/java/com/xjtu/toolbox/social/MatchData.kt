@@ -7,7 +7,7 @@ import com.xjtu.toolbox.hello.HelloProfileStore
 import com.xjtu.toolbox.schedule.CourseItem
 import com.xjtu.toolbox.schedule.ExamItem
 import com.xjtu.toolbox.schedule.TextbookItem
-import com.xjtu.toolbox.util.DataCache
+import com.xjtu.toolbox.data.DataCache
 
 /**
  * 匹配交友的取数层。

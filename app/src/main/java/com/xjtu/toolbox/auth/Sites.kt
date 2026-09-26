@@ -2,13 +2,10 @@ package com.xjtu.toolbox.auth
 
 import android.util.Log
 import com.xjtu.toolbox.util.safeParseJsonObject
-import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.IOException
-import java.net.URLDecoder
 
 // ─────────────────────────────────────────────────────────────────────
 //  13 个业务子系统的 SiteSession 实现。
@@ -38,7 +35,7 @@ class JwxtSession : CasSiteSession("jwxt", "教务系统", mustUseWebVpn = false
             // WebVPN 下被踢回 CAS 时 URL 是 webvpn.xjtu.edu.cn/https/{加密login域名}/cas/login…，
             // 明文 "login.xjtu.edu.cn" 不出现，`!in` 反而成立 → 失效会话被误判为"仍然有效"，
             // 于是跳过重登，后续接口拿到的是登录页。isAtTargetSite 兼容直连/WebVPN 两种模式。
-            resp.code == 200 && com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(finalUrl, "jwxt.xjtu.edu.cn")
+            resp.code == 200 && com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(finalUrl, "jwxt.xjtu.edu.cn")
         } finally { resp.close() }
     }
 
@@ -131,7 +128,7 @@ class LibrarySession : CasSiteSession("library", "图书馆", mustUseWebVpn = tr
             val finalUrl = resp.request.url.toString()
             // 同 JwxtSession：WebVPN 下明文域名判断会把失效会话误判为有效。
             resp.code in 200..399 &&
-                com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(finalUrl, "rg.lib.xjtu.edu.cn")
+                com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(finalUrl, "rg.lib.xjtu.edu.cn")
         } finally { resp.close() }
     }
 }
@@ -522,11 +519,11 @@ private class LandingCasLogin(
     cachedRsaKey: String?,
 ) : XJTULogin(entryUrl, existingClient, visitorId, cachedRsaKey) {
     override fun postLogin(response: Response) {
-        if (com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(response.request.url.toString(), targetHost)) return
+        if (com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(response.request.url.toString(), targetHost)) return
         client.newCall(Request.Builder().url(entryUrl).get().build()).execute().use { retry ->
             val body = retry.body?.string().orEmpty()
             if (XJTULogin.isSafetyVerifyPage(body)) throw SafetyVerifyRequiredException(retry, body)
-            if (!com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(retry.request.url.toString(), targetHost)) {
+            if (!com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(retry.request.url.toString(), targetHost)) {
                 throw IOException("$targetHost SSO 未完成跳转，需要重新登录")
             }
         }
@@ -546,7 +543,7 @@ class GsteSession : CasSiteSession("gste", "研究生评教", mustUseWebVpn = tr
     override suspend fun validateLogin(): Boolean = withIo {
         client.newCall(Request.Builder().url(LIST_URL).get().build()).execute().use { resp ->
             resp.code == 200 &&
-                com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(resp.request.url.toString(), "gste.xjtu.edu.cn") &&
+                com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(resp.request.url.toString(), "gste.xjtu.edu.cn") &&
                 resp.body?.string().orEmpty().trimStart().startsWith("[")
         }
     }
@@ -567,7 +564,7 @@ class GmisSession : CasSiteSession("gmis", "研究生管理信息系统", mustUs
     override suspend fun validateLogin(): Boolean = withIo {
         client.newCall(Request.Builder().url(SCORE_URL).get().build()).execute().use { resp ->
             resp.code == 200 &&
-                com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(resp.request.url.toString(), "gmis.xjtu.edu.cn")
+                com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(resp.request.url.toString(), "gmis.xjtu.edu.cn")
         }
     }
 

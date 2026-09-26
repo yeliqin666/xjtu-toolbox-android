@@ -48,7 +48,7 @@ fun FitnessYear.yearValue(): Int? =
  */
 fun orderedFitnessYears(
     years: List<FitnessYear>,
-    academicYear: Int = com.xjtu.toolbox.util.XjtuTime.currentAcademicYear(),
+    academicYear: Int = com.xjtu.toolbox.schedule.XjtuTime.currentAcademicYear(),
 ): List<FitnessYear> {
     val ranked = years.sortedByDescending { it.yearValue() ?: Int.MIN_VALUE }
     val eligible = ranked.filter { (it.yearValue() ?: Int.MAX_VALUE) <= academicYear }
@@ -71,7 +71,7 @@ fun parseFitnessAcademicYear(raw: String?): Int? {
 fun pickFitnessYear(
     years: List<FitnessYear>,
     yearKey: String?,
-    academicYear: Int = com.xjtu.toolbox.util.XjtuTime.currentAcademicYear(),
+    academicYear: Int = com.xjtu.toolbox.schedule.XjtuTime.currentAcademicYear(),
 ): FitnessYear? {
     val ordered = orderedFitnessYears(years, academicYear)
     val want = parseFitnessAcademicYear(yearKey) ?: return ordered.firstOrNull()

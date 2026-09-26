@@ -2,12 +2,11 @@ package com.xjtu.toolbox.agent
 
 import android.content.Intent
 import android.provider.AlarmClock
-import android.provider.CalendarContract
 import android.content.Context
 import com.google.gson.Gson
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
-import com.xjtu.toolbox.AppLoginState
+import com.xjtu.toolbox.auth.AppLoginState
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.SiteSession
@@ -26,10 +25,9 @@ import com.xjtu.toolbox.schedule.CourseItem
 import com.xjtu.toolbox.schedule.ScheduleApi
 import com.xjtu.toolbox.schedule.ScheduleCache
 import com.xjtu.toolbox.score.ScoreReportApi
-import com.xjtu.toolbox.util.CredentialStore
-import com.xjtu.toolbox.util.DataCache
-import com.xjtu.toolbox.util.XjtuTime
-import kotlinx.coroutines.CompletableDeferred
+import com.xjtu.toolbox.data.CredentialStore
+import com.xjtu.toolbox.data.DataCache
+import com.xjtu.toolbox.schedule.XjtuTime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -40,7 +38,6 @@ import kotlinx.coroutines.sync.withLock
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
-import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 /**
@@ -155,7 +152,7 @@ class AgentToolRegistry(
      */
     suspend fun userContext(allowNetwork: Boolean = true): String = withContext(Dispatchers.IO) {
         val sid = loginState.activeUsername
-        var name = runCatching { com.xjtu.toolbox.util.CredentialStore(context).loadNickname() }
+        var name = runCatching { com.xjtu.toolbox.data.CredentialStore(context).loadNickname() }
             .getOrNull()?.takeIf { it.isNotBlank() }
         var college: String? = null
         runCatching { com.xjtu.toolbox.card.CampusCardCache.load(context)?.cardInfo }.getOrNull()?.let { ci ->
@@ -165,7 +162,7 @@ class AgentToolRegistry(
         // 一网通办那一趟是这里唯一的网络开销，所以单独把结果记下来：姓名和学院是死数据，
         // 记住了就不必再为它联网。缓存目录本身按账号隔离，不会串到别的账号。
         if (name.isNullOrBlank() || college.isNullOrBlank()) {
-            dataCache.get(YWTB_IDENTITY_KEY, com.xjtu.toolbox.util.DataCache.TERM_TTL_MS)?.let { json ->
+            dataCache.get(YWTB_IDENTITY_KEY, com.xjtu.toolbox.data.DataCache.TERM_TTL_MS)?.let { json ->
                 runCatching { gson.fromJson(json, YwtbIdentity::class.java) }.getOrNull()?.let { id ->
                     if (name.isNullOrBlank()) name = id.name.takeIf { it.isNotBlank() }
                     if (college.isNullOrBlank()) college = id.college.takeIf { it.isNotBlank() }
@@ -195,7 +192,7 @@ class AgentToolRegistry(
         name?.let { lines.add("- 姓名：$it") }
         if (sid.isNotBlank()) {
             val enrollYear = sid.getOrNull(1)?.let { a -> sid.getOrNull(2)?.let { b -> "20$a$b" } }
-            val province = com.xjtu.toolbox.util.ProvinceCode.of(sid)
+            val province = com.xjtu.toolbox.account.ProvinceCode.of(sid)
             lines.add(buildString {
                 append("- 学号：$sid")
                 enrollYear?.let { append("（${it} 级，$it 年秋入学）") }
@@ -208,7 +205,7 @@ class AgentToolRegistry(
                 if (y != null && termStart != null && termNo != null && termStart >= y) {
                     val grade = termStart - y + 1
                     val postgrad = runCatching {
-                        com.xjtu.toolbox.util.CredentialStore(context).accountType == AccountType.POSTGRADUATE
+                        com.xjtu.toolbox.data.CredentialStore(context).accountType == AccountType.POSTGRADUATE
                     }.getOrDefault(false)
                     val names = if (postgrad) listOf("研一", "研二", "研三") else listOf("大一", "大二", "大三", "大四", "大五")
                     val gradeName = names.getOrElse(grade - 1) { "入学第 $grade 年" }
@@ -854,7 +851,7 @@ class AgentToolRegistry(
     private fun cachedTermCode(): String? = ScheduleCache.readCurrentTerm(dataCache, gson)
 
     private fun cachedStartDate(term: String): String? = runCatching {
-        gson.fromJson(dataCache.get("start_date_$term", com.xjtu.toolbox.util.DataCache.TERM_TTL_MS), String::class.java)
+        gson.fromJson(dataCache.get("start_date_$term", com.xjtu.toolbox.data.DataCache.TERM_TTL_MS), String::class.java)
     }.getOrNull()
 
     private suspend fun getSchoolCalendar(term: String?): String {
@@ -1088,7 +1085,7 @@ class AgentToolRegistry(
             ?: return ToolReply.failed("get_schedule", "bad_cache")
         // 合并该学期用户手动添加的日程（历史学期同样按该学期读取）
         val customCourses = runCatching {
-            com.xjtu.toolbox.util.AppDatabase.getInstance(context)
+            com.xjtu.toolbox.data.AppDatabase.getInstance(context)
                 .customCourseDao()
                 .getByTerm(com.xjtu.toolbox.account.AccountContext.activeAccountId ?: "", termCode)
                 .map { it.toCourseItem() }
@@ -1396,13 +1393,13 @@ class AgentToolRegistry(
 
             // 加权平均绩点：按学分加权，仅统计有绩点的课程。
             val contributions = grades.map { g ->
-                com.xjtu.toolbox.util.ScoreCalculator.calculateOneCourseContribution(
+                com.xjtu.toolbox.score.ScoreCalculator.calculateOneCourseContribution(
                     rawScore = g.score,
                     credit = g.coursePoint,
                     reportedGpa = g.gpa,
                 )
             }
-            val (weightedGpaSum, totalPoints) = com.xjtu.toolbox.util.ScoreCalculator.accumulate(contributions.asSequence())
+            val (weightedGpaSum, totalPoints) = com.xjtu.toolbox.score.ScoreCalculator.accumulate(contributions.asSequence())
             val gpa = if (totalPoints > 0) weightedGpaSum / totalPoints else null
             // 加权均分只算数值成绩；等级制、通过/不通过算不进去，数出来告诉模型，免得它以为漏了课
             val numeric = grades.mapNotNull { g -> g.score.trim().toDoubleOrNull()?.let { it to g.coursePoint } }
@@ -1492,13 +1489,13 @@ class AgentToolRegistry(
     private fun identityNoticeSources(): List<com.xjtu.toolbox.notification.NotificationSource> {
         val src = com.xjtu.toolbox.notification.NotificationSource
         val postgrad = runCatching {
-            com.xjtu.toolbox.util.CredentialStore(context).accountType == AccountType.POSTGRADUATE
+            com.xjtu.toolbox.data.CredentialStore(context).accountType == AccountType.POSTGRADUATE
         }.getOrDefault(false)
         val profile = runCatching { com.xjtu.toolbox.hello.HelloProfileStore.cached(context) }.getOrNull()
         val college = listOfNotNull(
             profile?.departmentName,
             runCatching { com.xjtu.toolbox.card.CampusCardCache.load(context)?.cardInfo?.department }.getOrNull(),
-            dataCache.get(YWTB_IDENTITY_KEY, com.xjtu.toolbox.util.DataCache.TERM_TTL_MS)?.let { json ->
+            dataCache.get(YWTB_IDENTITY_KEY, com.xjtu.toolbox.data.DataCache.TERM_TTL_MS)?.let { json ->
                 runCatching { gson.fromJson(json, YwtbIdentity::class.java)?.college }.getOrNull()
             },
         ).firstNotNullOfOrNull { src.forOrg(it) }
@@ -2492,7 +2489,7 @@ class AgentToolRegistry(
     }
 
     private fun getAppSettings(): String {
-        val cs = com.xjtu.toolbox.util.CredentialStore(context)
+        val cs = com.xjtu.toolbox.data.CredentialStore(context)
         return buildString {
             append("当前应用设置：\n")
             append("• dark_mode（深色模式）：${cs.darkMode}　可选 system/light/dark\n")
@@ -2504,27 +2501,25 @@ class AgentToolRegistry(
             append("• network_mode（网络模式）：${cs.networkMode}　可选 auto/direct/vpn\n")
             append("• account_type（账号类型）：${cs.accountType.key}　可选 undergraduate/postgraduate\n")
             append("• venue_auto_solve_captcha（场馆验证码自动识别）：${cs.venueAutoSolveCaptchaEnabled}　可选 true/false\n")
-            append("• update_channel（更新通道）：${cs.updateChannel}（${com.xjtu.toolbox.util.AppUpdater.channelLabel(cs.updateChannel)}）　可选 ${com.xjtu.toolbox.util.AppUpdater.channelKeys.joinToString("/")}\n")
+            append("• update_channel（更新通道）：${cs.updateChannel}（${com.xjtu.toolbox.update.AppUpdater.channelLabel(cs.updateChannel)}）　可选 ${com.xjtu.toolbox.update.AppUpdater.channelKeys.joinToString("/")}\n")
             append("• receive_preview_updates（接收预览版更新）：${cs.receivePreviewUpdates}　可选 true/false")
         }
     }
 
     private fun setAppSetting(key: String, value: String): String {
-        val cs = com.xjtu.toolbox.util.CredentialStore(context)
+        val cs = com.xjtu.toolbox.data.CredentialStore(context)
         return when (key.trim()) {
             "dark_mode" -> {
                 val v = value.trim().lowercase()
                 if (v !in listOf("system", "light", "dark")) ToolReply.badValue("dark_mode", "system/light/dark")
                 else {
                     cs.darkMode = v
-                    AgentRuntimeHooks.applyDarkMode?.invoke(v)
                     "已将深色模式设为 $v（已即时生效）。"
                 }
             }
             "dynamic_color" -> {
                 val b = parseBoolSetting(value) ?: return ToolReply.badValue("dynamic_color", "true/false")
                 cs.dynamicColor = b
-                AgentRuntimeHooks.applyDynamicColor?.invoke(b)
                 "已${if (b) "开启" else "关闭"}跟随系统取色（已即时生效）。"
             }
             "home_theme" -> {
@@ -2534,7 +2529,6 @@ class AgentToolRegistry(
                     else -> return ToolReply.badValue("home_theme", "card/icon")
                 }
                 cs.homeTheme = v
-                AgentRuntimeHooks.applyHomeTheme?.invoke(v)
                 "已将首页主题设为 $v（已即时生效）。"
             }
             "nav_bar_style" -> {
@@ -2544,13 +2538,11 @@ class AgentToolRegistry(
                     else -> return ToolReply.badValue("nav_bar_style", "floating/classic")
                 }
                 cs.navBarStyle = v
-                AgentRuntimeHooks.applyNavBarStyle?.invoke(v)
                 "已将界面风格设为 $v（已即时生效）。"
             }
             "show_quick_actions" -> {
                 val b = parseBoolSetting(value) ?: return ToolReply.badValue("show_quick_actions", "true/false")
                 cs.showQuickActions = b
-                AgentRuntimeHooks.applyShowQuickActions?.invoke(b)
                 "已${if (b) "显示" else "隐藏"}首页常用功能（已即时生效）。"
             }
             "default_tab" -> {
@@ -2584,13 +2576,13 @@ class AgentToolRegistry(
             }
             "update_channel" -> {
                 val raw = value.trim().lowercase()
-                val accepted = com.xjtu.toolbox.util.AppUpdater.channelKeys + listOf("stable", "beta")
+                val accepted = com.xjtu.toolbox.update.AppUpdater.channelKeys + listOf("stable", "beta")
                 if (raw !in accepted) {
-                    ToolReply.badValue("update_channel", com.xjtu.toolbox.util.AppUpdater.channelKeys.joinToString("/"))
+                    ToolReply.badValue("update_channel", com.xjtu.toolbox.update.AppUpdater.channelKeys.joinToString("/"))
                 } else {
-                    val v = com.xjtu.toolbox.util.AppUpdater.normalizeChannel(raw)
+                    val v = com.xjtu.toolbox.update.AppUpdater.normalizeChannel(raw)
                     cs.updateChannel = v
-                    "已将更新通道设为 $v（${com.xjtu.toolbox.util.AppUpdater.channelLabel(v)}）。"
+                    "已将更新通道设为 $v（${com.xjtu.toolbox.update.AppUpdater.channelLabel(v)}）。"
                 }
             }
             "receive_preview_updates" -> {
@@ -2686,10 +2678,10 @@ class AgentToolRegistry(
             ?: listOf(week)
 
         // 节次和日程页自建日程同一个算法：按学校作息表换算，下课那一刻不多占下一节
-        val startSection = kotlin.math.floor(com.xjtu.toolbox.util.XjtuTime.sectionScaleOf(startMin)).toInt()
-            .coerceIn(1, com.xjtu.toolbox.ui.MAX_SECTIONS)
-        val endSection = (kotlin.math.ceil(com.xjtu.toolbox.util.XjtuTime.sectionScaleOf(endMin)).toInt() - 1)
-            .coerceIn(startSection, com.xjtu.toolbox.ui.MAX_SECTIONS)
+        val startSection = kotlin.math.floor(com.xjtu.toolbox.schedule.XjtuTime.sectionScaleOf(startMin)).toInt()
+            .coerceIn(1, com.xjtu.toolbox.schedule.MAX_SECTIONS)
+        val endSection = (kotlin.math.ceil(com.xjtu.toolbox.schedule.XjtuTime.sectionScaleOf(endMin)).toInt() - 1)
+            .coerceIn(startSection, com.xjtu.toolbox.schedule.MAX_SECTIONS)
         val accountId = com.xjtu.toolbox.account.AccountContext.activeAccountId ?: ""
         val entity = com.xjtu.toolbox.schedule.CustomCourseEntity(
             accountId = accountId,
@@ -2705,9 +2697,9 @@ class AgentToolRegistry(
             note = com.xjtu.toolbox.schedule.encodeAgendaNote(note.orEmpty()),
         )
 
-        val dao = com.xjtu.toolbox.util.AppDatabase.getInstance(context).customCourseDao()
+        val dao = com.xjtu.toolbox.data.AppDatabase.getInstance(context).customCourseDao()
         val conflicts = mutableListOf<String>()
-        dao.getConflicts(accountId, termCode, entity.dayOfWeek, 1, com.xjtu.toolbox.ui.MAX_SECTIONS)
+        dao.getConflicts(accountId, termCode, entity.dayOfWeek, 1, com.xjtu.toolbox.schedule.MAX_SECTIONS)
             .filter { com.xjtu.toolbox.schedule.CustomCourseConflicts.conflicts(entity, it) }
             .forEach { other ->
                 val shared = com.xjtu.toolbox.schedule.CustomCourseConflicts.sharedWeeks(entity.weekBits, other.weekBits)

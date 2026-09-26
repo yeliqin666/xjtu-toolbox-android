@@ -2,7 +2,7 @@ package com.xjtu.toolbox.community
 
 import android.content.Context
 import android.content.SharedPreferences
-import com.xjtu.toolbox.util.SecurePrefs
+import com.xjtu.toolbox.data.SecurePrefs
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow

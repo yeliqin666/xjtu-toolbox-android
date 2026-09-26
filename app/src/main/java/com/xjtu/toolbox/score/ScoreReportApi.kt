@@ -130,7 +130,7 @@ class ScoreReportApi(private val site: SiteSession) {
             if (courseName in listOf("课程", "学分", "成绩") || creditText.toDoubleOrNull() == null) continue
 
             val credit = creditText.toDoubleOrNull() ?: continue
-            val gpa = com.xjtu.toolbox.util.ScoreCalculator.scoreToGpa(scoreText)
+            val gpa = com.xjtu.toolbox.score.ScoreCalculator.scoreToGpa(scoreText)
 
             courses.add(ReportedGrade(courseName, credit, scoreText, gpa, currentTerm))
         }

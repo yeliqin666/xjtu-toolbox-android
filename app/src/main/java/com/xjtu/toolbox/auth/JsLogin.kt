@@ -1,7 +1,7 @@
 package com.xjtu.toolbox.auth
 
 import android.util.Log
-import com.xjtu.toolbox.util.WebVpnUtil
+import com.xjtu.toolbox.webvpn.WebVpnUtil
 import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType

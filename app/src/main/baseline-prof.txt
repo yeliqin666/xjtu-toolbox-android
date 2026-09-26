@@ -2,19 +2,32 @@
 # 重新生成时不会被覆盖。
 #
 # 为什么需要：自动生成的那份是在全新模拟器上采的，首屏是用户协议页，登录后才会用到的
-# 首页 / 底栏 / 「我的」从来没进过配置；MainActivity.kt 拆分后，原先挂在 MainActivityKt
+# 首页 / 底栏 / 「我的」从来没进过配置；根包拆分后，原先挂在 MainActivityKt
 # 上的协议页等条目也跟着失效了。这里按文件整类标成热点，真实用户冷启动后看到的界面
 # 都能在安装时 AOT 编译，不必等 JIT 预热。
-HSPLcom/xjtu/toolbox/AppLoginStateKt*;->**(**)**
-HSPLcom/xjtu/toolbox/MainScreenKt*;->**(**)**
-HSPLcom/xjtu/toolbox/ComposableSingletons$MainScreenKt*;->**(**)**
-HSPLcom/xjtu/toolbox/HomeTabKt*;->**(**)**
-HSPLcom/xjtu/toolbox/ComposableSingletons$HomeTabKt*;->**(**)**
-HSPLcom/xjtu/toolbox/BulletinUiKt*;->**(**)**
-HSPLcom/xjtu/toolbox/ComposableSingletons$BulletinUiKt*;->**(**)**
-HSPLcom/xjtu/toolbox/AppDialogsKt*;->**(**)**
-HSPLcom/xjtu/toolbox/ComposableSingletons$AppDialogsKt*;->**(**)**
-HSPLcom/xjtu/toolbox/ProfileTabKt*;->**(**)**
-HSPLcom/xjtu/toolbox/ComposableSingletons$ProfileTabKt*;->**(**)**
-HSPLcom/xjtu/toolbox/MainActivityKt*;->**(**)**
-HSPLcom/xjtu/toolbox/ComposableSingletons$MainActivityKt*;->**(**)**
+HSPLcom/xjtu/toolbox/auth/AppLoginStateKt*;->**(**)**
+HSPLcom/xjtu/toolbox/auth/ComposableSingletons$AppLoginStateKt*;->**(**)**
+HSPLcom/xjtu/toolbox/main/AppRootKt*;->**(**)**
+HSPLcom/xjtu/toolbox/main/ComposableSingletons$AppRootKt*;->**(**)**
+HSPLcom/xjtu/toolbox/main/AppRouterKt*;->**(**)**
+HSPLcom/xjtu/toolbox/main/ComposableSingletons$AppRouterKt*;->**(**)**
+HSPLcom/xjtu/toolbox/main/LaunchNoticesKt*;->**(**)**
+HSPLcom/xjtu/toolbox/main/ComposableSingletons$LaunchNoticesKt*;->**(**)**
+HSPLcom/xjtu/toolbox/main/MainScreenKt*;->**(**)**
+HSPLcom/xjtu/toolbox/main/ComposableSingletons$MainScreenKt*;->**(**)**
+HSPLcom/xjtu/toolbox/main/MainNavigationBarsKt*;->**(**)**
+HSPLcom/xjtu/toolbox/main/ComposableSingletons$MainNavigationBarsKt*;->**(**)**
+HSPLcom/xjtu/toolbox/nav/AppNavHostKt*;->**(**)**
+HSPLcom/xjtu/toolbox/nav/ComposableSingletons$AppNavHostKt*;->**(**)**
+HSPLcom/xjtu/toolbox/nav/AppRouteKt*;->**(**)**
+HSPLcom/xjtu/toolbox/nav/ComposableSingletons$AppRouteKt*;->**(**)**
+HSPLcom/xjtu/toolbox/home/HomeTabKt*;->**(**)**
+HSPLcom/xjtu/toolbox/home/ComposableSingletons$HomeTabKt*;->**(**)**
+HSPLcom/xjtu/toolbox/bulletin/BulletinUiKt*;->**(**)**
+HSPLcom/xjtu/toolbox/bulletin/ComposableSingletons$BulletinUiKt*;->**(**)**
+HSPLcom/xjtu/toolbox/legal/EulaScreenKt*;->**(**)**
+HSPLcom/xjtu/toolbox/legal/ComposableSingletons$EulaScreenKt*;->**(**)**
+HSPLcom/xjtu/toolbox/update/UpdateDialogsKt*;->**(**)**
+HSPLcom/xjtu/toolbox/update/ComposableSingletons$UpdateDialogsKt*;->**(**)**
+HSPLcom/xjtu/toolbox/profile/ProfileTabKt*;->**(**)**
+HSPLcom/xjtu/toolbox/profile/ComposableSingletons$ProfileTabKt*;->**(**)**

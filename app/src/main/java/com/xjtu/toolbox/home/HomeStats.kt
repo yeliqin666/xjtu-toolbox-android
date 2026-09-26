@@ -2,7 +2,8 @@ package com.xjtu.toolbox.home
 
 import android.content.Context
 import com.google.gson.Gson
-import com.xjtu.toolbox.util.DataCache
+import com.xjtu.toolbox.data.DataCache
+import com.xjtu.toolbox.nav.AppRoute
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
@@ -26,7 +27,7 @@ object HomeStats {
 
     private val gson = Gson()
 
-    /** 各功能页写入的摘要缓存前缀。key 用 Routes 里的路由名，与首页取值一一对应。 */
+    /** 各功能页写入的摘要缓存前缀，后接 [AppRoute.id]，与首页取值一一对应。 */
     private const val PUSHED_PREFIX = "home_stat_"
 
     /** 摘要保留 7 天。过期即视为"太旧不可信"，宁可不显示也不显示陈旧数据。 */
@@ -41,7 +42,7 @@ object HomeStats {
      */
     fun push(
         context: Context,
-        routeKey: String,
+        route: AppRoute,
         value: String?,
         detail: String? = null,
         /** 这条摘要属于哪个账号。异步拉取的调用方应传发起时的账号，见 [DataCache] 类注释。 */
@@ -49,7 +50,7 @@ object HomeStats {
     ) {
         runCatching {
             val cache = DataCache(context, accountId)
-            val k = PUSHED_PREFIX + routeKey
+            val k = PUSHED_PREFIX + route.id
             if (value.isNullOrBlank()) cache.invalidate(k)
             else cache.put(k, gson.toJson(HomeStat(value, detail)))
         }
@@ -60,9 +61,13 @@ object HomeStats {
     // （升版号是让设备上已有的退避戳失效的唯一手段——戳存在 DataCache 里，重装不清。）
     private const val STAMP_PREFIX = "home_stat_at4_"
 
-    fun stamps(context: Context, accountId: String? = com.xjtu.toolbox.account.AccountContext.activeAccountId): Map<String, Long> {
+    fun stamps(
+        context: Context,
+        routes: Collection<AppRoute>,
+        accountId: String? = com.xjtu.toolbox.account.AccountContext.activeAccountId,
+    ): Map<String, Long> {
         val cache = DataCache(context, accountId)
-        return PUSHED_KEYS.associateWith { k ->
+        return routes.map { it.id }.associateWith { k ->
             cache.get(STAMP_PREFIX + k, Long.MAX_VALUE)?.toLongOrNull() ?: 0L
         }
     }
@@ -73,8 +78,8 @@ object HomeStats {
     /** 「拉成功但没数据」的重试间隔。见 [markEmpty]。 */
     const val EMPTY_RETRY_MS = 1L * 60 * 60 * 1000L
 
-    fun markFetched(context: Context, routeKey: String, accountId: String? = com.xjtu.toolbox.account.AccountContext.activeAccountId) {
-        runCatching { DataCache(context, accountId).put(STAMP_PREFIX + routeKey, System.currentTimeMillis().toString()) }
+    fun markFetched(context: Context, route: AppRoute, accountId: String? = com.xjtu.toolbox.account.AccountContext.activeAccountId) {
+        runCatching { DataCache(context, accountId).put(STAMP_PREFIX + route.id, System.currentTimeMillis().toString()) }
     }
 
     /**
@@ -85,10 +90,10 @@ object HomeStats {
      * 但也不能完全不打戳，否则某个系统长期挂掉时每次进首页都要重试一轮。
      * 折中：失败按半小时重试。
      */
-    fun markFailed(context: Context, routeKey: String, ttlMs: Long, accountId: String? = com.xjtu.toolbox.account.AccountContext.activeAccountId) {
+    fun markFailed(context: Context, route: AppRoute, ttlMs: Long, accountId: String? = com.xjtu.toolbox.account.AccountContext.activeAccountId) {
         runCatching {
             val fakeLast = System.currentTimeMillis() - ttlMs + FAILURE_RETRY_MS
-            DataCache(context, accountId).put(STAMP_PREFIX + routeKey, fakeLast.toString())
+            DataCache(context, accountId).put(STAMP_PREFIX + route.id, fakeLast.toString())
         }
     }
 
@@ -99,10 +104,10 @@ object HomeStats {
      * 修好后仍要等整个周期才会重试。空结果与软失败在外部无法区分，
      * 几小时后重试的代价远小于一周不显示。
      */
-    fun markEmpty(context: Context, routeKey: String, ttlMs: Long, accountId: String? = com.xjtu.toolbox.account.AccountContext.activeAccountId) {
+    fun markEmpty(context: Context, route: AppRoute, ttlMs: Long, accountId: String? = com.xjtu.toolbox.account.AccountContext.activeAccountId) {
         runCatching {
             val fakeLast = System.currentTimeMillis() - ttlMs + EMPTY_RETRY_MS
-            DataCache(context, accountId).put(STAMP_PREFIX + routeKey, fakeLast.toString())
+            DataCache(context, accountId).put(STAMP_PREFIX + route.id, fakeLast.toString())
         }
     }
 
@@ -112,19 +117,24 @@ object HomeStats {
                 ?.let { gson.fromJson(it, HomeStat::class.java) }
         }.getOrNull()
 
-    /** 各功能页推送过摘要的路由。加新功能时只要在这里登记，首页即可显示。 */
+    /**
+     * 各功能页推送过摘要的路由。加新功能时只要在这里登记，首页即可显示。
+     *
+     * 列的是路由对象而不是手写字符串：以前手写 "attendance"，考勤路由的 ID 却是
+     * "new_attendance"，写进去的摘要首页永远读不到，后台每轮还都当作过期重拉一次。
+     */
     private val PUSHED_KEYS = listOf(
-        "attendance",       // 本周出勤率
-        "iclassface",       // 最新一条刷卡记录
-        "lms",              // 最新作业/资料
-        "library",          // 常去区域空座
-        "judge",            // 待评教门数
-        "coupon",           // 待领取 / 待使用
-        "fitness",          // 最近学年体测总分
-        "yellow_page",      // 教务处 / 保卫处电话
-        "jwapp_score",      // 成绩门数 / 新增门数
-        "notification",     // 教务处最新通知
-    )
+        AppRoute.Attendance,    // 本周出勤率
+        AppRoute.Iclassface,    // 最新一条刷卡记录
+        AppRoute.Lms(),         // 最新作业/资料
+        AppRoute.Library,       // 常去区域空座
+        AppRoute.Judge,         // 待评教门数
+        AppRoute.Coupon,        // 待领取 / 待使用
+        AppRoute.Fitness,       // 最近学年体测总分
+        AppRoute.YellowPage,    // 教务处 / 保卫处电话
+        AppRoute.JwappScore,    // 成绩门数 / 新增门数
+        AppRoute.Notification,  // 教务处最新通知
+    ).map { it.id }
 
     // ── 屁岱主动提醒用的两个游标 ────────────────────────────────────────
     //

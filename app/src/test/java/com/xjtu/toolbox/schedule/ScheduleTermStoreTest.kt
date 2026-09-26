@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.schedule
 
-import com.xjtu.toolbox.util.XjtuTime
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test

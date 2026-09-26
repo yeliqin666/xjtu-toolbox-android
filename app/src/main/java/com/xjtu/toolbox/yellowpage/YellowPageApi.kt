@@ -4,8 +4,8 @@ import android.content.Context
 import com.google.gson.Gson
 import com.google.gson.JsonParser
 import com.google.gson.annotations.SerializedName
-import com.xjtu.toolbox.util.DataCache
-import com.xjtu.toolbox.util.HttpClients
+import com.xjtu.toolbox.data.DataCache
+import com.xjtu.toolbox.network.HttpClients
 import com.xjtu.toolbox.util.toDialableTel
 import okhttp3.OkHttpClient
 import okhttp3.Request

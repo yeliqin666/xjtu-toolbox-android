@@ -61,7 +61,7 @@ import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
-import com.xjtu.toolbox.GLASS_BAR_HEIGHT
+import com.xjtu.toolbox.main.GLASS_BAR_HEIGHT
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.theme.MiuixTheme

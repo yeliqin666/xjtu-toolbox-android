@@ -6,7 +6,7 @@ import com.xjtu.toolbox.schedule.CourseItem
 import com.xjtu.toolbox.schedule.HolidayApi
 import com.xjtu.toolbox.schedule.ScheduleCache
 import com.xjtu.toolbox.schedule.TermWeeks
-import com.xjtu.toolbox.util.DataCache
+import com.xjtu.toolbox.data.DataCache
 import java.time.LocalDate
 
 /**

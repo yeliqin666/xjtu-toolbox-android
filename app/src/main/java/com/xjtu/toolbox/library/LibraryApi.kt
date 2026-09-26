@@ -588,7 +588,7 @@ class LibraryApi(private val site: SiteSession) {
         val resp = runBlocking { site.executeWithReAuth(buildRequest("$BASE_URL$path")) }
         val finalUrl = resp.request.url.toString()
         resp.close()
-        if (com.xjtu.toolbox.util.WebVpnUtil.isWebVpnUrl(finalUrl)) {
+        if (com.xjtu.toolbox.webvpn.WebVpnUtil.isWebVpnUrl(finalUrl)) {
             val cookieUrl = "https://webvpn.xjtu.edu.cn/wengine-vpn/cookie" +
                 "?method=get&host=rg.lib.xjtu.edu.cn&scheme=http&path=$path" +
                 "&vpn_timestamp=${System.currentTimeMillis()}"

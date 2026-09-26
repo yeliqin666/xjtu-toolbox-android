@@ -64,14 +64,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.xjtu.toolbox.qrlogin.QrScannerView
 import androidx.compose.foundation.layout.fillMaxHeight
 import com.xjtu.toolbox.ui.glass.*
 import com.xjtu.toolbox.util.QrBitmap
-import com.xjtu.toolbox.util.XjtuTime
+import com.xjtu.toolbox.schedule.XjtuTime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext

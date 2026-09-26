@@ -2,10 +2,9 @@ package com.xjtu.toolbox.account
 
 import android.content.Context
 import android.util.Log
-import com.xjtu.toolbox.auth.AccountType
-import com.xjtu.toolbox.util.AppDatabase
-import com.xjtu.toolbox.util.CredentialStore
-import com.xjtu.toolbox.util.PersistentCookieJar
+import com.xjtu.toolbox.data.AppDatabase
+import com.xjtu.toolbox.data.CredentialStore
+import com.xjtu.toolbox.network.PersistentCookieJar
 import java.io.File
 
 /**

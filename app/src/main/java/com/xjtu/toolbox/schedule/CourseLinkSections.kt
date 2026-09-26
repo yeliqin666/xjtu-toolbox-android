@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -42,14 +41,14 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.LocalAppLoginState
-import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.attendance.WaterType
-import com.xjtu.toolbox.util.CredentialStore
+import com.xjtu.toolbox.data.CredentialStore
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.time.LocalDate
+import com.xjtu.toolbox.nav.AppRoute
 
 /** 一次具体的上课：哪一天、第几周。 */
 data class Occurrence(val date: LocalDate, val week: Int)
@@ -78,7 +77,7 @@ fun CourseLinkSections(
     /** 这一次课是哪一天、第几周；学期总览给不出，传 null。 */
     occurrence: Occurrence?,
     onRequestTextbooks: () -> Unit,
-    onNavigate: (String) -> Unit,
+    onNavigate: (AppRoute) -> Unit,
 ) {
     // 自定义日程没有课程号、也不在教务的教材/考勤里，整块跳过。
     if (course.courseType == "日程") return
@@ -180,7 +179,7 @@ fun CourseLinkSections(
                 lc.name.takeIf { it.isNotBlank() && it != course.courseName },
                 lc.instructors.firstOrNull()?.name?.takeIf { it.isNotBlank() },
             ).joinToString("  ·  ").ifBlank { "活动、作业与课件" },
-            onClick = { onNavigate(Routes.lmsCourse(lc.id)) },
+            onClick = { onNavigate(AppRoute.Lms(lc.id)) },
         )
     }
     }

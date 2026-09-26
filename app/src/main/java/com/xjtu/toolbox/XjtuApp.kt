@@ -46,12 +46,12 @@ class XjtuApp : Application() {
         super.attachBaseContext(base)
         // 进程里最早的钩子，早于所有 ContentProvider（WorkManager 自动初始化后可能立刻
         // 跑 Worker）和 onCreate。换包后的旧格式缓存必须在任何代码读到它之前清掉，见方法注释。
-        com.xjtu.toolbox.util.DataCache.clearIfPackageChanged(base)
+        com.xjtu.toolbox.data.DataCache.clearIfPackageChanged(base)
         // 首帧 AppLoginStateViewModel 要读账号表、协议版本；趁装 Provider 的空档在后台先解锁
-        com.xjtu.toolbox.util.SecurePrefs.prewarm(
+        com.xjtu.toolbox.data.SecurePrefs.prewarm(
             base,
             com.xjtu.toolbox.account.AccountStore.FILE_NAME,
-            com.xjtu.toolbox.util.CredentialStore.FILE_NAME,
+            com.xjtu.toolbox.data.CredentialStore.FILE_NAME,
         )
     }
 

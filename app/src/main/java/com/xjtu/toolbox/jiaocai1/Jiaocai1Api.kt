@@ -2,7 +2,7 @@ package com.xjtu.toolbox.jiaocai1
 
 import android.util.Log
 import com.xjtu.toolbox.auth.SiteSession
-import com.xjtu.toolbox.util.PortalRedirect
+import com.xjtu.toolbox.auth.PortalRedirect
 import com.xjtu.toolbox.util.safeParseJsonObject
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking

@@ -28,10 +28,8 @@ import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
-import com.xjtu.toolbox.LocalAppLoginState
-import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.auth.AuthExpiredException
-import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
@@ -66,6 +64,7 @@ import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.window.WindowDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
+import com.xjtu.toolbox.nav.AppRoute
 
 private const val TAG = "LmsScreen"
 
@@ -333,7 +332,7 @@ private fun CourseListPage(
             try {
                 cache.courses = withContext(Dispatchers.IO) { api.getMyCourses() }
             } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(LoginType.LMS, Routes.LMS, onBack)
+                appLoginState.handleAuthExpired(AppRoute.Lms(), onBack)
             } catch (e: Exception) {
                 Log.e(TAG, "loadCourses error", e)
                 errorMsg = "加载课程失败: ${e.message}"
@@ -551,7 +550,7 @@ private fun ActivityListPage(
             try {
                 cache.activities[course.id] = withContext(Dispatchers.IO) { api.getCourseActivities(course.id) }
             } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(LoginType.LMS, Routes.LMS, onBack)
+                appLoginState.handleAuthExpired(AppRoute.Lms(), onBack)
             } catch (e: Exception) {
                 Log.e(TAG, "loadActivities error", e)
                 errorMsg = "加载活动失败: ${e.message}"
@@ -997,10 +996,10 @@ private fun ActivityDetailPage(
                 // 详情接口不返回 deadline，得把列表里那条一起传进去（见 LmsApi.mergeBrief）
                 cache.details[activity.id] = withContext(Dispatchers.IO) { api.getActivityDetail(activity.id, activity) }
             } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(LoginType.LMS, Routes.LMS, onBack)
+                appLoginState.handleAuthExpired(AppRoute.Lms(), onBack)
             } catch (e: Exception) {
                 Log.e(TAG, "loadDetail error", e)
-                errorMsg = com.xjtu.toolbox.util.FriendlyError.of(e, "加载课程详情")
+                errorMsg = com.xjtu.toolbox.error.FriendlyError.of(e, "加载课程详情")
             } finally {
                 isLoading = false
             }

@@ -10,7 +10,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -27,20 +26,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.google.gson.Gson
-import com.xjtu.toolbox.Routes
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.jiaocai1.Jiaocai1Api
 import com.xjtu.toolbox.jiaocai1.Jiaocai1SearchField
 import com.xjtu.toolbox.schedule.TextbookItem
 import com.xjtu.toolbox.ui.components.AppSearchBar
 import com.xjtu.toolbox.ui.components.AppSuggestionChip
-import com.xjtu.toolbox.ui.components.rememberRetainedLazyListState
 import com.xjtu.toolbox.ui.components.rememberRetainedLazyStaggeredGridState
 import com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import androidx.compose.foundation.lazy.staggeredgrid.items
-import com.xjtu.toolbox.util.DataCache
+import com.xjtu.toolbox.data.DataCache
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -48,6 +45,7 @@ import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
+import com.xjtu.toolbox.nav.AppRoute
 
 @Composable
 fun JiaocaiScreen(
@@ -63,7 +61,7 @@ fun JiaocaiScreen(
         onBack = onBack,
         onOpenBook = onOpenFullText,
         initialTab = 0,
-        authExpiredRoute = Routes.JIAOCAI,
+        authExpiredRoute = AppRoute.Jiaocai,
     )
 }
 

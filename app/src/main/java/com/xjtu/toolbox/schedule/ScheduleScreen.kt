@@ -16,19 +16,13 @@ import androidx.activity.compose.BackHandler
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
-import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
-import top.yukonga.miuix.kmp.basic.HorizontalDivider
-import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.TopAppBar
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.window.WindowDialog
@@ -49,66 +43,45 @@ import kotlinx.coroutines.flow.drop
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.GridView
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.EventNote
 import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.EventNote
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Business
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.SwapHoriz
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.IosShare
-import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.EventAvailable
 import com.xjtu.toolbox.account.AccountContext
-import com.xjtu.toolbox.ui.components.AppDropdownMenu
-import com.xjtu.toolbox.ui.components.AppDropdownMenuItem
-import com.xjtu.toolbox.ui.components.AppTopBar
 import top.yukonga.miuix.kmp.basic.SnackbarDuration
 import top.yukonga.miuix.kmp.basic.SnackbarHost
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.graphics.Color
-import com.xjtu.toolbox.LocalAppLoginState
-import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.auth.AuthExpiredException
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.ensureSite
 import androidx.compose.foundation.text.selection.SelectionContainer
-import com.xjtu.toolbox.ui.DAY_START_HOUR
-import com.xjtu.toolbox.ui.ScheduleGrid
-import com.xjtu.toolbox.ui.WeekSelector
-import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.LoadingState
@@ -124,6 +97,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
+import com.xjtu.toolbox.nav.AppRoute
 
 private data class ScheduleDiskSnapshot(
     val termList: List<String> = emptyList(),
@@ -134,7 +108,7 @@ private data class ScheduleDiskSnapshot(
 )
 
 private fun readScheduleDiskSnapshot(
-    dataCache: com.xjtu.toolbox.util.DataCache,
+    dataCache: com.xjtu.toolbox.data.DataCache,
     gson: com.google.gson.Gson,
 ): ScheduleDiskSnapshot {
     val termList = dataCache.get("schedule_term_list", Long.MAX_VALUE)?.let { json ->
@@ -176,7 +150,7 @@ fun ScheduleScreen(
     /** 首页日程 tab 的顶栏折叠行为（顶栏在 MainScreen 里），交给各栏的下拉刷新协调。 */
     topAppBarScrollBehavior: top.yukonga.miuix.kmp.basic.ScrollBehavior? = null,
     /** 课程详情面板里的下钻入口（教材全文 / 课程回放 / 考勤）要能跳到别的功能页。 */
-    onNavigate: (String) -> Unit = {},
+    onNavigate: (AppRoute) -> Unit = {},
 ) {
     // 大屏适配由屏内 Composable 自己根据 currentWindowSize() 判断，调用方不再透传
     val isWideLayout = com.xjtu.toolbox.ui.isWideLayout()
@@ -188,7 +162,7 @@ fun ScheduleScreen(
     val haptics = com.xjtu.toolbox.ui.rememberHaptics()
     // DataCache 构造时绑定账号，切账号后必须换新实例，见 DataCache 类注释
     val dataCache = remember(appLoginState.accountId) {
-        com.xjtu.toolbox.util.DataCache(context, appLoginState.accountId.ifEmpty { null })
+        com.xjtu.toolbox.data.DataCache(context, appLoginState.accountId.ifEmpty { null })
     }
     val gson = remember { com.google.gson.Gson() }
     val api = remember(activeSite) { activeSite?.let { ScheduleApi(it) } }
@@ -212,7 +186,7 @@ fun ScheduleScreen(
     val disk = remember { readScheduleDiskSnapshot(dataCache, gson) }
 
     // Room 数据库 - 自定义课程
-    val db = remember { com.xjtu.toolbox.util.AppDatabase.getInstance(context) }
+    val db = remember { com.xjtu.toolbox.data.AppDatabase.getInstance(context) }
     val customCourseDao = remember { db.customCourseDao() }
     var customCourses by remember { mutableStateOf<List<CustomCourseEntity>>(emptyList()) }
     var showAddCourseDialog by remember { mutableStateOf(false) }
@@ -439,7 +413,7 @@ fun ScheduleScreen(
                                     // 没缓存学期也别直接报错：按日期推一个学期代码去拉课表。
                                     // 教务的「当前学期」接口偶发返回空行或超时，不该把整页拖成错误页。
                                     lastTerm.ifEmpty {
-                                        com.xjtu.toolbox.util.XjtuTime.expectedTermCode()
+                                        com.xjtu.toolbox.schedule.XjtuTime.expectedTermCode()
                                             ?: throw RuntimeException("网络不可用且无缓存学期数据，请连网后重试")
                                     }
                                 }
@@ -583,7 +557,7 @@ fun ScheduleScreen(
                             // 而新学期的课其实已经能查到。此时页面只剩一句「本学期没有课程」，
                             // 用户并不知道要去切学期。按日期推一个该在的学期探一下，有课就切过去。
                             if (!keepUserTerm && courses.isEmpty()) {
-                                val expected = com.xjtu.toolbox.util.XjtuTime.expectedTermCode()
+                                val expected = com.xjtu.toolbox.schedule.XjtuTime.expectedTermCode()
                                 if (expected != null && expected != termCode) {
                                     val probe = try { fetchSchedule(api, expected) } catch (_: Exception) { emptyList() }
                                     if (probe.isNotEmpty()) autoTermSuggestion = expected
@@ -630,9 +604,9 @@ fun ScheduleScreen(
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(LoginType.JWXT, Routes.SCHEDULE, onBack)
+                appLoginState.handleAuthExpired(AppRoute.Schedule, onBack)
             } catch (e: Exception) {
-                errorMessage = com.xjtu.toolbox.util.FriendlyError.of(e, "加载课表")
+                errorMessage = com.xjtu.toolbox.error.FriendlyError.of(e, "加载课表")
             } finally {
                 if (gen == loadGen.get()) {
                     isLoading = false
@@ -697,7 +671,7 @@ fun ScheduleScreen(
                 }
             } catch (e: Exception) {
                 android.util.Log.w("ScheduleUI", "refreshSchedule failed", e)
-                errorMessage = com.xjtu.toolbox.util.FriendlyError.of(e, "刷新课表")
+                errorMessage = com.xjtu.toolbox.error.FriendlyError.of(e, "刷新课表")
             } finally {
                 isRefreshingFromNetwork = false
             }
@@ -718,9 +692,9 @@ fun ScheduleScreen(
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(LoginType.JWXT, Routes.SCHEDULE, onBack)
+                appLoginState.handleAuthExpired(AppRoute.Schedule, onBack)
             } catch (e: Exception) {
-                snackbarHostState.showSnackbar(com.xjtu.toolbox.util.FriendlyError.of(e, "刷新考试"))
+                snackbarHostState.showSnackbar(com.xjtu.toolbox.error.FriendlyError.of(e, "刷新考试"))
             } finally {
                 examsRefreshing = false
             }
@@ -792,10 +766,10 @@ fun ScheduleScreen(
                 // 静默路径不抢导航：用户只是点开了一门课，不该因此被弹回登录。
                 // 教务真过期了，页面上任何一个正经操作都会撞到，由那一次去处理。
                 if (background) textbooksBackgroundError = "教务登录已过期，去教材页刷新一次"
-                else appLoginState.handleAuthExpired(LoginType.JWXT, Routes.SCHEDULE, onBack)
+                else appLoginState.handleAuthExpired(AppRoute.Schedule, onBack)
             } catch (e: Exception) {
                 android.util.Log.e("ScheduleUI", "loadTextbooks failed background=$background", e)
-                val msg = com.xjtu.toolbox.util.FriendlyError.of(e, "查询教材")
+                val msg = com.xjtu.toolbox.error.FriendlyError.of(e, "查询教材")
                 if (background) textbooksBackgroundError = msg else textbooksError = msg
             } finally {
                 textbooksLoading = false
@@ -853,11 +827,11 @@ fun ScheduleScreen(
     // 教务系统那条路径上拉取。默认来源是移动教务，那时教务可能一直没登录、学期列表是空的，
     // 切到教务系统回来右上角就没有「切换学期」，要重启才出现。
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-    var lastSource by remember { mutableStateOf(com.xjtu.toolbox.util.CredentialStore(context).scheduleSource) }
+    var lastSource by remember { mutableStateOf(com.xjtu.toolbox.data.CredentialStore(context).scheduleSource) }
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event != androidx.lifecycle.Lifecycle.Event.ON_RESUME) return@LifecycleEventObserver
-            val now = com.xjtu.toolbox.util.CredentialStore(context).scheduleSource
+            val now = com.xjtu.toolbox.data.CredentialStore(context).scheduleSource
             if (now == lastSource) return@LifecycleEventObserver
             lastSource = now
             if (!isLoading && !isSwitching && !isRefreshingFromNetwork) loadInitialData()
@@ -1062,7 +1036,7 @@ fun ScheduleScreen(
 
                     // 先尝试从缓存加载
                     val cachedOptimizedCourses = ScheduleCache.readOptimizedCourses(dataCache, gson, newTermCode)
-                    val cachedExams = dataCache.get("exams_$newTermCode", com.xjtu.toolbox.util.DataCache.TERM_TTL_MS)
+                    val cachedExams = dataCache.get("exams_$newTermCode", com.xjtu.toolbox.data.DataCache.TERM_TTL_MS)
                     if (cachedOptimizedCourses != null) {
                         courses = cachedOptimizedCourses
                         if (cachedExams != null) {
@@ -1150,9 +1124,9 @@ fun ScheduleScreen(
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(LoginType.JWXT, Routes.SCHEDULE, onBack)
+                appLoginState.handleAuthExpired(AppRoute.Schedule, onBack)
             } catch (e: Exception) {
-                errorMessage = com.xjtu.toolbox.util.FriendlyError.of(e, "切换学期")
+                errorMessage = com.xjtu.toolbox.error.FriendlyError.of(e, "切换学期")
             } finally {
                 isSwitching = false
                 ScheduleWidgetUpdater.requestUpdate(context)
@@ -1182,7 +1156,7 @@ fun ScheduleScreen(
                     if (selectedTermCode.isEmpty()) {
                         val fallback = currentTermCode.ifEmpty {
                             termList.firstOrNull()
-                                ?: com.xjtu.toolbox.util.XjtuTime.expectedTermCode().orEmpty()
+                                ?: com.xjtu.toolbox.schedule.XjtuTime.expectedTermCode().orEmpty()
                         }
                         if (fallback.isEmpty()) {
                             scope.launch {
@@ -1924,7 +1898,7 @@ private fun ScheduleTabContent(
     /** 教材没取到时的原因，null 表示没问题。见 CourseLinkSections。 */
     textbooksProblem: String? = null,
     onRequestTextbooks: () -> Unit = {},
-    onNavigate: (String) -> Unit = {},
+    onNavigate: (AppRoute) -> Unit = {},
     /**
      * 宽屏：点课不再弹详情，而是把选中送给课表右侧的常驻详情栏（由调用方持有）。
      * 窄屏传 null，走下面的本地选中 + 弹窗，行为与改造前一致。
@@ -1949,7 +1923,7 @@ private fun ScheduleTabContent(
     // 考勤角标。三条约束都是"别因为考勤把课表拖坏"：默认关、旁路加载、失败即无角标。
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val loginStateForBadge = LocalAppLoginState.current
-    val badgeEnabled = remember { com.xjtu.toolbox.util.CredentialStore(ctx).scheduleAttendanceBadge }
+    val badgeEnabled = remember { com.xjtu.toolbox.data.CredentialStore(ctx).scheduleAttendanceBadge }
     var attendanceIndex by remember { mutableStateOf<CourseLinks.AttendanceIndex?>(null) }
     LaunchedEffect(badgeEnabled, selectedTermCode, startOfTerm, totalWeeks) {
         if (!badgeEnabled) { attendanceIndex = null; return@LaunchedEffect }
@@ -1973,17 +1947,17 @@ private fun ScheduleTabContent(
     val absenceColor = Color(0xFFE5484D)
     val lateColor = Color(0xFFF5A524)
     val leaveColor = Color(0xFF9BA1A6)
-    fun badgeOf(slot: com.xjtu.toolbox.ui.ScheduleSlot, week: Int): com.xjtu.toolbox.ui.SlotMark? {
+    fun badgeOf(slot: com.xjtu.toolbox.schedule.ScheduleSlot, week: Int): com.xjtu.toolbox.schedule.SlotMark? {
         val idx = attendanceIndex ?: return null
         return when (idx.statusOf(week, slot.slotDayOfWeek, slot.slotStartSection)) {
-            com.xjtu.toolbox.attendance.WaterType.ABSENCE -> com.xjtu.toolbox.ui.SlotMark(absenceColor)
-            com.xjtu.toolbox.attendance.WaterType.LATE -> com.xjtu.toolbox.ui.SlotMark(lateColor)
-            com.xjtu.toolbox.attendance.WaterType.LEAVE -> com.xjtu.toolbox.ui.SlotMark(leaveColor)
+            com.xjtu.toolbox.attendance.WaterType.ABSENCE -> com.xjtu.toolbox.schedule.SlotMark(absenceColor)
+            com.xjtu.toolbox.attendance.WaterType.LATE -> com.xjtu.toolbox.schedule.SlotMark(lateColor)
+            com.xjtu.toolbox.attendance.WaterType.LEAVE -> com.xjtu.toolbox.schedule.SlotMark(leaveColor)
             // 正常出勤也标，用中性色。只标异常的话，全勤的人整学期一个点都看不到；
             // 而这个点本身有信息——这节课已经上过且记了考勤，没点的就是还没上。
-            com.xjtu.toolbox.attendance.WaterType.NORMAL -> com.xjtu.toolbox.ui.SlotMark()
+            com.xjtu.toolbox.attendance.WaterType.NORMAL -> com.xjtu.toolbox.schedule.SlotMark()
             // 未识别状态：标出来但不判定好坏，用中性色提示"有记录但看不懂"。
-            com.xjtu.toolbox.attendance.WaterType.UNKNOWN -> com.xjtu.toolbox.ui.SlotMark(leaveColor)
+            com.xjtu.toolbox.attendance.WaterType.UNKNOWN -> com.xjtu.toolbox.schedule.SlotMark(leaveColor)
             // 查无此格（未来的课、或没有考勤的课）不标。
             null -> null
         }
@@ -2173,7 +2147,7 @@ private fun CourseDetailContent(
     /** 这一次课是哪天、第几周；学期总览给不出，传 null。 */
     occurrence: Occurrence? = null,
     onRequestTextbooks: () -> Unit = {},
-    onNavigate: (String) -> Unit = {},
+    onNavigate: (AppRoute) -> Unit = {},
 ) {
     val isAgenda = course.courseType == "日程"
         // 异步获取教室座位数
@@ -2319,7 +2293,7 @@ private fun CourseDetailDialog(
     /** 这一次课是哪天、第几周；学期总览给不出，传 null。 */
     occurrence: Occurrence? = null,
     onRequestTextbooks: () -> Unit = {},
-    onNavigate: (String) -> Unit = {},
+    onNavigate: (AppRoute) -> Unit = {},
 ) {
     val close = { show.value = false; onDismiss() }
     BackHandler(enabled = show.value) { close() }

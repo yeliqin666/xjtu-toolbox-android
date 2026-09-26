@@ -45,7 +45,7 @@ object ExpandOrigins {
      */
     private val byType = mutableMapOf<KClass<out AppRoute>, Origin>()
 
-    /** 格子被点时调用；随后那一次跳转如果正好去这个路由，就用这个起点。 */
+    /** 格子被点时调用（[routeId] 即 [AppRoute.id]）；随后那一次跳转如果正好去这个路由，就用这个起点。 */
     fun arm(routeId: String, origin: Origin) {
         armed = routeId to origin
     }
@@ -63,7 +63,7 @@ object ExpandOrigins {
 
     /**
      * 首页的格子已经不在原来的位置了（比如切到了别的 tab），返回时不能再往那儿缩。
-     * [AppNavigator] 在一路退回首页并切 tab 时调用。
+     * [com.xjtu.toolbox.main.AppRouter] 在一路退回首页并切 tab 时调用。
      */
     fun clear() {
         armed = null

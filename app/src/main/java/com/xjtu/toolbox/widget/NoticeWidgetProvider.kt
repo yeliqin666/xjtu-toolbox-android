@@ -9,7 +9,7 @@ import android.content.Intent
 import android.widget.RemoteViews
 import com.xjtu.toolbox.MainActivity
 import com.xjtu.toolbox.R
-import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.nav.AppRoute
 
 /**
  * 教务通知桌面 Widget。
@@ -45,7 +45,7 @@ object NoticeWidgetUpdater {
         }
 
         val launchIntent = Intent(context, MainActivity::class.java).apply {
-            putExtra(MainActivity.EXTRA_LAUNCH_ROUTE, Routes.NOTIFICATION)
+            putExtra(MainActivity.EXTRA_LAUNCH_ROUTE, AppRoute.Notification.id)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         val pendingIntent = PendingIntent.getActivity(

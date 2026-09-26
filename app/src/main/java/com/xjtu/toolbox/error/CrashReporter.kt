@@ -95,7 +95,7 @@ object CrashReporter {
      */
     suspend fun uploadPending(context: Context) {
         if (!FeedbackApi.isConfigured || !isEnabled(context)) return
-        if (!com.xjtu.toolbox.util.CredentialStore(context).isEulaAccepted()) return
+        if (!com.xjtu.toolbox.data.CredentialStore(context).isEulaAccepted()) return
         val files = dir(context).listFiles()?.sortedBy { it.name } ?: return
         for (f in files.take(MAX_UPLOAD_PER_LAUNCH)) {
             val content = runCatching { f.readText() }.getOrNull()

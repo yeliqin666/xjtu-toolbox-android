@@ -9,7 +9,7 @@ import com.xjtu.toolbox.auth.SessionManager
 import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.auth.siteKey
 import com.xjtu.toolbox.jwapp.JwappScheduleApi
-import com.xjtu.toolbox.util.CredentialStore
+import com.xjtu.toolbox.data.CredentialStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext

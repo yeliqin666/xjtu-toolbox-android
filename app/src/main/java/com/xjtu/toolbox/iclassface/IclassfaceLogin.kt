@@ -35,7 +35,7 @@ class IclassfaceLogin(
         // 走 WebVPN 时 finalUrl 形如 https://webvpn.xjtu.edu.cn/https/{AES加密域名}/face/detect，
         // 明文 "iclassface.xjtu.edu.cn" 根本不出现——原来的字符串包含判断必然为 false，
         // 于是明明已经 200 落在 /face/detect 上，却仍被判为"登录回调异常"。
-        if (com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(finalUrl, "iclassface.xjtu.edu.cn")) {
+        if (com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(finalUrl, "iclassface.xjtu.edu.cn")) {
             sessionReady = true
             return
         }
@@ -46,7 +46,7 @@ class IclassfaceLogin(
             ).execute()
             val land = resp.request.url.toString()
             resp.close()
-            sessionReady = com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(land, "iclassface.xjtu.edu.cn")
+            sessionReady = com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(land, "iclassface.xjtu.edu.cn")
             Log.d(TAG, "postLogin: fallback access land=$land, ready=$sessionReady")
         } catch (e: Exception) {
             Log.e(TAG, "postLogin: fallback access failed", e)
@@ -65,7 +65,7 @@ class IclassfaceLogin(
             resp.close()
             // 同 postLogin：WebVPN 下域名是密文，明文匹配会把正常会话误判为失效。
             // isAtTargetSite 内部已包含"不在 CAS 登录页"的判断，无需再单独排除 login.xjtu.edu.cn。
-            code == 200 && com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(land, "iclassface.xjtu.edu.cn")
+            code == 200 && com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(land, "iclassface.xjtu.edu.cn")
         } catch (_: Exception) { false }
     }
 

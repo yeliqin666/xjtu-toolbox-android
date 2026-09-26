@@ -11,16 +11,16 @@ import com.google.gson.JsonArray
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
-import com.xjtu.toolbox.AppLoginState
-import com.xjtu.toolbox.util.DataCache
+import com.xjtu.toolbox.auth.AppLoginState
+import com.xjtu.toolbox.data.DataCache
+import com.xjtu.toolbox.nav.AppRoute
 import kotlinx.coroutines.launch
-import java.time.LocalDate
 
 /**
  * 聊天消息 UI 模型。
  *
- * @param navSuggestions 本轮涉及的功能页跳转建议，List<Pair<displayLabel, routeKey>>。
- *   routeKey 与 Routes 常量对应（schedule / empty_room / attendance / …）。
+ * @param navSuggestions 本轮涉及的功能页跳转建议，List<Pair<显示文字, [AppRoute.id]>>。
+ *   存字符串而不是路由对象：聊天记录要落盘，点按钮时再用 [com.xjtu.toolbox.nav.appRouteOf] 解析回来。
  */
 data class ChatMessage(
     val role: String,          // "user" | "assistant" | "tool_event"
@@ -577,28 +577,25 @@ class AgentViewModel : ViewModel() {
                     messages[mfaBubbleIdx] = messages[mfaBubbleIdx].copy(isToolCall = false)
                 }
 
-                // 考勤路由根据实际登录类型动态选择，避免研究生跳转到本科考勤页
-                val attendanceRoute = if (loginState.sessionManager?.getSiteOrNull("pg_attendance")?.hasLogin == true)
-                    "postgraduate_attendance" else "attendance"
-
+                // 存的是 [AppRoute.id]：聊天记录要落盘，点按钮时再用 appRouteOf 解析回来
                 val navSuggestions = calledTools.mapNotNull { toolName ->
                     when (toolName) {
-                        "get_schedule", "get_exam_schedule", "add_schedule_event" -> "查看课表" to "schedule"
-                        "get_calendar"                      -> "查看校历"   to "school_calendar"
-                        "search_school_courses"             -> "全校课程"   to "school_course"
-                        "get_empty_rooms"                   -> "空闲教室"   to "empty_room"
-                        "get_attendance"                    -> "查看考勤"   to attendanceRoute
-                        "get_grades"                        -> "成绩查询"   to "jwapp_score"
-                        "get_card_info"                      -> "校园卡"     to "campus_card"
-                        "get_notifications"                 -> "通知公告"   to "notification"
-                        "search_yellow_page"                -> "校园黄页"   to "yellow_page"
-                        "get_library"                       -> "图书馆"     to "library"
-                        "get_textbooks"                     -> "日程教材"   to "schedule"
-                        "get_coupons"                       -> "加餐券"     to "coupon"
-                        "get_lms", "get_lms_activity"       -> "思源学堂"   to "lms"
-                        "app_setting"                       -> "设置"       to "settings"
+                        "get_schedule", "get_exam_schedule", "add_schedule_event" -> "查看课表" to AppRoute.Schedule
+                        "get_calendar"                      -> "查看校历"   to AppRoute.SchoolCalendar
+                        "search_school_courses"             -> "全校课程"   to AppRoute.SchoolCourse
+                        "get_empty_rooms"                   -> "空闲教室"   to AppRoute.EmptyRoom
+                        "get_attendance"                    -> "查看考勤"   to AppRoute.Attendance
+                        "get_grades"                        -> "成绩查询"   to AppRoute.JwappScore
+                        "get_card_info"                     -> "校园卡"     to AppRoute.CampusCard
+                        "get_notifications"                 -> "通知公告"   to AppRoute.Notification
+                        "search_yellow_page"                -> "校园黄页"   to AppRoute.YellowPage
+                        "get_library"                       -> "图书馆"     to AppRoute.Library
+                        "get_textbooks"                     -> "日程教材"   to AppRoute.Schedule
+                        "get_coupons"                       -> "加餐券"     to AppRoute.Coupon
+                        "get_lms", "get_lms_activity"       -> "思源学堂"   to AppRoute.Lms()
+                        "app_setting"                       -> "设置"       to AppRoute.Settings
                         else                                -> null
-                    }
+                    }?.let { (label, route) -> label to route.id }
                 }.distinctBy { it.second }
 
                 val widgets = registry.drainWidgets()

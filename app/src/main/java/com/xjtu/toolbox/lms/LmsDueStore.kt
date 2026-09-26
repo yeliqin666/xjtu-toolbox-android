@@ -2,7 +2,7 @@ package com.xjtu.toolbox.lms
 
 import android.content.Context
 import com.google.gson.Gson
-import com.xjtu.toolbox.util.DataCache
+import com.xjtu.toolbox.data.DataCache
 import java.time.Duration
 import java.time.Instant
 

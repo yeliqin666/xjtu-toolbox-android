@@ -46,9 +46,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.xjtu.toolbox.LocalAppLoginState
-import com.xjtu.toolbox.Routes
-import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.handleAuthExpired
 import com.xjtu.toolbox.ui.components.AppDropdownMenu
@@ -71,6 +69,7 @@ import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import com.xjtu.toolbox.nav.AppRoute
 
 private const val DEFAULT_ASPECT = 700f / 1050f
 
@@ -96,9 +95,7 @@ fun Jiaocai1ReaderScreen(
     if (vm.authExpired) {
         LaunchedEffect(ssno) {
             vm.authExpired = false
-            appLoginState.handleAuthExpired(
-                LoginType.JIAOCAI,
-                Routes.jiaocai1Reader(ssno, fallbackTitle),
+            appLoginState.handleAuthExpired(AppRoute.Jiaocai1Reader(ssno, fallbackTitle),
                 onBack,
             )
         }

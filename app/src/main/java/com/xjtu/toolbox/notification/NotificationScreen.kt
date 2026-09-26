@@ -6,9 +6,7 @@ import com.xjtu.toolbox.ui.glass.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
-import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
@@ -30,15 +28,12 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Merge
 import androidx.compose.material.icons.outlined.WarningAmber
-import com.xjtu.toolbox.ui.components.AppTopBar
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -59,11 +54,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
+import com.xjtu.toolbox.nav.AppRoute
 
 @Composable
 fun NotificationScreen(
     onBack: () -> Unit,
-    onNavigate: (String) -> Unit = {}
+    onNavigate: (AppRoute) -> Unit = {}
 ) {
     val api = remember { NotificationApi() }
     val scope = rememberCoroutineScope()
@@ -533,7 +529,7 @@ fun NotificationScreen(
                                     notification = notification,
                                     showSource = mergeMode,
                                     onClick = {
-                                        onNavigate(com.xjtu.toolbox.Routes.browser(notification.link))
+                                        onNavigate(AppRoute.Browser(notification.link))
                                     }
                                 )
                                 }

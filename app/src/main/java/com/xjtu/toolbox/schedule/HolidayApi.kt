@@ -3,7 +3,7 @@ package com.xjtu.toolbox.schedule
 import android.content.Context
 import android.util.Log
 import com.google.gson.JsonObject
-import com.xjtu.toolbox.util.DataCache
+import com.xjtu.toolbox.data.DataCache
 import com.xjtu.toolbox.util.safeParseJsonObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext

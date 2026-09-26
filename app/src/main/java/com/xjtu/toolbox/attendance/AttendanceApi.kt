@@ -1,14 +1,9 @@
 package com.xjtu.toolbox.attendance
 
 import com.google.gson.JsonObject
-import com.xjtu.toolbox.attendance.AttendanceStream
-import com.xjtu.toolbox.attendance.AttendanceWaterRecord
-import com.xjtu.toolbox.attendance.CourseAttendanceStat
-import com.xjtu.toolbox.attendance.TermInfo
-import com.xjtu.toolbox.attendance.WaterType
 import com.xjtu.toolbox.auth.AuthExpiredException
 import com.xjtu.toolbox.auth.SiteSession
-import com.xjtu.toolbox.util.XjtuTime
+import com.xjtu.toolbox.schedule.XjtuTime
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody

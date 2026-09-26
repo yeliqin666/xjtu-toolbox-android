@@ -5,10 +5,7 @@ import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
-import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextField
-import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
@@ -23,38 +20,30 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import com.xjtu.toolbox.LocalAppLoginState
-import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.auth.AuthExpiredException
-import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
-import com.xjtu.toolbox.util.XjtuTime
+import com.xjtu.toolbox.schedule.XjtuTime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.xjtu.toolbox.nav.AppRoute
 
 /**
  * 成绩报表查询页面（绕过评教限制）
@@ -71,7 +60,7 @@ fun ScoreReportScreen(
     val context = androidx.compose.ui.platform.LocalContext.current
     // DataCache 构造时绑定账号，切账号后必须换新实例，见 DataCache 类注释
     val dataCache = remember(appLoginState.accountId) {
-        com.xjtu.toolbox.util.DataCache(context, appLoginState.accountId.ifEmpty { null })
+        com.xjtu.toolbox.data.DataCache(context, appLoginState.accountId.ifEmpty { null })
     }
     val gson = remember { com.google.gson.Gson() }
     // PR T（计划 §11）：成绩加载完成 / 失败的触感反馈。
@@ -107,7 +96,7 @@ fun ScoreReportScreen(
             // SWR: 先尝试缓存秒显
             val cacheKey = "score_report_${studentId}"
             if (!silent) try {
-                val cached = dataCache.get(cacheKey, com.xjtu.toolbox.util.DataCache.DEFAULT_TTL_MS)
+                val cached = dataCache.get(cacheKey, com.xjtu.toolbox.data.DataCache.DEFAULT_TTL_MS)
                 if (cached != null) {
                     val cachedGrades = gson.fromJson(cached, Array<ReportedGrade>::class.java).toList()
                         .map { it.sanitized() }
@@ -136,7 +125,7 @@ fun ScoreReportScreen(
                 // 更新缓存
                 try { dataCache.put(cacheKey, gson.toJson(grades)) } catch (_: Exception) {}
             } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(LoginType.JWXT, Routes.SCORE_REPORT, onBack)
+                appLoginState.handleAuthExpired(AppRoute.ScoreReport, onBack)
             } catch (e: Exception) {
                 if (allGrades.isEmpty()) {
                     errorMessage = "加载失败: ${e.message}"

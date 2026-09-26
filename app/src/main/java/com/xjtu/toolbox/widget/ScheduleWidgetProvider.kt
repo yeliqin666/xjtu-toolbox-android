@@ -10,21 +10,21 @@ import android.net.Uri
 import android.view.View
 import android.widget.RemoteViews
 import com.google.gson.Gson
-import com.xjtu.toolbox.BottomTab
+import com.xjtu.toolbox.main.BottomTab
 import com.xjtu.toolbox.MainActivity
 import com.xjtu.toolbox.R
-import com.xjtu.toolbox.Routes
 import com.xjtu.toolbox.schedule.CourseItem
 import com.xjtu.toolbox.schedule.ScheduleCache
-import com.xjtu.toolbox.util.AppDatabase
-import com.xjtu.toolbox.util.DataCache
-import com.xjtu.toolbox.util.XjtuTime
+import com.xjtu.toolbox.data.AppDatabase
+import com.xjtu.toolbox.data.DataCache
+import com.xjtu.toolbox.schedule.XjtuTime
 import java.io.File
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import com.xjtu.toolbox.nav.AppRoute
 
 enum class WidgetSize { SMALL, LARGE }
 
@@ -191,7 +191,7 @@ object ScheduleWidgetUpdater {
 
     private fun buildLaunchPendingIntent(context: Context, requestCode: Int): PendingIntent {
         val launchIntent = Intent(context, MainActivity::class.java).apply {
-            putExtra(MainActivity.EXTRA_LAUNCH_ROUTE, Routes.MAIN)
+            putExtra(MainActivity.EXTRA_LAUNCH_ROUTE, AppRoute.Main.id)
             putExtra(MainActivity.EXTRA_LAUNCH_TAB, BottomTab.COURSES.name)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }

@@ -7,7 +7,6 @@ import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody
 import okhttp3.Response
 import java.net.URLDecoder
 
@@ -88,8 +87,8 @@ class CampusCardLogin(
         // 直连模式：URL 必含 ncard.xjtu.edu.cn；
         // WebVPN 模式：URL 是 webvpn.xjtu.edu.cn/<encoded>/... 解码后含 ncard.xjtu.edu.cn。
         val isNcard = "ncard.xjtu.edu.cn" in url ||
-            (com.xjtu.toolbox.util.WebVpnUtil.isWebVpnUrl(url) &&
-             com.xjtu.toolbox.util.WebVpnUtil.getOriginalUrl(url)?.contains("ncard.xjtu.edu.cn") == true)
+            (com.xjtu.toolbox.webvpn.WebVpnUtil.isWebVpnUrl(url) &&
+             com.xjtu.toolbox.webvpn.WebVpnUtil.getOriginalUrl(url)?.contains("ncard.xjtu.edu.cn") == true)
         if (!isNcard) return false
 
         val queryStr = url.substringAfter("?", "")

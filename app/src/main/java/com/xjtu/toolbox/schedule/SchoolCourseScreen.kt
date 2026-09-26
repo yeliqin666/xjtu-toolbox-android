@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import com.xjtu.toolbox.ui.adaptive.readableWidth
@@ -23,10 +22,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import com.xjtu.toolbox.LocalAppLoginState
-import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.auth.AuthExpiredException
-import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,7 +35,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.ui.glass.*
 import com.xjtu.toolbox.ui.components.AppFilterChip
@@ -54,6 +50,7 @@ import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.SinkFeedback
 import top.yukonga.miuix.kmp.utils.overScrollVertical
+import com.xjtu.toolbox.nav.AppRoute
 
 private const val TAG = "SchoolCourseScreen"
 
@@ -129,7 +126,7 @@ fun SchoolCourseScreen(
             }
             initError = null
         } catch (e: AuthExpiredException) {
-            appLoginState.handleAuthExpired(LoginType.JWXT, Routes.SCHOOL_COURSE, onBack)
+            appLoginState.handleAuthExpired(AppRoute.SchoolCourse, onBack)
         } catch (e: Exception) {
             Log.e(TAG, "init failed", e)
             initError = "初始化失败: ${e.message}"
@@ -166,7 +163,7 @@ fun SchoolCourseScreen(
                 }
                 result = r
             } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(LoginType.JWXT, Routes.SCHOOL_COURSE, onBack)
+                appLoginState.handleAuthExpired(AppRoute.SchoolCourse, onBack)
             } catch (e: Exception) {
                 Log.e(TAG, "search failed", e)
                 searchError = "查询失败: ${e.message}"

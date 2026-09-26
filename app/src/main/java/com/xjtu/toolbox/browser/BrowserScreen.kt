@@ -2,12 +2,8 @@ package com.xjtu.toolbox.browser
 
 import com.xjtu.toolbox.util.redactUrl
 import com.xjtu.toolbox.util.releaseSafely
-import com.xjtu.toolbox.util.WebVpnUtil
+import com.xjtu.toolbox.webvpn.WebVpnUtil
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.CardDefaults
-import top.yukonga.miuix.kmp.basic.Button
-import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Icon
@@ -80,7 +76,7 @@ internal fun syncCookiesToWebView(
 
     try {
         val jar = client.cookieJar
-        if (jar is com.xjtu.toolbox.util.PersistentCookieJar) {
+        if (jar is com.xjtu.toolbox.network.PersistentCookieJar) {
             // 使用 PersistentCookieJar：向常见域名查询 cookies
             val domains = (listOf(
                 "login.xjtu.edu.cn", "cas.xjtu.edu.cn", "org.xjtu.edu.cn",

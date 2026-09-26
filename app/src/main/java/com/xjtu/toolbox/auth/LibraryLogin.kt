@@ -111,7 +111,7 @@ class LibraryLogin(
         if (finalUrl.contains("login.xjtu.edu.cn")) return false
         if (finalUrl.contains("rg.lib.xjtu.edu.cn")) return true
         // WebVPN 模式：还原 webvpn 包装 URL 后再判断
-        val original = com.xjtu.toolbox.util.WebVpnUtil.getOriginalUrl(finalUrl)
+        val original = com.xjtu.toolbox.webvpn.WebVpnUtil.getOriginalUrl(finalUrl)
         return original?.contains("rg.lib.xjtu.edu.cn") == true
     }
 

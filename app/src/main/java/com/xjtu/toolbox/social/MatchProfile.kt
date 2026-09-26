@@ -47,7 +47,7 @@ object MatchProfile {
     const val DAYS = 7
 
     /**
-     * 每天 11 节。这个数要跟 [com.xjtu.toolbox.util.XjtuTime] 的作息表对齐——
+     * 每天 11 节。这个数要跟 [com.xjtu.toolbox.schedule.XjtuTime] 的作息表对齐——
      * 之前写的 12 会凭空多出一列谁都没课的格子，把"共同空闲"整体抬高 1/12。
      */
     const val SECTIONS = 11
@@ -119,7 +119,7 @@ object MatchProfile {
         /** 校区。是硬门槛而不是加分项，见 [compare]。 */
         val campus: String = "",
         val className: String = "",
-        /** 生源地省份，从学号推——见 [com.xjtu.toolbox.util.ProvinceCode]，跟屁岱画像同一份映射。 */
+        /** 生源地省份，从学号推——见 [com.xjtu.toolbox.account.ProvinceCode]，跟屁岱画像同一份映射。 */
         val province: String = "",
     ) {
         val courseCodes: Set<String> get() = courses.map { it.code }.toSet()
@@ -263,7 +263,7 @@ object MatchProfile {
             campus = if (dims.identity) clean(local.profile?.campusName.orEmpty()) else "",
             className = if (dims.identity) clean(local.profile?.className.orEmpty()) else "",
             province = if (dims.identity) {
-                local.profile?.sno?.let { com.xjtu.toolbox.util.ProvinceCode.of(it) }.orEmpty()
+                local.profile?.sno?.let { com.xjtu.toolbox.account.ProvinceCode.of(it) }.orEmpty()
             } else "",
         )
     }

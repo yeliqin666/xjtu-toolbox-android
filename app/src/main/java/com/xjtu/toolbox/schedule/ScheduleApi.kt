@@ -5,9 +5,7 @@ import com.xjtu.toolbox.util.redactUrl
 import android.util.Log
 import com.xjtu.toolbox.auth.SiteSession
 import kotlinx.coroutines.runBlocking
-import com.xjtu.toolbox.ui.ScheduleSlot
 import com.google.gson.JsonObject
-import com.xjtu.toolbox.util.XjtuTime
 import com.xjtu.toolbox.util.safeInt
 import com.xjtu.toolbox.util.safeParseJsonObject
 import com.xjtu.toolbox.util.safeString

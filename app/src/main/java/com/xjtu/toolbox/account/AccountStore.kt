@@ -5,8 +5,7 @@ import android.content.SharedPreferences
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
-import com.xjtu.toolbox.auth.AccountType
-import com.xjtu.toolbox.util.SecurePrefs
+import com.xjtu.toolbox.data.SecurePrefs
 
 /**
  * 多账号持久化存储。

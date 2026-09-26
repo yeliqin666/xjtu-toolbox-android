@@ -6,7 +6,6 @@ import androidx.compose.foundation.lazy.staggeredgrid.items
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -20,7 +19,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -40,10 +38,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import com.xjtu.toolbox.LocalAppLoginState
-import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.auth.AuthExpiredException
-import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -79,6 +75,7 @@ import top.yukonga.miuix.kmp.basic.PullToRefresh
 import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
+import com.xjtu.toolbox.nav.AppRoute
 
 @Composable
 fun CouponScreen(
@@ -136,7 +133,7 @@ fun CouponScreen(
                     }
                     com.xjtu.toolbox.home.HomeStats.push(
                         appContext,
-                        Routes.COUPON,
+                        AppRoute.Coupon,
                         parts.firstOrNull() ?: "暂无可用",
                         parts.drop(1).firstOrNull()
                     )
@@ -144,7 +141,7 @@ fun CouponScreen(
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(LoginType.COUPON, Routes.COUPON, onBack)
+                appLoginState.handleAuthExpired(AppRoute.Coupon, onBack)
             } catch (e: Exception) {
                 // 翻页失败只提示，保住已加载的列表；整页失败才切到错误页
                 if (append) {
@@ -178,7 +175,7 @@ fun CouponScreen(
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(LoginType.COUPON, Routes.COUPON, onBack)
+                appLoginState.handleAuthExpired(AppRoute.Coupon, onBack)
             } catch (e: Exception) {
                 statusMessage = "领取失败：${e.message ?: "网络异常"}"
             } finally {

@@ -42,7 +42,7 @@ class JwappLogin(
         // 诊断：jwapp 域 cookies 名单（不暴露值），定位 401 是否是缺 session cookie
         try {
             val jar = client.cookieJar
-            if (jar is com.xjtu.toolbox.util.PersistentCookieJar) {
+            if (jar is com.xjtu.toolbox.network.PersistentCookieJar) {
                 val direct = jar.getCookiesForDomain("jwapp.xjtu.edu.cn") +
                     jar.getCookiesForDomain(".jwapp.xjtu.edu.cn")
                 val webvpn = jar.getCookiesForDomain("webvpn.xjtu.edu.cn") +
@@ -127,7 +127,7 @@ class JwappLogin(
             //   - 清 jwapp.xjtu.edu.cn cookie（`sk` 等 jwapp 自己的 session）让 jwapp 服务端重建 session
             //   - **绝对不能** 清 login.xjtu.edu.cn cookie（TGC）—— TGC 是 CAS SSO 核心，清掉后所有 SSO 失败
             //     会触发 MFA detect 循环弹窗（已踩坑）
-            (client.cookieJar as? com.xjtu.toolbox.util.PersistentCookieJar)?.let {
+            (client.cookieJar as? com.xjtu.toolbox.network.PersistentCookieJar)?.let {
                 it.clearForDomain("jwapp.xjtu.edu.cn")
             }
 

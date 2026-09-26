@@ -356,7 +356,7 @@ open class XJTULogin(
             android.util.Log.w(TAG, "init: HTTP ${response.code} for loginUrl=${loginUrl.redactUrl()}")
             chain.forEachIndexed { i, r ->
                 val raw = r.request.url.toString()
-                val plain = com.xjtu.toolbox.util.WebVpnUtil.getOriginalUrl(raw) ?: raw
+                val plain = com.xjtu.toolbox.webvpn.WebVpnUtil.getOriginalUrl(raw) ?: raw
                 android.util.Log.w(TAG, "  hop$i ${r.code} $plain")
                 // Location 原文是判断"谁把我们打回根路径"的唯一证据：是目标站自己 302 到 /，
                 // 还是网关改写 Location 时丢了 /https/{hex} 前缀。二者修法完全不同。

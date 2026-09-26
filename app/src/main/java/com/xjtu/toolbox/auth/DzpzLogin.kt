@@ -82,7 +82,7 @@ class DzpzLogin(
         // dump 现有 cookie 名（不暴露 value）便于排查
         try {
             val jar = client.cookieJar
-            if (jar is com.xjtu.toolbox.util.PersistentCookieJar) {
+            if (jar is com.xjtu.toolbox.network.PersistentCookieJar) {
                 val all = jar.getCookiesForDomain("webvpn.xjtu.edu.cn") + jar.getCookiesForDomain(".webvpn.xjtu.edu.cn")
                 Log.w(TAG, "postLogin: webvpn-cookies(names)=${all.map { it.name }}")
             }
@@ -118,7 +118,7 @@ class DzpzLogin(
                 ?.let { return it }
         }
         val jar = client.cookieJar
-        if (jar is com.xjtu.toolbox.util.PersistentCookieJar) {
+        if (jar is com.xjtu.toolbox.network.PersistentCookieJar) {
             jar.findCookieByName("loginidweaver")?.value?.let { return it }
         }
         return jar.loadForRequest(BASE_URL.toHttpUrl())
@@ -219,7 +219,7 @@ class DzpzLogin(
             ssoResp.body?.string()
             val ssoFinalUrl = ssoResp.request.url.toString()
 
-            if (com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(ssoFinalUrl, "dzpz.xjtu.edu.cn")) {
+            if (com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(ssoFinalUrl, "dzpz.xjtu.edu.cn")) {
                 userId = findLoginIdWeaver(ssoResp) ?: fetchUserIdFromApi()
                 lastUserIdFromPostLogin = userId
                 Log.d(TAG, "reAuthenticate: SSO success, userId=$userId")

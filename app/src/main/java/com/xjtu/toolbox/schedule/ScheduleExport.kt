@@ -2,22 +2,13 @@ package com.xjtu.toolbox.schedule
 
 import android.content.Context
 import android.content.Intent
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.RectF
-import android.graphics.Typeface
 import android.util.Log
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import java.io.File
-import java.io.FileOutputStream
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.UUID
-import com.xjtu.toolbox.util.XjtuTime
-
 private const val TAG = "ScheduleExport"
 
 object ScheduleExport {

@@ -14,7 +14,7 @@ class EmptyRoomCache(context: Context) {
     private val appContext = context.applicationContext
 
     /**
-     * 当前账号对应的 prefs 名。**每次访问动态计算**——和 [com.xjtu.toolbox.util.DataCache] 的策略一致。
+     * 当前账号对应的 prefs 名。**每次访问动态计算**——和 [com.xjtu.toolbox.data.DataCache] 的策略一致。
      * 这样切换账号后无需重启 App，下一次调用就会命中新账号的命名空间。
      */
     private val prefs

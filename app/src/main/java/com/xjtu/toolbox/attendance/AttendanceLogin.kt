@@ -128,7 +128,7 @@ class AttendanceLogin(
         val known = listOf(UNDERGRAD_HOST, GRADUATE_HOST, HOST)
         fun kqHostOf(raw: String?): String? {
             val url = raw?.toHttpUrlOrNull() ?: return null
-            val plain = com.xjtu.toolbox.util.WebVpnUtil.getOriginalUrl(url.toString())?.toHttpUrlOrNull() ?: url
+            val plain = com.xjtu.toolbox.webvpn.WebVpnUtil.getOriginalUrl(url.toString())?.toHttpUrlOrNull() ?: url
             plain.host.lowercase().takeIf { it in known }?.let { return it }
             return plain.queryParameter("service")?.let { kqHostOf(it) }
         }
@@ -220,7 +220,7 @@ class AttendanceLogin(
         }
         // WebVPN 模式下落地页的 host 是网关，真实域名藏在路径里，先还原再判。
         // 不还原的话这里认不出 kq，基址会停在默认值，业务请求又打回直连。
-        val plain = com.xjtu.toolbox.util.WebVpnUtil.getOriginalUrl(url.toString())
+        val plain = com.xjtu.toolbox.webvpn.WebVpnUtil.getOriginalUrl(url.toString())
             ?.toHttpUrlOrNull() ?: url
         val host = plain.host.lowercase()
         if (host.endsWith(".xjtu.edu.cn") && "kq" in host.substringBefore('.')) {
@@ -476,7 +476,7 @@ class AttendanceLogin(
          * 请求，那时实例方法还不能调。
          */
         fun proxied(url: String, useWebVpn: Boolean): String =
-            if (useWebVpn) com.xjtu.toolbox.util.WebVpnUtil.getVpnUrl(url) else url
+            if (useWebVpn) com.xjtu.toolbox.webvpn.WebVpnUtil.getVpnUrl(url) else url
 
         /**
          * 主构造器的入口 URL：账号类型已知就直接打对应业务站的 `student-pc` 入口，

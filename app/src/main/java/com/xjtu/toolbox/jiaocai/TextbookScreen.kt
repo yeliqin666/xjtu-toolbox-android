@@ -3,9 +3,7 @@ package com.xjtu.toolbox.jiaocai
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -20,9 +18,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.xjtu.toolbox.LocalAppLoginState
-import com.xjtu.toolbox.Routes
-import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.handleAuthExpired
 import com.xjtu.toolbox.jiaocai1.Jiaocai1BrowseContent
@@ -41,7 +37,7 @@ import top.yukonga.miuix.kmp.basic.SnackbarHost
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
-import top.yukonga.miuix.kmp.theme.MiuixTheme
+import com.xjtu.toolbox.nav.AppRoute
 
 /**
  * 教材合并入口（PR L，plan2 §3）：应用里原本有三个各管一摊的「教材」页
@@ -72,7 +68,7 @@ fun TextbookScreen(
     onOpenBook: (ssno: String, title: String) -> Unit,
     initialTab: Int = 0,
     initialKeyword: String = "",
-    authExpiredRoute: String = Routes.JIAOCAI,
+    authExpiredRoute: AppRoute = AppRoute.Jiaocai,
 ) {
     val appLoginState = LocalAppLoginState.current
     val context = LocalContext.current
@@ -99,13 +95,13 @@ fun TextbookScreen(
     if (jiaocaiVm.authExpired) {
         LaunchedEffect(Unit) {
             jiaocaiVm.authExpired = false
-            appLoginState.handleAuthExpired(LoginType.JIAOCAI, authExpiredRoute, onBack)
+            appLoginState.handleAuthExpired(authExpiredRoute, onBack)
         }
     }
     if (jiaocai1Vm.authExpired) {
         LaunchedEffect(Unit) {
             jiaocai1Vm.authExpired = false
-            appLoginState.handleAuthExpired(LoginType.JIAOCAI, authExpiredRoute, onBack)
+            appLoginState.handleAuthExpired(authExpiredRoute, onBack)
         }
     }
 

@@ -7,7 +7,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.xjtu.toolbox.MainActivity
 import com.xjtu.toolbox.R
-import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.nav.AppRoute
 
 /**
  * 三类后台提醒的系统通知。
@@ -37,7 +37,7 @@ internal object ReminderNotifier {
             seat?.takeIf { it.isNotBlank() }?.let { append("座位 $it · ") }
             append(if (action == "入馆签到") "超时没签到今天就不能再线上预约了" else "还没返座，记得回去签一下")
         },
-        route = Routes.LIBRARY,
+        route = AppRoute.Library,
     )
 
     fun notifyScheduleChange(context: Context, summary: String): Boolean = post(
@@ -47,7 +47,7 @@ internal object ReminderNotifier {
         icon = R.drawable.ic_notification_notice,
         title = "课表有变动",
         text = summary,
-        route = Routes.SCHEDULE,
+        route = AppRoute.Schedule,
     )
 
     fun notifyExam(context: Context, courseName: String, label: String, detail: String): Boolean = post(
@@ -57,7 +57,7 @@ internal object ReminderNotifier {
         icon = R.drawable.ic_notification_notice,
         title = "$courseName$label",
         text = detail,
-        route = Routes.SCHEDULE,
+        route = AppRoute.Schedule,
     )
 
     fun notifyLmsDeadlines(context: Context, items: List<String>): Boolean {
@@ -71,7 +71,7 @@ internal object ReminderNotifier {
             icon = R.drawable.ic_notification_notice,
             title = if (items.size == 1) "作业快截止了" else "${items.size} 份作业快截止了",
             text = items.first(),
-            route = Routes.LMS,
+            route = AppRoute.Lms(),
             style = inbox,
         )
     }
@@ -83,12 +83,12 @@ internal object ReminderNotifier {
         icon: Int,
         title: String,
         text: String,
-        route: String,
+        route: AppRoute,
         style: NotificationCompat.Style? = null,
     ): Boolean {
         if (!canPost(context)) return false
         val launch = Intent(context, MainActivity::class.java).apply {
-            putExtra(MainActivity.EXTRA_LAUNCH_ROUTE, route)
+            putExtra(MainActivity.EXTRA_LAUNCH_ROUTE, route.id)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         val pending = PendingIntent.getActivity(

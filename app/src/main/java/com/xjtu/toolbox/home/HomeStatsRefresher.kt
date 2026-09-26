@@ -2,7 +2,6 @@ package com.xjtu.toolbox.home
 
 import android.content.Context
 import android.util.Log
-import com.xjtu.toolbox.Routes
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.SessionManager
@@ -16,8 +15,8 @@ import com.xjtu.toolbox.lms.deadlineInstant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import com.xjtu.toolbox.nav.AppRoute
 
 /**
  * 首页状态的**主动拉取**调度器。
@@ -72,7 +71,7 @@ object HomeStatsRefresher {
      * @param loginType 需要哪个站点的会话；null 表示无需登录。
      */
     private class Source(
-        val routeKey: String,
+        val route: AppRoute,
         val ttlMs: Long,
         val loginType: LoginType?,
         val fetch: suspend (Context, SiteSession?) -> HomeStat?,
@@ -80,7 +79,7 @@ object HomeStatsRefresher {
 
     private val sources: List<Source> = listOf(
         // 评教：一周一次。开没开评教窗口在一周内不会反复变。
-        Source(Routes.JUDGE, 7 * DAY, LoginType.JWXT) { _, site ->
+        Source(AppRoute.Judge, 7 * DAY, LoginType.JWXT) { _, site ->
             site ?: return@Source null
             withContext(Dispatchers.IO) {
                 val api = com.xjtu.toolbox.judge.JudgeApi(site)
@@ -98,7 +97,7 @@ object HomeStatsRefresher {
         },
 
         // 体测：一周一次。成绩一学期才更新一次，一周已经很勤了。
-        Source(Routes.FITNESS, 7 * DAY, LoginType.FITNESS) { ctx, site ->
+        Source(AppRoute.Fitness, 7 * DAY, LoginType.FITNESS) { ctx, site ->
             site ?: return@Source null
             withContext(Dispatchers.IO) {
                 val api = com.xjtu.toolbox.fitness.FitnessApi(site)
@@ -124,14 +123,14 @@ object HomeStatsRefresher {
         },
 
         // 思源学堂：一天一次。要逐门课查活动，比别的源贵，别刷太勤。
-        Source(Routes.LMS, 1 * DAY, LoginType.LMS) { ctx, site ->
+        Source(AppRoute.Lms(), 1 * DAY, LoginType.LMS) { ctx, site ->
             site ?: return@Source null
             withContext(Dispatchers.IO) { lmsLatest(site, ctx) }
         },
 
         // 快速考勤流水：最新一条刷卡记录。用户要求"打开时立即请求"，
         // 所以 TTL 给到 10 分钟——首页每次进来基本都会重取，又不至于同一次浏览里反复打。
-        Source(Routes.ICLASSFACE, 10 * 60 * 1000L, LoginType.ICLASSFACE) { _, site ->
+        Source(AppRoute.Iclassface, 10 * 60 * 1000L, LoginType.ICLASSFACE) { _, site ->
             site ?: return@Source null
             withContext(Dispatchers.IO) {
                 val records = runCatching {
@@ -149,13 +148,13 @@ object HomeStatsRefresher {
         // 两件事有时限、错过就作废：**待领取**（不领就没有）和**即将到期**（不用就浪费）。
         // 这也是为什么它值得主动拉——不像成绩那样"早晚会知道"，这个过期就真没了。
         // 一天多次但不至于太频，6 小时足够在到期前那几天提醒到人。
-        Source(Routes.COUPON, 6 * 60 * 60 * 1000L, LoginType.COUPON) { ctx, site ->
+        Source(AppRoute.Coupon, 6 * 60 * 60 * 1000L, LoginType.COUPON) { ctx, site ->
             site ?: return@Source null
             withContext(Dispatchers.IO) { couponStatus(ctx, site) }
         },
 
         // 考勤：两天一次。本研统一。
-        Source(Routes.ATTENDANCE, 2 * DAY, LoginType.ATTENDANCE) { ctx, site ->
+        Source(AppRoute.Attendance, 2 * DAY, LoginType.ATTENDANCE) { ctx, site ->
             site ?: return@Source null
             withContext(Dispatchers.IO) { attendanceWeeklyRate(ctx, site) }
         },
@@ -165,7 +164,7 @@ object HomeStatsRefresher {
         // 这里除了给首页写摘要，还负责**算出"新增了几门"**供屁岱主动提醒使用：
         // 把总门数记在一个独立的游标里，与上次对比。游标只在成功取到数据时前移，
         // 否则一次失败会把基线冲掉，之后永远判不出"新增"。
-        Source(Routes.JWAPP_SCORE, 1 * DAY, LoginType.JWAPP) { ctx, site ->
+        Source(AppRoute.JwappScore, 1 * DAY, LoginType.JWAPP) { ctx, site ->
             site ?: return@Source null
             withContext(Dispatchers.IO) {
                 val terms = runCatching { com.xjtu.toolbox.jwapp.JwappApi(site).getGrade() }
@@ -198,10 +197,10 @@ object HomeStatsRefresher {
         // 后果是只要用户没手动进过校园卡页，余额缓存永远是空的，
         // 首页余额位常年空白，屁岱那条"余额不足"提醒也永远触发不了（balance 恒为 null）。
         // 收进来后自动获得串行、间隔、失败退避、冷启动重试这一整套。
-        Source(Routes.CAMPUS_CARD, 30 * 60 * 1000L, LoginType.CAMPUS_CARD) { ctx, site ->
+        Source(AppRoute.CampusCard, 30 * 60 * 1000L, LoginType.CAMPUS_CARD) { ctx, site ->
             site ?: return@Source null
             withContext(Dispatchers.IO) {
-                val ok = com.xjtu.toolbox.refreshCampusCardCache(ctx, site)
+                val ok = com.xjtu.toolbox.card.refreshCampusCardCache(ctx, site)
                 if (!ok) return@withContext null
                 val prefs = com.xjtu.toolbox.card.CampusCardCache.cardPrefs(ctx)
                 val balance = prefs.getFloat("card_balance_cache", -1f)
@@ -219,7 +218,7 @@ object HomeStatsRefresher {
         //
         // TTL 比别的源短，因为这里的状态**是有时效的**——"待入馆"要在限定时间内签到，
         // "临时离馆"超时会被释放座位。半小时才刷一次的话，等首页显示出来往往已经过期了。
-        Source(Routes.LIBRARY, 15 * 60 * 1000L, LoginType.LIBRARY) { ctx, site ->
+        Source(AppRoute.Library, 15 * 60 * 1000L, LoginType.LIBRARY) { ctx, site ->
             site ?: return@Source null
             withContext(Dispatchers.IO) {
                 val b = com.xjtu.toolbox.library.LibraryApi(site).getMyBooking()
@@ -251,7 +250,7 @@ object HomeStatsRefresher {
 
         // 教务通知：来源跟用户在设置里勾的一致，小组件和系统通知共用。
         // 不需要登录，4 小时一次；真正抓取和去重交给 NoticeWatchSync。
-        Source(Routes.NOTIFICATION, 4 * 60 * 60 * 1000L, null) { ctx, _ ->
+        Source(AppRoute.Notification, 4 * 60 * 60 * 1000L, null) { ctx, _ ->
             if (!com.xjtu.toolbox.notification.NoticeWatchStore.isEnabled(ctx)) {
                 val cached = com.xjtu.toolbox.notification.NoticeWatchStore.lastTitles(ctx)
                 val top = cached.firstOrNull() ?: return@Source null
@@ -272,7 +271,7 @@ object HomeStatsRefresher {
 
         // 校园黄页：不需要登录，数据几乎不变，一周一次足够。
         // 只取用户点名的教务处与保卫处两条。
-        Source(Routes.YELLOW_PAGE, 7 * DAY, null) { ctx, _ ->
+        Source(AppRoute.YellowPage, 7 * DAY, null) { ctx, _ ->
             withContext(Dispatchers.IO) {
                 val data = com.xjtu.toolbox.yellowpage.YellowPageApi(ctx).getData()
                 val wanted = listOf("教务处", "保卫处")
@@ -406,7 +405,7 @@ object HomeStatsRefresher {
             // 一轮十几秒里若切了账号，后面拉到的是新账号的数据；此时整轮作废、什么都不写。
             val roundAccount = com.xjtu.toolbox.account.AccountContext.activeAccountId
             fun accountChanged() = com.xjtu.toolbox.account.AccountContext.activeAccountId != roundAccount
-            val stamps = HomeStats.stamps(context, roundAccount)
+            val stamps = HomeStats.stamps(context, sources.map { it.route }, roundAccount)
             val now = System.currentTimeMillis()
             var first = true
             val coldStart = firstRunInProcess
@@ -419,15 +418,15 @@ object HomeStatsRefresher {
             for (s in sources.sortedBy { it.ttlMs }) {
                 if (s.loginType == LoginType.ICLASSFACE && accountType != AccountType.UNDERGRADUATE) continue
                 // 首页评教统计走的是本科教务评教；研究生评教在 gste，要单独登录，不在后台刷
-                if (s.routeKey == Routes.JUDGE && accountType != AccountType.UNDERGRADUATE) continue
-                val last = stamps[s.routeKey] ?: 0L
-                val hasContent = s.routeKey in existing
+                if (s.route == AppRoute.Judge && accountType != AccountType.UNDERGRADUATE) continue
+                val last = stamps[s.route.id] ?: 0L
+                val hasContent = s.route.id in existing
                 if (now - last < s.ttlMs && !(coldStart && !hasContent)) {
-                    Log.d(TAG, "${s.routeKey}: 未到期，跳过（距上次 ${(now - last) / 60000} 分钟，TTL ${s.ttlMs / 60000} 分钟）")
+                    Log.d(TAG, "${s.route.id}: 未到期，跳过（距上次 ${(now - last) / 60000} 分钟，TTL ${s.ttlMs / 60000} 分钟）")
                     continue
                 }
                 if (coldStart && !hasContent && now - last < s.ttlMs) {
-                    Log.d(TAG, "${s.routeKey}: 冷启动且暂无内容，忽略退避重试")
+                    Log.d(TAG, "${s.route.id}: 冷启动且暂无内容，忽略退避重试")
                 }
                 if (!first) delay(GAP_MS)
                 first = false
@@ -440,13 +439,13 @@ object HomeStatsRefresher {
                     val site = s.loginType?.let { manager.ensureSite(it.siteKey(), silent = true) }
                     val stat = s.fetch(context, site)
                     if (accountChanged()) {
-                        Log.d(TAG, "abort round: account switched during ${s.routeKey}")
+                        Log.d(TAG, "abort round: account switched during ${s.route.id}")
                         return
                     }
-                    HomeStats.push(context, s.routeKey, stat?.value, stat?.detail, roundAccount)
-                    if (stat == null) HomeStats.markEmpty(context, s.routeKey, s.ttlMs, roundAccount)
-                    else HomeStats.markFetched(context, s.routeKey, roundAccount)
-                    Log.d(TAG, "${s.routeKey} -> ${stat?.value ?: "无数据（1 小时后重试）"}")
+                    HomeStats.push(context, s.route, stat?.value, stat?.detail, roundAccount)
+                    if (stat == null) HomeStats.markEmpty(context, s.route, s.ttlMs, roundAccount)
+                    else HomeStats.markFetched(context, s.route, roundAccount)
+                    Log.d(TAG, "${s.route.id} -> ${stat?.value ?: "无数据（1 小时后重试）"}")
                 } catch (e: com.xjtu.toolbox.auth.CasGate.ThrottledException) {
                     Log.d(TAG, "abort round: CasGate throttled (${e.message})")
                     return
@@ -456,16 +455,16 @@ object HomeStatsRefresher {
                 } catch (e: com.xjtu.toolbox.auth.LoginCooldownException) {
                     // 站点级 60 秒冷却：只是这个源暂时进不去，别的源照跑，也别写失败戳
                     // （60 秒后本来就能重试，写成 30 分钟反而更糟）。
-                    Log.d(TAG, "${s.routeKey}: 站点冷却中，跳过不计失败")
+                    Log.d(TAG, "${s.route.id}: 站点冷却中，跳过不计失败")
                 } catch (e: com.xjtu.toolbox.auth.MfaRequiredException) {
                     // 需要短信验证。后台不碰，等用户主动进那个功能页时自然会走完整流程。
                     // 同样不写失败戳：这不是故障，是"现在不该由我来做"。
-                    Log.d(TAG, "${s.routeKey}: 需短信验证，后台跳过")
+                    Log.d(TAG, "${s.route.id}: 需短信验证，后台跳过")
                 } catch (e: Exception) {
                     // 半小时后重试，不按正常 TTL 锁死——故障多是暂时的（网关抖动、系统维护），
                     // 按 2 天/7 天锁住会让"修好了却还是不显示"。
-                    if (!accountChanged()) HomeStats.markFailed(context, s.routeKey, s.ttlMs, roundAccount)
-                    Log.w(TAG, "${s.routeKey} refresh failed (retry in 30min): ${e.message}")
+                    if (!accountChanged()) HomeStats.markFailed(context, s.route, s.ttlMs, roundAccount)
+                    Log.w(TAG, "${s.route.id} refresh failed (retry in 30min): ${e.message}")
                 }
             }
         } finally {

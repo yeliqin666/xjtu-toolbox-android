@@ -229,7 +229,7 @@ abstract class SiteSession(
         // 判成"认证失效"时必须留下判据：到底是 401/403，还是响应体被识别成了 CAS 登录页。
         // 只打一句 "auth failure" 的话，遇到误判（业务接口返回 403 但会话其实是好的）
         // 根本无从分辨——教务学期列表接口就是这么被卡住的。
-        val failedUrl = com.xjtu.toolbox.util.WebVpnUtil.getOriginalUrl(response.request.url.toString())
+        val failedUrl = com.xjtu.toolbox.webvpn.WebVpnUtil.getOriginalUrl(response.request.url.toString())
             ?: response.request.url.toString()
         Log.w(
             TAG,

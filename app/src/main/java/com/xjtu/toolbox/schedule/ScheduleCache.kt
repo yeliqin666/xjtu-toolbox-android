@@ -1,7 +1,7 @@
 package com.xjtu.toolbox.schedule
 
 import com.google.gson.Gson
-import com.xjtu.toolbox.util.DataCache
+import com.xjtu.toolbox.data.DataCache
 import java.time.LocalDate
 
 /**

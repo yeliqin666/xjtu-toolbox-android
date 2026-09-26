@@ -1,10 +1,8 @@
 package com.xjtu.toolbox.fitness
 
 import com.xjtu.toolbox.ui.components.enterOnce
-import com.xjtu.toolbox.LocalAppLoginState
-import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.auth.AuthExpiredException
-import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.SiteSession
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -21,7 +19,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -41,7 +38,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -67,6 +63,7 @@ import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
+import com.xjtu.toolbox.nav.AppRoute
 
 @Composable
 fun FitnessScreen(
@@ -120,7 +117,7 @@ fun FitnessScreen(
             }
         } catch (e: Exception) {
             if (e is AuthExpiredException) {
-                loginState.markStaleAndRetry(LoginType.FITNESS, Routes.FITNESS)
+                loginState.markStaleAndRetry(AppRoute.Fitness)
                 onBack()
                 return
             }
@@ -138,7 +135,7 @@ fun FitnessScreen(
             score = withContext(Dispatchers.IO) { api.getScore(year.yearNum) }
         } catch (e: Exception) {
             if (e is AuthExpiredException) {
-                loginState.markStaleAndRetry(LoginType.FITNESS, Routes.FITNESS)
+                loginState.markStaleAndRetry(AppRoute.Fitness)
                 onBack()
                 return
             }
@@ -158,7 +155,7 @@ fun FitnessScreen(
                     score = withContext(Dispatchers.IO) { api.getScore(year.yearNum) }
                 } catch (e: Exception) {
                     if (e is AuthExpiredException) {
-                        loginState.markStaleAndRetry(LoginType.FITNESS, Routes.FITNESS)
+                        loginState.markStaleAndRetry(AppRoute.Fitness)
                         onBack()
                         return
                     }

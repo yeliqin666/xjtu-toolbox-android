@@ -51,7 +51,7 @@
 当 `dev` 上的改动经过充分测试、准备发布正式版时：
 
 1. **准备更新日志**：
-   - 在 `dev` 分支确认 `app/src/main/java/com/xjtu/toolbox/util/AppChangelog.kt` 的 `ENTRIES` 顶部已写好当前版本（`X.Y.Z`）的更新条目。
+   - 在 `dev` 分支确认 `app/src/main/java/com/xjtu/toolbox/update/AppChangelog.kt` 的 `ENTRIES` 顶部已写好当前版本（`X.Y.Z`）的更新条目。
 2. **合并至 main**：
    - 提交 PR：`dev → main`，代码审核通过后合并。
    - `main` 的 CI 将自动运行正式版发布流程：构建 Release APK、打 `vX.Y.Z` tag、生成 Release Notes、发布到 GitHub Latest、并自动同步代码、tag 与 Release 到 Gitee。

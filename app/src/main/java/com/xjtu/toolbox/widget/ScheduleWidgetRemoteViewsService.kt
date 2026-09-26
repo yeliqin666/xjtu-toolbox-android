@@ -5,7 +5,7 @@ import android.content.Intent
 import android.widget.RemoteViews
 import android.widget.RemoteViewsService
 import com.xjtu.toolbox.R
-import com.xjtu.toolbox.util.XjtuTime
+import com.xjtu.toolbox.schedule.XjtuTime
 import kotlin.math.abs
 
 class ScheduleWidgetRemoteViewsService : RemoteViewsService() {

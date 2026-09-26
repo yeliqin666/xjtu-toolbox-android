@@ -2,7 +2,7 @@ package com.xjtu.toolbox.calendar
 
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
-import com.xjtu.toolbox.util.HttpClients
+import com.xjtu.toolbox.network.HttpClients
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.time.DayOfWeek

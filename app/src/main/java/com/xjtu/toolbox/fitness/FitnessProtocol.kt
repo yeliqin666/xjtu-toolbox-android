@@ -4,7 +4,7 @@ import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.xjtu.toolbox.auth.SiteSession
-import com.xjtu.toolbox.util.WebVpnUtil
+import com.xjtu.toolbox.webvpn.WebVpnUtil
 import com.xjtu.toolbox.util.safeParseJsonObject
 import kotlinx.coroutines.runBlocking
 import okhttp3.FormBody

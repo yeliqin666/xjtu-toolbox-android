@@ -69,8 +69,8 @@ data class ScoreItem(
         replaceFlag = replaceFlag,
         score = score,
         scoreValue = scoreValue,
-        gpa = com.xjtu.toolbox.util.ScoreCalculator.courseGpa(this) ?: 0.0,
-        passFlag = com.xjtu.toolbox.util.ScoreCalculator.isPassed(this),
+        gpa = com.xjtu.toolbox.score.ScoreCalculator.courseGpa(this) ?: 0.0,
+        passFlag = com.xjtu.toolbox.score.ScoreCalculator.isPassed(this),
         specificReason = specificReason,
         itemList = emptyList(),
     )
@@ -257,7 +257,7 @@ class JwappApi(private val site: SiteSession) {
         val serverGpa = data.get("gpa").safeDouble()
         // 如果服务器 GPA 为 0 但课程已通过，用本地映射兜底
         val effectiveGpa = if (serverGpa > 0.0) serverGpa
-            else com.xjtu.toolbox.util.ScoreCalculator.scoreToGpa(rawScore) ?: 0.0
+            else com.xjtu.toolbox.score.ScoreCalculator.scoreToGpa(rawScore) ?: 0.0
 
         return ScoreDetail(
             courseName = data.get("courseName").safeString(),
@@ -322,7 +322,7 @@ class JwappApi(private val site: SiteSession) {
      * passFlag 对等级制课程可能错误返回 false，需 GPA/分数二次兜底。
      */
     fun calculateGpaForCourses(courses: List<ScoreItem>): GpaInfo =
-        com.xjtu.toolbox.util.ScoreCalculator.calculateGpaForCourses(courses)
+        com.xjtu.toolbox.score.ScoreCalculator.calculateGpaForCourses(courses)
 }
 
 internal fun isNoScoreDetailMessage(msg: String?): Boolean {

@@ -55,7 +55,7 @@ class HelloLogin(
         Log.d(TAG, "postLogin: finalUrl=$landed")
         // 走 WebVPN 时域名段是 AES 密文，明文 host 不出现——统一用 isAtTargetSite 判断，
         // 别再用 contains("hello.xjtu.edu.cn")（iclassface 就栽在这个写法上）。
-        if (!com.xjtu.toolbox.util.WebVpnUtil.isAtTargetSite(landed.toString(), BASE_HOST)) {
+        if (!com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(landed.toString(), BASE_HOST)) {
             throw RuntimeException("个人信息系统登录回调异常")
         }
         if (landed.queryParameter("token").isNullOrBlank()) {

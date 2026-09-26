@@ -67,8 +67,8 @@ import com.xjtu.toolbox.schedule.ExamCountdown
 import com.xjtu.toolbox.schedule.HolidayApi
 import com.xjtu.toolbox.schedule.ScheduleCache
 import com.xjtu.toolbox.schedule.TermWeeks
-import com.xjtu.toolbox.util.DataCache
-import com.xjtu.toolbox.util.XjtuTime
+import com.xjtu.toolbox.data.DataCache
+import com.xjtu.toolbox.schedule.XjtuTime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -281,7 +281,7 @@ internal fun AgentWelcome(
     val facts by produceState(WelcomeFacts(), context) {
         value = withContext(Dispatchers.IO) { WelcomeFactsLoader.load(context, now) }
     }
-    val greeting = com.xjtu.toolbox.util.Greeting.of(now.toLocalTime())
+    val greeting = com.xjtu.toolbox.home.Greeting.of(now.toLocalTime())
     val primary = MiuixTheme.colorScheme.primary
 
     Column(

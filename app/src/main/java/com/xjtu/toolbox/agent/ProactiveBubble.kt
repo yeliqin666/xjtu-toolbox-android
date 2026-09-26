@@ -51,12 +51,12 @@ import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
-import com.xjtu.toolbox.Routes
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import com.xjtu.toolbox.nav.AppRoute
 
 /**
  * 屁岱主动提醒。
@@ -78,7 +78,7 @@ data class ProactiveMessage(
      * 非空则点击打开此路由，不进屁岱。
      * 气泡在说一件 App 里已经有页面的事（通知原文、加餐券、签到）时走这一支。
      */
-    val openRoute: String? = null,
+    val openRoute: AppRoute? = null,
     /**
      * 进屁岱时附给模型的本地快照（不进聊天气泡）。
      * 只说明「用户点的是哪件事」以及当时已知字段；缺的不要编，完整数据仍调工具。
@@ -290,12 +290,12 @@ object ProactiveRules {
             // 课表变更排最前：调课停课换教室不知道就会白跑一趟，
             // 而学校改课表是不通知的，App 是唯一可能告诉他的地方。
             if (scheduleChange != null) {
-                add(ProactiveMessage("schedule_change", scheduleChange, openRoute = Routes.SCHEDULE))
+                add(ProactiveMessage("schedule_change", scheduleChange, openRoute = AppRoute.Schedule))
             }
             // 只在异常**新增**时才有值（见 HomeStatsRefresher），所以到这里就直接报。
             // 措辞保持中性——按用户要求，成绩、体测、考勤这类事一律不调侃。
             if (attendanceAlert != null) {
-                add(ProactiveMessage("attendance", attendanceAlert, openRoute = Routes.ATTENDANCE))
+                add(ProactiveMessage("attendance", attendanceAlert, openRoute = AppRoute.Attendance))
             }
             // 考试：新版分级布局没有独立考试页，点日程也落不到那层 sheet。
             // 进屁岱，并把这场考试的缓存字段当快照——对准「点的是哪场」，缺的仍调工具。
@@ -325,13 +325,13 @@ object ProactiveRules {
                     ProactiveMessage(
                         id = "library",
                         text = "图书馆座位该${libraryPendingAction}了",
-                        openRoute = Routes.LIBRARY,
+                        openRoute = AppRoute.Library,
                     )
                 )
             }
             // 加餐券排在余额前面：券不领不用就作废，而余额低了随时能充。
             if (couponAlert != null) {
-                add(ProactiveMessage("coupon", couponAlert, openRoute = Routes.COUPON))
+                add(ProactiveMessage("coupon", couponAlert, openRoute = AppRoute.Coupon))
             }
             if (balance != null && balance < LOW_BALANCE) {
                 add(
@@ -366,7 +366,7 @@ object ProactiveRules {
                     ProactiveMessage(
                         id = "class",
                         text = "${minutesToClass}分钟后上$nextCourseName",
-                        openRoute = Routes.SCHEDULE,
+                        openRoute = AppRoute.Schedule,
                     )
                 )
             }
@@ -376,9 +376,9 @@ object ProactiveRules {
                         id = "notice",
                         text = "教务处新通知：$latestNotice",
                         openRoute = if (!latestNoticeLink.isNullOrBlank()) {
-                            Routes.browser(latestNoticeLink)
+                            AppRoute.Browser(latestNoticeLink)
                         } else {
-                            Routes.NOTIFICATION
+                            AppRoute.Notification
                         },
                     )
                 )

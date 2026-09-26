@@ -115,7 +115,7 @@ Release 会启用代码压缩与资源收缩。未提供签名配置时生成未
 发版前须同步更新：
 
 1. `app/build.gradle.kts` 的 `versionName` 与 `versionCode`
-2. `app/src/main/java/com/xjtu/toolbox/util/AppChangelog.kt` 最前面追加对应版本条目（编译期校验）
+2. `app/src/main/java/com/xjtu/toolbox/update/AppChangelog.kt` 最前面追加对应版本条目（编译期校验）
 3. 如有必要，更新本文件的版本徽章
 
 `AppChangelog.kt` 中 `issues` 字段写的是**发版时仍然存在的问题**。

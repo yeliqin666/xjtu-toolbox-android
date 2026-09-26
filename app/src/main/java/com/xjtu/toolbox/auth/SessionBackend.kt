@@ -1,6 +1,6 @@
 package com.xjtu.toolbox.auth
 
-import com.xjtu.toolbox.util.PersistentCookieJar
+import com.xjtu.toolbox.network.PersistentCookieJar
 import kotlinx.coroutines.sync.Mutex
 import okhttp3.ConnectionPool
 import okhttp3.Dispatcher

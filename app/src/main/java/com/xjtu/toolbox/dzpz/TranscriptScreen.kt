@@ -17,16 +17,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
-import com.xjtu.toolbox.LocalAppLoginState
-import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.auth.AuthExpiredException
-import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -39,12 +36,13 @@ import com.xjtu.toolbox.lms.LmsDownloadStore
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.glass.*
-import com.xjtu.toolbox.util.CredentialStore
+import com.xjtu.toolbox.data.CredentialStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import com.xjtu.toolbox.nav.AppRoute
 
 /**
  * 电子成绩单下载页面
@@ -109,7 +107,7 @@ fun TranscriptScreen(
                 }
                 formContext = ctx
             } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(LoginType.DZPZ, Routes.TRANSCRIPT, onBack)
+                appLoginState.handleAuthExpired(AppRoute.Transcript, onBack)
             } catch (e: Exception) {
                 errorMessage = "加载失败: ${e.message}"
             } finally {
@@ -156,7 +154,7 @@ fun TranscriptScreen(
                 workflowState = WorkflowState.SUCCESS
                 workflowProgress = "成绩单已生成"
             } catch (e: AuthExpiredException) {
-                appLoginState.handleAuthExpired(LoginType.DZPZ, Routes.TRANSCRIPT, onBack)
+                appLoginState.handleAuthExpired(AppRoute.Transcript, onBack)
             } catch (e: Exception) {
                 workflowState = WorkflowState.ERROR
                 workflowProgress = "申请失败: ${e.message}"

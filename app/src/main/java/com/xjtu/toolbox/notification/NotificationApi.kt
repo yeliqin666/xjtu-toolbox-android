@@ -1,7 +1,7 @@
 package com.xjtu.toolbox.notification
 
 import android.util.Log
-import com.xjtu.toolbox.util.HttpClients
+import com.xjtu.toolbox.network.HttpClients
 import com.xjtu.toolbox.util.safeParseJsonObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async

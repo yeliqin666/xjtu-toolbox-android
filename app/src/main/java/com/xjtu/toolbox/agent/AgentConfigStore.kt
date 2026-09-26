@@ -3,7 +3,7 @@ package com.xjtu.toolbox.agent
 import android.content.Context
 import android.content.SharedPreferences
 import com.xjtu.toolbox.account.AccountContext
-import com.xjtu.toolbox.util.SecurePrefs
+import com.xjtu.toolbox.data.SecurePrefs
 
 /**
  * 把存下来的思考强度收敛到本地支持的档位。

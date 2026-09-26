@@ -2,6 +2,8 @@
 
 package com.xjtu.toolbox.agent
 
+import com.xjtu.toolbox.nav.appRouteOf
+import com.xjtu.toolbox.nav.AppRoute
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.animateColorAsState
@@ -11,7 +13,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.SolidColor
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
@@ -46,8 +47,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -55,11 +54,9 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
@@ -92,7 +89,7 @@ import androidx.compose.ui.zIndex
 import android.widget.Toast
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.ViewModelStoreOwner
-import com.xjtu.toolbox.LocalAppLoginState
+import com.xjtu.toolbox.auth.LocalAppLoginState
 import kotlinx.coroutines.launch
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import top.yukonga.miuix.kmp.basic.*
@@ -111,7 +108,7 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
  */
 @Composable
 fun AgentScreen(
-    onNavigate: (String) -> Unit = {},
+    onNavigate: (AppRoute) -> Unit = {},
     /** tab 模式下需要额外空出的底部高度（悬浮胶囊底栏不占宿主 contentPadding，见调用处）。 */
     extraBottomPadding: Dp = 0.dp,
     /** 宿主 Scaffold 的 contentPadding 底部值。输入栏算自己的让位时要把它减掉，见 AgentComposer。 */
@@ -688,10 +685,10 @@ private fun formatSessionTime(ts: Long): String =
 private fun ChatPanel(
     vm: AgentViewModel,
     config: AgentConfig,
-    loginState: com.xjtu.toolbox.AppLoginState,
+    loginState: com.xjtu.toolbox.auth.AppLoginState,
     padding: PaddingValues,
     scrollBehavior: ScrollBehavior,
-    onNavigate: (String) -> Unit,
+    onNavigate: (AppRoute) -> Unit,
     onOpenConfig: () -> Unit,
     bottomReserve: Dp = 0.dp,
     /** 玻璃顶栏的高度，放进对话列表的顶部留白（列表铺到顶栏下面）。 */
@@ -1273,7 +1270,7 @@ private fun groupAgentRows(messages: List<ChatMessage>): List<AgentRow> {
 private fun ReasoningBar(
     text: String,
     streaming: Boolean = false,
-    onNavigate: (String) -> Unit = {},
+    onNavigate: (AppRoute) -> Unit = {},
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     Surface(
@@ -1324,7 +1321,7 @@ private fun ReasoningBar(
                     text = text,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     onLink = { url ->
-                        onNavigate("browser?url=" + java.net.URLEncoder.encode(url, "UTF-8"))
+                        onNavigate(AppRoute.Browser(url))
                     },
                 )
             }
@@ -1386,7 +1383,7 @@ private fun ToolCallNote(events: List<ChatMessage>) {
 private fun MessageBubble(
     msg: ChatMessage,
     showReasoning: Boolean,
-    onNavigate: (String) -> Unit,
+    onNavigate: (AppRoute) -> Unit,
     canEdit: Boolean = false,
     onEdit: () -> Unit = {},
     toolEvents: List<ChatMessage> = emptyList(),
@@ -1464,7 +1461,7 @@ private fun MessageBubble(
                                 onLongClick = { copyText(msg.content) },
                             ),
                         onLink = { url ->
-                            onNavigate("browser?url=" + java.net.URLEncoder.encode(url, "UTF-8"))
+                            onNavigate(AppRoute.Browser(url))
                         }
                     )
                 }
@@ -1493,7 +1490,7 @@ private fun MessageBubble(
                                 Modifier
                                     .clip(RoundedCornerShape(50))
                                     .background(accent.copy(alpha = 0.10f))
-                                    .clickable { onNavigate(route) }
+                                    .clickable { appRouteOf(route)?.let(onNavigate) }
                                     .padding(start = 12.dp, end = 9.dp, top = 6.dp, bottom = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {

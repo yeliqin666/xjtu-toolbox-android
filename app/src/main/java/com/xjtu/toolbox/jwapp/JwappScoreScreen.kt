@@ -28,7 +28,6 @@ import top.yukonga.miuix.kmp.basic.ListPopupColumn
 import top.yukonga.miuix.kmp.basic.PopupPositionProvider
 import top.yukonga.miuix.kmp.basic.PullToRefresh
 import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
-import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.overlay.OverlayListPopup
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.utils.overScrollVertical
@@ -37,13 +36,11 @@ import top.yukonga.miuix.kmp.utils.SinkFeedback
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -61,26 +58,16 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.SelectAll
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material.icons.filled.CheckCircle
 import top.yukonga.miuix.kmp.basic.SnackbarDuration
 import top.yukonga.miuix.kmp.basic.SnackbarHost
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import com.xjtu.toolbox.LocalAppLoginState
-import com.xjtu.toolbox.Routes
+import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.auth.AuthExpiredException
-import com.xjtu.toolbox.auth.LoginType
-import com.xjtu.toolbox.auth.handleAuthExpired
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.verticalScroll
@@ -120,7 +107,7 @@ fun JwappScoreScreen(
     val context = androidx.compose.ui.platform.LocalContext.current
     // DataCache 构造时绑定账号，切账号后必须换新实例，见 DataCache 类注释
     val dataCache = remember(appLoginState.accountId) {
-        com.xjtu.toolbox.util.DataCache(context, appLoginState.accountId.ifEmpty { null })
+        com.xjtu.toolbox.data.DataCache(context, appLoginState.accountId.ifEmpty { null })
     }
     val gson = remember { com.google.gson.Gson() }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -163,7 +150,7 @@ fun JwappScoreScreen(
             if (!silent) {
             try {
                 // 未登录态使用极长 TTL 以确保能加载缓存
-                val ttl = if (api != null) com.xjtu.toolbox.util.DataCache.DEFAULT_TTL_MS else Long.MAX_VALUE
+                val ttl = if (api != null) com.xjtu.toolbox.data.DataCache.DEFAULT_TTL_MS else Long.MAX_VALUE
                 val cached = dataCache.get(cacheKey, ttl)
                 if (cached != null) {
                     // Gson 反序列化不认 Kotlin 的非空约束：磁盘上的旧版本/半截缓存里
@@ -955,7 +942,7 @@ private fun ScoreRow(
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val reallyPassed = com.xjtu.toolbox.util.ScoreCalculator.isPassed(scoreItem)
+    val reallyPassed = com.xjtu.toolbox.score.ScoreCalculator.isPassed(scoreItem)
     val scoreColor = when {
         !reallyPassed -> MiuixTheme.colorScheme.error
         scoreItem.scoreValue != null && scoreItem.scoreValue >= 90 -> MiuixTheme.colorScheme.primary
@@ -963,7 +950,7 @@ private fun ScoreRow(
         scoreItem.scoreValue == null && reallyPassed -> MiuixTheme.colorScheme.primary
         else -> MiuixTheme.colorScheme.onSurface
     }
-    val courseGpa = com.xjtu.toolbox.util.ScoreCalculator.courseGpa(scoreItem)
+    val courseGpa = com.xjtu.toolbox.score.ScoreCalculator.courseGpa(scoreItem)
     val meta = buildList {
         add("${scoreItem.coursePoint} 学分")
         scoreItem.courseGroup?.let { add(it.shortLabel) }

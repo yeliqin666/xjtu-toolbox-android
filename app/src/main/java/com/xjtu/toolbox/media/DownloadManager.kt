@@ -71,7 +71,7 @@ class DownloadManager private constructor(private val context: Context) {
 
     // 数据库 DAO (internal 以便页面访问)
     internal val dao by lazy {
-        com.xjtu.toolbox.util.AppDatabase.getInstance(context).downloadTaskDao()
+        com.xjtu.toolbox.data.AppDatabase.getInstance(context).downloadTaskDao()
     }
 
     // 协程作用域
