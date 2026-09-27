@@ -75,6 +75,15 @@
       "url": "https://github.com/yeliqin666/xjtu-toolbox-android",
       "mustAck": false,
       "block": false
+    },
+    {
+      "id": "avenue-bug-0927",
+      "level": "warn",
+      "title": "场馆预约验证码异常",
+      "body": "目前场馆预订的自动识别验证码功能异常，请去【设置】关闭后手动验证",
+      "url": "https://github.com/yeliqin666/xjtu-toolbox-android",
+      "mustAck": false,
+      "block": false
     }
   ]
 }
