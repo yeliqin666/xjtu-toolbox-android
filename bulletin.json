@@ -1,12 +1,12 @@
 {
   "bulletins": [
     {
-      "id": "2026-09-24-force-5.0.7",
+      "id": "2026-09-24-force-5.0.8",
       "level": "force_update",
-      "title": "请更新到 5.0.7",
-      "body": "这几天更新实在太频繁，给大家添麻烦了，抱歉！接下来会攒一攒再发。本次新增社区：「我的」→「社区讨论」，登录 GitHub 就能发帖、回帖、@ 别人；原来的页内反馈挪进社区，即将停用。",
+      "title": "请更新到 5.0.8",
+      "body": "修复社区，支持表情回应和楼中楼。大幅整修代码，玻璃面板和cache性能提升",
       "url": "https://github.com/yeliqin666/xjtu-toolbox-android/releases/latest",
-      "targetVersion": "5.0.7",
+      "targetVersion": "5.0.8",
       "targetVersionCode": 84,
       "mustAck": false,
       "block": false
@@ -50,22 +50,19 @@
       "block": false
     },
     {
-      "id": "2026-09-22-poll-5.0",
+      "id": "2026-09-27-poll-5.0.8",
       "level": "info",
-      "title": "5.0 用下来，最满意哪里？",
-      "body": "可以不答。有问题或建议，写在「其他」里。",
-      "minVersion": "5.0",
-      "endsAt": "2026-10-20T00:00:00+08:00",
+      "title": "最近的更新，满意哪里？",
+      "body": "有更多建议和反馈，欢迎前往我的-社区 发帖！",
+      "minVersion": "5.0.8",
+      "endsAt": "2026-11-20T00:00:00+08:00",
       "mustAck": false,
       "block": false,
       "options": [
-        "首页",
-        "玻璃界面与动效",
-        "平板 / 大屏排版",
-        "日程",
-        "「我的」页",
-        "屁岱",
-        "小游戏与联机"
+        "图书馆桌码识别",
+        "玻璃面板、滑动、缓存的性能优化",
+        "新的社区功能",
+        "校园卡新的消费可视化"
       ],
       "allowMultiple": true,
       "allowOther": true
