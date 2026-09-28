@@ -1,13 +1,23 @@
 {
   "bulletins": [
     {
-      "id": "2026-09-24-force-5.0.8",
+      "id": "2026-09-28-force-5.0.9",
       "level": "force_update",
-      "title": "请更新到 5.0.8",
-      "body": "修复社区，支持表情回应和楼中楼。大幅整修代码，玻璃面板和cache性能提升",
+      "title": "请更新到 5.0.9",
+      "body": "修复 5.0.8 刷新课表时闪退的问题，抱歉！另外新增方块、跳一跳两款小游戏，图书馆页和内置浏览器重做。",
       "url": "https://github.com/yeliqin666/xjtu-toolbox-android/releases/latest",
-      "targetVersion": "5.0.8",
-      "targetVersionCode": 84,
+      "targetVersion": "5.0.9",
+      "targetVersionCode": 86,
+      "mustAck": false,
+      "block": false
+    },
+    {
+      "id": "2026-09-28-tips-5.0.9",
+      "level": "info",
+      "title": "5.0.9：摸鱼有新去处",
+      "body": "服务里的「小游戏」新增方块和跳一跳；图书馆平面图可以自由缩放、全屏查看了。",
+      "minVersion": "5.0.9",
+      "endsAt": "2026-10-20T00:00:00+08:00",
       "mustAck": false,
       "block": false
     },
