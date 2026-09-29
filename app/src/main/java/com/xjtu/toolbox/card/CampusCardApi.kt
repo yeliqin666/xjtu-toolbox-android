@@ -40,6 +40,9 @@ data class CardInfo(
     val department: String = "",       // 学院（从 HTML 提取）
 )
 
+/** 一笔流水的去重键：接口不给流水号，只能用这几个字段拼。 */
+internal fun Transaction.uniqueKey(): String = "$time|$merchant|$amount|$balance|$description"
+
 /** 单笔交易记录 */
 @kotlinx.serialization.Serializable
 data class Transaction(
@@ -122,7 +125,7 @@ class CampusCardApi(private val site: SiteSession) {
         val root = try {
             responseBody.safeParseJsonObject()
         } catch (e: Exception) {
-            throw RuntimeException("校园卡返回了非JSON数据: ${responseBody.take(100)}")
+            throw RuntimeException("校园卡返回了异常数据，请稍后重试")
         }
         if (CampusCardContract.businessCode(root) == "401") {
             throw com.xjtu.toolbox.auth.AuthExpiredException("校园卡")
@@ -254,7 +257,7 @@ class CampusCardApi(private val site: SiteSession) {
         val root = try {
             responseBody.safeParseJsonObject()
         } catch (e: Exception) {
-            throw RuntimeException("交易记录返回了非JSON数据: ${responseBody.take(100)}")
+            throw RuntimeException("交易记录返回了异常数据，请稍后重试")
         }
         if (CampusCardContract.businessCode(root) == "401") {
             throw com.xjtu.toolbox.auth.AuthExpiredException("校园卡")
@@ -360,8 +363,7 @@ class CampusCardApi(private val site: SiteSession) {
         throw RuntimeException("查询校园卡流水返回了残缺流水数据")
     }
 
-    private fun pageSignature(batch: List<Transaction>): String =
-        batch.joinToString("\n") { "${it.time}|${it.merchant}|${it.amount}|${it.balance}|${it.description}" }
+    private fun pageSignature(batch: List<Transaction>): String = batch.joinToString("\n") { it.uniqueKey() }
 
     /**
      * 按月汇总。传入查询起止日后：日均按该月落在区间内的天数摊，
