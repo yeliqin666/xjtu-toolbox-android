@@ -62,6 +62,7 @@ private const val R_PAYMENT_CODE = "payment_code"
 private const val R_COUPON = "coupon"
 private const val R_SCHOOL_CALENDAR = "school_calendar"
 private const val R_VENUE = "venue"
+private const val R_DORM_POWER = "dorm_power"
 private const val R_FITNESS = "fitness"
 private const val R_YELLOW_PAGE = "yellow_page"
 private const val R_WEBVPN_CONVERTER = "webvpn_converter"
@@ -97,6 +98,7 @@ fun legacyColor(key: String): Color = when (key) {
     R_COUPON -> Color(0xFFF9A825)
     R_SCHOOL_CALENDAR -> Color(0xFF00796B)
     R_VENUE -> Color(0xFF00838F)
+    R_DORM_POWER -> Color(0xFFF57C00)
     R_FITNESS -> Color(0xFF00897B)
     R_YELLOW_PAGE -> Color(0xFF1565C0)
     // 工具与助手

@@ -416,6 +416,7 @@ class AppLoginStateViewModel(application: android.app.Application) : androidx.li
             register(com.xjtu.toolbox.auth.CampusCardSession())
             register(com.xjtu.toolbox.auth.FitnessSession())
             register(com.xjtu.toolbox.auth.IclassfaceSession())
+            register(com.xjtu.toolbox.auth.SsnSession())
             register(com.xjtu.toolbox.auth.HelloSession())
             register(com.xjtu.toolbox.auth.GsteSession())
             register(com.xjtu.toolbox.auth.GmisSession())

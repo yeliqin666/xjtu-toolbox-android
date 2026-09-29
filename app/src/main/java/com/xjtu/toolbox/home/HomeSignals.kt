@@ -60,6 +60,9 @@ object HomeSignals {
      */
     var couponAlert by mutableStateOf<String?>(null)
 
+    /** 宿舍电量低于 [com.xjtu.toolbox.dormpower.LOW_KWH] 时的提醒文案；没有则为 null。 */
+    var dormPowerAlert by mutableStateOf<String?>(null)
+
     /** [HomeStatsRefresher.refreshDue] 跑完一轮就自增，首页据此重新读缓存刷新展示。 */
     var statsVersion by mutableIntStateOf(0)
         private set
@@ -74,6 +77,7 @@ object HomeSignals {
         libraryUrgentAction = null
         attendanceAlert = null
         couponAlert = null
+        dormPowerAlert = null
     }
 
     /** 提醒只需要课程名和开始时间，不必把首页那个完整模型搬过来。 */

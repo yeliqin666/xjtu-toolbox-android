@@ -38,7 +38,7 @@ import org.jsoup.Jsoup
  * 之前打的是 80 端口那套 `/xjtu/…` 部署，会话时常失效、订单接口取不到数据。
  * 两套是并存的不同部署，不是同一批接口。
  *
- * 支付页仍在 80 端口，且要浏览器自身的会话，只能拉起系统浏览器。
+ * 支付页仍在 80 端口，要浏览器自身的会话：在内置浏览器里先走一遍 OAuth 登录再进支付页。
  */
 class VenueApi(private val site: SiteSession) {
 
@@ -470,7 +470,7 @@ class VenueApi(private val site: SiteSession) {
         return OrderActionResult(success, message)
     }
 
-    /** 支付页面 URL（订单支付需要在系统浏览器中完成 CAS 会话接力）。 */
+    /** 支付页面 URL，要先在浏览器里登录过（见 [BROWSER_LOGIN_URL]）。 */
     fun paymentUrl(orderId: String): String =
         "$PAYMENT_BASE/pay/show.html?id=${java.net.URLEncoder.encode(orderId, Charsets.UTF_8.name())}"
 

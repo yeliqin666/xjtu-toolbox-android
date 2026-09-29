@@ -430,6 +430,30 @@ class VenueSession : CasSiteSession("venue", "场馆预订", mustUseWebVpn = fal
         VenueLogin(session = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
 }
 
+// ── SSN 宿舍电费 ──────────────────────────────────────────────────────
+
+class SsnSession : CasSiteSession("ssn", "宿舍电费", mustUseWebVpn = false) {
+    override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
+        SsnLogin(session = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
+
+    override fun onLoginSuccess(login: XJTULogin) {
+        (login as? SsnLogin)?.cid?.let { localToken["cid"] = it }
+    }
+
+    /** 接口返回 401001 表示凭证过期。 */
+    override fun isAuthFailureResponse(response: Response, bodyPreview: String?): Boolean =
+        super.isAuthFailureResponse(response, bodyPreview) || bodyPreview?.contains("\"code\":401001") == true
+
+    /** 重新取一遍缴费页：登录着就能解析出 cid，被要求登录（loginUrl 非空）则说明会话已失效。 */
+    override suspend fun validateLogin(): Boolean = withIo {
+        val html = client.newCall(Request.Builder().url(SsnLogin.PAY_PAGE_URL).get().build())
+            .execute().use { if (it.isSuccessful) it.body.string() else "" }
+        val cid = SsnLogin.parseCid(html) ?: return@withIo false
+        localToken["cid"] = cid
+        true
+    }
+}
+
 // ── CAMPUS CARD 校园卡 ───────────────────────────────────────────────
 
 /**
