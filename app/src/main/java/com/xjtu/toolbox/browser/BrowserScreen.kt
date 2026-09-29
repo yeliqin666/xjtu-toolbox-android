@@ -144,6 +144,7 @@ internal fun syncCookiesToWebView(
 @Composable
 fun BrowserScreen(
     initialUrl: String = "",
+    thenUrl: String = "",
     site: SiteSession? = null,
     cookieClient: OkHttpClient? = null,
     extraCookieDomains: List<String> = emptyList(),
@@ -387,6 +388,9 @@ fun BrowserScreen(
                         /** 自动跳过 WebVPN 登录前页的次数上限：统一认证失败时网关会再把人送回来，别来回兜圈。 */
                         private var webVpnAutoLogins = 0
 
+                        /** 还没跳去 [thenUrl]：等首个页面加载完、且已经离开登录页（登录页上要用户自己输）。 */
+                        private var thenPending = thenUrl.isNotBlank()
+
                         override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                             super.onPageStarted(view, url, favicon)
                             isLoading = true
@@ -422,6 +426,10 @@ fun BrowserScreen(
                                 editingUrl = it
                             }
                             view?.let { WebViewNightMode.apply(it, darkState.value) }
+                            if (thenPending && url != null && !isAuthHop(url)) {
+                                thenPending = false
+                                view?.loadUrl(normalizeUrl(thenUrl))
+                            }
                         }
 
                         override fun shouldOverrideUrlLoading(

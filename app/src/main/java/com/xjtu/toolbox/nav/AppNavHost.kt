@@ -49,6 +49,7 @@ import com.xjtu.toolbox.score.ScoreReportScreen
 import com.xjtu.toolbox.settings.SettingsScreen
 import com.xjtu.toolbox.social.MatchScreen
 import com.xjtu.toolbox.venue.VenueScreen
+import com.xjtu.toolbox.dormpower.DormPowerScreen
 import com.xjtu.toolbox.webvpn.WebVpnConverterScreen
 import com.xjtu.toolbox.yellowpage.YellowPageScreen
 import kotlinx.coroutines.delay
@@ -147,7 +148,19 @@ fun AppNavHost(
             WithSite("dzpz") { TranscriptScreen(site = it, onBack = back) }
         }
         entry<AppRoute.Venue>(transition = expand(AppRoute.Venue::class)) {
-            WithSite("venue") { VenueScreen(site = it, credentialStore = credentialStore, onBack = back) }
+            WithSite("venue") { VenueScreen(
+                    site = it,
+                    credentialStore = credentialStore,
+                    onOpenBrowser = { url, then -> router.open(AppRoute.Browser(url, then)) },
+                    onBack = back,
+                ) }
+        }
+        entry<AppRoute.DormPower>(transition = expand(AppRoute.DormPower::class)) {
+            WithSite("ssn") { DormPowerScreen(
+                site = it,
+                onOpenBrowser = { url -> router.open(AppRoute.Browser(url)) },
+                onBack = back,
+            ) }
         }
         entry<AppRoute.DownloadManager>(transition = expand(AppRoute.DownloadManager::class)) {
             DownloadManagerScreen(onBack = back)
@@ -206,6 +219,7 @@ fun AppNavHost(
             val host = remember(url) { runCatching { Uri.parse(url).host?.lowercase() }.getOrNull() }
             BrowserScreen(
                 initialUrl = url,
+                thenUrl = browser.then,
                 site = loginState.sessionManager?.getSiteOrNull(siteKeyForHost(host.orEmpty()))
                     ?: loginState.sessionManager?.getSiteOrNull("jwxt"),
                 cookieClient = if (url.contains("webvpn.xjtu.edu.cn", ignoreCase = true)) {
@@ -308,5 +322,7 @@ private fun siteKeyForHost(host: String): String = when {
     "ncard.xjtu.edu.cn" in host -> "campus_card"
     "kq.xjtu.edu.cn" in host -> "new_attendance"
     "lms.xjtu.edu.cn" in host -> "lms"
+    "202.117.17.144" in host -> "venue"
+    "ssn.xjtu.edu.cn" in host -> "ssn"
     else -> "jwxt"
 }

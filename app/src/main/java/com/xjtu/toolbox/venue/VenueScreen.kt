@@ -6,8 +6,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
@@ -64,6 +62,7 @@ import com.xjtu.toolbox.nav.AppRoute
 fun VenueScreen(
     site: SiteSession,
     credentialStore: CredentialStore,
+    onOpenBrowser: (url: String, then: String) -> Unit,
     onBack: () -> Unit
 ) {
     val appLoginState = LocalAppLoginState.current
@@ -90,15 +89,10 @@ fun VenueScreen(
     var showBookingConfirm by remember { mutableStateOf(false) }
     var orderDetail by remember { mutableStateOf<VenueApi.OrderInfo?>(null) }
     var cancelTarget by remember { mutableStateOf<VenueApi.OrderInfo?>(null) }
-    var payTarget by remember { mutableStateOf<VenueApi.OrderInfo?>(null) }
 
-    fun openExternalUrl(url: String) {
-        try {
-            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-        } catch (_: Exception) {
-            Toast.makeText(context, "没有可用的浏览器", Toast.LENGTH_SHORT).show()
-        }
-    }
+    /** 先在内置浏览器里过一遍登录（带着 App 的统一认证 cookie，一般免输），再落到支付页。 */
+    fun pay(order: VenueApi.OrderInfo) =
+        onOpenBrowser(VenueApi.BROWSER_LOGIN_URL, vm.api.paymentUrl(order.orderId))
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
@@ -189,7 +183,7 @@ fun VenueScreen(
                 Column(Modifier.fillMaxWidth()) {
                     Text(
                         "• 验证码默认自动识别，可在设置中关闭；失败仍可手滑\n" +
-                            "• 支付和登录会在系统浏览器中完成\n\n" +
+                            "• 支付会在内置浏览器里完成，登录一般自动通过\n\n" +
                             "望理解，请尽量在校园网环境下使用。",
                         style = MiuixTheme.textStyles.body2,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary
@@ -235,7 +229,7 @@ fun VenueScreen(
                         onLoadMore = { vm.loadOrders(reset = false) },
                         onDetail = { orderDetail = it },
                         onCancel = { cancelTarget = it },
-                        onPay = { payTarget = it },
+                        onPay = ::pay,
                         modifier = Modifier.fillMaxSize(),
                         scrollBehavior = scrollBehavior,
                         topPadding = glassTop,
@@ -463,13 +457,13 @@ fun VenueScreen(
                             text = "去支付",
                             onClick = {
                                 vm.dismissResult(refresh = false)
-                                payTarget = VenueApi.OrderInfo(
+                                pay(VenueApi.OrderInfo(
                                     orderId = result.orderId,
                                     status = 0,
                                     createdAt = "",
                                     price = result.price,
                                     details = emptyList()
-                                )
+                                ))
                             },
                             modifier = Modifier.fillMaxWidth(),
                             colors = ButtonDefaults.textButtonColorsPrimary()
@@ -537,7 +531,7 @@ fun VenueScreen(
                                 text = "去支付",
                                 onClick = {
                                     orderDetail = null
-                                    payTarget = order
+                                    pay(order)
                                 },
                                 modifier = Modifier.weight(1f),
                                 colors = ButtonDefaults.textButtonColorsPrimary()
@@ -606,48 +600,6 @@ fun VenueScreen(
                             colors = ButtonDefaults.textButtonColors(
                                 textColor = MiuixTheme.colorScheme.error
                             )
-                        )
-                    }
-                }
-            }
-        }
-
-        // ─── 支付登录引导 ───
-        payTarget?.let { order ->
-            BackHandler { payTarget = null }
-            OverlayDialog(
-                title = "去支付",
-                show = true,
-                onDismissRequest = { payTarget = null }
-            ) {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text(
-                        "订单尚未支付，请先在浏览器中登录，再前往支付。",
-                        style = MiuixTheme.textStyles.body2
-                    )
-                    Text(
-                        "订单号：${order.orderId}",
-                        style = MiuixTheme.textStyles.footnote1,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                    )
-                    Row(Modifier.fillMaxWidth()) {
-                        TextButton(
-                            text = "去登录",
-                            onClick = { openExternalUrl(VenueApi.BROWSER_LOGIN_URL) },
-                            modifier = Modifier.weight(1f)
-                        )
-                        Spacer(Modifier.width(20.dp))
-                        TextButton(
-                            text = "去支付",
-                            onClick = {
-                                payTarget = null
-                                openExternalUrl(vm.api.paymentUrl(order.orderId))
-                            },
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.textButtonColorsPrimary()
                         )
                     }
                 }

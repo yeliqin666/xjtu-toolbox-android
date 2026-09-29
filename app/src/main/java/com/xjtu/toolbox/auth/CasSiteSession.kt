@@ -106,6 +106,6 @@ abstract class CasSiteSession(
 
     companion object {
         /** 全局唯一：所有 CAS 站点共用的登录锁，见 [runLogin] 上的说明。 */
-        private val casLoginLock = Mutex()
+        internal val casLoginLock = Mutex()
     }
 }

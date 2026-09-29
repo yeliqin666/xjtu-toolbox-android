@@ -174,6 +174,13 @@ object HomeStatsRefresher {
             withContext(Dispatchers.IO) { couponStatus(ctx, site) }
         },
 
+        // 宿舍电费：3 小时一次。电用完就断电，低电要赶在这之前说到；
+        // 没绑过宿舍的账号不碰这个系统（见 refreshDue 里的闸门）。
+        Source(AppRoute.DormPower, 3 * 60 * 60 * 1000L, LoginType.DORM_POWER) { ctx, site ->
+            site ?: return@Source null
+            withContext(Dispatchers.IO) { dormPowerStatus(ctx, site) }
+        },
+
         // 考勤：两天一次。本研统一。
         Source(AppRoute.Attendance, 2 * DAY, LoginType.ATTENDANCE) { ctx, site ->
             site ?: return@Source null
@@ -446,6 +453,8 @@ object HomeStatsRefresher {
                 if (s.loginType == LoginType.ICLASSFACE && accountType != AccountType.UNDERGRADUATE) continue
                 // 首页评教统计走的是本科教务评教；研究生评教在 gste，要单独登录，不在后台刷
                 if (s.route == AppRoute.Judge && accountType != AccountType.UNDERGRADUATE) continue
+                // 没绑过宿舍就不去登录那个系统：绑定发生在宿舍电费页里，之后这里才有得查。
+                if (s.route == AppRoute.DormPower && !com.xjtu.toolbox.dormpower.DormPowerStore.hasRooms(context)) continue
                 val last = stamps[s.route.id] ?: 0L
                 val hasContent = s.route.id in existing
                 val ttl = s.ttlNow()
@@ -513,6 +522,20 @@ object HomeStatsRefresher {
         } finally {
             runLock.unlock()
         }
+    }
+
+    /** 宿舍电量：首页显示最低的那间，低于 [com.xjtu.toolbox.dormpower.LOW_KWH] 时写提醒信号。 */
+    private suspend fun dormPowerStatus(ctx: Context, site: SiteSession): HomeStat? {
+        val readings = com.xjtu.toolbox.dormpower.DormPowerStore.refresh(ctx, com.xjtu.toolbox.dormpower.DormPowerApi(site, ctx))
+        val lowest = readings.filter { it.kwh != null }.minByOrNull { it.kwh ?: Double.MAX_VALUE } ?: return null
+        val low = com.xjtu.toolbox.dormpower.DormPowerStore.lowest(readings)
+        // 拉取期间切了账号：这份结果属于上一个账号，不能写成新账号的提醒
+        if (roundIsCurrent()) HomeSignals.dormPowerAlert = low?.let { "宿舍电量只剩 ${"%.1f".format(it.kwh)} 度了，记得充" }
+        Log.d(TAG, "dorm_power: ${readings.size} 间，最低 ${lowest.kwh} 度")
+        return HomeStat(
+            "%.0f 度".format(lowest.kwh),
+            if (readings.size > 1) "${readings.size} 间宿舍中最低" else "宿舍剩余电量",
+        )
     }
 
     /**

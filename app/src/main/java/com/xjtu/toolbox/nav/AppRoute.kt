@@ -97,6 +97,10 @@ sealed interface AppRoute : NavKey {
         override val id get() = "venue"
         override val loginType get() = LoginType.VENUE
     }
+    @Serializable data object DormPower : AppRoute {
+        override val id get() = "dorm_power"
+        override val loginType get() = LoginType.DORM_POWER
+    }
     @Serializable data object DownloadManager : AppRoute { override val id get() = "download_manager" }
 
     /** 思源学堂；带 courseId 时直接落到那门课（LMS 自己的课程 ID）。 */
@@ -135,8 +139,9 @@ sealed interface AppRoute : NavKey {
         override val id get() = "iclassface"
         override val loginType get() = LoginType.ICLASSFACE
     }
-    @Serializable data class Browser(val url: String = "") : AppRoute {
-        override val id get() = "browser?url=${encode(url)}"
+    /** [then] 非空时，[url] 先加载完并走完登录，再自动跳到 [then]（支付页要先过一遍登录）。 */
+    @Serializable data class Browser(val url: String = "", val then: String = "") : AppRoute {
+        override val id get() = "browser?url=${encode(url)}" + if (then.isEmpty()) "" else "&then=${encode(then)}"
     }
     @Serializable data object Settings : AppRoute { override val id get() = "settings" }
     /** 消息收纳：待办与消息。 */
@@ -168,7 +173,7 @@ private val simpleRoutes: Map<String, AppRoute> = listOf(
     AppRoute.Main, AppRoute.Schedule, AppRoute.Agent, AppRoute.PaymentCode,
     AppRoute.EmptyRoom, AppRoute.Notification, AppRoute.Attendance, AppRoute.Judge,
     AppRoute.JwappScore, AppRoute.Library, AppRoute.CampusCard, AppRoute.Coupon,
-    AppRoute.ScoreReport, AppRoute.Transcript, AppRoute.Venue, AppRoute.DownloadManager,
+    AppRoute.ScoreReport, AppRoute.Transcript, AppRoute.Venue, AppRoute.DormPower, AppRoute.DownloadManager,
     AppRoute.Jiaocai, AppRoute.Jiaocai1, AppRoute.SchoolCourse, AppRoute.SchoolCalendar,
     AppRoute.YellowPage, AppRoute.Fitness, AppRoute.Iclassface, AppRoute.Settings, AppRoute.Inbox,
     AppRoute.Feedback, AppRoute.Community, AppRoute.Faculty, AppRoute.Accounts,
@@ -178,7 +183,7 @@ private val simpleRoutes: Map<String, AppRoute> = listOf(
 
 /**
  * 把 [AppRoute.id] 解析回路由；认不出返回 null（可能是旧版本存下的快捷方式），调用方别闪退。
- * 带参数的：`lms?courseId=`、`browser?url=`、`jiaocai1_reader/<ssno>?title=`，参数 URL 编码。
+ * 带参数的：`lms?courseId=`、`browser?url=&then=`、`jiaocai1_reader/<ssno>?title=`，参数 URL 编码。
  */
 fun appRouteOf(id: String): AppRoute? {
     simpleRoutes[id]?.let { return it }
@@ -190,7 +195,7 @@ fun appRouteOf(id: String): AppRoute? {
         ?.let { raw -> runCatching { java.net.URLDecoder.decode(raw, "UTF-8") }.getOrDefault(raw) }
     return when {
         path == "lms" -> AppRoute.Lms(param("courseId")?.toIntOrNull())
-        path == "browser" -> AppRoute.Browser(param("url").orEmpty())
+        path == "browser" -> AppRoute.Browser(param("url").orEmpty(), param("then").orEmpty())
         path.startsWith("jiaocai1_reader/") -> {
             val ssno = path.removePrefix("jiaocai1_reader/")
             if (ssno.isBlank()) null else AppRoute.Jiaocai1Reader(ssno, param("title").orEmpty())

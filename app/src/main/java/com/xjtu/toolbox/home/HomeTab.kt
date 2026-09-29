@@ -657,6 +657,7 @@ internal fun HomeTab(
         AppRoute.Coupon to Icons.Default.Restaurant,
         AppRoute.SchoolCalendar to Icons.AutoMirrored.Filled.EventNote,
         AppRoute.Venue to Icons.Default.Stadium,
+        AppRoute.DormPower to Icons.Default.Bolt,
         AppRoute.Fitness to Icons.AutoMirrored.Filled.DirectionsRun,
         AppRoute.YellowPage to Icons.Default.ContactPhone,
         AppRoute.WebVpnConverter to Icons.Default.VpnKey,
