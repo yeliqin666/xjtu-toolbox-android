@@ -603,7 +603,7 @@ internal fun ProfileTab(
             try {
                 withContext(Dispatchers.IO) {
                     loginState.ensureCampusDetected()
-                    loginState.sessionManager?.ensureSite(LoginType.JWXT)
+                    loginState.sessionManager?.ensureSite(LoginType.JWXT, userInitiated = true)
                 }
             } catch (e: Exception) {
                 loginState.discardPreparedCredentials()

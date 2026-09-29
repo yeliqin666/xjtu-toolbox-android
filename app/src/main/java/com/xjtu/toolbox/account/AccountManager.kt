@@ -141,8 +141,8 @@ class AccountManager(
 
         // 探活：尝试 JWXT 登录。MFA 由 SessionManager 状态机驱动 UI 弹窗。
         val loginResult = runCatching {
-            sessionManager.ensureSite(com.xjtu.toolbox.auth.LoginType.JWXT)
-            sessionManager.ensureSite(com.xjtu.toolbox.auth.LoginType.YWTB)
+            sessionManager.ensureSite(com.xjtu.toolbox.auth.LoginType.JWXT, userInitiated = true)
+            sessionManager.ensureSite(com.xjtu.toolbox.auth.LoginType.YWTB, userInitiated = true)
         }
 
         if (loginResult.isFailure) {

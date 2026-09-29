@@ -111,7 +111,7 @@ internal class JwappScoreViewModel(
         viewModelScope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
-                    login.sessionManager?.credentials?.let { (user, password) -> site?.ensureLogin(user, password, force = true) }
+                    login.sessionManager?.credentials?.let { (user, password) -> site?.ensureLogin(user, password, force = true, userInitiated = true) }
                 }
             }
             load()

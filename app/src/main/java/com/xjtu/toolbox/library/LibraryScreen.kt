@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.library
 
+import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.pressScale
 import com.xjtu.toolbox.ui.components.enterOnce
@@ -613,11 +614,11 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                                                     val creds = appLoginState.sessionManager?.credentials
                                                         ?: error("未配置凭据")
                                                     withContext(Dispatchers.IO) {
-                                                        site.ensureLogin(creds.first, creds.second, force = true)
+                                                        site.ensureLogin(creds.first, creds.second, force = true, userInitiated = true)
                                                     }
                                                     vm.reload()
                                                 } catch (e: CancellationException) { throw e }
-                                                catch (e: Exception) { vm.errorMessage = "重新认证失败: ${e.message}" }
+                                                catch (e: Exception) { vm.errorMessage = FriendlyError.of(e, "重新认证") }
                                                 isReAuth = false
                                             }
                                         },
