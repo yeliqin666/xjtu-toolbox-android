@@ -48,6 +48,10 @@ class GoGameState(size: Int) {
     var rejection: GoRejection? by mutableStateOf(null)
         private set
 
+    /** 刚被自动虚手的一方（无处可下），UI 提示一句；下一手即清空。 */
+    var autoPassed: Stone? by mutableStateOf(null)
+        private set
+
     /** 数子阶段里被点为"死"的棋子坐标；点同一块棋（连通同色棋块）整体切换死活。 */
     val deadStones: SnapshotStateList<GoPoint> = SnapshotStateList()
 
@@ -65,6 +69,7 @@ class GoGameState(size: Int) {
         turn = Stone.BLACK
         phase = GoPhase.PLAYING
         rejection = null
+        autoPassed = null
         deadStones.clear()
         result = null
         winner = null
@@ -81,10 +86,12 @@ class GoGameState(size: Int) {
 
     private fun playAt(x: Int, y: Int) {
         rejection = null
-        when (val r = board.play(x, y, turn)) {
+        when (board.play(x, y, turn)) {
             is PlayResult.Success -> {
+                autoPassed = null
                 turn = turn.opponent()
                 version++
+                passWhileStuck()
             }
             PlayResult.Occupied -> rejection = GoRejection.OCCUPIED
             PlayResult.Suicide -> rejection = GoRejection.SUICIDE
@@ -94,11 +101,23 @@ class GoGameState(size: Int) {
 
     fun pass() {
         rejection = null
+        autoPassed = null
+        passTurn()
+        passWhileStuck()
+    }
+
+    private fun passTurn() {
         board.pass()
         turn = turn.opponent()
         version++
-        if (board.consecutivePasses >= 2) {
-            phase = GoPhase.SCORING
+        if (board.consecutivePasses >= 2) phase = GoPhase.SCORING
+    }
+
+    /** 轮到的一方无处可下就替他虚手，免得终盘卡住；两边都无处可下时自然进入数子。 */
+    private fun passWhileStuck() {
+        while (phase == GoPhase.PLAYING && !board.hasLegalMove(turn)) {
+            autoPassed = turn
+            passTurn()
         }
     }
 
@@ -107,6 +126,7 @@ class GoGameState(size: Int) {
     fun undo() {
         if (!board.canUndo()) return
         rejection = null
+        autoPassed = null
         if (board.undo()) {
             // 每一手（落子或虚手）都恰好让 turn 翻一次面，所以悔棋只需要把 turn 翻回去，
             // 不用另外记一份"谁走了这一步"的历史。

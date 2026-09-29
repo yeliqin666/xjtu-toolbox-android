@@ -75,8 +75,23 @@ class GomokuBoard(val size: Int = GOMOKU_BOARD_SIZE) {
         if (formsWinAt(row, col, player)) {
             return if (player == GOMOKU_XJTU) GomokuOutcome.XJTU_WIN else GomokuOutcome.SJTU_WIN
         }
-        if (isFull()) return GomokuOutcome.DRAW
+        if (!canStillFormFive()) return GomokuOutcome.DRAW
         return GomokuOutcome.ONGOING
+    }
+
+    /** 是否还有哪条连续五格里只有一方的子（或全空）；没有就谁都连不成五，可以判和。下满自然也算。 */
+    fun canStillFormFive(): Boolean {
+        for (r in 0 until size) for (c in 0 until size) for ((dr, dc) in DIRECTIONS) {
+            if (!inBounds(r + dr * 4, c + dc * 4)) continue
+            var xjtu = false
+            var sjtu = false
+            for (k in 0..4) when (cells[r + dr * k][c + dc * k]) {
+                GOMOKU_XJTU -> xjtu = true
+                GOMOKU_SJTU -> sjtu = true
+            }
+            if (!(xjtu && sjtu)) return true
+        }
+        return false
     }
 
     /** 经过 (row, col) 这颗 [player] 棋子的四条线里，最长的一条连子数。 */
