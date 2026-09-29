@@ -94,6 +94,7 @@ import com.xjtu.toolbox.home.HomeTab
 import com.xjtu.toolbox.library.LibraryFocus
 import com.xjtu.toolbox.library.LibraryQrArea
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.inbox.InboxBell
 import com.xjtu.toolbox.profile.ProfileTab
 import com.xjtu.toolbox.qrlogin.QrLoginScreen
 import com.xjtu.toolbox.schedule.ExamCountdown
@@ -384,6 +385,7 @@ internal fun MainScreen(
                         courseBottomContent = courseHeaderBottomContent,
                         onScan = { showQrLogin = true },
                         onSearch = { showGlobalSearch = true },
+                        onInbox = { router.open(AppRoute.Inbox) },
                     )
                 },
                 bottomBar = {
@@ -564,6 +566,7 @@ private fun MainTopBar(
     courseBottomContent: (@Composable () -> Unit)?,
     onScan: () -> Unit,
     onSearch: () -> Unit,
+    onInbox: () -> Unit,
 ) {
     val tint = glassBarTint()
     val color = if (glassStyle) Color.Transparent else MiuixTheme.colorScheme.surface
@@ -604,6 +607,7 @@ private fun MainTopBar(
         actions = {
             if (selectedTab == BottomTab.COURSES) courseActions?.invoke(this)
             if (selectedTab == BottomTab.HOME) {
+                InboxBell(onInbox)
                 IconButton(onClick = onSearch) {
                     Icon(Icons.Default.Search, contentDescription = "搜索", tint = MiuixTheme.colorScheme.onSurface)
                 }

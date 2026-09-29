@@ -10,6 +10,10 @@ import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.auth.siteKey
 import com.xjtu.toolbox.fitness.hasUsableTotal
 import com.xjtu.toolbox.fitness.orderedFitnessYears
+import com.xjtu.toolbox.inbox.InboxCategories
+import com.xjtu.toolbox.inbox.InboxStore
+import com.xjtu.toolbox.inbox.OwnInbox
+import com.xjtu.toolbox.inbox.SchoolInbox
 import com.xjtu.toolbox.lms.LmsCourseSummary
 import com.xjtu.toolbox.lms.deadlineInstant
 import kotlinx.coroutines.Dispatchers
@@ -98,6 +102,11 @@ object HomeStatsRefresher {
                 val done = api.finishedQuestionnaires(term).size
                 val all = todo + done
                 Log.d(TAG, "judge: term=$term todo=$todo done=$done")
+                InboxStore.setTodos(
+                    InboxCategories.JUDGE,
+                    if (todo > 0) listOf(OwnInbox.todo(InboxCategories.JUDGE, "judge", "评教", "还有 $todo 门课没评教", AppRoute.Judge.id)) else emptyList(),
+                    roundAccount,
+                )
                 if (all == 0) null
                 else HomeStat(
                     if (todo == 0) "已评完" else "$todo/$all 门待评",
@@ -189,6 +198,7 @@ object HomeStatsRefresher {
                 // 冒过一次后由 MainActivity 清零。
                 if (newCount > 0) {
                     HomeStats.setPendingNewScores(ctx, HomeStats.pendingNewScores(ctx, roundAccount) + newCount, roundAccount)
+                    InboxStore.post(OwnInbox.grade(newCount, total), roundAccount)
                 }
                 // 最新学期挑分数最高/最近的一条做明细意义不大，直接报本学期门数与新增。
                 val latestTerm = terms.maxByOrNull { it.termCode }
@@ -475,6 +485,16 @@ object HomeStatsRefresher {
                     Log.w(TAG, "${s.route.id} refresh failed (retry in 30min): ${e.message}")
                 }
             }
+            // 学校消息、事务中心待办、预约：都挂在一网通办上，30 分钟一次
+            if (!accountChanged() && SchoolInbox.isDue(roundAccount)) {
+                try {
+                    SchoolInbox.refresh(manager.ensureSite(LoginType.YWTB.siteKey(), silent = true), roundAccount)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.d(TAG, "inbox: ${e.message}")
+                }
+            }
         } finally {
             runLock.unlock()
         }
@@ -516,6 +536,21 @@ object HomeStatsRefresher {
         }
         Log.d(TAG, "coupon: 待领取 $pending 张，可用 ${usable?.records?.size ?: 0} 张，最近到期 $soonest")
 
+        InboxStore.setTodos(
+            InboxCategories.COUPON,
+            listOfNotNull(
+                OwnInbox.todo(InboxCategories.COUPON, "coupon:pending", "加餐券", "有 $pending 张加餐券没领", AppRoute.Coupon.id)
+                    .takeIf { pending > 0 },
+                soonest?.takeIf { daysLeft != null && daysLeft <= COUPON_EXPIRY_WARN_DAYS }?.let { day ->
+                    OwnInbox.todo(
+                        InboxCategories.COUPON, "coupon:expiring", "加餐券",
+                        if (daysLeft == 0) "有加餐券今天到期" else "有加餐券 $daysLeft 天后到期", AppRoute.Coupon.id,
+                        expiresAt = day.plusDays(1).atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli(),
+                    )
+                },
+            ),
+            roundAccount,
+        )
         // 拉取期间切了账号：这份结果属于上一个账号，不能写成新账号的提醒
         if (roundIsCurrent()) HomeSignals.couponAlert = when {
             pending > 0 -> "有 $pending 张加餐券没领"
@@ -562,11 +597,13 @@ object HomeStatsRefresher {
         val seen = prefs.getInt("abnormal_seen", -1)
         if (seen >= 0 && abnormal > seen && roundIsCurrent()) {
             val worst = stats.filter { it.abnormalCount > 0 }.maxByOrNull { it.abnormalCount }
-            HomeSignals.attendanceAlert = if (worst != null) {
+            val alert = if (worst != null) {
                 "${worst.subjectName}的考勤有异常了"
             } else {
                 "本周考勤多了 ${abnormal - seen} 次异常"
             }
+            HomeSignals.attendanceAlert = alert
+            InboxStore.post(OwnInbox.attendance(alert), roundAccount)
         }
         prefs.edit().putInt("abnormal_seen", abnormal).apply()
 

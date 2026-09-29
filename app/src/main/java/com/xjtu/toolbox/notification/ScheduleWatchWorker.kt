@@ -74,6 +74,7 @@ class ScheduleWatchWorker(
         )
         if (courses.isEmpty()) return
         val summary = ScheduleDiff.summarize(ScheduleDiff.diffAndStore(context, term, courses)) ?: return
+        com.xjtu.toolbox.inbox.InboxStore.post(com.xjtu.toolbox.inbox.OwnInbox.scheduleChange(summary))
         if (!ReminderNotifier.notifyScheduleChange(context, summary)) {
             ScheduleDiff.setPending(context, summary)
         }

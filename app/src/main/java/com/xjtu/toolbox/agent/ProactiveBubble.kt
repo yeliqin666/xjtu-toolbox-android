@@ -57,6 +57,9 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.inbox.InboxCategories
+import com.xjtu.toolbox.inbox.InboxRules
+import com.xjtu.toolbox.inbox.InboxStore
 
 /**
  * 屁岱主动提醒。
@@ -286,6 +289,7 @@ object ProactiveRules {
         globalCooldownMs: Long,
     ): ProactiveMessage? {
         if (now - lastAnyAt(ctx) < globalCooldownMs) return null
+        var inboxPick: com.xjtu.toolbox.inbox.InboxItem? = null
         val candidates = buildList {
             // 课表变更排最前：调课停课换教室不知道就会白跑一趟，
             // 而学校改课表是不通知的，App 是唯一可能告诉他的地方。
@@ -383,11 +387,22 @@ object ProactiveRules {
                     )
                 )
             }
+            // 学校推来的新消息：一天内、没读过的只念一次（走 "inbox" 的规则冷却，一小时最多一条），点开进收纳
+            val inbox = InboxStore.load()
+            inboxPick = InboxRules.groups(inbox, now).firstOrNull {
+                it.unread && InboxCategories.isSchool(it.latest.category) &&
+                    it.latest.id !in inbox.bubbled && now - it.latest.time < 24 * 60 * 60 * 1000L
+            }?.latest
+            inboxPick?.let { add(ProactiveMessage(INBOX_ID, "${it.source}：${it.title}", openRoute = AppRoute.Inbox)) }
         }
         return candidates.firstOrNull { m ->
             now - lastShownAt(ctx, m.id) >= cooldownFor(ctx, m.id)
+        }?.also { m ->
+            if (m.id == INBOX_ID) inboxPick?.let { InboxStore.markBubbled(it.id) }
         }?.let { it.copy(text = it.text.take(ProactiveMessage.MAX_CHARS)) }
     }
+
+    private const val INBOX_ID = "inbox"
 
     /**
      * 用户**主动点**屁岱时的闲话，和自动冒泡走两套规则。
