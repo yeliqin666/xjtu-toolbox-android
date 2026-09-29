@@ -88,8 +88,7 @@ object HolidayApi {
                     }
                 }
             }
-            Log.d(TAG, "Fetched holidays from primary API: \${holidays.size} days")
-            
+            Log.d(TAG, "Fetched holidays from primary API: ${holidays.size} days")
         } catch (e: Exception) {
             Log.w(TAG, "Primary holiday API failed, trying fallback...", e)
             try {
@@ -103,26 +102,25 @@ object HolidayApi {
                         val request = Request.Builder()
                             .url("https://cdn.jsdelivr.net/gh/NateScarlet/holiday-cn@master/$y.json")
                             .build()
-                        val response = client.newCall(request).execute()
-                        if (response.isSuccessful) {
-                            val jsonStr = response.body?.string() ?: continue
-                            val root = jsonStr.safeParseJsonObject()
-                            val days = root.requireArr("days")
-                            days.forEach { dayItem ->
-                                val dObj = dayItem.jsonObject
-                                if (dObj.get("isOffDay").booleanValue) {
-                                    val dateStr = dObj.get("date").stringValue
-                                    val nameObj = dObj.get("name")
-                                    val name = if (nameObj != null && !nameObj.isNull) nameObj.stringValue else "节假日"
-                                    holidays[LocalDate.parse(dateStr, formatter)] = name
-                                }
+                        val jsonStr = client.newCall(request).execute().use { response ->
+                            if (response.isSuccessful) response.body?.string() else null
+                        } ?: continue
+                        val root = jsonStr.safeParseJsonObject()
+                        val days = root.requireArr("days")
+                        days.forEach { dayItem ->
+                            val dObj = dayItem.jsonObject
+                            if (dObj.get("isOffDay").booleanValue) {
+                                val dateStr = dObj.get("date").stringValue
+                                val nameObj = dObj.get("name")
+                                val name = if (nameObj != null && !nameObj.isNull) nameObj.stringValue else "节假日"
+                                holidays[LocalDate.parse(dateStr, formatter)] = name
                             }
                         }
                     } catch (innerE: Exception) {
-                        Log.e(TAG, "Fallback API failed for year \$y", innerE)
+                        Log.e(TAG, "Fallback API failed for year $y", innerE)
                     }
                 }
-                Log.d(TAG, "Fetched holidays from fallback API: \${holidays.size} days")
+                Log.d(TAG, "Fetched holidays from fallback API: ${holidays.size} days")
             } catch (e2: Exception) {
                 Log.e(TAG, "Both holiday APIs failed", e2)
             }

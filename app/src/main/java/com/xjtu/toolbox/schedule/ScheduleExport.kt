@@ -5,10 +5,12 @@ import android.content.Intent
 import android.util.Log
 import android.widget.Toast
 import androidx.core.content.FileProvider
+import com.xjtu.toolbox.error.FriendlyError
 import java.io.File
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.UUID
+
 private const val TAG = "ScheduleExport"
 
 object ScheduleExport {
@@ -20,13 +22,13 @@ object ScheduleExport {
     /**
      * 生成 ICS 日历内容
      * @param courses 课程列表
-     * @param startOfTerm 学期第一周的周一日期
+     * @param startOfTerm 教务下发的学期开始日期（不必是周一，按所在周的周一算）
      * @param termName 学期名称（用于日历名）
      * @param holidayDates 忽略的节假日（若不忽略则传空或过滤为 null）
      */
     fun generateIcs(
-        courses: List<CourseItem>, 
-        startOfTerm: LocalDate, 
+        courses: List<CourseItem>,
+        startOfTerm: LocalDate,
         termName: String,
         holidayDates: Set<LocalDate> = emptySet()
     ): String {
@@ -55,13 +57,11 @@ object ScheduleExport {
             if (weeks.isEmpty()) continue
 
             for (week in weeks) {
-                // 计算该周该天的具体日期
-                val weekStartMonday = startOfTerm.plusWeeks((week - 1).toLong())
-                val courseDate = weekStartMonday.plusDays((course.dayOfWeek - 1).toLong())
+                val courseDate = TermWeeks.dateOf(startOfTerm, week, course.dayOfWeek)
 
-                // ★ 节假日过滤：停的只是教务的课，自建日程照常导出
+                // 节假日过滤：停的只是教务的课，自建日程照常导出
                 if (!course.isUserCreated && holidayDates.contains(courseDate)) {
-                    Log.d(TAG, "ICS Export: Skipped course '\${course.courseName}' on holiday \$courseDate")
+                    Log.d(TAG, "ICS Export: Skipped course '${course.courseName}' on holiday $courseDate")
                     continue
                 }
 
@@ -75,22 +75,26 @@ object ScheduleExport {
                 val dtEnd = courseDate.atTime(endTime.first, endTime.second)
 
                 sb.appendLine("BEGIN:VEVENT")
-                sb.appendLine("UID:${UUID.randomUUID()}@xjtu-toolbox")
+                // UID 由课程和日期决定：重复导出、重复导入时日历软件能识别为同一个事件而不是叠加
+                val uid = UUID.nameUUIDFromBytes(
+                    "${course.courseCode}|${course.courseName}|$courseDate|${course.startSection}".toByteArray()
+                )
+                sb.appendLine("UID:$uid@xjtu-toolbox")
                 sb.appendLine("DTSTART;TZID=Asia/Shanghai:${dtFormat.format(dtStart)}")
                 sb.appendLine("DTEND;TZID=Asia/Shanghai:${dtFormat.format(dtEnd)}")
                 sb.appendLine("SUMMARY:${escapeIcs(course.courseName)}")
                 sb.appendLine("LOCATION:${escapeIcs(course.location)}")
-                val desc = buildString {
-                    append("教师: ${course.teacher}")
-                    if (course.courseType.isNotEmpty()) append("\\n类型: ${course.courseType}")
-                    append("\\n节次: 第${course.startSection}-${course.endSection}节")
-                    append("\\n周次: 第${week}周")
-                }
-                sb.appendLine("DESCRIPTION:$desc")                
-                // ★ 添加上课前 15 分钟提醒
+                val desc = listOfNotNull(
+                    "教师: ${course.teacher}",
+                    course.courseType.takeIf { it.isNotEmpty() }?.let { "类型: $it" },
+                    "节次: 第${course.startSection}-${course.endSection}节",
+                    "周次: 第${week}周",
+                ).joinToString("\n")
+                sb.appendLine("DESCRIPTION:${escapeIcs(desc)}")
+                // 上课前 15 分钟提醒
                 sb.appendLine("BEGIN:VALARM")
                 sb.appendLine("ACTION:DISPLAY")
-                sb.appendLine("DESCRIPTION:\${escapeIcs(course.courseName)} 即将上课")
+                sb.appendLine("DESCRIPTION:${escapeIcs(course.courseName)} 即将上课")
                 sb.appendLine("TRIGGER:-PT15M")
                 sb.appendLine("END:VALARM")
                 sb.appendLine("END:VEVENT")
@@ -145,7 +149,7 @@ object ScheduleExport {
             Log.d(TAG, "Shared: $fileName (${content.length} bytes)")
         } catch (e: Exception) {
             Log.e(TAG, "Share failed: $fileName", e)
-            Toast.makeText(context, "导出失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, FriendlyError.of(e, "导出日历"), Toast.LENGTH_SHORT).show()
         }
     }
 }
