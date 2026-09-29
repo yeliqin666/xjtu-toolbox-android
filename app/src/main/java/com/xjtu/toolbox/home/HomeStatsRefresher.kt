@@ -473,6 +473,9 @@ object HomeStatsRefresher {
                     if (stat == null) HomeStats.markEmpty(context, s.route, s.ttlMs, roundAccount)
                     else HomeStats.markFetched(context, s.route, roundAccount)
                     Log.d(TAG, "${s.route.id} -> ${stat?.value ?: "无数据（1 小时后重试）"}")
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    // 发起这轮的页面没了，不是源的问题，别写失败戳
+                    throw e
                 } catch (e: com.xjtu.toolbox.auth.CasGate.ThrottledException) {
                     Log.d(TAG, "abort round: CasGate throttled (${e.message})")
                     return

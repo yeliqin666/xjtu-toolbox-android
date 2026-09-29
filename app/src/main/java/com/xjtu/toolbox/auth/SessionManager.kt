@@ -56,6 +56,9 @@ class SessionManager(context: Context) {
     @Volatile
     private var backends: Map<AccessMode, SessionBackend> = buildBackends(null)
 
+    /** 当前 backends 所属账号命名空间；null 为启动时的默认（匿名）。 */
+    private var backendSuffix: String? = null
+
     private fun buildBackends(accountSuffix: String?): Map<AccessMode, SessionBackend> {
         val suffix = accountSuffix ?: ANONYMOUS_SUFFIX
         val normalJar = PersistentCookieJar(appContext, "cookies_normal$suffix")
@@ -459,7 +462,9 @@ class SessionManager(context: Context) {
      */
     fun reconfigureForAccount(accountSuffix: String) {
         AccountContext.switchEpoch++
-        CampusProbe.ywtbToken = null
+        // 真换了账号才丢一网通办令牌；冷启动从匿名恢复到当前账号不算
+        if (backendSuffix != null && backendSuffix != accountSuffix) CampusProbe.ywtbToken = null
+        backendSuffix = accountSuffix
         // 挂着的 MFA 是旧账号的：验证码发到了旧账号手机上，填了也只会登进旧账号
         _activeMfaRequest.value?.cancel()
         synchronized(backendsLock) {

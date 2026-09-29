@@ -274,6 +274,8 @@ internal fun MainScreen(
     androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
         if (loginState.accountId.isEmpty()) return@LifecycleEventEffect
         resumeScope.launch {
+            // 同上：先等校内/校外落定，否则冷启动时站点按直连去登校内站点，校外白等 12 秒
+            runCatching { loginState.ensureCampusDetected() }
             HomeStatsRefresher.refreshDue(context, loginState.sessionManager, loginState.accountType)
             HomeSignals.bumpStatsVersion()
         }
