@@ -46,24 +46,13 @@ object ScheduleDiff {
     internal fun groupFingerprint(group: List<CourseItem>): String {
         if (group.size == 1) return fingerprintOf(group.single())
         val sorted = group.sortedBy { it.getWeeks().firstOrNull() ?: Int.MAX_VALUE }
-        val location = sorted.joinToString("、") { "${it.location}[${compactWeeks(it.getWeeks())}]" }
+        val location = sorted.joinToString("、") { "${it.location}[${TermWeeks.formatRanges(it.getWeeks())}]" }
         val len = group.maxOf { it.weekBits.length }
         val bits = CharArray(len) { i -> if (group.any { it.weekBits.getOrNull(i) == '1' }) '1' else '0' }
         val ends = group.map { it.endSection }.distinct().sorted().joinToString(",")
         val teachers = group.map { it.teacher }.distinct().sorted().joinToString("、")
         return "$location|${String(bits)}|$ends|$teachers"
     }
-
-    /** `[1,2,3,5]` → `1-3,5`。 */
-    private fun compactWeeks(weeks: List<Int>): String = buildList {
-        var i = 0
-        while (i < weeks.size) {
-            var j = i
-            while (j + 1 < weeks.size && weeks[j + 1] == weeks[j] + 1) j++
-            add(if (j > i) "${weeks[i]}-${weeks[j]}" else "${weeks[i]}")
-            i = j + 1
-        }
-    }.joinToString(",")
 
     data class Change(val kind: Kind, val courseName: String, val detail: String, val reason: String? = null) {
         enum class Kind { ADDED, REMOVED, MOVED }

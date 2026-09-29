@@ -113,11 +113,38 @@ private fun buildAxisRows(isSummer: Boolean): List<AxisRow> {
     return rows
 }
 
-fun courseColor(courseName: String, allNames: List<String>): Color {
-    CourseColors.of(courseName)?.let { return it }
-    val index = allNames.distinct().sorted().indexOf(courseName)
-    return if (index >= 0) COURSE_COLORS[index % COURSE_COLORS.size] else COURSE_COLORS[0]
+/** 课名的默认色：按课名稳定哈希取色。思源学堂那边只认识单门课，用的就是它。 */
+fun defaultCourseColor(courseName: String): Color =
+    COURSE_COLORS[(courseName.trim().hashCode() and Int.MAX_VALUE) % COURSE_COLORS.size]
+
+/**
+ * 一批课程的「课名 → 颜色」表。用户改过的颜色优先；其余从各自哈希位置起取默认色，
+ * 撞了就顺延到下一个空位，本批内不重复（超过 [COURSE_COLORS] 的数量才会重复）。
+ * 没撞色时与 [defaultCourseColor] 一致，所以课表和思源学堂里同一门课通常同色。
+ */
+fun courseColorMap(names: Collection<String>): Map<String, Color> {
+    val n = COURSE_COLORS.size
+    val used = BooleanArray(n)
+    val out = HashMap<String, Color>()
+    for (name in names.distinct().sorted()) {
+        CourseColors.of(name)?.let { out[name] = it; continue }
+        val start = (name.trim().hashCode() and Int.MAX_VALUE) % n
+        val i = (0 until n).map { (start + it) % n }.firstOrNull { !used[it] } ?: start
+        used[i] = true
+        out[name] = COURSE_COLORS[i]
+    }
+    return out
 }
+
+/** 课程集合或用户改色（[CourseColors.revision]）变化时重算；课格只查表，不用每格读一次存储。 */
+@Composable
+fun rememberCourseColors(names: List<String>): Map<String, Color> {
+    val revision = CourseColors.revision
+    val account = com.xjtu.toolbox.account.AccountContext.activeAccountId
+    return remember(names, revision, account) { courseColorMap(names) }
+}
+
+fun Map<String, Color>.colorOf(courseName: String): Color = this[courseName] ?: defaultCourseColor(courseName)
 
 // ── 通用课格接口 ─────────────────────────
 
@@ -253,6 +280,7 @@ fun ScheduleGrid(
     onSlotClick: (ScheduleSlot) -> Unit = {}
 ) {
     val scrollState = rememberScrollState()
+    val courseColors = rememberCourseColors(allCourseNames)
     // 左轴用哪一套作息：默认跟这一周自己的令时；若这一周跨了令时切换（5/1 起夏秋、10/1 起冬春），
     // 按"今天"所在令时画 —— 另一令时的那些天，课程块按真实时刻平移错开（见 toDisplayScheduleSlot）。
     val todaySummer = XjtuTime.isSummerTime()
@@ -482,7 +510,7 @@ fun ScheduleGrid(
                                 location = slot.slotLocation,
                                 weekInfo = formatWeekInfo(slot, showWeeks),
                                 spanSections = ceil(slotDuration).toInt().coerceAtLeast(1),
-                                color = courseColor(slot.slotName, allCourseNames),
+                                color = courseColors.colorOf(slot.slotName),
                                 badge = slotBadge(slot.sourceSlot),
                                 onClick = { onSlotClick(slot.sourceSlot) }
                             )
@@ -493,7 +521,7 @@ fun ScheduleGrid(
                             groupStartFraction = group.startFraction,
                             yOf = ::yOf,
                             yOfBlockEnd = ::yOfBlockEnd,
-                            allCourseNames = allCourseNames,
+                            courseColors = courseColors,
                             showWeeks = showWeeks,
                             slotBadge = slotBadge,
                             onSlotClick = onSlotClick
@@ -599,19 +627,8 @@ private fun buildConflictGroups(slots: List<DisplayScheduleSlot>): List<Conflict
 private fun formatWeekInfo(slot: ScheduleSlot, showWeeks: Boolean): String {
     if (!showWeeks) return ""
     val rawSlot = (slot as? DisplayScheduleSlot)?.sourceSlot ?: slot
-    return (rawSlot as? CourseItem)?.getWeeks()?.let { weeks ->
-        if (weeks.isEmpty()) "" else {
-            val sorted = weeks.sorted()
-            val ranges = mutableListOf<String>()
-            var s = sorted[0]; var e = sorted[0]
-            for (i in 1 until sorted.size) {
-                if (sorted[i] == e + 1) e = sorted[i]
-                else { ranges.add(if (s == e) "$s" else "$s-$e"); s = sorted[i]; e = sorted[i] }
-            }
-            ranges.add(if (s == e) "$s" else "$s-$e")
-            ranges.joinToString(",") + "周"
-        }
-    } ?: ""
+    val weeks = (rawSlot as? CourseItem)?.getWeeks().orEmpty()
+    return if (weeks.isEmpty()) "" else TermWeeks.formatRanges(weeks) + "周"
 }
 
 // ── 冲突课程翻页卡片 ──
@@ -622,7 +639,7 @@ private fun FlippableCourseCell(
     groupStartFraction: Float,
     yOf: (Float) -> Dp,
     yOfBlockEnd: (Float) -> Dp,
-    allCourseNames: List<String>,
+    courseColors: Map<String, Color>,
     showWeeks: Boolean,
     slotBadge: (ScheduleSlot) -> SlotMark? = { null },
     onSlotClick: (ScheduleSlot) -> Unit
@@ -653,7 +670,7 @@ private fun FlippableCourseCell(
                         location = slot.slotLocation,
                         weekInfo = formatWeekInfo(slot, showWeeks),
                         spanSections = ceil(slotDuration).toInt().coerceAtLeast(1),
-                        color = courseColor(slot.slotName, allCourseNames),
+                        color = courseColors.colorOf(slot.slotName),
                         badge = slotBadge(slot.sourceSlot),
                         onClick = { onSlotClick(slot.sourceSlot) }
                     )

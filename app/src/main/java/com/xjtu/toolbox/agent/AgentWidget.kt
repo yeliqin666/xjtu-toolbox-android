@@ -44,6 +44,7 @@ import com.xjtu.toolbox.schedule.CourseItem
 import com.xjtu.toolbox.schedule.ExamItem
 import com.xjtu.toolbox.score.ReportedGrade
 import com.xjtu.toolbox.schedule.XjtuTime
+import com.xjtu.toolbox.schedule.colorOf
 import top.yukonga.miuix.kmp.basic.Text
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -343,7 +344,7 @@ private fun courseClock(c: CourseItem): Pair<String, String> {
 private fun ScheduleWidgetView(w: ScheduleWidget, modifier: Modifier) {
     val sorted = w.courses.sortedWith(compareBy({ it.dayOfWeek }, { it.startSection }, { it.startMinuteOfDay }))
     val byDay = sorted.groupBy { it.dayOfWeek }
-    val names = remember(w.courses) { w.courses.map { it.courseName }.distinct() }
+    val courseColors = com.xjtu.toolbox.schedule.rememberCourseColors(remember(w.courses) { w.courses.map { it.courseName }.distinct() })
     WidgetCard(
         title = w.title,
         icon = Icons.Default.CalendarMonth,
@@ -356,7 +357,7 @@ private fun ScheduleWidgetView(w: ScheduleWidget, modifier: Modifier) {
             if (byDay.size > 1) WidgetGroupLabel(DAY_NAMES.getOrElse(day) { "" })
             list.forEach { c ->
                 val (start, end) = courseClock(c)
-                val color = com.xjtu.toolbox.schedule.courseColor(c.courseName, names)
+                val color = courseColors.colorOf(c.courseName)
                 Row(
                     Modifier.fillMaxWidth().padding(vertical = 5.dp).height(IntrinsicSize.Min),
                     verticalAlignment = Alignment.CenterVertically,

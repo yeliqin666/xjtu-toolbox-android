@@ -85,6 +85,7 @@ fun TodayTimeline(
     /** 今天截止的作业，插进时间轴对应的时刻（不是「接下来」——那是给以后的）。 */
     todayHomework: List<LmsDue> = emptyList(),
 ) {
+    val courseColors = rememberCourseColors(allCourseNames)
     val isSummer = remember(today) { XjtuTime.isSummerTime(today.monthValue) }
     val entries = remember(courses, exams, today, todayHomework) {
         val dow = today.dayOfWeek.value
@@ -185,7 +186,7 @@ fun TodayTimeline(
                 val progress = if (e.endMinute > e.startMinute && nowMinute in e.startMinute until e.endMinute)
                     (nowMinute - e.startMinute).toFloat() / (e.endMinute - e.startMinute) else null
                 Box(Modifier.enterOnce(i)) {
-                    TimelineRow(e, past, allCourseNames, onCourseClick, progress)
+                    TimelineRow(e, past, courseColors, onCourseClick, progress)
                 }
             }
         }
@@ -235,7 +236,7 @@ private fun NoCourseTodayCard() {
 private fun TimelineRow(
     e: TimelineEntry,
     past: Boolean,
-    allCourseNames: List<String>,
+    courseColors: Map<String, Color>,
     onCourseClick: (CourseItem) -> Unit,
     /** 正在进行时是已过去的比例（0~1），否则 null。 */
     progress: Float? = null,
@@ -243,7 +244,7 @@ private fun TimelineRow(
     val accent = when (e.kind) {
         EntryKind.EXAM -> MiuixTheme.colorScheme.error
         EntryKind.HOMEWORK -> MiuixTheme.colorScheme.primary
-        EntryKind.COURSE -> courseColor(e.title, allCourseNames)
+        EntryKind.COURSE -> courseColors.colorOf(e.title)
     }
     val alpha = if (past) 0.45f else 1f
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
@@ -529,7 +530,7 @@ fun SemesterCourseList(
                     val line = listOfNotNull(
                         course.teacher.takeIf { it.isNotBlank() },
                         course.location.takeIf { it.isNotBlank() },
-                        row.weeks.takeIf { it.isNotEmpty() }?.let { "${compactWeeks(it)}周" },
+                        row.weeks.takeIf { it.isNotEmpty() }?.let { "${TermWeeks.formatRanges(it)}周" },
                     ).joinToString("  ·  ")
                     if (line.isNotBlank()) {
                         Spacer(Modifier.height(2.dp))
@@ -595,21 +596,6 @@ private fun parseExamStart(raw: String): Int? =
     Regex("""(\d{1,2})[:：](\d{2})""").find(raw)?.let { m ->
         m.groupValues[1].toInt() * 60 + m.groupValues[2].toInt()
     }
-
-/** [1,2,3,5,7,8,9] → "1-3,5,7-9" */
-private fun compactWeeks(weeks: List<Int>): String {
-    if (weeks.isEmpty()) return ""
-    val out = mutableListOf<String>()
-    var s = weeks[0]
-    var e = weeks[0]
-    for (i in 1 until weeks.size) {
-        if (weeks[i] == e + 1) e = weeks[i] else {
-            out.add(if (s == e) "$s" else "$s-$e"); s = weeks[i]; e = weeks[i]
-        }
-    }
-    out.add(if (s == e) "$s" else "$s-$e")
-    return out.joinToString(",")
-}
 
 /** 宽屏「今日」栏右边要默认展开的那节课：正在上的，或者今天接下来最近的一节。 */
 internal data class FocusCourse(val course: CourseItem, val ongoing: Boolean)

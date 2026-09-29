@@ -170,6 +170,7 @@ fun ScheduleScreen(
     }
     // 「接下来」：今日两处 TodayTimeline（窄屏 tab、宽屏常驻栏）共用
     val upcomingItems = remember(vm.exams, vm.homeworkDue) { buildUpcoming(vm.exams, vm.homeworkDue) }
+    val nextExam = remember(vm.exams) { ExamCountdown.next(vm.exams) }
 
     vm.pendingSave?.let { (entity, conflicts) ->
         val lines = conflicts.joinToString("\n") { other ->
@@ -202,9 +203,8 @@ fun ScheduleScreen(
     }
 
     // 自定义日程弹窗
-    val showAddCourseState = remember { mutableStateOf(false) }
-    LaunchedEffect(showAddCourseDialog) { showAddCourseState.value = showAddCourseDialog }
     if (showAddCourseDialog) {
+        val showAddCourseState = remember { mutableStateOf(true) }
         CustomCourseDialog(
             show = showAddCourseState,
             termCode = vm.selectedTermCode,
@@ -282,7 +282,7 @@ fun ScheduleScreen(
                             showExportMenu = false
                             val st = vm.startOfTerm
                             if (st == null) {
-                                android.widget.Toast.makeText(context, "无法获取开学日期，ICS 导出不可用", android.widget.Toast.LENGTH_SHORT).show()
+                                android.widget.Toast.makeText(context, "还没拿到开学日期，暂时不能导出日历，下拉刷新后再试", android.widget.Toast.LENGTH_SHORT).show()
                                 return@ScheduleMenuRow
                             }
                             scope.launch {
@@ -503,7 +503,7 @@ fun ScheduleScreen(
             // 列表就不用再留；没有横幅时把留白交给各栏的滚动内容，内容才会从顶栏下面滚过去。
             val staticHeaderShown = (vm.showingStaleData && !vm.isLoading) ||
                 (!vm.isLoading && vm.errorMessage == null &&
-                    ((currentContent == "week" && vm.isSwitching) || ExamCountdown.next(vm.exams) != null))
+                    ((currentContent == "week" && vm.isSwitching) || nextExam != null))
             if (staticHeaderShown && contentTopPadding > 0.dp) Spacer(Modifier.height(contentTopPadding))
             val listTopPadding = if (staticHeaderShown) 0.dp else contentTopPadding
 
@@ -563,7 +563,6 @@ fun ScheduleScreen(
                 // 没有独立的「考试」tab，改成常驻横幅——功能不能因为改版就消失。
                 // 点开是完整考试列表。
                 var showExamSheet by remember { mutableStateOf(false) }
-                val nextExam = remember(vm.exams) { ExamCountdown.next(vm.exams) }
                 nextExam?.let { n ->
                     ExamCountdownBanner(
                         n,
@@ -1192,7 +1191,7 @@ private fun CourseDetailContent(
                     )
                     if (!isAgenda) {
                         var pickColor by remember { mutableStateOf(false) }
-                        val color = courseColor(course.courseName, allCourseNames)
+                        val color = rememberCourseColors(allCourseNames).colorOf(course.courseName)
                         Box(
                             Modifier
                                 .size(26.dp)
@@ -1240,7 +1239,7 @@ private fun CourseDetailContent(
             // 具体到某一次时直接报日期，比让人自己数第几周有用。
             val dateText = occurrence?.let {
                 "${it.date.monthValue}/${it.date.dayOfMonth} · 第${it.week}周"
-            } ?: course.getWeeks().takeIf { it.isNotEmpty() }?.let { "${formatWeeks(it)}周" }
+            } ?: course.getWeeks().takeIf { it.isNotEmpty() }?.let { "${TermWeeks.formatRanges(it, sep = ", ")}周" }
 
             // 两行元信息合进一张卡：它们回答的是同一个问题（这门课在哪、什么时候），
             // 裸排在弹窗底色上时和下面的下钻入口分不开。
@@ -1347,23 +1346,6 @@ private fun CourseDetailDialog(
             onNavigate = { route -> close(); onNavigate(route) },
         )
     }
-}
-
-/** 格式化周次：[1,2,3,5,7,8,9] → "1-3, 5, 7-9" */
-private fun formatWeeks(weeks: List<Int>): String {
-    if (weeks.isEmpty()) return ""
-    val sorted = weeks.sorted()
-    val ranges = mutableListOf<String>()
-    var start = sorted[0]; var end = sorted[0]
-    for (i in 1 until sorted.size) {
-        if (sorted[i] == end + 1) { end = sorted[i] }
-        else {
-            ranges.add(if (start == end) "$start" else "$start-$end")
-            start = sorted[i]; end = sorted[i]
-        }
-    }
-    ranges.add(if (start == end) "$start" else "$start-$end")
-    return ranges.joinToString(", ")
 }
 
 /**

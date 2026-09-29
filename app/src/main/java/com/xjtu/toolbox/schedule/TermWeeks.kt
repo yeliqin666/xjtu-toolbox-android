@@ -109,6 +109,23 @@ object TermWeeks {
             .plusWeeks((week - 1).toLong())
             .plusDays((dayOfWeek - 1).toLong())
 
+    /**
+     * 把周次压成区间：`[1,2,3,5]` → `1-3,5`。入参不必有序。
+     * [sep] 分隔各段，[dash] 连接区间首尾；界面文案按场合换成「、」「–」。
+     */
+    fun formatRanges(weeks: Collection<Int>, sep: String = ",", dash: String = "-"): String {
+        val sorted = weeks.distinct().sorted()
+        val out = mutableListOf<String>()
+        var i = 0
+        while (i < sorted.size) {
+            var j = i
+            while (j + 1 < sorted.size && sorted[j + 1] == sorted[j] + 1) j++
+            out += if (j > i) "${sorted[i]}$dash${sorted[j]}" else "${sorted[i]}"
+            i = j + 1
+        }
+        return out.joinToString(sep)
+    }
+
     /** 课表里第一门课在第几周；没课返回 null。 */
     fun firstTeachWeekOf(courses: List<CourseItem>): Int? = courses
         .asSequence()

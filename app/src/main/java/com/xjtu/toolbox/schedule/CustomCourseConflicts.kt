@@ -37,20 +37,6 @@ object CustomCourseConflicts {
     }
 
     /** 冲突提示里用的周次描述：连续的周合并成区间，如「第 3–5、8 周」。 */
-    fun describeWeeks(weeks: List<Int>): String {
-        if (weeks.isEmpty()) return ""
-        val parts = mutableListOf<String>()
-        var start = weeks.first()
-        var prev = start
-        for (w in weeks.drop(1) + Int.MIN_VALUE) {
-            if (w == prev + 1) {
-                prev = w
-                continue
-            }
-            parts += if (start == prev) "$start" else "$start–$prev"
-            start = w
-            prev = w
-        }
-        return "第 ${parts.joinToString("、")} 周"
-    }
+    fun describeWeeks(weeks: List<Int>): String =
+        if (weeks.isEmpty()) "" else "第 ${TermWeeks.formatRanges(weeks, sep = "、", dash = "–")} 周"
 }

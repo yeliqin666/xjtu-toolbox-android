@@ -114,6 +114,20 @@ class TermWeeksTest {
         assertNull(TermWeeks.firstTeachWeekOf(listOf(courseWithBits("0000"))))
     }
 
+    @Test
+    fun `周次压成区间`() {
+        assertEquals("1-3,5,7-9", TermWeeks.formatRanges(listOf(1, 2, 3, 5, 7, 8, 9)))
+        assertEquals("1-3, 5", TermWeeks.formatRanges(listOf(1, 2, 3, 5), sep = ", "))
+        assertEquals("3–5、8", TermWeeks.formatRanges(listOf(3, 4, 5, 8), sep = "、", dash = "–"))
+        assertEquals("4", TermWeeks.formatRanges(listOf(4)))
+        assertEquals("", TermWeeks.formatRanges(emptyList()))
+    }
+
+    @Test
+    fun `周次区间不要求有序也不怕重复`() {
+        assertEquals("1-3,6", TermWeeks.formatRanges(listOf(6, 3, 1, 2, 2)))
+    }
+
     private fun courseWithBits(bits: String) = CourseItem(
         courseName = "测试课",
         teacher = "",
