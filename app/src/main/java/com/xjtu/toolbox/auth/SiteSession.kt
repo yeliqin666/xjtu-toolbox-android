@@ -2,6 +2,7 @@ package com.xjtu.toolbox.auth
 
 import android.os.SystemClock
 import android.util.Log
+import com.xjtu.toolbox.account.AccountContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -167,21 +168,31 @@ abstract class SiteSession(
                 }
             }
             invalidateLogin()
+            // 登录途中切了账号，这轮登录属于旧账号：token 不能留给新账号，失败也不能记到新账号头上
+            val epoch = AccountContext.switchEpoch
+            fun switched() = AccountContext.switchEpoch != epoch
             try {
                 silentLogin = silent
                 withContext(Dispatchers.IO) {
                     runLogin(username, password)
                 }
+                if (switched()) throw AccountSwitchedException(siteName)
                 hasLogin = true
                 loginEpoch++
                 lastValidatedAt = SystemClock.elapsedRealtime()
                 manager?.clearLoginFailure(siteKey)
                 Log.d(TAG, "[$siteKey] login ok (mode=${currentAccessMode.key})")
                 manager?.recordDiagnostic("INFO", siteKey, "登录成功（${currentAccessMode.key}）")
-            } catch (e: PasswordInvalidatedException) {
-                manager?.reportPasswordInvalidated(siteKey, siteName)
-                throw e
             } catch (e: IOException) {
+                if (switched()) {
+                    invalidateLogin()
+                    manager?.recordDiagnostic("INFO", siteKey, "登录途中切换了账号，本次登录作废")
+                    throw e as? AccountSwitchedException ?: AccountSwitchedException(siteName)
+                }
+                if (e is PasswordInvalidatedException) {
+                    manager?.reportPasswordInvalidated(siteKey, siteName)
+                    throw e
+                }
                 manager?.reportLoginFailure(siteKey)
                 manager?.recordDiagnostic("ERROR", siteKey, "登录失败：${e.message ?: e.javaClass.simpleName}")
                 throw e
@@ -270,6 +281,9 @@ class PasswordInvalidatedException(
     val siteName: String = "",
     message: String = "账号或密码无效",
 ) : IOException(message)
+
+/** 登录还没完成就切换了账号，这次登录已作废。 */
+class AccountSwitchedException(val siteName: String) : IOException("已切换账号，${siteName}的登录已取消")
 
 class LoginCooldownException(
     val siteName: String,

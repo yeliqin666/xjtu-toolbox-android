@@ -447,6 +447,9 @@ class SessionManager(context: Context) {
      * @param accountSuffix 命名空间后缀（形如 "_学号"），由 [com.xjtu.toolbox.account.AccountContext.safeSuffix] 派生
      */
     fun reconfigureForAccount(accountSuffix: String) {
+        com.xjtu.toolbox.account.AccountContext.switchEpoch++
+        // 挂着的 MFA 是旧账号的：验证码发到了旧账号手机上，填了也只会登进旧账号
+        _activeMfaRequest.value?.cancel()
         synchronized(backendsLock) {
             // 旧 backends 的 cookieJar 不主动 clear——其磁盘文件保留以便切回该账号时复用；
             // 但主动驱逐其连接池里的空闲连接，避免频繁切账号累积 socket fd。
