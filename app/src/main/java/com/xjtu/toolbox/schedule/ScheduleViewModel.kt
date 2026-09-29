@@ -45,30 +45,11 @@ internal sealed interface ScheduleEvent {
     data class Message(val text: String, val long: Boolean = false) : ScheduleEvent
 }
 
-private data class ScheduleDiskSnapshot(
-    val termList: List<String> = emptyList(),
-    val termCode: String = "",
-    val courses: List<CourseItem> = emptyList(),
-    val exams: List<ExamItem> = emptyList(),
-    val startDate: LocalDate? = null,
-)
-
-private fun readScheduleDiskSnapshot(dataCache: DataCache): ScheduleDiskSnapshot {
-    val termList = ScheduleCache.readTermList(dataCache)
-    val termCode = ScheduleCache.readLastTerm(dataCache) ?: termList.firstOrNull().orEmpty()
-    if (termCode.isEmpty()) return ScheduleDiskSnapshot(termList = termList)
-    return ScheduleDiskSnapshot(
-        termList = termList,
-        termCode = termCode,
-        courses = ScheduleCache.readCourses(dataCache, termCode).orEmpty(),
-        exams = ScheduleCache.readExams(dataCache, termCode).orEmpty(),
-        startDate = ScheduleCache.readStartDate(dataCache, termCode),
-    )
-}
-
 /**
  * 日程 tab：课表、考试、教材、自定义日程。挂在主页面上，切 tab 不丢；同一账号只自动加载一次，
  * 用户翻到的历史学期不会被再次加载拽回当前学期。
+ *
+ * 构造时不读盘：缓存由 [loadInitialData] 在 IO 线程读出后上屏，此前界面显示加载态而不是空状态。
  */
 internal class ScheduleViewModel(context: Context, private val login: AppLoginState) : ViewModel() {
     private val context = context.applicationContext
@@ -79,14 +60,13 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
     private var accountId by mutableStateOf(login.accountId)
     // DataCache 构造时绑定账号，切账号后换新实例
     private var dataCache = DataCache(this.context, accountId.ifEmpty { null })
-    private val disk = readScheduleDiskSnapshot(dataCache)
 
     var activeSite by mutableStateOf<SiteSession?>(null); private set
     var api by mutableStateOf<ScheduleApi?>(null); private set
     private var studentId = ""
 
-    var courses by mutableStateOf(disk.courses); private set
-    var exams by mutableStateOf(disk.exams); private set
+    var courses by mutableStateOf<List<CourseItem>>(emptyList()); private set
+    var exams by mutableStateOf<List<ExamItem>>(emptyList()); private set
     /** 「接下来」的作业截止：只读别处写好的落盘缓存，这里不发请求。 */
     var homeworkDue by mutableStateOf<List<LmsDue>>(emptyList()); private set
     var textbooks by mutableStateOf<List<TextbookItem>>(emptyList()); private set
@@ -97,39 +77,32 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
     /** 后台加载（课程详情顺带取教材）的失败原因，和教材页自己的 [textbooksError] 分开。 */
     var textbooksBackgroundError by mutableStateOf<String?>(null); private set
     private var examsRefreshing = false
-    var isLoading by mutableStateOf(disk.courses.isEmpty()); private set
+    var isLoading by mutableStateOf(true); private set
     /** 学期切换中：保留旧日程显示。 */
     var isSwitching by mutableStateOf(false); private set
     /** 缓存已显示，后台刷新中。 */
     var isRefreshingFromNetwork by mutableStateOf(false); private set
     var errorMessage by mutableStateOf<String?>(null); private set
     /** 网络失败、正显示缓存。 */
-    var showingStaleData by mutableStateOf(disk.courses.isNotEmpty()); private set
+    var showingStaleData by mutableStateOf(false); private set
 
-    private val initialWeek = disk.startDate?.let { start ->
-        runCatching {
-            val w = TermWeeks.weekOf(start)
-            val diskWeeks = disk.courses.maxOfOrNull { it.weekBits.length }?.takeIf { it > 0 } ?: 30
-            if (w in 1..diskWeeks) w else 0
-        }.getOrDefault(0)
-    } ?: 0
-    var currentWeek by mutableIntStateOf(if (initialWeek > 0) initialWeek else 1)
+    var currentWeek by mutableIntStateOf(1)
     /** 实际当前周（0 = 未知），时间线用。 */
-    var realCurrentWeek by mutableIntStateOf(initialWeek); private set
+    var realCurrentWeek by mutableIntStateOf(0); private set
     /** 「距开学 X 周」/「学期已结束」。 */
     var weekNote by mutableStateOf<String?>(null); private set
     /** 周视图 vs 全学期总览；学期已结束时自动切到总览。 */
     var showAllWeeks by mutableStateOf(false)
 
-    var termList by mutableStateOf(disk.termList); private set
-    var selectedTermCode by mutableStateOf(disk.termCode); private set
+    var termList by mutableStateOf<List<String>>(emptyList()); private set
+    var selectedTermCode by mutableStateOf(""); private set
     /** 教务的当前学期，用来判断是不是在看历史学期。 */
-    var currentTermCode by mutableStateOf(disk.termCode); private set
+    var currentTermCode by mutableStateOf(""); private set
     /** 本次会话里用户主动切过学期：之后的加载不再把视图拽回当前学期。 */
     private var userPickedTerm = false
 
-    var startOfTerm by mutableStateOf(disk.startDate); private set
-    var holidayDates by mutableStateOf(HolidayApi.peekCached(this.context)); private set
+    var startOfTerm by mutableStateOf<LocalDate?>(null); private set
+    var holidayDates by mutableStateOf<Map<LocalDate, String>>(emptyMap()); private set
 
     var customCourses by mutableStateOf<List<CustomCourseEntity>>(emptyList()); private set
     var addScheduleDraft by mutableStateOf(CustomCourseDraft())
@@ -181,19 +154,44 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
             if (System.currentTimeMillis() - loadedAt > STALE_MS && !isLoading && !isSwitching && !isRefreshingFromNetwork) loadInitialData()
             return
         }
-        if (loadedAccount != null) {
-            courses = emptyList()
-            exams = emptyList()
-            customCourses = emptyList()
-            dataCache = DataCache(context, account.ifEmpty { null })
-        }
+        if (loadedAccount != null) resetForAccountSwitch(account)
         loadedAccount = account
         accountId = account
         loadInitialData()
         viewModelScope.launch {
+            // 先只读缓存上屏，再联网刷新
+            withContext(Dispatchers.IO) { HolidayApi.peekCached(context) }.takeIf { it.isNotEmpty() }?.let { holidayDates = it }
             try { holidayDates = HolidayApi.getHolidayDates(context) } catch (_: Exception) {}
             homeworkDue = withContext(Dispatchers.IO) { runCatching { LmsDueStore.load(context, account) }.getOrDefault(emptyList()) }
         }
+    }
+
+    /** 换账号：上一个账号的数据、教材、学期与周次一律清掉，免得新账号看到别人的。 */
+    private fun resetForAccountSwitch(account: String) {
+        dataCache = DataCache(context, account.ifEmpty { null })
+        courses = emptyList()
+        exams = emptyList()
+        customCourses = emptyList()
+        homeworkDue = emptyList()
+        addScheduleDraft = CustomCourseDraft()
+        pendingSave = null
+        textbooks = emptyList()
+        textbooksLoaded = false
+        textbooksLoading = false
+        textbooksRefreshing = false
+        textbooksError = null
+        textbooksBackgroundError = null
+        termList = emptyList()
+        selectedTermCode = ""
+        currentTermCode = ""
+        userPickedTerm = false
+        startOfTerm = null
+        currentWeek = 1
+        realCurrentWeek = 0
+        weekNote = null
+        showAllWeeks = false
+        showingStaleData = false
+        errorMessage = null
     }
 
     private fun bindSite(site: SiteSession?) {
@@ -261,13 +259,13 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
             if (site == null && login.hasCredentials) {
                 attemptingAutoLogin = true
                 try {
-                    withContext(Dispatchers.IO) { login.sessionManager?.ensureSite(LoginType.JWXT) }?.let { setSite(it) }
+                    withContext(Dispatchers.IO) { login.sessionManager?.ensureSite(LoginType.JWXT, userInitiated = true) }?.let { setSite(it) }
                 } catch (_: Exception) {}
                 attemptingAutoLogin = false
             } else if (site != null) {
                 try {
                     withContext(Dispatchers.IO) {
-                        login.sessionManager?.credentials?.let { (user, password) -> site.ensureLogin(user, password, force = true) }
+                        login.sessionManager?.credentials?.let { (user, password) -> site.ensureLogin(user, password, force = true, userInitiated = true) }
                     }
                 } catch (_: Exception) {}
             }
@@ -652,18 +650,23 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
             if (textbooksLoaded) textbooksRefreshing = true else textbooksLoading = true
             textbooksError = null
         }
+        val cache = dataCache
+        val jobAccount = AccountContext.activeAccountId
         viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) {
-                    ScheduleCache.readTextbooks(dataCache, termCode, Long.MAX_VALUE)?.let { cached ->
+                    ScheduleCache.readTextbooks(cache, termCode, Long.MAX_VALUE)?.let { cached ->
                         textbooks = cached.sortedBy { if (it.hasSubstantiveTextbook) 0 else 1 }
                         textbooksLoaded = true
                     }
                     // 有教材的在前
-                    textbooks = jw.getTextbooks(studentId, termCode).sortedBy { if (it.hasSubstantiveTextbook) 0 else 1 }
-                    ScheduleCache.writeTextbooks(dataCache, termCode, textbooks)
+                    val fresh = jw.getTextbooks(studentId, termCode).sortedBy { if (it.hasSubstantiveTextbook) 0 else 1 }
+                    // 请求期间换了账号：结果属于上一个人，不上屏也不写缓存
+                    if (AccountContext.activeAccountId != jobAccount) return@withContext
+                    textbooks = fresh
+                    ScheduleCache.writeTextbooks(cache, termCode, fresh)
                 }
-                textbooksLoaded = true
+                textbooksLoaded = AccountContext.activeAccountId == jobAccount
                 if (background) textbooksBackgroundError = null
             } catch (e: CancellationException) {
                 throw e
