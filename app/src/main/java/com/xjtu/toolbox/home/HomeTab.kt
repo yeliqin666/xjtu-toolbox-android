@@ -550,11 +550,8 @@ internal fun HomeTab(
                 if (startDate == null) {
                     return@withContext Triple(null, weekNumber, true)
                 }
-                val holidayDates = try {
-                    com.xjtu.toolbox.schedule.HolidayApi.getHolidayDates(heroContext)
-                } catch (_: Exception) {
-                    emptyMap()
-                }
+                // 只读缓存：首页不该为了节假日去发网络请求，日程页会负责拉取
+                val holidayDates = com.xjtu.toolbox.schedule.HolidayApi.peekCached(heroContext)
 
                 val nowDateTime = java.time.LocalDateTime.now()
                 for (offset in 0..14) {

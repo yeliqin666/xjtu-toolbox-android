@@ -53,6 +53,16 @@ object HomeStatsRefresher {
     private val runLock = Mutex()
 
     /**
+     * 当前这一轮绑定的账号，各源的 fetch 拿它决定落盘的命名空间和是否更新提醒信号。
+     * 一轮里各源串行且整轮受 [runLock] 保护，所以一个字段够用。
+     */
+    @Volatile
+    private var roundAccount: String? = null
+
+    /** 这一轮拉数据期间没有切过账号。 */
+    private fun roundIsCurrent() = com.xjtu.toolbox.account.AccountContext.activeAccountId == roundAccount
+
+    /**
      * 本进程是否还没跑过刷新。冷启动后的第一轮里，**对当前一条内容都没有的源忽略退避**
      * 再试一次。
      *
@@ -174,11 +184,11 @@ object HomeStatsRefresher {
                 Log.d(TAG, "score: ${terms.size} 个学期，共 $total 门")
                 if (total == 0) return@withContext null
 
-                val newCount = HomeStats.bumpScoreCursor(ctx, total)
+                val newCount = HomeStats.bumpScoreCursor(ctx, total, roundAccount)
                 // 累加而非覆盖：气泡可能还没冒出来就又刷了一轮，直接覆盖会把待提醒的数吞掉。
                 // 冒过一次后由 MainActivity 清零。
                 if (newCount > 0) {
-                    HomeStats.setPendingNewScores(ctx, HomeStats.pendingNewScores(ctx) + newCount)
+                    HomeStats.setPendingNewScores(ctx, HomeStats.pendingNewScores(ctx, roundAccount) + newCount, roundAccount)
                 }
                 // 最新学期挑分数最高/最近的一条做明细意义不大，直接报本学期门数与新增。
                 val latestTerm = terms.maxByOrNull { it.termCode }
@@ -343,10 +353,7 @@ object HomeStatsRefresher {
                 )
             }
         if (dueItems.isNotEmpty()) {
-            com.xjtu.toolbox.lms.LmsDueStore.save(
-                ctx, dueItems,
-                com.xjtu.toolbox.account.AccountContext.activeAccountId.orEmpty(),
-            )
+            com.xjtu.toolbox.lms.LmsDueStore.save(ctx, dueItems, roundAccount.orEmpty())
         }
 
         if (acts.isEmpty()) return null
@@ -404,7 +411,8 @@ object HomeStatsRefresher {
             // 整轮绑定发起时的账号。SessionManager 切账号是原地重配而不是换实例，
             // 一轮十几秒里若切了账号，后面拉到的是新账号的数据；此时整轮作废、什么都不写。
             val roundAccount = com.xjtu.toolbox.account.AccountContext.activeAccountId
-            fun accountChanged() = com.xjtu.toolbox.account.AccountContext.activeAccountId != roundAccount
+            this.roundAccount = roundAccount
+            fun accountChanged() = !roundIsCurrent()
             val stamps = HomeStats.stamps(context, sources.map { it.route }, roundAccount)
             val now = System.currentTimeMillis()
             var first = true
@@ -508,7 +516,8 @@ object HomeStatsRefresher {
         }
         Log.d(TAG, "coupon: 待领取 $pending 张，可用 ${usable?.records?.size ?: 0} 张，最近到期 $soonest")
 
-        HomeSignals.couponAlert = when {
+        // 拉取期间切了账号：这份结果属于上一个账号，不能写成新账号的提醒
+        if (roundIsCurrent()) HomeSignals.couponAlert = when {
             pending > 0 -> "有 $pending 张加餐券没领"
             daysLeft != null && daysLeft <= COUPON_EXPIRY_WARN_DAYS ->
                 if (daysLeft == 0) "有加餐券今天就到期了" else "有加餐券还有 $daysLeft 天到期"
@@ -547,11 +556,11 @@ object HomeStatsRefresher {
         // 否则一次失败会把基线冲掉，之后永远判不出增量。
         // 按账号分开存，否则切账号后拿别人的异常数当基线
         val prefs = ctx.getSharedPreferences(
-            "attendance_watch${com.xjtu.toolbox.account.AccountContext.safeSuffix()}",
+            "attendance_watch${com.xjtu.toolbox.account.AccountContext.suffixFor(roundAccount)}",
             android.content.Context.MODE_PRIVATE,
         )
         val seen = prefs.getInt("abnormal_seen", -1)
-        if (seen >= 0 && abnormal > seen) {
+        if (seen >= 0 && abnormal > seen && roundIsCurrent()) {
             val worst = stats.filter { it.abnormalCount > 0 }.maxByOrNull { it.abnormalCount }
             HomeSignals.attendanceAlert = if (worst != null) {
                 "${worst.subjectName}的考勤有异常了"

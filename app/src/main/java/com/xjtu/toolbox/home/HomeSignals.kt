@@ -68,6 +68,14 @@ object HomeSignals {
         statsVersion++
     }
 
+    /** 这些信号都是当前账号的数据，切换 / 登出账号时清掉，免得新账号的界面提醒上一个人的事。 */
+    fun clearAccountSignals() {
+        scheduleReminder = null
+        libraryUrgentAction = null
+        attendanceAlert = null
+        couponAlert = null
+    }
+
     /** 提醒只需要课程名和开始时间，不必把首页那个完整模型搬过来。 */
     data class ScheduleFocus(
         val name: String,

@@ -151,25 +151,25 @@ object HomeStats {
      * 游标只在这里前移，且只有成功取到数据才会调用——失败时不动基线，
      * 否则一次失败把基线冲成 0，下次就会把全部成绩当成新增。
      */
-    fun bumpScoreCursor(context: Context, total: Int): Int = runCatching {
-        val prefs = scorePrefs(context)
+    fun bumpScoreCursor(context: Context, total: Int, accountId: String? = AccountContext.activeAccountId): Int = runCatching {
+        val prefs = scorePrefs(context, accountId)
         val prev = prefs.getInt(KEY_SCORE_CURSOR, -1)
         prefs.edit().putInt(KEY_SCORE_CURSOR, total).apply()
         if (prev < 0) 0 else (total - prev).coerceAtLeast(0)
     }.getOrDefault(0)
 
     /** 当前的成绩新增数（供屁岱读取，不改变游标）。 */
-    fun pendingNewScores(context: Context): Int = runCatching {
-        scorePrefs(context).getInt("proactive_score_new", 0)
+    fun pendingNewScores(context: Context, accountId: String? = AccountContext.activeAccountId): Int = runCatching {
+        scorePrefs(context, accountId).getInt("proactive_score_new", 0)
     }.getOrDefault(0)
 
-    fun setPendingNewScores(context: Context, n: Int) {
-        runCatching { scorePrefs(context).edit().putInt("proactive_score_new", n).apply() }
+    fun setPendingNewScores(context: Context, n: Int, accountId: String? = AccountContext.activeAccountId) {
+        runCatching { scorePrefs(context, accountId).edit().putInt("proactive_score_new", n).apply() }
     }
 
     /** 成绩游标按账号分开：共用一份时，切到成绩更多的账号会误报「新增 N 门」。 */
-    private fun scorePrefs(context: Context) =
-        context.getSharedPreferences("score_cursor${AccountContext.safeSuffix()}", Context.MODE_PRIVATE)
+    private fun scorePrefs(context: Context, accountId: String?) =
+        context.getSharedPreferences("score_cursor${AccountContext.suffixFor(accountId)}", Context.MODE_PRIVATE)
 
     /**
      * 记下教务处最新一条通知的标题。
