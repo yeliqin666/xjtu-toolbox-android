@@ -1176,9 +1176,8 @@ private fun LiveRoomCard(room: LiveRoom, schedule: RoomInfo?, currentPeriod: Int
 
 // ══════ 加载失败 / 空结果 ══════
 
-/** 报错不翻译：原文最准。没有 message 的给类名，至少知道是哪一类错。 */
-internal fun rawError(e: Throwable): String =
-    e.message?.trim()?.takeIf { it.isNotEmpty() } ?: e.javaClass.simpleName
+/** 空教室页里所有报错的文案。 */
+internal fun rawError(e: Throwable): String = com.xjtu.toolbox.error.FriendlyError.of(e, "查询")
 
 /**
  * 页面里所有「没东西可显示」的状态共用一个样子：浅底圆形图标 + 标题 + 说明 +

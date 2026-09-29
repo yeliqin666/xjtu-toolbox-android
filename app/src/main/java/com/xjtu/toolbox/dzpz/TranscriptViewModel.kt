@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.dzpz
 
 import androidx.compose.runtime.getValue
+import com.xjtu.toolbox.error.FriendlyError
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -60,7 +61,7 @@ internal class TranscriptViewModel(
             } catch (_: AuthExpiredException) {
                 authExpiredChannel.send(Unit)
             } catch (e: Exception) {
-                errorMessage = "加载失败: ${e.message}"
+                errorMessage = FriendlyError.of(e, "加载")
             } finally {
                 isLoading = false
             }
@@ -93,7 +94,7 @@ internal class TranscriptViewModel(
                 authExpiredChannel.send(Unit)
             } catch (e: Exception) {
                 workflowState = WorkflowState.ERROR
-                workflowProgress = "申请失败: ${e.message}"
+                workflowProgress = FriendlyError.of(e, "提交申请")
             }
         }
     }

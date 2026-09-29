@@ -248,7 +248,7 @@ fun AutoUpdateDialog(
                                     isDownloading = false
                                     android.widget.Toast.makeText(
                                         context,
-                                        "更新失败：${e.message}",
+                                        com.xjtu.toolbox.error.FriendlyError.of(e, "更新"),
                                         android.widget.Toast.LENGTH_SHORT
                                     ).show()
                                 }

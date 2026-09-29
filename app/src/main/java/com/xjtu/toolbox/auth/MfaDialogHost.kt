@@ -68,7 +68,7 @@ fun MfaDialogHost(sessionManager: SessionManager?) {
                 phone = withContext(Dispatchers.IO) { req.mfaContext.getPhoneNumber() }
                 codeSent = true
             } catch (e: Exception) {
-                err = "获取验证手机号失败：${e.message}"
+                err = com.xjtu.toolbox.error.FriendlyError.of(e, "获取验证手机号")
             }
             sending = false
         }

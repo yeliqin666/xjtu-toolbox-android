@@ -338,7 +338,7 @@ class CampusCardApi(private val site: SiteSession) {
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    throw RuntimeException("查询校园卡流水第${page}页失败：${e.message ?: "网络异常"}", e)
+                    throw RuntimeException("查询校园卡流水第${page}页失败，请检查网络后重试", e)
                 }
                 if (pageTotal != total) {
                     throw RuntimeException("查询校园卡流水返回的总数在分页过程中发生变化")

@@ -208,7 +208,7 @@ class LaunchNotices(
                 .onFailure {
                     val page = fallbackUrl ?: AppUpdater.releasesPageUrl(credentialStore.updateChannel)
                     if (!openUrl(page)) {
-                        Toast.makeText(context, "检查更新失败：${it.message}", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, com.xjtu.toolbox.error.FriendlyError.of(it, "检查更新"), Toast.LENGTH_SHORT).show()
                     }
                 }
         }

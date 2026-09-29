@@ -162,7 +162,7 @@ fun PaymentCodeDialog(
             }.onSuccess {
                 vouchers = it
             }.onFailure {
-                voucherError = it.message ?: "加餐券加载失败"
+                voucherError = com.xjtu.toolbox.error.FriendlyError.of(it, "加载加餐券")
             }
             isVoucherLoading = false
         }
@@ -191,7 +191,7 @@ fun PaymentCodeDialog(
                 errorMessage = null
             } catch (e: Exception) {
                 if (!isActive) return@LaunchedEffect
-                errorMessage = "刷新失败: ${e.message}"
+                errorMessage = com.xjtu.toolbox.error.FriendlyError.of(e, "刷新")
                 isLoading = false
             }
 
@@ -356,7 +356,7 @@ fun PaymentCodeDialog(
                                     try {
                                         vouchers = withContext(Dispatchers.IO) { api.getVouchers() }
                                     } catch (e: Exception) {
-                                        voucherError = e.message ?: "加餐券加载失败"
+                                        voucherError = com.xjtu.toolbox.error.FriendlyError.of(e, "加载加餐券")
                                     } finally {
                                         isVoucherLoading = false
                                     }

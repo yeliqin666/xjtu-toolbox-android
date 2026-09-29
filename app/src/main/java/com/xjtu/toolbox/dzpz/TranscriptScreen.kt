@@ -622,7 +622,7 @@ private fun savePdfToDownloads(context: Context, filename: String, bytes: ByteAr
             Toast.makeText(context, "保存失败", Toast.LENGTH_SHORT).show()
         }
     } catch (e: Exception) {
-        Toast.makeText(context, "保存失败: ${e.message}", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, com.xjtu.toolbox.error.FriendlyError.of(e, "保存"), Toast.LENGTH_SHORT).show()
     }
 }
 

@@ -86,7 +86,7 @@ internal fun ActivityListPage(
                 appLoginState.handleAuthExpired(AppRoute.Lms(), onBack)
             } catch (e: Exception) {
                 Log.e(TAG, "loadActivities error", e)
-                errorMsg = "加载活动失败: ${e.message}"
+                errorMsg = com.xjtu.toolbox.error.FriendlyError.of(e, "加载活动")
             } finally {
                 isLoading = false
             }

@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.jiaocai1
 
 import android.content.Context
+import com.xjtu.toolbox.error.FriendlyError
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -79,7 +80,7 @@ class Jiaocai1ViewModel : ViewModel() {
             } catch (e: AuthExpiredException) {
                 authExpired = true
             } catch (e: Exception) {
-                if (page == 1) error = "检索失败：${e.message}" else moreFailed = true
+                if (page == 1) error = FriendlyError.of(e, "检索") else moreFailed = true
             } finally {
                 loading = false
                 loadingMore = false
@@ -100,7 +101,7 @@ class Jiaocai1ViewModel : ViewModel() {
             } catch (e: AuthExpiredException) {
                 authExpired = true
             } catch (e: Exception) {
-                categoryError = "加载失败：${e.message}"
+                categoryError = FriendlyError.of(e, "加载分类")
             } finally {
                 categoryLoading = false
             }

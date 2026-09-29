@@ -438,11 +438,11 @@ class LibraryApi(private val site: SiteSession) {
             throw e   // 透传给 UI 层做静默重登，不要降级成普通错误
         } catch (e: java.io.IOException) {
             Log.e(TAG, "getSeats network error", e)
-            return SeatResult.Error("网络请求失败: ${e.message}")
+            return SeatResult.Error(com.xjtu.toolbox.error.FriendlyError.of(e, "加载座位"))
         } catch (e: Exception) {
             // 解析/响应异常（如 loadFloorContext 抛出的非 JSON），别伪装成网络问题
             Log.e(TAG, "getSeats failed", e)
-            return SeatResult.Error(e.message ?: "座位信息加载失败")
+            return SeatResult.Error(com.xjtu.toolbox.error.FriendlyError.of(e, "加载座位信息"))
         }
 
         val finalUrl = response.request.url.toString()
@@ -491,7 +491,7 @@ class LibraryApi(private val site: SiteSession) {
             return SeatResult.Success(seatList, cachedAreaStats)
         } catch (e: org.json.JSONException) {
             Log.e(TAG, "JSON parse error", e)
-            return SeatResult.Error("座位数据解析失败: ${e.message}")
+            return SeatResult.Error("座位数据格式异常，请稍后再试")
         }
     }
 
@@ -554,7 +554,7 @@ class LibraryApi(private val site: SiteSession) {
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
             return BookResult(false, "登录状态已失效，请退出图书馆页面后重新进入")
         } catch (e: Exception) {
-            return BookResult(false, "网络异常: ${e.message}")
+            return BookResult(false, com.xjtu.toolbox.error.FriendlyError.of(e, "预约"))
         }
 
         val finalUrl = response.request.url.toString()
@@ -635,7 +635,7 @@ class LibraryApi(private val site: SiteSession) {
         } catch (e: Exception) {
             if (e is com.xjtu.toolbox.auth.AuthExpiredException)
                 BookResult(false, "登录状态已失效，请退出图书馆页面后重新进入")
-            else BookResult(false, "换座请求失败: ${e.message}")
+            else BookResult(false, com.xjtu.toolbox.error.FriendlyError.of(e, "换座"))
         }
     }
 
@@ -726,7 +726,7 @@ class LibraryApi(private val site: SiteSession) {
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
             return BookResult(false, "登录状态已失效，请退出图书馆页面后重新进入")
         } catch (e: Exception) {
-            return BookResult(false, "操作失败: ${e.message}")
+            return BookResult(false, com.xjtu.toolbox.error.FriendlyError.of(e, "操作"))
         }
     }
 }

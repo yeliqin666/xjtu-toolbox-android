@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.library
 
 import android.content.Context
+import com.xjtu.toolbox.error.FriendlyError
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -242,7 +243,7 @@ internal class LibraryViewModel(context: Context, private val site: SiteSession)
             } catch (e: Exception) {
                 if (generation == seatGeneration) {
                     seats = emptyList()
-                    errorMessage = "加载失败: ${e.message}"
+                    errorMessage = FriendlyError.of(e, "加载")
                 }
             }
             if (generation == seatGeneration) isLoading = false
@@ -310,7 +311,7 @@ internal class LibraryViewModel(context: Context, private val site: SiteSession)
             } catch (e: Exception) {
                 if (gen == planGeneration) {
                     planLayout = null; planImages = null
-                    planError = e.message ?: "平面图加载失败"
+                    planError = FriendlyError.of(e, "加载平面图")
                 }
             }
             if (gen == planGeneration) planLoading = false
@@ -395,7 +396,7 @@ internal class LibraryViewModel(context: Context, private val site: SiteSession)
             } catch (e: Exception) {
                 floorAreas = emptyMap()
                 seats = emptyList()
-                errorMessage = "楼层信息加载失败: ${e.message}"
+                errorMessage = FriendlyError.of(e, "加载楼层信息")
                 isLoading = false
             }
         }
@@ -484,7 +485,7 @@ internal class LibraryViewModel(context: Context, private val site: SiteSession)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                bookingResult = BookResult(false, "${label}异常: ${e.message}")
+                bookingResult = BookResult(false, FriendlyError.of(e, label))
             }
             isBooking = false
         }
@@ -500,7 +501,7 @@ internal class LibraryViewModel(context: Context, private val site: SiteSession)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                bookingResult = BookResult(false, "$label 失败: ${e.message}")
+                bookingResult = BookResult(false, FriendlyError.of(e, label))
             }
             isBooking = false
         }

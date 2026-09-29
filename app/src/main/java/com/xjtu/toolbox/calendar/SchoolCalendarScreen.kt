@@ -64,7 +64,7 @@ fun SchoolCalendarScreen(onBack: () -> Unit) {
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
-            errorMessage = "加载失败：${e.message}"
+            errorMessage = com.xjtu.toolbox.error.FriendlyError.of(e, "加载校历")
         }
         isLoading = false
     }

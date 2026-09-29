@@ -98,7 +98,7 @@ internal fun ActivityDetailPage(
                 Toast.makeText(context, "已加入下载队列", Toast.LENGTH_SHORT).show()
             }.onFailure {
                 Log.e(TAG, "enqueue lms download failed", it)
-                Toast.makeText(context, "加入下载失败：${it.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, com.xjtu.toolbox.error.FriendlyError.of(it, "加入下载"), Toast.LENGTH_SHORT).show()
             }
         }
     }

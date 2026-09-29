@@ -75,7 +75,7 @@ internal fun CourseListPage(
                 appLoginState.handleAuthExpired(AppRoute.Lms(), onBack)
             } catch (e: Exception) {
                 Log.e(TAG, "loadCourses error", e)
-                errorMsg = "加载课程失败: ${e.message}"
+                errorMsg = com.xjtu.toolbox.error.FriendlyError.of(e, "加载课程")
             } finally {
                 isLoading = false
             }

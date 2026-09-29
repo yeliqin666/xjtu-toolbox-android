@@ -178,13 +178,7 @@ class AppRouter(
                     notify("网络不佳，展示已缓存数据")
                 }
                 else -> {
-                    val detail = e.message?.take(40)?.takeIf { it.isNotBlank() }
-                    notify(
-                        when (e) {
-                            is java.io.IOException -> detail ?: "网络不佳，请检查网络连接"
-                            else -> detail ?: "${type.label}暂未就绪"
-                        }
-                    )
+                    notify(com.xjtu.toolbox.error.FriendlyError.of(e, "连接${type.label}"))
                 }
             }
         }

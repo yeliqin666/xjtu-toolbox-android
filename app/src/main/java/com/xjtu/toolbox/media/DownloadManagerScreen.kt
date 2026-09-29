@@ -788,7 +788,7 @@ private fun openReplayFile(context: Context, task: DownloadTaskEntity) {
         }
     } catch (e: Exception) {
         Log.e(TAG, "Play video error", e)
-        android.widget.Toast.makeText(context, "无法播放视频: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+        android.widget.Toast.makeText(context, com.xjtu.toolbox.error.FriendlyError.of(e, "播放视频"), android.widget.Toast.LENGTH_SHORT).show()
     }
 }
 

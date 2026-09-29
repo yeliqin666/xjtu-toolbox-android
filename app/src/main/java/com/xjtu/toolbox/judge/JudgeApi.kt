@@ -490,7 +490,6 @@ class JudgeApi(private val site: SiteSession) {
         )
 
         var lastMsg = "未知错误"
-        var lastEndpoint = endpointCandidates.first()
 
         endpointLoop@ for (endpoint in endpointCandidates) {
             for (payload in payloadVariants) {
@@ -522,16 +521,14 @@ class JudgeApi(private val site: SiteSession) {
                     }
 
                     lastMsg = msg
-                    lastEndpoint = endpoint
                 } catch (e: Exception) {
-                    lastMsg = e.message ?: "网络异常"
-                    lastEndpoint = endpoint
+                    lastMsg = com.xjtu.toolbox.error.FriendlyError.of(e, "提交评教")
                     continue
                 }
             }
         }
 
-        return Pair(false, "$lastMsg（endpoint=${lastEndpoint.substringAfterLast('/')}）")
+        return Pair(false, lastMsg)
     }
 
     /**

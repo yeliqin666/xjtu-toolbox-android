@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.schedule
 
 import android.util.Log
+import com.xjtu.toolbox.error.FriendlyError
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -76,7 +77,7 @@ internal class SchoolCourseViewModel(site: SiteSession) : ViewModel() {
                 authExpiredChannel.send(Unit)
             } catch (e: Exception) {
                 Log.e(TAG, "init failed", e)
-                initError = "初始化失败: ${e.message}"
+                initError = FriendlyError.of(e, "初始化")
             } finally {
                 isInitializing = false
             }
@@ -116,7 +117,7 @@ internal class SchoolCourseViewModel(site: SiteSession) : ViewModel() {
                 authExpiredChannel.send(Unit)
             } catch (e: Exception) {
                 Log.e(TAG, "search failed", e)
-                searchError = "查询失败: ${e.message}"
+                searchError = FriendlyError.of(e, "查询")
             } finally {
                 isSearching = false
             }

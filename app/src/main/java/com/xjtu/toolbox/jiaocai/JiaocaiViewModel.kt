@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.jiaocai
 
 import androidx.compose.runtime.getValue
+import com.xjtu.toolbox.error.FriendlyError
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
@@ -50,7 +51,7 @@ class JiaocaiViewModel : ViewModel() {
             } catch (e: AuthExpiredException) {
                 authExpired = true
             } catch (e: Exception) {
-                error = "搜索失败：${e.message}"
+                error = FriendlyError.of(e, "搜索")
             } finally {
                 loading = false
             }

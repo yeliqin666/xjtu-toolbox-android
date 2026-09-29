@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.jwapp
 
 import android.content.Context
+import com.xjtu.toolbox.error.FriendlyError
 import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -93,10 +94,10 @@ internal class JwappScoreViewModel(
             } catch (e: AuthExpiredException) {
                 // 不弹回主页：jwapp 拒绝 token 时和自动重登会形成「进-退-进」死循环；停在这页给提示
                 if (allTermScores.isNotEmpty()) messageChannel.send(ScoreMessage("成绩同步暂不可用，显示缓存数据。下拉刷新可重试", long = true))
-                else errorMessage = "成绩查询服务暂不可用：${e.message ?: "请稍后重试"}"
+                else errorMessage = "成绩查询服务暂不可用：${FriendlyError.of(e, "查询成绩")}"
             } catch (e: Exception) {
                 if (allTermScores.isNotEmpty()) messageChannel.send(ScoreMessage("网络异常，显示的可能不是最新数据", long = true))
-                else errorMessage = "加载失败: ${e.message}"
+                else errorMessage = FriendlyError.of(e, "加载成绩")
             } finally {
                 isLoading = false
                 isRefreshing = false

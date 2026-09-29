@@ -272,7 +272,7 @@ class DownloadManager private constructor(private val context: Context) {
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "Download failed: taskId=$taskId", e)
-            dao.updateStatus(taskId, "failed", e.message)
+            dao.updateStatus(taskId, "failed", com.xjtu.toolbox.error.FriendlyError.of(e, "下载"))
             emitProgress(taskId, task.downloadedSize, task.fileSize, "failed")
         }
     }

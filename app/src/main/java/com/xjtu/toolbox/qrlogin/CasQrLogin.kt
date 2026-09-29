@@ -90,7 +90,7 @@ object CasQrLogin {
             sessionManager.ensureSite(TOKEN_SITE, userInitiated = true)
         } catch (e: Exception) {
             Log.w(TAG, "ensureSite(ywtb) failed: ${e.message}")
-            return Prepare.Err(Result.Failed("登录态获取失败：${e.message ?: "请先登录账号"}"))
+            return Prepare.Err(Result.Failed(com.xjtu.toolbox.error.FriendlyError.of(e, "获取登录状态")))
         }
         return Prepare.Ok(ticket, site, site.client)
     }
@@ -122,7 +122,7 @@ object CasQrLogin {
             Result.Scanned
         } catch (e: Exception) {
             Log.w(TAG, "markScanned error: ${e.message}")
-            Result.Failed(e.message ?: "网络错误")
+            Result.Failed(com.xjtu.toolbox.error.FriendlyError.of(e, "扫码登录"))
         }
     }
 
@@ -144,7 +144,7 @@ object CasQrLogin {
             }
         } catch (e: Exception) {
             Log.w(TAG, "confirmAuth error: ${e.message}")
-            Result.Failed(e.message ?: "网络错误")
+            Result.Failed(com.xjtu.toolbox.error.FriendlyError.of(e, "扫码登录"))
         }
     }
 

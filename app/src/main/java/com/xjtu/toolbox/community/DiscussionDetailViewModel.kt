@@ -144,7 +144,7 @@ internal fun failureText(action: String, error: Throwable): String {
         }
         is GithubDiscussionException -> error.message
         is java.io.IOException -> "网络不通，检查网络后重试"
-        else -> error.message
+        else -> null
     }
     return if (reason.isNullOrBlank()) "${action}没成功，稍后再试" else "${action}没成功：$reason"
 }

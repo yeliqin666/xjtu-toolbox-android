@@ -91,7 +91,7 @@ fun YellowPageScreen(onBack: () -> Unit) {
                 selectedCategory = data?.categories?.firstOrNull()?.id ?: 0
             }
         } catch (e: Exception) {
-            error = e.message ?: "网络异常"
+            error = com.xjtu.toolbox.error.FriendlyError.of(e, "加载")
         } finally {
             loading = false
             refreshing = false

@@ -141,7 +141,7 @@ fun MatchScreen(onBack: () -> Unit) {
         val read = withContext(Dispatchers.IO) { runCatching { MatchData.read(context, pickedTerm) } }
         read.getOrNull()?.let { local = it }
         loadError = read.exceptionOrNull()?.let {
-            "读本地缓存时出错了：${it.message ?: it.javaClass.simpleName}"
+            "读本地缓存时出错了，可以先去日程页刷新一次再回来"
         }
         loading = false
     }

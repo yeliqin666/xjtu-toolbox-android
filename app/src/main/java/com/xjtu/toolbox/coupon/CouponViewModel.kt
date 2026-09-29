@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.coupon
 
 import android.content.Context
+import com.xjtu.toolbox.error.FriendlyError
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -85,7 +86,7 @@ internal class CouponViewModel(context: Context, site: SiteSession) : ViewModel(
             } catch (_: AuthExpiredException) {
                 authExpiredChannel.send(Unit)
             } catch (e: Exception) {
-                if (append) loadMoreError = e.message ?: "加载更多失败" else errorMessage = e.message ?: "加载失败"
+                if (append) loadMoreError = FriendlyError.of(e, "加载更多") else errorMessage = FriendlyError.of(e, "加载加餐券")
             } finally {
                 isLoading = false
                 isLoadingMore = false
@@ -125,7 +126,7 @@ internal class CouponViewModel(context: Context, site: SiteSession) : ViewModel(
             } catch (_: AuthExpiredException) {
                 authExpiredChannel.send(Unit)
             } catch (e: Exception) {
-                statusMessage = "领取失败：${e.message ?: "网络异常"}"
+                statusMessage = FriendlyError.of(e, "领取")
             } finally {
                 receivingIds = receivingIds - id
             }

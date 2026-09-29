@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.judge
 
 import androidx.compose.runtime.getValue
+import com.xjtu.toolbox.error.FriendlyError
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -119,7 +120,7 @@ internal class JudgeViewModel<Q>(private val source: JudgeSource<Q>) : ViewModel
             } catch (_: AuthExpiredException) {
                 authExpiredChannel.send(Unit)
             } catch (e: Exception) {
-                errorMessage = "加载失败: ${e.message}"
+                errorMessage = FriendlyError.of(e, "加载")
             } finally {
                 isLoading = false
                 isRefreshing = false
@@ -149,7 +150,7 @@ internal class JudgeViewModel<Q>(private val source: JudgeSource<Q>) : ViewModel
                         throw e
                     } catch (e: Exception) {
                         failed++
-                        lastError = "$name: ${e.message}"
+                        lastError = "$name: ${FriendlyError.of(e, "评教")}"
                     }
                     progress = index + 1
                     delay(300) // 间隔避免被限流
@@ -159,7 +160,7 @@ internal class JudgeViewModel<Q>(private val source: JudgeSource<Q>) : ViewModel
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                autoJudgeMessage = "评教出错: ${e.message}"
+                autoJudgeMessage = FriendlyError.of(e, "评教")
             } finally {
                 isAutoJudging = false
             }
@@ -176,7 +177,7 @@ internal class JudgeViewModel<Q>(private val source: JudgeSource<Q>) : ViewModel
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                errorMessage = "撤回失败: ${e.message}"
+                errorMessage = FriendlyError.of(e, "撤回")
             } finally {
                 undoingKey = null
             }

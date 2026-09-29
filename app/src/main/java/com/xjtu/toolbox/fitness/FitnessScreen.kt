@@ -93,7 +93,7 @@ fun FitnessScreen(
                 }
                 val s = result.getOrNull()
                 if (s == null) {
-                    lastError = result.exceptionOrNull()?.message ?: "该学年暂无体测数据"
+                    lastError = result.exceptionOrNull()?.let { com.xjtu.toolbox.error.FriendlyError.of(it, "查询体测") } ?: "该学年暂无体测数据"
                     continue
                 }
                 if (s.hasUsableTotal()) {
@@ -118,7 +118,7 @@ fun FitnessScreen(
                 onBack()
                 return
             }
-            error = e.message ?: "体测查询失败"
+            error = com.xjtu.toolbox.error.FriendlyError.of(e, "查询体测")
         } finally {
             loading = false
         }
@@ -137,7 +137,7 @@ fun FitnessScreen(
                 return
             }
             score = null
-            error = e.message ?: "体测查询失败"
+            error = com.xjtu.toolbox.error.FriendlyError.of(e, "查询体测")
         } finally {
             loading = false
         }
@@ -156,7 +156,7 @@ fun FitnessScreen(
                         onBack()
                         return
                     }
-                    error = e.message ?: "体测查询失败"
+                    error = com.xjtu.toolbox.error.FriendlyError.of(e, "查询体测")
                 }
             } ?: loadYears()
         } finally {
