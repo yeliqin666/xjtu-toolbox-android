@@ -73,6 +73,7 @@ object SchoolInbox {
                 val id = m.safeGet("id").safeStringOrNull() ?: return@mapNotNull null
                 val body = InboxRules.plainText(m.safeGet("content").safeString())
                 val source = InboxRules.signature(body) ?: m.safeGet("appName").safeStringOrNull()?.takeIf { it.isNotBlank() } ?: "学校通知"
+                if (InboxRules.isShortLived(source)) return@mapNotNull null
                 val link = m.safeGet("mobileUrl").safeString().ifBlank { m.safeGet("url").safeString() }
                 InboxItem(
                     id = "school:$id",

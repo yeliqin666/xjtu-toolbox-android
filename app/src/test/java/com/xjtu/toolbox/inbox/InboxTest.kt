@@ -69,6 +69,18 @@ class InboxTest {
     }
 
     @Test
+    fun `图书馆座位消息不收，已存的合并时清掉，借阅提醒照收`() {
+        val seat = InboxItem(id = "s", category = InboxCategories.school("图书馆预约系统"), source = "图书馆预约系统", title = "预约超时", time = now - hour)
+        val borrow = InboxItem(id = "b", category = InboxCategories.school("图书馆借阅系统"), source = "图书馆借阅系统", title = "图书即将到期", time = now - hour)
+        val merged = InboxRules.merge(InboxData(messages = listOf(seat, borrow)), emptyList(), now)
+        assertEquals(listOf("b"), merged.messages.map { it.id })
+
+        val json = """{"data":[{"id":"m1","title":"图书馆预约系统","editTime":"2026-09-27 20:00:12",
+            "content":"<p>您的预约已经超时，即将在五分钟后释放。 (图书馆预约系统)</p>"}]}""".safeParseJsonObject()
+        assertTrue(SchoolInbox.parseMessages(json).isEmpty())
+    }
+
+    @Test
     fun `公告时间取 id 开头的发布日期`() {
         val b = com.xjtu.toolbox.bulletin.Bulletin(
             id = "2026-09-24-tips", level = com.xjtu.toolbox.bulletin.BulletinLevel.INFO,

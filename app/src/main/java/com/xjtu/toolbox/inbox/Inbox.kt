@@ -108,12 +108,15 @@ object InboxRules {
     private fun visible(item: InboxItem, now: Long) =
         (item.expiresAt == 0L || item.expiresAt > now) && (item.expiresAt > 0L || now - item.time < KEEP_MS)
 
-    /** 合并新消息：按 id 去重（重复推来的保留首次时间），丢掉保留期外的，已读集合只留还在的 id。 */
+    /** 图书馆座位的签到、超时释放：几分钟就过期，座位状态在图书馆页随时能查，不收。借阅到期之类照收。 */
+    fun isShortLived(source: String) = source == "图书馆预约系统" || "座位" in source
+
+    /** 合并新消息：按 id 去重（重复推来的保留首次时间），丢掉保留期外的和不收的来源，已读集合只留还在的 id。 */
     fun merge(data: InboxData, incoming: List<InboxItem>, now: Long): InboxData {
         val byId = LinkedHashMap<String, InboxItem>()
         data.messages.forEach { byId[it.id] = it }
         incoming.forEach { n -> byId[n.id] = byId[n.id]?.let { n.copy(time = it.time) } ?: n }
-        val kept = byId.values.filter { now - it.time < KEEP_MS }
+        val kept = byId.values.filter { now - it.time < KEEP_MS && !(InboxCategories.isSchool(it.category) && isShortLived(it.source)) }
         val ids = kept.mapTo(HashSet()) { it.id }
         return data.copy(messages = kept, read = data.read.filterTo(HashSet()) { it in ids }, bubbled = data.bubbled.filterTo(HashSet()) { it in ids })
     }
