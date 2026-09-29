@@ -186,7 +186,7 @@ object FitnessProtocol {
 
     /** 学校体测系统 5xx 时直说是学校的问题：错误页没有回调参数，不拦的话会误报成「回调缺少会话参数」。 */
     fun checkNotServerError(code: Int) {
-        if (code >= 500) throw java.io.IOException("学校体测系统出故障了（HTTP $code），不是账号或 App 的问题，请稍后再试")
+        if (code >= 500) throw java.io.IOException("学校体测系统出故障了（错误码 $code），不是账号或 App 的问题，请稍后再试")
     }
 
     fun unwrapUserInfo(body: String): JsonObject? {
