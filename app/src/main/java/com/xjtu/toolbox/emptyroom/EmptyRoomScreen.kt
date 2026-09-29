@@ -25,6 +25,7 @@ import top.yukonga.miuix.kmp.basic.RangeSlider
 import com.xjtu.toolbox.ui.glass.*
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
+import com.xjtu.toolbox.ui.components.SelectionTile
 import top.yukonga.miuix.kmp.utils.SinkFeedback
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
@@ -167,57 +168,6 @@ private fun getSmartTags(room: RoomInfo, currentPeriod: Int): List<Pair<String, 
     if (room.size >= 100) tags.add("大教室" to MiuixTheme.colorScheme.primaryVariant)
 
     return tags
-}
-
-@Composable
-private fun BuildingSelectionTile(
-    text: String,
-    selected: Boolean,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-) {
-    // 原来手绘了一圈蓝色 border + 自绘圆点勾选，不是 miuix 原生语言。
-    // 改用 miuix 原生 Checkbox 表达多选状态，去掉描边，选中态只靠底色区分。
-    val shape = RoundedCornerShape(14.dp)
-    val containerColor = if (selected) {
-        MiuixTheme.colorScheme.tertiaryContainer
-    } else {
-        MiuixTheme.colorScheme.surfaceVariant
-    }
-    val contentColor = if (selected) MiuixTheme.colorScheme.onTertiaryContainer else MiuixTheme.colorScheme.onSurface
-    Surface(
-        modifier = modifier
-            .heightIn(min = 48.dp)
-            .clip(shape)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = SinkFeedback(),
-                onClick = onClick
-            ),
-        shape = shape,
-        color = containerColor
-    ) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            top.yukonga.miuix.kmp.basic.Checkbox(
-                state = if (selected) androidx.compose.ui.state.ToggleableState.On
-                    else androidx.compose.ui.state.ToggleableState.Off,
-                onClick = onClick
-            )
-            Spacer(Modifier.width(4.dp))
-            Text(
-                text,
-                style = MiuixTheme.textStyles.body2,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                color = contentColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
-        }
-    }
 }
 
 @Composable
@@ -456,7 +406,7 @@ fun EmptyRoomScreen(
                     }
                     // 全选/取消全选
                     val allSelected = sheetBuildings.isNotEmpty() && sheetSelected.size == sheetBuildings.size
-                    if (sheetBuildings.isNotEmpty()) BuildingSelectionTile(
+                    if (sheetBuildings.isNotEmpty()) SelectionTile(
                         text = if (allSelected) "已选择全部教学楼" else "选择全部教学楼",
                         selected = allSelected,
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
@@ -473,7 +423,7 @@ fun EmptyRoomScreen(
                         ) {
                             rowBuildings.forEach { building ->
                                 val isSelected = building in sheetSelected
-                                BuildingSelectionTile(
+                                SelectionTile(
                                     text = building,
                                     selected = isSelected,
                                     modifier = Modifier.weight(1f)

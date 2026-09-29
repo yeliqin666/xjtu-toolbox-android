@@ -65,6 +65,12 @@ import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
+import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
+import com.xjtu.toolbox.ui.components.SelectionTile
+import com.xjtu.toolbox.ui.components.AppTabPager
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.activity.compose.BackHandler
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.glass.GlassTopAppBar
 import com.xjtu.toolbox.ui.glass.LocalOnGlassBar
@@ -180,44 +186,47 @@ fun InboxScreen(onBack: () -> Unit, onOpen: (String) -> Unit) {
             topPadding = glassTop,
             modifier = Modifier.padding(padding.withoutTop(glass)).glassSource(glass).fillMaxSize(),
         ) {
-            LazyColumn(
-                Modifier.fillMaxSize().overScrollVertical(),
-                contentPadding = PaddingValues(top = glassTop, bottom = 24.dp),
-            ) {
-                error?.let { msg ->
-                    item(key = "error") {
-                        Text(
-                            msg,
-                            color = MiuixTheme.colorScheme.error,
-                            style = MiuixTheme.textStyles.footnote1,
-                            modifier = Modifier.padding(horizontal = 28.dp, vertical = 8.dp),
-                        )
-                    }
-                }
-                if (tab == 0) {
-                    if (todos.isEmpty()) {
-                        item(key = "empty") {
-                            EmptyState("没有待办", "学校事务、作业截止、加餐券都会出现在这里", Icons.Outlined.TaskAlt, Modifier.padding(top = 48.dp))
+            // 待办、消息两栏可以左右滑：标签行和页面同步
+            AppTabPager(pageCount = 2, selectedTabIndex = tab, onTabSelected = { tab = it }, modifier = Modifier.fillMaxSize()) { page ->
+                LazyColumn(
+                    Modifier.fillMaxSize().overScrollVertical(),
+                    contentPadding = PaddingValues(top = glassTop, bottom = 24.dp),
+                ) {
+                    error?.let { msg ->
+                        item(key = "error") {
+                            Text(
+                                msg,
+                                color = MiuixTheme.colorScheme.error,
+                                style = MiuixTheme.textStyles.footnote1,
+                                modifier = Modifier.padding(horizontal = 28.dp, vertical = 8.dp),
+                            )
                         }
                     }
-                    todos.groupBy { todoSection(it, now) }.forEach { (title, list) ->
-                        section(title, list.map { Entry(it, it.id, unread = false, count = 1) { open(it) } })
-                    }
-                } else {
-                    if (groups.isEmpty()) {
-                        item(key = "empty") {
-                            EmptyState("没有消息", "新成绩、调课、学校通知、工具箱公告都会出现在这里", Icons.Outlined.NotificationsNone, Modifier.padding(top = 48.dp))
+                    if (page == 0) {
+                        if (todos.isEmpty()) {
+                            item(key = "empty") {
+                                EmptyState("没有待办", "学校事务、作业截止、加餐券都会出现在这里", Icons.Outlined.TaskAlt, Modifier.padding(top = 48.dp))
+                            }
                         }
-                    }
-                    groups.groupBy { daySection(it.latest.time) }.forEach { (title, list) ->
-                        section(title, list.map { g -> Entry(g.latest, g.latest.id, g.unread, g.count) { open(g.latest, g.ids) } })
+                        todos.groupBy { todoSection(it, now) }.forEach { (title, list) ->
+                            section(title, list.map { Entry(it, it.id, unread = false, count = 1) { open(it) } })
+                        }
+                    } else {
+                        if (groups.isEmpty()) {
+                            item(key = "empty") {
+                                EmptyState("没有消息", "新成绩、调课、学校通知、工具箱公告都会出现在这里", Icons.Outlined.NotificationsNone, Modifier.padding(top = 48.dp))
+                            }
+                        }
+                        groups.groupBy { daySection(it.latest.time) }.forEach { (title, list) ->
+                            section(title, list.map { g -> Entry(g.latest, g.latest.id, g.unread, g.count) { open(g.latest, g.ids) } })
+                        }
                     }
                 }
             }
         }
     }
 
-    if (showSettings) InboxSettingsDialog(data) { showSettings = false }
+    InboxSettingsSheet(showSettings, data) { showSettings = false }
     detail?.let { d -> InboxDetailDialog(d) { detail = null } }
 }
 
@@ -405,27 +414,32 @@ private fun InboxRow(item: InboxItem, unread: Boolean, count: Int, onClick: () -
 }
 
 @Composable
-private fun InboxSettingsDialog(data: InboxData, onDismiss: () -> Unit) {
-    val school = InboxStore.schoolCategories(data).map { InboxCategory(it, InboxCategories.schoolLabel(it)) }
-    WindowDialog(show = true, title = "收纳设置", summary = "关掉的类别不进列表、不计数，屁岱也不再提", onDismissRequest = onDismiss) {
-        Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState())) {
+private fun InboxSettingsSheet(show: Boolean, data: InboxData, onDismiss: () -> Unit) {
+    BackHandler(enabled = show) { onDismiss() }
+    OverlayBottomSheet(show = show, title = "收纳设置", onDismissRequest = onDismiss) {
+        val school = InboxStore.schoolCategories(data).map { InboxCategory(it, InboxCategories.schoolLabel(it)) }
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().heightIn(max = 520.dp).verticalScroll(rememberScrollState())) {
+            Text("勾掉的类别不进列表、不计数，屁岱也不再提。", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             SettingsGroup("待办", InboxCategories.todos, data)
             SettingsGroup("消息", InboxCategories.messages, data)
             if (school.isNotEmpty()) SettingsGroup("学校消息", school, data)
-            TextButton(text = "完成", onClick = onDismiss, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), colors = ButtonDefaults.textButtonColorsPrimary())
+            Spacer(Modifier.height(12.dp))
         }
     }
 }
 
+/** 一组类别，两列勾选块。 */
 @Composable
 private fun SettingsGroup(title: String, categories: List<InboxCategory>, data: InboxData) {
-    Text(title, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.padding(start = 12.dp, top = 8.dp, bottom = 2.dp))
-    categories.forEach { c ->
-        SwitchPreference(
-            title = c.label,
-            checked = c.key !in data.off,
-            onCheckedChange = { InboxStore.setEnabled(c.key, it) },
-        )
+    Text(title, style = MiuixTheme.textStyles.subtitle, modifier = Modifier.padding(start = 4.dp, top = 14.dp, bottom = 8.dp))
+    categories.chunked(2).forEach { row ->
+        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            row.forEach { c ->
+                val on = c.key !in data.off
+                SelectionTile(c.label, on, Modifier.weight(1f), maxLines = 2) { InboxStore.setEnabled(c.key, !on) }
+            }
+            if (row.size == 1) Spacer(Modifier.weight(1f))
+        }
     }
 }
 
