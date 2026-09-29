@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.DirectionsBus
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.EditCalendar
 import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.EventSeat
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.RateReview
 import androidx.compose.material.icons.filled.Restaurant
@@ -95,6 +96,7 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun InboxScreen(onBack: () -> Unit, onOpen: (String) -> Unit) {
     val loginState = LocalAppLoginState.current
+    val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     val glass = rememberPageGlass()
@@ -117,6 +119,12 @@ fun InboxScreen(onBack: () -> Unit, onOpen: (String) -> Unit) {
         error = null
         try {
             SchoolInbox.refresh(manager.ensureSite(LoginType.YWTB, userInitiated = true), loginState.accountId.ifEmpty { null })
+            // 有座位待办时顺带现查一次，签过到的马上消失
+            if (!data.todos[InboxCategories.LIBRARY].isNullOrEmpty()) {
+                runCatching {
+                    com.xjtu.toolbox.library.LibraryApi(manager.ensureSite(LoginType.LIBRARY, userInitiated = true)).fetchMyBooking().getOrThrow()
+                }.onSuccess { com.xjtu.toolbox.library.LibraryStatus.publish(context, it) }
+            }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -252,6 +260,7 @@ private fun daySection(epoch: Long): String {
 private fun categoryStyle(category: String): Pair<ImageVector, Color> = when (category) {
     InboxCategories.SCHOOL_TODO -> Icons.AutoMirrored.Filled.Assignment to Color(0xFF3B82F6)
     InboxCategories.BOOKING -> Icons.Default.DirectionsBus to Color(0xFF14B8A6)
+    InboxCategories.LIBRARY -> Icons.Default.EventSeat to Color(0xFF0D9488)
     InboxCategories.LMS -> Icons.AutoMirrored.Filled.MenuBook to Color(0xFF8B5CF6)
     InboxCategories.COUPON -> Icons.Default.Restaurant to Color(0xFFF97316)
     InboxCategories.JUDGE -> Icons.Default.RateReview to Color(0xFFEC4899)

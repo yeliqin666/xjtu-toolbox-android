@@ -81,6 +81,18 @@ class InboxTest {
     }
 
     @Test
+    fun `图书馆座位待办：座位号加要做的事，点开去图书馆页`() {
+        val b = com.xjtu.toolbox.library.MyBookingInfo("A123", "三楼北区", "待入馆", mapOf("入馆签到" to "u"))
+        assertEquals("入馆签到", com.xjtu.toolbox.library.LibraryStatus.urgentAction(b))
+        val item = OwnInbox.library("入馆签到", b)
+        assertEquals("座位 A123 待入馆签到", item.title)
+        assertEquals("三楼北区 · 待入馆", item.body)
+        assertEquals(InboxCategories.LIBRARY, item.category)
+        assertEquals(com.xjtu.toolbox.nav.AppRoute.Library.id, item.route)
+        assertNull(com.xjtu.toolbox.library.LibraryStatus.urgentAction(b.copy(actionUrls = mapOf("释放" to "u"))))
+    }
+
+    @Test
     fun `公告时间取 id 开头的发布日期`() {
         val b = com.xjtu.toolbox.bulletin.Bulletin(
             id = "2026-09-24-tips", level = com.xjtu.toolbox.bulletin.BulletinLevel.INFO,

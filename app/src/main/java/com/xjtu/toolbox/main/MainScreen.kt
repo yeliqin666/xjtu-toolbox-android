@@ -43,6 +43,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -114,6 +115,7 @@ import com.xjtu.toolbox.ui.rememberHaptics
 import com.xjtu.toolbox.zyxf.ZyxfBrowseScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
@@ -244,6 +246,16 @@ internal fun MainScreen(
         if (loginState.accountId.isEmpty()) return@LaunchedEffect
         HomeStatsRefresher.refreshDue(context, loginState.sessionManager, loginState.accountType)
         HomeSignals.bumpStatsVersion()
+    }
+    // 切回前台也跑一轮：各源按 TTL 决定拉不拉，图书馆签到这类有时效的状态不会停在上次打开时。
+    // 和上面撞车时 refreshDue 自己会跳过后到的那次
+    val resumeScope = rememberCoroutineScope()
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+        if (loginState.accountId.isEmpty()) return@LifecycleEventEffect
+        resumeScope.launch {
+            HomeStatsRefresher.refreshDue(context, loginState.sessionManager, loginState.accountType)
+            HomeSignals.bumpStatsVersion()
+        }
     }
 
     ProactiveReminderLoop(loginState)

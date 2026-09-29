@@ -54,6 +54,7 @@ object InboxCategories {
     const val LMS = "todo.lms"
     const val COUPON = "todo.coupon"
     const val JUDGE = "todo.judge"
+    const val LIBRARY = "todo.library"
     const val GRADE = "msg.grade"
     const val SCHEDULE = "msg.schedule"
     const val ATTENDANCE = "msg.attendance"
@@ -64,6 +65,7 @@ object InboxCategories {
     val todos = listOf(
         InboxCategory(SCHOOL_TODO, "学校事务中心"),
         InboxCategory(BOOKING, "预约中心 / 校车预约"),
+        InboxCategory(LIBRARY, "图书馆座位签到 / 返回"),
         InboxCategory(LMS, "思源学堂作业截止"),
         InboxCategory(COUPON, "加餐券"),
         InboxCategory(JUDGE, "评教未完成"),
@@ -247,6 +249,14 @@ object OwnInbox {
             route = b.url?.let { com.xjtu.toolbox.nav.AppRoute.Browser(it).id },
         )
     }
+
+    /** 图书馆座位要马上做的事（入馆签到 / 中途返回），随每次查到的预约整块替换。 */
+    fun library(action: String, b: com.xjtu.toolbox.library.MyBookingInfo?) = InboxItem(
+        id = "library:$action", category = InboxCategories.LIBRARY, source = "图书馆",
+        title = listOfNotNull(b?.seatId?.takeIf { it.isNotBlank() }?.let { "座位 $it" }, "待$action").joinToString(" "),
+        body = listOfNotNull(b?.area?.takeIf { it.isNotBlank() }, b?.statusText?.takeIf { it.isNotBlank() }).joinToString(" · "),
+        time = System.currentTimeMillis(), route = com.xjtu.toolbox.nav.AppRoute.Library.id,
+    )
 
     fun todo(category: String, id: String, source: String, title: String, route: String?, expiresAt: Long = 0L) =
         InboxItem(id = id, category = category, source = source, title = title, time = System.currentTimeMillis(), route = route, expiresAt = expiresAt)

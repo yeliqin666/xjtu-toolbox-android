@@ -83,11 +83,13 @@ object HomeStatsRefresher {
      *
      * @param ttlMs 多久刷一次。
      * @param loginType 需要哪个站点的会话；null 表示无需登录。
+     * @param ttlNow 随状态变的 TTL，默认就是 [ttlMs]。
      */
     private class Source(
         val route: AppRoute,
         val ttlMs: Long,
         val loginType: LoginType?,
+        val ttlNow: () -> Long = { ttlMs },
         val fetch: suspend (Context, SiteSession?) -> HomeStat?,
     )
 
@@ -234,24 +236,24 @@ object HomeStatsRefresher {
             }
         },
 
-        // 图书馆：15 分钟一次。
+        // 图书馆：平时 10 分钟一次，有待签到 / 待返回时 2 分钟一次。
         //
-        // TTL 比别的源短，因为这里的状态**是有时效的**——"待入馆"要在限定时间内签到，
-        // "临时离馆"超时会被释放座位。半小时才刷一次的话，等首页显示出来往往已经过期了。
-        Source(AppRoute.Library, 15 * 60 * 1000L, LoginType.LIBRARY) { ctx, site ->
+        // 状态**是有时效的**——"待入馆"要在限定时间内签到，"临时离馆"超时会被释放座位；
+        // 学校推的座位消息收纳不收，全靠这里及时。切回前台也会触发一轮（见 MainScreen）。
+        Source(
+            AppRoute.Library, 10 * 60 * 1000L, LoginType.LIBRARY,
+            ttlNow = {
+                val pending = com.xjtu.toolbox.inbox.InboxStore.load(roundAccount).todos[com.xjtu.toolbox.inbox.InboxCategories.LIBRARY]
+                if (pending.isNullOrEmpty()) 10 * 60 * 1000L else 2 * 60 * 1000L
+            },
+        ) { ctx, site ->
             site ?: return@Source null
             withContext(Dispatchers.IO) {
-                val b = com.xjtu.toolbox.library.LibraryApi(site).getMyBooking()
-                // 顺手排后台提醒：在图书馆自助机上约的座位不会经过本 App 的图书馆页，
-                // 首页这一轮是唯一能发现它的地方。
-                com.xjtu.toolbox.notification.LibraryReminderScheduler.sync(ctx, b)
-                if (b == null) {
-                    HomeSignals.libraryUrgentAction = null
-                    return@withContext null
-                }
-                // 待办判据取归一化后的操作按钮，不去猜状态文本（那是页面原文）。
-                HomeSignals.libraryUrgentAction = b.actionUrls.keys
-                    .firstOrNull { it in com.xjtu.toolbox.library.LibraryApi.URGENT_ACTIONS }
+                // 查失败算这个源失败，不能当成「没有预约」把待办和提醒清掉
+                val b = com.xjtu.toolbox.library.LibraryApi(site).fetchMyBooking().getOrThrow()
+                // 在图书馆自助机上约的座位不会经过本 App 的图书馆页，首页这一轮是唯一能发现它的地方。
+                com.xjtu.toolbox.library.LibraryStatus.publish(ctx, b, roundAccount)
+                if (b == null) return@withContext null
                 Log.d(
                     TAG,
                     "library: seat=${b.seatId} area=${b.area} status=${b.statusText} " +
@@ -439,11 +441,12 @@ object HomeStatsRefresher {
                 if (s.route == AppRoute.Judge && accountType != AccountType.UNDERGRADUATE) continue
                 val last = stamps[s.route.id] ?: 0L
                 val hasContent = s.route.id in existing
-                if (now - last < s.ttlMs && !(coldStart && !hasContent)) {
-                    Log.d(TAG, "${s.route.id}: 未到期，跳过（距上次 ${(now - last) / 60000} 分钟，TTL ${s.ttlMs / 60000} 分钟）")
+                val ttl = s.ttlNow()
+                if (now - last < ttl && !(coldStart && !hasContent)) {
+                    Log.d(TAG, "${s.route.id}: 未到期，跳过（距上次 ${(now - last) / 60000} 分钟，TTL ${ttl / 60000} 分钟）")
                     continue
                 }
-                if (coldStart && !hasContent && now - last < s.ttlMs) {
+                if (coldStart && !hasContent && now - last < ttl) {
                     Log.d(TAG, "${s.route.id}: 冷启动且暂无内容，忽略退避重试")
                 }
                 if (!first) delay(GAP_MS)
