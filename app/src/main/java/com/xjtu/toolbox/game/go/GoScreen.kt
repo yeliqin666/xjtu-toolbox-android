@@ -51,6 +51,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.game.GameIds
+import com.xjtu.toolbox.game.GameSound
+import com.xjtu.toolbox.game.Sfx
 import com.xjtu.toolbox.game.GameResult
 import com.xjtu.toolbox.game.GameStore
 import com.xjtu.toolbox.game.net.GameKind
@@ -458,6 +460,7 @@ private class GoOnlineMatch {
         val winner = result?.winner ?: resignedWinner ?: return
         if (recorded) return
         recorded = true
+        GameSound.play(if (winner == myColor) Sfx.TADA else Sfx.SAD_TROMBONE)
         GameStore.recordResult(context, GameIds.GO, "online", if (winner == myColor) GameResult.WIN else GameResult.LOSS)
     }
 
@@ -478,6 +481,7 @@ private class GoOnlineMatch {
                         return@collect
                     }
                     consecutivePasses = if (move is OnlineMove.Pass) consecutivePasses + 1 else 0
+                    if (move is OnlineMove.Place) GameSound.play(Sfx.KNOCK, 0.7f)
                     moveCount++
                     turn = if (turn == Stone.BLACK) Stone.WHITE else Stone.BLACK
                     if (consecutivePasses >= 2) result = GoScoring.score(board, emptySet())
@@ -556,7 +560,11 @@ private fun GoOnlineSection(
     fun onIntersectionTap(x: Int, y: Int) {
         if (match.result != null || match.resignedWinner != null || match.turn != myColor || disconnectedReason != null) return
         val move = OnlineMove.Place(x, y)
-        if (!match.adapter.applyIfLegal(board, move, myColor.ordinal)) return
+        if (!match.adapter.applyIfLegal(board, move, myColor.ordinal)) {
+            GameSound.play(Sfx.SQUEAK, 0.6f)
+            return
+        }
+        GameSound.play(Sfx.KNOCK, 0.7f)
         match.consecutivePasses = 0
         match.moveCount++
         match.autoPassed = false

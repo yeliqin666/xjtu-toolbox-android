@@ -274,6 +274,15 @@
     return { texture: key, image: token, size: TOKEN_SIZE };
   }
 
+  // 音效由宿主 App 合成播放（与原生小游戏同一套、同一个开关）；浏览器里直接打开时没有桥，静默
+  function sfx(name, rate) {
+    try {
+      if (window.AndroidGameBridge && typeof window.AndroidGameBridge.playSound === 'function') {
+        window.AndroidGameBridge.playSound(name, rate || 1);
+      }
+    } catch (e) { /* 忽略 */ }
+  }
+
   function submitScoreToHost(score) {
     try {
       if (window.AndroidGameBridge && typeof window.AndroidGameBridge.submitScore === 'function') {
@@ -426,6 +435,7 @@
       const dropX = clampX(x, Game.currentLevel);
       const body = Game.makeBody(dropX, PREVIEW_HEIGHT, Game.currentLevel, {});
       Composite.add(engine.world, body);
+      sfx('BLOOP', 1.4 - Game.currentLevel * 0.1);
 
       if (Game.previewBody) {
         Composite.remove(engine.world, Game.previewBody);
@@ -453,6 +463,7 @@
       els.endBest.innerText = Game.highscore;
       els.endRecord.style.display = isRecord ? 'block' : 'none';
       els.end.style.display = 'flex';
+      sfx('SAD_TROMBONE');
       submitScoreToHost(Game.score);
     },
 
@@ -515,6 +526,7 @@
         Game.angels++;
         Game.setScore(Game.score + ANGEL_SCORE);
         Game.celebrate('屁岱飞升！');
+        sfx('CHOIR');
       } else {
         const newLevel = level + 1;
         const newBody = Game.makeBody(midX, midY, newLevel, {});
@@ -522,7 +534,12 @@
         addMergeEffect(midX, midY, LEVELS[newLevel], LEVELS[newLevel].score);
         Game.setScore(Game.score + LEVELS[newLevel].score);
         Game.maxReached = Math.max(Game.maxReached, newLevel);
-        if (newLevel === MAX_LEVEL) Game.celebrate('合成西交大！');
+        // 级别越高「啵」得越低沉，合出西交大来一声「嗒哒」
+        sfx('POP', 1.6 - newLevel * 0.1);
+        if (newLevel === MAX_LEVEL) {
+          Game.celebrate('合成西交大！');
+          sfx('TADA');
+        }
       }
     }
   });

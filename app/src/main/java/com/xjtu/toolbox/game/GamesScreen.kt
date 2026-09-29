@@ -34,6 +34,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Casino
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Grain
@@ -82,6 +84,7 @@ fun GamesScreen(
 ) {
     val context = LocalContext.current
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    androidx.compose.runtime.LaunchedEffect(Unit) { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { GameSound.prepare() } }
 
     // 战绩每次进页面读一次即可：玩完一局是 pop 回来，会重新组合。
     val arcade = remember {
@@ -171,6 +174,15 @@ fun GamesScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(MiuixIcons.Back, contentDescription = "返回")
+                    }
+                },
+                actions = {
+                    // 所有小游戏共用这一个音效开关
+                    IconButton(onClick = { GameSound.enabled = !GameSound.enabled }) {
+                        Icon(
+                            if (GameSound.enabled) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
+                            contentDescription = if (GameSound.enabled) "关闭游戏音效" else "打开游戏音效",
+                        )
                     }
                 },
             )

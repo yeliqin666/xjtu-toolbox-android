@@ -4,6 +4,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
+import com.xjtu.toolbox.game.GameSound
+import com.xjtu.toolbox.game.Sfx
 
 /** 对局所处的阶段。 */
 enum class GoPhase {
@@ -86,17 +88,20 @@ class GoGameState(size: Int) {
 
     private fun playAt(x: Int, y: Int) {
         rejection = null
-        when (board.play(x, y, turn)) {
+        when (val r = board.play(x, y, turn)) {
             is PlayResult.Success -> {
                 autoPassed = null
                 turn = turn.opponent()
                 version++
+                // 提子「啵」，提得越多越高；普通落子「笃」
+                if (r.captured > 0) GameSound.play(Sfx.POP, 1f, GameSound.scale(r.captured - 1)) else GameSound.play(Sfx.KNOCK, 0.7f)
                 passWhileStuck()
             }
             PlayResult.Occupied -> rejection = GoRejection.OCCUPIED
             PlayResult.Suicide -> rejection = GoRejection.SUICIDE
             PlayResult.Ko -> rejection = GoRejection.KO
         }
+        if (rejection != null) GameSound.play(Sfx.SQUEAK, 0.6f)
     }
 
     fun pass() {
@@ -117,6 +122,7 @@ class GoGameState(size: Int) {
     private fun passWhileStuck() {
         while (phase == GoPhase.PLAYING && !board.hasLegalMove(turn)) {
             autoPassed = turn
+            GameSound.play(Sfx.UH_OH, 0.8f)
             passTurn()
         }
     }
@@ -175,6 +181,7 @@ class GoGameState(size: Int) {
         result = r
         winner = r.winner
         phase = GoPhase.FINISHED
+        GameSound.play(Sfx.TADA)
         return r
     }
 
@@ -182,5 +189,6 @@ class GoGameState(size: Int) {
     fun resign(by: Stone) {
         winner = by.opponent()
         phase = GoPhase.FINISHED
+        GameSound.play(Sfx.SAD_TROMBONE, 0.8f)
     }
 }

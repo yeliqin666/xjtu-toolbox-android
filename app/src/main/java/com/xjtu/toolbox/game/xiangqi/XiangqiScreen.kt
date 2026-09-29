@@ -61,6 +61,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import com.xjtu.toolbox.game.GameIds
 import com.xjtu.toolbox.game.GameResult
+import com.xjtu.toolbox.game.GameSound
+import com.xjtu.toolbox.game.Sfx
 import com.xjtu.toolbox.game.GameStore
 import com.xjtu.toolbox.game.net.GameKind
 import com.xjtu.toolbox.game.net.OnlineConnState
@@ -130,6 +132,7 @@ fun XiangqiScreen(onBack: () -> Unit) {
             Side.BLACK -> GameResult.LOSS
             null -> GameResult.DRAW
         }
+        GameSound.play(if (status.winner == null) Sfx.UH_OH else Sfx.TADA)
         GameStore.recordResult(context, GameIds.XIANGQI, "local", result)
     }
 
@@ -185,12 +188,18 @@ fun XiangqiScreen(onBack: () -> Unit) {
                     val cur = selected
                     val piece = game.pieceAt(pos.x, pos.y)
                     val own = XiangqiGame.sideOf(piece) == snapshot.sideToMove
+                    val capture = piece != 0 && !own
                     when {
                         // 点自己的子：换选中目标。即使已经选了别的子也一样，
                         // 不然「点错子之后想改选」要先点一次空白，很别扭。
-                        own -> selected = pos
+                        own -> {
+                            selected = pos
+                            GameSound.play(Sfx.TICK, 0.5f)
+                        }
                         cur != null && game.move(cur, pos) -> {
                             selected = null
+                            GameSound.play(if (capture) Sfx.BONK else Sfx.KNOCK, 0.8f)
+                            if (game.snapshot().inCheck) GameSound.play(Sfx.UH_OH, 0.8f)
                             bump()
                         }
                         else -> selected = null
@@ -562,6 +571,7 @@ private class XiangqiOnlineMatch {
             null -> GameResult.DRAW
             else -> GameResult.LOSS
         }
+        GameSound.play(if (result == GameResult.WIN) Sfx.TADA else if (result == GameResult.DRAW) Sfx.UH_OH else Sfx.SAD_TROMBONE)
         GameStore.recordResult(context, GameIds.XIANGQI, "online", result)
     }
 
@@ -580,6 +590,7 @@ private class XiangqiOnlineMatch {
                         s.reportIllegalMoveAndClose()
                         return@collect
                     }
+                    GameSound.play(Sfx.KNOCK, 0.8f)
                     version += 1
                 }
                 OnlineGameEvent.Resigned -> {
@@ -694,6 +705,7 @@ private fun XiangqiOnlineSection(
                         val move = OnlineMove.Step(cur.x, cur.y, pos.x, pos.y)
                         match.selected = null
                         if (match.adapter.applyIfLegal(game, move, mySide.ordinal)) {
+                            GameSound.play(Sfx.KNOCK, 0.8f)
                             match.version += 1
                             match.recordIfFinished(context)
                             scope.launch { activeSession.sendLocalMove(match.adapter.encodeMove(move)) }
