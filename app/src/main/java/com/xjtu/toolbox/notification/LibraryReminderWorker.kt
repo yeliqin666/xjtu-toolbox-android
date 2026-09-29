@@ -13,6 +13,7 @@ import androidx.work.WorkerParameters
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.library.LibraryApi
 import com.xjtu.toolbox.library.MyBookingInfo
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
@@ -39,8 +40,11 @@ class LibraryReminderWorker(
         val attempt = inputData.getInt(KEY_ATTEMPT, 1)
 
         val booking = try {
-            val site = HeadlessSessions.site(app, LoginType.LIBRARY) ?: return Result.retry()
+            // 需要短信验证 / 密码失效：这一轮直接放弃，别退避重试再提交一次密码
+            val site = HeadlessSessions.site(app, LoginType.LIBRARY) ?: return Result.success()
             withContext(Dispatchers.IO) { LibraryApi(site).getMyBooking() }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "查预约失败，稍后重试：${e.message}")
             return Result.retry()
