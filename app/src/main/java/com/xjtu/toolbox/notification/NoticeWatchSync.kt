@@ -85,6 +85,7 @@ internal object NoticeWatchSync {
         fresh.forEach { n ->
             if (seenSet.add(n.link)) seen.add(n.link)
         }
+        com.xjtu.toolbox.inbox.InboxStore.post(fresh.map(com.xjtu.toolbox.inbox.OwnInbox::notice))
 
         NoticeWatchStore.setSeenLinks(app, seen)
         NoticeWatchStore.setBaselinedSources(app, baselined)

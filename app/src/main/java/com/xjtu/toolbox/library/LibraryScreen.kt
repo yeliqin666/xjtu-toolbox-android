@@ -98,9 +98,9 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
         vm.bookingResult = null
     }
 
-    // 预约状态一变就重排后台提醒：预约 / 换座 / 中途离开最后都会刷新 myBooking，盯结果比盯动作少漏
-    LaunchedEffect(vm.myBooking?.actionUrls?.keys, vm.myBooking?.seatId) {
-        com.xjtu.toolbox.notification.LibraryReminderScheduler.sync(context, vm.myBooking)
+    // 预约状态一变就往外发（提醒、首页信号、收纳）：预约 / 换座 / 中途离开 / 签到最后都会刷新 myBooking，盯结果比盯动作少漏
+    LaunchedEffect(vm.myBookingKnown, vm.myBooking?.actionUrls?.keys, vm.myBooking?.seatId) {
+        if (vm.myBookingKnown) com.xjtu.toolbox.library.LibraryStatus.publish(context, vm.myBooking)
     }
 
     var confirmDialog by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }

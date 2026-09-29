@@ -442,6 +442,7 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
             // 用未过滤节假日的课表比，否则放假会被误判成「课被取消了」
             ScheduleDiff.summarize(ScheduleDiff.diffAndStore(context, termCode, freshCourses))?.let { msg ->
                 ScheduleDiff.setPending(context, msg)
+                com.xjtu.toolbox.inbox.InboxStore.post(com.xjtu.toolbox.inbox.OwnInbox.scheduleChange(msg))
                 send(ScheduleEvent.Message(msg, long = true))
             }
         }

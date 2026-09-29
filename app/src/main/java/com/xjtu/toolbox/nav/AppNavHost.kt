@@ -220,6 +220,9 @@ fun AppNavHost(
         entry<AppRoute.Settings>(transition = expand(AppRoute.Settings::class)) {
             SettingsScreen(credentialStore = credentialStore, onBack = back)
         }
+        entry<AppRoute.Inbox>(transition = expand(AppRoute.Inbox::class)) {
+            com.xjtu.toolbox.inbox.InboxScreen(onBack = back, onOpen = { router.open(it) })
+        }
         entry<AppRoute.Community>(transition = expand(AppRoute.Community::class)) {
             CommunityScreen(onBack = back, onOpenLegacyFeedback = { router.open(AppRoute.Feedback) })
         }

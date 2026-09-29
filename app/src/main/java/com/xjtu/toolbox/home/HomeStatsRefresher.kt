@@ -10,6 +10,10 @@ import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.auth.siteKey
 import com.xjtu.toolbox.fitness.hasUsableTotal
 import com.xjtu.toolbox.fitness.orderedFitnessYears
+import com.xjtu.toolbox.inbox.InboxCategories
+import com.xjtu.toolbox.inbox.InboxStore
+import com.xjtu.toolbox.inbox.OwnInbox
+import com.xjtu.toolbox.inbox.SchoolInbox
 import com.xjtu.toolbox.lms.LmsCourseSummary
 import com.xjtu.toolbox.lms.deadlineInstant
 import kotlinx.coroutines.Dispatchers
@@ -79,11 +83,13 @@ object HomeStatsRefresher {
      *
      * @param ttlMs 多久刷一次。
      * @param loginType 需要哪个站点的会话；null 表示无需登录。
+     * @param ttlNow 随状态变的 TTL，默认就是 [ttlMs]。
      */
     private class Source(
         val route: AppRoute,
         val ttlMs: Long,
         val loginType: LoginType?,
+        val ttlNow: () -> Long = { ttlMs },
         val fetch: suspend (Context, SiteSession?) -> HomeStat?,
     )
 
@@ -98,6 +104,11 @@ object HomeStatsRefresher {
                 val done = api.finishedQuestionnaires(term).size
                 val all = todo + done
                 Log.d(TAG, "judge: term=$term todo=$todo done=$done")
+                InboxStore.setTodos(
+                    InboxCategories.JUDGE,
+                    if (todo > 0) listOf(OwnInbox.todo(InboxCategories.JUDGE, "judge", "评教", "还有 $todo 门课没评教", AppRoute.Judge.id)) else emptyList(),
+                    roundAccount,
+                )
                 if (all == 0) null
                 else HomeStat(
                     if (todo == 0) "已评完" else "$todo/$all 门待评",
@@ -189,6 +200,7 @@ object HomeStatsRefresher {
                 // 冒过一次后由 MainActivity 清零。
                 if (newCount > 0) {
                     HomeStats.setPendingNewScores(ctx, HomeStats.pendingNewScores(ctx, roundAccount) + newCount, roundAccount)
+                    InboxStore.post(OwnInbox.grade(newCount, total), roundAccount)
                 }
                 // 最新学期挑分数最高/最近的一条做明细意义不大，直接报本学期门数与新增。
                 val latestTerm = terms.maxByOrNull { it.termCode }
@@ -224,24 +236,24 @@ object HomeStatsRefresher {
             }
         },
 
-        // 图书馆：15 分钟一次。
+        // 图书馆：平时 10 分钟一次，有待签到 / 待返回时 2 分钟一次。
         //
-        // TTL 比别的源短，因为这里的状态**是有时效的**——"待入馆"要在限定时间内签到，
-        // "临时离馆"超时会被释放座位。半小时才刷一次的话，等首页显示出来往往已经过期了。
-        Source(AppRoute.Library, 15 * 60 * 1000L, LoginType.LIBRARY) { ctx, site ->
+        // 状态**是有时效的**——"待入馆"要在限定时间内签到，"临时离馆"超时会被释放座位；
+        // 学校推的座位消息收纳不收，全靠这里及时。切回前台也会触发一轮（见 MainScreen）。
+        Source(
+            AppRoute.Library, 10 * 60 * 1000L, LoginType.LIBRARY,
+            ttlNow = {
+                val pending = com.xjtu.toolbox.inbox.InboxStore.load(roundAccount).todos[com.xjtu.toolbox.inbox.InboxCategories.LIBRARY]
+                if (pending.isNullOrEmpty()) 10 * 60 * 1000L else 2 * 60 * 1000L
+            },
+        ) { ctx, site ->
             site ?: return@Source null
             withContext(Dispatchers.IO) {
-                val b = com.xjtu.toolbox.library.LibraryApi(site).getMyBooking()
-                // 顺手排后台提醒：在图书馆自助机上约的座位不会经过本 App 的图书馆页，
-                // 首页这一轮是唯一能发现它的地方。
-                com.xjtu.toolbox.notification.LibraryReminderScheduler.sync(ctx, b)
-                if (b == null) {
-                    HomeSignals.libraryUrgentAction = null
-                    return@withContext null
-                }
-                // 待办判据取归一化后的操作按钮，不去猜状态文本（那是页面原文）。
-                HomeSignals.libraryUrgentAction = b.actionUrls.keys
-                    .firstOrNull { it in com.xjtu.toolbox.library.LibraryApi.URGENT_ACTIONS }
+                // 查失败算这个源失败，不能当成「没有预约」把待办和提醒清掉
+                val b = com.xjtu.toolbox.library.LibraryApi(site).fetchMyBooking().getOrThrow()
+                // 在图书馆自助机上约的座位不会经过本 App 的图书馆页，首页这一轮是唯一能发现它的地方。
+                com.xjtu.toolbox.library.LibraryStatus.publish(ctx, b, roundAccount)
+                if (b == null) return@withContext null
                 Log.d(
                     TAG,
                     "library: seat=${b.seatId} area=${b.area} status=${b.statusText} " +
@@ -436,11 +448,12 @@ object HomeStatsRefresher {
                 if (s.route == AppRoute.Judge && accountType != AccountType.UNDERGRADUATE) continue
                 val last = stamps[s.route.id] ?: 0L
                 val hasContent = s.route.id in existing
-                if (now - last < s.ttlMs && !(coldStart && !hasContent)) {
-                    Log.d(TAG, "${s.route.id}: 未到期，跳过（距上次 ${(now - last) / 60000} 分钟，TTL ${s.ttlMs / 60000} 分钟）")
+                val ttl = s.ttlNow()
+                if (now - last < ttl && !(coldStart && !hasContent)) {
+                    Log.d(TAG, "${s.route.id}: 未到期，跳过（距上次 ${(now - last) / 60000} 分钟，TTL ${ttl / 60000} 分钟）")
                     continue
                 }
-                if (coldStart && !hasContent && now - last < s.ttlMs) {
+                if (coldStart && !hasContent && now - last < ttl) {
                     Log.d(TAG, "${s.route.id}: 冷启动且暂无内容，忽略退避重试")
                 }
                 if (!first) delay(GAP_MS)
@@ -487,6 +500,16 @@ object HomeStatsRefresher {
                     Log.w(TAG, "${s.route.id} refresh failed (retry in 30min): ${e.message}")
                 }
             }
+            // 学校消息、事务中心待办、预约：都挂在一网通办上，30 分钟一次
+            if (!accountChanged() && SchoolInbox.isDue(roundAccount)) {
+                try {
+                    SchoolInbox.refresh(manager.ensureSite(LoginType.YWTB.siteKey(), silent = true), roundAccount)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.d(TAG, "inbox: ${e.message}")
+                }
+            }
         } finally {
             runLock.unlock()
         }
@@ -528,6 +551,21 @@ object HomeStatsRefresher {
         }
         Log.d(TAG, "coupon: 待领取 $pending 张，可用 ${usable?.records?.size ?: 0} 张，最近到期 $soonest")
 
+        InboxStore.setTodos(
+            InboxCategories.COUPON,
+            listOfNotNull(
+                OwnInbox.todo(InboxCategories.COUPON, "coupon:pending", "加餐券", "有 $pending 张加餐券没领", AppRoute.Coupon.id)
+                    .takeIf { pending > 0 },
+                soonest?.takeIf { daysLeft != null && daysLeft <= COUPON_EXPIRY_WARN_DAYS }?.let { day ->
+                    OwnInbox.todo(
+                        InboxCategories.COUPON, "coupon:expiring", "加餐券",
+                        if (daysLeft == 0) "有加餐券今天到期" else "有加餐券 $daysLeft 天后到期", AppRoute.Coupon.id,
+                        expiresAt = day.plusDays(1).atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli(),
+                    )
+                },
+            ),
+            roundAccount,
+        )
         // 拉取期间切了账号：这份结果属于上一个账号，不能写成新账号的提醒
         if (roundIsCurrent()) HomeSignals.couponAlert = when {
             pending > 0 -> "有 $pending 张加餐券没领"
@@ -574,11 +612,13 @@ object HomeStatsRefresher {
         val seen = prefs.getInt("abnormal_seen", -1)
         if (seen >= 0 && abnormal > seen && roundIsCurrent()) {
             val worst = stats.filter { it.abnormalCount > 0 }.maxByOrNull { it.abnormalCount }
-            HomeSignals.attendanceAlert = if (worst != null) {
+            val alert = if (worst != null) {
                 "${worst.subjectName}的考勤有异常了"
             } else {
                 "本周考勤多了 ${abnormal - seen} 次异常"
             }
+            HomeSignals.attendanceAlert = alert
+            InboxStore.post(OwnInbox.attendance(alert), roundAccount)
         }
         prefs.edit().putInt("abnormal_seen", abnormal).apply()
 

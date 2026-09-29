@@ -61,6 +61,7 @@ class XjtuApp : Application() {
         CrashReporter.install(this)
         com.xjtu.toolbox.schedule.CourseColors.init(this)
         com.xjtu.toolbox.game.GameSound.init(this)
+        com.xjtu.toolbox.inbox.InboxStore.init(this)
         applicationScope.launch { CrashReporter.uploadPending(this@XjtuApp) }
         applicationScope.launch { removeRetiredFeatureData() }
         AppNotificationChannels.ensureChannels(this)

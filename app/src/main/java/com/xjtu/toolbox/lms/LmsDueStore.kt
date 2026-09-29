@@ -43,6 +43,11 @@ object LmsDueStore {
             val existing = loadRaw(cache)
             val merged = mergeDue(existing, items)
             cache.write(KEY, merged)
+            com.xjtu.toolbox.inbox.InboxStore.setTodos(
+                com.xjtu.toolbox.inbox.InboxCategories.LMS,
+                com.xjtu.toolbox.inbox.OwnInbox.lmsTodos(merged),
+                account.ifEmpty { null },
+            )
         }
     }
 

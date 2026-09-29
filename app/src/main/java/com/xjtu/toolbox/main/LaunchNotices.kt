@@ -24,6 +24,9 @@ import com.xjtu.toolbox.bulletin.BulletinStore
 import com.xjtu.toolbox.data.CredentialStore
 import com.xjtu.toolbox.feedback.FeedbackApi
 import com.xjtu.toolbox.feedback.FeedbackStore
+import com.xjtu.toolbox.inbox.InboxCategories
+import com.xjtu.toolbox.inbox.InboxStore
+import com.xjtu.toolbox.inbox.OwnInbox
 import com.xjtu.toolbox.update.AppChangelog
 import com.xjtu.toolbox.update.AppUpdateInfo
 import com.xjtu.toolbox.update.AppUpdater
@@ -79,6 +82,7 @@ class LaunchNotices(
         val fetched = runCatching { BulletinApi.fetch() }.getOrNull()
         if (fetched != null) bulletinStore.cachedJson = fetched.rawJson
         val remoteItems = fetched?.items ?: bulletinStore.peekCached()
+        syncInbox(remoteItems)
 
         var update: AppUpdateInfo? = null
         if (System.currentTimeMillis() - credentialStore.lastAutoUpdateCheckAt >= AppUpdater.AUTO_CHECK_INTERVAL_MS) {
@@ -119,6 +123,7 @@ class LaunchNotices(
     }
 
     fun dismissHero(bulletin: Bulletin) {
+        InboxStore.markRead(listOf(OwnInbox.bulletin(bulletin).id))
         when {
             bulletin.synthesized -> credentialStore.markUpdateNoticeSeen(bulletin.id)
             bulletin.level == BulletinLevel.CRITICAL -> bulletinStore.ack(bulletin.id)
@@ -173,6 +178,15 @@ class LaunchNotices(
     private fun closeBulletinDialog() {
         showBulletinDialog.value = false
         launchDialogBulletin = null
+    }
+
+    /** 收纳里的「工具箱公告」：当前版本、当前时间有效的全部公告，投票留给首页和弹框处理。首页关过的算已读。 */
+    private fun syncInbox(remote: List<Bulletin>) {
+        val now = Instant.now()
+        val active = remote.filter { !it.isPoll && BulletinRules.isActive(it, now, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE) }
+        InboxStore.replace(InboxCategories.BULLETIN, active.map(OwnInbox::bulletin))
+        val seen = bulletinStore.dismissedIds + bulletinStore.ackedIds
+        InboxStore.markRead(active.filter { it.id in seen }.map { OwnInbox.bulletin(it).id })
     }
 
     private fun refreshHero() = applyHero(bulletinStore.peekCached(), pendingUpdate)
