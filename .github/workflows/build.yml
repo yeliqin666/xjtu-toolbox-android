@@ -41,6 +41,10 @@ jobs:
         # 同时保留 36 供 targetSdk 使用
         run: $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-37.0" "build-tools;37.0.0" "platforms;android-36" "build-tools;36.0.0" --channel=3
 
+      - name: Unit tests
+        # 单测不过就不出包
+        run: ./gradlew :app:testDebugUnitTest
+
       - name: Extract version name
         id: version
         run: |

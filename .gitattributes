@@ -1,0 +1,2 @@
+# 皮肤夹具按字节校验 sha256，检出时不能被 autocrlf 改换行
+app/src/test/resources/pidai/** -text
