@@ -1,10 +1,7 @@
 package com.xjtu.toolbox.auth
 
-import com.xjtu.toolbox.network.HttpClients
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import androidx.compose.animation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.automirrored.filled.*
@@ -284,54 +281,10 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
     }
 
     /**
-     * 单次探测校园网：向几个「只有校内能直连」的地址**并行**发 HEAD（各 3 秒超时），
-     * 任意一个返回 <500 就算在校内。不更新缓存、不读缓存，纯函数式。
+     * 检测是否在校园网内（带 10 分钟缓存），探测本身见 [CampusProbe]。
      *
-     * 探测点必须是校外物理不可达的：护网结束后教务（jwxt）、ehall、lms 都已公网直连，
-     * 拿它们探测恒为 true，分不出内外网。
-     *
-     * 为什么不止一个：过去只探旧考勤 bkkq（上游 XJTUToolBox 的探测点），它停用后
-     * 在校园网 DNS 里整个查不到（XJTU_STU 下 unknown host），探针恒为 false，
-     * 人在宿舍连着校园网，首页却显示「校外 · WebVPN」，所有请求都绕网关。
-     * 单点探针只要那一台下线就全盘误判，所以并行探几台互不相干的内网服务：
-     * - 图书馆座位系统 `rg.lib.xjtu.edu.cn:8086`：非标准端口不对公网开放，
-     *   见 [com.xjtu.toolbox.auth.SiteSession.mustUseWebVpn]；
-     * - 快速考勤流水 iclassface、考勤 kq：两个都标了 mustUseWebVpn，校外连不上。
-     */
-    private suspend fun probeCampusOnce(): Boolean = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-        kotlinx.coroutines.coroutineScope {
-            CAMPUS_PROBE_URLS.map { url ->
-                async {
-                    try {
-                        val request = okhttp3.Request.Builder().url(url).head().build()
-                        campusProbeClient.newCall(request).execute().use { it.code < 500 }
-                    } catch (_: Exception) {
-                        false
-                    }
-                }
-            }.awaitAll().any { it }
-        }
-    }
-
-    private val campusProbeClient by lazy {
-        HttpClients.base.newBuilder()
-            .connectTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
-            .followRedirects(false)
-            .build()
-    }
-
-    private val CAMPUS_PROBE_URLS = listOf(
-        "http://rg.lib.xjtu.edu.cn:8086/",
-        "https://iclassface.xjtu.edu.cn/",
-        "https://kq.xjtu.edu.cn/",
-    )
-
-    /**
-     * 检测是否在校园网内（带 10 分钟缓存）。
-     *
-     * 波动保护：探测结果若与缓存不同，再做一次确认（间隔 1.5 秒），两次一致才算 mode 变化。
-     * 这样可以避免：网络刚切换/信号瞬间抖动导致的误判（一次失败 ≠ 真的校外）。
+     * 波动保护：只凭「内网探针全连不上」得出的弱结论若和缓存不同，隔 1.5 秒再探一次，
+     * 两次一致才改判；探针连上或服务器明确回答的强结论直接采用。手机这会儿没网时不改判。
      *
      * 手动模式短路：用户在「设置 → 连接模式」选了「强制直连」/「强制 WebVPN」时，
      * 跳过探测直接返回对应结果。
@@ -342,32 +295,32 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
             CredentialStore.NETWORK_VPN -> return false
             else -> {} // 自动检测：走下面的真实探测逻辑
         }
-        // 缓存有效期内直接返回
         val cached = isOnCampus
         if (cached != null && System.currentTimeMillis() - campusDetectTime < CAMPUS_CACHE_MS) {
             android.util.Log.d("Campus", "detectCampus: using cached result=$cached (age=${(System.currentTimeMillis() - campusDetectTime) / 1000}s)")
             return cached
         }
-        val first = probeCampusOnce()
-        // 第一次探测结果与缓存不同 → 二次确认避免瞬时波动误判
-        val result = if (cached != null && cached != first) {
-            android.util.Log.d("Campus", "detectCampus: first probe disagrees with cache ($cached→$first), confirming...")
-            kotlinx.coroutines.delay(1500L)
-            val second = probeCampusOnce()
-            if (second != first) {
-                android.util.Log.d("Campus", "detectCampus: second probe $second != first $first, treating as transient, keeping cached=$cached")
-                cached  // 两次不一致，认为是瞬时波动，保留旧值
-            } else {
-                android.util.Log.d("Campus", "detectCampus: confirmed change to $second")
-                second
-            }
-        } else {
-            first
+        val first = CampusProbe.detect(ywtbToken())
+        if (first.offline) {
+            android.util.Log.d("Campus", "detectCampus: offline, keeping cached=$cached")
+            return cached ?: false
         }
-        android.util.Log.d("Campus", "detectCampus: final result=$result (probe=$first)")
+        val result = if (first.strong || cached == null || cached == first.onCampus) {
+            first.onCampus
+        } else {
+            kotlinx.coroutines.delay(1500L)
+            val second = CampusProbe.detect(ywtbToken())
+            if (!second.offline && second.onCampus == first.onCampus) second.onCampus
+            else cached.also { android.util.Log.d("Campus", "detectCampus: 复查不一致（$second），按波动处理，保留 $cached") }
+        }
+        android.util.Log.d("Campus", "detectCampus: final result=$result (${first.why})")
         campusDetectTime = System.currentTimeMillis()
         return result
     }
+
+    /** 一网通办登录后才有；networkCheck 要带它。 */
+    private fun ywtbToken(): String? =
+        sessionManager?.getSiteOrNull(LoginType.YWTB.siteKey())?.localToken?.get("id_token")
 
     // 登出只走 AccountManager.logoutCurrent：它会把会话层切回匿名命名空间并清掉凭据。
 }
