@@ -112,6 +112,11 @@ class ScheduleApi(private val site: SiteSession) {
 
     fun termNames(): Map<String, String> = termNameCache.toMap()
 
+    private val termWeeksCache = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
+    /** [getStartOfTerm] 顺带拿到的学期总周数（教务 `ZZC`，含考试周），没查过为 null。 */
+    fun termWeeksOf(term: String): Int? = termWeeksCache[term]
+
     private fun rememberTermName(code: String, row: JsonObject) {
         val mc = ScheduleTermStore.usableName(code, row.get("MC")?.stringValue)
         if (mc != null) termNameCache[code] = mc
@@ -254,11 +259,12 @@ class ScheduleApi(private val site: SiteSession) {
 
         val responseBody = execute(request)
         val json = responseBody.safeParseJsonObject()
-        val dateStr = json.requireObj("datas")
+        val row = json.requireObj("datas")
             .requireObj("cxjcs")
             .requireArr("rows")[0].jsonObject
-            .get("XQKSRQ").stringValue
-            .split(" ")[0]
+        (row.get("ZZC") as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull()
+            ?.takeIf { it in 1..TermWeeks.MAX_REASONABLE }?.let { termWeeksCache[term] = it }
+        val dateStr = row.get("XQKSRQ").stringValue.split(" ")[0]
 
         return LocalDate.parse(dateStr, DateTimeFormatter.ofPattern("yyyy-MM-dd"))
     }

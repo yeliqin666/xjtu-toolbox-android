@@ -139,4 +139,19 @@ class TermWeeksTest {
         courseCode = "",
         courseType = "",
     )
+
+    @Test
+    fun `总周数取教务周数和课表最晚周中大的`() {
+        fun c(bits: String) = CourseItem(courseName = "x", weekBits = bits)
+        // 教务给 18 周（含考试周），课只排到 16 周：翻得到考试周
+        assertEquals(18, TermWeeks.total(18, listOf(c("1".repeat(16)))))
+        // 第 20 周还有补课：不截掉
+        assertEquals(20, TermWeeks.total(18, listOf(c("1".repeat(16)), c("0".repeat(19) + "1"))))
+        // 教务没给：按课表
+        assertEquals(16, TermWeeks.total(0, listOf(c("1".repeat(16)))))
+        // 未来学期没排课：按教务
+        assertEquals(18, TermWeeks.total(18, emptyList()))
+        // 都没有：不知道
+        assertEquals(0, TermWeeks.total(0, emptyList()))
+    }
 }

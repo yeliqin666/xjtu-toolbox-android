@@ -27,6 +27,16 @@ object TermWeeks {
      */
     const val DEFAULT_TOTAL_WEEKS = 20
 
+    /** 教务给的周数超过这个就不信。 */
+    const val MAX_REASONABLE = 30
+
+    /**
+     * 学期总周数：教务给的周数（含考试周）和课表里最晚有课的那周取大的——老师可能考试周后补课。
+     * 都没有时为 0，表示不知道。
+     */
+    fun total(termWeeks: Int, courses: List<CourseItem>): Int =
+        maxOf(termWeeks, courses.maxOfOrNull { it.weekBits.length } ?: 0)
+
     /**
      * 从开学日期算周次。开学当周为 1，开学前为 0、-1、……
      *

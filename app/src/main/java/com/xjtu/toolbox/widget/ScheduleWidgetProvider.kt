@@ -484,7 +484,8 @@ object ScheduleWidgetUpdater {
             com.xjtu.toolbox.schedule.TermWeeks.weekOf(it, nowDate)
         }
 
-        val maxWeek = allCourses.maxOfOrNull { it.weekBits.length }?.coerceAtLeast(1) ?: 20
+        val maxWeek = ScheduleCache.totalWeeks(cache, termCode, allCourses)
+            .takeIf { it > 0 } ?: com.xjtu.toolbox.schedule.TermWeeks.DEFAULT_TOTAL_WEEKS
         val firstTeachWeek = allCourses
             .asSequence()
             .flatMap { course ->

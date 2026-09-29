@@ -24,6 +24,7 @@ object ScheduleCache {
     private fun rawKey(termCode: String) = "schedule_$termCode"
     private fun examsKey(termCode: String) = "exams_$termCode"
     private fun startKey(termCode: String) = "start_date_$termCode"
+    private fun weeksKey(termCode: String) = "term_weeks_$termCode"
 
     fun writeCurrentTerm(cache: DataCache, termCode: String) {
         if (termCode.isNotBlank()) runCatching { cache.write(CURRENT_TERM_KEY, termCode) }
@@ -43,9 +44,15 @@ object ScheduleCache {
 
     fun readStartDate(cache: DataCache, termCode: String): LocalDate? =
         cache.read<String>(startKey(termCode), FOREVER)?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
-    fun writeStartDate(cache: DataCache, termCode: String, date: LocalDate) {
+    /** [weeks] 是教务给的学期总周数，和开学日期一起查到，一起存。 */
+    fun writeStartDate(cache: DataCache, termCode: String, date: LocalDate, weeks: Int? = null) {
         runCatching { cache.write(startKey(termCode), date.toString()) }
+        if (weeks != null && weeks > 0) runCatching { cache.write(weeksKey(termCode), weeks) }
     }
+
+    /** 见 [TermWeeks.total]。 */
+    fun totalWeeks(cache: DataCache, termCode: String, courses: List<CourseItem>): Int =
+        TermWeeks.total(cache.read<Int>(weeksKey(termCode), FOREVER) ?: 0, courses)
 
     fun readExams(cache: DataCache, termCode: String, ttlMs: Long = FOREVER): List<ExamItem>? =
         cache.read<List<ExamItem>>(examsKey(termCode), ttlMs)
@@ -136,6 +143,6 @@ object ScheduleCache {
         if (term.isBlank()) return false
         val start = readStartDate(cache, term) ?: return false
         val courses = readCourses(cache, term) ?: return false
-        return isFinishedByDate(start, courses.maxOfOrNull { it.weekBits.length } ?: 0)
+        return isFinishedByDate(start, totalWeeks(cache, term, courses))
     }
 }
