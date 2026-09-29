@@ -988,38 +988,6 @@ open class XJTULogin(
         return choices
     }
 
-    /**
-     * 保活状态。
-     */
-    enum class KeepAliveStatus {
-        VALID,           // 登录态仍然有效
-        AUTH_INVALID,    // 登录态已失效
-        NETWORK_ERROR,   // 网络异常（无法判断）
-        REAUTH_OK,       // 原态失效但已成功重认证
-        ERROR            // 其他错误
-    }
-
-    /**
-     * 验证当前子系统登录态是否仍然可信。
-     * 基类默认返回 false（保守策略），子类应覆写。
-     */
-    open fun validateLogin(): Boolean = false
-
-    /**
-     * 保活一次：先 validate，失效则 reAuth。
-     * 返回 KeepAliveStatus 供 SessionKeepAlive 汇总报告。
-     */
-    open fun keepAlive(): KeepAliveStatus {
-        return try {
-            if (validateLogin()) KeepAliveStatus.VALID
-            else KeepAliveStatus.AUTH_INVALID
-        } catch (_: java.io.IOException) {
-            KeepAliveStatus.NETWORK_ERROR
-        } catch (_: Exception) {
-            KeepAliveStatus.ERROR
-        }
-    }
-
     enum class AccountType {
         UNDERGRADUATE,
         POSTGRADUATE

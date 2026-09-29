@@ -54,21 +54,6 @@ class IclassfaceLogin(
         if (!sessionReady) throw RuntimeException("快速考勤流水登录回调异常")
     }
 
-    override fun validateLogin(): Boolean {
-        if (!sessionReady) return false
-        return try {
-            val resp = client.newCall(
-                Request.Builder().url(CHECKIN_URL).get().build()
-            ).execute()
-            val land = resp.request.url.toString()
-            val code = resp.code
-            resp.close()
-            // 同 postLogin：WebVPN 下域名是密文，明文匹配会把正常会话误判为失效。
-            // isAtTargetSite 内部已包含"不在 CAS 登录页"的判断，无需再单独排除 login.xjtu.edu.cn。
-            code == 200 && com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(land, "iclassface.xjtu.edu.cn")
-        } catch (_: Exception) { false }
-    }
-
     companion object {
         private const val TAG = "IclassfaceLogin"
         const val BASE_URL = "https://iclassface.xjtu.edu.cn"

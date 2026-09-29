@@ -64,8 +64,6 @@ class HelloLogin(
         Log.d(TAG, "postLogin: token present on landing url")
     }
 
-    override fun validateLogin(): Boolean = accessToken.isNotBlank()
-
     companion object {
         private const val TAG = "HelloLogin"
 

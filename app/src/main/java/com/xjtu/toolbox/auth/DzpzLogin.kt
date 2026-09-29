@@ -176,20 +176,11 @@ class DzpzLogin(
      * 探活用 getOSinfo 而非 /api/ecode/sync —— 后者匿名访问同样返回 200 空 body、不跳 CAS，
      * 会把已失效的会话判成有效。
      */
-    override fun validateLogin(): Boolean {
+    private fun validateLogin(): Boolean {
         val id = fetchUserIdFromApi() ?: return false
         userId = id
         lastUserIdFromPostLogin = id
         return true
-    }
-
-    override fun keepAlive(): KeepAliveStatus {
-        return try {
-            if (validateLogin()) return KeepAliveStatus.VALID
-            if (reAuthenticate()) KeepAliveStatus.REAUTH_OK
-            else KeepAliveStatus.AUTH_INVALID
-        } catch (_: java.io.IOException) { KeepAliveStatus.NETWORK_ERROR }
-        catch (_: Exception) { KeepAliveStatus.ERROR }
     }
 
     private val reAuthLock = Any()

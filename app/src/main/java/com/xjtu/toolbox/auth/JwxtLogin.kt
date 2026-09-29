@@ -51,28 +51,6 @@ class JwxtLogin(
         throw RuntimeException("教务系统 SSO 未完成跳转，需要重新登录")
     }
 
-    override fun validateLogin(): Boolean {
-        return try {
-            val request = okhttp3.Request.Builder()
-                .url("https://jwxt.xjtu.edu.cn/api/v2/system/term-info")
-                .get().build()
-            val response = client.newCall(request).execute()
-            val finalUrl = response.request.url.toString()
-            val code = response.code
-            response.close()
-            code == 200 && !finalUrl.contains("login.xjtu.edu.cn/cas/login", ignoreCase = true)
-        } catch (_: Exception) { false }
-    }
-
-    override fun keepAlive(): KeepAliveStatus {
-        return try {
-            if (validateLogin()) return KeepAliveStatus.VALID
-            if (reAuthenticate()) KeepAliveStatus.REAUTH_OK
-            else KeepAliveStatus.AUTH_INVALID
-        } catch (_: java.io.IOException) { KeepAliveStatus.NETWORK_ERROR }
-        catch (_: Exception) { KeepAliveStatus.ERROR }
-    }
-
     private val reAuthLock = Any()
 
     /**

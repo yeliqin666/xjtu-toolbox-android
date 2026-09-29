@@ -72,7 +72,7 @@ class VenueLogin(
         if (!sessionValid) throw RuntimeException("登录失败：无法建立场馆系统会话")
     }
 
-    override fun validateLogin(): Boolean = try {
+    private fun validateLogin(): Boolean = try {
         client.newCall(
             Request.Builder().url(PROBE_URL)
                 .header("Referer", "$BASE_URL/web/index.html")
@@ -84,18 +84,6 @@ class VenueLogin(
         }
     } catch (_: Exception) {
         false
-    }
-
-    override fun keepAlive(): KeepAliveStatus = try {
-        when {
-            validateLogin() -> KeepAliveStatus.VALID
-            reAuthenticate() -> KeepAliveStatus.REAUTH_OK
-            else -> KeepAliveStatus.AUTH_INVALID
-        }
-    } catch (_: java.io.IOException) {
-        KeepAliveStatus.NETWORK_ERROR
-    } catch (_: Exception) {
-        KeepAliveStatus.ERROR
     }
 
     private val reAuthLock = Any()

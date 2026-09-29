@@ -35,11 +35,6 @@ class FitnessLogin(
         }
     }
 
-    override fun validateLogin(): Boolean {
-        val current = lastLaunch ?: return false
-        return FitnessProtocol.requestUserInfo(client, current.session, current.referer) != null
-    }
-
     private fun extractOrRetry(callbackUrl: String): FitnessLaunch {
         runCatching { FitnessProtocol.extractLaunch(callbackUrl) }.getOrNull()?.let { return it }
         val retry = client.newCall(Request.Builder().url(LOGIN_URL).get().build()).execute()

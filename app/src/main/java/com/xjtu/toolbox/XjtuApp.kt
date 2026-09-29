@@ -3,8 +3,6 @@ package com.xjtu.toolbox
 import android.app.Application
 import android.content.Context
 import com.xjtu.toolbox.error.CrashReporter
-import com.xjtu.toolbox.error.ErrorReporting
-import com.xjtu.toolbox.error.FileErrorReporter
 import com.xjtu.toolbox.notification.AppNotificationChannels
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -16,9 +14,6 @@ import kotlinx.coroutines.launch
  *
  * - 8.0+ NotificationChannel 必须先于第一条通知注册，否则系统丢弃。
  *   在 [Application.onCreate] 建一次保证比任何业务 push 都早。
- * - 错误上报接口注入：[FileErrorReporter] 落 cache/error_reports/，
- *   后续接入 Crashlytics 替换实现即可。
- *
  * - 未捕获异常由 [CrashReporter] 落盘，下次启动匿名上报。
  *
  * 其余启动钩子（性能打点 / 渠道开关）保持空。
@@ -62,7 +57,6 @@ class XjtuApp : Application() {
         applicationScope.launch { CrashReporter.uploadPending(this@XjtuApp) }
         applicationScope.launch { removeRetiredFeatureData() }
         AppNotificationChannels.ensureChannels(this)
-        ErrorReporting.install(FileErrorReporter(this))
         // 后台调度要读账号（AccountStore → 加密存储首次打开要走 keystore），不占主线程。
         // 顺带预热了 SecurePrefs 的缓存，首帧里界面再取账号时直接命中。
         applicationScope.launch {

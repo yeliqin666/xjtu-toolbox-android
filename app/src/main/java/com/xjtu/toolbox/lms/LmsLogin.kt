@@ -73,29 +73,6 @@ class LmsLogin(
         }
     }
 
-    override fun validateLogin(): Boolean {
-        return try {
-            val request = okhttp3.Request.Builder()
-                .url("$BASE_URL/api/user/recently-visited-courses")
-                .header("Accept", "application/json")
-                .get().build()
-            val response = client.newCall(request).execute()
-            val finalUrl = response.request.url.toString()
-            val code = response.code
-            response.close()
-            code == 200 && !finalUrl.contains("login.xjtu.edu.cn/cas/login", ignoreCase = true)
-        } catch (_: Exception) { false }
-    }
-
-    override fun keepAlive(): KeepAliveStatus {
-        return try {
-            if (validateLogin()) return KeepAliveStatus.VALID
-            if (reAuthenticate()) KeepAliveStatus.REAUTH_OK
-            else KeepAliveStatus.AUTH_INVALID
-        } catch (_: java.io.IOException) { KeepAliveStatus.NETWORK_ERROR }
-        catch (_: Exception) { KeepAliveStatus.ERROR }
-    }
-
     private val reAuthLock = Any()
 
     /**

@@ -52,8 +52,6 @@ class CouponLogin(
     var authToken: String? = null
         private set
 
-    private var tokenObtainedAt: Long = 0L
-
     init {
         if (hasLogin && authToken.isNullOrBlank()) {
             reAuthenticate()
@@ -70,25 +68,6 @@ class CouponLogin(
             ?: extractCallbackParams(lastResponseBody)
             ?: throw RuntimeException("登录失败：无法获取加餐券授权码")
         exchangeCodeForToken(params)
-    }
-
-    fun isTokenValid(): Boolean {
-        val token = authToken ?: return false
-        if (token.isBlank()) return false
-        return tokenObtainedAt == 0L || System.currentTimeMillis() - tokenObtainedAt < TOKEN_TTL_MS
-    }
-
-    override fun validateLogin(): Boolean {
-        return isTokenValid()
-    }
-
-    override fun keepAlive(): KeepAliveStatus {
-        return try {
-            if (isTokenValid()) return KeepAliveStatus.VALID
-            if (reAuthenticate()) KeepAliveStatus.REAUTH_OK
-            else KeepAliveStatus.AUTH_INVALID
-        } catch (_: java.io.IOException) { KeepAliveStatus.NETWORK_ERROR }
-        catch (_: Exception) { KeepAliveStatus.ERROR }
     }
 
     private val reAuthLock = Any()
@@ -135,7 +114,6 @@ class CouponLogin(
             val bodyToken = extractToken(text)
             authToken = headerToken ?: bodyToken
                 ?: throw RuntimeException("登录失败：无法获取加餐券令牌 (${text.take(80)})")
-            tokenObtainedAt = System.currentTimeMillis()
             Log.d(COUPON_TAG, "exchangeCodeForToken: token obtained, len=${authToken?.length}")
         }
     }
@@ -189,8 +167,6 @@ class CouponLogin(
         return null
     }
 }
-
-private const val TOKEN_TTL_MS = 60 * 60 * 1000L
 
 private fun urlEncode(value: String): String = URLEncoder.encode(value, "UTF-8")
 

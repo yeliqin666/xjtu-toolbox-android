@@ -10,7 +10,6 @@ import com.xjtu.toolbox.util.obj
 import com.xjtu.toolbox.util.redactUrl
 import android.util.Log
 import kotlinx.serialization.json.JsonObject
-import com.xjtu.toolbox.auth.SafetyVerifyRequiredException
 import com.xjtu.toolbox.auth.XJTULogin
 import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.HttpUrl
@@ -20,7 +19,6 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
-import java.io.IOException
 import java.util.Collections
 import java.util.WeakHashMap
 
@@ -141,43 +139,6 @@ class AttendanceLogin(
         }
         val chain = generateSequence(response) { it.priorResponse }.toList().reversed()
         return chain.firstNotNullOfOrNull { kqHostOf(it.request.url.toString()) }
-    }
-
-    override fun validateLogin(): Boolean {
-        val token = authToken ?: return false
-        return try {
-            client.newCall(
-                Request.Builder()
-                    .url(via("$baseUrl/student/home"))
-                    .header(TOKEN_HEADER, token)
-                    .header(SYSTEM_HEADER, SYSTEM_VALUE)
-                    .get()
-                    .build()
-            ).execute().use { resp ->
-                if (resp.code != 200) return false
-                val body = resp.body.string()
-                if (isAuthFailureResponse(body)) return false
-                body.safeParseJsonObject().get("code")?.takeIf { !it.isNull }?.intValue == 0
-            }
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    override fun keepAlive(): KeepAliveStatus {
-        return try {
-            when {
-                validateLogin() -> KeepAliveStatus.VALID
-                reAuthenticate() -> KeepAliveStatus.REAUTH_OK
-                else -> KeepAliveStatus.AUTH_INVALID
-            }
-        } catch (_: IOException) {
-            KeepAliveStatus.NETWORK_ERROR
-        } catch (_: SafetyVerifyRequiredException) {
-            KeepAliveStatus.AUTH_INVALID
-        } catch (_: Exception) {
-            KeepAliveStatus.ERROR
-        }
     }
 
     fun reAuthenticate(): Boolean = synchronized(reAuthLock) {
