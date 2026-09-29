@@ -392,6 +392,8 @@ private fun OverviewTab(
         cardInfo?.takeIf { it.lostFlag || it.frozenFlag }?.let { info ->
             item { Box(Modifier.enterOnce(1)) { CardStatusPanel(info) } }
         }
+        // 紧跟余额卡：放到最近交易后面就被长列表埋掉了
+        item { Box(Modifier.enterOnce(1)) { com.xjtu.toolbox.ui.components.SecondaryEntry("加餐券", "领取和使用食堂加餐券", onClick = onOpenCoupon) } }
         item { Box(Modifier.enterOnce(1)) { TodayMealsCard(today) } }
         item {
             Box(Modifier.enterOnce(2)) {
@@ -419,7 +421,6 @@ private fun OverviewTab(
                 }
             }
         }
-        item { com.xjtu.toolbox.ui.components.SecondaryEntry("加餐券", "领取和使用食堂加餐券", onClick = onOpenCoupon) }
     }
 }
 

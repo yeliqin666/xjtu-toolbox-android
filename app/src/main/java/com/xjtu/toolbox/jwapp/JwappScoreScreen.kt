@@ -312,6 +312,11 @@ fun JwappScoreScreen(
                       }
                     }
 
+                    // 紧跟 GPA 卡：放在长长的成绩列表后面就没人找得到了
+                    onOpenTranscript?.let { open ->
+                        fullLineItem { com.xjtu.toolbox.ui.components.SecondaryEntry("电子成绩单", "生成并下载官方成绩单 PDF", onClick = open) }
+                    }
+
                     fullLineItem {
                         Column(Modifier.enterOnce(1)) {
                             Row(
@@ -480,9 +485,6 @@ fun JwappScoreScreen(
                         }
                     }
 
-                    onOpenTranscript?.let { open ->
-                        fullLineItem { com.xjtu.toolbox.ui.components.SecondaryEntry("电子成绩单", "生成并下载官方成绩单 PDF", onClick = open) }
-                    }
                     fullLineItem { Spacer(Modifier.height(16.dp)) }
                 }
                 }
