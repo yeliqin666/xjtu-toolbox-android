@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <data-extraction-rules>
-    <!-- minSdk 31：实际走这套规则。path 可带 *；sharedpref 写文件名（可带或不带 .xml） -->
+    <!-- minSdk 31：只有这套规则生效。path 可带 *；sharedpref 写文件名（可带或不带 .xml），file 是 filesDir 下的路径 -->
     <cloud-backup>
         <exclude domain="sharedpref" path="xjtu_credentials.xml"/>
         <exclude domain="sharedpref" path="xjtu_credentials_fallback.xml"/>
@@ -12,6 +12,8 @@
         <exclude domain="sharedpref" path="cookies_webvpn*"/>
         <exclude domain="sharedpref" path="agent_config*"/>
         <exclude domain="sharedpref" path="notice_watch.xml"/>
+        <exclude domain="sharedpref" path="campus_card*"/>
+        <exclude domain="file" path="agent_sessions*"/>
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="xjtu_credentials.xml"/>
@@ -24,5 +26,7 @@
         <exclude domain="sharedpref" path="cookies_webvpn*"/>
         <exclude domain="sharedpref" path="agent_config*"/>
         <exclude domain="sharedpref" path="notice_watch.xml"/>
+        <exclude domain="sharedpref" path="campus_card*"/>
+        <exclude domain="file" path="agent_sessions*"/>
     </device-transfer>
 </data-extraction-rules>
