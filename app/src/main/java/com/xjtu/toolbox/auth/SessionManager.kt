@@ -2,6 +2,7 @@ package com.xjtu.toolbox.auth
 
 import android.content.Context
 import android.util.Log
+import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.network.PersistentCookieJar
 import com.xjtu.toolbox.webvpn.WebVpnInterceptor
 import com.xjtu.toolbox.webvpn.WebVpnUtil
@@ -447,7 +448,7 @@ class SessionManager(context: Context) {
      * @param accountSuffix 命名空间后缀（形如 "_学号"），由 [com.xjtu.toolbox.account.AccountContext.suffixFor] 派生
      */
     fun reconfigureForAccount(accountSuffix: String) {
-        com.xjtu.toolbox.account.AccountContext.switchEpoch++
+        AccountContext.switchEpoch++
         // 挂着的 MFA 是旧账号的：验证码发到了旧账号手机上，填了也只会登进旧账号
         _activeMfaRequest.value?.cancel()
         synchronized(backendsLock) {
@@ -478,6 +479,11 @@ class SessionManager(context: Context) {
     fun reconfigureForAnonymous() {
         reconfigureForAccount(ANONYMOUS_SUFFIX)
         backends.values.forEach { it.cookieJar.clear() }
+    }
+
+    /** 还没有账号时匿名命名空间里不该有会话。开始登录前清一次，免得早先遗留的 TGC 让新登录直通别人的会话。 */
+    fun purgeAnonymousSession() {
+        if (AccountContext.activeAccountId == null) backends.values.forEach { it.cookieJar.clear() }
     }
 
     /** 首次登录发生在匿名命名空间：把这次产生的 cookie 搬进账号命名空间，匿名罐清空。 */

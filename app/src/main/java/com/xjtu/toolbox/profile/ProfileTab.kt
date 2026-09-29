@@ -603,6 +603,7 @@ internal fun ProfileTab(
             try {
                 withContext(Dispatchers.IO) {
                     loginState.ensureCampusDetected()
+                    loginState.sessionManager?.purgeAnonymousSession()
                     loginState.sessionManager?.ensureSite(LoginType.JWXT, userInitiated = true)
                 }
             } catch (e: Exception) {
