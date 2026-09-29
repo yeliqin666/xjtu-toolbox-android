@@ -58,6 +58,7 @@ object InboxCategories {
     const val SCHEDULE = "msg.schedule"
     const val ATTENDANCE = "msg.attendance"
     const val NOTICE = "msg.notice"
+    const val BULLETIN = "msg.bulletin"
     private const val SCHOOL_PREFIX = "school:"
 
     val todos = listOf(
@@ -72,6 +73,7 @@ object InboxCategories {
         InboxCategory(SCHEDULE, "调课 / 停课"),
         InboxCategory(ATTENDANCE, "考勤异常"),
         InboxCategory(NOTICE, "教务新通知"),
+        InboxCategory(BULLETIN, "工具箱公告"),
     )
 
     fun school(label: String) = SCHOOL_PREFIX + label
@@ -106,10 +108,11 @@ object InboxRules {
     private fun visible(item: InboxItem, now: Long) =
         (item.expiresAt == 0L || item.expiresAt > now) && (item.expiresAt > 0L || now - item.time < KEEP_MS)
 
-    /** 合并新消息：按 id 去重，丢掉保留期外的，已读集合只留还在的 id。 */
+    /** 合并新消息：按 id 去重（重复推来的保留首次时间），丢掉保留期外的，已读集合只留还在的 id。 */
     fun merge(data: InboxData, incoming: List<InboxItem>, now: Long): InboxData {
         val byId = LinkedHashMap<String, InboxItem>()
-        (data.messages + incoming).forEach { byId[it.id] = it }
+        data.messages.forEach { byId[it.id] = it }
+        incoming.forEach { n -> byId[n.id] = byId[n.id]?.let { n.copy(time = it.time) } ?: n }
         val kept = byId.values.filter { now - it.time < KEEP_MS }
         val ids = kept.mapTo(HashSet()) { it.id }
         return data.copy(messages = kept, read = data.read.filterTo(HashSet()) { it in ids }, bubbled = data.bubbled.filterTo(HashSet()) { it in ids })
@@ -178,10 +181,21 @@ object InboxStore {
 
     fun post(item: InboxItem, account: String? = AccountContext.activeAccountId) = post(listOf(item), account)
 
+    /** 整类替换：[items] 里没有的该类旧消息删掉，其余照常合并。给公告这种「当前有效的全集」用。 */
+    fun replace(category: String, items: List<InboxItem>, account: String? = AccountContext.activeAccountId) {
+        val keep = items.mapTo(HashSet()) { it.id }
+        update(account) { d ->
+            val pruned = d.copy(messages = d.messages.filter { it.category != category || it.id in keep })
+            InboxRules.merge(pruned, items, System.currentTimeMillis())
+        }
+    }
+
     fun setTodos(category: String, items: List<InboxItem>, account: String? = AccountContext.activeAccountId) =
         update(account) { it.copy(todos = it.todos + (category to items)) }
 
-    fun markRead(ids: Collection<String>) = update(AccountContext.activeAccountId) { it.copy(read = it.read + ids) }
+    fun markRead(ids: Collection<String>) {
+        if (ids.isNotEmpty()) update(AccountContext.activeAccountId) { it.copy(read = it.read + ids) }
+    }
 
     fun markAllRead() = update(AccountContext.activeAccountId) { d -> d.copy(read = d.read + d.messages.map { it.id }) }
 
@@ -218,6 +232,18 @@ object OwnInbox {
         id = "notice:${n.link}", category = InboxCategories.NOTICE, source = n.source.displayName,
         title = n.title, time = System.currentTimeMillis(), route = com.xjtu.toolbox.nav.AppRoute.Browser(n.link).id,
     )
+
+    /** 工具箱公告。时间取开始时间，没有就取 id 开头的日期（公告 id 都以发布日期开头），再没有就算现在。 */
+    fun bulletin(b: com.xjtu.toolbox.bulletin.Bulletin): InboxItem {
+        val dated = runCatching {
+            java.time.LocalDate.parse(b.id.take(10)).atStartOfDay(java.time.ZoneId.of("Asia/Shanghai")).toInstant().toEpochMilli()
+        }.getOrNull()
+        return InboxItem(
+            id = "bulletin:${b.id}", category = InboxCategories.BULLETIN, source = "工具箱",
+            title = b.title, body = b.body, time = b.startsAt?.toEpochMilli() ?: dated ?: System.currentTimeMillis(),
+            route = b.url?.let { com.xjtu.toolbox.nav.AppRoute.Browser(it).id },
+        )
+    }
 
     fun todo(category: String, id: String, source: String, title: String, route: String?, expiresAt: Long = 0L) =
         InboxItem(id = id, category = category, source = source, title = title, time = System.currentTimeMillis(), route = route, expiresAt = expiresAt)

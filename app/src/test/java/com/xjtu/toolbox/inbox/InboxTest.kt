@@ -60,6 +60,28 @@ class InboxTest {
     }
 
     @Test
+    fun `重复推来的消息保留首次时间，已读不丢`() {
+        val data = InboxData(messages = listOf(msg("a", "x", now - hour)), read = setOf("a"))
+        val merged = InboxRules.merge(data, listOf(msg("a", "x 改了", now)), now)
+        assertEquals(now - hour, merged.messages.single().time)
+        assertEquals("x 改了", merged.messages.single().title)
+        assertEquals(setOf("a"), merged.read)
+    }
+
+    @Test
+    fun `公告时间取 id 开头的发布日期`() {
+        val b = com.xjtu.toolbox.bulletin.Bulletin(
+            id = "2026-09-24-tips", level = com.xjtu.toolbox.bulletin.BulletinLevel.INFO,
+            title = "社区上线了", body = "", mustAck = false, block = false,
+        )
+        val item = OwnInbox.bulletin(b)
+        assertEquals("bulletin:2026-09-24-tips", item.id)
+        assertEquals(InboxCategories.BULLETIN, item.category)
+        assertEquals(java.time.LocalDate.of(2026, 9, 24), java.time.Instant.ofEpochMilli(item.time).atZone(java.time.ZoneId.of("Asia/Shanghai")).toLocalDate())
+        assertNull(item.route)
+    }
+
+    @Test
     fun `落款取正文末尾括号，HTML 转纯文本`() {
         val body = InboxRules.plainText("<p>您的预约已经超时，即将在五分钟后释放。 (图书馆预约系统)</p>")
         assertEquals("图书馆预约系统", InboxRules.signature(body))
