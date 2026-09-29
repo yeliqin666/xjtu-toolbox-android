@@ -82,6 +82,7 @@ import com.xjtu.toolbox.agent.ProactiveBubbleView
 import com.xjtu.toolbox.agent.ProactiveMessage
 import com.xjtu.toolbox.agent.ProactiveRules
 import com.xjtu.toolbox.auth.AppLoginState
+import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.bulletin.Bulletin
 import com.xjtu.toolbox.card.CampusCardCache
 import com.xjtu.toolbox.data.AppearanceSettings
@@ -247,6 +248,23 @@ internal fun MainScreen(
         // 先等校内/校外探测落定：否则站点按默认直连去登校内网站点，校外白等 12 秒连接超时，
         // 还占着串行的登录通道，把首屏的教务登录一起拖住。
         runCatching { loginState.ensureCampusDetected() }
+        // 装新包会清掉课表缓存：首页「下一项安排」要靠它，不等用户进日程页
+        val manager = loginState.sessionManager
+        if (manager != null) withContext(Dispatchers.IO) {
+            val cache = com.xjtu.toolbox.data.DataCache(context)
+            if (com.xjtu.toolbox.schedule.ScheduleCache.isReady(cache)) return@withContext
+            try {
+                val site = manager.ensureSite(com.xjtu.toolbox.auth.LoginType.JWXT, silent = true)
+                com.xjtu.toolbox.schedule.ScheduleSourceRouter.ensureCached(
+                    context, cache, com.xjtu.toolbox.schedule.ScheduleApi(site), manager, loginState.accountType,
+                )
+                HomeSignals.scheduleVersion++
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.w("MainScreen", "补课表缓存失败", e)
+            }
+        }
         HomeStatsRefresher.refreshDue(context, loginState.sessionManager, loginState.accountType)
         HomeSignals.bumpStatsVersion()
     }

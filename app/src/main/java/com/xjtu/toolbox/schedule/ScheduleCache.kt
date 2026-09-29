@@ -82,6 +82,12 @@ object ScheduleCache {
         return TermSchedule(code, readCourses(cache, code).orEmpty(), readStartDate(cache, code))
     }
 
+    /** [term]（默认本学期）的课表和开学日期都在，首页才算得出下一项安排。 */
+    fun isReady(cache: DataCache, term: String? = null): Boolean {
+        val code = term ?: readCurrentTerm(cache) ?: return false
+        return readCourses(cache, code) != null && readStartDate(cache, code) != null
+    }
+
     fun readTextbooks(cache: DataCache, termCode: String, ttlMs: Long = TERM_TTL_MS): List<TextbookItem>? =
         if (termCode.isBlank()) null else cache.read<List<TextbookItem>>(textbookKey(termCode), ttlMs)
 

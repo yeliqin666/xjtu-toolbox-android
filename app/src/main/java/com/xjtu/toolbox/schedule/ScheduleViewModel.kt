@@ -436,7 +436,8 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
             send(ScheduleEvent.Loaded)
             ScheduleCache.writeRawCourses(dataCache, termCode, freshCourses)
             ScheduleCache.writeOptimizedCourses(dataCache, termCode, optimized)
-            // 叫醒首页：Hero 的「下一项安排」认 HomeSignals.scheduleVersion
+            // 开学日期先落盘再叫醒首页：Hero 缺它就显示「课表还没同步」
+            if (startDate != null) ScheduleCache.writeStartDate(dataCache, termCode, startDate)
             HomeSignals.scheduleVersion++
             if (contentChanged && cachedOptimized != null) send(ScheduleEvent.Message("日程有更新"))
             // 用未过滤节假日的课表比，否则放假会被误判成「课被取消了」
@@ -472,10 +473,7 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
             val freshCourses = fetchSchedule(api, termCode)
             val startDate = try { api.getStartOfTerm(termCode) } catch (_: Exception) { startOfTerm }
             paintCourses(termCode, freshCourses, startDate)
-            if (startDate != null) {
-                applyTermStart(startDate)
-                ScheduleCache.writeStartDate(dataCache, termCode, startDate)
-            }
+            if (startDate != null) applyTermStart(startDate)
             val freshExams = try { api.getExamSchedule(termCode) } catch (_: Exception) { exams }
             ensureSameAccount()
             exams = freshExams
@@ -490,6 +488,8 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
             if (startDate != null) {
                 applyTermStart(startDate)
                 ScheduleCache.writeStartDate(dataCache, viewTerm, startDate)
+                // 首次同步时课表先到、开学日期后到，首页要再读一次
+                HomeSignals.scheduleVersion++
                 if (holidayDates.isNotEmpty()) courses = ScheduleCache.filterByHolidays(freshCourses, startDate, holidayDates)
             }
             val freshExams = examsDeferred.await()

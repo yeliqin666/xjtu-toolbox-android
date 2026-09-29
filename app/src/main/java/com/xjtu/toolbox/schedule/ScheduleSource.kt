@@ -13,6 +13,7 @@ import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.auth.siteKey
 import com.xjtu.toolbox.jwapp.JwappScheduleApi
 import com.xjtu.toolbox.data.CredentialStore
+import com.xjtu.toolbox.data.DataCache
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -89,6 +90,35 @@ object ScheduleSourceRouter {
         remember(context, source)
         rememberChanges(context, termCode, usable.changes)
         return usable.courses
+    }
+
+    /**
+     * [term]（默认本学期）的课表、开学日期缺哪样补哪样。装新包会清掉缓存，
+     * 首页和屁岱不能等用户进日程页才有课表。
+     */
+    suspend fun ensureCached(
+        context: Context,
+        cache: DataCache,
+        api: ScheduleApi,
+        manager: SessionManager?,
+        accountType: AccountType,
+        term: String? = null,
+    ) {
+        val code = term ?: ScheduleCache.readCurrentTerm(cache)
+            ?: api.getCurrentTerm().also { ScheduleCache.writeCurrentTerm(cache, it) }
+        if (ScheduleCache.readTermList(cache).isEmpty()) ScheduleCache.writeTermList(cache, listOf(code))
+        runCatching {
+            if (ScheduleTermStore.read(cache).isEmpty()) api.getTermList()
+            ScheduleTermStore.merge(cache, api.termNames())
+        }
+        val start = ScheduleCache.readStartDate(cache, code)
+            ?: api.getStartOfTerm(code).also { ScheduleCache.writeStartDate(cache, code, it) }
+        if (ScheduleCache.readCourses(cache, code) == null) {
+            val fresh = getSchedule(context, api, code, manager, accountType)
+            ScheduleCache.writeRawCourses(cache, code, fresh)
+            // 和日程页一样剔除节假日，否则它下次落地会误报「日程有更新」
+            ScheduleCache.writeOptimizedCourses(cache, code, ScheduleCache.filterByHolidays(fresh, start, HolidayApi.peekCached(context)))
+        }
     }
 
     private data class SourceResult(val courses: List<CourseItem>, val changes: List<ScheduleChangeEvent> = emptyList())

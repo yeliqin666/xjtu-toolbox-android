@@ -1028,36 +1028,15 @@ class AgentToolRegistry(
      * 返回 null 表示就绪，否则为错误提示。
      */
     private suspend fun ensureScheduleLoaded(targetTerm: String? = null): String? {
-        val term0 = targetTerm?.takeIf { it.isNotBlank() } ?: cachedTermCode()
-        val coursesCached = term0 != null && ScheduleCache.readCourses(dataCache, term0) != null
-        if (coursesCached && cachedStartDate(term0) != null) return null
+        val term = targetTerm?.takeIf { it.isNotBlank() }
+        if (ScheduleCache.isReady(dataCache, term)) return null
 
         val site = ensureSite(LoginType.JWXT)
             ?: return ToolReply.noCache(ToolReply.loginFailed("教务系统", "unreachable"))
         return try {
-            val api = ScheduleApi(site)
-            val term = term0 ?: api.getCurrentTerm()
-            if (term0 == null) ScheduleCache.writeCurrentTerm(dataCache, term)
-            if (ScheduleCache.readTermList(dataCache).isEmpty()) ScheduleCache.writeTermList(dataCache, listOf(term))
-            runCatching {
-                if (com.xjtu.toolbox.schedule.ScheduleTermStore.read(dataCache).isEmpty()) {
-                    api.getTermList()
-                }
-                com.xjtu.toolbox.schedule.ScheduleTermStore.merge(dataCache, api.termNames())
-            }
-            if (ScheduleCache.readCourses(dataCache, term) == null) {
-                val fresh = com.xjtu.toolbox.schedule.ScheduleSourceRouter.getSchedule(
-                    context = context,
-                    jwxt = api,
-                    termCode = term,
-                    manager = loginState.sessionManager,
-                    accountType = loginState.accountType,
-                )
-                ScheduleCache.writeOptimizedCourses(dataCache, term, fresh)
-            }
-            if (cachedStartDate(term) == null) {
-                ScheduleCache.writeStartDate(dataCache, term, api.getStartOfTerm(term))
-            }
+            com.xjtu.toolbox.schedule.ScheduleSourceRouter.ensureCached(
+                context, dataCache, ScheduleApi(site), loginState.sessionManager, loginState.accountType, term,
+            )
             null
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
             throw e
