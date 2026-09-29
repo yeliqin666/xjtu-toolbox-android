@@ -34,6 +34,17 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "5.0.10" to VersionChangelog(
+            items = listOf(
+                "🪶" to "知止而后有定。",
+                "🎮" to "跳一跳：易碎台上多给时间，后面那块不会太远，也不接移动台和幽灵台",
+                "🎯" to "跳一跳：移动台落点只看蓄力，掐准时机就能踩上，不再「踩到空气」",
+                "👥" to "切换账号更干净：不再误报「新增成绩」和考勤异常，进行中的登录和验证码也会一并取消",
+                "🩺" to "体测系统出故障时直接告诉你是学校那边的问题",
+                "🩹" to "修复通知搜索日期识别、校园卡流水解析的几处边角问题",
+                "🧹" to "清理一批早已不用的旧代码",
+            )
+        ),
         "5.0.9" to VersionChangelog(
             items = listOf(
                 "🪶" to "应当想象西西弗斯是幸福的。",
