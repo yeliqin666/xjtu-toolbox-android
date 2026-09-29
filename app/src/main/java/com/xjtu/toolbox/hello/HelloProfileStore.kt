@@ -97,9 +97,7 @@ object HelloProfileStore {
     /**
      * 头像文件路径（按账号隔离）。头像是二进制，不适合塞进 JSON 缓存，单独落盘。
      *
-     * 放 filesDir：以前放 cacheDir，系统清理、手机管家"一键加速"都会清掉它，
-     * 头像随之消失，要等下次进"我的"页、学工系统还登得上才补得回来。
-     * 旧位置的文件仍会读（[legacyAvatarFile]），下次下载时写到新位置。
+     * 放 filesDir：cacheDir 会被系统清理和手机管家清掉。cacheDir 里的旧文件仍会读（[legacyAvatarFile]）。
      */
     private fun avatarFile(context: Context): File =
         File(context.filesDir, "avatar${AccountContext.safeSuffix()}.jpg")
@@ -110,16 +108,9 @@ object HelloProfileStore {
     private fun avatarMarker(context: Context): File =
         File(context.filesDir, "avatar${AccountContext.safeSuffix()}.url")
 
-    /**
-     * 按账号 id 定位头像文件。账号管理页要同时显示**其他**账号的头像，
-     * 而 [AccountContext.safeSuffix] 只反映当前激活账号，所以这里按同一规则自行拼后缀。
-     * 规则必须与 [AccountContext.safeSuffix] 保持一致，改一处要改两处。
-     */
+    /** 按账号 id 定位头像文件：账号管理页要同时显示**其他**账号的头像，不能只看当前激活账号。 */
     private fun avatarFileFor(context: Context, accountId: String?): File {
-        val suffix = accountId
-            ?.takeIf { it.isNotBlank() }
-            ?.let { "_" + it.replace(Regex("[^a-zA-Z0-9]"), "_") }
-            ?: "default"
+        val suffix = AccountContext.suffixFor(accountId?.takeIf { it.isNotBlank() })
         return File(context.filesDir, "avatar$suffix.jpg").takeIf { it.exists() }
             ?: File(context.cacheDir, "avatar$suffix.jpg")
     }
@@ -175,17 +166,9 @@ object HelloProfileStore {
     // ── 自定义头像 ────────────────────────
 
 
-    /**
-     * 用户自选的头像。放 [Context.getFilesDir] 而不是 cacheDir——用户特意设的东西，
-     * 不该在系统清缓存时被默默抹掉。后缀规则与 [avatarFileFor] 一致。
-     */
-    private fun customAvatarFileFor(context: Context, accountId: String?): File {
-        val suffix = accountId
-            ?.takeIf { it.isNotBlank() }
-            ?.let { "_" + it.replace(Regex("[^a-zA-Z0-9]"), "_") }
-            ?: "default"
-        return File(context.filesDir, "avatar_custom$suffix.jpg")
-    }
+    /** 用户自选的头像。放 filesDir 而不是 cacheDir——用户特意设的东西，不该在系统清缓存时被默默抹掉。 */
+    private fun customAvatarFileFor(context: Context, accountId: String?): File =
+        File(context.filesDir, "avatar_custom${AccountContext.suffixFor(accountId?.takeIf { it.isNotBlank() })}.jpg")
 
     private fun customAvatarFile(context: Context): File =
         File(context.filesDir, "avatar_custom${AccountContext.safeSuffix()}.jpg")

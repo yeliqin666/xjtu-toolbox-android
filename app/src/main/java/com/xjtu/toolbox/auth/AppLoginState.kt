@@ -173,7 +173,6 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
         passwordInvalidatedSiteName = ""
         passwordInvalidatedDialogVisible = false
         rejectedCredentials = null
-        com.xjtu.toolbox.pay.PaymentCodeApi.clearCachedJwt()
         com.xjtu.toolbox.home.HomeSignals.clearAccountSignals()
         campusCardCacheVersion++  // 触发首页校园卡卡片重读（切到新账号命名空间缓存）
     }

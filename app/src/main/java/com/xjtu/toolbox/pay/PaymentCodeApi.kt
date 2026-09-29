@@ -56,8 +56,6 @@ class PaymentCodeApi(private val site: SiteSession) {
             "$BASE_URL/berserker-app/vouchers/updateVoucherStatus"
         private const val REFERER = "$BASE_URL/plat/pay?lite=1&payacc=000&payid=0"
         private val JSON = "application/json;charset=utf-8".toMediaType()
-
-        fun clearCachedJwt() { /* noop - JWT lifecycle is owned by SiteSession */ }
     }
 
     /**
