@@ -277,7 +277,7 @@ class CampusCardApi(private val site: SiteSession) {
             // 都会出现没有名字的行。实测 600 条里有 22 条是这种（12 笔消费 + 10 笔充值）。
             val merchant = rec.get("toMerchant")?.stringValue?.trim()?.takeIf { it.isNotBlank() }
                 ?: merchantFromResume(resume)
-            val typeFrom = rec.get("typeFrom")?.stringValue?.trim()
+            val typeFrom = CampusCardContract.typeFromOf(rec.get("typeFrom"))
             val toAccount = rec.get("toAccount")
                 ?.takeIf { it.isPrimitive && it.jsonPrimitive.isNumber }?.longValue
             val fromAccount = rec.get("fromAccount")?.stringValue?.trim()?.toLongOrNull()

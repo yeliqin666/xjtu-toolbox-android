@@ -81,4 +81,17 @@ class CampusCardContractTest {
             assertTrue(e.message!!.contains("必要字段"))
         }
     }
+
+    @Test
+    fun `typeFrom 异常类型当缺失，走关键词兜底`() {
+        fun of(json: String) = CampusCardContract.typeFromOf(kotlinx.serialization.json.Json.parseToJsonElement(json))
+        assertEquals("1", of("\"1\""))
+        assertEquals("1", of("1"))
+        assertEquals("2", of(" \"2\" ".trim()))
+        for (bad in listOf("null", "true", "1.0", "{}", "[]", "\"\"")) {
+            assertEquals(bad, null, of(bad))
+        }
+        // 缺失时充值仍按关键词算收入
+        assertEquals(500L, CampusCardContract.signedAmountCents(500, "充值", "recharge", of("true")))
+    }
 }
