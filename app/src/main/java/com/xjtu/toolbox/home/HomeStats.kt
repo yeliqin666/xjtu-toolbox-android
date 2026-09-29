@@ -73,6 +73,11 @@ object HomeStats {
         }
     }
 
+    /** 让这个源在下一轮刷新里过期（戳归零）。 */
+    fun invalidate(context: Context, route: AppRoute, accountId: String? = com.xjtu.toolbox.account.AccountContext.activeAccountId) {
+        runCatching { DataCache(context, accountId).put(STAMP_PREFIX + route.id, "0") }
+    }
+
     /** 失败后的重试间隔。见 [markFailed]。 */
     const val FAILURE_RETRY_MS = 30L * 60 * 1000L
 

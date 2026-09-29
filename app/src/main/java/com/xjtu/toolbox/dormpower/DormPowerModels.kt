@@ -17,11 +17,6 @@ import java.nio.charset.CodingErrorAction
 /** 绑定了的宿舍；[name] 是「园区/楼/单元/层/房间…」用 / 连起来的全名。 */
 data class DormRoom(val id: String, val name: String)
 
-/** 学校房间树的一个节点，叶子就是能查电量的房间或电表。 */
-class RoomNode(val id: String, val name: String, val children: List<RoomNode>) {
-    val isLeaf get() = children.isEmpty()
-}
-
 /** 电量低于这个数就提醒（度）。 */
 const val LOW_KWH = 10.0
 
@@ -57,13 +52,4 @@ object DormPowerParsers {
 
     /** 剩余电量；系统没有这个房间的表时 data 为 null。 */
     fun kwh(data: JsonElement): Double? = (data as? JsonPrimitive)?.takeIf { it !is JsonNull }?.content?.toDoubleOrNull()
-
-    fun tree(data: JsonElement): List<RoomNode> = (data as? JsonArray).orEmpty().mapNotNull(::node)
-
-    private fun node(e: JsonElement): RoomNode? {
-        val o = e as? JsonObject ?: return null
-        val id = o["value"]?.jsonPrimitive?.content ?: return null
-        val kids = (o["children"] as? JsonArray).orEmpty().mapNotNull(::node)
-        return RoomNode(id, o["name"]?.jsonPrimitive?.content.orEmpty(), kids)
-    }
 }

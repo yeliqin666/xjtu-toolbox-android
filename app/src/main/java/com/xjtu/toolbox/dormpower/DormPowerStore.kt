@@ -39,7 +39,10 @@ object DormPowerStore {
         }
     }
 
-    fun hasRooms(context: Context) = readings(context).isNotEmpty()
+    /** 用户进过宿舍电费页（绑定发生在学校页面里，本机不知道），之后才值得在后台去查。 */
+    fun isUsed(context: Context) = prefs(context).getBoolean("used", false)
+
+    fun markUsed(context: Context) = prefs(context).edit().putBoolean("used", true).apply()
 
     fun save(context: Context, readings: List<DormReading>) {
         val array: JsonArray = buildJsonArray {
@@ -73,6 +76,3 @@ object DormPowerStore {
     fun lowest(readings: List<DormReading>): DormReading? =
         readings.filter { (it.kwh ?: Double.MAX_VALUE) < LOW_KWH }.minByOrNull { it.kwh ?: Double.MAX_VALUE }
 }
-
-/** 房间全名的最后三级（栋/层/室这类），列表标题用；不足三级就是全名。 */
-fun DormRoom.shortName(): String = name.split('/').takeLast(3).joinToString(" · ").ifBlank { name }

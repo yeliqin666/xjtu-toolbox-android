@@ -156,11 +156,18 @@ fun AppNavHost(
                 ) }
         }
         entry<AppRoute.DormPower>(transition = expand(AppRoute.DormPower::class)) {
-            WithSite("ssn") { DormPowerScreen(
-                site = it,
-                onOpenBrowser = { url -> router.open(AppRoute.Browser(url)) },
-                onBack = back,
-            ) }
+            WithSite("ssn") { site ->
+                DormPowerScreen(site = site, onBack = back) { url ->
+                    BrowserScreen(
+                        initialUrl = url.orEmpty(),
+                        waiting = url == null,
+                        site = site,
+                        cookieClient = if (url?.contains("webvpn.xjtu.edu.cn", ignoreCase = true) == true) loginState.webVpnClientOrNull else null,
+                        extraCookieDomains = listOfNotNull(url?.let { Uri.parse(it).host }),
+                        onBack = back,
+                    )
+                }
+            }
         }
         entry<AppRoute.DownloadManager>(transition = expand(AppRoute.DownloadManager::class)) {
             DownloadManagerScreen(onBack = back)

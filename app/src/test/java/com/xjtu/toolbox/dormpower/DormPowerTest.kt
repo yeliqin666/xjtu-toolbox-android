@@ -41,18 +41,6 @@ class DormPowerTest {
     }
 
     @Test
-    fun `房间树逐级解析，无子级的是叶子`() {
-        val tree = DormPowerParsers.tree(
-            DormPowerParsers.data(
-                """{"code":0,"data":[{"value":"a","name":"园区","children":[{"value":"b","name":"1栋","children":[]}]}]}""",
-            ),
-        )
-        assertEquals("园区", tree.single().name)
-        assertTrue(!tree.single().isLeaf)
-        assertTrue(tree.single().children.single().isLeaf)
-    }
-
-    @Test
     fun `页面里的 cid：未登录（loginUrl 非空）或没有时为 null`() {
         val cid = "0123456789abcdef0123456789abcdef"
         assertEquals(cid, SsnLogin.parseCid("""var loginUrl = ""; var cid = "$cid";"""))
@@ -65,11 +53,5 @@ class DormPowerTest {
         fun r(id: String, kwh: Double?) = DormReading(DormRoom(id, id), kwh, 0L)
         assertEquals("b", DormPowerStore.lowest(listOf(r("a", 30.0), r("b", 2.0), r("c", 5.0), r("d", null)))?.room?.id)
         assertNull(DormPowerStore.lowest(listOf(r("a", LOW_KWH), r("d", null))))
-    }
-
-    @Test
-    fun `房间简称取全名最后三级`() {
-        assertEquals("2层 · 01室 · A", DormRoom("1", "园区/1栋/2层/01室/A").shortName())
-        assertEquals("宿舍", DormRoom("1", "宿舍").shortName())
     }
 }

@@ -57,7 +57,7 @@ object AppServices {
         AppService(AppRoute.PaymentCode, "付款码", "出示校园付款码", ServiceCategory.LIFE, listOf("付款", "扫码")),
         AppService(AppRoute.Coupon, "加餐券", "食堂加餐券", ServiceCategory.LIFE, listOf("加餐", "餐券", "食堂")),
         AppService(AppRoute.SchoolCalendar, "校历", "学期与考试安排", ServiceCategory.LIFE, listOf("学期", "周数")),
-        AppService(AppRoute.DormPower, "宿舍电费", "查剩余电量、低电提醒", ServiceCategory.LIFE, listOf("电费", "宿舍", "电量", "充电费", "缴费", "公寓")),
+        AppService(AppRoute.DormPower, "宿舍电费", "缴费、查剩余电量", ServiceCategory.LIFE, listOf("电费", "宿舍", "电量", "充电费", "缴费", "公寓")),
         AppService(AppRoute.Venue, "场馆预订", "预约羽毛球、网球等", ServiceCategory.LIFE, listOf("场馆", "空闲场馆", "羽毛", "网球场")),
         AppService(AppRoute.Fitness, "体测查询", "体测总分与各项目成绩", ServiceCategory.LIFE, listOf("体测", "体育", "体能", "fitness")),
         AppService(AppRoute.YellowPage, "校园黄页", "校内电话与机构", ServiceCategory.LIFE, listOf("黄页", "电话", "分机")),

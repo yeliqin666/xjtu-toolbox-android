@@ -148,13 +148,15 @@ fun BrowserScreen(
     site: SiteSession? = null,
     cookieClient: OkHttpClient? = null,
     extraCookieDomains: List<String> = emptyList(),
+    /** 地址还没备好（[initialUrl] 为空）：先出空白页和进度条，等 [initialUrl] 有值再加载。 */
+    waiting: Boolean = false,
     onBack: () -> Unit
 ) {
     var currentUrl by remember { mutableStateOf(initialUrl) }
     var editingUrl by remember { mutableStateOf(initialUrl) }
-    var isLoading by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(waiting) }
     var pageTitle by remember { mutableStateOf("浏览器") }
-    var progress by remember { mutableFloatStateOf(0f) }
+    var progress by remember { mutableFloatStateOf(if (waiting) 10f else 0f) }
     var canGoForward by remember { mutableStateOf(false) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var editing by remember { mutableStateOf(false) }
@@ -203,6 +205,17 @@ fun BrowserScreen(
     LaunchedEffect(site, cookieClient, cookieDomains) {
         syncCookiesToWebView(site, cookieDomains)
         syncCookiesToWebView(cookieClient, cookieDomains)
+    }
+
+    // 地址后到：WebView 已建好但当时没有可加载的，这时补加载
+    var initialLoaded by remember { mutableStateOf(initialUrl.isNotBlank()) }
+    LaunchedEffect(initialUrl, webViewRef) {
+        val web = webViewRef ?: return@LaunchedEffect
+        if (initialLoaded || initialUrl.isBlank()) return@LaunchedEffect
+        initialLoaded = true
+        syncCookiesToWebView(site, cookieDomains)
+        syncCookiesToWebView(cookieClient, cookieDomains)
+        web.loadUrl(normalizeUrl(initialUrl))
     }
 
     // 系统返回：先收起地址栏，再在网页里后退（跳过登录中转页），退到头才关掉浏览器
