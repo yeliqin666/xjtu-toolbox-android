@@ -106,6 +106,7 @@ class YwtbSession : CasSiteSession("ywtb", "一网通办", mustUseWebVpn = false
     override fun onLoginSuccess(login: XJTULogin) {
         (login as? YwtbLogin)?.idToken?.takeIf { it.isNotEmpty() }?.let {
             localToken["id_token"] = it
+            CampusProbe.ywtbToken = it
         }
     }
 

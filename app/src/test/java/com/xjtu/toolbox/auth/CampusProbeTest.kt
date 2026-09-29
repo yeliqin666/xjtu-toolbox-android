@@ -66,6 +66,15 @@ class CampusProbeTest {
     }
 
     @Test
+    fun `令牌按 JWT 的 exp 判过期，解不出来的交给服务器`() {
+        fun jwt(payload: String) = "h." + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(payload.toByteArray()) + ".s"
+        val token = jwt("""{"iat":1000,"exp":29800}""")
+        assertFalse(CampusProbe.isExpired(token, 1000_000L))
+        assertTrue(CampusProbe.isExpired(token, 29_800_000L))
+        assertFalse(CampusProbe.isExpired("opaque-token", Long.MAX_VALUE))
+    }
+
+    @Test
     fun `解析 networkCheck`() {
         assertEquals(Server.ON, CampusProbe.parseCheck("""{"code":0,"message":null,"data":true}"""))
         assertEquals(Server.OFF, CampusProbe.parseCheck("""{"code":0,"data":false}"""))

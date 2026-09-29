@@ -100,11 +100,13 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
     /**
      * 网络环境（access mode）切换时调用：清旧 cached login + vpnClient，
      * 同步通知 SessionManager 切换 active backend（两边 cookies 保留以便快速切回）。
+     *
+     * @param networkSwitched 换了一张网（WiFi / 数据互切）。这时结论变了是正常的，不用复查。
      */
-    suspend fun onNetworkChanged(): Boolean {
+    suspend fun onNetworkChanged(networkSwitched: Boolean = false): Boolean {
         val prev = isOnCampus
         campusDetectTime = 0L
-        val now = detectCampusNetwork()
+        val now = detectCampusNetwork(trustFirst = networkSwitched)
         isOnCampus = now
         sessionManager?.onNetworkChanged(
             if (now) com.xjtu.toolbox.auth.AccessMode.NORMAL
@@ -284,12 +286,13 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
      * 检测是否在校园网内（带 10 分钟缓存），探测本身见 [CampusProbe]。
      *
      * 波动保护：只凭「内网探针全连不上」得出的弱结论若和缓存不同，隔 1.5 秒再探一次，
-     * 两次一致才改判；探针连上或服务器明确回答的强结论直接采用。手机这会儿没网时不改判。
+     * 两次一致才改判；探针连上或服务器明确回答的强结论直接采用，刚换了网络（[trustFirst]）
+     * 也直接采用。手机这会儿没网时不改判。
      *
      * 手动模式短路：用户在「设置 → 连接模式」选了「强制直连」/「强制 WebVPN」时，
      * 跳过探测直接返回对应结果。
      */
-    suspend fun detectCampusNetwork(): Boolean {
+    suspend fun detectCampusNetwork(trustFirst: Boolean = false): Boolean {
         when (credentialStoreRef?.networkMode) {
             CredentialStore.NETWORK_DIRECT -> return true
             CredentialStore.NETWORK_VPN -> return false
@@ -305,7 +308,7 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
             android.util.Log.d("Campus", "detectCampus: offline, keeping cached=$cached")
             return cached ?: false
         }
-        val result = if (first.strong || cached == null || cached == first.onCampus) {
+        val result = if (first.strong || trustFirst || cached == null || cached == first.onCampus) {
             first.onCampus
         } else {
             kotlinx.coroutines.delay(1500L)
@@ -319,8 +322,9 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
     }
 
     /** 一网通办登录后才有；networkCheck 要带它。 */
-    private fun ywtbToken(): String? =
+    private suspend fun ywtbToken(): String? =
         sessionManager?.getSiteOrNull(LoginType.YWTB.siteKey())?.localToken?.get("id_token")
+            ?: kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { CampusProbe.ywtbToken }
 
     // 登出只走 AccountManager.logoutCurrent：它会把会话层切回匿名命名空间并清掉凭据。
 }

@@ -1,6 +1,8 @@
 package com.xjtu.toolbox.auth
 
+import android.content.Context
 import android.util.Log
+import com.xjtu.toolbox.data.SecurePrefs
 import com.xjtu.toolbox.network.HttpClients
 import com.xjtu.toolbox.util.safeParseJsonObject
 import kotlinx.coroutines.CoroutineScope
@@ -43,6 +45,39 @@ object CampusProbe {
     )
     private const val CHECK_URL = "https://ywtb.xjtu.edu.cn/portal-api/v2/service/networkCheck"
 
+    private const val PREFS = "campus_probe"
+    private const val KEY_TOKEN = "ywtb_token"
+    private lateinit var app: Context
+
+    fun init(context: Context) {
+        app = context.applicationContext
+    }
+
+    @Volatile private var token: String? = null
+    @Volatile private var tokenLoaded = false
+
+    /**
+     * 最近一次一网通办登录拿到的令牌，加密存盘，重启和站点失效都不丢——一网通办平时不一定
+     * 登录，只靠内存的话切网时多半没有。networkCheck 不看是谁。令牌是 JWT、8 小时有效，
+     * 过期的当没有；服务器说没权限也作废，退回靠探针。
+     */
+    var ywtbToken: String?
+        get() {
+            if (!tokenLoaded && ::app.isInitialized) {
+                token = runCatching { SecurePrefs.open(app, PREFS).getString(KEY_TOKEN, null) }.getOrNull()
+                tokenLoaded = true
+            }
+            return token?.takeUnless { isExpired(it, System.currentTimeMillis()) }
+        }
+        set(value) {
+            token = value
+            tokenLoaded = true
+            if (!::app.isInitialized) return
+            runCatching {
+                SecurePrefs.open(app, PREFS).edit().apply { if (value == null) remove(KEY_TOKEN) else putString(KEY_TOKEN, value) }.apply()
+            }
+        }
+
     /** 服务器说校外后，再等探针多久。校内探针一般几十毫秒就回。 */
     private const val GRACE_MS = 800L
 
@@ -62,7 +97,7 @@ object CampusProbe {
 
     private val client by lazy {
         HttpClients.base.newBuilder()
-            .connectTimeout(3, TimeUnit.SECONDS)
+            .connectTimeout(2, TimeUnit.SECONDS)
             .readTimeout(3, TimeUnit.SECONDS)
             .callTimeout(4, TimeUnit.SECONDS)
             .followRedirects(false)
@@ -81,7 +116,7 @@ object CampusProbe {
         )
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         calls.forEach { call -> scope.launch { signals.trySend(Signal.Probe(reach(call))) } }
-        scope.launch { signals.trySend(Signal.Check(ask(check, ywtbToken != null))) }
+        scope.launch { signals.trySend(Signal.Check(ask(check, ywtbToken))) }
         return try {
             decide(signals, calls.size).also { Log.d(TAG, "probe: $it (token=${ywtbToken != null})") }
         } finally {
@@ -126,13 +161,29 @@ object CampusProbe {
         false
     }
 
-    private fun ask(call: Call, withToken: Boolean): Server = try {
+    private fun ask(call: Call, token: String?): Server = try {
         call.execute().use { resp ->
             val body = resp.body.string()
-            parseCheck(body).also { if (withToken && it == Server.REACHABLE) Log.d(TAG, "networkCheck 无结论：${resp.code} ${body.take(120)}") }
+            parseCheck(body).also {
+                if (token != null && it == Server.REACHABLE) {
+                    Log.d(TAG, "networkCheck 无结论：${resp.code} ${body.take(120)}")
+                    // 令牌过期：别再带着它反复问
+                    if ("权限" in body && ywtbToken == token) ywtbToken = null
+                }
+            }
         }
     } catch (_: Exception) {
         Server.UNREACHABLE
+    }
+
+    /** JWT 的 exp 已过（留 1 分钟余量）；解不出来的不算过期，交给服务器判。 */
+    internal fun isExpired(jwt: String, now: Long): Boolean {
+        val payload = jwt.split('.').getOrNull(1) ?: return false
+        val exp = runCatching {
+            val json = String(java.util.Base64.getUrlDecoder().decode(payload.padEnd((payload.length + 3) / 4 * 4, '=')))
+            (json.safeParseJsonObject()["exp"] as? JsonPrimitive)?.content?.toLongOrNull()
+        }.getOrNull() ?: return false
+        return exp * 1000 - 60_000 < now
     }
 
     /** 成功时 `{"code":0,"data":true}`；没权限、令牌过期、网关报错页等只说明公网通。 */

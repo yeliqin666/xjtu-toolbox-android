@@ -413,13 +413,17 @@ private fun NetworkChangeWatcher(loginState: AppLoginState, navigator: AppNaviga
     DisposableEffect(Unit) {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
         var job: Job? = null
+        // 这一轮防抖里默认网络换过（WiFi / 数据互切），而不只是同一张网的属性变化
+        val switched = java.util.concurrent.atomic.AtomicBoolean(false)
         fun trigger(reason: String) {
             job?.cancel()
             job = scope.launch {
-                delay(3000L)
+                // 只等 0.3 秒并掉同一波回调：新网络没起来时探测会判「没网」而不改判，后续回调还会再探
+                delay(300L)
+                val networkSwitched = switched.getAndSet(false)
                 try {
-                    Log.d("Network", "Network changed ($reason), re-evaluating access mode after 3s settle")
-                    val modeChanged = withContext(Dispatchers.IO) { loginState.onNetworkChanged() }
+                    Log.d("Network", "Network changed ($reason, switched=$networkSwitched), re-evaluating access mode")
+                    val modeChanged = withContext(Dispatchers.IO) { loginState.onNetworkChanged(networkSwitched) }
                     val current = navigator.current
                     if (loginState.isLoggedIn && modeChanged && current.loginType != null) {
                         Log.d("Network", "Mode changed while on ${current.id} → markStaleAndRetry")
@@ -445,10 +449,12 @@ private fun NetworkChangeWatcher(loginState: AppLoginState, navigator: AppNaviga
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
                 loginState.sessionManager?.evictConnections()
+                switched.set(true)
                 trigger("onAvailable")
             }
             override fun onLost(network: Network) {
                 loginState.sessionManager?.evictConnections()
+                switched.set(true)
                 trigger("onLost")
             }
             override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {

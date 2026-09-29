@@ -92,9 +92,13 @@ class SessionManager(context: Context) {
         recordDiagnostic("INFO", "network", "访问模式切换：${old.key} -> ${newMode.key}")
         _currentAccessMode.value = newMode
         sites.values.forEach {
-            it.backend = backendFor(it)
-            // 切换 access mode 后 cookies 域不同，原 hasLogin 应失效以触发 validate
-            it.invalidateLogin()
+            // 只作废真换了 backend 的站点（cookies 域不同，要重新 validate）；直连站点连接没变，
+            // 登录和一网通办令牌都留着
+            val next = backendFor(it)
+            if (next !== it.backend) {
+                it.backend = next
+                it.invalidateLogin()
+            }
         }
     }
 
@@ -455,6 +459,7 @@ class SessionManager(context: Context) {
      */
     fun reconfigureForAccount(accountSuffix: String) {
         AccountContext.switchEpoch++
+        CampusProbe.ywtbToken = null
         // 挂着的 MFA 是旧账号的：验证码发到了旧账号手机上，填了也只会登进旧账号
         _activeMfaRequest.value?.cancel()
         synchronized(backendsLock) {
