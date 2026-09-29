@@ -273,29 +273,8 @@ private fun CommunityLoginScreen(session: GithubSession, onBack: () -> Unit, onO
 
 /** 旧的页内反馈（飞书多维表格）挪到社区里当二级入口，准备停用。 */
 @Composable
-internal fun LegacyFeedbackEntry(onClick: () -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        cornerRadius = 16.dp,
-        insideMargin = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-        colors = CardDefaults.defaultColors(color = AppCardColor),
-        pressFeedbackType = PressFeedbackType.Sink,
-        showIndication = true,
-        onClick = onClick,
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("旧版反馈", style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.SemiBold)
-                Text(
-                    "不用登录的页内反馈，即将停用，建议改到社区发帖",
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                )
-            }
-            CommunityTag("即将停用", MiuixTheme.colorScheme.onSurfaceVariantSummary)
-        }
-    }
-}
+internal fun LegacyFeedbackEntry(onClick: () -> Unit) =
+    com.xjtu.toolbox.ui.components.SecondaryEntry("旧版反馈", "不用登录的页内反馈，即将停用，建议改到社区发帖", tag = "即将停用", onClick = onClick)
 
 private fun copyToClipboard(context: Context, text: String) {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return

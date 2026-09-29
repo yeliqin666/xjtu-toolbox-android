@@ -20,7 +20,6 @@ import kotlinx.coroutines.withContext
 internal class TranscriptViewModel(
     site: SiteSession,
     private val document: DzpzDocument,
-    defaultIdentity: DzpzIdentity,
 ) : ViewModel() {
     private val api = TranscriptApi(site)
     private val authExpiredChannel = Channel<Unit>(Channel.CONFLATED)
@@ -30,8 +29,6 @@ internal class TranscriptViewModel(
     var errorMessage by mutableStateOf<String?>(null); private set
     var formContext by mutableStateOf<TranscriptApi.FormContext?>(null); private set
     var selectedTypeIndex by mutableIntStateOf(0)
-    /** 校友身份从账号上判断不出来，默认按账号类型，用户可以手动切。 */
-    var identity by mutableStateOf(defaultIdentity); private set
 
     var workflowState by mutableStateOf(WorkflowState.IDLE); private set
     var workflowProgress by mutableStateOf(""); private set
@@ -40,14 +37,8 @@ internal class TranscriptViewModel(
 
     init { loadForm() }
 
-    fun selectIdentity(value: DzpzIdentity) {
-        identity = value
-        loadForm()
-    }
-
-    /** 按文件类型 + 身份查申请流程。 */
     fun loadForm() {
-        val workflowId = document.workflowIds[identity] ?: return
+        val workflowId = document.workflowId
         isLoading = true
         errorMessage = null
         workflowState = WorkflowState.IDLE

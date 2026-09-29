@@ -90,7 +90,9 @@ fun JwappScoreScreen(
     jwxtSite: SiteSession? = null,
     studentId: String = "",
     onBack: () -> Unit,
-    onOpenReport: () -> Unit = {}
+    onOpenReport: () -> Unit = {},
+    /** 电子成绩单入口；只有本科生传，研究生不传就不显示。 */
+    onOpenTranscript: (() -> Unit)? = null,
 ) {
     val appLoginState = LocalAppLoginState.current
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -478,6 +480,9 @@ fun JwappScoreScreen(
                         }
                     }
 
+                    onOpenTranscript?.let { open ->
+                        fullLineItem { com.xjtu.toolbox.ui.components.SecondaryEntry("电子成绩单", "生成并下载官方成绩单 PDF", onClick = open) }
+                    }
                     fullLineItem { Spacer(Modifier.height(16.dp)) }
                 }
                 }

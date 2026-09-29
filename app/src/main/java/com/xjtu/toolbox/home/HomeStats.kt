@@ -134,7 +134,6 @@ object HomeStats {
         AppRoute.Judge,         // 待评教门数
         AppRoute.Coupon,        // 待领取 / 待使用
         AppRoute.Fitness,       // 最近学年体测总分
-        AppRoute.YellowPage,    // 教务处 / 保卫处电话
         AppRoute.JwappScore,    // 成绩门数 / 新增门数
         AppRoute.Notification,  // 教务处最新通知
     ).map { it.id }

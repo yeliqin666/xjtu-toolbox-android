@@ -104,6 +104,7 @@ fun CampusCardScreen(
     // 第 5 条。默认 false，和 agent/ProactiveBubble.kt 的 glass 参数一个约定：
     // 接上设置项之前先按「经典」的不透明样式来，不在没接设置项的分支里提前显示玻璃。
     glass: Boolean = false,
+    onOpenCoupon: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -301,7 +302,7 @@ fun CampusCardScreen(
                                     // 右栏就是完整的流水，左栏不再重复「最近交易」
                                     OverviewTab(
                                         cardInfo, stats.monthly, emptyList(), todaySummary, stats.dailyRate,
-                                        stats.activeDays, rangeDates.first, rangeDates.second, topInset,
+                                        stats.activeDays, rangeDates.first, rangeDates.second, topInset, onOpenCoupon,
                                     )
                                 }
                                 Box(Modifier.weight(0.58f).fillMaxHeight()) {
@@ -336,7 +337,7 @@ fun CampusCardScreen(
                             when (tab) {
                                 0 -> OverviewTab(
                                     cardInfo, stats.monthly, transactions.take(5), todaySummary, stats.dailyRate,
-                                    stats.activeDays, rangeDates.first, rangeDates.second, topContentPadding,
+                                    stats.activeDays, rangeDates.first, rangeDates.second, topContentPadding, onOpenCoupon,
                                 )
                                 1 -> TransactionTab(
                                     transactions, transactions.size, vm.isLoadingMore, searchQuery,
@@ -372,6 +373,7 @@ private fun OverviewTab(
     rangeEnd: LocalDate,
     // 顶栏 + 标签行 + 时间选择器的高度，给列表让出来（plan2 §16.2）。
     topContentPadding: Dp = 0.dp,
+    onOpenCoupon: () -> Unit = {},
 ) {
     LazyColumn(
         // 左右留白放在 contentPadding 里而不是列表外面：余额卡有投影，
@@ -417,6 +419,7 @@ private fun OverviewTab(
                 }
             }
         }
+        item { com.xjtu.toolbox.ui.components.SecondaryEntry("加餐券", "领取和使用食堂加餐券", onClick = onOpenCoupon) }
     }
 }
 

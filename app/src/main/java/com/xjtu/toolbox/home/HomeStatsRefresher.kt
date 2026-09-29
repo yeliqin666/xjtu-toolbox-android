@@ -100,7 +100,7 @@ object HomeStatsRefresher {
      */
     private val runOrder: List<AppRoute> = listOf(
         AppRoute.JwappScore, AppRoute.Lms(), AppRoute.Library, AppRoute.CampusCard,
-        AppRoute.Judge, AppRoute.Attendance, AppRoute.Fitness, AppRoute.Notification, AppRoute.YellowPage,
+        AppRoute.Judge, AppRoute.Attendance, AppRoute.Fitness, AppRoute.Notification,
         AppRoute.Iclassface, AppRoute.DormPower, AppRoute.Coupon,
     )
 
@@ -220,13 +220,18 @@ object HomeStatsRefresher {
                     HomeStats.setPendingNewScores(ctx, HomeStats.pendingNewScores(ctx, roundAccount) + newCount, roundAccount)
                     InboxStore.post(OwnInbox.grade(newCount, total), roundAccount)
                 }
-                // 最新学期挑分数最高/最近的一条做明细意义不大，直接报本学期门数与新增。
-                val latestTerm = terms.maxByOrNull { it.termCode }
-                HomeStat(
-                    if (newCount > 0) "$newCount 门新成绩" else "${latestTerm?.scoreList?.size ?: total} 门",
-                    if (newCount > 0) "共 $total 门 · 有更新"
-                    else latestTerm?.termName?.let { "$it 学期" } ?: "共 $total 门"
-                )
+                // 只报本学期：教务的学期信息和日程页缓存都是同一套学期号，本学期还没出分就如实说没有，
+                // 不拿上学期的顶上。取不到当前学期号时才退回「有成绩的最新学期」。
+                val currentTerm = runCatching { com.xjtu.toolbox.jwapp.JwappApi(site).getCurrentTerm() }.getOrNull()?.takeIf { it.isNotBlank() }
+                    ?: com.xjtu.toolbox.schedule.ScheduleCache.readCurrentTerm(com.xjtu.toolbox.data.DataCache(ctx, roundAccount))
+                val shown = if (currentTerm != null) terms.firstOrNull { it.termCode == currentTerm } else terms.maxByOrNull { it.termCode }
+                val shownCount = shown?.scoreList?.size ?: 0
+                when {
+                    newCount > 0 -> HomeStat("$newCount 门新成绩", "共 $total 门 · 有更新")
+                    shownCount > 0 -> HomeStat("$shownCount 门", "${shown?.termName.orEmpty()} 学期")
+                    currentTerm != null -> HomeStat("暂无", "本学期成绩未出")
+                    else -> HomeStat("$total 门", "共 $total 门")
+                }
             }
         },
 
@@ -307,23 +312,6 @@ object HomeStatsRefresher {
                 top.take(16),
                 result.titles.getOrNull(1)?.take(16) ?: "所选来源最新通知",
             )
-        },
-
-        // 校园黄页：不需要登录，数据几乎不变，一周一次足够。
-        // 只取用户点名的教务处与保卫处两条。
-        Source(AppRoute.YellowPage, 7 * DAY, null) { ctx, _ ->
-            withContext(Dispatchers.IO) {
-                val data = com.xjtu.toolbox.yellowpage.YellowPageApi(ctx).getData()
-                val wanted = listOf("教务处", "保卫处")
-                val hits = data.departments.filter { d -> wanted.any { d.name.contains(it) } }
-                    .sortedBy { d -> wanted.indexOfFirst { d.name.contains(it) } }
-                Log.d(TAG, "yellow_page: 部门总数=${data.departments.size} 命中=${hits.map { it.name }}")
-                if (hits.isEmpty()) null
-                else HomeStat(
-                    hits.first().let { "${shortName(it.name)} ${it.phoneItems.firstOrNull().orEmpty()}" },
-                    hits.getOrNull(1)?.let { "${shortName(it.name)} ${it.phoneItems.firstOrNull().orEmpty()}" }
-                )
-            }
         },
     )
 
@@ -408,12 +396,6 @@ object HomeStatsRefresher {
     }
 
     private const val LMS_MAX_COURSES = 6
-
-    private fun shortName(full: String) = when {
-        full.contains("教务") -> "教务处"
-        full.contains("保卫") -> "保卫处"
-        else -> full.take(6)
-    }
 
     /**
      * 跑一轮刷新。只处理已过期的源，逐个串行，源之间留 [GAP_MS]。

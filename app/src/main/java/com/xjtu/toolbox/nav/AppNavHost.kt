@@ -49,6 +49,7 @@ import com.xjtu.toolbox.score.ScoreReportScreen
 import com.xjtu.toolbox.settings.SettingsScreen
 import com.xjtu.toolbox.social.MatchScreen
 import com.xjtu.toolbox.venue.VenueScreen
+import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.dormpower.DormPowerScreen
 import com.xjtu.toolbox.webvpn.WebVpnConverterScreen
 import com.xjtu.toolbox.yellowpage.YellowPageScreen
@@ -116,6 +117,8 @@ fun AppNavHost(
                 studentId = loginState.activeUsername,
                 onBack = back,
                 onOpenReport = { router.open(AppRoute.ScoreReport) },
+                // 成绩单只有本科生的流程，研究生不显示入口
+                onOpenTranscript = if (loginState.accountType == AccountType.UNDERGRADUATE) { { router.open(AppRoute.Transcript) } } else null,
             )
         }
         entry<AppRoute.Judge>(transition = expand(AppRoute.Judge::class)) {
@@ -135,6 +138,7 @@ fun AppNavHost(
                     site = it,
                     onBack = back,
                     glass = credentialStore.navBarStyle == CredentialStore.NAV_STYLE_FLOATING,
+                    onOpenCoupon = { router.open(AppRoute.Coupon) },
                 )
             }
         }

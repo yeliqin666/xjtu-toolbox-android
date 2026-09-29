@@ -58,8 +58,7 @@ fun TranscriptScreen(
     val appLoginState = LocalAppLoginState.current
     val context = LocalContext.current
     val vm: TranscriptViewModel = viewModel(key = "transcript-${document.hashCode()}-${System.identityHashCode(site)}") {
-        val postgrad = CredentialStore(context).accountType == com.xjtu.toolbox.auth.AccountType.POSTGRADUATE
-        TranscriptViewModel(site, document, if (postgrad) DzpzIdentity.POSTGRAD else DzpzIdentity.UNDERGRAD)
+        TranscriptViewModel(site, document)
     }
     LaunchedEffect(vm) { vm.authExpired.collect { appLoginState.handleAuthExpired(AppRoute.Transcript, onBack) } }
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
@@ -110,17 +109,6 @@ fun TranscriptScreen(
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = glassTop + 12.dp, bottom = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // ── 身份选择：默认按账号类型，校友身份需要手动切换 ──
-                    item {
-                        IdentitySelector(
-                            selected = vm.identity,
-                            enabled = vm.workflowState != WorkflowState.RUNNING,
-                            onSelect = { identity ->
-                                vm.selectIdentity(identity)
-                            }
-                        )
-                    }
-
                     // ── 成绩单类型选择 ──
                     item {
                         TranscriptTypeSelector(
@@ -181,45 +169,6 @@ enum class WorkflowState {
     RUNNING,    // 正在处理
     SUCCESS,    // 成功
     ERROR       // 失败
-}
-
-// ══════════════════════════════════════
-//  身份选择器
-// ══════════════════════════════════════
-
-/**
- * 四档身份：在校本科生 / 研究生 / 已毕业本科（校友）/ 研究生校友。默认值按账号
- * 类型来，校友身份判断不出来，需要用户自己切；切换后会用对应的 workflowId
- * 重新调一次 loadForm（见 plan2 §7.2）。
- */
-@Composable
-private fun IdentitySelector(
-    selected: DzpzIdentity,
-    enabled: Boolean,
-    onSelect: (DzpzIdentity) -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
-    ) {
-        Column(Modifier.padding(16.dp)) {
-            Text(
-                "身份",
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MiuixTheme.colorScheme.onSurface
-            )
-            Spacer(Modifier.height(12.dp))
-            DzpzIdentity.entries.forEach { identity ->
-                TranscriptTypeSelectorItem(
-                    label = identity.label,
-                    isSelected = identity == selected,
-                    enabled = enabled,
-                    onClick = { onSelect(identity) }
-                )
-            }
-        }
-    }
 }
 
 // ══════════════════════════════════════
