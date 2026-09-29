@@ -241,6 +241,9 @@ internal fun MainScreen(
     // 首页数据拉取挂在这里而不是 HomeTab：tab 懒加载，默认启动 tab 不是首页时也要拉
     LaunchedEffect(loginState.accountId, loginState.campusCardCacheVersion) {
         if (loginState.accountId.isEmpty()) return@LaunchedEffect
+        // 先等校内/校外探测落定：否则站点按默认直连去登校内网站点，校外白等 12 秒连接超时，
+        // 还占着串行的登录通道，把首屏的教务登录一起拖住。
+        runCatching { loginState.ensureCampusDetected() }
         HomeStatsRefresher.refreshDue(context, loginState.sessionManager, loginState.accountType)
         HomeSignals.bumpStatsVersion()
     }

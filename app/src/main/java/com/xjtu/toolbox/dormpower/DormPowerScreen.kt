@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.auth.AuthExpiredException
 import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.auth.SiteSession
+import com.xjtu.toolbox.auth.SsnSession
 import com.xjtu.toolbox.auth.handleAuthExpired
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
@@ -138,15 +139,13 @@ fun DormPowerScreen(site: SiteSession, onOpenBrowser: (String) -> Unit, onBack: 
                     items(readings, key = { it.room.id }) { r ->
                         RoomCard(
                             r,
-                            onRecharge = { onOpenBrowser(com.xjtu.toolbox.auth.SsnLogin.SSN_OAUTH_URL) },
+                            onRecharge = {
+                                launchGuarded(onFail = { context.toast("打开缴费页失败：$it") }) {
+                                    context.toast("正在打开缴费页...")
+                                    onOpenBrowser((site as SsnSession).freshPayUrl())
+                                }
+                            },
                             onUnbind = { unbinding = r },
-                        )
-                    }
-                    item {
-                        TextButton(
-                            text = "添加宿舍",
-                            onClick = { picking = true },
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
                         )
                     }
                     item {
