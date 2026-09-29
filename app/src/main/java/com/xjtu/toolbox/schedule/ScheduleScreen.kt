@@ -49,6 +49,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
@@ -163,6 +164,9 @@ fun ScheduleScreen(
     val mergedCourses = remember(vm.courses, vm.customCourses) { vm.courses + vm.customCourses.map { it.toCourseItem() } }
     val filteredMergedCourses = remember(mergedCourses, vm.startOfTerm, vm.holidayDates) {
         ScheduleCache.filterByHolidays(mergedCourses, vm.startOfTerm, vm.holidayDates)
+    }
+    val allCourseNames = remember(filteredMergedCourses) {
+        filteredMergedCourses.map { it.courseName }.distinct().sorted()
     }
     // 「接下来」：今日两处 TodayTimeline（窄屏 tab、宽屏常驻栏）共用
     val upcomingItems = remember(vm.exams, vm.homeworkDue) { buildUpcoming(vm.exams, vm.homeworkDue) }
@@ -692,9 +696,7 @@ fun ScheduleScreen(
                                     },
                                     exams = vm.exams,
                                     today = java.time.LocalDate.now(),
-                                    allCourseNames = remember(filteredMergedCourses) {
-                                        filteredMergedCourses.map { it.courseName }.distinct().sorted()
-                                    },
+                                    allCourseNames = allCourseNames,
                                     onCourseClick = {
                                         unifiedOccurrence = Occurrence(
                                             java.time.LocalDate.now(), vm.realCurrentWeek,
@@ -784,6 +786,7 @@ fun ScheduleScreen(
                             }
                             CourseDetailContent(
                                 course = picked,
+                                allCourseNames = allCourseNames,
                                 textbooks = vm.textbooks,
                                 textbooksProblem = vm.textbooksBackgroundError,
                                 termCode = vm.selectedTermCode,
@@ -809,9 +812,7 @@ fun ScheduleScreen(
                             courses = weekCourses,
                             exams = vm.exams,
                             today = java.time.LocalDate.now(),
-                            allCourseNames = remember(filteredMergedCourses) {
-                                filteredMergedCourses.map { it.courseName }.distinct().sorted()
-                            },
+                            allCourseNames = allCourseNames,
                             onCourseClick = {
                                 unifiedOccurrence = Occurrence(
                                     java.time.LocalDate.now(), vm.realCurrentWeek,
@@ -839,6 +840,7 @@ fun ScheduleScreen(
         CourseDetailDialog(
             show = showDetail,
             course = course,
+            allCourseNames = allCourseNames,
             onDismiss = { unifiedSelectedCourse = null },
             textbooks = vm.textbooks,
             textbooksProblem = vm.textbooksBackgroundError,
@@ -1112,6 +1114,7 @@ private fun ScheduleTabContent(
         CourseDetailDialog(
             show = showCourseDetail,
             course = course,
+            allCourseNames = allNames,
             onDismiss = { selectedCourse = null },
             textbooks = textbooks,
             textbooksProblem = textbooksProblem,
@@ -1153,6 +1156,8 @@ private fun ScheduleMenuRow(
 @Composable
 private fun CourseDetailContent(
     course: CourseItem,
+    /** 同屏全部课程名，默认配色按它排序取色。 */
+    allCourseNames: List<String>,
     textbooks: List<TextbookItem> = emptyList(),
     /** 教材没取到时的原因，null 表示没问题。 */
     textbooksProblem: String? = null,
@@ -1178,11 +1183,26 @@ private fun CourseDetailContent(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Column {
-                Text(
-                    course.courseName,
-                    style = MiuixTheme.textStyles.headline2,
-                    fontWeight = FontWeight.Bold,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        course.courseName,
+                        style = MiuixTheme.textStyles.headline2,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (!isAgenda) {
+                        var pickColor by remember { mutableStateOf(false) }
+                        val color = courseColor(course.courseName, allCourseNames)
+                        Box(
+                            Modifier
+                                .size(26.dp)
+                                .clip(CircleShape)
+                                .background(color)
+                                .clickable { pickColor = true }
+                        )
+                        if (pickColor) CourseColorDialog(course.courseName, color) { pickColor = false }
+                    }
+                }
                 course.courseType.takeIf { it.isNotBlank() && !isAgenda }?.let {
                     Spacer(Modifier.height(3.dp))
                     Text(
@@ -1298,6 +1318,7 @@ private fun CourseDetailContent(
 private fun CourseDetailDialog(
     show: MutableState<Boolean>,
     course: CourseItem,
+    allCourseNames: List<String>,
     onDismiss: () -> Unit,
     textbooks: List<TextbookItem> = emptyList(),
     /** 教材没取到时的原因，null 表示没问题。 */
@@ -1316,6 +1337,7 @@ private fun CourseDetailDialog(
     ) {
         CourseDetailContent(
             course = course,
+            allCourseNames = allCourseNames,
             textbooks = textbooks,
             textbooksProblem = textbooksProblem,
             termCode = termCode,

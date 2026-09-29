@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
+import com.xjtu.toolbox.schedule.CourseColors
 import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.auth.AuthExpiredException
 import com.xjtu.toolbox.auth.handleAuthExpired
@@ -170,11 +171,14 @@ internal fun CourseListPage(
         }
     }
 }
+/** 课程主色：用户在课表或这里改过就用改过的，否则按课程 id 取默认色。 */
+internal fun lmsAccent(course: LmsCourseSummary): Color = CourseColors.of(course.name) ?: listOf(
+    Color(0xFF5B6FD8), Color(0xFF2D9B86), Color(0xFFD07A45), Color(0xFF8B63C7)
+)[(course.id.hashCode() and Int.MAX_VALUE) % 4]
+
 @Composable
 private fun LmsCourseCard(course: LmsCourseSummary, onClick: () -> Unit) {
-    val accent = listOf(
-        Color(0xFF5B6FD8), Color(0xFF2D9B86), Color(0xFFD07A45), Color(0xFF8B63C7)
-    )[(course.id.hashCode() and Int.MAX_VALUE) % 4]
+    val accent = lmsAccent(course)
     Card(
         onClick = onClick,
         pressFeedbackType = PressFeedbackType.Sink,

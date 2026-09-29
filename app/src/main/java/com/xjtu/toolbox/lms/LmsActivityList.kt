@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
+import com.xjtu.toolbox.schedule.CourseColorDialog
 import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.auth.AuthExpiredException
 import com.xjtu.toolbox.auth.handleAuthExpired
@@ -103,6 +104,9 @@ internal fun ActivityListPage(
         else activities.filter { it.type == selectedType }
     }
 
+    var pickColor by remember { mutableStateOf(false) }
+    if (pickColor) CourseColorDialog(course.name, lmsAccent(course)) { pickColor = false }
+
     Scaffold(
         topBar = {
             GlassTopAppBar(
@@ -111,6 +115,9 @@ internal fun ActivityListPage(
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
                 actions = {
+                    IconButton(onClick = { pickColor = true }) {
+                        Icon(Icons.Default.Palette, contentDescription = "课程颜色", tint = lmsAccent(course))
+                    }
                     if (activities.any { it.type in BATCH_TYPES }) {
                         IconButton(onClick = {
                             selecting = !selecting

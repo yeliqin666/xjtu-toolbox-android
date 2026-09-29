@@ -114,6 +114,7 @@ private fun buildAxisRows(isSummer: Boolean): List<AxisRow> {
 }
 
 fun courseColor(courseName: String, allNames: List<String>): Color {
+    CourseColors.of(courseName)?.let { return it }
     val index = allNames.distinct().sorted().indexOf(courseName)
     return if (index >= 0) COURSE_COLORS[index % COURSE_COLORS.size] else COURSE_COLORS[0]
 }

@@ -54,6 +54,7 @@ class XjtuApp : Application() {
     override fun onCreate() {
         super.onCreate()
         CrashReporter.install(this)
+        com.xjtu.toolbox.schedule.CourseColors.init(this)
         applicationScope.launch { CrashReporter.uploadPending(this@XjtuApp) }
         applicationScope.launch { removeRetiredFeatureData() }
         AppNotificationChannels.ensureChannels(this)

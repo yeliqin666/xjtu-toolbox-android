@@ -254,7 +254,7 @@ class AccountManager(
             // 按账号命名的 prefs：直接按被删账号的后缀清，不去临时改全局 AccountContext
             runCatching {
                 CampusCardCache.clear(appContext, accountId)
-                for (name in listOf("campus_card", "score_cursor", "attendance_watch")) {
+                for (name in listOf("campus_card", "score_cursor", "attendance_watch", "course_colors")) {
                     appContext.getSharedPreferences("$name$suffix", Context.MODE_PRIVATE).edit().clear().apply()
                 }
             }
