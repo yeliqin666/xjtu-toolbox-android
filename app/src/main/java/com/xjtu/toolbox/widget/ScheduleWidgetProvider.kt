@@ -476,18 +476,7 @@ object ScheduleWidgetUpdater {
                 hasCache = false
             )
 
-        val apiCourses = ScheduleCache.readCourses(cache, termCode).orEmpty()
-
-        val customCourses = runCatching {
-            runBlocking {
-                AppDatabase.getInstance(context)
-                    .customCourseDao()
-                    .getByTerm(com.xjtu.toolbox.account.AccountContext.activeAccountId ?: "", termCode)
-                    .map { it.toCourseItem() }
-            }
-        }.getOrDefault(emptyList())
-
-        val allCourses = apiCourses + customCourses
+        val allCourses = allCoursesOf(context, cache, termCode)
 
         val startDate = ScheduleCache.readStartDate(cache, termCode)
 
@@ -697,9 +686,26 @@ object ScheduleWidgetUpdater {
         termCode.isNotBlank() && !ScheduleCache.readCourses(cache, termCode).isNullOrEmpty()
 }
 
-class ScheduleWidget2x2Provider : AppWidgetProvider() {
+/**
+ * 两个尺寸的小组件除了尺寸和 provider 类，逻辑完全一样。
+ * 渲染要读缓存目录、查 Room，不能占着接收广播的主线程：goAsync 之后放到 IO 线程做。
+ */
+abstract class ScheduleWidgetProviderBase(private val size: WidgetSize) : AppWidgetProvider() {
+
+    private fun updateAsync(context: Context, ids: () -> IntArray) {
+        val pending = goAsync()
+        val app = context.applicationContext
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            try {
+                ScheduleWidgetUpdater.updateSpecific(app, AppWidgetManager.getInstance(app), ids(), size)
+            } finally {
+                pending.finish()
+            }
+        }
+    }
+
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
-        ScheduleWidgetUpdater.updateSpecific(context, appWidgetManager, appWidgetIds, WidgetSize.SMALL)
+        updateAsync(context) { appWidgetIds }
     }
 
     override fun onReceive(context: Context, intent: Intent?) {
@@ -709,28 +715,13 @@ class ScheduleWidget2x2Provider : AppWidgetProvider() {
             if (intent.getBooleanExtra(ScheduleWidgetUpdater.EXTRA_RESET_TO_TODAY, false)) {
                 ScheduleWidgetUpdater.resetBrowseSelectionToToday(context)
             }
-            val manager = AppWidgetManager.getInstance(context)
-            val ids = manager.getAppWidgetIds(ComponentName(context, ScheduleWidget2x2Provider::class.java))
-            ScheduleWidgetUpdater.updateSpecific(context, manager, ids, WidgetSize.SMALL)
-        }
-    }
-}
-
-class ScheduleWidget4x2Provider : AppWidgetProvider() {
-    override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
-        ScheduleWidgetUpdater.updateSpecific(context, appWidgetManager, appWidgetIds, WidgetSize.LARGE)
-    }
-
-    override fun onReceive(context: Context, intent: Intent?) {
-        super.onReceive(context, intent)
-        if (ScheduleWidgetUpdater.handleAction(context, intent?.action)) return
-        if (intent?.action == ScheduleWidgetUpdater.ACTION_REFRESH) {
-            if (intent.getBooleanExtra(ScheduleWidgetUpdater.EXTRA_RESET_TO_TODAY, false)) {
-                ScheduleWidgetUpdater.resetBrowseSelectionToToday(context)
+            updateAsync(context) {
+                AppWidgetManager.getInstance(context).getAppWidgetIds(ComponentName(context, this::class.java))
             }
-            val manager = AppWidgetManager.getInstance(context)
-            val ids = manager.getAppWidgetIds(ComponentName(context, ScheduleWidget4x2Provider::class.java))
-            ScheduleWidgetUpdater.updateSpecific(context, manager, ids, WidgetSize.LARGE)
         }
     }
 }
+
+class ScheduleWidget2x2Provider : ScheduleWidgetProviderBase(WidgetSize.SMALL)
+
+class ScheduleWidget4x2Provider : ScheduleWidgetProviderBase(WidgetSize.LARGE)
