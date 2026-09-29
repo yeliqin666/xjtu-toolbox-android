@@ -38,7 +38,10 @@ class FitnessLogin(
     private fun extractOrRetry(callbackUrl: String): FitnessLaunch {
         runCatching { FitnessProtocol.extractLaunch(callbackUrl) }.getOrNull()?.let { return it }
         val retry = client.newCall(Request.Builder().url(LOGIN_URL).get().build()).execute()
-        retry.body.use { it.string() }
+        retry.use {
+            FitnessProtocol.checkNotServerError(it.code)
+            it.body.string()
+        }
         return FitnessProtocol.extractLaunch(retry.request.url.toString())
     }
 
