@@ -513,13 +513,13 @@ open class XJTULogin(
             // mfa/detect 携带密码，同样计入风控闸门
             val response = CasGate.withCredentialPost { client.newCall(request).execute() }
             val responseStr = response.body.string()
-            android.util.Log.d("XJTULogin", "login: MFA detect response code=${response.code}, body=$responseStr")
+            android.util.Log.d("XJTULogin", "login: MFA detect response code=${response.code}, body=${responseStr.redactBody(160)}")
             val data = try {
                 responseStr.safeParseJsonObject()
                     .requireObj("data")
             } catch (e: Exception) {
                 android.util.Log.e("XJTULogin", "login: MFA detect parse error", e)
-                throw RuntimeException("MFA 检测返回数据异常: $responseStr")
+                throw RuntimeException("登录验证检测返回了异常数据，请稍后重试", e)
             }
 
             val state = data.get("state").stringValue
