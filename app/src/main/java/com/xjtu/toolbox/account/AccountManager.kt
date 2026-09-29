@@ -297,7 +297,7 @@ class AccountManager(
      * 头像、Agent 配置（含 API Key）与对话、Room 自定义课程一并清。
      * 直接按该账号的后缀清，不去临时改全局 [AccountContext]。
      */
-    private fun wipeAccountFiles(accountId: String, cookiesOnly: Boolean) {
+    private suspend fun wipeAccountFiles(accountId: String, cookiesOnly: Boolean) {
         val app = context.applicationContext
         val suffix = AccountContext.suffixFor(accountId)
         for (name in listOf("cookies_normal", "cookies_webvpn")) {
