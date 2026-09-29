@@ -93,6 +93,17 @@ object HomeStatsRefresher {
         val fetch: suspend (Context, SiteSession?) -> HomeStat?,
     )
 
+    /**
+     * 一轮里的先后：整轮串行、源间留间隔，要走半分钟，排前面的先出结果。
+     * 首页最常看的（成绩、课程、图书馆座位、校园卡）在前；不常看或经常连不上的
+     * （刷卡记录、宿舍电费）靠后；加餐券最后。不在表里的排最末。
+     */
+    private val runOrder: List<AppRoute> = listOf(
+        AppRoute.JwappScore, AppRoute.Lms(), AppRoute.Library, AppRoute.CampusCard,
+        AppRoute.Judge, AppRoute.Attendance, AppRoute.Fitness, AppRoute.Notification, AppRoute.YellowPage,
+        AppRoute.Iclassface, AppRoute.DormPower, AppRoute.Coupon,
+    )
+
     private val sources: List<Source> = listOf(
         // 评教：一周一次。开没开评教窗口在一周内不会反复变。
         Source(AppRoute.Judge, 7 * DAY, LoginType.JWXT) { _, site ->
@@ -446,10 +457,7 @@ object HomeStatsRefresher {
             firstRunInProcess = false
             val existing = HomeStats.collect(context, null).keys
             Log.d(TAG, "start; coldStart=$coldStart 已有内容=$existing stamps=${stamps.mapValues { (now - it.value) / 60000 }} (分钟前)")
-            // 短 TTL 的先跑。整轮是串行 + 1.5s 间隔，源多了一轮要走十几秒；
-            // 把"经常到期"的（校园卡 30min、图书馆 15min、刷卡记录 10min）排在
-            // 一周才刷一次的评教/体测后面，等于让最该新鲜的数据等最不着急的。
-            for (s in sources.sortedBy { it.ttlMs }) {
+            for (s in sources.sortedBy { runOrder.indexOf(it.route).let { i -> if (i < 0) Int.MAX_VALUE else i } }) {
                 if (s.loginType == LoginType.ICLASSFACE && accountType != AccountType.UNDERGRADUATE) continue
                 // 首页评教统计走的是本科教务评教；研究生评教在 gste，要单独登录，不在后台刷
                 if (s.route == AppRoute.Judge && accountType != AccountType.UNDERGRADUATE) continue
