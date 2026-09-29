@@ -46,6 +46,10 @@ class PersistentCookieJar(context: Context, prefsName: String = PREFS_NAME) : Co
 
         private val shared = ConcurrentHashMap<String, Shared>()
 
+        /** hostOnly 的 cookie（响应没带 Domain 属性）只发给设置它的那个主机，不发给子域名。 */
+        internal fun hostMatches(host: String, cookie: Cookie): Boolean =
+            host == cookie.domain || (!cookie.hostOnly && host.endsWith(".${cookie.domain}"))
+
         // [性能] 必须在后台线程写：saveToDisk 会把整个 cookie 表做 AES-256 加密再落盘，
         // 登录链路上每 500ms 触发一次。挂在主线程 Looper 上会周期性阻塞 UI 帧。
         // 全进程共用一条线程——以前每个 jar 实例起一条且从不退出，切一次账号漏一条。
@@ -114,17 +118,15 @@ class PersistentCookieJar(context: Context, prefsName: String = PREFS_NAME) : Co
         ensureLoaded()
         val now = System.currentTimeMillis()
         val result = mutableListOf<Cookie>()
-        for ((domain, cookies) in cookieStore) {
-            if (domainMatch(url.host, domain)) {
-                synchronized(cookies) {
-                    val iter = cookies.iterator()
-                    while (iter.hasNext()) {
-                        val c = iter.next()
-                        if (c.expiresAt <= now) {
-                            iter.remove() // 过期清理
-                        } else if (pathMatch(url.encodedPath, c.path)) {
-                            result.add(c)
-                        }
+        for ((_, cookies) in cookieStore) {
+            synchronized(cookies) {
+                val iter = cookies.iterator()
+                while (iter.hasNext()) {
+                    val c = iter.next()
+                    if (c.expiresAt <= now) {
+                        iter.remove() // 过期清理
+                    } else if (hostMatches(url.host, c) && pathMatch(url.encodedPath, c.path)) {
+                        result.add(c)
                     }
                 }
             }
@@ -144,13 +146,12 @@ class PersistentCookieJar(context: Context, prefsName: String = PREFS_NAME) : Co
         ensureLoaded()
         val now = System.currentTimeMillis()
         val result = mutableListOf<Cookie>()
-        for ((domain, cookies) in cookieStore) {
-            if (!domainMatch(host, domain)) continue
+        for ((_, cookies) in cookieStore) {
             synchronized(cookies) {
                 val iter = cookies.iterator()
                 while (iter.hasNext()) {
                     val c = iter.next()
-                    if (c.expiresAt <= now) iter.remove() else result.add(c)
+                    if (c.expiresAt <= now) iter.remove() else if (hostMatches(host, c)) result.add(c)
                 }
             }
         }
@@ -317,12 +318,6 @@ class PersistentCookieJar(context: Context, prefsName: String = PREFS_NAME) : Co
     }
 
     // ── Cookie 匹配 ──
-
-    private fun domainMatch(host: String, cookieDomain: String): Boolean {
-        if (host == cookieDomain) return true
-        if (host.endsWith(".$cookieDomain")) return true
-        return false
-    }
 
     private fun pathMatch(urlPath: String, cookiePath: String): Boolean {
         if (urlPath == cookiePath) return true
