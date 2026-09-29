@@ -30,8 +30,10 @@ import top.yukonga.miuix.kmp.window.WindowDialog
 object CourseColors {
     private lateinit var app: Context
 
-    /** 每次改色加一；[of] 读它来订阅，改完所有用到课程色的地方立刻重组。 */
+    /** 每次改色加一；[of] 和 [revision] 读它来订阅，改完所有用到课程色的地方立刻重组。 */
     private var version by mutableIntStateOf(0)
+
+    val revision: Int get() = version
 
     fun init(context: Context) {
         app = context.applicationContext
@@ -58,6 +60,8 @@ object CourseColors {
     /** 认 `#RRGGBB`、`RRGGBB`、`#RGB`，其余返回 null。 */
     fun parseHex(text: String): Color? {
         val s = text.trim().removePrefix("#")
+        // toLongOrNull(16) 会放过 "+abcde"、"-12345"，先确认全是十六进制字符
+        if (!s.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }) return null
         val full = when (s.length) {
             3 -> s.map { "$it$it" }.joinToString("")
             6 -> s
