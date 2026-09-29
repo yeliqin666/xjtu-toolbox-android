@@ -425,6 +425,14 @@ private fun NetworkChangeWatcher(loginState: AppLoginState, navigator: AppNaviga
                         Log.d("Network", "Mode changed while on ${current.id} → markStaleAndRetry")
                         loginState.markStaleAndRetry(current)
                     }
+                    // 断网那几秒没拉成的首页数据补一轮（各源仍按 TTL，断网失败不记退避）。
+                    // 单独起协程：下一次网络回调会取消本 job，别把跑到一半的刷新也带走
+                    if (loginState.isLoggedIn && com.xjtu.toolbox.home.HomeStatsRefresher.isOnline(context)) {
+                        scope.launch {
+                            com.xjtu.toolbox.home.HomeStatsRefresher.refreshDue(context, loginState.sessionManager, loginState.accountType)
+                            com.xjtu.toolbox.home.HomeSignals.bumpStatsVersion()
+                        }
+                    }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -432,11 +440,26 @@ private fun NetworkChangeWatcher(loginState: AppLoginState, navigator: AppNaviga
                 }
             }
         }
+        // 移动数据下信号强弱一变就回调 onCapabilitiesChanged，只在网络类型或连通性变了时才算数
+        var lastCaps: String? = null
         val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) = trigger("onAvailable")
-            override fun onLost(network: Network) = trigger("onLost")
-            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) =
+            override fun onAvailable(network: Network) {
+                loginState.sessionManager?.evictConnections()
+                trigger("onAvailable")
+            }
+            override fun onLost(network: Network) {
+                loginState.sessionManager?.evictConnections()
+                trigger("onLost")
+            }
+            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                val key = "$network:${caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)}:" +
+                    "${caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)}:" +
+                    "${caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)}:" +
+                    "${caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)}"
+                if (key == lastCaps) return
+                lastCaps = key
                 trigger("onCapabilitiesChanged")
+            }
             override fun onLinkPropertiesChanged(network: Network, properties: LinkProperties) =
                 trigger("onLinkPropertiesChanged")
         }

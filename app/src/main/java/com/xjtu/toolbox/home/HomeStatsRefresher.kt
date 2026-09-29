@@ -389,6 +389,13 @@ object HomeStatsRefresher {
      * 跑一轮刷新。只处理已过期的源，逐个串行，源之间留 [GAP_MS]。
      * 同一时刻只允许一轮（[runLock]），防止反复进出首页把请求叠起来。
      */
+    /** 手机当前连着能上网的网络。不要求系统验证通过：校园网没过认证页时也算有网，失败照常计。 */
+    fun isOnline(context: Context): Boolean {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager ?: return true
+        val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
+        return caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
     suspend fun refreshDue(
         context: Context,
         manager: SessionManager?,
@@ -469,6 +476,11 @@ object HomeStatsRefresher {
                     // 同样不写失败戳：这不是故障，是"现在不该由我来做"。
                     Log.d(TAG, "${s.route.id}: 需短信验证，后台跳过")
                 } catch (e: Exception) {
+                    // 手机这会儿没网（切网、进电梯）不是源的问题：不写失败戳、整轮停下，网络回来时再跑
+                    if (!isOnline(context)) {
+                        Log.d(TAG, "abort round: offline (${s.route.id}: ${e.message})")
+                        return
+                    }
                     // 半小时后重试，不按正常 TTL 锁死——故障多是暂时的（网关抖动、系统维护），
                     // 按 2 天/7 天锁住会让"修好了却还是不显示"。
                     if (!accountChanged()) HomeStats.markFailed(context, s.route, s.ttlMs, roundAccount)

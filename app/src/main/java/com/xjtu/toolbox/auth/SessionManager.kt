@@ -79,6 +79,12 @@ class SessionManager(context: Context) {
      * 网络环境变化时调用。仅切换 active mode 指针，重新绑定 backend 给所有已注册 site；
      * 任何一边 backend 的 cookies 都不会被清空——下次切回可零成本 SSO 复用。
      */
+    /** 换了网络后，旧网络上的空闲长连接已经不通，复用会卡到读超时才重试；全部丢掉重建。 */
+    fun evictConnections() {
+        synchronized(backendsLock) { backends.values.forEach { runCatching { it.client.connectionPool.evictAll() } } }
+        runCatching { com.xjtu.toolbox.network.HttpClients.base.connectionPool.evictAll() }
+    }
+
     fun onNetworkChanged(newMode: AccessMode) {
         val old = _currentAccessMode.value
         if (old == newMode) return
