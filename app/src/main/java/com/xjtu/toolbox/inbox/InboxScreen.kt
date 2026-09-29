@@ -224,9 +224,10 @@ fun InboxScreen(onBack: () -> Unit, onOpen: (String) -> Unit) {
                 }
             }
         }
+        // Overlay 系弹窗要挂在 Scaffold 里面才有宿主，放在外面弹不出来
+        InboxSettingsSheet(showSettings, data) { showSettings = false }
     }
 
-    InboxSettingsSheet(showSettings, data) { showSettings = false }
     detail?.let { d -> InboxDetailDialog(d) { detail = null } }
 }
 
