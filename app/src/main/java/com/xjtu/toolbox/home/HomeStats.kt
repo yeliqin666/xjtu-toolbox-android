@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.home
 
 import android.content.Context
+import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.schedule.ScheduleCache
 import kotlinx.serialization.Serializable
 import com.xjtu.toolbox.data.DataCache
@@ -151,7 +152,7 @@ object HomeStats {
      * 否则一次失败把基线冲成 0，下次就会把全部成绩当成新增。
      */
     fun bumpScoreCursor(context: Context, total: Int): Int = runCatching {
-        val prefs = context.getSharedPreferences("home_stats_cursor", Context.MODE_PRIVATE)
+        val prefs = scorePrefs(context)
         val prev = prefs.getInt(KEY_SCORE_CURSOR, -1)
         prefs.edit().putInt(KEY_SCORE_CURSOR, total).apply()
         if (prev < 0) 0 else (total - prev).coerceAtLeast(0)
@@ -159,16 +160,16 @@ object HomeStats {
 
     /** 当前的成绩新增数（供屁岱读取，不改变游标）。 */
     fun pendingNewScores(context: Context): Int = runCatching {
-        val prefs = context.getSharedPreferences("home_stats_cursor", Context.MODE_PRIVATE)
-        prefs.getInt("proactive_score_new", 0)
+        scorePrefs(context).getInt("proactive_score_new", 0)
     }.getOrDefault(0)
 
     fun setPendingNewScores(context: Context, n: Int) {
-        runCatching {
-            context.getSharedPreferences("home_stats_cursor", Context.MODE_PRIVATE)
-                .edit().putInt("proactive_score_new", n).apply()
-        }
+        runCatching { scorePrefs(context).edit().putInt("proactive_score_new", n).apply() }
     }
+
+    /** 成绩游标按账号分开：共用一份时，切到成绩更多的账号会误报「新增 N 门」。 */
+    private fun scorePrefs(context: Context) =
+        context.getSharedPreferences("score_cursor${AccountContext.safeSuffix()}", Context.MODE_PRIVATE)
 
     /**
      * 记下教务处最新一条通知的标题。

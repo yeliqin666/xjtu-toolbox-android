@@ -251,11 +251,12 @@ class AccountManager(
             runCatching { File(appContext.cacheDir, "data_cache$suffix").deleteRecursively() }
             // Agent 会话目录
             runCatching { File(appContext.filesDir, "agent_sessions$suffix").deleteRecursively() }
-            // 校园卡缓存 prefs：直接按被删账号的命名空间清。以前是临时把全局
-            // AccountContext 指过去再改回来，那段时间里别处的读写都会落到被删账号上。
+            // 按账号命名的 prefs：直接按被删账号的后缀清，不去临时改全局 AccountContext
             runCatching {
                 CampusCardCache.clear(appContext, accountId)
-                appContext.getSharedPreferences("campus_card$suffix", Context.MODE_PRIVATE).edit().clear().apply()
+                for (name in listOf("campus_card", "score_cursor", "attendance_watch")) {
+                    appContext.getSharedPreferences("$name$suffix", Context.MODE_PRIVATE).edit().clear().apply()
+                }
             }
             // Room 自定义课程
             runCatching {

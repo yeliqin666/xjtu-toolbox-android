@@ -545,7 +545,11 @@ object HomeStatsRefresher {
         // 异常数**增加**才提醒，不是"有异常"就提醒：一次缺勤会挂在统计里一整周，
         // 每轮刷新都当新事报一遍就成了骚扰。游标只在成功取到数据时前移，
         // 否则一次失败会把基线冲掉，之后永远判不出增量。
-        val prefs = ctx.getSharedPreferences("attendance_watch", android.content.Context.MODE_PRIVATE)
+        // 按账号分开存，否则切账号后拿别人的异常数当基线
+        val prefs = ctx.getSharedPreferences(
+            "attendance_watch${com.xjtu.toolbox.account.AccountContext.safeSuffix()}",
+            android.content.Context.MODE_PRIVATE,
+        )
         val seen = prefs.getInt("abnormal_seen", -1)
         if (seen >= 0 && abnormal > seen) {
             val worst = stats.filter { it.abnormalCount > 0 }.maxByOrNull { it.abnormalCount }
