@@ -235,9 +235,7 @@ fun SettingsScreen(
 
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
-            cacheSizeText = runCatching {
-                context.cacheDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
-            }.map(::formatFileSize).getOrDefault("无法获取")
+            cacheSizeText = runCatching { clearableCacheBytes(context) }.map(::formatFileSize).getOrDefault("无法获取")
         }
     }
 
@@ -762,7 +760,7 @@ fun SettingsScreen(
             OverlayDialog(
                 show = showClearCacheDialog,
                 title = "清除缓存",
-                summary = "将清除约 $cacheSizeText，不影响登录和下载的文件。",
+                summary = "将清除约 $cacheSizeText 缓存，包括已缓存的课表、成绩等数据，之后要重新打开对应页面加载，桌面小组件也会先显示为空。不影响登录、下载的文件和已下载的更新包。",
                 onDismissRequest = { showClearCacheDialog = false }
             ) {
                 Row(Modifier.fillMaxWidth()) {
@@ -777,14 +775,10 @@ fun SettingsScreen(
                         onClick = {
                             showClearCacheDialog = false
                             scope.launch(Dispatchers.IO) {
-                                val cleared = runCatching {
-                                    context.cacheDir.deleteRecursively()
-                                    context.cacheDir.mkdirs()
-                                }.isSuccess
+                                val cleared = runCatching { clearableCacheFiles(context).forEach { it.deleteRecursively() } }.isSuccess
                                 // 重新计算实际缓存大小，刷新 UI
-                                val newSize = runCatching {
-                                    context.cacheDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
-                                }.map(::formatFileSize).getOrDefault("0 B")
+                                val newSize = runCatching { clearableCacheBytes(context) }.map(::formatFileSize).getOrDefault("0 B")
+                                com.xjtu.toolbox.widget.ScheduleWidgetUpdater.requestUpdate(context)
                                 withContext(Dispatchers.Main) {
                                     cacheSizeText = newSize
                                     Toast.makeText(
@@ -1029,6 +1023,13 @@ private fun EulaSheet(show: Boolean, onDismiss: () -> Unit) {
         }
     }
 }
+
+/** 清缓存时保留 cacheDir 下的 updates/：已经下载好、等着安装的更新包。 */
+private fun clearableCacheFiles(context: android.content.Context): List<java.io.File> =
+    context.cacheDir.listFiles().orEmpty().filter { it.name != "updates" }
+
+private fun clearableCacheBytes(context: android.content.Context): Long =
+    clearableCacheFiles(context).sumOf { root -> root.walkTopDown().filter { it.isFile }.sumOf { it.length() } }
 
 private fun formatFileSize(bytes: Long): String = when {
     bytes < 1024 -> "$bytes B"
