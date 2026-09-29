@@ -97,7 +97,9 @@ class JwappSession : CasSiteSession("jwapp", "移动教务", mustUseWebVpn = fal
 
 // ── YWTB 一网通办 ─────────────────────────────────────────────────────
 
-class YwtbSession : CasSiteSession("ywtb", "一网通办", mustUseWebVpn = true) {
+// mustUseWebVpn=false：一网通办和挂在它令牌上的消息、事务中心、预约、校车都能公网直连（学校超级 App
+// 校外也是直连这几个域名）。绕 WebVPN 只会多一跳，而且服务端看到的来源 IP 变成网关的校内地址。
+class YwtbSession : CasSiteSession("ywtb", "一网通办", mustUseWebVpn = false) {
     override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
         YwtbLogin(session = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
 
