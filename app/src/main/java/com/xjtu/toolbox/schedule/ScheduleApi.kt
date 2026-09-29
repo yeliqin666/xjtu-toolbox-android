@@ -99,6 +99,11 @@ data class TextbookItem(
                     || author.trim().length >= 2)
 }
 
+private val TERM_CODE = Regex("""\d{4}-\d{4}-\d""")
+
+/** 学期切换里最多列多少个学期：每学年四个（秋、春、夏季小学期、暑假），约五年。 */
+private const val MAX_TERMS = 20
+
 class ScheduleApi(private val site: SiteSession) {
 
     private val baseUrl = "https://jwxt.xjtu.edu.cn"
@@ -642,33 +647,24 @@ class ScheduleApi(private val site: SiteSession) {
     }
 
     /**
-     * 获取可用学期列表（从教务系统查询）
-     * @return 学期代码列表，如 ["2024-2025-2", "2024-2025-1", "2023-2024-2", ...]
+     * 可选学期，新的在前，如 ["2025-2026-2", "2025-2026-1", ...]。
+     *
+     * 取自「全校课表」应用（kcbcx）的学期列表。课表应用（wdkb）的 `cxxnxqgl.do` 现在校内校外、
+     * 进没进过应用都回 403，而 403 会被当成登录失效、教务整站重登一次。
+     * 列表含已开放选课的未来学期和暑假（重修要用），都保留。全校列表有十几年，只留最近 [MAX_TERMS] 个；
+     * 拿不到就按当前学期推算，保证不为空。
      */
-    suspend fun getTermList(): List<String> {
-        // 注意：execute 也要包进 try——它抛异常时必须回退生成学期，否则上层拿到空列表，学期切换永远不显示
-        return try {
-            val request = Request.Builder()
-                .url("$baseUrl/jwapp/sys/wdkb/modules/jshkcb/cxxnxqgl.do")
-                .post(FormBody.Builder().build())
-                .header("Accept", "application/json, text/javascript, */*; q=0.01")
-                .build()
-            val responseBody = execute(request)
-            val json = responseBody.safeParseJsonObject()
-            val rows = json.requireObj("datas")
-                .requireObj("cxxnxqgl")
-                .requireArr("rows")
-            val list = rows.map { el ->
-                val row = el.jsonObject
-                val dm = row.get("DM").stringValue
-                rememberTermName(dm, row)
-                dm
-            }
-            list.ifEmpty { generateRecentTerms() }
-        } catch (e: Exception) {
-            android.util.Log.w("ScheduleApi", "getTermList failed, fallback generated: ${e.message}")
-            generateRecentTerms()
-        }
+    suspend fun getTermList(): List<String> = try {
+        val terms = SchoolCourseApi(site).getTermList()
+            .filter { TERM_CODE.matches(it.code) }
+            .take(MAX_TERMS)
+        terms.forEach { t -> ScheduleTermStore.usableName(t.code, t.name)?.let { termNameCache[t.code] = it } }
+        terms.map { it.code }.ifEmpty { generateRecentTerms() }
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        android.util.Log.w("ScheduleApi", "getTermList failed, fallback generated: ${e.message}")
+        generateRecentTerms()
     }
 
     /** 基于当前学期生成最近 8 个学期；网络拿不到当前学期时按本地日期推算，保证永不为空。 */
