@@ -16,12 +16,7 @@ class CredentialStore(context: Context) {
 
     private val prefs: SharedPreferences by lazy { SecurePrefs.open(appContext, FILE_NAME) }
 
-    fun save(username: String, password: String) {
-        prefs.edit()
-            .putString(KEY_USERNAME, username)
-            .putString(KEY_PASSWORD, password)
-            .apply()
-    }
+    // 旧单账号凭据：现在存在 AccountStore，这里只保留读取供 AccountMigration 迁移用
 
     fun load(): Pair<String, String>? {
         val username = prefs.getString(KEY_USERNAME, null) ?: return null
@@ -30,26 +25,16 @@ class CredentialStore(context: Context) {
         return username to password
     }
 
-    fun clear() {
-        prefs.edit().clear().apply()
-    }
-
-    // ── 设备指纹持久化（避免触发 MFA）──
-
-    fun saveFpVisitorId(id: String) {
-        prefs.edit().putString(KEY_FP_VISITOR_ID, id).apply()
+    /** 迁移完成后删掉旧的密码 / 指纹 / 公钥副本，避免与 AccountStore 各存一份。昵称不动。 */
+    fun clearLegacyCredentials() {
+        if (!prefs.contains(KEY_PASSWORD) && !prefs.contains(KEY_USERNAME)) return
+        prefs.edit()
+            .remove(KEY_USERNAME).remove(KEY_PASSWORD)
+            .remove(KEY_FP_VISITOR_ID).remove(KEY_RSA_PUBLIC_KEY).remove(KEY_RSA_KEY_TIME)
+            .apply()
     }
 
     fun loadFpVisitorId(): String? = prefs.getString(KEY_FP_VISITOR_ID, null)
-
-    // ── RSA 公钥缓存（减少一次网络请求）──
-
-    fun saveRsaPublicKey(key: String) {
-        prefs.edit()
-            .putString(KEY_RSA_PUBLIC_KEY, key)
-            .putLong(KEY_RSA_KEY_TIME, System.currentTimeMillis())
-            .apply()
-    }
 
     /** 获取缓存的 RSA 公钥（24 小时有效期） */
     fun loadRsaPublicKey(): String? {

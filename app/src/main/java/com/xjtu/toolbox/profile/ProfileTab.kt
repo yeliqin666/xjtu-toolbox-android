@@ -56,6 +56,7 @@ import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.appCardShadow
 import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.data.CredentialStore
+import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.util.toDialableTel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -610,19 +611,15 @@ internal fun ProfileTab(
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 // 熔断已上＝CAS 明确判了密码错（包括原样重试被熔断拦下），直接说人话
                 loginError = if (loginState.passwordInvalidatedLatch) "学号或密码错误，请检查后再试"
-                else "登录异常: ${e.message}"
+                else FriendlyError.of(e, "登录")
                 return@launch
             }
 
-            loginProgress = 0.8f
-
-            // ── 完成核心登录 ──
             loginProgress = 1f
-            isLoggingIn = false
-            loginState.saveCredentials(user, pwd)
-            // 落库到 AccountStore（多账号架构），同时兼容旧 CredentialStore 单值
+            // 先落库并把会话搬进账号命名空间，再让界面切成已登录
             accountManager.persistCurrentLogin(user, pwd, loginState.accountType)
-            loginState.persistCredentials(credentialStore)
+            loginState.saveCredentials(user, pwd)
+            isLoggingIn = false
 
             // ── 后台: 仅预热必要 SSO，其余子系统由用户进入时按需登录 ──
             // 姓名、头像来自学工档案，和一网通办互不依赖，两路同时开始：
@@ -967,7 +964,7 @@ internal fun ProfileTab(
                     OverlayDialog(
                         show = showLogoutDialog.value,
                         title = "确认退出",
-                        summary = "退出当前账号的登录，清除其会话 Cookie。账号记录与本地缓存保留，下次可在「账号管理」快速切回。",
+                        summary = "退出当前账号的登录状态。账号记录与本地缓存保留，下次可在「账号管理」切回，切回时会自动重新登录。",
                         onDismissRequest = { showLogoutDialog.value = false }
                     ) {
                         Row(Modifier.fillMaxWidth()) {

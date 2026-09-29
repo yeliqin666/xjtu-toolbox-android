@@ -2,9 +2,14 @@ package com.xjtu.toolbox.schedule
 
 import android.content.Context
 import android.util.Log
+import com.xjtu.toolbox.account.AccountContext
 
 private const val TAG = "ScheduleDiff"
 private const val PREFS = "schedule_diff"
+
+/** 快照与待提醒随账号走，换账号后不会拿别人的课表来比。 */
+private fun prefs(ctx: Context) =
+    ctx.getSharedPreferences(PREFS + AccountContext.safeSuffix(), Context.MODE_PRIVATE)
 
 /**
  * 课表变更检测：调课、停课、换教室。
@@ -70,7 +75,7 @@ object ScheduleDiff {
      */
     fun diffAndStore(ctx: Context, termCode: String, courses: List<CourseItem>): List<Change> {
         if (termCode.isBlank() || courses.isEmpty()) return emptyList()
-        val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val prefs = prefs(ctx)
         // 快照按来源分开存。三个系统给的周次位串长度、教室写法都不完全一样，
         // 用同一份快照去比会在换来源（设置里改、或非教务源失败退回教务）的那一次
         // 把每一门课都报成"变了"。分开存的代价只是换来源后重建一次基线。
@@ -126,13 +131,11 @@ object ScheduleDiff {
 
     /** 检出的变更暂存一条给屁岱气泡用；冒过就清掉，不重复念。 */
     fun setPending(ctx: Context, text: String?) {
-        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putString("pending", text).apply()
+        prefs(ctx).edit().putString("pending", text).apply()
     }
 
     fun pending(ctx: Context): String? =
-        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString("pending", null)?.takeIf { it.isNotBlank() }
+        prefs(ctx).getString("pending", null)?.takeIf { it.isNotBlank() }
 
     /** 把一串变更压成一句人话。多于一条只报最要紧的那条加个计数，气泡塞不下更多。 */
     fun summarize(changes: List<Change>): String? {

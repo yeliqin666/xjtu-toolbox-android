@@ -185,8 +185,7 @@ fun AppRoot(
     val openWithWebVpn: (String) -> Unit = { url ->
         webVpnJob?.cancel()
         webVpnJob = scope.launch {
-            val ok = loginState.checkWebVpnSessionAlive() || loginState.loginWebVpn()
-            if (ok && loginState.webVpnClientOrNull != null) router.open(AppRoute.Browser(url))
+            if (loginState.ensureWebVpnClient() != null) router.open(AppRoute.Browser(url))
         }
     }
 

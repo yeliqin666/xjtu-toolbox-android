@@ -5,8 +5,9 @@ import android.util.Log
 import com.xjtu.toolbox.network.PersistentCookieJar
 import com.xjtu.toolbox.webvpn.WebVpnInterceptor
 import com.xjtu.toolbox.webvpn.WebVpnUtil
-import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
@@ -18,16 +19,21 @@ import java.util.concurrent.TimeUnit
 
 /**
  * MFA 询问上下文。UI 层观察 [SessionManager.activeMfaRequest] 弹窗，
- * 用户输入验证码后调用 [submit]，取消则调用 [cancel]。
+ * 用户输入验证码后调用 [submit]，取消则调用 [cancel]。验证码被服务端拒绝时 [rejections] 递增，弹窗保留让用户重输。
  */
-data class MfaRequest(
+class MfaRequest(
     val siteKey: String,
     val siteName: String,
     val mfaContext: MFAContext,
-    private val deferred: CompletableDeferred<String?>,
 ) {
-    fun submit(code: String): Boolean = deferred.complete(code)
-    fun cancel(): Boolean = deferred.complete(null)
+    private val codes = Channel<String?>(Channel.CONFLATED)
+    private val _rejections = MutableStateFlow(0)
+    val rejections: StateFlow<Int> = _rejections
+
+    fun submit(code: String): Boolean = codes.trySend(code).isSuccess
+    fun cancel(): Boolean = codes.trySend(null).isSuccess
+    internal suspend fun awaitCode(): String? = codes.receive()
+    internal fun reject() { _rejections.value++ }
 }
 
 /**
@@ -50,10 +56,7 @@ class SessionManager(context: Context) {
     private var backends: Map<AccessMode, SessionBackend> = buildBackends(null)
 
     private fun buildBackends(accountSuffix: String?): Map<AccessMode, SessionBackend> {
-        // suffix 为 null 时用 "_default"：直接插值会拼出字面量 "cookies_normalnull"，
-        // 白白留下一个谁也不会再读的加密 prefs 文件（启动后 restoreActiveAccount 立刻用
-        // 真实账号后缀重建 backends）。与 AccountManager 注销时用的 "_default" 命名空间对齐。
-        val suffix = accountSuffix ?: "_default"
+        val suffix = accountSuffix ?: ANONYMOUS_SUFFIX
         val normalJar = PersistentCookieJar(appContext, "cookies_normal$suffix")
         val webvpnJar = PersistentCookieJar(appContext, "cookies_webvpn$suffix")
         return mapOf(
@@ -120,10 +123,7 @@ class SessionManager(context: Context) {
     val activeSiteCount: Int get() = sites.values.count { it.hasLogin }
     val activeSiteKeys: List<String> get() = sites.values.filter { it.hasLogin }.map { it.siteKey }
 
-    /**
-     * 会话诊断：写进 logcat（标签 [TAG]）。以前还在内存里留一份最近 120 条的队列，
-     * 但全 App 没有任何地方读它，只是每次登录、切网都白白加锁写一遍，已去掉。
-     */
+    /** 会话诊断：写进 logcat（标签 [TAG]）。 */
     fun recordDiagnostic(level: String, siteKey: String, message: String) {
         val priority = when (level) {
             "ERROR" -> Log.ERROR
@@ -217,9 +217,8 @@ class SessionManager(context: Context) {
      * 进程活很久时 [SessionBackend.webvpnSelfLoggedIn] 仍可能是 true，但 ticket 早已失效。
      * 这里先看 cookie / 新鲜窗口，过期再探活，探活失败才重登——别的直连站点不受影响。
      *
-     * 主线程安全：整个流程切到 IO。调用方（SiteSession.ensureLogin）常在界面协程里、也就是
-     * 主线程上调用，而开头的票据检查要读 cookie——首次读会打开加密存储、走 keystore。
-     * 以前这段跑在主线程，实测冷启动首帧里有一次 cookies_webvpn 加密文件就是这样在主线程打开的。
+     * 主线程安全：整个流程切到 IO——调用方常在界面协程里，而票据检查要读 cookie，
+     * 首次读会在主线程打开加密存储。
      */
     @Throws(IOException::class, PasswordInvalidatedException::class)
     suspend fun ensureWebVpnLogin() = withContext(Dispatchers.IO) { ensureWebVpnLoginOnIo() }
@@ -243,17 +242,15 @@ class SessionManager(context: Context) {
                 backend.markWebVpnReady()
                 return@withLock
             }
-            val creds = credentials ?: throw IOException("WebVPN 未配置凭据")
-            val login = withContext(Dispatchers.IO) {
-                XJTULogin(
-                    WebVpnUtil.WEBVPN_LOGIN_URL,
-                    existingClient = backend.client,
-                    visitorId = fpVisitorId,
-                    cachedRsaKey = cachedRsaKey,
-                    cookieJar = backend.cookieJar,
-                )
-            }
-            var result = withContext(Dispatchers.IO) { login.login(creds.first, creds.second) }
+            val creds = credentials ?: throw IOException("还没有登录账号，请先在「我的」页登录")
+            val login = XJTULogin(
+                WebVpnUtil.WEBVPN_LOGIN_URL,
+                existingClient = backend.client,
+                visitorId = fpVisitorId,
+                cachedRsaKey = cachedRsaKey,
+                cookieJar = backend.cookieJar,
+            )
+            var result = login.login(creds.first, creds.second)
             while (true) {
                 when (result.state) {
                     LoginState.SUCCESS -> {
@@ -272,14 +269,10 @@ class SessionManager(context: Context) {
                             recordDiagnostic("ERROR", "webvpn", "WebVPN 凭据无效：$msg")
                             throw PasswordInvalidatedException("WebVPN", msg)
                         }
-                        // 网关**已登录**时，/login?cas_login=true 不会给登录页，而是 302 去它
-                        // 记住的上次访问地址。那可能是某个业务 API（真机实测跳到了
-                        // ncard 的 queryCard），不带业务会话自然返回 401/403——但这跟网关
-                        // 认证成没成功毫无关系。只要落地在 webvpn 的 /https/... 代理路径上，
-                        // 就说明网关认了我们，否则它只会把我们挡在登录页。
-                        //
-                        // 不做这个判断的后果（已发生）：网关明明是好的，却被判失败并触发
-                        // 60 秒登录冷却，期间所有走 WebVPN 的站点全部连不上。
+                        // 网关已登录时 /login?cas_login=true 会 302 回它记住的上次访问地址（可能是某个
+                        // 业务 API，不带业务会话就返回 401/403），这与网关认证是否成功无关。
+                        // 有网关 ticket，或落地在 /https/... 代理路径上，就说明网关已认我们；
+                        // 否则会误判失败并触发 60 秒冷却，所有走 WebVPN 的站点都连不上。
                         if (backend.cookieJar.findCookieByName(WEBVPN_TICKET_COOKIE) != null ||
                             com.xjtu.toolbox.webvpn.WebVpnUtil.getOriginalUrl(login.finalUrl) != null
                         ) {
@@ -297,18 +290,12 @@ class SessionManager(context: Context) {
                     }
                     LoginState.REQUIRE_MFA -> {
                         val ctx = result.mfaContext ?: throw IOException("WebVPN 未返回 MFA 上下文")
-                        if (ctx.flow == MFAFlow.MFA_DETECT) {
-                            withContext(Dispatchers.IO) { ctx.sendVerifyCode() }
-                        }
-                        val code = askMfaCode("webvpn", "WebVPN（校外接入）", ctx)
-                            ?: throw IOException("WebVPN 用户取消验证")
-                        withContext(Dispatchers.IO) { ctx.verifyCode(code) }
-                        result = withContext(Dispatchers.IO) { login.login() }
+                        if (ctx.flow == MFAFlow.MFA_DETECT) ctx.sendVerifyCode()
+                        if (!verifyMfaWithUser("webvpn", "WebVPN（校外接入）", ctx)) throw MfaCancelledException("WebVPN")
+                        result = login.login()
                     }
                     LoginState.REQUIRE_CAPTCHA -> throw IOException("WebVPN 需要图形验证码")
-                    LoginState.REQUIRE_ACCOUNT_CHOICE -> {
-                        result = withContext(Dispatchers.IO) { login.login(accountType = accountType) }
-                    }
+                    LoginState.REQUIRE_ACCOUNT_CHOICE -> result = login.login(accountType = accountType)
                 }
             }
         }
@@ -401,27 +388,40 @@ class SessionManager(context: Context) {
     }
 
     /**
-     * SiteSession.runLogin 在 [LoginState.REQUIRE_MFA] 时调用。锁内更新 [_activeMfaRequest]
-     * 触发 UI 弹窗，挂起等待用户提交或取消；同一时刻仅一个 MFA 询问在挂起。
+     * [LoginState.REQUIRE_MFA] 时调用：弹窗向用户要短信验证码并当场校验，验证码不对就留在弹窗里
+     * 让用户重输（最多 [MFA_MAX_ATTEMPTS] 次）。同一时刻仅一个 MFA 询问在挂起。
      *
-     * 有超时兜底：调用方可能在没有 [MfaDialogHost] 挂载的页面（比如成绩页后台重认证触发的
-     * MFA）静默发起这次询问，弹窗根本没地方渲染，用户永远看不到、更不可能提交/取消。
-     * `runLogin` 现在整段都在全局 [CasSiteSession] 登录锁里（见其上注释），这类询问若无限期
-     * 挂起，会连带把其余站点的登录一起锁死。超时后按用户主动取消处理，释放锁，把 IOException
-     * 交回给调用方按正常失败路径处理。
+     * 每次等待都有超时：没有弹窗宿主的页面发起的询问永远等不到输入，而登录跑在全局
+     * [CasSiteSession] 锁里，无限期挂起会把其余站点的登录一起锁死。
+     *
+     * @return true 验证通过；false 用户取消或等待超时。
+     * @throws IOException 没有能弹窗的界面、网络失败，或验证码错得太多次。
      */
-    suspend fun askMfaCode(siteKey: String, siteName: String, ctx: MFAContext): String? {
+    @Throws(IOException::class)
+    suspend fun verifyMfaWithUser(siteKey: String, siteName: String, ctx: MFAContext): Boolean {
         if (mfaHosts.get() == 0) {
-            // 没有任何页面能弹框（Activity 已销毁/纯后台），等下去只会占着全局登录锁。
-            Log.w("SessionManager", "askMfaCode($siteKey): no MFA host mounted, treat as cancelled")
-            return null
+            Log.w(TAG, "verifyMfaWithUser($siteKey): no MFA host mounted")
+            throw IOException("现在没有可以输入验证码的界面，请回到应用里再试一次")
         }
         return mfaMutex.withLock {
-            val deferred = CompletableDeferred<String?>()
-            val req = MfaRequest(siteKey, siteName, ctx, deferred)
+            val req = MfaRequest(siteKey, siteName, ctx)
             _activeMfaRequest.value = req
             try {
-                kotlinx.coroutines.withTimeoutOrNull(MFA_WAIT_TIMEOUT_MS) { deferred.await() }
+                repeat(MFA_MAX_ATTEMPTS) {
+                    val code = kotlinx.coroutines.withTimeoutOrNull(MFA_WAIT_TIMEOUT_MS) { req.awaitCode() }
+                        ?: return@withLock false
+                    try {
+                        withContext(Dispatchers.IO) { ctx.verifyCode(code) }
+                        return@withLock true
+                    } catch (e: IOException) {
+                        throw e
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        req.reject() // 服务端明确拒绝了这个验证码，弹窗留着让用户重输
+                    }
+                }
+                throw IOException("验证码输错次数太多，请稍后再试")
             } finally {
                 _activeMfaRequest.value = null
             }
@@ -444,7 +444,7 @@ class SessionManager(context: Context) {
      *
      * 调用方应在切换前后自行更新 [AccountContext.activeAccountId] 与 [credentials]。
      *
-     * @param accountSuffix 命名空间后缀（形如 "_学号"），由 [com.xjtu.toolbox.account.AccountContext.safeSuffix] 派生
+     * @param accountSuffix 命名空间后缀（形如 "_学号"），由 [com.xjtu.toolbox.account.AccountContext.suffixFor] 派生
      */
     fun reconfigureForAccount(accountSuffix: String) {
         com.xjtu.toolbox.account.AccountContext.switchEpoch++
@@ -471,6 +471,24 @@ class SessionManager(context: Context) {
         recordDiagnostic("INFO", "account", "SessionManager reconfigured for suffix=$accountSuffix")
     }
 
+    /**
+     * 回到未登录（匿名）命名空间，并清空它。匿名罐里若留着 TGC，
+     * 下一个在「我的」页登录的人会经 SSO 直接复用上一个人的会话。
+     */
+    fun reconfigureForAnonymous() {
+        reconfigureForAccount(ANONYMOUS_SUFFIX)
+        backends.values.forEach { it.cookieJar.clear() }
+    }
+
+    /** 首次登录发生在匿名命名空间：把这次产生的 cookie 搬进账号命名空间，匿名罐清空。 */
+    fun adoptAnonymousSession(accountSuffix: String) {
+        val old = backends
+        val raws = old.mapValues { it.value.cookieJar.exportRaw() }
+        old.values.forEach { it.cookieJar.clear() }
+        reconfigureForAccount(accountSuffix)
+        raws.forEach { (mode, raw) -> if (raw.isNotBlank()) backend(mode).cookieJar.importRaw(raw) }
+    }
+
     private fun hasLiveWebVpnTicket(backend: SessionBackend): Boolean =
         backend.cookieJar.findCookieByName(WEBVPN_TICKET_COOKIE) != null
 
@@ -481,36 +499,34 @@ class SessionManager(context: Context) {
     }
 
     /** 不跟随重定向：被扔回 CAS 就说明网关 ticket 已经死了。网络抖动不当失效。 */
-    private suspend fun probeWebVpnGateway(backend: SessionBackend): Boolean = withContext(Dispatchers.IO) {
-        try {
-            val client = backend.client.newBuilder()
-                .followRedirects(false)
-                .followSslRedirects(false)
-                .build()
-            val request = okhttp3.Request.Builder()
-                .url(WebVpnUtil.WEBVPN_LOGIN_URL)
-                .get()
-                .build()
-            client.newCall(request).execute().use { response ->
-                val loc = response.header("Location").orEmpty()
-                val preview = runCatching { response.peekBody(8192).string() }.getOrDefault("")
-                val bouncedToCas = "cas_login" in loc ||
-                    "/cas/login" in loc ||
-                    "login.xjtu.edu.cn" in loc
-                val authPage = XJTULogin.isAuthFailureResponse(preview)
-                val resourcePage = "西安交通大学WebVPN" in preview || "资源站点" in preview
-                val alive = resourcePage ||
-                    (response.code in 200..299 && !authPage) ||
-                    (response.code in 300..399 && !bouncedToCas)
-                if (!alive) {
-                    Log.w(TAG, "WebVPN probe stale: code=${response.code} loc=$loc")
-                }
-                alive
+    private fun probeWebVpnGateway(backend: SessionBackend): Boolean = try {
+        val client = backend.client.newBuilder()
+            .followRedirects(false)
+            .followSslRedirects(false)
+            .build()
+        val request = okhttp3.Request.Builder()
+            .url(WebVpnUtil.WEBVPN_LOGIN_URL)
+            .get()
+            .build()
+        client.newCall(request).execute().use { response ->
+            val loc = response.header("Location").orEmpty()
+            val preview = runCatching { response.peekBody(8192).string() }.getOrDefault("")
+            val bouncedToCas = "cas_login" in loc ||
+                "/cas/login" in loc ||
+                "login.xjtu.edu.cn" in loc
+            val authPage = XJTULogin.isAuthFailureResponse(preview)
+            val resourcePage = "西安交通大学WebVPN" in preview || "资源站点" in preview
+            val alive = resourcePage ||
+                (response.code in 200..299 && !authPage) ||
+                (response.code in 300..399 && !bouncedToCas)
+            if (!alive) {
+                Log.w(TAG, "WebVPN probe stale: code=${response.code} loc=$loc")
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "WebVPN probe failed, keep current session: ${e.message}")
-            true
+            alive
         }
+    } catch (e: Exception) {
+        Log.w(TAG, "WebVPN probe failed, keep current session: ${e.message}")
+        true
     }
 
     companion object {
@@ -526,10 +542,14 @@ class SessionManager(context: Context) {
         var active: SessionManager? = null
 
         private const val TAG = "SessionManager"
+
+        /** 未登录时 backends 所在命名空间。 */
+        private const val ANONYMOUS_SUFFIX = "_default"
         private const val WEBVPN_TICKET_COOKIE = "wengine_vpn_ticketwebvpn_xjtu_edu_cn"
         private const val WEBVPN_VALIDATE_TTL_MS = 120_000L
 
-        /** [askMfaCode] 的最长挂起时间，见其上注释。留够用户看到弹窗、收短信、输入的时间。 */
+        /** [verifyMfaWithUser] 每次等输入的最长时间，留够用户看到弹窗、收短信、输入。 */
         private const val MFA_WAIT_TIMEOUT_MS = 150_000L
+        private const val MFA_MAX_ATTEMPTS = 3
     }
 }

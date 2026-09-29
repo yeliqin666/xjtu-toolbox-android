@@ -3,6 +3,7 @@ package com.xjtu.toolbox.schedule
 import kotlinx.serialization.json.decodeFromJsonElement
 import android.content.Context
 import android.util.Log
+import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.util.AppJson
 import kotlinx.serialization.json.jsonArray
 import com.xjtu.toolbox.auth.AccountType
@@ -111,17 +112,15 @@ object ScheduleSourceRouter {
      * [ScheduleDiff] 按这个值分开存快照，否则退回的那一次会把每门课都报成"变了"。
      */
     fun servedSource(context: Context): ScheduleSource =
-        ScheduleSource.fromKey(
-            context.applicationContext
-                .getSharedPreferences(PREFS_SERVED, Context.MODE_PRIVATE)
-                .getString(KEY_SERVED, null)
-        )
+        ScheduleSource.fromKey(prefs(context, PREFS_SERVED).getString(KEY_SERVED, null))
 
     private fun remember(context: Context, source: ScheduleSource) {
-        context.applicationContext
-            .getSharedPreferences(PREFS_SERVED, Context.MODE_PRIVATE)
-            .edit().putString(KEY_SERVED, source.key).apply()
+        prefs(context, PREFS_SERVED).edit().putString(KEY_SERVED, source.key).apply()
     }
+
+    /** 这两份记录随账号走：换账号后别拿上一个人的来源和调课理由去比。 */
+    private fun prefs(context: Context, name: String) =
+        context.applicationContext.getSharedPreferences(name + AccountContext.safeSuffix(), Context.MODE_PRIVATE)
 
     private const val PREFS_SERVED = "schedule_source"
     private const val KEY_SERVED = "served"
@@ -134,9 +133,7 @@ object ScheduleSourceRouter {
      */
     fun changeEvents(context: Context, termCode: String): List<ScheduleChangeEvent> {
         if (termCode.isBlank()) return emptyList()
-        val json = context.applicationContext
-            .getSharedPreferences(PREFS_CHANGES, Context.MODE_PRIVATE)
-            .getString(termCode, null) ?: return emptyList()
+        val json = prefs(context, PREFS_CHANGES).getString(termCode, null) ?: return emptyList()
         // 逐条解码：缺了 kind 的条目单独丢掉，不连累整份
         return runCatching { AppJson.parseToJsonElement(json).jsonArray }.getOrNull().orEmpty()
             .mapNotNull { runCatching { AppJson.decodeFromJsonElement<ScheduleChangeEvent>(it) }.getOrNull() }
@@ -144,12 +141,9 @@ object ScheduleSourceRouter {
 
     private fun rememberChanges(context: Context, termCode: String, events: List<ScheduleChangeEvent>) {
         if (termCode.isBlank()) return
-        val prefs = context.applicationContext.getSharedPreferences(PREFS_CHANGES, Context.MODE_PRIVATE)
-        if (events.isEmpty()) {
-            prefs.edit().remove(termCode).apply()
-        } else {
-            prefs.edit().putString(termCode, AppJson.encodeToString(events)).apply()
-        }
+        val edit = prefs(context, PREFS_CHANGES).edit()
+        if (events.isEmpty()) edit.remove(termCode) else edit.putString(termCode, AppJson.encodeToString(events))
+        edit.apply()
     }
     private const val PREFS_CHANGES = "schedule_changes"
 

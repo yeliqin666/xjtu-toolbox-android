@@ -37,17 +37,9 @@ abstract class CasSiteSession(
     protected open fun onLoginSuccess(login: XJTULogin) {}
 
     /**
-     * 全局串行：所有站点的 CAS 登录（含 TGC 已建好后的纯 SSO 直通）都排在同一把锁后面。
-     *
-     * 本来只有"TGC 还没建好"这一段才排队，TGC 建好后的 SSO 直通被认为是无密码的轻量
-     * 操作，各站点各自的 service ticket 互不相干，理论上可以并发。但实测（真机日志）
-     * 证伪了这个假设：首次登录/重新登录时 jwxt、library、campus_card、lms 等好几个站点
-     * 的登录挤在同一个几十秒窗口内并发跑，考勤（attendance）的登录在这个窗口里两次拿不到
-     * 重定向回来的 token（AttendanceLogin.postLogin 报 "无法获取考勤 Token"），且服务端
-     * 对短时间内多次 CAS 验证的风控也会体现为连续弹出好几条独立的 MFA 短信验证——用户
-     * 反馈的正是这两个症状。跟 TGC 引导锁本来要防的是同一类问题（服务端把并发 CAS 请求
-     * 当异常），干脆把整段 CAS 登录都纳入这把锁，牺牲一点"多站点登录能并发"的理论速度，
-     * 换正确性：同一时刻全局只有一个站点在真正跟 CAS/各子系统的登录端点打交道。
+     * 全局串行：所有站点的 CAS 登录（含 TGC 已建好后的 SSO 直通）都排在同一把锁后面。
+     * 真机上多个站点并发登录时，考勤拿不到重定向回来的 token，服务端风控还会连续弹出
+     * 多条独立的 MFA 短信；同一时刻只让一个站点跟 CAS 打交道，牺牲一点并发速度换正确性。
      */
     override suspend fun runLogin(username: String, password: String) {
         casLoginLock.withLock { runCasLogin(username, password) }
@@ -93,13 +85,7 @@ abstract class CasSiteSession(
                         }
                     }
                     val mgr = manager ?: throw IOException("$siteName SessionManager unavailable")
-                    val code = mgr.askMfaCode(siteKey, siteName, ctx)
-                        ?: throw IOException("$siteName 用户取消验证")
-                    try {
-                        ctx.verifyCode(code)
-                    } catch (e: Exception) {
-                        throw IOException("$siteName 验证码错误：${e.message}", e)
-                    }
+                    if (!mgr.verifyMfaWithUser(siteKey, siteName, ctx)) throw MfaCancelledException(siteName)
                     result = xl.login()
                 }
                 LoginState.REQUIRE_CAPTCHA -> {

@@ -44,6 +44,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.KeyboardOptions
+import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.auth.AppLoginState
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.ui.glass.*
@@ -227,14 +228,14 @@ fun AccountManagerScreen(
                                 toast = "已添加 ${accountTitle(it)}"
                             },
                             onFailure = {
-                                toast = "添加失败：${it.message ?: "未知错误"}"
+                                toast = FriendlyError.of(it, "添加账号")
                                 haptics.error()
                             },
                         )
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        toast = "添加失败：${e.message ?: "未知错误"}"
+                        toast = FriendlyError.of(e, "添加账号")
                         haptics.error()
                     } finally {
                         globalBusy = false
@@ -264,7 +265,7 @@ fun AccountManagerScreen(
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        toast = "切换失败：${e.message ?: "未知错误"}"
+                        toast = FriendlyError.of(e, "切换账号")
                     } finally {
                         busyAccountId = null
                         refresh()
@@ -286,7 +287,7 @@ fun AccountManagerScreen(
                     refresh()
                     toast = "已更新 ${target.accountId} 的密码"
                 } catch (e: Exception) {
-                    toast = "更新失败：${e.message ?: "未知错误"}"
+                    toast = FriendlyError.of(e, "更新密码")
                 } finally {
                     pendingEditPwd = null
                 }
@@ -312,7 +313,7 @@ fun AccountManagerScreen(
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        toast = "删除失败：${e.message ?: "未知错误"}"
+                        toast = FriendlyError.of(e, "删除账号")
                     } finally {
                         busyAccountId = null
                         refresh()
@@ -794,7 +795,7 @@ private fun SwitchConfirmDialog(
     OverlayDialog(
         show = true,
         title = "切换账号",
-        summary = "将切换到 ${target.nickname ?: target.accountId}，当前账号的内存会话将被清空（缓存保留）。",
+        summary = "将切换到 ${target.nickname ?: target.accountId}。当前账号的课表等缓存会保留，随时可以切回来。",
         onDismissRequest = onDismiss
     ) {
         Row(Modifier.fillMaxWidth()) {
@@ -869,8 +870,8 @@ private fun DeleteConfirmDialog(
     OverlayDialog(
         show = true,
         title = "删除账号",
-        summary = "将从本机移除 ${target.accountId} 的凭据与 Cookie。" +
-            if (deleteCache) "同时删除其课表、成绩、对话缓存。" else "保留其本地缓存。",
+        summary = "将从本机移除 ${target.accountId} 的账号和登录信息。" +
+            if (deleteCache) "同时删除它的课表、成绩、对话等缓存。" else "保留其本地缓存。",
         onDismissRequest = onDismiss
     ) {
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {

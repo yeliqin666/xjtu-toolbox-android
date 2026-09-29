@@ -128,6 +128,7 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
+    val loginState = com.xjtu.toolbox.auth.LocalAppLoginState.current
 
     var navBarStyle by remember { mutableStateOf(credentialStore.navBarStyle) }
     var darkMode by remember { mutableStateOf(credentialStore.darkMode) }
@@ -405,6 +406,7 @@ fun SettingsScreen(
                         val v = networkValues[idx]
                         networkMode = v
                         credentialStore.networkMode = v
+                        scope.launch { loginState.onNetworkChanged() }
                     }
                 )
             }

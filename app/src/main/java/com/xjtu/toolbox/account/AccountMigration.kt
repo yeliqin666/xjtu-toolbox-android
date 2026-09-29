@@ -22,7 +22,8 @@ object AccountMigration {
      */
     fun runIfNeeded(context: Context, accountStore: AccountStore, credentialStore: CredentialStore): Account? {
         if (accountStore.migrationDone) {
-            // 已迁移过：仅恢复 activeAccountId 到 AccountContext
+            // 已迁移过：恢复 activeAccountId，并删掉迁移前留下的明文凭据副本
+            credentialStore.clearLegacyCredentials()
             accountStore.activeAccount()?.let { AccountContext.activeAccountId = it.accountId }
             return accountStore.activeAccount()
         }
@@ -51,7 +52,7 @@ object AccountMigration {
         )
         accountStore.upsert(account, setActive = true)
 
-        val suffix = "_" + accountId.replace(Regex("[^a-zA-Z0-9]"), "_")
+        val suffix = AccountContext.suffixFor(accountId)
 
         // 关键迁移步骤：任一失败则抛出，阻止 migrationDone 标记，下次启动可重试（步骤均幂等）。
         try {
@@ -109,6 +110,7 @@ object AccountMigration {
 
         AccountContext.activeAccountId = accountId
         accountStore.migrationDone = true
+        credentialStore.clearLegacyCredentials()
         Log.i(TAG, "Migration completed for accountId=$accountId")
         return account
     }

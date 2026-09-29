@@ -100,7 +100,7 @@ abstract class SiteSession(
     /**
      * 在当前 backend 上完成一次完整登录流程：走 CAS 状态机 + 提取本站点局部 token 并存入 [localToken]。
      * 子类一般会实例化 [XJTULogin]（复用 [SessionBackend.cookieJar]），遇 MFA 状态
-     * 调用 [SessionManager.askMfaCode] 等待 UI 输入。
+     * 调用 [SessionManager.verifyMfaWithUser] 等待 UI 输入。
      */
     @Throws(IOException::class)
     protected abstract suspend fun runLogin(username: String, password: String)
@@ -193,6 +193,8 @@ abstract class SiteSession(
                     manager?.reportPasswordInvalidated(siteKey, siteName)
                     throw e
                 }
+                // 用户自己取消验证不算登录失败，不进冷却
+                if (e is MfaCancelledException) throw e
                 manager?.reportLoginFailure(siteKey)
                 manager?.recordDiagnostic("ERROR", siteKey, "登录失败：${e.message ?: e.javaClass.simpleName}")
                 throw e
@@ -281,6 +283,9 @@ class PasswordInvalidatedException(
     val siteName: String = "",
     message: String = "账号或密码无效",
 ) : IOException(message)
+
+/** 用户在短信验证码弹窗里点了取消（或等待超时）。 */
+class MfaCancelledException(val siteName: String) : IOException("${siteName}的登录验证已取消")
 
 /** 登录还没完成就切换了账号，这次登录已作废。 */
 class AccountSwitchedException(val siteName: String) : IOException("已切换账号，${siteName}的登录已取消")
