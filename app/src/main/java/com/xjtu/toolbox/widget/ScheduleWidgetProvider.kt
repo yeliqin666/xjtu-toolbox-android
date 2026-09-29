@@ -690,7 +690,10 @@ object ScheduleWidgetUpdater {
  * 两个尺寸的小组件除了尺寸和 provider 类，逻辑完全一样。
  * 渲染要读缓存目录、查 Room，不能占着接收广播的主线程：goAsync 之后放到 IO 线程做。
  */
-abstract class ScheduleWidgetProviderBase(private val size: WidgetSize) : AppWidgetProvider() {
+abstract class ScheduleWidgetProviderBase(
+    private val size: WidgetSize,
+    private val self: Class<out AppWidgetProvider>,
+) : AppWidgetProvider() {
 
     private fun updateAsync(context: Context, ids: () -> IntArray) {
         val pending = goAsync()
@@ -699,7 +702,7 @@ abstract class ScheduleWidgetProviderBase(private val size: WidgetSize) : AppWid
             try {
                 ScheduleWidgetUpdater.updateSpecific(app, AppWidgetManager.getInstance(app), ids(), size)
             } finally {
-                pending.finish()
+                pending?.finish()
             }
         }
     }
@@ -716,12 +719,12 @@ abstract class ScheduleWidgetProviderBase(private val size: WidgetSize) : AppWid
                 ScheduleWidgetUpdater.resetBrowseSelectionToToday(context)
             }
             updateAsync(context) {
-                AppWidgetManager.getInstance(context).getAppWidgetIds(ComponentName(context, this::class.java))
+                AppWidgetManager.getInstance(context).getAppWidgetIds(ComponentName(context, self))
             }
         }
     }
 }
 
-class ScheduleWidget2x2Provider : ScheduleWidgetProviderBase(WidgetSize.SMALL)
+class ScheduleWidget2x2Provider : ScheduleWidgetProviderBase(WidgetSize.SMALL, ScheduleWidget2x2Provider::class.java)
 
-class ScheduleWidget4x2Provider : ScheduleWidgetProviderBase(WidgetSize.LARGE)
+class ScheduleWidget4x2Provider : ScheduleWidgetProviderBase(WidgetSize.LARGE, ScheduleWidget4x2Provider::class.java)

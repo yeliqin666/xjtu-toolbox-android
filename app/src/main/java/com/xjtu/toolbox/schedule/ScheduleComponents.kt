@@ -127,7 +127,11 @@ fun courseColorMap(names: Collection<String>): Map<String, Color> {
     val used = BooleanArray(n)
     val out = HashMap<String, Color>()
     for (name in names.distinct().sorted()) {
-        CourseColors.of(name)?.let { out[name] = it; continue }
+        val custom = CourseColors.of(name)
+        if (custom != null) {
+            out[name] = custom
+            continue
+        }
         val start = (name.trim().hashCode() and Int.MAX_VALUE) % n
         val i = (0 until n).map { (start + it) % n }.firstOrNull { !used[it] } ?: start
         used[i] = true
