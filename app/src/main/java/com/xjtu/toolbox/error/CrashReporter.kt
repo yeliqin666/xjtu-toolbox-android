@@ -83,6 +83,10 @@ object CrashReporter {
      * 再把剩余的整段 URL 查询串折叠掉——崩溃报告会上传，宁可多删。
      * 堆栈帧本身只有类名方法名行号，不受影响。
      */
+    /** 日志里 [write] 记下的崩溃时版本（`build=` 那一行）。 */
+    internal fun crashBuild(content: String): String? =
+        content.lineSequence().firstOrNull { it.startsWith("build=") }?.removePrefix("build=")?.trim()?.ifBlank { null }
+
     internal fun redact(s: String): String =
         com.xjtu.toolbox.util.LogRedact.redact(s)
             .replace(Regex("""\?[^\s"')]*"""), "?…")
@@ -107,6 +111,7 @@ object CrashReporter {
                     content = content,
                     contact = "",
                     anonId = FeedbackStore.anonId(context),
+                    version = crashBuild(content),
                 )
                 f.delete()
             } catch (e: Exception) {

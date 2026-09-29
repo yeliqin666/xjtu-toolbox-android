@@ -23,4 +23,11 @@ class CrashReporterRedactTest {
         val frame = "\tat com.xjtu.toolbox.a.b.c(SourceFile:1425)"
         assertEquals(frame, CrashReporter.redact(frame))
     }
+
+    @Test
+    fun reportsVersionAtCrashTime() {
+        val log = "time=2026-09-29 16:53:09\nbuild=5.0.8 (85)\npreview=false\nthread=main\njava.lang.IllegalAccessError"
+        assertEquals("5.0.8 (85)", CrashReporter.crashBuild(log))
+        assertEquals(null, CrashReporter.crashBuild("thread=main\n"))
+    }
 }
