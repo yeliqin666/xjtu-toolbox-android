@@ -117,6 +117,9 @@ object HomeStats {
         }
     }
 
+    /** 某个功能推送过的摘要（没有或过期返回 null），给功能页顶部的入口卡显示状态。 */
+    fun pushed(context: Context, route: AppRoute): HomeStat? = readPushed(DataCache(context), route.id)
+
     private fun readPushed(cache: DataCache, routeKey: String): HomeStat? =
         cache.read<HomeStat>(PUSHED_PREFIX + routeKey, PUSHED_TTL_MS)
 

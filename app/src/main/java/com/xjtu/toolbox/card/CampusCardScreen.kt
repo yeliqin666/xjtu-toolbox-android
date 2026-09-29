@@ -12,6 +12,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import com.xjtu.toolbox.home.HomeStats
+import com.xjtu.toolbox.home.HomeStat
+import androidx.compose.runtime.produceState
 import androidx.compose.material.icons.automirrored.filled.TrendingDown
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.*
@@ -393,7 +396,20 @@ private fun OverviewTab(
             item { Box(Modifier.enterOnce(1)) { CardStatusPanel(info) } }
         }
         // 紧跟余额卡：放到最近交易后面就被长列表埋掉了
-        item { Box(Modifier.enterOnce(1)) { com.xjtu.toolbox.ui.components.SecondaryEntry("加餐券", "领取和使用食堂加餐券", onClick = onOpenCoupon) } }
+        item {
+            Box(Modifier.enterOnce(1)) {
+                val context = LocalContext.current
+                // 状态用首页后台拉好的摘要：待领 / 可用张数、最近到期
+                val stat by produceState<HomeStat?>(null) { value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { HomeStats.pushed(context, AppRoute.Coupon) } }
+                com.xjtu.toolbox.ui.components.SecondaryEntry(
+                    Icons.Default.Restaurant, com.xjtu.toolbox.ui.theme.legacyColor(AppRoute.Coupon.id),
+                    "加餐券", stat?.detail ?: "领取和使用食堂加餐券",
+                    status = stat?.value,
+                    highlight = stat?.value?.contains("待领") == true || stat?.detail?.contains("到期") == true,
+                    onClick = onOpenCoupon,
+                )
+            }
+        }
         item { Box(Modifier.enterOnce(1)) { TodayMealsCard(today) } }
         item {
             Box(Modifier.enterOnce(2)) {

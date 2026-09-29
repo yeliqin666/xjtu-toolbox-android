@@ -28,6 +28,7 @@ import com.xjtu.toolbox.ui.components.AppCardColor
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
+import androidx.compose.material.icons.filled.Info
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 
@@ -274,7 +275,10 @@ private fun CommunityLoginScreen(session: GithubSession, onBack: () -> Unit, onO
 /** 旧的页内反馈（飞书多维表格）挪到社区里当二级入口，准备停用。 */
 @Composable
 internal fun LegacyFeedbackEntry(onClick: () -> Unit) =
-    com.xjtu.toolbox.ui.components.SecondaryEntry("旧版反馈", "不用登录的页内反馈，即将停用，建议改到社区发帖", tag = "即将停用", onClick = onClick)
+    com.xjtu.toolbox.ui.components.SecondaryEntry(
+        androidx.compose.material.icons.Icons.Default.Info, MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        "旧版反馈", "不用登录的页内反馈，建议改到社区发帖", status = "即将停用", onClick = onClick,
+    )
 
 private fun copyToClipboard(context: Context, text: String) {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
