@@ -258,7 +258,7 @@ class LibraryApi(private val site: SiteSession) {
         if (!response.isSuccessful) throw RuntimeException("楼层信息加载失败: HTTP ${response.code}")
         if (!looksLikeJson(body)) {
             Log.e(TAG, "qspace(floor=$floorCode) not JSON: ${body.redactBody(300)}")
-            throw RuntimeException("图书馆楼层信息接口返回异常（非 JSON 响应）")
+            throw RuntimeException("图书馆楼层信息返回了异常数据，请稍后重试")
         }
         val json = org.json.JSONObject(body)
         val result = linkedMapOf<String, String>()
@@ -393,7 +393,7 @@ class LibraryApi(private val site: SiteSession) {
         // 检查是否返回了 HTML 而非 JSON
         if (!looksLikeJson(body)) {
             Log.e(TAG, "qspace did not return JSON. ContentType=$contentType, body preview: ${body.redactBody(500)}")
-            throw RuntimeException("图书馆楼层信息接口返回异常（非 JSON 响应）")
+            throw RuntimeException("图书馆楼层信息返回了异常数据，请稍后重试")
         }
         val json = org.json.JSONObject(body)
         val stats = parseAreaStats(json.optJSONObject("scount"))
@@ -457,7 +457,7 @@ class LibraryApi(private val site: SiteSession) {
         val contentType = response.header("Content-Type")?.lowercase() ?: ""
         if (!looksLikeJson(body)) {
             Log.e(TAG, "qseat did not return JSON. ContentType=$contentType, body preview: ${body.redactBody(500)}")
-            return SeatResult.Error("图书馆服务器返回异常（非 JSON 响应），请稍后重试")
+            return SeatResult.Error("图书馆返回了异常数据，请稍后重试")
         }
 
         try {
@@ -511,7 +511,7 @@ class LibraryApi(private val site: SiteSession) {
         if (!response.isSuccessful) throw RuntimeException("平面图数据加载失败: HTTP ${response.code}")
         if (!looksLikeJson(body)) {
             Log.e(TAG, "qseatuist not JSON: ${body.redactBody(300)}")
-            throw RuntimeException("图书馆平面图接口返回异常（非 JSON 响应）")
+            throw RuntimeException("图书馆平面图返回了异常数据，请稍后重试")
         }
         return LibraryPages.parseSeatLayout(body)
     }

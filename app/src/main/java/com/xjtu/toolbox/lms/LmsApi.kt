@@ -380,7 +380,7 @@ class LmsApi(private val site: SiteSession) {
         val token = try {
             android.net.Uri.parse(playerUrl).getQueryParameter("token")
         } catch (_: Exception) { null }
-            ?: throw RuntimeException("播放器 URL 中找不到 token")
+            ?: throw RuntimeException("没有找到视频的播放凭证，请稍后重试")
         playerTokenCache[lessonActivityId] = token
         return token
     }

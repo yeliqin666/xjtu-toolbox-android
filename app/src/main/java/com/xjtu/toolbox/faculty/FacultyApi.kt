@@ -165,7 +165,7 @@ class FacultyApi(
 
         if (!looksLikeJson(body)) {
             Log.e(TAG, "advancesearch 未返回 JSON, preview=${body.redactBody(500)}")
-            throw RuntimeException("教师检索接口返回异常（非 JSON 响应）")
+            throw RuntimeException("教师检索返回了异常数据，请稍后重试")
         }
 
         val json = JSONObject(body)

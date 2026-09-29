@@ -31,7 +31,7 @@ class JwappLogin(
         authToken = finalUrl.substringAfter("token=", "")
             .substringBefore("&")
             .takeIf { it.isNotEmpty() }
-            ?: throw RuntimeException("登录失败：无法获取教务 Token")
+            ?: throw RuntimeException("移动教务登录没有完成，请稍后重试")
         Log.d(TAG, "postLogin: token obtained, len=${authToken?.length}")
         // 诊断：jwapp 域 cookies 名单（不暴露值），定位 401 是否是缺 session cookie
         try {

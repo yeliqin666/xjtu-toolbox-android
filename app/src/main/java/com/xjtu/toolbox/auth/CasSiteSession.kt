@@ -70,7 +70,7 @@ abstract class CasSiteSession(
                 }
                 LoginState.REQUIRE_MFA -> {
                     val ctx = result.mfaContext
-                        ?: throw IOException("$siteName 未返回 MFA 上下文")
+                        ?: throw IOException("$siteName 没有返回可用的验证信息，请稍后重试")
                     // 静默流程（后台预热/保活）到此为止：不弹窗、不发短信，交回给用户下次主动进入时处理。
                     if (silentLogin) {
                         throw MfaRequiredException(siteName)

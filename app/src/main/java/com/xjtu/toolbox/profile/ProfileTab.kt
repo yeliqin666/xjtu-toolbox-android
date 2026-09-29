@@ -815,7 +815,7 @@ internal fun ProfileTab(
                 ) {
                     Text("统一身份认证", style = MiuixTheme.textStyles.title4, fontWeight = FontWeight.Bold)
                     Text(
-                        "用学号（或手机号）和 CAS 密码登录",
+                        "用学号（或手机号）和统一认证密码登录",
                         style = MiuixTheme.textStyles.footnote1,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                     )
@@ -900,7 +900,7 @@ internal fun ProfileTab(
                         Icon(Icons.Outlined.Lock, null, Modifier.size(12.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.6f))
                         Spacer(Modifier.width(4.dp))
                         Text(
-                            "密码加密保存在本机，只发往学校 CAS",
+                            "密码加密保存在本机，只发往学校统一认证",
                             style = MiuixTheme.textStyles.footnote2,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.6f),
                             textAlign = TextAlign.Center,

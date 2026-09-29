@@ -34,7 +34,7 @@ class JwxtLogin(
             retryBody = retryResp.body.string()
         } catch (e: Exception) {
             android.util.Log.e("JwxtLogin", "postLogin: retry failed", e)
-            throw RuntimeException("教务系统 SSO 未完成跳转，需要重新登录")
+            throw RuntimeException("教务系统登录没有完成，请重新登录")
         }
         val retryUrl = retryResp.request.url.toString()
         // CAS Safety Verify 二次认证拦截：必须由主 login() 状态机接管转 REQUIRE_MFA。
@@ -48,7 +48,7 @@ class JwxtLogin(
             return
         }
         android.util.Log.w("JwxtLogin", "postLogin: retry still not at jwxt, finalUrl=${retryUrl.redactUrl()}")
-        throw RuntimeException("教务系统 SSO 未完成跳转，需要重新登录")
+        throw RuntimeException("教务系统登录没有完成，请重新登录")
     }
 
     private val reAuthLock = Any()

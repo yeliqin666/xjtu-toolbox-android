@@ -59,7 +59,7 @@ class JsLogin(
         client.newCall(Request.Builder().url(LOGIN_URL).get().build()).execute().use { retry ->
             val body = retry.body.string()
             if (XJTULogin.isSafetyVerifyPage(body)) throw SafetyVerifyRequiredException(retry, body)
-            return findTicket(retry) ?: throw IOException("智慧教室登录失败：CAS 没有回跳到 js.xjtu.edu.cn")
+            return findTicket(retry) ?: throw IOException("智慧教室登录没有完成，请稍后重试")
         }
     }
 
@@ -112,7 +112,7 @@ class JsLogin(
                 val text = resp.body.string()
                 if (!resp.isSuccessful) throw IOException("智慧教室换取令牌失败：HTTP ${resp.code}")
                 val root = runCatching { text.safeParseJsonObject() }.getOrNull()
-                    ?: throw IOException("智慧教室换取令牌失败：响应不是 JSON")
+                    ?: throw IOException("智慧教室返回了异常数据，请稍后重试")
                 val data = root.get("data")?.takeIf { it.isObject }?.jsonObject
                 val token = data?.get("tokenValue")?.takeIf { !it.isNull }?.stringValue?.trim().orEmpty()
                 if (token.isEmpty()) {

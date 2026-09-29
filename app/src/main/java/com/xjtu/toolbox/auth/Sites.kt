@@ -527,7 +527,7 @@ private class LandingCasLogin(
             val body = retry.body.string()
             if (XJTULogin.isSafetyVerifyPage(body)) throw SafetyVerifyRequiredException(retry, body)
             if (!com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(retry.request.url.toString(), targetHost)) {
-                throw IOException("$targetHost SSO 未完成跳转，需要重新登录")
+                throw IOException("$targetHost 登录没有完成，请重新登录")
             }
         }
     }

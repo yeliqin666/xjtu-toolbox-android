@@ -115,7 +115,7 @@ class AttendanceLogin(
         client.newCall(Request.Builder().url(via(LOGIN_URL)).get().build()).execute().use { retry ->
             val body = retry.body.string()
             if (!consumeLanding(retry.request.url, body)) {
-                throw RuntimeException("考勤系统登录失败：未取得 CAS 回调票据")
+                throw RuntimeException("考勤系统登录没有完成，请稍后重试")
             }
         }
     }

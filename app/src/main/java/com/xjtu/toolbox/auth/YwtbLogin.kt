@@ -42,7 +42,7 @@ class YwtbLogin(
             ?: throw RuntimeException("登录失败：无法获取 YWTB ticket")
 
         val parts = ticketJwt.split(".")
-        if (parts.size < 2) throw RuntimeException("无效的 JWT Token")
+        if (parts.size < 2) throw RuntimeException("登录信息无效，请重新登录")
 
         // JWT payload 使用 Base64url 编码（可能有或无 padding）
         // 先补齐 padding 再解码，兼容所有格式

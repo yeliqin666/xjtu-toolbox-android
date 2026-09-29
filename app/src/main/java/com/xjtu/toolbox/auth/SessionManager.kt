@@ -289,7 +289,7 @@ class SessionManager(context: Context) {
                         throw IOException("WebVPN 登录失败：$msg")
                     }
                     LoginState.REQUIRE_MFA -> {
-                        val ctx = result.mfaContext ?: throw IOException("WebVPN 未返回 MFA 上下文")
+                        val ctx = result.mfaContext ?: throw IOException("WebVPN 没有返回可用的验证信息，请稍后重试")
                         if (ctx.flow == MFAFlow.MFA_DETECT) ctx.sendVerifyCode()
                         if (!verifyMfaWithUser("webvpn", "WebVPN（校外接入）", ctx)) throw MfaCancelledException("WebVPN")
                         result = login.login()

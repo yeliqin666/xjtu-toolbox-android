@@ -81,7 +81,7 @@ class CampusCardLogin(
         } catch (e: Exception) {
             Log.e(TAG, "postLogin: retry failed", e)
         }
-        throw RuntimeException("校园卡 SSO 未拿到 ticket，需要重新登录")
+        throw RuntimeException("校园卡登录没有完成，请重新登录")
     }
 
     private fun tryExtractTicketAndGetToken(url: String): Boolean {
