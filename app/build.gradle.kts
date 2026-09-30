@@ -26,7 +26,7 @@ android {
         applicationId = "com.xjtu.toolbox"
         minSdk = 31
         targetSdk = 36
-        versionCode = 87
+        versionCode = 88
         versionName = "5.1.0"
 
         // 反馈后端（飞书多维表格）的凭据。优先读环境变量（CI），否则读
