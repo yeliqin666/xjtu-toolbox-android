@@ -3,8 +3,6 @@ package com.xjtu.toolbox.auth
 import android.content.Context
 import android.util.Log
 import com.xjtu.toolbox.account.AccountContext
-import com.xjtu.toolbox.network.PersistentCookieJar
-import com.xjtu.toolbox.webvpn.WebVpnInterceptor
 import com.xjtu.toolbox.webvpn.WebVpnUtil
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -59,57 +57,38 @@ class SessionManager(context: Context) {
     /** 当前 backends 所属账号命名空间；null 为启动时的默认（匿名）。 */
     private var backendSuffix: String? = null
 
-    private fun buildBackends(accountSuffix: String?): Map<AccessMode, SessionBackend> {
-        val suffix = accountSuffix ?: ANONYMOUS_SUFFIX
-        val normalJar = PersistentCookieJar(appContext, "cookies_normal$suffix")
-        val webvpnJar = PersistentCookieJar(appContext, "cookies_webvpn$suffix")
-        return mapOf(
-            AccessMode.NORMAL to SessionBackend(AccessMode.NORMAL, normalJar),
-            AccessMode.WEBVPN to SessionBackend(
-                AccessMode.WEBVPN,
-                webvpnJar,
-                webVpnInterceptor = WebVpnInterceptor(),
-            ),
-        )
-    }
+    private fun buildBackends(accountSuffix: String?): Map<AccessMode, SessionBackend> =
+        AccessMode.entries.associateWith { SessionBackend.create(appContext, it, accountSuffix ?: ANONYMOUS_SUFFIX) }
 
     fun backend(accessMode: AccessMode): SessionBackend = backends.getValue(accessMode)
 
     private val _currentAccessMode = MutableStateFlow(AccessMode.NORMAL)
     val currentAccessMode: StateFlow<AccessMode> = _currentAccessMode
 
-    /**
-     * 网络环境变化时调用。仅切换 active mode 指针，重新绑定 backend 给所有已注册 site；
-     * 任何一边 backend 的 cookies 都不会被清空——下次切回可零成本 SSO 复用。
-     */
     /** 换了网络后，旧网络上的空闲长连接已经不通，复用会卡到读超时才重试；全部丢掉重建。 */
     fun evictConnections() {
         synchronized(backendsLock) { backends.values.forEach { runCatching { it.client.connectionPool.evictAll() } } }
         runCatching { com.xjtu.toolbox.network.HttpClients.base.connectionPool.evictAll() }
     }
 
+    /**
+     * 网络环境变化时调用。只切换 active mode，跟随全局模式的站点换绑到另一边的 backend；
+     * 两边的 cookie 和站点快照都不清，切回来直接复用。钉死直连的站点不受影响。
+     */
     fun onNetworkChanged(newMode: AccessMode) {
         val old = _currentAccessMode.value
         if (old == newMode) return
         Log.i(TAG, "AccessMode changed: ${old.key} -> ${newMode.key}")
         recordDiagnostic("INFO", "network", "访问模式切换：${old.key} -> ${newMode.key}")
         _currentAccessMode.value = newMode
-        sites.values.forEach {
-            // 只作废真换了 backend 的站点（cookies 域不同，要重新 validate）；直连站点连接没变，
-            // 登录和一网通办令牌都留着
-            val next = backendFor(it)
-            if (next !== it.backend) {
-                it.backend = next
-                it.invalidateLogin()
-            }
-        }
+        sites.values.forEach { it.bind(backendFor(it)) }
     }
 
     private val sites: MutableMap<String, SiteSession> = ConcurrentHashMap()
 
     fun register(site: SiteSession): SiteSession {
-        site.backend = backendFor(site)
         site.manager = this
+        site.bind(backendFor(site))
         sites[site.siteKey] = site
         return site
     }
@@ -129,9 +108,9 @@ class SessionManager(context: Context) {
 
     fun getSiteOrNull(siteKey: String): SiteSession? = sites[siteKey]
 
-    /** 让所有站点会话失效（不动 cookies）。切换 access mode / 切换账号时使用。 */
-    fun invalidateAllSites() {
-        sites.values.forEach { it.invalidateLogin() }
+    /** 清掉所有站点的内存会话状态，落盘的 cookie 和快照不动（切账号前用，切回来还能复用）。 */
+    fun forgetAllSites() {
+        sites.values.forEach { it.forget() }
     }
 
     val activeSiteCount: Int get() = sites.values.count { it.hasLogin }
@@ -226,7 +205,7 @@ class SessionManager(context: Context) {
 
     /**
      * WEBVPN backend 的网关自认证。支持 WebVPN 的业务站点在校外访问前先调用这里，
-     * 之后业务 URL 仍按原始域名构造，由 [WebVpnInterceptor] 无感改写。
+     * 之后业务 URL 仍按原始域名构造，由 [com.xjtu.toolbox.webvpn.WebVpnInterceptor] 无感改写。
      *
      * 新鲜窗口内直接用；否则先 [resumeWebVpnGateway]（网关或统一认证还活着就免密续上），
      * 都不行才提交密码。
@@ -469,11 +448,8 @@ class SessionManager(context: Context) {
             backends.values.forEach { runCatching { it.client.connectionPool.evictAll() } }
             backends = buildBackends(accountSuffix)
         }
-        // 重新绑定每个 site 到新 backend；mustUseWebVpn=false 的 site 永远绑 NORMAL（直连，不代表校外可用）
-        sites.values.forEach {
-            it.backend = backendFor(it)
-            it.invalidateLogin()
-        }
+        // 重新绑定每个 site 到新 backend（恢复该账号的站点快照）；mustUseWebVpn=false 的 site 永远绑 NORMAL
+        sites.values.forEach { it.bind(backendFor(it)) }
         // 清空账号相关共享状态
         credentials = null
         fpVisitorId = null
@@ -490,19 +466,22 @@ class SessionManager(context: Context) {
      */
     fun reconfigureForAnonymous() {
         reconfigureForAccount(ANONYMOUS_SUFFIX)
-        backends.values.forEach { it.cookieJar.clear() }
+        backends.values.forEach { it.clearAuth() }
     }
 
     /** 还没有账号时匿名命名空间里不该有会话。开始登录前清一次，免得早先遗留的 TGC 让新登录直通别人的会话。 */
     fun purgeAnonymousSession() {
-        if (AccountContext.activeAccountId == null) backends.values.forEach { it.cookieJar.clear() }
+        if (AccountContext.activeAccountId == null) backends.values.forEach { it.clearAuth() }
     }
 
-    /** 首次登录发生在匿名命名空间：把这次产生的 cookie 搬进账号命名空间，匿名罐清空。 */
+    /**
+     * 首次登录发生在匿名命名空间：把这次产生的 cookie 搬进账号命名空间，匿名罐清空。
+     * 站点快照不搬：换绑后各站点凭搬过去的 TGC 免密登一次即可。
+     */
     fun adoptAnonymousSession(accountSuffix: String) {
         val old = backends
         val raws = old.mapValues { it.value.cookieJar.exportRaw() }
-        old.values.forEach { it.cookieJar.clear() }
+        old.values.forEach { it.clearAuth() }
         reconfigureForAccount(accountSuffix)
         raws.forEach { (mode, raw) -> if (raw.isNotBlank()) backend(mode).cookieJar.importRaw(raw) }
     }

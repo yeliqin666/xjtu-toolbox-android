@@ -1,7 +1,10 @@
 package com.xjtu.toolbox.auth
 
+import android.content.Context
+import com.xjtu.toolbox.data.SecurePrefs
 import com.xjtu.toolbox.network.HttpClients
 import com.xjtu.toolbox.network.PersistentCookieJar
+import com.xjtu.toolbox.webvpn.WebVpnInterceptor
 import kotlinx.coroutines.sync.Mutex
 import okhttp3.ConnectionPool
 import okhttp3.Dispatcher
@@ -13,7 +16,7 @@ import java.util.concurrent.TimeUnit
  * 一种 [AccessMode] 对应一个 SessionBackend，提供该访问方式下所有业务站点共享的底层请求资源。
  *
  * 关键不变量：
- * - cookies 物理隔离——`cookies_normal` / `cookies_webvpn` 各自一份存储，从M不混淆。
+ * - 会话按「账号 × 访问方式」物理隔离：cookie 与站点快照各自一份存储，两边的统一认证登录态互不影响。
  * - 同 backend 内所有 SiteSession 共享 cookies：一次 CAS 登录建立的 TGC 全局生效，
  *   后续走 CAS 的子系统均 SSO 直通，不会重复触发 MFA。
  * - [loginLock] 串行化 backend 自身的登录动作（如 WebVPN 网关认证）。
@@ -21,6 +24,7 @@ import java.util.concurrent.TimeUnit
 class SessionBackend(
     val accessMode: AccessMode,
     val cookieJar: PersistentCookieJar,
+    val snapshots: SiteSnapshots,
     // 连接池放宽：一次登录要在 login.xjtu.edu.cn / 业务域之间来回十几跳，
     // 30 秒 keep-alive 撑不过用户在页面上的停顿，回来又要重新 TLS 握手（校园网上常 200-600ms/次）。
     connectionPool: ConnectionPool = ConnectionPool(8, 5, TimeUnit.MINUTES),
@@ -69,19 +73,41 @@ class SessionBackend(
     }
 
     fun markWebVpnStale() {
-        if (accessMode == AccessMode.NORMAL) {
-            webvpnSelfLoggedIn = true
-            webvpnValidatedAt = 0L
-            return
-        }
-        webvpnSelfLoggedIn = false
+        webvpnSelfLoggedIn = accessMode == AccessMode.NORMAL
         webvpnValidatedAt = 0L
     }
 
-    /** 清空 cookies + 重置自身认证态，限于登出、密码变更等场景；不用于网络切换。 */
+    /** 清空会话（cookie + 站点快照）并重置网关认证态：登出、清凭据、匿名命名空间清理时用，切网不用。 */
     fun clearAuth() {
         cookieJar.clear()
+        snapshots.clear()
         markWebVpnStale()
-        if (accessMode == AccessMode.NORMAL) webvpnSelfLoggedIn = true
+    }
+
+    companion object {
+        fun create(context: Context, mode: AccessMode, accountSuffix: String): SessionBackend {
+            val app = context.applicationContext
+            return SessionBackend(
+                mode,
+                PersistentCookieJar(app, cookiePrefs(mode, accountSuffix)),
+                SiteSnapshots { SecurePrefs.open(app, snapshotPrefs(mode, accountSuffix)) },
+                webVpnInterceptor = if (mode == AccessMode.WEBVPN) WebVpnInterceptor() else null,
+            )
+        }
+
+        /** 删掉某账号两边的会话存储，不需要 backend 实例（删账号时用）。 */
+        fun wipe(context: Context, accountSuffix: String) {
+            val app = context.applicationContext
+            AccessMode.entries.forEach { mode ->
+                runCatching { PersistentCookieJar(app, cookiePrefs(mode, accountSuffix)).clear() }
+                val snapshots = snapshotPrefs(mode, accountSuffix)
+                if (java.io.File(app.applicationInfo.dataDir, "shared_prefs/$snapshots.xml").exists()) {
+                    runCatching { SecurePrefs.open(app, snapshots).edit().clear().apply() }
+                }
+            }
+        }
+
+        private fun cookiePrefs(mode: AccessMode, suffix: String) = "cookies_${mode.key}$suffix"
+        private fun snapshotPrefs(mode: AccessMode, suffix: String) = "sites_${mode.key}$suffix"
     }
 }

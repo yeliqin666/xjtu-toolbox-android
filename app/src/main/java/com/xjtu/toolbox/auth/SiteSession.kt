@@ -45,9 +45,12 @@ abstract class SiteSession(
      */
     val mustUseWebVpn: Boolean = true,
 ) {
-    /** 由 SessionManager 在创建时注入并随网络切换更新。 */
+    /** 由 SessionManager 经 [bind] 注入，随切网、切账号换绑。 */
     @Volatile var backend: SessionBackend? = null
-        internal set
+        private set
+
+    /** 已从哪个 backend 的快照恢复过（或在它上面登录过），避免重复恢复覆盖更新的状态。 */
+    @Volatile private var restoredFrom: SessionBackend? = null
 
     /** 由 SessionManager 注入，用于报告凭据失效、弹 MFA 等跨站点动作。 */
     @Volatile internal var manager: SessionManager? = null
@@ -149,6 +152,7 @@ abstract class SiteSession(
             mgr?.ensureWebVpnLogin()
         }
         loginLock.withLock {
+            withContext(Dispatchers.IO) { restoreIfNeeded() }
             // 等锁期间别人可能刚登完，再判一次新鲜度，避免排队者逐个重复探活。
             if (!force && hasLogin && isFresh()) return
             // 防踩踏：force 调用方若传入其观察到失效时的代数，而等锁期间其他协程
@@ -159,7 +163,8 @@ abstract class SiteSession(
             }
             if (!force && hasLogin) {
                 try {
-                    if (withContext(Dispatchers.IO) { validateLogin() }) {
+                    // 探活可能顺手刷新本地令牌（电费 cid、校园卡资料等），通过就把快照一起更新
+                    if (withContext(Dispatchers.IO) { validateLogin().also { if (it) saveSnapshot(backend) } }) {
                         lastValidatedAt = SystemClock.elapsedRealtime()
                         return
                     }
@@ -173,12 +178,20 @@ abstract class SiteSession(
             // 登录途中切了账号，这轮登录属于旧账号：token 不能留给新账号，失败也不能记到新账号头上
             val epoch = AccountContext.switchEpoch
             fun switched() = AccountContext.switchEpoch != epoch
+            val loginBackend = backend
             try {
                 silentLogin = silent
                 withContext(Dispatchers.IO) {
                     runLogin(username, password)
+                    if (!switched()) saveSnapshot(loginBackend)
                 }
                 if (switched()) throw AccountSwitchedException(siteName)
+                if (backend !== loginBackend) {
+                    // 登录途中切了网：这轮会话属于另一边，快照已存到那边，这边按自己的快照重来
+                    forget()
+                    Log.d(TAG, "[$siteKey] login finished on a stale backend, dropped")
+                    return
+                }
                 hasLogin = true
                 loginEpoch++
                 lastValidatedAt = SystemClock.elapsedRealtime()
@@ -187,7 +200,7 @@ abstract class SiteSession(
                 manager?.recordDiagnostic("INFO", siteKey, "登录成功（${currentAccessMode.key}）")
             } catch (e: IOException) {
                 if (switched()) {
-                    invalidateLogin()
+                    forget()
                     manager?.recordDiagnostic("INFO", siteKey, "登录途中切换了账号，本次登录作废")
                     throw e as? AccountSwitchedException ?: AccountSwitchedException(siteName)
                 }
@@ -212,11 +225,50 @@ abstract class SiteSession(
         return age in 0 until VALIDATE_TTL_MS
     }
 
-    /** 标记本站点会话失效（清 hasLogin + 局部 token，不动共享 cookies）。 */
-    open fun invalidateLogin() {
+    /** 本站点会话已失效：清内存状态、删掉当前 backend 下的快照，不动共享 cookies。 */
+    fun invalidateLogin() {
+        resetState()
+        backend?.let { runCatching { it.snapshots.remove(siteKey) } }
+        restoredFrom = backend
+    }
+
+    /** 只清内存状态，快照留着：切账号时用，下次 [ensureLogin] 从当前 backend 的快照恢复。 */
+    fun forget() {
+        resetState()
+        restoredFrom = null
+    }
+
+    /** 换绑 backend（切网、切账号）：换掉内存状态，两边的快照都留着，下次 [ensureLogin] 恢复新 backend 的。 */
+    internal fun bind(target: SessionBackend) {
+        if (target === backend) return
+        backend = target
+        forget()
+    }
+
+    private fun resetState() {
         hasLogin = false
         lastValidatedAt = 0L
         localToken.clear()
+    }
+
+    /** 冷启动或换绑后第一次用：从快照恢复成「已登录、待确认」，接下来按常规先探活（没有探活的直接信任）。 */
+    private fun restoreIfNeeded() {
+        val b = backend ?: return
+        if (restoredFrom === b) return
+        restoredFrom = b
+        if (hasLogin) return
+        val tokens = runCatching { b.snapshots.load(siteKey) }.getOrNull() ?: return
+        localToken.putAll(tokens)
+        hasLogin = true
+        lastValidatedAt = 0L
+        Log.d(TAG, "[$siteKey] restored from snapshot (mode=${b.accessMode.key})")
+    }
+
+    private fun saveSnapshot(target: SessionBackend?) {
+        target ?: return
+        restoredFrom = target
+        runCatching { target.snapshots.save(siteKey, HashMap(localToken)) }
+            .onFailure { Log.w(TAG, "[$siteKey] save snapshot failed: ${it.message}") }
     }
 
     /**

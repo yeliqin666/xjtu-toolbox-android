@@ -69,7 +69,7 @@ object CampusProbe {
                 token = runCatching { SecurePrefs.open(app, PREFS).getString(KEY_TOKEN, null) }.getOrNull()
                 tokenLoaded = true
             }
-            return token?.takeUnless { isExpired(it, System.currentTimeMillis()) }
+            return token?.takeUnless { Jwt.isExpired(it, System.currentTimeMillis()) }
         }
         set(value) {
             token = value
@@ -190,16 +190,6 @@ object CampusProbe {
         }
     } catch (_: Exception) {
         Server.UNREACHABLE
-    }
-
-    /** JWT 的 exp 已过（留 1 分钟余量）；解不出来的不算过期，交给服务器判。 */
-    internal fun isExpired(jwt: String, now: Long): Boolean {
-        val payload = jwt.split('.').getOrNull(1) ?: return false
-        val exp = runCatching {
-            val json = String(java.util.Base64.getUrlDecoder().decode(payload.padEnd((payload.length + 3) / 4 * 4, '=')))
-            (json.safeParseJsonObject()["exp"] as? JsonPrimitive)?.content?.toLongOrNull()
-        }.getOrNull() ?: return false
-        return exp * 1000 - 60_000 < now
     }
 
     /** 成功时 `{"code":0,"data":true}`；没权限、令牌过期、网关报错页等只说明公网通。 */

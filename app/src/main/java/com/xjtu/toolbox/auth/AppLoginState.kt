@@ -159,7 +159,7 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
     override fun clearInMemorySessionState() {
         activeUsername = ""
         savedUsername = ""; savedPassword = ""
-        sessionManager?.invalidateAllSites()
+        sessionManager?.forgetAllSites()
         // 网关登录态随 backend 走：切账号时 reconfigureForAccount 会整体换掉 backends，
         // 这里额外置一次，覆盖「尚未 reconfigure 就先清内存态」的调用顺序。
         webVpnBackend?.markWebVpnStale()
