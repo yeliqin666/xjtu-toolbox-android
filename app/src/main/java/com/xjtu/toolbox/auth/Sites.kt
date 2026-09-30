@@ -45,7 +45,8 @@ class JwxtSession : CasSiteSession("jwxt", "教务系统", mustUseWebVpn = false
     }
 
     companion object {
-        private const val VALIDATE_URL = "https://jwxt.xjtu.edu.cn/api/v2/system/term-info"
+        /** 登录入口页：会话有效时停在教务，失效时被跳到统一认证。 */
+        private const val VALIDATE_URL = XJTULogin.JWXT_URL
     }
 }
 
