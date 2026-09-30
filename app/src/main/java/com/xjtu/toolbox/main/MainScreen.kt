@@ -2,6 +2,8 @@ package com.xjtu.toolbox.main
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -546,7 +548,8 @@ internal fun MainScreen(
 
         // 搜索、扫一扫是盖满整屏的浮层：放在最外层，不放进 Scaffold 的内容区。
         // 放在内容区里时，Scaffold 把顶栏、底栏画在内容之上，状态栏和小白条那两条被主界面盖住。
-        if (showGlobalSearch) {
+        // 进出带一段轻微的上滑淡入、下滑淡出（以前是 Dialog 窗口自带的淡入淡出）。
+        AnimatedVisibility(visible = showGlobalSearch, enter = OverlayEnter, exit = OverlayExit) {
             CompositionLocalProvider(LocalAppBackdrop provides if (glassStyle) appBackdrop else null) {
                 GlobalSearchScreen(
                     onBack = { showGlobalSearch = false },
@@ -564,7 +567,7 @@ internal fun MainScreen(
             }
         }
 
-        if (showQrLogin) {
+        AnimatedVisibility(visible = showQrLogin, enter = OverlayEnter, exit = OverlayExit) {
             QrLoginScreen(
                 sessionManager = accountManager.sessionManager,
                 onBack = { showQrLogin = false },
@@ -584,6 +587,9 @@ internal fun MainScreen(
         }
     }
 }
+
+private val OverlayEnter = fadeIn(tween(220)) + slideInVertically(tween(260)) { it / 16 }
+private val OverlayExit = fadeOut(tween(180)) + slideOutVertically(tween(200)) { it / 16 }
 
 /** 主界面顶栏，玻璃风格下采样 tab 内容区。 */
 @Composable
@@ -631,9 +637,26 @@ private fun MainTopBar(
         largeTitle = title,
         subtitle = if (selectedTab == BottomTab.COURSES) courseSubtitle else "",
         scrollBehavior = scrollBehavior,
+        // 折叠后的小标题在左右两组按钮之间居中，两边一样宽标题才在屏幕正中：
+        // 首页左边放消息、再留一格隐形占位，右边扫一扫和搜索，都是两格宽。
+        navigationIcon = {
+            if (selectedTab == BottomTab.HOME) {
+                Row {
+                    InboxBell(onInbox)
+                    IconButton(
+                        onClick = {},
+                        enabled = false,
+                        modifier = Modifier
+                            .alpha(0f)
+                            .clearAndSetSemantics {},
+                    ) {
+                        Icon(Icons.Default.Search, contentDescription = null)
+                    }
+                }
+            }
+        },
         actions = {
             if (selectedTab == BottomTab.COURSES) courseActions?.invoke(this)
-            // 功能按钮都靠右一组：以前扫一扫单独在左，和右边两个把标题夹在中间，左右不对称
             if (selectedTab == BottomTab.HOME) {
                 IconButton(onClick = onScan) {
                     Icon(
@@ -642,7 +665,6 @@ private fun MainTopBar(
                         tint = MiuixTheme.colorScheme.onSurface,
                     )
                 }
-                InboxBell(onInbox)
                 IconButton(onClick = onSearch) {
                     Icon(Icons.Default.Search, contentDescription = "搜索", tint = MiuixTheme.colorScheme.onSurface)
                 }
