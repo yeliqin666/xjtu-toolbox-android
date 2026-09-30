@@ -1,7 +1,8 @@
 package com.xjtu.toolbox.inbox
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -110,14 +111,23 @@ fun InboxScreen(onBack: () -> Unit, onOpen: (String) -> Unit) {
     val data = InboxStore.snapshot()
     val now = remember(data) { System.currentTimeMillis() }
     val todos = remember(data) { InboxRules.todos(data, now) }
+    val finished = remember(data) { InboxRules.finished(data, now) }
     val groups = remember(data) { InboxRules.groups(data, now) }
     val unread = groups.count { it.unread }
+    // 这次进来之前没看过的待办标个红点；一看到就记成看过，首页红点随之熄掉，这页的红点留到下次进来
+    val seenAtOpen = remember { data.seenTodos }
 
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var refreshing by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var showSettings by remember { mutableStateOf(false) }
     var detail by remember { mutableStateOf<InboxItem?>(null) }
+    var actions by remember { mutableStateOf<RowActions?>(null) }
+
+    val todoIds = todos.map { it.id }
+    androidx.compose.runtime.LaunchedEffect(tab, todoIds) {
+        if (tab == 0 && todoIds.isNotEmpty()) InboxStore.markTodosSeen(todoIds)
+    }
 
     fun refresh() = scope.launch {
         val manager = loginState.sessionManager ?: return@launch
@@ -209,7 +219,21 @@ fun InboxScreen(onBack: () -> Unit, onOpen: (String) -> Unit) {
                             }
                         }
                         todos.groupBy { todoSection(it, now) }.forEach { (title, list) ->
-                            section(title, list.map { Entry(it, it.id, unread = false, count = 1) { open(it) } })
+                            section(title, list.map {
+                                Entry(
+                                    it, it.id, unread = it.id !in seenAtOpen, count = 1,
+                                    onLongClick = { actions = RowActions(it, listOf("忽略这条待办" to { InboxStore.ignoreTodo(it.id) })) },
+                                ) { open(it) }
+                            })
+                        }
+                        // 办完、忽略的灰着留 7 天，看得到最近处理掉了什么
+                        if (finished.isNotEmpty()) {
+                            section("已完成", finished.map { f ->
+                                Entry(
+                                    f.item, "done:${f.item.id}", unread = false, count = 1, dimmed = true,
+                                    timeText = (if (f.ignored) "已忽略 · " else "已完成 · ") + timeLabel(f.at),
+                                ) { open(f.item) }
+                            })
                         }
                     } else {
                         if (groups.isEmpty()) {
@@ -218,7 +242,14 @@ fun InboxScreen(onBack: () -> Unit, onOpen: (String) -> Unit) {
                             }
                         }
                         groups.groupBy { daySection(it.latest.time) }.forEach { (title, list) ->
-                            section(title, list.map { g -> Entry(g.latest, g.latest.id, g.unread, g.count) { open(g.latest, g.ids) } })
+                            section(title, list.map { g ->
+                                Entry(
+                                    g.latest, g.latest.id, g.unread, g.count, dimmed = !g.unread,
+                                    onLongClick = if (g.unread) {
+                                        { actions = RowActions(g.latest, listOf("标为已读" to { InboxStore.markRead(g.ids) })) }
+                                    } else null,
+                                ) { open(g.latest, g.ids) }
+                            })
                         }
                     }
                 }
@@ -229,9 +260,41 @@ fun InboxScreen(onBack: () -> Unit, onOpen: (String) -> Unit) {
     }
 
     detail?.let { d -> InboxDetailDialog(d) { detail = null } }
+    actions?.let { a -> RowActionsDialog(a) { actions = null } }
 }
 
-private class Entry(val item: InboxItem, val key: String, val unread: Boolean, val count: Int, val onClick: () -> Unit)
+private class Entry(
+    val item: InboxItem,
+    val key: String,
+    val unread: Boolean,
+    val count: Int,
+    /** 读过的消息、办完的待办：整行变灰。 */
+    val dimmed: Boolean = false,
+    /** 替换右上角的时间，比如「已完成 · 3 小时前」。 */
+    val timeText: String? = null,
+    val onLongClick: (() -> Unit)? = null,
+    val onClick: () -> Unit,
+)
+
+/** 长按一条弹出的操作。 */
+private class RowActions(val item: InboxItem, val actions: List<Pair<String, () -> Unit>>)
+
+@Composable
+private fun RowActionsDialog(a: RowActions, onDismiss: () -> Unit) {
+    WindowDialog(show = true, title = a.item.title, summary = a.item.source, onDismissRequest = onDismiss) {
+        Column {
+            a.actions.forEach { (label, run) ->
+                TextButton(
+                    text = label,
+                    onClick = { run(); onDismiss() },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                )
+            }
+            TextButton(text = "取消", onClick = onDismiss, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+        }
+    }
+}
 
 /** 一个小标题加一张卡片，卡片里的条目用细线隔开。 */
 private fun LazyListScope.section(title: String, entries: List<Entry>) {
@@ -240,7 +303,7 @@ private fun LazyListScope.section(title: String, entries: List<Entry>) {
         Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(bottom = 6.dp)) {
             entries.forEachIndexed { i, e ->
                 key(e.key) {
-                    InboxRow(e.item, e.unread, e.count, e.onClick)
+                    InboxRow(e)
                     if (i != entries.lastIndex) {
                         HorizontalDivider(Modifier.padding(start = 64.dp), color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f))
                     }
@@ -282,7 +345,7 @@ private fun categoryStyle(category: String): Pair<ImageVector, Color> = when (ca
     else -> Icons.Default.School to Color(0xFF64748B)
 }
 
-/** 首页顶栏的铃铛：角标 = 未读消息组 + 待办。角标叠在按钮外面，不会被按钮的圆形裁掉。 */
+/** 首页顶栏的铃铛：角标 = 未读消息组 + 没看过的待办。角标叠在按钮外面，不会被按钮的圆形裁掉。 */
 @Composable
 fun InboxBell(onClick: () -> Unit) {
     val data = InboxStore.snapshot()
@@ -344,12 +407,20 @@ private fun timeLabel(epoch: Long): String {
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun InboxRow(item: InboxItem, unread: Boolean, count: Int, onClick: () -> Unit) {
+private fun InboxRow(e: Entry) {
+    val item = e.item
+    val unread = e.unread
+    val count = e.count
     val (icon, tint) = categoryStyle(item.category)
-    val urgent = item.expiresAt > 0 && item.expiresAt - System.currentTimeMillis() < DAY_MS
+    val urgent = !e.dimmed && item.expiresAt > 0 && item.expiresAt - System.currentTimeMillis() < DAY_MS
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 12.dp),
+        Modifier
+            .fillMaxWidth()
+            .combinedClickable(onClick = e.onClick, onLongClick = e.onLongClick)
+            .alpha(if (e.dimmed) 0.5f else 1f)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.Top,
     ) {
         Box {
@@ -383,7 +454,7 @@ private fun InboxRow(item: InboxItem, unread: Boolean, count: Int, onClick: () -
                     modifier = Modifier.weight(1f),
                 )
                 Text(
-                    timeLabel(item),
+                    e.timeText ?: timeLabel(item),
                     style = MiuixTheme.textStyles.footnote1,
                     color = if (urgent) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     fontWeight = if (urgent) FontWeight.Medium else FontWeight.Normal,

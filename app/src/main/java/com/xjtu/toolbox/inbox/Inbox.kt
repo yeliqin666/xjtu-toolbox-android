@@ -10,7 +10,7 @@ import kotlinx.serialization.Serializable
 import java.time.Instant
 
 /**
- * 收纳里的一条。待办和消息共用：待办以学校或别处的状态为准、办完就消失，消息按已读和保留期管理。
+ * 收纳里的一条。待办和消息共用：待办以学校或别处的状态为准，办完挪进「已完成」；消息按已读和保留期管理。
  *
  * [category] 是开关粒度：我们自己的提醒用 [InboxCategories] 里的固定 key，学校消息按来源自动生成。
  * [route] 是 [com.xjtu.toolbox.nav.AppRoute.id]，外链也用 `browser?url=` 形式存。
@@ -28,12 +28,24 @@ data class InboxItem(
     val expiresAt: Long = 0L,
 )
 
+/** 办完（或被用户忽略）的待办，灰着留 [InboxRules.FINISHED_KEEP_MS]。 */
+@Serializable
+data class FinishedTodo(val item: InboxItem, val at: Long, val ignored: Boolean = false)
+
 @Serializable
 data class InboxData(
     val messages: List<InboxItem> = emptyList(),
     /** 按分类整块替换：每个来源刷新时给出自己当前的全部待办。 */
     val todos: Map<String, List<InboxItem>> = emptyMap(),
+    /** 旧版的已读集合，只用来读老数据，加载时换成 [readAt]。 */
     val read: Set<String> = emptySet(),
+    /** 消息 id → 读的时刻：读过的变灰，[InboxRules.FINISHED_KEEP_MS] 后不再显示。 */
+    val readAt: Map<String, Long> = emptyMap(),
+    /** 看过的待办：首页红点只算没看过的。 */
+    val seenTodos: Set<String> = emptySet(),
+    /** 用户忽略的待办：来源还报着也不再进列表。 */
+    val ignored: Set<String> = emptySet(),
+    val finished: List<FinishedTodo> = emptyList(),
     /** 用户关掉的分类；默认全开，所以只记关掉的。 */
     val off: Set<String> = emptySet(),
     val schoolFetchedAt: Long = 0L,
@@ -85,27 +97,72 @@ object InboxCategories {
 
 /** 纯规则，不碰存储，便于单测。 */
 object InboxRules {
+    /** 没读的消息留多久。 */
     const val KEEP_MS = 30L * 24 * 60 * 60 * 1000
+    /** 读过的消息、办完的待办灰着留多久。 */
+    const val FINISHED_KEEP_MS = 7L * 24 * 60 * 60 * 1000
 
-    /** 来源、标题相同的消息只显示最新一条；过期、被关掉的分类不显示。按最新时间倒序。 */
+    /** 来源、标题相同的消息只显示最新一条；过期、被关掉的分类、读过超过 7 天的不显示。按最新时间倒序。 */
     fun groups(data: InboxData, now: Long): List<InboxGroup> =
         data.messages
-            .filter { it.category !in data.off && visible(it, now) }
+            .filter { m -> m.category !in data.off && visible(m, now) && data.readAt[m.id].let { it == null || now - it < FINISHED_KEEP_MS } }
             .groupBy { it.category to it.title }
             .values
             .map { same ->
                 val sorted = same.sortedByDescending { it.time }
-                InboxGroup(sorted.first(), sorted.map { it.id }, sorted.first().id !in data.read)
+                InboxGroup(sorted.first(), sorted.map { it.id }, sorted.first().id !in data.readAt)
             }
             .sortedByDescending { it.latest.time }
 
+    /** 还没办的待办（忽略的除外），快截止的排前面。 */
     fun todos(data: InboxData, now: Long): List<InboxItem> =
         data.todos.filterKeys { it !in data.off }.values.flatten()
-            .filter { visible(it, now) }
+            .filter { visible(it, now) && it.id !in data.ignored }
             .sortedWith(compareBy<InboxItem> { it.expiresAt.takeIf { e -> e > 0 } ?: Long.MAX_VALUE }.thenByDescending { it.time })
 
-    /** 角标：未读的消息组 + 待办。 */
-    fun badge(data: InboxData, now: Long): Int = groups(data, now).count { it.unread } + todos(data, now).size
+    /** 最近办完或忽略的待办，新的在前。 */
+    fun finished(data: InboxData, now: Long): List<FinishedTodo> =
+        data.finished.filter { it.item.category !in data.off && now - it.at < FINISHED_KEEP_MS }.sortedByDescending { it.at }
+
+    /** 角标：未读的消息组 + 没看过的待办。看过还没办的不再催，列表里照常留着。 */
+    fun badge(data: InboxData, now: Long): Int =
+        groups(data, now).count { it.unread } + todos(data, now).count { it.id !in data.seenTodos }
+
+    /**
+     * 某个来源的待办整块换成 [items]。上次还在、这次没了、又没到截止的，就是办完了，挪进「已完成」；
+     * 到点过期的不算办完，直接消失。办完的又冒出来（被退回之类）就从「已完成」拿掉。
+     * 看过、忽略的记录只留还在的 id。调用方只在拉取成功时调用，拉取失败不会把待办误判成办完。
+     */
+    fun replaceTodos(data: InboxData, category: String, items: List<InboxItem>, now: Long): InboxData {
+        val newIds = items.mapTo(HashSet()) { it.id }
+        val vanished = data.todos[category].orEmpty().filter {
+            it.id !in newIds && it.id !in data.ignored && (it.expiresAt == 0L || it.expiresAt > now)
+        }
+        val todos = data.todos + (category to items)
+        val activeIds = todos.values.flatten().mapTo(HashSet()) { it.id }
+        val finished = (data.finished.filter { it.ignored || it.item.id !in newIds } + vanished.map { FinishedTodo(it, now) })
+            .filter { now - it.at < FINISHED_KEEP_MS }
+        return data.copy(
+            todos = todos,
+            finished = finished,
+            seenTodos = data.seenTodos.filterTo(HashSet()) { it in activeIds },
+            ignored = data.ignored.filterTo(HashSet()) { it in activeIds },
+        )
+    }
+
+    /** 用户忽略一条待办：挪进「已完成」标成已忽略，来源还报着也不再进列表。 */
+    fun ignore(data: InboxData, id: String, now: Long): InboxData {
+        val item = data.todos.values.flatten().firstOrNull { it.id == id } ?: return data
+        return data.copy(
+            ignored = data.ignored + id,
+            finished = data.finished.filter { it.item.id != id } + FinishedTodo(item, now, ignored = true),
+        )
+    }
+
+    /** 老数据的已读集合换成带时刻的，读的时刻不知道就算现在。 */
+    fun migrate(data: InboxData, now: Long): InboxData =
+        if (data.read.isEmpty()) data
+        else data.copy(readAt = data.read.associateWith { now } + data.readAt, read = emptySet())
 
     private fun visible(item: InboxItem, now: Long) =
         (item.expiresAt == 0L || item.expiresAt > now) && (item.expiresAt > 0L || now - item.time < KEEP_MS)
@@ -120,7 +177,7 @@ object InboxRules {
         incoming.forEach { n -> byId[n.id] = byId[n.id]?.let { n.copy(time = it.time) } ?: n }
         val kept = byId.values.filter { now - it.time < KEEP_MS && !(InboxCategories.isSchool(it.category) && isShortLived(it.source)) }
         val ids = kept.mapTo(HashSet()) { it.id }
-        return data.copy(messages = kept, read = data.read.filterTo(HashSet()) { it in ids }, bubbled = data.bubbled.filterTo(HashSet()) { it in ids })
+        return data.copy(messages = kept, readAt = data.readAt.filterKeys { it in ids }, bubbled = data.bubbled.filterTo(HashSet()) { it in ids })
     }
 
     /** 学校正文末尾括号里的落款，如「(公寓用电管理系统)」，拿来当来源名。 */
@@ -159,6 +216,7 @@ object InboxStore {
         cached?.let { (k, d) -> if (k == key) return d }
         val data = prefs(account).getString("data", null)
             ?.let { runCatching { AppJson.decodeFromString<InboxData>(it) }.getOrNull() }
+            ?.let { InboxRules.migrate(it, System.currentTimeMillis()) }
             ?: InboxData()
         cached = key to data
         return data
@@ -196,13 +254,23 @@ object InboxStore {
     }
 
     fun setTodos(category: String, items: List<InboxItem>, account: String? = AccountContext.activeAccountId) =
-        update(account) { it.copy(todos = it.todos + (category to items)) }
+        update(account) { InboxRules.replaceTodos(it, category, items, System.currentTimeMillis()) }
 
     fun markRead(ids: Collection<String>) {
-        if (ids.isNotEmpty()) update(AccountContext.activeAccountId) { it.copy(read = it.read + ids) }
+        if (ids.isEmpty()) return
+        val now = System.currentTimeMillis()
+        update(AccountContext.activeAccountId) { d -> d.copy(readAt = ids.filter { it !in d.readAt }.associateWith { now } + d.readAt) }
     }
 
-    fun markAllRead() = update(AccountContext.activeAccountId) { d -> d.copy(read = d.read + d.messages.map { it.id }) }
+    fun markAllRead() = markRead(load().messages.map { it.id })
+
+    /** 待办页看过的待办不再算进首页红点。 */
+    fun markTodosSeen(ids: Collection<String>) {
+        val d = load()
+        if (ids.any { it !in d.seenTodos }) update(AccountContext.activeAccountId) { it.copy(seenTodos = it.seenTodos + ids) }
+    }
+
+    fun ignoreTodo(id: String) = update(AccountContext.activeAccountId) { InboxRules.ignore(it, id, System.currentTimeMillis()) }
 
     fun markBubbled(id: String) = update(AccountContext.activeAccountId) { it.copy(bubbled = it.bubbled + id) }
 

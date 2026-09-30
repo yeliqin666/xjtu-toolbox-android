@@ -19,7 +19,7 @@ class InboxTest {
     fun `同类只留最新一条，未读看最新那条`() {
         val data = InboxData(
             messages = listOf(msg("a", "低电通知", now - 3 * hour), msg("b", "低电通知", now - hour), msg("c", "图书馆预约系统", now - 2 * hour)),
-            read = setOf("a"),
+            readAt = mapOf("a" to now - hour),
         )
         val groups = InboxRules.groups(data, now)
         assertEquals(listOf("b", "c"), groups.map { it.latest.id })
@@ -53,19 +53,82 @@ class InboxTest {
 
     @Test
     fun `合并按 id 去重，清掉保留期外的消息和对应已读`() {
-        val data = InboxData(messages = listOf(msg("old", "x", now - InboxRules.KEEP_MS - 1), msg("a", "x", now - hour)), read = setOf("old", "a"))
+        val data = InboxData(
+            messages = listOf(msg("old", "x", now - InboxRules.KEEP_MS - 1), msg("a", "x", now - hour)),
+            readAt = mapOf("old" to now, "a" to now),
+        )
         val merged = InboxRules.merge(data, listOf(msg("a", "x", now - hour), msg("b", "y", now)), now)
         assertEquals(setOf("a", "b"), merged.messages.map { it.id }.toSet())
-        assertEquals(setOf("a"), merged.read)
+        assertEquals(setOf("a"), merged.readAt.keys)
     }
 
     @Test
     fun `重复推来的消息保留首次时间，已读不丢`() {
-        val data = InboxData(messages = listOf(msg("a", "x", now - hour)), read = setOf("a"))
+        val data = InboxData(messages = listOf(msg("a", "x", now - hour)), readAt = mapOf("a" to now))
         val merged = InboxRules.merge(data, listOf(msg("a", "x 改了", now)), now)
         assertEquals(now - hour, merged.messages.single().time)
         assertEquals("x 改了", merged.messages.single().title)
-        assertEquals(setOf("a"), merged.read)
+        assertEquals(setOf("a"), merged.readAt.keys)
+    }
+
+    @Test
+    fun `读过的消息灰着留 7 天，老数据的已读集合按现在补上时刻`() {
+        val day = 24 * hour
+        val data = InboxData(
+            messages = listOf(msg("a", "低电通知", now - 2 * day), msg("b", "图书馆借阅系统", now - 10 * day)),
+            readAt = mapOf("a" to now - day, "b" to now - 8 * day),
+        )
+        val groups = InboxRules.groups(data, now)
+        assertEquals(listOf("a"), groups.map { it.latest.id })
+        assertFalse(groups.single().unread)
+        assertEquals(0, InboxRules.badge(data, now))
+
+        val migrated = InboxRules.migrate(InboxData(read = setOf("x")), now)
+        assertEquals(mapOf("x" to now), migrated.readAt)
+        assertTrue(migrated.read.isEmpty())
+    }
+
+    private fun todo(id: String, expiresAt: Long = 0L) =
+        OwnInbox.todo(InboxCategories.SCHOOL_TODO, id, "事务中心", "待办 $id", null, expiresAt).copy(time = now - hour)
+
+    @Test
+    fun `这次刷新没了、又没到截止的待办算办完，挪进已完成`() {
+        val data = InboxData(todos = mapOf(InboxCategories.SCHOOL_TODO to listOf(todo("a"), todo("b"), todo("c", expiresAt = now - 1))))
+        val next = InboxRules.replaceTodos(data, InboxCategories.SCHOOL_TODO, listOf(todo("b")), now)
+        assertEquals(listOf("b"), InboxRules.todos(next, now).map { it.id })
+        // 过期的 c 不算办完
+        assertEquals(listOf("a"), InboxRules.finished(next, now).map { it.item.id })
+        // 7 天后不再显示
+        assertTrue(InboxRules.finished(next, now + InboxRules.FINISHED_KEEP_MS).isEmpty())
+    }
+
+    @Test
+    fun `办完的又冒出来就从已完成拿掉`() {
+        val data = InboxRules.replaceTodos(
+            InboxData(todos = mapOf(InboxCategories.SCHOOL_TODO to listOf(todo("a")))), InboxCategories.SCHOOL_TODO, emptyList(), now,
+        )
+        val back = InboxRules.replaceTodos(data, InboxCategories.SCHOOL_TODO, listOf(todo("a")), now + hour)
+        assertTrue(InboxRules.finished(back, now + hour).isEmpty())
+        assertEquals(listOf("a"), InboxRules.todos(back, now + hour).map { it.id })
+    }
+
+    @Test
+    fun `首页红点只算没看过的待办，看过的留在列表里`() {
+        val data = InboxData(todos = mapOf(InboxCategories.SCHOOL_TODO to listOf(todo("a"), todo("b"))), seenTodos = setOf("a"))
+        assertEquals(1, InboxRules.badge(data, now))
+        assertEquals(2, InboxRules.todos(data, now).size)
+    }
+
+    @Test
+    fun `忽略的待办进已完成，来源还报着也不再进列表和红点`() {
+        val data = InboxData(todos = mapOf(InboxCategories.SCHOOL_TODO to listOf(todo("a"), todo("b"))))
+        val ignored = InboxRules.ignore(data, "a", now)
+        val refreshed = InboxRules.replaceTodos(ignored, InboxCategories.SCHOOL_TODO, listOf(todo("a"), todo("b")), now + hour)
+        assertEquals(listOf("b"), InboxRules.todos(refreshed, now + hour).map { it.id })
+        assertEquals(1, InboxRules.badge(refreshed, now + hour))
+        val finished = InboxRules.finished(refreshed, now + hour).single()
+        assertEquals("a", finished.item.id)
+        assertTrue(finished.ignored)
     }
 
     @Test
