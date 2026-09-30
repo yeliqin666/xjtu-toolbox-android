@@ -201,23 +201,16 @@ private fun QrLoginContent(
 
     val scanning = state is UiState.Scanning
 
-    // 取景时画面是暗的：状态栏、小白条的图标换成浅色，离开时还原
+    // 取景时小白条压在暗的取景画面上，换成浅色才看得清；离开时还原。状态栏在实色标题栏上，跟随主题不动
     val view = androidx.compose.ui.platform.LocalView.current
     if (!view.isInEditMode) {
         androidx.compose.runtime.DisposableEffect(scanning) {
             val window = (view.context as? android.app.Activity)?.window
             val controller = window?.let { androidx.core.view.WindowCompat.getInsetsController(it, view) }
-            val lightStatus = controller?.isAppearanceLightStatusBars
             val lightNav = controller?.isAppearanceLightNavigationBars
-            if (scanning && controller != null) {
-                controller.isAppearanceLightStatusBars = false
-                controller.isAppearanceLightNavigationBars = false
-            }
+            if (scanning && controller != null) controller.isAppearanceLightNavigationBars = false
             onDispose {
-                if (controller != null && lightStatus != null && lightNav != null) {
-                    controller.isAppearanceLightStatusBars = lightStatus
-                    controller.isAppearanceLightNavigationBars = lightNav
-                }
+                if (controller != null && lightNav != null) controller.isAppearanceLightNavigationBars = lightNav
             }
         }
     }
@@ -229,7 +222,7 @@ private fun QrLoginContent(
                 if (scanning) Color.Black else MiuixTheme.colorScheme.background
             ),
     ) {
-        // 取景画面铺满整屏（状态栏、小白条后面都是），标题栏透明地浮在上面。
+        // 取景画面铺到屏幕底边（小白条后面也是），顶部被实色标题栏盖住。
         if (scanning) {
             ScanningContent(onResult = ::onDecoded)
         }
@@ -239,18 +232,18 @@ private fun QrLoginContent(
         Column(Modifier.fillMaxSize()) {
             // 始终折叠：这一页没有可滚动的长内容，大标题只会占掉取景空间，
             // miuix 的 SmallTopAppBar 就是钉死在折叠态的版本。
-            // 取景时透明、白字（取景框外压了一层暗色，白字看得清）；确认、出错这些状态回到主题色。
-            val barContent = if (scanning) Color.White else MiuixTheme.colorScheme.onSurface
             SmallTopAppBar(
                 title = "扫一扫",
-                color = if (scanning) Color.Transparent else MiuixTheme.colorScheme.background,
-                titleColor = barContent,
+                // 主题色实底：miuix 的 .background(color) 排在 windowInsetsPadding 之前，
+                // 一直铺到屏幕顶端，状态栏和标题栏连成一块；标题也不会压在取景画面上看不清。
+                color = MiuixTheme.colorScheme.background,
+                titleColor = MiuixTheme.colorScheme.onSurface,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "返回",
-                            tint = barContent,
+                            tint = MiuixTheme.colorScheme.onSurface,
                         )
                     }
                 },
