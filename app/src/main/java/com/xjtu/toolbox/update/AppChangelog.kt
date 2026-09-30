@@ -34,7 +34,7 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
-        "5.0.10" to VersionChangelog(
+        "5.1.0" to VersionChangelog(
             items = listOf(
                 "🪶" to "知止而后有定。",
                 "⚡" to "登录快多了，冷启动、切网不再反复输密码",

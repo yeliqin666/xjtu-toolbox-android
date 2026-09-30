@@ -27,7 +27,7 @@ android {
         minSdk = 31
         targetSdk = 36
         versionCode = 87
-        versionName = "5.0.10"
+        versionName = "5.1.0"
 
         // 反馈后端（飞书多维表格）的凭据。优先读环境变量（CI），否则读
         // 仓库根目录 feedback.properties（已 gitignore）。两者都没有时留空字符串——
