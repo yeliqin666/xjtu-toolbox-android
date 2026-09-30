@@ -74,7 +74,8 @@ private data class HeroQuickAction(
  *
  * 以前从上到下是 Hero、一排网络/子系统小胶囊、「常用功能」标题 + 一条宫格，三块各管各的，
  * Hero 里的余额和下节课又在下面的分类卡里再出现一遍。现在收成一张：
- * 问候与状态 → 下一项安排（整条可点）→ 余额 / 今日消费 / 考试三格速览 → 常用入口。
+ * 问候与状态 → 下一项安排（整条可点）→ 余额 / 社区 / 考试三格速览 → 常用入口。
+ * 社区格原来是「今日消费」：它和余额格点进去是同一页，余额格下面已有「约够几天」。
  * 下面的分类卡只放 Hero 没有的信息。
  */
 @Composable
@@ -90,13 +91,13 @@ private fun HomeHero(
     balance: Float,
     /** 近 30 天在校日均，<0 表示还没算出来；和校园卡页「约够几天」同一个数。 */
     dailyRate: Float,
-    todaySpend: Float,
     exam: com.xjtu.toolbox.home.HomeStat?,
     status: HeroStatus?,
     quickActions: List<HeroQuickAction>,
     solidQuickIcons: Boolean,
     onOpenCourses: () -> Unit,
     onOpenCard: () -> Unit,
+    onOpenCommunity: () -> Unit,
     onOpenProfile: () -> Unit,
     onOpenStatus: () -> Unit,
 ) {
@@ -192,11 +193,11 @@ private fun HomeHero(
                         modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                     HeroGlance(
-                        icon = Icons.Default.Restaurant,
-                        label = "今日消费",
-                        value = if (todaySpend >= 0f) "¥${"%.2f".format(todaySpend)}" else "—",
-                        number = todaySpend.takeIf { it >= 0f }?.toDouble(),
-                        onClick = onOpenCard,
+                        icon = Icons.Default.Forum,
+                        label = "社区",
+                        value = "聊两句",
+                        caption = "提建议 · 报问题",
+                        onClick = onOpenCommunity,
                         modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                     if (exam != null) {
@@ -504,11 +505,9 @@ internal fun HomeTab(
         com.xjtu.toolbox.card.CampusCardCache.cardPrefs(heroContext)
     }
     var cachedBalance by remember { mutableStateOf(cardPrefs.getFloat("card_balance_cache", -1f)) }
-    var cachedTodaySpend by remember { mutableStateOf(cardPrefs.getFloat("card_today_spend_cache", -1f)) }
     var cachedDailyRate by remember { mutableStateOf(cardPrefs.getFloat("card_daily_rate_cache", -1f)) }
     LaunchedEffect(loginState.campusCardCacheVersion) {
         cachedBalance = cardPrefs.getFloat("card_balance_cache", -1f)
-        cachedTodaySpend = cardPrefs.getFloat("card_today_spend_cache", -1f)
         cachedDailyRate = cardPrefs.getFloat("card_daily_rate_cache", -1f)
     }
     // key 上 HomeSignals.scheduleVersion：日程页同步/下拉刷新落了新课后会 bump 它，
@@ -521,7 +520,6 @@ internal fun HomeTab(
         scheduleDataMissing = false
         currentWeekNumber = 0
         cachedBalance = cardPrefs.getFloat("card_balance_cache", -1f)
-        cachedTodaySpend = cardPrefs.getFloat("card_today_spend_cache", -1f)
         cachedDailyRate = cardPrefs.getFloat("card_daily_rate_cache", -1f)
         // 返回 Triple(下一项安排, 当前周次, 课表数据是否不可用)。第三位 true 时
         // Hero 卡显示「课表还没同步」而不是「接下来两周都没课」，见 scheduleDataMissing。
@@ -733,7 +731,6 @@ internal fun HomeTab(
         homeStats = com.xjtu.toolbox.home.HomeStats.collect(statsCtx, term)
         // 校园卡由 refresher 写进 CampusCardCache 的 prefs，不经过 homeStats，单独重读一次。
         cachedBalance = cardPrefs.getFloat("card_balance_cache", -1f)
-        cachedTodaySpend = cardPrefs.getFloat("card_today_spend_cache", -1f)
         cachedDailyRate = cardPrefs.getFloat("card_daily_rate_cache", -1f)
     }
 
@@ -817,13 +814,13 @@ internal fun HomeTab(
                 reminder = scheduleReminderState,
                 balance = cachedBalance,
                 dailyRate = cachedDailyRate,
-                todaySpend = cachedTodaySpend,
                 exam = homeStats[com.xjtu.toolbox.home.EXAM_KEY],
                 status = heroStatus,
                 quickActions = quickActions,
                 solidQuickIcons = homeTheme == CredentialStore.THEME_ICON,
                 onOpenCourses = onNavigateToCourses,
                 onOpenCard = { onNavigate(AppRoute.CampusCard) },
+                onOpenCommunity = { onNavigate(AppRoute.Community) },
                 onOpenProfile = onNavigateToProfile,
                 onOpenStatus = { showStatusSheet.value = true },
             )

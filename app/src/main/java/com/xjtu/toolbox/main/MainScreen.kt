@@ -632,16 +632,13 @@ private fun MainTopBar(
         largeTitle = title,
         subtitle = if (selectedTab == BottomTab.COURSES) courseSubtitle else "",
         scrollBehavior = scrollBehavior,
-        navigationIcon = {
+        actions = {
+            if (selectedTab == BottomTab.COURSES) courseActions?.invoke(this)
+            // 功能按钮都靠右一组：以前扫一扫单独在左，和右边两个把标题夹在中间，左右不对称
             if (selectedTab == BottomTab.HOME) {
                 IconButton(onClick = onScan) {
                     Icon(Icons.Default.QrCodeScanner, contentDescription = "扫一扫", tint = MiuixTheme.colorScheme.onSurface)
                 }
-            }
-        },
-        actions = {
-            if (selectedTab == BottomTab.COURSES) courseActions?.invoke(this)
-            if (selectedTab == BottomTab.HOME) {
                 InboxBell(onInbox)
                 IconButton(onClick = onSearch) {
                     Icon(Icons.Default.Search, contentDescription = "搜索", tint = MiuixTheme.colorScheme.onSurface)
