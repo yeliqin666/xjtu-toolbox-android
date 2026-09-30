@@ -49,8 +49,14 @@ abstract class SiteSession(
     @Volatile var backend: SessionBackend? = null
         private set
 
-    /** 已从哪个 backend 的快照恢复过（或在它上面登录过），避免重复恢复覆盖更新的状态。 */
-    @Volatile private var restoredFrom: SessionBackend? = null
+    /** 换绑、清空、从快照恢复这几种状态切换互斥，保证 backend 与内存会话态对得上。 */
+    private val stateLock = Any()
+
+    /** 换绑代数，[bind] 一次加一。登录、探活跑完时代数变了，结果属于换绑前那一边，不能写回。 */
+    @Volatile private var bindEpoch = 0L
+
+    /** 当前 backend 的快照还没读过：换绑、[forget] 后为 true；恢复过、登录过或 [invalidateLogin] 后为 false。 */
+    @Volatile private var restorePending = true
 
     /** 由 SessionManager 注入，用于报告凭据失效、弹 MFA 等跨站点动作。 */
     @Volatile internal var manager: SessionManager? = null
@@ -156,7 +162,10 @@ abstract class SiteSession(
             mgr?.ensureWebVpnLogin(foreground = !silent)
         }
         loginLock.withLock {
-            withContext(Dispatchers.IO) { restoreIfNeeded() }
+            val bound = backend
+            val boundEpoch = bindEpoch
+            fun rebound() = bindEpoch != boundEpoch
+            withContext(Dispatchers.IO) { restoreIfNeeded(bound, boundEpoch) }
             // 等锁期间别人可能刚登完，再判一次新鲜度，避免排队者逐个重复探活。
             if (!force && hasLogin && isFresh()) return
             // 防踩踏：force 调用方若传入其观察到失效时的代数，而等锁期间其他协程
@@ -167,9 +176,12 @@ abstract class SiteSession(
             }
             if (!force && hasLogin) {
                 try {
-                    // 探活可能顺手刷新本地令牌（电费 cid、校园卡资料等），通过就把快照一起更新
-                    if (withContext(Dispatchers.IO) { validateLogin().also { if (it) saveSnapshot(backend) } }) {
+                    if (withContext(Dispatchers.IO) { validateLogin() }) {
+                        // 探活途中换了绑：结论属于另一边，这边下次再确认
+                        if (rebound()) return
                         lastValidatedAt = SystemClock.elapsedRealtime()
+                        // 探活可能顺手刷新本地令牌（电费 cid、校园卡资料等），快照一起更新
+                        saveSnapshot(bound)
                         return
                     }
                 } catch (e: IOException) {
@@ -182,23 +194,22 @@ abstract class SiteSession(
             // 登录途中切了账号，这轮登录属于旧账号：token 不能留给新账号，失败也不能记到新账号头上
             val epoch = AccountContext.switchEpoch
             fun switched() = AccountContext.switchEpoch != epoch
-            val loginBackend = backend
             try {
                 silentLogin = silent
                 withContext(Dispatchers.IO) {
                     runLogin(username, password)
-                    if (!switched()) saveSnapshot(loginBackend)
                 }
                 if (switched()) throw AccountSwitchedException(siteName)
-                if (backend !== loginBackend) {
-                    // 登录途中切了网：这轮会话属于另一边，快照已存到那边，这边按自己的快照重来
+                if (rebound()) {
+                    // 登录途中切了网：这轮会话属于换绑前那一边，这边不认，下次按这边的快照来
                     forget()
-                    Log.d(TAG, "[$siteKey] login finished on a stale backend, dropped")
+                    Log.d(TAG, "[$siteKey] login finished after rebind, dropped")
                     return
                 }
                 hasLogin = true
                 loginEpoch++
                 lastValidatedAt = SystemClock.elapsedRealtime()
+                saveSnapshot(bound)
                 manager?.clearLoginFailure(siteKey)
                 Log.d(TAG, "[$siteKey] login ok (mode=${currentAccessMode.key})")
                 manager?.recordDiagnostic("INFO", siteKey, "登录成功（${currentAccessMode.key}）")
@@ -231,22 +242,30 @@ abstract class SiteSession(
 
     /** 本站点会话已失效：清内存状态、删掉当前 backend 下的快照，不动共享 cookies。 */
     fun invalidateLogin() {
-        resetState()
-        backend?.let { runCatching { it.snapshots.remove(siteKey) } }
-        restoredFrom = backend
+        synchronized(stateLock) {
+            resetState()
+            restorePending = false
+            backend?.snapshots?.remove(siteKey)
+        }
     }
 
     /** 只清内存状态，快照留着：切账号时用，下次 [ensureLogin] 从当前 backend 的快照恢复。 */
     fun forget() {
-        resetState()
-        restoredFrom = null
+        synchronized(stateLock) {
+            resetState()
+            restorePending = true
+        }
     }
 
     /** 换绑 backend（切网、切账号）：换掉内存状态，两边的快照都留着，下次 [ensureLogin] 恢复新 backend 的。 */
     internal fun bind(target: SessionBackend) {
-        if (target === backend) return
-        backend = target
-        forget()
+        synchronized(stateLock) {
+            if (target === backend) return
+            backend = target
+            bindEpoch++
+            resetState()
+            restorePending = true
+        }
     }
 
     private fun resetState() {
@@ -255,24 +274,26 @@ abstract class SiteSession(
         localToken.clear()
     }
 
-    /** 冷启动或换绑后第一次用：从快照恢复成「已登录、待确认」，接下来按常规先探活（没有探活的直接信任）。 */
-    private fun restoreIfNeeded() {
-        val b = backend ?: return
-        if (restoredFrom === b) return
-        restoredFrom = b
-        if (hasLogin) return
-        val tokens = runCatching { b.snapshots.load(siteKey) }.getOrNull() ?: return
-        localToken.putAll(tokens)
-        hasLogin = true
-        lastValidatedAt = 0L
-        Log.d(TAG, "[$siteKey] restored from snapshot (mode=${b.accessMode.key})")
+    /**
+     * 冷启动或换绑后第一次用：从快照恢复成「已登录、待确认」，接下来按常规探活（没写探活的直接信任，
+     * 靠快照的年龄上限和 [executeWithReAuth] 兜底）。读盘期间换了绑就作废。
+     */
+    private fun restoreIfNeeded(target: SessionBackend?, epoch: Long) {
+        if (target == null || !restorePending) return
+        val tokens = runCatching { target.snapshots.load(siteKey) }.getOrNull()
+        synchronized(stateLock) {
+            if (bindEpoch != epoch || !restorePending) return
+            restorePending = false
+            if (tokens == null || hasLogin) return
+            localToken.putAll(tokens)
+            hasLogin = true
+            lastValidatedAt = 0L
+        }
+        Log.d(TAG, "[$siteKey] restored from snapshot (mode=${target.accessMode.key})")
     }
 
     private fun saveSnapshot(target: SessionBackend?) {
-        target ?: return
-        restoredFrom = target
-        runCatching { target.snapshots.save(siteKey, HashMap(localToken)) }
-            .onFailure { Log.w(TAG, "[$siteKey] save snapshot failed: ${it.message}") }
+        target?.snapshots?.save(siteKey, HashMap(localToken))
     }
 
     /**

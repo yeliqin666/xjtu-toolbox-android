@@ -74,13 +74,18 @@ class SessionManager(context: Context) {
 
     /**
      * 访问方式是否已判定。默认已定（后台任务的会话不做判定，按直连走）；前台冷启动、换了网络时由
-     * [unsettleAccessMode] 置为未定，[onNetworkChanged] 落定。
+     * [unsettleAccessMode] 置为未定，[settleAccessMode] 放行。
      */
     private val accessModeSettled = MutableStateFlow(true)
 
-    /** 开始重新判定校内外：之后跟随全局模式的站点要登录前先等 [onNetworkChanged]，钉死直连的站点照常。 */
+    /** 开始重新判定校内外：之后跟随全局模式的站点要登录前先等 [settleAccessMode]，钉死直连的站点照常。 */
     fun unsettleAccessMode() {
         accessModeSettled.value = false
+    }
+
+    /** 判定结束（落定、失败或被取消都要调），放行等着的站点。 */
+    fun settleAccessMode() {
+        accessModeSettled.value = true
     }
 
     /** 跟随全局模式的站点登录前调用：判定还没落定就等一会儿，免得按旧模式去连必然连不上的地址。 */
@@ -102,7 +107,7 @@ class SessionManager(context: Context) {
             _currentAccessMode.value = newMode
             sites.values.forEach { it.bind(backendFor(it)) }
         }
-        accessModeSettled.value = true
+        settleAccessMode()
     }
 
     private val sites: MutableMap<String, SiteSession> = ConcurrentHashMap()
@@ -520,14 +525,14 @@ class SessionManager(context: Context) {
 
     /**
      * 跟完 `/login?cas_login=true` 的整条跳转：网关会话还在就直接落回网关；网关过期但统一认证还登着，
-     * 这一趟就是一次免密登录，网关顺手发新票。最终停在统一认证登录页或网关登录前页才算失效。
-     * 只看第一跳不行：网关正常时也会先 302 到统一认证。网络异常照常抛出。
+     * 这一趟就是一次免密登录，网关顺手发新票。最终停在统一认证（登录、短信验证等任意页）或网关登录前页
+     * 才算失效。只看第一跳不行：网关正常时也会先 302 到统一认证。网络异常照常抛出。
      */
     private fun resumeWebVpnGateway(backend: SessionBackend): Boolean {
         val request = okhttp3.Request.Builder().url(WebVpnUtil.WEBVPN_LOGIN_URL).get().build()
         return backend.client.newCall(request).execute().use { response ->
             val url = response.request.url
-            val resumed = !WebVpnUtil.isLoginLanding(url) && !XJTULogin.isCasLoginUrl(url)
+            val resumed = !WebVpnUtil.isLoginLanding(url) && XJTULogin.casPath(url) == null
             Log.d(TAG, "WebVPN resume: ${if (resumed) "ok" else "needs login"} (code=${response.code})")
             resumed
         }

@@ -1044,9 +1044,14 @@ open class XJTULogin(
          * 比看正文可靠——桌面版登录页的表单在 19KB 之后，预读一小段看不到。
          */
         @JvmStatic
-        fun isCasLoginUrl(url: HttpUrl): Boolean {
+        fun isCasLoginUrl(url: HttpUrl): Boolean =
+            casPath(url)?.trimEnd('/') == "/cas/login"
+
+        /** 停在统一认证的任意页面上（登录、短信验证、报错页…），直连或经网关；不是则返回 null，是则返回路径。 */
+        @JvmStatic
+        fun casPath(url: HttpUrl): String? {
             val plain = com.xjtu.toolbox.webvpn.WebVpnUtil.getOriginalUrl(url.toString())?.toHttpUrlOrNull() ?: url
-            return plain.host == "login.xjtu.edu.cn" && plain.encodedPath.trimEnd('/') == "/cas/login"
+            return plain.encodedPath.takeIf { plain.host == "login.xjtu.edu.cn" }
         }
 
         const val JWXT_URL = "https://jwxt.xjtu.edu.cn/jwapp/sys/homeapp/index.do"

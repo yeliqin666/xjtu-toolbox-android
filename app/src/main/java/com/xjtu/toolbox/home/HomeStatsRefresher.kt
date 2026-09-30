@@ -434,7 +434,7 @@ object HomeStatsRefresher {
             fun accountChanged() = !roundIsCurrent()
             val stamps = HomeStats.stamps(context, sources.map { it.route }, roundAccount)
             val now = System.currentTimeMillis()
-            // 上一个源是否刚和统一认证打过交道（登录成功或失败都算），是的话下一个源前留间隔
+            // 上一个源是否可能刚和统一认证打过交道（登录成功算；取站点出异常时保守地也算），是的话下一个源前留间隔
             var justLoggedIn = false
             val coldStart = firstRunInProcess
             firstRunInProcess = false

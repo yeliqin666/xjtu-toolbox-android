@@ -17,6 +17,8 @@ class LoginLandingTest {
         assertFalse(cas("https://login.xjtu.edu.cn/cas/oauth2.0/authorize?client_id=1"))
         assertFalse(cas("https://ywtb.xjtu.edu.cn/?ticket=ST-1"))
         assertFalse(cas(WebVpnUtil.getVpnUrl("https://jwxt.xjtu.edu.cn/jwapp/sys/homeapp/index.do")))
+        assertTrue(XJTULogin.casPath(WebVpnUtil.getVpnUrl("https://login.xjtu.edu.cn/cas/sec/initByType").toHttpUrl()) != null)
+        assertTrue(XJTULogin.casPath("https://ywtb.xjtu.edu.cn/".toHttpUrl()) == null)
     }
 
     @Test

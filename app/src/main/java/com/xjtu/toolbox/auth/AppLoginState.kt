@@ -107,19 +107,25 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
         campusDetectTime = 0L
         // 换了网络，旧结论作废：跟随全局模式的站点等这次判定落定再登
         if (networkSwitched) sessionManager?.unsettleAccessMode()
-        val now = detectCampusNetwork(trustFirst = networkSwitched)
-        isOnCampus = now
-        sessionManager?.onNetworkChanged(
-            if (now) com.xjtu.toolbox.auth.AccessMode.NORMAL
-            else com.xjtu.toolbox.auth.AccessMode.WEBVPN
-        )
-        if (prev != null && prev != now) {
-            android.util.Log.w("AppLoginState", "Access mode changed: $prev → $now")
-            // 各站点已由 SessionManager.onNetworkChanged 换绑到另一边；网关会话下次用到时再续
-            webVpnBackend?.markWebVpnStale()
-            return true
+        try {
+            val now = detectCampusNetwork(trustFirst = networkSwitched)
+            isOnCampus = now
+            // 先换绑再放行（onNetworkChanged 内部落定），等着的站点才不会按旧模式出发
+            sessionManager?.onNetworkChanged(
+                if (now) com.xjtu.toolbox.auth.AccessMode.NORMAL
+                else com.xjtu.toolbox.auth.AccessMode.WEBVPN
+            )
+            if (prev != null && prev != now) {
+                android.util.Log.w("AppLoginState", "Access mode changed: $prev → $now")
+                // 各站点已由 SessionManager.onNetworkChanged 换绑到另一边；网关会话下次用到时再续
+                webVpnBackend?.markWebVpnStale()
+                return true
+            }
+            return false
+        } finally {
+            // 判定被取消或出错也要放行，否则跟随全局模式的站点每次都要等满超时
+            sessionManager?.settleAccessMode()
         }
-        return false
     }
 
     /**
