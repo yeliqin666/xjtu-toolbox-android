@@ -98,11 +98,25 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
     var pendingRetry by mutableStateOf<com.xjtu.toolbox.nav.AppRoute?>(null)
 
     /**
-     * 判定校内外并通知 SessionManager 切换 active backend（两边的会话都保留以便快速切回）。
+     * 网络变了：重新判定校内外并通知 SessionManager 切换 active backend（两边的会话都保留以便快速切回）。
+     * 和 [ensureCampusDetected] 共用一把锁，同一时刻只有一次判定。
      *
      * @param networkSwitched 换了一张网（WiFi / 数据互切）。这时结论变了是正常的，不用复查。
      */
-    suspend fun onNetworkChanged(networkSwitched: Boolean = false): Boolean {
+    suspend fun onNetworkChanged(networkSwitched: Boolean = false): Boolean =
+        campusDetectMutex.withLock { redetect(networkSwitched) }
+
+    /** 需要结论时调：缓存还新鲜、或刚判过离线就不重探（真来了网，网络回调会触发 [onNetworkChanged]）。 */
+    override suspend fun ensureCampusDetected() {
+        campusDetectMutex.withLock {
+            val now = System.currentTimeMillis()
+            if (isOnCampus != null && now - campusDetectTime < CAMPUS_CACHE_MS) return
+            if (now - offlineAt < OFFLINE_RETRY_MS) return
+            redetect(networkSwitched = false)
+        }
+    }
+
+    private suspend fun redetect(networkSwitched: Boolean): Boolean {
         val prev = isOnCampus
         campusDetectTime = 0L
         // 换了网络，旧结论作废：跟随全局模式的站点等这次判定落定再登
@@ -128,23 +142,15 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
         }
     }
 
-    /**
-     * 登录前 / 徽标为空时探测校园网。有缓存就复用，避免和首次登录并行走两次探针。
-     */
-    override suspend fun ensureCampusDetected() {
-        campusDetectMutex.withLock {
-            val cached = isOnCampus
-            if (cached != null && System.currentTimeMillis() - campusDetectTime < CAMPUS_CACHE_MS) {
-                return
-            }
-            onNetworkChanged()
-        }
-    }
     var isOnCampus by mutableStateOf<Boolean?>(null)   // null=未检测, true=校内, false=校外
 
     // 网络检测结果缓存（10 分钟）
     private var campusDetectTime: Long = 0L
     private val CAMPUS_CACHE_MS = 10 * 60 * 1000L
+
+    /** 上次判成「没网」的时刻。之后一小段时间里不重探，免得每个调用方各探一轮、各等一次超时。 */
+    private var offlineAt: Long = 0L
+    private val OFFLINE_RETRY_MS = 30_000L
     private val campusDetectMutex = Mutex()
 
     // 一网通办个人信息（登录后自动获取，在"我的"页面展示）
@@ -172,6 +178,7 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
         webVpnBackend?.markWebVpnStale()
         isOnCampus = null
         campusDetectTime = 0L
+        offlineAt = 0L
         ywtbUserInfo = null
         cachedNickname = null
         accountId = ""
@@ -313,8 +320,10 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
         val first = CampusProbe.detect(ywtbToken())
         if (first.offline) {
             android.util.Log.d("Campus", "detectCampus: offline, keeping cached=$cached")
+            offlineAt = System.currentTimeMillis()
             return cached ?: false
         }
+        offlineAt = 0L
         val result = if (first.strong || trustFirst || cached == null || cached == first.onCampus) {
             first.onCampus
         } else {

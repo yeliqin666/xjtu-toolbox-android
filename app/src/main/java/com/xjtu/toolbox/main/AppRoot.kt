@@ -406,7 +406,7 @@ private fun CampusCardResumeRefresh(loginState: AppLoginState) {
 }
 
 /**
- * 默认网络变化时（3 秒防抖）重探校园网；访问方式真变了且在要登录的页面上，就让该页重新打开。
+ * 默认网络真变了时（0.3 秒防抖）重探校园网；访问方式真变了且在要登录的页面上，就让该页重新打开。
  */
 @Composable
 private fun NetworkChangeWatcher(loginState: AppLoginState, navigator: AppNavigator) {
@@ -446,30 +446,32 @@ private fun NetworkChangeWatcher(loginState: AppLoginState, navigator: AppNaviga
                 }
             }
         }
-        // 移动数据下信号强弱一变就回调 onCapabilitiesChanged，只在网络类型或连通性变了时才算数
-        var lastCaps: String? = null
+        // 默认网络的指纹：哪张网、什么类型、是否通过验证、地址。注册回调时系统会把当前网络原样再报一遍，
+        // 移动数据下信号强弱一变也会回调，指纹没变都不算数；网络本身换了才算「换了网络」
+        fun fingerprint(network: Network?): Pair<Network?, String> {
+            val caps = network?.let { cm?.getNetworkCapabilities(it) }
+            val addrs = network?.let { cm?.getLinkProperties(it) }?.linkAddresses?.joinToString { it.address.hostAddress.orEmpty() }
+            return network to "${caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)}:" +
+                "${caps?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)}:" +
+                "${caps?.hasTransport(NetworkCapabilities.TRANSPORT_VPN)}:" +
+                "${caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)}:$addrs"
+        }
+        val last = java.util.concurrent.atomic.AtomicReference(fingerprint(cm?.activeNetwork))
+        fun onChange(reason: String) {
+            val now = fingerprint(cm?.activeNetwork)
+            val prev = last.getAndSet(now)
+            if (now == prev) return
+            if (now.first != prev.first) {
+                loginState.sessionManager?.evictConnections()
+                switched.set(true)
+            }
+            trigger(reason)
+        }
         val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                loginState.sessionManager?.evictConnections()
-                switched.set(true)
-                trigger("onAvailable")
-            }
-            override fun onLost(network: Network) {
-                loginState.sessionManager?.evictConnections()
-                switched.set(true)
-                trigger("onLost")
-            }
-            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
-                val key = "$network:${caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)}:" +
-                    "${caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)}:" +
-                    "${caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)}:" +
-                    "${caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)}"
-                if (key == lastCaps) return
-                lastCaps = key
-                trigger("onCapabilitiesChanged")
-            }
-            override fun onLinkPropertiesChanged(network: Network, properties: LinkProperties) =
-                trigger("onLinkPropertiesChanged")
+            override fun onAvailable(network: Network) = onChange("onAvailable")
+            override fun onLost(network: Network) = onChange("onLost")
+            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) = onChange("onCapabilitiesChanged")
+            override fun onLinkPropertiesChanged(network: Network, properties: LinkProperties) = onChange("onLinkPropertiesChanged")
         }
         runCatching { cm?.registerDefaultNetworkCallback(callback) }
             .onFailure { Log.w("Network", "registerDefaultNetworkCallback failed: ${it.message}") }
