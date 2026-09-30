@@ -95,6 +95,13 @@ object ScheduleCache {
         return readCourses(cache, code) != null && readStartDate(cache, code) != null
     }
 
+    /** 在 [isReady] 之上，本学期的考试表和教材也在（[ScheduleSourceRouter.ensureCached] 补的全套）。 */
+    fun isComplete(cache: DataCache): Boolean {
+        val code = readCurrentTerm(cache) ?: return false
+        return isReady(cache, code) && readExams(cache, code) != null &&
+            readTextbooks(cache, code, FOREVER) != null
+    }
+
     fun readTextbooks(cache: DataCache, termCode: String, ttlMs: Long = TERM_TTL_MS): List<TextbookItem>? =
         if (termCode.isBlank()) null else cache.read<List<TextbookItem>>(textbookKey(termCode), ttlMs)
 

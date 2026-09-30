@@ -248,17 +248,19 @@ internal fun MainScreen(
         if (loginState.accountId.isEmpty()) return@LaunchedEffect
         // 校内外判定和刷新并行：跟随全局模式的站点在 SessionManager 里等判定落定，直连站点（教务等）不必等
         launch { runCatching { loginState.ensureCampusDetected() } }
-        // 装新包会清掉课表缓存：首页「下一项安排」要靠它，不等用户进日程页
+        // 装新包会清掉课表缓存：首页「下一项安排」、考试倒计时要靠它，不等用户进日程页
         val manager = loginState.sessionManager
         if (manager != null) withContext(Dispatchers.IO) {
             val cache = com.xjtu.toolbox.data.DataCache(context)
-            if (com.xjtu.toolbox.schedule.ScheduleCache.isReady(cache)) return@withContext
+            if (com.xjtu.toolbox.schedule.ScheduleCache.isComplete(cache)) return@withContext
             try {
                 val site = manager.ensureSite(com.xjtu.toolbox.auth.LoginType.JWXT, silent = true)
                 com.xjtu.toolbox.schedule.ScheduleSourceRouter.ensureCached(
                     context, cache, com.xjtu.toolbox.schedule.ScheduleApi(site), manager,
+                    studentId = loginState.activeUsername,
                 )
                 HomeSignals.scheduleVersion++
+                com.xjtu.toolbox.widget.ScheduleWidgetUpdater.requestUpdate(context, resetToToday = false)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {

@@ -89,8 +89,8 @@ object ScheduleSourceRouter {
     }
 
     /**
-     * [term]（默认本学期）的课表、开学日期缺哪样补哪样。装新包会清掉缓存，
-     * 首页和屁岱不能等用户进日程页才有课表。
+     * [term]（默认本学期）的课表、开学日期、考试表、教材缺哪样补哪样。装新包会清掉缓存，
+     * 首页、屁岱、匹配交友不能等用户进日程页才有。教材要学号，[studentId] 为空就不补。
      */
     suspend fun ensureCached(
         context: Context,
@@ -98,6 +98,7 @@ object ScheduleSourceRouter {
         api: ScheduleApi,
         manager: SessionManager?,
         term: String? = null,
+        studentId: String? = null,
     ) {
         val code = term ?: ScheduleCache.readCurrentTerm(cache)
             ?: api.getCurrentTerm().also { ScheduleCache.writeCurrentTerm(cache, it) }
@@ -113,6 +114,13 @@ object ScheduleSourceRouter {
             ScheduleCache.writeRawCourses(cache, code, fresh)
             // 和日程页一样剔除节假日，否则它下次落地会误报「日程有更新」
             ScheduleCache.writeOptimizedCourses(cache, code, ScheduleCache.filterByHolidays(fresh, start, HolidayApi.peekCached(context)))
+        }
+        // 考试、教材是附带的：拉不到不影响课表
+        if (ScheduleCache.readExams(cache, code) == null) {
+            runCatching { ScheduleCache.writeExams(cache, code, api.getExamSchedule(code)) }
+        }
+        if (!studentId.isNullOrBlank() && ScheduleCache.readTextbooks(cache, code, Long.MAX_VALUE) == null) {
+            runCatching { ScheduleCache.writeTextbooks(cache, code, api.getTextbooks(studentId, code)) }
         }
     }
 
