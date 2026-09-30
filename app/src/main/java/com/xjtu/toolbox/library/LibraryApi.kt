@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.library
 
-import com.xjtu.toolbox.network.MOBILE_UA
 import com.xjtu.toolbox.util.redactBody
 import com.xjtu.toolbox.util.redactUrl
 import android.util.Log
@@ -350,7 +349,6 @@ class LibraryApi(private val site: SiteSession) {
      */
     private fun buildRequest(url: String, ajax: Boolean = false, referer: String = "$BASE_URL/seat/"): Request {
         val b = Request.Builder().url(url)
-            .header("User-Agent", MOBILE_UA)
             .header("Referer", referer)
         if (ajax) {
             b.header("X-Requested-With", "XMLHttpRequest")

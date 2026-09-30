@@ -175,7 +175,7 @@ private fun OkHttpClient?.withCouponTimeouts(): OkHttpClient? =
         ?.callTimeout(120, TimeUnit.SECONDS)
         ?.addInterceptor { chain ->
             val request = chain.request()
-            // 不自设 UA：统一认证的 TGC 绑定 UA，和其他站点不一致会互相挤掉登录态
+            // 不自设 UA，用全局的 APP_UA（见 HttpClients）
             val requestWithBrowserHeaders = request.newBuilder()
                 .header(
                     "Accept",

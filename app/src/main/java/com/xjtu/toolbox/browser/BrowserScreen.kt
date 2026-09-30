@@ -2,6 +2,7 @@
 
 package com.xjtu.toolbox.browser
 
+import com.xjtu.toolbox.network.APP_UA
 import com.xjtu.toolbox.util.redactUrl
 import com.xjtu.toolbox.util.releaseSafely
 import com.xjtu.toolbox.webvpn.WebVpnUtil
@@ -386,11 +387,8 @@ fun BrowserScreen(
                     settings.builtInZoomControls = true
                     settings.displayZoomControls = false
                     settings.setSupportZoom(true)
-                    settings.userAgentString = settings.userAgentString.replace(
-                        Regex("wv"), ""
-                    ) // 去掉 wv 标记，某些网站会拒绝 WebView
-                    // 在 UA 末尾追加 XJTU-WX-MP 标识，方便服务端识别来自本 App
-                    settings.userAgentString = settings.userAgentString + " XJTU-WX-MP/1.0"
+                    // 和 OkHttp 同一串：注进来的统一认证登录态绑定 UA，不一致就会被当成没登录
+                    settings.userAgentString = APP_UA
                     // 教务处附件是 target="_blank"。不开的话点击会被吞掉；开了必须自己接 onCreateWindow。
                     settings.setSupportMultipleWindows(true)
                     settings.javaScriptCanOpenWindowsAutomatically = true
