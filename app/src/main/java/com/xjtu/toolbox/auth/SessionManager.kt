@@ -323,7 +323,7 @@ class SessionManager(context: Context) {
 
     /**
      * 在用户点开之前，把 [siteKeys]（最近常用的几个站点）确认好：从快照恢复并探活，必要时免密登录，
-     * 点开时直接命中免检窗口。经网关的站点会顺带把网关续上。首页刷新每轮先调一次（冷启动、回前台、
+     * 点开时直接命中免检窗口。校外时也把网关续上。首页刷新每轮先调一次（冷启动、回前台、
      * 切网都会触发），保活循环定期再调，让服务端会话别因闲置被回收。
      *
      * 只走静默路径：后台优先级、撞到短信验证就放弃。这一边从没登录过（直连没有 TGC、经网关没有
@@ -343,6 +343,17 @@ class SessionManager(context: Context) {
                 throw e
             } catch (e: Exception) {
                 Log.d(TAG, "warm-up skipped $key: ${e.message}")
+            }
+        }
+        // 常用站点可能都能直连，校外时就没人碰网关；闲置过期后，第一次开经网关的站点得先重登它
+        awaitAccessMode()
+        if (_currentAccessMode.value == AccessMode.WEBVPN && hasLiveWebVpnTicket(backend(AccessMode.WEBVPN))) {
+            try {
+                ensureWebVpnLoginOnIo(foreground = false)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.d(TAG, "warm-up skipped webvpn: ${e.message}")
             }
         }
     }
