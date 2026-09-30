@@ -1217,22 +1217,9 @@ private fun CourseDetailContent(
                 5 -> "五"; 6 -> "六"; 7 -> "日"; else -> "?"
             }
             val timeText = if (isAgenda) {
-                val startMinutes = if (course.startMinuteOfDay >= DAY_START_HOUR * 60) {
-                    course.startMinuteOfDay
-                } else {
-                    (DAY_START_HOUR + course.startSection - 1) * 60
-                }
-                val endMinutes = if (course.endMinuteOfDay > startMinutes) {
-                    course.endMinuteOfDay
-                } else {
-                    (DAY_START_HOUR + course.endSection) * 60
-                }
-                val endHourRaw = endMinutes / 60
-                val endLabel = if (endHourRaw >= 24) "次日00:00"
-                else "%02d:%02d".format(endHourRaw, endMinutes % 60)
-                "星期$dayName %02d:%02d-$endLabel".format(
-                    (startMinutes / 60).coerceIn(0, 23), (startMinutes % 60).coerceIn(0, 59),
-                )
+                val summer = XjtuTime.isSummerTime((occurrence?.date ?: java.time.LocalDate.now()).monthValue)
+                val (start, end) = course.clockMinutes(summer)
+                "星期$dayName %02d:%02d-%02d:%02d".format(start / 60, start % 60, end / 60, end % 60)
             } else {
                 "星期$dayName 第${course.startSection}-${course.endSection}节"
             }

@@ -7,7 +7,6 @@ import android.text.style.StrikethroughSpan
 import android.widget.RemoteViews
 import android.widget.RemoteViewsService
 import com.xjtu.toolbox.R
-import com.xjtu.toolbox.schedule.XjtuTime
 
 class ScheduleWidgetRemoteViewsService : RemoteViewsService() {
     override fun onGetViewFactory(intent: Intent): RemoteViewsFactory {
@@ -56,8 +55,9 @@ private class ScheduleWidgetCourseFactory(
             WidgetSize.LARGE -> R.layout.widget_schedule_course_accent_item
         }
         val views = RemoteViews(context.packageName, itemLayout)
-        val timeRange =
-            "${XjtuTime.getClassStartStr(course.startSection)}-${XjtuTime.getClassEndStr(course.endSection)}"
+        val timeRange = "%02d:%02d-%02d:%02d".format(
+            course.startMinute / 60, course.startMinute % 60, course.endMinute / 60, course.endMinute % 60,
+        )
         val place = course.location.ifBlank { "地点待定" }
         // 2x2 着整块浅底，4x2 着左侧色条
         val colorTarget = when (widgetSize) {

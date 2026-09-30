@@ -15,9 +15,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -50,68 +51,29 @@ const val DAY_START_HOUR = 8
 const val DAY_END_HOUR = 22
 const val MAX_SECTIONS = DAY_END_HOUR - DAY_START_HOUR
 private val SECTION_HEIGHT: Dp = 50.dp
+/** 一节课多少分钟：时段带放开时按「这么多分钟 = 一个节次行高」的比例。 */
+private const val SECTION_MINUTES = 50f
+/** 时段带里有条目的部分最多画多高，再长就按比例压。 */
+private val BAND_MAX_HEIGHT: Dp = SECTION_HEIGHT * 3
 private val LEFT_COL_WIDTH: Dp = 56.dp
+/** 跨作息那一周左轴要多标一行「冬14:00-14:50」，放宽一点才放得下。 */
+private val LEFT_COL_WIDTH_MIXED: Dp = 68.dp
 /**
  * 没课的节次压到本体的多少。0.56（= 28dp）是"刚好放得下节号 + 一行起止时间"的下限：
  * 再矮就只能像以前那样只画节号了，那样虽然更短，但压扁的行看不出上下课时间。
  */
 private const val EMPTY_SECTION_SCALE = 0.56f
-/** 午休/晚休分隔带的高度。 */
+/** 空着的时段带（午休 / 晚休）的高度；带上有条目时按钟点比例放开，见 [ScheduleGrid]。 */
 private val REST_HEIGHT: Dp = 22.dp
 /** 课程块在格子里的内缩（格间距）。 */
 private val CELL_GAP: Dp = 3.dp
 
-/**
- * 网格画到第几节。作息表有 11 节，但第 11 节（夏令 21:40–22:30）实际几乎不排课，
- * 白占一整行只会让整周更长，所以网格只画到第 10 节。真有第 11 节的课会被夹到
- * 第 10 节里显示（见 toDisplayScheduleSlot 的上限），不会凭空消失。
- */
-private const val GRID_LAST_SECTION = 10
-
-// ── 纵轴：节次行 + 午休/晚休带 ─────────────
-//
-// 网格以前按「小时」分行（8:00–22:00 共 14 行，没课的小时还会被压扁到半高），左轴只有
-// 08:00 / 09:00 … 这种整点标签，看不出第几节、也看不出上下课时间。现在按**节次**排版：
-// 每节一行、等高等距，节号与起止时间画在左轴；作息表里两处大空档（12:00→14:00、
-// 18:00→19:10）插成通栏的「午休」「晚休」带。
-//
-// 刻度：第 n 节 = [n, n+1)，小数部分 = 节内比例。倍率条目（自定义日程、体育课这类带钟点
-// 的）用 XjtuTime.sectionScaleOf 落到行内正确位置，见 toDisplayScheduleSlot。
+// 纵轴按节次排版（节号与起止时间画在左轴，大空档插成「午休」「晚休」带），条目按真实钟点落位，
+// 见 WeekGridLayout。
 //
 // ⚠️ 本文件下面那三个常量（DAY_START_HOUR / DAY_END_HOUR / MAX_SECTIONS）是**小时**语义的，
 // 别处（自定义日程编辑器、Agent 的冲突判定、日程详情文案）还在用 —— 网格不再拿它们当行数，
 // 也不要顺手改它们的含义。
-
-/** 纵轴的一行：节次行（[section] 非空）或分隔带（[label] 非空）。 */
-private data class AxisRow(
-    val section: Int?,
-    val label: String,
-    val startText: String,
-    val endText: String,
-    val top: Dp,
-    val height: Dp,
-)
-
-/** 一天的纵轴：逐节排列，相邻两节间隔超过一小时的插一条通栏分隔带（午休 / 晚休）。 */
-private fun buildAxisRows(isSummer: Boolean): List<AxisRow> {
-    val rows = mutableListOf<AxisRow>()
-    var y = 0.dp
-    var prevEndMinute = Int.MIN_VALUE
-    XjtuTime.getAllTimes(isSummer)
-        .filter { it.first <= GRID_LAST_SECTION }
-        .forEach { (section, t) ->
-        val startMinute = t.start.hour * 60 + t.start.minute
-        if (prevEndMinute != Int.MIN_VALUE && startMinute - prevEndMinute >= 60) {
-            val label = if (t.start.hour < 16) "午休" else "晚休"
-            rows += AxisRow(null, label, "", "", y, REST_HEIGHT)
-            y += REST_HEIGHT
-        }
-        rows += AxisRow(section, "", t.start.toString(), t.end.toString(), y, SECTION_HEIGHT)
-        y += SECTION_HEIGHT
-        prevEndMinute = t.end.hour * 60 + t.end.minute
-    }
-    return rows
-}
 
 /** 课名的默认色：按课名稳定哈希取色。思源学堂那边只认识单门课，用的就是它。 */
 fun defaultCourseColor(courseName: String): Color =
@@ -160,102 +122,6 @@ interface ScheduleSlot {
     val slotEndSection: Int
 }
 
-private data class DisplayScheduleSlot(
-    val sourceSlot: ScheduleSlot,
-    override val slotName: String,
-    override val slotLocation: String,
-    override val slotDayOfWeek: Int,
-    override val slotStartSection: Int,
-    override val slotEndSection: Int,
-    val startFraction: Float,
-    val endFraction: Float
-) : ScheduleSlot
-
-private fun normalizeFractions(
-    startFraction: Float,
-    endFraction: Float,
-    lastSection: Int,
-): Pair<Float, Float> {
-    val minDuration = 5f / 60f
-    val minValue = 1f                        // 刻度下限 = 第 1 节起点
-    val maxValue = (lastSection + 1).toFloat()  // 刻度上限 = 末节结束
-    val boundedStart = startFraction.coerceIn(minValue, maxValue - minDuration)
-    val rawEnd = endFraction.coerceIn(minValue, maxValue)
-    val boundedEnd = if (rawEnd <= boundedStart) {
-        (boundedStart + minDuration).coerceAtMost(maxValue)
-    } else {
-        rawEnd
-    }
-    return boundedStart to boundedEnd
-}
-
-/**
- * 把条目换算到**节次刻度**：第 n 节 = `[n, n+1)`，小数部分 = 节内比例。
- *
- * - 带钟点的条目（自定义日程、体育课这类，`startMinuteOfDay > 0`）→ 按钟点落到行内比例；
- * - 其余（课表源的课、历史自定义）只有节次 → 整节占满 `[start, end + 1)`。
- *
- * [daySummer] 是**这一天**按哪套作息（按当天日期），[axisSummer] 是左轴/网格行按哪套。
- * 两者不一致（跨令时那一周里"另一令时"的那些天）时，整块按真实时刻**平移**：
- * 错开多少就代表那一节的钟点差多少，见下面的 shift。
- */
-private fun toDisplayScheduleSlot(
-    slot: ScheduleSlot,
-    daySummer: Boolean,
-    axisSummer: Boolean,
-    lastSection: Int,
-): DisplayScheduleSlot? {
-    val day = slot.slotDayOfWeek
-    if (day !in 1..7) return null
-
-    val sectionStart = slot.slotStartSection.coerceIn(1, lastSection)
-    val sectionEnd = slot.slotEndSection.coerceIn(sectionStart, lastSection)
-
-    val (rawStartFraction, rawEndFraction) = when {
-        // 只有「自定义日程」这种本来就用钟点描述的条目才采信分钟；课表源的课一律以节次为准：
-        // 节次字段在详情面板、考勤索引、冲突判定各处都是统一口径，块的位置就该由它决定。
-        // 自建条目（「日程」「自定义」两种）带钟点就只认钟点。以前要求钟点换算出的节次和节次字段吻合才采信，
-        // 可节次字段是编辑器按「8 点起每小时一节」推的，和作息表对不上：14:00–18:00 的实验课
-        // 存成第 7–10 节，钟点换算是第 5–8 节，一不吻合就退回节次字段，块一路拉到晚课 9–10 节。
-        slot is CourseItem &&
-            (slot.courseType == "日程" || slot.courseCode.startsWith(com.xjtu.toolbox.schedule.CUSTOM_COURSE_CODE_PREFIX)) &&
-            slot.startMinuteOfDay > 0 &&
-            slot.endMinuteOfDay > slot.startMinuteOfDay -> {
-            XjtuTime.sectionScaleOf(slot.startMinuteOfDay, daySummer) to
-                XjtuTime.sectionScaleOf(slot.endMinuteOfDay, daySummer)
-        }
-
-        else -> sectionStart.toFloat() to (sectionEnd + 1).toFloat()
-    }
-
-    // 跨令时那一周里，"另一令时"的天：整块按真实时刻平移，错开多少 = 时间差多少。
-    // 以「起始节在两套作息下的开始时刻之差 ÷ 一节时长」为一格的位移量。
-    val dayTimes = XjtuTime.getClassTime(sectionStart, daySummer)
-    val axisTimes = XjtuTime.getClassTime(sectionStart, axisSummer)
-    val shift = if (daySummer == axisSummer || dayTimes == null || axisTimes == null) 0f else {
-        val dayStart = dayTimes.start.hour * 60 + dayTimes.start.minute
-        val axisStart = axisTimes.start.hour * 60 + axisTimes.start.minute
-        val axisSpan = (axisTimes.end.hour * 60 + axisTimes.end.minute - axisStart).coerceAtLeast(1)
-        (dayStart - axisStart).toFloat() / axisSpan
-    }
-
-    val (startFraction, endFraction) =
-        normalizeFractions(rawStartFraction + shift, rawEndFraction + shift, lastSection)
-    val startSection = floor(startFraction).toInt().coerceIn(1, lastSection)
-    val endSection = ceil(endFraction).toInt().coerceIn(startSection, lastSection)
-
-    return DisplayScheduleSlot(
-        sourceSlot = slot,
-        slotName = slot.slotName,
-        slotLocation = slot.slotLocation,
-        slotDayOfWeek = day,
-        slotStartSection = startSection,
-        slotEndSection = endSection,
-        startFraction = startFraction,
-        endFraction = endFraction
-    )
-}
-
 // ── 周选择器（左右箭头式）────────────────
 
 // ── 日程网格（绝对定位，完美对齐）────────
@@ -283,93 +149,74 @@ fun ScheduleGrid(
 ) {
     val scrollState = rememberScrollState()
     val courseColors = rememberCourseColors(allCourseNames)
-    // 左轴用哪一套作息：默认跟这一周自己的令时；若这一周跨了令时切换（5/1 起夏秋、10/1 起冬春），
-    // 按"今天"所在令时画 —— 另一令时的那些天，课程块按真实时刻平移错开（见 toDisplayScheduleSlot）。
+    // 左轴标哪一套作息：默认跟这一周自己的令时；这一周跨了令时切换（5/1 起夏秋、10/1 起冬春）就按
+    // "今天"所在令时标，另一套时间不同的节次在下面补一行。课块各按自己那天的作息对齐（见 WeekGridLayout）。
     val todaySummer = XjtuTime.isSummerTime()
     val weekSeasons = weekDates?.map { XjtuTime.isSummerTime(it.monthValue) }?.distinct()
-    val axisSummer =
-        if ((weekSeasons?.size ?: 1) > 1) todaySummer else (weekSeasons?.firstOrNull() ?: todaySummer)
-    val axisRows = remember(axisSummer) { buildAxisRows(axisSummer) }
-    val plannedLastSection = remember(axisRows) {
-        axisRows.mapNotNull { it.section }.maxOrNull() ?: 1
-    }
+    val mixedWeek = (weekSeasons?.size ?: 1) > 1
+    val axisSummer = if (mixedWeek) todaySummer else (weekSeasons?.firstOrNull() ?: todaySummer)
 
-    val displaySlots = remember(slots, weekDates, plannedLastSection, axisSummer) {
-        slots.mapNotNull { slot ->
-            val slotDate = weekDates?.getOrNull(slot.slotDayOfWeek - 1)
-            val daySummer = slotDate?.let { XjtuTime.isSummerTime(it.monthValue) } ?: axisSummer
-            toDisplayScheduleSlot(slot, daySummer, axisSummer, plannedLastSection)
+    val layout = remember(slots, weekDates, axisSummer) {
+        layoutWeekGrid(slots) { day ->
+            weekDates?.getOrNull(day - 1)?.let { XjtuTime.isSummerTime(it.monthValue) } ?: axisSummer
         }
     }
-
-    // ── 时段压缩：没课的节次压到半高，有课的全高（总长度随一周的课量伸缩）──
-    val targetScales = remember(displaySlots, enableCompression, plannedLastSection) {
-        if (!enableCompression) FloatArray(plannedLastSection + 1) { 1f }
-        else {
-            val used = BooleanArray(plannedLastSection + 1)
-            displaySlots.forEach { s ->
-                val a = floor(s.startFraction).toInt().coerceIn(1, plannedLastSection)
-                // 刻度上界是「末节 + 1」（在末节结束 = 末节 + 1），所以 b 只能钳到 plannedLastSection + 1；
-                // 钳到 plannedLastSection 的话，"最后一节还有课"会被漏掉、那一行被误压扁。
-                val b = ceil(s.endFraction).toInt()
-                    .coerceIn(a + 1, plannedLastSection + 1)
-                for (k in a until b) used[k] = true
-            }
-            FloatArray(plannedLastSection + 1) {
-                if (it == 0 || used[it]) 1f else EMPTY_SECTION_SCALE
-            }
+    val rows = layout.rows
+    val axisTimes = layout.times(axisSummer)
+    val otherTimes = layout.times(!axisSummer)
+    val leftColWidth = if (mixedWeek) LEFT_COL_WIDTH_MIXED else LEFT_COL_WIDTH
+    // 行高：有条目的节次全高，空的节次可压扁（总长度随一周的课量伸缩）。时段带里被条目占着的几段
+    // 按时长画（一节 50 分钟 = 一行高），空着的几段合起来收成一条窄带，不留大片空白。
+    val compressed = rows.indices.map { i -> rows[i].section != null && enableCompression && !layout.isOccupied(i) }
+    val bandPieces: List<List<Pair<WeekGridLayout.Piece, Dp>>?> = rows.indices.map { i ->
+        if (rows[i].section != null || !layout.isOccupied(i)) return@map null
+        val pieces = layout.pieces(i)
+        val occupiedLength = pieces.filter { it.occupied }.sumOf { (it.to - it.from).toDouble() }.toFloat()
+        val freeLength = 1f - occupiedLength
+        // 占着的部分按时长画，但一条带最多放开到 BAND_MAX_HEIGHT（屁岱能建 0:00 起的日程，早间带足有 8 小时）
+        val perRow = SECTION_HEIGHT * ((axisTimes[i].second - axisTimes[i].first) / SECTION_MINUTES)
+        val occupiedPerRow = minOf(perRow, BAND_MAX_HEIGHT / occupiedLength)
+        pieces.map { p ->
+            p to if (p.occupied) occupiedPerRow * (p.to - p.from) else REST_HEIGHT * ((p.to - p.from) / freeLength)
         }
     }
-    // 直接朝目标缩放做动画：以前是"切周先恢复全高、等 250ms 再压回去"的两段动画，
-    // 视觉上就是整条轴先被拉长再缩回，左轴文字还会在跨过压扁判断线时闪一下。现在不重置了。
-    val animatedScales = (0..plannedLastSection).map { i ->
-        animateFloatAsState(
-            targetValue = targetScales[i],
-            animationSpec = tween(durationMillis = 380),
-            label = "sectionScale$i",
-        ).value
+    val targetHeights = rows.mapIndexed { i, row ->
+        when {
+            row.section != null -> if (compressed[i]) SECTION_HEIGHT * EMPTY_SECTION_SCALE else SECTION_HEIGHT
+            else -> bandPieces[i]?.fold(0.dp) { sum, (_, h) -> sum + h } ?: REST_HEIGHT
+        }
     }
+    val rowHeights = rows.mapIndexed { i, row ->
+        // 直接朝目标高度做动画；按行的身份记状态，时段带出现、消失时别的行不会串动画
+        key(row) {
+            animateDpAsState(targetHeights[i], tween(durationMillis = 380), label = "gridRow").value
+        }
+    }
+    val rowTops = rowHeights.runningFold(0.dp) { top, h -> top + h }
+    val gridHeight = rowTops.last()
 
-    // 按当前缩放把轴行摊开：节次行高随动画变，所以 top 每次重算（十来行，开销可忽略）
-    val laidOutRows = run {
+    /** 行刻度 → 纵坐标：节次行内按比例插值，时段带按各段的高度分段插值。 */
+    fun yOf(pos: Float): Dp {
+        val i = floor(pos).toInt()
+        if (i < 0) return 0.dp
+        if (i >= rows.size) return gridHeight
+        val f = pos - i
+        val pieces = bandPieces[i] ?: return rowTops[i] + rowHeights[i] * f
+        val scale = if (targetHeights[i] > 0.dp) rowHeights[i] / targetHeights[i] else 0f
         var y = 0.dp
-        axisRows.map { row ->
-            val h = row.section?.let { SECTION_HEIGHT * animatedScales[it] } ?: row.height
-            row.copy(top = y, height = h).also { y += h }
+        for ((p, h) in pieces) {
+            if (f >= p.to) { y += h; continue }
+            y += h * ((f - p.from) / (p.to - p.from))
+            break
         }
-    }
-    val sectionRows = laidOutRows.filter { it.section != null }.associateBy { it.section!! }
-    val lastSection = sectionRows.keys.maxOrNull() ?: 1
-    val gridHeight = laidOutRows.last().let { it.top + it.height }
-
-    /** 节次刻度 → 纵坐标：第 n 节那一行内按比例插值（第 n 节 = `[n, n+1)`）。 */
-    fun yOf(frac: Float): Dp {
-        val sec = floor(frac).toInt().coerceIn(1, lastSection)
-        val rest = (frac - sec).coerceIn(0f, 1f)
-        val row = sectionRows[sec] ?: return 0.dp
-        return row.top + row.height * rest
-    }
-
-    /**
-     * 块的下沿。整数刻度表示「上一节结束」，必须取**上一行的底边**，不能取下一样行的顶边：
-     * 第 4/5 节、第 8/9 节之间夹着午休/晚休带，取下一行顶边会让块整条盖住那条带
-     * （3-4 节的课会一直伸到「午休」那一横）。
-     */
-    fun yOfBlockEnd(frac: Float): Dp {
-        val lower = floor(frac).toInt()
-        if (frac == lower.toFloat() && lower > 1) {
-            val prev = sectionRows[(lower - 1).coerceIn(1, lastSection)] ?: return 0.dp
-            return prev.top + prev.height
-        }
-        return yOf(frac)
+        return rowTops[i] + y * scale
     }
 
     // 当前时间线位置计算（仅在当前周激活）
     val timeLineInfo = if (isCurrentWeek) {
         val now = java.time.LocalTime.now()
         val todayDow = java.time.LocalDate.now().dayOfWeek.value  // 1=Mon...7=Sun
-        val nowMinutes = now.hour * 60 + now.minute
-        Pair(todayDow, XjtuTime.sectionScaleOf(nowMinutes, axisSummer))
+        Pair(todayDow, layout.positionOf(now.hour * 60 + now.minute, todaySummer))
     } else null
     Column(
         Modifier
@@ -380,7 +227,7 @@ fun ScheduleGrid(
         if (topPadding > 0.dp) Spacer(Modifier.height(topPadding))
         // ── 星期头 ──
         Row(Modifier.fillMaxWidth().padding(bottom = 2.dp)) {
-            Box(Modifier.width(LEFT_COL_WIDTH), contentAlignment = Alignment.Center) {
+            Box(Modifier.width(leftColWidth), contentAlignment = Alignment.Center) {
                 Text("", fontSize = 9.sp)
             }
             DAY_HEADERS.forEachIndexed { idx, day ->
@@ -428,29 +275,48 @@ fun ScheduleGrid(
                 .fillMaxWidth()
                 .height(gridHeight)
         ) {
-            val dayWidth = (maxWidth - LEFT_COL_WIDTH) / 7
+            val dayWidth = (maxWidth - leftColWidth) / 7
 
-            // 背景层：左轴（节号 + 起止时间）+ 午休/晚休通栏带。没课的节次被压扁时只留节号。
+            // 背景层：左轴（节号 + 起止时间）+ 时段通栏带。没课的节次被压扁时只留节号。
             val axisTextColor = MiuixTheme.colorScheme.onSurfaceVariantSummary
             Column(Modifier.fillMaxSize()) {
-                laidOutRows.forEach { row ->
-                    if (row.section == null) {
+                rows.forEachIndexed { i, row ->
+                    val startText = formatMinuteOfDay(axisTimes[i].first)
+                    val endText = formatMinuteOfDay(axisTimes[i].second)
+                    // 跨作息那一周，另一套作息时间不同的节次补一行（冬令 / 夏令各自的起止）
+                    val otherText = if (mixedWeek && otherTimes[i] != axisTimes[i]) {
+                        (if (axisSummer) "冬" else "夏") +
+                            "${formatMinuteOfDay(otherTimes[i].first)}-${formatMinuteOfDay(otherTimes[i].second)}"
+                    } else null
+                    if (row.section == null && bandPieces[i] == null) {
+                        // 空着的时段带：一条通栏窄带，名字居中
                         Box(
-                            Modifier.fillMaxWidth().height(row.height),
+                            Modifier.fillMaxWidth().height(rowHeights[i]),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(row.label, fontSize = 10.sp, color = axisTextColor)
                         }
+                    } else if (row.section == null) {
+                        // 有条目的时段带：名字和起止挪到左轴，不压在课块上
+                        Column(
+                            Modifier.width(leftColWidth).height(rowHeights[i]),
+                            verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Text(row.label, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = axisTextColor)
+                            Text("$startText-$endText", fontSize = 8.sp, color = axisTextColor)
+                            if (otherText != null) Text(otherText, fontSize = 8.sp, color = axisTextColor.copy(alpha = 0.75f))
+                        }
                     } else {
-                        Box(Modifier.fillMaxWidth().height(row.height)) {
+                        Box(Modifier.fillMaxWidth().height(rowHeights[i])) {
                             Column(
-                                Modifier.width(LEFT_COL_WIDTH).fillMaxHeight(),
+                                Modifier.width(leftColWidth).fillMaxHeight(),
                                 verticalArrangement = Arrangement.Center,
                                 horizontalAlignment = Alignment.CenterHorizontally,
                             ) {
-                                // 用**目标**缩放（不是动画中的行高）决定排版：行高在动画中会跨过阈值，
+                                // 按**目标**（不是动画中的行高）决定排版：行高在动画中会跨过阈值，
                                 // 拿它判断的话文字会在两套排版之间闪一下
-                                if (targetScales[row.section] < 0.99f) {
+                                if (compressed[i]) {
                                     // 压扁的行放不下完整三行，收成「节号 + 一行起止时间」
                                     Text(
                                         "${row.section}",
@@ -459,10 +325,19 @@ fun ScheduleGrid(
                                         color = axisTextColor,
                                     )
                                     Text(
-                                        "${row.startText}-${row.endText}",
+                                        "$startText-$endText",
                                         fontSize = 8.sp,
                                         color = axisTextColor.copy(alpha = 0.75f),
                                     )
+                                } else if (otherText != null) {
+                                    Text(
+                                        "${row.section}",
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MiuixTheme.colorScheme.onSurface,
+                                    )
+                                    Text("$startText-$endText", fontSize = 8.sp, color = axisTextColor)
+                                    Text(otherText, fontSize = 8.sp, color = axisTextColor.copy(alpha = 0.75f))
                                 } else {
                                     Text(
                                         "${row.section}",
@@ -470,8 +345,8 @@ fun ScheduleGrid(
                                         fontWeight = FontWeight.Bold,
                                         color = MiuixTheme.colorScheme.onSurface,
                                     )
-                                    Text(row.startText, fontSize = 9.sp, color = axisTextColor)
-                                    Text(row.endText, fontSize = 9.sp, color = axisTextColor)
+                                    Text(startText, fontSize = 9.sp, color = axisTextColor)
+                                    Text(endText, fontSize = 9.sp, color = axisTextColor)
                                 }
                             }
                         }
@@ -480,12 +355,12 @@ fun ScheduleGrid(
             }
 
             // 前景层：课程卡片（冲突课程翻页显示）
-            val conflictGroups = remember(displaySlots) { buildConflictGroups(displaySlots) }
+            val conflictGroups = remember(layout) { buildConflictGroups(layout.slots) }
 
             conflictGroups.forEach { group ->
-                val topOffset = yOf(group.startFraction)
-                val cellHeight = yOfBlockEnd(group.endFraction) - topOffset
-                val dayLeft = LEFT_COL_WIDTH + dayWidth * (group.dayOfWeek - 1)
+                val topOffset = yOf(group.start)
+                val cellHeight = yOf(group.end) - topOffset
+                val dayLeft = leftColWidth + dayWidth * (group.dayOfWeek - 1)
 
                 Box(
                     Modifier
@@ -496,33 +371,29 @@ fun ScheduleGrid(
                         .padding(CELL_GAP)
                 ) {
                     if (group.slots.size == 1) {
-                        val slot = group.slots[0]
-                        val slotTop = yOf(slot.startFraction) - topOffset
-                        val slotH = (yOfBlockEnd(slot.endFraction) - yOf(slot.startFraction))
-                            .coerceAtLeast(SECTION_HEIGHT * (5f / 60f))
-                        val slotDuration = (slot.endFraction - slot.startFraction).coerceAtLeast(5f / 60f)
+                        val placed = group.slots[0]
+                        val slot = placed.slot
                         Box(
                             Modifier
                                 .fillMaxWidth()
-                                .height(slotH)
-                                .offset(y = slotTop)
+                                .height(yOf(placed.end) - yOf(placed.start))
+                                .offset(y = yOf(placed.start) - topOffset)
                         ) {
                             CourseCell(
                                 name = slot.slotName,
                                 location = slot.slotLocation,
                                 weekInfo = formatWeekInfo(slot, showWeeks),
-                                spanSections = ceil(slotDuration).toInt().coerceAtLeast(1),
+                                spanSections = ceil(placed.end - placed.start).toInt().coerceAtLeast(1),
                                 color = courseColors.colorOf(slot.slotName),
-                                badge = slotBadge(slot.sourceSlot),
-                                onClick = { onSlotClick(slot.sourceSlot) }
+                                badge = slotBadge(slot),
+                                onClick = { onSlotClick(slot) }
                             )
                         }
                     } else {
                         FlippableCourseCell(
                             slots = group.slots,
-                            groupStartFraction = group.startFraction,
+                            groupStart = group.start,
                             yOf = ::yOf,
-                            yOfBlockEnd = ::yOfBlockEnd,
                             courseColors = courseColors,
                             showWeeks = showWeeks,
                             slotBadge = slotBadge,
@@ -536,7 +407,7 @@ fun ScheduleGrid(
             if (timeLineInfo != null) {
                 val (todayDow, yFrac) = timeLineInfo
                 val density = androidx.compose.ui.platform.LocalDensity.current
-                val leftColPx = with(density) { LEFT_COL_WIDTH.toPx() }
+                val leftColPx = with(density) { leftColWidth.toPx() }
                 val dayWidthPx = with(density) { dayWidth.toPx() }
                 val lineColor = Color(0xFFE53935)  // Material Red 600
                 val timelineY = yOf(yFrac)
@@ -580,101 +451,52 @@ fun ScheduleGrid(
     }
 }
 
-// ── 冲突分组 ──
-
-private data class ConflictGroup(
-    val slots: List<DisplayScheduleSlot>,
-    val dayOfWeek: Int,
-    val startFraction: Float,
-    val endFraction: Float
-)
-
-private fun buildConflictGroups(slots: List<DisplayScheduleSlot>): List<ConflictGroup> {
-    val validSlots = slots.filter { it.slotDayOfWeek in 1..7 && it.endFraction > it.startFraction }
-    val byDay = validSlots.groupBy { it.slotDayOfWeek }
-    val groups = mutableListOf<ConflictGroup>()
-
-    byDay.forEach { (day, daySlots) ->
-        val n = daySlots.size
-        val parent = IntArray(n) { it }
-        fun find(x: Int): Int {
-            var r = x; while (parent[r] != r) r = parent[r]
-            var c = x; while (c != r) { val next = parent[c]; parent[c] = r; c = next }
-            return r
-        }
-        fun union(a: Int, b: Int) { parent[find(a)] = find(b) }
-
-        for (i in 0 until n) {
-            for (j in i + 1 until n) {
-                val a = daySlots[i]; val b = daySlots[j]
-                if (a.startFraction < b.endFraction && b.startFraction < a.endFraction) {
-                    union(i, j)
-                }
-            }
-        }
-
-        daySlots.indices.groupBy { find(it) }.values.forEach { indices ->
-            val groupSlots = indices.map { daySlots[it] }
-            groups.add(ConflictGroup(
-                slots = groupSlots,
-                dayOfWeek = day,
-                startFraction = groupSlots.minOf { it.startFraction },
-                endFraction = groupSlots.maxOf { it.endFraction }
-            ))
-        }
-    }
-    return groups
-}
-
 private fun formatWeekInfo(slot: ScheduleSlot, showWeeks: Boolean): String {
     if (!showWeeks) return ""
-    val rawSlot = (slot as? DisplayScheduleSlot)?.sourceSlot ?: slot
-    val weeks = (rawSlot as? CourseItem)?.getWeeks().orEmpty()
+    val weeks = (slot as? CourseItem)?.getWeeks().orEmpty()
     return if (weeks.isEmpty()) "" else TermWeeks.formatRanges(weeks) + "周"
 }
+
+private fun formatMinuteOfDay(minute: Int): String = "%02d:%02d".format(minute / 60, minute % 60)
 
 // ── 冲突课程翻页卡片 ──
 
 @Composable
 private fun FlippableCourseCell(
-    slots: List<DisplayScheduleSlot>,
-    groupStartFraction: Float,
+    slots: List<PlacedSlot>,
+    groupStart: Float,
     yOf: (Float) -> Dp,
-    yOfBlockEnd: (Float) -> Dp,
     courseColors: Map<String, Color>,
     showWeeks: Boolean,
     slotBadge: (ScheduleSlot) -> SlotMark? = { null },
     onSlotClick: (ScheduleSlot) -> Unit
 ) {
     val pagerState = rememberPagerState(pageCount = { slots.size })
-    val groupY = yOf(groupStartFraction)
+    val groupY = yOf(groupStart)
 
     Box(Modifier.fillMaxSize()) {
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize()
         ) { page ->
-            val slot = slots[page]
-            val slotDuration = (slot.endFraction - slot.startFraction).coerceAtLeast(5f / 60f)
-            val slotTop = yOf(slot.startFraction) - groupY
-            val slotH = (yOfBlockEnd(slot.endFraction) - yOf(slot.startFraction))
-                .coerceAtLeast(SECTION_HEIGHT * (5f / 60f))
+            val placed = slots[page]
+            val slot = placed.slot
 
             Box(Modifier.fillMaxSize()) {
                 Box(
                     Modifier
                         .fillMaxWidth()
-                        .height(slotH)
-                        .offset(y = slotTop)
+                        .height(yOf(placed.end) - yOf(placed.start))
+                        .offset(y = yOf(placed.start) - groupY)
                 ) {
                     CourseCell(
                         name = slot.slotName,
                         location = slot.slotLocation,
                         weekInfo = formatWeekInfo(slot, showWeeks),
-                        spanSections = ceil(slotDuration).toInt().coerceAtLeast(1),
+                        spanSections = ceil(placed.end - placed.start).toInt().coerceAtLeast(1),
                         color = courseColors.colorOf(slot.slotName),
-                        badge = slotBadge(slot.sourceSlot),
-                        onClick = { onSlotClick(slot.sourceSlot) }
+                        badge = slotBadge(slot),
+                        onClick = { onSlotClick(slot) }
                     )
                 }
             }

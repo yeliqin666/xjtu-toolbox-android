@@ -90,13 +90,10 @@ fun TodayTimeline(
     val entries = remember(courses, exams, today, todayHomework) {
         val dow = today.dayOfWeek.value
         val fromCourses = courses.filter { it.dayOfWeek == dow }.map { c ->
+            val (start, end) = c.clockMinutes(isSummer)
             TimelineEntry(
-                startMinute = c.startMinuteOfDay.takeIf { it >= 0 }
-                    ?: XjtuTime.getClassTime(c.startSection, isSummer)?.start?.toMinuteOfDay()
-                    ?: 0,
-                endMinute = c.endMinuteOfDay.takeIf { it >= 0 }
-                    ?: XjtuTime.getClassTime(c.endSection, isSummer)?.end?.toMinuteOfDay()
-                    ?: 0,
+                startMinute = start,
+                endMinute = end,
                 title = c.courseName,
                 place = c.location,
                 detail = c.teacher,
@@ -602,24 +599,15 @@ internal data class FocusCourse(val course: CourseItem, val ongoing: Boolean)
 
 /**
  * 从本周的课里挑出今天「正在上」或「下一节」。今天的课都上完了、或者今天没课，返回 null。
- * 起止时间的算法和今日时间轴（[TodayTimeline]）完全一样：优先用课表给的分钟数，没有就按节次换算，
- * 冬夏作息都算上。两处算出来的时间必须一致，否则右栏说「正在上」、左栏却已经把它压暗了。
+ * 起止时间和今日时间轴（[TodayTimeline]）一样用 [CourseItem.clockMinutes]，两处必须一致，
+ * 否则右栏说「正在上」、左栏却已经把它压暗了。
  */
 internal fun focusCourseOf(weekCourses: List<CourseItem>, today: LocalDate, now: LocalTime): FocusCourse? {
     val isSummer = XjtuTime.isSummerTime(today.monthValue)
     val nowMinute = now.toMinuteOfDay()
     val todays = weekCourses
         .filter { it.dayOfWeek == today.dayOfWeek.value }
-        .map { c ->
-            val start = c.startMinuteOfDay.takeIf { it >= 0 }
-                ?: XjtuTime.getClassTime(c.startSection, isSummer)?.start?.toMinuteOfDay()
-                ?: return@map null
-            val end = c.endMinuteOfDay.takeIf { it >= 0 }
-                ?: XjtuTime.getClassTime(c.endSection, isSummer)?.end?.toMinuteOfDay()
-                ?: start
-            Triple(c, start, end)
-        }
-        .filterNotNull()
+        .map { c -> c.clockMinutes(isSummer).let { (start, end) -> Triple(c, start, end) } }
         .sortedBy { it.second }
     todays.firstOrNull { nowMinute in it.second until it.third }?.let { return FocusCourse(it.first, ongoing = true) }
     return todays.firstOrNull { it.second > nowMinute }?.let { FocusCourse(it.first, ongoing = false) }

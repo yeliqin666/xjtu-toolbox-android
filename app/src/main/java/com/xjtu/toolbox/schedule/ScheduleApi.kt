@@ -60,6 +60,39 @@ data class CourseItem(
      * 法定假日停的是课，自建日程节假日过滤一律不碰。
      */
     val isUserCreated: Boolean get() = courseCode.startsWith(CUSTOM_COURSE_CODE_PREFIX)
+
+    /**
+     * 这一条在某套作息下的真实起止（距 00:00 的分钟，结束不含）。
+     *
+     * - 给了合法钟点（00:00 ≤ 开始 < 结束 ≤ 24:00）就用钟点；
+     * - 自建日程没存钟点（老版本编辑器建的）：节次当年是按「8 点起每小时一节」推的，照此还原，
+     *   和编辑器打开它时显示的时间一致；
+     * - 其余按节次查作息表，要按哪套作息由条目所在的日期决定（[XjtuTime.isSummerTime]）。
+     *
+     * 节次超出范围的夹到首末节，结束节早于开始节的按开始节算。
+     */
+    fun clockMinutes(summer: Boolean): Pair<Int, Int> {
+        if (startMinuteOfDay in 0 until MINUTES_PER_DAY && endMinuteOfDay in (startMinuteOfDay + 1)..MINUTES_PER_DAY) {
+            return startMinuteOfDay to endMinuteOfDay
+        }
+        if (isUserCreated) {
+            val start = startSection.coerceIn(1, MAX_SECTIONS)
+            val end = endSection.coerceIn(start, MAX_SECTIONS)
+            return (DAY_START_HOUR + start - 1) * 60 to (DAY_START_HOUR + end) * 60
+        }
+        val sections = XjtuTime.getAllTimes(summer)
+        val first = sections.first().first
+        val last = sections.last().first
+        val start = startSection.coerceIn(first, last)
+        val end = endSection.coerceIn(start, last)
+        val startTime = XjtuTime.getClassTime(start, summer)!!.start
+        val endTime = XjtuTime.getClassTime(end, summer)!!.end
+        return startTime.hour * 60 + startTime.minute to endTime.hour * 60 + endTime.minute
+    }
+
+    companion object {
+        const val MINUTES_PER_DAY = 24 * 60
+    }
 }
 
 @Serializable

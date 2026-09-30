@@ -33,8 +33,9 @@ enum class WidgetSize { SMALL, LARGE }
 internal data class WidgetCourse(
     val name: String,
     val location: String,
-    val startSection: Int,
-    val endSection: Int,
+    /** 真实起止（距 00:00 的分钟），按这一天的作息算，见 [CourseItem.clockMinutes]。 */
+    val startMinute: Int,
+    val endMinute: Int,
     /** 课程色（ARGB），和课表页、思源学堂同一套，用户改过的也认。 */
     val color: Int,
     /** 已经上完：之前的日子全算，今天看下课时间。 */
@@ -360,31 +361,37 @@ object ScheduleWidgetUpdater {
         // 没有开学日期就算不出周次；这时按星期给出全部同星期的课，
         // 总好过一片空白（用户至少能看出"周三大概有什么"）。
         val week = startDate?.let { com.xjtu.toolbox.schedule.TermWeeks.weekOf(it, date) }
-        val now = LocalDateTime.now()
-        val colors = courseColorMap(all.map { it.courseName })
-        return all.asSequence()
+        return all
             .filter { it.dayOfWeek == date.dayOfWeek.value }
             .filter { !isHoliday || it.isUserCreated }
             .filter { week == null || it.isInWeek(week) }
-            .sortedBy { it.startSection }
-            .map {
-                WidgetCourse(
-                    name = it.courseName,
-                    location = it.location,
-                    startSection = it.startSection,
-                    endSection = it.endSection,
-                    color = colors.colorOf(it.courseName).toArgb(),
-                    done = isDone(date, it.endSection, now),
-                )
-            }
-            .toList()
+            // 按整学期的课分配颜色，和课表页一样，避开撞色的顺延结果才对得上
+            .toWidgetCourses(date, courseColorMap(all.map { it.courseName }), LocalDateTime.now())
     }
 
-    private fun isDone(date: LocalDate, endSection: Int, now: LocalDateTime): Boolean {
+    /**
+     * [date] 那天的条目转成卡片条目：按那天的作息算真实起止（自建日程用它自己的钟点），按开始时间排。
+     * 之前的日子全算上完，今天看下课时刻。
+     */
+    private fun List<CourseItem>.toWidgetCourses(
+        date: LocalDate,
+        colors: Map<String, androidx.compose.ui.graphics.Color>,
+        now: LocalDateTime,
+    ): List<WidgetCourse> {
+        val summer = XjtuTime.isSummerTime(date.monthValue)
         val today = now.toLocalDate()
-        if (date != today) return date < today
-        val end = XjtuTime.getClassTime(endSection)?.end ?: return false
-        return now.toLocalTime() > end
+        val nowMinute = now.hour * 60 + now.minute
+        return map { c ->
+            val (start, end) = c.clockMinutes(summer)
+            WidgetCourse(
+                name = c.courseName,
+                location = c.location,
+                startMinute = start,
+                endMinute = end,
+                color = colors.colorOf(c.courseName).toArgb(),
+                done = date < today || (date == today && end <= nowMinute),
+            )
+        }.sortedWith(compareBy({ it.startMinute }, { it.endMinute }))
     }
 
     private fun todayCourses(context: Context): List<WidgetCourse> {
@@ -401,11 +408,13 @@ object ScheduleWidgetUpdater {
     private fun scheduleNextRefresh(context: Context, size: WidgetSize) {
         val now = LocalDateTime.now()
         val today = now.toLocalDate()
+        val nowMinute = now.hour * 60 + now.minute
         val at = todayCourses(context)
-            .flatMap { listOfNotNull(XjtuTime.getClassTime(it.startSection)?.start, XjtuTime.getClassTime(it.endSection)?.end) }
-            .map { today.atTime(it) }
-            .filter { it > now }
+            .flatMap { listOf(it.startMinute, it.endMinute) }
+            .filter { it > nowMinute }
             .minOrNull()
+            // 结束在 24:00 的条目落到明天零点，和跨天刷新是同一次
+            ?.let { today.atStartOfDay().plusMinutes(it.toLong()) }
             ?: today.plusDays(1).atStartOfDay()
         val millis = at.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
         context.getSystemService(AlarmManager::class.java)
@@ -515,22 +524,10 @@ object ScheduleWidgetUpdater {
         val isHoliday = holidayDates.containsKey(selectedDate)
 
         val todayCourses = allCourses
-            .asSequence()
             .filter { !isHoliday || it.isUserCreated }
             .filter { it.dayOfWeek == selectedDayOfWeek }
             .filter { if (shouldFilterByWeek) it.isInWeek(effectiveWeek) else true }
-            .sortedBy { it.startSection }
-            .map {
-                WidgetCourse(
-                    name = it.courseName,
-                    location = it.location,
-                    startSection = it.startSection,
-                    endSection = it.endSection,
-                    color = colors.colorOf(it.courseName).toArgb(),
-                    done = isDone(selectedDate, it.endSection, nowAt),
-                )
-            }
-            .toList()
+            .toWidgetCourses(selectedDate, colors, nowAt)
 
         val weekText = if (baseWeek != null) {
             if (baseWeek <= 0) "未开学" else "第${effectiveWeek}周"
