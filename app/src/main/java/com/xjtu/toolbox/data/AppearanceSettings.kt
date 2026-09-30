@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * 外观设置的可观察视图。写入仍走 [CredentialStore]，这里监听同一份文件，谁改了界面都跟着变。
- * 进程单例；监听器必须强引用持有（SharedPreferences 只弱引用它）。
+ * 进程单例；监听器必须强引用持有（SharedPreferences 只弱引用它），见 [listener]。
  */
 class AppearanceSettings private constructor(context: Context) {
 
@@ -31,6 +31,8 @@ class AppearanceSettings private constructor(context: Context) {
     val homeTheme: StateFlow<String> = _homeTheme.asStateFlow()
     val showQuickActions: StateFlow<Boolean> = _showQuickActions.asStateFlow()
 
+    // 这个字段只写不读，R8 会把它删掉，监听器随后被回收，设置改了界面不跟（debug 包不混淆所以没事）
+    @field:androidx.annotation.Keep
     private val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
         _darkMode.value = store.darkMode
         _dynamicColor.value = store.dynamicColor
