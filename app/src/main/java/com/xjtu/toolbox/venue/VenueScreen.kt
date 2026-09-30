@@ -174,7 +174,6 @@ fun VenueScreen(
             OverlayDialog(
                 show = showHint.value,
                 title = "功能说明",
-                summary = "场馆预约支持时段查询、预约和订单管理。",
                 onDismissRequest = {
                     showHint.value = false
                     prefs.edit().putBoolean("venue_hint_shown", true).apply()
@@ -183,8 +182,8 @@ fun VenueScreen(
                 Column(Modifier.fillMaxWidth()) {
                     Text(
                         "• 验证码默认自动识别，可在设置中关闭；失败仍可手滑\n" +
-                            "• 支付会在内置浏览器里完成，登录一般自动通过\n\n" +
-                            "望理解，请尽量在校园网环境下使用。",
+                            "• 支付在内置浏览器里完成，登录一般自动通过\n" +
+                            "• 尽量在校园网下使用",
                         style = MiuixTheme.textStyles.body2,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                     )

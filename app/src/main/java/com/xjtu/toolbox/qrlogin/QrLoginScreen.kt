@@ -447,7 +447,7 @@ private fun ScanningContent(onResult: (String) -> Unit) {
             }
         }
         Text(
-            "对准电脑上的登录二维码，或图书馆桌上的座位码",
+            "对准电脑登录码或图书馆座位码",
             color = Color.White,
             textAlign = TextAlign.Center,
             modifier = Modifier

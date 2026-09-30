@@ -15,7 +15,9 @@ import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.widget.CampusCardWidgetUpdater
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -154,18 +156,22 @@ internal class CampusCardViewModel(
         val (start, end) = range
         viewModelScope.launch {
             try {
-                // 先拿卡信息（回填 cardAccount），再抓流水
-                val info = withContext(Dispatchers.IO) { api.getCardInfo() }
-                if (switched()) return@launch
-                cardInfo = info
-                withContext(Dispatchers.IO) {
-                    CampusCardCache.cardPrefs(context, accountId).edit()
-                        .putFloat("card_balance_cache", info.balance.toFloat())
-                        .putString("card_name_cache", info.name)
-                        .putLong("card_cache_time", System.currentTimeMillis())
-                        .apply()
+                // 卡信息和流水互不依赖，一起发；余额先到先显示
+                val (info, all) = coroutineScope {
+                    val txs = async(Dispatchers.IO) { fetchRange(start, end, accountId) }
+                    val info = withContext(Dispatchers.IO) { api.getCardInfo() }
+                    if (!switched()) {
+                        cardInfo = info
+                        withContext(Dispatchers.IO) {
+                            CampusCardCache.cardPrefs(context, accountId).edit()
+                                .putFloat("card_balance_cache", info.balance.toFloat())
+                                .putString("card_name_cache", info.name)
+                                .putLong("card_cache_time", System.currentTimeMillis())
+                                .apply()
+                        }
+                    }
+                    info to txs.await()
                 }
-                val all = withContext(Dispatchers.IO) { fetchRange(start, end, accountId) }
                 if (mine != generation || switched()) return@launch
                 show(all, accountId, persist = true)
                 withContext(Dispatchers.IO) { CampusCardCache.save(context, info, all, start, end, accountId) }
@@ -186,14 +192,18 @@ internal class CampusCardViewModel(
         }
     }
 
-    /** 缓存覆盖了这段范围就只补最近 7 天，否则整段拉。 */
+    /**
+     * 缓存覆盖了这段范围就从最新往回拉，接上缓存为止（平时一页）；否则整段拉。
+     * 以前固定补最近 7 天，隔了一周以上没打开，中间那段就漏了。
+     */
     private suspend fun fetchRange(start: LocalDate, end: LocalDate, accountId: String?): List<Transaction> {
         val cached = CampusCardCache.load(context, accountId)
         val cachedStart = cached?.rangeStart?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
-        if (cached == null || cachedStart == null || cachedStart.isAfter(start)) {
+        if (cached == null || cachedStart == null || cachedStart.isAfter(start) || cached.transactions.isEmpty()) {
             return api.getAllTransactions(start, end, maxPages = 12, allowIncomplete = true)
         }
-        val fresh = api.getAllTransactions(end.minusDays(7).coerceAtLeast(start), end, maxPages = 20, allowIncomplete = true)
+        val known = cached.transactions.mapTo(HashSet()) { it.uniqueKey() }
+        val fresh = api.getTransactionsUntilKnown(start, end, maxPages = 12, pageSize = PAGE_SIZE) { it.uniqueKey() in known }
         return (fresh + cached.transactions.filter { tx -> tx.date()?.let { it in start..end } == true })
             .distinctBy { it.uniqueKey() }
             .sortedByDescending { it.time }

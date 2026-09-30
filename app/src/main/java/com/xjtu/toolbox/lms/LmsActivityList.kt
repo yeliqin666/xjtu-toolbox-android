@@ -32,9 +32,7 @@ import com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import androidx.compose.foundation.lazy.staggeredgrid.items
 import com.xjtu.toolbox.ui.glass.*
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
@@ -81,7 +79,7 @@ internal fun ActivityListPage(
             isLoading = true
             errorMsg = null
             try {
-                cache.activities[course.id] = withContext(Dispatchers.IO) { api.getCourseActivities(course.id) }
+                cache.syncActivities(api, course.id)
             } catch (e: AuthExpiredException) {
                 appLoginState.handleAuthExpired(AppRoute.Lms(), onBack)
             } catch (e: Exception) {
@@ -93,7 +91,7 @@ internal fun ActivityListPage(
         }
     }
 
-    LaunchedEffect(Unit) { if (cache.activities[course.id] == null) loadActivities() }
+    LaunchedEffect(Unit) { if (!cache.activitiesSynced(course.id)) loadActivities() }
 
     val types = remember(activities) {
         activities.map { it.type }.distinct().sortedBy { it.ordinal }

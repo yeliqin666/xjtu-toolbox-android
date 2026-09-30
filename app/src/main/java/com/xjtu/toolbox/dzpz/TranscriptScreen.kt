@@ -529,7 +529,7 @@ private fun DownloadSuccessCard(
             }
             Spacer(Modifier.height(8.dp))
             Text(
-                "保存后会出现在「设置 - 下载管理」里，可由系统文件管理器或 PDF 阅读器打开。",
+                "保存在「我的 · 下载管理」，可用文件管理器或 PDF 阅读器打开。",
                 style = MiuixTheme.textStyles.footnote1,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary
             )

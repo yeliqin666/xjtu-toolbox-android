@@ -102,7 +102,7 @@ fun FeedbackPromptSheet() {
         ) {
             if (sent) {
                 Text(
-                    "谢了，收到。有回复会出现在「我的 · 反馈与建议」里。",
+                    "谢了，收到。回复会出现在社区的「旧版反馈」里。",
                     style = MiuixTheme.textStyles.body2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )

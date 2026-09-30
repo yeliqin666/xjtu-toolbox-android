@@ -214,7 +214,7 @@ private fun ShelfTab(
     if (items.isEmpty()) {
         EmptyState(
             title = "书架还是空的",
-            subtitle = "打开过的书会出现在这里，记下看到哪一页",
+            subtitle = "打开过的书和读到哪页会记在这里",
             icon = Icons.AutoMirrored.Filled.LibraryBooks,
             modifier = Modifier.fillMaxSize(),
         )
@@ -461,13 +461,13 @@ private fun SearchTab(
             error != null -> ErrorState(error, onRetry = onSearch, modifier = Modifier.weight(1f).fillMaxSize())
             result == null -> EmptyState(
                 title = "输入书名或选个分类",
-                subtitle = "全文库按中图法编排，分类浏览往往比关键词更容易找到教材",
+                subtitle = "试试按分类浏览，常比关键词好找",
                 icon = Icons.AutoMirrored.Filled.LibraryBooks,
                 modifier = Modifier.weight(1f).fillMaxSize(),
             )
             books.isEmpty() -> EmptyState(
                 title = "没有匹配的书目",
-                subtitle = "换个检索字段试试，索书号和 ISBN 要求完全匹配",
+                subtitle = "换个字段试试；索书号、ISBN 需完全匹配",
                 icon = Icons.AutoMirrored.Filled.MenuBook,
                 modifier = Modifier.weight(1f).fillMaxSize(),
             )

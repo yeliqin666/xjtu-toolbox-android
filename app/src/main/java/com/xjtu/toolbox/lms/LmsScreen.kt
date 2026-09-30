@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
 import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.auth.SiteSession
+import com.xjtu.toolbox.data.DataCache
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -38,21 +39,49 @@ import top.yukonga.miuix.kmp.window.WindowDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
- * 会话内页面缓存。
+ * 页面数据缓存。
  *
- * [LmsScreen] 这一层在课程列表 / 活动列表 / 活动详情之间切换时始终保持组合，
- * 所以把已加载的数据和筛选选择放在这里，返回上一层就不再重新请求、也不丢筛选。
- * 之前各子页面各自 `remember` + `LaunchedEffect(Unit) { load() }`，
- * 每次返回都是一次冷加载，既慢又把用户的筛选状态清空。
- *
- * 仅存活于本次进入 LMS 期间；退出页面即释放，不做跨会话持久化。
+ * [LmsScreen] 在课程列表 / 活动列表 / 活动详情之间切换时始终保持组合，数据和筛选放这里，
+ * 返回上一层不再请求、也不丢筛选。课程列表和活动列表另外落盘：下次进来先显示上次的，
+ * 联网拿到再换上，不用对着转圈等登录和请求。
  */
-internal class LmsPageCache {
+internal class LmsPageCache(private val disk: DataCache) {
     var courses by mutableStateOf<List<LmsCourseSummary>>(emptyList())
     var selectedSemester by mutableStateOf<String?>(null)
     val activities = mutableStateMapOf<Int, List<LmsActivity>>()
     val selectedTypes = mutableStateMapOf<Int, LmsActivityType?>()
     val details = mutableStateMapOf<Int, LmsActivity>()
+
+    /** 本次进入后已联网刷新过，返回时不再请求。 */
+    var coursesSynced by mutableStateOf(false)
+        private set
+    private val syncedActivities = mutableSetOf<Int>()
+
+    fun activitiesSynced(courseId: Int) = courseId in syncedActivities
+
+    suspend fun syncCourses(api: LmsApi) {
+        if (courses.isEmpty()) disk.readIo<List<LmsCourseSummary>>(COURSES_KEY)?.let { courses = it }
+        courses = withContext(Dispatchers.IO) { api.getMyCourses().also { disk.writeSafe(COURSES_KEY, it) } }
+        coursesSynced = true
+    }
+
+    suspend fun syncActivities(api: LmsApi, courseId: Int) {
+        val key = "lms_activities_$courseId"
+        if (activities[courseId] == null) disk.readIo<List<LmsActivity>>(key)?.let { activities[courseId] = it }
+        activities[courseId] = withContext(Dispatchers.IO) { api.getCourseActivities(courseId).also { disk.writeSafe(key, it) } }
+        syncedActivities += courseId
+    }
+
+    private suspend inline fun <reified T> DataCache.readIo(key: String): T? =
+        withContext(Dispatchers.IO) { read<T>(key, DataCache.TERM_TTL_MS) }
+
+    private inline fun <reified T> DataCache.writeSafe(key: String, value: T) {
+        runCatching { write(key, value) }.onFailure { android.util.Log.w("LmsPageCache", "write $key failed", it) }
+    }
+
+    private companion object {
+        const val COURSES_KEY = "lms_courses"
+    }
 }
 // ════════════════════════════════════════
 //  导航状态
@@ -93,7 +122,10 @@ fun LmsScreen(
     val api = remember(site) { LmsApi(site) }
 
     var currentPage by remember { mutableStateOf<LmsPage>(LmsPage.CourseList) }
-    val cache = remember { LmsPageCache() }
+    // DataCache 构造时绑定账号，切账号后必须换新实例
+    val cache = remember(appLoginState.accountId) {
+        LmsPageCache(DataCache(context, appLoginState.accountId.ifEmpty { null }))
+    }
 
     // 只跳一次：跳完把意图消费掉，否则用户从活动页返回课程列表会被立刻弹回去。
     var pendingCourseId by remember { mutableStateOf(initialCourseId) }
@@ -101,12 +133,13 @@ fun LmsScreen(
     // 不能跟着 pendingCourseId 一起清：清掉它和切到活动页是同一帧，AnimatedContent 里淡出中的
     // 旧页会用新状态重组一次——占位变成完整课程列表，用户就看到「中间闪过思源学堂主页」。
     var listPlaceholder by remember { mutableStateOf(initialCourseId != null) }
-    LaunchedEffect(pendingCourseId) {
+    LaunchedEffect(Unit) {
         // 占位期间 CourseListPage 没被组合，它那个"进页面就加载"的 effect 不会跑，
-        // 得在这里把列表拉起来，否则一直转圈。
-        if (pendingCourseId != null && cache.courses.isEmpty()) {
+        // 得在这里把列表拉起来，否则一直转圈。不以 pendingCourseId 为键：落盘的列表一到就可能
+        // 匹配上并清掉它，那样会把还在进行的联网刷新取消掉。
+        if (pendingCourseId != null && !cache.coursesSynced) {
             runCatching {
-                cache.courses = withContext(Dispatchers.IO) { api.getMyCourses() }
+                cache.syncCourses(api)
             }.onSuccess {
                 if (cache.courses.isEmpty()) { pendingCourseId = null; listPlaceholder = false }
             }.onFailure {
@@ -116,10 +149,12 @@ fun LmsScreen(
             }
         }
     }
-    LaunchedEffect(cache.courses, pendingCourseId) {
+    LaunchedEffect(cache.courses, pendingCourseId, cache.coursesSynced) {
         val want = pendingCourseId ?: return@LaunchedEffect
         if (cache.courses.isEmpty()) return@LaunchedEffect
         val hit = cache.courses.firstOrNull { it.id == want }
+        // 落盘的旧列表里没有（比如新学期刚加的课）：等联网结果再下结论
+        if (hit == null && !cache.coursesSynced) return@LaunchedEffect
         // 匹配不到就老实落回课程列表，别把用户困在转圈里。
         pendingCourseId = null
         if (hit != null) currentPage = LmsPage.ActivityList(hit) else listPlaceholder = false
@@ -138,7 +173,7 @@ fun LmsScreen(
         WindowDialog(
             show = showHint.value,
             title = "功能说明",
-            summary = "思源学堂（lms.xjtu.edu.cn）是学校新一代课程管理平台，数据来源为 LMS 系统。",
+            summary = "数据来自思源学堂 lms.xjtu.edu.cn",
             onDismissRequest = {
                 showHint.value = false
                 prefs.edit().putBoolean("lms_hint_shown", true).apply()
@@ -146,7 +181,7 @@ fun LmsScreen(
         ) {
             Column(Modifier.fillMaxWidth()) {
                 Text(
-                    "支持查看课程、作业、课件和课堂回放。课件会保存到下载管理；已结束的活动学堂会关掉下载。",
+                    "可看课程、作业、课件和回放。课件存进下载管理；活动结束后学堂会关闭下载。",
                     style = MiuixTheme.textStyles.body2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                 )

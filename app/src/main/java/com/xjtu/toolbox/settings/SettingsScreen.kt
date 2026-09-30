@@ -227,7 +227,7 @@ fun SettingsScreen(
         if (!granted) {
             Toast.makeText(
                 context,
-                "未授予通知权限。小组件仍会更新，但不会弹出系统通知",
+                "未授予通知权限，不会弹出系统通知",
                 Toast.LENGTH_SHORT
             ).show()
         }
@@ -760,7 +760,7 @@ fun SettingsScreen(
             OverlayDialog(
                 show = showClearCacheDialog,
                 title = "清除缓存",
-                summary = "将清除约 $cacheSizeText 缓存，包括已缓存的课表、成绩等数据，之后要重新打开对应页面加载，桌面小组件也会先显示为空。不影响登录、下载的文件和已下载的更新包。",
+                summary = "将清除约 $cacheSizeText 的课表、成绩等缓存，打开对应页面会重新加载，桌面小组件会暂时为空。登录、下载的文件和更新包不受影响。",
                 onDismissRequest = { showClearCacheDialog = false }
             ) {
                 Row(Modifier.fillMaxWidth()) {

@@ -736,7 +736,7 @@ private fun AddAccountDialog(
     OverlayDialog(
         show = true,
         title = "添加账号",
-        summary = "输入新账号的统一身份认证信息，将先登录验证后再保存。",
+        summary = "输入统一身份认证账号，登录验证通过后保存。",
         onDismissRequest = onDismiss
     ) {
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -795,7 +795,7 @@ private fun SwitchConfirmDialog(
     OverlayDialog(
         show = true,
         title = "切换账号",
-        summary = "将切换到 ${target.nickname ?: target.accountId}。当前账号的课表等缓存会保留，随时可以切回来。",
+        summary = "切换到 ${target.nickname ?: target.accountId}，当前账号的缓存会保留，随时可切回。",
         onDismissRequest = onDismiss
     ) {
         Row(Modifier.fillMaxWidth()) {
@@ -824,7 +824,7 @@ private fun EditPasswordDialog(
     OverlayDialog(
         show = true,
         title = "修改密码",
-        summary = "更新 ${target.accountId} 的密码。下次使用该账号时会用新密码登录。",
+        summary = "${target.accountId} 之后用新密码登录。",
         onDismissRequest = onDismiss
     ) {
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {

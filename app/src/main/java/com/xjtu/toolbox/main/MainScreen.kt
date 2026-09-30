@@ -882,7 +882,7 @@ private fun PasswordInvalidatedDialog(loginState: AppLoginState, onUpdatePasswor
     OverlayDialog(
         show = true,
         title = "登录密码可能已变更",
-        summary = "「${loginState.passwordInvalidatedSiteName}」登录失败，已暂停其他系统的自动登录以保护账号。请在设置中更新密码。",
+        summary = "「${loginState.passwordInvalidatedSiteName}」登录失败，已暂停自动登录以免账号被锁，请更新密码。",
         onDismissRequest = dismiss,
     ) {
         Row(Modifier.fillMaxWidth()) {

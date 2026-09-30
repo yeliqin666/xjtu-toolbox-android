@@ -225,7 +225,6 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                     val tips = listOf(
                         "⏰" to "预约成功后，请在 30 分钟内入馆签到，否则当日将被禁止线上预约。",
                         "📋" to "座位状态说明：「使用中」= 已签到入座；「已预约」 = 已预约未签到；「暂离」= 短暂离开保留中。",
-                        "🚫" to "本版本已移除定时抢座功能。频繁自动化请求可能触发学校系统风控，导致账号被限制使用图书馆服务，望理解。"
                     )
                     tips.forEach { (emoji, text) ->
                         Row(Modifier.padding(vertical = 4.dp)) {

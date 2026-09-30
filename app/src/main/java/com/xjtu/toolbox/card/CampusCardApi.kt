@@ -40,8 +40,11 @@ data class CardInfo(
     val department: String = "",       // 学院（从 HTML 提取）
 )
 
-/** 一笔流水的去重键：接口不给流水号，只能用这几个字段拼。 */
-internal fun Transaction.uniqueKey(): String = "$time|$merchant|$amount|$balance|$description"
+/**
+ * 一笔流水的去重键：接口不给流水号，只能用这几个字段拼。不含 [Transaction.merchant]：
+ * 它是解析出来的，解析规则一改，落盘缓存里的旧流水就和重新拉到的对不上了。
+ */
+internal fun Transaction.uniqueKey(): String = "$time|$amount|$balance|$description"
 
 /** 单笔交易记录 */
 @kotlinx.serialization.Serializable
@@ -361,6 +364,27 @@ class CampusCardApi(private val site: SiteSession) {
         if (records.size == total) return records
         if (allowIncomplete) return records
         throw RuntimeException("查询校园卡流水返回了残缺流水数据")
+    }
+
+    /**
+     * 从第 1 页往后拉，拉到某页里出现 [isKnown] 的流水为止。服务端按入账时间倒序排
+     * （2026-09 实测一年 961 条无一例外），延迟上传的旧流水入账时间也是新的，同样排在前面，
+     * 所以接上已有数据之后的页不会再有新东西。
+     */
+    suspend fun getTransactionsUntilKnown(
+        startDate: LocalDate,
+        endDate: LocalDate,
+        maxPages: Int,
+        pageSize: Int = 50,
+        isKnown: (Transaction) -> Boolean,
+    ): List<Transaction> {
+        val records = mutableListOf<Transaction>()
+        for (page in 1..maxPages) {
+            val (total, batch) = getTransactions(startDate, endDate, page, pageSize)
+            records += batch
+            if (batch.any(isKnown) || batch.size < pageSize || records.size >= total) break
+        }
+        return records
     }
 
     private fun pageSignature(batch: List<Transaction>): String = batch.joinToString("\n") { it.uniqueKey() }

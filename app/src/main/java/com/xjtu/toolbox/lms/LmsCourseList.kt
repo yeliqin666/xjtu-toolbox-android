@@ -29,9 +29,7 @@ import com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import androidx.compose.foundation.lazy.staggeredgrid.items
 import com.xjtu.toolbox.ui.glass.*
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
@@ -70,7 +68,7 @@ internal fun CourseListPage(
             isLoading = true
             errorMsg = null
             try {
-                cache.courses = withContext(Dispatchers.IO) { api.getMyCourses() }
+                cache.syncCourses(api)
             } catch (e: AuthExpiredException) {
                 appLoginState.handleAuthExpired(AppRoute.Lms(), onBack)
             } catch (e: Exception) {
@@ -82,8 +80,8 @@ internal fun CourseListPage(
         }
     }
 
-    // 已有缓存就不再请求——返回上一层应当是「回到原样」而不是重新加载
-    LaunchedEffect(Unit) { if (cache.courses.isEmpty()) loadCourses() }
+    // 本次已刷新过就不再请求——返回上一层应当是「回到原样」而不是重新加载
+    LaunchedEffect(Unit) { if (!cache.coursesSynced) loadCourses() }
 
     val semesters = remember(courses) {
         courses.map { it.semesterLabel }.distinct().sortedDescending()

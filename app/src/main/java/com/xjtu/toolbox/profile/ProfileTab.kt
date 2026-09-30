@@ -685,7 +685,7 @@ internal fun ProfileTab(
         OverlayDialog(
             show = true,
             title = "更换头像",
-            summary = if (hasCustomAvatar) "当前使用自定义头像。可重新选择，或恢复为学工系统证件照。"
+            summary = if (hasCustomAvatar) "可重新选择，或恢复为证件照。"
                       else "默认使用学工系统证件照，可换成自己的图片。",
             onDismissRequest = { if (!avatarSaving) showAvatarSheet = false }
         ) {
@@ -960,7 +960,7 @@ internal fun ProfileTab(
                     OverlayDialog(
                         show = showLogoutDialog.value,
                         title = "确认退出",
-                        summary = "退出当前账号的登录状态。账号记录与本地缓存保留，下次可在「账号管理」切回，切回时会自动重新登录。",
+                        summary = "账号和缓存会保留，之后可在「账号管理」一键切回。",
                         onDismissRequest = { showLogoutDialog.value = false }
                     ) {
                         Row(Modifier.fillMaxWidth()) {

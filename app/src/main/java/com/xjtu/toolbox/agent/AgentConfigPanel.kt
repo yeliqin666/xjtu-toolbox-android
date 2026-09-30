@@ -115,7 +115,7 @@ internal fun ConfigPanel(
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("首次使用前请确认", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold)
                     Text(
-                        "推荐使用 DeepSeek 官方 API。请妥善保管 API Key，只选择可信、可靠的 API 来源；第三方中转可能接触你的提问内容、校园查询结果和工具返回数据，存在隐私泄露风险。本应用不会替你背书任何上游服务，由此产生的密钥泄露、资费损失或隐私风险需自行承担。",
+                        "推荐用 DeepSeek 官方 API，只选可信来源并保管好 Key。第三方中转能看到你的提问和查询结果；由此产生的密钥泄露、费用或隐私风险需自行承担。",
                         style = MiuixTheme.textStyles.footnote1,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                     )
@@ -153,7 +153,7 @@ internal fun ConfigPanel(
                     // 免得用户改名字没反应还以为是 bug。
                     PidaiAppearanceHost.activeSkin?.persona?.displayName?.takeIf { it.isNotBlank() }?.let { skinName ->
                         Text(
-                            "当前皮肤把助手改叫「${sanitizeAgentTitle(skinName)}」，这里填的名字暂时不生效；换一个没设名字的皮肤或取消皮肤即可用回这里的名字。",
+                            "当前皮肤把助手改叫「${sanitizeAgentTitle(skinName)}」，取消皮肤后这里的名字才生效。",
                             style = MiuixTheme.textStyles.footnote1,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         )

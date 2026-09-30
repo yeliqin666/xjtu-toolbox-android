@@ -81,7 +81,7 @@ fun WebVpnConverterScreen(
                     }
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "校外访问交大内网时，需要通过 webvpn.xjtu.edu.cn 代理。此工具可双向转换网址，并可直接在内置浏览器里用 WebVPN 打开（已登录时无需再次验证）。",
+                        "校外访问内网要经 webvpn.xjtu.edu.cn 代理。这里可双向转换网址，也能直接用内置浏览器打开（已登录免验证）。",
                         style = MiuixTheme.textStyles.body2,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                     )

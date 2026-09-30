@@ -340,8 +340,8 @@ private fun HeroNextUp(
                 !isFocusLoaded -> Triple(Icons.Default.CalendarMonth, "正在读取今日安排…", null)
                 // 学期代码 / 开学日期缺失或缓存读挂了，和「真没课」不是一回事：
                 // 这里说「去同步」，真没课才说「接下来两周都没课」。点击都是进课表页。
-                isScheduleDataMissing -> Triple(Icons.Default.CloudOff, "课表还没同步", "同步课表后，这里会显示接下来的安排")
-                else -> Triple(Icons.Default.EventAvailable, "接下来两周都没课", "空出来的日子怎么过，可以问问屁岱")
+                isScheduleDataMissing -> Triple(Icons.Default.CloudOff, "课表还没同步", "点这里去同步")
+                else -> Triple(Icons.Default.EventAvailable, "接下来两周都没课", "问问屁岱怎么安排")
             }
             ExpressiveIcon(icon = icon, color = primary, size = 38.dp, iconSize = 20.dp)
             Spacer(Modifier.width(12.dp))

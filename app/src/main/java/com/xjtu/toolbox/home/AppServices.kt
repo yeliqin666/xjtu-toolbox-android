@@ -64,7 +64,7 @@ object AppServices {
 
         AppService(AppRoute.WebVpnConverter, "WebVPN", "校外访问转换", ServiceCategory.TOOL, listOf("vpn", "webvpn")),
         AppService(AppRoute.Agent, "屁岱", "校园 AI 助手", ServiceCategory.TOOL, listOf("问屁岱", "ai", "助手")),
-        AppService(AppRoute.Community, "社区", "提建议、报问题，和大家交流", ServiceCategory.TOOL, listOf("社区讨论", "讨论", "论坛", "交流", "建议", "github")),
+        AppService(AppRoute.Community, "社区", "提建议、报问题", ServiceCategory.TOOL, listOf("社区讨论", "讨论", "论坛", "交流", "建议", "github")),
 
         AppService(AppRoute.Games, "小游戏", "合成西交大、方块、跳一跳…", ServiceCategory.PLAY, listOf("游戏", "小游戏", "五子棋", "围棋", "象棋", "2048", "合成", "方块", "俄罗斯方块", "跳一跳", "摸鱼")),
         AppService(AppRoute.Match, "匹配交友", "扫一扫，对一对空课时间", ServiceCategory.PLAY, listOf("匹配", "交友", "契合", "一起自习", "共同空闲", "扫码匹配", "同楼", "偶遇", "同课", "课表匹配")),

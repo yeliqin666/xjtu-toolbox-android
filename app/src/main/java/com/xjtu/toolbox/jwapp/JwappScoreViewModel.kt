@@ -16,7 +16,9 @@ import com.xjtu.toolbox.judge.JudgeApi
 import com.xjtu.toolbox.score.ScoreReportApi
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -119,22 +121,33 @@ internal class JwappScoreViewModel(
         }
     }
 
-    private suspend fun fetch(api: JwappApi): List<TermScore> {
+    /** jwapp 成绩、xscjcx 精确成绩、未评教名单三路互不依赖，并行拉。 */
+    private suspend fun fetch(api: JwappApi): List<TermScore> = coroutineScope {
+        val jwxt = jwxtSite ?: return@coroutineScope api.getGrade(null)
+        val precise = async { preciseScores(jwxt) }
+        val uneval = if (studentId.isNotEmpty()) async { unevaluated(jwxt) } else null
         var grades = api.getGrade(null)
-        val jwxt = jwxtSite ?: return grades
-        grades = withPreciseScores(grades, jwxt)
+        grades = withPreciseScores(grades, precise.await())
         grades = grades.map { ts -> ts.copy(scoreList = ts.scoreList.map(::withCourseGroup)) }
-        if (studentId.isNotEmpty()) grades = withUnevaluated(grades, jwxt)
-        return grades
+        if (uneval != null) grades = withUnevaluated(grades, jwxt, uneval.await())
+        grades
+    }
+
+    private suspend fun preciseScores(jwxt: SiteSession): List<CjcxApi.CjcxScore>? = try {
+        CjcxApi(jwxt).getAllScores()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(TAG, "xscjcx 失败，用 jwapp 的数: ${e.message}")
+        null
     }
 
     /** 教务的 xscjcx 有精确总评和绩点，按学期 + 课程名（退而求其次按课程号）对上就替换。 */
-    private suspend fun withPreciseScores(grades: List<TermScore>, jwxt: SiteSession): List<TermScore> = try {
-        val cjcx = CjcxApi(jwxt)
-        val precise = cjcx.getAllScores()
-        val lookup = cjcx.buildLookup(precise)
+    private fun withPreciseScores(grades: List<TermScore>, precise: List<CjcxApi.CjcxScore>?): List<TermScore> {
+        if (precise == null) return grades
+        val lookup = precise.associateBy { "${it.termCode}|${CjcxApi.normalizeName(it.courseName)}" }
         val byCode = precise.associateBy { it.kch }
-        grades.map { ts ->
+        return grades.map { ts ->
             ts.copy(scoreList = ts.scoreList.map { score ->
                 val p = lookup["${ts.termCode}|${CjcxApi.normalizeName(score.courseName)}"]
                     ?: score.courseCode?.let { byCode[it] }
@@ -147,11 +160,6 @@ internal class JwappScoreViewModel(
                 )
             })
         }
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        Log.w(TAG, "xscjcx 失败，用 jwapp 的数: ${e.message}")
-        grades
     }
 
     /** 课程号前缀区分通核 / 通选。 */
@@ -165,16 +173,17 @@ internal class JwappScoreViewModel(
         return score.copy(courseGroup = group)
     }
 
+    private suspend fun unevaluated(jwxt: SiteSession): Set<String> = try {
+        JudgeApi(jwxt).unfinishedQuestionnaires().map { it.KCM }.toSet()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(TAG, "未评教查询失败: ${e.message}")
+        emptySet()
+    }
+
     /** 未评教的课 jwapp 不给成绩，从成绩报表里补上。 */
-    private suspend fun withUnevaluated(grades: List<TermScore>, jwxt: SiteSession): List<TermScore> {
-        val uneval = try {
-            JudgeApi(jwxt).unfinishedQuestionnaires().map { it.KCM }.toSet()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.w(TAG, "未评教查询失败: ${e.message}")
-            emptySet()
-        }
+    private suspend fun withUnevaluated(grades: List<TermScore>, jwxt: SiteSession, uneval: Set<String>): List<TermScore> {
         unevaluatedCourses = uneval
         if (uneval.isEmpty()) return grades
         return try {

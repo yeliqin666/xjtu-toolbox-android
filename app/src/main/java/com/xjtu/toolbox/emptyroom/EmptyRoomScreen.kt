@@ -288,8 +288,8 @@ fun EmptyRoomScreen(
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                             )
                             val options = buildList {
-                                add(Triple(RoomSource.LIVE, "实时状态", "此刻哪间空、哪间有人，含没排课但有人用的"))
-                                add(Triple(RoomSource.CDN, "CDN 课表", "免登录，看今天、明天逐节安排"))
+                                add(Triple(RoomSource.LIVE, "实时状态", "此刻哪间空、哪间有人"))
+                                add(Triple(RoomSource.CDN, "CDN 课表", "今明两天逐节安排，免登录"))
                                 // 沿用原来的限制：研究生身份不提供直查教务
                                 if (accountType != AccountType.POSTGRADUATE) {
                                     add(Triple(RoomSource.DIRECT, "直查教务", "登录教务查课表，和 CDN 同源"))
@@ -338,9 +338,9 @@ fun EmptyRoomScreen(
                 show = true,
                 title = "Cloudflare CDN 查询说明",
                 summary = if (accountType == AccountType.POSTGRADUATE) {
-                    "CDN 查询无需登录，也不会发送账号相关信息；数据是按课表定时生成的，只知道哪节有课，不知道没排课的教室里有没有人。想看此刻的实际情况，可切回实时状态。"
+                    "无需登录，不发送账号信息。数据按课表定时生成，只知道哪节有课，不知道教室里此刻有没有人；想看实况请切回实时状态。"
                 } else {
-                    "CDN 查询无需登录，也不会发送账号相关信息；数据是按课表定时生成的，只知道哪节有课，不知道没排课的教室里有没有人。想看此刻的实际情况，可切回实时状态；CDN 查询失败时可改用直查教务。"
+                    "无需登录，不发送账号信息。数据按课表定时生成，只知道哪节有课，不知道教室里此刻有没有人；想看实况请切回实时状态，查询失败可改用直查教务。"
                 },
                 onDismissRequest = {
                     credentialStore.hasReadEmptyRoomCdnTip = true
@@ -443,7 +443,7 @@ fun EmptyRoomScreen(
                     }
                     if (isLive) {
                         Text(
-                            "实时状态来自学校智慧教室平台，只有兴庆、雁塔、创新港三个校区；仲英楼、中1、计教中心、田家炳等楼和曲江、苏州校区不在平台上，要看它们请在右上角切到课表数据。",
+                            "实时状态只覆盖兴庆、雁塔、创新港；仲英楼、中1、计教中心、田家炳等楼和曲江、苏州校区，请在右上角切到课表数据。",
                             style = MiuixTheme.textStyles.footnote1,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             modifier = Modifier.padding(horizontal = 4.dp, vertical = 10.dp),
@@ -582,7 +582,7 @@ fun EmptyRoomScreen(
                                 }
                                 Spacer(Modifier.height(8.dp))
                                 Text(
-                                    "「其它使用」是课表上没课、但平台统计到有人的教室（自习、社团借用、活动等，平台不区分），人数是此刻在场人数。",
+                                    "「其它使用」：没排课但有人，可能是自习、借用或活动；人数为此刻在场人数。",
                                     style = MiuixTheme.textStyles.footnote1,
                                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                 )

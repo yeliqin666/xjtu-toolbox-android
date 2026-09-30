@@ -282,7 +282,7 @@ fun ScheduleScreen(
                             showExportMenu = false
                             val st = vm.startOfTerm
                             if (st == null) {
-                                android.widget.Toast.makeText(context, "还没拿到开学日期，暂时不能导出日历，下拉刷新后再试", android.widget.Toast.LENGTH_SHORT).show()
+                                android.widget.Toast.makeText(context, "缺少开学日期，下拉刷新后再导出", android.widget.Toast.LENGTH_SHORT).show()
                                 return@ScheduleMenuRow
                             }
                             scope.launch {
@@ -1008,7 +1008,7 @@ private fun ScheduleTabContent(
             // 垫一层 verticalScroll 只为建立滚动链，内容没有可滚的距离、视觉无变化。
             EmptyState(
                 title = "本学期没有课程",
-                subtitle = "教务还没排课或还没选课。可以下拉刷新、在右上角「更多」里切换学期，或点 + 添加自己的日程",
+                subtitle = "教务还没排课。可下拉刷新、在「更多」里切换学期，或点 + 添加日程",
                 modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = gridTopPadding, bottom = bottomPadding)
             )
             return@Column

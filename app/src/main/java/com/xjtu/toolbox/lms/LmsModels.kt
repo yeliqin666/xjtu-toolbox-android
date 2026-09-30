@@ -1,14 +1,20 @@
 package com.xjtu.toolbox.lms
 
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
+
 /**
  * 思源学堂数据模型
  * 从 XJTUToolBox Python 版 LMSUtil 移植
+ *
+ * 课程列表和活动列表会落盘（见 [LmsPageCache]），它们用到的类都要 @Serializable。
  */
 
 // ════════════════════════════════════════
 //  用户
 // ════════════════════════════════════════
 
+@Serializable
 data class LmsDepartment(
     val id: Int = 0,
     val name: String = "",
@@ -32,6 +38,7 @@ data class LmsUserInfo(
 //  课程
 // ════════════════════════════════════════
 
+@Serializable
 data class LmsAcademicYear(
     val id: Int = 0,
     val code: String = "",
@@ -39,6 +46,7 @@ data class LmsAcademicYear(
     val sort: Int = 0
 )
 
+@Serializable
 data class LmsSemester(
     val id: Int = 0,
     val code: String = "",
@@ -47,17 +55,20 @@ data class LmsSemester(
     val sort: Int = 0
 )
 
+@Serializable
 data class LmsInstructor(
     val id: Int = 0,
     val name: String = ""
 )
 
+@Serializable
 data class LmsCourseAttributes(
     val published: Boolean = false,
     val studentCount: Int = 0,
     val teachingClassName: String = ""
 )
 
+@Serializable
 data class LmsCourseSummary(
     val id: Int = 0,
     val name: String = "",
@@ -116,6 +127,7 @@ enum class LmsActivityType(val value: String) {
     }
 }
 
+@Serializable
 data class LmsUpload(
     val id: Int = 0,
     val name: String = "",
@@ -140,6 +152,7 @@ data class LmsUpload(
         }
 }
 
+@Serializable
 data class LmsActivity(
     val id: Int = 0,
     val courseId: Int = 0,
@@ -162,7 +175,8 @@ data class LmsActivity(
     val groupId: Int? = null,
     val groupSetName: String? = null,
     val userSubmitCount: Int = 0,
-    val submissionList: LmsSubmissionListResponse? = null,
+    /** 只有详情接口给，列表里没有，不落盘（分数字段是 Any?，也序列化不了）。 */
+    @Transient val submissionList: LmsSubmissionListResponse? = null,
     val averageScore: Double? = null,
     val highestScore: Double? = null,
     val lowestScore: Double? = null,
@@ -289,6 +303,7 @@ data class LmsSubmissionListResponse(
 // ════════════════════════════════════════
 
 /** HLS 直播流（多机位） */
+@Serializable
 data class LmsLiveStream(
     val label: String = "",
     val src: String = "",
@@ -312,6 +327,7 @@ data class LmsLiveStream(
 //  回放视频
 // ════════════════════════════════════════
 
+@Serializable
 data class LmsReplayVideo(
     val id: Int = 0,
     val label: String = "",

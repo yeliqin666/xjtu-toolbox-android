@@ -139,7 +139,7 @@ private fun CommunityForum(
         OverlayDialog(
             show = true,
             title = "GitHub 账号",
-            summary = "已登录为 @$signedIn。退出只清除本机保存的授权；要彻底撤销，去 GitHub 设置 → Applications 里删掉授权。",
+            summary = "已登录 @$signedIn。退出只清除本机授权；彻底撤销请到 GitHub 设置 → Applications。",
             onDismissRequest = { accountDialog = false },
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -207,7 +207,7 @@ private fun CommunityLoginScreen(session: GithubSession, onBack: () -> Unit, onO
             Icon(Icons.Outlined.Forum, null, tint = colors.primary, modifier = Modifier.size(56.dp))
             Text("岱宗盒子社区", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold)
             Text(
-                "提建议、报问题、交流心得都在这里。社区搭在 GitHub Discussions 上，看帖和发帖都要登录 GitHub 账号。",
+                "提建议、报问题、交流心得。社区搭在 GitHub 上，看帖发帖需登录 GitHub。",
                 style = MiuixTheme.textStyles.body2,
                 color = colors.onSurfaceVariantSummary,
                 textAlign = TextAlign.Center,

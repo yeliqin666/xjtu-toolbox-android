@@ -173,7 +173,7 @@ fun PidaiAppearancePanel(modifier: Modifier = Modifier) {
             }
             PidaiAppearanceHost.activeSkin?.let { selected ->
                 Text(
-                    "角色 Prompt、口头禅和闲话池来自 persona.json，作者和使用者都可以修改后重新导入。",
+                    "角色语气、口头禅和闲话来自 persona.json，改完重新导入即可。",
                     style = MiuixTheme.textStyles.footnote1,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
@@ -275,7 +275,7 @@ fun PidaiAppearancePanel(modifier: Modifier = Modifier) {
         OverlayDialog(
             show = true,
             title = "从 GitHub 导入",
-            summary = "粘贴公开仓库根链接，或包含标准皮肤目录的 GitHub 目录链接。",
+            summary = "粘贴 GitHub 公开仓库或皮肤目录的链接。",
             onDismissRequest = { showGithubDialog = false },
         ) {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -433,7 +433,7 @@ private fun SkinImportDialog(
                         Text(persona.chatter.take(6).joinToString("、") { it.text }, style = MiuixTheme.textStyles.footnote1)
                     }
                     Text(
-                        "这些内容都可在 persona.json 中修改，再打包或推送到仓库后重新导入。",
+                        "都能在 persona.json 里改，改完重新导入。",
                         color = MiuixTheme.colorScheme.primary,
                         style = MiuixTheme.textStyles.footnote1,
                     )
