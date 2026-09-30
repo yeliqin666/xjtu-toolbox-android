@@ -93,7 +93,7 @@ fun IclassfaceScreen(
             } catch (e: AuthExpiredException) {
                 appLoginState.handleAuthExpired(AppRoute.Iclassface, onBack)
             } catch (e: Exception) {
-                error = e.message ?: "查询失败"
+                error = com.xjtu.toolbox.error.FriendlyError.of(e, "查询")
             } finally {
                 loading = false
                 isRefreshing = false

@@ -162,7 +162,7 @@ fun PaymentCodeDialog(
             }.onSuccess {
                 vouchers = it
             }.onFailure {
-                voucherError = it.message ?: "加餐券加载失败"
+                voucherError = com.xjtu.toolbox.error.FriendlyError.of(it, "加载加餐券")
             }
             isVoucherLoading = false
         }
@@ -176,11 +176,7 @@ fun PaymentCodeDialog(
                 } ?: throw RuntimeException("获取超时")
                 if (latestSelectionConfigured) {
                     withContext(Dispatchers.IO) { api.updateVoucherStatus(latestSelectedVoucherIds) }
-                    voucherStatusMessage = if (latestSelectedVoucherIds.isEmpty()) {
-                        "已关闭加餐券抵扣"
-                    } else {
-                        "已启用 ${latestSelectedVoucherIds.size} 张加餐券"
-                    }
+                    voucherStatusMessage = null
                 }
                 barCodeNumber = code
                 qrBitmap?.recycle()
@@ -191,7 +187,7 @@ fun PaymentCodeDialog(
                 errorMessage = null
             } catch (e: Exception) {
                 if (!isActive) return@LaunchedEffect
-                errorMessage = "刷新失败: ${e.message}"
+                errorMessage = com.xjtu.toolbox.error.FriendlyError.of(e, "刷新")
                 isLoading = false
             }
 
@@ -332,16 +328,11 @@ fun PaymentCodeDialog(
                                 selectedVoucherIds = next
                                 selectionConfigured = true
                                 saveSelectedVoucherIds(context, next)
-                                voucherStatusMessage = "同步中…"
+                                voucherStatusMessage = null
                                 isVoucherSyncing = true
                                 scope.launch {
                                     try {
                                         withContext(Dispatchers.IO) { api.updateVoucherStatus(next) }
-                                        voucherStatusMessage = if (next.isEmpty()) {
-                                            "未使用加餐券"
-                                        } else {
-                                            "已选 ${next.size} 张"
-                                        }
                                     } catch (e: Exception) {
                                         voucherStatusMessage = "同步失败，请重试"
                                     } finally {
@@ -356,7 +347,7 @@ fun PaymentCodeDialog(
                                     try {
                                         vouchers = withContext(Dispatchers.IO) { api.getVouchers() }
                                     } catch (e: Exception) {
-                                        voucherError = e.message ?: "加餐券加载失败"
+                                        voucherError = com.xjtu.toolbox.error.FriendlyError.of(e, "加载加餐券")
                                     } finally {
                                         isVoucherLoading = false
                                     }
@@ -386,29 +377,27 @@ private fun VoucherSelectorCard(
         colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surface)
     ) {
         Column(Modifier.fillMaxWidth().padding(14.dp)) {
+            // 一行标题，状态用右边一个词说：暂无可用 / 未使用 / 已选 N 张。勾选框本身就说明了用法
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("加餐券抵扣", style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Bold)
-                    Text(
-                        "勾选后付款时自动抵扣",
-                        style = MiuixTheme.textStyles.footnote1,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                    )
+                Text(
+                    "加餐券抵扣",
+                    style = MiuixTheme.textStyles.subtitle,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                )
+                val selected = vouchers.count { it.showCardId in selectedIds }
+                when {
+                    isLoading || isSyncing -> CircularProgressIndicator(size = 18.dp, strokeWidth = 2.dp)
+                    error != null -> Unit
+                    vouchers.isEmpty() -> Text("暂无可用", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                    selected > 0 -> Text("已选 $selected 张", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.primary)
+                    else -> Text("未使用", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 }
-                if (isSyncing) CircularProgressIndicator(size = 18.dp, strokeWidth = 2.dp)
             }
-            Spacer(Modifier.height(10.dp))
             when {
-                isLoading -> Row(
-                    Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    CircularProgressIndicator(size = 18.dp, strokeWidth = 2.dp)
-                    Spacer(Modifier.width(8.dp))
-                    Text("加载中…", style = MiuixTheme.textStyles.footnote1)
-                }
+                isLoading || (error == null && vouchers.isEmpty()) -> Unit
                 error != null -> Row(
-                    Modifier.fillMaxWidth(),
+                    Modifier.fillMaxWidth().padding(top = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
@@ -421,12 +410,7 @@ private fun VoucherSelectorCard(
                     )
                     TextButton(text = "重试", onClick = onRetry)
                 }
-                vouchers.isEmpty() -> Text(
-                    "暂无可用加餐券",
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                )
-                else -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                else -> Column(Modifier.padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     vouchers.take(4).forEach { voucher ->
                         val checked = voucher.showCardId in selectedIds
                         Surface(
@@ -478,12 +462,13 @@ private fun VoucherSelectorCard(
                     }
                 }
             }
+            // 只剩出错时才有：成功的状态由标题行右边那个词体现
             if (!statusMessage.isNullOrBlank()) {
                 Spacer(Modifier.height(8.dp))
                 Text(
                     statusMessage,
                     style = MiuixTheme.textStyles.footnote1,
-                    color = if (statusMessage.contains("失败")) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.primary,
+                    color = MiuixTheme.colorScheme.error,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )

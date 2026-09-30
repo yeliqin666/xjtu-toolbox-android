@@ -72,7 +72,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.xjtu.toolbox.game.GameIds
+import com.xjtu.toolbox.game.GameSound
 import com.xjtu.toolbox.game.GameStore
+import com.xjtu.toolbox.game.Sfx
 import com.xjtu.toolbox.game.ui.GameMenu
 import com.xjtu.toolbox.ui.rememberHaptics
 import kotlin.math.abs
@@ -84,6 +86,11 @@ import top.yukonga.miuix.kmp.utils.SinkFeedback
 
 /** 最高分按玩法分开记：`best_blocks_marathon` 这样。 */
 fun blocksRecordId(mode: BlocksMode) = "${GameIds.BLOCKS}_${mode.id}"
+
+private fun BlocksGame.rotateWithSound(clockwise: Boolean) {
+    rotate(clockwise)
+    GameSound.play(Sfx.TICK, 0.5f)
+}
 
 
 /**
@@ -285,9 +292,11 @@ private fun BlocksPlay(mode: BlocksMode, best: Int, palette: BlocksPalette, onRe
                 fx.lockCells = game.lastLocked
                 fx.lockT = 0f
                 haptics.lowTick()
+                GameSound.play(Sfx.KNOCK, 0.6f)
             }
             if (game.hardDrops != lastDrop) {
                 lastDrop = game.hardDrops
+                GameSound.play(Sfx.BONK, 0.7f)
                 // 直落：棋盘被砸得往下一沉再弹回
                 launch {
                     bump.snapTo(with(density) { 4.dp.toPx() })
@@ -300,6 +309,9 @@ private fun BlocksPlay(mode: BlocksMode, best: Int, palette: BlocksPalette, onRe
                 fx.clear = ev
                 fx.clearT = 0f
                 if (ev.big) haptics.success() else haptics.tick()
+                // 一次消得越多「啵」得越高，大消除再来一声「嗒哒」
+                GameSound.play(Sfx.POP, 0.9f, GameSound.scale(ev.rows.size * 2 - 2))
+                if (ev.big) GameSound.play(Sfx.TADA, 0.8f)
                 label = ev
                 launch {
                     labelAnim.snapTo(0f)
@@ -308,6 +320,7 @@ private fun BlocksPlay(mode: BlocksMode, best: Int, palette: BlocksPalette, onRe
             }
             if (game.level != lastLevel) {
                 lastLevel = game.level
+                GameSound.play(Sfx.COIN)
                 launch {
                     levelAnim.snapTo(0f)
                     levelAnim.animateTo(1f, tween(1300))
@@ -318,6 +331,7 @@ private fun BlocksPlay(mode: BlocksMode, best: Int, palette: BlocksPalette, onRe
         sync()
         over = true
         haptics.error()
+        GameSound.play(Sfx.SAD_TROMBONE, 0.8f)
         onRecord(game.score)
     }
     LaunchedEffect(score) { if (score > best) onRecord(score) }
@@ -327,7 +341,6 @@ private fun BlocksPlay(mode: BlocksMode, best: Int, palette: BlocksPalette, onRe
         game.block()
         frame++
     }
-
     // 系统返回：对局中先暂停，暂停 / 结算时再按就退出
     BackHandler {
         if (paused || over) onExit() else paused = true
@@ -345,8 +358,8 @@ private fun BlocksPlay(mode: BlocksMode, best: Int, palette: BlocksPalette, onRe
                     Key.DirectionLeft -> act { moveLeft() }
                     Key.DirectionRight -> act { moveRight() }
                     Key.DirectionDown -> act { softDrop() }
-                    Key.DirectionUp, Key.X -> act { rotate(true) }
-                    Key.Z -> act { rotate(false) }
+                    Key.DirectionUp, Key.X -> act { rotateWithSound(true) }
+                    Key.Z -> act { rotateWithSound(false) }
                     Key.Spacebar -> act { hardDrop() }
                     Key.P, Key.Escape -> if (!over) paused = !paused
                     else -> return@onKeyEvent false
@@ -515,7 +528,7 @@ private suspend fun PointerInputScope.detectBlocksGestures(
         while (true) {
             val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
             if (!change.pressed) {
-                if (!moved && change.uptimeMillis - down.uptimeMillis < 250) act { rotate(true) }
+                if (!moved && change.uptimeMillis - down.uptimeMillis < 250) act { rotateWithSound(true) }
                 break
             }
             val total = change.position - down.position

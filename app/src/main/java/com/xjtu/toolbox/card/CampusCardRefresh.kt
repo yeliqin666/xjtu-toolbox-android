@@ -5,6 +5,7 @@ import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.widget.CampusCardWidgetUpdater
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 
 /**
@@ -21,8 +22,10 @@ suspend fun refreshCampusCardCache(
     // 请求发出前定下账号：结果回来时可能已切到别的账号
     val accountId = AccountContext.activeAccountId
     val api = CampusCardApi(site)
+    // 卡信息和流水互不依赖，一起发
+    val tx = async { api.getTransactions(page = 1, pageSize = 50).second }
     val info = api.getCardInfo()
-    val (_, recentTx) = api.getTransactions(page = 1, pageSize = 50)
+    val recentTx = tx.await()
 
     CampusCardCache.cardPrefs(appContext, accountId).edit()
         .putFloat("card_balance_cache", info.balance.toFloat())

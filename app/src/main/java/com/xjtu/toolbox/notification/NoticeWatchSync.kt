@@ -3,6 +3,7 @@ package com.xjtu.toolbox.notification
 import android.content.Context
 import android.util.Log
 import com.xjtu.toolbox.home.HomeStats
+import com.xjtu.toolbox.widget.NoticeWidgetStore
 import com.xjtu.toolbox.widget.NoticeWidgetUpdater
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -36,7 +37,7 @@ internal object NoticeWatchSync {
         val app = context.applicationContext
         val selected = NoticeWatchStore.sources(app)
         if (selected.isEmpty()) {
-            NoticeWidgetUpdater.publishTitles(app, emptyList())
+            NoticeWidgetUpdater.publish(app, emptyList())
             NoticeWatchStore.setLastTitles(app, emptyList())
             return@withLock Result(emptyList(), null, 0, usedCache = false)
         }
@@ -85,6 +86,7 @@ internal object NoticeWatchSync {
         fresh.forEach { n ->
             if (seenSet.add(n.link)) seen.add(n.link)
         }
+        com.xjtu.toolbox.inbox.InboxStore.post(fresh.map(com.xjtu.toolbox.inbox.OwnInbox::notice))
 
         NoticeWatchStore.setSeenLinks(app, seen)
         NoticeWatchStore.setBaselinedSources(app, baselined)
@@ -93,7 +95,10 @@ internal object NoticeWatchSync {
         val multi = selected.size > 1
         val titles = items.take(3).map { formatTitle(it, multi) }
         NoticeWatchStore.setLastTitles(app, titles)
-        NoticeWidgetUpdater.publishTitles(app, titles)
+        NoticeWidgetUpdater.publish(
+            app,
+            items.take(NoticeWidgetStore.MAX_ENTRIES).map { NoticeWidgetStore.Entry(formatTitle(it, multi), it.date.toEpochDay()) },
+        )
 
         val newest = items.firstOrNull()?.title
         val keywords = NoticeWatchStore.keywords(app)

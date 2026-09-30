@@ -27,6 +27,16 @@ object TermWeeks {
      */
     const val DEFAULT_TOTAL_WEEKS = 20
 
+    /** 教务给的周数超过这个就不信。 */
+    const val MAX_REASONABLE = 30
+
+    /**
+     * 学期总周数：教务给的周数（含考试周）和课表里最晚有课的那周取大的——老师可能考试周后补课。
+     * 都没有时为 0，表示不知道。
+     */
+    fun total(termWeeks: Int, courses: List<CourseItem>): Int =
+        maxOf(termWeeks, courses.maxOfOrNull { it.weekBits.length } ?: 0)
+
     /**
      * 从开学日期算周次。开学当周为 1，开学前为 0、-1、……
      *
@@ -108,6 +118,23 @@ object TermWeeks {
         startOfTerm.with(DayOfWeek.MONDAY)
             .plusWeeks((week - 1).toLong())
             .plusDays((dayOfWeek - 1).toLong())
+
+    /**
+     * 把周次压成区间：`[1,2,3,5]` → `1-3,5`。入参不必有序。
+     * [sep] 分隔各段，[dash] 连接区间首尾；界面文案按场合换成「、」「–」。
+     */
+    fun formatRanges(weeks: Collection<Int>, sep: String = ",", dash: String = "-"): String {
+        val sorted = weeks.distinct().sorted()
+        val out = mutableListOf<String>()
+        var i = 0
+        while (i < sorted.size) {
+            var j = i
+            while (j + 1 < sorted.size && sorted[j + 1] == sorted[j] + 1) j++
+            out += if (j > i) "${sorted[i]}$dash${sorted[j]}" else "${sorted[i]}"
+            i = j + 1
+        }
+        return out.joinToString(sep)
+    }
 
     /** 课表里第一门课在第几周；没课返回 null。 */
     fun firstTeachWeekOf(courses: List<CourseItem>): Int? = courses

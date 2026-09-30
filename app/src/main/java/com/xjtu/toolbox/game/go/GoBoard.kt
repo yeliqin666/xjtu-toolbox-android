@@ -179,6 +179,18 @@ class GoBoard(val size: Int, seed: Long = 0xC0FFEE_5A17L) {
         lastMove = null
     }
 
+    /** [color] 还有没有合法落点：终盘常剩一堆禁着点（单眼、打劫），这时只能虚手。 */
+    fun hasLegalMove(color: Stone): Boolean {
+        for (y in 0 until size) for (x in 0 until size) {
+            if (stoneAt(x, y) != Stone.EMPTY) continue
+            if (play(x, y, color) is PlayResult.Success) {
+                undo()
+                return true
+            }
+        }
+        return false
+    }
+
     /** 是否可以悔棋。 */
     fun canUndo(): Boolean = undoStack.isNotEmpty()
 

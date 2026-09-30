@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.venue
 
 import android.util.Log
+import com.xjtu.toolbox.error.FriendlyError
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -84,7 +85,7 @@ internal class VenueViewModel(site: SiteSession, private val autoSolveCaptcha: (
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                venueError = e.message ?: "加载场馆列表失败"
+                venueError = FriendlyError.of(e, "加载场馆列表")
             } finally {
                 venueLoading = false
                 venueRefreshing = false
@@ -127,7 +128,7 @@ internal class VenueViewModel(site: SiteSession, private val autoSolveCaptcha: (
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                slotsError = e.message ?: "加载时段失败"
+                slotsError = FriendlyError.of(e, "加载时段")
             } finally {
                 slotsLoading = false
                 slotsRefreshing = false
@@ -155,7 +156,7 @@ internal class VenueViewModel(site: SiteSession, private val autoSolveCaptcha: (
             } catch (e: Exception) {
                 if (token == captchaToken) {
                     Log.e(TAG, "startBooking failed", e)
-                    captchaError = e.message ?: "获取验证码失败"
+                    captchaError = FriendlyError.of(e, "获取验证码")
                 }
             } finally {
                 if (token == captchaToken) { captchaLoading = false; captchaAutoSolving = false }
@@ -175,7 +176,7 @@ internal class VenueViewModel(site: SiteSession, private val autoSolveCaptcha: (
             } catch (_: AuthExpiredException) {
                 if (token == captchaToken) { closeCaptcha(); send(VenueEvent.AuthExpired) }
             } catch (e: Exception) {
-                if (token == captchaToken) captchaError = e.message ?: "获取验证码失败"
+                if (token == captchaToken) captchaError = FriendlyError.of(e, "获取验证码")
             } finally {
                 if (token == captchaToken) { captchaLoading = false; captchaAutoSolving = false }
             }
@@ -247,7 +248,7 @@ internal class VenueViewModel(site: SiteSession, private val autoSolveCaptcha: (
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                VenueApi.BookingResult(false, message = e.message ?: "预订失败")
+                VenueApi.BookingResult(false, message = FriendlyError.of(e, "预订"))
             } finally {
                 bookingInProgress = false
             }
@@ -283,7 +284,7 @@ internal class VenueViewModel(site: SiteSession, private val autoSolveCaptcha: (
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                ordersError = e.message ?: "加载订单失败"
+                ordersError = FriendlyError.of(e, "加载订单")
             } finally {
                 if (reset) ordersLoading = false else ordersLoadingMore = false
             }
@@ -307,7 +308,7 @@ internal class VenueViewModel(site: SiteSession, private val autoSolveCaptcha: (
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                send(VenueEvent.Message(e.message ?: "取消订单失败"))
+                send(VenueEvent.Message(FriendlyError.of(e, "取消订单")))
             } finally {
                 orderActionLoading = false
             }

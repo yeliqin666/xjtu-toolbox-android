@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.jiaocai1
 
 import android.content.Context
+import com.xjtu.toolbox.error.FriendlyError
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -86,7 +87,7 @@ class Jiaocai1ReaderViewModel : ViewModel() {
             } catch (e: AuthExpiredException) {
                 authExpired = true
             } catch (e: Exception) {
-                error = "打开失败：${e.message}"
+                error = FriendlyError.of(e, "打开")
             } finally {
                 loading = false
             }

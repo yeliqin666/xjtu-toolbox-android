@@ -28,6 +28,7 @@ import com.xjtu.toolbox.ui.components.AppCardColor
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
+import androidx.compose.material.icons.filled.Info
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 
@@ -138,7 +139,7 @@ private fun CommunityForum(
         OverlayDialog(
             show = true,
             title = "GitHub 账号",
-            summary = "已登录为 @$signedIn。退出只清除本机保存的授权；要彻底撤销，去 GitHub 设置 → Applications 里删掉授权。",
+            summary = "已登录 @$signedIn。退出只清除本机授权；彻底撤销请到 GitHub 设置 → Applications。",
             onDismissRequest = { accountDialog = false },
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -206,7 +207,7 @@ private fun CommunityLoginScreen(session: GithubSession, onBack: () -> Unit, onO
             Icon(Icons.Outlined.Forum, null, tint = colors.primary, modifier = Modifier.size(56.dp))
             Text("岱宗盒子社区", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold)
             Text(
-                "提建议、报问题、交流心得都在这里。社区搭在 GitHub Discussions 上，看帖和发帖都要登录 GitHub 账号。",
+                "提建议、报问题、交流心得。社区搭在 GitHub 上，看帖发帖需登录 GitHub。",
                 style = MiuixTheme.textStyles.body2,
                 color = colors.onSurfaceVariantSummary,
                 textAlign = TextAlign.Center,
@@ -273,29 +274,11 @@ private fun CommunityLoginScreen(session: GithubSession, onBack: () -> Unit, onO
 
 /** 旧的页内反馈（飞书多维表格）挪到社区里当二级入口，准备停用。 */
 @Composable
-internal fun LegacyFeedbackEntry(onClick: () -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        cornerRadius = 16.dp,
-        insideMargin = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-        colors = CardDefaults.defaultColors(color = AppCardColor),
-        pressFeedbackType = PressFeedbackType.Sink,
-        showIndication = true,
-        onClick = onClick,
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("旧版反馈", style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.SemiBold)
-                Text(
-                    "不用登录的页内反馈，即将停用，建议改到社区发帖",
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                )
-            }
-            CommunityTag("即将停用", MiuixTheme.colorScheme.onSurfaceVariantSummary)
-        }
-    }
-}
+internal fun LegacyFeedbackEntry(onClick: () -> Unit) =
+    com.xjtu.toolbox.ui.components.SecondaryEntry(
+        androidx.compose.material.icons.Icons.Default.Info, MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        "旧版反馈", "不用登录的页内反馈，建议改到社区发帖", status = "即将停用", onClick = onClick,
+    )
 
 private fun copyToClipboard(context: Context, text: String) {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return

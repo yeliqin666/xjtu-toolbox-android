@@ -20,7 +20,7 @@ object GomokuTexts {
         "上交 AI：承让——虽然你也没让什么。",
     )
 
-    const val DRAW_TEXT = "棋盘满了，谁也没连上。重开一盘。"
+    const val DRAW_TEXT = "谁也连不成五子了，和棋。重开一盘。"
 
     fun sjtuWinTaunt(index: Int): String = SJTU_WIN_TAUNTS[index % SJTU_WIN_TAUNTS.size]
 }

@@ -387,6 +387,12 @@ class AgentViewModel : ViewModel() {
             }
         }
         val toolBubbleIndices = mutableListOf<Int>()
+        var turnUserMsg: JsonElement? = null
+        /** 这一轮没答完：把它在 LLM 历史里留下的提问和没配对的工具调用整段摘掉，免得下一轮出现连续两条 user。 */
+        fun discardUnfinishedTurn() {
+            val start = llmHistory.indexOfLast { it === turnUserMsg }
+            if (start >= 0) llmHistory = llmHistory.take(start).toMutableList()
+        }
         currentJob = viewModelScope.launch {
             try {
                 // 首次调用时初始化，此后复用（loginFailedAt 冷却状态得以保留）
@@ -456,11 +462,13 @@ class AgentViewModel : ViewModel() {
                     }
                     append(userText.ifBlank { "（见图）" })
                 }
-                llmHistory.add(buildJsonObject {
+                val userMsg = buildJsonObject {
                     put("role", "user")
                     // 无图时这里仍是纯字符串，历史结构和以前完全一致。
                     put("content", AgentVision.userContent(llmUser, images))
-                })
+                }
+                turnUserMsg = userMsg
+                llmHistory.add(userMsg)
                 sanitizeHistory()   // 自愈：清掉上一次中断留下的 tool_calls 残体
                 // 只留最近两轮的图：整段历史每轮都要重发一遍，不裁剪的话
                 // 贴过图的长对话会一直在重传同几张图。
@@ -619,6 +627,7 @@ class AgentViewModel : ViewModel() {
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 flushStream()
+                discardUnfinishedTurn()
                 if (currentSessionId == turnSid) {
                     toolBubbleIndices.forEach { settleToolAt(it, false, "已中断") }
                     toolBubbleIndices.clear()
@@ -629,6 +638,7 @@ class AgentViewModel : ViewModel() {
                 }
                 throw e
             } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
+                discardUnfinishedTurn()
                 if (currentSessionId == turnSid)
                     messages.add(ChatMessage("assistant", "登录已失效，请返回并重新进入对应功能页面完成认证后再试。"))
             } catch (e: Exception) {
@@ -636,6 +646,7 @@ class AgentViewModel : ViewModel() {
                 val detail = e.message?.takeIf { it.isNotBlank() }
                     ?: e::class.simpleName?.let { "请求异常（$it）" }
                     ?: "未知错误"
+                discardUnfinishedTurn()
                 if (currentSessionId == turnSid) {
                     errorMessage = detail
                     messages.add(ChatMessage("assistant", "出错了：$detail"))

@@ -1,10 +1,7 @@
 package com.xjtu.toolbox.auth
 
-import com.xjtu.toolbox.network.HttpClients
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import androidx.compose.animation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.automirrored.filled.*
@@ -18,12 +15,7 @@ import com.xjtu.toolbox.data.CredentialStore
 
 class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
     override var activeUsername by mutableStateOf("")
-    // [已移除] 16 个 *Login 缓存字段（attendanceLogin / jwxtLogin / ywtbLogin / …）。
-    // 业务全部迁到 SessionManager + SiteSession 后，它们只剩「= null」的清理路径，
-    // 没有任何赋值点——纯死状态，而且是 mutableStateOf，每次清理都白白触发一轮重组。
-    // 会话真相唯一来源：sessionManager.getSite(siteKey)。
-
-    // [已移除] persistentCookieJar / vpnCookieJar：cookie 存储唯一归属 SessionManager 的两个 backend。
+    // 会话真相唯一来源：sessionManager.getSite(siteKey)；cookie 只存在 SessionManager 的两个 backend 里。
 
     /**
      * 账号切换/新增/删除的一次性通知。MainActivity 的 LaunchedEffect 监听 → Snackbar，
@@ -39,10 +31,8 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
     /** 新会话架构入口；由 [AppLoginStateViewModel] 创建时注入。 */
     var sessionManager: com.xjtu.toolbox.auth.SessionManager? = null
 
-    // [已移除] sharedClient / clientInitMutex / mfaSerialMutex：
-    // 携带 TGC 的共享 client 现在就是 SessionManager 各 backend 的 client；
-    // 「TGC 建立前排队、避免各自弹 MFA」也已由 CasSiteSession 的 TGC 引导锁 +
-    // SessionManager.askMfaCode 的 mfaMutex 承担，无需在 UI 层再维护一份。
+    /** 设置项（连接模式、账号类型旧值）的来源，由 [AppLoginStateViewModel] 注入。 */
+    var credentialStoreRef: CredentialStore? = null
 
     init {
         // 密码失效熔断接入 CAS 闸门：熔断中 XJTULogin/casAuthenticate 一律拒绝提交凭据
@@ -75,12 +65,7 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
         android.util.Log.w("AppLoginState", "password invalidated by site=$siteName")
     }
 
-    // [已移除] sharedConnectionPool：连接池现由 SessionBackend 持有（每 backend 一个，
-    // 8 连接 / 5 分钟 keep-alive），最后一个使用者 doLoginWebVpn 已随 WebVPN 统一而删除。
-
-    // ── WebVPN：唯一真相是 SessionManager 的 WEBVPN backend ──────────────
-    // 该 backend 自带 WebVpnInterceptor 与 cookies_webvpn_<账号> jar，
-    // 业务站点（SiteSession）与浏览器路径共用同一份网关会话，不再各认证一次。
+    // ── WebVPN：唯一真相是 SessionManager 的 WEBVPN backend，业务站点与浏览器路径共用同一份网关会话 ──
 
     private val webVpnBackend: com.xjtu.toolbox.auth.SessionBackend?
         get() = sessionManager?.backend(com.xjtu.toolbox.auth.AccessMode.WEBVPN)
@@ -88,60 +73,15 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
     internal val webVpnClientOrNull: okhttp3.OkHttpClient?
         get() = webVpnBackend?.takeIf { it.webvpnSelfLoggedIn }?.client
 
-    fun clearVpnClient() {
-        webVpnBackend?.let { b ->
-            b.cookieJar.clearForDomain("webvpn.xjtu.edu.cn")
-            b.cookieJar.clearForDomain(".webvpn.xjtu.edu.cn")
-            b.cookieJar.flushToDisk()
-            b.markWebVpnStale()
-        }
-    }
-
-    /**
-     * 校验当前 webvpn session 是否仍然有效（cookie 没过期、wengine_vpn_ticket 仍被认）。
-     * 发轻量 HEAD 到 webvpn 主页，若被重定向到 cas_login 即视为失效。
-     *
-     * 失效时会自动 [clearVpnClient]，让调用方走 [loginWebVpn] 重建（含可能的 MFA dialog）。
-     * 校园网下没有 vpnClient 时直接返回 false，调用方决定是否需要切到 webvpn 模式。
-     */
-    suspend fun checkWebVpnSessionAlive(): Boolean = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-        val client = webVpnClientOrNull ?: return@withContext false
-        try {
-            val req = okhttp3.Request.Builder()
-                .url(com.xjtu.toolbox.webvpn.WebVpnUtil.WEBVPN_LOGIN_URL)
-                .get()
-                .build()
-            // 不跟随重定向，看 Location header
-            val noRedirect = client.newBuilder()
-                .followRedirects(false).followSslRedirects(false).build()
-            noRedirect.newCall(req).execute().use { r ->
-                val loc = r.header("Location") ?: ""
-                val bodyPreview = runCatching { r.peekBody(8192).string() }.getOrDefault("")
-                val redirectedToCas = "cas_login" in loc || "/cas/login" in loc || "login.xjtu.edu.cn" in loc
-                val authPage = com.xjtu.toolbox.auth.XJTULogin.isAuthFailureResponse(bodyPreview)
-                val resourcePage = "西安交通大学WebVPN" in bodyPreview || "资源站点" in bodyPreview
-                val alive = (r.code in 200..299 && !authPage) ||
-                    (r.code in 300..399 && !redirectedToCas) ||
-                    resourcePage
-                if (!alive) {
-                    android.util.Log.w("WebVPN", "checkWebVpnSessionAlive: session stale (code=${r.code}, loc=$loc, authPage=$authPage), clearing vpnClient")
-                    clearVpnClient()
-                }
-                alive
-            }
-        } catch (e: Exception) {
-            android.util.Log.w("WebVPN", "checkWebVpnSessionAlive: exception ${e.message}, treating as alive (avoid false-negative on transient error)")
-            true  // 网络抖动时不清，下次自然重试
-        }
-    }
-
-    /**
-     * 清除所有子系统会话（不动 cookies），用于 access mode 切换。
-     * 现由 SessionManager 统一处理——[com.xjtu.toolbox.auth.SessionManager.onNetworkChanged]
-     * 已对每个 site 调用 invalidateLogin，这里只兜住 sessionManager 尚未注入的早期调用。
-     */
-    fun clearAllCachedLogins() {
-        sessionManager?.invalidateAllSites()
+    /** 网关会话可用（必要时探活、重登，可能弹 MFA）就返回它的 client，否则 null。 */
+    suspend fun ensureWebVpnClient(): okhttp3.OkHttpClient? = try {
+        sessionManager?.ensureWebVpnLogin()
+        webVpnClientOrNull
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        android.util.Log.w("WebVPN", "ensureWebVpnClient failed: ${e.message}")
+        null
     }
 
     /**
@@ -158,52 +98,60 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
     var pendingRetry by mutableStateOf<com.xjtu.toolbox.nav.AppRoute?>(null)
 
     /**
-     * 网络环境（access mode）切换时调用：清旧 cached login + vpnClient，
-     * 同步通知 SessionManager 切换 active backend（两边 cookies 保留以便快速切回）。
+     * 网络变了：重新判定校内外并通知 SessionManager 切换 active backend（两边的会话都保留以便快速切回）。
+     * 和 [ensureCampusDetected] 共用一把锁，同一时刻只有一次判定。
+     *
+     * @param networkSwitched 换了一张网（WiFi / 数据互切）。这时结论变了是正常的，不用复查。
      */
-    suspend fun onNetworkChanged(): Boolean {
-        val prev = isOnCampus
-        campusDetectTime = 0L
-        val now = detectCampusNetwork()
-        isOnCampus = now
-        sessionManager?.onNetworkChanged(
-            if (now) com.xjtu.toolbox.auth.AccessMode.NORMAL
-            else com.xjtu.toolbox.auth.AccessMode.WEBVPN
-        )
-        if (prev != null && prev != now) {
-            android.util.Log.w("AppLoginState", "Access mode changed: $prev → $now")
-            clearAllCachedLogins()
-            clearVpnClient()
-            return true
-        }
-        return false
-    }
+    suspend fun onNetworkChanged(networkSwitched: Boolean = false): Boolean =
+        campusDetectMutex.withLock { redetect(networkSwitched) }
 
-    /**
-     * 登录前 / 徽标为空时探测校园网。有缓存就复用，避免和首次登录并行走两次探针。
-     */
+    /** 需要结论时调：缓存还新鲜、或刚判过离线就不重探（真来了网，网络回调会触发 [onNetworkChanged]）。 */
     override suspend fun ensureCampusDetected() {
         campusDetectMutex.withLock {
-            val cached = isOnCampus
-            if (cached != null && System.currentTimeMillis() - campusDetectTime < CAMPUS_CACHE_MS) {
-                return
-            }
-            onNetworkChanged()
+            val now = System.currentTimeMillis()
+            if (isOnCampus != null && now - campusDetectTime < CAMPUS_CACHE_MS) return
+            if (now - offlineAt < OFFLINE_RETRY_MS) return
+            redetect(networkSwitched = false)
         }
     }
+
+    private suspend fun redetect(networkSwitched: Boolean): Boolean {
+        val prev = isOnCampus
+        campusDetectTime = 0L
+        // 换了网络，旧结论作废：跟随全局模式的站点等这次判定落定再登
+        if (networkSwitched) sessionManager?.unsettleAccessMode()
+        try {
+            val now = detectCampusNetwork(trustFirst = networkSwitched)
+            isOnCampus = now
+            // 先换绑再放行（onNetworkChanged 内部落定），等着的站点才不会按旧模式出发
+            sessionManager?.onNetworkChanged(
+                if (now) com.xjtu.toolbox.auth.AccessMode.NORMAL
+                else com.xjtu.toolbox.auth.AccessMode.WEBVPN
+            )
+            if (prev != null && prev != now) {
+                android.util.Log.w("AppLoginState", "Access mode changed: $prev → $now")
+                // 各站点已由 SessionManager.onNetworkChanged 换绑到另一边；网关会话下次用到时再续
+                webVpnBackend?.markWebVpnStale()
+                return true
+            }
+            return false
+        } finally {
+            // 判定被取消或出错也要放行，否则跟随全局模式的站点每次都要等满超时
+            sessionManager?.settleAccessMode()
+        }
+    }
+
     var isOnCampus by mutableStateOf<Boolean?>(null)   // null=未检测, true=校内, false=校外
-    // [已移除] webVpnLoggedIn：网关登录态改读 SessionBackend.webvpnSelfLoggedIn，避免两处状态漂移。
 
     // 网络检测结果缓存（10 分钟）
     private var campusDetectTime: Long = 0L
     private val CAMPUS_CACHE_MS = 10 * 60 * 1000L
+
+    /** 上次判成「没网」的时刻。之后一小段时间里不重探，免得每个调用方各探一轮、各等一次超时。 */
+    private var offlineAt: Long = 0L
+    private val OFFLINE_RETRY_MS = 30_000L
     private val campusDetectMutex = Mutex()
-
-    // 设备指纹 ID（首次登录时生成，后续系统复用以避免 MFA 重复验证）
-    @Volatile internal var firstVisitorId: String? = null
-
-    // RSA 公钥缓存
-    @Volatile internal var cachedRsaKey: String? = null
 
     // 一网通办个人信息（登录后自动获取，在"我的"页面展示）
     override var ywtbUserInfo by mutableStateOf<com.xjtu.toolbox.ywtb.UserInfo?>(null)
@@ -224,22 +172,21 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
     override fun clearInMemorySessionState() {
         activeUsername = ""
         savedUsername = ""; savedPassword = ""
-        sessionManager?.invalidateAllSites()
+        sessionManager?.forgetAllSites()
         // 网关登录态随 backend 走：切账号时 reconfigureForAccount 会整体换掉 backends，
         // 这里额外置一次，覆盖「尚未 reconfigure 就先清内存态」的调用顺序。
         webVpnBackend?.markWebVpnStale()
         isOnCampus = null
         campusDetectTime = 0L
+        offlineAt = 0L
         ywtbUserInfo = null
-        firstVisitorId = null
-        cachedRsaKey = null
         cachedNickname = null
         accountId = ""
         passwordInvalidatedLatch = false
         passwordInvalidatedSiteName = ""
         passwordInvalidatedDialogVisible = false
         rejectedCredentials = null
-        com.xjtu.toolbox.pay.PaymentCodeApi.clearCachedJwt()
+        com.xjtu.toolbox.home.HomeSignals.clearAccountSignals()
         campusCardCacheVersion++  // 触发首页校园卡卡片重读（切到新账号命名空间缓存）
     }
 
@@ -257,8 +204,6 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
         activeUsername = account.accountId
         accountType = account.accountType
         cachedNickname = account.nickname
-        firstVisitorId = account.fpVisitorId
-        cachedRsaKey = account.rsaPublicKey
         sessionManager?.let {
             it.setCredentials(account.accountId, account.password)
             it.accountType = selectedCasAccountType()
@@ -266,9 +211,6 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
             it.cachedRsaKey = account.rsaPublicKey
         }
     }
-
-    // CredentialStore 引用
-    private var credentialStoreRef: CredentialStore? = null
 
     // 保存的凭据（内存中），用于自动登录其他系统
     override var savedUsername: String = ""
@@ -349,136 +291,58 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
         activeUsername = username
     }
 
-    /** 持久化凭据和缓存到 EncryptedSharedPreferences */
-    fun persistCredentials(store: CredentialStore) {
-        if (hasCredentials) store.save(savedUsername, savedPassword)
-        firstVisitorId?.let { store.saveFpVisitorId(it) }
-        cachedRsaKey?.let { store.saveRsaPublicKey(it) }
-    }
-
     /** 清除指定子系统的会话（用于 reAuth 失败后强制 full login）。 */
     fun clearLogin(type: LoginType) {
         sessionManager?.getSiteOrNull(type.siteKey())?.invalidateLogin()
     }
 
     /**
-     * 单次探测校园网：向几个「只有校内能直连」的地址**并行**发 HEAD（各 3 秒超时），
-     * 任意一个返回 <500 就算在校内。不更新缓存、不读缓存，纯函数式。
+     * 检测是否在校园网内（带 10 分钟缓存），探测本身见 [CampusProbe]。
      *
-     * 探测点必须是校外物理不可达的：护网结束后教务（jwxt）、ehall、lms 都已公网直连，
-     * 拿它们探测恒为 true，分不出内外网。
+     * 波动保护：只凭「内网探针全连不上」得出的弱结论若和缓存不同，隔 1.5 秒再探一次，
+     * 两次一致才改判；探针连上或服务器明确回答的强结论直接采用，刚换了网络（[trustFirst]）
+     * 也直接采用。手机这会儿没网时不改判。
      *
-     * 为什么不止一个：过去只探旧考勤 bkkq（上游 XJTUToolBox 的探测点），它停用后
-     * 在校园网 DNS 里整个查不到（XJTU_STU 下 unknown host），探针恒为 false，
-     * 人在宿舍连着校园网，首页却显示「校外 · WebVPN」，所有请求都绕网关。
-     * 单点探针只要那一台下线就全盘误判，所以并行探几台互不相干的内网服务：
-     * - 图书馆座位系统 `rg.lib.xjtu.edu.cn:8086`：非标准端口不对公网开放，
-     *   见 [com.xjtu.toolbox.auth.SiteSession.mustUseWebVpn]；
-     * - 快速考勤流水 iclassface、考勤 kq：两个都标了 mustUseWebVpn，校外连不上。
+     * 手动模式短路：用户在「设置 → 连接模式」选了「强制直连」/「强制 WebVPN」时，
+     * 跳过探测直接返回对应结果。
      */
-    private suspend fun probeCampusOnce(): Boolean = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-        kotlinx.coroutines.coroutineScope {
-            CAMPUS_PROBE_URLS.map { url ->
-                async {
-                    try {
-                        val request = okhttp3.Request.Builder().url(url).head().build()
-                        campusProbeClient.newCall(request).execute().use { it.code < 500 }
-                    } catch (_: Exception) {
-                        false
-                    }
-                }
-            }.awaitAll().any { it }
-        }
-    }
-
-    private val campusProbeClient by lazy {
-        HttpClients.base.newBuilder()
-            .connectTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
-            .followRedirects(false)
-            .build()
-    }
-
-    private val CAMPUS_PROBE_URLS = listOf(
-        "http://rg.lib.xjtu.edu.cn:8086/",
-        "https://iclassface.xjtu.edu.cn/",
-        "https://kq.xjtu.edu.cn/",
-    )
-
-    /**
-     * 检测是否在校园网内（带 10 分钟缓存）。
-     *
-     * 波动保护：探测结果若与缓存不同，再做一次确认（间隔 1.5 秒），两次一致才算 mode 变化。
-     * 这样可以避免：网络刚切换/信号瞬间抖动导致的误判（一次失败 ≠ 真的校外）。
-     *
-     * 手动模式短路：用户在「设置 → 网络 → 连接模式」选了「强制直连」/「强制 WebVPN」时，
-     * 跳过探测直接返回对应结果——过去这个设置项只写入 [CredentialStore]，从未被读取，
-     * 用户选了「强制 WebVPN」实际什么都不会发生，是纯粹的假开关。
-     */
-    suspend fun detectCampusNetwork(): Boolean {
+    suspend fun detectCampusNetwork(trustFirst: Boolean = false): Boolean {
         when (credentialStoreRef?.networkMode) {
             CredentialStore.NETWORK_DIRECT -> return true
             CredentialStore.NETWORK_VPN -> return false
             else -> {} // 自动检测：走下面的真实探测逻辑
         }
-        // 缓存有效期内直接返回
         val cached = isOnCampus
         if (cached != null && System.currentTimeMillis() - campusDetectTime < CAMPUS_CACHE_MS) {
             android.util.Log.d("Campus", "detectCampus: using cached result=$cached (age=${(System.currentTimeMillis() - campusDetectTime) / 1000}s)")
             return cached
         }
-        val first = probeCampusOnce()
-        // 第一次探测结果与缓存不同 → 二次确认避免瞬时波动误判
-        val result = if (cached != null && cached != first) {
-            android.util.Log.d("Campus", "detectCampus: first probe disagrees with cache ($cached→$first), confirming...")
-            kotlinx.coroutines.delay(1500L)
-            val second = probeCampusOnce()
-            if (second != first) {
-                android.util.Log.d("Campus", "detectCampus: second probe $second != first $first, treating as transient, keeping cached=$cached")
-                cached  // 两次不一致，认为是瞬时波动，保留旧值
-            } else {
-                android.util.Log.d("Campus", "detectCampus: confirmed change to $second")
-                second
-            }
-        } else {
-            first
+        val first = CampusProbe.detect(ywtbToken())
+        if (first.offline) {
+            android.util.Log.d("Campus", "detectCampus: offline, keeping cached=$cached")
+            offlineAt = System.currentTimeMillis()
+            return cached ?: false
         }
-        android.util.Log.d("Campus", "detectCampus: final result=$result (probe=$first)")
+        offlineAt = 0L
+        val result = if (first.strong || trustFirst || cached == null || cached == first.onCampus) {
+            first.onCampus
+        } else {
+            kotlinx.coroutines.delay(1500L)
+            val second = CampusProbe.detect(ywtbToken())
+            if (!second.offline && second.onCampus == first.onCampus) second.onCampus
+            else cached.also { android.util.Log.d("Campus", "detectCampus: 复查不一致（$second），按波动处理，保留 $cached") }
+        }
+        android.util.Log.d("Campus", "detectCampus: final result=$result (${first.why})")
         campusDetectTime = System.currentTimeMillis()
         return result
     }
 
-    /**
-     * WebVPN 网关登录（校外接入）。
-     *
-     * 【已统一】此前这里维护着**第二套**网关会话：自建 webVpnRewriteClient + vpnCookieJar
-     *（物理文件 `xjtu_cookies`），与 SessionManager 的 WEBVPN backend（`cookies_webvpn_<账号>`）
-     * 各认证一次、各存一份 cookie。校外用户因此要过两次网关认证，可能被要求两次 MFA；
-     * 且两边谁都看不见对方的 TGC，SSO 免密路径互相作废。
-     *
-     * 现在浏览器路径与业务路径共用同一个 WEBVPN backend：
-     * - 网关认证 → [com.xjtu.toolbox.auth.SessionManager.ensureWebVpnLogin]（内含 backend.loginLock
-     *   串行、密码熔断、登录冷却、统一的 App 内 MFA 弹窗）
-     * - TGC 免密 → 该 backend 的 jar 里若已有 TGC，XJTULogin.init 直接 SSO 直通，一次密码都不提交
-     */
-    suspend fun loginWebVpn(): Boolean {
-        val mgr = sessionManager ?: run { android.util.Log.w("WebVPN", "No sessionManager"); return false }
-        if (!hasCredentials) { android.util.Log.w("WebVPN", "No credentials"); return false }
-        if (webVpnClientOrNull != null) { android.util.Log.d("WebVPN", "Already logged in"); return true }
-        if (passwordInvalidatedLatch) { android.util.Log.d("WebVPN", "halted by password latch"); return false }
-        return try {
-            mgr.ensureWebVpnLogin()
-            val ok = webVpnClientOrNull != null
-            android.util.Log.d("WebVPN", "loginWebVpn via SessionManager: ok=$ok")
-            ok
-        } catch (e: Exception) {
-            android.util.Log.w("WebVPN", "loginWebVpn failed: ${e.message}")
-            false
-        }
-    }
+    /** 一网通办登录后才有；networkCheck 要带它。 */
+    private suspend fun ywtbToken(): String? =
+        sessionManager?.getSiteOrNull(LoginType.YWTB.siteKey())?.localToken?.get("id_token")
+            ?: kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { CampusProbe.ywtbToken }
 
-    // 登出只走 AccountManager.logoutCurrent：它会把会话层切到 default 命名空间并清掉凭据。
-    // 这里原有的一个兼容 logout() 不清会话层凭据，已无调用方，删除以免被误用。
+    // 登出只走 AccountManager.logoutCurrent：它会把会话层切回匿名命名空间并清掉凭据。
 }
 
 /**
@@ -497,9 +361,6 @@ class AppLoginStateViewModel(application: android.app.Application) : androidx.li
     val loginState = AppLoginState()
     val credentialStore = CredentialStore(application)
     val accountStore = com.xjtu.toolbox.account.AccountStore(application)
-    // [已移除] persistentCookieJar / vpnCookieJar（物理文件 xjtu_cookies）：
-    // 它们是旧体系的 cookie 存储，唯一的使用者 doLoginWebVpn 已随 WebVPN 统一而删除。
-    // cookies 现在只有一处：SessionManager 的 cookies_normal_<账号> / cookies_webvpn_<账号>。
 
     /** 新会话架构入口：双 backend、SiteSession 注册中心、MFA 状态机宿主。 */
     val sessionManager = com.xjtu.toolbox.auth.SessionManager(application)
@@ -510,6 +371,7 @@ class AppLoginStateViewModel(application: android.app.Application) : androidx.li
     init {
         // 注入会话管家（无需 LaunchedEffect，ViewModel 创建时即完成）
         loginState.sessionManager = sessionManager
+        loginState.credentialStoreRef = credentialStore
         // 后台任务复用这一份，别另起一个抢同一批 cookie 文件
         com.xjtu.toolbox.auth.SessionManager.active = sessionManager
         // 注册所有业务子系统
@@ -527,18 +389,21 @@ class AppLoginStateViewModel(application: android.app.Application) : androidx.li
             register(com.xjtu.toolbox.auth.CampusCardSession())
             register(com.xjtu.toolbox.auth.FitnessSession())
             register(com.xjtu.toolbox.auth.IclassfaceSession())
+            register(com.xjtu.toolbox.auth.SsnSession())
             register(com.xjtu.toolbox.auth.HelloSession())
             register(com.xjtu.toolbox.auth.GsteSession())
             register(com.xjtu.toolbox.auth.GmisSession())
             register(com.xjtu.toolbox.auth.JsSession())
+            // 冷启动还不知道在校内还是校外：跟随全局模式的站点等首次判定，直连站点不等
+            unsettleAccessMode()
         }
         // 绑定 AccountManager 到 sessionManager + loginState
         accountManager.sessionManager = sessionManager
         accountManager.holder = loginState
 
-        // 保活：每轮对已登录站点做免密 SSO 续期（静默，撞 MFA 即退出）。
+        // 保活：定期预热常用站点，让服务端会话别因闲置被回收
         com.xjtu.toolbox.auth.SessionKeepAlive.sessionRefresher = {
-            sessionManager.refreshLoggedInSites()
+            sessionManager.warmUp(credentialStore.topSites(com.xjtu.toolbox.auth.SessionManager.WARM_SITES))
         }
 
         // 一次性迁移旧单账号数据 → 首个 Account 命名空间
@@ -557,8 +422,7 @@ class AppLoginStateViewModel(application: android.app.Application) : androidx.li
         val active = migrated ?: accountStore.activeAccount()
         if (active != null) {
             // 用当前账号命名空间重建 backends（复用其磁盘 cookies）
-            val suffix = "_" + active.accountId.replace(Regex("[^a-zA-Z0-9]"), "_")
-            sessionManager.reconfigureForAccount(suffix)
+            sessionManager.reconfigureForAccount(com.xjtu.toolbox.account.AccountContext.suffixFor(active.accountId))
             loginState.loadIdentityFromAccount(active)
         } else {
             // 无账号：保持默认 backends（匿名 _default），等用户登录
@@ -582,10 +446,7 @@ class AppLoginStateViewModel(application: android.app.Application) : androidx.li
         val hash = digest.digest(seed.toByteArray()).joinToString("") { "%02x".format(it) }.take(32)
         accountStore.update(active.accountId) { it.copy(fpVisitorId = hash) }
         // 同步到当前内存态
-        if (loginState.accountId == active.accountId) {
-            loginState.firstVisitorId = hash
-            sessionManager.fpVisitorId = hash
-        }
+        if (loginState.accountId == active.accountId) sessionManager.fpVisitorId = hash
         android.util.Log.d("FpVisitorId", "stable fp generated for account=${active.accountId}")
     }
 }

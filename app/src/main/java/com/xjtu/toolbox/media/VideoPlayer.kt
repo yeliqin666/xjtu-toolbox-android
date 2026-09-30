@@ -881,7 +881,7 @@ private fun friendlyPlaybackError(error: PlaybackException): String = when (erro
     PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED -> "视频格式无法解析"
     PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
     PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED -> "设备无法解码此视频"
-    else -> error.message?.substringBefore('\n')?.takeIf { it.isNotBlank() } ?: "播放失败"
+    else -> "播放失败，可以先重试一次"
 }
 
 private fun formatTime(ms: Long): String {

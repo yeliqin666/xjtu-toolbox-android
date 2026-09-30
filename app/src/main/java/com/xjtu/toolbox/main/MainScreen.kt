@@ -2,6 +2,8 @@ package com.xjtu.toolbox.main
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -32,7 +34,6 @@ import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -43,6 +44,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -81,6 +83,7 @@ import com.xjtu.toolbox.agent.ProactiveBubbleView
 import com.xjtu.toolbox.agent.ProactiveMessage
 import com.xjtu.toolbox.agent.ProactiveRules
 import com.xjtu.toolbox.auth.AppLoginState
+import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.bulletin.Bulletin
 import com.xjtu.toolbox.card.CampusCardCache
 import com.xjtu.toolbox.data.AppearanceSettings
@@ -94,6 +97,7 @@ import com.xjtu.toolbox.home.HomeTab
 import com.xjtu.toolbox.library.LibraryFocus
 import com.xjtu.toolbox.library.LibraryQrArea
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.inbox.InboxBell
 import com.xjtu.toolbox.profile.ProfileTab
 import com.xjtu.toolbox.qrlogin.QrLoginScreen
 import com.xjtu.toolbox.schedule.ExamCountdown
@@ -113,6 +117,7 @@ import com.xjtu.toolbox.ui.rememberHaptics
 import com.xjtu.toolbox.zyxf.ZyxfBrowseScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
@@ -241,8 +246,40 @@ internal fun MainScreen(
     // 首页数据拉取挂在这里而不是 HomeTab：tab 懒加载，默认启动 tab 不是首页时也要拉
     LaunchedEffect(loginState.accountId, loginState.campusCardCacheVersion) {
         if (loginState.accountId.isEmpty()) return@LaunchedEffect
+        // 校内外判定和刷新并行：跟随全局模式的站点在 SessionManager 里等判定落定，直连站点（教务等）不必等
+        launch { runCatching { loginState.ensureCampusDetected() } }
+        // 装新包会清掉课表缓存：首页「下一项安排」、考试倒计时要靠它，不等用户进日程页
+        val manager = loginState.sessionManager
+        if (manager != null) withContext(Dispatchers.IO) {
+            val cache = com.xjtu.toolbox.data.DataCache(context)
+            if (com.xjtu.toolbox.schedule.ScheduleCache.isComplete(cache)) return@withContext
+            try {
+                val site = manager.ensureSite(com.xjtu.toolbox.auth.LoginType.JWXT, silent = true)
+                com.xjtu.toolbox.schedule.ScheduleSourceRouter.ensureCached(
+                    context, cache, com.xjtu.toolbox.schedule.ScheduleApi(site), manager,
+                    studentId = loginState.activeUsername,
+                )
+                HomeSignals.scheduleVersion++
+                com.xjtu.toolbox.widget.ScheduleWidgetUpdater.requestUpdate(context, resetToToday = false)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.w("MainScreen", "补课表缓存失败", e)
+            }
+        }
         HomeStatsRefresher.refreshDue(context, loginState.sessionManager, loginState.accountType)
         HomeSignals.bumpStatsVersion()
+    }
+    // 切回前台也跑一轮：各源按 TTL 决定拉不拉，图书馆签到这类有时效的状态不会停在上次打开时。
+    // 和上面撞车时 refreshDue 自己会跳过后到的那次
+    val resumeScope = rememberCoroutineScope()
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+        if (loginState.accountId.isEmpty()) return@LifecycleEventEffect
+        resumeScope.launch {
+            launch { runCatching { loginState.ensureCampusDetected() } }
+            HomeStatsRefresher.refreshDue(context, loginState.sessionManager, loginState.accountType)
+            HomeSignals.bumpStatsVersion()
+        }
     }
 
     ProactiveReminderLoop(loginState)
@@ -384,6 +421,7 @@ internal fun MainScreen(
                         courseBottomContent = courseHeaderBottomContent,
                         onScan = { showQrLogin = true },
                         onSearch = { showGlobalSearch = true },
+                        onInbox = { router.open(AppRoute.Inbox) },
                     )
                 },
                 bottomBar = {
@@ -499,43 +537,6 @@ internal fun MainScreen(
                     FeedbackPromptSheet()
                     PasswordInvalidatedDialog(loginState, onUpdatePassword = { router.open(AppRoute.Settings) })
                 }
-
-                if (showGlobalSearch) {
-                    CompositionLocalProvider(LocalAppBackdrop provides if (glassStyle) appBackdrop else null) {
-                        GlobalSearchScreen(
-                            onBack = { showGlobalSearch = false },
-                            onNavigate = { route ->
-                                showGlobalSearch = false
-                                router.open(route)
-                            },
-                            onAskAgent = { prompt ->
-                                showGlobalSearch = false
-                                AgentPendingPrompt.set(prompt)
-                                router.selectTab(BottomTab.PIDAI)
-                            },
-                            accountType = loginState.accountType,
-                        )
-                    }
-                }
-
-                if (showQrLogin) {
-                    QrLoginScreen(
-                        sessionManager = accountManager.sessionManager,
-                        onBack = { showQrLogin = false },
-                        // 图书馆座位码：进图书馆页并定位到这个座位
-                        onLibrarySeat = { qr ->
-                            showQrLogin = false
-                            LibraryFocus.request(
-                                LibraryFocus.Target(
-                                    campusId = LibraryQrArea.campusOf(qr.areaCode).id,
-                                    areaCode = qr.areaCode,
-                                    seatId = qr.seat,
-                                )
-                            )
-                            router.open(AppRoute.Library)
-                        },
-                    )
-                }
             }
         }
 
@@ -546,8 +547,51 @@ internal fun MainScreen(
                 bubbleView = bubbleView,
             )
         }
+
+        // 搜索、扫一扫是盖满整屏的浮层：放在最外层，不放进 Scaffold 的内容区。
+        // 放在内容区里时，Scaffold 把顶栏、底栏画在内容之上，状态栏和小白条那两条被主界面盖住。
+        // 进出带一段轻微的上滑淡入、下滑淡出（以前是 Dialog 窗口自带的淡入淡出）。
+        AnimatedVisibility(visible = showGlobalSearch, enter = OverlayEnter, exit = OverlayExit) {
+            CompositionLocalProvider(LocalAppBackdrop provides if (glassStyle) appBackdrop else null) {
+                GlobalSearchScreen(
+                    onBack = { showGlobalSearch = false },
+                    onNavigate = { route ->
+                        showGlobalSearch = false
+                        router.open(route)
+                    },
+                    onAskAgent = { prompt ->
+                        showGlobalSearch = false
+                        AgentPendingPrompt.set(prompt)
+                        router.selectTab(BottomTab.PIDAI)
+                    },
+                    accountType = loginState.accountType,
+                )
+            }
+        }
+
+        AnimatedVisibility(visible = showQrLogin, enter = OverlayEnter, exit = OverlayExit) {
+            QrLoginScreen(
+                sessionManager = accountManager.sessionManager,
+                onBack = { showQrLogin = false },
+                // 图书馆座位码：进图书馆页并定位到这个座位
+                onLibrarySeat = { qr ->
+                    showQrLogin = false
+                    LibraryFocus.request(
+                        LibraryFocus.Target(
+                            campusId = LibraryQrArea.campusOf(qr.areaCode).id,
+                            areaCode = qr.areaCode,
+                            seatId = qr.seat,
+                        )
+                    )
+                    router.open(AppRoute.Library)
+                },
+            )
+        }
     }
 }
+
+private val OverlayEnter = fadeIn(tween(220)) + slideInVertically(tween(260)) { it / 16 }
+private val OverlayExit = fadeOut(tween(180)) + slideOutVertically(tween(200)) { it / 16 }
 
 /** 主界面顶栏，玻璃风格下采样 tab 内容区。 */
 @Composable
@@ -564,6 +608,7 @@ private fun MainTopBar(
     courseBottomContent: (@Composable () -> Unit)?,
     onScan: () -> Unit,
     onSearch: () -> Unit,
+    onInbox: () -> Unit,
 ) {
     val tint = glassBarTint()
     val color = if (glassStyle) Color.Transparent else MiuixTheme.colorScheme.surface
@@ -594,16 +639,34 @@ private fun MainTopBar(
         largeTitle = title,
         subtitle = if (selectedTab == BottomTab.COURSES) courseSubtitle else "",
         scrollBehavior = scrollBehavior,
+        // 折叠后的小标题在左右两组按钮之间居中，两边一样宽标题才在屏幕正中：
+        // 首页左边放消息、再留一格隐形占位，右边扫一扫和搜索，都是两格宽。
         navigationIcon = {
             if (selectedTab == BottomTab.HOME) {
-                IconButton(onClick = onScan) {
-                    Icon(Icons.Default.QrCodeScanner, contentDescription = "扫一扫", tint = MiuixTheme.colorScheme.onSurface)
+                Row {
+                    InboxBell(onInbox)
+                    IconButton(
+                        onClick = {},
+                        enabled = false,
+                        modifier = Modifier
+                            .alpha(0f)
+                            .clearAndSetSemantics {},
+                    ) {
+                        Icon(Icons.Default.Search, contentDescription = null)
+                    }
                 }
             }
         },
         actions = {
             if (selectedTab == BottomTab.COURSES) courseActions?.invoke(this)
             if (selectedTab == BottomTab.HOME) {
+                IconButton(onClick = onScan) {
+                    Icon(
+                        androidx.compose.ui.res.painterResource(com.xjtu.toolbox.R.drawable.ic_scan),
+                        contentDescription = "扫一扫",
+                        tint = MiuixTheme.colorScheme.onSurface,
+                    )
+                }
                 IconButton(onClick = onSearch) {
                     Icon(Icons.Default.Search, contentDescription = "搜索", tint = MiuixTheme.colorScheme.onSurface)
                 }
@@ -742,6 +805,7 @@ private fun ProactiveReminderLoop(loginState: AppLoginState) {
                     "schedule_change" -> ScheduleDiff.setPending(context, null)
                     "attendance" -> HomeSignals.attendanceAlert = null
                     "coupon" -> HomeSignals.couponAlert = null
+                    "dorm_power" -> HomeSignals.dormPowerAlert = null
                     // 清空即可，下一轮刷新会按服务端状态重填
                     "library" -> HomeSignals.libraryUrgentAction = null
                 }
@@ -820,7 +884,7 @@ private fun PasswordInvalidatedDialog(loginState: AppLoginState, onUpdatePasswor
     OverlayDialog(
         show = true,
         title = "登录密码可能已变更",
-        summary = "「${loginState.passwordInvalidatedSiteName}」登录失败，已暂停其他系统的自动登录以保护账号。请在设置中更新密码。",
+        summary = "「${loginState.passwordInvalidatedSiteName}」登录失败，已暂停自动登录以免账号被锁，请更新密码。",
         onDismissRequest = dismiss,
     ) {
         Row(Modifier.fillMaxWidth()) {

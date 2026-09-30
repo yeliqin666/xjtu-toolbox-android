@@ -16,5 +16,6 @@ enum class LoginType(val label: String, val description: String) {
     COUPON("加餐券", "电子券 · 余额与有效期"),
     FITNESS("体测查询", "体质健康测试成绩"),
     ATTENDANCE("考勤", "考勤查询与请假"),
-    ICLASSFACE("快速考勤流水", "今日签到/刷卡记录快速查询")
+    ICLASSFACE("快速考勤流水", "今日签到/刷卡记录快速查询"),
+    DORM_POWER("宿舍电费", "剩余电量 · 充值")
 }

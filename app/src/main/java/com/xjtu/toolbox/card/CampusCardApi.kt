@@ -40,6 +40,12 @@ data class CardInfo(
     val department: String = "",       // 学院（从 HTML 提取）
 )
 
+/**
+ * 一笔流水的去重键：接口不给流水号，只能用这几个字段拼。不含 [Transaction.merchant]：
+ * 它是解析出来的，解析规则一改，落盘缓存里的旧流水就和重新拉到的对不上了。
+ */
+internal fun Transaction.uniqueKey(): String = "$time|$amount|$balance|$description"
+
 /** 单笔交易记录 */
 @kotlinx.serialization.Serializable
 data class Transaction(
@@ -122,7 +128,7 @@ class CampusCardApi(private val site: SiteSession) {
         val root = try {
             responseBody.safeParseJsonObject()
         } catch (e: Exception) {
-            throw RuntimeException("校园卡返回了非JSON数据: ${responseBody.take(100)}")
+            throw RuntimeException("校园卡返回了异常数据，请稍后重试")
         }
         if (CampusCardContract.businessCode(root) == "401") {
             throw com.xjtu.toolbox.auth.AuthExpiredException("校园卡")
@@ -254,7 +260,7 @@ class CampusCardApi(private val site: SiteSession) {
         val root = try {
             responseBody.safeParseJsonObject()
         } catch (e: Exception) {
-            throw RuntimeException("交易记录返回了非JSON数据: ${responseBody.take(100)}")
+            throw RuntimeException("交易记录返回了异常数据，请稍后重试")
         }
         if (CampusCardContract.businessCode(root) == "401") {
             throw com.xjtu.toolbox.auth.AuthExpiredException("校园卡")
@@ -277,7 +283,7 @@ class CampusCardApi(private val site: SiteSession) {
             // 都会出现没有名字的行。实测 600 条里有 22 条是这种（12 笔消费 + 10 笔充值）。
             val merchant = rec.get("toMerchant")?.stringValue?.trim()?.takeIf { it.isNotBlank() }
                 ?: merchantFromResume(resume)
-            val typeFrom = rec.get("typeFrom")?.stringValue?.trim()
+            val typeFrom = CampusCardContract.typeFromOf(rec.get("typeFrom"))
             val toAccount = rec.get("toAccount")
                 ?.takeIf { it.isPrimitive && it.jsonPrimitive.isNumber }?.longValue
             val fromAccount = rec.get("fromAccount")?.stringValue?.trim()?.toLongOrNull()
@@ -338,7 +344,7 @@ class CampusCardApi(private val site: SiteSession) {
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    throw RuntimeException("查询校园卡流水第${page}页失败：${e.message ?: "网络异常"}", e)
+                    throw RuntimeException("查询校园卡流水第${page}页失败，请检查网络后重试", e)
                 }
                 if (pageTotal != total) {
                     throw RuntimeException("查询校园卡流水返回的总数在分页过程中发生变化")
@@ -360,8 +366,28 @@ class CampusCardApi(private val site: SiteSession) {
         throw RuntimeException("查询校园卡流水返回了残缺流水数据")
     }
 
-    private fun pageSignature(batch: List<Transaction>): String =
-        batch.joinToString("\n") { "${it.time}|${it.merchant}|${it.amount}|${it.balance}|${it.description}" }
+    /**
+     * 从第 1 页往后拉，拉到某页里出现 [isKnown] 的流水为止。服务端按入账时间倒序排
+     * （2026-09 实测一年 961 条无一例外），延迟上传的旧流水入账时间也是新的，同样排在前面，
+     * 所以接上已有数据之后的页不会再有新东西。
+     */
+    suspend fun getTransactionsUntilKnown(
+        startDate: LocalDate,
+        endDate: LocalDate,
+        maxPages: Int,
+        pageSize: Int = 50,
+        isKnown: (Transaction) -> Boolean,
+    ): List<Transaction> {
+        val records = mutableListOf<Transaction>()
+        for (page in 1..maxPages) {
+            val (total, batch) = getTransactions(startDate, endDate, page, pageSize)
+            records += batch
+            if (batch.any(isKnown) || batch.size < pageSize || records.size >= total) break
+        }
+        return records
+    }
+
+    private fun pageSignature(batch: List<Transaction>): String = batch.joinToString("\n") { it.uniqueKey() }
 
     /**
      * 按月汇总。传入查询起止日后：日均按该月落在区间内的天数摊，

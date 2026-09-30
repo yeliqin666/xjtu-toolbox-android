@@ -1,11 +1,18 @@
 package com.xjtu.toolbox.fitness
 
 import com.xjtu.toolbox.util.stringValue
+import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
+import java.io.IOException
 
 class FitnessProtocolTest {
 
@@ -94,5 +101,22 @@ class FitnessProtocolTest {
         assertEquals("user-id", FitnessProtocol.unwrapUserInfo("\n$cipher\r\n")?.get("uid")?.stringValue)
         assertNull(FitnessProtocol.unwrapUserInfo("""{"status":1,"data":"not-base64"}"""))
         assertNull(FitnessProtocol.unwrapUserInfo("""{"status":1,"data":{}}"""))
+    }
+
+    @Test
+    fun userInfo_serverErrorSaysItIsTheSchool() {
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            Response.Builder()
+                .request(chain.request()).protocol(Protocol.HTTP_1_1)
+                .code(502).message("Bad Gateway")
+                .body("<html>502</html>".toResponseBody())
+                .build()
+        }.build()
+        try {
+            FitnessProtocol.requestUserInfo(client, FitnessProtocol.extractLaunch(callback()).session, FitnessProtocol.H5_HOME_URL)
+            fail("5xx 应当直接报学校服务故障")
+        } catch (e: IOException) {
+            assertTrue(e.message!!.contains("学校体测系统"))
+        }
     }
 }

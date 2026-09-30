@@ -16,12 +16,7 @@ class CredentialStore(context: Context) {
 
     private val prefs: SharedPreferences by lazy { SecurePrefs.open(appContext, FILE_NAME) }
 
-    fun save(username: String, password: String) {
-        prefs.edit()
-            .putString(KEY_USERNAME, username)
-            .putString(KEY_PASSWORD, password)
-            .apply()
-    }
+    // 旧单账号凭据：现在存在 AccountStore，这里只保留读取供 AccountMigration 迁移用
 
     fun load(): Pair<String, String>? {
         val username = prefs.getString(KEY_USERNAME, null) ?: return null
@@ -30,26 +25,16 @@ class CredentialStore(context: Context) {
         return username to password
     }
 
-    fun clear() {
-        prefs.edit().clear().apply()
-    }
-
-    // ── 设备指纹持久化（避免触发 MFA）──
-
-    fun saveFpVisitorId(id: String) {
-        prefs.edit().putString(KEY_FP_VISITOR_ID, id).apply()
+    /** 迁移完成后删掉旧的密码 / 指纹 / 公钥副本，避免与 AccountStore 各存一份。昵称不动。 */
+    fun clearLegacyCredentials() {
+        if (!prefs.contains(KEY_PASSWORD) && !prefs.contains(KEY_USERNAME)) return
+        prefs.edit()
+            .remove(KEY_USERNAME).remove(KEY_PASSWORD)
+            .remove(KEY_FP_VISITOR_ID).remove(KEY_RSA_PUBLIC_KEY).remove(KEY_RSA_KEY_TIME)
+            .apply()
     }
 
     fun loadFpVisitorId(): String? = prefs.getString(KEY_FP_VISITOR_ID, null)
-
-    // ── RSA 公钥缓存（减少一次网络请求）──
-
-    fun saveRsaPublicKey(key: String) {
-        prefs.edit()
-            .putString(KEY_RSA_PUBLIC_KEY, key)
-            .putLong(KEY_RSA_KEY_TIME, System.currentTimeMillis())
-            .apply()
-    }
 
     /** 获取缓存的 RSA 公钥（24 小时有效期） */
     fun loadRsaPublicKey(): String? {
@@ -144,7 +129,7 @@ class CredentialStore(context: Context) {
      * 非教务源取不到时也自动退回教务。详见 `ScheduleSourceRouter`。
      */
     var scheduleSource: String
-        get() = appPrefs.getString(KEY_SCHEDULE_SOURCE, null) ?: SCHEDULE_SOURCE_JWAPP
+        get() = appPrefs.getString(KEY_SCHEDULE_SOURCE, null) ?: SCHEDULE_SOURCE_JWXT
         set(value) { appPrefs.edit().putString(KEY_SCHEDULE_SOURCE, value).apply() }
 
     var darkMode: String
@@ -198,25 +183,22 @@ class CredentialStore(context: Context) {
         get() = appPrefs.getString(KEY_HOME_THEME, THEME_CARD) ?: THEME_CARD
         set(value) { appPrefs.edit().putString(KEY_HOME_THEME, value).apply() }
 
-    /**
-     * 最近打开过的子系统 siteKey（最新在前，最多 [MAX_RECENT_SITES] 个）。
-     * 冷启动后据此做免密 SSO 预热——用户大概率还会进这几个。
-     */
-    var recentSiteKeys: List<String>
-        get() = appPrefs.getString(KEY_RECENT_SITES, null)
-            ?.split(',')?.filter { it.isNotBlank() } ?: emptyList()
-        set(value) {
-            appPrefs.edit()
-                .putString(KEY_RECENT_SITES, value.take(MAX_RECENT_SITES).joinToString(","))
-                .apply()
-        }
+    /** 最近 + 常用的前 [n] 个站点（见 [SiteUsage]），会话预热按它挑。 */
+    fun topSites(n: Int): List<String> = SiteUsage.top(siteUsage(), n, System.currentTimeMillis())
 
-    /** 记录一次打开：置顶去重后截断。 */
-    fun recordRecentSite(siteKey: String) {
+    /** 记录一次打开。 */
+    fun recordSiteUse(siteKey: String) {
         if (siteKey.isBlank()) return
-        val cur = recentSiteKeys
-        if (cur.firstOrNull() == siteKey) return
-        recentSiteKeys = (listOf(siteKey) + cur.filter { it != siteKey })
+        val next = SiteUsage.record(siteUsage(), siteKey, System.currentTimeMillis())
+        appPrefs.edit().putString(KEY_SITE_USAGE, SiteUsage.encode(next)).remove(KEY_RECENT_SITES).apply()
+    }
+
+    private fun siteUsage(): Map<String, SiteUsage.Entry> {
+        appPrefs.getString(KEY_SITE_USAGE, null)?.let { return SiteUsage.decode(it) }
+        // 旧版只记了打开顺序，越新的给越高的起始分
+        val legacy = appPrefs.getString(KEY_RECENT_SITES, null)?.split(',')?.filter { it.isNotBlank() }.orEmpty()
+        val now = System.currentTimeMillis()
+        return legacy.withIndex().associate { (i, key) -> key to SiteUsage.Entry((legacy.size - i).toDouble(), now) }
     }
 
     var showQuickActions: Boolean
@@ -263,8 +245,9 @@ class CredentialStore(context: Context) {
         private const val KEY_ACCOUNT_TYPE = "account_type"
         private const val KEY_EMPTY_ROOM_CDN_TIP = "empty_room_cdn_tip"
         private const val KEY_HOME_THEME = "home_theme"
+        /** 旧版「最近打开」顺序，只用于迁移到 [KEY_SITE_USAGE]。 */
         private const val KEY_RECENT_SITES = "recent_site_keys"
-        private const val MAX_RECENT_SITES = 4
+        private const val KEY_SITE_USAGE = "site_usage"
         private const val KEY_SHOW_QUICK_ACTIONS = "show_quick_actions"
         private const val KEY_VENUE_AUTO_SOLVE_CAPTCHA = "venue_auto_solve_captcha"
         private const val KEY_SCHEDULE_ATTENDANCE_BADGE = "schedule_attendance_badge"
@@ -272,10 +255,8 @@ class CredentialStore(context: Context) {
 
         // ── 设置值常量 ──
         const val SCHEDULE_SOURCE_JWXT = "jwxt"
-        const val SCHEDULE_SOURCE_JWAPP = "jwapp"
         /** 值沿用旧版考勤（bkkq）时代的写法：已经写进用户设置，不能改。 */
         const val SCHEDULE_SOURCE_ATTENDANCE = "bkkq"
-        const val SCHEDULE_SOURCE_JS = "js"
         const val NAV_STYLE_FLOATING = "floating"
         const val NAV_STYLE_CLASSIC = "classic"
         const val DARK_MODE_SYSTEM = "system"

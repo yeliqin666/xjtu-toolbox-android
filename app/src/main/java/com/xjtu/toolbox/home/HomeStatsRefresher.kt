@@ -10,6 +10,10 @@ import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.auth.siteKey
 import com.xjtu.toolbox.fitness.hasUsableTotal
 import com.xjtu.toolbox.fitness.orderedFitnessYears
+import com.xjtu.toolbox.inbox.InboxCategories
+import com.xjtu.toolbox.inbox.InboxStore
+import com.xjtu.toolbox.inbox.OwnInbox
+import com.xjtu.toolbox.inbox.SchoolInbox
 import com.xjtu.toolbox.lms.LmsCourseSummary
 import com.xjtu.toolbox.lms.deadlineInstant
 import kotlinx.coroutines.Dispatchers
@@ -22,12 +26,13 @@ import com.xjtu.toolbox.nav.AppRoute
  * 首页状态的**主动拉取**调度器。
  *
  * 与「功能页顺手写缓存」（[HomeStats.push]）互补：那条路只有用过的功能才有数据，
- * 这里负责在后台把该刷的刷了，让首页开箱即有内容。
+ * 这里负责在后台把该刷的刷了，让首页开箱即有内容。每轮先预热常用站点（[SessionManager.warmUp]），
+ * 冷启动、回前台、切网都会触发一轮，点开常用功能时就不用再等登录。
  *
  * ## 三条硬约束
  *
- * 1. **不与登录风控冲突**：每个源之间强制 [GAP_MS] 间隔串行执行，绝不并发登录。
- *    并且与 `CasGate` 双向对齐（此前是各管各的）：
+ * 1. **不与登录风控冲突**：各源串行，绝不并发登录；某个源刚走过一次统一认证登录，下一个源前留 [GAP_MS]
+ *    （会话从快照复用、没登录的源不用等）。并且与 `CasGate` 双向对齐（此前是各管各的）：
  *    - 开跑前先问 [CasGate.blockedReason]，被挡就**整轮不跑**。原来不问，
  *      于是熔断期间十个源挨个去撞公平锁、每个等满 4 秒，最后全部失败——
  *      既拖时间又把失败时间戳写了一地。
@@ -45,12 +50,22 @@ object HomeStatsRefresher {
 
     private const val TAG = "HomeStatsRefresh"
 
-    /** 两次拉取之间的间隔。给 CAS 留出喘息，避免被判为异常访问。 */
+    /** 上一个源刚登录过时，下一个源前的间隔。给统一认证留出喘息，避免被判为异常访问。 */
     private const val GAP_MS = 1_500L
 
     private const val DAY = 24L * 60 * 60 * 1000L
 
     private val runLock = Mutex()
+
+    /**
+     * 当前这一轮绑定的账号，各源的 fetch 拿它决定落盘的命名空间和是否更新提醒信号。
+     * 一轮里各源串行且整轮受 [runLock] 保护，所以一个字段够用。
+     */
+    @Volatile
+    private var roundAccount: String? = null
+
+    /** 这一轮拉数据期间没有切过账号。 */
+    private fun roundIsCurrent() = com.xjtu.toolbox.account.AccountContext.activeAccountId == roundAccount
 
     /**
      * 本进程是否还没跑过刷新。冷启动后的第一轮里，**对当前一条内容都没有的源忽略退避**
@@ -69,12 +84,25 @@ object HomeStatsRefresher {
      *
      * @param ttlMs 多久刷一次。
      * @param loginType 需要哪个站点的会话；null 表示无需登录。
+     * @param ttlNow 随状态变的 TTL，默认就是 [ttlMs]。
      */
     private class Source(
         val route: AppRoute,
         val ttlMs: Long,
         val loginType: LoginType?,
+        val ttlNow: () -> Long = { ttlMs },
         val fetch: suspend (Context, SiteSession?) -> HomeStat?,
+    )
+
+    /**
+     * 一轮里的先后：整轮串行，排前面的先出结果。
+     * 首页最常看的（成绩、课程、图书馆座位、校园卡）在前；不常看或经常连不上的
+     * （刷卡记录、宿舍电费）靠后；加餐券最后。不在表里的排最末。
+     */
+    private val runOrder: List<AppRoute> = listOf(
+        AppRoute.JwappScore, AppRoute.Lms(), AppRoute.Library, AppRoute.CampusCard,
+        AppRoute.Judge, AppRoute.Attendance, AppRoute.Fitness, AppRoute.Notification,
+        AppRoute.Iclassface, AppRoute.DormPower, AppRoute.Coupon,
     )
 
     private val sources: List<Source> = listOf(
@@ -88,6 +116,11 @@ object HomeStatsRefresher {
                 val done = api.finishedQuestionnaires(term).size
                 val all = todo + done
                 Log.d(TAG, "judge: term=$term todo=$todo done=$done")
+                InboxStore.setTodos(
+                    InboxCategories.JUDGE,
+                    if (todo > 0) listOf(OwnInbox.todo(InboxCategories.JUDGE, "judge", "评教", "还有 $todo 门课没评教", AppRoute.Judge.id)) else emptyList(),
+                    roundAccount,
+                )
                 if (all == 0) null
                 else HomeStat(
                     if (todo == 0) "已评完" else "$todo/$all 门待评",
@@ -153,6 +186,13 @@ object HomeStatsRefresher {
             withContext(Dispatchers.IO) { couponStatus(ctx, site) }
         },
 
+        // 宿舍电费：3 小时一次。电用完就断电，低电要赶在这之前说到；
+        // 没进过宿舍电费页的账号不碰这个系统（见 refreshDue 里的闸门）。
+        Source(AppRoute.DormPower, 3 * 60 * 60 * 1000L, LoginType.DORM_POWER) { ctx, site ->
+            site ?: return@Source null
+            withContext(Dispatchers.IO) { dormPowerStatus(ctx, site) }
+        },
+
         // 考勤：两天一次。本研统一。
         Source(AppRoute.Attendance, 2 * DAY, LoginType.ATTENDANCE) { ctx, site ->
             site ?: return@Source null
@@ -174,19 +214,25 @@ object HomeStatsRefresher {
                 Log.d(TAG, "score: ${terms.size} 个学期，共 $total 门")
                 if (total == 0) return@withContext null
 
-                val newCount = HomeStats.bumpScoreCursor(ctx, total)
+                val newCount = HomeStats.bumpScoreCursor(ctx, total, roundAccount)
                 // 累加而非覆盖：气泡可能还没冒出来就又刷了一轮，直接覆盖会把待提醒的数吞掉。
                 // 冒过一次后由 MainActivity 清零。
                 if (newCount > 0) {
-                    HomeStats.setPendingNewScores(ctx, HomeStats.pendingNewScores(ctx) + newCount)
+                    HomeStats.setPendingNewScores(ctx, HomeStats.pendingNewScores(ctx, roundAccount) + newCount, roundAccount)
+                    InboxStore.post(OwnInbox.grade(newCount, total), roundAccount)
                 }
-                // 最新学期挑分数最高/最近的一条做明细意义不大，直接报本学期门数与新增。
-                val latestTerm = terms.maxByOrNull { it.termCode }
-                HomeStat(
-                    if (newCount > 0) "$newCount 门新成绩" else "${latestTerm?.scoreList?.size ?: total} 门",
-                    if (newCount > 0) "共 $total 门 · 有更新"
-                    else latestTerm?.termName?.let { "$it 学期" } ?: "共 $total 门"
-                )
+                // 只报本学期：教务的学期信息和日程页缓存都是同一套学期号，本学期还没出分就如实说没有，
+                // 不拿上学期的顶上。取不到当前学期号时才退回「有成绩的最新学期」。
+                val currentTerm = runCatching { com.xjtu.toolbox.jwapp.JwappApi(site).getCurrentTerm() }.getOrNull()?.takeIf { it.isNotBlank() }
+                    ?: com.xjtu.toolbox.schedule.ScheduleCache.readCurrentTerm(com.xjtu.toolbox.data.DataCache(ctx, roundAccount))
+                val shown = if (currentTerm != null) terms.firstOrNull { it.termCode == currentTerm } else terms.maxByOrNull { it.termCode }
+                val shownCount = shown?.scoreList?.size ?: 0
+                when {
+                    newCount > 0 -> HomeStat("$newCount 门新成绩", "共 $total 门 · 有更新")
+                    shownCount > 0 -> HomeStat("$shownCount 门", "${shown?.termName.orEmpty()} 学期")
+                    currentTerm != null -> HomeStat("暂无", "本学期成绩未出")
+                    else -> HomeStat("$total 门", "共 $total 门")
+                }
             }
         },
 
@@ -214,24 +260,24 @@ object HomeStatsRefresher {
             }
         },
 
-        // 图书馆：15 分钟一次。
+        // 图书馆：平时 10 分钟一次，有待签到 / 待返回时 2 分钟一次。
         //
-        // TTL 比别的源短，因为这里的状态**是有时效的**——"待入馆"要在限定时间内签到，
-        // "临时离馆"超时会被释放座位。半小时才刷一次的话，等首页显示出来往往已经过期了。
-        Source(AppRoute.Library, 15 * 60 * 1000L, LoginType.LIBRARY) { ctx, site ->
+        // 状态**是有时效的**——"待入馆"要在限定时间内签到，"临时离馆"超时会被释放座位；
+        // 学校推的座位消息收纳不收，全靠这里及时。切回前台也会触发一轮（见 MainScreen）。
+        Source(
+            AppRoute.Library, 10 * 60 * 1000L, LoginType.LIBRARY,
+            ttlNow = {
+                val pending = com.xjtu.toolbox.inbox.InboxStore.load(roundAccount).todos[com.xjtu.toolbox.inbox.InboxCategories.LIBRARY]
+                if (pending.isNullOrEmpty()) 10 * 60 * 1000L else 2 * 60 * 1000L
+            },
+        ) { ctx, site ->
             site ?: return@Source null
             withContext(Dispatchers.IO) {
-                val b = com.xjtu.toolbox.library.LibraryApi(site).getMyBooking()
-                // 顺手排后台提醒：在图书馆自助机上约的座位不会经过本 App 的图书馆页，
-                // 首页这一轮是唯一能发现它的地方。
-                com.xjtu.toolbox.notification.LibraryReminderScheduler.sync(ctx, b)
-                if (b == null) {
-                    HomeSignals.libraryUrgentAction = null
-                    return@withContext null
-                }
-                // 待办判据取归一化后的操作按钮，不去猜状态文本（那是页面原文）。
-                HomeSignals.libraryUrgentAction = b.actionUrls.keys
-                    .firstOrNull { it in com.xjtu.toolbox.library.LibraryApi.URGENT_ACTIONS }
+                // 查失败算这个源失败，不能当成「没有预约」把待办和提醒清掉
+                val b = com.xjtu.toolbox.library.LibraryApi(site).fetchMyBooking().getOrThrow()
+                // 在图书馆自助机上约的座位不会经过本 App 的图书馆页，首页这一轮是唯一能发现它的地方。
+                com.xjtu.toolbox.library.LibraryStatus.publish(ctx, b, roundAccount)
+                if (b == null) return@withContext null
                 Log.d(
                     TAG,
                     "library: seat=${b.seatId} area=${b.area} status=${b.statusText} " +
@@ -267,23 +313,6 @@ object HomeStatsRefresher {
                 top.take(16),
                 result.titles.getOrNull(1)?.take(16) ?: "所选来源最新通知",
             )
-        },
-
-        // 校园黄页：不需要登录，数据几乎不变，一周一次足够。
-        // 只取用户点名的教务处与保卫处两条。
-        Source(AppRoute.YellowPage, 7 * DAY, null) { ctx, _ ->
-            withContext(Dispatchers.IO) {
-                val data = com.xjtu.toolbox.yellowpage.YellowPageApi(ctx).getData()
-                val wanted = listOf("教务处", "保卫处")
-                val hits = data.departments.filter { d -> wanted.any { d.name.contains(it) } }
-                    .sortedBy { d -> wanted.indexOfFirst { d.name.contains(it) } }
-                Log.d(TAG, "yellow_page: 部门总数=${data.departments.size} 命中=${hits.map { it.name }}")
-                if (hits.isEmpty()) null
-                else HomeStat(
-                    hits.first().let { "${shortName(it.name)} ${it.phoneItems.firstOrNull().orEmpty()}" },
-                    hits.getOrNull(1)?.let { "${shortName(it.name)} ${it.phoneItems.firstOrNull().orEmpty()}" }
-                )
-            }
         },
     )
 
@@ -343,10 +372,7 @@ object HomeStatsRefresher {
                 )
             }
         if (dueItems.isNotEmpty()) {
-            com.xjtu.toolbox.lms.LmsDueStore.save(
-                ctx, dueItems,
-                com.xjtu.toolbox.account.AccountContext.activeAccountId.orEmpty(),
-            )
+            com.xjtu.toolbox.lms.LmsDueStore.save(ctx, dueItems, roundAccount.orEmpty())
         }
 
         if (acts.isEmpty()) return null
@@ -372,14 +398,15 @@ object HomeStatsRefresher {
 
     private const val LMS_MAX_COURSES = 6
 
-    private fun shortName(full: String) = when {
-        full.contains("教务") -> "教务处"
-        full.contains("保卫") -> "保卫处"
-        else -> full.take(6)
+    /** 手机当前连着能上网的网络。不要求系统验证通过：校园网没过认证页时也算有网，失败照常计。 */
+    fun isOnline(context: Context): Boolean {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager ?: return true
+        val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
+        return caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
     /**
-     * 跑一轮刷新。只处理已过期的源，逐个串行，源之间留 [GAP_MS]。
+     * 跑一轮刷新。只处理已过期的源，逐个串行；上一个源发生了登录才留 [GAP_MS]。
      * 同一时刻只允许一轮（[runLock]），防止反复进出首页把请求叠起来。
      */
     suspend fun refreshDue(
@@ -404,39 +431,46 @@ object HomeStatsRefresher {
             // 整轮绑定发起时的账号。SessionManager 切账号是原地重配而不是换实例，
             // 一轮十几秒里若切了账号，后面拉到的是新账号的数据；此时整轮作废、什么都不写。
             val roundAccount = com.xjtu.toolbox.account.AccountContext.activeAccountId
-            fun accountChanged() = com.xjtu.toolbox.account.AccountContext.activeAccountId != roundAccount
+            this.roundAccount = roundAccount
+            fun accountChanged() = !roundIsCurrent()
+            // 先把用户最可能点开的几个站点确认好：点开时命中免检窗口直接进，下面的源碰到它们也不用再探
+            manager.warmUp(com.xjtu.toolbox.data.CredentialStore(context).topSites(SessionManager.WARM_SITES))
             val stamps = HomeStats.stamps(context, sources.map { it.route }, roundAccount)
             val now = System.currentTimeMillis()
-            var first = true
+            // 上一个源是否可能刚和统一认证打过交道（登录成功算；取站点出异常时保守地也算），是的话下一个源前留间隔
+            var justLoggedIn = false
             val coldStart = firstRunInProcess
             firstRunInProcess = false
             val existing = HomeStats.collect(context, null).keys
             Log.d(TAG, "start; coldStart=$coldStart 已有内容=$existing stamps=${stamps.mapValues { (now - it.value) / 60000 }} (分钟前)")
-            // 短 TTL 的先跑。整轮是串行 + 1.5s 间隔，源多了一轮要走十几秒；
-            // 把"经常到期"的（校园卡 30min、图书馆 15min、刷卡记录 10min）排在
-            // 一周才刷一次的评教/体测后面，等于让最该新鲜的数据等最不着急的。
-            for (s in sources.sortedBy { it.ttlMs }) {
+            for (s in sources.sortedBy { runOrder.indexOf(it.route).let { i -> if (i < 0) Int.MAX_VALUE else i } }) {
                 if (s.loginType == LoginType.ICLASSFACE && accountType != AccountType.UNDERGRADUATE) continue
                 // 首页评教统计走的是本科教务评教；研究生评教在 gste，要单独登录，不在后台刷
                 if (s.route == AppRoute.Judge && accountType != AccountType.UNDERGRADUATE) continue
+                // 没进过宿舍电费页就不去登录那个系统：绑宿舍在页面里，之后这里才有得查。
+                if (s.route == AppRoute.DormPower && !com.xjtu.toolbox.dormpower.DormPowerStore.isUsed(context)) continue
                 val last = stamps[s.route.id] ?: 0L
                 val hasContent = s.route.id in existing
-                if (now - last < s.ttlMs && !(coldStart && !hasContent)) {
-                    Log.d(TAG, "${s.route.id}: 未到期，跳过（距上次 ${(now - last) / 60000} 分钟，TTL ${s.ttlMs / 60000} 分钟）")
+                val ttl = s.ttlNow()
+                if (now - last < ttl && !(coldStart && !hasContent)) {
+                    Log.d(TAG, "${s.route.id}: 未到期，跳过（距上次 ${(now - last) / 60000} 分钟，TTL ${ttl / 60000} 分钟）")
                     continue
                 }
-                if (coldStart && !hasContent && now - last < s.ttlMs) {
+                if (coldStart && !hasContent && now - last < ttl) {
                     Log.d(TAG, "${s.route.id}: 冷启动且暂无内容，忽略退避重试")
                 }
-                if (!first) delay(GAP_MS)
-                first = false
+                if (justLoggedIn) delay(GAP_MS)
                 if (accountChanged()) {
                     Log.d(TAG, "abort round: account switched")
                     return
                 }
+                val siteKey = s.loginType?.siteKey()
+                val epochBefore = siteKey?.let { manager.getSiteOrNull(it)?.loginEpoch }
+                justLoggedIn = siteKey != null
                 try {
                     // silent = true：后台绝不弹 MFA、不发短信，撞上就抛 MfaRequiredException。
-                    val site = s.loginType?.let { manager.ensureSite(it.siteKey(), silent = true) }
+                    val site = siteKey?.let { manager.ensureSite(it, silent = true) }
+                    justLoggedIn = site != null && site.loginEpoch != epochBefore
                     val stat = s.fetch(context, site)
                     if (accountChanged()) {
                         Log.d(TAG, "abort round: account switched during ${s.route.id}")
@@ -446,6 +480,9 @@ object HomeStatsRefresher {
                     if (stat == null) HomeStats.markEmpty(context, s.route, s.ttlMs, roundAccount)
                     else HomeStats.markFetched(context, s.route, roundAccount)
                     Log.d(TAG, "${s.route.id} -> ${stat?.value ?: "无数据（1 小时后重试）"}")
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    // 发起这轮的页面没了，不是源的问题，别写失败戳
+                    throw e
                 } catch (e: com.xjtu.toolbox.auth.CasGate.ThrottledException) {
                     Log.d(TAG, "abort round: CasGate throttled (${e.message})")
                     return
@@ -461,15 +498,48 @@ object HomeStatsRefresher {
                     // 同样不写失败戳：这不是故障，是"现在不该由我来做"。
                     Log.d(TAG, "${s.route.id}: 需短信验证，后台跳过")
                 } catch (e: Exception) {
+                    // 手机这会儿没网（切网、进电梯）不是源的问题：不写失败戳、整轮停下，网络回来时再跑
+                    if (!isOnline(context)) {
+                        Log.d(TAG, "abort round: offline (${s.route.id}: ${e.message})")
+                        return
+                    }
                     // 半小时后重试，不按正常 TTL 锁死——故障多是暂时的（网关抖动、系统维护），
                     // 按 2 天/7 天锁住会让"修好了却还是不显示"。
                     if (!accountChanged()) HomeStats.markFailed(context, s.route, s.ttlMs, roundAccount)
                     Log.w(TAG, "${s.route.id} refresh failed (retry in 30min): ${e.message}")
                 }
             }
+            // 学校消息、事务中心待办、预约：都挂在一网通办上，30 分钟一次
+            if (!accountChanged() && SchoolInbox.isDue(roundAccount)) {
+                try {
+                    SchoolInbox.refresh(manager.ensureSite(LoginType.YWTB.siteKey(), silent = true), roundAccount)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.d(TAG, "inbox: ${e.message}")
+                }
+            }
+            // 学籍档案：缓存新鲜时不发请求
+            if (!accountChanged()) {
+                com.xjtu.toolbox.hello.HelloProfileStore.ensure(context, manager, silent = true)
+            }
         } finally {
             runLock.unlock()
         }
+    }
+
+    /** 宿舍电量：首页显示最低的那间，低于 [com.xjtu.toolbox.dormpower.LOW_KWH] 时写提醒信号。 */
+    private suspend fun dormPowerStatus(ctx: Context, site: SiteSession): HomeStat? {
+        val readings = com.xjtu.toolbox.dormpower.DormPowerStore.refresh(ctx, com.xjtu.toolbox.dormpower.DormPowerApi(site))
+        val lowest = readings.filter { it.kwh != null }.minByOrNull { it.kwh ?: Double.MAX_VALUE } ?: return null
+        val low = com.xjtu.toolbox.dormpower.DormPowerStore.lowest(readings)
+        // 拉取期间切了账号：这份结果属于上一个账号，不能写成新账号的提醒
+        if (roundIsCurrent()) HomeSignals.dormPowerAlert = low?.let { "宿舍电量只剩 ${"%.1f".format(it.kwh)} 度了，记得充" }
+        Log.d(TAG, "dorm_power: ${readings.size} 间，最低 ${lowest.kwh} 度")
+        return HomeStat(
+            "%.0f 度".format(lowest.kwh),
+            if (readings.size > 1) "${readings.size} 间宿舍中最低" else "宿舍剩余电量",
+        )
     }
 
     /**
@@ -508,7 +578,23 @@ object HomeStatsRefresher {
         }
         Log.d(TAG, "coupon: 待领取 $pending 张，可用 ${usable?.records?.size ?: 0} 张，最近到期 $soonest")
 
-        HomeSignals.couponAlert = when {
+        InboxStore.setTodos(
+            InboxCategories.COUPON,
+            listOfNotNull(
+                OwnInbox.todo(InboxCategories.COUPON, "coupon:pending", "加餐券", "有 $pending 张加餐券没领", AppRoute.Coupon.id)
+                    .takeIf { pending > 0 },
+                soonest?.takeIf { daysLeft != null && daysLeft <= COUPON_EXPIRY_WARN_DAYS }?.let { day ->
+                    OwnInbox.todo(
+                        InboxCategories.COUPON, "coupon:expiring", "加餐券",
+                        if (daysLeft == 0) "有加餐券今天到期" else "有加餐券 $daysLeft 天后到期", AppRoute.Coupon.id,
+                        expiresAt = day.plusDays(1).atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli(),
+                    )
+                },
+            ),
+            roundAccount,
+        )
+        // 拉取期间切了账号：这份结果属于上一个账号，不能写成新账号的提醒
+        if (roundIsCurrent()) HomeSignals.couponAlert = when {
             pending > 0 -> "有 $pending 张加餐券没领"
             daysLeft != null && daysLeft <= COUPON_EXPIRY_WARN_DAYS ->
                 if (daysLeft == 0) "有加餐券今天就到期了" else "有加餐券还有 $daysLeft 天到期"
@@ -545,15 +631,21 @@ object HomeStatsRefresher {
         // 异常数**增加**才提醒，不是"有异常"就提醒：一次缺勤会挂在统计里一整周，
         // 每轮刷新都当新事报一遍就成了骚扰。游标只在成功取到数据时前移，
         // 否则一次失败会把基线冲掉，之后永远判不出增量。
-        val prefs = ctx.getSharedPreferences("attendance_watch", android.content.Context.MODE_PRIVATE)
+        // 按账号分开存，否则切账号后拿别人的异常数当基线
+        val prefs = ctx.getSharedPreferences(
+            "attendance_watch${com.xjtu.toolbox.account.AccountContext.suffixFor(roundAccount)}",
+            android.content.Context.MODE_PRIVATE,
+        )
         val seen = prefs.getInt("abnormal_seen", -1)
-        if (seen >= 0 && abnormal > seen) {
+        if (seen >= 0 && abnormal > seen && roundIsCurrent()) {
             val worst = stats.filter { it.abnormalCount > 0 }.maxByOrNull { it.abnormalCount }
-            HomeSignals.attendanceAlert = if (worst != null) {
+            val alert = if (worst != null) {
                 "${worst.subjectName}的考勤有异常了"
             } else {
                 "本周考勤多了 ${abnormal - seen} 次异常"
             }
+            HomeSignals.attendanceAlert = alert
+            InboxStore.post(OwnInbox.attendance(alert), roundAccount)
         }
         prefs.edit().putInt("abnormal_seen", abnormal).apply()
 

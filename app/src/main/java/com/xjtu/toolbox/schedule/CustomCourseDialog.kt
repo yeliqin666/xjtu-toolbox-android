@@ -25,6 +25,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlin.math.ceil
 import kotlin.math.floor
+
+/** 日程能选的时段：一整天，结束最晚 24:00。周视图、桌面卡片按真实钟点画，早晚都有位置。 */
+private const val PICK_START_HOUR = 0
+private const val PICK_END_HOUR = 24
+
 data class CustomCourseDraft(
     val courseName: String = "",
     val location: String = "",
@@ -58,44 +63,19 @@ fun CustomCourseDialog(
     onDismiss: () -> Unit
 ) {
     val isEdit = existing != null
-    val startDayMinutes = DAY_START_HOUR * 60
-    val endDayMinutes = DAY_END_HOUR * 60
+    val dayMinutes = PICK_END_HOUR * 60
 
+    // 已有日程的起止和周视图、桌面卡片同一个算法（老日程没存钟点的也按同一规则还原）
+    val existingClock = remember(existing) { existing?.toCourseItem()?.clockMinutes(XjtuTime.isSummerTime()) }
     val initialStartMinuteOfDay = remember(existing, draft) {
-        if (existing != null) {
-            val raw = existing.startMinuteOfDay
-            if (raw in startDayMinutes until endDayMinutes) {
-                raw
-            } else {
-                val fallbackSection = existing.startSection.coerceIn(1, MAX_SECTIONS)
-                (DAY_START_HOUR + fallbackSection - 1) * 60
-            }
-        } else {
-            val draftMinutes =
-                draft.startHour.coerceIn(DAY_START_HOUR, DAY_END_HOUR - 1) * 60 +
-                    draft.startMinute.coerceIn(0, 59)
-            draftMinutes.coerceIn(startDayMinutes, endDayMinutes - 1)
-        }
+        existingClock?.first
+            ?: (draft.startHour.coerceIn(PICK_START_HOUR, PICK_END_HOUR - 1) * 60 + draft.startMinute.coerceIn(0, 59))
     }
     val initialEndMinuteOfDay = remember(existing, draft, initialStartMinuteOfDay) {
-        if (existing != null) {
-            val raw = existing.endMinuteOfDay
-            if (raw in (initialStartMinuteOfDay + 1)..endDayMinutes) {
-                raw
-            } else {
-                val fallbackSection = existing.endSection.coerceIn(1, MAX_SECTIONS)
-                (DAY_START_HOUR + fallbackSection) * 60
-            }
-        } else {
-            val draftMinutes =
-                draft.endHour.coerceIn(DAY_START_HOUR, DAY_END_HOUR) * 60 +
-                    draft.endMinute.coerceIn(0, 59)
-            val fallbackEnd = (initialStartMinuteOfDay + 60).coerceAtMost(endDayMinutes)
-            if (draftMinutes > initialStartMinuteOfDay) {
-                draftMinutes.coerceAtMost(endDayMinutes)
-            } else {
-                fallbackEnd
-            }
+        existingClock?.second ?: run {
+            val draftMinutes = draft.endHour.coerceIn(PICK_START_HOUR, PICK_END_HOUR) * 60 + draft.endMinute.coerceIn(0, 59)
+            (if (draftMinutes > initialStartMinuteOfDay) draftMinutes else initialStartMinuteOfDay + 60)
+                .coerceAtMost(dayMinutes)
         }
     }
     var courseName by remember(existing, draft) {
@@ -111,9 +91,9 @@ fun CustomCourseDialog(
     var dayOfWeek by remember(existing, draft) {
         mutableIntStateOf((if (existing != null) existing.dayOfWeek else draft.dayOfWeek).coerceIn(1, 7))
     }
-    var startHour by remember { mutableIntStateOf((initialStartMinuteOfDay / 60).coerceIn(DAY_START_HOUR, DAY_END_HOUR - 1)) }
+    var startHour by remember { mutableIntStateOf((initialStartMinuteOfDay / 60).coerceIn(PICK_START_HOUR, PICK_END_HOUR - 1)) }
     var startMinute by remember { mutableIntStateOf((initialStartMinuteOfDay % 60).coerceIn(0, 59)) }
-    var endHour by remember { mutableIntStateOf((initialEndMinuteOfDay / 60).coerceIn(DAY_START_HOUR, DAY_END_HOUR)) }
+    var endHour by remember { mutableIntStateOf((initialEndMinuteOfDay / 60).coerceIn(PICK_START_HOUR, PICK_END_HOUR)) }
     var endMinute by remember { mutableIntStateOf((initialEndMinuteOfDay % 60).coerceIn(0, 59)) }
     var selectedWeeks by remember(existing, draft) {
         mutableStateOf(
@@ -130,7 +110,7 @@ fun CustomCourseDialog(
     }
 
     fun buildDraft(): CustomCourseDraft {
-        val draftSafeEndMinute = if (endHour == DAY_END_HOUR) 0 else endMinute
+        val draftSafeEndMinute = if (endHour == PICK_END_HOUR) 0 else endMinute
         return CustomCourseDraft(
             courseName = courseName,
             location = location,
@@ -144,7 +124,7 @@ fun CustomCourseDialog(
         )
     }
 
-    val safeEndMinute = if (endHour == DAY_END_HOUR) 0 else endMinute
+    val safeEndMinute = if (endHour == PICK_END_HOUR) 0 else endMinute
     val startTotalMinutes = startHour * 60 + startMinute
     val endTotalMinutes = endHour * 60 + safeEndMinute
     val isTimeValid = endTotalMinutes > startTotalMinutes
@@ -198,12 +178,12 @@ fun CustomCourseDialog(
             onDismiss()
         }
     ) {
-        // 工具：开始变化后自动调整结束 = start + 30，若越界则到 DAY_END
+        // 工具：开始变化后自动调整结束 = start + 30，越界就到 24:00
         fun ensureEndAfterStart() {
             val s = startHour * 60 + startMinute
             val e = endHour * 60 + endMinute
             if (e <= s) {
-                val target = (s + 30).coerceAtMost(DAY_END_HOUR * 60)
+                val target = (s + 30).coerceAtMost(dayMinutes)
                 endHour = target / 60
                 endMinute = target % 60
             }
@@ -271,7 +251,7 @@ fun CustomCourseDialog(
                         label = "开始",
                         hour = startHour,
                         minute = startMinute,
-                        hourRange = DAY_START_HOUR until DAY_END_HOUR,
+                        hourRange = PICK_START_HOUR until PICK_END_HOUR,
                         minuteRange = 0..59,
                         onHour = { startHour = it; ensureEndAfterStart() },
                         onMinute = { startMinute = it; ensureEndAfterStart() },
@@ -281,13 +261,13 @@ fun CustomCourseDialog(
                         label = "结束",
                         hour = endHour,
                         minute = safeEndMinute,
-                        hourRange = DAY_START_HOUR..DAY_END_HOUR,
-                        minuteRange = if (endHour == DAY_END_HOUR) 0..0 else 0..59,
+                        hourRange = PICK_START_HOUR..PICK_END_HOUR,
+                        minuteRange = if (endHour == PICK_END_HOUR) 0..0 else 0..59,
                         onHour = {
                             endHour = it
-                            if (endHour == DAY_END_HOUR) endMinute = 0
+                            if (endHour == PICK_END_HOUR) endMinute = 0
                         },
-                        onMinute = { endMinute = if (endHour == DAY_END_HOUR) 0 else it },
+                        onMinute = { endMinute = if (endHour == PICK_END_HOUR) 0 else it },
                         modifier = Modifier.weight(1f)
                     )
                 }

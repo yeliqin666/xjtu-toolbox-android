@@ -151,4 +151,38 @@ class GoBoardTest {
         val result = b.play(0, 0, Stone.BLACK)
         assertTrue(result is PlayResult.Success)
     }
+
+    /** 3 路盘黑子占满，只留 (0,0)、(2,2) 两个眼：白棋两处都是自杀，黑棋还能下。 */
+    private fun twoEyes(): GoBoard {
+        val b = GoBoard(3)
+        for (y in 0 until 3) for (x in 0 until 3) {
+            if ((x == 0 && y == 0) || (x == 2 && y == 2)) continue
+            b.play(x, y, Stone.BLACK)
+        }
+        return b
+    }
+
+    @Test
+    fun `只剩禁着点时没有合法落点，且探测不改动盘面`() {
+        val b = twoEyes()
+        assertFalse(b.hasLegalMove(Stone.WHITE))
+        assertTrue(b.hasLegalMove(Stone.BLACK))
+        assertEquals(Stone.EMPTY, b.stoneAt(0, 0))
+        assertEquals(Stone.EMPTY, b.stoneAt(2, 2))
+        assertTrue(b.play(0, 0, Stone.BLACK) is PlayResult.Success)
+    }
+
+    @Test
+    fun `轮到的一方无处可下时自动虚手`() {
+        val s = GoGameState(3)
+        val points = (0 until 3).flatMap { y -> (0 until 3).map { x -> x to y } }
+            .filterNot { it == 0 to 0 || it == 2 to 2 }
+        points.forEachIndexed { i, (x, y) ->
+            s.tapIntersection(x, y)
+            if (i < points.lastIndex) s.pass()
+        }
+        assertEquals(Stone.WHITE, s.autoPassed)
+        assertEquals(Stone.BLACK, s.turn)
+        assertEquals(GoPhase.PLAYING, s.phase)
+    }
 }

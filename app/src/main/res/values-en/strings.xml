@@ -19,5 +19,5 @@
     <string name="shortcut_payment_long">Show payment code</string>
 
     <string name="notice_widget_name">Notices</string>
-    <string name="notice_widget_desc">Last 3 notices from selected sources</string>
+    <string name="notice_widget_desc">Last 4 notices from selected sources</string>
 </resources>

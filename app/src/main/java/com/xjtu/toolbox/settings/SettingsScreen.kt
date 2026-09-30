@@ -128,6 +128,7 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
+    val loginState = com.xjtu.toolbox.auth.LocalAppLoginState.current
 
     var navBarStyle by remember { mutableStateOf(credentialStore.navBarStyle) }
     var darkMode by remember { mutableStateOf(credentialStore.darkMode) }
@@ -226,7 +227,7 @@ fun SettingsScreen(
         if (!granted) {
             Toast.makeText(
                 context,
-                "未授予通知权限。小组件仍会更新，但不会弹出系统通知",
+                "未授予通知权限，不会弹出系统通知",
                 Toast.LENGTH_SHORT
             ).show()
         }
@@ -234,9 +235,7 @@ fun SettingsScreen(
 
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
-            cacheSizeText = runCatching {
-                context.cacheDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
-            }.map(::formatFileSize).getOrDefault("无法获取")
+            cacheSizeText = runCatching { clearableCacheBytes(context) }.map(::formatFileSize).getOrDefault("无法获取")
         }
     }
 
@@ -405,6 +404,7 @@ fun SettingsScreen(
                         val v = networkValues[idx]
                         networkMode = v
                         credentialStore.networkMode = v
+                        scope.launch { loginState.onNetworkChanged() }
                     }
                 )
             }
@@ -599,7 +599,7 @@ fun SettingsScreen(
                                     }
                                 },
                                 onFailure = {
-                                    Toast.makeText(context, "检查失败：${it.message}", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, com.xjtu.toolbox.error.FriendlyError.of(it, "检查更新"), Toast.LENGTH_SHORT).show()
                                 }
                             )
                         }
@@ -760,7 +760,7 @@ fun SettingsScreen(
             OverlayDialog(
                 show = showClearCacheDialog,
                 title = "清除缓存",
-                summary = "将清除约 $cacheSizeText，不影响登录和下载的文件。",
+                summary = "将清除约 $cacheSizeText 的课表、成绩等缓存，打开对应页面会重新加载，桌面小组件会暂时为空。登录、下载的文件和更新包不受影响。",
                 onDismissRequest = { showClearCacheDialog = false }
             ) {
                 Row(Modifier.fillMaxWidth()) {
@@ -775,14 +775,10 @@ fun SettingsScreen(
                         onClick = {
                             showClearCacheDialog = false
                             scope.launch(Dispatchers.IO) {
-                                val cleared = runCatching {
-                                    context.cacheDir.deleteRecursively()
-                                    context.cacheDir.mkdirs()
-                                }.isSuccess
+                                val cleared = runCatching { clearableCacheFiles(context).forEach { it.deleteRecursively() } }.isSuccess
                                 // 重新计算实际缓存大小，刷新 UI
-                                val newSize = runCatching {
-                                    context.cacheDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
-                                }.map(::formatFileSize).getOrDefault("0 B")
+                                val newSize = runCatching { clearableCacheBytes(context) }.map(::formatFileSize).getOrDefault("0 B")
+                                com.xjtu.toolbox.widget.ScheduleWidgetUpdater.requestUpdate(context)
                                 withContext(Dispatchers.Main) {
                                     cacheSizeText = newSize
                                     Toast.makeText(
@@ -1027,6 +1023,13 @@ private fun EulaSheet(show: Boolean, onDismiss: () -> Unit) {
         }
     }
 }
+
+/** 清缓存时保留 cacheDir 下的 updates/：已经下载好、等着安装的更新包。 */
+private fun clearableCacheFiles(context: android.content.Context): List<java.io.File> =
+    context.cacheDir.listFiles().orEmpty().filter { it.name != "updates" }
+
+private fun clearableCacheBytes(context: android.content.Context): Long =
+    clearableCacheFiles(context).sumOf { root -> root.walkTopDown().filter { it.isFile }.sumOf { it.length() } }
 
 private fun formatFileSize(bytes: Long): String = when {
     bytes < 1024 -> "$bytes B"

@@ -78,7 +78,7 @@ class DownloadManager private constructor(private val context: Context) {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     // 正在运行的下载任务
-    private val activeDownloads = mutableMapOf<Long, Job>()
+    private val activeDownloads = java.util.concurrent.ConcurrentHashMap<Long, Job>()
 
     // 并发限制
     private val semaphore = Semaphore(3) // 最多同时下载3个
@@ -174,124 +174,106 @@ class DownloadManager private constructor(private val context: Context) {
      * 启动单个下载任务
      */
     private fun launchDownload(taskId: Long) {
-        val job = scope.launch {
+        if (activeDownloads[taskId]?.isActive == true) return
+        // 先登记再启动：任务瞬间结束时，它自己的清理不会赶在登记之前
+        val job = scope.launch(start = CoroutineStart.LAZY) {
             semaphore.acquire()
             try {
                 executeDownload(taskId)
             } finally {
                 semaphore.release()
-                activeDownloads.remove(taskId)
+                activeDownloads.remove(taskId, coroutineContext.job)
             }
         }
         activeDownloads[taskId] = job
+        job.start()
     }
 
     /**
-     * 执行实际下载逻辑
+     * 执行实际下载逻辑（断点续传）
      */
     private suspend fun executeDownload(taskId: Long) {
         val task = dao.getAll().find { it.id == taskId } ?: return
 
         try {
-            // 更新状态为下载中
             dao.updateStatus(taskId, "downloading")
             emitProgress(taskId, 0, -1, "downloading")
 
             val file = File(task.filePath)
             val existingBytes = if (file.exists()) file.length() else 0L
 
-            // 构建请求 (支持断点续传)
             val requestBuilder = Request.Builder()
                 .url(task.videoUrl)
                 .header("Accept", "*/*")
                 .header("User-Agent", "XJTUToolbox/1.0")
+            if (existingBytes > 0) requestBuilder.header("Range", "bytes=$existingBytes-")
 
-
-
-            if (existingBytes > 0) {
-                requestBuilder.header("Range", "bytes=$existingBytes-")
-            }
-
-            val request = requestBuilder.build()
-            val response = httpClient.newCall(request).execute()
-
-            if (!response.isSuccessful) {
-                throw Exception("HTTP ${response.code}: ${response.message}")
-            }
-
-            // 解析文件大小
-            val contentRange = response.header("Content-Range")
-            val contentLength = response.body.contentLength()
-
-            val totalSize = if (contentRange != null) {
-                // Content-Range: bytes 100-499/500
-                val parts = contentRange.split("/")
-                if (parts.size > 1) parts[1].toLongOrNull() ?: -1 else -1
-            } else {
-                existingBytes + contentLength
-            }
-
-            // 更新文件大小信息
-            dao.updateProgress(taskId, existingBytes, totalSize)
-
-            // 写入文件
-            val outputStream = RandomAccessFile(file, "rw")
-            if (existingBytes > 0) {
-                outputStream.seek(existingBytes)
-            }
-
-            response.body.byteStream().use { inputStream ->
-                val buffer = ByteArray(8192)
-                var downloaded = existingBytes
-                var lastProgressTime = 0L
-                var lastSpeedCalcTime = System.currentTimeMillis()
-                var lastDownloadedBytes = downloaded
-
-                while (currentCoroutineContext().isActive) {
-                    val bytesRead = inputStream.read(buffer)
-                    if (bytesRead == -1) break
-
-                    outputStream.write(buffer, 0, bytesRead)
-                    downloaded += bytesRead
-
-                    // 更新数据库 (每500ms更新一次进度)
-                    val now = System.currentTimeMillis()
-                    if (now - lastProgressTime > 500) {
-                        dao.updateProgress(taskId, downloaded, totalSize)
-                        val progress = if (totalSize > 0) downloaded.toFloat() / totalSize else 0f
-                        emitProgress(taskId, downloaded, totalSize, "downloading")
-                        lastProgressTime = now
-                    }
-                    
-                    // 计算下载速度 (每秒更新一次)
-                    if (now - lastSpeedCalcTime > 1000) {
-                        val speedBytes = downloaded - lastDownloadedBytes
-                        val speedPerSecond = speedBytes * 1000 / (now - lastSpeedCalcTime)
-                        dao.updateSpeed(taskId, speedPerSecond)
-                        lastSpeedCalcTime = now
-                        lastDownloadedBytes = downloaded
-                    }
+            httpClient.newCall(requestBuilder.build()).execute().use { response ->
+                // 本地已经是完整文件：Range 越界，服务器回 416，这不是失败
+                if (response.code == 416 && existingBytes > 0) {
+                    dao.updateStatus(taskId, "completed")
+                    dao.updateProgress(taskId, existingBytes, existingBytes)
+                    emitProgress(taskId, existingBytes, existingBytes, "completed")
+                    Log.d(TAG, "Already complete: taskId=$taskId, size=$existingBytes")
+                    return
+                }
+                if (!response.isSuccessful) {
+                    throw Exception("HTTP ${response.code}: ${response.message}")
                 }
 
-                // 下载完成
-                dao.updateStatus(taskId, "completed")
-                dao.updateProgress(taskId, downloaded, totalSize)
-                emitProgress(taskId, downloaded, totalSize, "completed")
+                // 服务器不认 Range 会回整个文件（200），这时必须从头写，不能接在旧内容后面
+                val resumed = existingBytes > 0 && response.code == 206
+                val startBytes = if (resumed) existingBytes else 0L
+                val totalSize = response.header("Content-Range")
+                    ?.substringAfter('/', "")?.toLongOrNull()
+                    ?: response.body.contentLength().takeIf { it >= 0 }?.let { startBytes + it }
+                    ?: -1L
+                dao.updateProgress(taskId, startBytes, totalSize)
 
-                Log.d(TAG, "Download completed: taskId=$taskId, file=${file.name}, size=$downloaded")
+                RandomAccessFile(file, "rw").use { output ->
+                    if (resumed) output.seek(startBytes) else output.setLength(0)
+                    response.body.byteStream().use { input ->
+                        val buffer = ByteArray(8192)
+                        var downloaded = startBytes
+                        var lastProgressTime = 0L
+                        var lastSpeedCalcTime = System.currentTimeMillis()
+                        var lastDownloadedBytes = downloaded
+
+                        while (true) {
+                            // 暂停 / 取消时在这里退出，不能落到下面的「完成」
+                            currentCoroutineContext().ensureActive()
+                            val bytesRead = input.read(buffer)
+                            if (bytesRead == -1) break
+                            output.write(buffer, 0, bytesRead)
+                            downloaded += bytesRead
+
+                            val now = System.currentTimeMillis()
+                            if (now - lastProgressTime > 500) {
+                                dao.updateProgress(taskId, downloaded, totalSize)
+                                emitProgress(taskId, downloaded, totalSize, "downloading")
+                                lastProgressTime = now
+                            }
+                            if (now - lastSpeedCalcTime > 1000) {
+                                dao.updateSpeed(taskId, (downloaded - lastDownloadedBytes) * 1000 / (now - lastSpeedCalcTime))
+                                lastSpeedCalcTime = now
+                                lastDownloadedBytes = downloaded
+                            }
+                        }
+
+                        dao.updateStatus(taskId, "completed")
+                        dao.updateProgress(taskId, downloaded, totalSize)
+                        emitProgress(taskId, downloaded, totalSize, "completed")
+                        Log.d(TAG, "Download completed: taskId=$taskId, file=${file.name}, size=$downloaded")
+                    }
+                }
             }
-
-            outputStream.close()
-
+        } catch (e: CancellationException) {
+            Log.d(TAG, "Download cancelled: taskId=$taskId")
+            throw e
         } catch (e: Exception) {
-            if (e is CancellationException) {
-                // 被取消,保持当前状态
-                Log.d(TAG, "Download cancelled: taskId=$taskId")
-            } else {
-                Log.e(TAG, "Download failed: taskId=$taskId", e)
-                dao.updateStatus(taskId, "failed", e.message)
-                emitProgress(taskId, task.downloadedSize, task.fileSize, "failed")
-            }
+            Log.e(TAG, "Download failed: taskId=$taskId", e)
+            dao.updateStatus(taskId, "failed", com.xjtu.toolbox.error.FriendlyError.of(e, "下载"))
+            emitProgress(taskId, task.downloadedSize, task.fileSize, "failed")
         }
     }
 

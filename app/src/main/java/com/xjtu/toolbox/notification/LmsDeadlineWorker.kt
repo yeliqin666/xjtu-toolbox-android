@@ -15,6 +15,7 @@ import com.xjtu.toolbox.lms.LmsActivityType
 import com.xjtu.toolbox.lms.LmsApi
 import com.xjtu.toolbox.lms.deadlineInstant
 import com.xjtu.toolbox.lms.remaining
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.time.Duration
@@ -43,9 +44,12 @@ class LmsDeadlineWorker(
         val app = applicationContext
         if (!ReminderStore.isEnabled(app, ReminderKind.LMS)) return Result.success()
 
-        val site = HeadlessSessions.site(app, LoginType.LMS) ?: return Result.retry()
         val due = try {
+            // 需要短信验证 / 密码失效：这一轮直接放弃，等下次正常调度，别退避重试再提交一次密码
+            val site = HeadlessSessions.site(app, LoginType.LMS) ?: return Result.success()
             withContext(Dispatchers.IO) { collectDue(LmsApi(site)) }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "本轮检查失败：${e.message}")
             return Result.retry()

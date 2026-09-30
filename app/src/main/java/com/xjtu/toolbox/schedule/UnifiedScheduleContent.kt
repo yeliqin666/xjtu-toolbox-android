@@ -85,17 +85,15 @@ fun TodayTimeline(
     /** 今天截止的作业，插进时间轴对应的时刻（不是「接下来」——那是给以后的）。 */
     todayHomework: List<LmsDue> = emptyList(),
 ) {
+    val courseColors = rememberCourseColors(allCourseNames)
     val isSummer = remember(today) { XjtuTime.isSummerTime(today.monthValue) }
     val entries = remember(courses, exams, today, todayHomework) {
         val dow = today.dayOfWeek.value
         val fromCourses = courses.filter { it.dayOfWeek == dow }.map { c ->
+            val (start, end) = c.clockMinutes(isSummer)
             TimelineEntry(
-                startMinute = c.startMinuteOfDay.takeIf { it >= 0 }
-                    ?: XjtuTime.getClassTime(c.startSection, isSummer)?.start?.toMinuteOfDay()
-                    ?: 0,
-                endMinute = c.endMinuteOfDay.takeIf { it >= 0 }
-                    ?: XjtuTime.getClassTime(c.endSection, isSummer)?.end?.toMinuteOfDay()
-                    ?: 0,
+                startMinute = start,
+                endMinute = end,
                 title = c.courseName,
                 place = c.location,
                 detail = c.teacher,
@@ -185,7 +183,7 @@ fun TodayTimeline(
                 val progress = if (e.endMinute > e.startMinute && nowMinute in e.startMinute until e.endMinute)
                     (nowMinute - e.startMinute).toFloat() / (e.endMinute - e.startMinute) else null
                 Box(Modifier.enterOnce(i)) {
-                    TimelineRow(e, past, allCourseNames, onCourseClick, progress)
+                    TimelineRow(e, past, courseColors, onCourseClick, progress)
                 }
             }
         }
@@ -235,7 +233,7 @@ private fun NoCourseTodayCard() {
 private fun TimelineRow(
     e: TimelineEntry,
     past: Boolean,
-    allCourseNames: List<String>,
+    courseColors: Map<String, Color>,
     onCourseClick: (CourseItem) -> Unit,
     /** 正在进行时是已过去的比例（0~1），否则 null。 */
     progress: Float? = null,
@@ -243,7 +241,7 @@ private fun TimelineRow(
     val accent = when (e.kind) {
         EntryKind.EXAM -> MiuixTheme.colorScheme.error
         EntryKind.HOMEWORK -> MiuixTheme.colorScheme.primary
-        EntryKind.COURSE -> courseColor(e.title, allCourseNames)
+        EntryKind.COURSE -> courseColors.colorOf(e.title)
     }
     val alpha = if (past) 0.45f else 1f
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
@@ -529,7 +527,7 @@ fun SemesterCourseList(
                     val line = listOfNotNull(
                         course.teacher.takeIf { it.isNotBlank() },
                         course.location.takeIf { it.isNotBlank() },
-                        row.weeks.takeIf { it.isNotEmpty() }?.let { "${compactWeeks(it)}周" },
+                        row.weeks.takeIf { it.isNotEmpty() }?.let { "${TermWeeks.formatRanges(it)}周" },
                     ).joinToString("  ·  ")
                     if (line.isNotBlank()) {
                         Spacer(Modifier.height(2.dp))
@@ -596,44 +594,20 @@ private fun parseExamStart(raw: String): Int? =
         m.groupValues[1].toInt() * 60 + m.groupValues[2].toInt()
     }
 
-/** [1,2,3,5,7,8,9] → "1-3,5,7-9" */
-private fun compactWeeks(weeks: List<Int>): String {
-    if (weeks.isEmpty()) return ""
-    val out = mutableListOf<String>()
-    var s = weeks[0]
-    var e = weeks[0]
-    for (i in 1 until weeks.size) {
-        if (weeks[i] == e + 1) e = weeks[i] else {
-            out.add(if (s == e) "$s" else "$s-$e"); s = weeks[i]; e = weeks[i]
-        }
-    }
-    out.add(if (s == e) "$s" else "$s-$e")
-    return out.joinToString(",")
-}
-
 /** 宽屏「今日」栏右边要默认展开的那节课：正在上的，或者今天接下来最近的一节。 */
 internal data class FocusCourse(val course: CourseItem, val ongoing: Boolean)
 
 /**
  * 从本周的课里挑出今天「正在上」或「下一节」。今天的课都上完了、或者今天没课，返回 null。
- * 起止时间的算法和今日时间轴（[TodayTimeline]）完全一样：优先用课表给的分钟数，没有就按节次换算，
- * 冬夏作息都算上。两处算出来的时间必须一致，否则右栏说「正在上」、左栏却已经把它压暗了。
+ * 起止时间和今日时间轴（[TodayTimeline]）一样用 [CourseItem.clockMinutes]，两处必须一致，
+ * 否则右栏说「正在上」、左栏却已经把它压暗了。
  */
 internal fun focusCourseOf(weekCourses: List<CourseItem>, today: LocalDate, now: LocalTime): FocusCourse? {
     val isSummer = XjtuTime.isSummerTime(today.monthValue)
     val nowMinute = now.toMinuteOfDay()
     val todays = weekCourses
         .filter { it.dayOfWeek == today.dayOfWeek.value }
-        .map { c ->
-            val start = c.startMinuteOfDay.takeIf { it >= 0 }
-                ?: XjtuTime.getClassTime(c.startSection, isSummer)?.start?.toMinuteOfDay()
-                ?: return@map null
-            val end = c.endMinuteOfDay.takeIf { it >= 0 }
-                ?: XjtuTime.getClassTime(c.endSection, isSummer)?.end?.toMinuteOfDay()
-                ?: start
-            Triple(c, start, end)
-        }
-        .filterNotNull()
+        .map { c -> c.clockMinutes(isSummer).let { (start, end) -> Triple(c, start, end) } }
         .sortedBy { it.second }
     todays.firstOrNull { nowMinute in it.second until it.third }?.let { return FocusCourse(it.first, ongoing = true) }
     return todays.firstOrNull { it.second > nowMinute }?.let { FocusCourse(it.first, ongoing = false) }

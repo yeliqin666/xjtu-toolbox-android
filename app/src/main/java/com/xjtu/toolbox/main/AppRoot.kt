@@ -185,8 +185,7 @@ fun AppRoot(
     val openWithWebVpn: (String) -> Unit = { url ->
         webVpnJob?.cancel()
         webVpnJob = scope.launch {
-            val ok = loginState.checkWebVpnSessionAlive() || loginState.loginWebVpn()
-            if (ok && loginState.webVpnClientOrNull != null) router.open(AppRoute.Browser(url))
+            if (loginState.ensureWebVpnClient() != null) router.open(AppRoute.Browser(url))
         }
     }
 
@@ -276,29 +275,15 @@ private class SessionRestore(
 
     private var lastWarmupAt = 0L
 
-    /**
-     * 后台预热：先登教务建立 CAS 会话，再对最近用过的几个站点做静默 SSO（不提交密码、撞 MFA 即停）。
-     * 不要一次登全部站点，服务端会风控。
-     */
+    /** 刚登录完：先登教务建立统一认证会话，再预热常用站点（见 [com.xjtu.toolbox.auth.SessionManager.warmUp]）。 */
     fun warmup(force: Boolean = false) {
         val now = System.currentTimeMillis()
         if (!force && now - lastWarmupAt < 60_000L) return
         lastWarmupAt = now
+        val manager = loginState.sessionManager ?: return
         scope.launch(Dispatchers.IO) {
-            try {
-                runCatching { loginState.sessionManager?.ensureSite(LoginType.JWXT) }
-                // 清掉已下线的站点
-                val stored = credentialStore.recentSiteKeys
-                val recent = stored.filter { loginState.sessionManager?.getSiteOrNull(it) != null }
-                if (recent.size != stored.size) credentialStore.recentSiteKeys = recent
-                if (recent.isNotEmpty()) {
-                    Log.d("Warmup", "prewarm recent sites: $recent")
-                    runCatching { loginState.sessionManager?.prewarmSites(recent) }
-                }
-                Log.d("Warmup", "Warmup done: activeSites=${loginState.sessionManager?.activeSiteKeys}")
-            } catch (e: Exception) {
-                Log.w("Warmup", "background login warmup failed: ${e.message}")
-            }
+            runCatching { manager.ensureSite(LoginType.JWXT) }
+            manager.warmUp(credentialStore.topSites(com.xjtu.toolbox.auth.SessionManager.WARM_SITES))
         }
     }
 
@@ -310,11 +295,13 @@ private class SessionRestore(
         if (loginState.hasCredentials && (loginState.sessionManager?.activeSiteCount ?: 0) == 0) {
             isRestoring = true
             withContext(Dispatchers.IO) {
-                // 冷启动时网络回调可能不来，主动探一次校园网
-                try {
-                    loginState.ensureCampusDetected()
-                } catch (e: Exception) {
-                    Log.w("Restore", "网络探测失败", e)
+                // 冷启动时网络回调可能不来，主动探一次校园网。和教务登录并行：教务钉死直连，不用等判定
+                launch {
+                    try {
+                        loginState.ensureCampusDetected()
+                    } catch (e: Exception) {
+                        Log.w("Restore", "网络探测失败", e)
+                    }
                 }
                 try {
                     val startTime = System.currentTimeMillis()
@@ -405,7 +392,7 @@ private fun CampusCardResumeRefresh(loginState: AppLoginState) {
 }
 
 /**
- * 默认网络变化时（3 秒防抖）重探校园网；访问方式真变了且在要登录的页面上，就让该页重新打开。
+ * 默认网络真变了时（0.3 秒防抖）重探校园网；访问方式真变了且在要登录的页面上，就让该页重新打开。
  */
 @Composable
 private fun NetworkChangeWatcher(loginState: AppLoginState, navigator: AppNavigator) {
@@ -414,17 +401,29 @@ private fun NetworkChangeWatcher(loginState: AppLoginState, navigator: AppNaviga
     DisposableEffect(Unit) {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
         var job: Job? = null
+        // 这一轮防抖里默认网络换过（WiFi / 数据互切），而不只是同一张网的属性变化
+        val switched = java.util.concurrent.atomic.AtomicBoolean(false)
         fun trigger(reason: String) {
             job?.cancel()
             job = scope.launch {
-                delay(3000L)
+                // 只等 0.3 秒并掉同一波回调：新网络没起来时探测会判「没网」而不改判，后续回调还会再探
+                delay(300L)
+                val networkSwitched = switched.getAndSet(false)
                 try {
-                    Log.d("Network", "Network changed ($reason), re-evaluating access mode after 3s settle")
-                    val modeChanged = withContext(Dispatchers.IO) { loginState.onNetworkChanged() }
+                    Log.d("Network", "Network changed ($reason, switched=$networkSwitched), re-evaluating access mode")
+                    val modeChanged = withContext(Dispatchers.IO) { loginState.onNetworkChanged(networkSwitched) }
                     val current = navigator.current
                     if (loginState.isLoggedIn && modeChanged && current.loginType != null) {
                         Log.d("Network", "Mode changed while on ${current.id} → markStaleAndRetry")
                         loginState.markStaleAndRetry(current)
+                    }
+                    // 断网那几秒没拉成的首页数据补一轮（各源仍按 TTL，断网失败不记退避）。
+                    // 单独起协程：下一次网络回调会取消本 job，别把跑到一半的刷新也带走
+                    if (loginState.isLoggedIn && com.xjtu.toolbox.home.HomeStatsRefresher.isOnline(context)) {
+                        scope.launch {
+                            com.xjtu.toolbox.home.HomeStatsRefresher.refreshDue(context, loginState.sessionManager, loginState.accountType)
+                            com.xjtu.toolbox.home.HomeSignals.bumpStatsVersion()
+                        }
                     }
                 } catch (e: CancellationException) {
                     throw e
@@ -433,13 +432,32 @@ private fun NetworkChangeWatcher(loginState: AppLoginState, navigator: AppNaviga
                 }
             }
         }
+        // 默认网络的指纹：哪张网、什么类型、是否通过验证、地址。注册回调时系统会把当前网络原样再报一遍，
+        // 移动数据下信号强弱一变也会回调，指纹没变都不算数；网络本身换了才算「换了网络」
+        fun fingerprint(network: Network?): Pair<Network?, String> {
+            val caps = network?.let { cm?.getNetworkCapabilities(it) }
+            val addrs = network?.let { cm?.getLinkProperties(it) }?.linkAddresses?.joinToString { it.address.hostAddress.orEmpty() }
+            return network to "${caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)}:" +
+                "${caps?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)}:" +
+                "${caps?.hasTransport(NetworkCapabilities.TRANSPORT_VPN)}:" +
+                "${caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)}:$addrs"
+        }
+        val last = java.util.concurrent.atomic.AtomicReference(fingerprint(cm?.activeNetwork))
+        fun onChange(reason: String) {
+            val now = fingerprint(cm?.activeNetwork)
+            val prev = last.getAndSet(now)
+            if (now == prev) return
+            if (now.first != prev.first) {
+                loginState.sessionManager?.evictConnections()
+                switched.set(true)
+            }
+            trigger(reason)
+        }
         val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) = trigger("onAvailable")
-            override fun onLost(network: Network) = trigger("onLost")
-            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) =
-                trigger("onCapabilitiesChanged")
-            override fun onLinkPropertiesChanged(network: Network, properties: LinkProperties) =
-                trigger("onLinkPropertiesChanged")
+            override fun onAvailable(network: Network) = onChange("onAvailable")
+            override fun onLost(network: Network) = onChange("onLost")
+            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) = onChange("onCapabilitiesChanged")
+            override fun onLinkPropertiesChanged(network: Network, properties: LinkProperties) = onChange("onLinkPropertiesChanged")
         }
         runCatching { cm?.registerDefaultNetworkCallback(callback) }
             .onFailure { Log.w("Network", "registerDefaultNetworkCallback failed: ${it.message}") }

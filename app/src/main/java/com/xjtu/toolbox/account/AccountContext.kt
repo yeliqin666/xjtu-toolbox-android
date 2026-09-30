@@ -16,6 +16,11 @@ object AccountContext {
     @JvmField
     var activeAccountId: String? = null
 
+    /** 每切一次账号命名空间加一（见 SessionManager.reconfigureForAccount）；进行中的登录据此发现账号已经换了。 */
+    @Volatile
+    @JvmField
+    var switchEpoch: Long = 0L
+
     /** 用于文件名/SharedPreferences 名的安全化账号后缀（当前激活账号）。 */
     fun safeSuffix(): String = suffixFor(activeAccountId)
 

@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.home
 
 import android.content.Context
+import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.schedule.ScheduleCache
 import kotlinx.serialization.Serializable
 import com.xjtu.toolbox.data.DataCache
@@ -72,6 +73,11 @@ object HomeStats {
         }
     }
 
+    /** 让这个源在下一轮刷新里过期（戳归零）。 */
+    fun invalidate(context: Context, route: AppRoute, accountId: String? = com.xjtu.toolbox.account.AccountContext.activeAccountId) {
+        runCatching { DataCache(context, accountId).put(STAMP_PREFIX + route.id, "0") }
+    }
+
     /** 失败后的重试间隔。见 [markFailed]。 */
     const val FAILURE_RETRY_MS = 30L * 60 * 1000L
 
@@ -111,6 +117,9 @@ object HomeStats {
         }
     }
 
+    /** 某个功能推送过的摘要（没有或过期返回 null），给功能页顶部的入口卡显示状态。 */
+    fun pushed(context: Context, route: AppRoute): HomeStat? = readPushed(DataCache(context), route.id)
+
     private fun readPushed(cache: DataCache, routeKey: String): HomeStat? =
         cache.read<HomeStat>(PUSHED_PREFIX + routeKey, PUSHED_TTL_MS)
 
@@ -128,7 +137,6 @@ object HomeStats {
         AppRoute.Judge,         // 待评教门数
         AppRoute.Coupon,        // 待领取 / 待使用
         AppRoute.Fitness,       // 最近学年体测总分
-        AppRoute.YellowPage,    // 教务处 / 保卫处电话
         AppRoute.JwappScore,    // 成绩门数 / 新增门数
         AppRoute.Notification,  // 教务处最新通知
     ).map { it.id }
@@ -150,25 +158,25 @@ object HomeStats {
      * 游标只在这里前移，且只有成功取到数据才会调用——失败时不动基线，
      * 否则一次失败把基线冲成 0，下次就会把全部成绩当成新增。
      */
-    fun bumpScoreCursor(context: Context, total: Int): Int = runCatching {
-        val prefs = context.getSharedPreferences("home_stats_cursor", Context.MODE_PRIVATE)
+    fun bumpScoreCursor(context: Context, total: Int, accountId: String? = AccountContext.activeAccountId): Int = runCatching {
+        val prefs = scorePrefs(context, accountId)
         val prev = prefs.getInt(KEY_SCORE_CURSOR, -1)
         prefs.edit().putInt(KEY_SCORE_CURSOR, total).apply()
         if (prev < 0) 0 else (total - prev).coerceAtLeast(0)
     }.getOrDefault(0)
 
     /** 当前的成绩新增数（供屁岱读取，不改变游标）。 */
-    fun pendingNewScores(context: Context): Int = runCatching {
-        val prefs = context.getSharedPreferences("home_stats_cursor", Context.MODE_PRIVATE)
-        prefs.getInt("proactive_score_new", 0)
+    fun pendingNewScores(context: Context, accountId: String? = AccountContext.activeAccountId): Int = runCatching {
+        scorePrefs(context, accountId).getInt("proactive_score_new", 0)
     }.getOrDefault(0)
 
-    fun setPendingNewScores(context: Context, n: Int) {
-        runCatching {
-            context.getSharedPreferences("home_stats_cursor", Context.MODE_PRIVATE)
-                .edit().putInt("proactive_score_new", n).apply()
-        }
+    fun setPendingNewScores(context: Context, n: Int, accountId: String? = AccountContext.activeAccountId) {
+        runCatching { scorePrefs(context, accountId).edit().putInt("proactive_score_new", n).apply() }
     }
+
+    /** 成绩游标按账号分开：共用一份时，切到成绩更多的账号会误报「新增 N 门」。 */
+    private fun scorePrefs(context: Context, accountId: String?) =
+        context.getSharedPreferences("score_cursor${AccountContext.suffixFor(accountId)}", Context.MODE_PRIVATE)
 
     /**
      * 记下教务处最新一条通知的标题。

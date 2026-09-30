@@ -121,7 +121,7 @@ fun ScoreReportScreen(
                 appLoginState.handleAuthExpired(AppRoute.ScoreReport, onBack)
             } catch (e: Exception) {
                 if (allGrades.isEmpty()) {
-                    errorMessage = "加载失败: ${e.message}"
+                    errorMessage = com.xjtu.toolbox.error.FriendlyError.of(e, "加载")
                     haptics.error()
                 }
             } finally {

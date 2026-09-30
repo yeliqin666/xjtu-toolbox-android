@@ -57,7 +57,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.game.GameIds
 import com.xjtu.toolbox.game.GameResult
+import com.xjtu.toolbox.game.GameSound
 import com.xjtu.toolbox.game.GameStore
+import com.xjtu.toolbox.game.Sfx
 import com.xjtu.toolbox.game.net.GameKind
 import com.xjtu.toolbox.game.net.OnlineConnState
 import com.xjtu.toolbox.game.net.OnlineGameEvent
@@ -150,6 +152,15 @@ fun GomokuScreen(onBack: () -> Unit) {
 
     fun applyOutcome(outcome: GomokuOutcome) {
         ui = ui.copy(outcome = outcome)
+        GameSound.play(Sfx.KNOCK, 0.7f)
+        val aiWon = mode == GomokuMode.AI &&
+            ((outcome == GomokuOutcome.XJTU_WIN) != playerIsXjtu) && outcome != GomokuOutcome.DRAW
+        when {
+            outcome == GomokuOutcome.ONGOING -> Unit
+            outcome == GomokuOutcome.DRAW -> GameSound.play(Sfx.UH_OH)
+            aiWon -> GameSound.play(Sfx.SAD_TROMBONE, 0.8f)
+            else -> GameSound.play(Sfx.TADA)
+        }
         if (outcome == GomokuOutcome.SJTU_WIN) {
             taunt = GomokuTexts.sjtuWinTaunt(ui.board.moveCount())
         }
@@ -481,6 +492,7 @@ private class GomokuOnlineMatch {
             iWon -> GameResult.WIN
             else -> GameResult.LOSS
         }
+        GameSound.play(if (result == GameResult.WIN) Sfx.TADA else if (result == GameResult.DRAW) Sfx.UH_OH else Sfx.SAD_TROMBONE)
         GameStore.recordResult(context, GameIds.GOMOKU, "online", result)
     }
 
@@ -505,6 +517,7 @@ private class GomokuOnlineMatch {
                     toMove = board.opponentOf(peerStone)
                     outcome = o
                     version++
+                    GameSound.play(Sfx.KNOCK, 0.7f)
                     recordIfFinished(context, o)
                 }
                 OnlineGameEvent.Resigned -> {
@@ -565,6 +578,7 @@ private fun GomokuOnlineSection(
         online.toMove = board.opponentOf(myStone)
         online.outcome = o
         online.version++
+        GameSound.play(Sfx.KNOCK, 0.7f)
         online.recordIfFinished(context, o)
         scope.launch { activeSession.sendLocalMove(online.adapter.encodeMove(move)) }
     }

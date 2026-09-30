@@ -8,6 +8,7 @@ import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import com.xjtu.toolbox.ui.components.enterOnce
 import androidx.activity.compose.BackHandler
+import androidx.compose.material.icons.filled.Description
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -90,7 +91,9 @@ fun JwappScoreScreen(
     jwxtSite: SiteSession? = null,
     studentId: String = "",
     onBack: () -> Unit,
-    onOpenReport: () -> Unit = {}
+    onOpenReport: () -> Unit = {},
+    /** 电子成绩单入口；只有本科生传，研究生不传就不显示。 */
+    onOpenTranscript: (() -> Unit)? = null,
 ) {
     val appLoginState = LocalAppLoginState.current
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -308,6 +311,14 @@ fun JwappScoreScreen(
                             }
                         }
                       }
+                    }
+
+                    // 紧跟 GPA 卡：放在长长的成绩列表后面就没人找得到了
+                    onOpenTranscript?.let { open ->
+                        fullLineItem { com.xjtu.toolbox.ui.components.SecondaryEntry(
+                            androidx.compose.material.icons.Icons.Default.Description, com.xjtu.toolbox.ui.theme.legacyColor(com.xjtu.toolbox.nav.AppRoute.Transcript.id),
+                            "电子成绩单", "生成官方成绩单 PDF，可下载分享", onClick = open,
+                        ) }
                     }
 
                     fullLineItem {

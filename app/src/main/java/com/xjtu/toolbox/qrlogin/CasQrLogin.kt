@@ -7,6 +7,8 @@ import android.util.Log
 import com.xjtu.toolbox.auth.SessionManager
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.ensureSite
+import com.xjtu.toolbox.network.APP_UA
+import com.xjtu.toolbox.network.SUPERAPP_UA_SUFFIX
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -20,7 +22,7 @@ import org.json.JSONObject
  * 二维码内容即 scan URL。认证打在 login.xjtu.edu.cn（校外经 WebVPN 反代，同一台 CAS）：
  *  - Cookie `TGC`：任意一次 CAS 登录后即在对应 backend 的 cookie jar 里
  *  - Header `x-id-token`：一网通办登录链解出，官方 SPA 无差别附加；真正校验的是 TGC
- *  - UA 必须以 `" SuperApp"` 结尾，否则 CAS 判「不支持当前客户端」
+ *  - UA 必须以 `" SuperApp"` 结尾，否则 CAS 判「不支持当前客户端」；扫码接口不校验 TGC 绑定的 UA
  *
  * 官方 App 的时序（电脑端靠轮询感知）：
  * ```
@@ -34,7 +36,6 @@ object CasQrLogin {
     private const val TAG = "CasQrLogin"
     private const val HOST = "login.xjtu.edu.cn"
     private const val TOKEN_SITE = "ywtb"
-    private const val UA_SUFFIX = " SuperApp"
 
     sealed class Result {
         /** 已通知电脑「扫到了」，等用户在手机上确认。 */
@@ -90,14 +91,14 @@ object CasQrLogin {
             sessionManager.ensureSite(TOKEN_SITE, userInitiated = true)
         } catch (e: Exception) {
             Log.w(TAG, "ensureSite(ywtb) failed: ${e.message}")
-            return Prepare.Err(Result.Failed("登录态获取失败：${e.message ?: "请先登录账号"}"))
+            return Prepare.Err(Result.Failed(com.xjtu.toolbox.error.FriendlyError.of(e, "获取登录状态")))
         }
         return Prepare.Ok(ticket, site, site.client)
     }
 
     private fun Prepare.Ok.build(url: String): Request.Builder {
         val b = Request.Builder().url(url)
-            .header("User-Agent", baseUa() + UA_SUFFIX)
+            .header("User-Agent", APP_UA + SUPERAPP_UA_SUFFIX)
             .header("x-requested-with", "com.supwisdom.xjtu")
             .header(
                 "Accept",
@@ -122,7 +123,7 @@ object CasQrLogin {
             Result.Scanned
         } catch (e: Exception) {
             Log.w(TAG, "markScanned error: ${e.message}")
-            Result.Failed(e.message ?: "网络错误")
+            Result.Failed(com.xjtu.toolbox.error.FriendlyError.of(e, "扫码登录"))
         }
     }
 
@@ -144,7 +145,7 @@ object CasQrLogin {
             }
         } catch (e: Exception) {
             Log.w(TAG, "confirmAuth error: ${e.message}")
-            Result.Failed(e.message ?: "网络错误")
+            Result.Failed(com.xjtu.toolbox.error.FriendlyError.of(e, "扫码登录"))
         }
     }
 
@@ -161,9 +162,4 @@ object CasQrLogin {
             }
         }.getOrElse { Result.Failed("响应解析失败") }
     }
-
-    private fun baseUa(): String =
-        System.getProperty("http.agent")?.takeIf { it.isNotBlank() }
-            ?: "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 " +
-            "(KHTML, like Gecko) Version/4.0 Chrome/120.0.0.0 Mobile Safari/537.36"
 }

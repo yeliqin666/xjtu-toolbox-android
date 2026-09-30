@@ -183,6 +183,42 @@ class HopGameTest {
     }
 
     @Test
+    fun `易碎台之后只出够得着又不用等时机的一块`() {
+        repeat(300) { seed ->
+            val g = HopGame(Random(seed))
+            g.score = 120
+            g.targets = listOf(pad(2f, 0f, PadKind.CRUMBLE))
+            g.jump(2f / JUMP_SPEED)
+            val next = g.targets.single()
+            assertTrue(next.kind != PadKind.MOVING && next.kind != PadKind.GHOST)
+            assertTrue(hypot(next.baseX - 2f, next.baseZ) <= RUSHED_GAP + 1e-4f)
+        }
+    }
+
+    @Test
+    fun `高分时站在台子后沿也够得着每一块`() {
+        repeat(300) { seed ->
+            val g = HopGame(Random(seed))
+            g.score = 120
+            g.targets = listOf(pad(2f, 0f, half = 0.6f))
+            g.jump(2f / JUMP_SPEED)
+            for (t in g.targets) {
+                assertTrue(hypot(t.baseX - 2f, t.baseZ) <= JUMP_SPEED * MAX_CHARGE - 0.6f + 1e-4f)
+            }
+        }
+    }
+
+    @Test
+    fun `移动台沿轨道中线起跳，落点不随台子此刻的位置歪`() {
+        val g = HopGame(Random(1))
+        val moving = pad(2f, 0f, PadKind.MOVING, axis = 0)
+        moving.phase = (Math.PI / 2).toFloat()
+        g.targets = listOf(moving)
+        g.jump(2f / JUMP_SPEED)
+        assertEquals(0f, g.pz, 1e-4f)
+    }
+
+    @Test
     fun `弹簧台上起跳力度放大`() {
         val g = HopGame(Random(1))
         g.targets = listOf(pad(2f, 0f, PadKind.SPRING))

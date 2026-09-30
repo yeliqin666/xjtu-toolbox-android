@@ -3,8 +3,6 @@ package com.xjtu.toolbox
 import android.app.Application
 import android.content.Context
 import com.xjtu.toolbox.error.CrashReporter
-import com.xjtu.toolbox.error.ErrorReporting
-import com.xjtu.toolbox.error.FileErrorReporter
 import com.xjtu.toolbox.notification.AppNotificationChannels
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -16,9 +14,6 @@ import kotlinx.coroutines.launch
  *
  * - 8.0+ NotificationChannel 必须先于第一条通知注册，否则系统丢弃。
  *   在 [Application.onCreate] 建一次保证比任何业务 push 都早。
- * - 错误上报接口注入：[FileErrorReporter] 落 cache/error_reports/，
- *   后续接入 Crashlytics 替换实现即可。
- *
  * - 未捕获异常由 [CrashReporter] 落盘，下次启动匿名上报。
  *
  * 其余启动钩子（性能打点 / 渠道开关）保持空。
@@ -35,8 +30,13 @@ class XjtuApp : Application() {
     private fun removeRetiredFeatureData() {
         filesDir.listFiles { f -> f.isDirectory && f.name.startsWith("jiaoxiaozhi_sessions") }
             ?.forEach { dir -> runCatching { dir.deleteRecursively() } }
-        // 旧版考勤快照（AttendanceCache，已随旧考勤系统移除）
-        listOf("attendance_cache_undergraduate", "attendance_cache_postgraduate").forEach { name ->
+        // 旧版考勤快照（AttendanceCache，已随旧考勤系统移除），以及不分账号的课表变更快照 / 来源 / 调课理由
+        // （现在按账号存，名字后加账号后缀）。后三个旧文件是所有账号共用的，分不清属于谁，直接丢弃：
+        // 各账号下次加载课表时静默重建基线，不会误报「课表有变动」。
+        listOf(
+            "attendance_cache_undergraduate", "attendance_cache_postgraduate",
+            "schedule_diff", "schedule_source", "schedule_changes",
+        ).forEach { name ->
             if (java.io.File(java.io.File(applicationInfo.dataDir, "shared_prefs"), "$name.xml").exists()) {
                 runCatching { deleteSharedPreferences(name) }
             }
@@ -59,10 +59,13 @@ class XjtuApp : Application() {
     override fun onCreate() {
         super.onCreate()
         CrashReporter.install(this)
+        com.xjtu.toolbox.schedule.CourseColors.init(this)
+        com.xjtu.toolbox.game.GameSound.init(this)
+        com.xjtu.toolbox.inbox.InboxStore.init(this)
+        com.xjtu.toolbox.auth.CampusProbe.init(this)
         applicationScope.launch { CrashReporter.uploadPending(this@XjtuApp) }
         applicationScope.launch { removeRetiredFeatureData() }
         AppNotificationChannels.ensureChannels(this)
-        ErrorReporting.install(FileErrorReporter(this))
         // 后台调度要读账号（AccountStore → 加密存储首次打开要走 keystore），不占主线程。
         // 顺带预热了 SecurePrefs 的缓存，首帧里界面再取账号时直接命中。
         applicationScope.launch {

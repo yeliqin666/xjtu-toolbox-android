@@ -30,36 +30,6 @@ class LibraryLogin(
         const val SEAT_BASE_URL = "http://rg.lib.xjtu.edu.cn:8086"
     }
 
-    /** 座位系统是否已认证 */
-    var seatSystemReady: Boolean = false
-
-    /** 诊断信息（供 UI 展示） */
-    var diagnosticInfo: String = ""
-        private set
-
-    private val reAuthLock = Any()
-
-    /** 重新尝试访问座位系统 */
-    fun reAuthenticate(): Boolean = synchronized(reAuthLock) {
-        try {
-            val seatRequest = Request.Builder()
-                .url("$SEAT_BASE_URL/seat/")
-                .get()
-                .build()
-            val seatResponse = client.newCall(seatRequest).execute()
-            val seatBody = seatResponse.body.use { it.string() }
-            if (looksLikeSeatPage(seatBody)) {
-                seatSystemReady = true
-                diagnosticInfo = "座位系统已就绪"
-                return true
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "reAuthenticate failed", e)
-            diagnosticInfo = "重新认证失败: ${e.message}"
-        }
-        return false
-    }
-
     override fun postLogin(response: Response) {
         val finalUrl = response.request.url.toString()
         val body = lastResponseBody  // body 已在 XJTULogin 中读取并存储
@@ -68,14 +38,9 @@ class LibraryLogin(
         // 因为 loginUrl 就是座位系统，init 成功后 response 已经是座位页面。
         // WebVPN 模式下 finalUrl 是 webvpn.xjtu.edu.cn/http-8086/... 包装域名，
         // 需还原为原始 URL 再判断是否已抵达座位系统（否则直连判断永远 false）。
-        if (isAtSeatSystem(finalUrl)) {
-            // 检查是否拿到了座位页面内容
-            if (looksLikeSeatPage(body)) {
-                seatSystemReady = true
-                diagnosticInfo = "座位系统已就绪"
-                Log.d(TAG, "postLogin: Seat system ready (direct CAS auth succeeded)")
-                return
-            }
+        if (isAtSeatSystem(finalUrl) && looksLikeSeatPage(body)) {
+            Log.d(TAG, "postLogin: Seat system ready (direct CAS auth succeeded)")
+            return
         }
 
         // 如果 init 返回的不是座位页面（比如 CAS 发了 ticket 但没跟踪到最终页面），
@@ -92,17 +57,9 @@ class LibraryLogin(
 
             Log.d(TAG, "postLogin retry: code=${seatResponse.code}, finalUrl=${seatFinalUrl.redactUrl()}, bodyLen=${seatBody.length}")
 
-            if (looksLikeSeatPage(seatBody)) {
-                seatSystemReady = true
-                diagnosticInfo = "座位系统已就绪"
-            } else if (seatFinalUrl.contains("login.xjtu.edu.cn")) {
-                diagnosticInfo = "CAS 认证未完成，请确认已连接校园网或 VPN"
-            } else {
-                diagnosticInfo = "座位系统返回异常页面\n标题: ${extractTitle(seatBody)}\nURL: $seatFinalUrl"
-            }
+            if (!looksLikeSeatPage(seatBody)) Log.w(TAG, "postLogin retry: still not seat page")
         } catch (e: Exception) {
             Log.e(TAG, "postLogin retry failed", e)
-            diagnosticInfo = "座位系统访问失败: ${e.message}"
         }
     }
 
@@ -120,9 +77,4 @@ class LibraryLogin(
         body.contains("btn-group") || body.contains("tab-select") ||
         body.contains("seat") || body.contains("qseat") ||
         body.contains("座位") || body.contains("scount")
-
-    private fun extractTitle(html: String): String {
-        val match = Regex("<title>(.*?)</title>", RegexOption.IGNORE_CASE).find(html)
-        return match?.groupValues?.get(1) ?: "(无标题)"
-    }
 }

@@ -2,9 +2,14 @@ package com.xjtu.toolbox.schedule
 
 import android.content.Context
 import android.util.Log
+import com.xjtu.toolbox.account.AccountContext
 
 private const val TAG = "ScheduleDiff"
 private const val PREFS = "schedule_diff"
+
+/** 快照与待提醒随账号走，换账号后不会拿别人的课表来比。 */
+private fun prefs(ctx: Context) =
+    ctx.getSharedPreferences(PREFS + AccountContext.safeSuffix(), Context.MODE_PRIVATE)
 
 /**
  * 课表变更检测：调课、停课、换教室。
@@ -41,7 +46,7 @@ object ScheduleDiff {
     internal fun groupFingerprint(group: List<CourseItem>): String {
         if (group.size == 1) return fingerprintOf(group.single())
         val sorted = group.sortedBy { it.getWeeks().firstOrNull() ?: Int.MAX_VALUE }
-        val location = sorted.joinToString("、") { "${it.location}[${compactWeeks(it.getWeeks())}]" }
+        val location = sorted.joinToString("、") { "${it.location}[${TermWeeks.formatRanges(it.getWeeks())}]" }
         val len = group.maxOf { it.weekBits.length }
         val bits = CharArray(len) { i -> if (group.any { it.weekBits.getOrNull(i) == '1' }) '1' else '0' }
         val ends = group.map { it.endSection }.distinct().sorted().joinToString(",")
@@ -49,18 +54,7 @@ object ScheduleDiff {
         return "$location|${String(bits)}|$ends|$teachers"
     }
 
-    /** `[1,2,3,5]` → `1-3,5`。 */
-    private fun compactWeeks(weeks: List<Int>): String = buildList {
-        var i = 0
-        while (i < weeks.size) {
-            var j = i
-            while (j + 1 < weeks.size && weeks[j + 1] == weeks[j] + 1) j++
-            add(if (j > i) "${weeks[i]}-${weeks[j]}" else "${weeks[i]}")
-            i = j + 1
-        }
-    }.joinToString(",")
-
-    data class Change(val kind: Kind, val courseName: String, val detail: String, val reason: String? = null) {
+    data class Change(val kind: Kind, val courseName: String, val detail: String) {
         enum class Kind { ADDED, REMOVED, MOVED }
     }
 
@@ -70,16 +64,16 @@ object ScheduleDiff {
      */
     fun diffAndStore(ctx: Context, termCode: String, courses: List<CourseItem>): List<Change> {
         if (termCode.isBlank() || courses.isEmpty()) return emptyList()
-        val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        // 快照按来源分开存。三个系统给的周次位串长度、教室写法都不完全一样，
+        val prefs = prefs(ctx)
+        // 快照按来源分开存。教务和考勤给的周次位串长度、教室写法都不完全一样，
         // 用同一份快照去比会在换来源（设置里改、或非教务源失败退回教务）的那一次
         // 把每一门课都报成"变了"。分开存的代价只是换来源后重建一次基线。
         //
-        // 键名带格式版本：4.9.6 起同一节课可能拆成几条（临时换教室）、jwapp 的调停课合并也改了，
-        // 拿老快照来比会把没变的课报成"变了"。换版本等于重建一次基线，旧版本的键顺手清掉。
+        // 键名带格式版本：教务课表合进调停课后数据形状变了，拿老快照来比会把没变的课报成"变了"。
+        // 换版本等于重建一次基线，旧版本的键顺手清掉。
         val storeKey = "${SNAPSHOT_PREFIX}${termCode}_${ScheduleSourceRouter.servedSource(ctx).key}"
         val old = prefs.getStringSet(storeKey, null)
-        prefs.all.keys.filter { it.startsWith("snap_") }.takeIf { it.isNotEmpty() }?.let { stale ->
+        prefs.all.keys.filter { it.startsWith("snap") && !it.startsWith(SNAPSHOT_PREFIX) }.takeIf { it.isNotEmpty() }?.let { stale ->
             prefs.edit().apply { stale.forEach(::remove) }.apply()
         }
 
@@ -99,25 +93,18 @@ object ScheduleDiff {
             if (i <= 0) null else entry.substring(0, i) to entry.substring(i + 2)
         }.toMap()
 
-        // 课程号 -> 官方调课备注。只有 jwapp 这次实际服务了才有内容；结构性 diff
-        // 本身猜不出"为什么"，能对上号时就用这份官方原话代替猜测。
-        val reasons = ScheduleSourceRouter.changeEvents(ctx, termCode)
-            .filter { it.reason.isNotBlank() }
-            .associate { it.courseCode to it.reason }
-
         val changes = buildList {
             for ((k, fp) in now) {
                 val prev = oldMap[k]
                 val name = nameOf[k] ?: continue
-                val reason = reasons[k.substringBefore('|')]
                 when {
-                    prev == null -> add(Change(Change.Kind.ADDED, name, describeKey(k), reason))
-                    prev != fp -> add(Change(Change.Kind.MOVED, name, describeDelta(prev, fp), reason))
+                    prev == null -> add(Change(Change.Kind.ADDED, name, describeKey(k)))
+                    prev != fp -> add(Change(Change.Kind.MOVED, name, describeDelta(prev, fp)))
                 }
             }
             for (k in oldMap.keys - now.keys) {
                 // 停掉的课在新表里已经没有名字了，只能报位置。
-                add(Change(Change.Kind.REMOVED, "有课停了", describeKey(k), reasons[k.substringBefore('|')]))
+                add(Change(Change.Kind.REMOVED, "有课停了", describeKey(k)))
             }
         }
         if (changes.isNotEmpty()) Log.d(TAG, "$termCode 检出 ${changes.size} 处变更")
@@ -126,13 +113,11 @@ object ScheduleDiff {
 
     /** 检出的变更暂存一条给屁岱气泡用；冒过就清掉，不重复念。 */
     fun setPending(ctx: Context, text: String?) {
-        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putString("pending", text).apply()
+        prefs(ctx).edit().putString("pending", text).apply()
     }
 
     fun pending(ctx: Context): String? =
-        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString("pending", null)?.takeIf { it.isNotBlank() }
+        prefs(ctx).getString("pending", null)?.takeIf { it.isNotBlank() }
 
     /** 把一串变更压成一句人话。多于一条只报最要紧的那条加个计数，气泡塞不下更多。 */
     fun summarize(changes: List<Change>): String? {
@@ -150,13 +135,11 @@ object ScheduleDiff {
             Change.Kind.MOVED -> "${first.courseName}变了：${first.detail}"
             Change.Kind.ADDED -> "课表新增了${first.courseName}（${first.detail}）"
         }
-        // 结构性 diff 只能报"变了什么"，报不出"为什么"；能对上官方备注时补一句原话。
-        val withReason = first.reason?.takeIf { it.isNotBlank() }?.let { "$head，原因：$it" } ?: head
-        return if (changes.size > 1) "$withReason，共 ${changes.size} 处改动" else withReason
+        return if (changes.size > 1) "$head，共 ${changes.size} 处改动" else head
     }
 
     private val DAY_NAMES = listOf("", "一", "二", "三", "四", "五", "六", "日")
-    private const val SNAPSHOT_PREFIX = "snap2_"
+    private const val SNAPSHOT_PREFIX = "snap3_"
     private val ROOM_WEEKS = Regex("""^(.*)\[([0-9,\-]+)]$""")
 
     private fun describeKey(k: String): String {

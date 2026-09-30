@@ -25,6 +25,7 @@ import top.yukonga.miuix.kmp.basic.RangeSlider
 import com.xjtu.toolbox.ui.glass.*
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
+import com.xjtu.toolbox.ui.components.SelectionTile
 import top.yukonga.miuix.kmp.utils.SinkFeedback
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
@@ -170,57 +171,6 @@ private fun getSmartTags(room: RoomInfo, currentPeriod: Int): List<Pair<String, 
 }
 
 @Composable
-private fun BuildingSelectionTile(
-    text: String,
-    selected: Boolean,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-) {
-    // 原来手绘了一圈蓝色 border + 自绘圆点勾选，不是 miuix 原生语言。
-    // 改用 miuix 原生 Checkbox 表达多选状态，去掉描边，选中态只靠底色区分。
-    val shape = RoundedCornerShape(14.dp)
-    val containerColor = if (selected) {
-        MiuixTheme.colorScheme.tertiaryContainer
-    } else {
-        MiuixTheme.colorScheme.surfaceVariant
-    }
-    val contentColor = if (selected) MiuixTheme.colorScheme.onTertiaryContainer else MiuixTheme.colorScheme.onSurface
-    Surface(
-        modifier = modifier
-            .heightIn(min = 48.dp)
-            .clip(shape)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = SinkFeedback(),
-                onClick = onClick
-            ),
-        shape = shape,
-        color = containerColor
-    ) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            top.yukonga.miuix.kmp.basic.Checkbox(
-                state = if (selected) androidx.compose.ui.state.ToggleableState.On
-                    else androidx.compose.ui.state.ToggleableState.Off,
-                onClick = onClick
-            )
-            Spacer(Modifier.width(4.dp))
-            Text(
-                text,
-                style = MiuixTheme.textStyles.body2,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                color = contentColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
-        }
-    }
-}
-
-@Composable
 fun EmptyRoomScreen(
     onBack: () -> Unit,
     /**
@@ -338,8 +288,8 @@ fun EmptyRoomScreen(
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                             )
                             val options = buildList {
-                                add(Triple(RoomSource.LIVE, "实时状态", "此刻哪间空、哪间有人，含没排课但有人用的"))
-                                add(Triple(RoomSource.CDN, "CDN 课表", "免登录，看今天、明天逐节安排"))
+                                add(Triple(RoomSource.LIVE, "实时状态", "此刻哪间空、哪间有人"))
+                                add(Triple(RoomSource.CDN, "CDN 课表", "今明两天逐节安排，免登录"))
                                 // 沿用原来的限制：研究生身份不提供直查教务
                                 if (accountType != AccountType.POSTGRADUATE) {
                                     add(Triple(RoomSource.DIRECT, "直查教务", "登录教务查课表，和 CDN 同源"))
@@ -388,9 +338,9 @@ fun EmptyRoomScreen(
                 show = true,
                 title = "Cloudflare CDN 查询说明",
                 summary = if (accountType == AccountType.POSTGRADUATE) {
-                    "CDN 查询无需登录，也不会发送账号相关信息；数据是按课表定时生成的，只知道哪节有课，不知道没排课的教室里有没有人。想看此刻的实际情况，可切回实时状态。"
+                    "无需登录，不发送账号信息。数据按课表定时生成，只知道哪节有课，不知道教室里此刻有没有人；想看实况请切回实时状态。"
                 } else {
-                    "CDN 查询无需登录，也不会发送账号相关信息；数据是按课表定时生成的，只知道哪节有课，不知道没排课的教室里有没有人。想看此刻的实际情况，可切回实时状态；CDN 查询失败时可改用直查教务。"
+                    "无需登录，不发送账号信息。数据按课表定时生成，只知道哪节有课，不知道教室里此刻有没有人；想看实况请切回实时状态，查询失败可改用直查教务。"
                 },
                 onDismissRequest = {
                     credentialStore.hasReadEmptyRoomCdnTip = true
@@ -456,7 +406,7 @@ fun EmptyRoomScreen(
                     }
                     // 全选/取消全选
                     val allSelected = sheetBuildings.isNotEmpty() && sheetSelected.size == sheetBuildings.size
-                    if (sheetBuildings.isNotEmpty()) BuildingSelectionTile(
+                    if (sheetBuildings.isNotEmpty()) SelectionTile(
                         text = if (allSelected) "已选择全部教学楼" else "选择全部教学楼",
                         selected = allSelected,
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
@@ -473,7 +423,7 @@ fun EmptyRoomScreen(
                         ) {
                             rowBuildings.forEach { building ->
                                 val isSelected = building in sheetSelected
-                                BuildingSelectionTile(
+                                SelectionTile(
                                     text = building,
                                     selected = isSelected,
                                     modifier = Modifier.weight(1f)
@@ -493,7 +443,7 @@ fun EmptyRoomScreen(
                     }
                     if (isLive) {
                         Text(
-                            "实时状态来自学校智慧教室平台，只有兴庆、雁塔、创新港三个校区；仲英楼、中1、计教中心、田家炳等楼和曲江、苏州校区不在平台上，要看它们请在右上角切到课表数据。",
+                            "实时状态只覆盖兴庆、雁塔、创新港；仲英楼、中1、计教中心、田家炳等楼和曲江、苏州校区，请在右上角切到课表数据。",
                             style = MiuixTheme.textStyles.footnote1,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             modifier = Modifier.padding(horizontal = 4.dp, vertical = 10.dp),
@@ -632,7 +582,7 @@ fun EmptyRoomScreen(
                                 }
                                 Spacer(Modifier.height(8.dp))
                                 Text(
-                                    "「其它使用」是课表上没课、但平台统计到有人的教室（自习、社团借用、活动等，平台不区分），人数是此刻在场人数。",
+                                    "「其它使用」：没排课但有人，可能是自习、借用或活动；人数为此刻在场人数。",
                                     style = MiuixTheme.textStyles.footnote1,
                                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                 )
@@ -1176,9 +1126,8 @@ private fun LiveRoomCard(room: LiveRoom, schedule: RoomInfo?, currentPeriod: Int
 
 // ══════ 加载失败 / 空结果 ══════
 
-/** 报错不翻译：原文最准。没有 message 的给类名，至少知道是哪一类错。 */
-internal fun rawError(e: Throwable): String =
-    e.message?.trim()?.takeIf { it.isNotEmpty() } ?: e.javaClass.simpleName
+/** 空教室页里所有报错的文案。 */
+internal fun rawError(e: Throwable): String = com.xjtu.toolbox.error.FriendlyError.of(e, "查询")
 
 /**
  * 页面里所有「没东西可显示」的状态共用一个样子：浅底圆形图标 + 标题 + 说明 +

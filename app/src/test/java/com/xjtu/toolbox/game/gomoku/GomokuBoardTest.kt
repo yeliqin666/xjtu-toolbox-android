@@ -63,4 +63,15 @@ class GomokuBoardTest {
         assertTrue(board.isEmpty(1, 1))
         assertEquals(1, board.moveCount())
     }
+
+    @Test
+    fun `还有空位但谁都连不成五时判和`() {
+        // 5 路：每行、每列、两条对角线上都同时有双方的子，剩下 15 个空位也救不回来
+        val board = GomokuBoard(5)
+        val moves = (0 until 5).flatMap { r -> listOf(Triple(r, (2 * r) % 5, GOMOKU_XJTU), Triple(r, (2 * r + 1) % 5, GOMOKU_SJTU)) }
+        val outcomes = moves.map { (r, c, p) -> board.place(r, c, p); board.outcomeAfter(r, c, p) }
+        assertTrue(outcomes.dropLast(1).all { it == GomokuOutcome.ONGOING })
+        assertEquals(GomokuOutcome.DRAW, outcomes.last())
+        assertFalse(board.isFull())
+    }
 }

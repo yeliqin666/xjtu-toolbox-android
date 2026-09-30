@@ -55,7 +55,9 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.game.GameIds
+import com.xjtu.toolbox.game.GameSound
 import com.xjtu.toolbox.game.GameStore
+import com.xjtu.toolbox.game.Sfx
 import com.xjtu.toolbox.game.ui.GameMenu
 import com.xjtu.toolbox.game.ui.ScoreCard
 import com.xjtu.toolbox.ui.adaptive.readableWidth
@@ -166,8 +168,17 @@ fun Gpa2048Screen(onBack: () -> Unit) {
             gainStamp++
             haptics.tick()
         }
-        if (after.isOver) haptics.error()
-        if (after.hasWon && !before.hasWon) haptics.success()
+        // 合出的块越大「啵」得越高；只是滑动就「嗖」一下
+        val topMerge = next.filter { it.kind == TileKind.MERGED }.maxOfOrNull { it.level }
+        if (topMerge != null) GameSound.play(Sfx.POP, 0.8f, 0.8f + topMerge * 0.08f) else GameSound.play(Sfx.SWISH, 0.35f)
+        if (after.isOver) {
+            haptics.error()
+            GameSound.play(Sfx.SAD_TROMBONE, 0.8f)
+        }
+        if (after.hasWon && !before.hasWon) {
+            haptics.success()
+            GameSound.play(Sfx.TADA)
+        }
     }
 
     fun undo() {

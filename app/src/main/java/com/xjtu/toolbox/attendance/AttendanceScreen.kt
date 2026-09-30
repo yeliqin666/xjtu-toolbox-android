@@ -617,7 +617,7 @@ private fun LeaveFormDialog(
         } catch (e: AuthExpiredException) {
             onExpired()
         } catch (e: Exception) {
-            formError = e.message ?: "审批流程加载失败"
+            formError = com.xjtu.toolbox.error.FriendlyError.of(e, "加载审批流程")
         }
     }
 
@@ -744,7 +744,7 @@ private fun LeaveFormDialog(
                             } catch (e: AuthExpiredException) {
                                 onExpired()
                             } catch (e: Exception) {
-                                formError = e.message ?: "请假申请提交失败"
+                                formError = com.xjtu.toolbox.error.FriendlyError.of(e, "提交请假申请")
                             } finally {
                                 submitting = false
                             }

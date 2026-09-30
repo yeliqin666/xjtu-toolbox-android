@@ -22,8 +22,6 @@ import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 private const val COUPON_TAG = "CouponLogin"
-private const val COUPON_BROWSER_UA =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36 Edg/136.0.0.0"
 
 class CouponLogin(
     session: OkHttpClient? = null,
@@ -52,14 +50,6 @@ class CouponLogin(
     var authToken: String? = null
         private set
 
-    private var tokenObtainedAt: Long = 0L
-
-    init {
-        if (hasLogin && authToken.isNullOrBlank()) {
-            reAuthenticate()
-        }
-    }
-
     override fun postLogin(response: Response) {
         if (!response.isSuccessful) {
             throw RuntimeException("登录失败：加餐券认证入口返回 HTTP ${response.code}")
@@ -72,44 +62,6 @@ class CouponLogin(
         exchangeCodeForToken(params)
     }
 
-    fun isTokenValid(): Boolean {
-        val token = authToken ?: return false
-        if (token.isBlank()) return false
-        return tokenObtainedAt == 0L || System.currentTimeMillis() - tokenObtainedAt < TOKEN_TTL_MS
-    }
-
-    override fun validateLogin(): Boolean {
-        return isTokenValid()
-    }
-
-    override fun keepAlive(): KeepAliveStatus {
-        return try {
-            if (isTokenValid()) return KeepAliveStatus.VALID
-            if (reAuthenticate()) KeepAliveStatus.REAUTH_OK
-            else KeepAliveStatus.AUTH_INVALID
-        } catch (_: java.io.IOException) { KeepAliveStatus.NETWORK_ERROR }
-        catch (_: Exception) { KeepAliveStatus.ERROR }
-    }
-
-    private val reAuthLock = Any()
-
-    fun reAuthenticate(): Boolean = synchronized(reAuthLock) {
-        try {
-            Log.d(COUPON_TAG, "reAuthenticate: start")
-            val response = client.newCall(Request.Builder().url(buildCouponOAuthUrl()).get().build()).execute()
-            val body = response.body.string()
-            val params = extractCallbackParams(response.request.url.toString())
-                ?: extractCallbackParams(body)
-                ?: return false
-            exchangeCodeForToken(params)
-            Log.d(COUPON_TAG, "reAuthenticate: success")
-            return true
-        } catch (e: Exception) {
-            Log.e(COUPON_TAG, "reAuthenticate failed", e)
-        }
-        false
-    }
-
     private fun exchangeCodeForToken(params: CallbackParams) {
         Log.d(
             COUPON_TAG,
@@ -120,7 +72,6 @@ class CouponLogin(
             .url(url)
             .post("""{"json":true}""".toRequestBody(JSON))
             .header("Accept", "application/json, text/javascript, */*; q=0.01")
-            .header("User-Agent", COUPON_BROWSER_UA)
             .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
             .header("Content-Type", "application/json;charset=UTF-8")
             .header("Origin", BASE_URL)
@@ -135,7 +86,6 @@ class CouponLogin(
             val bodyToken = extractToken(text)
             authToken = headerToken ?: bodyToken
                 ?: throw RuntimeException("登录失败：无法获取加餐券令牌 (${text.take(80)})")
-            tokenObtainedAt = System.currentTimeMillis()
             Log.d(COUPON_TAG, "exchangeCodeForToken: token obtained, len=${authToken?.length}")
         }
     }
@@ -190,8 +140,6 @@ class CouponLogin(
     }
 }
 
-private const val TOKEN_TTL_MS = 60 * 60 * 1000L
-
 private fun urlEncode(value: String): String = URLEncoder.encode(value, "UTF-8")
 
 private fun OkHttpClient?.withCouponTimeouts(): OkHttpClient? =
@@ -202,8 +150,8 @@ private fun OkHttpClient?.withCouponTimeouts(): OkHttpClient? =
         ?.callTimeout(120, TimeUnit.SECONDS)
         ?.addInterceptor { chain ->
             val request = chain.request()
+            // 不自设 UA，用全局的 APP_UA（见 HttpClients）
             val requestWithBrowserHeaders = request.newBuilder()
-                .header("User-Agent", COUPON_BROWSER_UA)
                 .header(
                     "Accept",
                     request.header("Accept")

@@ -11,10 +11,13 @@ import androidx.lifecycle.viewModelScope
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.auth.AuthExpiredException
 import com.xjtu.toolbox.auth.SiteSession
+import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.widget.CampusCardWidgetUpdater
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -76,7 +79,6 @@ internal class CampusCardViewModel(
     var timeRange by mutableStateOf(saved[KEY_RANGE] ?: TimeRange.ONE_MONTH); private set
     private var customStart: LocalDate = saved.get<String>(KEY_START)?.let(LocalDate::parse) ?: LocalDate.now().minusMonths(1)
     private var customEnd: LocalDate = saved.get<String>(KEY_END)?.let(LocalDate::parse) ?: LocalDate.now()
-    private var page = 1
     private var generation = 0
 
     val range: Pair<LocalDate, LocalDate> get() = timeRange.resolve(customStart, customEnd)
@@ -118,7 +120,6 @@ internal class CampusCardViewModel(
         val computed = withContext(Dispatchers.Default) { computeStats(all, start, end) }
         transactions = all
         stats = computed
-        page = (all.size + 49) / 50
         if (persist) {
             withContext(Dispatchers.IO) {
                 CampusCardCache.cardPrefs(context, accountId).edit()
@@ -155,18 +156,22 @@ internal class CampusCardViewModel(
         val (start, end) = range
         viewModelScope.launch {
             try {
-                // 先拿卡信息（回填 cardAccount），再抓流水
-                val info = withContext(Dispatchers.IO) { api.getCardInfo() }
-                if (switched()) return@launch
-                cardInfo = info
-                withContext(Dispatchers.IO) {
-                    CampusCardCache.cardPrefs(context, accountId).edit()
-                        .putFloat("card_balance_cache", info.balance.toFloat())
-                        .putString("card_name_cache", info.name)
-                        .putLong("card_cache_time", System.currentTimeMillis())
-                        .apply()
+                // 卡信息和流水互不依赖，一起发；余额先到先显示
+                val (info, all) = coroutineScope {
+                    val txs = async(Dispatchers.IO) { fetchRange(start, end, accountId) }
+                    val info = withContext(Dispatchers.IO) { api.getCardInfo() }
+                    if (!switched()) {
+                        cardInfo = info
+                        withContext(Dispatchers.IO) {
+                            CampusCardCache.cardPrefs(context, accountId).edit()
+                                .putFloat("card_balance_cache", info.balance.toFloat())
+                                .putString("card_name_cache", info.name)
+                                .putLong("card_cache_time", System.currentTimeMillis())
+                                .apply()
+                        }
+                    }
+                    info to txs.await()
                 }
-                val all = withContext(Dispatchers.IO) { fetchRange(start, end, accountId) }
                 if (mine != generation || switched()) return@launch
                 show(all, accountId, persist = true)
                 withContext(Dispatchers.IO) { CampusCardCache.save(context, info, all, start, end, accountId) }
@@ -176,7 +181,7 @@ internal class CampusCardViewModel(
             } catch (_: AuthExpiredException) {
                 eventChannel.send(CampusCardEvent.AuthExpired)
             } catch (e: Exception) {
-                errorMessage = "加载失败: ${e.message}"
+                errorMessage = FriendlyError.of(e, "加载校园卡")
                 if (transactions.isNotEmpty()) eventChannel.send(CampusCardEvent.Message("更新失败，当前显示上次缓存的数据", long = true))
             } finally {
                 if (mine == generation) {
@@ -187,16 +192,20 @@ internal class CampusCardViewModel(
         }
     }
 
-    /** 缓存覆盖了这段范围就只补最近 7 天，否则整段拉。 */
+    /**
+     * 缓存覆盖了这段范围就从最新往回拉，接上缓存为止（平时一页）；否则整段拉。
+     * 以前固定补最近 7 天，隔了一周以上没打开，中间那段就漏了。
+     */
     private suspend fun fetchRange(start: LocalDate, end: LocalDate, accountId: String?): List<Transaction> {
         val cached = CampusCardCache.load(context, accountId)
         val cachedStart = cached?.rangeStart?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
-        if (cached == null || cachedStart == null || cachedStart.isAfter(start)) {
+        if (cached == null || cachedStart == null || cachedStart.isAfter(start) || cached.transactions.isEmpty()) {
             return api.getAllTransactions(start, end, maxPages = 12, allowIncomplete = true)
         }
-        val fresh = api.getAllTransactions(end.minusDays(7).coerceAtLeast(start), end, maxPages = 20, allowIncomplete = true)
+        val known = cached.transactions.mapTo(HashSet()) { it.uniqueKey() }
+        val fresh = api.getTransactionsUntilKnown(start, end, maxPages = 12, pageSize = PAGE_SIZE) { it.uniqueKey() in known }
         return (fresh + cached.transactions.filter { tx -> tx.date()?.let { it in start..end } == true })
-            .distinctBy { "${it.time}|${it.merchant}|${it.amount}|${it.balance}|${it.description}" }
+            .distinctBy { it.uniqueKey() }
             .sortedByDescending { it.time }
     }
 
@@ -204,16 +213,21 @@ internal class CampusCardViewModel(
         if (isLoadingMore) return
         isLoadingMore = true
         val (start, end) = range
+        val held = transactions
         viewModelScope.launch {
             try {
+                // 服务端按 50 条一页排。已有列表可能是缓存合并出来的，条数不一定正好落在页边界：
+                // 从已有条数所在的那一页接着拉，重叠的几条靠唯一键去掉，既不跳页也不重复。
                 val (_, more) = withContext(Dispatchers.IO) {
-                    api.getTransactions(startDate = start, endDate = end, page = page + 1, pageSize = 50)
+                    api.getTransactions(startDate = start, endDate = end, page = held.size / PAGE_SIZE + 1, pageSize = PAGE_SIZE)
                 }
-                if (more.isNotEmpty()) {
-                    val all = transactions + more
+                val known = held.mapTo(HashSet()) { it.uniqueKey() }
+                val fresh = more.filter { known.add(it.uniqueKey()) }
+                // 拉的过程中换了范围或刷新过列表：这批结果对不上了，丢掉
+                if (fresh.isNotEmpty() && transactions === held) {
+                    val all = held + fresh
                     stats = withContext(Dispatchers.Default) { computeStats(all, start, end) }
                     transactions = all
-                    page++
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -230,6 +244,7 @@ internal class CampusCardViewModel(
 
     private companion object {
         const val TAG = "CampusCardViewModel"
+        const val PAGE_SIZE = 50
         const val KEY_RANGE = "range"
         const val KEY_START = "customStart"
         const val KEY_END = "customEnd"

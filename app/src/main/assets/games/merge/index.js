@@ -7,7 +7,7 @@
 //      加载时统一烘焙成「白底圆片 + 校色描边 + 校徽 + 高光」的棋子（见 bakeToken）；
 //   3. 只随机投放前 5 级，按权重偏向小级，并预告下一个；
 //   4. 失败判定改成「球堆过线持续一段时间」，线附近有球时闪烁预警；
-//   5. 合成出最高级（西交大）有全屏庆祝动画；两个西交大相遇直接消除+加分；
+//   5. 合成出最高级（西交大）有全屏庆祝动画；两个西交大合成天使屁岱，展翅飞出棋盘并大量加分；
 //   6. 瞄准线、合成光圈/粒子/加分飘字、底部合成链进度条；
 //   7. 游戏结束时通过 JavascriptInterface 把分数回传给宿主 App。
 
@@ -33,6 +33,10 @@
     { key: 'xjtu',  name: '西交大', radius: 96, color: '#d62f2f', score: 60 },
   ];
   const MAX_LEVEL = LEVELS.length - 1;
+  // 两个西交大合成的天使屁岱：不进物理世界，飞走腾地方
+  const ANGEL_SCORE = 300;
+  const ANGEL_RADIUS = 78;
+  const ANGEL_MS = 2600;
 
   const SPAWN_POOL = [0, 1, 2, 3, 4];
   const SPAWN_WEIGHTS = [30, 24, 18, 12, 6];
@@ -161,6 +165,103 @@
     return c;
   }
 
+  // ------------------------------------------------------------------
+  // 天使屁岱：黑色圆身子、两只竖着的白眼睛（和 App 底栏的屁岱一个样），加光环和一对翅膀。
+  // [flap] 是翅膀扇动的弧度，0 为平展。
+  // ------------------------------------------------------------------
+  // 每根羽毛：长度、宽度、朝向（按半径），从上到下越来越短
+  const WING_FEATHERS = [[2.5, 0.4, -0.8], [2.2, 0.36, -0.48], [1.9, 0.33, -0.17], [1.55, 0.3, 0.14], [1.2, 0.26, 0.42]];
+
+  function drawWing(ctx, side, r, flap) {
+    ctx.save();
+    ctx.translate(side * r * 0.72, -r * 0.1);
+    ctx.scale(side, 1);
+    ctx.rotate(-0.3 - flap);
+    for (const [len, w, ang] of WING_FEATHERS) {
+      ctx.save();
+      ctx.rotate(ang);
+      const g = ctx.createLinearGradient(0, 0, r * len, 0);
+      g.addColorStop(0, '#ffffff');
+      g.addColorStop(1, '#e3ecff');
+      ctx.beginPath();
+      ctx.ellipse(r * len * 0.5, 0, r * len * 0.5, r * w, 0, 0, Math.PI * 2);
+      ctx.fillStyle = g;
+      ctx.fill();
+      ctx.lineWidth = r * 0.045;
+      ctx.strokeStyle = 'rgba(214,170,70,0.95)';
+      ctx.stroke();
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  /** [spin] 不为 null 时身后画一圈转动的圣光，角度就是它。 */
+  function drawAngelPidai(ctx, x, y, r, flap, spin) {
+    ctx.save();
+    ctx.translate(x, y);
+
+    if (spin != null) {
+      ctx.save();
+      ctx.rotate(spin);
+      ctx.fillStyle = 'rgba(255,214,102,0.22)';
+      for (let i = 0; i < 12; i++) {
+        ctx.rotate(Math.PI / 6);
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(r * 3.4, -r * 0.28);
+        ctx.lineTo(r * 3.4, r * 0.28);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    const glow = ctx.createRadialGradient(0, 0, r * 0.5, 0, 0, r * 2.4);
+    glow.addColorStop(0, 'rgba(255,214,102,0.55)');
+    glow.addColorStop(1, 'rgba(255,214,102,0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 2.4, 0, Math.PI * 2);
+    ctx.fill();
+
+    drawWing(ctx, -1, r, flap);
+    drawWing(ctx, 1, r, flap);
+
+    const body = ctx.createRadialGradient(-r * 0.3, -r * 0.35, r * 0.1, 0, 0, r);
+    body.addColorStop(0, '#3c3c3c');
+    body.addColorStop(1, '#070707');
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.fillStyle = body;
+    ctx.fill();
+
+    ctx.fillStyle = '#ffffff';
+    for (const ex of [-0.3, 0.3]) {
+      ctx.beginPath();
+      ctx.ellipse(r * ex, -r * 0.05, r * 0.12, r * 0.24, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.shadowColor = 'rgba(255,200,60,0.95)';
+    ctx.shadowBlur = r * 0.45;
+    ctx.lineWidth = r * 0.11;
+    ctx.strokeStyle = '#ffd24a';
+    ctx.beginPath();
+    ctx.ellipse(0, -r * 1.3, r * 0.6, r * 0.17, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /** 合成链末尾的奖杯位用的小图：连翅膀带光环整个装进正方形。 */
+  function bakeAngelIcon() {
+    const s = 160;
+    const c = document.createElement('canvas');
+    c.width = s;
+    c.height = s;
+    drawAngelPidai(c.getContext('2d'), s / 2, s * 0.66, s / 4.4, 0, null);
+    return c;
+  }
+
   // 烘焙好的棋子直接以 canvas 形式塞进 Matter 的贴图缓存，不走 toDataURL：
   // 页面是 file:// 的不透明源，校徽一画进来 canvas 就被污染，toDataURL 会抛 SecurityError，
   // 整个预加载 reject，游戏一帧都起不来。Matter 的 sprite 只拿贴图去 drawImage，canvas 照样能用。
@@ -171,6 +272,15 @@
     const key = 'token:' + level.key;
     render.textures[key] = token;
     return { texture: key, image: token, size: TOKEN_SIZE };
+  }
+
+  // 音效由宿主 App 合成播放（与原生小游戏同一套、同一个开关）；浏览器里直接打开时没有桥，静默
+  function sfx(name, rate) {
+    try {
+      if (window.AndroidGameBridge && typeof window.AndroidGameBridge.playSound === 'function') {
+        window.AndroidGameBridge.playSound(name, rate || 1);
+      }
+    } catch (e) { /* 忽略 */ }
   }
 
   function submitScoreToHost(score) {
@@ -231,6 +341,7 @@
   render.mouse = mouse;
 
   const effects = [];
+  const angelIcon = bakeAngelIcon();
 
   const Game = {
     state: GameStates.READY,
@@ -244,6 +355,7 @@
     aimX: WIDTH / 2,
     aboveLineSince: null,
     maxReached: 0,
+    angels: 0,
 
     // 记录以原生端为准：切账号时 WebView 的 localStorage 会被整个清掉。
     // localStorage 只作浏览器里单独调试时的后备，两边取大。
@@ -307,6 +419,7 @@
       Game.setScore(0);
       Game.aboveLineSince = null;
       Game.maxReached = 0;
+      Game.angels = 0;
       effects.length = 0;
       Game.currentLevel = weightedPick(SPAWN_POOL, SPAWN_WEIGHTS);
       Game.pickNextLevel();
@@ -322,6 +435,7 @@
       const dropX = clampX(x, Game.currentLevel);
       const body = Game.makeBody(dropX, PREVIEW_HEIGHT, Game.currentLevel, {});
       Composite.add(engine.world, body);
+      sfx('BLOOP', 1.4 - Game.currentLevel * 0.1);
 
       if (Game.previewBody) {
         Composite.remove(engine.world, Game.previewBody);
@@ -349,6 +463,7 @@
       els.endBest.innerText = Game.highscore;
       els.endRecord.style.display = isRecord ? 'block' : 'none';
       els.end.style.display = 'flex';
+      sfx('SAD_TROMBONE');
       submitScoreToHost(Game.score);
     },
 
@@ -406,10 +521,12 @@
       Composite.remove(engine.world, [bodyA, bodyB]);
 
       if (level === MAX_LEVEL) {
-        const gain = LEVELS[MAX_LEVEL].score * 2;
-        addMergeEffect(midX, midY, LEVELS[MAX_LEVEL], gain);
-        Game.setScore(Game.score + gain);
-        Game.celebrate('西交大 ×2 消除！');
+        addMergeEffect(midX, midY, LEVELS[MAX_LEVEL], ANGEL_SCORE);
+        effects.push({ kind: 'angel', x: midX, y: midY, t0: performance.now(), dur: ANGEL_MS });
+        Game.angels++;
+        Game.setScore(Game.score + ANGEL_SCORE);
+        Game.celebrate('屁岱飞升！');
+        sfx('CHOIR');
       } else {
         const newLevel = level + 1;
         const newBody = Game.makeBody(midX, midY, newLevel, {});
@@ -417,7 +534,12 @@
         addMergeEffect(midX, midY, LEVELS[newLevel], LEVELS[newLevel].score);
         Game.setScore(Game.score + LEVELS[newLevel].score);
         Game.maxReached = Math.max(Game.maxReached, newLevel);
-        if (newLevel === MAX_LEVEL) Game.celebrate('合成西交大！');
+        // 级别越高「啵」得越低沉，合出西交大来一声「嗒哒」
+        sfx('POP', 1.6 - newLevel * 0.1);
+        if (newLevel === MAX_LEVEL) {
+          Game.celebrate('合成西交大！');
+          sfx('TADA');
+        }
       }
     }
   });
@@ -483,11 +605,13 @@
     ctx.fillStyle = COLORS.band;
     ctx.fillRect(0, FLOOR_Y, WIDTH, FLOOR_BAND);
     const icon = 44;
-    const gap = (WIDTH - icon * LEVELS.length) / (LEVELS.length + 1);
-    for (let i = 0; i < LEVELS.length; i++) {
-      const img = Game.textures[i] && Game.textures[i].image;
+    const slots = LEVELS.length + 1; // 最后一格是天使屁岱
+    const gap = (WIDTH - icon * slots) / (slots + 1);
+    for (let i = 0; i < slots; i++) {
+      const img = i < LEVELS.length ? Game.textures[i] && Game.textures[i].image : angelIcon;
       if (!img) continue;
-      ctx.globalAlpha = i <= Math.max(Game.maxReached, 4) ? 1 : 0.22;
+      const lit = i < LEVELS.length ? i <= Math.max(Game.maxReached, 4) : Game.angels > 0;
+      ctx.globalAlpha = lit ? 1 : 0.22;
       ctx.drawImage(img, gap + i * (icon + gap), FLOOR_Y + (FLOOR_BAND - icon) / 2, icon, icon);
     }
     ctx.globalAlpha = 1;
@@ -537,6 +661,23 @@
         ctx.beginPath();
         ctx.arc(fx.x + Math.cos(fx.angle) * d, fx.y + Math.sin(fx.angle) * d, fx.size * (1 - t * 0.6), 0, Math.PI * 2);
         ctx.fill();
+      } else if (fx.kind === 'angel') {
+        // 先在合成处放大现身，再扇着翅膀加速飞出棋盘顶端，身后洒一串金色光点
+        const r = ANGEL_RADIUS;
+        const rise = t < 0.3 ? 0 : (t - 0.3) / 0.7;
+        const y = fx.y - (fx.y + r * 3) * rise * rise;
+        const scale = easeOut(Math.min(1, t / 0.2)) * (1 + 0.06 * Math.sin(now / 90));
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = '#ffd24a';
+        for (let k = 1; k <= 8; k++) {
+          const trailY = y + r * 0.8 + k * 22 * rise;
+          ctx.globalAlpha = rise * (1 - k / 9);
+          ctx.beginPath();
+          ctx.arc(fx.x + Math.sin(now / 120 + k) * r * 0.5, trailY, 3 + (8 - k) * 0.6, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+        drawAngelPidai(ctx, fx.x, y, r * scale, 0.35 * Math.sin(now / 70), now / 900);
       } else if (fx.kind === 'text') {
         ctx.globalAlpha = t < 0.7 ? 1 : 1 - (t - 0.7) / 0.3;
         ctx.fillStyle = COLORS.text;

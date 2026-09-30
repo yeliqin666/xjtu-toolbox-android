@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.jwapp
 
-import com.xjtu.toolbox.network.MOBILE_UA
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.buildJsonObject
 import com.xjtu.toolbox.util.requireArr
@@ -105,15 +104,6 @@ data class TermScore(
     val scoreList: List<ScoreItem> = emptyList(),
 )
 
-data class TimeTableBasis(
-    val termCode: String,
-    val termName: String,
-    val maxWeekNum: Int,
-    val maxSection: Int,
-    val todayWeekDay: Int,
-    val todayWeekNum: Int
-)
-
 data class GpaInfo(
     val gpa: Double,
     val averageScore: Double,
@@ -131,20 +121,12 @@ class JwappApi(private val site: SiteSession) {
     private val baseUrl = "https://jwapp.xjtu.edu.cn"
 
     internal fun authenticatedRequest(url: String): okhttp3.Request.Builder =
-        okhttp3.Request.Builder()
-            .url(url)
-            .header("User-Agent", MOBILE_UA)
+        okhttp3.Request.Builder().url(url)
 
     internal suspend fun execute(request: okhttp3.Request.Builder): String =
         site.executeWithReAuth(request.build()).use { response ->
             response.body.string()
         }
-
-    // [J1] TimeTableBasis 内存缓存（学期内不变，避免重复网络请求）
-    // TTL 1小时：防止 App 长时间运行跨学期后返回旧数据
-    private var cachedBasis: TimeTableBasis? = null
-    private var cachedBasisTime: Long = 0L
-    private val BASIS_TTL_MS = 60L * 60 * 1000L  // 1 小时
 
     suspend fun getGrade(termCode: String? = null): List<TermScore> {
         val code = termCode ?: "*"
@@ -264,38 +246,14 @@ class JwappApi(private val site: SiteSession) {
         )
     }
 
-    suspend fun getTimeTableBasis(): TimeTableBasis {
-        // [J1] 优先返回缓存（1h TTL，防跨学期过期）
-        cachedBasis?.let {
-            if (System.currentTimeMillis() - cachedBasisTime < BASIS_TTL_MS) return it
-            cachedBasis = null  // 已过期，清除
-        }
-
-        val request = authenticatedRequest("https://jwapp.xjtu.edu.cn/api/biz/v410/common/school/time")
-            .get()
-
-        val body = execute(request)
-        val root = body.safeParseJsonObject()
-
+    /** 移动教务认的当前学期代码，首页成绩卡只报本学期用。 */
+    suspend fun getCurrentTerm(): String {
+        val root = execute(authenticatedRequest("$baseUrl/api/biz/v410/common/school/time").get()).safeParseJsonObject()
         val resultCode = root.get("code").intValue
-        if (resultCode != 200) {
-            throw RuntimeException(root.get("msg")?.stringValue ?: "服务器错误 ($resultCode)")
-        }
-
-        // API 可能返回 {code, data:{...}} 或直接平铺字段
-        val obj = root.obj("data") ?: root
-
-        return TimeTableBasis(
-            termCode = obj.get("xnxqdm").safeString(),
-            termName = obj.get("xnxqmc").safeString(),
-            maxWeekNum = obj.get("maxWeekNum").safeInt(),
-            maxSection = obj.get("maxSection").safeInt(),
-            todayWeekDay = obj.get("todayWeekDay").safeInt(),
-            todayWeekNum = obj.get("todayWeekNum").safeInt()
-        ).also { cachedBasis = it; cachedBasisTime = System.currentTimeMillis() }
+        if (resultCode != 200) throw RuntimeException(root.get("msg")?.stringValue ?: "服务器错误 ($resultCode)")
+        // 可能是 {code, data:{...}}，也可能直接平铺字段
+        return (root.obj("data") ?: root).get("xnxqdm").safeString()
     }
-
-    suspend fun getCurrentTerm(): String = getTimeTableBasis().termCode
 
     suspend fun getTermList(): List<Pair<String, String>> {
         val allGrades = getGrade(null)

@@ -49,6 +49,8 @@ import com.xjtu.toolbox.score.ScoreReportScreen
 import com.xjtu.toolbox.settings.SettingsScreen
 import com.xjtu.toolbox.social.MatchScreen
 import com.xjtu.toolbox.venue.VenueScreen
+import com.xjtu.toolbox.auth.AccountType
+import com.xjtu.toolbox.dormpower.DormPowerScreen
 import com.xjtu.toolbox.webvpn.WebVpnConverterScreen
 import com.xjtu.toolbox.yellowpage.YellowPageScreen
 import kotlinx.coroutines.delay
@@ -115,6 +117,8 @@ fun AppNavHost(
                 studentId = loginState.activeUsername,
                 onBack = back,
                 onOpenReport = { router.open(AppRoute.ScoreReport) },
+                // 成绩单只有本科生的流程，研究生不显示入口
+                onOpenTranscript = if (loginState.accountType == AccountType.UNDERGRADUATE) { { router.open(AppRoute.Transcript) } } else null,
             )
         }
         entry<AppRoute.Judge>(transition = expand(AppRoute.Judge::class)) {
@@ -133,7 +137,9 @@ fun AppNavHost(
                 CampusCardScreen(
                     site = it,
                     onBack = back,
-                    glass = credentialStore.navBarStyle == CredentialStore.NAV_STYLE_FLOATING,
+                    // 跟着设置实时变：直接读存储只在进页那一刻读一次，页面开着时切风格不会跟过来
+                    glass = com.xjtu.toolbox.ui.glass.LocalGlassStyle.current,
+                    onOpenCoupon = { router.open(AppRoute.Coupon) },
                 )
             }
         }
@@ -147,7 +153,26 @@ fun AppNavHost(
             WithSite("dzpz") { TranscriptScreen(site = it, onBack = back) }
         }
         entry<AppRoute.Venue>(transition = expand(AppRoute.Venue::class)) {
-            WithSite("venue") { VenueScreen(site = it, credentialStore = credentialStore, onBack = back) }
+            WithSite("venue") { VenueScreen(
+                    site = it,
+                    credentialStore = credentialStore,
+                    onOpenBrowser = { url, then -> router.open(AppRoute.Browser(url, then)) },
+                    onBack = back,
+                ) }
+        }
+        entry<AppRoute.DormPower>(transition = expand(AppRoute.DormPower::class)) {
+            WithSite("ssn") { site ->
+                DormPowerScreen(site = site, onBack = back) { url ->
+                    BrowserScreen(
+                        initialUrl = url.orEmpty(),
+                        waiting = url == null,
+                        site = site,
+                        cookieClient = if (url?.contains("webvpn.xjtu.edu.cn", ignoreCase = true) == true) loginState.webVpnClientOrNull else null,
+                        extraCookieDomains = listOfNotNull(url?.let { Uri.parse(it).host }),
+                        onBack = back,
+                    )
+                }
+            }
         }
         entry<AppRoute.DownloadManager>(transition = expand(AppRoute.DownloadManager::class)) {
             DownloadManagerScreen(onBack = back)
@@ -206,6 +231,7 @@ fun AppNavHost(
             val host = remember(url) { runCatching { Uri.parse(url).host?.lowercase() }.getOrNull() }
             BrowserScreen(
                 initialUrl = url,
+                thenUrl = browser.then,
                 site = loginState.sessionManager?.getSiteOrNull(siteKeyForHost(host.orEmpty()))
                     ?: loginState.sessionManager?.getSiteOrNull("jwxt"),
                 cookieClient = if (url.contains("webvpn.xjtu.edu.cn", ignoreCase = true)) {
@@ -219,6 +245,9 @@ fun AppNavHost(
         }
         entry<AppRoute.Settings>(transition = expand(AppRoute.Settings::class)) {
             SettingsScreen(credentialStore = credentialStore, onBack = back)
+        }
+        entry<AppRoute.Inbox>(transition = expand(AppRoute.Inbox::class)) {
+            com.xjtu.toolbox.inbox.InboxScreen(onBack = back, onOpen = { router.open(it) })
         }
         entry<AppRoute.Community>(transition = expand(AppRoute.Community::class)) {
             CommunityScreen(onBack = back, onOpenLegacyFeedback = { router.open(AppRoute.Feedback) })
@@ -305,5 +334,7 @@ private fun siteKeyForHost(host: String): String = when {
     "ncard.xjtu.edu.cn" in host -> "campus_card"
     "kq.xjtu.edu.cn" in host -> "new_attendance"
     "lms.xjtu.edu.cn" in host -> "lms"
+    "202.117.17.144" in host -> "venue"
+    "ssn.xjtu.edu.cn" in host -> "ssn"
     else -> "jwxt"
 }

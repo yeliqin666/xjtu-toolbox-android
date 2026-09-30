@@ -49,12 +49,16 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.xjtu.toolbox.game.GameIds
+import com.xjtu.toolbox.game.GameSound
 import com.xjtu.toolbox.game.GameStore
+import com.xjtu.toolbox.game.Sfx
 import com.xjtu.toolbox.game.ui.GameMenu
 import com.xjtu.toolbox.ui.rememberHaptics
 import com.xjtu.toolbox.R
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import top.yukonga.miuix.kmp.basic.Icon
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.height
@@ -180,6 +184,8 @@ fun HopScreen(onBack: () -> Unit) {
         var release = game.releaseSerial
         var stayBonus = game.stayBonusSerial
         var wasFalling = false
+        var wasCharging = false
+        var chargeStream = 0
         while (game.phase != HopPhase.OVER) {
             withFrameNanos { now ->
                 val real = ((now - last) / 1e9f).coerceAtMost(0.05f)
@@ -194,6 +200,13 @@ fun HopScreen(onBack: () -> Unit) {
                 camZ += (game.focusZ - camZ) * k
                 if (game.phase == HopPhase.CHARGING) fx.gather(game, random)
             }
+            // 蓄力音跟着状态走：松手、切后台、打开选角色都会离开蓄力，统一在这里停
+            val charging = game.phase == HopPhase.CHARGING
+            if (charging != wasCharging) {
+                GameSound.stop(chargeStream)
+                chargeStream = if (charging) GameSound.play(Sfx.SLIDE_UP, 0.5f) else 0
+            }
+            wasCharging = charging
             if (game.releaseSerial != release) {
                 release = game.releaseSerial
                 fx.bouncePad = game.launchPad
@@ -205,6 +218,7 @@ fun HopScreen(onBack: () -> Unit) {
                 stayBonus = game.stayBonusSerial
                 score = game.score
                 haptics.success()
+                GameSound.play(Sfx.COIN)
                 fx.popups += Popup("+${game.lastStayBonus}", game.px, 0.75f, game.pz, 0f, Color(0xFFF2A413))
             }
             if (game.landSerial != land) {
@@ -214,6 +228,9 @@ fun HopScreen(onBack: () -> Unit) {
                 fx.dust(game.px, game.pz, random, if (center) 14 else 8)
                 fx.ripples += Ripple(game.px, game.pz, 0f, 0f, center)
                 haptics.tick()
+                // 落正中「叮」，连击沿音阶往上爬；普通落地「啵嘤」一声
+                if (center) GameSound.play(Sfx.CHIME, 0.9f, GameSound.scale(game.streak - 1))
+                else GameSound.play(Sfx.BOING, 0.6f)
             }
             if (game.gainSerial != gain) {
                 gain = game.gainSerial
@@ -226,6 +243,8 @@ fun HopScreen(onBack: () -> Unit) {
             val falling = game.phase == HopPhase.FALLING
             if (falling && !wasFalling) {
                 streak = 0
+                GameSound.stop(chargeStream)
+                GameSound.play(Sfx.SLIDE_DOWN, 0.8f)
                 if (game.current.fading) fx.debris(game.current, random)
             }
             wasFalling = falling
@@ -234,6 +253,7 @@ fun HopScreen(onBack: () -> Unit) {
         }
         over = true
         haptics.error()
+        GameSound.play(Sfx.SAD_TROMBONE, 0.8f)
         GameStore.submitScore(context, GameIds.HOP, game.score)
         best = maxOf(best, game.score)
     }
@@ -334,24 +354,42 @@ fun HopScreen(onBack: () -> Unit) {
             }
         }
 
-        // 右上：换角色
-        Text(
-            skin.title,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = ink,
-            modifier = Modifier
+        // 右上：音效开关、换角色
+        Row(
+            Modifier
                 .align(Alignment.TopEnd)
                 .statusBarsPadding()
-                .padding(end = 16.dp, top = 12.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .background(ink.copy(alpha = 0.08f))
-                .clickable(remember { MutableInteractionSource() }, SinkFeedback()) {
-                    game.cancelCharge()
-                    picking = true
-                }
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-        )
+                .padding(end = 16.dp, top = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                if (GameSound.enabled) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
+                contentDescription = if (GameSound.enabled) "关闭音效" else "打开音效",
+                tint = ink,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(ink.copy(alpha = 0.08f))
+                    .clickable(remember { MutableInteractionSource() }, SinkFeedback()) {
+                        GameSound.enabled = !GameSound.enabled
+                    }
+                    .padding(8.dp)
+                    .size(20.dp),
+            )
+            Text(
+                skin.title,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = ink,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(ink.copy(alpha = 0.08f))
+                    .clickable(remember { MutableInteractionSource() }, SinkFeedback()) {
+                        game.cancelCharge()
+                        picking = true
+                    }
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+            )
+        }
 
         // 换地标时，顶上浮出它的名字，两秒多后淡掉
         val sinceLandmark = fx.time - landmarkShownAt

@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.library
 
-import com.xjtu.toolbox.network.MOBILE_UA
 import com.xjtu.toolbox.util.redactBody
 import com.xjtu.toolbox.util.redactUrl
 import android.util.Log
@@ -258,7 +257,7 @@ class LibraryApi(private val site: SiteSession) {
         if (!response.isSuccessful) throw RuntimeException("楼层信息加载失败: HTTP ${response.code}")
         if (!looksLikeJson(body)) {
             Log.e(TAG, "qspace(floor=$floorCode) not JSON: ${body.redactBody(300)}")
-            throw RuntimeException("图书馆楼层信息接口返回异常（非 JSON 响应）")
+            throw RuntimeException("图书馆楼层信息返回了异常数据，请稍后重试")
         }
         val json = org.json.JSONObject(body)
         val result = linkedMapOf<String, String>()
@@ -350,7 +349,6 @@ class LibraryApi(private val site: SiteSession) {
      */
     private fun buildRequest(url: String, ajax: Boolean = false, referer: String = "$BASE_URL/seat/"): Request {
         val b = Request.Builder().url(url)
-            .header("User-Agent", MOBILE_UA)
             .header("Referer", referer)
         if (ajax) {
             b.header("X-Requested-With", "XMLHttpRequest")
@@ -393,7 +391,7 @@ class LibraryApi(private val site: SiteSession) {
         // 检查是否返回了 HTML 而非 JSON
         if (!looksLikeJson(body)) {
             Log.e(TAG, "qspace did not return JSON. ContentType=$contentType, body preview: ${body.redactBody(500)}")
-            throw RuntimeException("图书馆楼层信息接口返回异常（非 JSON 响应）")
+            throw RuntimeException("图书馆楼层信息返回了异常数据，请稍后重试")
         }
         val json = org.json.JSONObject(body)
         val stats = parseAreaStats(json.optJSONObject("scount"))
@@ -438,11 +436,11 @@ class LibraryApi(private val site: SiteSession) {
             throw e   // 透传给 UI 层做静默重登，不要降级成普通错误
         } catch (e: java.io.IOException) {
             Log.e(TAG, "getSeats network error", e)
-            return SeatResult.Error("网络请求失败: ${e.message}")
+            return SeatResult.Error(com.xjtu.toolbox.error.FriendlyError.of(e, "加载座位"))
         } catch (e: Exception) {
             // 解析/响应异常（如 loadFloorContext 抛出的非 JSON），别伪装成网络问题
             Log.e(TAG, "getSeats failed", e)
-            return SeatResult.Error(e.message ?: "座位信息加载失败")
+            return SeatResult.Error(com.xjtu.toolbox.error.FriendlyError.of(e, "加载座位信息"))
         }
 
         val finalUrl = response.request.url.toString()
@@ -457,7 +455,7 @@ class LibraryApi(private val site: SiteSession) {
         val contentType = response.header("Content-Type")?.lowercase() ?: ""
         if (!looksLikeJson(body)) {
             Log.e(TAG, "qseat did not return JSON. ContentType=$contentType, body preview: ${body.redactBody(500)}")
-            return SeatResult.Error("图书馆服务器返回异常（非 JSON 响应），请稍后重试")
+            return SeatResult.Error("图书馆返回了异常数据，请稍后重试")
         }
 
         try {
@@ -491,7 +489,7 @@ class LibraryApi(private val site: SiteSession) {
             return SeatResult.Success(seatList, cachedAreaStats)
         } catch (e: org.json.JSONException) {
             Log.e(TAG, "JSON parse error", e)
-            return SeatResult.Error("座位数据解析失败: ${e.message}")
+            return SeatResult.Error("座位数据格式异常，请稍后再试")
         }
     }
 
@@ -511,7 +509,7 @@ class LibraryApi(private val site: SiteSession) {
         if (!response.isSuccessful) throw RuntimeException("平面图数据加载失败: HTTP ${response.code}")
         if (!looksLikeJson(body)) {
             Log.e(TAG, "qseatuist not JSON: ${body.redactBody(300)}")
-            throw RuntimeException("图书馆平面图接口返回异常（非 JSON 响应）")
+            throw RuntimeException("图书馆平面图返回了异常数据，请稍后重试")
         }
         return LibraryPages.parseSeatLayout(body)
     }
@@ -554,7 +552,7 @@ class LibraryApi(private val site: SiteSession) {
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
             return BookResult(false, "登录状态已失效，请退出图书馆页面后重新进入")
         } catch (e: Exception) {
-            return BookResult(false, "网络异常: ${e.message}")
+            return BookResult(false, com.xjtu.toolbox.error.FriendlyError.of(e, "预约"))
         }
 
         val finalUrl = response.request.url.toString()
@@ -635,7 +633,7 @@ class LibraryApi(private val site: SiteSession) {
         } catch (e: Exception) {
             if (e is com.xjtu.toolbox.auth.AuthExpiredException)
                 BookResult(false, "登录状态已失效，请退出图书馆页面后重新进入")
-            else BookResult(false, "换座请求失败: ${e.message}")
+            else BookResult(false, com.xjtu.toolbox.error.FriendlyError.of(e, "换座"))
         }
     }
 
@@ -726,7 +724,7 @@ class LibraryApi(private val site: SiteSession) {
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
             return BookResult(false, "登录状态已失效，请退出图书馆页面后重新进入")
         } catch (e: Exception) {
-            return BookResult(false, "操作失败: ${e.message}")
+            return BookResult(false, com.xjtu.toolbox.error.FriendlyError.of(e, "操作"))
         }
     }
 }

@@ -56,6 +56,7 @@ import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.appCardShadow
 import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.data.CredentialStore
+import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.util.toDialableTel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -344,7 +345,6 @@ private fun MenuGroup(modifier: Modifier = Modifier, content: @Composable Column
 
 private val TINT_TEAL = Color(0xFF1F9E8F)
 private val TINT_SLATE = Color(0xFF6B7A90)
-private val TINT_AMBER = Color(0xFFE39A1B)
 
 /**
  * 顶部的身份卡：头像 + 姓名 + 学号 / 专业 + 一行标签。
@@ -602,7 +602,8 @@ internal fun ProfileTab(
             try {
                 withContext(Dispatchers.IO) {
                     loginState.ensureCampusDetected()
-                    loginState.sessionManager?.ensureSite(LoginType.JWXT)
+                    loginState.sessionManager?.purgeAnonymousSession()
+                    loginState.sessionManager?.ensureSite(LoginType.JWXT, userInitiated = true)
                 }
             } catch (e: Exception) {
                 loginState.discardPreparedCredentials()
@@ -610,19 +611,15 @@ internal fun ProfileTab(
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 // 熔断已上＝CAS 明确判了密码错（包括原样重试被熔断拦下），直接说人话
                 loginError = if (loginState.passwordInvalidatedLatch) "学号或密码错误，请检查后再试"
-                else "登录异常: ${e.message}"
+                else FriendlyError.of(e, "登录")
                 return@launch
             }
 
-            loginProgress = 0.8f
-
-            // ── 完成核心登录 ──
             loginProgress = 1f
-            isLoggingIn = false
-            loginState.saveCredentials(user, pwd)
-            // 落库到 AccountStore（多账号架构），同时兼容旧 CredentialStore 单值
+            // 先落库并把会话搬进账号命名空间，再让界面切成已登录
             accountManager.persistCurrentLogin(user, pwd, loginState.accountType)
-            loginState.persistCredentials(credentialStore)
+            loginState.saveCredentials(user, pwd)
+            isLoggingIn = false
 
             // ── 后台: 仅预热必要 SSO，其余子系统由用户进入时按需登录 ──
             // 姓名、头像来自学工档案，和一网通办互不依赖，两路同时开始：
@@ -688,7 +685,7 @@ internal fun ProfileTab(
         OverlayDialog(
             show = true,
             title = "更换头像",
-            summary = if (hasCustomAvatar) "当前使用自定义头像。可重新选择，或恢复为学工系统证件照。"
+            summary = if (hasCustomAvatar) "可重新选择，或恢复为证件照。"
                       else "默认使用学工系统证件照，可换成自己的图片。",
             onDismissRequest = { if (!avatarSaving) showAvatarSheet = false }
         ) {
@@ -818,7 +815,7 @@ internal fun ProfileTab(
                 ) {
                     Text("统一身份认证", style = MiuixTheme.textStyles.title4, fontWeight = FontWeight.Bold)
                     Text(
-                        "用学号（或手机号）和 CAS 密码登录",
+                        "用学号（或手机号）和统一认证密码登录",
                         style = MiuixTheme.textStyles.footnote1,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                     )
@@ -903,7 +900,7 @@ internal fun ProfileTab(
                         Icon(Icons.Outlined.Lock, null, Modifier.size(12.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.6f))
                         Spacer(Modifier.width(4.dp))
                         Text(
-                            "密码加密保存在本机，只发往学校 CAS",
+                            "密码加密保存在本机，只发往学校统一认证",
                             style = MiuixTheme.textStyles.footnote2,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.6f),
                             textAlign = TextAlign.Center,
@@ -913,8 +910,6 @@ internal fun ProfileTab(
                 Spacer(Modifier.height(PROFILE_GAP))
                 MenuGroup(Modifier.enterOnce(2)) {
                     ProfileMenuRow(Icons.Outlined.Settings, TINT_SLATE, "设置", onClick = { onNavigate(AppRoute.Settings) })
-                    MenuDivider()
-                    ProfileMenuRow(Icons.Outlined.Forum, TINT_AMBER, "社区讨论", onClick = { onNavigate(AppRoute.Community) }, subtitle = "提建议、报问题，和大家交流")
                 }
             } else {
                 // ━━ 已登录 ━━
@@ -939,8 +934,6 @@ internal fun ProfileTab(
                 Spacer(Modifier.height(PROFILE_GAP))
                 MenuGroup(Modifier.enterOnce(3)) {
                     ProfileMenuRow(Icons.Outlined.Settings, TINT_SLATE, "设置", onClick = { onNavigate(AppRoute.Settings) })
-                    MenuDivider()
-                    ProfileMenuRow(Icons.Outlined.Forum, TINT_AMBER, "社区讨论", onClick = { onNavigate(AppRoute.Community) }, subtitle = "提建议、报问题，和大家交流")
                 }
                 Spacer(Modifier.height(PROFILE_GAP))
 
@@ -967,7 +960,7 @@ internal fun ProfileTab(
                     OverlayDialog(
                         show = showLogoutDialog.value,
                         title = "确认退出",
-                        summary = "退出当前账号的登录，清除其会话 Cookie。账号记录与本地缓存保留，下次可在「账号管理」快速切回。",
+                        summary = "账号和缓存会保留，之后可在「账号管理」一键切回。",
                         onDismissRequest = { showLogoutDialog.value = false }
                     ) {
                         Row(Modifier.fillMaxWidth()) {

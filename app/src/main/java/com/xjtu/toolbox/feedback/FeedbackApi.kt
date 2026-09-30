@@ -70,6 +70,7 @@ object FeedbackApi {
     /**
      * 提交一条反馈。成功返回工单号——由客户端生成而非服务端下发，
      * 这样不需要账号体系也能让用户回来查自己那条。
+     * [version] 为空取当前版本；崩溃日志是下次启动才补报的，传崩溃时的版本，免得升级后记错。
      */
     suspend fun submit(
         ticket: String,
@@ -77,6 +78,7 @@ object FeedbackApi {
         content: String,
         contact: String,
         anonId: String,
+        version: String? = null,
     ): Unit = withContext(Dispatchers.IO) {
         val fields = JSONObject()
             .put(F_TICKET, ticket)
@@ -84,7 +86,7 @@ object FeedbackApi {
             .put("内容", content)
             .put("联系方式", contact)
             .put("匿名ID", anonId)
-            .put("版本", "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})${if (BuildConfig.IS_PREVIEW) " [preview]" else ""}")
+            .put("版本", version ?: "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})${if (BuildConfig.IS_PREVIEW) " [preview]" else ""}")
             .put("机型", "${Build.MANUFACTURER} ${Build.MODEL}")
             .put("系统", "Android ${Build.VERSION.RELEASE} / API ${Build.VERSION.SDK_INT}")
         val req = Request.Builder()

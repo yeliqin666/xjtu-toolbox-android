@@ -882,7 +882,7 @@ private class OaNoticeCrawler(
  * - OA 通知：列表页自带的表单 POST `_ggzt`（公告主题），直接按时间倒序返回。
  * - 首页找不到搜索表单的站，退回「抓列表前两页、本地按标题筛」。
  */
-private object SiteSearch {
+internal object SiteSearch {
     /** 搜索入口，按域名缓存；[NONE] 表示这个站没有博达搜索，别每次都去首页找。 */
     private val actions = ConcurrentHashMap<String, String>()
     private const val NONE = ""
@@ -911,7 +911,10 @@ private object SiteSearch {
         val origin = originOf(source.baseUrl) ?: return VsbResult(NotificationPage(emptyList(), false), 0)
         val key = java.util.Base64.getEncoder().encodeToString(keyword.toByteArray(StandardCharsets.UTF_8))
         val url = "$origin/$action&searchScope=0&currentnum=$page&newskeycode2=${URLEncoder.encode(key, StandardCharsets.UTF_8)}"
-        val doc = fetchDocumentWithChallenge(client, url)
+        return parseVsb(fetchDocumentWithChallenge(client, url), source, page)
+    }
+
+    fun parseVsb(doc: Document, source: NotificationSource, page: Int): VsbResult {
         val latest = LocalDate.now().plusDays(7)
         var undated = 0
         val items = doc.select("a[href]")
@@ -923,10 +926,14 @@ private object SiteSearch {
                 val title = raw.replace(CATEGORY_RE, "").trim()
                 if (title.length < 4) return@mapNotNull null
                 val link = a.absUrl("href").ifBlank { return@mapNotNull null }
-                // 日期和标题同在一行（li / tr / div），在它的文字里找
-                val row = a.parents().firstOrNull { it.tagName() in setOf("li", "tr", "dd", "div") } ?: a.parent()
+                // 日期在同一行里，但不一定和链接同层（标题常再包一层 div）：沿父节点逐层找，
+                // 碰到装着多条通知的容器就停，免得拿到别条的日期；不看标题本身，标题里常带日期。
+                val ownText = a.text()
+                val match = a.parents().asSequence()
+                    .takeWhile { it.select("a[href*=info/]").size <= 1 }
+                    .firstNotNullOfOrNull { DATE_RE.find(it.text().replace(ownText, "")) }
                 // 没年份就没法和别的站一起按时间排，猜年份会把老通知显示成今年：不收，记一笔
-                val date = DATE_RE.find(row?.text().orEmpty())?.let { m ->
+                val date = match?.let { m ->
                     runCatching { LocalDate.of(m.groupValues[1].toInt(), m.groupValues[2].toInt(), m.groupValues[3].toInt()) }.getOrNull()
                 } ?: run { undated++; return@mapNotNull null }
                 // 置顶占位会写成 2099-12-31 之类的未来日期，不是真通知

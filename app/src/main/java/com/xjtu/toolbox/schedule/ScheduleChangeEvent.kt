@@ -1,14 +1,8 @@
 package com.xjtu.toolbox.schedule
 
 /**
- * jwapp 一条调课/停课/新增课记录，官方原始信息，用于课表变更提醒。
- *
- * 字段含义反查自 jwapp 官方 App 自己的前端逻辑（HAR 抓包 + 反编译
- * `pages-timetable-index` 静态资源核实，非推测）：`bz` 就是官方展示给学生的调课备注；
- * 目标节次/教室在 `xksjc`/`xjsjc`/`xjasmc`，不是原始行的 `ksjc`/`jsjc`/`jasmc`——那三个
- * 只用于定位被改的原始行，[JwappScheduleApi] 早前的合并逻辑曾经把它们错当成新时段用。
- *
- * 只有课表源选 jwapp 时才有这份数据；jwxt 不返回变更记录，bkkq 未核实是否有等价字段。
+ * 一条调课/停课/补课记录，来自教务 `xsdkkc.do`（见 [JwxtChanges]），供屁岱回答「最近调了什么课」。
+ * 课表本身已经合并过这些记录，这里只是给人看的说明。
  */
 @kotlinx.serialization.Serializable
 data class ScheduleChangeEvent(
@@ -25,9 +19,7 @@ data class ScheduleChangeEvent(
     val toStartSection: Int = 0,
     val toEndSection: Int = 0,
     val toLocation: String = "",
-    /** 官方调课备注（`bz`）。可能为空——不是每条变更都会填。 */
-    val reason: String = "",
-    /** 原时段在哪几周被停/被调走；新增课为空。旧版本落盘的数据没有这个字段。 */
+    /** 原时段在哪几周被停/被调走；补课为空。 */
     val weeks: List<Int> = emptyList(),
     /** 新时段落在哪几周；停课为空。调课可以跨周（第 4 周的课挪到第 6 周周末补）。 */
     val toWeeks: List<Int> = emptyList(),
@@ -45,10 +37,12 @@ data class ScheduleChangeEvent(
         val place = toLocation.takeIf { it.isNotBlank() }
         return when (kind) {
             Kind.CANCELLED -> "${fromWeeks}停课（${from ?: "原安排"}）"
-            Kind.ADDED -> "${targetWeeks}新增" + (to?.let { "，$it" } ?: "") + (place?.let { "，$it" } ?: "")
+            Kind.ADDED -> "${targetWeeks}补课" + (to?.let { "，$it" } ?: "") + (place?.let { "，$it" } ?: "")
             Kind.MOVED -> {
                 // 同一周内挪动只说一次周次；跨周时两头各说各的
                 val sameWeeks = weeks == toWeeks || toWeeks.isEmpty()
+                // 教务的调课很多只是换教室
+                if (sameWeeks && from != null && from == to && place != null) return "$fromWeeks${from}换到$place"
                 val head = if (sameWeeks) fromWeeks else ""
                 val fromPart = (if (sameWeeks) "" else fromWeeks) + (from ?: "原安排")
                 val toPart = (if (sameWeeks) "" else targetWeeks) + (to ?: "新安排")

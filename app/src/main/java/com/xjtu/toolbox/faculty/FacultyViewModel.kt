@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.faculty
 
 import android.util.Log
+import com.xjtu.toolbox.error.FriendlyError
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -81,7 +82,7 @@ internal class FacultyViewModel : ViewModel() {
                 throw e
             } catch (e: Exception) {
                 Log.w(TAG, "教师检索失败", e)
-                error = e.message ?: "加载失败"
+                error = FriendlyError.of(e, "加载")
             }
             loading = false
         }

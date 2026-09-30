@@ -24,7 +24,9 @@ internal const val SLIDE_TIME = 0.35f
 internal const val FALL_TIME = 0.45f
 internal const val TIP_FALL_TIME = 0.7f
 internal const val ICE_SLIDE = 0.42f
-internal const val CRUMBLE_TIME = 1.4f
+internal const val CRUMBLE_TIME = 1.8f
+/** 易碎台之后那块的最远中心距：蓄力约 0.75 秒，给看清和起跳留出余量。 */
+internal const val RUSHED_GAP = 2.2f
 internal const val SPRING_BOOST = 1.5f
 internal const val PAD_HEIGHT = 0.55f
 /** 棋子底座半径：落点出了台面但离边不到这么远，是半个身子悬空、往外倒下去。 */
@@ -116,7 +118,7 @@ class HopGame(private val random: Random = Random.Default) {
 
     var phase = HopPhase.IDLE; private set
     var charge = 0f; private set
-    var score = 0; private set
+    var score = 0; internal set
     var streak = 0; private set
     /** 最近一次得分，和它的序号（界面据此飘字）。 */
     var lastGain = 0; private set
@@ -340,8 +342,10 @@ class HopGame(private val random: Random = Random.Default) {
 
     private fun launch() {
         val target = aimTarget
-        var dx = target.x - px
-        var dz = target.z - pz
+        // 移动台瞄轨道中线：落点只由蓄力决定，靠松手时机让台子正好晃到落点。
+        // 瞄它此刻的位置的话，方向跟着台子歪，飞行中台子又挪开，落点就无从预判。
+        var dx = (if (target.moving) target.baseX else target.x) - px
+        var dz = (if (target.moving) target.baseZ else target.z) - pz
         val len = hypot(dx, dz).coerceAtLeast(1e-4f)
         dx /= len
         dz /= len
@@ -471,8 +475,15 @@ class HopGame(private val random: Random = Random.Default) {
     /** 按当前分数出下一块（或分叉两块）。越往后台子越小、越远，特殊台越多。 */
     private fun generate(from: Pad): List<Pad> {
         val d = min(score, 120) / 120f
+        // 易碎台站不久：下一块不远、不分叉，也不出要等时机的移动台和幽灵台
+        val rushed = from.kind == PadKind.CRUMBLE
+        // 站在台子最后沿也要够得着下一块的中心
+        val reach = JUMP_SPEED * MAX_CHARGE - from.half
         fun half() = random.nextFloat() * (0.14f - 0.04f * d) + 0.48f - 0.18f * d
-        fun gap(h: Float) = max(from.half + h + 0.25f, 1.3f + random.nextFloat() * (0.9f + 0.9f * d))
+        fun gap(h: Float): Float {
+            val far = 1.3f + random.nextFloat() * (0.9f + 0.9f * d)
+            return max(from.half + h + 0.25f, if (rushed) min(far, RUSHED_GAP) else far)
+        }
         fun at(axis: Int, dist: Float) = if (axis == 0) from.x + dist to from.z else from.x to from.z + dist
         // 同形状的连续两块别撞同一个造型
         fun style(round: Boolean): Int {
@@ -484,18 +495,21 @@ class HopGame(private val random: Random = Random.Default) {
 
         // 蹦床会自动跳过去，下一块只出普通台，保证落得住
         val plain = from.kind == PadKind.TRAMPOLINE
-        if (!plain && score >= 8 && targets.size < 2 && random.nextFloat() < 0.18f) {
+        if (!plain && !rushed && score >= 8 && targets.size < 2 && random.nextFloat() < 0.18f) {
             val riskyAxis = random.nextInt(2)
             return (0..1).map { axis ->
                 val risky = axis == riskyAxis
                 val h = if (risky) half() * 0.6f else half()
-                val dist = gap(h) + if (risky) 0.5f else 0f
+                val dist = if (risky) min(gap(h) + 0.5f, reach) else gap(h)
                 val (x, z) = at(axis, dist)
                 val round = if (risky) true else random.nextBoolean()
                 Pad(x, z, h, round, PadKind.NORMAL, axis, style(round), if (risky) FORK_BONUS else 0)
             }
         }
-        val kind = if (plain || score < 5) PadKind.NORMAL else pickKind()
+        val kind = when {
+            plain || score < 5 -> PadKind.NORMAL
+            else -> pickKind().takeUnless { rushed && (it == PadKind.MOVING || it == PadKind.GHOST) } ?: PadKind.NORMAL
+        }
         val axis = random.nextInt(2)
         val h = half()
         val (x, z) = at(axis, gap(h))

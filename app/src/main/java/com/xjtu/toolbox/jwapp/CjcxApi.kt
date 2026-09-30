@@ -124,10 +124,6 @@ class CjcxApi(private val site: SiteSession) {
         return all
     }
 
-    /** 构建查找表：termCode|normalizedName → CjcxScore */
-    fun buildLookup(scores: List<CjcxScore>): Map<String, CjcxScore> =
-        scores.associateBy { "${it.termCode}|${normalizeName(it.courseName)}" }
-
     companion object {
         /** 标准化课程名（空格/全角/罗马数字/符号统一） */
         fun normalizeName(name: String): String = name.trim()

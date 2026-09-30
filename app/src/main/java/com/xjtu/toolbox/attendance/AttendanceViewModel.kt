@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.attendance
 
 import androidx.lifecycle.SavedStateHandle
+import com.xjtu.toolbox.error.FriendlyError
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.xjtu.toolbox.auth.AuthExpiredException
@@ -68,7 +69,7 @@ class AttendanceViewModel(site: SiteSession, private val saved: SavedStateHandle
             } catch (_: AuthExpiredException) {
                 eventChannel.send(AttendanceEvent.AuthExpired)
             } catch (e: Exception) {
-                mutable.update { it.copy(error = e.message ?: "加载失败") }
+                mutable.update { it.copy(error = FriendlyError.of(e, "加载考勤")) }
             } finally {
                 mutable.update { it.copy(loading = false, refreshing = false) }
             }
@@ -120,7 +121,7 @@ class AttendanceViewModel(site: SiteSession, private val saved: SavedStateHandle
             } catch (_: AuthExpiredException) {
                 eventChannel.send(AttendanceEvent.AuthExpired)
             } catch (e: Exception) {
-                eventChannel.send(AttendanceEvent.Message(e.message ?: "操作失败"))
+                eventChannel.send(AttendanceEvent.Message(FriendlyError.of(e, "操作")))
             }
         }
     }

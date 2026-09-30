@@ -18,6 +18,15 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -44,8 +53,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
+import com.xjtu.toolbox.ui.components.FullScreenOverlay
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.vibrancy
@@ -133,7 +141,7 @@ internal object GlobalSearchIndex {
 private val QuickChips = listOf("课表", "空教室", "校园卡", "成绩", "付款码", "通知")
 
 /**
- * 全局搜索。独立 Dialog，盖过首页大标题和悬浮底栏；打开时上滑淡入。
+ * 全局搜索。盖在主界面最外层的整屏浮层（见 [FullScreenOverlay]），盖过首页大标题和悬浮底栏。
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -143,15 +151,7 @@ fun GlobalSearchScreen(
     onAskAgent: (String) -> Unit,
     accountType: AccountType = AccountType.UNDERGRADUATE,
 ) {
-    Dialog(
-        onDismissRequest = onBack,
-        properties = DialogProperties(
-            dismissOnBackPress = true,
-            dismissOnClickOutside = false,
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = true,
-        )
-    ) {
+    FullScreenOverlay {
         var query by rememberSaveable { mutableStateOf("") }
         val results by remember(accountType) { derivedStateOf { GlobalSearchIndex.search(query, accountType) } }
         val focusRequester = remember { FocusRequester() }
@@ -205,6 +205,10 @@ fun GlobalSearchScreen(
         ) {
             Scaffold(
                 containerColor = scaffoldColor,
+                // 底部不让位：结果列表从小白条下面滚过，末尾净空由列表自己补（见 SearchResultList）
+                contentWindowInsets = WindowInsets.systemBars
+                    .union(WindowInsets.displayCutout)
+                    .only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
                 topBar = {
                     TopAppBar(
                         title = "搜索",
@@ -337,8 +341,10 @@ private fun SearchResultList(
     val screens = results.filterIsInstance<SearchEntry.Screen>()
     val prompts = results.filterIsInstance<SearchEntry.AgentPrompt>()
 
+    // 末尾让出小白条和键盘，最后一条结果能滚到它们上面
+    val bottomInset = WindowInsets.navigationBars.union(WindowInsets.ime).asPaddingValues().calculateBottomPadding()
     LazyColumn(
-        contentPadding = PaddingValues(vertical = 12.dp),
+        contentPadding = PaddingValues(top = 12.dp, bottom = 12.dp + bottomInset),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         if (screens.isNotEmpty()) {

@@ -51,6 +51,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.game.GameIds
+import com.xjtu.toolbox.game.GameSound
+import com.xjtu.toolbox.game.Sfx
 import com.xjtu.toolbox.game.GameResult
 import com.xjtu.toolbox.game.GameStore
 import com.xjtu.toolbox.game.net.GameKind
@@ -181,9 +183,10 @@ private fun GoHintLine(state: GoGameState) {
         GoRejection.KO -> "打劫：不能立即提回，先去别处走一手"
         null -> null
     }
+    val stuck = state.autoPassed?.let { "${if (it == Stone.BLACK) "黑" else "白"}棋已无处可下，自动虚手" }
     val text = reason ?: when (state.phase) {
-        GoPhase.PLAYING -> "点交叉点落子 · 双方连续虚手进入数子"
-        GoPhase.SCORING -> "数子：点棋子标记死子，再点一次取消"
+        GoPhase.PLAYING -> stuck ?: "点交叉点落子 · 双方连续虚手进入数子"
+        GoPhase.SCORING -> (if (stuck != null) "双方都已无处可下 · " else "") + "数子：点棋子标记死子，再点一次取消"
         GoPhase.FINISHED -> "对局结束"
     }
     GameHint(text, color = if (reason != null) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.onSurfaceVariantSummary)
@@ -418,7 +421,17 @@ private class GoOnlineMatch {
     var pendingDrawFromPeer by mutableStateOf(false)
     // 每成功走一手（含虚手）+1，棋盘靠它重画——GoBoard 是原地修改的可变对象
     var moveCount by mutableIntStateOf(0)
+    /** 上一手是替我自动虚手的（无处可下）。 */
+    var autoPassed by mutableStateOf(false)
     private var recorded = false
+
+    fun applyMyPass() {
+        adapter.applyIfLegal(board, OnlineMove.Pass, myColor.ordinal)
+        consecutivePasses += 1
+        moveCount++
+        turn = peerColor
+        if (consecutivePasses >= 2) result = GoScoring.score(board, emptySet())
+    }
 
     fun begin(s: OnlineGameSession, iAmFirst: Boolean, size: Int) {
         // 围棋固定黑先，谁先手（黑棋）由房主决定，逻辑跟五子棋一致。
@@ -431,6 +444,7 @@ private class GoOnlineMatch {
         disconnectedReason = null
         pendingDrawFromPeer = false
         moveCount = 0
+        autoPassed = false
         recorded = false
         session = s
     }
@@ -446,6 +460,7 @@ private class GoOnlineMatch {
         val winner = result?.winner ?: resignedWinner ?: return
         if (recorded) return
         recorded = true
+        GameSound.play(if (winner == myColor) Sfx.TADA else Sfx.SAD_TROMBONE)
         GameStore.recordResult(context, GameIds.GO, "online", if (winner == myColor) GameResult.WIN else GameResult.LOSS)
     }
 
@@ -466,9 +481,17 @@ private class GoOnlineMatch {
                         return@collect
                     }
                     consecutivePasses = if (move is OnlineMove.Pass) consecutivePasses + 1 else 0
+                    if (move is OnlineMove.Place) GameSound.play(Sfx.KNOCK, 0.7f)
                     moveCount++
                     turn = if (turn == Stone.BLACK) Stone.WHITE else Stone.BLACK
                     if (consecutivePasses >= 2) result = GoScoring.score(board, emptySet())
+                    // 轮到我却无处可下：替我虚手并告诉对方，免得终盘卡住
+                    if (result == null && turn == myColor && !board.hasLegalMove(myColor)) {
+                        applyMyPass()
+                        autoPassed = true
+                        recordIfFinished(context)
+                        s.sendLocalMove(adapter.encodeMove(OnlineMove.Pass))
+                    }
                 }
                 OnlineGameEvent.Resigned -> resignedWinner = myColor
                 OnlineGameEvent.DrawRequested -> pendingDrawFromPeer = true
@@ -537,20 +560,22 @@ private fun GoOnlineSection(
     fun onIntersectionTap(x: Int, y: Int) {
         if (match.result != null || match.resignedWinner != null || match.turn != myColor || disconnectedReason != null) return
         val move = OnlineMove.Place(x, y)
-        if (!match.adapter.applyIfLegal(board, move, myColor.ordinal)) return
+        if (!match.adapter.applyIfLegal(board, move, myColor.ordinal)) {
+            GameSound.play(Sfx.SQUEAK, 0.6f)
+            return
+        }
+        GameSound.play(Sfx.KNOCK, 0.7f)
         match.consecutivePasses = 0
         match.moveCount++
+        match.autoPassed = false
         match.turn = match.peerColor
         sendMove(move)
     }
 
     fun onPassTap() {
         if (match.result != null || match.resignedWinner != null || match.turn != myColor || disconnectedReason != null) return
-        match.adapter.applyIfLegal(board, OnlineMove.Pass, myColor.ordinal)
-        match.consecutivePasses += 1
-        match.moveCount++
-        match.turn = match.peerColor
-        if (match.consecutivePasses >= 2) match.result = GoScoring.score(board, emptySet())
+        match.autoPassed = false
+        match.applyMyPass()
         match.recordIfFinished(context)
         sendMove(OnlineMove.Pass)
     }
@@ -560,6 +585,7 @@ private fun GoOnlineSection(
         result != null -> "对局结束：${if (result.winner == Stone.BLACK) "黑棋" else "白棋"}胜 ${"%.2f".format(result.margin)} 子"
         resignedWinner != null -> "对局结束：${if (resignedWinner == Stone.BLACK) "黑棋" else "白棋"}胜（对方认输）"
         turn == myColor -> "轮到你落子 · ${board.size} 路"
+        match.autoPassed -> "你已无处可下，自动虚手 · 等待对方"
         else -> "等待对方落子… · ${board.size} 路"
     }
     val finished = result != null || resignedWinner != null || disconnectedReason != null

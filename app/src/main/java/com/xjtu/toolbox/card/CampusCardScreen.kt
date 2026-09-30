@@ -12,6 +12,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import com.xjtu.toolbox.home.HomeStats
+import com.xjtu.toolbox.home.HomeStat
+import androidx.compose.runtime.produceState
 import androidx.compose.material.icons.automirrored.filled.TrendingDown
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.*
@@ -104,6 +107,7 @@ fun CampusCardScreen(
     // 第 5 条。默认 false，和 agent/ProactiveBubble.kt 的 glass 参数一个约定：
     // 接上设置项之前先按「经典」的不透明样式来，不在没接设置项的分支里提前显示玻璃。
     glass: Boolean = false,
+    onOpenCoupon: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -301,7 +305,7 @@ fun CampusCardScreen(
                                     // 右栏就是完整的流水，左栏不再重复「最近交易」
                                     OverviewTab(
                                         cardInfo, stats.monthly, emptyList(), todaySummary, stats.dailyRate,
-                                        stats.activeDays, rangeDates.first, rangeDates.second, topInset,
+                                        stats.activeDays, rangeDates.first, rangeDates.second, topInset, onOpenCoupon,
                                     )
                                 }
                                 Box(Modifier.weight(0.58f).fillMaxHeight()) {
@@ -336,7 +340,7 @@ fun CampusCardScreen(
                             when (tab) {
                                 0 -> OverviewTab(
                                     cardInfo, stats.monthly, transactions.take(5), todaySummary, stats.dailyRate,
-                                    stats.activeDays, rangeDates.first, rangeDates.second, topContentPadding,
+                                    stats.activeDays, rangeDates.first, rangeDates.second, topContentPadding, onOpenCoupon,
                                 )
                                 1 -> TransactionTab(
                                     transactions, transactions.size, vm.isLoadingMore, searchQuery,
@@ -372,6 +376,7 @@ private fun OverviewTab(
     rangeEnd: LocalDate,
     // 顶栏 + 标签行 + 时间选择器的高度，给列表让出来（plan2 §16.2）。
     topContentPadding: Dp = 0.dp,
+    onOpenCoupon: () -> Unit = {},
 ) {
     LazyColumn(
         // 左右留白放在 contentPadding 里而不是列表外面：余额卡有投影，
@@ -389,6 +394,21 @@ private fun OverviewTab(
         // 卡状态正常时不占一整张卡，异常（挂失 / 冻结）才单独拎出来
         cardInfo?.takeIf { it.lostFlag || it.frozenFlag }?.let { info ->
             item { Box(Modifier.enterOnce(1)) { CardStatusPanel(info) } }
+        }
+        // 紧跟余额卡：放到最近交易后面就被长列表埋掉了
+        item {
+            Box(Modifier.enterOnce(1)) {
+                val context = LocalContext.current
+                // 状态用首页后台拉好的摘要：待领 / 可用张数、最近到期
+                val stat by produceState<HomeStat?>(null) { value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { HomeStats.pushed(context, AppRoute.Coupon) } }
+                com.xjtu.toolbox.ui.components.SecondaryEntry(
+                    Icons.Default.Restaurant, com.xjtu.toolbox.ui.theme.legacyColor(AppRoute.Coupon.id),
+                    "加餐券", stat?.detail ?: "领取和使用食堂加餐券",
+                    status = stat?.value,
+                    highlight = stat?.value?.contains("待领") == true || stat?.detail?.contains("到期") == true,
+                    onClick = onOpenCoupon,
+                )
+            }
         }
         item { Box(Modifier.enterOnce(1)) { TodayMealsCard(today) } }
         item {

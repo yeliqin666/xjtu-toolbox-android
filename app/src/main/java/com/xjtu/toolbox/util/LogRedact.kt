@@ -3,8 +3,7 @@ package com.xjtu.toolbox.util
 /**
  * 日志 / 崩溃报告统一脱敏。
  *
- * 所有**可能离开进程**的文本（logcat、[com.xjtu.toolbox.error.FileErrorReporter] 落盘、
- * [com.xjtu.toolbox.error.CrashReporter] 上报）在写出前都走这里，规则只维护这一份。
+ * 所有**可能离开进程**的文本（logcat、[com.xjtu.toolbox.error.CrashReporter] 上报）在写出前都走这里，规则只维护这一份。
  *
  * release 包里 `android.util.Log` 已被 R8 剥掉（proguard `-assumenosideeffects`），
  * logcat 这一路只影响 debug 包；崩溃上报在 release 里是真的会发出去的，所以规则按「会上传」的标准定。

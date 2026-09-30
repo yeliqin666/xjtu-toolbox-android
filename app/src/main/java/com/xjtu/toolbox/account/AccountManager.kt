@@ -4,11 +4,11 @@ import android.content.Context
 import android.util.Log
 import com.xjtu.toolbox.auth.AccessMode
 import com.xjtu.toolbox.auth.AccountType
+import com.xjtu.toolbox.auth.SessionBackend
 import com.xjtu.toolbox.auth.SessionManager
 import com.xjtu.toolbox.auth.ensureSite
-import com.xjtu.toolbox.card.CampusCardCache
+import com.xjtu.toolbox.data.SecurePrefs
 import com.xjtu.toolbox.data.AppDatabase
-import com.xjtu.toolbox.network.PersistentCookieJar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -45,16 +45,7 @@ class AccountManager(
     fun activeAccount(): Account? = accountStore.activeAccount()
     fun accountCount(): Int = accountStore.list().size
 
-    /**
-     * 切换到目标账号。幂等：若已是当前账号则仅更新 lastUsedAt。
-     * @return 切换后的 [Account]；目标不存在则返回 null。
-     */
-    /**
-     * 清空 WebView 的 localStorage / sessionStorage / IndexedDB。
-     *
-     * [android.webkit.WebStorage] 必须在主线程调用；[switchToLocked] 跑在 IO 上，所以这里
-     * 自己切一次。失败只记日志不抛——切账号本身不该因为清缓存失败而中断。
-     */
+    /** 清空 WebView 的 localStorage / sessionStorage / IndexedDB。WebStorage 只能在主线程调用；失败不影响切换。 */
     private fun clearWebViewStorage() {
         android.os.Handler(android.os.Looper.getMainLooper()).post {
             runCatching { android.webkit.WebStorage.getInstance().deleteAllData() }
@@ -62,6 +53,10 @@ class AccountManager(
         }
     }
 
+    /**
+     * 切换到目标账号。幂等：若已是当前账号则仅更新 lastUsedAt。
+     * @return 切换后的 [Account]；目标不存在则返回 null。
+     */
     suspend fun switchTo(accountId: String): Account? = switchLock.withLock {
         switchToLocked(accountId)
     }
@@ -80,15 +75,11 @@ class AccountManager(
         Log.i(TAG, "Switching account: ${AccountContext.activeAccountId} -> $accountId")
         // 1) 清旧账号内存态
         holder.clearInMemorySessionState()
-        // 1.5) 清 WebView 的本地存储。
-        // 移动交大等页面把登录令牌存在 localStorage（键 idToken），**cookie 清理清不掉它**。
-        // 尤其 WebVPN 模式下所有被代理站点共用 webvpn.xjtu.edu.cn 这一个 origin，也就共用
-        // 一份 localStorage：不清的话，切过去的账号会捡到上一个账号残留的令牌，且该令牌在
-        // 有效期内（实测 8 小时）足以代表上一个人的身份。属于越权，必须清。
+        // 1.5) 清 WebView 本地存储：移动交大等页面把令牌存在 localStorage（cookie 清不掉），
+        // WebVPN 下各站点还共用同一个 origin，不清会让新账号捡到上一个账号仍有效的令牌。
         clearWebViewStorage()
         // 2) 重建 SessionManager backends（旧 cookieJar 磁盘保留以便切回）
-        val suffix = "_" + accountId.replace(Regex("[^a-zA-Z0-9]"), "_")
-        sessionManager.reconfigureForAccount(suffix)
+        sessionManager.reconfigureForAccount(AccountContext.suffixFor(accountId))
         // 3) 载入新账号身份（内部会设置 AccountContext.activeAccountId）
         holder.loadIdentityFromAccount(account)
         runCatching { holder.ensureCampusDetected() }
@@ -143,16 +134,15 @@ class AccountManager(
 
         // 切到新账号命名空间
         holder.clearInMemorySessionState()
-        val suffix = "_" + username.replace(Regex("[^a-zA-Z0-9]"), "_")
-        sessionManager.reconfigureForAccount(suffix)
+        sessionManager.reconfigureForAccount(AccountContext.suffixFor(username))
         holder.loadIdentityFromAccount(tempAccount)
         runCatching { holder.ensureCampusDetected() }
             .onFailure { Log.w(TAG, "addAccount campus detect failed: ${it.message}") }
 
         // 探活：尝试 JWXT 登录。MFA 由 SessionManager 状态机驱动 UI 弹窗。
         val loginResult = runCatching {
-            sessionManager.ensureSite(com.xjtu.toolbox.auth.LoginType.JWXT)
-            sessionManager.ensureSite(com.xjtu.toolbox.auth.LoginType.YWTB)
+            sessionManager.ensureSite(com.xjtu.toolbox.auth.LoginType.JWXT, userInitiated = true)
+            sessionManager.ensureSite(com.xjtu.toolbox.auth.LoginType.YWTB, userInitiated = true)
         }
 
         if (loginResult.isFailure) {
@@ -160,6 +150,7 @@ class AccountManager(
             val cause = loginResult.exceptionOrNull() ?: IllegalStateException("登录失败")
             Log.w(TAG, "addAccount login failed: ${cause.message}")
             rollbackTo(previousActiveId)
+            wipeAccountFiles(username, cookiesOnly = false) // 这个账号没落库，登录过程留下的文件一并清掉
             return Result.failure(cause)
         }
 
@@ -200,31 +191,34 @@ class AccountManager(
     }
 
     /**
-     * 「我的」页首次登录成功后落库当前账号。
-     * 与 [addAccount] 不同：本方法假定 SessionManager 已完成 JWXT 登录，不再重复探活，
-     * 仅把当前内存态身份 + 会话产物写入 AccountStore。
+     * 「我的」页首次登录成功后落库当前账号。与 [addAccount] 不同：假定 JWXT 已登录，不再探活。
+     * 登录发生在匿名命名空间，这里把会话 cookie 搬进账号命名空间，匿名罐清空。
      */
-    fun persistCurrentLogin(username: String, password: String, accountType: AccountType) {
-        val nickname = holder.ywtbUserInfo?.userName
-        // fpVisitorId fallback：JWXT 登录链可能尚未把 fp 写回 SessionManager，
-        // 用已有账号记录里的 fp（切换切回时）兜底，避免落库 null 导致下次切回重新触发 MFA。
-        val existingFp = accountStore.get(username)?.fpVisitorId
-        val existingRsa = accountStore.get(username)?.rsaPublicKey
-        val account = Account(
-            accountId = username,
-            password = password,
-            accountType = accountType,
-            nickname = nickname,
-            fpVisitorId = sessionManager.fpVisitorId ?: existingFp,
-            rsaPublicKey = sessionManager.cachedRsaKey ?: existingRsa,
-            rsaKeyTime = if (sessionManager.cachedRsaKey != null) System.currentTimeMillis() else 0L,
-            lastUsedAt = System.currentTimeMillis(),
-        )
-        accountStore.upsert(account, setActive = true)
-        holder.accountId = username
-        holder.accountType = accountType
-        com.xjtu.toolbox.account.AccountContext.activeAccountId = username
-    }
+    suspend fun persistCurrentLogin(username: String, password: String, accountType: AccountType) =
+        withContext(Dispatchers.IO) {
+            switchLock.withLock {
+                // 登录链可能还没把 fp 写回 SessionManager，用旧记录兜底，免得下次切回又触发 MFA
+                val existing = accountStore.get(username)
+                val account = Account(
+                    accountId = username,
+                    password = password,
+                    accountType = accountType,
+                    nickname = holder.ywtbUserInfo?.userName,
+                    fpVisitorId = sessionManager.fpVisitorId ?: existing?.fpVisitorId,
+                    rsaPublicKey = sessionManager.cachedRsaKey ?: existing?.rsaPublicKey,
+                    rsaKeyTime = if (sessionManager.cachedRsaKey != null) System.currentTimeMillis() else 0L,
+                    lastUsedAt = System.currentTimeMillis(),
+                )
+                accountStore.upsert(account, setActive = true)
+                val previous = AccountContext.activeAccountId
+                if (previous != username) {
+                    val suffix = AccountContext.suffixFor(username)
+                    if (previous == null) sessionManager.adoptAnonymousSession(suffix)
+                    else sessionManager.reconfigureForAccount(suffix)
+                }
+                holder.loadIdentityFromAccount(account)
+            }
+        }
 
     /**
      * 删除账号：清除其全部命名空间存储（cookies / DataCache / Agent 会话 / 校园卡缓存 / Room 行）。
@@ -236,32 +230,12 @@ class AccountManager(
 
     private suspend fun removeAccountLocked(accountId: String, deleteCache: Boolean): Boolean {
         val account = accountStore.get(accountId) ?: return false
-        val suffix = "_" + accountId.replace(Regex("[^a-zA-Z0-9]"), "_")
-        val appContext = context.applicationContext
 
-        // cookies：当前账号必须清正在用的 jar，否则 debounce 写盘会把 TGC 写回
+        // 当前账号要清正在用的 jar，否则 debounce 写盘会把 TGC 写回
         if (AccountContext.activeAccountId == accountId) {
             runCatching { AccessMode.entries.forEach { sessionManager.backend(it).clearAuth() } }
         }
-        runCatching { PersistentCookieJar(appContext, "cookies_normal$suffix").clear() }
-        runCatching { PersistentCookieJar(appContext, "cookies_webvpn$suffix").clear() }
-
-        if (deleteCache) {
-            // DataCache 目录
-            runCatching { File(appContext.cacheDir, "data_cache$suffix").deleteRecursively() }
-            // Agent 会话目录
-            runCatching { File(appContext.filesDir, "agent_sessions$suffix").deleteRecursively() }
-            // 校园卡缓存 prefs：直接按被删账号的命名空间清。以前是临时把全局
-            // AccountContext 指过去再改回来，那段时间里别处的读写都会落到被删账号上。
-            runCatching {
-                CampusCardCache.clear(appContext, accountId)
-                appContext.getSharedPreferences("campus_card$suffix", Context.MODE_PRIVATE).edit().clear().apply()
-            }
-            // Room 自定义课程
-            runCatching {
-                AppDatabase.getInstance(appContext).customCourseDao().deleteByAccount(accountId)
-            }
-        }
+        wipeAccountFiles(accountId, cookiesOnly = !deleteCache)
 
         accountStore.remove(accountId)
 
@@ -273,7 +247,7 @@ class AccountManager(
             } else {
                 holder.clearInMemorySessionState()
                 AccountContext.activeAccountId = null
-                sessionManager.reconfigureForAccount("_default")
+                sessionManager.reconfigureForAnonymous()
                 accountStore.clearActive()
             }
         }
@@ -286,39 +260,76 @@ class AccountManager(
     }
 
     /**
-     * 登出当前账号：仅清当前 session cookies + 内存态，保留账号记录与缓存。
-     * 下次切换该账号时 cookieJar 重建，需重新走 CAS（可能 MFA）。
+     * 登出当前账号：清当前 session cookies + 内存态，保留账号记录与缓存。
+     * 下次切换该账号时需重新走 CAS（可能 MFA）。
      */
     suspend fun logoutCurrent() = switchLock.withLock {
         val id = AccountContext.activeAccountId ?: return@withLock
-        // 清正在用的 jar（取消 debounce 写盘），不要另 new 一份同名 jar：
-        // 活着的那份 500ms 后仍会把 TGC 写回同一 prefs。
+        // 清正在用的 jar（取消 debounce 写盘），不要另 new 一份同名 jar：活着的那份仍会把 TGC 写回
         runCatching {
             AccessMode.entries.forEach { sessionManager.backend(it).clearAuth() }
         }
         AccountContext.activeAccountId = null
         holder.clearInMemorySessionState()
-        sessionManager.reconfigureForAccount("_default")
+        sessionManager.reconfigureForAnonymous()
         accountStore.clearActive()
         Log.i(TAG, "logoutCurrent($id) done")
     }
 
+    /** 新增账号失败后退回原账号（没有原账号就回到未登录）。 */
     private suspend fun rollbackTo(previousActiveId: String?) {
         holder.clearInMemorySessionState()
-        if (previousActiveId != null && accountStore.get(previousActiveId) != null) {
-            val prev = accountStore.get(previousActiveId)!!
-            val suffix = "_" + previousActiveId.replace(Regex("[^a-zA-Z0-9]"), "_")
-            sessionManager.reconfigureForAccount(suffix)
+        val prev = previousActiveId?.let { accountStore.get(it) }
+        if (prev != null) {
+            sessionManager.reconfigureForAccount(AccountContext.suffixFor(prev.accountId))
             holder.loadIdentityFromAccount(prev)
-            accountStore.setActive(previousActiveId)
+            accountStore.setActive(prev.accountId)
+            // clearInMemorySessionState 把网络探测结果也清了，回滚后补测一次
+            runCatching { holder.ensureCampusDetected() }
         } else {
-            sessionManager.reconfigureForAccount("_default")
+            sessionManager.reconfigureForAnonymous()
             AccountContext.activeAccountId = null
         }
     }
 
+    /**
+     * 清掉某账号命名空间下的落盘数据。[cookiesOnly] 时只清会话 cookie，否则连本地缓存、
+     * 头像、Agent 配置（含 API Key）与对话、Room 自定义课程一并清。
+     * 直接按该账号的后缀清，不去临时改全局 [AccountContext]。
+     */
+    private suspend fun wipeAccountFiles(accountId: String, cookiesOnly: Boolean) {
+        val app = context.applicationContext
+        val suffix = AccountContext.suffixFor(accountId)
+        SessionBackend.wipe(app, suffix)
+        if (cookiesOnly) return
+
+        runCatching { File(app.cacheDir, "data_cache$suffix").deleteRecursively() }
+        runCatching { File(app.cacheDir, "avatar$suffix.jpg").delete() }
+        runCatching { File(app.cacheDir, "avatar$suffix.url").delete() }
+        for (name in listOf("agent_sessions$suffix", "agent_images$suffix", "avatar$suffix.jpg",
+            "avatar$suffix.url", "avatar_custom$suffix.jpg")) {
+            runCatching { File(app.filesDir, name).deleteRecursively() }
+        }
+        for (name in ACCOUNT_PREFS) {
+            runCatching { app.getSharedPreferences(name + suffix, Context.MODE_PRIVATE).edit().clear().commit() }
+        }
+        // 加密的 Agent 配置（API Key）：文件不存在就别为了清它去创建
+        val secureName = "agent_config_secure$suffix"
+        if (File(app.applicationInfo.dataDir, "shared_prefs/$secureName.xml").exists()) {
+            runCatching { SecurePrefs.open(app, secureName).edit().clear().commit() }
+        }
+        runCatching { AppDatabase.getInstance(app).customCourseDao().deleteByAccount(accountId) }
+    }
+
     companion object {
         private const val TAG = "AccountManager"
+
+        /** 按账号后缀存放的普通 SharedPreferences 名。各 Store 自己拼后缀，改名要同步这里。 */
+        private val ACCOUNT_PREFS = listOf(
+            "campus_card", "score_cursor", "attendance_watch", "course_colors", "schedule_diff",
+            "empty_room_cache", "attendance_records_ug", "attendance_records_pg", "agent_config",
+            "schedule_source", "schedule_changes", "inbox", "dorm_power",
+        )
     }
 }
 

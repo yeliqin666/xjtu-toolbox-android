@@ -6,11 +6,12 @@ import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.account.AccountStore
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.auth.MfaRequiredException
+import com.xjtu.toolbox.auth.PasswordInvalidatedException
 import com.xjtu.toolbox.auth.SessionManager
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.XJTULogin
 import com.xjtu.toolbox.auth.ensureSite
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -35,15 +36,19 @@ internal object HeadlessSessions {
     @Volatile
     private var headlessAccountId: String? = null
 
-    /** 拿一个已登录的站点。没有账号、登不上、或撞上短信验证时返回 null。 */
+    /**
+     * 拿一个已登录的站点。没有账号、需要短信验证、密码已失效时返回 null：这些情况重试也没用，
+     * 还会再提交一次密码，调用方应当直接结束这一轮。网络等临时故障照常抛出，由调用方决定重试。
+     */
     suspend fun site(context: Context, type: LoginType): SiteSession? {
         val manager = manager(context) ?: return null
         return try {
             manager.ensureSite(type, silent = true)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Throwable) {
-            Log.d(TAG, "ensureSite(${type.name}) 不可用：${e.javaClass.simpleName} ${e.message}")
+        } catch (e: MfaRequiredException) {
+            Log.d(TAG, "ensureSite(${type.name}) 需要短信验证，本轮放弃")
+            null
+        } catch (e: PasswordInvalidatedException) {
+            Log.d(TAG, "ensureSite(${type.name}) 密码已失效，本轮放弃")
             null
         }
     }
@@ -68,7 +73,7 @@ internal object HeadlessSessions {
                 register(com.xjtu.toolbox.auth.LmsSession())
                 register(com.xjtu.toolbox.auth.AttendanceSession())
             }
-            manager.reconfigureForAccount("_" + account.accountId.replace(Regex("[^a-zA-Z0-9]"), "_"))
+            manager.reconfigureForAccount(AccountContext.suffixFor(account.accountId))
             manager.setCredentials(account.accountId, account.password)
             manager.accountType = if (account.accountType == AccountType.POSTGRADUATE) {
                 XJTULogin.AccountType.POSTGRADUATE
@@ -84,10 +89,6 @@ internal object HeadlessSessions {
             return manager
         }
     }
-
-    /** 当前账号是本科还是研究生。没有账号时按本科算。 */
-    fun accountType(context: Context): AccountType =
-        AccountStore(context.applicationContext).activeAccount()?.accountType ?: AccountType.UNDERGRADUATE
 
     /** 有没有可用于后台自动登录的账号。没有就别排后台任务，省得空转。 */
     fun hasAccount(context: Context): Boolean =

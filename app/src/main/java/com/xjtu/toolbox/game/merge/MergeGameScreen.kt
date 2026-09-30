@@ -150,4 +150,11 @@ private class MergeGameBridge(private val context: Context) {
 
     @JavascriptInterface
     fun bestScore(): Int = GameStore.bestScore(context, GameIds.MERGE)
+
+    /** 网页里按 [Sfx] 的名字点音效，和原生小游戏共用同一套声音与开关。 */
+    @JavascriptInterface
+    fun playSound(name: String, rate: Float) {
+        com.xjtu.toolbox.game.Sfx.entries.firstOrNull { it.name == name }
+            ?.let { com.xjtu.toolbox.game.GameSound.play(it, 1f, rate) }
+    }
 }

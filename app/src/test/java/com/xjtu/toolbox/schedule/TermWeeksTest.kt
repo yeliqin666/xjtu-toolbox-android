@@ -114,6 +114,20 @@ class TermWeeksTest {
         assertNull(TermWeeks.firstTeachWeekOf(listOf(courseWithBits("0000"))))
     }
 
+    @Test
+    fun `周次压成区间`() {
+        assertEquals("1-3,5,7-9", TermWeeks.formatRanges(listOf(1, 2, 3, 5, 7, 8, 9)))
+        assertEquals("1-3, 5", TermWeeks.formatRanges(listOf(1, 2, 3, 5), sep = ", "))
+        assertEquals("3–5、8", TermWeeks.formatRanges(listOf(3, 4, 5, 8), sep = "、", dash = "–"))
+        assertEquals("4", TermWeeks.formatRanges(listOf(4)))
+        assertEquals("", TermWeeks.formatRanges(emptyList()))
+    }
+
+    @Test
+    fun `周次区间不要求有序也不怕重复`() {
+        assertEquals("1-3,6", TermWeeks.formatRanges(listOf(6, 3, 1, 2, 2)))
+    }
+
     private fun courseWithBits(bits: String) = CourseItem(
         courseName = "测试课",
         teacher = "",
@@ -125,4 +139,19 @@ class TermWeeksTest {
         courseCode = "",
         courseType = "",
     )
+
+    @Test
+    fun `总周数取教务周数和课表最晚周中大的`() {
+        fun c(bits: String) = CourseItem(courseName = "x", weekBits = bits)
+        // 教务给 18 周（含考试周），课只排到 16 周：翻得到考试周
+        assertEquals(18, TermWeeks.total(18, listOf(c("1".repeat(16)))))
+        // 第 20 周还有补课：不截掉
+        assertEquals(20, TermWeeks.total(18, listOf(c("1".repeat(16)), c("0".repeat(19) + "1"))))
+        // 教务没给：按课表
+        assertEquals(16, TermWeeks.total(0, listOf(c("1".repeat(16)))))
+        // 未来学期没排课：按教务
+        assertEquals(18, TermWeeks.total(18, emptyList()))
+        // 都没有：不知道
+        assertEquals(0, TermWeeks.total(0, emptyList()))
+    }
 }

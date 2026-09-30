@@ -49,20 +49,22 @@ object AppServices {
         // 已并进「教材」的全文库栏；首页不单列，全局搜「教材全文」仍能直达那一栏
         AppService(AppRoute.Jiaocai1, "教材全文", "教材全文库", ServiceCategory.STUDY, listOf("全文", "电子书", "在线阅读"), showOnHome = false),
         AppService(AppRoute.Library, "图书馆", "借阅与座位", ServiceCategory.STUDY, listOf("图书", "借书", "座位", "自习室")),
-        AppService(AppRoute.Transcript, "成绩单", "电子成绩单", ServiceCategory.STUDY, listOf("成绩证明", "打印成绩")),
+        AppService(AppRoute.Transcript, "成绩单", "电子成绩单", ServiceCategory.STUDY, listOf("成绩证明", "打印成绩"), showOnHome = false, audience = AccountType.UNDERGRADUATE),
         AppService(AppRoute.Notification, "通知公告", "教务与学院通知", ServiceCategory.STUDY, listOf("通知", "公告", "教务")),
         AppService(AppRoute.Faculty, "教师主页", "按姓名、学院或研究方向找老师", ServiceCategory.STUDY, listOf("教师", "老师", "导师", "博导", "硕导", "研究方向", "teacher", "faculty")),
 
         AppService(AppRoute.CampusCard, "校园卡", "余额与今日消费", ServiceCategory.LIFE, listOf("一卡通", "余额")),
         AppService(AppRoute.PaymentCode, "付款码", "出示校园付款码", ServiceCategory.LIFE, listOf("付款", "扫码")),
-        AppService(AppRoute.Coupon, "加餐券", "食堂加餐券", ServiceCategory.LIFE, listOf("加餐", "餐券", "食堂")),
+        AppService(AppRoute.Coupon, "加餐券", "食堂加餐券", ServiceCategory.LIFE, listOf("加餐", "餐券", "食堂"), showOnHome = false),
         AppService(AppRoute.SchoolCalendar, "校历", "学期与考试安排", ServiceCategory.LIFE, listOf("学期", "周数")),
+        AppService(AppRoute.DormPower, "宿舍电费", "缴费、查剩余电量", ServiceCategory.LIFE, listOf("电费", "宿舍", "电量", "充电费", "缴费", "公寓")),
         AppService(AppRoute.Venue, "场馆预订", "预约羽毛球、网球等", ServiceCategory.LIFE, listOf("场馆", "空闲场馆", "羽毛", "网球场")),
         AppService(AppRoute.Fitness, "体测查询", "体测总分与各项目成绩", ServiceCategory.LIFE, listOf("体测", "体育", "体能", "fitness")),
         AppService(AppRoute.YellowPage, "校园黄页", "校内电话与机构", ServiceCategory.LIFE, listOf("黄页", "电话", "分机")),
 
         AppService(AppRoute.WebVpnConverter, "WebVPN", "校外访问转换", ServiceCategory.TOOL, listOf("vpn", "webvpn")),
         AppService(AppRoute.Agent, "屁岱", "校园 AI 助手", ServiceCategory.TOOL, listOf("问屁岱", "ai", "助手")),
+        AppService(AppRoute.Community, "社区", "提建议、报问题", ServiceCategory.TOOL, listOf("社区讨论", "讨论", "论坛", "交流", "建议", "github")),
 
         AppService(AppRoute.Games, "小游戏", "合成西交大、方块、跳一跳…", ServiceCategory.PLAY, listOf("游戏", "小游戏", "五子棋", "围棋", "象棋", "2048", "合成", "方块", "俄罗斯方块", "跳一跳", "摸鱼")),
         AppService(AppRoute.Match, "匹配交友", "扫一扫，对一对空课时间", ServiceCategory.PLAY, listOf("匹配", "交友", "契合", "一起自习", "共同空闲", "扫码匹配", "同楼", "偶遇", "同课", "课表匹配")),

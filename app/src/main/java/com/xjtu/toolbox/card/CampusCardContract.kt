@@ -15,6 +15,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 internal object CampusCardContract {
     private val INCOME_MARKERS = listOf(
@@ -105,6 +106,16 @@ internal object CampusCardContract {
      * @param fromAccount 本人账号，仅用于跟 [toAccount] 比较是否"钱还是回到自己账上"
      * （圈存一类自转自的场景可能是这种形状，没有实样，按同样道理覆盖）。
      */
+    /**
+     * 取 `typeFrom`：只认接口约定的字符串或整数。null、布尔、小数这类异常值当缺失，
+     * 交给关键词和账户兜底——不然 `true` 会被当成「不是 1」判成支出，JSON null 更会让整页流水解析失败。
+     */
+    fun typeFromOf(element: JsonElement?): String? {
+        val p = element as? JsonPrimitive ?: return null
+        if (!p.isString && p.content.toLongOrNull() == null) return null
+        return p.content.trim().takeIf { it.isNotEmpty() }
+    }
+
     fun signedAmountCents(
         rawAmount: Long,
         typeName: String,

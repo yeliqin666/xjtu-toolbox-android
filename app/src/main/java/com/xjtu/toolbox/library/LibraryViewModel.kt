@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.library
 
 import android.content.Context
+import com.xjtu.toolbox.error.FriendlyError
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -76,6 +77,14 @@ internal class LibraryViewModel(context: Context, private val site: SiteSession)
     /** 扫桌面二维码进来要约的座位；校区一定下来就弹确认。 */
     var scanSeat by mutableStateOf<ScanSeatPrompt?>(null)
     var myBooking by mutableStateOf<MyBookingInfo?>(null); private set
+    /** 成功查到过「我的预约」；在此之前 [myBooking] 为 null 只代表还不知道，不能当成没有预约往外发。 */
+    var myBookingKnown by mutableStateOf(false); private set
+
+    /** 查询失败时保留上一次的结果。 */
+    private suspend fun loadMyBooking() {
+        withContext(Dispatchers.IO) { runCatching { api.fetchMyBooking().getOrThrow() } }
+            .onSuccess { myBooking = it; myBookingKnown = true }
+    }
     var isLoadingBooking by mutableStateOf(false); private set
 
     var favorites by mutableStateOf(prefs.getStringSet(KEY_FAVORITES, emptySet()) ?: emptySet()); private set
@@ -152,7 +161,7 @@ internal class LibraryViewModel(context: Context, private val site: SiteSession)
         bootstrapped = true
         warmCampus()
         refreshFloorPlan()
-        myBooking = withContext(Dispatchers.IO) { runCatching { api.getMyBooking() }.getOrNull() }
+        loadMyBooking()
     }
 
     /** 从屁岱的座位卡片或扫码进来：定位到那个区域，用平面图看。 */
@@ -242,7 +251,7 @@ internal class LibraryViewModel(context: Context, private val site: SiteSession)
             } catch (e: Exception) {
                 if (generation == seatGeneration) {
                     seats = emptyList()
-                    errorMessage = "加载失败: ${e.message}"
+                    errorMessage = FriendlyError.of(e, "加载")
                 }
             }
             if (generation == seatGeneration) isLoading = false
@@ -310,7 +319,7 @@ internal class LibraryViewModel(context: Context, private val site: SiteSession)
             } catch (e: Exception) {
                 if (gen == planGeneration) {
                     planLayout = null; planImages = null
-                    planError = e.message ?: "平面图加载失败"
+                    planError = FriendlyError.of(e, "加载平面图")
                 }
             }
             if (gen == planGeneration) planLoading = false
@@ -395,7 +404,7 @@ internal class LibraryViewModel(context: Context, private val site: SiteSession)
             } catch (e: Exception) {
                 floorAreas = emptyMap()
                 seats = emptyList()
-                errorMessage = "楼层信息加载失败: ${e.message}"
+                errorMessage = FriendlyError.of(e, "加载楼层信息")
                 isLoading = false
             }
         }
@@ -428,7 +437,7 @@ internal class LibraryViewModel(context: Context, private val site: SiteSession)
     fun refreshMyBooking() {
         isLoadingBooking = true
         viewModelScope.launch {
-            withContext(Dispatchers.IO) { runCatching { api.getMyBooking() } }.onSuccess { myBooking = it }
+            loadMyBooking()
             isLoadingBooking = false
         }
     }
@@ -442,9 +451,9 @@ internal class LibraryViewModel(context: Context, private val site: SiteSession)
             lastLoadedAreaCode = it
             async(Dispatchers.IO) { api.getSeats(it) }
         }
-        val bookingDeferred = async(Dispatchers.IO) { runCatching { api.getMyBooking() }.getOrNull() }
+        val bookingDeferred = async { loadMyBooking() }
         seatsDeferred?.await()?.let { applySeats(it, clearOnError = false) }
-        myBooking = bookingDeferred.await()
+        bookingDeferred.await()
     }
 
     /** 在别的校区约成了：账号就留在这个校区，离开页面时不再切回。 */
@@ -484,7 +493,7 @@ internal class LibraryViewModel(context: Context, private val site: SiteSession)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                bookingResult = BookResult(false, "${label}异常: ${e.message}")
+                bookingResult = BookResult(false, FriendlyError.of(e, label))
             }
             isBooking = false
         }
@@ -500,7 +509,7 @@ internal class LibraryViewModel(context: Context, private val site: SiteSession)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                bookingResult = BookResult(false, "$label 失败: ${e.message}")
+                bookingResult = BookResult(false, FriendlyError.of(e, label))
             }
             isBooking = false
         }

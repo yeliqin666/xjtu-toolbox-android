@@ -158,6 +158,7 @@ object FitnessProtocol {
         val payload = buildApiPayload(session, extra = mapOf("uid" to (session["uid"] ?: "")))
         val request = encryptedRequest(USER_INFO_URL, payload, referer)
         client.newCall(request).execute().use { response ->
+            checkNotServerError(response.code)
             if (!response.isSuccessful) return null
             val body = response.body?.string().orEmpty()
             if (looksLikeAuthFailure(body)) return null
@@ -176,10 +177,16 @@ object FitnessProtocol {
         val payload = buildApiPayload(session, extra)
         val request = encryptedRequest("$API_V3/$path", payload, referer)
         return site.executeWithReAuth(request).use { response ->
+            checkNotServerError(response.code)
             val text = response.body?.string().orEmpty()
             if (!response.isSuccessful) throw RuntimeException("体测服务响应 ${response.code}")
             text
         }
+    }
+
+    /** 学校体测系统 5xx 时直说是学校的问题：错误页没有回调参数，不拦的话会误报成「回调缺少会话参数」。 */
+    fun checkNotServerError(code: Int) {
+        if (code >= 500) throw java.io.IOException("学校体测系统出故障了（错误码 $code），不是账号或 App 的问题，请稍后再试")
     }
 
     fun unwrapUserInfo(body: String): JsonObject? {

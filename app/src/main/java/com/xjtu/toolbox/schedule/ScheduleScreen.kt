@@ -49,6 +49,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
@@ -164,8 +165,12 @@ fun ScheduleScreen(
     val filteredMergedCourses = remember(mergedCourses, vm.startOfTerm, vm.holidayDates) {
         ScheduleCache.filterByHolidays(mergedCourses, vm.startOfTerm, vm.holidayDates)
     }
+    val allCourseNames = remember(filteredMergedCourses) {
+        filteredMergedCourses.map { it.courseName }.distinct().sorted()
+    }
     // 「接下来」：今日两处 TodayTimeline（窄屏 tab、宽屏常驻栏）共用
     val upcomingItems = remember(vm.exams, vm.homeworkDue) { buildUpcoming(vm.exams, vm.homeworkDue) }
+    val nextExam = remember(vm.exams) { ExamCountdown.next(vm.exams) }
 
     vm.pendingSave?.let { (entity, conflicts) ->
         val lines = conflicts.joinToString("\n") { other ->
@@ -198,9 +203,8 @@ fun ScheduleScreen(
     }
 
     // 自定义日程弹窗
-    val showAddCourseState = remember { mutableStateOf(false) }
-    LaunchedEffect(showAddCourseDialog) { showAddCourseState.value = showAddCourseDialog }
     if (showAddCourseDialog) {
+        val showAddCourseState = remember { mutableStateOf(true) }
         CustomCourseDialog(
             show = showAddCourseState,
             termCode = vm.selectedTermCode,
@@ -278,7 +282,7 @@ fun ScheduleScreen(
                             showExportMenu = false
                             val st = vm.startOfTerm
                             if (st == null) {
-                                android.widget.Toast.makeText(context, "无法获取开学日期，ICS 导出不可用", android.widget.Toast.LENGTH_SHORT).show()
+                                android.widget.Toast.makeText(context, "缺少开学日期，下拉刷新后再导出", android.widget.Toast.LENGTH_SHORT).show()
                                 return@ScheduleMenuRow
                             }
                             scope.launch {
@@ -499,7 +503,7 @@ fun ScheduleScreen(
             // 列表就不用再留；没有横幅时把留白交给各栏的滚动内容，内容才会从顶栏下面滚过去。
             val staticHeaderShown = (vm.showingStaleData && !vm.isLoading) ||
                 (!vm.isLoading && vm.errorMessage == null &&
-                    ((currentContent == "week" && vm.isSwitching) || ExamCountdown.next(vm.exams) != null))
+                    ((currentContent == "week" && vm.isSwitching) || nextExam != null))
             if (staticHeaderShown && contentTopPadding > 0.dp) Spacer(Modifier.height(contentTopPadding))
             val listTopPadding = if (staticHeaderShown) 0.dp else contentTopPadding
 
@@ -559,7 +563,6 @@ fun ScheduleScreen(
                 // 没有独立的「考试」tab，改成常驻横幅——功能不能因为改版就消失。
                 // 点开是完整考试列表。
                 var showExamSheet by remember { mutableStateOf(false) }
-                val nextExam = remember(vm.exams) { ExamCountdown.next(vm.exams) }
                 nextExam?.let { n ->
                     ExamCountdownBanner(
                         n,
@@ -692,9 +695,7 @@ fun ScheduleScreen(
                                     },
                                     exams = vm.exams,
                                     today = java.time.LocalDate.now(),
-                                    allCourseNames = remember(filteredMergedCourses) {
-                                        filteredMergedCourses.map { it.courseName }.distinct().sorted()
-                                    },
+                                    allCourseNames = allCourseNames,
                                     onCourseClick = {
                                         unifiedOccurrence = Occurrence(
                                             java.time.LocalDate.now(), vm.realCurrentWeek,
@@ -784,6 +785,7 @@ fun ScheduleScreen(
                             }
                             CourseDetailContent(
                                 course = picked,
+                                allCourseNames = allCourseNames,
                                 textbooks = vm.textbooks,
                                 textbooksProblem = vm.textbooksBackgroundError,
                                 termCode = vm.selectedTermCode,
@@ -809,9 +811,7 @@ fun ScheduleScreen(
                             courses = weekCourses,
                             exams = vm.exams,
                             today = java.time.LocalDate.now(),
-                            allCourseNames = remember(filteredMergedCourses) {
-                                filteredMergedCourses.map { it.courseName }.distinct().sorted()
-                            },
+                            allCourseNames = allCourseNames,
                             onCourseClick = {
                                 unifiedOccurrence = Occurrence(
                                     java.time.LocalDate.now(), vm.realCurrentWeek,
@@ -839,6 +839,7 @@ fun ScheduleScreen(
         CourseDetailDialog(
             show = showDetail,
             course = course,
+            allCourseNames = allCourseNames,
             onDismiss = { unifiedSelectedCourse = null },
             textbooks = vm.textbooks,
             textbooksProblem = vm.textbooksBackgroundError,
@@ -1007,7 +1008,7 @@ private fun ScheduleTabContent(
             // 垫一层 verticalScroll 只为建立滚动链，内容没有可滚的距离、视觉无变化。
             EmptyState(
                 title = "本学期没有课程",
-                subtitle = "教务还没排课或还没选课。可以下拉刷新、在右上角「更多」里切换学期，或点 + 添加自己的日程",
+                subtitle = "教务还没排课。可下拉刷新、在「更多」里切换学期，或点 + 添加日程",
                 modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = gridTopPadding, bottom = bottomPadding)
             )
             return@Column
@@ -1112,6 +1113,7 @@ private fun ScheduleTabContent(
         CourseDetailDialog(
             show = showCourseDetail,
             course = course,
+            allCourseNames = allNames,
             onDismiss = { selectedCourse = null },
             textbooks = textbooks,
             textbooksProblem = textbooksProblem,
@@ -1153,6 +1155,8 @@ private fun ScheduleMenuRow(
 @Composable
 private fun CourseDetailContent(
     course: CourseItem,
+    /** 同屏全部课程名，默认配色按它排序取色。 */
+    allCourseNames: List<String>,
     textbooks: List<TextbookItem> = emptyList(),
     /** 教材没取到时的原因，null 表示没问题。 */
     textbooksProblem: String? = null,
@@ -1178,11 +1182,26 @@ private fun CourseDetailContent(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Column {
-                Text(
-                    course.courseName,
-                    style = MiuixTheme.textStyles.headline2,
-                    fontWeight = FontWeight.Bold,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        course.courseName,
+                        style = MiuixTheme.textStyles.headline2,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (!isAgenda) {
+                        var pickColor by remember { mutableStateOf(false) }
+                        val color = rememberCourseColors(allCourseNames).colorOf(course.courseName)
+                        Box(
+                            Modifier
+                                .size(26.dp)
+                                .clip(CircleShape)
+                                .background(color)
+                                .clickable { pickColor = true }
+                        )
+                        if (pickColor) CourseColorDialog(course.courseName, color) { pickColor = false }
+                    }
+                }
                 course.courseType.takeIf { it.isNotBlank() && !isAgenda }?.let {
                     Spacer(Modifier.height(3.dp))
                     Text(
@@ -1198,29 +1217,16 @@ private fun CourseDetailContent(
                 5 -> "五"; 6 -> "六"; 7 -> "日"; else -> "?"
             }
             val timeText = if (isAgenda) {
-                val startMinutes = if (course.startMinuteOfDay >= DAY_START_HOUR * 60) {
-                    course.startMinuteOfDay
-                } else {
-                    (DAY_START_HOUR + course.startSection - 1) * 60
-                }
-                val endMinutes = if (course.endMinuteOfDay > startMinutes) {
-                    course.endMinuteOfDay
-                } else {
-                    (DAY_START_HOUR + course.endSection) * 60
-                }
-                val endHourRaw = endMinutes / 60
-                val endLabel = if (endHourRaw >= 24) "次日00:00"
-                else "%02d:%02d".format(endHourRaw, endMinutes % 60)
-                "星期$dayName %02d:%02d-$endLabel".format(
-                    (startMinutes / 60).coerceIn(0, 23), (startMinutes % 60).coerceIn(0, 59),
-                )
+                val summer = XjtuTime.isSummerTime((occurrence?.date ?: java.time.LocalDate.now()).monthValue)
+                val (start, end) = course.clockMinutes(summer)
+                "星期$dayName %02d:%02d-%02d:%02d".format(start / 60, start % 60, end / 60, end % 60)
             } else {
                 "星期$dayName 第${course.startSection}-${course.endSection}节"
             }
             // 具体到某一次时直接报日期，比让人自己数第几周有用。
             val dateText = occurrence?.let {
                 "${it.date.monthValue}/${it.date.dayOfMonth} · 第${it.week}周"
-            } ?: course.getWeeks().takeIf { it.isNotEmpty() }?.let { "${formatWeeks(it)}周" }
+            } ?: course.getWeeks().takeIf { it.isNotEmpty() }?.let { "${TermWeeks.formatRanges(it, sep = ", ")}周" }
 
             // 两行元信息合进一张卡：它们回答的是同一个问题（这门课在哪、什么时候），
             // 裸排在弹窗底色上时和下面的下钻入口分不开。
@@ -1298,6 +1304,7 @@ private fun CourseDetailContent(
 private fun CourseDetailDialog(
     show: MutableState<Boolean>,
     course: CourseItem,
+    allCourseNames: List<String>,
     onDismiss: () -> Unit,
     textbooks: List<TextbookItem> = emptyList(),
     /** 教材没取到时的原因，null 表示没问题。 */
@@ -1316,6 +1323,7 @@ private fun CourseDetailDialog(
     ) {
         CourseDetailContent(
             course = course,
+            allCourseNames = allCourseNames,
             textbooks = textbooks,
             textbooksProblem = textbooksProblem,
             termCode = termCode,
@@ -1325,23 +1333,6 @@ private fun CourseDetailDialog(
             onNavigate = { route -> close(); onNavigate(route) },
         )
     }
-}
-
-/** 格式化周次：[1,2,3,5,7,8,9] → "1-3, 5, 7-9" */
-private fun formatWeeks(weeks: List<Int>): String {
-    if (weeks.isEmpty()) return ""
-    val sorted = weeks.sorted()
-    val ranges = mutableListOf<String>()
-    var start = sorted[0]; var end = sorted[0]
-    for (i in 1 until sorted.size) {
-        if (sorted[i] == end + 1) { end = sorted[i] }
-        else {
-            ranges.add(if (start == end) "$start" else "$start-$end")
-            start = sorted[i]; end = sorted[i]
-        }
-    }
-    ranges.add(if (start == end) "$start" else "$start-$end")
-    return ranges.joinToString(", ")
 }
 
 /**

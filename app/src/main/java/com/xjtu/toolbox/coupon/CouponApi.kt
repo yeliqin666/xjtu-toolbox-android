@@ -65,7 +65,7 @@ class CouponApi(private val site: SiteSession) {
         val root = try {
             text.safeParseJsonObject()
         } catch (e: Exception) {
-            throw RuntimeException("加餐券返回了非JSON数据: ${text.take(80)}")
+            throw RuntimeException("加餐券返回了异常数据，请稍后重试")
         }
 
         val code = root.safeGet("code")?.asIntOrNull()

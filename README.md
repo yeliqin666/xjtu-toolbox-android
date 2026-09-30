@@ -3,7 +3,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Android-green?logo=android" alt="Android" />
   <img src="https://img.shields.io/badge/minSdk-31%20(Android%2012)-blue" alt="minSdk 31" />
-  <img src="https://img.shields.io/badge/version-5.0.7-orange" alt="version 5.0.7" />
+  <img src="https://img.shields.io/github/v/release/yeliqin666/xjtu-toolbox-android?label=version&color=orange" alt="version" />
   <img src="https://img.shields.io/badge/license-GPL--3.0-blue" alt="GPL-3.0 License" />
 </p>
 
@@ -58,7 +58,7 @@
 
 ## 技术栈
 
-- Kotlin、Jetpack Compose、[MIUIX](https://github.com/miuix-kotlin-multiplatform/miuix)
+- Kotlin、Jetpack Compose、[MIUIX](https://github.com/compose-miuix-ui/miuix)
 - OkHttp、Brotli、Jsoup、Gson
 - [multiplatform-markdown-renderer](https://github.com/mikepenz/multiplatform-markdown-renderer)、Coil（社区的 Markdown 与图片）
 - Room、KSP、Kotlin Coroutines

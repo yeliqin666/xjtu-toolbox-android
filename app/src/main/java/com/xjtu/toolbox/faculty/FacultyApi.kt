@@ -165,7 +165,7 @@ class FacultyApi(
 
         if (!looksLikeJson(body)) {
             Log.e(TAG, "advancesearch 未返回 JSON, preview=${body.redactBody(500)}")
-            throw RuntimeException("教师检索接口返回异常（非 JSON 响应）")
+            throw RuntimeException("教师检索返回了异常数据，请稍后重试")
         }
 
         val json = JSONObject(body)
@@ -342,13 +342,13 @@ class FacultyApi(
             fetchText(url, referer = "$FACULTY_HOST/search.jsp")
         } catch (e: Exception) {
             Log.w(TAG, "主页抓取失败: $url", e)
-            return@withContext HomepageResult.Error(e.message ?: "主页加载失败")
+            return@withContext HomepageResult.Error(com.xjtu.toolbox.error.FriendlyError.of(e, "加载主页"))
         }
         if (isUnavailablePage(html)) return@withContext HomepageResult.Unavailable
         runCatching { HomepageResult.Success(parseHomepage(html, url)) }
             .getOrElse {
                 Log.e(TAG, "主页解析失败: $url", it)
-                HomepageResult.Error(it.message ?: "主页解析失败")
+                HomepageResult.Error(com.xjtu.toolbox.error.FriendlyError.of(it, "解析主页"))
             }
     }
 

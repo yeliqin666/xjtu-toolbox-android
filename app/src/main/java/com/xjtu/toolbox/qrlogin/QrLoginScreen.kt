@@ -35,8 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
+import com.xjtu.toolbox.ui.components.FullScreenOverlay
 import androidx.core.content.ContextCompat
 import com.xjtu.toolbox.auth.SessionManager
 import com.xjtu.toolbox.library.LibrarySeatQr
@@ -72,7 +71,7 @@ private sealed class UiState {
 /**
  * 首页扫一扫：电脑端的统一身份认证登录码，或图书馆桌面上的座位码。
  * 座位码不在这里处理，交给 [onLibrarySeat] 跳图书馆页——那边有平面图、我的预约、换座，
- * 这里只负责认码。独立 Dialog，盖过首页大标题和悬浮底栏（与全局搜索同一套层级）。
+ * 这里只负责认码。盖在主界面最外层的整屏浮层，和全局搜索同一套层级，见 [FullScreenOverlay]。
  */
 @Composable
 fun QrLoginScreen(
@@ -80,37 +79,7 @@ fun QrLoginScreen(
     onBack: () -> Unit,
     onLibrarySeat: (LibrarySeatQr) -> Unit = {},
 ) {
-    Dialog(
-        onDismissRequest = onBack,
-        properties = DialogProperties(
-            dismissOnBackPress = true,
-            dismissOnClickOutside = false,
-            usePlatformDefaultWidth = false,
-            // 取景画面要一直铺到状态栏后面，所以这一层不让系统替我们留白，
-            // 让位改由内容自己用 windowInsetsPadding 控制。
-            decorFitsSystemWindows = false,
-        ),
-    ) {
-        val dialogWindow = (androidx.compose.ui.platform.LocalView.current.parent
-            as? androidx.compose.ui.window.DialogWindowProvider)?.window
-        androidx.compose.runtime.SideEffect {
-            dialogWindow?.let { w ->
-                androidx.core.view.WindowCompat.setDecorFitsSystemWindows(w, false)
-                w.setBackgroundDrawableResource(android.R.color.transparent)
-                // 那条黑边有两个来源，缺一不可：
-                // 1) Dialog 默认带 FLAG_DIM_BEHIND，在窗口盖不到的状态栏区域，
-                //    透出来的是被压暗 0.6 的下层界面——看着就是一条黑带；
-                // 2) 窗口本身被限制在状态栏以下，只有 NO_LIMITS 才真正铺满整屏。
-                // 另外这里用整体重设 attributes 而不是 addFlags：窗口已经显示之后，
-                // addFlags 不保证触发重新布局，改 attributes 才会走 updateViewLayout。
-                w.setDimAmount(0f)
-                w.attributes = w.attributes.apply {
-                    width = android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                    height = android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                    flags = flags or android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-                }
-            }
-        }
+    FullScreenOverlay {
         QrLoginContent(sessionManager = sessionManager, onBack = onBack, onLibrarySeat = onLibrarySeat)
     }
 }
@@ -201,6 +170,20 @@ private fun QrLoginContent(
 
     val scanning = state is UiState.Scanning
 
+    // 取景时小白条压在暗的取景画面上，换成浅色才看得清；离开时还原。状态栏在实色标题栏上，跟随主题不动
+    val view = androidx.compose.ui.platform.LocalView.current
+    if (!view.isInEditMode) {
+        androidx.compose.runtime.DisposableEffect(scanning) {
+            val window = (view.context as? android.app.Activity)?.window
+            val controller = window?.let { androidx.core.view.WindowCompat.getInsetsController(it, view) }
+            val lightNav = controller?.isAppearanceLightNavigationBars
+            if (scanning && controller != null) controller.isAppearanceLightNavigationBars = false
+            onDispose {
+                if (controller != null && lightNav != null) controller.isAppearanceLightNavigationBars = lightNav
+            }
+        }
+    }
+
     Box(
         Modifier
             .fillMaxSize()
@@ -208,8 +191,7 @@ private fun QrLoginContent(
                 if (scanning) Color.Black else MiuixTheme.colorScheme.background
             ),
     ) {
-        // 取景画面铺满整屏（含状态栏后面），标题栏浮在它上面。
-        // 之前整页套在 Scaffold 里，相机被挤在标题栏下方，顶上留一条灰边。
+        // 取景画面铺到屏幕底边（小白条后面也是），顶部被实色标题栏盖住。
         if (scanning) {
             ScanningContent(onResult = ::onDecoded)
         }
@@ -219,25 +201,24 @@ private fun QrLoginContent(
         Column(Modifier.fillMaxSize()) {
             // 始终折叠：这一页没有可滚动的长内容，大标题只会占掉取景空间，
             // miuix 的 SmallTopAppBar 就是钉死在折叠态的版本。
-            SmallTopAppBar(
-                title = "扫一扫",
-                // 一律用主题色，不锁死黑：应用支持浅色模式和动态取色，
-                // 写死 Color.Black 在浅色主题下就是一条突兀的黑条。
-                // miuix 的 .background(color) 排在 windowInsetsPadding 之前，
-                // 实色会一直铺到屏幕顶端，状态栏区域由它自己填满——既没有透出后面的边，
-                // 也不会让标题压在相机画面上看不清。相机仍在它下面铺满，只是顶部被盖住。
-                color = MiuixTheme.colorScheme.background,
-                titleColor = MiuixTheme.colorScheme.onSurface,
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "返回",
-                            tint = MiuixTheme.colorScheme.onSurface,
-                        )
-                    }
-                },
-            )
+            // 外面再套一层同色底：标题栏先让出状态栏再画自己的底色，状态栏那一段要靠这层补上，
+            // 状态栏和标题栏才连成一块；标题也不会压在取景画面上看不清。
+            Box(Modifier.fillMaxWidth().background(MiuixTheme.colorScheme.background)) {
+                SmallTopAppBar(
+                    title = "扫一扫",
+                    color = MiuixTheme.colorScheme.background,
+                    titleColor = MiuixTheme.colorScheme.onSurface,
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "返回",
+                                tint = MiuixTheme.colorScheme.onSurface,
+                            )
+                        }
+                    },
+                )
+            }
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -466,7 +447,7 @@ private fun ScanningContent(onResult: (String) -> Unit) {
             }
         }
         Text(
-            "对准电脑上的登录二维码，或图书馆桌上的座位码",
+            "对准电脑登录码或图书馆座位码",
             color = Color.White,
             textAlign = TextAlign.Center,
             modifier = Modifier

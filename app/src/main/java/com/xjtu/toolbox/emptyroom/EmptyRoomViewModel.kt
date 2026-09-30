@@ -283,7 +283,7 @@ internal class EmptyRoomViewModel(
             throw e
         } catch (e: NoDataException) {
             if (latest()) {
-                errorMessage = e.message
+                errorMessage = rawError(e)
                 rooms = emptyList()
                 staleNote = null
             }

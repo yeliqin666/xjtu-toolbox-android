@@ -29,10 +29,6 @@ import java.io.IOException
  * 4. 回 `{"code":200,"data":{"tokenName":"TOKEN-AUTH","tokenValue":"<JWT>","tokenTimeout":36000}}`。
  *    之后每个业务请求带请求头 `TOKEN-AUTH: <JWT>` 和 `X-System: WEB`，不认 cookie。
  *    没带或过期时是 HTTP 401 + `{"code":401,"message":"token不存在或者过期"}`。
- *
- * 结果不能放在带初始化器的字段里：[XJTULogin] 走 SSO 时在父类构造期间就调 [postLogin]，
- * 子类字段初始化器随后才跑，会把刚拿到的令牌冲掉（考勤那边为此用了 WeakHashMap，
- * 见 AttendanceLogin）。这里用 lateinit：它不生成构造期赋值，postLogin 写进去的值留得住。
  */
 class JsLogin(
     session: OkHttpClient? = null,
@@ -40,14 +36,14 @@ class JsLogin(
     cachedRsaKey: String? = null,
 ) : XJTULogin(LOGIN_URL, session, visitorId, cachedRsaKey) {
 
-    /** 换到的令牌。只在 [postLogin] 里写；外部用 [grantOrNull] 读。 */
-    private lateinit var grant: JsGrant
-
-    val grantOrNull: JsGrant? get() = if (::grant.isInitialized) grant else null
+    /** 换到的令牌，[postLogin] 里写。 */
+    var grantOrNull: JsGrant? = null
+        private set
 
     override fun postLogin(response: Response) {
         val ticket = findTicket(response) ?: retryForTicket()
-        grant = exchangeTicket(client, ticket)
+        val grant = exchangeTicket(client, ticket)
+        grantOrNull = grant
         Log.d(TAG, "postLogin: token ok, timeout=${grant.timeoutSeconds}s")
     }
 
@@ -59,7 +55,7 @@ class JsLogin(
         client.newCall(Request.Builder().url(LOGIN_URL).get().build()).execute().use { retry ->
             val body = retry.body.string()
             if (XJTULogin.isSafetyVerifyPage(body)) throw SafetyVerifyRequiredException(retry, body)
-            return findTicket(retry) ?: throw IOException("智慧教室登录失败：CAS 没有回跳到 js.xjtu.edu.cn")
+            return findTicket(retry) ?: throw IOException("智慧教室登录没有完成，请稍后重试")
         }
     }
 
@@ -112,7 +108,7 @@ class JsLogin(
                 val text = resp.body.string()
                 if (!resp.isSuccessful) throw IOException("智慧教室换取令牌失败：HTTP ${resp.code}")
                 val root = runCatching { text.safeParseJsonObject() }.getOrNull()
-                    ?: throw IOException("智慧教室换取令牌失败：响应不是 JSON")
+                    ?: throw IOException("智慧教室返回了异常数据，请稍后重试")
                 val data = root.get("data")?.takeIf { it.isObject }?.jsonObject
                 val token = data?.get("tokenValue")?.takeIf { !it.isNull }?.stringValue?.trim().orEmpty()
                 if (token.isEmpty()) {

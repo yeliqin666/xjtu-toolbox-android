@@ -12,6 +12,7 @@ import com.xjtu.toolbox.util.redactBody
 import com.xjtu.toolbox.util.redactUrl
 import android.util.Base64
 import okhttp3.*
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.brotli.BrotliInterceptor
@@ -270,7 +271,7 @@ open class XJTULogin(
         .build()
 
     // 登录提交的 URL
-    private var postUrl: String
+    private var postUrl: String = ""
 
     val finalUrl: String
         get() = postUrl
@@ -279,7 +280,12 @@ open class XJTULogin(
     internal var serviceUrl: String = ""
 
     // CAS execution 字段（防 CSRF）
-    private var executionInput: String
+    private var executionInput: String = ""
+
+    /** 入口页打开过没有，见 [open]。 */
+    private var opened = false
+    private val entryUrl = loginUrl
+    private val sharedClient = existingClient
 
     // 设备指纹 ID（公开以便跨系统复用，减少 MFA 触发）
     val fpVisitorId: String = visitorId ?: generateFpVisitorId()
@@ -303,6 +309,13 @@ open class XJTULogin(
      * ——真实原因是目标服务不可达，跟账密无关，硬走密码流程只会误触发风控。
      */
     private var ssoErrorMessage: String? = null
+
+    /**
+     * init 阶段免密已经走通、但 [postLogin] 没能进站时的异常，[login] 原样抛出。
+     * 统一认证那边已经认了人，再提交密码换不来别的；postUrl 此时停在业务站上，往那里
+     * POST 只会把加密后的密码送给业务站。
+     */
+    private var ssoFailure: Exception? = null
 
     // MFA 上下文
     var mfaContext: MFAContext? = null
@@ -328,7 +341,11 @@ open class XJTULogin(
      */
     internal var lastSafetyVerifyResponse: okhttp3.Response? = null
 
-    init {
+    /**
+     * 打开入口页：TGC 还在就免密走完并调 [postLogin]，否则停在登录表单上等 [login] 提交。
+     * 由第一次 [login] 触发而不放在构造里：postLogin 是子类的，构造期间子类字段都还没初始化。
+     */
+    private fun open(loginUrl: String, existingClient: OkHttpClient?) {
         val TAG = "XJTULogin"
         android.util.Log.d(TAG, "init: loginUrl=${loginUrl.redactUrl()}, hasExistingClient=${existingClient != null}")
 
@@ -407,6 +424,7 @@ open class XJTULogin(
                 captureSafetyVerify(e.response, e.responseBody)
             } catch (e: Exception) {
                 hasLogin = false
+                ssoFailure = e
                 android.util.Log.e(TAG, "init: SSO postLogin failed", e)
             }
         } else if (executionInput.isEmpty() && existingClient != null && response.code >= 400) {
@@ -439,6 +457,11 @@ open class XJTULogin(
         accountType: AccountType = AccountType.POSTGRADUATE,
         trustAgent: Boolean = true
     ): LoginResult {
+        if (!opened) {
+            opened = true
+            open(entryUrl, sharedClient)
+        }
+
         // 如果需要选择账户
         chooseAccountBody?.let {
             return finishAccountChoice(accountType, trustAgent)
@@ -458,6 +481,9 @@ open class XJTULogin(
         ssoErrorMessage?.let { msg ->
             return LoginResult(LoginState.FAIL, msg)
         }
+        // 不转成 FAIL：上层把含「401」「密码错误」的 FAIL 当密码失效，会触发熔断。
+        // 包成 IOException，站点层才会照常记登录失败、进冷却
+        ssoFailure?.let { throw it as? IOException ?: IOException(it.message ?: "登录没有完成，请稍后重试", it) }
 
         // ── 挂起的 SAFETY_VERIFY：init SSO 阶段 postLogin 撞到 Safety Verify 时已把
         //    mfaContext 写好但 hasLogin=false。此时 lastSafetyVerifyResponse 还未填，
@@ -494,6 +520,12 @@ open class XJTULogin(
             return processLoginResponse(safetyResp, body)
         }
 
+        // 密码只交给统一认证。postUrl 是 init 跟完跳转的落点，不在统一认证上就说明没有登录表单
+        if (postUrl.toHttpUrlOrNull()?.let(::casPath) == null) {
+            android.util.Log.w("XJTULogin", "login: landing is not CAS, refusing to post credentials: ${postUrl.redactUrl()}")
+            return LoginResult(LoginState.FAIL, "没有打开统一认证登录页，请稍后重试")
+        }
+
         // MFA 检测
         var detectedInThisFlow = false
         if (mfaEnabled && !hasLogin && (mfaContext == null || !mfaContext!!.required)) {
@@ -513,13 +545,13 @@ open class XJTULogin(
             // mfa/detect 携带密码，同样计入风控闸门
             val response = CasGate.withCredentialPost { client.newCall(request).execute() }
             val responseStr = response.body.string()
-            android.util.Log.d("XJTULogin", "login: MFA detect response code=${response.code}, body=$responseStr")
+            android.util.Log.d("XJTULogin", "login: MFA detect response code=${response.code}, body=${responseStr.redactBody(160)}")
             val data = try {
                 responseStr.safeParseJsonObject()
                     .requireObj("data")
             } catch (e: Exception) {
                 android.util.Log.e("XJTULogin", "login: MFA detect parse error", e)
-                throw RuntimeException("MFA 检测返回数据异常: $responseStr")
+                throw RuntimeException("登录验证检测返回了异常数据，请稍后重试", e)
             }
 
             val state = data.get("state").stringValue
@@ -723,8 +755,9 @@ open class XJTULogin(
         android.util.Log.d("XJTULogin", "casAuthenticate: GET ${casUrl.redactUrl()} → code=${casResp.code}, finalUrl=${casFinalUrl.redactUrl()}")
 
         val execution = extractExecutionValue(casBody)
-        if (execution.isEmpty()) {
-            // CAS 没有显示登录页 → SSO 可能已直接成功（重定向到了 service）
+        if (execution.isEmpty() || casPath(casResp.request.url) == null) {
+            // 没停在统一认证的登录页 → SSO 可能已直接成功（重定向到了 service）；
+            // 业务站页面碰巧有 execution 字段也不能往那里交密码
             android.util.Log.d("XJTULogin", "casAuthenticate: no execution → SSO redirect OK")
             return Pair(casBody, casFinalUrl)
         }
@@ -988,38 +1021,6 @@ open class XJTULogin(
         return choices
     }
 
-    /**
-     * 保活状态。
-     */
-    enum class KeepAliveStatus {
-        VALID,           // 登录态仍然有效
-        AUTH_INVALID,    // 登录态已失效
-        NETWORK_ERROR,   // 网络异常（无法判断）
-        REAUTH_OK,       // 原态失效但已成功重认证
-        ERROR            // 其他错误
-    }
-
-    /**
-     * 验证当前子系统登录态是否仍然可信。
-     * 基类默认返回 false（保守策略），子类应覆写。
-     */
-    open fun validateLogin(): Boolean = false
-
-    /**
-     * 保活一次：先 validate，失效则 reAuth。
-     * 返回 KeepAliveStatus 供 SessionKeepAlive 汇总报告。
-     */
-    open fun keepAlive(): KeepAliveStatus {
-        return try {
-            if (validateLogin()) KeepAliveStatus.VALID
-            else KeepAliveStatus.AUTH_INVALID
-        } catch (_: java.io.IOException) {
-            KeepAliveStatus.NETWORK_ERROR
-        } catch (_: Exception) {
-            KeepAliveStatus.ERROR
-        }
-    }
-
     enum class AccountType {
         UNDERGRADUATE,
         POSTGRADUATE
@@ -1068,6 +1069,21 @@ open class XJTULogin(
                     "cas/login" in html ||
                     "统一身份认证" in html
             return hasLoginForm && hasLoginMarker
+        }
+
+        /**
+         * 跟完跳转后仍停在统一认证登录页（直连或经网关）：免密没走通，要提交密码。
+         * 比看正文可靠——桌面版登录页的表单在 19KB 之后，预读一小段看不到。
+         */
+        @JvmStatic
+        fun isCasLoginUrl(url: HttpUrl): Boolean =
+            casPath(url)?.trimEnd('/') == "/cas/login"
+
+        /** 停在统一认证的任意页面上（登录、短信验证、报错页…），直连或经网关；不是则返回 null，是则返回路径。 */
+        @JvmStatic
+        fun casPath(url: HttpUrl): String? {
+            val plain = com.xjtu.toolbox.webvpn.WebVpnUtil.getOriginalUrl(url.toString())?.toHttpUrlOrNull() ?: url
+            return plain.encodedPath.takeIf { plain.host == "login.xjtu.edu.cn" }
         }
 
         const val JWXT_URL = "https://jwxt.xjtu.edu.cn/jwapp/sys/homeapp/index.do"

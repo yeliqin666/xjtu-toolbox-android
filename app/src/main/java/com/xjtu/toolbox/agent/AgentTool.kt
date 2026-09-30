@@ -1,7 +1,7 @@
 package com.xjtu.toolbox.agent
 
 import kotlin.coroutines.resume
-import com.xjtu.toolbox.network.MOBILE_UA
+import com.xjtu.toolbox.network.APP_UA
 import kotlinx.serialization.json.jsonObject
 import com.xjtu.toolbox.util.safeStringOrNull
 import com.xjtu.toolbox.util.AppJson
@@ -1028,36 +1028,15 @@ class AgentToolRegistry(
      * 返回 null 表示就绪，否则为错误提示。
      */
     private suspend fun ensureScheduleLoaded(targetTerm: String? = null): String? {
-        val term0 = targetTerm?.takeIf { it.isNotBlank() } ?: cachedTermCode()
-        val coursesCached = term0 != null && ScheduleCache.readCourses(dataCache, term0) != null
-        if (coursesCached && cachedStartDate(term0) != null) return null
+        val term = targetTerm?.takeIf { it.isNotBlank() }
+        if (ScheduleCache.isReady(dataCache, term)) return null
 
         val site = ensureSite(LoginType.JWXT)
             ?: return ToolReply.noCache(ToolReply.loginFailed("教务系统", "unreachable"))
         return try {
-            val api = ScheduleApi(site)
-            val term = term0 ?: api.getCurrentTerm()
-            if (term0 == null) ScheduleCache.writeCurrentTerm(dataCache, term)
-            if (ScheduleCache.readTermList(dataCache).isEmpty()) ScheduleCache.writeTermList(dataCache, listOf(term))
-            runCatching {
-                if (com.xjtu.toolbox.schedule.ScheduleTermStore.read(dataCache).isEmpty()) {
-                    api.getTermList()
-                }
-                com.xjtu.toolbox.schedule.ScheduleTermStore.merge(dataCache, api.termNames())
-            }
-            if (ScheduleCache.readCourses(dataCache, term) == null) {
-                val fresh = com.xjtu.toolbox.schedule.ScheduleSourceRouter.getSchedule(
-                    context = context,
-                    jwxt = api,
-                    termCode = term,
-                    manager = loginState.sessionManager,
-                    accountType = loginState.accountType,
-                )
-                ScheduleCache.writeOptimizedCourses(dataCache, term, fresh)
-            }
-            if (cachedStartDate(term) == null) {
-                ScheduleCache.writeStartDate(dataCache, term, api.getStartOfTerm(term))
-            }
+            com.xjtu.toolbox.schedule.ScheduleSourceRouter.ensureCached(
+                context, dataCache, ScheduleApi(site), loginState.sessionManager, term,
+            )
             null
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
             throw e
@@ -1115,8 +1094,9 @@ class AgentToolRegistry(
         if (dateStr != null) {
             val targetDate = runCatching { LocalDate.parse(dateStr) }.getOrElse { LocalDate.now() }
             val weekNum = com.xjtu.toolbox.schedule.TermWeeks.weekOf(startDate, targetDate)
+            val targetSummer = XjtuTime.isSummerTime(targetDate.monthValue)
             val dayCourses = courses.filter { it.dayOfWeek == targetDate.dayOfWeek.value && it.isInWeek(weekNum) }
-                .sortedBy { it.startSection }
+                .sortedBy { it.clockMinutes(targetSummer).first }
             val holiday = holidays[targetDate]
             if (dayCourses.isEmpty()) {
                 return "${targetDate} 第${weekNum}周${dayNames[targetDate.dayOfWeek.value]}｜无课" +
@@ -1136,14 +1116,16 @@ class AgentToolRegistry(
             val today = LocalDate.now()
             val weekNum = com.xjtu.toolbox.schedule.TermWeeks.weekOf(startDate, today)
             if (weekNum <= 0) return "当前不在学期内。"
+            // 每门课按它那天的日期算作息，跨月那周也不会错
+            val monday = startDate.plusWeeks((weekNum - 1).toLong())
             val weekCourses = courses.filter { it.isInWeek(weekNum) }
-                .sortedWith(compareBy({ it.dayOfWeek }, { it.startSection }))
+                .sortedWith(compareBy({ it.dayOfWeek }, {
+                    it.clockMinutes(XjtuTime.isSummerTime(monday.plusDays((it.dayOfWeek - 1).toLong()).monthValue)).first
+                }))
             if (weekCourses.isEmpty()) return "第${weekNum}周没有课。"
             pendingWidgets.add(ScheduleWidget("第${weekNum}周课表", weekCourses))
             return buildString {
                 append("第${weekNum}周：\n")
-                // 每门课按它那天的日期算作息，跨月那周也不会错
-                val monday = startDate.plusWeeks((weekNum - 1).toLong())
                 weekCourses.forEach { c ->
                     val day = monday.plusDays((c.dayOfWeek - 1).toLong())
                     append(courseLine(c, day))
@@ -1158,39 +1140,33 @@ class AgentToolRegistry(
      * 课表的一行：`课程｜周二 10:10–12:00（3–4节）｜地点｜教师`。
      *
      * 直接写出钟点，模型不必知道作息表——学校有冬、夏两套作息（5–9 月下午晚上推后 30 分钟），
-     * 让模型按节次自己推，问「明天几点下课」时容易错。作息按**那节课所在日期**的月份定。
-     * 自建日程带分钟级时间，优先用它。
+     * 让模型按节次自己推，问「明天几点下课」时容易错。起止用 [CourseItem.clockMinutes]，
+     * 和日程页、桌面卡片同一个算法；作息按**那节课所在日期**的月份定。
      */
     private fun courseLine(c: CourseItem, date: LocalDate, withTeacher: Boolean = false): String {
-        val summer = XjtuTime.isSummerTime(date.monthValue)
         fun hhmm(min: Int) = "%02d:%02d".format(min / 60, min % 60)
-        val start = c.startMinuteOfDay.takeIf { it >= 0 }?.let(::hhmm)
-            ?: XjtuTime.getClassTime(c.startSection, summer)?.start?.toString()
-        val end = c.endMinuteOfDay.takeIf { it >= 0 }?.let(::hhmm)
-            ?: XjtuTime.getClassTime(c.endSection, summer)?.end?.toString()
+        val (start, end) = c.clockMinutes(XjtuTime.isSummerTime(date.monthValue))
         val days = listOf("", "周一", "周二", "周三", "周四", "周五", "周六", "周日")
-        val time = if (start != null && end != null) "$start–$end" else ""
-        val sections = if (c.courseType == "日程" || c.courseType == "自定义") "" else "（${c.startSection}–${c.endSection}节）"
+        val sections = if (c.isUserCreated) "" else "（${c.startSection}–${c.endSection}节）"
         return listOfNotNull(
             c.courseName,
-            "${days.getOrElse(c.dayOfWeek) { "" }} $time$sections".trim(),
+            "${days.getOrElse(c.dayOfWeek) { "" }} ${hhmm(start)}–${hhmm(end)}$sections".trim(),
             c.location.ifBlank { null },
             c.teacher.takeIf { withTeacher && it.isNotBlank() },
         ).joinToString("｜")
     }
 
     /**
-     * 官方调课备注（`bz`），只有课表源选 jwapp 时才有。对不上号（换过源、这门课没有
-     * 变更记录）就不提；报太多反而像凑数，最多挑 3 条。
+     * 教务的调停课记录（课表已按它合并过），只提这次列出的课相关的；报太多反而像凑数，
+     * 取最后 3 条（记录按申请时间排）。
      */
     private fun scheduleChangeNote(termCode: String, courses: List<CourseItem>): String? {
-        val events = com.xjtu.toolbox.schedule.ScheduleSourceRouter.changeEvents(context, termCode)
-            .filter { it.reason.isNotBlank() }
-        if (events.isEmpty()) return null
         val codes = courses.map { it.courseCode }.toSet()
-        val relevant = events.filter { it.courseCode.isBlank() || it.courseCode in codes }.take(3)
+        val relevant = com.xjtu.toolbox.schedule.ScheduleSourceRouter.changeEvents(context, termCode)
+            .filter { it.courseCode.isBlank() || it.courseCode in codes }
+            .takeLast(3)
         if (relevant.isEmpty()) return null
-        return "近期调课：" + relevant.joinToString("；") { "${it.courseName}${it.describe()}，原因：${it.reason}" }
+        return "调课记录：" + relevant.joinToString("；") { "${it.courseName}${it.describe()}" }
     }
 
     /** 整学期列表里给每条标上周次：`第1-4、6-16周 `。周次拿不到就不标。 */
@@ -2699,10 +2675,7 @@ class AgentToolRegistry(
         val summer = XjtuTime.isSummerTime(day.monthValue)
         val official = ScheduleCache.readCourses(dataCache, termCode).orEmpty()
         official.filter { it.dayOfWeek == entity.dayOfWeek }.forEach { c ->
-            val cStart = c.startMinuteOfDay.takeIf { it >= 0 }
-                ?: XjtuTime.getClassTime(c.startSection, summer)?.start?.let { it.hour * 60 + it.minute } ?: return@forEach
-            val cEnd = c.endMinuteOfDay.takeIf { it >= 0 }
-                ?: XjtuTime.getClassTime(c.endSection, summer)?.end?.let { it.hour * 60 + it.minute } ?: return@forEach
+            val (cStart, cEnd) = c.clockMinutes(summer)
             if (startMin < cEnd && cStart < endMin) {
                 val shared = com.xjtu.toolbox.schedule.CustomCourseConflicts.sharedWeeks(entity.weekBits, c.weekBits)
                 if (shared.isNotEmpty()) {
@@ -2839,7 +2812,7 @@ class AgentToolRegistry(
     private fun fetchReadablePage(startUrl: String): FetchedPage? {
         var url = startUrl
         if (AgentWeb.isSogouJumpUrl(url)) url = AgentWeb.withSogouClickParams(url)
-        val firstUa = if (AgentWeb.isWeChatUrl(url) || AgentWeb.isSogouJumpUrl(url)) wechatUa else MOBILE_UA
+        val firstUa = if (AgentWeb.isWeChatUrl(url) || AgentWeb.isSogouJumpUrl(url)) wechatUa else APP_UA
         var page = getUrl(url, firstUa)
         val html = page?.html.orEmpty()
         val blocked = html.isNotEmpty() && (

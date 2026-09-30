@@ -2,6 +2,7 @@
 
 package com.xjtu.toolbox.browser
 
+import com.xjtu.toolbox.network.APP_UA
 import com.xjtu.toolbox.util.redactUrl
 import com.xjtu.toolbox.util.releaseSafely
 import com.xjtu.toolbox.webvpn.WebVpnUtil
@@ -68,6 +69,7 @@ import com.xjtu.toolbox.zyxf.isCmsOneShotDownload
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import java.net.URI
 
@@ -144,16 +146,19 @@ internal fun syncCookiesToWebView(
 @Composable
 fun BrowserScreen(
     initialUrl: String = "",
+    thenUrl: String = "",
     site: SiteSession? = null,
     cookieClient: OkHttpClient? = null,
     extraCookieDomains: List<String> = emptyList(),
+    /** 地址还没备好（[initialUrl] 为空）：先出空白页和进度条，等 [initialUrl] 有值再加载。 */
+    waiting: Boolean = false,
     onBack: () -> Unit
 ) {
     var currentUrl by remember { mutableStateOf(initialUrl) }
     var editingUrl by remember { mutableStateOf(initialUrl) }
-    var isLoading by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(waiting) }
     var pageTitle by remember { mutableStateOf("浏览器") }
-    var progress by remember { mutableFloatStateOf(0f) }
+    var progress by remember { mutableFloatStateOf(if (waiting) 10f else 0f) }
     var canGoForward by remember { mutableStateOf(false) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var editing by remember { mutableStateOf(false) }
@@ -202,6 +207,17 @@ fun BrowserScreen(
     LaunchedEffect(site, cookieClient, cookieDomains) {
         syncCookiesToWebView(site, cookieDomains)
         syncCookiesToWebView(cookieClient, cookieDomains)
+    }
+
+    // 地址后到：WebView 已建好但当时没有可加载的，这时补加载
+    var initialLoaded by remember { mutableStateOf(initialUrl.isNotBlank()) }
+    LaunchedEffect(initialUrl, webViewRef) {
+        val web = webViewRef ?: return@LaunchedEffect
+        if (initialLoaded || initialUrl.isBlank()) return@LaunchedEffect
+        initialLoaded = true
+        syncCookiesToWebView(site, cookieDomains)
+        syncCookiesToWebView(cookieClient, cookieDomains)
+        web.loadUrl(normalizeUrl(initialUrl))
     }
 
     // 系统返回：先收起地址栏，再在网页里后退（跳过登录中转页），退到头才关掉浏览器
@@ -372,11 +388,8 @@ fun BrowserScreen(
                     settings.builtInZoomControls = true
                     settings.displayZoomControls = false
                     settings.setSupportZoom(true)
-                    settings.userAgentString = settings.userAgentString.replace(
-                        Regex("wv"), ""
-                    ) // 去掉 wv 标记，某些网站会拒绝 WebView
-                    // 在 UA 末尾追加 XJTU-WX-MP 标识，方便服务端识别来自本 App
-                    settings.userAgentString = settings.userAgentString + " XJTU-WX-MP/1.0"
+                    // 和 OkHttp 同一串：注进来的统一认证登录态绑定 UA，不一致就会被当成没登录
+                    settings.userAgentString = APP_UA
                     // 教务处附件是 target="_blank"。不开的话点击会被吞掉；开了必须自己接 onCreateWindow。
                     settings.setSupportMultipleWindows(true)
                     settings.javaScriptCanOpenWindowsAutomatically = true
@@ -386,6 +399,9 @@ fun BrowserScreen(
                     webViewClient = object : WebViewClient() {
                         /** 自动跳过 WebVPN 登录前页的次数上限：统一认证失败时网关会再把人送回来，别来回兜圈。 */
                         private var webVpnAutoLogins = 0
+
+                        /** 还没跳去 [thenUrl]：等首个页面加载完、且已经离开登录页（登录页上要用户自己输）。 */
+                        private var thenPending = thenUrl.isNotBlank()
 
                         override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                             super.onPageStarted(view, url, favicon)
@@ -422,6 +438,10 @@ fun BrowserScreen(
                                 editingUrl = it
                             }
                             view?.let { WebViewNightMode.apply(it, darkState.value) }
+                            if (thenPending && url != null && !isAuthHop(url)) {
+                                thenPending = false
+                                view?.loadUrl(normalizeUrl(thenUrl))
+                            }
                         }
 
                         override fun shouldOverrideUrlLoading(
@@ -432,7 +452,9 @@ fun BrowserScreen(
                             // WebVPN 网关的「登录前页」（/login，不带参数）只有一颗「登录」按钮，
                             // 按下去就是 /login?cas_login=true：走统一认证，拿到 ticket 后网关按事先记下的
                             // 目标地址跳回去。网关会话过期时直接替用户按下这一步，不在中间停一页。
-                            if (request.isForMainFrame && isWebVpnLoginLanding(request.url) && webVpnAutoLogins < 2) {
+                            if (request.isForMainFrame && url.toHttpUrlOrNull()?.let(WebVpnUtil::isLoginLanding) == true &&
+                                webVpnAutoLogins < 2
+                            ) {
                                 webVpnAutoLogins++
                                 view?.loadUrl(WebVpnUtil.WEBVPN_LOGIN_URL)
                                 return true
@@ -560,7 +582,6 @@ private fun isAuthHop(url: String): Boolean {
     val host = uri.host?.lowercase().orEmpty()
     return host == "login.xjtu.edu.cn" || host == "cas.xjtu.edu.cn" ||
         (host == "org.xjtu.edu.cn" && uri.path.orEmpty().contains("login")) ||
-        isWebVpnLoginLanding(uri) ||
         (host == "webvpn.xjtu.edu.cn" && uri.path?.trimEnd('/') == "/login") ||
         uri.getQueryParameter("ticket") != null
 }
@@ -586,16 +607,6 @@ private fun hostOf(url: String): String? =
     runCatching { URI(normalizeUrl(url)).host?.lowercase() }
         .getOrNull()
         ?.takeIf { it.isNotBlank() }
-
-/**
- * WebVPN 网关的「登录前页」：`https://webvpn.xjtu.edu.cn/login`，不带 `cas_login`。
- * 没有网关会话时访问任何代理地址都会被 302 到这里。
- */
-internal fun isWebVpnLoginLanding(uri: android.net.Uri): Boolean =
-    uri.host.equals("webvpn.xjtu.edu.cn", ignoreCase = true) &&
-        uri.path?.trimEnd('/') == "/login" &&
-        uri.getQueryParameter("cas_login") == null &&
-        uri.getQueryParameter("ticket") == null
 
 /**
  * 把当前网页分享出去：纯文字，第一行网页标题，第二行链接。

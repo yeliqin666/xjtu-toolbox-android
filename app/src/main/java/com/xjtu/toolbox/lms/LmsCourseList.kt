@@ -9,6 +9,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
+import com.xjtu.toolbox.schedule.CourseColors
+import com.xjtu.toolbox.schedule.defaultCourseColor
 import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.auth.AuthExpiredException
 import com.xjtu.toolbox.auth.handleAuthExpired
@@ -27,9 +29,7 @@ import com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import androidx.compose.foundation.lazy.staggeredgrid.items
 import com.xjtu.toolbox.ui.glass.*
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
@@ -68,20 +68,20 @@ internal fun CourseListPage(
             isLoading = true
             errorMsg = null
             try {
-                cache.courses = withContext(Dispatchers.IO) { api.getMyCourses() }
+                cache.syncCourses(api)
             } catch (e: AuthExpiredException) {
                 appLoginState.handleAuthExpired(AppRoute.Lms(), onBack)
             } catch (e: Exception) {
                 Log.e(TAG, "loadCourses error", e)
-                errorMsg = "加载课程失败: ${e.message}"
+                errorMsg = com.xjtu.toolbox.error.FriendlyError.of(e, "加载课程")
             } finally {
                 isLoading = false
             }
         }
     }
 
-    // 已有缓存就不再请求——返回上一层应当是「回到原样」而不是重新加载
-    LaunchedEffect(Unit) { if (cache.courses.isEmpty()) loadCourses() }
+    // 本次已刷新过就不再请求——返回上一层应当是「回到原样」而不是重新加载
+    LaunchedEffect(Unit) { if (!cache.coursesSynced) loadCourses() }
 
     val semesters = remember(courses) {
         courses.map { it.semesterLabel }.distinct().sortedDescending()
@@ -170,11 +170,12 @@ internal fun CourseListPage(
         }
     }
 }
+/** 课程主色：用户在课表或这里改过就用改过的，否则与课表一样按课名取默认色。 */
+internal fun lmsAccent(course: LmsCourseSummary): Color = CourseColors.of(course.name) ?: defaultCourseColor(course.name)
+
 @Composable
 private fun LmsCourseCard(course: LmsCourseSummary, onClick: () -> Unit) {
-    val accent = listOf(
-        Color(0xFF5B6FD8), Color(0xFF2D9B86), Color(0xFFD07A45), Color(0xFF8B63C7)
-    )[(course.id.hashCode() and Int.MAX_VALUE) % 4]
+    val accent = lmsAccent(course)
     Card(
         onClick = onClick,
         pressFeedbackType = PressFeedbackType.Sink,

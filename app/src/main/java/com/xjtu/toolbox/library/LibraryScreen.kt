@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.library
 
+import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.pressScale
 import com.xjtu.toolbox.ui.components.enterOnce
@@ -97,9 +98,9 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
         vm.bookingResult = null
     }
 
-    // 预约状态一变就重排后台提醒：预约 / 换座 / 中途离开最后都会刷新 myBooking，盯结果比盯动作少漏
-    LaunchedEffect(vm.myBooking?.actionUrls?.keys, vm.myBooking?.seatId) {
-        com.xjtu.toolbox.notification.LibraryReminderScheduler.sync(context, vm.myBooking)
+    // 预约状态一变就往外发（提醒、首页信号、收纳）：预约 / 换座 / 中途离开 / 签到最后都会刷新 myBooking，盯结果比盯动作少漏
+    LaunchedEffect(vm.myBookingKnown, vm.myBooking?.actionUrls?.keys, vm.myBooking?.seatId) {
+        if (vm.myBookingKnown) com.xjtu.toolbox.library.LibraryStatus.publish(context, vm.myBooking)
     }
 
     var confirmDialog by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
@@ -224,7 +225,6 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                     val tips = listOf(
                         "⏰" to "预约成功后，请在 30 分钟内入馆签到，否则当日将被禁止线上预约。",
                         "📋" to "座位状态说明：「使用中」= 已签到入座；「已预约」 = 已预约未签到；「暂离」= 短暂离开保留中。",
-                        "🚫" to "本版本已移除定时抢座功能。频繁自动化请求可能触发学校系统风控，导致账号被限制使用图书馆服务，望理解。"
                     )
                     tips.forEach { (emoji, text) ->
                         Row(Modifier.padding(vertical = 4.dp)) {
@@ -613,11 +613,11 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                                                     val creds = appLoginState.sessionManager?.credentials
                                                         ?: error("未配置凭据")
                                                     withContext(Dispatchers.IO) {
-                                                        site.ensureLogin(creds.first, creds.second, force = true)
+                                                        site.ensureLogin(creds.first, creds.second, force = true, userInitiated = true)
                                                     }
                                                     vm.reload()
                                                 } catch (e: CancellationException) { throw e }
-                                                catch (e: Exception) { vm.errorMessage = "重新认证失败: ${e.message}" }
+                                                catch (e: Exception) { vm.errorMessage = FriendlyError.of(e, "重新认证") }
                                                 isReAuth = false
                                             }
                                         },

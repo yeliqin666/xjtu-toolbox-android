@@ -15,6 +15,7 @@ import com.xjtu.toolbox.schedule.ExamCountdown
 import com.xjtu.toolbox.schedule.ScheduleApi
 import com.xjtu.toolbox.schedule.ScheduleDiff
 import com.xjtu.toolbox.schedule.ScheduleSourceRouter
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
@@ -40,8 +41,9 @@ class ScheduleWatchWorker(
         val app = applicationContext
         if (!ReminderStore.isEnabled(app, ReminderKind.SCHEDULE)) return Result.success()
 
-        val site = HeadlessSessions.site(app, LoginType.JWXT) ?: return Result.retry()
         return try {
+            // 需要短信验证 / 密码失效：这一轮直接放弃，等下次正常调度，别退避重试再提交一次密码
+            val site = HeadlessSessions.site(app, LoginType.JWXT) ?: return Result.success()
             withContext(Dispatchers.IO) {
                 val api = ScheduleApi(site)
                 val term = api.getCurrentTerm()
@@ -49,6 +51,8 @@ class ScheduleWatchWorker(
                 checkUpcomingExam(app, api, term)
             }
             Result.success()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "本轮检查失败：${e.message}")
             Result.retry()
@@ -66,10 +70,10 @@ class ScheduleWatchWorker(
             jwxt = api,
             termCode = term,
             manager = HeadlessSessions.manager(context),
-            accountType = HeadlessSessions.accountType(context),
         )
         if (courses.isEmpty()) return
         val summary = ScheduleDiff.summarize(ScheduleDiff.diffAndStore(context, term, courses)) ?: return
+        com.xjtu.toolbox.inbox.InboxStore.post(com.xjtu.toolbox.inbox.OwnInbox.scheduleChange(summary))
         if (!ReminderNotifier.notifyScheduleChange(context, summary)) {
             ScheduleDiff.setPending(context, summary)
         }

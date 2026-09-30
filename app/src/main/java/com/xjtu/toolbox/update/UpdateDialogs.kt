@@ -66,7 +66,7 @@ internal fun UpdateNoticeDialog(
         ) {
             if (!fromVersion.isNullOrBlank()) {
                 Text(
-                    "从 v$fromVersion 升级到 v${BuildConfig.VERSION_NAME}，下面是这次跨版本包含的新内容。",
+                    "v$fromVersion → v${BuildConfig.VERSION_NAME} 的新内容：",
                     style = MiuixTheme.textStyles.body2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                 )
@@ -248,7 +248,7 @@ fun AutoUpdateDialog(
                                     isDownloading = false
                                     android.widget.Toast.makeText(
                                         context,
-                                        "更新失败：${e.message}",
+                                        com.xjtu.toolbox.error.FriendlyError.of(e, "更新"),
                                         android.widget.Toast.LENGTH_SHORT
                                     ).show()
                                 }

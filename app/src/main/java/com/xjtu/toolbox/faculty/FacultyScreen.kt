@@ -258,7 +258,7 @@ fun FacultyScreen(
                     // 让出顶栏高度，否则提示贴在屏幕最上沿、压在顶栏那一层里
                     EmptyState(
                         title = "选一位老师",
-                        subtitle = "左边点任意一位，详情和个人主页栏目会显示在这里",
+                        subtitle = "点左边任一位老师查看详情",
                         icon = Icons.Outlined.PersonSearch,
                         modifier = Modifier.padding(top = padding.glassTop(glass)),
                     )

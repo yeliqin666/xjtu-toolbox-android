@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.notification
 
 import androidx.compose.runtime.getValue
+import com.xjtu.toolbox.error.FriendlyError
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -141,7 +142,7 @@ internal class NotificationViewModel : ViewModel() {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            if (append) hasMorePages = false else errorMessage = "加载失败: ${e.message}"
+            if (append) hasMorePages = false else errorMessage = FriendlyError.of(e, "加载通知")
         } finally {
             isLoading = false
             isLoadingMore = false
@@ -165,7 +166,7 @@ internal class NotificationViewModel : ViewModel() {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            searchNotice = "站内搜索失败：${e.message ?: "未知错误"}，下面只是已加载通知里的匹配"
+            searchNotice = "${FriendlyError.of(e, "站内搜索")}，下面只是已加载通知里的匹配"
         } finally {
             searchLoading = false
         }
