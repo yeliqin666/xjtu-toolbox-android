@@ -764,20 +764,21 @@ internal fun HomeTab(
 
     val showStatusSheet = remember { mutableStateOf(false) }
     SubsystemStatusSheet(loginState, showStatusSheet)
+    // 一行要放在右上角插画旁边，写短：「校外 · 12/14 就绪」。走不走 WebVPN、哪些子系统没连上，点开看明细
     val heroStatus: HeroStatus? = if (loginState.isLoggedIn) {
         val (netLabel, netColor) = when (loginState.isOnCampus) {
             true -> "校园网" to STATUS_GREEN
-            false -> "校外 · WebVPN" to STATUS_BLUE
-            null -> "网络检测中" to MiuixTheme.colorScheme.onSurfaceVariantSummary
+            false -> "校外" to STATUS_BLUE
+            null -> "检测中" to MiuixTheme.colorScheme.onSurfaceVariantSummary
         }
         val types = LoginType.entries
         val ok = types.count { loginState.sessionManager?.getSiteOrNull(it.siteKey())?.hasLogin == true }
         HeroStatus(
             label = netLabel,
             detail = when {
-                isRestoring -> "正在连接…"
-                ok > 0 -> "$ok/${types.size} 子系统就绪"
-                else -> "子系统未连接"
+                isRestoring -> "连接中…"
+                ok > 0 -> "$ok/${types.size} 就绪"
+                else -> "未连接"
             },
             color = netColor,
         )
