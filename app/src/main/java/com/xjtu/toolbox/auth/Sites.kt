@@ -476,13 +476,22 @@ class SsnSession : CasSiteSession("ssn", "宿舍电费", mustUseWebVpn = true) {
         return callback ?: throw IOException(result.message.ifBlank { "没能取得缴费页入口，请稍后重试" })
     }
 
-    /** 重新取一遍缴费页：登录着就能解析出 cid，被要求登录（loginUrl 非空）则说明会话已失效。 */
+    /**
+     * 拿存下的 cid 查一次宿舍列表：有效回 code 0，过期回 401001。不能重开缴费页来判断——
+     * 缴费页要凭 OAuth 回调里一次性的 code 进（见 [freshPayUrl]），不带 code 打开一律当成没登录。
+     */
     override suspend fun validateLogin(): Boolean = withIo {
-        val html = client.newCall(Request.Builder().url(SsnLogin.PAY_PAGE_URL).get().build())
-            .execute().use { if (it.isSuccessful) it.body.string() else "" }
-        val cid = SsnLogin.parseCid(html) ?: return@withIo false
-        localToken["cid"] = cid
-        true
+        val cid = localToken["cid"] ?: return@withIo false
+        val request = Request.Builder().url("${SsnLogin.BASE_URL}/mobile/addr/list?cid=$cid")
+            .header("Accept", "application/json, text/javascript, */*; q=0.01")
+            .header("Referer", SsnLogin.PAY_PAGE_URL)
+            .header("X-Requested-With", "XMLHttpRequest")
+            .get().build()
+        client.newCall(request).execute().use { resp ->
+            resp.isSuccessful && runCatching {
+                com.xjtu.toolbox.dormpower.DormPowerParsers.data(com.xjtu.toolbox.dormpower.DormPowerParsers.decode(resp.body.bytes()))
+            }.isSuccess
+        }
     }
 }
 
