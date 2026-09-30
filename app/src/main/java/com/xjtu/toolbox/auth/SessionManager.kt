@@ -228,8 +228,8 @@ class SessionManager(context: Context) {
      * WEBVPN backend 的网关自认证。支持 WebVPN 的业务站点在校外访问前先调用这里，
      * 之后业务 URL 仍按原始域名构造，由 [WebVpnInterceptor] 无感改写。
      *
-     * 进程活很久时 [SessionBackend.webvpnSelfLoggedIn] 仍可能是 true，但 ticket 早已失效。
-     * 这里先看 cookie / 新鲜窗口，过期再探活，探活失败才重登——别的直连站点不受影响。
+     * 新鲜窗口内直接用；否则先 [resumeWebVpnGateway]（网关或统一认证还活着就免密续上），
+     * 都不行才提交密码。
      *
      * 主线程安全：整个流程切到 IO——调用方常在界面协程里，而票据检查要读 cookie，
      * 首次读会在主线程打开加密存储。
@@ -240,22 +240,18 @@ class SessionManager(context: Context) {
     private suspend fun ensureWebVpnLoginOnIo() {
         val backend = backend(AccessMode.WEBVPN)
         if (isWebVpnGatewayFresh(backend)) return
-        if (hasLiveWebVpnTicket(backend) && probeWebVpnGateway(backend)) {
-            backend.markWebVpnReady()
-            return
-        }
-        if (backend.webvpnSelfLoggedIn) {
-            recordDiagnostic("WARN", "webvpn", "网关会话过期，准备重新认证")
-            backend.markWebVpnStale()
-        }
-        checkPasswordValid()
-        checkLoginCooldown("webvpn", "WebVPN")
         backend.loginLock.withLock {
             if (isWebVpnGatewayFresh(backend)) return@withLock
-            if (hasLiveWebVpnTicket(backend) && probeWebVpnGateway(backend)) {
+            if (resumeWebVpnGateway(backend)) {
                 backend.markWebVpnReady()
                 return@withLock
             }
+            if (backend.webvpnSelfLoggedIn) {
+                recordDiagnostic("WARN", "webvpn", "网关与统一认证会话都已失效，准备重新认证")
+                backend.markWebVpnStale()
+            }
+            checkPasswordValid()
+            checkLoginCooldown("webvpn", "WebVPN")
             val creds = credentials ?: throw IOException("还没有登录账号，请先在「我的」页登录")
             val login = XJTULogin(
                 WebVpnUtil.WEBVPN_LOGIN_URL,
@@ -520,35 +516,19 @@ class SessionManager(context: Context) {
         return backend.webvpnValidatedAt > 0L && age in 0 until WEBVPN_VALIDATE_TTL_MS
     }
 
-    /** 不跟随重定向：被扔回 CAS 就说明网关 ticket 已经死了。网络抖动不当失效。 */
-    private fun probeWebVpnGateway(backend: SessionBackend): Boolean = try {
-        val client = backend.client.newBuilder()
-            .followRedirects(false)
-            .followSslRedirects(false)
-            .build()
-        val request = okhttp3.Request.Builder()
-            .url(WebVpnUtil.WEBVPN_LOGIN_URL)
-            .get()
-            .build()
-        client.newCall(request).execute().use { response ->
-            val loc = response.header("Location").orEmpty()
-            val preview = runCatching { response.peekBody(8192).string() }.getOrDefault("")
-            val bouncedToCas = "cas_login" in loc ||
-                "/cas/login" in loc ||
-                "login.xjtu.edu.cn" in loc
-            val authPage = XJTULogin.isAuthFailureResponse(preview)
-            val resourcePage = "西安交通大学WebVPN" in preview || "资源站点" in preview
-            val alive = resourcePage ||
-                (response.code in 200..299 && !authPage) ||
-                (response.code in 300..399 && !bouncedToCas)
-            if (!alive) {
-                Log.w(TAG, "WebVPN probe stale: code=${response.code} loc=$loc")
-            }
-            alive
+    /**
+     * 跟完 `/login?cas_login=true` 的整条跳转：网关会话还在就直接落回网关；网关过期但统一认证还登着，
+     * 这一趟就是一次免密登录，网关顺手发新票。最终停在统一认证登录页或网关登录前页才算失效。
+     * 只看第一跳不行：网关正常时也会先 302 到统一认证。网络异常照常抛出。
+     */
+    private fun resumeWebVpnGateway(backend: SessionBackend): Boolean {
+        val request = okhttp3.Request.Builder().url(WebVpnUtil.WEBVPN_LOGIN_URL).get().build()
+        return backend.client.newCall(request).execute().use { response ->
+            val url = response.request.url
+            val resumed = !WebVpnUtil.isLoginLanding(url) && !XJTULogin.isCasLoginUrl(url)
+            Log.d(TAG, "WebVPN resume: ${if (resumed) "ok" else "needs login"} (code=${response.code})")
+            resumed
         }
-    } catch (e: Exception) {
-        Log.w(TAG, "WebVPN probe failed, keep current session: ${e.message}")
-        true
     }
 
     companion object {

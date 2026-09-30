@@ -108,6 +108,11 @@ object WebVpnUtil {
     fun isWebVpnUrl(url: String): Boolean =
         url.startsWith("https://$INSTITUTION") || url.startsWith("http://$INSTITUTION")
 
+    /** 网关的登录前页 `/login`（不带 cas_login、ticket）：没有网关会话时访问任何代理地址都会被 302 到这里。 */
+    fun isLoginLanding(url: okhttp3.HttpUrl): Boolean =
+        url.host == INSTITUTION && url.encodedPath.trimEnd('/') == "/login" &&
+            url.queryParameter("cas_login") == null && url.queryParameter("ticket") == null
+
     /**
      * 判断 [finalUrl] 是否表示已成功登录目标站点（[targetHost] 不带 scheme，如 "lms.xjtu.edu.cn"），
      * 兼容直连 / WebVPN 两种模式。

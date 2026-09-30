@@ -154,7 +154,7 @@ class LmsSession : CasSiteSession("lms", "思源学堂", mustUseWebVpn = false) 
         // 活动已结束时 /api/uploads/{id}/blob 也是 403 + 「没有权限」。
         // 这是业务拒绝，不是掉登录，按 403 重登只会空转。
         if (response.code == 403 && bodyPreview?.contains("没有权限") == true) return false
-        if (response.code == 401) return true
+        if (response.code == 401 || XJTULogin.isCasLoginUrl(response.request.url)) return true
         if (bodyPreview != null) return XJTULogin.isAuthFailureResponse(bodyPreview)
         return false
     }

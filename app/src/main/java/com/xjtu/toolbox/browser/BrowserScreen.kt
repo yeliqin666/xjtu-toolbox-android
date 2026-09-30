@@ -69,6 +69,7 @@ import com.xjtu.toolbox.zyxf.isCmsOneShotDownload
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import java.net.URI
 
@@ -451,7 +452,9 @@ fun BrowserScreen(
                             // WebVPN 网关的「登录前页」（/login，不带参数）只有一颗「登录」按钮，
                             // 按下去就是 /login?cas_login=true：走统一认证，拿到 ticket 后网关按事先记下的
                             // 目标地址跳回去。网关会话过期时直接替用户按下这一步，不在中间停一页。
-                            if (request.isForMainFrame && isWebVpnLoginLanding(request.url) && webVpnAutoLogins < 2) {
+                            if (request.isForMainFrame && url.toHttpUrlOrNull()?.let(WebVpnUtil::isLoginLanding) == true &&
+                                webVpnAutoLogins < 2
+                            ) {
                                 webVpnAutoLogins++
                                 view?.loadUrl(WebVpnUtil.WEBVPN_LOGIN_URL)
                                 return true
@@ -579,7 +582,6 @@ private fun isAuthHop(url: String): Boolean {
     val host = uri.host?.lowercase().orEmpty()
     return host == "login.xjtu.edu.cn" || host == "cas.xjtu.edu.cn" ||
         (host == "org.xjtu.edu.cn" && uri.path.orEmpty().contains("login")) ||
-        isWebVpnLoginLanding(uri) ||
         (host == "webvpn.xjtu.edu.cn" && uri.path?.trimEnd('/') == "/login") ||
         uri.getQueryParameter("ticket") != null
 }
@@ -605,16 +607,6 @@ private fun hostOf(url: String): String? =
     runCatching { URI(normalizeUrl(url)).host?.lowercase() }
         .getOrNull()
         ?.takeIf { it.isNotBlank() }
-
-/**
- * WebVPN 网关的「登录前页」：`https://webvpn.xjtu.edu.cn/login`，不带 `cas_login`。
- * 没有网关会话时访问任何代理地址都会被 302 到这里。
- */
-internal fun isWebVpnLoginLanding(uri: android.net.Uri): Boolean =
-    uri.host.equals("webvpn.xjtu.edu.cn", ignoreCase = true) &&
-        uri.path?.trimEnd('/') == "/login" &&
-        uri.getQueryParameter("cas_login") == null &&
-        uri.getQueryParameter("ticket") == null
 
 /**
  * 把当前网页分享出去：纯文字，第一行网页标题，第二行链接。

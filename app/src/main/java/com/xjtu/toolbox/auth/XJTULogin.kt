@@ -12,6 +12,7 @@ import com.xjtu.toolbox.util.redactBody
 import com.xjtu.toolbox.util.redactUrl
 import android.util.Base64
 import okhttp3.*
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.brotli.BrotliInterceptor
@@ -1036,6 +1037,16 @@ open class XJTULogin(
                     "cas/login" in html ||
                     "统一身份认证" in html
             return hasLoginForm && hasLoginMarker
+        }
+
+        /**
+         * 跟完跳转后仍停在统一认证登录页（直连或经网关）：免密没走通，要提交密码。
+         * 比看正文可靠——桌面版登录页的表单在 19KB 之后，预读一小段看不到。
+         */
+        @JvmStatic
+        fun isCasLoginUrl(url: HttpUrl): Boolean {
+            val plain = com.xjtu.toolbox.webvpn.WebVpnUtil.getOriginalUrl(url.toString())?.toHttpUrlOrNull() ?: url
+            return plain.host == "login.xjtu.edu.cn" && plain.encodedPath.trimEnd('/') == "/cas/login"
         }
 
         const val JWXT_URL = "https://jwxt.xjtu.edu.cn/jwapp/sys/homeapp/index.do"

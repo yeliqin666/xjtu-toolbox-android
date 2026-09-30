@@ -3,6 +3,7 @@ package com.xjtu.toolbox.auth
 import android.os.SystemClock
 import android.util.Log
 import com.xjtu.toolbox.account.AccountContext
+import com.xjtu.toolbox.webvpn.WebVpnUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -118,6 +119,7 @@ abstract class SiteSession(
     /** 判断响应是否表示认证失效（401 / CAS 登录页 / Safety Verify）。子类可根据业务返回格式重写。 */
     open fun isAuthFailureResponse(response: Response, bodyPreview: String?): Boolean {
         if (response.code == 401 || response.code == 403) return true
+        if (XJTULogin.isCasLoginUrl(response.request.url) || WebVpnUtil.isLoginLanding(response.request.url)) return true
         if (bodyPreview != null) return XJTULogin.isAuthFailureResponse(bodyPreview)
         return false
     }
@@ -242,7 +244,7 @@ abstract class SiteSession(
         // 判成"认证失效"时必须留下判据：到底是 401/403，还是响应体被识别成了 CAS 登录页。
         // 只打一句 "auth failure" 的话，遇到误判（业务接口返回 403 但会话其实是好的）
         // 根本无从分辨——教务学期列表接口就是这么被卡住的。
-        val failedUrl = com.xjtu.toolbox.webvpn.WebVpnUtil.getOriginalUrl(response.request.url.toString())
+        val failedUrl = WebVpnUtil.getOriginalUrl(response.request.url.toString())
             ?: response.request.url.toString()
         Log.w(
             TAG,
@@ -250,6 +252,8 @@ abstract class SiteSession(
                 "preview=${bodyPreview?.take(160)?.replace("\n", " ")}"
         )
         withContext(Dispatchers.IO) { response.close() }
+        // 被网关打回登录前页：网关会话死了，重登前得先让网关续上，不能再信它的新鲜窗口
+        if (WebVpnUtil.isLoginLanding(response.request.url)) backend?.markWebVpnStale()
         if (retried) throw AuthExpiredException(siteName, "$siteName 登录态已失效")
         Log.w(TAG, "[$siteKey] auth failure, invalidate and re-login")
         manager?.recordDiagnostic("WARN", siteKey, "业务请求认证失效，准备重认证并重放请求")
