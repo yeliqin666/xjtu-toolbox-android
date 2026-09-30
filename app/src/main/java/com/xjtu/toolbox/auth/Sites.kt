@@ -480,7 +480,7 @@ class SsnSession : CasSiteSession("ssn", "宿舍电费", mustUseWebVpn = true) {
 
     /** 重新取一遍缴费页：登录着就能解析出 cid，被要求登录（loginUrl 非空）则说明会话已失效。 */
     override suspend fun validateLogin(): Boolean = withIo {
-        val html = client.newCall(Request.Builder().url(SsnLogin.PAY_PAGE_URL).header("User-Agent", SsnLogin.BROWSER_UA).get().build())
+        val html = client.newCall(Request.Builder().url(SsnLogin.PAY_PAGE_URL).get().build())
             .execute().use { if (it.isSuccessful) it.body.string() else "" }
         val cid = SsnLogin.parseCid(html) ?: return@withIo false
         localToken["cid"] = cid

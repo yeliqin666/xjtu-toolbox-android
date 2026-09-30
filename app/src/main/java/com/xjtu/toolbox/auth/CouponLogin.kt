@@ -22,8 +22,6 @@ import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 private const val COUPON_TAG = "CouponLogin"
-private const val COUPON_BROWSER_UA =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36 Edg/136.0.0.0"
 
 class CouponLogin(
     session: OkHttpClient? = null,
@@ -99,7 +97,6 @@ class CouponLogin(
             .url(url)
             .post("""{"json":true}""".toRequestBody(JSON))
             .header("Accept", "application/json, text/javascript, */*; q=0.01")
-            .header("User-Agent", COUPON_BROWSER_UA)
             .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
             .header("Content-Type", "application/json;charset=UTF-8")
             .header("Origin", BASE_URL)
@@ -178,8 +175,8 @@ private fun OkHttpClient?.withCouponTimeouts(): OkHttpClient? =
         ?.callTimeout(120, TimeUnit.SECONDS)
         ?.addInterceptor { chain ->
             val request = chain.request()
+            // 不自设 UA：统一认证的 TGC 绑定 UA，和其他站点不一致会互相挤掉登录态
             val requestWithBrowserHeaders = request.newBuilder()
-                .header("User-Agent", COUPON_BROWSER_UA)
                 .header(
                     "Accept",
                     request.header("Accept")

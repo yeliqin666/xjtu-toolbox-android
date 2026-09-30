@@ -14,7 +14,6 @@ class DormPowerApi(private val site: SiteSession) {
 
     private fun builder(url: String) = Request.Builder().url(url)
         .header("Accept", "application/json, text/javascript, */*; q=0.01")
-        .header("User-Agent", SsnLogin.BROWSER_UA)
         .header("Referer", SsnLogin.PAY_PAGE_URL)
         .header("X-Requested-With", "XMLHttpRequest")
 

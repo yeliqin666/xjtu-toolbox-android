@@ -13,13 +13,9 @@ open class SsnLogin(
     session: OkHttpClient? = null,
     visitorId: String? = null,
     cachedRsaKey: String? = null,
-) : XJTULogin(SSN_OAUTH_URL, session.withBrowserUa(), visitorId, cachedRsaKey) {
+) : XJTULogin(SSN_OAUTH_URL, session, visitorId, cachedRsaKey) {
 
     companion object {
-        /** ssn 的网关不认 OkHttp 默认的 UA（回 403），得像浏览器；接口请求也带上。 */
-        const val BROWSER_UA =
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36 Edg/136.0.0.0"
-
         const val BASE_URL = "https://ssn.xjtu.edu.cn/cems"
         const val PAY_PAGE_URL = "$BASE_URL/index/mobile/pay"
         const val SSN_OAUTH_URL =
@@ -53,7 +49,3 @@ open class SsnLogin(
         cid = parseCid(lastResponseBody) ?: throw RuntimeException("登录失败：没能取得宿舍电费的会话")
     }
 }
-
-private fun OkHttpClient?.withBrowserUa(): OkHttpClient? = this?.newBuilder()
-    ?.addInterceptor { chain -> chain.proceed(chain.request().newBuilder().header("User-Agent", SsnLogin.BROWSER_UA).build()) }
-    ?.build()
