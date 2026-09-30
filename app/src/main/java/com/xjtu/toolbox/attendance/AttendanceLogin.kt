@@ -26,21 +26,19 @@ import java.util.WeakHashMap
  * 考勤（kq.xjtu.edu.cn/sa）登录。
  *
  * 入口走 CAS，回调带 `loginRequestId` + `ticket`，再 POST `/sa/auth/cas/exchange`
- * 换成业务令牌。令牌不能放在带初始化器的子类字段里：[XJTULogin] 构造期间就会调
- * [postLogin]，子类属性初始化器随后会把值冲掉。
+ * 换成业务令牌。
+ *
+ * [XJTULogin] 构造期间（免密走通时）就会调 [postLogin]，那时子类的字段一个都还没赋值：
+ * 带初始化器的字段读到的是 null/false，写进去的值随后又被初始化器冲掉。所以 postLogin
+ * 路径上用到的常量放伴生对象，状态放伴生对象里按实例索引的表。以前 JSON 媒体类型是个
+ * 子类字段，构造期间的换票请求因此不带 Content-Type，服务端一律回 500「服务暂时不可用」。
+ *
+ * 校外走网关靠的是传进来的 client 上的 WebVPN 改写拦截器，这里只拼原始域名。
  */
 class AttendanceLogin(
     session: OkHttpClient? = null,
     visitorId: String? = null,
     cachedRsaKey: String? = null,
-    /**
-     * 走 WebVPN 网关而非直连。
-     *
-     * 考勤这几个域名只在校内网络可达（校外直连 443 端口连超时都不给，直接 12 秒卡死）。
-     * 以前 [com.xjtu.toolbox.auth.AttendanceSession] 写的是 `mustUseWebVpn = false`，
-     * 被永久锁在直连，于是校外「死活打不开」。旧考勤一直是走网关的。
-     */
-    private val useWebVpn: Boolean = false,
     /**
      * 已知的账号类型（本科/研究生）时，直接去对应业务站（bk-kq / yjs-kq）的 CAS
      * 入口登录，跳过"先登门户、门户答复 systemSelectionRequired、再选子系统重登
@@ -51,10 +49,7 @@ class AttendanceLogin(
      * （见 [initialHost]），不依赖这个参数本身。
      */
     knownAccountType: XJTULogin.AccountType? = null,
-) : XJTULogin(proxied(entryUrlFor(knownAccountType), useWebVpn), session, visitorId, cachedRsaKey) {
-
-    /** 本实例的地址改写。网关地址只在发请求时拼，存下来的基址始终是原始域名。 */
-    private fun via(url: String): String = proxied(url, useWebVpn)
+) : XJTULogin(entryUrlFor(knownAccountType), session, visitorId, cachedRsaKey) {
 
     var authToken: String?
         get() = tokens[this]
@@ -79,9 +74,6 @@ class AttendanceLogin(
 
     /** 交换与探活都要打到 [resolvedBaseUrl]；还没解析出来时退回默认。 */
     private val baseUrl: String get() = resolvedBaseUrl ?: BASE_URL
-
-    private val jsonType = "application/json".toMediaType()
-    private val reAuthLock = Any()
 
     override fun postLogin(response: Response) {
         // 这一轮到底打的是直连业务站还是门户，从 response 的原始请求链反查——
@@ -112,7 +104,7 @@ class AttendanceLogin(
     }
 
     private fun fallbackToPortal() {
-        client.newCall(Request.Builder().url(via(LOGIN_URL)).get().build()).execute().use { retry ->
+        client.newCall(Request.Builder().url(LOGIN_URL).get().build()).execute().use { retry ->
             val body = retry.body.string()
             if (!consumeLanding(retry.request.url, body)) {
                 throw RuntimeException("考勤系统登录没有完成，请稍后重试")
@@ -139,15 +131,6 @@ class AttendanceLogin(
         }
         val chain = generateSequence(response) { it.priorResponse }.toList().reversed()
         return chain.firstNotNullOfOrNull { kqHostOf(it.request.url.toString()) }
-    }
-
-    fun reAuthenticate(): Boolean = synchronized(reAuthLock) {
-        val pair = casAuthenticate(via(LOGIN_URL)) ?: return false
-        val parsed = pair.second.toHttpUrlOrNull()
-        if (parsed != null && consumeLanding(parsed, pair.first)) return true
-        if ("/cas/callback" !in pair.second) return false
-        client.newCall(Request.Builder().url(pair.second).get().build()).execute().use { postLogin(it) }
-        !authToken.isNullOrBlank()
     }
 
     /**
@@ -268,7 +251,7 @@ class AttendanceLogin(
 
     private fun portalContext(): JsonObject {
         val request = Request.Builder()
-            .url(via("$baseUrl/auth/portal/context"))
+            .url("$baseUrl/auth/portal/context")
             .header("Accept", "application/json")
             .header(SYSTEM_HEADER, SYSTEM_VALUE)
             .get()
@@ -294,7 +277,7 @@ class AttendanceLogin(
      * 显式把 `host` 当 intendedHost 传下去，强制 base/exchange 落在这里。
      */
     private fun loginAt(host: String, target: String, hops: Int): Boolean {
-        val entry = via("https://$host/sa/auth/cas/login/$target")
+        val entry = "https://$host/sa/auth/cas/login/$target"
         val pair = casAuthenticate(entry) ?: return false
         val landed = pair.second.toHttpUrlOrNull() ?: return false
         return try {
@@ -313,10 +296,10 @@ class AttendanceLogin(
         }
         client.newCall(
             Request.Builder()
-                .url(via("$baseUrl/auth/cas/exchange"))
+                .url("$baseUrl/auth/cas/exchange")
                 .header("Accept", "application/json")
                 .header(SYSTEM_HEADER, SYSTEM_VALUE)
-                .post(payload.toString().toRequestBody(jsonType))
+                .post(payload.toString().toRequestBody(JSON))
                 .build()
         ).execute().use { resp ->
             val body = resp.body.string()
@@ -437,14 +420,7 @@ class AttendanceLogin(
         const val SYSTEM_HEADER = "X-System"
         const val SYSTEM_VALUE = "WEB"
 
-        /**
-         * WebVPN 模式下把原始地址换成网关地址；直连模式原样返回。
-         *
-         * 放在伴生对象里是因为要给 [XJTULogin] 的构造参数用——构造期基类就会发第一个
-         * 请求，那时实例方法还不能调。
-         */
-        fun proxied(url: String, useWebVpn: Boolean): String =
-            if (useWebVpn) com.xjtu.toolbox.webvpn.WebVpnUtil.getVpnUrl(url) else url
+        private val JSON = "application/json".toMediaType()
 
         /**
          * 主构造器的入口 URL：账号类型已知就直接打对应业务站的 `student-pc` 入口，

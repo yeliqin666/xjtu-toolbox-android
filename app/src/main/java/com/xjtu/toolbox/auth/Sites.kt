@@ -183,7 +183,6 @@ class AttendanceSession : CasSiteSession("new_attendance", "考勤", mustUseWebV
             session = client,
             visitorId = visitorId,
             cachedRsaKey = cachedRsaKey,
-            useWebVpn = currentAccessMode == AccessMode.WEBVPN,
             // 账号类型来自一网通办身份判断（见 AccountType.fromIdentityName），跟
             // ScheduleSourceRouter 挑 kq 部署用的是同一个信号。已知的话直接登对应
             // 业务站，省掉门户那三次往返；AttendanceLogin.postLogin 里若直连失败

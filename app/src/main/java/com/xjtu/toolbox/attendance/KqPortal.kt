@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.attendance
 
-import com.xjtu.toolbox.auth.AccessMode
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.intValue
 import com.xjtu.toolbox.util.isNull
@@ -55,7 +54,7 @@ internal object KqPortal {
 
     /** 会话无效时门户会跳去登录页或回非 0 code，都返回 null。 */
     private fun fetchSemester(site: SiteSession): JsonObject? {
-        site.client.newCall(portalRequest(site, "auth/portal/semester").get().build()).execute().use { resp ->
+        site.client.newCall(portalRequest("auth/portal/semester").get().build()).execute().use { resp ->
             if (!resp.isSuccessful) return null
             val json = runCatching { resp.body.string().safeParseJsonObject() }.getOrNull() ?: return null
             return if (json.codeIsZero()) KqHttp.obj(json.get("data")) else null
@@ -64,7 +63,7 @@ internal object KqPortal {
 
     private fun openSession(site: SiteSession) {
         val landing = site.client.newCall(
-            Request.Builder().url(proxied(site, AttendanceLogin.LOGIN_URL)).get().build(),
+            Request.Builder().url(AttendanceLogin.LOGIN_URL).get().build(),
         ).execute().use { it.request.url }
         val plain = WebVpnUtil.getOriginalUrl(landing.toString())?.toHttpUrlOrNull() ?: landing
         val requestId = plain.queryParameter("loginRequestId")
@@ -75,20 +74,18 @@ internal object KqPortal {
             put("ticket", ticket)
         }
         site.client.newCall(
-            portalRequest(site, "auth/cas/exchange").post(payload.toString().toRequestBody(JSON)).build(),
+            portalRequest("auth/cas/exchange").post(payload.toString().toRequestBody(JSON)).build(),
         ).execute().use { resp ->
             val json = runCatching { resp.body.string().safeParseJsonObject() }.getOrNull()
             if (!resp.isSuccessful || json?.codeIsZero() != true) throw IOException("考勤门户换票失败 (HTTP ${resp.code})")
         }
     }
 
-    private fun portalRequest(site: SiteSession, path: String) = Request.Builder()
-        .url(proxied(site, "${AttendanceLogin.BASE_URL}/$path"))
+    /** 原始域名即可，校外由 [SiteSession.client] 上的网关拦截器改写。 */
+    private fun portalRequest(path: String) = Request.Builder()
+        .url("${AttendanceLogin.BASE_URL}/$path")
         .header("Accept", "application/json")
         .header(AttendanceLogin.SYSTEM_HEADER, AttendanceLogin.SYSTEM_VALUE)
-
-    private fun proxied(site: SiteSession, url: String) =
-        AttendanceLogin.proxied(url, site.currentAccessMode == AccessMode.WEBVPN)
 
     private fun JsonObject.codeIsZero() = get("code")?.takeIf { !it.isNull }?.let { runCatching { it.intValue }.getOrNull() } == 0
 
