@@ -245,9 +245,8 @@ internal fun MainScreen(
     // 首页数据拉取挂在这里而不是 HomeTab：tab 懒加载，默认启动 tab 不是首页时也要拉
     LaunchedEffect(loginState.accountId, loginState.campusCardCacheVersion) {
         if (loginState.accountId.isEmpty()) return@LaunchedEffect
-        // 先等校内/校外探测落定：否则站点按默认直连去登校内网站点，校外白等 12 秒连接超时，
-        // 还占着串行的登录通道，把首屏的教务登录一起拖住。
-        runCatching { loginState.ensureCampusDetected() }
+        // 校内外判定和刷新并行：跟随全局模式的站点在 SessionManager 里等判定落定，直连站点（教务等）不必等
+        launch { runCatching { loginState.ensureCampusDetected() } }
         // 装新包会清掉课表缓存：首页「下一项安排」要靠它，不等用户进日程页
         val manager = loginState.sessionManager
         if (manager != null) withContext(Dispatchers.IO) {
@@ -274,8 +273,7 @@ internal fun MainScreen(
     androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
         if (loginState.accountId.isEmpty()) return@LifecycleEventEffect
         resumeScope.launch {
-            // 同上：先等校内/校外落定，否则冷启动时站点按直连去登校内站点，校外白等 12 秒
-            runCatching { loginState.ensureCampusDetected() }
+            launch { runCatching { loginState.ensureCampusDetected() } }
             HomeStatsRefresher.refreshDue(context, loginState.sessionManager, loginState.accountType)
             HomeSignals.bumpStatsVersion()
         }

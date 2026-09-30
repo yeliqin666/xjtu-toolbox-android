@@ -50,16 +50,10 @@ class CampusCardLogin(
     var cardAccount: String? = null
         internal set
 
-    /** 用户姓名 */
-    var userName: String = ""
+    var userName: String? = null
         private set
 
-    /** 学号 */
-    var studentNo: String = ""
-        private set
-
-    /** 系统是否就绪 */
-    var systemReady: Boolean = false
+    var studentNo: String? = null
         private set
 
     override fun postLogin(response: Response) {
@@ -148,31 +142,10 @@ class CampusCardLogin(
             cardAccount = CampusCardContract.requiredText(data, "cardAccount", "校园卡用户资料")
             userName = CampusCardContract.requiredText(data, "name", "校园卡用户资料")
             studentNo = CampusCardContract.requiredText(data, "sno", "校园卡用户资料")
-            systemReady = true
             Log.d(TAG, "fetchUserInfo: cardAccount=$cardAccount, name=$userName, sno=$studentNo")
             true
         } catch (e: Exception) {
             Log.w(TAG, "fetchUserInfo failed", e)
-            false
-        }
-    }
-
-    /**
-     * 重新认证（JWT 过期或 API 返回 401 时调用）
-     */
-    private val reAuthLock = Any()
-    fun reAuthenticate(): Boolean = synchronized(reAuthLock) {
-        Log.d(TAG, "reAuthenticate: re-triggering SSO flow...")
-        accessToken = null
-        systemReady = false
-        return try {
-            val resp = client.newCall(Request.Builder().url(LOGIN_URL).get().build()).execute()
-            resp.body.use { it.string() }
-            val finalUrl = resp.request.url.toString()
-            Log.d(TAG, "reAuthenticate: finalUrl=${finalUrl.redactUrl()}")
-            tryExtractTicketAndGetToken(finalUrl)
-        } catch (e: Exception) {
-            Log.e(TAG, "reAuthenticate failed", e)
             false
         }
     }

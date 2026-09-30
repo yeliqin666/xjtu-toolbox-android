@@ -4,11 +4,11 @@ import android.content.Context
 import android.util.Log
 import com.xjtu.toolbox.auth.AccessMode
 import com.xjtu.toolbox.auth.AccountType
+import com.xjtu.toolbox.auth.SessionBackend
 import com.xjtu.toolbox.auth.SessionManager
 import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.data.SecurePrefs
 import com.xjtu.toolbox.data.AppDatabase
-import com.xjtu.toolbox.network.PersistentCookieJar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -300,9 +300,7 @@ class AccountManager(
     private suspend fun wipeAccountFiles(accountId: String, cookiesOnly: Boolean) {
         val app = context.applicationContext
         val suffix = AccountContext.suffixFor(accountId)
-        for (name in listOf("cookies_normal", "cookies_webvpn")) {
-            runCatching { PersistentCookieJar(app, name + suffix).clear() }
-        }
+        SessionBackend.wipe(app, suffix)
         if (cookiesOnly) return
 
         runCatching { File(app.cacheDir, "data_cache$suffix").deleteRecursively() }

@@ -1,15 +1,9 @@
 package com.xjtu.toolbox.jiaocai
 
-import com.xjtu.toolbox.util.stringValue
-import com.xjtu.toolbox.util.isNull
-import com.xjtu.toolbox.util.obj
-import com.xjtu.toolbox.util.redactBody
 import com.xjtu.toolbox.util.redactUrl
 import android.util.Log
 import com.xjtu.toolbox.auth.XJTULogin
-import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.OkHttpClient
-import okhttp3.Request
 import okhttp3.Response
 
 /**
@@ -35,50 +29,10 @@ class JiaocaiLogin(
 ) {
     companion object {
         private const val TAG = "JiaocaiLogin"
-        const val BASE_URL = "https://jiaocai.lib.xjtu.edu.cn"
-        const val FID = "17071"
-        const val PAGE_ID = "13858"
-        const val SEARCH_ID = "10700"
     }
 
-    var isReady: Boolean = false
-        private set
-
-    var uid: String = ""
-        private set
-
-    var enc: String = ""
-        private set
-
+    /** 会话没建好时由 [JiaocaiApi] 跟 JS 跳转链补上，这里不用再探。 */
     override fun postLogin(response: Response) {
-        val finalUrl = response.request.url.toString()
-        Log.d(TAG, "postLogin: finalUrl=${finalUrl.redactUrl()}, bodyLen=${lastResponseBody.length}")
-        tryFetchUserInfo()
-    }
-
-    private fun tryFetchUserInfo() {
-        try {
-            val req = Request.Builder()
-                .url("$BASE_URL/engine2/header/user-info")
-                .get()
-                .build()
-            val resp = client.newCall(req).execute()
-            val text = resp.body.use { it.string() }
-            Log.d(TAG, "user-info: ${text.redactBody(200)}")
-
-            val json = text.safeParseJsonObject()
-            val data = json.obj("data")
-            if (data != null) {
-                // data.uid 可能为 JsonNull（首次访问 / session 未完全建立），需 null-safe
-                uid = data.get("uid")?.takeIf { !it.isNull }?.stringValue ?: ""
-                enc = data.get("enc")?.takeIf { !it.isNull }?.stringValue ?: ""
-                if (uid.isNotBlank()) {
-                    isReady = true
-                    Log.d(TAG, "jiaocai ready: uid=$uid")
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "tryFetchUserInfo failed", e)
-        }
+        Log.d(TAG, "postLogin: finalUrl=${response.request.url.toString().redactUrl()}, bodyLen=${lastResponseBody.length}")
     }
 }

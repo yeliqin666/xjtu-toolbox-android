@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.jwapp
 
-import com.xjtu.toolbox.network.MOBILE_UA
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.buildJsonObject
 import com.xjtu.toolbox.util.requireArr
@@ -122,9 +121,7 @@ class JwappApi(private val site: SiteSession) {
     private val baseUrl = "https://jwapp.xjtu.edu.cn"
 
     internal fun authenticatedRequest(url: String): okhttp3.Request.Builder =
-        okhttp3.Request.Builder()
-            .url(url)
-            .header("User-Agent", MOBILE_UA)
+        okhttp3.Request.Builder().url(url)
 
     internal suspend fun execute(request: okhttp3.Request.Builder): String =
         site.executeWithReAuth(request.build()).use { response ->

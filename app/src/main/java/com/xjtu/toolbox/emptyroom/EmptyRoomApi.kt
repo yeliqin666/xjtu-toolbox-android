@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.emptyroom
 
-import com.xjtu.toolbox.network.MOBILE_UA
 import kotlinx.serialization.json.JsonPrimitive
 import com.xjtu.toolbox.util.requireArr
 import com.xjtu.toolbox.util.requireObj
@@ -328,7 +327,6 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient, private val cac
                     .url(USER_INFO_API)
                     .header("Accept", "application/json, text/javascript, */*; q=0.01")
                     .header("Referer", "$JWXT_BASE/jwapp/sys/homeapp/home/index.html?av=&contextPath=/jwapp")
-                    .header("User-Agent", MOBILE_UA)
                     .get()
                     .build()
             ).execute()
@@ -376,7 +374,6 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient, private val cac
                 .header("Content-Type", FORM_CT)
                 .header("X-Requested-With", "XMLHttpRequest")
                 .header("Referer", REFERER)
-                .header("User-Agent", MOBILE_UA)
                 .post(okhttp3.FormBody.Builder().build())
                 .build()
         ).execute()
@@ -407,7 +404,6 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient, private val cac
                 .header("Content-Type", FORM_CT)
                 .header("X-Requested-With", "XMLHttpRequest")
                 .header("Referer", REFERER)
-                .header("User-Agent", MOBILE_UA)
                 .post(okhttp3.FormBody.Builder().build())
                 .build()
         ).execute()
@@ -477,7 +473,6 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient, private val cac
                 .header("Content-Type", FORM_CT)
                 .header("X-Requested-With", "XMLHttpRequest")
                 .header("Referer", REFERER)
-                .header("User-Agent", MOBILE_UA)
                 .post(form)
                 .build()
         ).execute()

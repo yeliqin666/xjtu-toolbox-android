@@ -1,7 +1,7 @@
 package com.xjtu.toolbox.agent
 
 import kotlin.coroutines.resume
-import com.xjtu.toolbox.network.MOBILE_UA
+import com.xjtu.toolbox.network.APP_UA
 import kotlinx.serialization.json.jsonObject
 import com.xjtu.toolbox.util.safeStringOrNull
 import com.xjtu.toolbox.util.AppJson
@@ -2817,7 +2817,7 @@ class AgentToolRegistry(
     private fun fetchReadablePage(startUrl: String): FetchedPage? {
         var url = startUrl
         if (AgentWeb.isSogouJumpUrl(url)) url = AgentWeb.withSogouClickParams(url)
-        val firstUa = if (AgentWeb.isWeChatUrl(url) || AgentWeb.isSogouJumpUrl(url)) wechatUa else MOBILE_UA
+        val firstUa = if (AgentWeb.isWeChatUrl(url) || AgentWeb.isSogouJumpUrl(url)) wechatUa else APP_UA
         var page = getUrl(url, firstUa)
         val html = page?.html.orEmpty()
         val blocked = html.isNotEmpty() && (

@@ -3,6 +3,7 @@ package com.xjtu.toolbox.auth
 import android.os.SystemClock
 import android.util.Log
 import com.xjtu.toolbox.account.AccountContext
+import com.xjtu.toolbox.webvpn.WebVpnUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -44,9 +45,18 @@ abstract class SiteSession(
      */
     val mustUseWebVpn: Boolean = true,
 ) {
-    /** 由 SessionManager 在创建时注入并随网络切换更新。 */
+    /** 由 SessionManager 经 [bind] 注入，随切网、切账号换绑。 */
     @Volatile var backend: SessionBackend? = null
-        internal set
+        private set
+
+    /** 换绑、清空、从快照恢复这几种状态切换互斥，保证 backend 与内存会话态对得上。 */
+    private val stateLock = Any()
+
+    /** 换绑代数，[bind] 一次加一。登录、探活跑完时代数变了，结果属于换绑前那一边，不能写回。 */
+    @Volatile private var bindEpoch = 0L
+
+    /** 当前 backend 的快照还没读过：换绑、[forget] 后为 true；恢复过、登录过或 [invalidateLogin] 后为 false。 */
+    @Volatile private var restorePending = true
 
     /** 由 SessionManager 注入，用于报告凭据失效、弹 MFA 等跨站点动作。 */
     @Volatile internal var manager: SessionManager? = null
@@ -65,8 +75,10 @@ abstract class SiteSession(
      * [executeWithReAuth] 在发请求前记录代数，命中认证失效时若发现代数已前进
      * （其他并发请求已完成重登录），直接复用新会话重放，避免并发 401 触发
      * 「N 个请求 → N 次完整 CAS 登录」的踩踏（每次登录都要过 CasGate 限频，叠加即卡死）。
+     * 外部也拿它判断一次调用里有没有真的发生登录（首页刷新据此决定要不要给统一认证留间隔）。
      */
-    @Volatile private var loginEpoch: Long = 0L
+    @Volatile var loginEpoch: Long = 0L
+        private set
 
     /**
      * 上次「确认会话有效」的时刻（登录成功 / validate 通过）。
@@ -107,10 +119,11 @@ abstract class SiteSession(
 
     /**
      * 用轻量接口探测当前会话有效性。
-     * 抛 IOException 表示网络错（保留现状）；返回 false 表示明确失效，由 [executeWithReAuth] 重认证。
+     * 抛 IOException 表示网络错（保留现状）；返回 false 表示明确失效，由 [executeWithReAuth] 重认证；
+     * null 表示本站没有探活手段，照常信任但不算确认过（不给快照续期）。
      */
     @Throws(IOException::class)
-    protected open suspend fun validateLogin(): Boolean = true
+    protected open suspend fun validateLogin(): Boolean? = null
 
     /** 为业务请求注入本站 header（默认不注入）。 */
     open fun decorateRequest(builder: Request.Builder): Request.Builder = builder
@@ -118,6 +131,7 @@ abstract class SiteSession(
     /** 判断响应是否表示认证失效（401 / CAS 登录页 / Safety Verify）。子类可根据业务返回格式重写。 */
     open fun isAuthFailureResponse(response: Response, bodyPreview: String?): Boolean {
         if (response.code == 401 || response.code == 403) return true
+        if (XJTULogin.isCasLoginUrl(response.request.url) || WebVpnUtil.isLoginLanding(response.request.url)) return true
         if (bodyPreview != null) return XJTULogin.isAuthFailureResponse(bodyPreview)
         return false
     }
@@ -143,10 +157,16 @@ abstract class SiteSession(
         // 失败冷却只约束后台/自动路径。用户主动点功能时被 60 秒冷却挡住，
         // 表现就是"点了没反应"，而防刷已由 CasGate 的失败退避+全局串行覆盖。
         if (!userInitiated) mgr?.checkLoginCooldown(siteKey, siteName)
+        // 校内外还没判定完时，跟随全局模式的站点先等：按旧模式去连校内地址，校外会白等到连接超时
+        if (mustUseWebVpn) mgr?.awaitAccessMode()
         if (currentAccessMode == AccessMode.WEBVPN) {
-            mgr?.ensureWebVpnLogin()
+            mgr?.ensureWebVpnLogin(foreground = !silent)
         }
         loginLock.withLock {
+            val bound = backend
+            val boundEpoch = bindEpoch
+            fun rebound() = bindEpoch != boundEpoch
+            withContext(Dispatchers.IO) { restoreIfNeeded(bound, boundEpoch) }
             // 等锁期间别人可能刚登完，再判一次新鲜度，避免排队者逐个重复探活。
             if (!force && hasLogin && isFresh()) return
             // 防踩踏：force 调用方若传入其观察到失效时的代数，而等锁期间其他协程
@@ -157,8 +177,14 @@ abstract class SiteSession(
             }
             if (!force && hasLogin) {
                 try {
-                    if (withContext(Dispatchers.IO) { validateLogin() }) {
+                    val valid = withContext(Dispatchers.IO) { validateLogin() }
+                    if (valid != false) {
+                        // 探活途中换了绑：结论属于另一边，这边下次再确认
+                        if (rebound()) return
                         lastValidatedAt = SystemClock.elapsedRealtime()
+                        // 真探过才给快照续期（顺带存下探活刷新的本地令牌，如电费 cid）；
+                        // 没探活的只在登录时存，年龄上限对它们就是会话年龄
+                        if (valid == true) saveSnapshot(bound)
                         return
                     }
                 } catch (e: IOException) {
@@ -177,15 +203,22 @@ abstract class SiteSession(
                     runLogin(username, password)
                 }
                 if (switched()) throw AccountSwitchedException(siteName)
+                if (rebound()) {
+                    // 登录途中切了网：这轮会话属于换绑前那一边，这边不认，下次按这边的快照来
+                    forget()
+                    Log.d(TAG, "[$siteKey] login finished after rebind, dropped")
+                    return
+                }
                 hasLogin = true
                 loginEpoch++
                 lastValidatedAt = SystemClock.elapsedRealtime()
+                saveSnapshot(bound)
                 manager?.clearLoginFailure(siteKey)
                 Log.d(TAG, "[$siteKey] login ok (mode=${currentAccessMode.key})")
                 manager?.recordDiagnostic("INFO", siteKey, "登录成功（${currentAccessMode.key}）")
             } catch (e: IOException) {
                 if (switched()) {
-                    invalidateLogin()
+                    forget()
                     manager?.recordDiagnostic("INFO", siteKey, "登录途中切换了账号，本次登录作废")
                     throw e as? AccountSwitchedException ?: AccountSwitchedException(siteName)
                 }
@@ -210,11 +243,60 @@ abstract class SiteSession(
         return age in 0 until VALIDATE_TTL_MS
     }
 
-    /** 标记本站点会话失效（清 hasLogin + 局部 token，不动共享 cookies）。 */
-    open fun invalidateLogin() {
+    /** 本站点会话已失效：清内存状态、删掉当前 backend 下的快照，不动共享 cookies。 */
+    fun invalidateLogin() {
+        synchronized(stateLock) {
+            resetState()
+            restorePending = false
+            backend?.snapshots?.remove(siteKey)
+        }
+    }
+
+    /** 只清内存状态，快照留着：切账号时用，下次 [ensureLogin] 从当前 backend 的快照恢复。 */
+    fun forget() {
+        synchronized(stateLock) {
+            resetState()
+            restorePending = true
+        }
+    }
+
+    /** 换绑 backend（切网、切账号）：换掉内存状态，两边的快照都留着，下次 [ensureLogin] 恢复新 backend 的。 */
+    internal fun bind(target: SessionBackend) {
+        synchronized(stateLock) {
+            if (target === backend) return
+            backend = target
+            bindEpoch++
+            resetState()
+            restorePending = true
+        }
+    }
+
+    private fun resetState() {
         hasLogin = false
         lastValidatedAt = 0L
         localToken.clear()
+    }
+
+    /**
+     * 冷启动或换绑后第一次用：从快照恢复成「已登录、待确认」，接下来按常规探活（没写探活的直接信任，
+     * 靠快照的年龄上限和 [executeWithReAuth] 兜底）。读盘期间换了绑就作废。
+     */
+    private fun restoreIfNeeded(target: SessionBackend?, epoch: Long) {
+        if (target == null || !restorePending) return
+        val tokens = runCatching { target.snapshots.load(siteKey) }.getOrNull()
+        synchronized(stateLock) {
+            if (bindEpoch != epoch || !restorePending) return
+            restorePending = false
+            if (tokens == null || hasLogin) return
+            localToken.putAll(tokens)
+            hasLogin = true
+            lastValidatedAt = 0L
+        }
+        Log.d(TAG, "[$siteKey] restored from snapshot (mode=${target.accessMode.key})")
+    }
+
+    private fun saveSnapshot(target: SessionBackend?) {
+        target?.snapshots?.save(siteKey, HashMap(localToken))
     }
 
     /**
@@ -242,7 +324,7 @@ abstract class SiteSession(
         // 判成"认证失效"时必须留下判据：到底是 401/403，还是响应体被识别成了 CAS 登录页。
         // 只打一句 "auth failure" 的话，遇到误判（业务接口返回 403 但会话其实是好的）
         // 根本无从分辨——教务学期列表接口就是这么被卡住的。
-        val failedUrl = com.xjtu.toolbox.webvpn.WebVpnUtil.getOriginalUrl(response.request.url.toString())
+        val failedUrl = WebVpnUtil.getOriginalUrl(response.request.url.toString())
             ?: response.request.url.toString()
         Log.w(
             TAG,
@@ -250,6 +332,8 @@ abstract class SiteSession(
                 "preview=${bodyPreview?.take(160)?.replace("\n", " ")}"
         )
         withContext(Dispatchers.IO) { response.close() }
+        // 被网关打回登录前页：网关会话死了，重登前得先让网关续上，不能再信它的新鲜窗口
+        if (WebVpnUtil.isLoginLanding(response.request.url)) backend?.markWebVpnStale()
         if (retried) throw AuthExpiredException(siteName, "$siteName 登录态已失效")
         Log.w(TAG, "[$siteKey] auth failure, invalidate and re-login")
         manager?.recordDiagnostic("WARN", siteKey, "业务请求认证失效，准备重认证并重放请求")
@@ -270,8 +354,11 @@ abstract class SiteSession(
     companion object {
         private const val TAG = "SiteSession"
 
-        /** 会话新鲜度窗口。窗口内跳过探活往返；失效由 [executeWithReAuth] 兜底自愈。 */
-        private const val VALIDATE_TTL_MS = 120_000L
+        /**
+         * 会话新鲜度窗口。窗口内跳过探活往返；失效由 [executeWithReAuth] 兜底自愈。
+         * 预热（[SessionManager.warmUp]）在冷启动、回前台时把常用站点确认进这个窗口。
+         */
+        private const val VALIDATE_TTL_MS = 5 * 60_000L
     }
 }
 

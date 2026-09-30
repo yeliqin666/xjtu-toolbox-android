@@ -1,7 +1,5 @@
 package com.xjtu.toolbox.auth
 
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import okhttp3.OkHttpClient
 import java.io.IOException
 
@@ -36,17 +34,13 @@ abstract class CasSiteSession(
     /** 登录成功后回调。子类可在此提取本站局部 token，写入 [localToken]。 */
     protected open fun onLoginSuccess(login: XJTULogin) {}
 
-    /**
-     * 全局串行：所有站点的 CAS 登录（含 TGC 已建好后的 SSO 直通）都排在同一把锁后面。
-     * 真机上多个站点并发登录时，考勤拿不到重定向回来的 token，服务端风控还会连续弹出
-     * 多条独立的 MFA 短信；同一时刻只让一个站点跟 CAS 打交道，牺牲一点并发速度换正确性。
-     */
+    /** 同一 backend 的 CAS 登录串行、前台优先，见 [LoginGate]。 */
     override suspend fun runLogin(username: String, password: String) {
-        casLoginLock.withLock { runCasLogin(username, password) }
+        val backend = checkNotNull(backend) { "[$siteKey] backend not bound" }
+        backend.loginGate.withLock(foreground = !silentLogin) { runCasLogin(backend, username, password) }
     }
 
-    private suspend fun runCasLogin(username: String, password: String) {
-        val backend = checkNotNull(backend) { "[$siteKey] backend not bound" }
+    private suspend fun runCasLogin(backend: SessionBackend, username: String, password: String) {
         val xl = createLogin(
             client = backend.client,
             visitorId = manager?.fpVisitorId,
@@ -103,9 +97,4 @@ abstract class CasSiteSession(
             msg.contains("密码错误", ignoreCase = true) ||
             msg.contains("账号或密码", ignoreCase = true) ||
             msg.contains("401")
-
-    companion object {
-        /** 全局唯一：所有 CAS 站点共用的登录锁，见 [runLogin] 上的说明。 */
-        internal val casLoginLock = Mutex()
-    }
 }

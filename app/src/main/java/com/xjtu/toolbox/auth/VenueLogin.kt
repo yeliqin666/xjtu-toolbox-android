@@ -52,14 +52,11 @@ class VenueLogin(
                 "?page=1&rows=8&merccode=100001&remark=defaultProList"
     }
 
-    var sessionValid: Boolean = false
-        private set
-
     override fun postLogin(response: Response) {
         Log.d(TAG, "postLogin: finalUrl=${response.request.url.redactUrl()}")
 
         // 首页里带 userno 才算真拿到身份；只看落点 URL 不够，未登录时同样会停在站内
-        sessionValid = runCatching {
+        var sessionValid = runCatching {
             client.newCall(
                 Request.Builder().url("$BASE_URL/web/index.html").get().build()
             ).execute().use { it.body.string() }
@@ -84,37 +81,6 @@ class VenueLogin(
         }
     } catch (_: Exception) {
         false
-    }
-
-    private val reAuthLock = Any()
-
-    /** 先试 SSO 直通，不行再走完整 CAS。 */
-    fun reAuthenticate(): Boolean = synchronized(reAuthLock) {
-        try {
-            if (validateLogin()) {
-                sessionValid = true
-                return true
-            }
-            runCatching {
-                client.newCall(Request.Builder().url(VENUE_OAUTH_URL).get().build())
-                    .execute().close()
-            }
-            if (validateLogin()) {
-                sessionValid = true
-                Log.d(TAG, "reAuthenticate: SSO 直通成功")
-                return true
-            }
-            casAuthenticate(VENUE_OAUTH_URL) ?: return false
-            if (validateLogin()) {
-                sessionValid = true
-                Log.d(TAG, "reAuthenticate: CAS 重认证成功")
-                return true
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "reAuthenticate failed", e)
-        }
-        sessionValid = false
-        return@synchronized false
     }
 }
 

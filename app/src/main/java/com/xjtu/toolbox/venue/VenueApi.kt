@@ -76,7 +76,6 @@ class VenueApi(private val site: SiteSession) {
         Request.Builder()
             .url(url)
             .header("Referer", referer)
-            .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36")
 
     private fun ajaxRequest(url: String, referer: String): Request.Builder =
         request(url, referer).header("X-Requested-With", "XMLHttpRequest")

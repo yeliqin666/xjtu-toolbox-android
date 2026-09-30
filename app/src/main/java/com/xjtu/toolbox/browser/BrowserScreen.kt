@@ -2,6 +2,7 @@
 
 package com.xjtu.toolbox.browser
 
+import com.xjtu.toolbox.network.APP_UA
 import com.xjtu.toolbox.util.redactUrl
 import com.xjtu.toolbox.util.releaseSafely
 import com.xjtu.toolbox.webvpn.WebVpnUtil
@@ -68,6 +69,7 @@ import com.xjtu.toolbox.zyxf.isCmsOneShotDownload
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import java.net.URI
 
@@ -386,11 +388,8 @@ fun BrowserScreen(
                     settings.builtInZoomControls = true
                     settings.displayZoomControls = false
                     settings.setSupportZoom(true)
-                    settings.userAgentString = settings.userAgentString.replace(
-                        Regex("wv"), ""
-                    ) // 去掉 wv 标记，某些网站会拒绝 WebView
-                    // 在 UA 末尾追加 XJTU-WX-MP 标识，方便服务端识别来自本 App
-                    settings.userAgentString = settings.userAgentString + " XJTU-WX-MP/1.0"
+                    // 和 OkHttp 同一串：注进来的统一认证登录态绑定 UA，不一致就会被当成没登录
+                    settings.userAgentString = APP_UA
                     // 教务处附件是 target="_blank"。不开的话点击会被吞掉；开了必须自己接 onCreateWindow。
                     settings.setSupportMultipleWindows(true)
                     settings.javaScriptCanOpenWindowsAutomatically = true
@@ -453,7 +452,9 @@ fun BrowserScreen(
                             // WebVPN 网关的「登录前页」（/login，不带参数）只有一颗「登录」按钮，
                             // 按下去就是 /login?cas_login=true：走统一认证，拿到 ticket 后网关按事先记下的
                             // 目标地址跳回去。网关会话过期时直接替用户按下这一步，不在中间停一页。
-                            if (request.isForMainFrame && isWebVpnLoginLanding(request.url) && webVpnAutoLogins < 2) {
+                            if (request.isForMainFrame && url.toHttpUrlOrNull()?.let(WebVpnUtil::isLoginLanding) == true &&
+                                webVpnAutoLogins < 2
+                            ) {
                                 webVpnAutoLogins++
                                 view?.loadUrl(WebVpnUtil.WEBVPN_LOGIN_URL)
                                 return true
@@ -581,7 +582,6 @@ private fun isAuthHop(url: String): Boolean {
     val host = uri.host?.lowercase().orEmpty()
     return host == "login.xjtu.edu.cn" || host == "cas.xjtu.edu.cn" ||
         (host == "org.xjtu.edu.cn" && uri.path.orEmpty().contains("login")) ||
-        isWebVpnLoginLanding(uri) ||
         (host == "webvpn.xjtu.edu.cn" && uri.path?.trimEnd('/') == "/login") ||
         uri.getQueryParameter("ticket") != null
 }
@@ -607,16 +607,6 @@ private fun hostOf(url: String): String? =
     runCatching { URI(normalizeUrl(url)).host?.lowercase() }
         .getOrNull()
         ?.takeIf { it.isNotBlank() }
-
-/**
- * WebVPN 网关的「登录前页」：`https://webvpn.xjtu.edu.cn/login`，不带 `cas_login`。
- * 没有网关会话时访问任何代理地址都会被 302 到这里。
- */
-internal fun isWebVpnLoginLanding(uri: android.net.Uri): Boolean =
-    uri.host.equals("webvpn.xjtu.edu.cn", ignoreCase = true) &&
-        uri.path?.trimEnd('/') == "/login" &&
-        uri.getQueryParameter("cas_login") == null &&
-        uri.getQueryParameter("ticket") == null
 
 /**
  * 把当前网页分享出去：纯文字，第一行网页标题，第二行链接。

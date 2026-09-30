@@ -50,12 +50,6 @@ class CouponLogin(
     var authToken: String? = null
         private set
 
-    init {
-        if (hasLogin && authToken.isNullOrBlank()) {
-            reAuthenticate()
-        }
-    }
-
     override fun postLogin(response: Response) {
         if (!response.isSuccessful) {
             throw RuntimeException("登录失败：加餐券认证入口返回 HTTP ${response.code}")
@@ -66,25 +60,6 @@ class CouponLogin(
             ?: extractCallbackParams(lastResponseBody)
             ?: throw RuntimeException("登录失败：无法获取加餐券授权码")
         exchangeCodeForToken(params)
-    }
-
-    private val reAuthLock = Any()
-
-    fun reAuthenticate(): Boolean = synchronized(reAuthLock) {
-        try {
-            Log.d(COUPON_TAG, "reAuthenticate: start")
-            val response = client.newCall(Request.Builder().url(buildCouponOAuthUrl()).get().build()).execute()
-            val body = response.body.string()
-            val params = extractCallbackParams(response.request.url.toString())
-                ?: extractCallbackParams(body)
-                ?: return false
-            exchangeCodeForToken(params)
-            Log.d(COUPON_TAG, "reAuthenticate: success")
-            return true
-        } catch (e: Exception) {
-            Log.e(COUPON_TAG, "reAuthenticate failed", e)
-        }
-        false
     }
 
     private fun exchangeCodeForToken(params: CallbackParams) {
@@ -175,7 +150,7 @@ private fun OkHttpClient?.withCouponTimeouts(): OkHttpClient? =
         ?.callTimeout(120, TimeUnit.SECONDS)
         ?.addInterceptor { chain ->
             val request = chain.request()
-            // 不自设 UA：统一认证的 TGC 绑定 UA，和其他站点不一致会互相挤掉登录态
+            // 不自设 UA，用全局的 APP_UA（见 HttpClients）
             val requestWithBrowserHeaders = request.newBuilder()
                 .header(
                     "Accept",

@@ -98,46 +98,59 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
     var pendingRetry by mutableStateOf<com.xjtu.toolbox.nav.AppRoute?>(null)
 
     /**
-     * 网络环境（access mode）切换时调用：清旧 cached login + vpnClient，
-     * 同步通知 SessionManager 切换 active backend（两边 cookies 保留以便快速切回）。
+     * 网络变了：重新判定校内外并通知 SessionManager 切换 active backend（两边的会话都保留以便快速切回）。
+     * 和 [ensureCampusDetected] 共用一把锁，同一时刻只有一次判定。
      *
      * @param networkSwitched 换了一张网（WiFi / 数据互切）。这时结论变了是正常的，不用复查。
      */
-    suspend fun onNetworkChanged(networkSwitched: Boolean = false): Boolean {
-        val prev = isOnCampus
-        campusDetectTime = 0L
-        val now = detectCampusNetwork(trustFirst = networkSwitched)
-        isOnCampus = now
-        sessionManager?.onNetworkChanged(
-            if (now) com.xjtu.toolbox.auth.AccessMode.NORMAL
-            else com.xjtu.toolbox.auth.AccessMode.WEBVPN
-        )
-        if (prev != null && prev != now) {
-            android.util.Log.w("AppLoginState", "Access mode changed: $prev → $now")
-            // 各站点登录态已由 SessionManager.onNetworkChanged 作废；网关会话下次用到时再探活
-            webVpnBackend?.markWebVpnStale()
-            return true
-        }
-        return false
-    }
+    suspend fun onNetworkChanged(networkSwitched: Boolean = false): Boolean =
+        campusDetectMutex.withLock { redetect(networkSwitched) }
 
-    /**
-     * 登录前 / 徽标为空时探测校园网。有缓存就复用，避免和首次登录并行走两次探针。
-     */
+    /** 需要结论时调：缓存还新鲜、或刚判过离线就不重探（真来了网，网络回调会触发 [onNetworkChanged]）。 */
     override suspend fun ensureCampusDetected() {
         campusDetectMutex.withLock {
-            val cached = isOnCampus
-            if (cached != null && System.currentTimeMillis() - campusDetectTime < CAMPUS_CACHE_MS) {
-                return
-            }
-            onNetworkChanged()
+            val now = System.currentTimeMillis()
+            if (isOnCampus != null && now - campusDetectTime < CAMPUS_CACHE_MS) return
+            if (now - offlineAt < OFFLINE_RETRY_MS) return
+            redetect(networkSwitched = false)
         }
     }
+
+    private suspend fun redetect(networkSwitched: Boolean): Boolean {
+        val prev = isOnCampus
+        campusDetectTime = 0L
+        // 换了网络，旧结论作废：跟随全局模式的站点等这次判定落定再登
+        if (networkSwitched) sessionManager?.unsettleAccessMode()
+        try {
+            val now = detectCampusNetwork(trustFirst = networkSwitched)
+            isOnCampus = now
+            // 先换绑再放行（onNetworkChanged 内部落定），等着的站点才不会按旧模式出发
+            sessionManager?.onNetworkChanged(
+                if (now) com.xjtu.toolbox.auth.AccessMode.NORMAL
+                else com.xjtu.toolbox.auth.AccessMode.WEBVPN
+            )
+            if (prev != null && prev != now) {
+                android.util.Log.w("AppLoginState", "Access mode changed: $prev → $now")
+                // 各站点已由 SessionManager.onNetworkChanged 换绑到另一边；网关会话下次用到时再续
+                webVpnBackend?.markWebVpnStale()
+                return true
+            }
+            return false
+        } finally {
+            // 判定被取消或出错也要放行，否则跟随全局模式的站点每次都要等满超时
+            sessionManager?.settleAccessMode()
+        }
+    }
+
     var isOnCampus by mutableStateOf<Boolean?>(null)   // null=未检测, true=校内, false=校外
 
     // 网络检测结果缓存（10 分钟）
     private var campusDetectTime: Long = 0L
     private val CAMPUS_CACHE_MS = 10 * 60 * 1000L
+
+    /** 上次判成「没网」的时刻。之后一小段时间里不重探，免得每个调用方各探一轮、各等一次超时。 */
+    private var offlineAt: Long = 0L
+    private val OFFLINE_RETRY_MS = 30_000L
     private val campusDetectMutex = Mutex()
 
     // 一网通办个人信息（登录后自动获取，在"我的"页面展示）
@@ -159,12 +172,13 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
     override fun clearInMemorySessionState() {
         activeUsername = ""
         savedUsername = ""; savedPassword = ""
-        sessionManager?.invalidateAllSites()
+        sessionManager?.forgetAllSites()
         // 网关登录态随 backend 走：切账号时 reconfigureForAccount 会整体换掉 backends，
         // 这里额外置一次，覆盖「尚未 reconfigure 就先清内存态」的调用顺序。
         webVpnBackend?.markWebVpnStale()
         isOnCampus = null
         campusDetectTime = 0L
+        offlineAt = 0L
         ywtbUserInfo = null
         cachedNickname = null
         accountId = ""
@@ -306,8 +320,10 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
         val first = CampusProbe.detect(ywtbToken())
         if (first.offline) {
             android.util.Log.d("Campus", "detectCampus: offline, keeping cached=$cached")
+            offlineAt = System.currentTimeMillis()
             return cached ?: false
         }
+        offlineAt = 0L
         val result = if (first.strong || trustFirst || cached == null || cached == first.onCampus) {
             first.onCampus
         } else {
@@ -378,14 +394,16 @@ class AppLoginStateViewModel(application: android.app.Application) : androidx.li
             register(com.xjtu.toolbox.auth.GsteSession())
             register(com.xjtu.toolbox.auth.GmisSession())
             register(com.xjtu.toolbox.auth.JsSession())
+            // 冷启动还不知道在校内还是校外：跟随全局模式的站点等首次判定，直连站点不等
+            unsettleAccessMode()
         }
         // 绑定 AccountManager 到 sessionManager + loginState
         accountManager.sessionManager = sessionManager
         accountManager.holder = loginState
 
-        // 保活：每轮对已登录站点做免密 SSO 续期（静默，撞 MFA 即退出）。
+        // 保活：定期预热常用站点，让服务端会话别因闲置被回收
         com.xjtu.toolbox.auth.SessionKeepAlive.sessionRefresher = {
-            sessionManager.refreshLoggedInSites()
+            sessionManager.warmUp(credentialStore.topSites(com.xjtu.toolbox.auth.SessionManager.WARM_SITES))
         }
 
         // 一次性迁移旧单账号数据 → 首个 Account 命名空间

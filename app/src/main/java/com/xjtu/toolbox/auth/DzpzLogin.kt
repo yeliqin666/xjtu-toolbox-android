@@ -41,7 +41,6 @@ class DzpzLogin(
 ) {
     companion object {
         private const val TAG = "DzpzLogin"
-        @Volatile private var lastUserIdFromPostLogin: String? = null
 
         const val BASE_URL = "https://dzpz.xjtu.edu.cn"
 
@@ -60,7 +59,7 @@ class DzpzLogin(
     }
 
     /** 用户 OA ID (来自 loginidweaver cookie)，用于所有 workflow API 调用 */
-    var userId: String? = lastUserIdFromPostLogin
+    var userId: String? = null
         private set
 
     override fun postLogin(response: Response) {
@@ -69,7 +68,6 @@ class DzpzLogin(
         // cookie 是 HttpOnly 且只在 Login.jsp 兑换成功那一跳下发，漏掉时用 getOSinfo 兜底。
         userId = findLoginIdWeaver(response) ?: fetchUserIdFromApi()
         if (userId != null) {
-            lastUserIdFromPostLogin = userId
             Log.d(TAG, "postLogin: userId=$userId")
             return
         }
@@ -99,7 +97,6 @@ class DzpzLogin(
         if (userId == null) {
             throw RuntimeException("登录失败：无法获取用户 OA ID (loginidweaver)")
         }
-        lastUserIdFromPostLogin = userId
         Log.d(TAG, "postLogin: userId=$userId (from retry)")
     }
 
@@ -107,18 +104,16 @@ class DzpzLogin(
      * 跨域查找 loginidweaver cookie。
      * 优先使用 PersistentCookieJar 的跨域接口，退化时在 dzpz 域上查。
      */
-    private fun findLoginIdWeaver(response: Response? = null): String? {
-        response?.let { resp ->
-            Cookie.parseAll(resp.request.url, resp.headers)
-                .firstOrNull { it.name == "loginidweaver" }
-                ?.value
-                ?.let { return it }
-            resp.headers.values("Set-Cookie")
-                .firstNotNullOfOrNull { header ->
-                    Regex("""(?:^|;\s*)loginidweaver=([^;]+)""").find(header)?.groupValues?.getOrNull(1)
-                }
-                ?.let { return it }
-        }
+    private fun findLoginIdWeaver(response: Response): String? {
+        Cookie.parseAll(response.request.url, response.headers)
+            .firstOrNull { it.name == "loginidweaver" }
+            ?.value
+            ?.let { return it }
+        response.headers.values("Set-Cookie")
+            .firstNotNullOfOrNull { header ->
+                Regex("""(?:^|;\s*)loginidweaver=([^;]+)""").find(header)?.groupValues?.getOrNull(1)
+            }
+            ?.let { return it }
         val jar = client.cookieJar
         if (jar is com.xjtu.toolbox.network.PersistentCookieJar) {
             jar.findCookieByName("loginidweaver")?.value?.let { return it }
@@ -153,7 +148,7 @@ class DzpzLogin(
 
     /**
      * 重新走一遍 Login.jsp → CAS authorize → Login.jsp?code 往返（依赖 jar 里的 TGC 完成 SSO），
-     * 成功则返回 userId。用于 postLogin 首次没拿到 cookie、以及会话过期后的重认证。
+     * 成功则返回 userId。用于 postLogin 首次没拿到 cookie 时。
      */
     private fun retryOauthRound(): String? {
         return try {
@@ -171,58 +166,4 @@ class DzpzLogin(
             null
         }
     }
-
-    /**
-     * 探活用 getOSinfo 而非 /api/ecode/sync —— 后者匿名访问同样返回 200 空 body、不跳 CAS，
-     * 会把已失效的会话判成有效。
-     */
-    private fun validateLogin(): Boolean {
-        val id = fetchUserIdFromApi() ?: return false
-        userId = id
-        lastUserIdFromPostLogin = id
-        return true
-    }
-
-    private val reAuthLock = Any()
-
-    /**
-     * 重新认证：先尝试 SSO（TGC 有效时直接成功），失败后 fallback 到 casAuthenticate
-     */
-    fun reAuthenticate(): Boolean = synchronized(reAuthLock) {
-        try {
-            // 会话仍有效则直接复用
-            if (validateLogin()) {
-                Log.d(TAG, "reAuthenticate: session still valid")
-                return true
-            }
-
-            // SSO 方式：TGC 可能仍有效。必须从 Login.jsp 入口走，否则拿不到 oauth2_redirect_uri。
-            Log.d(TAG, "reAuthenticate: session expired, trying SSO via login entry")
-            val ssoReq = Request.Builder().url(DZPZ_LOGIN_ENTRY).get().build()
-            val ssoResp = client.newCall(ssoReq).execute()
-            ssoResp.body.string()
-            val ssoFinalUrl = ssoResp.request.url.toString()
-
-            if (com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(ssoFinalUrl, "dzpz.xjtu.edu.cn")) {
-                userId = findLoginIdWeaver(ssoResp) ?: fetchUserIdFromApi()
-                lastUserIdFromPostLogin = userId
-                Log.d(TAG, "reAuthenticate: SSO success, userId=$userId")
-                return userId != null
-            }
-
-            // SSO 失败，尝试 casAuthenticate
-            Log.d(TAG, "reAuthenticate: SSO failed, trying casAuthenticate")
-            casAuthenticate(DZPZ_LOGIN_ENTRY) ?: return false
-            userId = findLoginIdWeaver() ?: fetchUserIdFromApi()
-            if (userId != null) {
-                lastUserIdFromPostLogin = userId
-                Log.d(TAG, "reAuthenticate: casAuthenticate success, userId=$userId")
-                return true
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "reAuthenticate failed", e)
-        }
-        return@synchronized false
-    }
-
 }

@@ -120,7 +120,7 @@ class AppRouter(
     }
 
     private fun openWithLogin(route: AppRoute, type: LoginType) {
-        runCatching { credentialStore.recordRecentSite(type.siteKey()) } // 冷启动据此预热 SSO
+        runCatching { credentialStore.recordSiteUse(type.siteKey()) } // 会话预热据此挑站点
         if (!isOnline()) {
             if (route.offlineCapable) {
                 go(route)
