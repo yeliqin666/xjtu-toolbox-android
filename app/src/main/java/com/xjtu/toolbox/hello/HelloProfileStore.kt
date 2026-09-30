@@ -19,9 +19,10 @@ import java.io.File
  * 个人档案的取数与缓存。
  *
  * 策略：**缓存优先，网络兜后**。
- * - 首次登录抓一次，落盘（[DataCache]，按账号隔离）；
- * - 之后进入"我的"页直接读缓存，0 等待；
- * - 缓存超过 [REFRESH_AFTER_MS] 才在后台静默刷新一次，失败静默吞掉，不打扰用户。
+ * - 登录时抓一次，落盘（[DataCache]，按账号隔离）；
+ * - "我的"页直接读缓存，0 等待；
+ * - 缓存超过 [REFRESH_AFTER_MS] 或不存在时静默重拉，失败吞掉。重拉在"我的"页和首页后台刷新
+ *   两处都会触发：换包会清空 DataCache，只靠"我的"页的话，匹配交友等读缓存的地方要等用户点过它。
  *
  * 档案是学籍数据，一学期都不会变，没有任何理由让用户每次进页面都等一次网络往返。
  */
@@ -54,6 +55,8 @@ object HelloProfileStore {
         context: Context,
         manager: SessionManager?,
         force: Boolean = false,
+        /** 后台调用：不弹短信验证，撞上就当失败。 */
+        silent: Boolean = false,
         /** 档案一拿到就回调（头像还在下载）：姓名、专业可以先显示，不用等头像下完。 */
         onProfile: (HelloProfile) -> Unit = {},
     ): HelloProfile? {
@@ -76,13 +79,15 @@ object HelloProfileStore {
             }
             try {
                 val profile = withContext(Dispatchers.IO) {
-                    val site = manager.ensureSite("hello")
+                    val site = manager.ensureSite("hello", silent = silent)
                     HelloApi(site).getProfile()
                 }
                 cache.writeProfile(profile)
                 onProfile(profile)
                 withContext(Dispatchers.IO) { downloadAvatar(context, manager, profile) }
                 profile
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 // 静默失败：这是锦上添花的信息源，拿不到就继续用缓存/退回原有 YWTB 信息，
                 // 不该让"我的"页因此报错。

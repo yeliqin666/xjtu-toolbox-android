@@ -519,6 +519,10 @@ object HomeStatsRefresher {
                     Log.d(TAG, "inbox: ${e.message}")
                 }
             }
+            // 学籍档案：缓存新鲜时不发请求
+            if (!accountChanged()) {
+                com.xjtu.toolbox.hello.HelloProfileStore.ensure(context, manager, silent = true)
+            }
         } finally {
             runLock.unlock()
         }

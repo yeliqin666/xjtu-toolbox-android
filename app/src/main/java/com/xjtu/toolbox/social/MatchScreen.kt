@@ -755,7 +755,7 @@ private fun ShareSettingsDialog(
                 GroupLabel("人")
                 DimRow(
                     "年级 专业 校区 生源地",
-                    if (local.profile == null) "还没读到个人信息，回首页看一眼"
+                    if (local.profile == null) "学籍信息还没同步，联网后稍等再来"
                     else "不带学号，只有年级、专业、书院、校区和生源地省份",
                     dims.identity, local.profile != null,
                 ) { onDims(dims.copy(identity = it)) }
