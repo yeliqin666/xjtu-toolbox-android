@@ -32,7 +32,6 @@ import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -637,7 +636,11 @@ private fun MainTopBar(
             // 功能按钮都靠右一组：以前扫一扫单独在左，和右边两个把标题夹在中间，左右不对称
             if (selectedTab == BottomTab.HOME) {
                 IconButton(onClick = onScan) {
-                    Icon(Icons.Default.QrCodeScanner, contentDescription = "扫一扫", tint = MiuixTheme.colorScheme.onSurface)
+                    Icon(
+                        androidx.compose.ui.res.painterResource(com.xjtu.toolbox.R.drawable.ic_scan),
+                        contentDescription = "扫一扫",
+                        tint = MiuixTheme.colorScheme.onSurface,
+                    )
                 }
                 InboxBell(onInbox)
                 IconButton(onClick = onSearch) {
