@@ -23,17 +23,14 @@ object CustomCourseConflicts {
             .map { it + 1 }
 
     /**
-     * 两边都设了分钟级时间就按分钟比（首尾相接不算重叠：14:00 结束和 14:00 开始可以并存）；
-     * 否则按节次比，节次是闭区间（3–4 节和 4–5 节共用第 4 节，算重叠）。
+     * 按真实起止比（[CourseItem.clockMinutes]，和周视图、桌面卡片同一个算法：给了钟点用钟点，
+     * 老日程按「8 点起每小时一节」还原）。首尾相接不算重叠：14:00 结束和 14:00 开始可以并存。
+     * 自建日程的起止与冬夏作息无关，传哪套都一样。
      */
     fun timeOverlaps(a: CustomCourseEntity, b: CustomCourseEntity): Boolean {
-        val minutesKnown = a.startMinuteOfDay >= 0 && a.endMinuteOfDay >= 0 &&
-            b.startMinuteOfDay >= 0 && b.endMinuteOfDay >= 0
-        return if (minutesKnown) {
-            a.startMinuteOfDay < b.endMinuteOfDay && b.startMinuteOfDay < a.endMinuteOfDay
-        } else {
-            a.startSection <= b.endSection && b.startSection <= a.endSection
-        }
+        val (aStart, aEnd) = a.toCourseItem().clockMinutes(summer = true)
+        val (bStart, bEnd) = b.toCourseItem().clockMinutes(summer = true)
+        return aStart < bEnd && bStart < aEnd
     }
 
     /** 冲突提示里用的周次描述：连续的周合并成区间，如「第 3–5、8 周」。 */

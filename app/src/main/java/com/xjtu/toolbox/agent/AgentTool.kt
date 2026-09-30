@@ -1094,8 +1094,9 @@ class AgentToolRegistry(
         if (dateStr != null) {
             val targetDate = runCatching { LocalDate.parse(dateStr) }.getOrElse { LocalDate.now() }
             val weekNum = com.xjtu.toolbox.schedule.TermWeeks.weekOf(startDate, targetDate)
+            val targetSummer = XjtuTime.isSummerTime(targetDate.monthValue)
             val dayCourses = courses.filter { it.dayOfWeek == targetDate.dayOfWeek.value && it.isInWeek(weekNum) }
-                .sortedBy { it.startSection }
+                .sortedBy { it.clockMinutes(targetSummer).first }
             val holiday = holidays[targetDate]
             if (dayCourses.isEmpty()) {
                 return "${targetDate} 第${weekNum}周${dayNames[targetDate.dayOfWeek.value]}｜无课" +
@@ -1115,14 +1116,16 @@ class AgentToolRegistry(
             val today = LocalDate.now()
             val weekNum = com.xjtu.toolbox.schedule.TermWeeks.weekOf(startDate, today)
             if (weekNum <= 0) return "当前不在学期内。"
+            // 每门课按它那天的日期算作息，跨月那周也不会错
+            val monday = startDate.plusWeeks((weekNum - 1).toLong())
             val weekCourses = courses.filter { it.isInWeek(weekNum) }
-                .sortedWith(compareBy({ it.dayOfWeek }, { it.startSection }))
+                .sortedWith(compareBy({ it.dayOfWeek }, {
+                    it.clockMinutes(XjtuTime.isSummerTime(monday.plusDays((it.dayOfWeek - 1).toLong()).monthValue)).first
+                }))
             if (weekCourses.isEmpty()) return "第${weekNum}周没有课。"
             pendingWidgets.add(ScheduleWidget("第${weekNum}周课表", weekCourses))
             return buildString {
                 append("第${weekNum}周：\n")
-                // 每门课按它那天的日期算作息，跨月那周也不会错
-                val monday = startDate.plusWeeks((weekNum - 1).toLong())
                 weekCourses.forEach { c ->
                     val day = monday.plusDays((c.dayOfWeek - 1).toLong())
                     append(courseLine(c, day))
@@ -1137,22 +1140,17 @@ class AgentToolRegistry(
      * 课表的一行：`课程｜周二 10:10–12:00（3–4节）｜地点｜教师`。
      *
      * 直接写出钟点，模型不必知道作息表——学校有冬、夏两套作息（5–9 月下午晚上推后 30 分钟），
-     * 让模型按节次自己推，问「明天几点下课」时容易错。作息按**那节课所在日期**的月份定。
-     * 自建日程带分钟级时间，优先用它。
+     * 让模型按节次自己推，问「明天几点下课」时容易错。起止用 [CourseItem.clockMinutes]，
+     * 和日程页、桌面卡片同一个算法；作息按**那节课所在日期**的月份定。
      */
     private fun courseLine(c: CourseItem, date: LocalDate, withTeacher: Boolean = false): String {
-        val summer = XjtuTime.isSummerTime(date.monthValue)
         fun hhmm(min: Int) = "%02d:%02d".format(min / 60, min % 60)
-        val start = c.startMinuteOfDay.takeIf { it >= 0 }?.let(::hhmm)
-            ?: XjtuTime.getClassTime(c.startSection, summer)?.start?.toString()
-        val end = c.endMinuteOfDay.takeIf { it >= 0 }?.let(::hhmm)
-            ?: XjtuTime.getClassTime(c.endSection, summer)?.end?.toString()
+        val (start, end) = c.clockMinutes(XjtuTime.isSummerTime(date.monthValue))
         val days = listOf("", "周一", "周二", "周三", "周四", "周五", "周六", "周日")
-        val time = if (start != null && end != null) "$start–$end" else ""
-        val sections = if (c.courseType == "日程" || c.courseType == "自定义") "" else "（${c.startSection}–${c.endSection}节）"
+        val sections = if (c.isUserCreated) "" else "（${c.startSection}–${c.endSection}节）"
         return listOfNotNull(
             c.courseName,
-            "${days.getOrElse(c.dayOfWeek) { "" }} $time$sections".trim(),
+            "${days.getOrElse(c.dayOfWeek) { "" }} ${hhmm(start)}–${hhmm(end)}$sections".trim(),
             c.location.ifBlank { null },
             c.teacher.takeIf { withTeacher && it.isNotBlank() },
         ).joinToString("｜")
@@ -2677,10 +2675,7 @@ class AgentToolRegistry(
         val summer = XjtuTime.isSummerTime(day.monthValue)
         val official = ScheduleCache.readCourses(dataCache, termCode).orEmpty()
         official.filter { it.dayOfWeek == entity.dayOfWeek }.forEach { c ->
-            val cStart = c.startMinuteOfDay.takeIf { it >= 0 }
-                ?: XjtuTime.getClassTime(c.startSection, summer)?.start?.let { it.hour * 60 + it.minute } ?: return@forEach
-            val cEnd = c.endMinuteOfDay.takeIf { it >= 0 }
-                ?: XjtuTime.getClassTime(c.endSection, summer)?.end?.let { it.hour * 60 + it.minute } ?: return@forEach
+            val (cStart, cEnd) = c.clockMinutes(summer)
             if (startMin < cEnd && cStart < endMin) {
                 val shared = com.xjtu.toolbox.schedule.CustomCourseConflicts.sharedWeeks(entity.weekBits, c.weekBits)
                 if (shared.isNotEmpty()) {

@@ -327,21 +327,20 @@ private fun WidgetMore(text: String) {
 
 // ── 各控件 ───────────────────────────────────────────────────────────────
 
-/** 课程的开始 / 结束钟点：自建日程有分钟级时间就用它，否则按节次和当天所在月份的作息推。 */
+/**
+ * 课程的开始 / 结束钟点，和日程页同一个算法（[CourseItem.clockMinutes]）。卡片不带日期，
+ * 作息按今天所在月份定。
+ */
 private fun courseClock(c: CourseItem): Pair<String, String> {
     fun fmt(m: Int) = "%02d:%02d".format(m / 60, m % 60)
-    val start = c.startMinuteOfDay.takeIf { it >= 0 }?.let(::fmt)
-        ?: XjtuTime.getClassTime(c.startSection)?.start?.let { "%02d:%02d".format(it.hour, it.minute) }
-        ?: "第${c.startSection}节"
-    val end = c.endMinuteOfDay.takeIf { it >= 0 }?.let(::fmt)
-        ?: XjtuTime.getClassTime(c.endSection)?.end?.let { "%02d:%02d".format(it.hour, it.minute) }
-        ?: "第${c.endSection}节"
-    return start to end
+    val (start, end) = c.clockMinutes(XjtuTime.isSummerTime())
+    return fmt(start) to fmt(end)
 }
 
 @Composable
 private fun ScheduleWidgetView(w: ScheduleWidget, modifier: Modifier) {
-    val sorted = w.courses.sortedWith(compareBy({ it.dayOfWeek }, { it.startSection }, { it.startMinuteOfDay }))
+    val summer = XjtuTime.isSummerTime()
+    val sorted = w.courses.sortedWith(compareBy({ it.dayOfWeek }, { it.clockMinutes(summer).first }))
     val byDay = sorted.groupBy { it.dayOfWeek }
     val courseColors = com.xjtu.toolbox.schedule.rememberCourseColors(remember(w.courses) { w.courses.map { it.courseName }.distinct() })
     WidgetCard(
