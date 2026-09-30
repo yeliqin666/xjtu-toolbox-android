@@ -2,36 +2,52 @@
 <!--
   2x2 竖排列表的单条课程。比原来紧一圈（padding 8→6，行距 2→1），
   一屏从 2 条变 3 条——小部件的空间要花在课上，不是花在留白上。
+
+  浅色底是一张半透明白圆角图，按课程色 setColorFilter 着色：RemoteViews 改不了 shape 的颜色，
+  ImageView 的着色可以。课程色和课表页一致，用户改过的也认。
 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_course_item_root"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:background="@drawable/bg_schedule_course_item"
-    android:orientation="vertical"
-    android:paddingLeft="8dp"
-    android:paddingRight="8dp"
-    android:paddingTop="6dp"
-    android:paddingBottom="6dp">
+    android:layout_height="wrap_content">
 
-    <TextView
-        android:id="@+id/widget_course_desc"
+    <ImageView
+        android:id="@+id/widget_course_tone"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:importantForAccessibility="no"
+        android:scaleType="fitXY"
+        android:src="@drawable/bg_schedule_course_item" />
+
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:ellipsize="end"
-        android:maxLines="1"
-        android:textColor="@color/widget_on_surface"
-        android:textSize="12sp"
-        android:textStyle="bold" />
+        android:orientation="vertical"
+        android:paddingLeft="8dp"
+        android:paddingRight="8dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp">
 
-    <TextView
-        android:id="@+id/widget_course_time"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="1dp"
-        android:ellipsize="end"
-        android:maxLines="1"
-        android:textColor="@color/widget_on_surface_secondary"
-        android:textSize="10sp" />
+        <TextView
+            android:id="@+id/widget_course_desc"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="@color/widget_on_surface"
+            android:textSize="12sp"
+            android:textStyle="bold" />
 
-</LinearLayout>
+        <TextView
+            android:id="@+id/widget_course_time"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="1dp"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="@color/widget_on_surface_secondary"
+            android:textSize="10sp" />
+
+    </LinearLayout>
+
+</FrameLayout>

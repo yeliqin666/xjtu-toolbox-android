@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 4x2 课程条左侧色条，按课程色着色。 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
     <corners android:radius="2dp" />
-    <solid android:color="@color/widget_course_accent_3" />
+    <solid android:color="#FFFFFFFF" />
 </shape>

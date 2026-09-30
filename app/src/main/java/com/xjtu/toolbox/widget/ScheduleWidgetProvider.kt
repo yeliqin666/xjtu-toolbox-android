@@ -18,10 +18,12 @@ import com.xjtu.toolbox.schedule.ScheduleCache
 import com.xjtu.toolbox.data.AppDatabase
 import com.xjtu.toolbox.data.DataCache
 import com.xjtu.toolbox.schedule.XjtuTime
+import com.xjtu.toolbox.schedule.colorOf
+import com.xjtu.toolbox.schedule.courseColorMap
+import androidx.compose.ui.graphics.toArgb
 import java.io.File
 import java.time.LocalDate
 import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import com.xjtu.toolbox.nav.AppRoute
@@ -33,6 +35,8 @@ internal data class WidgetCourse(
     val location: String,
     val startSection: Int,
     val endSection: Int,
+    /** 课程色（ARGB），和课表页、思源学堂同一套，用户改过的也认。 */
+    val color: Int,
     /** 已经上完：之前的日子全算，今天看下课时间。 */
     val done: Boolean = false,
 )
@@ -59,17 +63,14 @@ internal data class WidgetTwoDayData(
 internal data class WidgetScheduleData(
     val weekText: String,
     val dayText: String,
-    val statusText: String,
-    val updateText: String,
     val courses: List<WidgetCourse>,
-    val hasCache: Boolean
+    /** 没课时列表位置显示的话；没缓存时也用它。 */
+    val emptyText: String,
 )
 
 object ScheduleWidgetUpdater {
     const val ACTION_REFRESH = "com.xjtu.toolbox.widget.ACTION_REFRESH_SCHEDULE_WIDGET"
     const val EXTRA_RESET_TO_TODAY = "com.xjtu.toolbox.widget.EXTRA_RESET_TO_TODAY"
-    const val ACTION_WEEK_PREV = "com.xjtu.toolbox.widget.ACTION_SCHEDULE_WIDGET_WEEK_PREV"
-    const val ACTION_WEEK_NEXT = "com.xjtu.toolbox.widget.ACTION_SCHEDULE_WIDGET_WEEK_NEXT"
     const val ACTION_DAY_PREV = "com.xjtu.toolbox.widget.ACTION_SCHEDULE_WIDGET_DAY_PREV"
     const val ACTION_DAY_NEXT = "com.xjtu.toolbox.widget.ACTION_SCHEDULE_WIDGET_DAY_NEXT"
 
@@ -132,18 +133,6 @@ object ScheduleWidgetUpdater {
 
     fun handleAction(context: Context, action: String?): Boolean {
         when (action) {
-            ACTION_WEEK_PREV -> {
-                adjustWeekOffset(context, -1)
-                requestUpdate(context, resetToToday = false)
-                return true
-            }
-
-            ACTION_WEEK_NEXT -> {
-                adjustWeekOffset(context, 1)
-                requestUpdate(context, resetToToday = false)
-                return true
-            }
-
             ACTION_DAY_PREV -> {
                 adjustSelectedDayOfWeek(context, -1)
                 requestUpdate(context, resetToToday = false)
@@ -254,89 +243,25 @@ object ScheduleWidgetUpdater {
         }
     }
 
-    private fun bindCommonViews(
-        context: Context,
-        data: WidgetScheduleData,
-        appWidgetId: Int,
-        size: WidgetSize,
-        providerClass: Class<out AppWidgetProvider>,
-        rootRequestCode: Int,
-        weekRequestOffset: Int,
-        dayRequestOffset: Int,
-        listTemplateBase: Int,
-        layoutRes: Int
-    ): RemoteViews {
-        val views = RemoteViews(context.packageName, layoutRes)
-        views.setTextViewText(R.id.widget_title, "日程")
-        views.setTextViewText(R.id.widget_week, data.weekText)
+    /** 2x2：第一行「周几 第几周 ‹ ›」，其余全给课表。左右按钮逐天翻，跨周自动滚。 */
+    private fun buildSmallViews(context: Context, data: WidgetScheduleData, appWidgetId: Int): RemoteViews {
+        val provider = ScheduleWidget2x2Provider::class.java
+        val views = RemoteViews(context.packageName, R.layout.widget_schedule_2x2)
         views.setTextViewText(R.id.widget_day_text, data.dayText)
-        views.setTextViewText(R.id.widget_status, data.statusText)
-        views.setTextViewText(R.id.widget_update, data.updateText)
-        views.setOnClickPendingIntent(R.id.widget_root, buildLaunchPendingIntent(context, rootRequestCode))
-        views.setOnClickPendingIntent(
-            R.id.widget_week_prev,
-            buildActionPendingIntent(context, weekRequestOffset + 1, ACTION_WEEK_PREV, providerClass)
-        )
-        views.setOnClickPendingIntent(
-            R.id.widget_week_next,
-            buildActionPendingIntent(context, weekRequestOffset + 2, ACTION_WEEK_NEXT, providerClass)
-        )
-        views.setOnClickPendingIntent(
-            R.id.widget_day_prev,
-            buildActionPendingIntent(context, dayRequestOffset + 1, ACTION_DAY_PREV, providerClass)
-        )
-        views.setOnClickPendingIntent(
-            R.id.widget_day_next,
-            buildActionPendingIntent(context, dayRequestOffset + 2, ACTION_DAY_NEXT, providerClass)
-        )
-        views.setRemoteAdapter(
-            R.id.widget_course_list,
-            buildCourseListAdapterIntent(context, appWidgetId, size)
-        )
+        views.setTextViewText(R.id.widget_week, data.weekText)
+        views.setOnClickPendingIntent(R.id.widget_root, buildLaunchPendingIntent(context, 1001))
+        views.setOnClickPendingIntent(R.id.widget_day_prev, buildActionPendingIntent(context, 1201, ACTION_DAY_PREV, provider))
+        views.setOnClickPendingIntent(R.id.widget_day_next, buildActionPendingIntent(context, 1202, ACTION_DAY_NEXT, provider))
+        views.setRemoteAdapter(R.id.widget_course_list, buildCourseListAdapterIntent(context, appWidgetId, WidgetSize.SMALL))
         views.setEmptyView(R.id.widget_course_list, R.id.widget_empty)
-        views.setPendingIntentTemplate(
-            R.id.widget_course_list,
-            buildLaunchPendingIntent(context, listTemplateBase + appWidgetId)
-        )
-
-        if (!data.hasCache) {
-            views.setViewVisibility(R.id.widget_empty, View.VISIBLE)
-            views.setTextViewText(R.id.widget_empty, "暂无日程缓存\n请先打开日程页同步")
-            return views
-        }
-
-        if (data.courses.isEmpty()) {
-            views.setViewVisibility(R.id.widget_empty, View.VISIBLE)
-            views.setTextViewText(R.id.widget_empty, "所选日期无日程")
-            return views
-        }
-
-        views.setViewVisibility(R.id.widget_empty, View.GONE)
+        views.setPendingIntentTemplate(R.id.widget_course_list, buildLaunchPendingIntent(context, 3000 + appWidgetId))
+        views.setTextViewText(R.id.widget_empty, data.emptyText)
+        views.setViewVisibility(R.id.widget_empty, if (data.courses.isEmpty()) View.VISIBLE else View.GONE)
         scrollToUpcoming(views, R.id.widget_course_list, data.courses)
         return views
     }
 
-    private fun buildSmallViews(context: Context, data: WidgetScheduleData, appWidgetId: Int): RemoteViews {
-        return bindCommonViews(
-            context = context,
-            data = data,
-            appWidgetId = appWidgetId,
-            size = WidgetSize.SMALL,
-            providerClass = ScheduleWidget2x2Provider::class.java,
-            rootRequestCode = 1001,
-            weekRequestOffset = 1100,
-            dayRequestOffset = 1200,
-            listTemplateBase = 3000,
-            layoutRes = R.layout.widget_schedule_2x2
-        )
-    }
-
-    /**
-     * 4x2：今天 | 明天 两栏，没有任何翻页控件。
-     *
-     * 不走 [bindCommonViews]——那套是围绕 2x2 的浏览状态（周次偏移、选中星期）建的，
-     * 而这里要的恰恰是"不受浏览状态影响的真实今天"。
-     */
+    /** 4x2：今天 | 明天 两栏，没有任何翻页控件，不受 2x2 浏览状态影响。 */
     private fun buildLargeViews(context: Context, appWidgetId: Int): RemoteViews {
         val data = loadTwoDayData(context)
         val views = RemoteViews(context.packageName, R.layout.widget_schedule_4x2)
@@ -436,6 +361,7 @@ object ScheduleWidgetUpdater {
         // 总好过一片空白（用户至少能看出"周三大概有什么"）。
         val week = startDate?.let { com.xjtu.toolbox.schedule.TermWeeks.weekOf(it, date) }
         val now = LocalDateTime.now()
+        val colors = courseColorMap(all.map { it.courseName })
         return all.asSequence()
             .filter { it.dayOfWeek == date.dayOfWeek.value }
             .filter { !isHoliday || it.isUserCreated }
@@ -447,6 +373,7 @@ object ScheduleWidgetUpdater {
                     location = it.location,
                     startSection = it.startSection,
                     endSection = it.endSection,
+                    color = colors.colorOf(it.courseName).toArgb(),
                     done = isDone(date, it.endSection, now),
                 )
             }
@@ -530,23 +457,21 @@ object ScheduleWidgetUpdater {
         ensureAccountContext(context)
         dropStaleBrowseState(context)
         val nowAt = LocalDateTime.now()
-        val now = nowAt.toLocalTime()
         val nowDate = nowAt.toLocalDate()
         val todayDow = nowDate.dayOfWeek.value
-        val updateText = "更新 ${now.format(DateTimeFormatter.ofPattern("HH:mm"))}"
 
         val cache = DataCache(context)
         val termCode = resolveTermCode(context, cache)
             ?: return WidgetScheduleData(
-                weekText = "未同步",
-                dayText = "日期未同步",
-                statusText = "请先进入日程页",
-                updateText = updateText,
+                weekText = "",
+                dayText = "周${weekdayLabel(todayDow)}",
                 courses = emptyList(),
-                hasCache = false
+                emptyText = "暂无日程缓存\n请先打开日程页同步",
             )
 
         val allCourses = allCoursesOf(context, cache, termCode)
+        // 按整学期的课分配颜色，和课表页一样，避开撞色的顺延结果才对得上
+        val colors = courseColorMap(allCourses.map { it.courseName })
 
         val startDate = ScheduleCache.readStartDate(cache, termCode)
 
@@ -576,13 +501,6 @@ object ScheduleWidgetUpdater {
             displayBaseWeek != null -> (displayBaseWeek + weekOffset).coerceIn(1, maxWeek)
             else -> (1 + weekOffset).coerceIn(1, maxWeek)
         }
-        val weekAdjusted = displayBaseWeek != null && effectiveWeek != displayBaseWeek
-        val notStartedYet = baseWeek != null &&
-            firstTeachWeek != null &&
-            baseWeek in 1..maxWeek &&
-            baseWeek < firstTeachWeek &&
-            weekOffset == 0
-
         val shouldFilterByWeek = baseWeek != null || weekOffset != 0
 
         val selectedDate = if (startDate != null) {
@@ -591,7 +509,7 @@ object ScheduleWidgetUpdater {
             val relativeWeekDelta = effectiveWeek - (displayBaseWeek ?: 1)
             nowDate.plusDays(relativeWeekDelta * 7L + (selectedDayOfWeek - todayDow).toLong())
         }
-        val dayText = "${selectedDate.format(DateTimeFormatter.ofPattern("MM-dd"))} 周${weekdayLabel(selectedDayOfWeek)}"
+        val dayText = "周${weekdayLabel(selectedDayOfWeek)}"
 
         val holidayDates = widgetHolidays(context)
         val isHoliday = holidayDates.containsKey(selectedDate)
@@ -608,41 +526,11 @@ object ScheduleWidgetUpdater {
                     location = it.location,
                     startSection = it.startSection,
                     endSection = it.endSection,
+                    color = colors.colorOf(it.courseName).toArgb(),
                     done = isDone(selectedDate, it.endSection, nowAt),
                 )
             }
             .toList()
-
-        val isSelectedToday = selectedDate == nowDate
-
-        val currentCourse = if (!weekAdjusted && isSelectedToday) {
-            todayCourses.firstOrNull { course ->
-                val start = XjtuTime.getClassTime(course.startSection)?.start
-                val end = XjtuTime.getClassTime(course.endSection)?.end
-                start != null && end != null && now >= start && now <= end
-            }
-        } else {
-            null
-        }
-        val nextCourse = if (!weekAdjusted && isSelectedToday) {
-            todayCourses.firstOrNull { course ->
-                val start = XjtuTime.getClassTime(course.startSection)?.start
-                start != null && now < start
-            }
-        } else {
-            null
-        }
-
-        val status = when {
-            isHoliday && todayCourses.isEmpty() -> "今日为节假日，无日程安排"
-            todayCourses.isEmpty() -> "周${weekdayLabel(selectedDayOfWeek)}没有日程"
-            notStartedYet -> "尚未开课，已显示第${effectiveWeek}周"
-            !isSelectedToday -> "所选日共 ${todayCourses.size} 项安排"
-            weekAdjusted -> "本周今日共 ${todayCourses.size} 项安排"
-            currentCourse != null -> "正在进行：${currentCourse.name}"
-            nextCourse != null -> "下一项：${XjtuTime.getClassStartStr(nextCourse.startSection)} ${nextCourse.name}"
-            else -> "今日日程已结束"
-        }
 
         val weekText = if (baseWeek != null) {
             if (baseWeek <= 0) "未开学" else "第${effectiveWeek}周"
@@ -653,10 +541,8 @@ object ScheduleWidgetUpdater {
         return WidgetScheduleData(
             weekText = weekText,
             dayText = dayText,
-            statusText = status,
-            updateText = updateText,
             courses = todayCourses,
-            hasCache = true
+            emptyText = if (isHoliday) "节假日，没有日程" else "这天没有日程",
         )
     }
 
@@ -664,14 +550,6 @@ object ScheduleWidgetUpdater {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .getInt(KEY_WEEK_OFFSET, 0)
             .coerceIn(MIN_WEEK_OFFSET, MAX_WEEK_OFFSET)
-    }
-
-    internal fun adjustWeekOffset(context: Context, delta: Int) {
-        dropStaleBrowseState(context)
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val current = prefs.getInt(KEY_WEEK_OFFSET, 0)
-        val target = (current + delta).coerceIn(MIN_WEEK_OFFSET, MAX_WEEK_OFFSET)
-        prefs.edit().putInt(KEY_WEEK_OFFSET, target).apply()
     }
 
     private fun getSelectedDayOfWeek(context: Context, todayDow: Int): Int {

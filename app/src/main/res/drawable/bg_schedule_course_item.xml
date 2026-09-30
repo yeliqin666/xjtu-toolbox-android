@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 2x2 课程条的底：着色后保留这里的透明度，得到课程色的浅底。 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
     <corners android:radius="16dp" />
-    <solid android:color="@color/widget_course_tone_1" />
+    <solid android:color="#38FFFFFF" />
 </shape>
