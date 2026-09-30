@@ -4,7 +4,6 @@ import com.xjtu.toolbox.util.redactUrl
 import android.util.Log
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import com.xjtu.toolbox.auth.XJTULogin
 
@@ -37,22 +36,18 @@ class LmsLogin(
         const val LMS_LOGIN_URL = "https://lms.xjtu.edu.cn"
     }
 
-    /** 登录后是否已获取有效 session */
-    var sessionValid: Boolean = false
-        private set
-
     override fun postLogin(response: Response) {
         val finalUrl = response.request.url.toString()
         Log.d(TAG, "postLogin: finalUrl=${finalUrl.redactUrl()}")
 
         if (com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(finalUrl, "lms.xjtu.edu.cn")) {
-            sessionValid = true
             Log.d(TAG, "postLogin: session established via redirect chain")
             return
         }
 
         // 最终 URL 不在 lms 站点（直连或 WebVPN），手动访问触发 session
         Log.d(TAG, "postLogin: not at LMS site, manually accessing user/index")
+        var sessionValid = false
         try {
             val indexReq = Request.Builder()
                 .url("$BASE_URL/user/index")
@@ -72,42 +67,4 @@ class LmsLogin(
             throw RuntimeException("登录失败：无法建立思源学堂会话")
         }
     }
-
-    private val reAuthLock = Any()
-
-    /**
-     * 重新认证 (session 过期时调用)
-     */
-    fun reAuthenticate(): Boolean = synchronized(reAuthLock) {
-        try {
-            val checkReq = Request.Builder()
-                .url("$BASE_URL/api/my-courses")
-                .header("Accept", "application/json")
-                .post(ByteArray(0).toRequestBody(null))
-                .build()
-            val checkResp = client.newCall(checkReq).execute()
-            val body = checkResp.body.use { it.string() }
-
-            if (checkResp.code == 200 && body.contains("courses")) {
-                sessionValid = true
-                Log.d(TAG, "reAuthenticate: session still valid")
-                return true
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "reAuthenticate: check failed", e)
-        }
-
-        // Session 过期，尝试通过 CAS SSO 重新认证
-        try {
-            val result = casAuthenticate("$BASE_URL/user/index") ?: return false
-            val (_, finalUrl) = result
-            sessionValid = com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(finalUrl, "lms.xjtu.edu.cn")
-            Log.d(TAG, "reAuthenticate: CAS re-auth, finalUrl=${finalUrl.redactUrl()}, valid=$sessionValid")
-            return sessionValid
-        } catch (e: Exception) {
-            Log.e(TAG, "reAuthenticate: CAS re-auth failed", e)
-            return false
-        }
-    }
-
 }

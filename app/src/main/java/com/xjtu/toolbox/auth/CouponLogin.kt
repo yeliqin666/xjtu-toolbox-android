@@ -50,12 +50,6 @@ class CouponLogin(
     var authToken: String? = null
         private set
 
-    init {
-        if (hasLogin && authToken.isNullOrBlank()) {
-            reAuthenticate()
-        }
-    }
-
     override fun postLogin(response: Response) {
         if (!response.isSuccessful) {
             throw RuntimeException("登录失败：加餐券认证入口返回 HTTP ${response.code}")
@@ -66,25 +60,6 @@ class CouponLogin(
             ?: extractCallbackParams(lastResponseBody)
             ?: throw RuntimeException("登录失败：无法获取加餐券授权码")
         exchangeCodeForToken(params)
-    }
-
-    private val reAuthLock = Any()
-
-    fun reAuthenticate(): Boolean = synchronized(reAuthLock) {
-        try {
-            Log.d(COUPON_TAG, "reAuthenticate: start")
-            val response = client.newCall(Request.Builder().url(buildCouponOAuthUrl()).get().build()).execute()
-            val body = response.body.string()
-            val params = extractCallbackParams(response.request.url.toString())
-                ?: extractCallbackParams(body)
-                ?: return false
-            exchangeCodeForToken(params)
-            Log.d(COUPON_TAG, "reAuthenticate: success")
-            return true
-        } catch (e: Exception) {
-            Log.e(COUPON_TAG, "reAuthenticate failed", e)
-        }
-        false
     }
 
     private fun exchangeCodeForToken(params: CallbackParams) {

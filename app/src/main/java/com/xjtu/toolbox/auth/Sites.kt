@@ -329,12 +329,6 @@ class HelloSession : CasSiteSession("hello", "个人信息", mustUseWebVpn = tru
 class JiaocaiSession : CasSiteSession("jiaocai", "教材中心", mustUseWebVpn = true) {
     override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
         com.xjtu.toolbox.jiaocai.JiaocaiLogin(existingClient = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
-
-    override fun onLoginSuccess(login: XJTULogin) {
-        (login as? com.xjtu.toolbox.jiaocai.JiaocaiLogin)?.enc?.takeIf { it.isNotEmpty() }?.let {
-            localToken["enc"] = it
-        }
-    }
 }
 
 // ── COUPON 餐券 ──────────────────────────────────────────────────────
@@ -506,8 +500,8 @@ class CampusCardSession : CasSiteSession("campus_card", "校园卡", mustUseWebV
         val cc = login as? CampusCardLogin ?: return
         cc.accessToken?.let { localToken["access_token"] = it }
         cc.cardAccount?.let { localToken["card_account"] = it }
-        if (cc.userName.isNotEmpty()) localToken["user_name"] = cc.userName
-        if (cc.studentNo.isNotEmpty()) localToken["student_no"] = cc.studentNo
+        cc.userName?.let { localToken["user_name"] = it }
+        cc.studentNo?.let { localToken["student_no"] = it }
     }
 
     override fun decorateRequest(builder: Request.Builder): Request.Builder {

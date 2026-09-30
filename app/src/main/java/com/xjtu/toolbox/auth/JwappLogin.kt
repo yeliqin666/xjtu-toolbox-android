@@ -2,7 +2,6 @@ package com.xjtu.toolbox.auth
 
 import android.util.Log
 import okhttp3.OkHttpClient
-import okhttp3.Request
 import okhttp3.Response
 
 private const val TAG = "JwappLogin"
@@ -11,10 +10,7 @@ private const val TAG = "JwappLogin"
  * 移动教务系统 (jwapp) 专用登录
  * 登录后自动提取 Authorization token 并注入到 session headers
  *
- * ### Token 生命周期
- * - token 从 CAS 重定向 URL 中提取，存于内存
- * - 通过 [reAuthenticate] 利用 CAS SSO TGC cookie 重新获取 token
- * - 通过 [executeWithReAuth] 自动检测 401 并重试
+ * token 从 CAS 重定向 URL 中提取；失效后由站点会话层（[SiteSession.executeWithReAuth]）整体重登。
  */
 class JwappLogin(
     session: OkHttpClient? = null,
@@ -44,60 +40,6 @@ class JwappLogin(
                 Log.d(TAG, "postLogin: jwapp-cookies=${direct.map { it.name }}, webvpn-cookies=${webvpn.map { it.name }}")
             }
         } catch (_: Exception) {}
-    }
-
-    private val reAuthLock = Any()
-
-    /**
-     * [D1] 重新认证：先尝试 SSO，失败后 fallback 到 casAuthenticate（TGC 过期时用保存的密码）
-     * @return true 表示重新认证成功
-     */
-    fun reAuthenticate(): Boolean = synchronized(reAuthLock) {
-        try {
-            // [清 cookie 仅限 jwapp 业务域]
-            //   - 清 jwapp.xjtu.edu.cn cookie（`sk` 等 jwapp 自己的 session）让 jwapp 服务端重建 session
-            //   - **绝对不能** 清 login.xjtu.edu.cn cookie（TGC）—— TGC 是 CAS SSO 核心，清掉后所有 SSO 失败
-            //     会触发 MFA detect 循环弹窗（已踩坑）
-            (client.cookieJar as? com.xjtu.toolbox.network.PersistentCookieJar)?.let {
-                it.clearForDomain("jwapp.xjtu.edu.cn")
-            }
-
-            // 第一步：尝试 SSO（CAS TGC 仍有效时直接成功）
-            Log.d(TAG, "reAuthenticate: attempting SSO re-login (cleared jwapp cookies only)")
-            val request = Request.Builder().url(JWAPP_URL).get().build()
-            // [资源] 必须 .use 关闭 response 防 OkHttp connection leak（之前 logcat 已有 leak warning）。
-            val token = client.newCall(request).execute().use { response ->
-                val finalUrl = response.request.url.toString()
-                // 即使不读 body 也要 string() 触发 body close（OkHttp 自动）
-                runCatching { response.body.string() }
-                finalUrl.substringAfter("token=", "")
-                    .substringBefore("&")
-                    .takeIf { it.isNotEmpty() }
-            }
-            if (token != null) {
-                authToken = token
-                Log.d(TAG, "reAuthenticate: SSO success, new token obtained")
-                return true
-            }
-
-            // 第二步：SSO 失败（TGC 过期），fallback 到 casAuthenticate 用保存的密码
-            Log.d(TAG, "reAuthenticate: SSO failed, trying casAuthenticate fallback")
-            val casResult = casAuthenticate(JWAPP_URL)
-            if (casResult != null) {
-                val casToken = casResult.second.substringAfter("token=", "")
-                    .substringBefore("&")
-                    .takeIf { it.isNotEmpty() }
-                if (casToken != null) {
-                    authToken = casToken
-                    Log.d(TAG, "reAuthenticate: casAuthenticate success, new token obtained")
-                    return true
-                }
-            }
-            Log.w(TAG, "reAuthenticate: all methods failed")
-        } catch (e: Exception) {
-            Log.e(TAG, "reAuthenticate failed", e)
-        }
-        return false
     }
 
     companion object {

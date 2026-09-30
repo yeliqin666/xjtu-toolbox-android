@@ -58,10 +58,7 @@ class PaymentCodeApi(private val site: SiteSession) {
         private val JSON = "application/json;charset=utf-8".toMediaType()
     }
 
-    /**
-     * 兼容旧接口：在新流程中无需独立认证，JWT 直接从 CampusCardLogin 取。
-     * 若 CampusCardLogin 尚未持有 token，则尝试 reAuthenticate 一次。
-     */
+    /** 兼容旧接口：JWT 由校园卡站点登录时存进 localToken，这里只检查有没有。 */
     fun authenticate() {
         if (!site.localToken["access_token"].isNullOrEmpty()) return
         throw RuntimeException("校园卡未登录，无法获取付款码")
