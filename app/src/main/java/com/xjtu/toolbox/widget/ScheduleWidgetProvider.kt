@@ -70,7 +70,7 @@ internal data class WidgetScheduleData(
 /** 没课（或没缓存）时列表位置显示的：一行醒目的标题，一行有用的提示（下一节课、放假）。 */
 internal data class EmptyState(val title: String, val detail: String = "")
 
-private val NO_CACHE = EmptyState("还没有课表", "打开日程页同步一次")
+private val NO_CACHE = EmptyState("还没有课表", "打开 App 就会同步")
 
 object ScheduleWidgetUpdater {
     const val ACTION_REFRESH = "com.xjtu.toolbox.widget.ACTION_REFRESH_SCHEDULE_WIDGET"
