@@ -660,6 +660,7 @@ internal fun HomeTab(
         AppRoute.YellowPage to Icons.Default.ContactPhone,
         AppRoute.WebVpnConverter to Icons.Default.VpnKey,
         AppRoute.Agent to Icons.Default.SmartToy,
+        AppRoute.Community to Icons.Default.Forum,
         AppRoute.Games to Icons.Default.SportsEsports,
         AppRoute.Match to Icons.Default.Groups,
     )

@@ -137,7 +137,8 @@ fun AppNavHost(
                 CampusCardScreen(
                     site = it,
                     onBack = back,
-                    glass = credentialStore.navBarStyle == CredentialStore.NAV_STYLE_FLOATING,
+                    // 跟着设置实时变：直接读存储只在进页那一刻读一次，页面开着时切风格不会跟过来
+                    glass = com.xjtu.toolbox.ui.glass.LocalGlassStyle.current,
                     onOpenCoupon = { router.open(AppRoute.Coupon) },
                 )
             }

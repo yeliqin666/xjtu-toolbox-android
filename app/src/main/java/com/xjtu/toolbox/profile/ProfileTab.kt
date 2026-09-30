@@ -345,7 +345,6 @@ private fun MenuGroup(modifier: Modifier = Modifier, content: @Composable Column
 
 private val TINT_TEAL = Color(0xFF1F9E8F)
 private val TINT_SLATE = Color(0xFF6B7A90)
-private val TINT_AMBER = Color(0xFFE39A1B)
 
 /**
  * 顶部的身份卡：头像 + 姓名 + 学号 / 专业 + 一行标签。
@@ -911,8 +910,6 @@ internal fun ProfileTab(
                 Spacer(Modifier.height(PROFILE_GAP))
                 MenuGroup(Modifier.enterOnce(2)) {
                     ProfileMenuRow(Icons.Outlined.Settings, TINT_SLATE, "设置", onClick = { onNavigate(AppRoute.Settings) })
-                    MenuDivider()
-                    ProfileMenuRow(Icons.Outlined.Forum, TINT_AMBER, "社区讨论", onClick = { onNavigate(AppRoute.Community) }, subtitle = "提建议、报问题，和大家交流")
                 }
             } else {
                 // ━━ 已登录 ━━
@@ -937,8 +934,6 @@ internal fun ProfileTab(
                 Spacer(Modifier.height(PROFILE_GAP))
                 MenuGroup(Modifier.enterOnce(3)) {
                     ProfileMenuRow(Icons.Outlined.Settings, TINT_SLATE, "设置", onClick = { onNavigate(AppRoute.Settings) })
-                    MenuDivider()
-                    ProfileMenuRow(Icons.Outlined.Forum, TINT_AMBER, "社区讨论", onClick = { onNavigate(AppRoute.Community) }, subtitle = "提建议、报问题，和大家交流")
                 }
                 Spacer(Modifier.height(PROFILE_GAP))
 
