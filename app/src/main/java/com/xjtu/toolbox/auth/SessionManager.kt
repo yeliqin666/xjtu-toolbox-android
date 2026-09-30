@@ -8,6 +8,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -72,16 +73,36 @@ class SessionManager(context: Context) {
     }
 
     /**
-     * 网络环境变化时调用。只切换 active mode，跟随全局模式的站点换绑到另一边的 backend；
+     * 访问方式是否已判定。默认已定（后台任务的会话不做判定，按直连走）；前台冷启动、换了网络时由
+     * [unsettleAccessMode] 置为未定，[onNetworkChanged] 落定。
+     */
+    private val accessModeSettled = MutableStateFlow(true)
+
+    /** 开始重新判定校内外：之后跟随全局模式的站点要登录前先等 [onNetworkChanged]，钉死直连的站点照常。 */
+    fun unsettleAccessMode() {
+        accessModeSettled.value = false
+    }
+
+    /** 跟随全局模式的站点登录前调用：判定还没落定就等一会儿，免得按旧模式去连必然连不上的地址。 */
+    internal suspend fun awaitAccessMode() {
+        if (accessModeSettled.value) return
+        val settled = kotlinx.coroutines.withTimeoutOrNull(ACCESS_MODE_WAIT_MS) { accessModeSettled.first { it } }
+        if (settled == null) Log.w(TAG, "access mode still undecided after ${ACCESS_MODE_WAIT_MS}ms, using ${_currentAccessMode.value.key}")
+    }
+
+    /**
+     * 校内外判定落定时调用。只切换 active mode，跟随全局模式的站点换绑到另一边的 backend；
      * 两边的 cookie 和站点快照都不清，切回来直接复用。钉死直连的站点不受影响。
      */
     fun onNetworkChanged(newMode: AccessMode) {
         val old = _currentAccessMode.value
-        if (old == newMode) return
-        Log.i(TAG, "AccessMode changed: ${old.key} -> ${newMode.key}")
-        recordDiagnostic("INFO", "network", "访问模式切换：${old.key} -> ${newMode.key}")
-        _currentAccessMode.value = newMode
-        sites.values.forEach { it.bind(backendFor(it)) }
+        if (old != newMode) {
+            Log.i(TAG, "AccessMode changed: ${old.key} -> ${newMode.key}")
+            recordDiagnostic("INFO", "network", "访问模式切换：${old.key} -> ${newMode.key}")
+            _currentAccessMode.value = newMode
+            sites.values.forEach { it.bind(backendFor(it)) }
+        }
+        accessModeSettled.value = true
     }
 
     private val sites: MutableMap<String, SiteSession> = ConcurrentHashMap()
@@ -530,6 +551,9 @@ class SessionManager(context: Context) {
         private const val ANONYMOUS_SUFFIX = "_default"
         private const val WEBVPN_TICKET_COOKIE = "wengine_vpn_ticketwebvpn_xjtu_edu_cn"
         private const val WEBVPN_VALIDATE_TTL_MS = 120_000L
+
+        /** 等校内外判定的上限。判定一般 1 秒内落定；卡住时按当前模式继续，交给失败自愈。 */
+        private const val ACCESS_MODE_WAIT_MS = 15_000L
 
         /** [verifyMfaWithUser] 每次等输入的最长时间，留够用户看到弹窗、收短信、输入。 */
         private const val MFA_WAIT_TIMEOUT_MS = 150_000L

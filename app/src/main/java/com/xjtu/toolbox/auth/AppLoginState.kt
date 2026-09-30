@@ -98,14 +98,15 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
     var pendingRetry by mutableStateOf<com.xjtu.toolbox.nav.AppRoute?>(null)
 
     /**
-     * 网络环境（access mode）切换时调用：清旧 cached login + vpnClient，
-     * 同步通知 SessionManager 切换 active backend（两边 cookies 保留以便快速切回）。
+     * 判定校内外并通知 SessionManager 切换 active backend（两边的会话都保留以便快速切回）。
      *
      * @param networkSwitched 换了一张网（WiFi / 数据互切）。这时结论变了是正常的，不用复查。
      */
     suspend fun onNetworkChanged(networkSwitched: Boolean = false): Boolean {
         val prev = isOnCampus
         campusDetectTime = 0L
+        // 换了网络，旧结论作废：跟随全局模式的站点等这次判定落定再登
+        if (networkSwitched) sessionManager?.unsettleAccessMode()
         val now = detectCampusNetwork(trustFirst = networkSwitched)
         isOnCampus = now
         sessionManager?.onNetworkChanged(
@@ -114,7 +115,7 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
         )
         if (prev != null && prev != now) {
             android.util.Log.w("AppLoginState", "Access mode changed: $prev → $now")
-            // 各站点登录态已由 SessionManager.onNetworkChanged 作废；网关会话下次用到时再探活
+            // 各站点已由 SessionManager.onNetworkChanged 换绑到另一边；网关会话下次用到时再续
             webVpnBackend?.markWebVpnStale()
             return true
         }
@@ -378,6 +379,8 @@ class AppLoginStateViewModel(application: android.app.Application) : androidx.li
             register(com.xjtu.toolbox.auth.GsteSession())
             register(com.xjtu.toolbox.auth.GmisSession())
             register(com.xjtu.toolbox.auth.JsSession())
+            // 冷启动还不知道在校内还是校外：跟随全局模式的站点等首次判定，直连站点不等
+            unsettleAccessMode()
         }
         // 绑定 AccountManager 到 sessionManager + loginState
         accountManager.sessionManager = sessionManager

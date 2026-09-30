@@ -309,11 +309,13 @@ private class SessionRestore(
         if (loginState.hasCredentials && (loginState.sessionManager?.activeSiteCount ?: 0) == 0) {
             isRestoring = true
             withContext(Dispatchers.IO) {
-                // 冷启动时网络回调可能不来，主动探一次校园网
-                try {
-                    loginState.ensureCampusDetected()
-                } catch (e: Exception) {
-                    Log.w("Restore", "网络探测失败", e)
+                // 冷启动时网络回调可能不来，主动探一次校园网。和教务登录并行：教务钉死直连，不用等判定
+                launch {
+                    try {
+                        loginState.ensureCampusDetected()
+                    } catch (e: Exception) {
+                        Log.w("Restore", "网络探测失败", e)
+                    }
                 }
                 try {
                     val startTime = System.currentTimeMillis()

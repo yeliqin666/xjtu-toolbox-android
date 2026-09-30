@@ -150,6 +150,8 @@ abstract class SiteSession(
         // 失败冷却只约束后台/自动路径。用户主动点功能时被 60 秒冷却挡住，
         // 表现就是"点了没反应"，而防刷已由 CasGate 的失败退避+全局串行覆盖。
         if (!userInitiated) mgr?.checkLoginCooldown(siteKey, siteName)
+        // 校内外还没判定完时，跟随全局模式的站点先等：按旧模式去连校内地址，校外会白等到连接超时
+        if (mustUseWebVpn) mgr?.awaitAccessMode()
         if (currentAccessMode == AccessMode.WEBVPN) {
             mgr?.ensureWebVpnLogin(foreground = !silent)
         }
