@@ -72,14 +72,37 @@
         android:fastScrollEnabled="false"
         android:scrollbars="none" />
 
-    <TextView
+    <!-- 没课：醒目的标题（没课 / 节日名）+ 一行提示（下一节课） -->
+    <LinearLayout
         android:id="@+id/widget_empty"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
         android:gravity="center"
-        android:textColor="@color/widget_on_surface_secondary"
-        android:textSize="11sp"
-        android:visibility="gone" />
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/widget_empty_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textColor="@color/widget_on_surface"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/widget_empty_detail"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:gravity="center"
+            android:maxLines="2"
+            android:ellipsize="end"
+            android:textColor="@color/widget_on_surface_secondary"
+            android:textSize="11sp" />
+    </LinearLayout>
 
 </LinearLayout>

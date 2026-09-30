@@ -56,18 +56,21 @@ internal data class WidgetTwoDayData(
     val weekText: String,
     val today: List<WidgetCourse>,
     val tomorrow: List<WidgetCourse>,
-    val todayEmptyText: String,
-    val tomorrowEmptyText: String,
-    val hasCache: Boolean,
+    val todayEmpty: EmptyState,
+    val tomorrowEmpty: EmptyState,
 )
 
 internal data class WidgetScheduleData(
     val weekText: String,
     val dayText: String,
     val courses: List<WidgetCourse>,
-    /** 没课时列表位置显示的话；没缓存时也用它。 */
-    val emptyText: String,
+    val empty: EmptyState,
 )
+
+/** 没课（或没缓存）时列表位置显示的：一行醒目的标题，一行有用的提示（下一节课、放假）。 */
+internal data class EmptyState(val title: String, val detail: String = "")
+
+private val NO_CACHE = EmptyState("还没有课表", "打开日程页同步一次")
 
 object ScheduleWidgetUpdater {
     const val ACTION_REFRESH = "com.xjtu.toolbox.widget.ACTION_REFRESH_SCHEDULE_WIDGET"
@@ -256,10 +259,16 @@ object ScheduleWidgetUpdater {
         views.setRemoteAdapter(R.id.widget_course_list, buildCourseListAdapterIntent(context, appWidgetId, WidgetSize.SMALL))
         views.setEmptyView(R.id.widget_course_list, R.id.widget_empty)
         views.setPendingIntentTemplate(R.id.widget_course_list, buildLaunchPendingIntent(context, 3000 + appWidgetId))
-        views.setTextViewText(R.id.widget_empty, data.emptyText)
-        views.setViewVisibility(R.id.widget_empty, if (data.courses.isEmpty()) View.VISIBLE else View.GONE)
+        bindEmpty(views, R.id.widget_empty, R.id.widget_empty_title, R.id.widget_empty_detail, data.empty, data.courses.isEmpty())
         scrollToUpcoming(views, R.id.widget_course_list, data.courses)
         return views
+    }
+
+    private fun bindEmpty(views: RemoteViews, containerId: Int, titleId: Int, detailId: Int, state: EmptyState, show: Boolean) {
+        views.setViewVisibility(containerId, if (show) View.VISIBLE else View.GONE)
+        views.setTextViewText(titleId, state.title)
+        views.setTextViewText(detailId, state.detail)
+        views.setViewVisibility(detailId, if (state.detail.isEmpty()) View.GONE else View.VISIBLE)
     }
 
     /** 4x2：今天 | 明天 两栏，没有任何翻页控件，不受 2x2 浏览状态影响。 */
@@ -287,12 +296,11 @@ object ScheduleWidgetUpdater {
             )
         }
 
-        val todayEmpty = data.today.isEmpty()
-        val tomorrowEmpty = data.tomorrow.isEmpty()
-        views.setViewVisibility(R.id.widget_empty, if (todayEmpty) View.VISIBLE else View.GONE)
-        views.setViewVisibility(R.id.widget_empty_next, if (tomorrowEmpty) View.VISIBLE else View.GONE)
-        views.setTextViewText(R.id.widget_empty, data.todayEmptyText)
-        views.setTextViewText(R.id.widget_empty_next, data.tomorrowEmptyText)
+        bindEmpty(views, R.id.widget_empty, R.id.widget_empty_title, R.id.widget_empty_detail, data.todayEmpty, data.today.isEmpty())
+        bindEmpty(
+            views, R.id.widget_empty_next, R.id.widget_empty_next_title, R.id.widget_empty_next_detail,
+            data.tomorrowEmpty, data.tomorrow.isEmpty(),
+        )
         scrollToUpcoming(views, R.id.widget_course_list, data.today)
         return views
     }
@@ -316,58 +324,97 @@ object ScheduleWidgetUpdater {
         }
         val (dayNumber, monthText, dowText) = header(today)
 
-        val cache = DataCache(context)
-        val termCode = resolveTermCode(context, cache)
+        val term = loadTerm(context)
             ?: return WidgetTwoDayData(
                 dayNumber, monthText, dowText, "",
                 today = emptyList(), tomorrow = emptyList(),
-                todayEmptyText = "暂无日程缓存\n请先打开日程页同步",
-                tomorrowEmptyText = "",
-                hasCache = false,
+                todayEmpty = NO_CACHE, tomorrowEmpty = EmptyState(""),
             )
 
-        val startDate = readStartDate(cache, termCode)
-        val weekText = startDate
+        val weekText = term.startDate
             ?.let { com.xjtu.toolbox.schedule.TermWeeks.weekOf(it, today) }
             ?.takeIf { it >= 1 }
             ?.let { "第${it}周" }
             .orEmpty()
+        val todayCourses = term.coursesOn(today)
+        val tomorrowCourses = term.coursesOn(tomorrow)
+        // 今天没课：明天有课就报明天几节、几点开始，否则往后找最近的一节
+        val todayEmpty = EmptyState(
+            title = term.holidays[today] ?: "今天没课",
+            detail = tomorrowCourses.firstOrNull()
+                ?.let { "明天 ${tomorrowCourses.size} 节，${formatClock(it.startMinute)} 开始" }
+                ?: term.nextClassText(from = today.plusDays(2), today),
+        )
+        // 明天没课：今天那栏已经报过下一节就不重复
+        val tomorrowEmpty = EmptyState(
+            title = term.holidays[tomorrow] ?: "明天没课",
+            detail = when {
+                todayCourses.isEmpty() -> if (tomorrow in term.holidays) "放假" else ""
+                else -> term.nextClassText(from = tomorrow.plusDays(1), today)
+            },
+        )
 
         return WidgetTwoDayData(
             dayNumber = dayNumber,
             monthText = monthText,
             dowText = dowText,
             weekText = weekText,
-            today = coursesOn(context, cache, termCode, startDate, today),
-            tomorrow = coursesOn(context, cache, termCode, startDate, tomorrow),
-            todayEmptyText = "今天一节课都没有",
-            tomorrowEmptyText = "明天没有课",
-            hasCache = true,
+            today = todayCourses,
+            tomorrow = tomorrowCourses,
+            todayEmpty = todayEmpty,
+            tomorrowEmpty = tomorrowEmpty,
         )
     }
 
-    /** 某一天的课，按节次排序。节假日返回空。 */
-    private fun coursesOn(
-        context: Context,
-        cache: DataCache,
-        termCode: String,
-        startDate: LocalDate?,
-        date: LocalDate,
-    ): List<WidgetCourse> {
-        // 节假日只滤掉教务的课，自建日程照常显示
-        val isHoliday = widgetHolidays(context).containsKey(date)
+    /** 往后最多找几天的下一节课。 */
+    private const val LOOKAHEAD_DAYS = 14L
 
-        val all = allCoursesOf(context, cache, termCode)
-        // 没有开学日期就算不出周次；这时按星期给出全部同星期的课，
-        // 总好过一片空白（用户至少能看出"周三大概有什么"）。
-        val week = startDate?.let { com.xjtu.toolbox.schedule.TermWeeks.weekOf(it, date) }
-        return all
-            .filter { it.dayOfWeek == date.dayOfWeek.value }
-            .filter { !isHoliday || it.isUserCreated }
-            .filter { week == null || it.isInWeek(week) }
-            // 按整学期的课分配颜色，和课表页一样，避开撞色的顺延结果才对得上
-            .toWidgetCourses(date, courseColorMap(all.map { it.courseName }), LocalDateTime.now())
+    /**
+     * 一次读好的本学期课表（教务课 + 自建日程）、开学日期和节假日，按日期取课。
+     * 以前每取一天都要查一次 Room，往后找下一节课时就是十几次。
+     */
+    private class TermSchedule(
+        val all: List<CourseItem>,
+        val startDate: LocalDate?,
+        val holidays: Map<LocalDate, String>,
+    ) {
+        // 按整学期的课分配颜色，和课表页一样，避开撞色的顺延结果才对得上
+        private val colors = courseColorMap(all.map { it.courseName })
+
+        /** 某一天的课，按开始时间排。节假日只滤掉教务的课，自建日程照常显示。 */
+        fun coursesOn(date: LocalDate, now: LocalDateTime = LocalDateTime.now()): List<WidgetCourse> {
+            val isHoliday = date in holidays
+            // 没有开学日期就算不出周次；这时按星期给出全部同星期的课，总好过一片空白
+            val week = startDate?.let { com.xjtu.toolbox.schedule.TermWeeks.weekOf(it, date) }
+            return all
+                .filter { it.dayOfWeek == date.dayOfWeek.value }
+                .filter { !isHoliday || it.isUserCreated }
+                .filter { week == null || it.isInWeek(week) }
+                .toWidgetCourses(date, colors, now)
+        }
+
+        /** 从 [from]（含）起两周内最近一节还没上完的课，写成「下一节 10/8 周四 08:00 高等数学」。 */
+        fun nextClassText(from: LocalDate, today: LocalDate): String {
+            val (date, course) = (0 until LOOKAHEAD_DAYS)
+                .map { from.plusDays(it) }
+                .firstNotNullOfOrNull { d -> coursesOn(d).firstOrNull { !it.done }?.let { d to it } }
+                ?: return "近两周都没有课"
+            val day = when (date) {
+                today -> "今天"
+                today.plusDays(1) -> "明天"
+                else -> "${date.monthValue}/${date.dayOfMonth} 周${weekdayLabel(date.dayOfWeek.value)}"
+            }
+            return "下一节 $day ${formatClock(course.startMinute)} ${course.name}"
+        }
     }
+
+    private fun loadTerm(context: Context): TermSchedule? {
+        val cache = DataCache(context)
+        val termCode = resolveTermCode(context, cache) ?: return null
+        return TermSchedule(allCoursesOf(context, cache, termCode), readStartDate(cache, termCode), widgetHolidays(context))
+    }
+
+    private fun formatClock(minute: Int): String = "%02d:%02d".format(minute / 60, minute % 60)
 
     /**
      * [date] 那天的条目转成卡片条目：按那天的作息算真实起止（自建日程用它自己的钟点），按开始时间排。
@@ -394,11 +441,8 @@ object ScheduleWidgetUpdater {
         }.sortedWith(compareBy({ it.startMinute }, { it.endMinute }))
     }
 
-    private fun todayCourses(context: Context): List<WidgetCourse> {
-        val cache = DataCache(context)
-        val termCode = resolveTermCode(context, cache) ?: return emptyList()
-        return coursesOn(context, cache, termCode, readStartDate(cache, termCode), LocalDate.now())
-    }
+    private fun todayCourses(context: Context): List<WidgetCourse> =
+        loadTerm(context)?.coursesOn(LocalDate.now()).orEmpty()
 
     /**
      * 约下一次刷新：今天下一个上课或下课时刻，今天没有了就约到明天零点。系统自带的定时刷新半小时起步、
@@ -475,7 +519,7 @@ object ScheduleWidgetUpdater {
                 weekText = "",
                 dayText = "周${weekdayLabel(todayDow)}",
                 courses = emptyList(),
-                emptyText = "暂无日程缓存\n请先打开日程页同步",
+                empty = NO_CACHE,
             )
 
         val allCourses = allCoursesOf(context, cache, termCode)
@@ -535,11 +579,16 @@ object ScheduleWidgetUpdater {
             if (weekOffset == 0) "周次未同步" else "第${effectiveWeek}周"
         }
 
+        // 没课：放假就写节日名；下一节从所看那天的次日找，看的是过去的日子就从今天找
+        val term = TermSchedule(allCourses, startDate, holidayDates)
         return WidgetScheduleData(
             weekText = weekText,
             dayText = dayText,
             courses = todayCourses,
-            emptyText = if (isHoliday) "节假日，没有日程" else "这天没有日程",
+            empty = EmptyState(
+                title = holidayDates[selectedDate] ?: "${dayText}没课",
+                detail = term.nextClassText(from = maxOf(selectedDate.plusDays(1), nowDate), nowDate),
+            ),
         )
     }
 
