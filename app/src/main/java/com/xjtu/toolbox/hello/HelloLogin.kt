@@ -29,18 +29,7 @@ class HelloLogin(
     cachedRsaKey: String? = null,
 ) : XJTULogin(LOGIN_URL, session, visitorId, cachedRsaKey) {
 
-    /**
-     * 落地 URL 上的 JWT，后续所有接口调用的凭据。
-     *
-     * **必须是计算属性，不能是带初始化器的字段。** [XJTULogin] 的构造函数里就会调用
-     * 虚方法 `postLogin()`，那时子类自己的属性初始化器还没执行；若写成
-     * `var accessToken: String = ""`，postLogin 里赋的值会在随后被初始化器重新置空——
-     * 日志显示"已拿到 token"、字段却是空的。（SuperAppLogin 用 companion 里的
-     * `lastSuccessfulLaunchUrl` 兜底，绕的就是这个坑。）
-     *
-     * 超类的 `finalUrl`（即 postUrl）在超类构造期间赋值，不受子类初始化顺序影响，
-     * 所以直接从它现算最稳。
-     */
+    /** 落地 URL（[finalUrl]）上的 JWT，后续所有接口调用的凭据。 */
     val accessToken: String
         get() = runCatching {
             finalUrl.toHttpUrlOrNull()?.queryParameter("token").orEmpty()

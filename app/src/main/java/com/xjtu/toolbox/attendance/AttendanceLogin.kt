@@ -19,19 +19,12 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
-import java.util.Collections
-import java.util.WeakHashMap
 
 /**
  * 考勤（kq.xjtu.edu.cn/sa）登录。
  *
  * 入口走 CAS，回调带 `loginRequestId` + `ticket`，再 POST `/sa/auth/cas/exchange`
- * 换成业务令牌。
- *
- * [XJTULogin] 构造期间（免密走通时）就会调 [postLogin]，那时子类的字段一个都还没赋值：
- * 带初始化器的字段读到的是 null/false，写进去的值随后又被初始化器冲掉。所以 postLogin
- * 路径上用到的常量放伴生对象，状态放伴生对象里按实例索引的表。以前 JSON 媒体类型是个
- * 子类字段，构造期间的换票请求因此不带 Content-Type，服务端一律回 500「服务暂时不可用」。
+ * 换成业务令牌。换票请求必须带 `Content-Type: application/json`，缺了服务端回 code 500。
  *
  * 校外走网关靠的是传进来的 client 上的 WebVPN 改写拦截器，这里只拼原始域名。
  */
@@ -42,20 +35,14 @@ class AttendanceLogin(
     /**
      * 已知的账号类型（本科/研究生）时，直接去对应业务站（bk-kq / yjs-kq）的 CAS
      * 入口登录，跳过"先登门户、门户答复 systemSelectionRequired、再选子系统重登
-     * 一遍"这三次往返。故意不存成子类属性——本类 postLogin 在 super() 构造期间
-     * 就会被调用，那时子类属性初始化器还没跑（见 [authToken] 处的说明），只能在
-     * 这里、也就是能确定被用来拼 super() 入参的这一次，用一次就完。之后是否走了
-     * 直连、走的是哪个 host，postLogin 改从 response 的原始请求 URL 反查
-     * （见 [initialHost]），不依赖这个参数本身。
+     * 一遍"这三次往返。实际打的是哪个 host 由 postLogin 从请求链反查（[initialHost]），
+     * 猜错身份时退回门户。
      */
     knownAccountType: XJTULogin.AccountType? = null,
 ) : XJTULogin(entryUrlFor(knownAccountType), session, visitorId, cachedRsaKey) {
 
-    var authToken: String?
-        get() = tokens[this]
-        private set(value) {
-            if (value.isNullOrBlank()) tokens.remove(this) else tokens[this] = value
-        }
+    var authToken: String? = null
+        private set
 
     /**
      * 这个账号实际所在的考勤站点根地址。
@@ -66,18 +53,14 @@ class AttendanceLogin(
      *
      * 路径前缀三边一致（都是 `/sa`），变的只是主机，所以只认落地页的 host。
      */
-    var resolvedBaseUrl: String?
-        get() = bases[this]
-        private set(value) {
-            if (value.isNullOrBlank()) bases.remove(this) else bases[this] = value
-        }
+    var resolvedBaseUrl: String? = null
+        private set
 
     /** 交换与探活都要打到 [resolvedBaseUrl]；还没解析出来时退回默认。 */
     private val baseUrl: String get() = resolvedBaseUrl ?: BASE_URL
 
     override fun postLogin(response: Response) {
-        // 这一轮到底打的是直连业务站还是门户，从 response 的原始请求链反查——
-        // 不能读构造参数（此刻子类属性初始化器还没跑，见类头 knownAccountType 的说明）。
+        // 这一轮到底打的是直连业务站还是门户，从 response 的原始请求链反查
         val intendedHost = initialHost(response)
         val wasDirect = intendedHost != null && !intendedHost.equals(HOST, ignoreCase = true)
         try {
@@ -396,8 +379,6 @@ class AttendanceLogin(
 
     companion object {
         private const val TAG = "AttendanceLogin"
-        private val tokens = Collections.synchronizedMap(WeakHashMap<AttendanceLogin, String>())
-        private val bases = Collections.synchronizedMap(WeakHashMap<AttendanceLogin, String>())
         /** 门户，只负责认人和分流，不签业务令牌。 */
         const val HOST = "kq.xjtu.edu.cn"
         const val BASE_URL = "https://kq.xjtu.edu.cn/sa"
@@ -422,11 +403,7 @@ class AttendanceLogin(
 
         private val JSON = "application/json".toMediaType()
 
-        /**
-         * 主构造器的入口 URL：账号类型已知就直接打对应业务站的 `student-pc` 入口，
-         * 未知则退回门户通用入口（原来唯一的行为）。纯函数，不依赖任何实例状态，
-         * 因为要在 super() 的参数位置上用，那时候 `this` 还不存在。
-         */
+        /** 入口 URL：账号类型已知就直接打对应业务站的 `student-pc` 入口，未知则走门户通用入口。 */
         fun entryUrlFor(accountType: XJTULogin.AccountType?): String = when (accountType) {
             XJTULogin.AccountType.UNDERGRADUATE -> "https://$UNDERGRAD_HOST/sa/auth/cas/login/student-pc"
             XJTULogin.AccountType.POSTGRADUATE -> "https://$GRADUATE_HOST/sa/auth/cas/login/student-pc"

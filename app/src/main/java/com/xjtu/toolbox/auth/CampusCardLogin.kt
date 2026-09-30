@@ -42,9 +42,6 @@ class CampusCardLogin(
         private const val USER_URL = "$BASE_URL/berserker-base/user?synAccessSource=h5"
     }
 
-    // 免密时 postLogin 在父类构造期间就写这些字段，只能用 null 初始化：
-    // 别的初始值会在构造结束后再赋一次，把写进去的值冲掉。
-
     /** JWT Bearer 访问令牌 */
     var accessToken: String? = null
         private set

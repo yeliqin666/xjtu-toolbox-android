@@ -58,10 +58,7 @@ class DzpzLogin(
         const val OS_INFO_URL = "$BASE_URL/api/system/info/getOSinfo"
     }
 
-    /**
-     * 用户 OA ID (来自 loginidweaver cookie)，用于所有 workflow API 调用。
-     * 免密时 postLogin 在父类构造期间就写它，只能用 null 初始化，别的初始值会在构造后把它冲掉。
-     */
+    /** 用户 OA ID (来自 loginidweaver cookie)，用于所有 workflow API 调用 */
     var userId: String? = null
         private set
 

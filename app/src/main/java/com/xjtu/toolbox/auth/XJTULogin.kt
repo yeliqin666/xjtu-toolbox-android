@@ -271,7 +271,7 @@ open class XJTULogin(
         .build()
 
     // 登录提交的 URL
-    private var postUrl: String
+    private var postUrl: String = ""
 
     val finalUrl: String
         get() = postUrl
@@ -280,7 +280,12 @@ open class XJTULogin(
     internal var serviceUrl: String = ""
 
     // CAS execution 字段（防 CSRF）
-    private var executionInput: String
+    private var executionInput: String = ""
+
+    /** 入口页打开过没有，见 [open]。 */
+    private var opened = false
+    private val entryUrl = loginUrl
+    private val sharedClient = existingClient
 
     // 设备指纹 ID（公开以便跨系统复用，减少 MFA 触发）
     val fpVisitorId: String = visitorId ?: generateFpVisitorId()
@@ -336,7 +341,11 @@ open class XJTULogin(
      */
     internal var lastSafetyVerifyResponse: okhttp3.Response? = null
 
-    init {
+    /**
+     * 打开入口页：TGC 还在就免密走完并调 [postLogin]，否则停在登录表单上等 [login] 提交。
+     * 由第一次 [login] 触发而不放在构造里：postLogin 是子类的，构造期间子类字段都还没初始化。
+     */
+    private fun open(loginUrl: String, existingClient: OkHttpClient?) {
         val TAG = "XJTULogin"
         android.util.Log.d(TAG, "init: loginUrl=${loginUrl.redactUrl()}, hasExistingClient=${existingClient != null}")
 
@@ -448,6 +457,11 @@ open class XJTULogin(
         accountType: AccountType = AccountType.POSTGRADUATE,
         trustAgent: Boolean = true
     ): LoginResult {
+        if (!opened) {
+            opened = true
+            open(entryUrl, sharedClient)
+        }
+
         // 如果需要选择账户
         chooseAccountBody?.let {
             return finishAccountChoice(accountType, trustAgent)
