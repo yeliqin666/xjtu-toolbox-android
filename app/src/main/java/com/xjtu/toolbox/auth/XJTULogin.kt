@@ -305,6 +305,13 @@ open class XJTULogin(
      */
     private var ssoErrorMessage: String? = null
 
+    /**
+     * init 阶段免密已经走通、但 [postLogin] 没能进站时的异常，[login] 原样抛出。
+     * 统一认证那边已经认了人，再提交密码换不来别的；postUrl 此时停在业务站上，往那里
+     * POST 只会把加密后的密码送给业务站。
+     */
+    private var ssoFailure: Exception? = null
+
     // MFA 上下文
     var mfaContext: MFAContext? = null
         private set
@@ -408,6 +415,7 @@ open class XJTULogin(
                 captureSafetyVerify(e.response, e.responseBody)
             } catch (e: Exception) {
                 hasLogin = false
+                ssoFailure = e
                 android.util.Log.e(TAG, "init: SSO postLogin failed", e)
             }
         } else if (executionInput.isEmpty() && existingClient != null && response.code >= 400) {
@@ -459,6 +467,9 @@ open class XJTULogin(
         ssoErrorMessage?.let { msg ->
             return LoginResult(LoginState.FAIL, msg)
         }
+        // 不转成 FAIL：上层把含「401」「密码错误」的 FAIL 当密码失效，会触发熔断。
+        // 包成 IOException，站点层才会照常记登录失败、进冷却
+        ssoFailure?.let { throw it as? IOException ?: IOException(it.message ?: "登录没有完成，请稍后重试", it) }
 
         // ── 挂起的 SAFETY_VERIFY：init SSO 阶段 postLogin 撞到 Safety Verify 时已把
         //    mfaContext 写好但 hasLogin=false。此时 lastSafetyVerifyResponse 还未填，
@@ -493,6 +504,12 @@ open class XJTULogin(
             lastSafetyVerifyResponse = null
             val body = try { safetyResp.body.string() } catch (_: Exception) { "" }
             return processLoginResponse(safetyResp, body)
+        }
+
+        // 密码只交给统一认证。postUrl 是 init 跟完跳转的落点，不在统一认证上就说明没有登录表单
+        if (postUrl.toHttpUrlOrNull()?.let(::casPath) == null) {
+            android.util.Log.w("XJTULogin", "login: landing is not CAS, refusing to post credentials: ${postUrl.redactUrl()}")
+            return LoginResult(LoginState.FAIL, "没有打开统一认证登录页，请稍后重试")
         }
 
         // MFA 检测
@@ -724,8 +741,9 @@ open class XJTULogin(
         android.util.Log.d("XJTULogin", "casAuthenticate: GET ${casUrl.redactUrl()} → code=${casResp.code}, finalUrl=${casFinalUrl.redactUrl()}")
 
         val execution = extractExecutionValue(casBody)
-        if (execution.isEmpty()) {
-            // CAS 没有显示登录页 → SSO 可能已直接成功（重定向到了 service）
+        if (execution.isEmpty() || casPath(casResp.request.url) == null) {
+            // 没停在统一认证的登录页 → SSO 可能已直接成功（重定向到了 service）；
+            // 业务站页面碰巧有 execution 字段也不能往那里交密码
             android.util.Log.d("XJTULogin", "casAuthenticate: no execution → SSO redirect OK")
             return Pair(casBody, casFinalUrl)
         }
