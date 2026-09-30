@@ -70,7 +70,6 @@ class ScheduleWatchWorker(
             jwxt = api,
             termCode = term,
             manager = HeadlessSessions.manager(context),
-            accountType = HeadlessSessions.accountType(context),
         )
         if (courses.isEmpty()) return
         val summary = ScheduleDiff.summarize(ScheduleDiff.diffAndStore(context, term, courses)) ?: return

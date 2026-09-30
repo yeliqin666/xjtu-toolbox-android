@@ -256,7 +256,7 @@ internal fun MainScreen(
             try {
                 val site = manager.ensureSite(com.xjtu.toolbox.auth.LoginType.JWXT, silent = true)
                 com.xjtu.toolbox.schedule.ScheduleSourceRouter.ensureCached(
-                    context, cache, com.xjtu.toolbox.schedule.ScheduleApi(site), manager, loginState.accountType,
+                    context, cache, com.xjtu.toolbox.schedule.ScheduleApi(site), manager,
                 )
                 HomeSignals.scheduleVersion++
             } catch (e: kotlinx.coroutines.CancellationException) {

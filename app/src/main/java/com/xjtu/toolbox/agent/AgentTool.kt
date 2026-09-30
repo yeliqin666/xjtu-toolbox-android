@@ -1035,7 +1035,7 @@ class AgentToolRegistry(
             ?: return ToolReply.noCache(ToolReply.loginFailed("教务系统", "unreachable"))
         return try {
             com.xjtu.toolbox.schedule.ScheduleSourceRouter.ensureCached(
-                context, dataCache, ScheduleApi(site), loginState.sessionManager, loginState.accountType, term,
+                context, dataCache, ScheduleApi(site), loginState.sessionManager, term,
             )
             null
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
@@ -1159,17 +1159,16 @@ class AgentToolRegistry(
     }
 
     /**
-     * 官方调课备注（`bz`），只有课表源选 jwapp 时才有。对不上号（换过源、这门课没有
-     * 变更记录）就不提；报太多反而像凑数，最多挑 3 条。
+     * 教务的调停课记录（课表已按它合并过），只提这次列出的课相关的；报太多反而像凑数，
+     * 取最后 3 条（记录按申请时间排）。
      */
     private fun scheduleChangeNote(termCode: String, courses: List<CourseItem>): String? {
-        val events = com.xjtu.toolbox.schedule.ScheduleSourceRouter.changeEvents(context, termCode)
-            .filter { it.reason.isNotBlank() }
-        if (events.isEmpty()) return null
         val codes = courses.map { it.courseCode }.toSet()
-        val relevant = events.filter { it.courseCode.isBlank() || it.courseCode in codes }.take(3)
+        val relevant = com.xjtu.toolbox.schedule.ScheduleSourceRouter.changeEvents(context, termCode)
+            .filter { it.courseCode.isBlank() || it.courseCode in codes }
+            .takeLast(3)
         if (relevant.isEmpty()) return null
-        return "近期调课：" + relevant.joinToString("；") { "${it.courseName}${it.describe()}，原因：${it.reason}" }
+        return "调课记录：" + relevant.joinToString("；") { "${it.courseName}${it.describe()}" }
     }
 
     /** 整学期列表里给每条标上周次：`第1-4、6-16周 `。周次拿不到就不标。 */

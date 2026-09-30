@@ -129,7 +129,7 @@ class CredentialStore(context: Context) {
      * 非教务源取不到时也自动退回教务。详见 `ScheduleSourceRouter`。
      */
     var scheduleSource: String
-        get() = appPrefs.getString(KEY_SCHEDULE_SOURCE, null) ?: SCHEDULE_SOURCE_JWAPP
+        get() = appPrefs.getString(KEY_SCHEDULE_SOURCE, null) ?: SCHEDULE_SOURCE_JWXT
         set(value) { appPrefs.edit().putString(KEY_SCHEDULE_SOURCE, value).apply() }
 
     var darkMode: String
@@ -257,10 +257,8 @@ class CredentialStore(context: Context) {
 
         // ── 设置值常量 ──
         const val SCHEDULE_SOURCE_JWXT = "jwxt"
-        const val SCHEDULE_SOURCE_JWAPP = "jwapp"
         /** 值沿用旧版考勤（bkkq）时代的写法：已经写进用户设置，不能改。 */
         const val SCHEDULE_SOURCE_ATTENDANCE = "bkkq"
-        const val SCHEDULE_SOURCE_JS = "js"
         const val NAV_STYLE_FLOATING = "floating"
         const val NAV_STYLE_CLASSIC = "classic"
         const val DARK_MODE_SYSTEM = "system"

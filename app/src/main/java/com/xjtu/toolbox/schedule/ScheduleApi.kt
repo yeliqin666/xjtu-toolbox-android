@@ -15,6 +15,9 @@ import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.util.safeInt
 import com.xjtu.toolbox.util.safeParseJsonObject
 import com.xjtu.toolbox.util.safeString
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import okhttp3.FormBody
 import okhttp3.Request
 import org.jsoup.Jsoup
@@ -34,9 +37,9 @@ data class CourseItem(
     val endSection: Int = 0,
     val courseCode: String = "",
     val courseType: String = "",
-    /** 分钟级开始时间，单位：距 00:00 的分钟；-1 表示未提供 */
+    /** 分钟级开始时间（距 00:00 的分钟），只有自建日程填；-1 表示未提供 */
     val startMinuteOfDay: Int = -1,
-    /** 分钟级结束时间，单位：距 00:00 的分钟；-1 表示未提供 */
+    /** 分钟级结束时间（距 00:00 的分钟），只有自建日程填；-1 表示未提供 */
     val endMinuteOfDay: Int = -1
 ) : ScheduleSlot {
     override val slotName get() = courseName
@@ -57,16 +60,6 @@ data class CourseItem(
      * 法定假日停的是课，自建日程节假日过滤一律不碰。
      */
     val isUserCreated: Boolean get() = courseCode.startsWith(CUSTOM_COURSE_CODE_PREFIX)
-
-    /**
-     * 旧版缓存里连堂课存着只到第一小节下课的钟点（1–2 节 08:00–08:50）：教务的课读出来时
-     * 清掉标准钟点，交给 UI 按节次换算；自建日程的钟点是用户定的，不动。
-     */
-    fun normalized(): CourseItem {
-        val standardClock = !isUserCreated && startMinuteOfDay >= 0 && endMinuteOfDay >= 0 &&
-            XjtuTime.isStandardSpan(startSection, endSection, startMinuteOfDay, endMinuteOfDay)
-        return if (standardClock) copy(startMinuteOfDay = -1, endMinuteOfDay = -1) else this
-    }
 }
 
 @Serializable
@@ -156,47 +149,52 @@ class ScheduleApi(private val site: SiteSession) {
         return code
     }
 
-    suspend fun getSchedule(termCode: String? = null): List<CourseItem> {
+    /** 整学期课表，调课、停课、补课已合进去（见 [JwxtChanges]）。 */
+    suspend fun getSchedule(termCode: String? = null): SourceSchedule = coroutineScope {
         val term = termCode ?: getCurrentTerm()
-        val formBody = FormBody.Builder().add("XNXQDM", term).build()
-        val request = Request.Builder()
-            .url("$baseUrl/jwapp/sys/wdkb/modules/xskcb/xskcb.do")
-            .post(formBody)
-            .build()
-
-        val responseBody = execute(request)
-        val json = responseBody.safeParseJsonObject()
-        val rows = json.obj("datas")
-            ?.obj("xskcb")
-            ?.arr("rows") ?: return emptyList()
-
-        // 首条记录打印全部字段(调试用)
-        if (rows.size > 0) {
-            val sample = rows[0].jsonObject
-            Log.d(TAG, "schedule sample keys: ${sample.keys}")
-            Log.d(TAG, "schedule KCXZDM=${sample.get("KCXZDM")}, KCXZDM_DISPLAY=${sample.get("KCXZDM_DISPLAY")}, KCXZMC=${sample.get("KCXZMC")}, KCFLMC=${sample.get("KCFLMC")}")
-        }
-
-        return rows.map { item ->
-            val obj = item.jsonObject
+        val changes = async { getChanges(term) }
+        val rows = wdkbRows("xskcb/xskcb.do", "xskcb", term).map { obj ->
             // 课程性质：优先 KCXZMC（课程性质名称），回退 KCXZDM_DISPLAY / KCFLMC
             val courseType = obj.get("KCXZMC").safeString().ifEmpty {
                 obj.get("KCXZDM_DISPLAY").safeString().ifEmpty {
                     obj.get("KCFLMC").safeString()
                 }
             }
-            CourseItem(
-                courseName = obj.get("KCM").safeString(),
-                teacher = obj.get("SKJS").safeString(),
-                location = obj.get("JASMC").safeString(),
-                weekBits = obj.get("SKZC").safeString(),
-                dayOfWeek = obj.get("SKXQ").safeInt(1),
-                startSection = obj.get("KSJC").safeInt(1),
-                endSection = obj.get("JSJC").safeInt(1),
-                courseCode = obj.get("KCH").safeString(),
-                courseType = courseType
+            JwxtRow(
+                jxbid = obj.get("JXBID").safeString(),
+                course = CourseItem(
+                    courseName = obj.get("KCM").safeString(),
+                    teacher = obj.get("SKJS").safeString(),
+                    location = obj.get("JASMC").safeString(),
+                    weekBits = obj.get("SKZC").safeString(),
+                    dayOfWeek = obj.get("SKXQ").safeInt(1),
+                    startSection = obj.get("KSJC").safeInt(1),
+                    endSection = obj.get("JSJC").safeInt(1),
+                    courseCode = obj.get("KCH").safeString(),
+                    courseType = courseType,
+                ),
             )
         }
+        JwxtChanges.apply(rows, changes.await())
+    }
+
+    /** 调停课记录。拿不到就当没有：课表照原样给，比整张课表出不来强。 */
+    private suspend fun getChanges(term: String): List<JwxtChange> = try {
+        wdkbRows("xskcb/xsdkkc.do", "xsdkkc", term).mapNotNull(JwxtChange::of)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(TAG, "调停课记录取不到，课表按原样给：${e.javaClass.simpleName} ${e.message}")
+        emptyList()
+    }
+
+    private suspend fun wdkbRows(path: String, model: String, term: String): List<JsonObject> {
+        val request = Request.Builder()
+            .url("$baseUrl/jwapp/sys/wdkb/modules/$path")
+            .post(FormBody.Builder().add("XNXQDM", term).build())
+            .build()
+        val rows = execute(request).safeParseJsonObject().obj("datas")?.obj(model)?.arr("rows") ?: return emptyList()
+        return rows.map { it.jsonObject }
     }
 
     suspend fun getExamSchedule(termCode: String? = null): List<ExamItem> {

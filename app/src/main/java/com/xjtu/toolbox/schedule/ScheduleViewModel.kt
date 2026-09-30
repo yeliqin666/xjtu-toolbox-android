@@ -291,7 +291,6 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
             jwxt = scheduleApi,
             termCode = term,
             manager = login.sessionManager,
-            accountType = login.accountType,
             userInitiated = userInitiated,
         )
 
@@ -438,7 +437,7 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
             val optimized = ScheduleCache.filterByHolidays(freshCourses, startDate, holidays)
             // 比对象不比 JSON 文本：新旧版本写出的格式不同，逐字比较会误报「日程有更新」
             val cachedOptimized = ScheduleCache.readOptimizedCourses(dataCache, termCode, Long.MAX_VALUE)
-            val contentChanged = cachedOptimized == null || cachedOptimized != optimized.map { it.normalized() }
+            val contentChanged = cachedOptimized == null || cachedOptimized != optimized
             if (courses.isEmpty() || contentChanged) courses = optimized
             showingStaleData = false
             isLoading = false

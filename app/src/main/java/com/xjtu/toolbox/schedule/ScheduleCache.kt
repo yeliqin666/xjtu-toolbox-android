@@ -62,16 +62,16 @@ object ScheduleCache {
 
     fun readOptimizedCourses(cache: DataCache, termCode: String, ttlMs: Long = TERM_TTL_MS): List<CourseItem>? =
         if (termCode.isBlank()) null
-        else cache.read<List<CourseItem>>(optimizedScheduleKey(termCode), ttlMs)?.map { it.normalized() }
+        else cache.read<List<CourseItem>>(optimizedScheduleKey(termCode), ttlMs)
 
     fun writeOptimizedCourses(cache: DataCache, termCode: String, courses: List<CourseItem>) {
         if (termCode.isNotBlank()) runCatching { cache.write(optimizedScheduleKey(termCode), courses) }
     }
 
-    /** 教务原样的课表（未剔除节假日），变更检测、封存判断用。 */
+    /** 来源给的课表（未剔除节假日），变更检测、封存判断用。 */
     fun readRawCourses(cache: DataCache, termCode: String, ttlMs: Long = TERM_TTL_MS): List<CourseItem>? =
         if (termCode.isBlank()) null
-        else cache.read<List<CourseItem>>(rawKey(termCode), ttlMs)?.map { it.normalized() }
+        else cache.read<List<CourseItem>>(rawKey(termCode), ttlMs)
 
     fun writeRawCourses(cache: DataCache, termCode: String, courses: List<CourseItem>) {
         if (termCode.isNotBlank()) runCatching { cache.write(rawKey(termCode), courses) }

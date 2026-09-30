@@ -90,10 +90,6 @@ internal object HeadlessSessions {
         }
     }
 
-    /** 当前账号是本科还是研究生。没有账号时按本科算。 */
-    fun accountType(context: Context): AccountType =
-        AccountStore(context.applicationContext).activeAccount()?.accountType ?: AccountType.UNDERGRADUATE
-
     /** 有没有可用于后台自动登录的账号。没有就别排后台任务，省得空转。 */
     fun hasAccount(context: Context): Boolean =
         AccountStore(context.applicationContext).activeAccount()?.password?.isNotBlank() == true

@@ -195,7 +195,7 @@ class AttendanceSession : CasSiteSession("new_attendance", "考勤", mustUseWebV
         val kq = login as? com.xjtu.toolbox.attendance.AttendanceLogin
         val token = kq?.authToken
         if (!token.isNullOrBlank()) localToken["business_token"] = token
-        // 本科与研究生是两套部署（bk-kq / kq），业务请求必须打到签发令牌的那一套。
+        // 本科与研究生是两套部署（bk-kq / yjs-kq），业务请求必须打到签发令牌的那一套。
         kq?.resolvedBaseUrl?.let { localToken[BASE_URL_KEY] = it }
     }
 
@@ -636,11 +636,11 @@ class GmisSession : CasSiteSession("gmis", "研究生管理信息系统", mustUs
     }
 }
 
-// ── 智慧教室平台 js.xjtu.edu.cn（空闲教室实时状态 / 课表源） ──────────────
+// ── 智慧教室平台 js.xjtu.edu.cn（空闲教室实时状态） ──────────────
 
 /**
  * 智慧教室运维平台（网页标题「智慧教室运维-服务端」，XJTUToolBox 里叫「教学服务平台」）。
- * 两处在用：空闲教室页的「实时状态」、设置里可选的课表源。凭据是 loginCas 换来的
+ * 空闲教室页和屁岱查教室时的「实时状态」在用。凭据是 loginCas 换来的
  * `TOKEN-AUTH` 请求头（10 小时有效），不是 cookie，登录细节见 [JsLogin]。
  *
  * mustUseWebVpn=true：跟随全局模式，校外走 WebVPN。XJTUToolBox 的 JsSession 是固定直连，

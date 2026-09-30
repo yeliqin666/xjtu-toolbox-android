@@ -79,8 +79,6 @@ data class TermInfo(
     val name: String,
     val startDate: String = "",
     val endDate: String = "",
-    /** 学期总周数。0 表示接口没给，按周拉课表时不能用。 */
-    val weeks: Int = 0,
     /**
      * 教务风格的学期码，如"2026-2027-1"，与 jwxt 课表模块的 termCode 同格式，
      * 用于跨模块匹配（[com.xjtu.toolbox.schedule.CourseLinks] 靠它对齐考勤与课表）。

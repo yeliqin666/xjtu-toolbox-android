@@ -6,12 +6,12 @@ import android.util.Log
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.util.AppJson
 import kotlinx.serialization.json.jsonArray
-import com.xjtu.toolbox.auth.AccountType
+import com.xjtu.toolbox.attendance.KqPortal
+import com.xjtu.toolbox.attendance.KqTimetableRow
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.SessionManager
 import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.auth.siteKey
-import com.xjtu.toolbox.jwapp.JwappScheduleApi
 import com.xjtu.toolbox.data.CredentialStore
 import com.xjtu.toolbox.data.DataCache
 import kotlinx.coroutines.CancellationException
@@ -23,19 +23,18 @@ private const val TAG = "ScheduleSource"
 /**
  * 当前学期课表从哪个系统拉。
  *
- * 三套系统的数据各有取舍：教务一次给整学期，最快也最全；移动教务和考勤系统都只能
- * 按周查，整学期要发十几个请求，但它们是任课老师和签到设备实际用的那一份，
- * 学校临时调课时通常更新得更早。智慧教室平台同样按周查，是 XJTUToolBox 在考勤取不到时
- * 的备用源，和空闲教室的实时状态共用一套登录。
+ * 教务一次给整学期，任何学期都能查，调停课也合在里面，是默认源。考勤系统是签到设备
+ * 实际用的那一份排课，门户把本科、研究生课程合在一起，研究生课表只有它能给。
+ *
+ * 旧版设置里存的 `"jwapp"`（移动教务，和教务同一个库）、`"js"`（智慧教室平台）已不作课表源，
+ * 由 [fromKey] 落回默认源。
  */
 enum class ScheduleSource(val key: String, val label: String, val summary: String) {
-    JWXT(CredentialStore.SCHEDULE_SOURCE_JWXT, "教务系统", "一次拉整学期，最快"),
-    JWAPP(CredentialStore.SCHEDULE_SOURCE_JWAPP, "移动教务", "按周拉，含分钟级上下课时间"),
-    ATTENDANCE(CredentialStore.SCHEDULE_SOURCE_ATTENDANCE, "考勤系统", "按周拉，与刷卡签到同一份排课"),
-    JS(CredentialStore.SCHEDULE_SOURCE_JS, "智慧教室平台", "按周拉，XJTUToolBox 的备用课表源");
+    JWXT(CredentialStore.SCHEDULE_SOURCE_JWXT, "教务系统", "一次拉整学期，含调停课"),
+    ATTENDANCE(CredentialStore.SCHEDULE_SOURCE_ATTENDANCE, "考勤系统", "本科、研究生课程合并，只有当前学期");
 
     companion object {
-        val DEFAULT = JWAPP
+        val DEFAULT = JWXT
 
         fun fromKey(key: String?): ScheduleSource = entries.firstOrNull { it.key == key } ?: DEFAULT
 
@@ -48,7 +47,7 @@ enum class ScheduleSource(val key: String, val label: String, val summary: Strin
  * 按用户选的来源取整学期课表。
  *
  * 两条硬规则：
- * 1. **历史学期永远走教务**。移动教务和考勤系统都只认当前学期，查别的学期要么报错，
+ * 1. **历史学期永远走教务**。非教务源不一定认得别的学期，查了要么报错，
  *    要么把当前学期的课当成那个学期的返回——后者比报错更糟。这里不靠外部判断"是不是
  *    当前学期"，而是问来源自己当前学期是哪个，对不上就换教务。
  * 2. **非教务源出任何问题都退回教务**。用户看不到课表是最坏的结果，比看到一份来自
@@ -61,7 +60,6 @@ object ScheduleSourceRouter {
         jwxt: ScheduleApi,
         termCode: String,
         manager: SessionManager?,
-        accountType: AccountType,
         userInitiated: Boolean = false,
     ): List<CourseItem> {
         val source = ScheduleSource.of(context)
@@ -70,9 +68,7 @@ object ScheduleSourceRouter {
         val alternative = try {
             withContext(Dispatchers.IO) {
                 when (source) {
-                    ScheduleSource.JWAPP -> fromJwapp(manager, termCode, userInitiated)
-                    ScheduleSource.ATTENDANCE -> fromAttendance(manager, accountType, termCode, userInitiated)
-                    ScheduleSource.JS -> fromJs(manager, termCode, userInitiated)
+                    ScheduleSource.ATTENDANCE -> fromAttendance(manager, termCode, userInitiated)
                     ScheduleSource.JWXT -> null
                 }
             }
@@ -101,7 +97,6 @@ object ScheduleSourceRouter {
         cache: DataCache,
         api: ScheduleApi,
         manager: SessionManager?,
-        accountType: AccountType,
         term: String? = null,
     ) {
         val code = term ?: ScheduleCache.readCurrentTerm(cache)
@@ -114,31 +109,28 @@ object ScheduleSourceRouter {
         val start = ScheduleCache.readStartDate(cache, code)
             ?: api.getStartOfTerm(code).also { ScheduleCache.writeStartDate(cache, code, it, api.termWeeksOf(code)) }
         if (ScheduleCache.readCourses(cache, code) == null) {
-            val fresh = getSchedule(context, api, code, manager, accountType)
+            val fresh = getSchedule(context, api, code, manager)
             ScheduleCache.writeRawCourses(cache, code, fresh)
             // 和日程页一样剔除节假日，否则它下次落地会误报「日程有更新」
             ScheduleCache.writeOptimizedCourses(cache, code, ScheduleCache.filterByHolidays(fresh, start, HolidayApi.peekCached(context)))
         }
     }
 
-    private data class SourceResult(val courses: List<CourseItem>, val changes: List<ScheduleChangeEvent> = emptyList())
-
     private suspend fun jwxtSchedule(
         context: Context,
         jwxt: ScheduleApi,
         termCode: String,
-    ): List<CourseItem> = withContext(Dispatchers.IO) { jwxt.getSchedule(termCode) }
-        .also {
-            remember(context, ScheduleSource.JWXT)
-            // jwxt 不返回变更记录；退回教务时把上一份非教务源留下的调课理由一并清掉，
-            // 否则页面/通知会拿着已经不对应当前数据的旧理由去匹配新课表。
-            rememberChanges(context, termCode, emptyList())
-        }
+    ): List<CourseItem> {
+        val result = withContext(Dispatchers.IO) { jwxt.getSchedule(termCode) }
+        remember(context, ScheduleSource.JWXT)
+        rememberChanges(context, termCode, result.changes)
+        return result.courses
+    }
 
     /**
      * 最近一次课表**实际**来自哪个系统。
      *
-     * 与用户在设置里选的那个未必相同：选了移动教务但这次退回了教务，数据形状就是教务的。
+     * 与用户在设置里选的那个未必相同：选了考勤但这次退回了教务，数据形状就是教务的。
      * [ScheduleDiff] 按这个值分开存快照，否则退回的那一次会把每门课都报成"变了"。
      */
     fun servedSource(context: Context): ScheduleSource =
@@ -156,10 +148,8 @@ object ScheduleSourceRouter {
     private const val KEY_SERVED = "served"
 
     /**
-     * 这学期最近一次从 jwapp 拉到的调课/停课事件（含官方备注）。
-     *
-     * 只有 jwapp 会填；教务和考勤走的分支会用空表把上一份覆盖掉，
-     * 见 [jwxtSchedule] 和 [getSchedule] 里对非 usable 分支的处理。
+     * 这学期最近一次拉到的调课/停课/补课记录。只有教务给；别的源服务时写空表，
+     * 免得拿上一份记录去对不相干的课表。
      */
     fun changeEvents(context: Context, termCode: String): List<ScheduleChangeEvent> {
         if (termCode.isBlank()) return emptyList()
@@ -177,128 +167,26 @@ object ScheduleSourceRouter {
     }
     private const val PREFS_CHANGES = "schedule_changes"
 
-    private suspend fun fromJwapp(
-        manager: SessionManager,
-        termCode: String,
-        userInitiated: Boolean,
-    ): SourceResult? {
-        val site = manager.siteOrNull(LoginType.JWAPP, userInitiated) ?: return null
-        val api = JwappScheduleApi(site)
-        val basis = api.basis()
-        if (!sameTerm(basis.termCode, termCode)) {
-            Log.d(TAG, "移动教务当前学期是 ${basis.termCode}，要查的是 $termCode，走教务")
-            return null
-        }
-        val result = api.getSchedule(basis.termCode, basis.maxWeekNum)
-        return SourceResult(result.courses, result.changeEvents)
-    }
-
     /**
-     * 考勤系统课表源（kq.xjtu.edu.cn + bk-kq/yjs-kq.xjtu.edu.cn）。
-     * 持久化键值仍是旧版考勤时代的 "bkkq"，见 [CredentialStore.SCHEDULE_SOURCE_ATTENDANCE]。
+     * 考勤课表源：读考勤门户的本研合并课表（见 [KqPortal]），本科、研究生两侧的课拼在一起。
+     * 门户只给当前学期，对不上就走教务。设置里的键值沿用旧版考勤的 "bkkq"，
+     * 见 [CredentialStore.SCHEDULE_SOURCE_ATTENDANCE]。
      *
-     * 按周查排课走的是
-     * `/sa/student/service/timetable/weekly?semesterId=…`（见上游 PR #72 抓包验证），
-     * 一次请求返回整学期的行，同一门课跨周段拆成多行，靠 [KqWeekRanges] 合并。
-     *
-     * 登录用的是 [LoginType.ATTENDANCE]，站点在本科/研究生两套部署间自动切换
-     * （[com.xjtu.toolbox.auth.AttendanceSession]），跟考勤记录共用同一套登录。
-     *
-     * 保守起见：解析过程任何一步出问题都直接返回 null，让路由器退回教务源——
-     * 猜错了字段结构是静默拉错课表，比"这个源暂时不能用"糟得多。
+     * 先登考勤站点：门户会话要靠它刚建立的统一认证登录态免密换来，校外还要它的 WebVPN 网关会话。
      */
     private suspend fun fromAttendance(
         manager: SessionManager,
-        accountType: AccountType,
         termCode: String,
         userInitiated: Boolean,
-    ): SourceResult? {
+    ): SourceSchedule? {
         val site = manager.siteOrNull(LoginType.ATTENDANCE, userInitiated) ?: return null
-        return try {
-            val api = com.xjtu.toolbox.attendance.AttendanceApi(site)
-            val terms = api.getTermList()
-            val term = terms.firstOrNull { it.code.isNotBlank() && sameTerm(it.code, termCode) } ?: run {
-                Log.d(TAG, "考勤没有找到学期 $termCode，走教务")
-                return null
-            }
-            val rows = api.getWeeklyTimetable(term.bh)
-            if (rows.isEmpty()) return null
-            val grouped = rows.groupBy {
-                TimetableKey(it.courseName, it.teacherName, it.classroomName, it.courseCode, it.dayOfWeek, it.startSection, it.endSection)
-            }
-            // 学期总周数：优先用接口给的 weeks；给不了就用观察到的最大周次兜底，
-            // 至少不短于任何一行实际出现的周次。
-            val observedMax = grouped.values.flatten().maxOfOrNull { row ->
-                com.xjtu.toolbox.attendance.KqWeekRanges.parse(row.weekRanges).maxOrNull() ?: 0
-            } ?: 0
-            val maxWeekNum = term.weeks.takeIf { it > 0 } ?: observedMax.coerceAtLeast(1)
-            val courses = grouped.map { (key, group) ->
-                CourseItem(
-                    courseName = key.courseName,
-                    teacher = key.teacher,
-                    location = key.location,
-                    weekBits = com.xjtu.toolbox.attendance.KqWeekRanges.mergeToBits(group.map { it.weekRanges }, maxWeekNum),
-                    dayOfWeek = key.dayOfWeek,
-                    startSection = key.startSection,
-                    endSection = key.endSection,
-                    courseCode = key.courseCode,
-                    courseType = "",
-                )
-            }
-            if (courses.isEmpty()) return null
-            SourceResult(courses)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Throwable) {
-            Log.w(TAG, "考勤取课表失败：${e.javaClass.simpleName} ${e.message}")
-            null
-        }
-    }
-
-    /**
-     * 智慧教室平台课表源（js.xjtu.edu.cn，XJTUToolBox 里是考勤取不到时的备用源）。
-     *
-     * 这个接口按学期代码查，理论上不只认当前学期；但没验证过历史学期，
-     * 也就不知道它会不会像 jwapp 那样把当前学期的课当成别的学期返回。
-     * 为守住"历史学期永远走教务"，只在要查的就是当前学期时用它。
-     */
-    private suspend fun fromJs(
-        manager: SessionManager,
-        termCode: String,
-        userInitiated: Boolean,
-    ): SourceResult? {
-        if (!sameTerm(termCode, guessCurrentTerm())) {
-            Log.d(TAG, "智慧教室平台只用于当前学期，要查的是 $termCode，走教务")
+        val sides = KqPortal.currentSemester(site).filter { sameTerm(it.termCode, termCode) }
+        if (sides.isEmpty()) {
+            Log.d(TAG, "考勤门户的当前学期不是 $termCode，走教务")
             return null
         }
-        val site = manager.siteOrNull(com.xjtu.toolbox.auth.JsSession.SITE_KEY, userInitiated) ?: return null
-        val courses = JsScheduleApi(site).getSchedule(termCode)
-        return courses.takeIf { it.isNotEmpty() }?.let { SourceResult(it) }
+        return SourceSchedule(KqTimetableRow.toCourses(sides.flatMap { it.rows }))
     }
-
-    /**
-     * 按日期推当前学期，规则同 XJTUToolBox：2 月前算上一学年第一学期，
-     * 2–8 月第二学期，9 月起新学年第一学期。（暑期小学期不单独算。）
-     */
-    private fun guessCurrentTerm(): String {
-        val now = java.time.LocalDate.now()
-        val y = now.year
-        return when {
-            now.monthValue < 2 -> "${y - 1}-$y-1"
-            now.monthValue < 9 -> "${y - 1}-$y-2"
-            else -> "$y-${y + 1}-1"
-        }
-    }
-
-    private data class TimetableKey(
-        val courseName: String,
-        val teacher: String,
-        val location: String,
-        val courseCode: String,
-        val dayOfWeek: Int,
-        val startSection: Int,
-        val endSection: Int,
-    )
 
     /**
      * 两个学期标识是不是同一个学期。
@@ -317,15 +205,12 @@ object ScheduleSourceRouter {
      * 取一个已登录的站点，拿不到返回 null。取消必须原样抛，不能当成"站点不可用"——
      * 吞掉取消会在重组频繁时反复触发登录，把站点打进失败冷却。
      */
-    private suspend fun SessionManager.siteOrNull(type: LoginType, userInitiated: Boolean) =
-        siteOrNull(type.siteKey(), userInitiated)
-
-    private suspend fun SessionManager.siteOrNull(siteKey: String, userInitiated: Boolean) = try {
-        ensureSite(siteKey, userInitiated = userInitiated, silent = true)
+    private suspend fun SessionManager.siteOrNull(type: LoginType, userInitiated: Boolean) = try {
+        ensureSite(type.siteKey(), userInitiated = userInitiated, silent = true)
     } catch (e: CancellationException) {
         throw e
     } catch (e: Throwable) {
-        Log.d(TAG, "ensureSite($siteKey) 不可用：${e.javaClass.simpleName} ${e.message}")
+        Log.d(TAG, "ensureSite(${type.siteKey()}) 不可用：${e.javaClass.simpleName} ${e.message}")
         null
     }
 }

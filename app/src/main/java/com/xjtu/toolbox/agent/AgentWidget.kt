@@ -143,7 +143,6 @@ fun AgentWidget.toStored(): StoredWidget = when (this) {
 fun storedToWidget(stored: StoredWidget): AgentWidget? = runCatching {
     when (stored.type) {
         "ScheduleWidget" -> AppJson.decodeFromString<ScheduleWidget>(stored.json)
-            .let { it.copy(courses = it.courses.map(CourseItem::normalized)) }
         "ExamWidget" -> AppJson.decodeFromString<ExamWidget>(stored.json)
         "RoomWidget" -> AppJson.decodeFromString<RoomWidget>(stored.json)
         "LiveRoomWidget" -> AppJson.decodeFromString<LiveRoomWidget>(stored.json)
