@@ -2,6 +2,8 @@ package com.xjtu.toolbox.widget
 
 import android.content.Context
 import android.content.Intent
+import android.text.SpannableString
+import android.text.style.StrikethroughSpan
 import android.widget.RemoteViews
 import android.widget.RemoteViewsService
 import com.xjtu.toolbox.R
@@ -51,13 +53,13 @@ private class ScheduleWidgetCourseFactory(
     override fun onCreate() = Unit
 
     override fun onDataSetChanged() {
+        // 一屏放 3 条，多的上下滑；刷新时滚到第一节没上完的课（见 ScheduleWidgetUpdater.scrollToUpcoming）。
         courses = when (widgetSize) {
             // 2x2 跟随翻页状态，显示"用户正在看的那天"。
-            WidgetSize.SMALL -> ScheduleWidgetUpdater.loadScheduleData(context).courses.take(3)
-            // 4x2 是今天 / 明天两栏，每栏 3 条正好填满，与 issue #41 参考图一致。
+            WidgetSize.SMALL -> ScheduleWidgetUpdater.loadScheduleData(context).courses
+            // 4x2 是今天 / 明天两栏。
             WidgetSize.LARGE -> ScheduleWidgetUpdater.loadTwoDayData(context)
                 .let { if (dayOffset == 0) it.today else it.tomorrow }
-                .take(3)
         }
     }
 
@@ -81,15 +83,23 @@ private class ScheduleWidgetCourseFactory(
         val timeRange =
             "${XjtuTime.getClassStartStr(course.startSection)}-${XjtuTime.getClassEndStr(course.endSection)}"
         val place = course.location.ifBlank { "地点待定" }
+        // 上完的课：灰底 / 灰色条，课名变灰加删除线。条目视图会被复用，没上完的也要把颜色设回去。
+        fun title(text: String): CharSequence =
+            if (!course.done) text
+            else SpannableString(text).apply { setSpan(StrikethroughSpan(), 0, length, 0) }
+        views.setColorStateList(
+            R.id.widget_course_desc, "setTextColor",
+            if (course.done) R.color.widget_on_surface_secondary else R.color.widget_on_surface,
+        )
         when (widgetSize) {
             // 2x2：整块浅色底，一行放得下「课名 · 地点」，时间单独一行。
             WidgetSize.SMALL -> {
                 views.setInt(
                     R.id.widget_course_item_root,
                     "setBackgroundResource",
-                    toneBackgrounds[toneIndex]
+                    if (course.done) R.drawable.bg_schedule_course_item_done else toneBackgrounds[toneIndex]
                 )
-                views.setTextViewText(R.id.widget_course_desc, "${course.name} · $place")
+                views.setTextViewText(R.id.widget_course_desc, title("${course.name} · $place"))
                 views.setTextViewText(R.id.widget_course_time, timeRange)
             }
             // 4x2：每栏只有半个部件宽，色块底会把字挤没，改成左侧色条；
@@ -98,9 +108,9 @@ private class ScheduleWidgetCourseFactory(
                 views.setInt(
                     R.id.widget_course_accent,
                     "setBackgroundResource",
-                    accentBars[toneIndex]
+                    if (course.done) R.drawable.bg_widget_accent_done else accentBars[toneIndex]
                 )
-                views.setTextViewText(R.id.widget_course_desc, course.name)
+                views.setTextViewText(R.id.widget_course_desc, title(course.name))
                 views.setTextViewText(R.id.widget_course_time, "$timeRange $place")
             }
         }

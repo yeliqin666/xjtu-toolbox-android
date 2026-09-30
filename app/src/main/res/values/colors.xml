@@ -27,4 +27,5 @@
     <color name="widget_course_accent_4">#FFA76EFF</color>
     <color name="widget_course_accent_5">#FF35B6C4</color>
     <color name="widget_course_accent_6">#FFEF6B6B</color>
+    <color name="widget_course_done">#FFC3C9D3</color>
 </resources>

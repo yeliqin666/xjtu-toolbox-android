@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.widget
 
+import android.app.AlarmManager
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
@@ -19,7 +20,7 @@ import com.xjtu.toolbox.data.DataCache
 import com.xjtu.toolbox.schedule.XjtuTime
 import java.io.File
 import java.time.LocalDate
-import java.time.LocalTime
+import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -31,7 +32,9 @@ internal data class WidgetCourse(
     val name: String,
     val location: String,
     val startSection: Int,
-    val endSection: Int
+    val endSection: Int,
+    /** 已经上完：之前的日子全算，今天看下课时间。 */
+    val done: Boolean = false,
 )
 
 /**
@@ -76,6 +79,9 @@ object ScheduleWidgetUpdater {
     private const val PREFS_NAME = "schedule_widget_prefs"
     private const val KEY_WEEK_OFFSET = "week_offset"
     private const val KEY_DAY_OF_WEEK = "day_of_week"
+    /** 周次偏移、选中星期是哪天定下的；换了一天就作废，回到今天。 */
+    private const val KEY_BROWSE_DATE = "browse_date"
+    private const val REFRESH_ALARM_CODE = 5000
     private const val MIN_WEEK_OFFSET = -30
     private const val MAX_WEEK_OFFSET = 30
 
@@ -154,12 +160,19 @@ object ScheduleWidgetUpdater {
     }
 
     internal fun resetBrowseSelectionToToday(context: Context) {
-        val todayDow = LocalDate.now().dayOfWeek.value
+        val today = LocalDate.now()
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putInt(KEY_WEEK_OFFSET, 0)
-            .putInt(KEY_DAY_OF_WEEK, todayDow)
+            .putInt(KEY_DAY_OF_WEEK, today.dayOfWeek.value)
+            .putLong(KEY_BROWSE_DATE, today.toEpochDay())
             .apply()
+    }
+
+    /** 翻页状态是前些天留下的就回到今天，否则过了零点还停在昨天那个星期几。 */
+    private fun dropStaleBrowseState(context: Context) {
+        val browseDate = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getLong(KEY_BROWSE_DATE, -1L)
+        if (browseDate != LocalDate.now().toEpochDay()) resetBrowseSelectionToToday(context)
     }
 
     fun updateSpecific(
@@ -184,6 +197,13 @@ object ScheduleWidgetUpdater {
         if (size == WidgetSize.LARGE) {
             appWidgetManager.notifyAppWidgetViewDataChanged(appWidgetIds, R.id.widget_course_list_next)
         }
+        scheduleNextRefresh(context, size)
+    }
+
+    /** 课多时把列表滚到第一节还没上完的课。 */
+    private fun scrollToUpcoming(views: RemoteViews, listId: Int, courses: List<WidgetCourse>) {
+        val index = courses.indexOfFirst { !it.done }
+        if (index > 0) views.setScrollPosition(listId, index)
     }
 
     private fun buildLaunchPendingIntent(context: Context, requestCode: Int): PendingIntent {
@@ -292,6 +312,7 @@ object ScheduleWidgetUpdater {
         }
 
         views.setViewVisibility(R.id.widget_empty, View.GONE)
+        scrollToUpcoming(views, R.id.widget_course_list, data.courses)
         return views
     }
 
@@ -346,6 +367,7 @@ object ScheduleWidgetUpdater {
         views.setViewVisibility(R.id.widget_empty_next, if (tomorrowEmpty) View.VISIBLE else View.GONE)
         views.setTextViewText(R.id.widget_empty, data.todayEmptyText)
         views.setTextViewText(R.id.widget_empty_next, data.tomorrowEmptyText)
+        scrollToUpcoming(views, R.id.widget_course_list, data.today)
         return views
     }
 
@@ -413,6 +435,7 @@ object ScheduleWidgetUpdater {
         // 没有开学日期就算不出周次；这时按星期给出全部同星期的课，
         // 总好过一片空白（用户至少能看出"周三大概有什么"）。
         val week = startDate?.let { com.xjtu.toolbox.schedule.TermWeeks.weekOf(it, date) }
+        val now = LocalDateTime.now()
         return all.asSequence()
             .filter { it.dayOfWeek == date.dayOfWeek.value }
             .filter { !isHoliday || it.isUserCreated }
@@ -424,9 +447,54 @@ object ScheduleWidgetUpdater {
                     location = it.location,
                     startSection = it.startSection,
                     endSection = it.endSection,
+                    done = isDone(date, it.endSection, now),
                 )
             }
             .toList()
+    }
+
+    private fun isDone(date: LocalDate, endSection: Int, now: LocalDateTime): Boolean {
+        val today = now.toLocalDate()
+        if (date != today) return date < today
+        val end = XjtuTime.getClassTime(endSection)?.end ?: return false
+        return now.toLocalTime() > end
+    }
+
+    private fun todayCourses(context: Context): List<WidgetCourse> {
+        val cache = DataCache(context)
+        val termCode = resolveTermCode(context, cache) ?: return emptyList()
+        return coursesOn(context, cache, termCode, readStartDate(cache, termCode), LocalDate.now())
+    }
+
+    /**
+     * 约下一次刷新：今天下一个上课或下课时刻，今天没有了就约到明天零点。系统自带的定时刷新半小时起步、
+     * 省电时还会推迟，全靠它的话下课标记、「正在进行」、跨天都会滞后。闹钟能拉起已经退出的进程；
+     * 不用精确闹钟（要用户单独授权），系统允许最多晚 10 分钟。
+     */
+    private fun scheduleNextRefresh(context: Context, size: WidgetSize) {
+        val now = LocalDateTime.now()
+        val today = now.toLocalDate()
+        val at = todayCourses(context)
+            .flatMap { listOfNotNull(XjtuTime.getClassTime(it.startSection)?.start, XjtuTime.getClassTime(it.endSection)?.end) }
+            .map { today.atTime(it) }
+            .filter { it > now }
+            .minOrNull()
+            ?: today.plusDays(1).atStartOfDay()
+        val millis = at.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+        context.getSystemService(AlarmManager::class.java)
+            ?.setWindow(AlarmManager.RTC, millis, 10 * 60_000L, refreshAlarmIntent(context, size))
+    }
+
+    internal fun cancelScheduledRefresh(context: Context, size: WidgetSize) {
+        context.getSystemService(AlarmManager::class.java)?.cancel(refreshAlarmIntent(context, size))
+    }
+
+    private fun refreshAlarmIntent(context: Context, size: WidgetSize): PendingIntent {
+        val provider = when (size) {
+            WidgetSize.SMALL -> ScheduleWidget2x2Provider::class.java
+            WidgetSize.LARGE -> ScheduleWidget4x2Provider::class.java
+        }
+        return buildActionPendingIntent(context, REFRESH_ALARM_CODE + size.ordinal, ACTION_REFRESH, provider)
     }
 
     private fun allCoursesOf(context: Context, cache: DataCache, termCode: String): List<CourseItem> {
@@ -460,8 +528,10 @@ object ScheduleWidgetUpdater {
 
     internal fun loadScheduleData(context: Context): WidgetScheduleData {
         ensureAccountContext(context)
-        val now = LocalTime.now()
-        val nowDate = LocalDate.now()
+        dropStaleBrowseState(context)
+        val nowAt = LocalDateTime.now()
+        val now = nowAt.toLocalTime()
+        val nowDate = nowAt.toLocalDate()
         val todayDow = nowDate.dayOfWeek.value
         val updateText = "更新 ${now.format(DateTimeFormatter.ofPattern("HH:mm"))}"
 
@@ -537,7 +607,8 @@ object ScheduleWidgetUpdater {
                     name = it.courseName,
                     location = it.location,
                     startSection = it.startSection,
-                    endSection = it.endSection
+                    endSection = it.endSection,
+                    done = isDone(selectedDate, it.endSection, nowAt),
                 )
             }
             .toList()
@@ -596,6 +667,7 @@ object ScheduleWidgetUpdater {
     }
 
     internal fun adjustWeekOffset(context: Context, delta: Int) {
+        dropStaleBrowseState(context)
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val current = prefs.getInt(KEY_WEEK_OFFSET, 0)
         val target = (current + delta).coerceIn(MIN_WEEK_OFFSET, MAX_WEEK_OFFSET)
@@ -609,6 +681,7 @@ object ScheduleWidgetUpdater {
     }
 
     internal fun adjustSelectedDayOfWeek(context: Context, delta: Int) {
+        dropStaleBrowseState(context)
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val todayDow = LocalDate.now().dayOfWeek.value
         val currentDay = prefs.getInt(KEY_DAY_OF_WEEK, todayDow).coerceIn(1, 7)
@@ -710,6 +783,10 @@ abstract class ScheduleWidgetProviderBase(
 
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         updateAsync(context) { appWidgetIds }
+    }
+
+    override fun onDisabled(context: Context) {
+        ScheduleWidgetUpdater.cancelScheduledRefresh(context, size)
     }
 
     override fun onReceive(context: Context, intent: Intent?) {
