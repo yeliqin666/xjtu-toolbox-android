@@ -5,7 +5,6 @@ import com.xjtu.toolbox.data.SecurePrefs
 import com.xjtu.toolbox.network.HttpClients
 import com.xjtu.toolbox.network.PersistentCookieJar
 import com.xjtu.toolbox.webvpn.WebVpnInterceptor
-import kotlinx.coroutines.sync.Mutex
 import okhttp3.ConnectionPool
 import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
@@ -19,7 +18,7 @@ import java.util.concurrent.TimeUnit
  * - 会话按「账号 × 访问方式」物理隔离：cookie 与站点快照各自一份存储，两边的统一认证登录态互不影响。
  * - 同 backend 内所有 SiteSession 共享 cookies：一次 CAS 登录建立的 TGC 全局生效，
  *   后续走 CAS 的子系统均 SSO 直通，不会重复触发 MFA。
- * - [loginLock] 串行化 backend 自身的登录动作（如 WebVPN 网关认证）。
+ * - [loginGate] 串行化本 backend 上和统一认证打交道的登录，前台优先。
  */
 class SessionBackend(
     val accessMode: AccessMode,
@@ -52,8 +51,8 @@ class SessionBackend(
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    /** backend 自身动作的串行保护锁。 */
-    val loginLock = Mutex()
+    /** 本 backend 上网关认证与各站点 CAS 登录的闸门，见 [LoginGate]。 */
+    val loginGate = LoginGate()
 
     /**
      * backend 自身的认证状态（特指 WebVPN 网关）。

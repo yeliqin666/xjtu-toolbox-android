@@ -9,7 +9,6 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.IOException
 
@@ -456,26 +455,31 @@ class SsnSession : CasSiteSession("ssn", "宿舍电费", mustUseWebVpn = true) {
      * 这里用 App 存的账号再走一遍 OAuth，拦下最后那一跳（带 code 的缴费页地址）不去请求，
      * 交给 WebView 自己打开，会话就建在 WebView 里。校外时拿到的是 WebVPN 网关形式的地址。
      */
-    suspend fun freshPayUrl(): String = casLoginLock.withLock {
+    suspend fun freshPayUrl(): String {
         val (username, password) = manager?.credentials ?: throw IOException("还没有登录账号，请先在「我的」页登录")
         if (currentAccessMode == AccessMode.WEBVPN) manager?.ensureWebVpnLogin()
-        withContext(Dispatchers.IO) {
-            var callback: String? = null
-            // 得用网络拦截器：重定向的每一跳只有它看得到（应用拦截器只见第一个请求）。
-            // 它必须放行一次，所以带 code 的那一跳改成不带参数的同一页，code 原样留给 WebView 去用。
-            val capturing = client.newBuilder().addNetworkInterceptor { chain ->
-                val request = chain.request()
-                val isCallback = request.url.encodedPath.endsWith("/cems/index/mobile/pay") && request.url.queryParameter("code") != null
-                if (!isCallback) return@addNetworkInterceptor chain.proceed(request)
-                callback = request.url.toString().replaceFirst("http://", "https://")
-                chain.proceed(request.newBuilder().url(request.url.newBuilder().query(null).build()).build())
-            }.build()
-            val login = object : SsnLogin(capturing, manager?.fpVisitorId, manager?.cachedRsaKey) {
-                override fun postLogin(response: Response) {}
-            }
-            val result = login.login(username, password)
-            callback ?: throw IOException(result.message.ifBlank { "没能取得缴费页入口，请稍后重试" })
+        val backend = checkNotNull(backend) { "[$siteKey] backend not bound" }
+        return backend.loginGate.withLock(foreground = true) {
+            withContext(Dispatchers.IO) { capturePayCallback(backend.client, username, password) }
         }
+    }
+
+    private fun capturePayCallback(client: OkHttpClient, username: String, password: String): String {
+        var callback: String? = null
+        // 得用网络拦截器：重定向的每一跳只有它看得到（应用拦截器只见第一个请求）。
+        // 它必须放行一次，所以带 code 的那一跳改成不带参数的同一页，code 原样留给 WebView 去用。
+        val capturing = client.newBuilder().addNetworkInterceptor { chain ->
+            val request = chain.request()
+            val isCallback = request.url.encodedPath.endsWith("/cems/index/mobile/pay") && request.url.queryParameter("code") != null
+            if (!isCallback) return@addNetworkInterceptor chain.proceed(request)
+            callback = request.url.toString().replaceFirst("http://", "https://")
+            chain.proceed(request.newBuilder().url(request.url.newBuilder().query(null).build()).build())
+        }.build()
+        val login = object : SsnLogin(capturing, manager?.fpVisitorId, manager?.cachedRsaKey) {
+            override fun postLogin(response: Response) {}
+        }
+        val result = login.login(username, password)
+        return callback ?: throw IOException(result.message.ifBlank { "没能取得缴费页入口，请稍后重试" })
     }
 
     /** 重新取一遍缴费页：登录着就能解析出 cid，被要求登录（loginUrl 非空）则说明会话已失效。 */

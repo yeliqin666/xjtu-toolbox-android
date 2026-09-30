@@ -212,14 +212,16 @@ class SessionManager(context: Context) {
      *
      * 主线程安全：整个流程切到 IO——调用方常在界面协程里，而票据检查要读 cookie，
      * 首次读会在主线程打开加密存储。
+     *
+     * @param foreground 用户在等（后台静默刷新传 false），在 [LoginGate] 上排在后台前面。
      */
     @Throws(IOException::class, PasswordInvalidatedException::class)
-    suspend fun ensureWebVpnLogin() = withContext(Dispatchers.IO) { ensureWebVpnLoginOnIo() }
+    suspend fun ensureWebVpnLogin(foreground: Boolean = true) = withContext(Dispatchers.IO) { ensureWebVpnLoginOnIo(foreground) }
 
-    private suspend fun ensureWebVpnLoginOnIo() {
+    private suspend fun ensureWebVpnLoginOnIo(foreground: Boolean) {
         val backend = backend(AccessMode.WEBVPN)
         if (isWebVpnGatewayFresh(backend)) return
-        backend.loginLock.withLock {
+        backend.loginGate.withLock(foreground) {
             if (isWebVpnGatewayFresh(backend)) return@withLock
             if (resumeWebVpnGateway(backend)) {
                 backend.markWebVpnReady()
@@ -380,8 +382,8 @@ class SessionManager(context: Context) {
      * [LoginState.REQUIRE_MFA] 时调用：弹窗向用户要短信验证码并当场校验，验证码不对就留在弹窗里
      * 让用户重输（最多 [MFA_MAX_ATTEMPTS] 次）。同一时刻仅一个 MFA 询问在挂起。
      *
-     * 每次等待都有超时：没有弹窗宿主的页面发起的询问永远等不到输入，而登录跑在全局
-     * [CasSiteSession] 锁里，无限期挂起会把其余站点的登录一起锁死。
+     * 每次等待都有超时：没有弹窗宿主的页面发起的询问永远等不到输入，而登录占着这一边的
+     * [LoginGate]，无限期挂起会把同一边其余站点的登录一起锁死。
      *
      * @return true 验证通过；false 用户取消或等待超时。
      * @throws IOException 没有能弹窗的界面、网络失败，或验证码错得太多次。

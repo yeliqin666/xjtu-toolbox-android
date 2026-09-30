@@ -30,8 +30,8 @@ import com.xjtu.toolbox.nav.AppRoute
  *
  * ## 三条硬约束
  *
- * 1. **不与登录风控冲突**：每个源之间强制 [GAP_MS] 间隔串行执行，绝不并发登录。
- *    并且与 `CasGate` 双向对齐（此前是各管各的）：
+ * 1. **不与登录风控冲突**：各源串行，绝不并发登录；某个源刚走过一次统一认证登录，下一个源前留 [GAP_MS]
+ *    （会话从快照复用、没登录的源不用等）。并且与 `CasGate` 双向对齐（此前是各管各的）：
  *    - 开跑前先问 [CasGate.blockedReason]，被挡就**整轮不跑**。原来不问，
  *      于是熔断期间十个源挨个去撞公平锁、每个等满 4 秒，最后全部失败——
  *      既拖时间又把失败时间戳写了一地。
@@ -49,7 +49,7 @@ object HomeStatsRefresher {
 
     private const val TAG = "HomeStatsRefresh"
 
-    /** 两次拉取之间的间隔。给 CAS 留出喘息，避免被判为异常访问。 */
+    /** 上一个源刚登录过时，下一个源前的间隔。给统一认证留出喘息，避免被判为异常访问。 */
     private const val GAP_MS = 1_500L
 
     private const val DAY = 24L * 60 * 60 * 1000L
@@ -94,7 +94,7 @@ object HomeStatsRefresher {
     )
 
     /**
-     * 一轮里的先后：整轮串行、源间留间隔，要走半分钟，排前面的先出结果。
+     * 一轮里的先后：整轮串行，排前面的先出结果。
      * 首页最常看的（成绩、课程、图书馆座位、校园卡）在前；不常看或经常连不上的
      * （刷卡记录、宿舍电费）靠后；加餐券最后。不在表里的排最末。
      */
@@ -397,10 +397,6 @@ object HomeStatsRefresher {
 
     private const val LMS_MAX_COURSES = 6
 
-    /**
-     * 跑一轮刷新。只处理已过期的源，逐个串行，源之间留 [GAP_MS]。
-     * 同一时刻只允许一轮（[runLock]），防止反复进出首页把请求叠起来。
-     */
     /** 手机当前连着能上网的网络。不要求系统验证通过：校园网没过认证页时也算有网，失败照常计。 */
     fun isOnline(context: Context): Boolean {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager ?: return true
@@ -408,6 +404,10 @@ object HomeStatsRefresher {
         return caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
+    /**
+     * 跑一轮刷新。只处理已过期的源，逐个串行；上一个源发生了登录才留 [GAP_MS]。
+     * 同一时刻只允许一轮（[runLock]），防止反复进出首页把请求叠起来。
+     */
     suspend fun refreshDue(
         context: Context,
         manager: SessionManager?,
@@ -434,7 +434,8 @@ object HomeStatsRefresher {
             fun accountChanged() = !roundIsCurrent()
             val stamps = HomeStats.stamps(context, sources.map { it.route }, roundAccount)
             val now = System.currentTimeMillis()
-            var first = true
+            // 上一个源是否刚和统一认证打过交道（登录成功或失败都算），是的话下一个源前留间隔
+            var justLoggedIn = false
             val coldStart = firstRunInProcess
             firstRunInProcess = false
             val existing = HomeStats.collect(context, null).keys
@@ -455,15 +456,18 @@ object HomeStatsRefresher {
                 if (coldStart && !hasContent && now - last < ttl) {
                     Log.d(TAG, "${s.route.id}: 冷启动且暂无内容，忽略退避重试")
                 }
-                if (!first) delay(GAP_MS)
-                first = false
+                if (justLoggedIn) delay(GAP_MS)
                 if (accountChanged()) {
                     Log.d(TAG, "abort round: account switched")
                     return
                 }
+                val siteKey = s.loginType?.siteKey()
+                val epochBefore = siteKey?.let { manager.getSiteOrNull(it)?.loginEpoch }
+                justLoggedIn = siteKey != null
                 try {
                     // silent = true：后台绝不弹 MFA、不发短信，撞上就抛 MfaRequiredException。
-                    val site = s.loginType?.let { manager.ensureSite(it.siteKey(), silent = true) }
+                    val site = siteKey?.let { manager.ensureSite(it, silent = true) }
+                    justLoggedIn = site != null && site.loginEpoch != epochBefore
                     val stat = s.fetch(context, site)
                     if (accountChanged()) {
                         Log.d(TAG, "abort round: account switched during ${s.route.id}")

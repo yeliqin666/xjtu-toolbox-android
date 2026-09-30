@@ -69,8 +69,10 @@ abstract class SiteSession(
      * [executeWithReAuth] 在发请求前记录代数，命中认证失效时若发现代数已前进
      * （其他并发请求已完成重登录），直接复用新会话重放，避免并发 401 触发
      * 「N 个请求 → N 次完整 CAS 登录」的踩踏（每次登录都要过 CasGate 限频，叠加即卡死）。
+     * 外部也拿它判断一次调用里有没有真的发生登录（首页刷新据此决定要不要给统一认证留间隔）。
      */
-    @Volatile private var loginEpoch: Long = 0L
+    @Volatile var loginEpoch: Long = 0L
+        private set
 
     /**
      * 上次「确认会话有效」的时刻（登录成功 / validate 通过）。
@@ -149,7 +151,7 @@ abstract class SiteSession(
         // 表现就是"点了没反应"，而防刷已由 CasGate 的失败退避+全局串行覆盖。
         if (!userInitiated) mgr?.checkLoginCooldown(siteKey, siteName)
         if (currentAccessMode == AccessMode.WEBVPN) {
-            mgr?.ensureWebVpnLogin()
+            mgr?.ensureWebVpnLogin(foreground = !silent)
         }
         loginLock.withLock {
             withContext(Dispatchers.IO) { restoreIfNeeded() }
