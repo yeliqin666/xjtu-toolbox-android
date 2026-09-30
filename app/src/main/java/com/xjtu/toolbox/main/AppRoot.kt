@@ -275,29 +275,15 @@ private class SessionRestore(
 
     private var lastWarmupAt = 0L
 
-    /**
-     * 后台预热：先登教务建立 CAS 会话，再对最近用过的几个站点做静默 SSO（不提交密码、撞 MFA 即停）。
-     * 不要一次登全部站点，服务端会风控。
-     */
+    /** 刚登录完：先登教务建立统一认证会话，再预热常用站点（见 [com.xjtu.toolbox.auth.SessionManager.warmUp]）。 */
     fun warmup(force: Boolean = false) {
         val now = System.currentTimeMillis()
         if (!force && now - lastWarmupAt < 60_000L) return
         lastWarmupAt = now
+        val manager = loginState.sessionManager ?: return
         scope.launch(Dispatchers.IO) {
-            try {
-                runCatching { loginState.sessionManager?.ensureSite(LoginType.JWXT) }
-                // 清掉已下线的站点
-                val stored = credentialStore.recentSiteKeys
-                val recent = stored.filter { loginState.sessionManager?.getSiteOrNull(it) != null }
-                if (recent.size != stored.size) credentialStore.recentSiteKeys = recent
-                if (recent.isNotEmpty()) {
-                    Log.d("Warmup", "prewarm recent sites: $recent")
-                    runCatching { loginState.sessionManager?.prewarmSites(recent) }
-                }
-                Log.d("Warmup", "Warmup done: activeSites=${loginState.sessionManager?.activeSiteKeys}")
-            } catch (e: Exception) {
-                Log.w("Warmup", "background login warmup failed: ${e.message}")
-            }
+            runCatching { manager.ensureSite(LoginType.JWXT) }
+            manager.warmUp(credentialStore.topSites(com.xjtu.toolbox.auth.SessionManager.WARM_SITES))
         }
     }
 

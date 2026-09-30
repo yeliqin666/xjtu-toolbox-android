@@ -401,9 +401,9 @@ class AppLoginStateViewModel(application: android.app.Application) : androidx.li
         accountManager.sessionManager = sessionManager
         accountManager.holder = loginState
 
-        // 保活：每轮对已登录站点做免密 SSO 续期（静默，撞 MFA 即退出）。
+        // 保活：定期预热常用站点，让服务端会话别因闲置被回收
         com.xjtu.toolbox.auth.SessionKeepAlive.sessionRefresher = {
-            sessionManager.refreshLoggedInSites()
+            sessionManager.warmUp(credentialStore.topSites(com.xjtu.toolbox.auth.SessionManager.WARM_SITES))
         }
 
         // 一次性迁移旧单账号数据 → 首个 Account 命名空间

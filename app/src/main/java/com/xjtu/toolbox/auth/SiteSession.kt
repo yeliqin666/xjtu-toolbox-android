@@ -351,8 +351,11 @@ abstract class SiteSession(
     companion object {
         private const val TAG = "SiteSession"
 
-        /** 会话新鲜度窗口。窗口内跳过探活往返；失效由 [executeWithReAuth] 兜底自愈。 */
-        private const val VALIDATE_TTL_MS = 120_000L
+        /**
+         * 会话新鲜度窗口。窗口内跳过探活往返；失效由 [executeWithReAuth] 兜底自愈。
+         * 预热（[SessionManager.warmUp]）在冷启动、回前台时把常用站点确认进这个窗口。
+         */
+        private const val VALIDATE_TTL_MS = 5 * 60_000L
     }
 }
 

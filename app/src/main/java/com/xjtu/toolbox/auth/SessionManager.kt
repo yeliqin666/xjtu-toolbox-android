@@ -140,7 +140,6 @@ class SessionManager(context: Context) {
     }
 
     val activeSiteCount: Int get() = sites.values.count { it.hasLogin }
-    val activeSiteKeys: List<String> get() = sites.values.filter { it.hasLogin }.map { it.siteKey }
 
     /** 会话诊断：写进 logcat（标签 [TAG]）。 */
     fun recordDiagnostic(level: String, siteKey: String, message: String) {
@@ -307,6 +306,8 @@ class SessionManager(context: Context) {
                     }
                     LoginState.REQUIRE_MFA -> {
                         val ctx = result.mfaContext ?: throw IOException("WebVPN 没有返回可用的验证信息，请稍后重试")
+                        // 后台（预热、首页刷新）不弹窗、不发短信，留给用户下次点开时处理
+                        if (!foreground) throw MfaRequiredException("WebVPN")
                         if (ctx.flow == MFAFlow.MFA_DETECT) ctx.sendVerifyCode()
                         if (!verifyMfaWithUser("webvpn", "WebVPN（校外接入）", ctx)) throw MfaCancelledException("WebVPN")
                         result = login.login()
@@ -318,74 +319,38 @@ class SessionManager(context: Context) {
         }
     }
 
-    // ── 后台预热 / 保活（均为「免密」路径） ──────────────────
-    //
-    // 前提：TGC 已在 cookie jar 中。此时任何 CAS 站点的登录都是纯 SSO 跳转，
-    // **不携带密码、不经 CasGate 的凭据闸门**，因此可以放心地在后台做——
-    // 它对统一认证的压力与用户点开一个页面无异，却把等待挪出了用户的关键路径。
-    //
-    // 三条自我约束：
-    // 1. 没有 TGC 就直接放弃（绝不为了预热而提交密码）。
-    // 2. 全程 silent：撞到 MFA 立即退出，不弹窗、不发短信。
-    // 3. 站点间留间隔、失败静默吞掉，不重试、不上报失败冷却。
+    // ── 会话预热 ─────────────────────────────────────────
 
     /**
-     * 该站点当前是否具备「免密 SSO」条件。必须按**站点实际绑定的 backend** 判断：
-     * NORMAL 与 WEBVPN 两个 jar 各有自己的 TGC，用 any() 一概而论会让校外场景下的预热
-     * 退化成后台密码登录。
-     */
-    private fun canSsoSilently(site: SiteSession): Boolean {
-        val b = site.backend ?: return false
-        if (runCatching { b.cookieJar.findCookieByName("TGC") }.getOrNull() == null) return false
-        // WebVPN 网关自身尚未认证时不碰：ensureWebVpnLogin 是带密码的，且可能弹 MFA。
-        if (site.currentAccessMode == AccessMode.WEBVPN && !b.webvpnSelfLoggedIn) return false
-        return true
-    }
-
-    /**
-     * 预热指定站点（通常是「上次用过的几个」）。逐个串行、每个之间留间隔。
-     * 任何异常都只记录不抛出——预热失败对用户不可见，最多回到「点开时再登」。
-     */
-    suspend fun prewarmSites(siteKeys: List<String>, gapMs: Long = 300L) {
-        if (siteKeys.isEmpty()) return
-        val creds = credentials ?: return
-        if (_passwordInvalidated.value) return
-        for ((i, key) in siteKeys.withIndex()) {
-            val site = sites[key] ?: continue
-            if (site.hasLogin) continue
-            if (!canSsoSilently(site)) {
-                Log.d(TAG, "prewarm skipped $key: no silent-SSO path (won't submit password in background)")
-                continue
-            }
-            if (i > 0) kotlinx.coroutines.delay(gapMs)
-            try {
-                site.ensureLogin(creds.first, creds.second, silent = true)
-                Log.d(TAG, "prewarm ok: $key")
-            } catch (e: Exception) {
-                Log.d(TAG, "prewarm skipped $key: ${e.message}")
-            }
-        }
-    }
-
-    /**
-     * 保活：对**已登录**站点做一次探活，失效则免密 SSO 续期。
-     * 让"放置一段时间后第一次点功能要等完整 CAS"这件事发生在后台，而不是用户面前。
+     * 在用户点开之前，把 [siteKeys]（最近常用的几个站点）确认好：从快照恢复并探活，必要时免密登录，
+     * 点开时直接命中免检窗口。经网关的站点会顺带把网关续上。首页刷新每轮先调一次（冷启动、回前台、
+     * 切网都会触发），保活循环定期再调，让服务端会话别因闲置被回收。
      *
-     * TGC 也过期时**直接跳过**，不在后台补一次密码登录：那样一旦密码在服务端被改过，
-     * 用户不在场的情况下会连撞三次触发全局熔断。让用户下次主动进入时付这一次代价更可控。
+     * 只走静默路径：后台优先级、撞到短信验证就放弃。这一边从没登录过（直连没有 TGC、经网关没有
+     * 网关票据）就不碰，不在后台替用户首次登录；登录过而统一认证也过期了，照常补登一次。
+     * 失败静默吞掉，最多回到「点开时再登」。
      */
-    suspend fun refreshLoggedInSites(gapMs: Long = 2_000L) {
-        val creds = credentials ?: return
-        if (_passwordInvalidated.value) return
-        val live = sites.values.filter { it.hasLogin && canSsoSilently(it) }
-        for ((i, site) in live.withIndex()) {
-            if (i > 0) kotlinx.coroutines.delay(gapMs)
+    suspend fun warmUp(siteKeys: List<String>) = withContext(Dispatchers.IO) {
+        val creds = credentials ?: return@withContext
+        if (_passwordInvalidated.value) return@withContext
+        for (key in siteKeys) {
+            val site = sites[key] ?: continue
+            if (site.mustUseWebVpn) awaitAccessMode()
+            if (!hasSessionHint(site)) continue
             try {
                 site.ensureLogin(creds.first, creds.second, silent = true)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                Log.d(TAG, "keepalive skipped ${site.siteKey}: ${e.message}")
+                Log.d(TAG, "warm-up skipped $key: ${e.message}")
             }
         }
+    }
+
+    private fun hasSessionHint(site: SiteSession): Boolean {
+        val b = site.backend ?: return false
+        val cookie = if (b.accessMode == AccessMode.WEBVPN) WEBVPN_TICKET_COOKIE else "TGC"
+        return runCatching { b.cookieJar.findCookieByName(cookie) }.getOrNull() != null
     }
 
     // ── MFA 状态机宿主 ──────────────────────────────────
@@ -556,6 +521,9 @@ class SessionManager(context: Context) {
         private const val ANONYMOUS_SUFFIX = "_default"
         private const val WEBVPN_TICKET_COOKIE = "wengine_vpn_ticketwebvpn_xjtu_edu_cn"
         private const val WEBVPN_VALIDATE_TTL_MS = 120_000L
+
+        /** 每轮预热几个常用站点（[warmUp]）。 */
+        const val WARM_SITES = 4
 
         /** 等校内外判定的上限。判定一般 1 秒内落定；卡住时按当前模式继续，交给失败自愈。 */
         private const val ACCESS_MODE_WAIT_MS = 15_000L

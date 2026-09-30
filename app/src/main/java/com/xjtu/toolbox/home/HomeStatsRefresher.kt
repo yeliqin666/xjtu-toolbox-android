@@ -26,7 +26,8 @@ import com.xjtu.toolbox.nav.AppRoute
  * 首页状态的**主动拉取**调度器。
  *
  * 与「功能页顺手写缓存」（[HomeStats.push]）互补：那条路只有用过的功能才有数据，
- * 这里负责在后台把该刷的刷了，让首页开箱即有内容。
+ * 这里负责在后台把该刷的刷了，让首页开箱即有内容。每轮先预热常用站点（[SessionManager.warmUp]），
+ * 冷启动、回前台、切网都会触发一轮，点开常用功能时就不用再等登录。
  *
  * ## 三条硬约束
  *
@@ -432,6 +433,8 @@ object HomeStatsRefresher {
             val roundAccount = com.xjtu.toolbox.account.AccountContext.activeAccountId
             this.roundAccount = roundAccount
             fun accountChanged() = !roundIsCurrent()
+            // 先把用户最可能点开的几个站点确认好：点开时命中免检窗口直接进，下面的源碰到它们也不用再探
+            manager.warmUp(com.xjtu.toolbox.data.CredentialStore(context).topSites(SessionManager.WARM_SITES))
             val stamps = HomeStats.stamps(context, sources.map { it.route }, roundAccount)
             val now = System.currentTimeMillis()
             // 上一个源是否可能刚和统一认证打过交道（登录成功算；取站点出异常时保守地也算），是的话下一个源前留间隔
