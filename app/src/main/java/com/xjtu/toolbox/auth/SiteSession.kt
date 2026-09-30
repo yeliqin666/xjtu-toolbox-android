@@ -119,10 +119,11 @@ abstract class SiteSession(
 
     /**
      * 用轻量接口探测当前会话有效性。
-     * 抛 IOException 表示网络错（保留现状）；返回 false 表示明确失效，由 [executeWithReAuth] 重认证。
+     * 抛 IOException 表示网络错（保留现状）；返回 false 表示明确失效，由 [executeWithReAuth] 重认证；
+     * null 表示本站没有探活手段，照常信任但不算确认过（不给快照续期）。
      */
     @Throws(IOException::class)
-    protected open suspend fun validateLogin(): Boolean = true
+    protected open suspend fun validateLogin(): Boolean? = null
 
     /** 为业务请求注入本站 header（默认不注入）。 */
     open fun decorateRequest(builder: Request.Builder): Request.Builder = builder
@@ -176,12 +177,14 @@ abstract class SiteSession(
             }
             if (!force && hasLogin) {
                 try {
-                    if (withContext(Dispatchers.IO) { validateLogin() }) {
+                    val valid = withContext(Dispatchers.IO) { validateLogin() }
+                    if (valid != false) {
                         // 探活途中换了绑：结论属于另一边，这边下次再确认
                         if (rebound()) return
                         lastValidatedAt = SystemClock.elapsedRealtime()
-                        // 探活可能顺手刷新本地令牌（电费 cid、校园卡资料等），快照一起更新
-                        saveSnapshot(bound)
+                        // 真探过才给快照续期（顺带存下探活刷新的本地令牌，如电费 cid）；
+                        // 没探活的只在登录时存，年龄上限对它们就是会话年龄
+                        if (valid == true) saveSnapshot(bound)
                         return
                     }
                 } catch (e: IOException) {

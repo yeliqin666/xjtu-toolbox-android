@@ -41,7 +41,10 @@ class SiteSnapshots(openPrefs: () -> SharedPreferences) {
     }
 
     companion object {
-        /** 没写探活的站点恢复后直接信任，太旧的会话多半已被服务端回收，不如重走一次免密登录。 */
+        /**
+         * 快照存于最近一次确认有效时（登录成功或探活通过）。没写探活的站点只在登录时存，
+         * 恢复后直接信任，所以对它们这就是会话年龄上限：太旧的多半已被服务端回收，不如重走一次免密登录。
+         */
         const val MAX_AGE_MS = 12 * 60 * 60 * 1000L
 
         private val io = Executors.newSingleThreadExecutor { Thread(it, "site-snapshots").apply { isDaemon = true } }
