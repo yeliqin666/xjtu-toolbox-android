@@ -201,6 +201,27 @@ private fun QrLoginContent(
 
     val scanning = state is UiState.Scanning
 
+    // 取景时画面是暗的：状态栏、小白条的图标换成浅色，离开时还原
+    val view = androidx.compose.ui.platform.LocalView.current
+    if (!view.isInEditMode) {
+        androidx.compose.runtime.DisposableEffect(scanning) {
+            val window = (view.context as? android.app.Activity)?.window
+            val controller = window?.let { androidx.core.view.WindowCompat.getInsetsController(it, view) }
+            val lightStatus = controller?.isAppearanceLightStatusBars
+            val lightNav = controller?.isAppearanceLightNavigationBars
+            if (scanning && controller != null) {
+                controller.isAppearanceLightStatusBars = false
+                controller.isAppearanceLightNavigationBars = false
+            }
+            onDispose {
+                if (controller != null && lightStatus != null && lightNav != null) {
+                    controller.isAppearanceLightStatusBars = lightStatus
+                    controller.isAppearanceLightNavigationBars = lightNav
+                }
+            }
+        }
+    }
+
     Box(
         Modifier
             .fillMaxSize()
@@ -208,8 +229,7 @@ private fun QrLoginContent(
                 if (scanning) Color.Black else MiuixTheme.colorScheme.background
             ),
     ) {
-        // 取景画面铺满整屏（含状态栏后面），标题栏浮在它上面。
-        // 之前整页套在 Scaffold 里，相机被挤在标题栏下方，顶上留一条灰边。
+        // 取景画面铺满整屏（状态栏、小白条后面都是），标题栏透明地浮在上面。
         if (scanning) {
             ScanningContent(onResult = ::onDecoded)
         }
@@ -219,21 +239,18 @@ private fun QrLoginContent(
         Column(Modifier.fillMaxSize()) {
             // 始终折叠：这一页没有可滚动的长内容，大标题只会占掉取景空间，
             // miuix 的 SmallTopAppBar 就是钉死在折叠态的版本。
+            // 取景时透明、白字（取景框外压了一层暗色，白字看得清）；确认、出错这些状态回到主题色。
+            val barContent = if (scanning) Color.White else MiuixTheme.colorScheme.onSurface
             SmallTopAppBar(
                 title = "扫一扫",
-                // 一律用主题色，不锁死黑：应用支持浅色模式和动态取色，
-                // 写死 Color.Black 在浅色主题下就是一条突兀的黑条。
-                // miuix 的 .background(color) 排在 windowInsetsPadding 之前，
-                // 实色会一直铺到屏幕顶端，状态栏区域由它自己填满——既没有透出后面的边，
-                // 也不会让标题压在相机画面上看不清。相机仍在它下面铺满，只是顶部被盖住。
-                color = MiuixTheme.colorScheme.background,
-                titleColor = MiuixTheme.colorScheme.onSurface,
+                color = if (scanning) Color.Transparent else MiuixTheme.colorScheme.background,
+                titleColor = barContent,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "返回",
-                            tint = MiuixTheme.colorScheme.onSurface,
+                            tint = barContent,
                         )
                     }
                 },

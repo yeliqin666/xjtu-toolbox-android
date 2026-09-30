@@ -534,43 +534,6 @@ internal fun MainScreen(
                     FeedbackPromptSheet()
                     PasswordInvalidatedDialog(loginState, onUpdatePassword = { router.open(AppRoute.Settings) })
                 }
-
-                if (showGlobalSearch) {
-                    CompositionLocalProvider(LocalAppBackdrop provides if (glassStyle) appBackdrop else null) {
-                        GlobalSearchScreen(
-                            onBack = { showGlobalSearch = false },
-                            onNavigate = { route ->
-                                showGlobalSearch = false
-                                router.open(route)
-                            },
-                            onAskAgent = { prompt ->
-                                showGlobalSearch = false
-                                AgentPendingPrompt.set(prompt)
-                                router.selectTab(BottomTab.PIDAI)
-                            },
-                            accountType = loginState.accountType,
-                        )
-                    }
-                }
-
-                if (showQrLogin) {
-                    QrLoginScreen(
-                        sessionManager = accountManager.sessionManager,
-                        onBack = { showQrLogin = false },
-                        // 图书馆座位码：进图书馆页并定位到这个座位
-                        onLibrarySeat = { qr ->
-                            showQrLogin = false
-                            LibraryFocus.request(
-                                LibraryFocus.Target(
-                                    campusId = LibraryQrArea.campusOf(qr.areaCode).id,
-                                    areaCode = qr.areaCode,
-                                    seatId = qr.seat,
-                                )
-                            )
-                            router.open(AppRoute.Library)
-                        },
-                    )
-                }
             }
         }
 
@@ -579,6 +542,45 @@ internal fun MainScreen(
                 anchor = { pidaiAnchor },
                 overlayOrigin = { overlayOrigin },
                 bubbleView = bubbleView,
+            )
+        }
+
+        // 搜索、扫一扫是盖满整屏的浮层：放在最外层，不放进 Scaffold 的内容区。
+        // 放在内容区里时，Scaffold 把顶栏、底栏画在内容之上，状态栏和小白条那两条被主界面盖住。
+        if (showGlobalSearch) {
+            CompositionLocalProvider(LocalAppBackdrop provides if (glassStyle) appBackdrop else null) {
+                GlobalSearchScreen(
+                    onBack = { showGlobalSearch = false },
+                    onNavigate = { route ->
+                        showGlobalSearch = false
+                        router.open(route)
+                    },
+                    onAskAgent = { prompt ->
+                        showGlobalSearch = false
+                        AgentPendingPrompt.set(prompt)
+                        router.selectTab(BottomTab.PIDAI)
+                    },
+                    accountType = loginState.accountType,
+                )
+            }
+        }
+
+        if (showQrLogin) {
+            QrLoginScreen(
+                sessionManager = accountManager.sessionManager,
+                onBack = { showQrLogin = false },
+                // 图书馆座位码：进图书馆页并定位到这个座位
+                onLibrarySeat = { qr ->
+                    showQrLogin = false
+                    LibraryFocus.request(
+                        LibraryFocus.Target(
+                            campusId = LibraryQrArea.campusOf(qr.areaCode).id,
+                            areaCode = qr.areaCode,
+                            seatId = qr.seat,
+                        )
+                    )
+                    router.open(AppRoute.Library)
+                },
             )
         }
     }
