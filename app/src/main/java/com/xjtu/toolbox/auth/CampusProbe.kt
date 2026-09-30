@@ -1,6 +1,8 @@
 package com.xjtu.toolbox.auth
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.util.Log
 import com.xjtu.toolbox.data.SecurePrefs
 import com.xjtu.toolbox.network.HttpClients
@@ -30,7 +32,7 @@ import java.util.concurrent.TimeUnit
  *    教务、ehall、思源学堂都已公网直连，拿它们探恒为 true，不能用。
  * 2. **服务器判定**：学校超级 App 用的一网通办 `networkCheck`，服务端按来源 IP 判校内外，
  *    要带一网通办令牌。必须直连发：绕 WebVPN 的话服务端看到的是网关的校内地址。
- *    说「校外」时再给探针一小段宽限，防校园网 IPv6 之类服务端不认的地址被误判。
+ *    连着 Wi-Fi 时，说「校外」后再给探针一小段宽限，防校园网 IPv6 之类服务端不认的地址被误判。
  * 3. **公网可达**：没令牌时同一个请求也能说明公网通不通，用来区分「在校外」和「根本没网」。
  *
  * 校外时探针要等满超时才算失败，有服务器判定就不用干等。
@@ -81,6 +83,20 @@ object CampusProbe {
     /** 服务器说校外后，再等探针多久。校内探针一般几十毫秒就回。 */
     private const val GRACE_MS = 800L
 
+    /**
+     * 服务器认不出的校园网地址（IPv6 之类）只会出现在 Wi-Fi 上；只走流量又没开 VPN 时
+     * 不可能在校园网里，服务器说校外就是校外，不再干等。
+     */
+    private fun graceMs(): Long {
+        if (!::app.isInitialized) return GRACE_MS
+        val cm = app.getSystemService(ConnectivityManager::class.java) ?: return GRACE_MS
+        val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return GRACE_MS
+        val cellularOnly = caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) &&
+            !caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
+            !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+        return if (cellularOnly) 0L else GRACE_MS
+    }
+
     enum class Server { ON, OFF, REACHABLE, UNREACHABLE }
 
     sealed interface Signal {
@@ -118,7 +134,7 @@ object CampusProbe {
         calls.forEach { call -> scope.launch { signals.trySend(Signal.Probe(reach(call))) } }
         scope.launch { signals.trySend(Signal.Check(ask(check, ywtbToken))) }
         return try {
-            decide(signals, calls.size).also { Log.d(TAG, "probe: $it (token=${ywtbToken != null})") }
+            decide(signals, calls.size, graceMs()).also { Log.d(TAG, "probe: $it (token=${ywtbToken != null})") }
         } finally {
             (calls + check).forEach { it.cancel() }
             scope.cancel()
