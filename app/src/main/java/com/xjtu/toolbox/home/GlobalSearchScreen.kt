@@ -53,8 +53,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
+import com.xjtu.toolbox.ui.components.FullScreenOverlay
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.vibrancy
@@ -142,7 +141,7 @@ internal object GlobalSearchIndex {
 private val QuickChips = listOf("课表", "空教室", "校园卡", "成绩", "付款码", "通知")
 
 /**
- * 全局搜索。独立 Dialog，盖过首页大标题和悬浮底栏；打开时上滑淡入。
+ * 全局搜索。盖在主界面最外层的整屏浮层（见 [FullScreenOverlay]），盖过首页大标题和悬浮底栏。
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -152,15 +151,7 @@ fun GlobalSearchScreen(
     onAskAgent: (String) -> Unit,
     accountType: AccountType = AccountType.UNDERGRADUATE,
 ) {
-    Dialog(
-        onDismissRequest = onBack,
-        properties = DialogProperties(
-            dismissOnBackPress = true,
-            dismissOnClickOutside = false,
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = true,
-        )
-    ) {
+    FullScreenOverlay {
         var query by rememberSaveable { mutableStateOf("") }
         val results by remember(accountType) { derivedStateOf { GlobalSearchIndex.search(query, accountType) } }
         val focusRequester = remember { FocusRequester() }
