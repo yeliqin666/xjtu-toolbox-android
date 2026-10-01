@@ -347,7 +347,7 @@ internal fun AgentWelcome(
 private fun pickLine(facts: WelcomeFacts, now: LocalDateTime, avoid: String?): String? {
     repeat(6) {
         val l = ChatterPool.pick(now, emptyList(), facts.nextToday?.courseName, null, facts = facts.chatter)
-            ?.takeIf { !it.id.startsWith("app_") && it.action == null }
+            ?.takeIf { !it.id.startsWith("app_") }
             ?.text
         if (l != null && l != avoid) return l
     }
@@ -427,7 +427,6 @@ private fun Hero(title: String, facts: WelcomeFacts, now: LocalDateTime) {
                 ink = look.ink,
                 paper = MiuixTheme.colorScheme.surface,
                 shape = look.shape,
-                skin = look.skin,
                 modifier = Modifier
                     .size(72.dp)
                     .graphicsLayer { translationY = -4.dp.toPx() + kotlin.math.sin(floatPhase.floatValue) * 4.dp.toPx() },

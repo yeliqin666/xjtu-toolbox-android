@@ -167,8 +167,8 @@ fun AgentScreen(
         Spacer(Modifier.width(4.dp))
     }
 
-    // 标题跟着助手名字走（用户可改名，皮肤可覆盖），进配置面板时换成「配置」。
-    val hostTitle = if (showConfig) "配置" else PidaiAppearanceHost.effectiveAssistantName(config.effectiveName)
+    // 标题跟着助手名字走（用户可改名），进配置面板时换成「配置」。
+    val hostTitle = if (showConfig) "配置" else config.effectiveName
     LaunchedEffect(hostTitle) { onTitleChange(hostTitle) }
     DisposableEffect(Unit) {
         onActionsChange(headerActions)
