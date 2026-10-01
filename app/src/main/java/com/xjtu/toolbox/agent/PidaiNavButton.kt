@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.agent
 
+import android.os.SystemClock
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -20,6 +21,7 @@ import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -60,7 +62,8 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * | IDLE    | wink      | 眨单眼、头微歪，一次性播完                    |
  * | THINKING| 轨道 orbit | 三角翻滚甩出彩色轨道环，整周期循环，生成结束为止     |
  * | ALERT   | notify    | 右上角弹出蓝色通知点并保持，循环直到提醒消失     |
- * | TAP     | comet     | 缩成小点、彩色彗尾绕它转一圈，再长回来          |
+ * | TAP     | poke      | 被按扁、眯眼，弹回来睁眼看你，0.7s            |
+ * | COMET   | comet     | 连戳 3 下的彩蛋：缩成小点、彩色彗尾绕一圈再长回  |
  *
  * 性能上最要紧的一条：底栏常驻，**待命态只有眨眼和视线漂移在动**（渲染器节流到
  * ~30fps），主动全速播动画的只有微动、提醒、被点击三种情况。
@@ -103,35 +106,33 @@ internal fun PidaiNavButton(
     // 状态互斥，优先级：点击 > 思考 > 提醒 > 偶发微动 > 待命。
     // 用一个 state 表达而不是多个 boolean，避免出现"既在彗星又在思考"的叠加态。
     var beat by remember { mutableStateOf(PidaiBeat.REST) }
+    val pokes = remember { PidaiPokes() }
     val currentThinking by rememberUpdatedState(thinking)
     val currentExcited by rememberUpdatedState(excited)
+    val poked = beat == PidaiBeat.TAP || beat == PidaiBeat.COMET
 
     // 思考态跟着生成走：一开始就顶掉提醒和微动；结束回到当时的语境。
     LaunchedEffect(thinking) {
         if (thinking) {
-            if (beat != PidaiBeat.TAP) beat = PidaiBeat.THINKING
+            if (!poked) beat = PidaiBeat.THINKING
         } else if (beat == PidaiBeat.THINKING) {
             beat = if (excited) PidaiBeat.ALERT else PidaiBeat.REST
         }
     }
     // 提醒态跟着 excited 走，但**不允许打断进行中的点击反馈和思考**：点进屁岱页的
-    // 瞬间气泡常会重新弹出，excited 翻转若直接改写 beat，彗星刚起转就被腰斩。
+    // 瞬间气泡常会重新弹出，excited 翻转若直接改写 beat，戳的反应刚开始就被腰斩。
     LaunchedEffect(excited) {
         if (excited) {
-            if (beat != PidaiBeat.TAP && beat != PidaiBeat.THINKING) beat = PidaiBeat.ALERT
+            if (!poked && beat != PidaiBeat.THINKING) beat = PidaiBeat.ALERT
         } else if (beat == PidaiBeat.ALERT) beat = PidaiBeat.REST
     }
     // 一次性段落播完自己落回静止。
     //
     // 这里用「按时长 delay」而不是「盯着渲染进度」：进度每帧都变，
     // 拿它当 LaunchedEffect 的 key 会导致协程每帧重启一次，白烧。
-    // 段落时长是常量，直接算出来等就行。
-    LaunchedEffect(beat) {
-        val holdMs = when (beat) {
-            PidaiBeat.TAP -> COMET_HOLD_MS
-            PidaiBeat.IDLE -> WINK_HOLD_MS
-            else -> return@LaunchedEffect
-        }
+    // 段落时长是常量，直接算出来等就行。带上戳的序号：连戳时从最后一下重新计时。
+    LaunchedEffect(beat, pokes.serial) {
+        val holdMs = beat.holdMs ?: return@LaunchedEffect
         delay(holdMs)
         beat = when {
             currentThinking -> PidaiBeat.THINKING
@@ -167,9 +168,10 @@ internal fun PidaiNavButton(
             .selectable(
                 selected = false,
                 onClick = {
-                    beat = PidaiBeat.TAP
+                    beat = pokes.poke()
                     scope.launch {
-                        bounce.snapTo(0.80f)
+                        // 身体自己会被按扁，外层只轻轻一缩，免得两层缩放叠成一大下
+                        bounce.snapTo(0.9f)
                         bounce.animateTo(
                             1f,
                             spring(dampingRatio = 0.32f, stiffness = Spring.StiffnessMediumLow),
@@ -226,6 +228,7 @@ internal fun PidaiNavButton(
                     shape = shape,
                     gaze = gaze,
                     glance = glance,
+                    pokeSerial = pokes.serial,
                     modifier = Modifier.size(diameter * 1.5f),
                 )
             }
@@ -277,11 +280,43 @@ private fun PlainPidaiIcon(
     }
 }
 
-/** 互斥的动画状态，优先级 TAP > THINKING > ALERT > IDLE > REST。 */
-internal enum class PidaiBeat { REST, IDLE, ALERT, TAP, THINKING }
+/** 互斥的动画状态，优先级 TAP/COMET > THINKING > ALERT > IDLE > REST。COMET 是连戳彩蛋。 */
+internal enum class PidaiBeat { REST, IDLE, ALERT, TAP, COMET, THINKING }
 
-/** wink 一次性的保持时长（bloub wink duration 1.6s）。 */
-private const val WINK_HOLD_MS = 1_600L
+/** 一次性节拍播完后保持多久再落回去；null = 持续态，不自己结束。 */
+internal val PidaiBeat.holdMs: Long?
+    get() = when (this) {
+        // wink：bloub wink duration 1.6s
+        PidaiBeat.IDLE -> 1_600L
+        // poke：0.7s 收回静息脸
+        PidaiBeat.TAP -> 700L
+        // 彗星：核在 1.85s 后开始长回、2.45s 长完，再留一点余量让尾巴融进 idle 的入场形变
+        PidaiBeat.COMET -> 2_500L
+        else -> null
+    }
 
-/** 彗星：核在 1.85s 后开始长回、2.45s 长完，再留一点余量让尾巴融进 idle 的入场形变。 */
-private const val COMET_HOLD_MS = 2_500L
+/** 连戳计数：[COMBO_TAPS] 下落在 [COMBO_WINDOW_MS] 内就放彗星彩蛋。 */
+internal class PidaiPokes {
+    private val at = LongArray(COMBO_TAPS)
+    private var count = 0
+
+    /** 每戳一下加一，交给 [BloubBotIcon] 的 pokeSerial 让同一节拍也重播。 */
+    var serial by mutableIntStateOf(0)
+        private set
+
+    /** 记一次戳，返回这下该播的节拍。 */
+    fun poke(): PidaiBeat {
+        val now = SystemClock.uptimeMillis()
+        at[count % COMBO_TAPS] = now
+        count++
+        serial++
+        // 写完后 at[count % N] 是最近 N 下里最早的那下
+        val combo = count >= COMBO_TAPS && now - at[count % COMBO_TAPS] <= COMBO_WINDOW_MS
+        if (!combo) return PidaiBeat.TAP
+        count = 0
+        return PidaiBeat.COMET
+    }
+}
+
+private const val COMBO_TAPS = 3
+private const val COMBO_WINDOW_MS = 1_200L

@@ -273,9 +273,10 @@ class BotEngine(
      * 引擎只留一格历史，形变中途再切换会把混合的起点换成被离开状态的完整姿态，
      * 而不是屏幕上那帧部分混合的图像。因此中途切换时冻结当前复合姿态，从它出发
      * 继续混合——无论连续切换多少次都保证连续。
+     * [replay] = 同一状态也从头再播（连戳），从当前画面混合过去。
      */
-    fun setState(id: String, now: Double) {
-        if (id == cur) return
+    fun setState(id: String, now: Double, replay: Boolean = false) {
+        if (id == cur && !replay) return
         val morph = BOT_STATES.getValue(cur).morph
         val enPleinFondu = prev != null && now - tCur < morph
         departFige = if (enPleinFondu) poseComposee(now) else null

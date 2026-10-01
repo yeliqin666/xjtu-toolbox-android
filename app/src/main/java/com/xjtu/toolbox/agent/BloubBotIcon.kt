@@ -61,6 +61,8 @@ internal fun BloubBotIcon(
     gaze: () -> Offset? = { null },
     /** 瞟一眼：点了别的 tab 时朝它看一下，横向的还会眨那一侧的眼。 */
     glance: PidaiGlance? = null,
+    /** 戳的序号（[PidaiPokes.serial]）：变了就把当前节拍从头再播，连戳每下都有反应。 */
+    pokeSerial: Int = 0,
 ) {
     val engine = remember { BotEngine() }
     val clock = remember { BotClock() }
@@ -89,7 +91,8 @@ internal fun BloubBotIcon(
         PidaiBeat.IDLE -> "wink"
         PidaiBeat.THINKING -> "orbit"
         PidaiBeat.ALERT -> "notify"
-        PidaiBeat.TAP -> "comet"
+        PidaiBeat.TAP -> "poke"
+        PidaiBeat.COMET -> "comet"
     }
 
     var frame by remember { mutableStateOf<BotFrame?>(null) }
@@ -104,10 +107,10 @@ internal fun BloubBotIcon(
         }
     } else {
         // 状态切换用与帧循环相同的时钟，保证 setState 的时刻与采样时刻同源。
-        LaunchedEffect(stateId) {
+        LaunchedEffect(stateId, pokeSerial) {
             val now = clock.now()
             clock.stateChangedAt = now
-            engine.setState(stateId, now)
+            engine.setState(stateId, now, replay = true)
         }
         // 形状跟着用户选择走：设置页就在底栏旁边，换形状要立刻在底栏看到 morph。
         LaunchedEffect(shape) { engine.setShape(shape, clock.now()) }
