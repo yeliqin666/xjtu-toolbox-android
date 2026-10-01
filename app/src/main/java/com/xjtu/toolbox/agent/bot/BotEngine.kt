@@ -117,6 +117,17 @@ class BotEngine(
     private var blinkAt = -10.0
     private val pts: Array<Point> = Array(PROFILE_SAMPLES) { Point(0.0, 0.0) }
 
+    // 每帧复用的路径（底栏常驻，逐帧新建会一直喂 GC），所以帧里的路径只在下次 sample 前有效。
+    // 懒建：单测在 JVM 上构造引擎，那里没有 android.graphics.Path。
+    private val bodyPath by lazy(LazyThreadSafetyMode.NONE) { Path() }
+    private val eyePaths by lazy(LazyThreadSafetyMode.NONE) { arrayOf(Path(), Path()) }
+    private val arcPaths = ArrayList<Path>()
+
+    private fun arcPath(i: Int): Path {
+        while (arcPaths.size <= i) arcPaths.add(Path())
+        return arcPaths[i]
+    }
+
     /** 用户选择的形状轮廓（球半径单位）。null = 不替换（等价圆形）。 */
     private var shape: DoubleArray? = null
     private var shapePrev: DoubleArray? = null
@@ -363,7 +374,7 @@ class BotEngine(
             sx = pose.sil.sx,
             sy = pose.sil.sy * life.breath,
         )
-        val bodyPath = closedPath(toPoints(sil, R, pts))
+        closedPath(toPoints(sil, R, pts), bodyPath)
 
         // --- 眼睛 ------------------------------------------------------------
         // 眼睛活在半径 1 的球面上；轮廓不是圆时按该方向的真实半径折算，否则会
@@ -398,6 +409,7 @@ class BotEngine(
                     hh = cfg.h * R / 2.0,
                     m00 = ax, m01 = cx2, m02 = e.x * fit + (offX + decalage.first) * R,
                     m10 = ay * k, m11 = cy2 * k, m12 = e.y * fit + (offY + decalage.second) * R,
+                    path = eyePaths[i],
                 )
                 eyes.add(
                     RenderedEye(
@@ -416,7 +428,7 @@ class BotEngine(
         // 弧线（彗星彩带）：状态声明球半径单位，引擎统一光栅化
         val arcs = pose.arcs
             .filter { it.opacity > 0.01 }
-            .map { arcRender(it.seed, it.t, R, it.opacity) }
+            .mapIndexed { i, it -> arcRender(it.seed, it.t, R, it.opacity, arcPath(2 * i), arcPath(2 * i + 1)) }
 
         // 通知点贴在轮廓上：跟随形状
         var notif: NotifDraw? = null

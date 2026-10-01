@@ -78,11 +78,12 @@ private val PI = kotlin.math.PI
  * 闭合折线 -> Catmull-Rom 三次曲线。
  *
  * 64 个点时中心差分切线已经足够：轮廓平滑到像素级，生成的路径也短。
+ * 写进 [path]（先清空）：引擎每帧复用同一个 Path，免得底栏常驻时不停分配。
  */
-fun closedPath(pts: Array<Point>): Path {
+fun closedPath(pts: Array<Point>, path: Path): Path {
+    path.rewind()
     val n = pts.size
-    if (n < 3) return Path()
-    val path = Path()
+    if (n < 3) return path
     path.moveTo(pts[0].x.toFloat(), pts[0].y.toFloat())
     val tension = 1.0 / 6.0
     for (i in 0 until n) {
@@ -124,12 +125,14 @@ fun radiusAtAngle(radii: DoubleArray, angle: Double): Double {
  * 而 moveTo/cubicTo/lineTo 工作正常（身体轮廓就用它们画的）。
  *
  * [m00] [m01] [m02] 是仿射矩阵的行优先前两行：x' = m00*x + m01*y + m02。
+ * 结果写进 [path]（先清空）。
  */
 fun transformedCapsulePath(
     hw: Double,
     hh: Double,
     m00: Double, m01: Double, m02: Double,
     m10: Double, m11: Double, m12: Double,
+    path: Path,
 ): Path {
     val hwf = maxOf(hw, 0.01)
     val hhf = maxOf(hh, 0.01)
@@ -149,7 +152,7 @@ fun transformedCapsulePath(
     fun px(x: Double, y: Double): Float = (m00 * x + m01 * y + m02).toFloat()
     fun py(x: Double, y: Double): Float = (m10 * x + m11 * y + m12).toFloat()
 
-    val path = Path()
+    path.rewind()
     path.moveTo(px(ax0, ay0), py(ax0, ay0))
     // 顶边 A -> B
     path.lineTo(px(bx0, by0), py(bx0, by0))
