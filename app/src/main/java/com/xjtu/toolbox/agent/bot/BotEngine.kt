@@ -12,9 +12,8 @@ import kotlin.math.sin
 /**
  * 无时钟引擎：sample(t) 是时间的纯函数。
  *
- * 移植自 src/bot/engine.ts，按本项目裁剪：形状固定为圆（eyefit 眼偏移恒为零，
- * 形变退化为恒等）、表情固定为平静（无混合）、无指针跟随（Look）、无轨道弧线。
- * 暂停/恢复/跳时刻都给出同一图像。
+ * 移植自 src/bot/engine.ts，按本项目裁剪：静息身体固定为云朵（不做 eyefit，眼睛在云朵里放得下）、
+ * 表情固定为平静（无混合）。暂停/恢复/跳时刻都给出同一图像。
  */
 
 class RenderedEye(
@@ -86,7 +85,7 @@ private fun blendPose(a: Pose, b: Pose, t: Double): Pose {
 }
 
 /** 单眼眨：0.12s 合上、停一下、0.2s 睁开，共约 0.4s。 */
-private fun winkLid(t: Double): Double = when {
+internal fun winkLid(t: Double): Double = when {
     t < 0.0 || t > 0.4 -> 1.0
     t < 0.12 -> 1.0 - t / 0.12
     t < 0.2 -> 0.0
@@ -98,11 +97,6 @@ class BotEngine(
     val scale: Double = 100.0,
     initial: String = "idle",
 ) {
-    companion object {
-        /** 换形状时的形变时长（秒）。与状态形变共用同一条 ease-out 曲线。 */
-        const val SHAPE_MORPH = 0.45
-    }
-
     private var cur: String = initial
     private var prev: String? = null
 
@@ -123,11 +117,6 @@ class BotEngine(
         while (arcPaths.size <= i) arcPaths.add(Path())
         return arcPaths[i]
     }
-
-    /** 用户选择的形状轮廓（球半径单位）。null = 不替换（等价圆形）。 */
-    private var shape: DoubleArray? = null
-    private var shapePrev: DoubleArray? = null
-    private var shapeAt = -10.0
 
     // 外部注视（导航栏喂进来）：目标角度由 [lookAt] 设，sample 里平滑追过去，叠在状态姿态之上
     private var lookYawTarget = 0.0
@@ -152,68 +141,13 @@ class BotEngine(
         winkAt = now
     }
 
-    /**
-     * 换形状。与状态切换一样带时刻：形状在 [SHAPE_MORPH] 内滑过去，不瞬间跳。
-     * 所有形状按同一组角度采样，所以插值半径就够了。
-     */
-    fun setShape(radii: DoubleArray?, now: Double) {
-        if (radii === shape) return
-        shapePrev = shape
-        shape = radii
-        shapeAt = now
-    }
-
-    /**
-     * 当前形状（形变中则插值）。不把 [shapePrev] 置空：`sample` 必须对时间保持纯函数，
-     * 回读过去某时刻要还原出中间帧。
-     *
-     * 开放为 internal 是为了让单测能在不构造 `android.graphics.Path` 的前提下校验形变。
-     */
-    internal fun shapeAtTime(now: Double): DoubleArray? {
-        val to = shape ?: return null
-        val from = shapePrev ?: return to
-        val k = (now - shapeAt) / SHAPE_MORPH
-        if (k >= 1.0) return to
-        val t = Easings.easeOutQuint(clamp01(k))
-        // 只在形变期间分配；形变外原样返回
-        return DoubleArray(to.size) { i -> lerp(from[i], to[i], t) }
-    }
-
-    /** 形状 morph 与状态 fondu 共用的轴向插值：一段起止值 + 曲线。 */
-    private fun surAxe(
-        a: Pair<Double, Double>,
-        b: Pair<Double, Double>,
-        debut: Double,
-        duree: Double,
-        now: Double,
-    ): Pair<Double, Double> {
-        if (a == b) return b
-        val k = (now - debut) / duree
-        if (k >= 1.0) return b
-        val t = Easings.easeOutQuint(clamp01(k))
-        return lerp(a.first, b.first, t) to lerp(a.second, b.second, t)
-    }
-
-    /**
-     * 这个状态要加给两眼的偏移。读表并插值，绝不现算——这是 eyefit 的全部要点。
-     *
-     * 在 morph 的**两端**查表（[shapePrev] 与 [shape]），而不是查插值出的轮廓：后者
-     * 每帧都是新数组、没有身份，也不在任何表里。
-     */
-    private fun decalageAtTime(now: Double, stateId: String): Pair<Double, Double> =
-        surAxe(
-            eyeOffsetFor(shapePrev, stateId),
-            eyeOffsetFor(shape, stateId),
-            shapeAt, SHAPE_MORPH, now,
-        )
-
-    private fun posed(def: StateDef, t: Double, shape: DoubleArray?): Pose {
+    private fun posed(def: StateDef, t: Double): Pose {
         var pose = def.pose(maxOf(0.0, t))
-        // 形状只替换「静息轮廓」状态的身体：其余状态的轮廓就是动画本身，不许被覆盖。
-        if (def.baseBody && shape != null) {
+        // 静息轮廓的状态身体换成云朵；其余状态的轮廓就是动画本身，不许被覆盖。
+        if (def.baseBody) {
             pose = Pose(
                 sil = Silhouette(
-                    shape,
+                    CLOUD_RADII,
                     rot = pose.sil.rot, cx = pose.sil.cx, cy = pose.sil.cy,
                     sx = pose.sil.sx, sy = pose.sil.sy,
                 ),
@@ -251,19 +185,18 @@ class BotEngine(
     }
 
     /** 正在进行的淡出的原点：冻结姿态，或前一状态按其自身时间求值（仍在动画中，这是有意的）。 */
-    private fun origine(now: Double, shape: DoubleArray?): Pose? {
+    private fun origine(now: Double): Pose? {
         departFige?.let { return it }
         val p = prev ?: return null
-        return posed(BOT_STATES.getValue(p), maxOf(0.0, now - tPrev), shape)
+        return posed(BOT_STATES.getValue(p), maxOf(0.0, now - tPrev))
     }
 
     private fun poseComposee(now: Double): Pose {
         val def = BOT_STATES.getValue(cur)
-        val shape = shapeAtTime(now)
-        val pose = posed(def, maxOf(0.0, now - tCur), shape)
+        val pose = posed(def, maxOf(0.0, now - tCur))
         val since = now - tCur
         if (since >= def.morph) return pose
-        val origine = origine(now, shape) ?: return pose
+        val origine = origine(now) ?: return pose
         return blendPose(origine, pose, Easings.easeOutQuint(clamp01(since / def.morph)))
     }
 
@@ -301,7 +234,6 @@ class BotEngine(
     fun sample(now: Double): BotFrame {
         val R = scale
         val def = BOT_STATES.getValue(cur)
-        val shape = shapeAtTime(now)
         val elapsed = maxOf(0.0, now - tCur)
         // 循环状态（轨道）：姿态时间按周期取模；每过一个接缝安排一次眨眼掩护跳变
         val poseTime: Double
@@ -314,27 +246,18 @@ class BotEngine(
             poseTime = elapsed
             blinkOrigin = blinkAt
         }
-        var pose = posed(def, poseTime, shape)
-        var decalage = decalageAtTime(now, cur)
+        var pose = posed(def, poseTime)
 
         // --- 过渡 ------------------------------------------------------------
         val since = elapsed
         // 前一状态永不清除：since < morph 足以在淡出结束后忽略它；清掉会让引擎
         // 不可复放——重读淡出结束前的时刻会找不到起点。
         if (since < def.morph) {
-            val origine = origine(now, shape)
+            val origine = origine(now)
             if (origine != null) {
                 // ease-out quint：视频实测曲线。身体不过冲。
                 // 比值有界：重读早于切换的时刻会得到负比值，extrapolate 会把轮廓甩飞。
-                val ratio = Easings.easeOutQuint(clamp01(since / def.morph))
-                pose = blendPose(origine, pose, ratio)
-                // 眼偏移跟着**激发它的那份轮廓**走同一条曲线：来自被离开的状态。
-                val quitte = prev
-                if (quitte != null) {
-                    val avant = decalageAtTime(now, quitte)
-                    decalage = lerp(avant.first, decalage.first, ratio) to
-                        lerp(avant.second, decalage.second, ratio)
-                }
+                pose = blendPose(origine, pose, Easings.easeOutQuint(clamp01(since / def.morph)))
             }
         }
 
@@ -404,8 +327,8 @@ class BotEngine(
                 val eyePath = transformedCapsulePath(
                     hw = cfg.w * R / 2.0,
                     hh = cfg.h * R / 2.0,
-                    m00 = ax, m01 = cx2, m02 = e.x * fit + (offX + decalage.first) * R,
-                    m10 = ay * k, m11 = cy2 * k, m12 = e.y * fit + (offY + decalage.second) * R,
+                    m00 = ax, m01 = cx2, m02 = e.x * fit + offX * R,
+                    m10 = ay * k, m11 = cy2 * k, m12 = e.y * fit + offY * R,
                     path = eyePaths[i],
                 )
                 eyes.add(

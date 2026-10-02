@@ -31,12 +31,4 @@ class PokeStateTest {
         val tallest = (0..70).maxOf { STATE_POKE.pose(it / 100.0).sil.sy }
         assertTrue("过冲 $tallest", tallest in 1.0..1.06)
     }
-
-    @Test
-    fun `每种形状下眯眼和睁眼都不戳出身体`() {
-        BOT_SHAPES.forEach { shape ->
-            val margin = eyeFitMargin(shape.radii, STATE_POKE.id)!!
-            assertTrue("${shape.id} 余量 $margin", margin > 0.0)
-        }
-    }
 }

@@ -1,18 +1,12 @@
 package com.xjtu.toolbox.agent.bot
 
 import androidx.compose.ui.graphics.Path
-import kotlin.math.abs
-import kotlin.math.acos
-import kotlin.math.atan2
-import kotlin.math.hypot
-import kotlin.math.pow
 
 /**
  * 一条轮廓 = 径向轮廓 r(theta) 加一个姿态。
  *
- * 所有形状都按同样数量的角度采样：任意两个形状的点一一对应，形变于是退化为
- * 半径的线性插值——这正是 bloub 不需要 path 形变库的原因。移植自 src/bot/shape.ts，
- * 只保留本项目用到的部分（圆 + 胶囊 + 通用轮廓工具）。
+ * 所有轮廓都按同样数量的角度采样：任意两个轮廓的点一一对应，状态间的形变于是退化为
+ * 半径的线性插值——这正是 bloub 不需要 path 形变库的原因。移植自 src/bot/shape.ts。
  */
 
 const val PROFILE_SAMPLES = 64
@@ -190,37 +184,18 @@ fun transformedCapsulePath(
     return path
 }
 
-/* ------------------------------------------------- 解析式形状（供形象选择） */
+/* ------------------------------------------------- 云朵身体的构造 */
 
-/**
- * 用户可选形状的几何底座，移植自 bloub 的 `shape.ts`。
- *
- * 与上方的动画轮廓不同，这些形状**不是**从参考视频实测的：它们是按原定制器
- * 网格解析构造出来的用户选择（见 BotSkins）。
- */
-
-/** 一个圆盘，供「圆的并集」「两圆凸包」两个构造器描述几何。 */
+/** 一个圆盘，供「圆的并集」描述几何。 */
 class Disc(val x: Double, val y: Double, val r: Double)
 
-/**
- * 把最大半径归一到 [max]，让所有形状在眼里「一样大」。
- *
- * 必须归一：不同构造器给出的半径尺度不同，直接并排会让三角明显比圆大。
- */
+/** 把最大半径归一到 [max]。 */
 fun normalizeRadii(radii: DoubleArray, max: Double = 1.0): DoubleArray {
     val peak = radii.maxOrNull() ?: return radii
     if (peak <= 0.0) return radii
     val k = max / peak
     return DoubleArray(radii.size) { radii[it] * k }
 }
-
-/** 超椭圆 |x/sx|^n + |y/sy|^n = 1；n = 2 是椭圆，n ≈ 4 是方圆（squircle）。 */
-fun superellipseProfile(n: Double, sx: Double = 1.0, sy: Double = 1.0): DoubleArray =
-    DoubleArray(PROFILE_SAMPLES) { i ->
-        val c = abs(COS[i] / sx).pow(n)
-        val s = abs(SIN[i] / sy).pow(n)
-        (c + s).pow(-1.0 / n)
-    }
 
 /**
  * 圆的并集的径向轮廓：r(theta) = 该方向上射线与各圆交点里最远的一个。
@@ -241,105 +216,3 @@ fun unionOfCirclesProfile(circles: List<Disc>): DoubleArray =
         }
         best
     }
-
-/**
- * 任意多边形 -> 径向轮廓，从 [cx], [cy] 处射线求交。
- *
- * 用于表达不成 r(theta) 的图形；只在加载时算一次，绝不进渲染循环。
- */
-fun profileFromPolygon(poly: List<Point>, cx: Double, cy: Double): DoubleArray {
-    val radii = DoubleArray(PROFILE_SAMPLES)
-    val n = poly.size
-    for (k in 0 until PROFILE_SAMPLES) {
-        val dx = COS[k]
-        val dy = SIN[k]
-        var best = 0.0
-        for (i in 0 until n) {
-            val a = poly[i]
-            val b = poly[(i + 1) % n]
-            val ex = b.x - a.x
-            val ey = b.y - a.y
-            val den = dx * ey - dy * ex
-            if (abs(den) < 1e-9) continue
-            val px = a.x - cx
-            val py = a.y - cy
-            val t = (px * ey - py * ex) / den // 沿射线的距离
-            val u = (px * dy - py * dx) / den // 落在线段上的位置
-            if (t > best && u >= 0.0 && u <= 1.0) best = t
-        }
-        radii[k] = best
-    }
-    return radii
-}
-
-/** 两圆的外公切线凸包：描述「胶囊」，也是竖排 "!" 的锥形杆。 */
-fun hullOfCircles(
-    x1: Double, y1: Double, r1: Double,
-    x2: Double, y2: Double, r2: Double,
-    steps: Int = 96,
-): List<Point> {
-    val dx = x2 - x1
-    val dy = y2 - y1
-    val dist = hypot(dx, dy).coerceAtLeast(1e-6)
-    val base = atan2(dy, dx)
-    val spread = acos(((r1 - r2) / dist).coerceIn(-1.0, 1.0))
-    val pts = ArrayList<Point>(steps + 2)
-    // 大圆的弧
-    for (i in 0..steps / 2) {
-        val a = base + spread + (TAU - 2 * spread) * i / (steps / 2)
-        pts.add(Point(x1 + kotlin.math.cos(a) * r1, y1 + kotlin.math.sin(a) * r1))
-    }
-    // 小圆的弧
-    for (i in 0..steps / 2) {
-        val a = base - spread + (2 * spread) * i / (steps / 2)
-        pts.add(Point(x2 + kotlin.math.cos(a) * r2, y2 + kotlin.math.sin(a) * r2))
-    }
-    return pts
-}
-
-/**
- * 圆角多边形，通过「与圆盘的 Minkowski 和」构造：每条边外推 [rc]，
- * 每个顶点变成一个半径 [rc] 的圆弧。故顶点要放在目标半径**减去** rc 处。
- * 期望顺时针多边形（屏幕系，y 向下）。
- */
-private fun roundedPolygon(verts: List<Point>, rc: Double, arcSteps: Int = 10): List<Point> {
-    val n = verts.size
-    val out = ArrayList<Point>(n * (arcSteps + 1))
-    fun normal(a: Point, b: Point): Double {
-        val dx = b.x - a.x
-        val dy = b.y - a.y
-        val len = hypot(dx, dy).coerceAtLeast(1e-6)
-        // 顺时针 + y 向下：外法线是 (dy, -dx)
-        return atan2(-dx / len, dy / len)
-    }
-    for (i in 0 until n) {
-        val prev = verts[(i - 1 + n) % n]
-        val cur = verts[i]
-        val next = verts[(i + 1) % n]
-        val a0 = normal(prev, cur)
-        val a1 = normal(cur, next)
-        var d = a1 - a0
-        while (d > PI) d -= TAU
-        while (d < -PI) d += TAU
-        for (k in 0..arcSteps) {
-            val a = a0 + d * k / arcSteps
-            out.add(Point(cur.x + kotlin.math.cos(a) * rc, cur.y + kotlin.math.sin(a) * rc))
-        }
-    }
-    return out
-}
-
-/** 圆角正多边形，内接于 [radius]。 */
-fun regularPolygonProfile(
-    sides: Int,
-    radius: Double,
-    rc: Double,
-    rotationDeg: Double = 0.0,
-): DoubleArray {
-    val rot = rotationDeg.deg2rad()
-    val verts = List(sides) { i ->
-        val a = rot + i.toDouble() / sides * TAU
-        Point(kotlin.math.cos(a) * (radius - rc), kotlin.math.sin(a) * (radius - rc))
-    }
-    return profileFromPolygon(roundedPolygon(verts, rc), 0.0, 0.0)
-}

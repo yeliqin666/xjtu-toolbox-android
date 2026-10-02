@@ -96,7 +96,7 @@ private val BLINK_RNG = createRng(0x5eed)
 private val BLINKS: DoubleArray = run {
     val out = ArrayList<Double>()
     var t = 1.4
-    while (t < 900.0) {
+    while (t < BLINK_SPAN) {
         out.add(t)
         // 两次眨眼间隔 1.9–4.6s，偶尔一个双眨
         t += 1.9 + BLINK_RNG() * 2.7
@@ -111,7 +111,11 @@ private val BLINKS: DoubleArray = run {
 /** 实测：10fps 下 1–2 帧。 */
 private const val BLINK_DUR = 0.18
 
-private fun blinkLid(t: Double): Double {
+/** 时刻表的长度；超过就从头循环，底栏常驻一刻钟后还得接着眨。 */
+private const val BLINK_SPAN = 900.0
+
+private fun blinkLid(time: Double): Double {
+    val t = time % BLINK_SPAN
     for (start in BLINKS) {
         if (t < start) break
         val k = (t - start) / BLINK_DUR

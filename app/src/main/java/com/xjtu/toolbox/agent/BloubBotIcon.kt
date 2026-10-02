@@ -50,8 +50,6 @@ internal fun BloubBotIcon(
      */
     paper: Color,
     modifier: Modifier = Modifier,
-    /** 用户选择的形状轮廓（见 [com.xjtu.toolbox.agent.bot.BOT_SHAPES]）；null = 圆形。 */
-    shape: DoubleArray? = null,
     /**
      * 非空 = 冻结在这个时刻的画面（设置页缩略图用），此时不启动帧循环、只采一帧。
      * 缩略图必须是静止的：一排会各自跑 rAF 的缩略图是没有意义的开销。
@@ -98,10 +96,9 @@ internal fun BloubBotIcon(
     var frame by remember { mutableStateOf<BotFrame?>(null) }
 
     if (frozenAt != null) {
-        // 冻结缩略图：状态与形状都摆到 0 时刻，再按 [frozenAt] 采一帧。
-        LaunchedEffect(stateId, shape, frozenAt) {
+        // 冻结缩略图：状态摆到 0 时刻，再按 [frozenAt] 采一帧。
+        LaunchedEffect(stateId, frozenAt) {
             clock.stateChangedAt = 0.0
-            engine.setShape(shape, 0.0)
             engine.reset(stateId, 0.0)
             frame = engine.sample(frozenAt)
         }
@@ -112,8 +109,6 @@ internal fun BloubBotIcon(
             clock.stateChangedAt = now
             engine.setState(stateId, now, replay = true)
         }
-        // 形状跟着用户选择走：设置页就在底栏旁边，换形状要立刻在底栏看到 morph。
-        LaunchedEffect(shape) { engine.setShape(shape, clock.now()) }
         LaunchedEffect(Unit) {
             while (true) {
                 val t = clock.now()

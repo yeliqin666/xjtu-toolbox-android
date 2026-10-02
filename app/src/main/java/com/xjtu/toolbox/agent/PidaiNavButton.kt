@@ -93,8 +93,6 @@ internal fun PidaiNavButton(
      * 用户选了具体颜色则由调用方换成该色。
      */
     ink: Color = MiuixTheme.colorScheme.onSurface,
-    /** 用户选择的形状轮廓；null = 圆形。 */
-    shape: DoubleArray? = null,
     /** 眼神：一直盯着的方向与一次性的瞟眼，见 [BloubBotIcon]。 */
     gaze: () -> Offset? = { null },
     glance: PidaiGlance? = null,
@@ -225,7 +223,6 @@ internal fun PidaiNavButton(
                     beat = beat,
                     ink = ink,
                     paper = paper,
-                    shape = shape,
                     gaze = gaze,
                     glance = glance,
                     pokeSerial = pokes.serial,

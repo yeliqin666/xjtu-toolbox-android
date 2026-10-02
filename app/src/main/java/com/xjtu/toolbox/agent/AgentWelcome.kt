@@ -424,7 +424,6 @@ private fun Hero(title: String, facts: WelcomeFacts, now: LocalDateTime) {
                 beat = beat,
                 ink = look.ink,
                 paper = MiuixTheme.colorScheme.surface,
-                shape = look.shape,
                 pokeSerial = pokes.serial,
                 modifier = Modifier
                     .size(72.dp)

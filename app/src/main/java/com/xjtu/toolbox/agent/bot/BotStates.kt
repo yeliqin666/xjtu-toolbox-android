@@ -68,7 +68,7 @@ class StateDef(
     val morph: Double,
     /** true = 入场由一次眨眼掩护 */
     val blinkIn: Boolean,
-    /** true = 身体是静息轮廓（圆），可被自定义形状替换（本移植只有圆形，恒等） */
+    /** true = 身体是静息轮廓，引擎换成云朵 */
     val baseBody: Boolean,
     /** true = 状态带静息脸 */
     val baseFace: Boolean,
