@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import com.xjtu.toolbox.agent.bot.BotEngine
 import com.xjtu.toolbox.agent.bot.BotFrame
 import com.xjtu.toolbox.agent.bot.NOTIF_BLUE
+import com.xjtu.toolbox.agent.bot.cast.CastCharacter
 
 /**
  * bloub 机器人的 Compose 渲染器：把 [BotEngine] 采出的帧画到一块小画布上。
@@ -50,6 +51,8 @@ internal fun BloubBotIcon(
      */
     paper: Color,
     modifier: Modifier = Modifier,
+    /** 用户选的角色；null = 经典屁岱（云朵）。 */
+    cast: CastCharacter? = null,
     /**
      * 非空 = 冻结在这个时刻的画面（设置页缩略图用），此时不启动帧循环、只采一帧。
      * 缩略图必须是静止的：一排会各自跑 rAF 的缩略图是没有意义的开销。
@@ -62,6 +65,10 @@ internal fun BloubBotIcon(
     /** 戳的序号（[PidaiPokes.serial]）：变了就把当前节拍从头再播，连戳每下都有反应。 */
     pokeSerial: Int = 0,
 ) {
+    if (cast != null) {
+        CastIcon(cast, beat, modifier, frozenAt, gaze, glance, pokeSerial)
+        return
+    }
     val engine = remember { BotEngine() }
     val clock = remember { BotClock() }
     val currentBeat by rememberUpdatedState(beat)
@@ -231,10 +238,10 @@ private fun DrawScope.drawFrame(f: BotFrame, ink: Color) {
 internal data class PidaiGlance(val dx: Float, val dy: Float, val serial: Int)
 
 /** 瞟一眼持续多久，然后视线回正。 */
-private const val GLANCE_SECONDS = 1.1
+internal const val GLANCE_SECONDS = 1.1
 
 /** 引擎时钟：以组合时刻为零点，帧回调和状态切换共用同一时间原点。 */
-private class BotClock {
+internal class BotClock {
     val t0: Long = System.nanoTime()
 
     /** 最近一次状态切换的时刻，供静止态的保活节流判断入场形变是否已结束。 */

@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.xjtu.toolbox.agent.bot.cast.CastCharacter
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -93,6 +94,8 @@ internal fun PidaiNavButton(
      * 用户选了具体颜色则由调用方换成该色。
      */
     ink: Color = MiuixTheme.colorScheme.onSurface,
+    /** 用户选的角色；null = 经典屁岱。 */
+    cast: CastCharacter? = null,
     /** 眼神：一直盯着的方向与一次性的瞟眼，见 [BloubBotIcon]。 */
     gaze: () -> Offset? = { null },
     glance: PidaiGlance? = null,
@@ -130,7 +133,7 @@ internal fun PidaiNavButton(
     // 拿它当 LaunchedEffect 的 key 会导致协程每帧重启一次，白烧。
     // 段落时长是常量，直接算出来等就行。带上戳的序号：连戳时从最后一下重新计时。
     LaunchedEffect(beat, pokes.serial) {
-        val holdMs = beat.holdMs ?: return@LaunchedEffect
+        val holdMs = beat.holdMs(cast) ?: return@LaunchedEffect
         delay(holdMs)
         beat = when {
             currentThinking -> PidaiBeat.THINKING
@@ -223,6 +226,7 @@ internal fun PidaiNavButton(
                     beat = beat,
                     ink = ink,
                     paper = paper,
+                    cast = cast,
                     gaze = gaze,
                     glance = glance,
                     pokeSerial = pokes.serial,
@@ -280,9 +284,18 @@ private fun PlainPidaiIcon(
 /** 互斥的动画状态，优先级 TAP/COMET > THINKING > ALERT > IDLE > REST。COMET 是连戳彩蛋。 */
 internal enum class PidaiBeat { REST, IDLE, ALERT, TAP, COMET, THINKING }
 
-/** 一次性节拍播完后保持多久再落回去；null = 持续态，不自己结束。 */
-internal val PidaiBeat.holdMs: Long?
-    get() = when (this) {
+/** 一次性节拍播完后保持多久再落回去；null = 持续态，不自己结束。新角色各有各的时长。 */
+internal fun PidaiBeat.holdMs(cast: CastCharacter?): Long? {
+    if (cast != null) {
+        val sec = when (this) {
+            PidaiBeat.IDLE -> cast.microSec
+            PidaiBeat.TAP -> cast.pokeSec
+            PidaiBeat.COMET -> cast.comboSec
+            else -> return null
+        }
+        return (sec * 1000).toLong()
+    }
+    return when (this) {
         // wink：bloub wink duration 1.6s
         PidaiBeat.IDLE -> 1_600L
         // poke：0.7s 收回静息脸
@@ -291,6 +304,7 @@ internal val PidaiBeat.holdMs: Long?
         PidaiBeat.COMET -> 2_500L
         else -> null
     }
+}
 
 /** 连戳计数：[COMBO_TAPS] 下落在 [COMBO_WINDOW_MS] 内就放彗星彩蛋。 */
 internal class PidaiPokes {

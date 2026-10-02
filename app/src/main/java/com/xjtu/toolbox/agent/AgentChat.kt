@@ -727,6 +727,7 @@ private fun PokeWhisper(modifier: Modifier = Modifier) {
                 beat = PidaiBeat.IDLE,
                 ink = look.ink,
                 paper = MiuixTheme.colorScheme.surfaceVariant,
+                cast = look.cast,
                 modifier = Modifier.size(26.dp),
             )
             Spacer(Modifier.width(8.dp))

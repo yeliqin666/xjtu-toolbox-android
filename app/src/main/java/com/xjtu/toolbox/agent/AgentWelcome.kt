@@ -366,7 +366,7 @@ private fun Hero(title: String, facts: WelcomeFacts, now: LocalDateTime) {
     var beat by remember { mutableStateOf(PidaiBeat.IDLE) }
     val pokes = remember { PidaiPokes() }
     LaunchedEffect(pokes.serial) {
-        delay(beat.holdMs ?: return@LaunchedEffect)
+        delay(beat.holdMs(look.cast) ?: return@LaunchedEffect)
         beat = PidaiBeat.REST
     }
     // 已经在屁岱页又点了底栏屁岱：那句闲话由这里说，不从底栏冒泡
@@ -424,6 +424,7 @@ private fun Hero(title: String, facts: WelcomeFacts, now: LocalDateTime) {
                 beat = beat,
                 ink = look.ink,
                 paper = MiuixTheme.colorScheme.surface,
+                cast = look.cast,
                 pokeSerial = pokes.serial,
                 modifier = Modifier
                     .size(72.dp)
