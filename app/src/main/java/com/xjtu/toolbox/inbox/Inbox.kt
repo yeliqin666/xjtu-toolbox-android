@@ -93,6 +93,22 @@ object InboxCategories {
     fun school(label: String) = SCHOOL_PREFIX + label
     fun isSchool(key: String) = key.startsWith(SCHOOL_PREFIX)
     fun schoolLabel(key: String) = key.removePrefix(SCHOOL_PREFIX)
+
+    /** 每类一个颜色（ARGB），收纳页图标和桌面小组件的色条共用。 */
+    fun argb(category: String): Int = when (category) {
+        SCHOOL_TODO -> 0xFF3B82F6
+        BOOKING -> 0xFF14B8A6
+        LIBRARY -> 0xFF0D9488
+        LMS -> 0xFF8B5CF6
+        COUPON -> 0xFFF97316
+        JUDGE -> 0xFFEC4899
+        GRADE -> 0xFFEAB308
+        SCHEDULE -> 0xFF6366F1
+        ATTENDANCE -> 0xFFEF4444
+        NOTICE -> 0xFF10B981
+        BULLETIN -> 0xFF0EA5E9
+        else -> 0xFF64748B
+    }.toInt()
 }
 
 /** 纯规则，不碰存储，便于单测。 */
@@ -229,6 +245,8 @@ object InboxStore {
         prefs(account).edit().putString("data", AppJson.encodeToString(next)).apply()
         cached = AccountContext.suffixFor(account) to next
         version++
+        // 当前账号的待办变了就重画桌面小组件
+        if (AccountContext.suffixFor(account) == AccountContext.safeSuffix()) runCatching { com.xjtu.toolbox.widget.TodoWidgetUpdater.requestUpdate(app) }
     }
 
     /** 当前账号的快照；在 Composable 里调用会随写入重组。 */
