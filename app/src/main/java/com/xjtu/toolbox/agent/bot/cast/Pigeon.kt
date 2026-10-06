@@ -7,8 +7,12 @@ import kotlin.math.sin
 /**
  * 咕：侧身朝右的一只胖鸽子，脑袋直接长在圆滚滚的身子上、没有脖子。喉咙一圈绿紫流光、翅尖两道黑杠、
  * 小黑喙加白鼻瘤、黑豆豆眼。
- * 待命原地走、脑袋一伸一缩（鸽子走路的招牌动作）；微动鼓胸鞠躬「咕——」；思考低头啄啄啄；提醒抬头瞪眼；
- * 被戳放你鸽子：扑棱着飞到角落里悬着看你，再若无其事地落回来；彩蛋直接飞走，只留一根羽毛，过一会儿从左边踱回来。
+ * 待命原地走、脑袋一伸一缩（鸽子走路的招牌动作）。动作都是整只鸽子在动：
+ * - 微动：「咕——」，胸鼓起来一大圈、深深鞠两个躬；
+ * - 思考：整只往前一栽一栽地啄地，啄一下溅起几粒米；
+ * - 提醒：蹦一下，挺直伸长脖子瞪眼；
+ * - 被戳：放你鸽子，扑棱着飞到角落里悬着看你，再若无其事地落回来；
+ * - 彩蛋：直接飞走，只留一根羽毛，过一会儿从左边踱回来。
  */
 object Pigeon : CastCharacter("pigeon", "咕") {
     override val microSec = 1.6
@@ -26,6 +30,10 @@ object Pigeon : CastCharacter("pigeon", "咕") {
     private const val CERE = 0xFFF2EFE8
     private const val BEAK = 0xFF4A4C57
     private const val FOOT = 0xFFFF7E8A
+    private const val SEED = 0xFFE2B866
+
+    /** 啄一下的周期。 */
+    private const val PECK = 0.42
 
     override fun draw(s: Sketch, p: CastPose) {
         val now = p.now
@@ -93,14 +101,33 @@ object Pigeon : CastCharacter("pigeon", "咕") {
         val w = walk.coerceAtMost(1.0) * (1 - think)
         val thrust = (if (hb < 0.22) mix(-9.0, 11.0, ss(hb / 0.22)) else mix(11.0, -9.0, (hb - 0.22) / 0.78)) * w
         val step = sin(now * Sketch.TAU / period) * w
-        val peck = think * abs(sin(tt * Math.PI / 0.42)).pow(3)
-        val coo = micro * bump(tm / 1.5)
+        val pp = (tt % PECK) / PECK
+        val peck = think * abs(sin(pp * Math.PI)).pow(3)
+        // 咕——：胸鼓起来，深深鞠两个躬
+        val coo = micro * window(tm, 0.0, 0.2, 1.3, 1.6)
+        val bow = micro * (bump(tm / 0.7) + bump((tm - 0.75) / 0.7))
         val up = alert * (0.8 + 0.2 * sin(ta * 5))
+        val hopA = alert * 14 * bump(ta / 0.35)
         val wide = maxOf(poke * window(tp, 0.0, 0.05, 0.5, 0.7), alert)
 
+        // 啄一下溅起几粒米
+        if (think > 0.01 && pp > 0.5) {
+            val age = (pp - 0.5) * PECK
+            for (i in 0 until 3) {
+                val vx = 30.0 + i * 22
+                val vy = -60.0 - i * 18
+                s.dot(92 + vx * age, 96 + vy * age + 260 * age * age, 4.0, Tone.COLOR, think * (1 - ramp(age, 0.12, 0.21)), SEED)
+            }
+        }
+
         s.group {
-            translate(px, py)
+            translate(px, py - hopA)
             scale(k)
+            // 整只鸽子以脚为支点：啄的时候往前栽，咕的时候鞠躬，提醒时挺直伸长
+            translate(0.0, 100.0)
+            rotate(11 * peck + 14 * bow)
+            scale(1 - 0.05 * up, 1 + 0.1 * up)
+            translate(0.0, -100.0)
 
             // 粉脚丫，一抬一落
             if (flap < 0.5) {
@@ -119,7 +146,7 @@ object Pigeon : CastCharacter("pigeon", "咕") {
             s.stroke(8.0, TAIL)
 
             // 胖身子：一整块圆面包，鼓胸时再胀一圈
-            val puff = 1 + 0.08 * coo
+            val puff = 1 + 0.16 * coo
             s.blob(-8.0, 38.0 + step * 1.5) { superR(it, 90.0 * puff, 62.0 * puff, 2.4) }
             s.fill(BODY)
 
@@ -141,8 +168,8 @@ object Pigeon : CastCharacter("pigeon", "咕") {
 
             // 脑袋：长在身子上的一个圆包，没有脖子；走路一伸一缩，啄的时候往前下方扎，提醒时抬头
             s.group {
-                translate(38.0 + thrust + 22 * peck, -24.0 + 44 * peck + 8 * coo - 8 * up)
-                rotate(34 * peck + 12 * coo - 8 * up)
+                translate(38.0 + thrust + 10 * peck, -24.0 + 40 * peck + 6 * bow - 16 * up)
+                rotate(30 * peck + 12 * bow - 8 * up)
                 s.circle(0.0, 0.0, 44.0)
                 s.fill(HEAD)
                 // 喉咙一圈绿紫流光

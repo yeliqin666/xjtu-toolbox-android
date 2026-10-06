@@ -5,9 +5,13 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * 噗：一团嫩绿色的屁，头上飘着三道臭味线，屁股后面拖两小团。待命慢慢胀缩、臭味线一缕缕往上飘；
- * 微动打个小嗝漏一小团；思考憋气越憋越鼓、憋不住了漏一点；提醒鼓起来；
- * 被戳「噗」地泄气，像松了口的气球乱窜再瘪着鼓回来；彩蛋炸成一圈小屁，聚回来还打个嗝。
+ * 噗：一团嫩绿色的屁，头上飘着三道臭味线，屁股后面拖两小团。待命慢慢胀缩、臭味线一缕缕往上飘。
+ * 动作都是整团在变形：
+ * - 微动：打个嗝，一蹦，漏一小团；
+ * - 思考：憋气，越憋越鼓、身上的鼓包越顶越乱、抖个不停，憋不住了像火箭一样往上一窜、喷出一大团；
+ * - 提醒：猛地鼓起来再回弹，臭味线乱飘；
+ * - 被戳：「噗」地泄气，瘪成一半，像松了口的气球满画布乱窜，再鼓回来；
+ * - 彩蛋：炸成一圈小屁，聚回来还打个嗝。
  */
 object Puff : CastCharacter("puff", "噗") {
     override val microSec = 1.4
@@ -31,35 +35,42 @@ object Puff : CastCharacter("puff", "噗") {
         val hu = (tt % 3.0) / 3.0
         val hold = think * (if (hu < 0.85) ss(hu / 0.85) else 1 - ss((hu - 0.85) / 0.15))
         val leakT = think * (if (hu >= 0.85) (hu - 0.85) / 0.15 else -1.0)
+        // 憋不住那一下：往上一窜
+        val rocket = think * (if (hu >= 0.85) bump((hu - 0.85) / 0.15) else 0.0)
         val hiccup = micro * bump((tm - 0.1) / 0.4)
+        // 提醒：猛地鼓起来再回弹
+        val inflate = alert * (0.18 * wobble(ta, 11.0, 3.5) + 0.06)
 
         // 泄气乱窜
         val fu = ramp(tp, 0.1, 1.05)
         val flying = poke * (if (tp in 0.1..1.05) 1.0 else 0.0)
-        val deflate = poke * (0.42 * ss(ramp(tp, 0.1, 0.95)) - 0.42 * ss(ramp(tp, 1.1, 1.6)) +
-            0.06 * wobble(tp - 1.5, 14.0, 6.0) * (if (tp > 1.5) 1.0 else 0.0))
-        val fx = poke * 30 * sin(fu * Sketch.TAU * 2.2 + 0.3) * bump(fu)
-        val fy = poke * 24 * sin(fu * Sketch.TAU * 3.1 + 1.2) * bump(fu)
-        val spin = poke * 720 * ss(fu)
+        val deflate = poke * (0.52 * ss(ramp(tp, 0.1, 0.45)) - 0.52 * ss(ramp(tp, 1.1, 1.6)) +
+            0.08 * wobble(tp - 1.5, 14.0, 6.0) * (if (tp > 1.5) 1.0 else 0.0))
+        val fx = poke * 44 * sin(fu * Sketch.TAU * 2.2 + 0.3) * bump(fu)
+        val fy = poke * 34 * sin(fu * Sketch.TAU * 3.1 + 1.2) * bump(fu)
+        val spin = poke * 1080 * ss(fu)
 
         // 彩蛋：散成一圈再聚回来
         val gone = combo * window(tc, 0.12, 0.28, 1.7, 1.9)
         val spread = combo * 78 * ss(ramp(tc, 0.15, 0.6)) * (1 - ss(ramp(tc, 1.4, 1.9)))
         val burp = combo * bump((tc - 2.1) / 0.35)
 
-        val S = (1 + 0.03 * sin(now * 1.6) + 0.11 * hold + 0.1 * alert + 0.06 * hiccup) * (1 - deflate) * (1 - gone)
-        val tremble = hold * 2.5 + alert * 1.5
+        val S = (1 + 0.03 * sin(now * 1.6) + 0.22 * hold + inflate + 0.08 * hiccup) * (1 - deflate) * (1 - gone)
+        val tremble = hold * 5 + alert * 2
         val cx = fx + sin(now * 61) * tremble
-        val cy = 12 + 4 * sin(now * 1.1) - 8 * hiccup - 8 * burp + fy + cos(now * 53) * tremble
+        val cy = 12 + 4 * sin(now * 1.1) - 18 * hiccup - 8 * burp - 16 * rocket + fy + cos(now * 53) * tremble
+        // 身上鼓包的幅度：憋得越狠越乱
+        val lumps = 0.1 + 0.2 * hold + 0.08 * alert
 
         // 臭味线：三道波浪往上飘，一道接一道
         val stinkA = (1 - flying) * (1 - gone) * (1 - hold)
         if (stinkA > 0.01) {
+            val wild = 1 + 1.5 * alert
             for (k in 0 until 3) {
-                val ph = (now * 0.45 + k / 3.0) % 1.0
+                val ph = (now * 0.45 * wild + k / 3.0) % 1.0
                 val x0 = cx + (k - 1) * 34.0
-                val y0 = cy - R * S - 2 - ph * 12
-                s.trace(11, false, { u -> x0 + 5 * sin(u * Sketch.TAU * 1.5 + now * 2 + k) }, { u -> y0 - u * 32 })
+                val y0 = maxOf(cy - R * S - 2 - ph * 12, -86.0)
+                s.trace(11, false, { u -> x0 + 5 * wild * sin(u * Sketch.TAU * 1.5 + now * 2 * wild + k) }, { u -> y0 - u * 32 })
                 s.stroke(7.0, STINK, stinkA * bump(ph))
             }
         }
@@ -68,14 +79,17 @@ object Puff : CastCharacter("puff", "噗") {
             s.group {
                 translate(cx, cy)
                 rotate(spin)
+                // 往上窜时拉长，打嗝时压扁
+                scale(1 - 0.1 * rocket + 0.08 * hiccup, 1 + 0.12 * rocket - 0.1 * hiccup)
                 // 屁股后面拖着的两小团
-                s.circle(-R * S * 0.98, R * S * 0.62, 17 * S)
+                val ts = minOf(S, 1.05)
+                s.circle(-R * ts * 0.98, R * ts * 0.62, 17 * ts)
                 s.fill(GAS)
-                s.circle(-R * S * 1.22, R * S * 0.86, 10 * S)
+                s.circle(-R * ts * 1.22, R * ts * 0.86, 10 * ts)
                 s.fill(GAS)
                 // 云边：几个往外鼓的小团
                 s.blob(0.0, 0.0, 70) { th ->
-                    R * S * (0.93 + 0.1 * abs(sin(3.5 * th + now * 0.3)) + 0.025 * sin(2 * th - now * 0.25))
+                    R * S * (1.03 - lumps + lumps * abs(sin(3.5 * th + now * (0.3 + 3 * hold))) + 0.025 * sin(2 * th - now * 0.25))
                 }
                 s.fill(GAS)
 
@@ -99,11 +113,20 @@ object Puff : CastCharacter("puff", "噗") {
                 s.fill(GAS, flying * (0.85 - k * 0.2))
             }
         }
-        // 嗝、漏气：一小团往后上方飘走
-        val belch = maxOf(if (micro > 0.01) ramp(tm, 0.2, 1.2) else 0.0, leakT)
+        // 嗝：一小团往后上方飘走
+        val belch = if (micro > 0.01) ramp(tm, 0.2, 1.2) else 0.0
         if (belch > 0 && belch < 1) {
             s.circle(cx - 80 - belch * 20, cy + 40 - belch * 40, 9 + belch * 8)
             s.fill(GAS, 0.85 * (1 - belch))
+        }
+        // 憋不住喷出去的一大团：往下炸开
+        if (leakT > 0 && leakT < 1) {
+            for (k in 0 until 3) {
+                val a = 1.2 + k * 0.5
+                val d = 40 + 46 * ss(leakT)
+                s.circle(cos(a) * d, 30 + sin(a) * d * 0.7, (14 + 10 * leakT) * (1 - 0.2 * k))
+                s.fill(GAS, 0.85 * (1 - leakT))
+            }
         }
         if (combo > 0.01) {
             val u = ramp(tc, 2.1, 2.7)

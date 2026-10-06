@@ -1,17 +1,22 @@
 package com.xjtu.toolbox.agent.bot.cast
 
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
 
 /**
  * 喵：一颗橘色虎斑猫头。粉耳朵、额头三道虎斑、白嘴套、粉鼻头、「ω」嘴，黄绿色竖瞳猫眼。
- * 待命偶尔抖耳朵、瞳孔跟着视线；微动是猫式慢眨眼；思考时盯着绕头转的毛线球、瞳孔放大成圆的；
- * 提醒竖耳、瞳孔放大；被戳是「猫猫震惊」表情包：一蹦、瞪圆眼、瞳孔缩成一点、小嘴「o」；彩蛋缩成一块猫猫面包。
+ * 待命偶尔抖耳朵、瞳孔跟着视线。动作都是整颗头在动：
+ * - 微动：歪头慢眨眼（猫式「我爱你」）；
+ * - 思考：毛线球绕着头转，整颗头跟着球歪来歪去、瞳孔放大成圆的，球转到前面时伸出肉垫爪子拍它；
+ * - 提醒：耳朵唰地竖高、整颗头往上一弹；
+ * - 被戳：「猫猫震惊」表情包：蹦起来、浑身炸毛成一圈尖刺、瞪圆眼、瞳孔缩成一点、小嘴「o」；
+ * - 彩蛋：缩成一块猫猫面包，再化成一摊液体猫，最后弹回来。
  */
 object Cat : CastCharacter("cat", "喵") {
     override val microSec = 1.6
     override val pokeSec = 1.0
-    override val comboSec = 2.6
+    override val comboSec = 2.8
 
     private const val FUR = 0xFFF2A65A
     private const val STRIPE = 0xFFD97F2E
@@ -21,6 +26,7 @@ object Cat : CastCharacter("cat", "喵") {
     private const val IRIS = 0xFFB9DA4E
     private const val MOUTH = 0xFF6B3324
     private const val YARN = 0xFFFF7FA8
+    private const val BEAN = 0xFFFFA3AE
 
     private val twitchL = Beats(0xca71, 4.0, 9.0, 2.0)
     private val twitchR = Beats(0xca72, 5.0, 10.0, 4.5)
@@ -33,34 +39,49 @@ object Cat : CastCharacter("cat", "喵") {
         val poke = p.amt(Act.POKE); val tp = p.t(Act.POKE)
         val combo = p.amt(Act.COMBO); val tc = p.t(Act.COMBO)
 
-        // 震惊：一下蹦起来，定住，再慢慢松下来
+        // 震惊：蹦起来、炸毛，定住，再慢慢松下来
         val shock = poke * window(tp, 0.0, 0.06, 0.6, 0.85)
-        val hop = poke * 5 * bump(tp / 0.3)
-        val loaf = combo * window(tc, 0.0, 0.4, 2.0, 2.5)
+        val poof = poke * window(tp, 0.02, 0.1, 0.55, 0.85)
+        val hop = poke * 12 * bump(tp / 0.32)
+        // 面包 → 液体猫 → 弹回来
+        val loaf = combo * window(tc, 0.0, 0.4, 2.2, 2.6)
+        val melt = combo * window(tc, 0.9, 1.4, 1.8, 2.2)
+        val popBack = combo * wobble(tc - 2.3, 16.0, 6.0)
+        // 提醒：往上一弹，耳朵竖高
+        val spring = alert * wobble(ta, 15.0, 4.5)
         val perk = maxOf(alert, shock) * (1 - loaf)
+        val tilt = micro * bump(tm / 1.5)
 
+        // 毛线球绕头转；转到前面时伸爪拍它
         val ang = tt * 2.4
+        val ballX = cos(ang) * 94
+        val ballY = 24 + 34 * sin(ang)
+        val swipe = think * (if (sin(ang) > 0.55) bump((sin(ang) - 0.55) / 0.45) else 0.0)
         val lookX = mix(p.lookX, cos(ang), think)
         val lookY = mix(p.lookY, 0.5 * sin(ang), think)
 
-        val rx = mix(100.0, 108.0, loaf)
-        val ry = mix(76.0, 58.0, loaf) * (1 + 0.012 * p.breath)
-        val cy = mix(24.0, 40.0, loaf)
+        val rx = mix(100.0, 108.0, loaf) + 14 * melt
+        val ry = (mix(76.0, 58.0, loaf) - 16 * melt) * (1 + 0.012 * p.breath)
+        val cy = mix(24.0, 40.0, loaf) + 14 * melt
 
-        if (think > 0.01 && sin(ang) < 0) yarn(s, ang, think)
+        if (think > 0.01 && sin(ang) < 0) yarn(s, ballX, ballY, ang, think)
 
         s.group {
             // 以下巴为支点
-            translate(0.0, cy + ry - hop)
-            scale(1 + 0.05 * shock, 1 + 0.03 * shock + 0.03 * wobble(tp - 0.06, 30.0, 6.0) * poke)
-            rotate(p.lookX * 4 * (1 - shock) + think * 6 * cos(ang))
+            translate(think * cos(ang) * 8, cy + ry - hop)
+            scale(1 + 0.05 * shock - 0.06 * spring + 0.08 * popBack, 1 + 0.04 * shock + 0.1 * spring - 0.1 * popBack)
+            rotate(p.lookX * 4 * (1 - shock) + think * 11 * cos(ang) + 14 * tilt)
             translate(0.0, -ry)
 
             val twL = 16 * wobble(twitchL.since(now), 30.0, 8.0)
             val twR = 16 * wobble(twitchR.since(now), 30.0, 8.0)
-            ear(s, -1, rx, ry, twL, perk, loaf)
-            ear(s, 1, rx, ry, twR, perk, loaf)
-            s.blob(0.0, 0.0) { superR(it, rx, ry, 2.2) }
+            ear(s, -1, rx, ry, twL, perk, loaf + melt * 0.5)
+            ear(s, 1, rx, ry, twR, perk, loaf + melt * 0.5)
+            // 炸毛：轮廓变成一圈尖刺
+            s.blob(0.0, 0.0, 112) { th ->
+                val saw = 1 - abs(((th / Sketch.TAU * 14) % 1.0) * 2 - 1)
+                superR(th, rx, ry, 2.2) * (1 + 0.14 * poof * saw - 0.03 * poof)
+            }
             s.fill(FUR)
 
             // 额头三道虎斑
@@ -83,7 +104,7 @@ object Cat : CastCharacter("cat", "喵") {
             s.fill(NOSE)
             s.stroke(5.0, NOSE)
             if (shock > 0.3) {
-                s.ellipse(0.0, my + 10, 6.0, 8.0 * shock)
+                s.ellipse(0.0, my + 10, 6.0, 9.0 * shock)
                 s.fill(MOUTH)
             } else {
                 s.moveTo(-15.0, my + 1)
@@ -109,13 +130,23 @@ object Cat : CastCharacter("cat", "喵") {
             }
         }
 
-        if (think > 0.01 && sin(ang) >= 0) yarn(s, ang, think)
+        if (think > 0.01 && sin(ang) >= 0) yarn(s, ballX, ballY, ang, think)
+        // 肉垫爪子：从下面伸上来拍球
+        if (swipe > 0.02) {
+            val px = mix(cos(ang).coerceIn(-0.6, 0.6) * 60, ballX * 0.9, swipe)
+            val py = mix(100.0, ballY + 16, swipe)
+            s.circle(px, py, 19.0)
+            s.fill(FUR)
+            s.ellipse(px, py + 3, 8.0, 6.5)
+            s.fill(BEAN)
+            for (k in -1..1) s.dot(px + k * 9.0, py - 9 - abs(k) * -2.0, 3.6, Tone.COLOR, 1.0, BEAN)
+        }
         s.badge(alert, ta)
     }
 
     /** 猫眼：深色眼眶 + 黄绿虹膜 + 竖瞳 + 高光。[open] 太小就画成闭眼弧线。 */
     private fun catEye(s: Sketch, x: Double, y: Double, open: Double, lx: Double, ly: Double, dilate: Double, shock: Double) {
-        val r = 16.0 * (1 + 0.25 * shock)
+        val r = 16.0 * (1 + 0.3 * shock)
         if (open < 0.22) {
             s.moveTo(x - r, y)
             s.quadTo(x, y + r * 0.7, x + r, y)
@@ -129,19 +160,19 @@ object Cat : CastCharacter("cat", "喵") {
         s.fill(if (shock > 0.3) WHITE else IRIS)
         val px = x + lx * r * 0.3 * (1 - shock)
         val py = y + ly * ry * 0.2 * (1 - shock)
-        val pw = mix(mix(4.5, 10.0, dilate), 4.0, shock)
+        val pw = mix(mix(4.5, 11.0, dilate), 4.0, shock)
         val ph = mix(mix(r * 0.85, r * 0.8, dilate), 4.0, shock) * open
         s.ellipse(px, py, pw, ph)
         s.fill(EYE_DARK)
         s.dot(px + pw * 0.4 + 2, py - ph * 0.45, 3.6, Tone.COLOR, 1.0, WHITE)
     }
 
-    /** 耳朵：底边贴在头顶，内侧一块粉。[twitch] 抖动角度，[perk] 竖高。 */
-    private fun ear(s: Sketch, side: Int, rx: Double, ry: Double, twitch: Double, perk: Double, loaf: Double) {
+    /** 耳朵：底边贴在头顶，内侧一块粉。[twitch] 抖动角度，[perk] 竖高，[flat] 面包 / 液体猫时压平。 */
+    private fun ear(s: Sketch, side: Int, rx: Double, ry: Double, twitch: Double, perk: Double, flat: Double) {
         s.group {
             translate(side * rx * 0.54, -ry * 0.7)
-            rotate(side * (16 + 16 * loaf) + twitch * side)
-            val h = (48 + 8 * perk) * (1 - 0.35 * loaf)
+            rotate(side * (16 + 16 * flat) + twitch * side)
+            val h = (48 + 16 * perk) * (1 - 0.35 * flat.coerceAtMost(1.0))
             s.poly(-30.0, 22.0, -4.0 * side, -h, 30.0, 22.0)
             s.fill(FUR)
             s.stroke(14.0, FUR)
@@ -151,9 +182,9 @@ object Cat : CastCharacter("cat", "喵") {
         }
     }
 
-    private fun yarn(s: Sketch, ang: Double, amount: Double) {
+    private fun yarn(s: Sketch, x: Double, y: Double, ang: Double, amount: Double) {
         val r = 13.0 + 3 * sin(ang)
-        s.circle(cos(ang) * 94, 24 + 34 * sin(ang), r * amount)
+        s.circle(x, y, r * amount)
         s.fill(YARN)
     }
 }
