@@ -1,9 +1,9 @@
 package com.xjtu.toolbox.ui.components
 
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
 
-/** [morphPhaseToSegment] 是 PR X 形变动画里唯一的纯逻辑，其余部分都要靠 Canvas 画出来才能看。 */
+/** [morphPhaseToSegment] 是形变动画里唯一的纯逻辑，其余部分都要靠 Canvas 画出来才能看。 */
 class MorphingLoaderTest {
 
     @Test

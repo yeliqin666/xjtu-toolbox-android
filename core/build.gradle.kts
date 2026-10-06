@@ -116,6 +116,10 @@ kotlin {
         }
         androidMain.dependencies {
             implementation(libs.ktor.client.okhttp)
+            // 形状形变加载器（ui/components/MorphingLoader 的 Android actual）。
+            // 这个库**没有 KMP 发布**（只有 Android 变体），所以只能待在 androidMain ——
+            // 正是它把 MorphingLoader 逼成了一个平台切口（其余端走圆环降级）。
+            implementation(libs.androidx.graphics.shapes)
         }
         jvmMain.dependencies {
             // 探针阶段沿用 App 现在的引擎，好让「换 Ktor」的差异只在 Ktor 这一层，
