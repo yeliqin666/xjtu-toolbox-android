@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.agent
 
+import com.xjtu.toolbox.util.toKx
 import com.xjtu.toolbox.ui.components.pressScale
 import android.content.Context
 import androidx.compose.foundation.background
@@ -273,7 +274,7 @@ internal fun AgentWelcome(
     val facts by produceState(WelcomeFacts(), context) {
         value = withContext(Dispatchers.IO) { WelcomeFactsLoader.load(context, now) }
     }
-    val greeting = com.xjtu.toolbox.home.Greeting.of(now.toLocalTime())
+    val greeting = com.xjtu.toolbox.home.Greeting.of(now.toLocalTime().toKx())
     val primary = MiuixTheme.colorScheme.primary
 
     Column(
@@ -346,7 +347,7 @@ internal fun AgentWelcome(
 /** 挑一句闲话当问候的第二行；避开推广句和带动作的句子，也避开刚说过的那句。 */
 private fun pickLine(facts: WelcomeFacts, now: LocalDateTime, avoid: String?): String? {
     repeat(6) {
-        val l = ChatterPool.pick(now, emptyList(), facts.nextToday?.courseName, null, facts = facts.chatter)
+        val l = ChatterPool.pick(now.toKx(), emptyList(), facts.nextToday?.courseName, null, facts = facts.chatter)
             ?.takeIf { !it.id.startsWith("app_") && it.action == null }
             ?.text
         if (l != null && l != avoid) return l

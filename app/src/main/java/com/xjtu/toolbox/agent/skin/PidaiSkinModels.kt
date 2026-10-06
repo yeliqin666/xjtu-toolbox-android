@@ -2,7 +2,9 @@ package com.xjtu.toolbox.agent.skin
 
 import com.xjtu.toolbox.agent.bot.SkinOutline
 import com.xjtu.toolbox.agent.bot.SkinTransform
-import java.time.DayOfWeek
+// DayOfWeek 用 kotlinx.datetime 的：:core 里的 ChatterLine.weekdays 已经是那个类型
+//（ChatterPool 搬进 :core 时随 java.time 一起迁的）。两边不一致会在 :app 编不过。
+import kotlinx.datetime.DayOfWeek
 
 data class PidaiSkinManifest(
     val formatVersion: Int,

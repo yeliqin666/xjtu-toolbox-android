@@ -15,6 +15,10 @@ plugins {
     // AGP 9 的 KMP Android 库插件。同样不带版本（根工程已 apply false 钉死）。
     // 没有它 :app 就消费不了 :core：KMP 的 jvm 变体对 Android 消费者不可见（平台属性不匹配）。
     id("com.android.kotlin.multiplatform.library")
+    // 第 3 步（按屏搬 UI 进 commonMain）需要 Compose 的**完整 UI 栈**与 Compose 编译器。
+    // 版本同样在根工程钉死；CMP 1.12.1 与 :app 的 compose ui 1.12.1 同版。
+    alias(libs.plugins.compose.multiplatform)
+    alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
 }
 
@@ -64,12 +68,29 @@ kotlin {
             implementation(libs.ktor.serialization.kotlinx.json)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)
-            // 只放「无 Composable 的绘图基础类型」：Color / Path / geometry / unit。
-            // 它们在 Compose Multiplatform 里是 common 的，所以 agent/bot、game 这些
-            // 只用到绘图类型的文件可以进 commonMain（比交接文档 §10 的「:core 不含任何
-            // androidx.compose 类型」放宽了一档，是明确拍板过的取舍）。
-            // 用 api 而不是 implementation：搬进来的文件会把 Color/Path 暴露在公开 API 上。
-            api(libs.compose.ui.graphics)
+            // ── 第 3 步的使能层：Compose 的**完整 UI 栈**接进来 ──────────────────
+            // 交接文档 §10 原本写「:core 里不要混任何 androidx.compose 类型」，那条针对的是
+            // **第 1 步**（让 :core 保持纯净，鸿蒙若走非 Compose 方案不返工）。第 3 步要求
+            // 「按屏搬 UI 进 commonMain」，所以 UI 类型必须进来 —— 这是明确拍板过的取舍：
+            // 若鸿蒙最终选 Kuikly（非 Compose），搬进来的 UI 层要返工，非 UI 层不受影响。
+            //
+            // 这些坐标都是 Compose Multiplatform 的：android 变体是空壳转发到 androidx.compose，
+            // 所以与 :app 的 compose BOM 不会重复类（版本同为 1.12.1）。
+            api(compose.runtime)
+            api(compose.foundation)
+            api(compose.ui)
+            api(compose.animation)
+            // MIUIX：与 :app 同一套组件库（同版本、同源）。用 KMP 根模块（无 -android 后缀）。
+            api(libs.miuix.ui.kmp)
+            api(libs.miuix.icons.kmp)
+            api(libs.miuix.nav.kmp)
+            api(libs.miuix.preference.kmp)
+            api(libs.miuix.squircle.kmp)
+            // JetBrains 版 lifecycle：ViewModel / viewModelScope / collectAsStateWithLifecycle。
+            // 与 :app 的 androidx.lifecycle 同版（2.11.0），只换组名不换版本。
+            api(libs.jb.lifecycle.viewmodel)
+            api(libs.jb.lifecycle.viewmodel.compose)
+            api(libs.jb.lifecycle.runtime.compose)
             // java.time 不是多平台的（在 JVM 上也是默认导入，所以 import 判据看不见）。
             // 用 api 而非 implementation：CourseTable.termStart 是公开的 LocalDate，
             // 消费方（:web / 将来的 :platform）必须能在自己的编译类路径上看到这个类型。

@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.schedule
 
+import com.xjtu.toolbox.util.toKx
 import com.xjtu.toolbox.ui.components.enterOnce
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.runtime.LaunchedEffect
@@ -391,7 +392,7 @@ fun buildUpcoming(
             UpcomingItem(
                 kind = UpcomingKind.HOMEWORK,
                 title = "[${hw.courseName}] ${hw.title}",
-                subtitle = "还${remaining(nowInstant, deadline)}",
+                subtitle = "还${remaining(nowInstant.toKx(), deadline.toKx())}",
                 at = deadline,
             )
         }

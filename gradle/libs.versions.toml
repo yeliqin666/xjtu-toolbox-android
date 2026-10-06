@@ -34,6 +34,9 @@ kotlinxDatetime = "0.8.0"
 # 版本必须与 :app 的 compose ui（1.12.1）一致：android 变体是 6KB 空壳，转发到
 # androidx.compose.ui:ui-graphics，所以两边不会重复类。
 composeMultiplatform = "1.12.1"
+# JetBrains 版的 androidx.lifecycle（KMP）：**与 :app 的 androidx.lifecycle 同版 2.11.0**。
+# 第 3 步搬 UI 时 ViewModel / collectAsStateWithLifecycle 从这里来，只换组名不换版本。
+jetbrainsLifecycle = "2.11.0"
 # Web 端探针用到的浏览器 API（localStorage / location）与 kotlinx-io 的 web 目标。
 kotlinxBrowser = "0.5.0"
 junit = "4.13.2"
@@ -110,6 +113,13 @@ compose-ui-graphics = { group = "org.jetbrains.compose.ui", name = "ui-graphics"
 miuix-ui-kmp = { group = "top.yukonga.miuix.kmp", name = "miuix-ui", version.ref = "miuix" }
 miuix-icons-kmp = { group = "top.yukonga.miuix.kmp", name = "miuix-icons", version.ref = "miuix" }
 kotlinx-browser = { group = "org.jetbrains.kotlinx", name = "kotlinx-browser", version.ref = "kotlinxBrowser" }
+miuix-nav-kmp = { group = "top.yukonga.miuix.kmp", name = "miuix-nav", version.ref = "miuix" }
+miuix-preference-kmp = { group = "top.yukonga.miuix.kmp", name = "miuix-preference", version.ref = "miuix" }
+miuix-squircle-kmp = { group = "top.yukonga.miuix.kmp", name = "miuix-squircle", version.ref = "miuix" }
+# KMP 的 lifecycle：ViewModel / viewModelScope / collectAsStateWithLifecycle
+jb-lifecycle-viewmodel = { group = "org.jetbrains.androidx.lifecycle", name = "lifecycle-viewmodel", version.ref = "jetbrainsLifecycle" }
+jb-lifecycle-viewmodel-compose = { group = "org.jetbrains.androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "jetbrainsLifecycle" }
+jb-lifecycle-runtime-compose = { group = "org.jetbrains.androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "jetbrainsLifecycle" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -2,8 +2,8 @@ package com.xjtu.toolbox.agent
 
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.time.LocalDateTime
-import java.time.DayOfWeek
+import kotlinx.datetime.DayOfWeek
+import kotlinx.datetime.LocalDateTime
 import org.junit.Assert.assertEquals
 
 class ChatterPoolTest {
@@ -22,9 +22,9 @@ class ChatterPoolTest {
 
     @Test
     fun everyHourHasLines() {
-        val day = LocalDateTime.of(2026, 8, 23, 0, 0) // Sunday
+        val day = LocalDateTime(2026, 8, 23, 0, 0) // Sunday
         for (hour in 0..23) {
-            val now = day.withHour(hour)
+            val now = LocalDateTime(2026, 8, 23, hour, 0)
             val n = ChatterPool.eligible(now).size
             assertTrue("hour $hour only $n", n >= 3)
         }
@@ -32,14 +32,14 @@ class ChatterPoolTest {
 
     @Test
     fun pickNeverTruncates() {
-        val now = LocalDateTime.of(2026, 8, 23, 19, 30)
+        val now = LocalDateTime(2026, 8, 23, 19, 30)
         val line = ChatterPool.pick(now, emptyList(), null, null)
         assertTrue(line != null && line.text.length <= ChatterPool.MAX_CHARS)
     }
 
     @Test
     fun selectedSkinPoolCanMixInWithContextAndAction() {
-        val now = LocalDateTime.of(2026, 9, 14, 9, 0)
+        val now = LocalDateTime(2026, 9, 14, 9, 0)
         val skinLine = ChatterLine(
             id = "narcissus:sun",
             text = "晒会儿太阳吧",

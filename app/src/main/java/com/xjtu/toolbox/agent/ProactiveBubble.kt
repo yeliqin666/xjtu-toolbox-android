@@ -51,6 +51,7 @@ import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
+import com.xjtu.toolbox.util.toKx
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import top.yukonga.miuix.kmp.basic.Icon
@@ -427,7 +428,7 @@ object ProactiveRules {
         if (readProactiveLevel(ctx) == ProactiveLevel.OFF) return null
         val (skinLines, skinMix) = activeSkinChatter()
         val line = ChatterPool.pick(
-            java.time.LocalDateTime.now(),
+            java.time.LocalDateTime.now().toKx(),
             chatterRecent(ctx),
             null,
             null,
@@ -454,7 +455,7 @@ object ProactiveRules {
         if (nowMs - lastChatterAt(ctx) < cooldownFor(ctx, CHATTER_ID)) return null
         val (skinLines, skinMix) = activeSkinChatter()
         val line = ChatterPool.pick(
-            java.time.LocalDateTime.now(),
+            java.time.LocalDateTime.now().toKx(),
             chatterRecent(ctx),
             nextCourseName,
             minutesToClass,
@@ -481,6 +482,9 @@ object ProactiveRules {
                 text = line.text,
                 hours = line.hours,
                 months = line.months,
+                // 两边现在都是 kotlinx.datetime.DayOfWeek（PidaiSkinModels 已在源头迁完），
+                // 所以直传即可 —— 这里曾经做过一次 `dow.value - 1` 的转换，那是另一半修复
+                // 假设源头仍是 java.time 时写的；两处叠加会编不过（kotlinx 的枚举没有 value）。
                 weekdays = line.weekdays,
                 weight = line.weight,
                 action = line.action,

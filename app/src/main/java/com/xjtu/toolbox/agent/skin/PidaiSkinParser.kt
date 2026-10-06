@@ -30,7 +30,8 @@ import com.xjtu.toolbox.agent.bot.unionOfCirclesProfile
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.security.MessageDigest
-import java.time.DayOfWeek
+// 同上：与 :core 的 ChatterLine.weekdays 保持一致，用 kotlinx.datetime 的 DayOfWeek
+import kotlinx.datetime.DayOfWeek
 import java.util.zip.ZipInputStream
 import kotlin.math.PI
 
@@ -432,7 +433,9 @@ object PidaiSkinParser {
                 weekdays = obj.optionalArray("weekdays")?.map {
                     val day = it.intValue
                     failIf(day !in 1..7, "weekdays 应使用 1..7")
-                    DayOfWeek.of(day)
+                    // java.time 的 DayOfWeek.of(1)=MONDAY；kotlinx 的枚举顺序相同（MONDAY..SUNDAY），
+                    // 所以 entries[day-1] 语义等价。上面已经 failIf 限定了 1..7。
+                    DayOfWeek.entries[day - 1]
                 }?.toSet(),
                 weight = (obj.optionalDouble("weight") ?: 1.0).finite("chatter.weight"),
                 action = action,

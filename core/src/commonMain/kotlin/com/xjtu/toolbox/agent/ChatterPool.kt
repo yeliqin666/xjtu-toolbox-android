@@ -1,14 +1,15 @@
 package com.xjtu.toolbox.agent
 
-import java.time.DayOfWeek
-import java.time.LocalDateTime
+import kotlinx.datetime.DayOfWeek
+import kotlinx.datetime.LocalDateTime
+import kotlin.random.Random
 
 /**
  * 首页闲话。全部本地短句，不调模型。
  *
  * 字数卡死在 [MAX_CHARS]，气泡禁止省略号——闲话被裁成「早八是一种…」就没了。
  */
-internal data class ChatterLine(
+data class ChatterLine(
     val id: String,
     val text: String,
     val hours: IntRange? = null,
@@ -25,7 +26,7 @@ internal data class ChatterLine(
  * 为什么要它：静态句子对谁都一样，「今天有点难吧」对着一个状态很好的人说就是错位。
  * 关心要落在真事上——今天有体育课、下午连上四节、明天放假——才不像模板。
  */
-internal data class ChatterFacts(
+data class ChatterFacts(
     /** 今天的课，按节次排好。 */
     val today: List<Slot> = emptyList(),
     /** 明天第一节课的节次；明天没课为 null。 */
@@ -38,7 +39,7 @@ internal data class ChatterFacts(
     data class Slot(val name: String, val startSection: Int, val endSection: Int)
 }
 
-internal object ChatterPool {
+object ChatterPool {
 
     const val MAX_CHARS = 14
 
@@ -291,7 +292,7 @@ internal object ChatterPool {
 
     fun eligible(now: LocalDateTime): List<ChatterLine> {
         val hour = now.hour
-        val month = now.monthValue
+        val month = now.month.ordinal + 1
         val dow = now.dayOfWeek
         return lines.filter { line ->
             (line.hours == null || hour in line.hours) &&
@@ -387,7 +388,7 @@ internal object ChatterPool {
         val builtInPool = eligible(now) + situational(now, nextCourseName, minutesToClass, facts)
         val eligibleSkin = skinLines.filter { line ->
             (line.hours == null || now.hour in line.hours) &&
-                (line.months == null || now.monthValue in line.months) &&
+                (line.months == null || (now.month.ordinal + 1) in line.months) &&
                 (line.weekdays == null || now.dayOfWeek in line.weekdays)
         }
         val builtIn = builtInPool.filter { it.id !in recent }.ifEmpty { builtInPool }
@@ -397,7 +398,7 @@ internal object ChatterPool {
         val chooseSkin = when {
             builtIn.isEmpty() -> true
             skin.isEmpty() -> false
-            else -> Math.random() < skinMix.coerceIn(0.0, 1.0)
+            else -> Random.nextDouble() < skinMix.coerceIn(0.0, 1.0)
         }
         if (chooseSkin) return weightedPick(skin)
 
@@ -406,7 +407,7 @@ internal object ChatterPool {
         val group = when {
             life.isEmpty() -> promo
             promo.isEmpty() -> life
-            Math.random() < PROMO_CHANCE -> promo
+            Random.nextDouble() < PROMO_CHANCE -> promo
             else -> life
         }
         if (group.isEmpty()) return null
@@ -421,7 +422,7 @@ internal object ChatterPool {
         if (lines.isEmpty()) return null
         val total = lines.sumOf { it.weight.coerceAtLeast(0.0) }
         if (total <= 0.0) return lines.random()
-        var slot = Math.random() * total
+        var slot = Random.nextDouble() * total
         for (line in lines) {
             slot -= line.weight.coerceAtLeast(0.0)
             if (slot <= 0.0) return line

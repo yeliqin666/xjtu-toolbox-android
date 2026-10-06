@@ -18,8 +18,9 @@ import com.xjtu.toolbox.lms.remaining
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.time.Duration
-import java.time.Instant
+import kotlin.time.Clock
+import kotlin.time.Duration.Companion.hours
+import kotlin.time.Instant
 import java.util.concurrent.TimeUnit
 
 private const val TAG = "LmsDeadline"
@@ -67,8 +68,8 @@ class LmsDeadlineWorker(
     private class Due(val id: String, val line: String)
 
     private suspend fun collectDue(api: LmsApi): List<Due> {
-        val now = Instant.now()
-        val horizon = now.plus(Duration.ofHours(AHEAD_HOURS))
+        val now = Clock.System.now()
+        val horizon = now + AHEAD_HOURS.hours
         val result = mutableListOf<Pair<Instant, Due>>()
         // 单门课查失败不该毁掉整轮：思源学堂对个别课程偶发 403（课程已归档等）。
         for (course in api.getMyCourses()) {
@@ -77,7 +78,7 @@ class LmsDeadlineWorker(
                     .filter { it.type == LmsActivityType.HOMEWORK }
                     .forEach { activity ->
                         val deadline = activity.deadlineInstant() ?: return@forEach
-                        if (deadline.isBefore(now) || deadline.isAfter(horizon)) return@forEach
+                        if (deadline < now || deadline > horizon) return@forEach
                         if (activity.userSubmitCount > 0) return@forEach
                         result += deadline to Due(
                             id = "${course.id}-${activity.id}-$deadline",
