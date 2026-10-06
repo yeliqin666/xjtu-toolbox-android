@@ -108,6 +108,7 @@ import com.xjtu.toolbox.ui.components.LocalPageVisible
 import com.xjtu.toolbox.ui.currentWindowSize
 import com.xjtu.toolbox.ui.glass.LocalAppBackdrop
 import com.xjtu.toolbox.ui.glass.LocalOnGlassBar
+import com.xjtu.toolbox.ui.glass.GLASS_BAR_HEIGHT
 import com.xjtu.toolbox.ui.glass.followTopBar
 import com.xjtu.toolbox.ui.glass.glassBarSurface
 import com.xjtu.toolbox.ui.glass.glassBarTint

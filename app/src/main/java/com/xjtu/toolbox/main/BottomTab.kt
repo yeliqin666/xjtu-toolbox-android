@@ -33,5 +33,3 @@ enum class BottomTab(
 /** 悬浮底栏胶囊本体的最小高度，对齐 miuix FloatingNavigationBar 的 defaultMinSize。 */
 internal val FLOATING_BAR_HEIGHT = 52.dp
 
-/** 手机竖屏玻璃底栏本体的高度。GlassBottomTabs 的胶囊与 MainScreen 的浮空占位都取它。 */
-internal val GLASS_BAR_HEIGHT = 58.dp

@@ -1,14 +1,9 @@
 package com.xjtu.toolbox.ui.theme
 
-import android.app.Activity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
-import androidx.compose.ui.platform.LocalView
-import androidx.core.view.WindowCompat
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.Colors
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -17,6 +12,11 @@ import top.yukonga.miuix.kmp.theme.ThemeController
 /**
  * @param darkModeOverride "system" | "light" | "dark" — 手动覆盖系统深色模式
  * @param dynamicColor 跟随系统壁纸 / 调色盘取色（Monet）
+ *
+ * 从 :app 的 `ui/theme/Theme.kt` 原样搬进 commonMain，只把「改状态栏 / 导航栏图标明暗」
+ * 那一段——它要 `Activity.window` 与 `WindowCompat`，是 Android 专属——抽成平台切口
+ * [PlatformSystemBars]。Android actual 与搬迁前逐字一致，jvm / wasmJs 是空实现
+ * （桌面与浏览器没有系统栏这个概念，不需要降级 UI）。
  */
 @Composable
 fun XJTUToolBoxTheme(
@@ -44,15 +44,7 @@ fun XJTUToolBoxTheme(
         "dark" -> true
         else -> systemDark
     }
-    val view = LocalView.current
-    if (!view.isInEditMode) {
-        SideEffect {
-            val window = (view.context as Activity).window
-            val insetsController = WindowCompat.getInsetsController(window, view)
-            insetsController.isAppearanceLightStatusBars = !darkTheme
-            insetsController.isAppearanceLightNavigationBars = !darkTheme
-        }
-    }
+    PlatformSystemBars(darkTheme)
     CompositionLocalProvider(LocalIsDarkTheme provides darkTheme) {
         MiuixTheme(controller = controller) {
             if (!dynamicColor) {
