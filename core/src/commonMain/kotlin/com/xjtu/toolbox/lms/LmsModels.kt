@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.lms
 
+import kotlin.math.roundToLong
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
 
@@ -148,7 +149,7 @@ data class LmsUpload(
         get() = when {
             size < 1024 -> "$size B"
             size < 1024 * 1024 -> "${size / 1024} KB"
-            else -> "%.1f MB".format(size / (1024.0 * 1024.0))
+            else -> oneDecimalMb(size)
         }
 }
 
@@ -357,6 +358,20 @@ data class LmsReplayVideo(
             size <= 0 -> ""
             size < 1024 -> "$size B"
             size < 1024 * 1024 -> "${size / 1024} KB"
-            else -> "%.1f MB".format(size / (1024.0 * 1024.0))
+            else -> oneDecimalMb(size)
         }
+}
+
+/**
+ * `"%.1f MB".format(x)` 的跨端等价实现。
+ *
+ * 为什么不能直接用 `String.format`：它是 `kotlin.text` 里的 **JVM 专属**扩展，在 JVM 上是
+ * 默认导入，所以文件里没有 import 行 —— 任何基于 import 的判据都看不见它（和 `@JvmField`
+ * 同一类坑），只有把 commonMain 真的编到 wasmJs 才会红。交接文档 §6 也列过这条。
+ *
+ * 语义：四舍五入到 1 位小数，小数部分补零（size 为负时不会走到这里，调用方已经挡了）。
+ */
+private fun oneDecimalMb(bytes: Int): String {
+    val tenths = (bytes * 10.0 / (1024.0 * 1024.0)).roundToLong()
+    return "${tenths / 10}.${tenths % 10}"
 }

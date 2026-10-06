@@ -2354,7 +2354,9 @@ class AgentToolRegistry(
                 } else {
                     a.endTime?.let { append("结束：$it\n") }
                 }
-                if (!a.description.isNullOrBlank()) append("说明：${org.jsoup.Jsoup.parse(a.description).text().take(1200)}\n")
+                // 跨模块无法 smart cast：先落成本地 val
+                val desc = a.description
+                if (!desc.isNullOrBlank()) append("说明：${org.jsoup.Jsoup.parse(desc).text().take(1200)}\n")
                 if (a.uploads.isNotEmpty()) {
                     append("附件：\n")
                     a.uploads.forEach { u ->

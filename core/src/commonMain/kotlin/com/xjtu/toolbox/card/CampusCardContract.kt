@@ -17,7 +17,10 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
-internal object CampusCardContract {
+// 跨模块可见性：原来是 `internal object`。internal 按模块生效，一搬进 :core，
+// :app 里的 Sites.kt / CampusCardLogin.kt / CampusCardApi.kt 就都看不见它了。
+// 跨模块共享必须 public（这是「只是文件搬家 + 改 import」之外真实存在的一步）。
+object CampusCardContract {
     private val INCOME_MARKERS = listOf(
         "充值", "圈存", "退款", "补助", "recharge", "transfer-in", "refund", "subsidy",
     )

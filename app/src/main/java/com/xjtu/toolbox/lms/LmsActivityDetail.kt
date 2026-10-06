@@ -163,10 +163,13 @@ internal fun ActivityDetailPage(
                         item(key = "info") { ActivityInfoCard(d) }
 
                         // 正文（HTML 去标签后展示）
-                        if (!d.description.isNullOrBlank()) {
+                        // 跨模块无法 smart cast（`public API property declared in different module`）：
+                        // 先落成本地非空 val，判断与使用都走它。
+                        val desc = d.description.orEmpty()
+                        if (desc.isNotBlank()) {
                             item(key = "desc") {
-                                val plainText = remember(d.description) {
-                                    val doc = Jsoup.parse(d.description)
+                                val plainText = remember(desc) {
+                                    val doc = Jsoup.parse(desc)
                                     doc.select("br").forEach { it.before("\n") }
                                     doc.select("p").forEach { it.after("\n") }
                                     doc.body().wholeOwnText().trim().ifBlank { null }
@@ -570,10 +573,11 @@ internal fun HomeworkMetaCard(activity: LmsActivity) {
             }
 
             val extras = buildList {
+                // 跨模块无法 smart cast：先落成本地 val
+                val submitTimes = activity.submitTimes
                 when {
                     activity.nonSubmitTimes -> add("提交次数不限")
-                    activity.submitTimes != null && activity.submitTimes > 0 ->
-                        add("最多提交 " + activity.submitTimes + " 次")
+                    submitTimes != null && submitTimes > 0 -> add("最多提交 $submitTimes 次")
                 }
                 if (activity.userSubmitCount > 0) add("已提交 " + activity.userSubmitCount + " 次")
                 // 只留跟"我还能不能交、交过几次"直接相关的。
@@ -668,9 +672,10 @@ private fun SubmissionCard(
                 Text(sub.scoreDisplay, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MiuixTheme.colorScheme.primary)
             }
 
-            if (sub.submittedAt != null) {
+            val submittedAt = sub.submittedAt
+            if (submittedAt != null) {
                 Spacer(Modifier.height(4.dp))
-                Text("提交于 ${formatLmsTime(sub.submittedAt)}", fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                Text("提交于 ${formatLmsTime(submittedAt)}", fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
 
             if (sub.content.isNotBlank()) {
@@ -841,15 +846,16 @@ private fun LiveInfoCard(activity: LmsActivity) {
             }
 
             // 直播状态
-            if (!activity.liveStatus.isNullOrBlank()) {
+            val liveStatus = activity.liveStatus.orEmpty()
+            if (liveStatus.isNotBlank()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    val isLive = activity.liveStatus == "live_in_progress"
+                    val isLive = liveStatus == "live_in_progress"
                     val statusColor = if (isLive) Color(0xFFC62828) else MiuixTheme.colorScheme.onSurfaceVariantSummary
-                    val statusText = when (activity.liveStatus) {
+                    val statusText = when (liveStatus) {
                         "live_in_progress" -> "● 直播中"
                         "live_ended" -> "已结束"
                         "live_not_started" -> "未开始"
-                        else -> activity.liveStatus
+                        else -> liveStatus
                     }
                     Icon(Icons.Default.Circle, null, Modifier.size(10.dp), tint = statusColor)
                     Spacer(Modifier.width(8.dp))
