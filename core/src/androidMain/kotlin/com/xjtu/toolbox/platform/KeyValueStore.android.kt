@@ -15,6 +15,9 @@ fun initAndroidPlatform(context: Context) {
 
 private var appContext: Context? = null
 
+/** 各 Android actual 共用的句柄。未初始化时返回 null，让调用方自己决定静默还是报错。 */
+internal fun androidPlatformContext(): Context? = appContext
+
 private fun requireContext(): Context = appContext
     ?: error("initAndroidPlatform(context) 还没被调用 —— 见 :core 的 platform/KeyValueStore.kt")
 
