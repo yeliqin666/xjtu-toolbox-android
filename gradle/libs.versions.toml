@@ -37,6 +37,10 @@ composeMultiplatform = "1.12.1"
 # JetBrains 版的 androidx.lifecycle（KMP）：**与 :app 的 androidx.lifecycle 同版 2.11.0**。
 # 第 3 步搬 UI 时 ViewModel / collectAsStateWithLifecycle 从这里来，只换组名不换版本。
 jetbrainsLifecycle = "2.11.0"
+# material-icons-extended：CMP 的多平台发布**停在 1.7.3**（JetBrains 之后停发），而 :app 有
+# 470 处 Icons.*。共享 UI 需要跳端图标，只能钉这个版本 —— 它同时有 inline 的 androidJvm
+# 变体与 wasm-js / uikit 变体（实测 .module 确认），所以三端都能用。
+composeMaterialIcons = "1.7.3"
 # Web 端探针用到的浏览器 API（localStorage / location）与 kotlinx-io 的 web 目标。
 kotlinxBrowser = "0.5.0"
 junit = "4.13.2"
@@ -120,6 +124,7 @@ miuix-squircle-kmp = { group = "top.yukonga.miuix.kmp", name = "miuix-squircle",
 jb-lifecycle-viewmodel = { group = "org.jetbrains.androidx.lifecycle", name = "lifecycle-viewmodel", version.ref = "jetbrainsLifecycle" }
 jb-lifecycle-viewmodel-compose = { group = "org.jetbrains.androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "jetbrainsLifecycle" }
 jb-lifecycle-runtime-compose = { group = "org.jetbrains.androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "jetbrainsLifecycle" }
+compose-material-icons-extended = { group = "org.jetbrains.compose.material", name = "material-icons-extended", version.ref = "composeMaterialIcons" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

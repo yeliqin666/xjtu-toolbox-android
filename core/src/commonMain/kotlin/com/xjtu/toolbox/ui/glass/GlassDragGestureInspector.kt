@@ -19,7 +19,9 @@ import androidx.compose.ui.util.fastFirstOrNull
  * 手指刚按下就立刻触发一次 [onDrag]（位移为 0），不用等真的划出距离——
  * 玻璃底栏靠这个让「按住滑块」的瞬间就能进入拖动态，而不是先等一个 touch slop。
  */
-internal suspend fun PointerInputScope.inspectDragGestures(
+// 跨模块可见性：原为 internal，:app 的 GlassDampedDragAnimation 要用它。
+// （扩展函数也要放宽 —— 这是「第 2 类成本」的扩展函数形态。）
+suspend fun PointerInputScope.inspectDragGestures(
     onDragStart: (down: PointerInputChange) -> Unit = {},
     onDragEnd: (change: PointerInputChange) -> Unit = {},
     onDragCancel: () -> Unit = {},

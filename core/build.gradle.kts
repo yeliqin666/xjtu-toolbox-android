@@ -91,6 +91,11 @@ kotlin {
             api(libs.jb.lifecycle.viewmodel)
             api(libs.jb.lifecycle.viewmodel.compose)
             api(libs.jb.lifecycle.runtime.compose)
+            // 玻璃质感（Kyant backdrop）：**全 KMP**（android/ios/js/wasm/desktop 都有变体），
+            // 所以 ui/glass 那一层可以进 commonMain。:app 用的是同一个坐标。
+            api(libs.kyant.backdrop)
+            // 跳端图标（Icons.*）：CMP 多平台版停在 1.7.3，见版本目录里的说明。
+            api(libs.compose.material.icons.extended)
             // java.time 不是多平台的（在 JVM 上也是默认导入，所以 import 判据看不见）。
             // 用 api 而非 implementation：CourseTable.termStart 是公开的 LocalDate，
             // 消费方（:web / 将来的 :platform）必须能在自己的编译类路径上看到这个类型。

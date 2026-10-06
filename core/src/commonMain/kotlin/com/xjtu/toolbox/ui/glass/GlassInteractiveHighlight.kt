@@ -28,7 +28,7 @@ import kotlinx.coroutines.launch
  * 更低版本（`isRuntimeShaderSupported()` 为 false）退化成一层淡淡的白色叠加，
  * 不额外做版本判断（backdrop 库自己处理，见计划 §16.7）。
  */
-internal class GlassInteractiveHighlight(
+class GlassInteractiveHighlight(
     val animationScope: CoroutineScope,
     val position: (size: Size, offset: Offset) -> Offset = { _, offset -> offset },
 ) {

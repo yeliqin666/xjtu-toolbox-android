@@ -3,7 +3,9 @@
 // 许可证 Apache License 2.0；改动：改包名和类名（加 Glass 前缀避免和 Kyant 原类混淆）；
 // 用 `androidx.compose.runtime.withFrameNanos` 代替原版 `expect suspend fun awaitFrame()`
 // （原版是给 KMP 多端用的占位，本项目只有 Android 一个目标，不需要 expect/actual）；
-// 用 `System.currentTimeMillis()` 代替原版实验性的 `kotlin.time.Clock`，避免多引入一个 opt-in。
+// 用 `kotlin.time.Clock` 代替 `System.currentTimeMillis()`：后者是 java.lang（JVM 默认导入，
+// import 判据看不见），而这里要进 commonMain。原注释说的「避免多引入一个 opt-in」已不成立
+// —— kotlin.time.Clock 在 Kotlin 2.4 上已是稳定 API。
 package com.xjtu.toolbox.ui.glass
 
 import androidx.compose.animation.core.Animatable
@@ -138,7 +140,7 @@ internal class GlassDampedDragAnimation(
 
     private fun updateVelocity() {
         velocityTracker.addPosition(
-            System.currentTimeMillis(),
+            kotlin.time.Clock.System.now().toEpochMilliseconds(),
             Offset(value, 0f),
         )
         val targetVelocity = velocityTracker.calculateVelocity().x / (valueRange.endInclusive - valueRange.start)

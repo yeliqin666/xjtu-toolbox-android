@@ -24,11 +24,11 @@ import androidx.compose.ui.unit.dp
  * `tintedContent`）会 provide 非默认值，真实那一遍永远是 1f——原版 `LocalLiquidBottomTabScale`
  * 就是这么用的：放大效果只在「玻璃 + 强调色」那一层可见，避免真实图标本身跳动。
  */
-internal val LocalGlassNavTabScale = staticCompositionLocalOf { { 1f } }
+val LocalGlassNavTabScale = staticCompositionLocalOf { { 1f } }
 
 /** 底栏里的一格：占满高度、按 `weight(1f)` 均分宽度，点击直接走 [onClick]。 */
 @Composable
-internal fun RowScope.GlassNavTabSlot(
+fun RowScope.GlassNavTabSlot(
     onClick: (() -> Unit)?,
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,

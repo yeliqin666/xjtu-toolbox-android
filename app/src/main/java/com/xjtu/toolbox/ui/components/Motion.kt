@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.ui.components
 
+import kotlin.time.TimeSource
+
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
@@ -310,9 +312,11 @@ fun SkeletonBlock(modifier: Modifier = Modifier, cornerRadius: Dp = 12.dp) {
     val phase = remember { mutableFloatStateOf(0f) }
     if (visible) {
         LaunchedEffect(Unit) {
-            val start = System.nanoTime()
+            // System.nanoTime 属于 java.lang（JVM 默认导入，所以 import 判据看不见它）。
+            // 换成 kotlin.time 的单调时钟：跨端可用，语义也一致（单调、不受系统时间调整影响）。
+            val start = TimeSource.Monotonic.markNow()
             while (true) {
-                phase.floatValue = (((System.nanoTime() - start) / 1_000_000L) % 1400L) / 1400f
+                phase.floatValue = ((start.elapsedNow().inWholeMilliseconds % 1400L) / 1400f)
                 delay(33)
             }
         }

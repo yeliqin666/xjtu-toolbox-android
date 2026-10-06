@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.ui
 
+import com.xjtu.toolbox.platform.smallestScreenWidthDp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.compositionLocalOf
@@ -48,7 +49,9 @@ fun currentWindowSize(): WindowSize {
 @Composable
 fun calculateIsWideLayout(): Boolean {
     val windowInfo = LocalWindowInfo.current
-    if (androidx.compose.ui.platform.LocalConfiguration.current.smallestScreenWidthDp < 600) return false
+    // 唯一一行 Android 专属的判断，已抽成平台切口（见 :core 的 platform/SmallestScreenWidth.kt）：
+    // Android 读 Configuration 的真值（行为与搬迁前逐字一致），其他端用窗口短边近似。
+    if (smallestScreenWidthDp() < 600) return false
     return with(LocalDensity.current) {
         val widthDp = windowInfo.containerSize.width.toDp()
         val heightDp = windowInfo.containerSize.height.toDp()

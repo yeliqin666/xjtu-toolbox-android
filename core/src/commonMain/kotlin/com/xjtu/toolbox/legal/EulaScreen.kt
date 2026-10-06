@@ -8,9 +8,6 @@ import com.xjtu.toolbox.ui.glass.glassSource
 import com.xjtu.toolbox.ui.glass.glassTop
 import com.xjtu.toolbox.ui.glass.glassTopBar
 import com.xjtu.toolbox.ui.glass.withoutTop
-import androidx.compose.material.icons.automirrored.filled.*
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.TopAppBar
@@ -24,14 +21,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.auth.*
 
 // ══════════════════════════════════════════
 //  用户协议弹窗
 // ══════════════════════════════════════════
 
 @Composable
-internal fun EulaScreen(onAccept: () -> Unit) {
+fun EulaScreen(onAccept: () -> Unit) {
     val scrollState = rememberScrollState()
     var canAccept by remember { mutableStateOf(false) }
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
