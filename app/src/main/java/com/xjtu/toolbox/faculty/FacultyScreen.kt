@@ -581,20 +581,23 @@ private fun FacultyDetailBody(
 
                 is HomepageResult.Unavailable -> HintText("这位老师还没有启用个人主页。")
 
-                is HomepageResult.NotStandard -> HintText(
-                    "这位老师的主页地址指向站外页面，只能直接打开查看。"
-                )
+                is HomepageResult.External -> HintText("这位老师的主页没法在这里展开，点下面直接打开。")
 
                 is HomepageResult.Error -> HintText("个人主页暂时打不开：${result.message}")
             }
 
-            if (shown.homepageUrl.isNotBlank()) {
+            val openUrl = when (homepage) {
+                is HomepageResult.External -> homepage.url
+                is HomepageResult.Unavailable -> ""
+                else -> shown.homepageUrl
+            }
+            if (openUrl.isNotBlank()) {
                 Spacer(Modifier.height(12.dp))
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(14.dp))
-                        .clickable { onOpenUrl(shown.homepageUrl) },
+                        .clickable { onOpenUrl(openUrl) },
                     color = MiuixTheme.colorScheme.primary.copy(alpha = 0.10f),
                 ) {
                     Row(

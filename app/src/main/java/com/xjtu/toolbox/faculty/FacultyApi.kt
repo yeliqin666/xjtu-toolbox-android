@@ -3,16 +3,17 @@ package com.xjtu.toolbox.faculty
 import com.xjtu.toolbox.util.redactBody
 import android.util.Log
 import com.xjtu.toolbox.network.HttpClients
+import com.xjtu.toolbox.webvpn.WebVpnUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.brotli.BrotliInterceptor
-import org.json.JSONArray
 import org.json.JSONObject
 import org.jsoup.Jsoup
 import java.util.concurrent.TimeUnit
@@ -28,8 +29,10 @@ import java.util.concurrent.TimeUnit
  * 1. 检索接口返回 JSON，但 `Content-Type` 是 `text/html`，只能按响应体判断，
  *    见 [looksLikeJson]。这跟图书馆 qspace/qseat 是同一个坑。
  * 2. 学院/学科/招生学科/荣誉四张 id 表在运行时从 search.jsp 解析，代码里不写死任何 id。
- * 3. 个人主页有 13 套模板，但字段标签一致，所以用标签驱动解析，不依赖 CSS 选择器。
- * 4. 约 1% 的老师主页不可用，一律走 [HomepageResult] 降级，不抛异常。
+ * 3. 个人主页有 13 套模板（2026-10 全校普查仍是这 13 套），但字段标签一致，所以用标签驱动解析，不依赖 CSS 选择器。
+ * 4. 中文检索给部分老师的主页地址留空，用英文检索补，见 [search]。
+ * 5. 个别老师的条目让检索整页回 `{}`，拆页绕开，见 [fetchPage]。
+ * 6. 主页打不开一律走 [HomepageResult] 降级，不抛异常。
  */
 class FacultyApi(
     private val client: OkHttpClient = defaultClient
@@ -70,7 +73,6 @@ class FacultyApi(
             "viewid" to "1095235",
             "siteOwner" to "2105667170",
             "viewUniqueId" to "1095235",
-            "showlang" to "zh_CN",
             "ispreview" to "false",
             "basenum" to "0",
             "productType" to "0",
@@ -89,6 +91,36 @@ class FacultyApi(
          */
         internal fun looksLikeJson(body: String): Boolean =
             body.trimStart().firstOrNull()?.let { it == '{' || it == '[' } == true
+
+        /**
+         * 接口给的主页地址规整成标准中文主页 `https://gr.xjtu.edu.cn/{站点}/zh_CN/index.htm`。
+         * 同一个站点实测有这些写法：`/{站点}/en/index.htm`、`/{站点}`、`/web/{站点}/home`、`/en/web/{站点}`、
+         * faculty.xjtu.edu.cn 下的同名路径、WebVPN 包过的地址。认不出的（学院页、GitHub、ORCID）原样返回。
+         */
+        internal fun normalizeHomepage(raw: String): String {
+            val plain = raw.trim().let { WebVpnUtil.getOriginalUrl(it) ?: it }
+            val url = plain.toHttpUrlOrNull() ?: return plain
+            val segments = url.pathSegments.filter { it.isNotEmpty() }
+            val site = when (url.host) {
+                "gr.xjtu.edu.cn" -> segments.dropWhile { it == "en" || it == "zh_CN" || it == "web" }.firstOrNull()
+                "faculty.xjtu.edu.cn" -> segments.firstOrNull()?.takeIf { segments.getOrNull(1) in LANGS }
+                else -> null
+            }?.takeUnless { it.startsWith("_") || it == "system" || it.endsWith(".jsp") || it.endsWith(".htm") }
+            return site?.let { siteUrl(it, "zh_CN") } ?: plain
+        }
+
+        /** 标准主页地址里的站点名；不是标准主页返回 null。 */
+        internal fun siteOf(url: String): String? {
+            val u = url.toHttpUrlOrNull()?.takeIf { it.host == "gr.xjtu.edu.cn" } ?: return null
+            return u.pathSegments.takeIf { it.size == 3 && it[1] in LANGS && it[2] == "index.htm" }?.first()
+        }
+
+        private val LANGS = setOf("zh_CN", "en")
+
+        private fun siteUrl(site: String, lang: String): String = HttpUrl.Builder()
+            .scheme("https").host("gr.xjtu.edu.cn")
+            .addPathSegment(site).addPathSegment(lang).addPathSegment("index.htm")
+            .build().toString()
 
         /** 把服务端给的相对路径（如头像 picUrl）补成绝对地址 */
         fun absoluteUrl(path: String, host: String = HOMEPAGE_HOST): String = when {
@@ -160,27 +192,56 @@ class FacultyApi(
         /** 简介截断长度，列表页给小值可以显著减小响应体 */
         profileLength: Int = 400,
     ): FacultySearchPage = withContext(Dispatchers.IO) {
-        val url = buildSearchUrl(query, page, pageSize, profileLength)
-        val body = fetchText(url.toString(), referer = "$FACULTY_HOST/search.jsp")
+        val size = pageSize.coerceIn(1, MAX_PAGE_SIZE)
+        val (total, raw) = fetchPage(query, page.coerceAtLeast(1), size, profileLength, "zh_CN")
+        var members = raw.map(::parseMember)
+        // 中文接口给部分老师的主页地址留空（电气学院过半），英文接口同一页、同样顺序的人都带着地址，按 teacherId 补上
+        if (members.any { it.homepageUrl.isBlank() }) {
+            val en = runCatching { fetchPage(query, page.coerceAtLeast(1), size, 1, "en").second }
+                .onFailure { Log.w(TAG, "英文检索补主页地址失败", it) }
+                .getOrDefault(emptyList())
+                .associate { it.optLong("teacherId") to normalizeHomepage(it.optString("url")) }
+            members = members.map { m -> if (m.homepageUrl.isNotBlank()) m else m.copy(homepageUrl = en[m.teacherId].orEmpty()) }
+        }
+        FacultySearchPage(
+            total = total.coerceAtLeast(members.size),
+            totalPage = maxOf(1, (total + size - 1) / size),
+            pageIndex = page,
+            members = members.filter { it.matches(query) },
+        )
+    }
 
+    /**
+     * 取一页原始条目，返回（总人数，条目）。个别老师的数据服务端一渲染就整页回 `{}`
+     * （2026-10 实测全校两位，默认排序第 15、123 位，正好让不带条件的首页空白），
+     * 这时把这页按因数拆小重取，只丢那一位。总人数取不到时为 -1。
+     */
+    private fun fetchPage(
+        query: FacultySearchQuery,
+        page: Int,
+        pageSize: Int,
+        profileLength: Int,
+        lang: String,
+    ): Pair<Int, List<JSONObject>> {
+        val url = buildSearchUrl(query, page, pageSize, profileLength, lang)
+        val body = fetchText(url.toString(), referer = "$FACULTY_HOST/search.jsp")
         if (!looksLikeJson(body)) {
             Log.e(TAG, "advancesearch 未返回 JSON, preview=${body.redactBody(500)}")
             throw RuntimeException("教师检索返回了异常数据，请稍后重试")
         }
-
         val json = JSONObject(body)
-        val raw = json.optJSONArray("teacherData") ?: JSONArray()
-        val members = buildList {
-            for (i in 0 until raw.length()) {
-                raw.optJSONObject(i)?.let { add(parseMember(it)) }
-            }
+        json.optJSONArray("teacherData")?.let { arr ->
+            return json.optInt("totalnum", arr.length()) to (0 until arr.length()).mapNotNull(arr::optJSONObject)
         }
-        FacultySearchPage(
-            total = json.optInt("totalnum", members.size),
-            totalPage = json.optInt("totalpage", 1),
-            pageIndex = page,
-            members = members.filter { it.matches(query) },
-        )
+        if (pageSize <= 1) return -1 to emptyList()
+        val parts = (2..pageSize).first { pageSize % it == 0 }
+        var total = -1
+        val items = (1..parts).flatMap { i ->
+            val (t, sub) = fetchPage(query, (page - 1) * parts + i, pageSize / parts, profileLength, lang)
+            total = maxOf(total, t)
+            sub
+        }
+        return total to items
     }
 
     /**
@@ -218,9 +279,11 @@ class FacultyApi(
         page: Int,
         pageSize: Int,
         profileLength: Int,
+        lang: String,
     ): HttpUrl = SEARCH_URL.toHttpUrl().newBuilder().apply {
-        addQueryParameter("pageindex", page.coerceAtLeast(1).toString())
-        addQueryParameter("pagesize", pageSize.coerceIn(1, MAX_PAGE_SIZE).toString())
+        addQueryParameter("pageindex", page.toString())
+        addQueryParameter("pagesize", pageSize.toString())
+        addQueryParameter("showlang", lang)
         addQueryParameter("profilelen", profileLength.coerceAtLeast(0).toString())
         addQueryParameter("collegeid", query.collegeId.toString())
         addQueryParameter("disciplineid", query.disciplineId.toString())
@@ -241,7 +304,7 @@ class FacultyApi(
         name = o.optString("name").trim(),
         englishName = o.optString("ename").trim(),
         pinyin = o.optString("pinYinName").trim(),
-        homepageUrl = o.optString("url").trim(),
+        homepageUrl = normalizeHomepage(o.optString("url")),
         collegeName = o.optString("collegeName").ifBlank { o.optString("unit") }.trim(),
         proRank = o.optString("prorank").trim(),
         job = o.optString("job").trim(),
@@ -326,25 +389,24 @@ class FacultyApi(
      * 抓取并解析老师的个人主页。
      *
      * 不会抛网络异常——所有失败路径都映射成 [HomepageResult]，
-     * 因为「主页打不开」在这里是常态（实测约 1%），不是异常。
+     * 因为「主页打不开」在这里是常态，不是异常。中文主页是占位页时看一眼英文主页，
+     * 有就让用户直接打开（解析靠中文标签，英文页解析不出东西）。
      */
-    suspend fun fetchHomepage(member: FacultyMember): HomepageResult =
-        fetchHomepage(member.homepageUrl)
-
-    suspend fun fetchHomepage(url: String): HomepageResult = withContext(Dispatchers.IO) {
-        if (url.isBlank()) return@withContext HomepageResult.NotStandard(url)
-        val standard = url.startsWith("$HOMEPAGE_HOST/") && url.endsWith("/zh_CN/index.htm")
-        if (!standard) {
-            // 实测出现过：学院自建师资页、WebVPN 链接、缺 /zh_CN/index.htm 的畸形值
-            return@withContext HomepageResult.NotStandard(url)
-        }
+    suspend fun fetchHomepage(member: FacultyMember): HomepageResult = withContext(Dispatchers.IO) {
+        val url = member.homepageUrl
+        if (url.isBlank()) return@withContext HomepageResult.Unavailable
+        val site = siteOf(url) ?: return@withContext HomepageResult.External(url)
         val html = try {
             fetchText(url, referer = "$FACULTY_HOST/search.jsp")
         } catch (e: Exception) {
             Log.w(TAG, "主页抓取失败: $url", e)
             return@withContext HomepageResult.Error(com.xjtu.toolbox.error.FriendlyError.of(e, "加载主页"))
         }
-        if (isUnavailablePage(html)) return@withContext HomepageResult.Unavailable
+        if (isUnavailablePage(html)) {
+            val english = siteUrl(site, "en")
+            val alive = runCatching { !isUnavailablePage(fetchText(english)) }.getOrDefault(false)
+            return@withContext if (alive) HomepageResult.External(english) else HomepageResult.Unavailable
+        }
         runCatching { HomepageResult.Success(parseHomepage(html, url)) }
             .getOrElse {
                 Log.e(TAG, "主页解析失败: $url", it)
@@ -454,7 +516,7 @@ class FacultyApi(
      * 并保留第一个非空的链接文本作为标题。
      */
     private fun parseColumns(doc: org.jsoup.nodes.Document, pageUrl: String): List<FacultyColumn> {
-        val siteId = pageUrl.removePrefix("$HOMEPAGE_HOST/").substringBefore("/")
+        val siteId = siteOf(pageUrl).orEmpty()
 
         // 先按文档顺序收集，并记录每个链接的 <ul> 嵌套深度。
         // 层级不能丢：导航是「一级栏目 > 二级页面」的两级树，拍平会产生同名重复条目。

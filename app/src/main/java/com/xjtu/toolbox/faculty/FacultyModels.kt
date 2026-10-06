@@ -16,7 +16,7 @@ package com.xjtu.toolbox.faculty
  * 一位教师。字段名对齐 advancesearch.jsp 的 JSON key，方便对照排查。
  *
  * 覆盖率实测（全量 4173 人，2026-08-17）：
- * picUrl/homepageUrl 100%、collegeName 98%、proRank 92%、discipline 62%、
+ * picUrl 100%、collegeName 98%、proRank 92%、discipline 62%、
  * graduatedUniversity 49%、email 26%、officeLocation 18%、profile 11%、
  * contact 10%、researchDirections 5%、job 4%。
  *
@@ -30,7 +30,10 @@ data class FacultyMember(
     val englishName: String = "",
     /** 姓名拼音，服务端大小写不统一（"Zhong Yuan" / "chen qian" 都有），展示前自行规范 */
     val pinyin: String = "",
-    /** 个人主页地址。100% 有值，但约 1% 打不开或指向站外，见 [HomepageResult] */
+    /**
+     * 个人主页地址，已由 [FacultyApi.normalizeHomepage] 规整成标准中文主页。中文接口给约 7% 的老师留空
+     * （电气学院过半），检索时用英文接口补上；剩下的空值是真没有，少数指向学院页、GitHub 等站外地址。
+     */
     val homepageUrl: String = "",
     val collegeName: String = "",
     /** 职称，如 教授 / 副教授 / 助理教授。92% 有值 */
@@ -65,18 +68,6 @@ data class FacultyMember(
             "博导".takeIf { isDoctoralTutor },
             "硕导".takeIf { isMasterTutor },
         ).joinToString(" · ")
-
-    /** 主页 URL 是否是可解析的标准个人主页（排除站外链接与畸形值） */
-    val hasStandardHomepage: Boolean
-        get() = homepageUrl.startsWith("https://gr.xjtu.edu.cn/") &&
-            homepageUrl.endsWith("/zh_CN/index.htm")
-
-    /** 主页路径里的教师标识（如 `caoyx`），用于拼接栏目 URL；非标准主页返回 null */
-    val siteId: String?
-        get() = if (!hasStandardHomepage) null else homepageUrl
-            .removePrefix("https://gr.xjtu.edu.cn/")
-            .removeSuffix("/zh_CN/index.htm")
-            .takeIf { it.isNotBlank() && "/" !in it }
 }
 
 // ==================== 分页结果 ====================
@@ -172,17 +163,16 @@ data class FacultySearchQuery(
 /**
  * 主页抓取结果。
  *
- * 约 1% 的老师主页不可用，必须显式降级而不是抛异常——实测样本里出现过：
- * 563 字节的 `<title>error</title>` 占位页、0 字节响应、
- * `url` 指向学院自建师资页甚至 WebVPN 链接。
+ * 少数老师的主页不可用，必须显式降级而不是抛异常——实测出现过：
+ * 563 字节的 `<title>error</title>` 占位页、0 字节响应、只开了英文主页、地址指向学院页或 GitHub。
  */
 sealed class HomepageResult {
     data class Success(val profile: FacultyProfile) : HomepageResult()
 
-    /** 主页地址不是标准个人主页（站外 / 畸形），只能外链跳转 */
-    data class NotStandard(val url: String) : HomepageResult()
+    /** 主页在别处（站外地址、只有英文主页），这里解析不了，只能打开 [url] 看 */
+    data class External(val url: String) : HomepageResult()
 
-    /** 主页返回了占位错误页或空响应，老师尚未启用主页 */
+    /** 没有主页地址，或主页是占位错误页 / 空响应：老师尚未启用主页 */
     data object Unavailable : HomepageResult()
 
     data class Error(val message: String) : HomepageResult()
