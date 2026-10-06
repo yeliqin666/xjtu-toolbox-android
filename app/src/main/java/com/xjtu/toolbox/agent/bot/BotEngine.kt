@@ -298,10 +298,13 @@ class BotEngine(
         // 循环状态（轨道）：姿态时间按周期取模；每过一个接缝安排一次眨眼掩护跳变
         val poseTime: Double
         val blinkOrigin: Double
-        if (def.loop != null) {
-            val wraps = floor(elapsed / def.loop)
-            poseTime = elapsed - wraps * def.loop
-            blinkOrigin = tCur + wraps * def.loop
+        // 跨模块无法 smart cast（`public API property declared in different module`）：
+        // 先落成本地 val，判断与使用都走它。
+        val loop = def.loop
+        if (loop != null) {
+            val wraps = floor(elapsed / loop)
+            poseTime = elapsed - wraps * loop
+            blinkOrigin = tCur + wraps * loop
         } else {
             poseTime = elapsed
             blinkOrigin = blinkAt

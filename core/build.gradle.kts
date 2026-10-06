@@ -51,6 +51,15 @@ kotlin {
             implementation(libs.ktor.serialization.kotlinx.json)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)
+            // 只放「无 Composable 的绘图基础类型」：Color / Path / geometry / unit。
+            // 它们在 Compose Multiplatform 里是 common 的，所以 agent/bot、game 这些
+            // 只用到绘图类型的文件可以进 commonMain（比交接文档 §10 的「:core 不含任何
+            // androidx.compose 类型」放宽了一档，是明确拍板过的取舍）。
+            // 用 api 而不是 implementation：搬进来的文件会把 Color/Path 暴露在公开 API 上。
+            api(libs.compose.ui.graphics)
+            // java.time 不是多平台的（在 JVM 上也是默认导入，所以 import 判据看不见）。
+            // 用 kotlinx-datetime 的对应物：LocalDate / LocalTime / LocalDateTime / DayOfWeek。
+            implementation(libs.kotlinx.datetime)
         }
         commonTest.dependencies {
             implementation(kotlin("test"))

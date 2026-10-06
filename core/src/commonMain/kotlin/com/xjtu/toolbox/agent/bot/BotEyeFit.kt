@@ -328,7 +328,12 @@ private fun decalagePour(def: StateDef, radii: DoubleArray): Pair<Double, Double
  * 不是目标，眼睛放得下才是。当前表情（[REST_EXPRESSION]）的眼高较小，对目录里的每种
  * 形状、每个静息状态这个值都是正的，所以修正表全为零是**正确结果**，不是求解器失灵。
  */
-internal fun eyeFitMargin(radii: DoubleArray, stateId: String): Double? {
+// 跨模块可见性：原来是 `internal`。它本来就是给测试验收不变量用的，而 :app 的
+// BotSkinsTest 是另一个模块（internal 按模块生效）⇒ 放宽成 public。
+// 顺带记一笔：:app 的 107 个测试文件里，凡是碰已搬走文件 internal 成员的，将来要么
+// 一起放宽，要么把测试本身搬到 :core/commonTest（但那些测试用的是 JUnit4，搬过去要
+// 改写成 kotlin.test）—— 这是「单测全绿」这条验收判据背后的真实成本。
+fun eyeFitMargin(radii: DoubleArray, stateId: String): Double? {
     val def = BOT_STATES[stateId] ?: return null
     if (!def.baseBody) return null
     val epreuves = epreuvesPour(def, radii)
