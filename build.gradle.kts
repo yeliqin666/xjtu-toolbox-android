@@ -8,4 +8,8 @@ plugins {
     // 子工程再带版本请求会撞上"已在 classpath 且版本未知"而解析失败。
     alias(libs.plugins.android.test) apply false
     alias(libs.plugins.baselineprofile) apply false
+    // :core 的 KMP 插件同属上面那份 KGP jar，同理必须在根工程钉死，
+    // 子工程只 bare id 引用；带版本请求会报「已在 classpath 且版本未知」。
+    alias(libs.plugins.kotlin.multiplatform) apply false
+    alias(libs.plugins.android.kotlin.multiplatform.library) apply false
 }
