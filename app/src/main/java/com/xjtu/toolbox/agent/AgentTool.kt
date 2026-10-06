@@ -894,9 +894,9 @@ class AgentToolRegistry(
         }
     }
 
-    private fun searchYellowPage(query: String?, category: String?, limit: Int): String {
+    private suspend fun searchYellowPage(query: String?, category: String?, limit: Int): String {
         return try {
-            val data = com.xjtu.toolbox.yellowpage.YellowPageApi(context).getData()
+            val data = com.xjtu.toolbox.yellowpage.appYellowPageApi(context).getData()
             val categoryId = category?.takeIf { it.isNotBlank() }?.let { name ->
                 data.categories.firstOrNull {
                     it.name == name || it.name.contains(name) || name.contains(it.name)

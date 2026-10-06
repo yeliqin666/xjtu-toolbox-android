@@ -6,8 +6,6 @@ import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import androidx.compose.foundation.lazy.staggeredgrid.itemsIndexed
 import androidx.compose.foundation.lazy.itemsIndexed
 import com.xjtu.toolbox.ui.components.enterOnce
-import android.content.Intent
-import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -44,18 +42,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.ui.glass.*
+import com.xjtu.toolbox.platform.rememberPhoneDialer
 import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Icon
@@ -67,11 +62,18 @@ import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
+/**
+ * 校园黄页。屏幕本身不再持有任何 Android 依赖：取数走注入的 [api]（缓存由宿主用
+ * [YellowPageCache] 提供），拨号走平台能力 [rememberPhoneDialer]，错误文案由宿主注入
+ * [errorText]（:app 传的是 `FriendlyError.of(it, "加载")`，行为与搬迁前逐字一致）。
+ */
 @Composable
-fun YellowPageScreen(onBack: () -> Unit) {
-    val context = LocalContext.current
-    // YellowPageApi 内部持有按账号绑定的 DataCache，切账号后换新实例
-    val api = remember(LocalAppLoginState.current.accountId) { YellowPageApi(context) }
+fun YellowPageScreen(
+    api: YellowPageApi,
+    onBack: () -> Unit,
+    errorText: (Throwable) -> String,
+) {
+    val dial = rememberPhoneDialer()
     val scope = rememberCoroutineScope()
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
 
@@ -86,12 +88,13 @@ fun YellowPageScreen(onBack: () -> Unit) {
         if (force) refreshing = true else loading = true
         error = null
         try {
-            data = withContext(Dispatchers.IO) { api.getData(force) }
+            // 取数已是 Ktor 的挂起调用，自己处理 IO；不再需要 withContext(Dispatchers.IO)
+            data = api.getData(force)
             if (selectedCategory == 0) {
                 selectedCategory = data?.categories?.firstOrNull()?.id ?: 0
             }
         } catch (e: Exception) {
-            error = com.xjtu.toolbox.error.FriendlyError.of(e, "加载")
+            error = errorText(e)
         } finally {
             loading = false
             refreshing = false
@@ -217,13 +220,7 @@ fun YellowPageScreen(onBack: () -> Unit) {
                         DepartmentCard(
                             modifier = Modifier.enterOnce(i),
                             department = department,
-                            onDial = { number ->
-                                runCatching {
-                                    context.startActivity(
-                                        Intent(Intent.ACTION_DIAL, Uri.parse("tel:$number"))
-                                    )
-                                }
-                            }
+                            onDial = { number -> dial(number) }
                         )
                     }
                 }

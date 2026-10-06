@@ -7,6 +7,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import com.xjtu.toolbox.account.AccountManager
 import com.xjtu.toolbox.account.AccountManagerScreen
@@ -21,6 +22,7 @@ import com.xjtu.toolbox.coupon.CouponScreen
 import com.xjtu.toolbox.data.CredentialStore
 import com.xjtu.toolbox.dzpz.TranscriptScreen
 import com.xjtu.toolbox.emptyroom.EmptyRoomScreen
+import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.faculty.FacultyScreen
 import com.xjtu.toolbox.feedback.FeedbackScreen
 import com.xjtu.toolbox.fitness.FitnessScreen
@@ -53,6 +55,7 @@ import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.dormpower.DormPowerScreen
 import com.xjtu.toolbox.webvpn.WebVpnConverterScreen
 import com.xjtu.toolbox.yellowpage.YellowPageScreen
+import com.xjtu.toolbox.yellowpage.appYellowPageApi
 import kotlinx.coroutines.delay
 import top.yukonga.miuix.kmp.nav.core.NavBackStack
 import top.yukonga.miuix.kmp.nav.core.NavDisplay
@@ -214,7 +217,17 @@ fun AppNavHost(
             SchoolCalendarScreen(onBack = back)
         }
         entry<AppRoute.YellowPage>(transition = expand(AppRoute.YellowPage::class)) {
-            YellowPageScreen(onBack = back)
+            // 黄页屏已搬进 :core；传数与缓存装配留在 :app（见 yellowpage/YellowPageApp.kt）。
+            // remember 的 key 仍是 accountId：DataCache 按账号隔离，切账号要换新实例。
+            val yellowPageContext = LocalContext.current
+            val yellowPageApi = remember(loginState.accountId) {
+                appYellowPageApi(yellowPageContext, loginState.accountId.takeIf { it.isNotEmpty() })
+            }
+            YellowPageScreen(
+                api = yellowPageApi,
+                onBack = back,
+                errorText = { FriendlyError.of(it, "加载") },
+            )
         }
         entry<AppRoute.Fitness>(transition = expand(AppRoute.Fitness::class)) {
             WithSite("fitness") { FitnessScreen(site = it, onBack = back) }
