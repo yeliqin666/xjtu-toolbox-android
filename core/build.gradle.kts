@@ -91,6 +91,8 @@ kotlin {
         }
         wasmJsMain.dependencies {
             implementation(libs.ktor.client.js)
+            // localStorage / window 等浏览器 API（KeyValueStore 的 Web 实现用）
+            implementation(libs.kotlinx.browser)
         }
     }
 }
