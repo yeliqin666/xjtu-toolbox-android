@@ -12,6 +12,9 @@ plugins {
     // 不带版本：版本在根工程 build.gradle.kts 里钉死（KGP 已在 classpath，
     // 子工程再带版本会报「已在 classpath with an unknown version」）
     id("org.jetbrains.kotlin.multiplatform")
+    // AGP 9 的 KMP Android 库插件。同样不带版本（根工程已 apply false 钉死）。
+    // 没有它 :app 就消费不了 :core：KMP 的 jvm 变体对 Android 消费者不可见（平台属性不匹配）。
+    id("com.android.kotlin.multiplatform.library")
     alias(libs.plugins.kotlin.serialization)
 }
 
@@ -19,6 +22,16 @@ kotlin {
     // 与 :app 对齐（Java/Kotlin 目标 21）：miuix 各模块都是 JDK 21 工具链编译的，
     // miuix-nav 的 entry<T>() 是 inline 函数，字节码目标不一致会直接编译失败。
     jvmToolchain(21)
+
+    // Android 目标。写法照 miuix（AGP 9 的 KMP 库插件是 `android { }`，不是旧的
+    // `androidLibrary { }`）；参数与 :app 对齐：compileSdk 37 / minSdk 31。
+    android {
+        namespace = "com.xjtu.toolbox.core"
+        compileSdk {
+            version = release(37) { }
+        }
+        minSdk = 31
+    }
 
     jvm()
 
@@ -44,6 +57,9 @@ kotlin {
             implementation(libs.kotlinx.coroutines.test)
             // 离线验证 Cookie 往返：不依赖真服务器，三端都能跑，可进 CI 门禁
             implementation(libs.ktor.client.mock)
+        }
+        androidMain.dependencies {
+            implementation(libs.ktor.client.okhttp)
         }
         jvmMain.dependencies {
             // 探针阶段沿用 App 现在的引擎，好让「换 Ktor」的差异只在 Ktor 这一层，

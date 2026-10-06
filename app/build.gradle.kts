@@ -198,6 +198,9 @@ baselineProfile {
 }
 
 dependencies {
+    // 三端共用的业务与平台抽象（KMP）。目前里面只有传输层探针，
+    // 后续按「一屏一提交」往里搬；:core 必须能编过 wasmJs（CI 门禁在守这条）。
+    implementation(project(":core"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.lifecycle.runtime.ktx)

@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.account
 
+import kotlin.concurrent.Volatile
+
 /**
  * 进程级账号上下文。持有当前激活账号的 [accountId]（= 学号 / 手机号）。
  *
@@ -12,13 +14,17 @@ package com.xjtu.toolbox.account
  * 避免误把新账号数据写入默认空间。
  */
 object AccountContext {
+    // 原来这里是 `@Volatile @JvmField`。`@JvmField` 属于 `kotlin.jvm`——它在 JVM 上是**默认
+    // 导入**，所以文件里根本没有 import 行，任何基于 import 的启发式都看不见它，只有把
+    // commonMain 真的编一遍才会红（这就是 CI 门禁的价值）。
+    // 仓库里没有任何 Java 代码引用这两个字段（Java 只出现在 game/xiangqi/rules），也没有
+    // 反射/Gson 碰它们，所以 `@JvmField` 直接去掉；`@Volatile` 换成 kotlin.concurrent.Volatile，
+    // 跨线程可见性的语义不变。
     @Volatile
-    @JvmField
     var activeAccountId: String? = null
 
     /** 每切一次账号命名空间加一（见 SessionManager.reconfigureForAccount）；进行中的登录据此发现账号已经换了。 */
     @Volatile
-    @JvmField
     var switchEpoch: Long = 0L
 
     /** 用于文件名/SharedPreferences 名的安全化账号后缀（当前激活账号）。 */

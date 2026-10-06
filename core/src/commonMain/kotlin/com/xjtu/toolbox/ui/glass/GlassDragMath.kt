@@ -9,7 +9,10 @@ import kotlin.math.roundToInt
  * （比如 1.5f 表示停在第 1、2 格中间），手指拖动时按位移量累加，松手时四舍五入吸附到
  * 最近的一格。
  */
-internal object GlassDragMath {
+// 跨模块可见性：原来是 `internal object`。internal 是**按模块**生效的，一搬进 :core，
+// :app 里的 GlassBottomTabs 就看不见它了（实测报 INVISIBLE_REFERENCE）。跨模块共享的
+// 东西必须是 public —— 这是交接文档说「只是文件搬家 + 改 import」之外真实存在的一步。
+object GlassDragMath {
 
     /**
      * 手指横向拖动 [dragDeltaX] 像素后，滑块目标位置（浮点格数）应该变成多少。
