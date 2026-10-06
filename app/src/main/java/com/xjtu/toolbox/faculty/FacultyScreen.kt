@@ -18,8 +18,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -42,8 +45,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.ui.components.AppSearchBar
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
@@ -69,22 +74,11 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
  * 教师主页检索。
  *
  * 数据分层原则（跟 [FacultyApi] 一致，UI 上不要打破）：
- * - 列表与名片的所有字段来自检索接口的 JSON，**全校 4173 人都有**；
- * - 个人主页解析只做补充，7.5% 的老师什么都没填，属正常情况不是错误；
- * - 主页打不开、非标准地址、或解析不出东西时，一律给「在浏览器中打开」——
- *   与其猜着渲染，不如让用户看学校的原样页面。
+ * - 列表与名片的所有字段来自检索接口的 JSON，全校都有；
+ * - 个人主页补充基本信息，并把简介、研究方向、招生等栏目的正文直接排进详情，其余栏目做成跳转胶囊；
+ * - 主页打不开、站外地址时给「在浏览器中打开」，让用户看学校的原样页面。
  *
  * @param onOpenUrl 交给上层路由到内置浏览器（Routes.BROWSER）
- */
-/**
- * 教师检索的会话级状态。
- *
- * FacultyScreen 是 NavHost 的一个目的地：跳到内置浏览器看老师主页再返回时，
- * 它的 composition 已经被销毁重建，`remember` 里的检索条件和结果全部丢失，
- * 用户会看到一次完整的冷加载——这不自然，也白白多打一次学校的接口。
- *
- * 用进程内单例保存最后一次的检索状态。只在本次运行期间有效，
- * 不做持久化：教师名录不是用户数据，重启后重新拉一次没有代价。
  */
 @Composable
 fun FacultyScreen(
@@ -249,7 +243,7 @@ fun FacultyScreen(
                     androidx.compose.runtime.key(picked.teacherId) {
                         FacultyDetailPane(
                             member = picked,
-                            api = vm.api,
+                            vm = vm,
                             onOpenUrl = onOpenUrl,
                             topPadding = padding.glassTop(glass),
                         )
@@ -274,7 +268,7 @@ fun FacultyScreen(
         // 宽屏详情在右栏，不弹窗
         FacultyDetailSheet(
             member = if (isWide) null else vm.detail,
-            api = vm.api,
+            vm = vm,
             onOpenUrl = onOpenUrl,
             onDismiss = { vm.detail = null },
         )
@@ -383,7 +377,7 @@ private fun FacultyCard(member: FacultyMember, onClick: () -> Unit) {
 private fun FacultyDetailSheet(
     /** null 表示未选中任何教师；此时弹窗保持在组合树里但 show=false */
     member: FacultyMember?,
-    api: FacultyApi,
+    vm: FacultyViewModel,
     onOpenUrl: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -393,10 +387,10 @@ private fun FacultyDetailSheet(
     if (member != null) lastMember = member
     val shown = lastMember ?: return
 
-    var homepage by remember(shown.teacherId) { mutableStateOf<HomepageResult?>(null) }
+    var homepage by remember(shown.teacherId) { mutableStateOf(vm.cachedHomepage(shown)) }
     LaunchedEffect(member?.teacherId) {
         val target = member ?: return@LaunchedEffect
-        homepage = api.fetchHomepage(target)
+        homepage = vm.homepage(target)
     }
 
     OverlayBottomSheet(
@@ -412,6 +406,7 @@ private fun FacultyDetailSheet(
                 .fillMaxWidth()
                 .overScrollVertical()
                 .verticalScroll(rememberScrollState())
+                .navigationBarsPadding()
                 .padding(bottom = 12.dp),
         )
     }
@@ -424,13 +419,13 @@ private fun FacultyDetailSheet(
 @Composable
 private fun FacultyDetailPane(
     member: FacultyMember,
-    api: FacultyApi,
+    vm: FacultyViewModel,
     onOpenUrl: (String) -> Unit,
     topPadding: androidx.compose.ui.unit.Dp,
 ) {
-    var homepage by remember(member.teacherId) { mutableStateOf<HomepageResult?>(null) }
+    var homepage by remember(member.teacherId) { mutableStateOf(vm.cachedHomepage(member)) }
     LaunchedEffect(member.teacherId) {
-        homepage = api.fetchHomepage(member)
+        homepage = vm.homepage(member)
     }
     Column(
         Modifier
@@ -502,22 +497,23 @@ private fun FacultyDetailBody(
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }
+                        // 检索接口带的研究方向是几个短词，放名片里当标签；主页的「研究方向」正文另起一段
+                        if (shown.researchDirections.isNotEmpty()) {
+                            Spacer(Modifier.height(8.dp))
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                shown.researchDirections.forEach { TagPill(it, onTonal = true) }
+                            }
+                        }
                     }
                 }
             }
 
-            if (shown.researchDirections.isNotEmpty()) {
-                Spacer(Modifier.height(12.dp))
-                SectionTitle("研究方向")
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    shown.researchDirections.forEach { TagPill(it) }
-                }
-            }
+            val profile = (homepage as? HomepageResult.Success)?.profile
 
-            // JSON 字段优先——它对全校 4173 人都有值，比主页解析可靠
+            // JSON 字段优先——全校都有，比主页解析可靠
             val basics = buildList {
                 add("学科" to shown.discipline)
                 add("学位" to shown.degree)
@@ -531,59 +527,42 @@ private fun FacultyDetailBody(
                     .filter { it.isNotBlank() }.joinToString(" / "))
                 add("通讯地址" to shown.address)
                 add("入职时间" to shown.entryTime)
-            }.filter { it.second.isNotBlank() }
-
-            if (basics.isNotEmpty()) {
-                Spacer(Modifier.height(12.dp))
+            }.filter { it.second.isNotBlank() }.distinctBy { it.second }  // 联系方式常和邮箱填成同一个
+            // 主页字段只补 JSON 没有的；名片上已有的（职称、单位、导师）和重复的值不再列一遍
+            val extra = profile?.fields.orEmpty().toList().filter { (label, value) ->
+                value.isNotBlank() && label !in HEADER_LABELS && basics.none { it.first == label || it.second == value }
+            }
+            val rows = basics + extra
+            if (rows.isNotEmpty()) {
+                Spacer(Modifier.height(16.dp))
                 SectionTitle("基本信息")
-                InfoCard { basics.forEach { (label, value) -> InfoRow(label, value) } }
+                InfoCard { rows.forEach { (label, value) -> InfoRow(label, value) } }
             }
 
-            if (shown.profile.isNotBlank()) {
-                Spacer(Modifier.height(12.dp))
-                SectionTitle("个人简介")
-                InfoCard {
-                    Text(
-                        shown.profile,
-                        style = MiuixTheme.textStyles.body2,
-                        color = MiuixTheme.colorScheme.onSurface,
-                    )
-                }
+            val sections = profile?.sections.orEmpty().filter { it.paragraphs.isNotEmpty() }
+            // 主页没有简介栏目时用检索接口带的简介顶上；主页的更全，有就用主页的
+            if (shown.profile.isNotBlank() && sections.none { it.kind == SectionKind.INTRO }) {
+                Spacer(Modifier.height(16.dp))
+                ContentSection("个人简介", listOf(shown.profile), url = null, truncated = false, onOpenUrl = onOpenUrl)
+            }
+            sections.forEach { section ->
+                Spacer(Modifier.height(16.dp))
+                ContentSection(section.title, section.paragraphs, section.url, section.truncated, onOpenUrl)
             }
 
-            Spacer(Modifier.height(12.dp))
             when (val result = homepage) {
-                null -> LoadingState("正在读取个人主页…")
-
-                is HomepageResult.Success -> {
-                    // 主页字段只补 JSON 没有的，重复的不再显示一遍
-                    val extra = result.profile.fields
-                        .filterKeys { key -> basics.none { it.first == key } }
-                        .filterValues { it.isNotBlank() }
-                    if (extra.isNotEmpty()) {
-                        SectionTitle("主页补充")
-                        InfoCard { extra.forEach { (label, value) -> InfoRow(label, value) } }
-                        Spacer(Modifier.height(12.dp))
-                    }
-                    // 按一级栏目分组渲染。拍平会把「基本信息（一级）」和它同名的
-                    // 子页并列成两条，看着像重复；分组后层级关系一目了然。
-                    val groups = result.profile.columns.groupBySection()
-                    if (groups.isNotEmpty()) {
-                        SectionTitle("主页栏目")
-                        InfoCard {
-                            groups.forEachIndexed { i, group ->
-                                if (i > 0) HorizontalDivider()
-                                ColumnGroupBlock(group, onOpenUrl)
-                            }
-                        }
-                    }
-                }
-
+                null -> Box(Modifier.fillMaxWidth().padding(top = 16.dp)) { LoadingState("正在读取个人主页…") }
                 is HomepageResult.Unavailable -> HintText("这位老师还没有启用个人主页。")
-
                 is HomepageResult.External -> HintText("这位老师的主页没法在这里展开，点下面直接打开。")
-
                 is HomepageResult.Error -> HintText("个人主页暂时打不开：${result.message}")
+                is HomepageResult.Success -> Unit
+            }
+
+            val more = remember(profile) { profile?.moreColumns().orEmpty() }
+            if (more.isNotEmpty()) {
+                Spacer(Modifier.height(16.dp))
+                SectionTitle("更多栏目")
+                ColumnChips(more, profile?.itemCounts.orEmpty(), onOpenUrl)
             }
 
             val openUrl = when (homepage) {
@@ -592,7 +571,7 @@ private fun FacultyDetailBody(
                 else -> shown.homepageUrl
             }
             if (openUrl.isNotBlank()) {
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(20.dp))
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -653,7 +632,7 @@ private fun OptionPickerSheet(
         title = title,
         onDismissRequest = onDismiss,
     ) {
-        Column(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 8.dp)) {
             if (hint.isNotBlank()) {
                 Text(
                     hint,
@@ -672,7 +651,17 @@ private fun OptionPickerSheet(
                 modifier = Modifier.heightIn(max = 420.dp).overScrollVertical(),
             ) {
                 item {
-                    LinkRow("不限") { onPick(null) }
+                    Text(
+                        "不限",
+                        style = MiuixTheme.textStyles.body2,
+                        fontWeight = FontWeight.Medium,
+                        color = MiuixTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { onPick(null) }
+                            .padding(vertical = 12.dp, horizontal = 8.dp),
+                    )
                     HorizontalDivider()
                 }
                 items(filtered, key = { it.id }) { option ->
@@ -798,67 +787,35 @@ private fun InfoCard(content: @Composable ColumnScope.() -> Unit) {
 }
 
 @Composable
-private fun SectionTitle(text: String) {
-    Text(
-        text,
-        style = MiuixTheme.textStyles.subtitle,
-        fontWeight = FontWeight.Bold,
-        color = MiuixTheme.colorScheme.onSurface,
-        modifier = Modifier.padding(bottom = 6.dp),
-    )
-}
-
-@Composable
-private fun InfoRow(label: String, value: String) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+private fun SectionTitle(text: String, action: String? = null, onAction: (() -> Unit)? = null) {
+    Row(
+        Modifier.fillMaxWidth().padding(start = 4.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Text(
-            label,
-            style = MiuixTheme.textStyles.footnote1,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            modifier = Modifier.width(68.dp),
-        )
-        Text(
-            value,
-            style = MiuixTheme.textStyles.body2,
+            text,
+            style = MiuixTheme.textStyles.subtitle,
+            fontWeight = FontWeight.Bold,
             color = MiuixTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-    }
-}
-
-/**
- * 一级栏目 + 其子页。
- *
- * 一级自身也可点（它就是该栏目的落地页），子页缩进一层并用更轻的字重，
- * 让「哪些是同一组」在扫视时就能看出来。
- */
-@Composable
-private fun ColumnGroupBlock(group: FacultyColumnGroup, onOpenUrl: (String) -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
-        LinkRow(group.section.displayName) { onOpenUrl(group.section.url) }
-        group.children.forEach { child ->
+        if (action != null && onAction != null) {
             Row(
                 Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .clickable { onOpenUrl(child.url) }
-                    .padding(start = 16.dp, top = 9.dp, bottom = 9.dp, end = 4.dp),
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(onClick = onAction)
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // 一根短竖线代替项目符号，比圆点更贴 MIUIX 的克制感
-                Box(
-                    Modifier
-                        .width(2.dp)
-                        .height(12.dp)
-                        .clip(RoundedCornerShape(1.dp))
-                        .background(MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.35f))
-                )
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    child.displayName,
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.weight(1f),
+                Text(action, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                Spacer(Modifier.width(2.dp))
+                Icon(
+                    Icons.AutoMirrored.Outlined.OpenInNew,
+                    contentDescription = null,
+                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.size(13.dp),
                 )
             }
         }
@@ -866,28 +823,145 @@ private fun ColumnGroupBlock(group: FacultyColumnGroup, onOpenUrl: (String) -> U
 }
 
 @Composable
-private fun LinkRow(text: String, onClick: () -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .clickable { onClick() }
-            .padding(vertical = 12.dp, horizontal = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+private fun InfoRow(label: String, value: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 7.dp)) {
         Text(
-            text,
-            style = MiuixTheme.textStyles.body2,
-            color = MiuixTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f),
+            label,
+            style = MiuixTheme.textStyles.footnote1,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            modifier = Modifier.width(76.dp).alignByBaseline(),
         )
-        Icon(
-            Icons.AutoMirrored.Outlined.OpenInNew,
-            contentDescription = null,
-            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            modifier = Modifier.width(16.dp),
-        )
+        // 邮箱、电话、地址常要复制
+        androidx.compose.foundation.text.selection.SelectionContainer(Modifier.weight(1f).alignByBaseline()) {
+            Text(
+                value,
+                style = MiuixTheme.textStyles.body2,
+                color = MiuixTheme.colorScheme.onSurface,
+            )
+        }
     }
+}
+
+/** 名片上已经展示的主页字段，基本信息卡里不再重复 */
+private val HEADER_LABELS = setOf("性别", "职称", "所在单位", "博士生导师", "硕士生导师", "个人主页")
+
+/** 收起时最多露出的字数：大约四五行，够看出这段在讲什么 */
+private const val COLLAPSED_CHARS = 160
+
+/**
+ * 一段主页正文：标题右侧「原页面」跳去学校页面；正文分段排，长的先露出开头，点「展开」看全部。
+ * 可以长按选中复制（邮箱、电话常在这里）。
+ */
+@Composable
+private fun ContentSection(
+    title: String,
+    paragraphs: List<String>,
+    url: String?,
+    truncated: Boolean,
+    onOpenUrl: (String) -> Unit,
+) {
+    var expanded by remember(title, url) { mutableStateOf(false) }
+    var clipped by remember(title, url) { mutableStateOf(false) }
+    // 收起时按字数取前几段，最后一段再用行数兜底，避免一大段不分行的正文撑满屏
+    val visible = remember(paragraphs, expanded) {
+        if (expanded) paragraphs else {
+            var used = 0
+            paragraphs.takeWhile { p -> (used < COLLAPSED_CHARS).also { used += p.length } }.ifEmpty { paragraphs.take(1) }
+        }
+    }
+    val hasMore = visible.size < paragraphs.size || clipped
+    SectionTitle(title, action = url?.let { "原页面" }, onAction = url?.let { { onOpenUrl(it) } })
+    InfoCard {
+        androidx.compose.foundation.text.selection.SelectionContainer {
+            Column(
+                Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                visible.forEachIndexed { i, p ->
+                    Text(
+                        p,
+                        style = MiuixTheme.textStyles.body2,
+                        color = MiuixTheme.colorScheme.onSurface,
+                        lineHeight = 22.sp,
+                        maxLines = if (!expanded && i == visible.lastIndex) 5 else Int.MAX_VALUE,
+                        overflow = TextOverflow.Ellipsis,
+                        onTextLayout = { if (!expanded && i == visible.lastIndex) clipped = it.hasVisualOverflow },
+                    )
+                }
+            }
+        }
+        if (hasMore || expanded) {
+            Row(
+                Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                TextAction(if (expanded) "收起" else "展开全文") { expanded = !expanded }
+                if (expanded && truncated && url != null) {
+                    TextAction("余下内容在原页面") { onOpenUrl(url) }
+                }
+            }
+        }
+    }
+}
+
+/** 正文卡片底部的小号文字按钮。 */
+@Composable
+private fun TextAction(text: String, onClick: () -> Unit) {
+    Text(
+        text,
+        style = MiuixTheme.textStyles.footnote1,
+        fontWeight = FontWeight.Medium,
+        color = MiuixTheme.colorScheme.primary,
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp, horizontal = 2.dp),
+    )
+}
+
+/** 没内嵌正文的栏目排成一排胶囊，点了去学校页面；系统列表带上条数；太多时先露 8 个。 */
+@Composable
+private fun ColumnChips(columns: List<FacultyColumn>, counts: Map<Long, Int>, onOpenUrl: (String) -> Unit) {
+    var all by remember(columns) { mutableStateOf(false) }
+    val shown = if (all || columns.size <= 9) columns else columns.take(8)
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        shown.forEach { column ->
+            LinkChip(SectionKind.cleanTitle(column.displayName), count = counts[column.columnId]) { onOpenUrl(column.url) }
+        }
+        if (shown.size < columns.size) {
+            LinkChip("还有 ${columns.size - shown.size} 个", accent = true) { all = true }
+        }
+    }
+}
+
+@Composable
+private fun LinkChip(text: String, count: Int? = null, accent: Boolean = false, onClick: () -> Unit) {
+    val summary = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    Text(
+        androidx.compose.ui.text.buildAnnotatedString {
+            append(text)
+            if (count != null) {
+                withStyle(androidx.compose.ui.text.SpanStyle(color = summary)) { append("  $count") }
+            }
+        },
+        style = MiuixTheme.textStyles.footnote1,
+        color = if (accent) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier
+            .widthIn(max = 220.dp)
+            .clip(RoundedCornerShape(50))
+            // 弹窗底色就是 surfaceVariant，用它胶囊会隐形；叠一层浅前景色在哪种底上都看得出
+            .background(
+                if (accent) MiuixTheme.colorScheme.primary.copy(alpha = 0.10f)
+                else MiuixTheme.colorScheme.onSurface.copy(alpha = 0.06f),
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+    )
 }
 
 @Composable

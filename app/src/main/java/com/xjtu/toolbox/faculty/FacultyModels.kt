@@ -197,7 +197,39 @@ data class FacultyProfile(
     val fields: Map<String, String> = emptyMap(),
     /** 主页栏目导航，URL 语法跨全部模板一致 */
     val columns: List<FacultyColumn> = emptyList(),
+    /** 挑出来抓了正文的栏目，按 [SectionKind] 顺序；正文为空的也留着，好让 [moreColumns] 不再列出它 */
+    val sections: List<FacultySection> = emptyList(),
+    /** 系统列表栏目的条数（columnId → N），取不到的不在表里 */
+    val itemCounts: Map<Long, Int> = emptyMap(),
 ) {
+    /**
+     * 没内嵌正文的其余栏目，给详情页做一排跳转胶囊。去掉：已抓正文的和同名的、有子页的容器（子页已经列出）、
+     * 首页 / Blank 这类占位名、0 条的系统列表、中文栏目已有同类时的英文镜像（Education、Contact…）。
+     * 同名只留一个；老师自建的排前面，系统列表排后面。
+     */
+    fun moreColumns(): List<FacultyColumn> {
+        val takenUrls = sections.mapTo(HashSet()) { it.url }
+        // 正文已内嵌的栏目名（含原名：简介栏目改叫「个人简介」了，原名「基本信息」的同名容器也不再列）
+        val filled = sections.filter { it.paragraphs.isNotEmpty() }
+        val filledUrls = filled.mapTo(HashSet()) { it.url }
+        val takenTitles = filled.mapTo(HashSet()) { it.title } +
+            columns.filter { it.url in filledUrls }.map { SectionKind.cleanTitle(it.displayName) }
+        val parents = columns.mapNotNullTo(HashSet()) { it.parentId }
+        val zhKinds = columns.filter { it.displayName.hasCjk() }
+            .flatMapTo(HashSet()) { c -> SectionKind.entries.filter { it.matches(c.displayName) } }
+        return columns
+            .filter { it.url !in takenUrls && it.columnId !in parents && it.type != FacultyColumnType.HOME }
+            .filter { itemCounts[it.columnId] != 0 }
+            .filterNot { PLACEHOLDER_TITLE.matches(it.displayName.trim()) }
+            .filterNot { SectionKind.cleanTitle(it.displayName) in takenTitles }
+            .filterNot { c -> !c.displayName.hasCjk() && SectionKind.entries.any { it in zhKinds && it.matches(c.displayName) } }
+            .distinctBy { SectionKind.cleanTitle(it.displayName) }
+            .sortedBy { it.type !in FacultyColumnType.USER_NAMED }
+    }
+
+    private companion object {
+        val PLACEHOLDER_TITLE = Regex("(?i)blank\\d*|首页|主页|中文主页|home|welcome|index")
+    }
     fun field(label: String): String = fields[label].orEmpty()
 }
 
@@ -291,33 +323,80 @@ object FacultyColumnType {
 
     /** 名字由老师自定义的容器类栏目，展示时应优先用链接文本，见 [FacultyColumn.displayName] */
     val USER_NAMED: Set<String> = setOf(GENERAL, CUSTOM)
+
+    /** 系统列表栏目：页面是条目列表，底部有「共 N 条」，大多数老师没填（0 条） */
+    val LISTS: Set<String> = setOf(
+        NEWS, RESEARCH_PROJECT, PAPER, PATENT, BOOK, AWARD, ENROLLMENT,
+        TEACHING_ACHIEVEMENT, TEACHING_RESOURCE, COURSE, STUDENT, ALBUM,
+    )
 }
 
-/**
- * 一个一级栏目及其子页面，供 UI 分组渲染。
- */
-data class FacultyColumnGroup(
-    val section: FacultyColumn,
-    val children: List<FacultyColumn>,
+/** 内嵌到详情页的一段栏目正文。[paragraphs] 为空表示这页没填内容。 */
+data class FacultySection(
+    val kind: SectionKind,
+    val title: String,
+    val url: String,
+    val paragraphs: List<String>,
+    /** 正文太长被截断了，详情页提示去原页面看全文 */
+    val truncated: Boolean = false,
 )
 
 /**
- * 把扁平的栏目列表还原成两级分组。
- *
- * 同时去掉一种视觉重复：老师建一级栏目时系统常自动生成一个同名子页
- * （「基本信息 > 基本信息」「人才培养 > 人才培养」），
- * 两者指向同一个落地页，列表里出现两遍纯属噪音，这里只保留一级。
+ * 值得内嵌正文的栏目类别，按详情页的显示顺序排列。只看老师自建的栏目（`zdylm`）和系统的「研究领域」（`yjgk`），
+ * [patterns] 按优先级逐个试，每类最多取 [max] 个；有中文名的就不取英文镜像（双语主页常两套都建）。
+ * 关键词取自全校 150 位老师栏目名的实测分布。
  */
-fun List<FacultyColumn>.groupBySection(): List<FacultyColumnGroup> {
-    val sections = filter { it.depth == 0 }
-    val childrenOf = filter { it.depth > 0 }.groupBy { it.parentId }
-    val grouped = sections.map { section ->
-        val kids = childrenOf[section.columnId].orEmpty()
-            .filterNot { it.displayName == section.displayName }
-        FacultyColumnGroup(section, kids)
+enum class SectionKind(val max: Int, vararg val patterns: String) {
+    INTRO(1, "个人简介", "简介", "个人介绍", "个人信息", "基本情况", "(?i)biography", "(?i)^about", "基本信息", "(?i)basic information"),
+    RESEARCH(1, "研究方向", "研究领域", "研究兴趣", "研究内容", "科研方向", "(?i)research"),
+    ENROLL(1, "招生", "招聘", "招贤", "欢迎报考", "加入", "(?i)join", "(?i)opportunit"),
+    CAREER(2, "经历", "教育背景", "履历", "(?i)education", "(?i)experience"),
+    HONOR(1, "荣誉", "获奖", "奖励", "(?i)honou?r", "(?i)award"),
+    ROLE(1, "任职", "兼职", "(?i)appointment", "(?i)position"),
+    COURSE(1, "课程", "(?i)teaching"),
+    CONTACT(1, "联系", "(?i)contact");
+
+    private val regexes = patterns.map(::Regex)
+
+    fun matches(title: String): Boolean =
+        regexes.any { it.containsMatchIn(title) } && !(this == INTRO && TEAM.containsMatchIn(title))
+
+    companion object {
+        /** 「课题组简介」「团队简介」说的是团队，不当个人简介 */
+        private val TEAM = Regex("课题组|团队|实验室|研究所|中心|平台")
+
+        private val CONTENT_TYPES = setOf(FacultyColumnType.CUSTOM, FacultyColumnType.RESEARCH_FIELD)
+
+        /** 从栏目里挑出要抓正文的，一个栏目只归一类。 */
+        fun pick(columns: List<FacultyColumn>): List<Pair<SectionKind, FacultyColumn>> {
+            val candidates = columns.filter { it.type in CONTENT_TYPES }
+            val used = HashSet<Long>()
+            return entries.flatMap { kind ->
+                val matched = kind.regexes.asSequence()
+                    .flatMap { re -> candidates.asSequence().filter { re.containsMatchIn(it.displayName) } }
+                    .filter { kind.matches(it.displayName) && it.columnId !in used }
+                    .distinct()
+                    .toList()
+                val preferred = matched.filter { it.displayName.hasCjk() }.ifEmpty { matched }
+                preferred.take(kind.max).onEach { used.add(it.columnId) }.map { kind to it }
+            }
+        }
+
+        /** 栏目名去掉「(1.)」「一、」这类序号和英文尾巴（「个人简介 Brief Bio」「论文（Publications）」）。 */
+        fun cleanTitle(title: String): String {
+            var t = title.trim().replace(LEADING_NUMBER, "")
+            if (t.hasCjk()) {
+                t = t.replace(ENGLISH_PAREN, "")
+                t = t.split('/', '／').first { it.hasCjk() }
+                t = ENGLISH_TAIL.find(t)?.groupValues?.get(1) ?: t
+            }
+            return t.trim().ifEmpty { title.trim() }
+        }
+
+        private val LEADING_NUMBER = Regex("^(?:[(（]?\\d+[.、)）]*[)）]?|[一二三四五六七八九十]+[、.])\\s*")
+        private val ENGLISH_PAREN = Regex("\\s*[(（][A-Za-z][^()（）]*[)）]")
+        private val ENGLISH_TAIL = Regex("^(.*[一-鿿）)])\\s+[A-Za-z][A-Za-z0-9 &,.'’:/-]*$")
     }
-    // 找不到父节点的孤儿（模板异常时可能出现）单独兜底，避免整条数据丢失
-    val claimed = grouped.flatMap { it.children }.mapTo(mutableSetOf()) { it.columnId }
-    val orphans = filter { it.depth > 0 && it.columnId !in claimed && it.parentId == null }
-    return grouped + orphans.map { FacultyColumnGroup(it, emptyList()) }
 }
+
+internal fun String.hasCjk(): Boolean = any { it in '一'..'鿿' }

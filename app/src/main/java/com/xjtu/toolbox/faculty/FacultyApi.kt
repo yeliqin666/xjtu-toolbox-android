@@ -5,6 +5,9 @@ import android.util.Log
 import com.xjtu.toolbox.network.HttpClients
 import com.xjtu.toolbox.webvpn.WebVpnUtil
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -153,6 +156,11 @@ class FacultyApi(
             "主页", "基本信息", "个人简介", "校内登录", "手机版", "Personal profile",
         )
 
+        /** 值是一个词的字段：职称、学科、单位这类不含空格 */
+        private val ATOMIC_LABELS = setOf(
+            "性别", "职称", "学历", "学位", "学科", "所在单位", "博士生导师", "硕士生导师", "入职时间", "电子邮箱", "邮箱",
+        )
+
         /** 同一字段块内两个标签之间的最大间隔；超过则认为不是同一块 */
         private const val FIELD_CLUSTER_GAP = 220
 
@@ -171,6 +179,30 @@ class FacultyApi(
 
         /** 筛选项：`|--` 前缀编码层级 */
         private val OPTION_PREFIX_RE = Regex("""^[|\-\s]+""")
+
+        /** 栏目正文的字数上限：有老师把几百篇论文贴进「荣誉称号」，全文留给原页面 */
+        private const val SECTION_MAX = 3000
+
+        private val BLOCK_TAGS = setOf(
+            "p", "div", "li", "ul", "ol", "tr", "table", "section", "article", "blockquote",
+            "h1", "h2", "h3", "h4", "h5", "h6", "dd", "dt", "pre",
+        )
+
+        /** 全角空格、&nbsp; 一并压成一个空格：老师爱用它们把「姓　名：」排齐 */
+        private val SPACES = Regex("[\\s 　]+")
+
+        private val INVISIBLE = Regex("[​-‍⁠﻿]")
+
+        private val WINGDING_BULLET = Regex("^(?:•\\s*)?[lnqvüØ§]\\s+(?=[一-鿿\\d（(\\[【])")
+
+        private val NUMBERED_BULLET = Regex("^•\\s+(?=(?:\\d+|[一二三四五六七八九十]+)[.、)）]|[（(]\\d+[)）]|\\[\\d+])")
+
+        /** 系统列表栏目（论文、项目、新闻…）页面底部的「共 N 条」，0 条就不给入口 */
+        private val LIST_COUNT = Regex("共(?:&nbsp;|\\s)*(\\d+)(?:&nbsp;|\\s)*条")
+
+        private val CJK_WRAP =Regex("([一-鿿，。、；：！？）])[ \\t]*\\r?\\n\\s*([一-鿿（])")
+
+        private val PLACEHOLDER_TEXT = Regex("暂未填写|暂无|暂无内容|无|待更新|待补充")
     }
 
     // ==================== 检索 ====================
@@ -407,11 +439,96 @@ class FacultyApi(
             val alive = runCatching { !isUnavailablePage(fetchText(english)) }.getOrDefault(false)
             return@withContext if (alive) HomepageResult.External(english) else HomepageResult.Unavailable
         }
-        runCatching { HomepageResult.Success(parseHomepage(html, url)) }
-            .getOrElse {
-                Log.e(TAG, "主页解析失败: $url", it)
-                HomepageResult.Error(com.xjtu.toolbox.error.FriendlyError.of(it, "解析主页"))
+        val profile = runCatching { parseHomepage(html, url) }.getOrElse {
+            Log.e(TAG, "主页解析失败: $url", it)
+            return@withContext HomepageResult.Error(com.xjtu.toolbox.error.FriendlyError.of(it, "解析主页"))
+        }
+        // 挑出的栏目并行抓正文，系统列表栏目顺带数一下有几条（多半是 0）；单个失败只是少一段，不影响整页
+        coroutineScope {
+            val sections = SectionKind.pick(profile.columns).map { (kind, column) ->
+                async {
+                    runCatching {
+                        val (paragraphs, truncated) = parseSection(fetchText(column.url, referer = url))
+                        // 简介类栏目常叫「基本信息」，和详情页的基本信息卡撞名，统一叫个人简介
+                        val title = if (kind == SectionKind.INTRO) "个人简介" else SectionKind.cleanTitle(column.displayName)
+                        FacultySection(kind, title, column.url, paragraphs, truncated)
+                    }.onFailure { Log.w(TAG, "栏目正文抓取失败: ${column.url}", it) }.getOrNull()
+                }
             }
+            val counts = profile.columns.filter { it.type in FacultyColumnType.LISTS }.map { column ->
+                async {
+                    runCatching { LIST_COUNT.find(fetchText(column.url, referer = url))?.groupValues?.get(1)?.toInt() }
+                        .getOrNull()?.let { column.columnId to it }
+                }
+            }
+            HomepageResult.Success(
+                profile.copy(
+                    sections = sections.awaitAll().filterNotNull(),
+                    itemCounts = counts.awaitAll().filterNotNull().toMap(),
+                )
+            )
+        }
+    }
+
+    /**
+     * 栏目页正文拆成段落，返回（段落，是否截断）。正文容器各模板不同，按实测依次找：
+     * `templateuNN`（多数 cn 模板，取最后一个，前面的可能是侧栏简介）、`#tableBox`（cn09、zwmblan）、
+     * `.subs`（cn01、yyz、zwmbhong）、`.r_info`（cn08）。cn07 把正文写成 `<p id=templateuNN><p>…`，
+     * 解析器会把外层 `<p>` 提前闭合，内容落到它的兄弟节点上，所以空 `<p>` 改取父节点。
+     */
+    internal fun parseSection(html: String): Pair<List<String>, Boolean> {
+        val doc = Jsoup.parse(html)
+        doc.select("script, style, noscript").remove()
+        val box = doc.select("[id^=templateu]").lastOrNull()
+            ?: doc.selectFirst("#tableBox") ?: doc.selectFirst(".subs") ?: doc.selectFirst(".r_info")
+            ?: return emptyList<String>() to false
+        val root = if (box.tagName() == "p" && box.text().isBlank()) box.parent() ?: box else box
+        val all = paragraphsOf(root).filterNot { PLACEHOLDER_TEXT.matches(it) }
+        var length = 0
+        val kept = all.takeWhile { length += it.length; length <= SECTION_MAX }
+        if (kept.isEmpty() && all.isNotEmpty()) return listOf(all[0].take(SECTION_MAX) + "…") to true
+        return kept to (kept.size < all.size)
+    }
+
+    /** 按块级元素和 `<br>` 断行，列表项加圆点，表格一行一段、单元格空格隔开。 */
+    private fun paragraphsOf(root: org.jsoup.nodes.Element): List<String> {
+        val sb = StringBuilder()
+        org.jsoup.select.NodeTraversor.traverse(object : org.jsoup.select.NodeVisitor {
+            override fun head(node: org.jsoup.nodes.Node, depth: Int) {
+                when {
+                    // 源码里的换行只是排版，不是分段；夹在两个汉字之间的直接去掉，别处换成空格
+                    node is org.jsoup.nodes.TextNode ->
+                        sb.append(node.wholeText.replace(CJK_WRAP, "$1$2").replace(SPACES, " "))
+                    node !is org.jsoup.nodes.Element -> Unit
+                    node.tagName() == "br" -> sb.append('\n')
+                    node.tagName() == "li" -> sb.append("\n•\u0000")
+                    node.tagName() == "td" || node.tagName() == "th" -> sb.append("  ")
+                    node.tagName() in BLOCK_TAGS -> sb.append('\n')
+                }
+            }
+
+            override fun tail(node: org.jsoup.nodes.Node, depth: Int) {
+                if (node is org.jsoup.nodes.Element && node.tagName() in BLOCK_TAGS) sb.append('\n')
+            }
+        }, root)
+        // 有的页面实体被转义了两遍，解析一次后还剩 &ldquo; 这类字面量，再解一次；零宽字符、BOM 去掉
+        val lines = sb.split('\n')
+            .map { org.jsoup.parser.Parser.unescapeEntities(it, false).replace(INVISIBLE, "").replace(SPACES, " ").trim() }
+            .filter { it.isNotEmpty() }
+        // 列表项里再套 <p> 时圆点会单独成行，接到下一行开头
+        val out = mutableListOf<String>()
+        var bullet = false
+        for (line in lines) {
+            val text = line.removePrefix("•\u0000").trim()
+            val isBullet = line.startsWith("•\u0000")
+            when {
+                isBullet && text.isEmpty() -> bullet = true
+                isBullet || bullet -> { out.add("• $text"); bullet = false }
+                else -> out.add(text)
+            }
+        }
+        // Word 粘过来的 Wingdings 圆点显示成字母 l / n，换回圆点；自带编号的列表项不再加圆点
+        return out.map { it.replace(WINGDING_BULLET, "• ").replace(NUMBERED_BULLET, "") }
     }
 
     /**
@@ -500,6 +617,9 @@ class FacultyApi(
                 if (at >= 0) value = value.substring(0, at)
             }
             value = value.trim().trim('|', '-', '·').trim()
+            // 块里最后一个字段后面常紧跟导航字（「物理学 论文著作」「化学 Welcome」），单值字段只留第一个词
+            if (hit.label in ATOMIC_LABELS) value = value.substringBefore(' ')
+            if (hit.label == "联系方式" && value.none { it.isDigit() || it == '@' }) return@forEachIndexed
             if (value.isEmpty() || value.length > FIELD_VALUE_MAX) return@forEachIndexed
             // 主页上的邮箱是密文，丢掉——用 JSON 里的明文
             if (ENCRYPTED_VALUE_RE.matches(value)) return@forEachIndexed
