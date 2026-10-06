@@ -16,7 +16,7 @@ import android.app.Activity
 import android.content.Context
 import android.graphics.Bitmap
 import android.view.WindowManager
-import androidx.activity.compose.BackHandler
+import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource

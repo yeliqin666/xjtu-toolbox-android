@@ -11,7 +11,7 @@ import androidx.compose.foundation.lazy.staggeredgrid.itemsIndexed
 import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.ui.glass.*
 import android.net.Uri
-import androidx.activity.compose.BackHandler
+import com.xjtu.toolbox.platform.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable

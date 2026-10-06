@@ -1,6 +1,6 @@
 package com.xjtu.toolbox.main
 
-import androidx.activity.compose.BackHandler
+import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.semantics.clearAndSetSemantics

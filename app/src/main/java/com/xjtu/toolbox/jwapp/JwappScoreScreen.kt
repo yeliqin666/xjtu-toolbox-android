@@ -7,7 +7,7 @@ import com.xjtu.toolbox.ui.adaptive.AdaptiveRowGrid
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import com.xjtu.toolbox.ui.components.enterOnce
-import androidx.activity.compose.BackHandler
+import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.material.icons.filled.Description
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card

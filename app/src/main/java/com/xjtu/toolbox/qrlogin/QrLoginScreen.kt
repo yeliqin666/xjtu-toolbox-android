@@ -3,7 +3,7 @@ package com.xjtu.toolbox.qrlogin
 import com.xjtu.toolbox.ui.components.enterOnce
 import android.Manifest
 import android.content.pm.PackageManager
-import androidx.activity.compose.BackHandler
+import com.xjtu.toolbox.platform.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background

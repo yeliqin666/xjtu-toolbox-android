@@ -3,7 +3,7 @@ package com.xjtu.toolbox.home
 import com.xjtu.toolbox.nav.expandOriginSource
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
-import androidx.activity.compose.BackHandler
+import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import top.yukonga.miuix.kmp.utils.SinkFeedback

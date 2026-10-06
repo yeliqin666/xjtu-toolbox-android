@@ -10,66 +10,16 @@ import kotlinx.serialization.json.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 
-data class GithubDiscussionCategory(val id: String, val name: String, val acceptsAnswers: Boolean)
-
-/** 一种表情回应：[content] 是 GitHub 的 ReactionContent 枚举名。 */
-data class GithubReaction(val content: String, val count: Int, val mine: Boolean)
-
-data class GithubPollOption(val id: String, val text: String, val votes: Int, val mine: Boolean)
-data class GithubPoll(
-    val question: String, val options: List<GithubPollOption>, val total: Int,
-    val canVote: Boolean, val voted: Boolean,
-)
-
-data class GithubDiscussion(
-    val id: String, val number: Int, val title: String, val body: String,
-    val url: String, val author: String?, val category: GithubDiscussionCategory,
-    val comments: Int, val answered: Boolean, val canEdit: Boolean = false,
-    val createdAt: String = "", val updatedAt: String = "", val authorAvatar: String? = null,
-    val reactions: List<GithubReaction> = emptyList(), val canReact: Boolean = false,
-    val canDelete: Boolean = false, val authorIsAdmin: Boolean = false,
-    /** 关闭原因：RESOLVED / OUTDATED / DUPLICATE；没关闭为 null。 */
-    val closedReason: String? = null, val canClose: Boolean = false, val canReopen: Boolean = false,
-    val locked: Boolean = false,
-    /** 能锁帖（仓库 triage 及以上权限）。 */
-    val canModerate: Boolean = false,
-    val poll: GithubPoll? = null,
-    val pinned: Boolean = false,
-) {
-    val closed get() = closedReason != null
-}
-data class GithubDiscussionPage(val repositoryId: String, val items: List<GithubDiscussion>, val nextCursor: String?)
-data class GithubDiscussionComment(
-    val id: String, val body: String, val author: String?, val isAnswer: Boolean,
-    val canMarkAnswer: Boolean = false, val canUnmarkAnswer: Boolean = false,
-    val canEdit: Boolean = false, val canDelete: Boolean = false,
-    val createdAt: String = "", val replyCount: Int = 0, val authorAvatar: String? = null,
-    val reactions: List<GithubReaction> = emptyList(), val canReact: Boolean = false,
-    /** 楼中楼的前两条，列表里直接露出来；更多的点开再拉。 */
-    val previewReplies: List<GithubDiscussionComment> = emptyList(),
-    val authorIsAdmin: Boolean = false,
-    val url: String = "",
-    /** 被折叠的原因（GitHub 返回的小写分类，如 spam）；没折叠为 null。 */
-    val minimizedReason: String? = null,
-    val canMinimize: Boolean = false, val canUnminimize: Boolean = false,
-) {
-    val minimized get() = minimizedReason != null
-}
-data class GithubDiscussionComments(val items: List<GithubDiscussionComment>, val nextCursor: String?)
-
-class GithubDiscussionException(message: String? = null) :
-    IllegalStateException(message ?: "GitHub discussion request failed")
-
-class GithubDiscussionsRepository(
+class HttpGithubDiscussionsRepository(
     private val token: () -> String?,
     private val onUnauthorized: () -> Unit = {},
     private val endpoint: String = "https://api.github.com/graphql"
-) {
-    suspend fun viewerLogin(): Result<String> = execute("query{viewer{login}}", buildJsonObject { }) {
+) : GithubDiscussionsRepository {
+    override suspend fun viewerLogin(): Result<String> = execute("query{viewer{login}}", buildJsonObject { }) {
         it.getValue("viewer").jsonObject.text("login")
     }
 
-    suspend fun editComment(id: String, body: String): Result<GithubDiscussionComment> {
+    override suspend fun editComment(id: String, body: String): Result<GithubDiscussionComment> {
         if (id.isBlank() || body.isBlank() || body.length > 65536) {
             return Result.failure(IllegalArgumentException("Invalid comment"))
         }
@@ -79,7 +29,7 @@ class GithubDiscussionsRepository(
         }
     }
 
-    suspend fun deleteComment(id: String): Result<Unit> {
+    override suspend fun deleteComment(id: String): Result<Unit> {
         if (id.isBlank()) return Result.failure(IllegalArgumentException("Invalid comment ID"))
         return execute("mutation(\$input:DeleteDiscussionCommentInput!){deleteDiscussionComment(input:\$input){clientMutationId}}",
             buildJsonObject { put("input", buildJsonObject { put("id", id) }) }) { data ->
@@ -88,12 +38,12 @@ class GithubDiscussionsRepository(
         }
     }
 
-    suspend fun replies(commentId: String, cursor: String?): Result<GithubDiscussionComments> = execute(
+    override suspend fun replies(commentId: String, cursor: String?): Result<GithubDiscussionComments> = execute(
         "query(\$id:ID!,\$cursor:String){node(id:\$id){... on DiscussionComment{replies(first:50,after:\$cursor){nodes{$REPLY_FIELDS} pageInfo{hasNextPage endCursor}}}}}",
         buildJsonObject { put("id", commentId); put("cursor", cursor) }
     ) { data -> comments(data.getValue("node").jsonObject.getValue("replies").jsonObject) }
 
-    suspend fun replyToComment(discussionId: String, commentId: String, body: String): Result<String> {
+    override suspend fun replyToComment(discussionId: String, commentId: String, body: String): Result<String> {
         if (discussionId.isBlank() || commentId.isBlank() || body.isBlank() || body.length > 65536) {
             return Result.failure(IllegalArgumentException("Invalid reply"))
         }
@@ -103,7 +53,7 @@ class GithubDiscussionsRepository(
             }) }) { it.getValue("addDiscussionComment").jsonObject.getValue("comment").jsonObject.text("id") }
     }
 
-    suspend fun edit(id: String, title: String, body: String): Result<GithubDiscussion> {
+    override suspend fun edit(id: String, title: String, body: String): Result<GithubDiscussion> {
         if (id.isBlank() || title.isBlank() || title.length > 256 || body.length > 65536) {
             return Result.failure(IllegalArgumentException("Invalid discussion"))
         }
@@ -113,7 +63,7 @@ class GithubDiscussionsRepository(
             }) }) { discussion(it.getValue("updateDiscussion").jsonObject.getValue("discussion").jsonObject) }
     }
 
-    suspend fun markAnswer(commentId: String, answered: Boolean): Result<Unit> {
+    override suspend fun markAnswer(commentId: String, answered: Boolean): Result<Unit> {
         if (commentId.isBlank()) return Result.failure(IllegalArgumentException("Invalid comment ID"))
         val mutation = if (answered) "markDiscussionCommentAsAnswer" else "unmarkDiscussionCommentAsAnswer"
         val input = if (answered) "MarkDiscussionCommentAsAnswerInput" else "UnmarkDiscussionCommentAsAnswerInput"
@@ -124,13 +74,13 @@ class GithubDiscussionsRepository(
         }
     }
 
-    suspend fun comments(id: String, cursor: String?): Result<GithubDiscussionComments> = execute(
+    override suspend fun comments(id: String, cursor: String?): Result<GithubDiscussionComments> = execute(
         "query(\$id:ID!,\$cursor:String){node(id:\$id){... on Discussion{comments(first:30,after:\$cursor){nodes{$COMMENT_FIELDS} pageInfo{hasNextPage endCursor}}}}}",
         buildJsonObject { put("id", id); put("cursor", cursor) }
     ) { data -> comments(data.getValue("node").jsonObject.getValue("comments").jsonObject) }
 
     /** 第一页顺带拉置顶帖，排在最前面。 */
-    suspend fun list(owner: String, name: String, cursor: String?, categoryId: String? = null): Result<GithubDiscussionPage> = execute(
+    override suspend fun list(owner: String, name: String, cursor: String?, categoryId: String?): Result<GithubDiscussionPage> = execute(
         "query(\$owner:String!,\$name:String!,\$cursor:String,\$category:ID,\$top:Boolean!){repository(owner:\$owner,name:\$name){id pinnedDiscussions(first:10) @include(if:\$top){nodes{discussion{$FIELDS}}} discussions(first:20,after:\$cursor,categoryId:\$category,orderBy:{field:UPDATED_AT,direction:DESC}){nodes{$FIELDS} pageInfo{hasNextPage endCursor}}}}",
         buildJsonObject { put("owner", owner); put("name", name); put("cursor", cursor); put("category", categoryId); put("top", cursor == null) }
     ) { data ->
@@ -145,50 +95,50 @@ class GithubDiscussionsRepository(
             if (page.getValue("hasNextPage").jsonPrimitive.boolean) page.text("endCursor") else null)
     }
 
-    suspend fun detail(owner: String, name: String, number: Int): Result<GithubDiscussion> = execute(
+    override suspend fun detail(owner: String, name: String, number: Int): Result<GithubDiscussion> = execute(
         "query(\$owner:String!,\$name:String!,\$number:Int!){repository(owner:\$owner,name:\$name){discussion(number:\$number){$FIELDS}}}",
         buildJsonObject { put("owner", owner); put("name", name); put("number", number) }
     ) { discussion(it.getValue("repository").jsonObject.getValue("discussion").jsonObject) }
 
     /** 删除整个帖子（仓库管理员或发帖人）。 */
-    suspend fun deleteDiscussion(id: String): Result<Unit> = execute(
+    override suspend fun deleteDiscussion(id: String): Result<Unit> = execute(
         "mutation(\$input:DeleteDiscussionInput!){deleteDiscussion(input:\$input){clientMutationId}}",
         buildJsonObject { put("input", buildJsonObject { put("id", id) }) }
     ) { Unit }
 
     /** 给帖子或评论加 / 撤一个表情回应（点赞就是 👍）。 */
-    suspend fun react(subjectId: String, content: String, add: Boolean): Result<Unit> =
+    override suspend fun react(subjectId: String, content: String, add: Boolean): Result<Unit> =
         if (add) mutate("addReaction", "AddReactionInput", buildJsonObject { put("subjectId", subjectId); put("content", content) })
         else mutate("removeReaction", "RemoveReactionInput", buildJsonObject { put("subjectId", subjectId); put("content", content) })
 
     /** 关闭帖子，[reason] 为 RESOLVED / OUTDATED / DUPLICATE。 */
-    suspend fun close(id: String, reason: String): Result<Unit> =
+    override suspend fun close(id: String, reason: String): Result<Unit> =
         mutate("closeDiscussion", "CloseDiscussionInput", buildJsonObject { put("discussionId", id); put("reason", reason) })
 
-    suspend fun reopen(id: String): Result<Unit> =
+    override suspend fun reopen(id: String): Result<Unit> =
         mutate("reopenDiscussion", "ReopenDiscussionInput", buildJsonObject { put("discussionId", id) })
 
-    suspend fun lock(id: String, locked: Boolean): Result<Unit> =
+    override suspend fun lock(id: String, locked: Boolean): Result<Unit> =
         if (locked) mutate("lockLockable", "LockLockableInput", buildJsonObject { put("lockableId", id) })
         else mutate("unlockLockable", "UnlockLockableInput", buildJsonObject { put("lockableId", id) })
 
     /** 折叠回复，[classifier] 为 ReportedContentClassifiers 枚举名。 */
-    suspend fun minimize(id: String, classifier: String): Result<Unit> =
+    override suspend fun minimize(id: String, classifier: String): Result<Unit> =
         mutate("minimizeComment", "MinimizeCommentInput", buildJsonObject { put("subjectId", id); put("classifier", classifier) })
 
-    suspend fun unminimize(id: String): Result<Unit> =
+    override suspend fun unminimize(id: String): Result<Unit> =
         mutate("unminimizeComment", "UnminimizeCommentInput", buildJsonObject { put("subjectId", id) })
 
-    suspend fun vote(optionId: String): Result<Unit> =
+    override suspend fun vote(optionId: String): Result<Unit> =
         mutate("addDiscussionPollVote", "AddDiscussionPollVoteInput", buildJsonObject { put("pollOptionId", optionId) })
 
-    suspend fun categories(owner: String, name: String): Result<List<GithubDiscussionCategory>> = execute(
+    override suspend fun categories(owner: String, name: String): Result<List<GithubDiscussionCategory>> = execute(
         "query(\$owner:String!,\$name:String!){repository(owner:\$owner,name:\$name){discussionCategories(first:100){nodes{id name isAnswerable}}}}",
         buildJsonObject { put("owner", owner); put("name", name) }
     ) { data -> data.getValue("repository").jsonObject.getValue("discussionCategories").jsonObject
         .getValue("nodes").jsonArray.map { category(it.jsonObject) } }
 
-    suspend fun create(repositoryId: String, categoryId: String, title: String, body: String): Result<GithubDiscussion> {
+    override suspend fun create(repositoryId: String, categoryId: String, title: String, body: String): Result<GithubDiscussion> {
         if (title.isBlank() || title.length > 256 || body.isBlank() || body.length > 65536) return Result.failure(IllegalArgumentException("Invalid discussion"))
         return execute("mutation(\$input:CreateDiscussionInput!){createDiscussion(input:\$input){discussion{$FIELDS}}}",
             buildJsonObject { put("input", buildJsonObject {
@@ -196,7 +146,7 @@ class GithubDiscussionsRepository(
             }) }) { discussion(it.getValue("createDiscussion").jsonObject.getValue("discussion").jsonObject) }
     }
 
-    suspend fun reply(discussionId: String, body: String): Result<String> {
+    override suspend fun reply(discussionId: String, body: String): Result<String> {
         if (body.isBlank() || body.length > 65536) return Result.failure(IllegalArgumentException("Invalid reply"))
         return execute("mutation(\$input:AddDiscussionCommentInput!){addDiscussionComment(input:\$input){comment{id}}}",
             buildJsonObject { put("input", buildJsonObject { put("discussionId", discussionId); put("body", body) }) }

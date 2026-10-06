@@ -3,7 +3,7 @@ package com.xjtu.toolbox.media
 import android.app.Activity
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
-import androidx.activity.compose.BackHandler
+import com.xjtu.toolbox.platform.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn

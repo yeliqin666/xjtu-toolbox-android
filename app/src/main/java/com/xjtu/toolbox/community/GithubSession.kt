@@ -17,13 +17,13 @@ class GithubSession private constructor(private val prefs: SharedPreferences) {
     private val _login = MutableStateFlow(prefs.getString(KEY_LOGIN, null)?.takeIf { token() != null })
     val login: StateFlow<String?> = _login.asStateFlow()
 
-    val repository = GithubDiscussionsRepository(token = ::token, onUnauthorized = ::signOut)
+    val repository = HttpGithubDiscussionsRepository(token = ::token, onUnauthorized = ::signOut)
 
     fun token(): String? = prefs.getString(KEY_TOKEN, null)?.takeIf { it.isNotBlank() }
 
     /** 设备码授权拿到 token 后调：先用它查一次用户名，查得到才落盘。 */
     suspend fun signIn(accessToken: GithubDeviceAccessToken): Result<String> {
-        val probe = GithubDiscussionsRepository(token = { accessToken.accessToken })
+        val probe = HttpGithubDiscussionsRepository(token = { accessToken.accessToken })
         return probe.viewerLogin().onSuccess { name ->
             prefs.edit().putString(KEY_TOKEN, accessToken.accessToken).putString(KEY_LOGIN, name).apply()
             _login.value = name

@@ -1,7 +1,7 @@
 package com.xjtu.toolbox.jiaocai1
 
 import android.content.Context
-import androidx.activity.compose.BackHandler
+import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth

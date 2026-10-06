@@ -14,8 +14,6 @@ import top.yukonga.miuix.kmp.theme.Colors
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeController
 
-val LocalIsDarkTheme = compositionLocalOf { false }
-
 /**
  * @param darkModeOverride "system" | "light" | "dark" — 手动覆盖系统深色模式
  * @param dynamicColor 跟随系统壁纸 / 调色盘取色（Monet）

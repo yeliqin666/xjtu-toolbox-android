@@ -23,7 +23,7 @@ import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.squircle.squircleSurface
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
-import androidx.activity.compose.BackHandler
+import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import android.content.Context
 import androidx.compose.animation.AnimatedVisibility

@@ -71,7 +71,7 @@ import com.xjtu.toolbox.ui.components.SelectionTile
 import com.xjtu.toolbox.ui.components.AppTabPager
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.activity.compose.BackHandler
+import com.xjtu.toolbox.platform.BackHandler
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.glass.GlassTopAppBar
 import com.xjtu.toolbox.ui.glass.LocalOnGlassBar

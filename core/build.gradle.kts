@@ -94,8 +94,15 @@ kotlin {
             // 玻璃质感（Kyant backdrop）：**全 KMP**（android/ios/js/wasm/desktop 都有变体），
             // 所以 ui/glass 那一层可以进 commonMain。:app 用的是同一个坐标。
             api(libs.kyant.backdrop)
+            // 图标：`Icons.*` 与 :app 同一套（JetBrains 多平台版，含 wasmJs），
+            // 所以搬进来的屏幕 import 一行都不用改。core 里有 BackButton 这种只用
+            // 常见图标的屏，extended 里是 Forum/ThumbUp 这类。
+            api(libs.compose.material.icons.core)
             // 跳端图标（Icons.*）：CMP 多平台版停在 1.7.3，见版本目录里的说明。
             api(libs.compose.material.icons.extended)
+            // 多平台的 BackHandler（Android 专属的 androidx.activity.compose.BackHandler
+            // 在共享 UI 里用不了）。android 变体委派给 androidx.activity，所以行为不变。
+            api(libs.compose.ui.backhandler)
             // java.time 不是多平台的（在 JVM 上也是默认导入，所以 import 判据看不见）。
             // 用 api 而非 implementation：CourseTable.termStart 是公开的 LocalDate，
             // 消费方（:web / 将来的 :platform）必须能在自己的编译类路径上看到这个类型。

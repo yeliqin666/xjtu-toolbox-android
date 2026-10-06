@@ -5,7 +5,7 @@ import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import android.content.ContentValues
 import android.content.Context
 import android.provider.MediaStore
-import androidx.activity.compose.BackHandler
+import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut

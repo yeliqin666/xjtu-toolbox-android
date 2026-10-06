@@ -13,7 +13,7 @@ import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.drawBackdrop
-import androidx.activity.compose.BackHandler
+import com.xjtu.toolbox.platform.BackHandler
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults

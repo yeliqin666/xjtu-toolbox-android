@@ -1,6 +1,6 @@
 package com.xjtu.toolbox.bulletin
 
-import androidx.activity.compose.BackHandler
+import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import top.yukonga.miuix.kmp.utils.SinkFeedback

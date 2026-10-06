@@ -117,6 +117,7 @@ compose-ui-graphics = { group = "org.jetbrains.compose.ui", name = "ui-graphics"
 miuix-ui-kmp = { group = "top.yukonga.miuix.kmp", name = "miuix-ui", version.ref = "miuix" }
 miuix-icons-kmp = { group = "top.yukonga.miuix.kmp", name = "miuix-icons", version.ref = "miuix" }
 kotlinx-browser = { group = "org.jetbrains.kotlinx", name = "kotlinx-browser", version.ref = "kotlinxBrowser" }
+compose-material-icons-core = { group = "org.jetbrains.compose.material", name = "material-icons-core", version.ref = "composeMaterialIcons" }
 miuix-nav-kmp = { group = "top.yukonga.miuix.kmp", name = "miuix-nav", version.ref = "miuix" }
 miuix-preference-kmp = { group = "top.yukonga.miuix.kmp", name = "miuix-preference", version.ref = "miuix" }
 miuix-squircle-kmp = { group = "top.yukonga.miuix.kmp", name = "miuix-squircle", version.ref = "miuix" }
@@ -125,6 +126,10 @@ jb-lifecycle-viewmodel = { group = "org.jetbrains.androidx.lifecycle", name = "l
 jb-lifecycle-viewmodel-compose = { group = "org.jetbrains.androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "jetbrainsLifecycle" }
 jb-lifecycle-runtime-compose = { group = "org.jetbrains.androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "jetbrainsLifecycle" }
 compose-material-icons-extended = { group = "org.jetbrains.compose.material", name = "material-icons-extended", version.ref = "composeMaterialIcons" }
+# 多平台的 BackHandler：Android 专属的 androidx.activity.compose.BackHandler 在共享 UI 里
+# 不能用。这个坐标是 CMP 单独发布的（有 wasm-js / iosarm64 / macosarm64 变体），
+# android 变体委派给 androidx.activity —— 所以行为不变，只是 import 换一行。
+compose-ui-backhandler = { group = "org.jetbrains.compose.ui", name = "ui-backhandler", version.ref = "composeMultiplatform" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
