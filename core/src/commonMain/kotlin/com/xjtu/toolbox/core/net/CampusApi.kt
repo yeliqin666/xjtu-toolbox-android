@@ -3,6 +3,7 @@ package com.xjtu.toolbox.core.net
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
+import io.ktor.client.request.parameter
 import kotlinx.serialization.Serializable
 
 /**
@@ -44,5 +45,24 @@ class CampusApi(
         val env: Envelope<TermData> = client.get("$baseUrl/api/jwxt/term").body()
         return env.data?.term
             ?: error("term 缺失：code=${env.code} message=${env.message}")
+    }
+
+    /**
+     * 教务课表。返回的是**上游原始 47 列**（`data.rows`），周次看 [ScheduleRow.weeksText]。
+     *
+     * Android 端现在走自己的 okhttp 版 ScheduleApi；这个方法是为共享层与 Web 端存在的，
+     * 也是将来 Android 端切过来的落点（探针已证明 Ktor 能替代 okhttp）。
+     */
+    suspend fun schedule(term: String): ScheduleData {
+        val env: Envelope<ScheduleData> = client
+            .get("$baseUrl/api/jwxt/schedule") { parameter("term", term) }
+            .body()
+        return env.data ?: error("schedule 缺失：code=${env.code} message=${env.message}")
+    }
+
+    /** 学期起始：`startDate` 是**第 1 周周一**。课表本身不含日期，周次换算全靠它。 */
+    suspend fun termStart(): TermStartData {
+        val env: Envelope<TermStartData> = client.get("$baseUrl/api/jwxt/term-start").body()
+        return env.data ?: error("term-start 缺失：code=${env.code} message=${env.message}")
     }
 }

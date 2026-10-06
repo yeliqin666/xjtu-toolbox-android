@@ -41,6 +41,14 @@ jobs:
         # 这一条就是门禁本体：Android/AndroidX/JVM-only 依赖一进来就红
         run: ./gradlew :core:compileKotlinWasmJs
 
-      - name: 共享逻辑在两个目标上的测试
-        # Cookie 会话往返 + 真实响应解析，都走 MockEngine/夹具，不需要网络也不需要真机
-        run: ./gradlew :core:jvmTest :core:wasmJsNodeTest
+      - name: :core 与 :web 两个模块都必须能编到 wasmJs
+        # :web 是真正吃 :core 的非 Android 端。它编得过，就说明 :core 的公开面在浏览器目标上成立。
+        run: ./gradlew :core:compileKotlinWasmJs :web:compileKotlinWasmJs
+
+      - name: 共享逻辑的单元测试
+        # Cookie 会话往返、真实响应夹具、ZCMC 周次展开与学期日期换算（与 J1900 的
+        # jwxt2caldav.js::parseZcmc 逐条对齐），都不需要网络也不需要真机。
+        # ⚠️ 这里**不跑** :core:wasmJsNodeTest：一旦 :core 依赖 Compose 的 ui-graphics，
+        # Node 版测试包会去 import skiko.mjs 而失败（skiko 只为 browser 目标配好了 npm 解析）。
+        # wasm 的运行时证明交给 :web 在真浏览器里跑真数据。
+        run: ./gradlew :core:jvmTest

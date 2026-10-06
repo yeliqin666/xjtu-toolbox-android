@@ -34,10 +34,10 @@ const val HIDDEN_ROWS = 2
 const val GARBAGE = 8
 const val PIECE_COUNT = 7
 
-internal const val LOCK_DELAY_MS = 500L
+const val LOCK_DELAY_MS = 500L
 internal const val MAX_LOCK_RESETS = 15
-internal const val ULTRA_MS = 120_000L
-internal const val RISE_MS = 7_000L
+const val ULTRA_MS = 120_000L
+const val RISE_MS = 7_000L
 internal const val SOFT_DROP_FACTOR = 20.0
 /** 软降的基准：重力比这还慢时按这个算，保证低等级下拉也够快。 */
 private const val SOFT_DROP_MS = 600.0
@@ -55,7 +55,7 @@ private val SPAWN = arrayOf(
 )
 
 /** 四个朝向的形状。I 在 4×4 盒里转，O 不转，其余在 3×3 盒里绕中心转——和 SRS 的朝向定义一致。 */
-internal val SHAPES: Array<Array<IntArray>> = Array(PIECE_COUNT) { type ->
+val SHAPES: Array<Array<IntArray>> = Array(PIECE_COUNT) { type ->
     val n = if (type == 0) 4 else 3
     val states = arrayOfNulls<IntArray>(4)
     states[0] = SPAWN[type]
@@ -98,7 +98,7 @@ private val KICKS_I = mapOf(
 class BlocksGame(val mode: BlocksMode, private val random: Random = Random.Default) {
 
     val cells = IntArray(BOARD_WIDTH * BOARD_HEIGHT)
-    var piece: ActivePiece? = null; internal set
+    var piece: ActivePiece? = null
     var score = 0; private set
     var lines = 0; private set
     var level = 1; private set
@@ -365,7 +365,7 @@ class BlocksGame(val mode: BlocksMode, private val random: Random = Random.Defau
     }
 
     /** 整盘上移一行，底部补一行只留一个缺口的垃圾。缺口大多沿用上一行，挖起来才有节奏。 */
-    internal fun riseGarbage() {
+    fun riseGarbage() {
         if ((0 until BOARD_WIDTH).any { cell(it, 0) != 0 }) {
             over = true
             return

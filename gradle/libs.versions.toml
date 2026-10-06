@@ -34,6 +34,8 @@ kotlinxDatetime = "0.8.0"
 # 版本必须与 :app 的 compose ui（1.12.1）一致：android 变体是 6KB 空壳，转发到
 # androidx.compose.ui:ui-graphics，所以两边不会重复类。
 composeMultiplatform = "1.12.1"
+# Web 端探针用到的浏览器 API（localStorage / location）与 kotlinx-io 的 web 目标。
+kotlinxBrowser = "0.5.0"
 junit = "4.13.2"
 junitVersion = "1.3.0"
 espressoCore = "3.7.0"
@@ -103,6 +105,11 @@ kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
 kotlinx-datetime = { group = "org.jetbrains.kotlinx", name = "kotlinx-datetime", version.ref = "kotlinxDatetime" }
 compose-ui-graphics = { group = "org.jetbrains.compose.ui", name = "ui-graphics", version.ref = "composeMultiplatform" }
+# MIUIX 的 **KMP 根模块**（不带 -android 后缀）：Gradle Module Metadata 会自动选 wasm-js 变体。
+# :app 用的是 -android 变体，这里要的是同一套组件的 Web 端，所以刻意不带后缀。
+miuix-ui-kmp = { group = "top.yukonga.miuix.kmp", name = "miuix-ui", version.ref = "miuix" }
+miuix-icons-kmp = { group = "top.yukonga.miuix.kmp", name = "miuix-icons", version.ref = "miuix" }
+kotlinx-browser = { group = "org.jetbrains.kotlinx", name = "kotlinx-browser", version.ref = "kotlinxBrowser" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
@@ -113,4 +120,7 @@ kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", versi
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
 android-kotlin-multiplatform-library = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
+# Web（wasmJs）应用模块 :web 用的 Compose Multiplatform 插件。
+# 与 :core 的 composeMultiplatform 版本同源，避免一套工程里出现两个 CMP 版本。
+compose-multiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }
 

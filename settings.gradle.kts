@@ -43,6 +43,18 @@ dependencyResolutionManagement {
             metadataSources { artifact() }
             content { includeModule("com.yarnpkg", "yarn") }
         }
+        // binaryen：Kotlin/Wasm 的 `binaries.executable()`（wasmJsBrowserDistribution）要它把
+        // wasm 优化/链接成可发布产物。同样是 GitHub Releases，同样必须在这里声明 ——
+        // KGP 会把它当成**工程级**仓库加，而工程级仓库在 PREFER_SETTINGS 下会被忽略。
+        // 坐标与 pattern 逐字对齐 KGP 的 BinaryenSetupTask（artifactPattern=version_[revision]/…）。
+        // 缺失时的报错是 `Could not find com.github.webassembly:binaryen:<ver>`，很像依赖写错，
+        // 实际是仓库没露出来。
+        ivy("https://github.com/WebAssembly/binaryen/releases/download") {
+            name = "Binaryen Distributions at https://github.com/WebAssembly/binaryen/releases/download"
+            patternLayout { artifact("version_[revision]/binaryen-version_[revision]-[classifier].[ext]") }
+            metadataSources { artifact() }
+            content { includeModule("com.github.webassembly", "binaryen") }
+        }
     }
 }
 
@@ -53,3 +65,7 @@ include(":baselineprofile")
 // 三端共用的业务与平台抽象（KMP）。当前是传输层探针阶段：只有 jvm / wasmJs 目标，
 // 用来验证把 okhttp 换成 Ktor 之后非 Android 端能否真跑通。
 include(":core")
+// Web 端（Kotlin/Wasm + Compose Multiplatform + MIUIX）—— 第一个**吃 :core** 的真实端。
+// 它不是新的一套业务代码：数据模型、Ktor 客户端、会话存储全来自 :core，
+// 这里只放「浏览器外壳 + 屏幕」，用来证明共享层在非 Android 端真的能跑真数据。
+include(":web")

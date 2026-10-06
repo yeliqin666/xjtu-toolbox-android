@@ -35,7 +35,7 @@ enum class HopSkin(val id: String, val title: String) {
 }
 
 /** 画一帧角色需要的全部状态。[side] 是面朝屏幕右（1）还是左（-1）。 */
-internal class PieceState(
+class PieceState(
     val feet: Offset,
     val scale: Float,
     /** 蓄力程度 0..1；起跳瞬间给负值表示被弹得拉长。 */
@@ -53,7 +53,7 @@ internal class PieceState(
     val size: Float = 1f,
 )
 
-internal fun DrawScope.drawSkin(skin: HopSkin, s: PieceState) {
+fun DrawScope.drawSkin(skin: HopSkin, s: PieceState) {
     if (s.size <= 0.01f) return
     scale(s.size, s.feet) {
         when (skin) {

@@ -28,13 +28,13 @@ import kotlin.random.Random
  * 所以看得见的两个侧面里左边（朝 -x）亮、右边（朝 -z）暗，影子往右下落。
  */
 
-internal const val COS30 = 0.8660254f
-internal const val SIN30 = 0.5f
+const val COS30 = 0.8660254f
+const val SIN30 = 0.5f
 /** 世界里半径 r 的圆投到屏幕上是横 r·√2·cos30、竖 r·√2·sin30 的椭圆。 */
 private const val ELLIPSE_X = 1.2247449f
 private const val ELLIPSE_Y = 0.70710677f
 
-internal class Iso(private val ox: Float, private val oy: Float, val scale: Float) {
+class Iso(private val ox: Float, private val oy: Float, val scale: Float) {
     fun p(x: Float, z: Float, y: Float) = Offset(ox + (x - z) * COS30 * scale, oy - (x + z) * SIN30 * scale - y * scale)
 }
 
@@ -45,10 +45,10 @@ private fun Color.shade(f: Float) = Color((red * f).coerceIn(0f, 1f), (green * f
 /** 分数每 160 分走一个来回：白天 → 黄昏 → 夜晚 → 天亮。 */
 private const val DAY_CYCLE = 160
 
-internal fun smoothstep(t: Float) = t.coerceIn(0f, 1f).let { it * it * (3 - 2 * it) }
+fun smoothstep(t: Float) = t.coerceIn(0f, 1f).let { it * it * (3 - 2 * it) }
 
 /** 夜色浓度 0..1。 */
-internal fun nightOf(score: Int): Float {
+fun nightOf(score: Int): Float {
     val p = score % DAY_CYCLE
     return smoothstep(
         when {
@@ -77,7 +77,7 @@ private val DAY = Color(0xFF86C5F0) to Color(0xFFEAF5FC)
 private val DUSK = Color(0xFFF2A07B) to Color(0xFFFCE1C4)
 private val NIGHT = Color(0xFF0F1733) to Color(0xFF2A2E58)
 
-internal fun DrawScope.drawSky(score: Int, time: Float) {
+fun DrawScope.drawSky(score: Int, time: Float) {
     val dusk = duskOf(score)
     val night = nightOf(score)
     val top = lerp(lerp(DAY.first, DUSK.first, dusk), NIGHT.first, night)
@@ -103,7 +103,7 @@ internal fun DrawScope.drawSky(score: Int, time: Float) {
  * 远景里的校园地标：立在地平线上，白天淡淡的粉色插画，夜里成了深色剪影。
  * [fade] 是新换上这座的淡入进度；[shift] 随镜头平移一点点，做出远景的视差。
  */
-internal fun DrawScope.drawLandmark(image: ImageBitmap, fade: Float, night: Float, shift: Float) {
+fun DrawScope.drawLandmark(image: ImageBitmap, fade: Float, night: Float, shift: Float) {
     val maxW = size.width * 0.92f
     val h = minOf(size.height * 0.2f, maxW * image.height / image.width)
     val w = h * image.width / image.height
@@ -159,7 +159,7 @@ private fun lookOf(pad: Pad): Look = when {
 }
 
 /** 台子落在地面上的影子，往右下偏一点。 */
-internal fun DrawScope.drawPadShadow(pad: Pad, iso: Iso) {
+fun DrawScope.drawPadShadow(pad: Pad, iso: Iso) {
     val alpha = 0.13f * (1f - pad.fade)
     if (alpha <= 0f) return
     val sx = pad.x + 0.08f
@@ -186,7 +186,7 @@ internal fun DrawScope.drawPadShadow(pad: Pad, iso: Iso) {
  * 画一块台子。[press] 是被压下去的深度（世界单位），[shakeX] 是易碎台快塌时的抖动，
  * [night] 夜色浓度（台子变暗、台面亮一盏暖灯），[stay] 彩蛋台上停留的进度 0..1（不在计时就是 -1）。
  */
-internal fun DrawScope.drawPad(pad: Pad, iso: Iso, press: Float, shakeX: Float, time: Float, night: Float, stay: Float) {
+fun DrawScope.drawPad(pad: Pad, iso: Iso, press: Float, shakeX: Float, time: Float, night: Float, stay: Float) {
     // 幽灵台隐身时只剩一层淡影
     val alpha = (1f - pad.fade) * (0.2f + 0.8f * pad.solidity)
     if (alpha <= 0f) return
@@ -566,7 +566,7 @@ private fun DrawScope.cracks(c: Offset, r: Float, alpha: Float) {
 }
 
 /** 棋子在脚下台面（或地面）上的影子：离得越高越小越淡。 */
-internal fun DrawScope.drawPieceShadow(at: Offset, scale: Float, height: Float) {
+fun DrawScope.drawPieceShadow(at: Offset, scale: Float, height: Float) {
     val k = (1f - height * 0.45f).coerceIn(0.35f, 1f)
     val rx = PLAYER_RADIUS * scale * ELLIPSE_X * 1.25f * k
     val ry = PLAYER_RADIUS * scale * ELLIPSE_Y * 1.25f * k
@@ -577,19 +577,19 @@ internal fun DrawScope.drawPieceShadow(at: Offset, scale: Float, height: Float) 
 // ── 特效 ──
 
 /** 世界坐标里的小颗粒：落地扬尘、蓄力时往身上聚的光点、台子塌掉的碎块。 */
-internal class Mote(
+class Mote(
     var x: Float, var y: Float, var z: Float,
     var vx: Float, var vy: Float, var vz: Float,
     var life: Float, val maxLife: Float, val color: Color, val size: Float, val gravity: Float,
 )
 
 /** 落地在台面上荡开的一圈。 */
-internal class Ripple(val x: Float, val z: Float, val y: Float, var t: Float, val strong: Boolean)
+class Ripple(val x: Float, val z: Float, val y: Float, var t: Float, val strong: Boolean)
 
 /** 世界坐标里往上飘的字。 */
-internal class Popup(val text: String, val x: Float, val y: Float, val z: Float, var t: Float, val color: Color)
+class Popup(val text: String, val x: Float, val y: Float, val z: Float, var t: Float, val color: Color)
 
-internal fun stepMotes(motes: MutableList<Mote>, dt: Float) {
+fun stepMotes(motes: MutableList<Mote>, dt: Float) {
     val it = motes.iterator()
     while (it.hasNext()) {
         val m = it.next()
@@ -602,14 +602,14 @@ internal fun stepMotes(motes: MutableList<Mote>, dt: Float) {
     }
 }
 
-internal fun DrawScope.drawMotes(motes: List<Mote>, iso: Iso) {
+fun DrawScope.drawMotes(motes: List<Mote>, iso: Iso) {
     for (m in motes) {
         val k = (m.life / m.maxLife).coerceIn(0f, 1f)
         drawCircle(m.color, m.size * iso.scale * (0.5f + 0.5f * k), iso.p(m.x, m.z, m.y), alpha = k)
     }
 }
 
-internal fun DrawScope.drawRipples(ripples: List<Ripple>, iso: Iso) {
+fun DrawScope.drawRipples(ripples: List<Ripple>, iso: Iso) {
     for (r in ripples) {
         val k = r.t
         val rad = (0.12f + k * if (r.strong) 0.55f else 0.3f) * iso.scale
@@ -622,7 +622,7 @@ internal fun DrawScope.drawRipples(ripples: List<Ripple>, iso: Iso) {
 }
 
 /** 分叉时标出两块候选台：瞄着的那块一圈亮环 + 上下跳的箭头，另一块淡淡一圈。 */
-internal fun DrawScope.drawForkMarks(game: HopGame, iso: Iso, time: Float) {
+fun DrawScope.drawForkMarks(game: HopGame, iso: Iso, time: Float) {
     if (game.targets.size < 2 || game.phase == HopPhase.FLYING || game.phase == HopPhase.FALLING) return
     val aim = game.aimTarget
     for (t in game.targets) {
@@ -656,4 +656,4 @@ internal fun DrawScope.drawForkMarks(game: HopGame, iso: Iso, time: Float) {
 }
 
 /** 起跳后脚下那块台子弹回来：衰减振荡。 */
-internal fun bounceOffset(t: Float, amp: Float): Float = amp * exp(-7f * t) * cos(22f * t)
+fun bounceOffset(t: Float, amp: Float): Float = amp * exp(-7f * t) * cos(22f * t)

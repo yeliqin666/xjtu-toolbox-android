@@ -17,36 +17,36 @@ enum class PadKind { NORMAL, SPRING, ICE, CRUMBLE, MOVING, PORTAL, SPIN, GHOST, 
 
 enum class HopPhase { IDLE, CHARGING, FLYING, SLIDING, WARPING, FALLING, OVER }
 
-internal const val JUMP_SPEED = 3.0f        // 每蓄力一秒飞多远
-internal const val MAX_CHARGE = 1.3f
-internal const val FLIGHT_TIME = 0.5f
-internal const val SLIDE_TIME = 0.35f
-internal const val FALL_TIME = 0.45f
+const val JUMP_SPEED = 3.0f        // 每蓄力一秒飞多远
+const val MAX_CHARGE = 1.3f
+const val FLIGHT_TIME = 0.5f
+const val SLIDE_TIME = 0.35f
+const val FALL_TIME = 0.45f
 internal const val TIP_FALL_TIME = 0.7f
 internal const val ICE_SLIDE = 0.42f
-internal const val CRUMBLE_TIME = 1.8f
+const val CRUMBLE_TIME = 1.8f
 /** 易碎台之后那块的最远中心距：蓄力约 0.75 秒，给看清和起跳留出余量。 */
-internal const val RUSHED_GAP = 2.2f
-internal const val SPRING_BOOST = 1.5f
-internal const val PAD_HEIGHT = 0.55f
+const val RUSHED_GAP = 2.2f
+const val SPRING_BOOST = 1.5f
+const val PAD_HEIGHT = 0.55f
 /** 棋子底座半径：落点出了台面但离边不到这么远，是半个身子悬空、往外倒下去。 */
-internal const val PLAYER_RADIUS = 0.14f
+const val PLAYER_RADIUS = 0.14f
 /** 落点离中心不到半径的这个比例，算正中。 */
 internal const val CENTER_RATIO = 0.3f
-internal const val FORK_BONUS = 5
+const val FORK_BONUS = 5
 /** 方台、圆台各有几种造型，界面按 [Pad.style] 取对应的画法。 */
 internal const val BOX_STYLES = 5
 internal const val ROUND_STYLES = 4
 internal const val MOVE_AMPLITUDE = 0.55f
 private const val MOVE_SPEED = 1.7f
 /** 在彩蛋台上停这么久拿奖励。 */
-internal const val STAY_TIME = 2f
-internal const val WARP_TIME = 0.7f
-internal const val PORTAL_BONUS = 3
+const val STAY_TIME = 2f
+const val WARP_TIME = 0.7f
+const val PORTAL_BONUS = 3
 /** 旋转台转速（弧度 / 秒），站在上面的人跟着转。 */
 internal const val SPIN_SPEED = 1.3f
 /** 蹦床落稳后隔这么久自动起跳。 */
-internal const val BOUNCE_DELAY = 0.3f
+const val BOUNCE_DELAY = 0.3f
 
 /** 彩蛋台：黑胶（圆台 1）停够两秒 +10，咖啡杯（圆台 2）、魔方（方台 3）+5，别的台子 0。 */
 fun stayBonusOf(pad: Pad): Int = when {
@@ -114,11 +114,11 @@ class HopGame(private val random: Random = Random.Default) {
     val pads = mutableListOf<Pad>()
     var current: Pad; private set
     /** 下一跳可选的台子：一般一块，分叉时两块。 */
-    var targets: List<Pad> = emptyList(); internal set
+    var targets: List<Pad> = emptyList()
 
     var phase = HopPhase.IDLE; private set
     var charge = 0f; private set
-    var score = 0; internal set
+    var score = 0
     var streak = 0; private set
     /** 最近一次得分，和它的序号（界面据此飘字）。 */
     var lastGain = 0; private set

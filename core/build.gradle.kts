@@ -35,12 +35,25 @@ kotlin {
 
     jvm()
 
-    // Web 端（Kotlin/Wasm）。测试跑在 Node 上：MockEngine 不需要网络，
-    // 于是「共享代码在非 JVM 目标上能编、能跑」就成了 CI 门禁，不依赖浏览器。
-    // 浏览器特有的问题（CORS、localStorage、同源反代）留给下一步的 web 应用探针。
+    // Web 端（Kotlin/Wasm）。
+    //
+    // 这里**不声明测试环境**（原来用 nodejs()），原因实测：一旦 :core 依赖了 Compose 的
+    // ui-graphics（见 commonMain 里那条注释），Node 版测试包就会去 import `skiko.mjs` —— 
+    // Compose 的 Skia 绑定只为 browser 目标配好了 npm 解析，nodejs 下报 ERR_MODULE_NOT_FOUND。
+    //
+    // 所以 wasm 的职责拆成两半，各自用更合适的形态守：
+    //   - **可移植性门禁** = `compileKotlinWasmJs`（下面这个目标本身）。它把 android.* /
+    //     androidx.*（除绘图基础类型）/ java.* / kotlin.jvm.* / okhttp 等一次拦下 ——
+    //     比交接文档 §9 那条 grep 断言强，而且不依赖任何运行时。
+    //   - **运行时证明** = `:web` 在**真浏览器**里跑真数据（比 Node 测试更接近真实场景）。
+    // 共享逻辑的单元测试仍然在 `:core:jvmTest` 里跑全套（同一份 commonTest 源码）。
     @OptIn(ExperimentalWasmDsl::class)
     wasmJs {
-        nodejs()
+        // 库侧也要声明一个 JS 环境：:web 的产物打包会经由 umbrella 的 npm 安装任务，
+        // 而它要求依赖图里每个 wasm 目标都“configured for JS usage”。
+        // 用 browser 而不是 nodejs：nodejs 下测试包会去 import skiko.mjs 而 ERR_MODULE_NOT_FOUND
+        //（Compose 的 Skia 绑定只为 browser 配好了 npm 解析），browser 没有这个问题。
+        browser()
     }
 
     sourceSets {
@@ -58,8 +71,9 @@ kotlin {
             // 用 api 而不是 implementation：搬进来的文件会把 Color/Path 暴露在公开 API 上。
             api(libs.compose.ui.graphics)
             // java.time 不是多平台的（在 JVM 上也是默认导入，所以 import 判据看不见）。
-            // 用 kotlinx-datetime 的对应物：LocalDate / LocalTime / LocalDateTime / DayOfWeek。
-            implementation(libs.kotlinx.datetime)
+            // 用 api 而非 implementation：CourseTable.termStart 是公开的 LocalDate，
+            // 消费方（:web / 将来的 :platform）必须能在自己的编译类路径上看到这个类型。
+            api(libs.kotlinx.datetime)
         }
         commonTest.dependencies {
             implementation(kotlin("test"))
