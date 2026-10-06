@@ -1,0 +1,46 @@
+name: Core KMP Gate
+
+# :core 的 KMP 卫生门禁。刻意独立成一个 workflow，不改 build.yml 的触发条件
+# （build.yml 只在 push 到 main / dev 时跑，且带着发版流程：keystore、Release 上传）。
+#
+# 这里守的是交接文档 §9 那两条验收判据，但用了比它更强的形式：
+# 文档原文是 `grep -r "^import android\." **/commonMain/**` 必须为空 ——
+# 那个 grep 恰好漏掉 java.* / okhttp / jsoup，而这三样才是真正的坑
+# （实测：okhttp 出现在 79 个文件里，且 okhttp 5.5.0 只发布 jvm / android 变体）。
+# 让 commonMain 去编一个非 JVM 目标，就一次性把 android.*、androidx.*、java.*
+# 以及所有只有 JVM 变体的第三方库全拦下来。
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: core-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: "temurin"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant execute permission
+        run: chmod +x gradlew
+
+      - name: commonMain 必须能编到非 JVM 目标
+        # 这一条就是门禁本体：Android/AndroidX/JVM-only 依赖一进来就红
+        run: ./gradlew :core:compileKotlinWasmJs
+
+      - name: 共享逻辑在两个目标上的测试
+        # Cookie 会话往返 + 真实响应解析，都走 MockEngine/夹具，不需要网络也不需要真机
+        run: ./gradlew :core:jvmTest :core:wasmJsNodeTest
