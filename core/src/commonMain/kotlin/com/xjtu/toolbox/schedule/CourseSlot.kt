@@ -25,7 +25,15 @@ data class CourseSlot(
     val endSection: Int = 0,
     /** 展开后的周次（升序去重），由 [parseWeeksText] 从 `ZCMC` 文本得到。 */
     val weeks: List<Int> = emptyList(),
-)
+) : ScheduleSlot {
+    // 直接满足共享周视图布局（[layoutWeekGrid]）的入参接口：`slotLocation` 只给教室
+    //（校区是展示用的第二信息，布局不关心）。:app 的 `CourseItem` 早就实现了同一个接口。
+    override val slotName get() = courseName
+    override val slotLocation get() = room
+    override val slotDayOfWeek get() = dayOfWeek
+    override val slotStartSection get() = startSection
+    override val slotEndSection get() = endSection
+}
 
 /**
  * `ZCMC` 周次文本 → 周集合。口径与 J1900 的 `jwxt2caldav.js::parseZcmc` **逐条对齐**

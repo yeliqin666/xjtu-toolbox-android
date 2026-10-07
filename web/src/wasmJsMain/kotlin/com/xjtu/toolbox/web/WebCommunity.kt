@@ -5,44 +5,56 @@ import com.xjtu.toolbox.community.GithubDeviceAuthRepository
 import com.xjtu.toolbox.community.GithubDeviceAuthorization
 import com.xjtu.toolbox.community.GithubDeviceFlowNotConfiguredException
 import com.xjtu.toolbox.community.GithubDevicePollResult
-import com.xjtu.toolbox.community.GithubDiscussion
-import com.xjtu.toolbox.community.GithubDiscussionCategory
-import com.xjtu.toolbox.community.GithubDiscussionComment
-import com.xjtu.toolbox.community.GithubDiscussionComments
-import com.xjtu.toolbox.community.GithubDiscussionPage
 import com.xjtu.toolbox.community.GithubDiscussionsRepository
+import com.xjtu.toolbox.community.GithubHttpResponse
+import com.xjtu.toolbox.community.GithubHttpTransport
 import com.xjtu.toolbox.community.GithubSession
 import com.xjtu.toolbox.community.GithubSignedOutException
+import com.xjtu.toolbox.community.GraphQlGithubDiscussionsRepository
+import io.ktor.client.HttpClient
+import io.ktor.client.request.header
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
+import io.ktor.http.contentType
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * Web 端的社区登录态：**明确的「尚未配置」**，不是假装能用。
+ * Web 端的社区：**取数实现与 Android 是同一份**（`:core` 的 GraphQL），只差一个 token 来源。
  *
- * `CommunityScreen` 是 `:core` 的真屏，它要两个注入：登录态与设备码登录。这两件事在 Android 上
- * 是 `PrefsGithubSession`（加密偏好 + okhttp GraphQL），Web 端现在没有对应物 ——
- * 浏览器直连 `github.com/login/device` 拿不到 CORS 头，`api.github.com` 又需要用户自己的 token。
- *
- * 所以这里给的是**诚实的降级**：`deviceAuth.isConfigured = false` ⇒ 登录页显示它自带的
- * 「社区登录还没配置好，敬请期待。」那句（:core 里本来就有的分支），界面、主题、文案全部与被
- * Android 端同一份代码，只是这一件事暂时做不了。要真接上，只需在这里换成一个走同源反代
- * （campus-api 加一个 GitHub 代理端点）或直连 `api.github.com` 的实现 —— 屏幕一行都不用改。
- *
- * 仓库实现把所有方法都返回「未登录」，因为未登录时屏幕不会走到它们
- * （`CommunityScreen` 内部先按 `login == null` 分流到登录页）。
+ * - 传输层由本文件的 [KtorGithubTransport] 提供（Android 那边是 `OkHttpGithubTransport`）——
+ *   于是「查询字符串 + JSON 解析 + 限流判定 + 401 回调」两端共用，这正是把那 272 行从 :app
+ *   搬进 :core 的意义；
+ * - **token 现在恒为 null**：浏览器直连 `github.com/login/device` 拿不到 CORS 头（设备码流程
+ *   走不通），`api.github.com` 又需要用户自己的 token。所以任何取数都会得到
+ *   `GithubSignedOutException`，界面停在 `CommunityScreen` 自带的登录页 —— 这是如实的降级，
+ *   不是假装能用。
+ * - 接上它只需要改这一处的 `token`：要么 campus-api 加一个 GitHub 代理端点（走同源），
+ *   要么让用户粘贴一个自己的 token（界面那侧加一个输入框）。**屏幕与 :core 都不用改。**
  */
-internal object WebGithubSession : GithubSession {
+internal class WebGithubSession(client: HttpClient) : GithubSession {
+
+    private var token: String? = null
+
     override val login: StateFlow<String?> = MutableStateFlow(null)
 
-    override val repository: GithubDiscussionsRepository = NotLoggedInRepository
+    override val repository: GithubDiscussionsRepository = GraphQlGithubDiscussionsRepository(
+        token = { token },
+        transport = KtorGithubTransport(client),
+        onUnauthorized = { token = null },
+    )
 
     override suspend fun signIn(accessToken: GithubDeviceAccessToken): Result<String> =
         Result.failure(GithubSignedOutException())
 
-    override fun signOut() = Unit
+    override fun signOut() {
+        token = null
+    }
 }
 
-/** Web 端的设备码登录：同上，如实报「未配置」。 */
+/** Web 端的设备码登录：如实报「未配置」（见 [WebGithubSession] 的说明）。 */
 internal object WebGithubDeviceAuth : GithubDeviceAuthRepository {
     override val isConfigured: Boolean = false
 
@@ -54,32 +66,23 @@ internal object WebGithubDeviceAuth : GithubDeviceAuthRepository {
 }
 
 /**
- * 「未登录」的取数实现。21 个方法逐个返回失败，而不是抛异常 —— 接口的约定就是用 `Result`。
- * 未登录时屏幕不会调用它们（见 [WebGithubSession] 的说明），列全是为了**接口一变就编译报错**，
- * 而不是等到运行时才发现某条路径没实现。
+ * Ktor 版传输：与 Android 的 `OkHttpGithubTransport` 配对，两个实现都只有「发一次 POST、
+ * 把状态码/正文/限流头收成 [GithubHttpResponse]」这一步。
+ *
+ * 没有 `dispatcher` 参数：Ktor 的 fetch 本身异步，不需要 `Dispatchers.IO`（那是 JVM 专有的）。
  */
-internal object NotLoggedInRepository : GithubDiscussionsRepository {
-    private fun <T> no() : Result<T> = Result.failure(GithubSignedOutException())
-
-    override suspend fun list(owner: String, name: String, cursor: String?, categoryId: String?): Result<GithubDiscussionPage> = no()
-    override suspend fun categories(owner: String, name: String): Result<List<GithubDiscussionCategory>> = no()
-    override suspend fun create(repositoryId: String, categoryId: String, title: String, body: String): Result<GithubDiscussion> = no()
-    override suspend fun editComment(id: String, body: String): Result<GithubDiscussionComment> = no()
-    override suspend fun deleteComment(id: String): Result<Unit> = no()
-    override suspend fun replyToComment(discussionId: String, commentId: String, body: String): Result<String> = no()
-    override suspend fun edit(id: String, title: String, body: String): Result<GithubDiscussion> = no()
-    override suspend fun markAnswer(commentId: String, answered: Boolean): Result<Unit> = no()
-    override suspend fun reply(discussionId: String, body: String): Result<String> = no()
-    override suspend fun viewerLogin(): Result<String> = no()
-    override suspend fun replies(commentId: String, cursor: String?): Result<GithubDiscussionComments> = no()
-    override suspend fun comments(id: String, cursor: String?): Result<GithubDiscussionComments> = no()
-    override suspend fun detail(owner: String, name: String, number: Int): Result<GithubDiscussion> = no()
-    override suspend fun deleteDiscussion(id: String): Result<Unit> = no()
-    override suspend fun react(subjectId: String, content: String, add: Boolean): Result<Unit> = no()
-    override suspend fun close(id: String, reason: String): Result<Unit> = no()
-    override suspend fun reopen(id: String): Result<Unit> = no()
-    override suspend fun lock(id: String, locked: Boolean): Result<Unit> = no()
-    override suspend fun minimize(id: String, classifier: String): Result<Unit> = no()
-    override suspend fun unminimize(id: String): Result<Unit> = no()
-    override suspend fun vote(optionId: String): Result<Unit> = no()
+internal class KtorGithubTransport(private val client: HttpClient) : GithubHttpTransport {
+    override suspend fun post(url: String, headers: Map<String, String>, jsonBody: String): GithubHttpResponse {
+        val response = client.post(url) {
+            headers.forEach { (name, value) -> header(name, value) }
+            contentType(ContentType.Application.Json)
+            setBody(jsonBody)
+        }
+        return GithubHttpResponse(
+            status = response.status.value,
+            body = response.bodyAsText(),
+            retryAfter = response.headers["Retry-After"],
+            rateLimitRemaining = response.headers["X-RateLimit-Remaining"],
+        )
+    }
 }

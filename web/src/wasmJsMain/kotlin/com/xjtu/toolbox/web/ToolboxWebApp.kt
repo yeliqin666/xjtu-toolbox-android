@@ -17,6 +17,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.xjtu.toolbox.community.CommunityScreen
+import com.xjtu.toolbox.community.GithubSession
 import com.xjtu.toolbox.core.net.CampusYellowPageApi
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.game.blocks.BlocksScreen
@@ -49,13 +50,14 @@ import top.yukonga.miuix.kmp.basic.NavigationBarItem
 @Composable
 fun ToolboxWebApp() {
     val client = remember { toolboxWebClient() }
+    val session = remember { WebGithubSession(client) }
     val initial = remember { initialWebTarget() }
     var target: WebTarget by remember { mutableStateOf(initial) }
 
     Column(modifier = Modifier.fillMaxSize()) {
         Box(modifier = Modifier.weight(1f)) {
             when (val t = target) {
-                is WebTarget.App -> AppPage(t.route, client) { target = it }
+                is WebTarget.App -> AppPage(t.route, client, session) { target = it }
                 WebTarget.Probe -> ProbeScreen()
                 WebTarget.Eula -> EulaScreen(onAccept = { target = WebTarget.Probe })
             }
@@ -104,7 +106,7 @@ private fun WebBottomBar(selected: WebTarget, onSelect: (WebTarget) -> Unit) {
  * - 错误文案统一用 `:core` 的 [FriendlyError] —— 与 App 字句相同。
  */
 @Composable
-private fun AppPage(route: AppRoute, client: HttpClient, onNavigate: (WebTarget) -> Unit) {
+private fun AppPage(route: AppRoute, client: HttpClient, session: GithubSession, onNavigate: (WebTarget) -> Unit) {
     val back = { onNavigate(WebTarget.App(AppRoute.Schedule)) }
     when (route) {
         AppRoute.Schedule -> ScheduleScreen()
@@ -116,7 +118,7 @@ private fun AppPage(route: AppRoute, client: HttpClient, onNavigate: (WebTarget)
         AppRoute.Game2048 -> Gpa2048Screen(onBack = back)
         AppRoute.GameBlocks -> BlocksScreen(onBack = back)
         AppRoute.Community -> CommunityScreen(
-            session = WebGithubSession,
+            session = session,
             deviceAuth = WebGithubDeviceAuth,
             onBack = back,
             onOpenLegacyFeedback = {},
