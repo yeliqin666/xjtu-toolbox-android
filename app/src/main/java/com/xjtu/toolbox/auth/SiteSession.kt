@@ -14,6 +14,7 @@ import okhttp3.Response
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import com.xjtu.toolbox.error.UserFacingFailure
+import com.xjtu.toolbox.network.asToolboxKtorClient
 
 /**
  * 业务站点的会话基类。一个实例对应一个业务子系统（jwxt / jwapp / library / …），
@@ -344,6 +345,79 @@ abstract class SiteSession(
         // 由 ensureLogin 依据代数决定是复用还是真正重登录。
         ensureLogin(creds.first, creds.second, force = true, staleEpoch = epochBefore)
         return executeWithReAuth(request, retried = true)
+    }
+
+    /** 站点会话的 Ktor 形状出口。惰性建、**永不 close**（见 [com.xjtu.toolbox.network.asToolboxKtorClient] 的 KDoc：
+     *  它会从 [client] 派生一个 OkHttpClient，而 okhttp 的 Dispatcher 是共用的，关掉会把全局网络一块儿打死）。 */
+    @Volatile private var ktorClient: io.ktor.client.HttpClient? = null
+
+    private val ktor: io.ktor.client.HttpClient
+        get() = ktorClient ?: synchronized(this) {
+            ktorClient ?: client.asToolboxKtorClient().also { ktorClient = it }
+        }
+
+    /**
+     * [decorateRequest] 的 Ktor 对应物。
+     *
+     * ⚠️ **迁移某个站点时必须成对改**：这个站点在 [decorateRequest] 里加的 header（Referer、
+     * `x-id-token` 之类）要在这里加一遍，否则走 [sendWithReAuth] 的请求会少了本站特有的头。
+     * 目前 `Sites.kt` 里有 8 处 `decorateRequest` 重写待逐个对应。
+     */
+    open fun decorateKtorRequest(builder: io.ktor.client.request.HttpRequestBuilder): io.ktor.client.request.HttpRequestBuilder = builder
+
+    /**
+     * [isAuthFailureResponse] 的 Ktor 对应物，默认复刻基类 okhttp 版的三条判断：
+     * 401/403 → CAS 登录页 URL → 响应体像登录页。
+     *
+     * ⚠️ 同上：重写过 [isAuthFailureResponse] 的站点（`Sites.kt` 里 8 处）迁移时要把本站规则也搬过来。
+     */
+    open fun isAuthFailureReply(reply: com.xjtu.toolbox.network.KtorReply): Boolean {
+        if (reply.status == 401 || reply.status == 403) return true
+        if (WebVpnUtil.isLoginLanding(reply.finalUrl)) return true
+        return reply.peek?.let { XJTULogin.isAuthFailureResponse(it) } ?: false
+    }
+
+    /**
+     * **Ktor 形状的业务请求出口** —— [executeWithReAuth] 的等价物，区别只是不带 okhttp 类型。
+     *
+     * 为什么要多一个出口而不是直接改旧的：旧出口有 **60 处调用点 + 16 处子类重写**，
+     * 一次性换掉就没法「一批一批走」。两个出口并存期间：
+     * - 两者跑在**同一个 OkHttpClient** 上（cookie jar / UA 拦截器 / brotli / 超时 / WebVPN 改写全沿用）；
+     * - 重认证、重放、判据日志、`AuthExpiredException` 的语义与旧出口逐条对齐
+     *   （重放循环本身在 `network/ReAuthCall.kt`，有单测钉着）；
+     * - 每迁一个站点的调用点，就把它的 [decorateKtorRequest] / [isAuthFailureReply] 对应补齐。
+     */
+    @Throws(IOException::class, AuthExpiredException::class)
+    suspend fun sendWithReAuth(
+        request: io.ktor.client.request.HttpRequestBuilder.() -> Unit,
+    ): com.xjtu.toolbox.network.KtorReply {
+        val epochBefore = loginEpoch
+        return com.xjtu.toolbox.network.ReAuthCall(ktor).execute(
+            block = { decorateKtorRequest(this); request() },
+            isAuthFailure = { isAuthFailureReply(it) },
+            onAuthFailureDetected = { reply ->
+                // 判据日志：只打一句 auth failure 的话，遇到误判（业务 403 但会话是好的）无从分辨。
+                // 与旧出口同一格式，方便日志对比。
+                val failedUrl = WebVpnUtil.getOriginalUrl(reply.finalUrl) ?: reply.finalUrl
+                Log.w(
+                    TAG,
+                    "[$siteKey] auth failure: code=${reply.status} url=$failedUrl " +
+                        "preview=${reply.peek?.take(160)?.replace("\n", " ")}",
+                )
+            },
+            onAuthFailure = { reply ->
+                // 被网关打回登录前页：网关会话死了，重登前得先让网关续上，不能再信它的新鲜窗口
+                if (WebVpnUtil.isLoginLanding(reply.finalUrl)) backend?.markWebVpnStale()
+                Log.w(TAG, "[$siteKey] auth failure, invalidate and re-login")
+                manager?.recordDiagnostic("WARN", siteKey, "业务请求认证失效，准备重认证并重放请求")
+                val mgr = manager ?: throw AuthExpiredException(siteName)
+                val creds = mgr.credentials ?: throw AuthExpiredException(siteName, "未配置凭据")
+                // 不在锁外 invalidate（会误伤并发协程刚建立的新会话），
+                // 由 ensureLogin 依据代数决定是复用还是真正重登录。
+                ensureLogin(creds.first, creds.second, force = true, staleEpoch = epochBefore)
+            },
+            onRepeatFailure = { throw AuthExpiredException(siteName, "$siteName 登录态已失效") },
+        )
     }
 
     /** Content-Type 是否属于「可能是登录页/JSON 错误」的文本类型。缺省无 CT 时按文本处理（保守）。 */

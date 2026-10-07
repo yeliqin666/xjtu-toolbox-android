@@ -114,6 +114,18 @@ object WebVpnUtil {
             url.queryParameter("cas_login") == null && url.queryParameter("ticket") == null
 
     /**
+     * 上面那条的**字符串/Ktor 版本** —— 给 Ktor 形状的出口（`SiteSession.sendWithReAuth`）用。
+     *
+     * 判定逐字相同，只是解析器从 okhttp 的 `HttpUrl` 换成 Ktor 的 `Url`（前者在共享层不存在）。
+     * 解析不了就返回 false（调用方拿到的本来就是已解析的 URL，这一层只是健壮性）。
+     */
+    fun isLoginLanding(url: String): Boolean {
+        val parsed = runCatching { io.ktor.http.Url(url) }.getOrNull() ?: return false
+        return parsed.host == INSTITUTION && parsed.encodedPath.trimEnd('/') == "/login" &&
+            parsed.parameters["cas_login"] == null && parsed.parameters["ticket"] == null
+    }
+
+    /**
      * 判断 [finalUrl] 是否表示已成功登录目标站点（[targetHost] 不带 scheme，如 "lms.xjtu.edu.cn"），
      * 兼容直连 / WebVPN 两种模式。
      *
