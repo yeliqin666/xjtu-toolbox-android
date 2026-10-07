@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.account
 
+import com.xjtu.toolbox.auth.AccountType
+
 import kotlin.concurrent.Volatile
 
 /**
@@ -26,6 +28,23 @@ object AccountContext {
     /** 每切一次账号命名空间加一（见 SessionManager.reconfigureForAccount）；进行中的登录据此发现账号已经换了。 */
     @Volatile
     var switchEpoch: Long = 0L
+
+    /**
+     * 当前激活账号的身份（本科 / 研究生）。与 [activeAccountId] 由**同一处**、同一时刻写入。
+     *
+     * 为什么需要它：路由表（`nav/AppRoute`）要判断「研究生评教由页面自己登录、本科生先登教务」，
+     * 而那正是「路由属于共享层、但当前账号身份属于宿主」的矛盾。这个值以前只存在于 :app 的
+     * `SessionManager.accountType`（一个老的嵌套枚举）里，路由因此搬不进 :core。
+     *
+     * 写入点与 [activeAccountId] 对齐：`AppLoginState.loadIdentityFromAccount`（切账号/启动恢复，
+     * 那里同时写 `accountType = account.accountType`）、`AccountTypeDetection`（一网通办回来纠正身份）、
+     * `notification/HeadlessSessions`（后台起临时会话时）。
+     *
+     * ⚠️ 退出登录时**不**重置（与搬迁前的 `SessionManager.accountType` 行为一致：它同样保留最后
+     * 一个身份）—— 如果要改，两边得一起改，否则「研究生」在退出后会突然走本科分支。
+     */
+    @Volatile
+    var activeAccountType: AccountType = AccountType.UNDERGRADUATE
 
     /** 用于文件名/SharedPreferences 名的安全化账号后缀（当前激活账号）。 */
     fun safeSuffix(): String = suffixFor(activeAccountId)

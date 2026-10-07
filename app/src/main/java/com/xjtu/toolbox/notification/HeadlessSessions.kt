@@ -83,6 +83,8 @@ internal object HeadlessSessions {
             manager.fpVisitorId = account.fpVisitorId
             manager.cachedRsaKey = account.rsaPublicKey
             AccountContext.activeAccountId = account.accountId
+            // 后台临时会话也算「当前账号」：路由表（:core 的 nav/AppRoute）读这个身份
+            AccountContext.activeAccountType = account.accountType
 
             headless = manager
             headlessAccountId = account.accountId

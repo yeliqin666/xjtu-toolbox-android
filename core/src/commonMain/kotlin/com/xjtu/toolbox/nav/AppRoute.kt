@@ -1,8 +1,10 @@
 package com.xjtu.toolbox.nav
 
+import com.xjtu.toolbox.account.AccountContext
+import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.LoginType
-import com.xjtu.toolbox.auth.SessionManager
-import com.xjtu.toolbox.auth.XJTULogin
+import com.xjtu.toolbox.util.decodeUrlComponentOrNull
+import com.xjtu.toolbox.util.encodeUrlComponent
 import kotlinx.serialization.Serializable
 import top.yukonga.miuix.kmp.nav.core.NavKey
 
@@ -14,6 +16,12 @@ import top.yukonga.miuix.kmp.nav.core.NavKey
  *
  * miuix-nav 要求：每个都 `@Serializable`（返回栈要存盘），且是 `data object/class`
  * （页面状态以 toString 为键）。属性都写成 getter，不占序列化字段。
+ *
+ * 从 :app 的 `nav/AppRoute.kt` 搬进 commonMain（交接文档 §5 里「挡住 27 屏」的那个阻挡者）。
+ * 两处 :app 专属依赖换成了共享层的缝：
+ * - `java.net.URLEncoder/URLDecoder` → `util/UrlCodec.kt`（手写，与 java.net **逐字节等价**，
+ *   :app 侧有差分测试盯着；id 已写进用户数据，编码结果一个字符都不能变）；
+ * - `SessionManager.active?.accountType` → `AccountContext.activeAccountType`（见 [isPostgraduateSession]）。
  */
 @Serializable
 sealed interface AppRoute : NavKey {
@@ -192,7 +200,7 @@ fun appRouteOf(id: String): AppRoute? {
     fun param(name: String): String? = query.split('&')
         .firstOrNull { it.substringBefore('=') == name }
         ?.substringAfter('=', missingDelimiterValue = "")
-        ?.let { raw -> runCatching { java.net.URLDecoder.decode(raw, "UTF-8") }.getOrDefault(raw) }
+        ?.let { raw -> decodeUrlComponentOrNull(raw) ?: raw }
     return when {
         path == "lms" -> AppRoute.Lms(param("courseId")?.toIntOrNull())
         path == "browser" -> AppRoute.Browser(param("url").orEmpty(), param("then").orEmpty())
@@ -208,7 +216,16 @@ fun appRouteOf(id: String): AppRoute? {
 val maintenanceRoutes: Map<AppRoute, String> = mapOf()
 
 /** 当前账号是否研究生。 */
+/**
+ * 当前账号是否研究生。
+ *
+ * 从 `SessionManager.active?.accountType == XJTULogin.AccountType.POSTGRADUATE` 改成读
+ * :core 的 [AccountContext.activeAccountType]：路由表现在住 :core，不能再去问 :app 的会话管家
+ * （那是整条 okhttp/Context 内核）。两边语义一致 —— 那个值由 `AppLoginState` 在切账号/登录时
+ * 与 `AccountContext.activeAccountId` 同一处写入，而 `SessionManager.accountType` 本身就是从
+ * 同一个 `AppLoginState.accountType` 推导出来的。
+ */
 fun isPostgraduateSession(): Boolean =
-    SessionManager.active?.accountType == XJTULogin.AccountType.POSTGRADUATE
+    AccountContext.activeAccountType == AccountType.POSTGRADUATE
 
-private fun encode(value: String): String = java.net.URLEncoder.encode(value, "UTF-8")
+private fun encode(value: String): String = encodeUrlComponent(value)

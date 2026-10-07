@@ -1,8 +1,8 @@
 package com.xjtu.toolbox.nav
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
+import kotlin.test.Test
 
 /**
  * 深链、桌面快捷方式、通知存的都是路由字符串，换成 miuix-nav 以后要靠 [appRouteOf] 解析回来。

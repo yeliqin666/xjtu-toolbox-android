@@ -203,6 +203,8 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
         savedPassword = account.password
         activeUsername = account.accountId
         accountType = account.accountType
+        // 路由表（:core 的 nav/AppRoute）也读它：研究生评教由页面自己登录
+        com.xjtu.toolbox.account.AccountContext.activeAccountType = account.accountType
         cachedNickname = account.nickname
         sessionManager?.let {
             it.setCredentials(account.accountId, account.password)
