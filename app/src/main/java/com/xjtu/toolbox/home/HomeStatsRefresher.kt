@@ -134,13 +134,13 @@ object HomeStatsRefresher {
             site ?: return@Source null
             withContext(Dispatchers.IO) {
                 val api = com.xjtu.toolbox.fitness.FitnessApi(site)
-                val years = runCatching { api.getYears() }.getOrNull().orEmpty()
+                val years = runCatching { api.years() }.getOrNull().orEmpty()
                 val ordered = com.xjtu.toolbox.fitness.orderedFitnessYears(years)
 
                 var picked: Pair<String, com.xjtu.toolbox.fitness.FitnessScore>? = null
                 for ((i, y) in ordered.take(3).withIndex()) {
                     if (i > 0) delay(GAP_MS)
-                    val s = runCatching { api.getScore(y.yearNum) }.getOrNull() ?: continue
+                    val s = runCatching { api.score(y.yearNum) }.getOrNull() ?: continue
                     if (s.hasUsableTotal()) { picked = y.name to s; break }
                 }
                 picked?.let { (name, s) ->

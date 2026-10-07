@@ -235,7 +235,13 @@ fun AppNavHost(
             )
         }
         entry<AppRoute.Fitness>(transition = expand(AppRoute.Fitness::class)) {
-            WithSite("fitness") { FitnessScreen(site = it, onBack = back) }
+            // 体测屏已搬进 :core；这里只注入取数实现（v3+legacy 两条路仍留在 :app 的 FitnessApi）。
+            WithSite("fitness") { site ->
+                FitnessScreen(
+                    source = remember(site) { com.xjtu.toolbox.fitness.FitnessApi(site) },
+                    onBack = back,
+                )
+            }
         }
         entry<AppRoute.Iclassface>(transition = expand(AppRoute.Iclassface::class)) {
             WithSite("iclassface") { IclassfaceScreen(site = it, onBack = back) }

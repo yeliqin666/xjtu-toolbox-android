@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.EventNote
 import androidx.compose.material.icons.filled.Extension
@@ -20,9 +21,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import com.xjtu.toolbox.community.CommunityScreen
 import com.xjtu.toolbox.community.GithubSession
 import com.xjtu.toolbox.calendar.SchoolCalendarScreen
+import com.xjtu.toolbox.core.net.CampusFitnessApi
 import com.xjtu.toolbox.core.net.CampusSchoolCalendarApi
 import com.xjtu.toolbox.core.net.CampusYellowPageApi
 import com.xjtu.toolbox.error.FriendlyError
+import com.xjtu.toolbox.fitness.FitnessScreen
 import com.xjtu.toolbox.game.blocks.BlocksScreen
 import com.xjtu.toolbox.game.g2048.Gpa2048Screen
 import com.xjtu.toolbox.legal.EulaScreen
@@ -82,6 +85,7 @@ internal data class WebTab(val route: AppRoute, val label: String, val icon: Ima
 internal val WEB_TABS = listOf(
     WebTab(AppRoute.Schedule, "课表", Icons.Filled.CalendarMonth),
     WebTab(AppRoute.SchoolCalendar, "校历", Icons.Filled.EventNote),
+    WebTab(AppRoute.Fitness, "体测", Icons.AutoMirrored.Filled.DirectionsRun),
     WebTab(AppRoute.YellowPage, "黄页", Icons.Filled.Phone),
     WebTab(AppRoute.Game2048, "GPA2048", Icons.Filled.Psychology),
     WebTab(AppRoute.GameBlocks, "方块", Icons.Filled.Extension),
@@ -106,7 +110,7 @@ private fun WebBottomBar(selected: WebTarget, onSelect: (WebTarget) -> Unit) {
 /**
  * 一屏共享页。每个屏只注入**这一端能提供的东西**：
  * - 黄页：campus-api 版的 [CampusYellowPageApi]（Android 那边直连学校，Web 只能走同源反代）；
- * - 校历：campus-api 版的 [CampusSchoolCalendarApi]（同一条理由：学校域名不给 CORS 头）；
+ * - 校历/体测：campus-api 版的 [CampusSchoolCalendarApi] / [CampusFitnessApi]（同一条理由：学校域名不给 CORS 头）；
  * - 社区：登录态与设备码登录在 Web 上如实报「未配置」（见 [WebGithubSession]）；
  * - 错误文案统一用 `:core` 的 [FriendlyError] —— 与 App 字句相同。
  */
@@ -119,6 +123,12 @@ private fun AppPage(route: AppRoute, client: HttpClient, session: GithubSession,
         // 浏览器不能直连 workflow.xjtu.edu.cn（无 CORS 头），走 campus-api 同源反代。
         AppRoute.SchoolCalendar -> SchoolCalendarScreen(
             source = remember { CampusSchoolCalendarApi(client) },
+            onBack = back,
+        )
+        // 体测：与 Android 同一个屏、同一套模型与分项口径（:core/fitness），只换取数——
+        // campus-api 按隐私口径不返回姓名/学号，所以英雄卡标题会落到兜底文案（已写在 FitnessSource 的 KDoc）。
+        AppRoute.Fitness -> FitnessScreen(
+            source = remember { CampusFitnessApi(client) },
             onBack = back,
         )
         AppRoute.YellowPage -> YellowPageScreen(

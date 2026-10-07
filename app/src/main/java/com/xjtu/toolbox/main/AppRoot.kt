@@ -43,6 +43,7 @@ import com.xjtu.toolbox.auth.AppLoginStateViewModel
 import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.MfaDialogHost
+import com.xjtu.toolbox.auth.handleAuthExpired
 import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.card.refreshCampusCardCache
 import com.xjtu.toolbox.data.AppearanceSettings
@@ -193,6 +194,11 @@ fun AppRoot(
     val navStyle by AppearanceSettings.get(context).navBarStyle.collectAsStateWithLifecycle()
     CompositionLocalProvider(
         LocalAppLoginState provides loginState,
+        // 共享层屏幕的「会话失效」入口 —— 语义与原来的 handleAuthExpired(route, onBack) 一致
+        // （标记站点缓存失效 + 退回本页，由导航根部按需静默重登）。见 :core 的 auth/AuthExpiry.kt。
+        com.xjtu.toolbox.auth.LocalAuthExpiry provides com.xjtu.toolbox.auth.AuthExpiryHandler { route, onBack ->
+            loginState.handleAuthExpired(route, onBack)
+        },
         LocalIsWideLayout provides calculateIsWideLayout(),
         LocalGlassStyle provides (navStyle == CredentialStore.NAV_STYLE_FLOATING),
     ) {

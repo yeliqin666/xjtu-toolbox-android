@@ -9,7 +9,8 @@ import com.xjtu.toolbox.util.arr
 import com.xjtu.toolbox.util.intValue
 import com.xjtu.toolbox.util.isNull
 import com.xjtu.toolbox.util.obj
-import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.safeInt
+import com.xjtu.toolbox.util.safeString
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
@@ -63,11 +64,11 @@ class CampusSchoolCalendarApi(
             ?: error("campus-api 校历返回缺少 data：${text.take(120)}")
         val semesterObj = data["semester"] as? JsonObject
             ?: error("campus-api 校历返回缺少 semester：${text.take(120)}")
-        val available = data.arr("availableTerms")?.map { it.stringValue }.orEmpty()
+        val available = data.arr("availableTerms")?.map { it.safeString() }.orEmpty()
         val semester = parseSemester(semesterObj)
             ?: error("campus-api 校历的学期缺少起止日期")
         return Payload(
-            term = data["term"].stringValue,
+            term = data["term"].safeString(),
             availableTerms = available,
             semester = semester,
         )
@@ -80,19 +81,19 @@ class CampusSchoolCalendarApi(
      * 上游怎么叫就怎么读，映射关系写在 [SchoolTerm] 的构造里，一眼能对回去。
      */
     private fun parseSemester(obj: JsonObject): SchoolTerm? {
-        val start = parseDateOrNull(obj["startDate"].stringValue) ?: return null
+        val start = parseDateOrNull(obj["startDate"].safeString()) ?: return null
         val end = firstValidDate(obj, "examEnd", "termEndDate", "endDate") ?: return null
 
         val specialByTitle = obj.arr("specialEvents")?.associate { el ->
             val e = el.jsonObject
-            e["title"].stringValue to e["content"].stringValue
+            e["title"].safeString() to e["content"].safeString()
         }.orEmpty()
 
         val events = obj.arr("holidays")?.mapNotNull { el ->
             val h = el.jsonObject
-            val hStart = parseDateOrNull(h["startDate"].stringValue) ?: return@mapNotNull null
-            val hEnd = parseDateOrNull(h["endDate"].stringValue) ?: hStart
-            val title = h["title"].stringValue
+            val hStart = parseDateOrNull(h["startDate"].safeString()) ?: return@mapNotNull null
+            val hEnd = parseDateOrNull(h["endDate"].safeString()) ?: hStart
+            val title = h["title"].safeString()
             val days = if (h["days"].isNull) {
                 (hEnd.toEpochDays() - hStart.toEpochDays() + 1).toInt()
             } else {
@@ -109,13 +110,13 @@ class CampusSchoolCalendarApi(
             )
         }.orEmpty().sortedBy { it.startDate }
 
-        val year = obj["year"].stringValue
+        val year = obj["year"].safeString()
         val totalWeeks = ((end.toEpochDays() - start.toEpochDays()) / 7).toInt().coerceAtLeast(0)
         return SchoolTerm(
-            id = obj["id"].takeUnless { it.isNull }?.intValue?.toString().orEmpty(),
+            id = obj["id"].takeUnless { it.isNull }?.safeInt()?.toString().orEmpty(),
             startDate = start,
             endDate = end,
-            termName = "${year}学年${obj["name"].stringValue}",
+            termName = "${year}学年${obj["name"].safeString()}",
             yearName = year,
             totalWeeks = totalWeeks,
             workDays = countWorkDays(start, end),
@@ -125,7 +126,7 @@ class CampusSchoolCalendarApi(
 
     private fun firstValidDate(obj: JsonObject, vararg keys: String): LocalDate? {
         for (key in keys) {
-            parseDateOrNull(obj[key].stringValue)?.let { return it }
+            parseDateOrNull(obj[key].safeString())?.let { return it }
         }
         return null
     }

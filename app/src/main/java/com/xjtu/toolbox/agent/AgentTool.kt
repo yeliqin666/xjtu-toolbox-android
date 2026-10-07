@@ -2417,7 +2417,7 @@ class AgentToolRegistry(
             ?: return loginHint(LoginType.FITNESS)
         return try {
             val api = com.xjtu.toolbox.fitness.FitnessApi(site)
-            val years = api.getYears()
+            val years = api.years()
             val selected = pickFitnessYear(years, year)
             if (selected == null) {
                 val opts = orderedFitnessYears(years)
@@ -2425,7 +2425,7 @@ class AgentToolRegistry(
                     .distinct()
                 return ToolReply.notFound("year", year.orEmpty(), opts.map { it.toString() })
             }
-            val score = api.getScore(selected.yearNum)
+            val score = api.score(selected.yearNum)
             buildString {
                 append("体测成绩（${selected.name}）：${score.studentName} ${score.studentNumber}\n")
                 append("总分：${score.totalScore}，等级：${score.totalGrade}\n")
