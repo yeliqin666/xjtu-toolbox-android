@@ -857,9 +857,11 @@ class AgentToolRegistry(
 
     private suspend fun getSchoolCalendar(term: String?): String {
         return try {
-            val terms = com.xjtu.toolbox.calendar.SchoolCalendarApi().getTerms()
+            // 模型与解析已搬进 :core（见 calendar/UpstreamSchoolCalendar.kt），这里只取数。
+            val terms = com.xjtu.toolbox.calendar.SchoolCalendarApi().terms()
             if (terms.isEmpty()) return ToolReply.empty("school_calendar")
-            val today = LocalDate.now()
+            // 「今天」用 :core 的 kotlinx-datetime 口径：下面比的是 :core 的 SchoolTerm 日期。
+            val today = com.xjtu.toolbox.util.todayInSystemZone()
             val selected = if (term.isNullOrBlank()) {
                 terms.firstOrNull { today in it.startDate..it.endDate }
                     ?: terms.lastOrNull { it.startDate <= today }

@@ -214,7 +214,12 @@ fun AppNavHost(
             SchoolCourseScreen(site = loginState.sessionManager?.getSiteOrNull("jwxt"), onBack = back)
         }
         entry<AppRoute.SchoolCalendar>(transition = expand(AppRoute.SchoolCalendar::class)) {
-            SchoolCalendarScreen(onBack = back)
+            // 校历屏已搬进 :core；这里只注入取数实现与原图槽（见 calendar/SchoolCalendarImageSlot.kt）。
+            SchoolCalendarScreen(
+                source = remember { com.xjtu.toolbox.calendar.SchoolCalendarApi() },
+                onBack = back,
+                calendarImage = { year -> com.xjtu.toolbox.calendar.AppSchoolCalendarImage(year) },
+            )
         }
         entry<AppRoute.YellowPage>(transition = expand(AppRoute.YellowPage::class)) {
             // 黄页屏已搬进 :core；传数与缓存装配留在 :app（见 yellowpage/YellowPageApp.kt）。
