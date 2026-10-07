@@ -803,7 +803,7 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
             // DAO 只按星期和节次粗筛，周次与分钟级时间在这里精判
             val conflicts = customCourseDao
                 .getConflicts(accountId, withAccount.termCode, withAccount.dayOfWeek, withAccount.startSection, withAccount.endSection)
-                .filter { it.id != withAccount.id && CustomCourseConflicts.conflicts(withAccount, it) }
+                .filter { it.id != withAccount.id && CustomCourseConflicts.conflicts(withAccount.toCourseItem(), it.toCourseItem(), sameTerm = withAccount.termCode == it.termCode) }
             if (conflicts.isEmpty()) commitCustomCourse(withAccount, emptyList()) else pendingSave = withAccount to conflicts
         }
     }

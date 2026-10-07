@@ -2669,7 +2669,7 @@ class AgentToolRegistry(
         val dao = com.xjtu.toolbox.data.AppDatabase.getInstance(context).customCourseDao()
         val conflicts = mutableListOf<String>()
         dao.getConflicts(accountId, termCode, entity.dayOfWeek, 1, com.xjtu.toolbox.schedule.MAX_SECTIONS)
-            .filter { com.xjtu.toolbox.schedule.CustomCourseConflicts.conflicts(entity, it) }
+            .filter { com.xjtu.toolbox.schedule.CustomCourseConflicts.conflicts(entity.toCourseItem(), it.toCourseItem(), sameTerm = entity.termCode == it.termCode) }
             .forEach { other ->
                 val shared = com.xjtu.toolbox.schedule.CustomCourseConflicts.sharedWeeks(entity.weekBits, other.weekBits)
                 conflicts += "${other.courseName}（自建，${com.xjtu.toolbox.schedule.CustomCourseConflicts.describeWeeks(shared)}）"
