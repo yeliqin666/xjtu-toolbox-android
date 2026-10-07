@@ -13,6 +13,7 @@ import okhttp3.Request
 import okhttp3.Response
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
+import com.xjtu.toolbox.error.UserFacingFailure
 
 /**
  * 业务站点的会话基类。一个实例对应一个业务子系统（jwxt / jwapp / library / …），
@@ -365,19 +366,23 @@ abstract class SiteSession(
 /**
  * 本账号凭据明确无效时抛出。
  * SessionManager 接收此异常后设置全局失效状态，阻断其余站点同一账号的后续登录尝试。
+ *
+ * 下面四个异常都实现 `UserFacingFailure`：message 是给用户看的中文短句，界面原样显示
+ * （文案口径只在 :core 的 `error/FriendlyError.kt` 一处）。父类型保持 `java.io.IOException`
+ * 不变 —— 站点层是按 IOException 记「本次登录失败、进冷却」的。
  */
 class PasswordInvalidatedException(
     val siteName: String = "",
     message: String = "账号或密码无效",
-) : IOException(message)
+) : IOException(message), UserFacingFailure
 
 /** 用户在短信验证码弹窗里点了取消（或等待超时）。 */
-class MfaCancelledException(val siteName: String) : IOException("${siteName}的登录验证已取消")
+class MfaCancelledException(val siteName: String) : IOException("${siteName}的登录验证已取消"), UserFacingFailure
 
 /** 登录还没完成就切换了账号，这次登录已作废。 */
-class AccountSwitchedException(val siteName: String) : IOException("已切换账号，${siteName}的登录已取消")
+class AccountSwitchedException(val siteName: String) : IOException("已切换账号，${siteName}的登录已取消"), UserFacingFailure
 
 class LoginCooldownException(
     val siteName: String,
     val retryAfterSeconds: Long,
-) : IOException("${siteName}登录刚刚失败，请 ${retryAfterSeconds} 秒后再试")
+) : IOException("${siteName}登录刚刚失败，请 ${retryAfterSeconds} 秒后再试"), UserFacingFailure

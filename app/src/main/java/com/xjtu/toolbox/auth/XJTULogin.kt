@@ -26,13 +26,24 @@ import java.net.CookieManager
 import java.net.CookiePolicy
 import java.io.IOException
 import java.security.MessageDigest
+import com.xjtu.toolbox.error.SessionExpiredFailure
+import com.xjtu.toolbox.error.UserFacingFailure
 
 /**
  * 业务请求因认证失效且重认证失败时抛出。
  *
  * 调用方需捕获此异常，调用 `AppLoginState.handleAuthExpired(...)` 静默触发
  * 重新登录（含 MFA）；不要直接将 message 展示给用户。
+ *
+ * 仍然继承 `java.io.IOException`：站点层是按 IOException 记「本次登录失败、进冷却」的，
+ * 换父类型会改掉重认证的走向。[SessionExpiredFailure] 只用来认领文案
+ * （见 :core 的 `error/FriendlyError.kt`）。
  */
+class AuthExpiredException(
+    val siteName: String = "",
+    message: String = if (siteName.isEmpty()) "登录态已失效" else "${siteName}登录态已失效"
+) : IOException(message), SessionExpiredFailure
+
 /**
  * 静默登录撞上短信验证。
  *
@@ -40,14 +51,11 @@ import java.security.MessageDigest
  * 撞上就抛这个，交回用户下次主动进入对应功能时处理。
  * 独立成类而不是塞进 IOException 的 message，是为了让调用方能据此给出准确提示，
  * 而不是把"要验证码"和"网络抖动"混成一句"登录失败"。
+ *
+ * [UserFacingFailure]：它的 message 就是给用户看的中文短句，界面原样显示。
  */
 class MfaRequiredException(val siteName: String) :
-    java.io.IOException("$siteName 需要短信验证码")
-
-class AuthExpiredException(
-    val siteName: String = "",
-    message: String = if (siteName.isEmpty()) "登录态已失效" else "${siteName}登录态已失效"
-) : IOException(message)
+    java.io.IOException("$siteName 需要短信验证码"), UserFacingFailure
 
 /**
  * postLogin/SSO 路径上遇到 CAS 「Safety Verify」二次安全验证页面时抛出。
