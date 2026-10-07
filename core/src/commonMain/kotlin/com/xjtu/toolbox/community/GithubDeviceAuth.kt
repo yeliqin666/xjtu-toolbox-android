@@ -55,6 +55,26 @@ sealed interface GithubDevicePollResult {
 /** 设备码登录的端口：`start()` 拿码，`poll()` 轮询是否已授权。实现留在 :app（okhttp）。 */
 interface GithubDeviceAuthRepository {
     val isConfigured: Boolean
+
+    /**
+     * 这个端能不能用「粘贴一个自己的 token」代替设备码流程。
+     *
+     * 为什么需要它：设备码流程要求浏览器直连 `github.com/login/device`，而那边**不给 CORS 头**
+     * ⇒ Web 端走不通（`:app` 走 okhttp，没这个限制）。粘贴 token 不需要任何服务端配合，
+     * 所以浏览器端多这一条路；界面也放在共享屏自己的登录页里（见 `CommunityLoginScreen`），
+     * 不是 Web 端的私有分支 —— **`:app` 不实现它，默认值就是 false，行为零变化**。
+     */
+    val supportsManualToken: Boolean get() = false
+
+    /**
+     * 粘贴 token 登录：**先用它查一次用户名，查得到才算成功** —— 与设备码那条路同一套判据
+     * （查不到就落盘只会让界面以为已登录、随后每个请求都 401）。
+     *
+     * 默认不支持：设备码流程能用的端不需要这条退路。
+     */
+    suspend fun signInWithToken(token: String): Result<String> =
+        Result.failure(GithubDeviceFlowNotConfiguredException())
+
     suspend fun start(): Result<GithubDeviceAuthorization>
     suspend fun poll(deviceCode: String): Result<GithubDevicePollResult>
 }

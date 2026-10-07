@@ -228,7 +228,15 @@ private fun CommunityLoginScreen(
             )
             Spacer(Modifier.height(4.dp))
             when {
-                !auth.isConfigured -> Text("社区登录还没配置好，敬请期待。", color = colors.error, style = MiuixTheme.textStyles.body2)
+                !auth.isConfigured && !auth.supportsManualToken -> Text("社区登录还没配置好，敬请期待。", color = colors.error, style = MiuixTheme.textStyles.body2)
+                // 走不通设备码流程的端（Web）：同一个登录页多一条「粘贴 token」的路，
+                // 而不是在那一端另写一个登录界面 —— 用户看到的都是「社区 → 登录」。
+                auth.supportsManualToken && pending == null -> ManualTokenLogin(
+                    auth = auth,
+                    busy = busy,
+                    onBusyChange = { busy = it },
+                    onMessage = { message = it },
+                )
                 pending == null -> Button(
                     onClick = {
                         busy = true; message = null
@@ -285,6 +293,74 @@ private fun CommunityLoginScreen(
         }
     }
 }
+
+/**
+ * 「粘贴 token」登录 —— 只有 [GithubDeviceAuthRepository.supportsManualToken] 的端会走到
+ *（目前是 Web：浏览器直连 `github.com/login/device` 拿不到 CORS 头）。
+ *
+ * `:app` 不实现那条能力（默认 false），所以 Android 端的登录页与行为零变化。
+ * 成败判据与设备码那条路完全一致：`signInWithToken` 内部先用 token 查一次用户名。
+ */
+@Composable
+private fun ManualTokenLogin(
+    auth: GithubDeviceAuthRepository,
+    busy: Boolean,
+    onBusyChange: (Boolean) -> Unit,
+    onMessage: (String?) -> Unit,
+) {
+    val uriHandler = LocalUriHandler.current
+    val scope = rememberCoroutineScope()
+    val colors = MiuixTheme.colorScheme
+    var text by remember { mutableStateOf("") }
+
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            "浏览器里走不通 GitHub 的设备码流程（那边不给跨源响应）。粘贴一个带 discussions 写权限的 token 即可登录，它只存在这台设备的浏览器里。",
+            style = MiuixTheme.textStyles.body2,
+            color = colors.onSurfaceVariantSummary,
+            textAlign = TextAlign.Center,
+        )
+        TextField(
+            value = text,
+            onValueChange = { text = it },
+            label = "GitHub token",
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Button(
+            onClick = {
+                val raw = text.trim()
+                if (raw.isEmpty()) {
+                    onMessage("先粘贴一个 token。")
+                } else {
+                    onBusyChange(true)
+                    onMessage(null)
+                    scope.launch {
+                        auth.signInWithToken(raw).fold(
+                            onSuccess = { onMessage(null) },
+                            onFailure = { onMessage("这个 token 用不了，检查是否复制完整、是否有 discussions 写权限。") },
+                        )
+                        onBusyChange(false)
+                    }
+                }
+            },
+            enabled = !busy,
+            colors = ButtonDefaults.buttonColorsPrimary(),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            if (busy) CircularProgressIndicator(size = 18.dp) else Text("用 token 登录", color = colors.onPrimary)
+        }
+        TextButton(
+            text = "去 GitHub 创建一个 token",
+            onClick = { uriHandler.openUri(GITHUB_NEW_TOKEN_URL) },
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+/** 经典 token 创建页，预勾「公开仓库读写」（`public_repo`）与「讨论区」（`write:discussion`）。 */
+private const val GITHUB_NEW_TOKEN_URL =
+    "https://github.com/settings/tokens/new?scopes=public_repo,write:discussion&description=XJTU%20Toolbox%20community"
 
 /** 旧的页内反馈（飞书多维表格）挪到社区里当二级入口，准备停用。 */
 @Composable

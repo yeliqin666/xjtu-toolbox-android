@@ -119,7 +119,7 @@ private fun WebBottomBar(selected: WebTarget, onSelect: (WebTarget) -> Unit) {
  * - 错误文案统一用 `:core` 的 [FriendlyError] —— 与 App 字句相同。
  */
 @Composable
-private fun AppPage(route: AppRoute, client: HttpClient, session: GithubSession, onNavigate: (WebTarget) -> Unit) {
+private fun AppPage(route: AppRoute, client: HttpClient, session: WebGithubSession, onNavigate: (WebTarget) -> Unit) {
     val back = { onNavigate(WebTarget.App(AppRoute.Schedule)) }
     when (route) {
         AppRoute.Schedule -> ScheduleScreen()
@@ -151,7 +151,9 @@ private fun AppPage(route: AppRoute, client: HttpClient, session: GithubSession,
         AppRoute.GameBlocks -> BlocksScreen(onBack = back)
         AppRoute.Community -> CommunityScreen(
             session = session,
-            deviceAuth = WebGithubDeviceAuth,
+            // Web 端只有「粘贴 token」这一条登录路（设备码流程在浏览器里拿不到 device code）；
+            // 登录页本身是共享屏，输入框由 supportsManualToken 长出来，:app 那边不会出现。
+            deviceAuth = remember(session) { WebGithubDeviceAuth(session) },
             onBack = back,
             onOpenLegacyFeedback = {},
         )
