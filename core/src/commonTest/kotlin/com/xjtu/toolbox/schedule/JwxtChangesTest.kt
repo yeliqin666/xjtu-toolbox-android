@@ -3,10 +3,10 @@ package com.xjtu.toolbox.schedule
 import com.xjtu.toolbox.schedule.ScheduleChangeEvent.Kind
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /** 形状取自 2026-09 教务 `xsdkkc.do` 的真实记录。 */
 class JwxtChangesTest {

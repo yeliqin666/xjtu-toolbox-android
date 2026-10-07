@@ -8,7 +8,7 @@ import kotlinx.serialization.json.JsonObject
 data class SourceSchedule(val courses: List<CourseItem>, val changes: List<ScheduleChangeEvent> = emptyList())
 
 /** 教务课表的一行，带教学班号：调停课记录靠它找原课，课表行里的 KBID 是空的。 */
-internal data class JwxtRow(val jxbid: String, val course: CourseItem)
+data class JwxtRow(val jxbid: String, val course: CourseItem)
 
 /**
  * 教务一条调停课记录（`wdkb/modules/xskcb/xsdkkc.do`）。
@@ -16,7 +16,7 @@ internal data class JwxtRow(val jxbid: String, val course: CourseItem)
  * 原位置（[weeks]、[day]、[start]..[end]）是被调走或停掉的那几周那几节；新位置（`to*`）
  * 是调去或补上的。调课两头都有，停课只有原位置，补课只有新位置。
  */
-internal data class JwxtChange(
+data class JwxtChange(
     val kind: ScheduleChangeEvent.Kind,
     val jxbid: String,
     val courseName: String,
@@ -79,8 +79,13 @@ internal data class JwxtChange(
  * - 调课、停课：从原课挖掉那几周的那几节，一节大课只调走其中两小节时剩下的照常上；
  * - 调课、补课：在新位置加一节，课程名、性质、教室、教师缺的从同教学班的课补。
  * 按申请时间依次应用，先调走再停的也能对上。
+ *
+ * 从 :app 的 `schedule/JwxtChanges.kt` 搬进 commonMain：它**一行逻辑都没碰**（本来就不带
+ * android/java.time/okhttp），只把三个顶层声明从 `internal` 提成 public（跨模块看不见 internal）。
+ * 交接文档 §8 把它标成「改数据源前必须先看」的权威实现 —— 这类口径放共享层，
+ * Android 与 Web 才会算出同一张课表；测试（真实 `xsdkkc.do` 报文形状的 8 例）也跟着搬来了。
  */
-internal object JwxtChanges {
+object JwxtChanges {
 
     fun apply(rows: List<JwxtRow>, changes: List<JwxtChange>): SourceSchedule {
         val result = rows.toMutableList()
@@ -127,9 +132,10 @@ internal object JwxtChanges {
     /** 从 [course] 挖掉 [c] 那几周的那几节，剩下的拆成几条返回。 */
     private fun carve(course: CourseItem, c: JwxtChange): List<CourseItem> {
         val len = maxOf(course.weekBits.length, c.weeks.length)
-        fun bits(keep: (Boolean, Boolean) -> Boolean) = String(CharArray(len) { i ->
+        // `String(CharArray)` 在 Wasm 上是 DeprecationLevel.ERROR（JVM 只是警告），所以用 concatToString
+        fun bits(keep: (Boolean, Boolean) -> Boolean) = CharArray(len) { i ->
             if (keep(course.weekBits.getOrNull(i) == '1', c.weeks.getOrNull(i) == '1')) '1' else '0'
-        })
+        }.concatToString()
         val kept = bits { own, gone -> own && !gone }
         val removed = bits { own, gone -> own && gone }
         return buildList {
@@ -144,7 +150,7 @@ internal object JwxtChanges {
         courses.groupBy { it.copy(weekBits = "") }.map { (_, group) ->
             if (group.size == 1) return@map group.single()
             val len = group.maxOf { it.weekBits.length }
-            group.first().copy(weekBits = String(CharArray(len) { i -> if (group.any { it.weekBits.getOrNull(i) == '1' }) '1' else '0' }))
+            group.first().copy(weekBits = CharArray(len) { i -> if (group.any { it.weekBits.getOrNull(i) == '1' }) '1' else '0' }.concatToString())
         }
 
     private fun JwxtChange.toEvent() = ScheduleChangeEvent(
