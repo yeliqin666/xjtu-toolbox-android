@@ -39,17 +39,7 @@ import kotlin.math.floor
 
 // ── 共享常量 ──────────────────────────────
 
-val COURSE_COLORS = listOf(
-    Color(0xFF1565C0), Color(0xFF2E7D32), Color(0xFFC62828), Color(0xFF6A1B9A),
-    Color(0xFFEF6C00), Color(0xFF00838F), Color(0xFFAD1457), Color(0xFF4527A0),
-    Color(0xFF00695C), Color(0xFF283593), Color(0xFF558B2F), Color(0xFF8E24AA),
-    Color(0xFFD84315),
-)
-
 val DAY_HEADERS = listOf("一", "二", "三", "四", "五", "六", "日")
-const val DAY_START_HOUR = 8
-const val DAY_END_HOUR = 22
-const val MAX_SECTIONS = DAY_END_HOUR - DAY_START_HOUR
 private val SECTION_HEIGHT: Dp = 50.dp
 /** 一节课多少分钟：时段带放开时按「这么多分钟 = 一个节次行高」的比例。 */
 private const val SECTION_MINUTES = 50f
@@ -71,36 +61,9 @@ private val CELL_GAP: Dp = 3.dp
 // 纵轴按节次排版（节号与起止时间画在左轴，大空档插成「午休」「晚休」带），条目按真实钟点落位，
 // 见 WeekGridLayout。
 //
-// ⚠️ 本文件下面那三个常量（DAY_START_HOUR / DAY_END_HOUR / MAX_SECTIONS）是**小时**语义的，
-// 别处（自定义日程编辑器、Agent 的冲突判定、日程详情文案）还在用 —— 网格不再拿它们当行数，
-// 也不要顺手改它们的含义。
-
-/** 课名的默认色：按课名稳定哈希取色。思源学堂那边只认识单门课，用的就是它。 */
-fun defaultCourseColor(courseName: String): Color =
-    COURSE_COLORS[(courseName.trim().hashCode() and Int.MAX_VALUE) % COURSE_COLORS.size]
-
-/**
- * 一批课程的「课名 → 颜色」表。用户改过的颜色优先；其余从各自哈希位置起取默认色，
- * 撞了就顺延到下一个空位，本批内不重复（超过 [COURSE_COLORS] 的数量才会重复）。
- * 没撞色时与 [defaultCourseColor] 一致，所以课表和思源学堂里同一门课通常同色。
- */
-fun courseColorMap(names: Collection<String>): Map<String, Color> {
-    val n = COURSE_COLORS.size
-    val used = BooleanArray(n)
-    val out = HashMap<String, Color>()
-    for (name in names.distinct().sorted()) {
-        val custom = CourseColors.of(name)
-        if (custom != null) {
-            out[name] = custom
-            continue
-        }
-        val start = (name.trim().hashCode() and Int.MAX_VALUE) % n
-        val i = (0 until n).map { (start + it) % n }.firstOrNull { !used[it] } ?: start
-        used[i] = true
-        out[name] = COURSE_COLORS[i]
-    }
-    return out
-}
+// ⚠️ 小时语义的三个常量（DAY_START_HOUR / DAY_END_HOUR / MAX_SECTIONS）与课程色那一簇
+// （COURSE_COLORS / defaultCourseColor / courseColorMap / colorOf）都搬进 :core 了
+// （schedule/CourseItems.kt、schedule/CourseColorMap.kt）—— 别在本文件里再声明一份。
 
 /** 课程集合或用户改色（[CourseColors.revision]）变化时重算；课格只查表，不用每格读一次存储。 */
 @Composable
@@ -108,18 +71,6 @@ fun rememberCourseColors(names: List<String>): Map<String, Color> {
     val revision = CourseColors.revision
     val account = com.xjtu.toolbox.account.AccountContext.activeAccountId
     return remember(names, revision, account) { courseColorMap(names) }
-}
-
-fun Map<String, Color>.colorOf(courseName: String): Color = this[courseName] ?: defaultCourseColor(courseName)
-
-// ── 通用课格接口 ─────────────────────────
-
-interface ScheduleSlot {
-    val slotName: String
-    val slotLocation: String
-    val slotDayOfWeek: Int
-    val slotStartSection: Int
-    val slotEndSection: Int
 }
 
 // ── 周选择器（左右箭头式）────────────────

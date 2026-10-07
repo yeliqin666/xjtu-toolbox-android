@@ -1,13 +1,19 @@
 package com.xjtu.toolbox.schedule
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /**
  * 周视图纵轴布局（[layoutWeekGrid]）和条目起止（[CourseItem.clockMinutes]）。
  * 夏令作息：第 4 节 11:10–12:00，第 5 节 14:30–15:20，第 8 节 17:40–18:30，第 9 节 19:40–20:30，
  * 第 11 节 21:40–22:30；冬令第 5 节 14:00–14:50，第 11 节 21:10–22:00。
+ *
+ * 原文件在 `app/src/test/java/com/xjtu/toolbox/schedule/WeekGridLayoutTest.kt`：`WeekGridLayout`
+ * 与 `CourseItem` 搬进 commonMain 后，那边按旧签名调用、运行期 `NoSuchMethodError`
+ * （交接文档 §1.1）。断言与注释原样搬来，只换了壳：
+ * JUnit → kotlin.test；`assertEquals(message, expected, actual)` 的参数序在 kotlin.test 里
+ * 是 `(expected, actual, message)`，两处带名字的断言已相应改写。
  */
 class WeekGridLayoutTest {
 
@@ -96,8 +102,8 @@ class WeekGridLayoutTest {
             listOf(section("物理", 3, 5, 6), section("英语", 4, 3, 4), section("体育", 4, 5, 6), section("电路", 4, 7, 8)),
         ) { day -> day <= 3 }
         listOf("物理" to 5, "体育" to 5, "电路" to 7).forEach { (name, first) ->
-            assertEquals(name, layout.rowOf(first).toFloat(), layout.placed(name).start)
-            assertEquals(name, (layout.rowOf(first + 1) + 1).toFloat(), layout.placed(name).end)
+            assertEquals(layout.rowOf(first).toFloat(), layout.placed(name).start, name)
+            assertEquals((layout.rowOf(first + 1) + 1).toFloat(), layout.placed(name).end, name)
         }
         // 两套时间各自记着，左轴能都标出来
         assertEquals(870 to 920, layout.times(summer = true)[layout.rowOf(5)])

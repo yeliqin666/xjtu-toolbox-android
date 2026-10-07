@@ -23,6 +23,8 @@ private class MemoryKeyValueStore : KeyValueStore {
         map.remove(key)
     }
 
+    override fun contains(key: String): Boolean = map.containsKey(key)
+
     override fun clear() = map.clear()
 }
 

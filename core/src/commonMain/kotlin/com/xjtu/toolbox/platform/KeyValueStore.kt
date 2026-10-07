@@ -25,6 +25,13 @@ interface KeyValueStore {
     fun putInt(key: String, value: Int)
     fun remove(key: String)
 
+    /**
+     * 键是否存在。`SharedPreferences.contains` 的对应物 —— 课程自定义颜色靠它区分
+     * 「用户设过色」与「没设过、按课名哈希取默认色」，而只靠 getInt 的默认值区分不出来
+     * （用户可能正好把颜色设成默认值）。
+     */
+    fun contains(key: String): Boolean
+
     /** 只清本 store 命名空间下的键，不是清空整个平台的偏好。 */
     fun clear()
 }

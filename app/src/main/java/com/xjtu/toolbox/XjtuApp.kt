@@ -63,7 +63,8 @@ class XjtuApp : Application() {
         // 放在 onCreate 最前面：任何用到 :core 平台能力的代码都晚于它。
         com.xjtu.toolbox.platform.initAndroidPlatform(this)
         CrashReporter.install(this)
-        com.xjtu.toolbox.schedule.CourseColors.init(this)
+        // CourseColors 不再需要 init：它已搬进 :core 的 commonMain，存储走 keyValueStore
+        // （Android actual 仍是同一份 SharedPreferences 文件）。
         com.xjtu.toolbox.inbox.InboxStore.init(this)
         com.xjtu.toolbox.auth.CampusProbe.init(this)
         applicationScope.launch { CrashReporter.uploadPending(this@XjtuApp) }

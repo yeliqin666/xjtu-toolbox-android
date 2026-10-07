@@ -41,6 +41,8 @@ private class WebKeyValueStore(private val name: String) : KeyValueStore {
         localStorage.removeItem(k(key))
     }
 
+    override fun contains(key: String): Boolean = localStorage.getItem(k(key)) != null
+
     override fun clear() {
         // localStorage 没有「按前缀清空」的 API，只能自己扫。键不多，代价可接受。
         val doomed = mutableListOf<String>()
