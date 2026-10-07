@@ -1,5 +1,8 @@
 package com.xjtu.toolbox.card
 
+import com.xjtu.toolbox.util.toJavaTime
+import com.xjtu.toolbox.util.toKx
+
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.BackButton
@@ -1067,12 +1070,13 @@ private fun CustomRangeDialog(
     AppDatePickerDialog(
         show = picking != null,
         title = if (picking == "end") "结束日期" else "开始日期",
-        date = if (picking == "end") draftEnd else draftStart,
-        minDate = earliest,
-        maxDate = today,
+        date = (if (picking == "end") draftEnd else draftStart).toKx(),
+        minDate = earliest.toKx(),
+        maxDate = today.toKx(),
         onDismiss = { picking = null },
         onConfirm = { picked ->
-            if (picking == "end") draftEnd = picked else draftStart = picked
+            val day = picked.toJavaTime()
+            if (picking == "end") draftEnd = day else draftStart = day
             picking = null
         }
     )

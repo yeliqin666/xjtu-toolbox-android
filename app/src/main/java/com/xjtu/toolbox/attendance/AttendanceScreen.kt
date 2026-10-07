@@ -1,5 +1,8 @@
 package com.xjtu.toolbox.attendance
 
+import com.xjtu.toolbox.util.toJavaTime
+import com.xjtu.toolbox.util.toKx
+
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.FullPageState
 import androidx.compose.ui.graphics.Color
@@ -756,24 +759,24 @@ private fun LeaveFormDialog(
         AppDatePickerDialog(
             show = pickingStartDate,
             title = "开始日期",
-            date = startDate,
-            minDate = today,
-            maxDate = maxOf(maxDate, today),
+            date = startDate.toKx(),
+            minDate = today.toKx(),
+            maxDate = maxOf(maxDate, today).toKx(),
             onDismiss = { pickingStartDate = false },
             onConfirm = {
-                startDate = it
+                startDate = it.toJavaTime()
                 pickingStartDate = false
             }
         )
         AppDatePickerDialog(
             show = pickingEndDate,
             title = "结束日期",
-            date = endDate,
-            minDate = today,
-            maxDate = maxOf(maxDate, today),
+            date = endDate.toKx(),
+            minDate = today.toKx(),
+            maxDate = maxOf(maxDate, today).toKx(),
             onDismiss = { pickingEndDate = false },
             onConfirm = {
-                endDate = it
+                endDate = it.toJavaTime()
                 pickingEndDate = false
             }
         )
