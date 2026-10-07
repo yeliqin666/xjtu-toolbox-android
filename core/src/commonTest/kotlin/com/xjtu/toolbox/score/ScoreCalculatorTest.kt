@@ -2,10 +2,10 @@ package com.xjtu.toolbox.score
 
 import com.xjtu.toolbox.jwapp.ScoreItem
 import com.xjtu.toolbox.jwapp.ScoreSource
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
-import org.junit.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.Test
 /**
  * ScoreCalculator 关键路径测试。
  *
@@ -59,7 +59,8 @@ class ScoreCalculatorTest {
     }
 
     private fun assertEqualsD(expected: Double, actual: Double?, tolerance: Double = 0.001) {
-        assertNotNull("actual gpa is null", actual)
+        // kotlin.test 的参数序与 JUnit 相反：actual 在前、message 在后
+        assertNotNull(actual, "actual gpa is null")
         assertEquals(expected, actual!!, tolerance)
     }
 

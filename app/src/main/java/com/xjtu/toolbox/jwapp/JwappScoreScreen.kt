@@ -665,11 +665,13 @@ private fun ScoreRow(
     modifier: Modifier = Modifier,
 ) {
     val reallyPassed = com.xjtu.toolbox.score.ScoreCalculator.isPassed(scoreItem)
+    // 跨模块取不到 smart cast（ScoreItem 现在住在 :core，public API property 不能自动转非空）⇒ 落成本地 val
+    val scoreValue = scoreItem.scoreValue
     val scoreColor = when {
         !reallyPassed -> MiuixTheme.colorScheme.error
-        scoreItem.scoreValue != null && scoreItem.scoreValue >= 90 -> MiuixTheme.colorScheme.primary
-        scoreItem.scoreValue != null && scoreItem.scoreValue >= 80 -> MiuixTheme.colorScheme.primaryVariant
-        scoreItem.scoreValue == null && reallyPassed -> MiuixTheme.colorScheme.primary
+        scoreValue != null && scoreValue >= 90 -> MiuixTheme.colorScheme.primary
+        scoreValue != null && scoreValue >= 80 -> MiuixTheme.colorScheme.primaryVariant
+        scoreValue == null && reallyPassed -> MiuixTheme.colorScheme.primary
         else -> MiuixTheme.colorScheme.onSurface
     }
     val courseGpa = com.xjtu.toolbox.score.ScoreCalculator.courseGpa(scoreItem)
@@ -799,9 +801,11 @@ fun ScoreDetailRow(item: ScoreDetailItem) {
     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Text(item.itemName, style = MiuixTheme.textStyles.body2, modifier = Modifier.weight(1f))
         Text("%.0f%%".format(item.itemPercent * 100), style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.width(48.dp))
-        if (item.itemScoreValue != null) {
+        // 同上：跨模块要落成本地 val
+        val itemScoreValue = item.itemScoreValue
+        if (itemScoreValue != null) {
             LinearProgressIndicator(
-                progress = (item.itemScoreValue / 100.0).toFloat().coerceIn(0f, 1f),
+                progress = (itemScoreValue / 100.0).toFloat().coerceIn(0f, 1f),
                 modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
                 height = 8.dp,
                 colors = ProgressIndicatorDefaults.progressIndicatorColors(
