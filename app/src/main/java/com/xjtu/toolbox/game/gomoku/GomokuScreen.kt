@@ -135,7 +135,7 @@ fun GomokuScreen(onBack: () -> Unit) {
             if (outcome == GomokuOutcome.ONGOING) return
             // 同屏双人没有「AI 对手」，胜负记在 local 档，谁赢都算一场，不区分西交上交。
             if (outcome != GomokuOutcome.DRAW) {
-                GameStore.recordResult(context, GameIds.GOMOKU, "local", GameResult.WIN)
+                GameStore.recordResult(GameIds.GOMOKU, "local", GameResult.WIN)
             }
             return
         }
@@ -147,7 +147,7 @@ fun GomokuScreen(onBack: () -> Unit) {
             outcome != GomokuOutcome.ONGOING -> GameResult.WIN
             else -> return
         }
-        GameStore.recordResult(context, GameIds.GOMOKU, difficultyKey, result)
+        GameStore.recordResult(GameIds.GOMOKU, difficultyKey, result)
     }
 
     fun applyOutcome(outcome: GomokuOutcome) {
@@ -493,7 +493,7 @@ private class GomokuOnlineMatch {
             else -> GameResult.LOSS
         }
         GameSound.play(if (result == GameResult.WIN) Sfx.TADA else if (result == GameResult.DRAW) Sfx.UH_OH else Sfx.SAD_TROMBONE)
-        GameStore.recordResult(context, GameIds.GOMOKU, "online", result)
+        GameStore.recordResult(GameIds.GOMOKU, "online", result)
     }
 
     suspend fun collect(context: android.content.Context, s: OnlineGameSession): Unit = kotlinx.coroutines.coroutineScope {

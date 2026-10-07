@@ -1,102 +1,19 @@
 package com.xjtu.toolbox.game
 
-import android.content.Context
-import android.media.AudioAttributes
-import android.media.SoundPool
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
-import java.io.File
-import java.io.RandomAccessFile
-import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.random.Random
 
-/** 小游戏共用的卡通音效。全部现场合成，不带素材文件。 */
-enum class Sfx {
-    BOING, POP, BLOOP, SLIDE_UP, SLIDE_DOWN, BONK, COIN, SAD_TROMBONE, TADA, SQUEAK, SWISH, KNOCK, CHIME, CHOIR, UH_OH, TICK,
-}
-
 /**
- * 首次用到时把每个音效合成成 WAV 写进缓存，交给 SoundPool 播放。全应用一份，不释放。
- * 开关存在 [GameStore] 里，所有小游戏共用。
+ * 卡通音效的**纯合成器**（从 :app `GameSound.kt` 里的 `Synth` 原样搬来，只去掉写 WAV 文件
+ * 那一段——那是平台 IO，留在 androidMain 的 actual 里）。全部现场合成，不带素材文件。
+ *
+ * 纯 Kotlin + `kotlin.math`，所以能进 commonMain，也就能在 any target 上跑与测。
  */
-object GameSound {
-    /** 改了合成参数就加一，旧缓存文件不再被读到。 */
-    private const val VERSION = 1
-    private const val PREF = "game_sound"
-
-    private lateinit var app: Context
-    private var pool: SoundPool? = null
-    private val ids = ConcurrentHashMap<Sfx, Int>()
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-
-    private var enabledState by mutableStateOf(true)
-
-    /** 所有小游戏共用的开关，改了就存盘；界面读它会随之重组。 */
-    var enabled: Boolean
-        get() = enabledState
-        set(value) {
-            enabledState = value
-            if (::app.isInitialized) GameStore.prefs(app).edit().putBoolean(PREF, value).apply()
-        }
-
-    /** 应用启动时调用，只记下 context 和开关，不合成。 */
-    fun init(context: Context) {
-        app = context.applicationContext
-        enabledState = GameStore.prefs(app).getBoolean(PREF, true)
-    }
-
-    /** 进小游戏大厅时调用，提前把声音备好；没调过的话第一次播放时补上（那一声会错过）。 */
-    @Synchronized
-    fun prepare() {
-        if (pool != null || !::app.isInitialized) return
-        val p = SoundPool.Builder()
-            .setMaxStreams(6)
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_GAME)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .build(),
-            )
-            .build()
-        pool = p
-        val dir = File(app.cacheDir, "game_sound").apply { mkdirs() }
-        scope.launch {
-            Sfx.entries.forEach { sfx ->
-                val f = File(dir, "$VERSION-${sfx.name.lowercase()}.wav")
-                if (!f.exists()) runCatching { Synth.writeWav(f, Synth.make(sfx)) }
-                if (f.exists()) ids[sfx] = p.load(f.path, 1)
-            }
-        }
-    }
-
-    /** 返回流 id，给 [stop] 用；没开音效或还没加载好时返回 0。[rate] 变调，0.5～2。 */
-    fun play(sfx: Sfx, volume: Float = 1f, rate: Float = 1f): Int {
-        if (!enabled) return 0
-        val p = pool ?: run { prepare(); return 0 }
-        val id = ids[sfx] ?: return 0
-        return p.play(id, volume, volume, 1, 0, rate.coerceIn(0.5f, 2f))
-    }
-
-    fun stop(stream: Int) {
-        if (stream != 0) pool?.stop(stream)
-    }
-
-    /** 大调音阶上第 [step] 级（从 0 起）的变调倍率，一个八度封顶，连击升调用。 */
-    fun scale(step: Int): Float = SCALE[step.coerceIn(0, SCALE.lastIndex)]
-
-    private val SCALE = floatArrayOf(1f, 9 / 8f, 5 / 4f, 4 / 3f, 3 / 2f, 5 / 3f, 15 / 8f, 2f)
-}
-
 internal object Synth {
     private const val RATE = 44100
 
@@ -108,7 +25,7 @@ internal object Synth {
             return ph
         }
         fun sine(f: Double) = sin(next(f))
-        fun tri(f: Double) = 4 * kotlin.math.abs((next(f) / (2 * PI)) % 1.0 - 0.5) - 1
+        fun tri(f: Double) = 4 * abs((next(f) / (2 * PI)) % 1.0 - 0.5) - 1
         fun square(f: Double) = if (sin(next(f)) >= 0) 1.0 else -1.0
         fun saw(f: Double) = 2 * ((next(f) / (2 * PI)) % 1.0) - 1
     }
@@ -208,24 +125,5 @@ internal object Synth {
             prev = lp
             (hp * 2.2 * sin(PI * t / 0.16)).toFloat().coerceIn(-1f, 1f)
         }
-    }
-
-    fun writeWav(file: File, samples: FloatArray) {
-        val data = ByteArray(samples.size * 2)
-        samples.forEachIndexed { i, s ->
-            val v = (s.coerceIn(-1f, 1f) * Short.MAX_VALUE).toInt()
-            data[2 * i] = v.toByte()
-            data[2 * i + 1] = (v shr 8).toByte()
-        }
-        val tmp = File(file.path + ".tmp")
-        RandomAccessFile(tmp, "rw").use { f ->
-            f.setLength(0)
-            fun int(v: Int) = f.write(byteArrayOf(v.toByte(), (v shr 8).toByte(), (v shr 16).toByte(), (v shr 24).toByte()))
-            fun short(v: Int) = f.write(byteArrayOf(v.toByte(), (v shr 8).toByte()))
-            f.write("RIFF".toByteArray()); int(36 + data.size); f.write("WAVE".toByteArray())
-            f.write("fmt ".toByteArray()); int(16); short(1); short(1); int(RATE); int(RATE * 2); short(2); short(16)
-            f.write("data".toByteArray()); int(data.size); f.write(data)
-        }
-        tmp.renameTo(file)
     }
 }

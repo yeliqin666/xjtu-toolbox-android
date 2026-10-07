@@ -37,7 +37,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -113,7 +112,6 @@ private const val PREF_SKIN = "hop_skin"
  */
 @Composable
 fun HopScreen(onBack: () -> Unit) {
-    val context = LocalContext.current
     val haptics = rememberHaptics()
     var game by remember { mutableStateOf(HopGame()) }
     var frame by remember { mutableIntStateOf(0) }
@@ -123,7 +121,7 @@ fun HopScreen(onBack: () -> Unit) {
     val ink = if (night > 0.5f) Color.White else Color(0xFF2B2750)
     val panel = if (night > 0.5f) Color(0xFF232845) else Color.White
     var skin by remember {
-        mutableStateOf(GameStore.prefs(context).getString(PREF_SKIN, null)?.let { id -> HopSkin.entries.firstOrNull { it.id == id } } ?: HopSkin.PAWN)
+        mutableStateOf(GameStore.getString(PREF_SKIN)?.let { id -> HopSkin.entries.firstOrNull { it.id == id } } ?: HopSkin.PAWN)
     }
     var picking by remember { mutableStateOf(false) }
     val landmarks = LANDMARKS.map { ImageBitmap.imageResource(it.first) }
@@ -132,7 +130,7 @@ fun HopScreen(onBack: () -> Unit) {
     var streak by remember { mutableIntStateOf(0) }
     var over by remember { mutableStateOf(false) }
     var paused by remember { mutableStateOf(false) }
-    var best by remember { mutableIntStateOf(GameStore.bestScore(context, GameIds.HOP)) }
+    var best by remember { mutableIntStateOf(GameStore.bestScore(GameIds.HOP)) }
     var tip by remember { mutableStateOf(hint(game)) }
     // 镜头对准的世界坐标，逐帧向「脚下和下一块之间」靠拢
     var camX by remember { mutableFloatStateOf(game.focusX) }
@@ -254,7 +252,7 @@ fun HopScreen(onBack: () -> Unit) {
         over = true
         haptics.error()
         GameSound.play(Sfx.SAD_TROMBONE, 0.8f)
-        GameStore.submitScore(context, GameIds.HOP, game.score)
+        GameStore.submitScore(GameIds.HOP, game.score)
         best = maxOf(best, game.score)
     }
 
@@ -428,7 +426,7 @@ fun HopScreen(onBack: () -> Unit) {
         when {
             picking -> SkinPicker(skin, panel, ink, fx, frame) {
                 skin = it
-                GameStore.prefs(context).edit().putString(PREF_SKIN, it.id).apply()
+                GameStore.putString(PREF_SKIN, it.id)
                 picking = false
             }
             over -> GameMenu(

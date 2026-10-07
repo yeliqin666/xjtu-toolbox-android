@@ -145,11 +145,11 @@ private class MergeGameBridge(private val context: Context) {
     @JavascriptInterface
     fun submitScore(score: Int) {
         if (score <= 0) return
-        GameStore.submitScore(context, GameIds.MERGE, score)
+        GameStore.submitScore(GameIds.MERGE, score)
     }
 
     @JavascriptInterface
-    fun bestScore(): Int = GameStore.bestScore(context, GameIds.MERGE)
+    fun bestScore(): Int = GameStore.bestScore(GameIds.MERGE)
 
     /** 网页里按 [Sfx] 的名字点音效，和原生小游戏共用同一套声音与开关。 */
     @JavascriptInterface

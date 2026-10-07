@@ -47,7 +47,6 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -96,7 +95,6 @@ private data class Snapshot(val state: GameState, val tiles: List<UiTile>)
 
 @Composable
 fun Gpa2048Screen(onBack: () -> Unit) {
-    val context = LocalContext.current
     val haptics = rememberHaptics()
     var nextId by remember { mutableStateOf(0L) }
     var stamp by remember { mutableIntStateOf(0) }
@@ -104,7 +102,7 @@ fun Gpa2048Screen(onBack: () -> Unit) {
     fun tilesOf(board: Board, kind: TileKind): List<UiTile> =
         board.cells.mapIndexedNotNull { i, v -> v?.let { UiTile(nextId++, it, i, kind, stamp) } }
 
-    var state by remember { mutableStateOf(newGame(Random(System.nanoTime()))) }
+    var state by remember { mutableStateOf(newGame(Random.Default)) }
     var tiles by remember { mutableStateOf(tilesOf(state.board, TileKind.SPAWN)) }
     var history by remember { mutableStateOf(listOf<Snapshot>()) }
     var undoLeft by remember { mutableIntStateOf(UNDO_LIMIT) }
@@ -113,9 +111,9 @@ fun Gpa2048Screen(onBack: () -> Unit) {
     var gainStamp by remember { mutableIntStateOf(0) }
     var winDismissed by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) { best = GameStore.bestScore(context, GameIds.G2048) }
+    LaunchedEffect(Unit) { best = GameStore.bestScore(GameIds.G2048) }
     LaunchedEffect(state.score) {
-        GameStore.submitScore(context, GameIds.G2048, state.score)
+        GameStore.submitScore(GameIds.G2048, state.score)
         best = maxOf(best, state.score)
     }
     // 合成用的「影子」方块滑到位就撤掉
@@ -126,7 +124,7 @@ fun Gpa2048Screen(onBack: () -> Unit) {
 
     fun restart() {
         stamp++
-        state = newGame(Random(System.nanoTime()))
+        state = newGame(Random.Default)
         tiles = tilesOf(state.board, TileKind.SPAWN)
         history = emptyList()
         undoLeft = UNDO_LIMIT
@@ -300,7 +298,18 @@ fun Gpa2048Screen(onBack: () -> Unit) {
 private fun boardGpa(board: Board): String {
     val values = board.cells.filterNotNull().map { GpaScale.LEVELS[it].gpa }
     if (values.isEmpty()) return "0.00"
-    return "%.2f".format(values.average())
+    return format2(values.average())
+}
+
+/**
+ * 两位小数 —— `String.format("%.2f", …)` 不是多平台的（Kotlin/Wasm 没有），
+ * 手写一份：四舍五入到分位，并保证小数部分补齐两位。
+ */
+private fun format2(value: Double): String {
+    val negative = value < 0
+    val scaled = kotlin.math.round(kotlin.math.abs(value) * 100).toLong()
+    val body = "${scaled / 100}.${(scaled % 100).toString().padStart(2, '0')}"
+    return if (negative) "-$body" else body
 }
 
 @Composable

@@ -64,7 +64,6 @@ class XjtuApp : Application() {
         com.xjtu.toolbox.platform.initAndroidPlatform(this)
         CrashReporter.install(this)
         com.xjtu.toolbox.schedule.CourseColors.init(this)
-        com.xjtu.toolbox.game.GameSound.init(this)
         com.xjtu.toolbox.inbox.InboxStore.init(this)
         com.xjtu.toolbox.auth.CampusProbe.init(this)
         applicationScope.launch { CrashReporter.uploadPending(this@XjtuApp) }

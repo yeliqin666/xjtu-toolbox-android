@@ -257,7 +257,7 @@ private fun finishScoring(state: GoGameState, context: android.content.Context) 
 // 没有平局（贴 3.75 子后不会打平）。
 private fun recordResult(context: android.content.Context, winner: Stone) {
     val result = if (winner == Stone.BLACK) GameResult.WIN else GameResult.LOSS
-    GameStore.recordResult(context, GameIds.GO, "local", result)
+    GameStore.recordResult(GameIds.GO, "local", result)
 }
 
 @Composable
@@ -461,7 +461,7 @@ private class GoOnlineMatch {
         if (recorded) return
         recorded = true
         GameSound.play(if (winner == myColor) Sfx.TADA else Sfx.SAD_TROMBONE)
-        GameStore.recordResult(context, GameIds.GO, "online", if (winner == myColor) GameResult.WIN else GameResult.LOSS)
+        GameStore.recordResult(GameIds.GO, "online", if (winner == myColor) GameResult.WIN else GameResult.LOSS)
     }
 
     suspend fun collect(context: android.content.Context, s: OnlineGameSession): Unit = kotlinx.coroutines.coroutineScope {

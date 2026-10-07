@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.game.blocks
 
 import com.xjtu.toolbox.platform.BackHandler
+import com.xjtu.toolbox.platform.KeepScreenOn
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateIntAsState
@@ -61,9 +62,7 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -101,10 +100,9 @@ private fun BlocksGame.rotateWithSound(clockwise: Boolean) {
  */
 @Composable
 fun BlocksScreen(onBack: () -> Unit) {
-    val context = LocalContext.current
     val palette = blocksPalette()
     var mode by remember { mutableStateOf<BlocksMode?>(null) }
-    var bests by remember { mutableStateOf(BlocksMode.entries.associateWith { GameStore.bestScore(context, blocksRecordId(it)) }) }
+    var bests by remember { mutableStateOf(BlocksMode.entries.associateWith { GameStore.bestScore(blocksRecordId(it)) }) }
 
     Box(Modifier.fillMaxSize().background(palette.background)) {
         val current = mode
@@ -116,7 +114,7 @@ fun BlocksScreen(onBack: () -> Unit) {
                 best = bests.getValue(current),
                 palette = palette,
                 onRecord = { score ->
-                    GameStore.submitScore(context, blocksRecordId(current), score)
+                    GameStore.submitScore(blocksRecordId(current), score)
                     bests = bests + (current to maxOf(bests.getValue(current), score))
                 },
                 onExit = onBack,
@@ -262,11 +260,8 @@ private fun BlocksPlay(mode: BlocksMode, best: Int, palette: BlocksPalette, onRe
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
-    val view = LocalView.current
-    DisposableEffect(paused, over) {
-        view.keepScreenOn = !paused && !over
-        onDispose { view.keepScreenOn = false }
-    }
+    // 屏幕常亮：平台能力（Android = View.keepScreenOn，其余端空实现）
+    KeepScreenOn(enabled = !paused && !over)
 
     LaunchedEffect(game, paused) {
         if (paused) {
@@ -384,7 +379,7 @@ private fun BlocksPlay(mode: BlocksMode, best: Int, palette: BlocksPalette, onRe
                     when (mode) {
                         BlocksMode.MARATHON -> Stat("等级", level.toString(), accent, palette)
                         BlocksMode.ULTRA -> Stat(
-                            "剩余", "%d:%02d".format(secondsLeft / 60, secondsLeft % 60),
+                            "剩余", "${secondsLeft / 60}:${(secondsLeft % 60).toString().padStart(2, '0')}",
                             if (secondsLeft <= 10) Color(0xFFEF476F) else palette.ink, palette,
                         )
                         BlocksMode.RISE -> Stat("抬升", "${secondsLeft}s", if (secondsLeft <= 2) Color(0xFFEF476F) else palette.ink, palette)

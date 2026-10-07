@@ -133,7 +133,7 @@ fun XiangqiScreen(onBack: () -> Unit) {
             null -> GameResult.DRAW
         }
         GameSound.play(if (status.winner == null) Sfx.UH_OH else Sfx.TADA)
-        GameStore.recordResult(context, GameIds.XIANGQI, "local", result)
+        GameStore.recordResult(GameIds.XIANGQI, "local", result)
     }
 
     fun bump() {
@@ -572,7 +572,7 @@ private class XiangqiOnlineMatch {
             else -> GameResult.LOSS
         }
         GameSound.play(if (result == GameResult.WIN) Sfx.TADA else if (result == GameResult.DRAW) Sfx.UH_OH else Sfx.SAD_TROMBONE)
-        GameStore.recordResult(context, GameIds.XIANGQI, "online", result)
+        GameStore.recordResult(GameIds.XIANGQI, "online", result)
     }
 
     suspend fun collect(context: android.content.Context, s: OnlineGameSession): Unit = kotlinx.coroutines.coroutineScope {

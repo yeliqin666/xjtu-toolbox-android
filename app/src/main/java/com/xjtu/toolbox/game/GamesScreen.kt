@@ -52,7 +52,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.adaptive.readableWidth
@@ -82,7 +81,6 @@ fun GamesScreen(
     onBack: () -> Unit,
     onNavigate: (AppRoute) -> Unit,
 ) {
-    val context = LocalContext.current
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     androidx.compose.runtime.LaunchedEffect(Unit) { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { GameSound.prepare() } }
 
@@ -96,7 +94,7 @@ fun GamesScreen(
                 icon = Icons.Default.Grain,
                 color = Color(0xFFD9483B),
                 statLabel = "最高分",
-                stat = GameStore.bestScore(context, GameIds.MERGE).takeIf { it > 0 }?.toString(),
+                stat = GameStore.bestScore(GameIds.MERGE).takeIf { it > 0 }?.toString(),
             ),
             GameEntry(
                 route = AppRoute.Game2048,
@@ -105,7 +103,7 @@ fun GamesScreen(
                 icon = Icons.Default.GridOn,
                 color = Color(0xFFE39A1B),
                 statLabel = "最高分",
-                stat = GameStore.bestScore(context, GameIds.G2048).takeIf { it > 0 }?.toString(),
+                stat = GameStore.bestScore(GameIds.G2048).takeIf { it > 0 }?.toString(),
             ),
             GameEntry(
                 route = AppRoute.GameBlocks,
@@ -114,7 +112,7 @@ fun GamesScreen(
                 icon = Icons.Default.Widgets,
                 color = Color(0xFF7B4FD6),
                 statLabel = "最高分",
-                stat = BlocksMode.entries.maxOf { GameStore.bestScore(context, blocksRecordId(it)) }.takeIf { it > 0 }?.toString(),
+                stat = BlocksMode.entries.maxOf { GameStore.bestScore(blocksRecordId(it)) }.takeIf { it > 0 }?.toString(),
             ),
             GameEntry(
                 route = AppRoute.GameHop,
@@ -123,7 +121,7 @@ fun GamesScreen(
                 icon = Icons.Default.SportsGymnastics,
                 color = Color(0xFF1E8FD8),
                 statLabel = "最高分",
-                stat = GameStore.bestScore(context, GameIds.HOP).takeIf { it > 0 }?.toString(),
+                stat = GameStore.bestScore(GameIds.HOP).takeIf { it > 0 }?.toString(),
             ),
         )
     }
@@ -136,7 +134,7 @@ fun GamesScreen(
                 icon = Icons.Default.Dashboard,
                 color = Color(0xFF1F9E8F),
                 modes = listOf("人机", "同屏", "联机"),
-                stat = battleRecord(context, GameIds.GOMOKU, listOf("easy", "hard", "hell", "local", "online")),
+                stat = battleRecord(GameIds.GOMOKU, listOf("easy", "hard", "hell", "local", "online")),
             ),
             GameEntry(
                 route = AppRoute.GameGo,
@@ -145,7 +143,7 @@ fun GamesScreen(
                 icon = Icons.Default.Casino,
                 color = Color(0xFF4C5FD5),
                 modes = listOf("同屏", "联机"),
-                stat = battleRecord(context, GameIds.GO, listOf("local", "online")),
+                stat = battleRecord(GameIds.GO, listOf("local", "online")),
             ),
             GameEntry(
                 route = AppRoute.GameXiangqi,
@@ -154,7 +152,7 @@ fun GamesScreen(
                 icon = Icons.Default.School,
                 color = Color(0xFFB8322E),
                 modes = listOf("同屏", "联机"),
-                stat = battleRecord(context, GameIds.XIANGQI, listOf("local", "online")),
+                stat = battleRecord(GameIds.XIANGQI, listOf("local", "online")),
             ),
         )
     }
@@ -262,13 +260,12 @@ private data class GameEntry(
 
 /** 把各难度的胜负合成一行，全是 0 时返回 null。 */
 private fun battleRecord(
-    context: android.content.Context,
     game: String,
     difficulties: List<String>,
 ): String? {
-    val win = difficulties.sumOf { GameStore.wins(context, game, it) }
-    val loss = difficulties.sumOf { GameStore.losses(context, game, it) }
-    val draw = difficulties.sumOf { GameStore.draws(context, game, it) }
+    val win = difficulties.sumOf { GameStore.wins(game, it) }
+    val loss = difficulties.sumOf { GameStore.losses(game, it) }
+    val draw = difficulties.sumOf { GameStore.draws(game, it) }
     if (win == 0 && loss == 0 && draw == 0) return null
     return buildString {
         append("${win}胜${loss}负")
