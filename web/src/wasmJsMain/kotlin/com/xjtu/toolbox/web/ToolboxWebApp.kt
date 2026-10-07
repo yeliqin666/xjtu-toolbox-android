@@ -1,70 +1,137 @@
 package com.xjtu.toolbox.web
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Forum
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.theme.Colors
-import top.yukonga.miuix.kmp.theme.MiuixTheme
+import androidx.compose.ui.graphics.vector.ImageVector
+import com.xjtu.toolbox.community.CommunityScreen
+import com.xjtu.toolbox.core.net.CampusYellowPageApi
+import com.xjtu.toolbox.error.FriendlyError
+import com.xjtu.toolbox.game.blocks.BlocksScreen
+import com.xjtu.toolbox.game.g2048.Gpa2048Screen
+import com.xjtu.toolbox.legal.EulaScreen
+import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.nav.appRouteOf
+import com.xjtu.toolbox.yellowpage.YellowPageScreen
+import io.ktor.client.HttpClient
+import top.yukonga.miuix.kmp.basic.NavigationBar
+import top.yukonga.miuix.kmp.basic.NavigationBarDisplayMode
+import top.yukonga.miuix.kmp.basic.NavigationBarItem
 
 /**
- * Web 端外壳：底部两格（课表 / 后端自检），形态照 :app 的「底部导航 + 每格一块屏」。
+ * Web 外壳：**导航与页面都改成 `:core` 的**，不再是自制的两格外壳。
  *
- * 两块屏都不是装饰，它们分别是第 2 步的两条验收：
- *   - **课表**：`:core` 的课表层在浏览器里跑**真数据**（campus-api 的当前学期 + 47 列原始行），
- *     证明共享层不是「能编译」而是「能用」；
- *   - **自检**：把「同源可用、跨源直连被 CORS 挡」做成页面上看得见的结果，
- *     省得下次有人再去猜「为什么浏览器里拿不到数据」。
+ * ## 与上一版（`var tab: Int` + 手写 Row/Text 底栏）的差别
  *
- * 深链：`?tab=probe` 直接落在自检屏（无头浏览器截图与控制台排障用）。
+ * | 项 | 上一版 | 现在 |
+ * |---|---|---|
+ * | 当前页 | 局部 `Int` 下标 | [AppRoute]（与 App **同一张 42 条路由表**），`?route=<id>` 深链走 [appRouteOf] |
+ * | 底栏 | 手写 `Row` + `Text` | `:core` 依赖里的 MIUIX `NavigationBar`/`NavigationBarItem`（App 的「经典底栏」用的是同一个组件） |
+ * | 页面 | 2 个自写屏 | `:core` 的真屏：课表 / 黄页 / GPA2048 / 方块 / 社区（+ EULA 与自检两个 Web 专有页） |
+ * | 主题 | 裸 `MiuixTheme` | `:core` 的 `XJTUToolBoxTheme`（与 App 同一个包裹，含深浅色覆盖与系统栏切口） |
+ *
+ * `?route=` 认两种东西：`:core` 路由表里的 id（`yellow_page`、`game_2048`…）→ 对应的共享屏；
+ * 以及两个 **Web 专有**的伪路由（`probe` 后端自检、`eula` 协议页）——它们不是 App 的页面，
+ * 所以不进 `AppRoute`，但排在一起方便排障。
  */
 @Composable
 fun ToolboxWebApp() {
-    var tab by remember { mutableStateOf(if (initialTabIsProbe()) 1 else 0) }
-    val cs = MiuixTheme.colorScheme
+    val client = remember { toolboxWebClient() }
+    val initial = remember { initialWebTarget() }
+    var target: WebTarget by remember { mutableStateOf(initial) }
 
-    Column(modifier = Modifier.fillMaxSize().background(cs.background)) {
+    Column(modifier = Modifier.fillMaxSize()) {
         Box(modifier = Modifier.weight(1f)) {
-            when (tab) {
-                0 -> ScheduleScreen()
-                else -> ProbeScreen()
+            when (val t = target) {
+                is WebTarget.App -> AppPage(t.route, client) { target = it }
+                WebTarget.Probe -> ProbeScreen()
+                WebTarget.Eula -> EulaScreen(onAccept = { target = WebTarget.Probe })
             }
         }
-        Row(
-            modifier = Modifier.fillMaxWidth().height(52.dp).background(cs.surface),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            NavItem("课表", tab == 0, cs) { tab = 0 }
-            NavItem("后端自检", tab == 1, cs) { tab = 1 }
+        WebBottomBar(selected = target) { target = it }
+    }
+}
+
+/** 当前页：`:core` 的路由，或两个 Web 专有页。 */
+internal sealed interface WebTarget {
+    data class App(val route: AppRoute) : WebTarget
+    data object Probe : WebTarget
+    data object Eula : WebTarget
+}
+
+/** 底栏的五格 —— 每一格都是 `:core` 里真实存在的屏。 */
+internal data class WebTab(val route: AppRoute, val label: String, val icon: ImageVector)
+
+internal val WEB_TABS = listOf(
+    WebTab(AppRoute.Schedule, "课表", Icons.Filled.CalendarMonth),
+    WebTab(AppRoute.YellowPage, "黄页", Icons.Filled.Phone),
+    WebTab(AppRoute.Game2048, "GPA2048", Icons.Filled.Psychology),
+    WebTab(AppRoute.GameBlocks, "方块", Icons.Filled.Extension),
+    WebTab(AppRoute.Community, "社区", Icons.Filled.Forum),
+)
+
+@Composable
+private fun WebBottomBar(selected: WebTarget, onSelect: (WebTarget) -> Unit) {
+    // 与 App 的「经典底栏」同一个组件、同一个 mode；只换 tab 集合（Web 只有这五件事能做）
+    NavigationBar(mode = NavigationBarDisplayMode.IconAndText) {
+        WEB_TABS.forEach { tab ->
+            NavigationBarItem(
+                selected = (selected as? WebTarget.App)?.route == tab.route,
+                onClick = { onSelect(WebTarget.App(tab.route)) },
+                icon = tab.icon,
+                label = tab.label,
+            )
         }
     }
 }
 
+/**
+ * 一屏共享页。每个屏只注入**这一端能提供的东西**：
+ * - 黄页：campus-api 版的 [CampusYellowPageApi]（Android 那边直连学校，Web 只能走同源反代）；
+ * - 社区：登录态与设备码登录在 Web 上如实报「未配置」（见 [WebGithubSession]）；
+ * - 错误文案统一用 `:core` 的 [FriendlyError] —— 与 App 字句相同。
+ */
 @Composable
-private fun NavItem(label: String, active: Boolean, cs: Colors, onClick: () -> Unit) {
-    Box(modifier = Modifier.padding(horizontal = 4.dp).clickable { onClick() }) {
-        Text(
-            label,
-            color = if (active) cs.primary else cs.onBackgroundVariant,
-            fontSize = 15.sp,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+private fun AppPage(route: AppRoute, client: HttpClient, onNavigate: (WebTarget) -> Unit) {
+    val back = { onNavigate(WebTarget.App(AppRoute.Schedule)) }
+    when (route) {
+        AppRoute.Schedule -> ScheduleScreen()
+        AppRoute.YellowPage -> YellowPageScreen(
+            api = remember { CampusYellowPageApi(client) },
+            onBack = back,
+            errorText = { FriendlyError.of(it, "加载黄页") },
         )
+        AppRoute.Game2048 -> Gpa2048Screen(onBack = back)
+        AppRoute.GameBlocks -> BlocksScreen(onBack = back)
+        AppRoute.Community -> CommunityScreen(
+            session = WebGithubSession,
+            deviceAuth = WebGithubDeviceAuth,
+            onBack = back,
+            onOpenLegacyFeedback = {},
+        )
+        else -> ScheduleScreen()
     }
+}
+
+/**
+ * `?route=<id>`：先认 Web 专有的两个（`probe` / `eula`），再交给 `:core` 的 [appRouteOf]；
+ * 认不出（旧深链、手写错）一律落回课表 —— 与 App 的 `appRouteOf` 返回 null 时同一套兜底思路。
+ */
+internal fun initialWebTarget(): WebTarget = when (val raw = browserRouteParam()) {
+    null -> WebTarget.App(AppRoute.Schedule)
+    "probe" -> WebTarget.Probe
+    "eula" -> WebTarget.Eula
+    else -> WebTarget.App(appRouteOf(raw) ?: AppRoute.Schedule)
 }

@@ -3,6 +3,7 @@
 package com.xjtu.toolbox.web
 
 import com.xjtu.toolbox.core.net.createToolboxClient
+import com.xjtu.toolbox.util.decodeUrlComponentOrNull
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
@@ -28,16 +29,24 @@ const val API_BASE: String = ""
  */
 const val DIRECT_BASE: String = "http://127.0.0.1:3099"
 
-/** 浏览器的本地日期，`2026-10-06`。Kotlin/Wasm 没有 `java.time`，也不值得为这一处引时区库。 */
-@JsFun("() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }")
-external fun browserTodayIso(): String
-
-/** 当前页面的 query string（自检屏的深链：`?tab=probe`），用来给无头浏览器截图用。 */
+/** 当前页面的 query string（深链与自检屏用），给无头浏览器截图也靠它。 */
 @JsFun("() => window.location.search")
 external fun browserSearch(): String
 
-/** 起始标签页：默认课表；`?tab=probe` 直达后端自检屏。 */
-fun initialTabIsProbe(): Boolean = browserSearch().contains("tab=probe")
+/**
+ * `?route=<id>` 的值（URL 解码过；没写或为空返回 null）。
+ *
+ * 解码用 `:core` 的 [decodeUrlComponentOrNull] —— 与 `AppRoute.id` 的**编码**同一套实现
+ * （含 `+` ↔ 空格 那套 java.net 语义），所以“深链里的 id”和“App 存下来的 id”永远解析得一样。
+ */
+fun browserRouteParam(): String? {
+    val raw = browserSearch().removePrefix("?").split('&')
+        .firstOrNull { it.substringBefore('=') == "route" }
+        ?.substringAfter('=', missingDelimiterValue = "")
+        ?: return null
+    if (raw.isEmpty()) return null
+    return decodeUrlComponentOrNull(raw) ?: raw
+}
 
 /** 复用 :core 的客户端工厂：引擎、JSON 口径、Cookie 策略全在共享层，各端不各配一遍。 */
 fun toolboxWebClient(): HttpClient = createToolboxClient()

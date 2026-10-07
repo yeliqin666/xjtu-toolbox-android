@@ -34,6 +34,18 @@ interface YellowPageCache {
 }
 
 /**
+ * 黄页取数端口 —— 让同一个 [YellowPageScreen] 在两个端取数：
+ * - Android/直连：`YellowPageApi`（Ktor 直连 `workflow.xjtu.edu.cn`）；
+ * - Web：`CampusYellowPageApi`（同源 `/api/info/yellowpage`，由 campus-api 代取 —— 浏览器直连学校
+ *   拿不到 CORS 头，这是 Web 端唯一可用的数据路径）。
+ *
+ * 与 `GithubDiscussionsRepository` 是同一条缝（交接文档§5.1 的路 1）：屏幕只认识端口与模型。
+ */
+interface YellowPageSource {
+    suspend fun getData(forceRefresh: Boolean = false): YellowPageData
+}
+
+/**
  * 黄页（`workflow.xjtu.edu.cn/selectpage` 的机构通讯录）的只读接口。
  *
  * 从 :app 的 `yellowpage/YellowPageApi.kt` 搬进 commonMain，并**只把传输层从 okhttp 换成
@@ -47,8 +59,8 @@ class YellowPageApi(
     private val client: HttpClient,
     private val cache: YellowPageCache? = null,
     private val baseUrl: String = BASE_URL,
-) {
-    suspend fun getData(forceRefresh: Boolean = false): YellowPageData {
+) : YellowPageSource {
+    override suspend fun getData(forceRefresh: Boolean): YellowPageData {
         if (!forceRefresh) {
             cache?.read()?.let { return it }
         }

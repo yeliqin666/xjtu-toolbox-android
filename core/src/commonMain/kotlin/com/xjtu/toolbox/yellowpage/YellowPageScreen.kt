@@ -69,7 +69,7 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
  */
 @Composable
 fun YellowPageScreen(
-    api: YellowPageApi,
+    api: YellowPageSource,
     onBack: () -> Unit,
     errorText: (Throwable) -> String,
 ) {

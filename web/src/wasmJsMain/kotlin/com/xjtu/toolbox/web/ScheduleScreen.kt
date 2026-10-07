@@ -32,8 +32,11 @@ import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.schedule.CampusScheduleApi
 import com.xjtu.toolbox.schedule.CourseSlot
 import com.xjtu.toolbox.schedule.CourseTable
+import com.xjtu.toolbox.schedule.colorOf
+import com.xjtu.toolbox.schedule.courseColorMap
 import com.xjtu.toolbox.schedule.dateOf
 import com.xjtu.toolbox.schedule.weekOf
+import com.xjtu.toolbox.util.todayInSystemZone
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
@@ -62,7 +65,7 @@ fun ScheduleScreen() {
         try {
             val d = CampusScheduleApi(toolboxWebClient(), API_BASE).load()
             data = d
-            week = d.termStart.weekOf(browserTodayIso())
+            week = d.termStart.weekOf(todayInSystemZone().toString())
         } catch (e: Throwable) {
             error = e.message ?: e.toString()
         }
@@ -80,7 +83,7 @@ fun ScheduleScreen() {
         return
     }
 
-    val todayWeek = remember(d) { d.termStart.weekOf(browserTodayIso()) }
+    val todayWeek = remember(d) { d.termStart.weekOf(todayInSystemZone().toString()) }
     val maxWeek = remember(d) {
         maxOf(d.totalWeeks.coerceAtLeast(1), d.slots.flatMap { it.weeks }.maxOrNull() ?: 1)
     }
@@ -112,12 +115,12 @@ fun ScheduleScreen() {
         }
 
         // ── 表头：星期 + 日期（日期由 :core 的开学日 + 周次算出来）──
-        val today = browserTodayIso()
+        val today = todayInSystemZone()
         Row(modifier = Modifier.fillMaxWidth().background(cs.surface)) {
             Spacer(modifier = Modifier.width(LEFT_W))
             for (i in 0..6) {
                 val date = d.termStart.dateOf(week, i + 1)
-                val isToday = date.toString() == today
+                val isToday = date == today
                 Column(
                     modifier = Modifier.weight(1f).padding(vertical = 4.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -197,7 +200,7 @@ private fun RowScope.DayColumn(
                             val span = (slot.endSection - slot.startSection + 1).coerceAtLeast(1)
                             CourseBlock(
                                 slot,
-                                colors[slot.courseName] ?: DEFAULT_COLOR,
+                                colors.colorOf(slot.courseName),
                                 Modifier.weight(1f).height(ROW_H * span.toFloat()),
                                 onPick,
                             )
@@ -234,27 +237,8 @@ private val LEFT_W = 32.dp
 private val ROW_H: Dp = 56.dp
 private val DAY_NAMES = listOf("一", "二", "三", "四", "五", "六", "日")
 
-/**
- * 同名同色、且尽量均匀：从课程名 hash 出发找第一个没被占用的色位。
- * 与 :app / 参考实现同一套算法 —— 颜色不参与业务，但三端画面要对得上。
- */
-private val COURSE_PALETTE = listOf(
-    Color(0xFF1565C0), Color(0xFF2E7D32), Color(0xFFC62828), Color(0xFF6A1B9A),
-    Color(0xFFEF6C00), Color(0xFF00838F), Color(0xFFAD1457), Color(0xFF4527A0),
-    Color(0xFF00695C), Color(0xFF283593), Color(0xFF558B2F), Color(0xFF8E24AA),
-    Color(0xFFD84315),
-)
-private val DEFAULT_COLOR = COURSE_PALETTE[0]
-
-private fun courseColorMap(names: Collection<String>): Map<String, Color> {
-    val n = COURSE_PALETTE.size
-    val used = BooleanArray(n)
-    val out = HashMap<String, Color>()
-    for (name in names.distinct().sorted()) {
-        val start = (name.trim().hashCode() and Int.MAX_VALUE) % n
-        val i = (0 until n).map { (start + it) % n }.firstOrNull { !used[it] } ?: start
-        used[i] = true
-        out[name] = COURSE_PALETTE[i]
-    }
-    return out
-}
+// 颜色与「今天是哪天」都**不再在这里实现**：
+// - `courseColorMap` / `defaultCourseColor` / `colorOf` 来自 :core 的 `schedule/CourseColorMap.kt`
+//   （那里还有读用户自定义色 `CourseColors.of(name)` 的分支 —— 原先这里抄了一份不带它的，
+//   表现为「同一门课 App 里是你改过的颜色、Web 里是默认色」）；
+// - `todayInSystemZone()` 来自 :core 的 `util/Today.kt`（原先这里另写了一个 `browserTodayIso`）。
