@@ -48,6 +48,8 @@ import com.xjtu.toolbox.media.DownloadManagerScreen
 import com.xjtu.toolbox.notification.NotificationScreen
 import com.xjtu.toolbox.schedule.SchoolCourseScreen
 import com.xjtu.toolbox.score.ScoreReportScreen
+import com.xjtu.toolbox.score.appScoreReportCache
+import com.xjtu.toolbox.score.appScoreReportSource
 import com.xjtu.toolbox.settings.SettingsScreen
 import com.xjtu.toolbox.social.MatchScreen
 import com.xjtu.toolbox.venue.VenueScreen
@@ -150,7 +152,19 @@ fun AppNavHost(
             WithSite("coupon") { CouponScreen(site = it, onBack = back) }
         }
         entry<AppRoute.ScoreReport>(transition = expand(AppRoute.ScoreReport::class)) {
-            WithSite("jwxt") { ScoreReportScreen(site = it, studentId = loginState.activeUsername, onBack = back) }
+            // 成绩报表屏已搬进 :core；这里注入取数（帆软报表）与缓存（DataCache）——
+            // 两者都在 score/ScoreReportApp.kt 里装配，学号与账号隔离留在 :app 这一侧。
+            WithSite("jwxt") { site ->
+                val scoreContext = LocalContext.current
+                val studentId = loginState.activeUsername
+                ScoreReportScreen(
+                    source = remember(site, studentId) { appScoreReportSource(site, studentId) },
+                    onBack = back,
+                    cache = remember(loginState.accountId, studentId) {
+                        appScoreReportCache(scoreContext, loginState.accountId.takeIf { it.isNotEmpty() }, studentId)
+                    },
+                )
+            }
         }
         entry<AppRoute.Transcript>(transition = expand(AppRoute.Transcript::class)) {
             WithSite("dzpz") { TranscriptScreen(site = it, onBack = back) }

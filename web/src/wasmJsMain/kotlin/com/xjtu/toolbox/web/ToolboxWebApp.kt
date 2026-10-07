@@ -7,6 +7,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.EventNote
+import androidx.compose.material.icons.filled.Grade
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Psychology
@@ -22,10 +23,12 @@ import com.xjtu.toolbox.community.CommunityScreen
 import com.xjtu.toolbox.community.GithubSession
 import com.xjtu.toolbox.calendar.SchoolCalendarScreen
 import com.xjtu.toolbox.core.net.CampusFitnessApi
+import com.xjtu.toolbox.core.net.CampusGradesApi
 import com.xjtu.toolbox.core.net.CampusSchoolCalendarApi
 import com.xjtu.toolbox.core.net.CampusYellowPageApi
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.fitness.FitnessScreen
+import com.xjtu.toolbox.score.ScoreReportScreen
 import com.xjtu.toolbox.game.blocks.BlocksScreen
 import com.xjtu.toolbox.game.g2048.Gpa2048Screen
 import com.xjtu.toolbox.legal.EulaScreen
@@ -86,6 +89,7 @@ internal val WEB_TABS = listOf(
     WebTab(AppRoute.Schedule, "课表", Icons.Filled.CalendarMonth),
     WebTab(AppRoute.SchoolCalendar, "校历", Icons.Filled.EventNote),
     WebTab(AppRoute.Fitness, "体测", Icons.AutoMirrored.Filled.DirectionsRun),
+    WebTab(AppRoute.ScoreReport, "成绩", Icons.Filled.Grade),
     WebTab(AppRoute.YellowPage, "黄页", Icons.Filled.Phone),
     WebTab(AppRoute.Game2048, "GPA2048", Icons.Filled.Psychology),
     WebTab(AppRoute.GameBlocks, "方块", Icons.Filled.Extension),
@@ -130,6 +134,13 @@ private fun AppPage(route: AppRoute, client: HttpClient, session: GithubSession,
         AppRoute.Fitness -> FitnessScreen(
             source = remember { CampusFitnessApi(client) },
             onBack = back,
+        )
+        // 成绩：与 Android 同一个屏与模型（:core/score），取数换成 campus-api 的精确成绩。
+        // 两个端上游不是同一个接口（:app 解析帆软报表 HTML），字段对齐写在 CampusGradesApi 的 KDoc 里。
+        AppRoute.ScoreReport -> ScoreReportScreen(
+            source = remember { CampusGradesApi(client) },
+            onBack = back,
+            cache = remember { WebScoreReportCache() },
         )
         AppRoute.YellowPage -> YellowPageScreen(
             api = remember { CampusYellowPageApi(client) },
