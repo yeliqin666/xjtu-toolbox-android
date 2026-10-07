@@ -1,4 +1,4 @@
-package com.xjtu.toolbox.network
+package com.xjtu.toolbox.core.net
 
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsChannel
@@ -23,6 +23,10 @@ import kotlinx.io.readByteArray
  * - **二进制类**（PDF / 图片 / 附件下载）：**不读**、不 peek —— 与原来一致
  *   （原实现的注释：“二进制流不可能是 CAS 登录页，却要为此多拷贝+解码 8KB”），
  *   响应体留着给调用方流式读（[KtorReply.stream]）。
+ *
+ * ⚠️ 这个类原来住在 `:app` 的 `com.xjtu.toolbox.network`（okhttp 会话内核旁边）。搬进 `:core`
+ * 是「传输缝」的第一步：只要它和 [SiteRequest] 在共享层，业务 API 类就能整份搬进 `:core`，
+ * 而 Android 侧的会话内核（`SiteSession` / `SessionManager` / okhttp）一行都不用挪。
  */
 class KtorReply(
     val status: Int,

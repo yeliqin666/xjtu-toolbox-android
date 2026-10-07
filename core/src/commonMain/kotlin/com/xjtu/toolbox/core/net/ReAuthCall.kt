@@ -1,4 +1,4 @@
-package com.xjtu.toolbox.network
+package com.xjtu.toolbox.core.net
 
 import io.ktor.client.HttpClient
 import io.ktor.client.request.HttpRequestBuilder
@@ -7,9 +7,9 @@ import io.ktor.client.request.request
 /**
  * 「发一次请求 → 判定认证失效 → 回调重认证 → 原样重放一次」的机制，**与 okhttp 类型无关**。
  *
- * 这是 okhttp 版 [com.xjtu.toolbox.auth.SiteSession.executeWithReAuth] 里那段循环的等价物，
+ * 这是 okhttp 版 `SiteSession.executeWithReAuth` 里那段循环的等价物，
  * 抽出来单独一个类，是为了在两件事上摆脱 okhttp 类型：
- *  1. 站点会话（`SiteSession` 及其 16 处子类重写）将来可以整体搬进 `:core`；
+ *  1. 站点会话（`SiteSession` 及其子类重写）将来可以整体搬进 `:core`；
  *  2. 这段逻辑**可以被单测钉住** —— 会话本身要 `Context`/`SessionBackend`，在单测里造不出来，
  *     而「401 之后重认证、重放、第二次仍 401 就放弃」这件事恰恰是最不该靠肉眼看的。
  *
@@ -21,6 +21,9 @@ import io.ktor.client.request.request
  *   原实现的注释说得很清楚：只打一句 auth failure 的话，遇到误判根本无从分辨）。
  *
  * ⚠️ 三次回调都可能抛（例如凭据已失效、被取消），异常按调用方处理，这里不吞。
+ *
+ * 与 [KtorReply] 一起从 `:app` 的 `com.xjtu.toolbox.network` 搬进 `:core`：它是「传输缝」上
+ * 唯一有真实逻辑的一段，所以它也必须能被共享层的单测覆盖（见 `ReAuthCallTest`）。
  */
 class ReAuthCall(
     private val http: HttpClient,

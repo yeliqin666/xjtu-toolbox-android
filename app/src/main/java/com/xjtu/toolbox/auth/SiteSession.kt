@@ -14,6 +14,8 @@ import okhttp3.Response
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import com.xjtu.toolbox.error.UserFacingFailure
+import com.xjtu.toolbox.core.net.ReAuthCall
+import com.xjtu.toolbox.core.net.SiteRequest
 import com.xjtu.toolbox.network.asToolboxKtorClient
 
 /**
@@ -30,8 +32,8 @@ import com.xjtu.toolbox.network.asToolboxKtorClient
  * - [decorateRequest]（可选）—为业务请求注入站点特有 header（Authorization / Synjones-Auth 等）。
  */
 abstract class SiteSession(
-    val siteKey: String,
-    val siteName: String,
+    override val siteKey: String,
+    override val siteName: String,
     /**
      * 该站点的域名/端口在校外是否物理不可达，必须经 WebVPN 代理才能连通。
      *
@@ -46,7 +48,7 @@ abstract class SiteSession(
      *   但这取决于学校当前的网络策略，并非本字段保证的行为。
      */
     val mustUseWebVpn: Boolean = true,
-) {
+) : SiteRequest {
     /** 由 SessionManager 经 [bind] 注入，随切网、切账号换绑。 */
     @Volatile var backend: SessionBackend? = null
         private set
@@ -67,7 +69,7 @@ abstract class SiteSession(
     private val loginLock = Mutex()
 
     /** 本站点局部 token / sessionid 仓库。 */
-    val localToken: MutableMap<String, String> = ConcurrentHashMap()
+    override val localToken: MutableMap<String, String> = ConcurrentHashMap()
 
     @Volatile var hasLogin: Boolean = false
         protected set
@@ -371,7 +373,7 @@ abstract class SiteSession(
      *
      * ⚠️ 同上：重写过 [isAuthFailureResponse] 的站点（`Sites.kt` 里 8 处）迁移时要把本站规则也搬过来。
      */
-    open fun isAuthFailureReply(reply: com.xjtu.toolbox.network.KtorReply): Boolean {
+    open fun isAuthFailureReply(reply: com.xjtu.toolbox.core.net.KtorReply): Boolean {
         if (reply.status == 401 || reply.status == 403) return true
         if (WebVpnUtil.isLoginLanding(reply.finalUrl)) return true
         return reply.peek?.let { XJTULogin.isAuthFailureResponse(it) } ?: false
@@ -384,15 +386,15 @@ abstract class SiteSession(
      * 一次性换掉就没法「一批一批走」。两个出口并存期间：
      * - 两者跑在**同一个 OkHttpClient** 上（cookie jar / UA 拦截器 / brotli / 超时 / WebVPN 改写全沿用）；
      * - 重认证、重放、判据日志、`AuthExpiredException` 的语义与旧出口逐条对齐
-     *   （重放循环本身在 `network/ReAuthCall.kt`，有单测钉着）；
+     *   （重放循环本身在 `:core` 的 `core/net/ReAuthCall.kt`，有单测钉着）；
      * - 每迁一个站点的调用点，就把它的 [decorateKtorRequest] / [isAuthFailureReply] 对应补齐。
      */
     @Throws(IOException::class, AuthExpiredException::class)
-    suspend fun sendWithReAuth(
+    override suspend fun sendWithReAuth(
         request: io.ktor.client.request.HttpRequestBuilder.() -> Unit,
-    ): com.xjtu.toolbox.network.KtorReply {
+    ): com.xjtu.toolbox.core.net.KtorReply {
         val epochBefore = loginEpoch
-        return com.xjtu.toolbox.network.ReAuthCall(ktor).execute(
+        return ReAuthCall(ktor).execute(
             block = { decorateKtorRequest(this); request() },
             isAuthFailure = { isAuthFailureReply(it) },
             onAuthFailureDetected = { reply ->
