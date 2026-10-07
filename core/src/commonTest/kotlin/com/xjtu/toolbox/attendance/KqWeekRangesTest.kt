@@ -1,7 +1,7 @@
 package com.xjtu.toolbox.attendance
 
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import kotlin.test.assertEquals
+import kotlin.test.Test
 
 class KqWeekRangesTest {
 
