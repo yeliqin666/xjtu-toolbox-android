@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.home
 
+import com.xjtu.toolbox.util.toKx
 import com.xjtu.toolbox.nav.expandOriginSource
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -540,7 +541,7 @@ internal fun HomeTab(
                 val startDate = schedule.start
                 val today = java.time.LocalDate.now()
                 val weekNumber = if (startDate != null) {
-                    com.xjtu.toolbox.schedule.TermWeeks.weekOf(startDate, today)
+                    com.xjtu.toolbox.schedule.TermWeeks.weekOf(startDate.toKx(), today.toKx())
                         .takeIf { it in 1..25 } ?: 0
                 } else {
                     0
@@ -557,7 +558,7 @@ internal fun HomeTab(
                     // 放假停的是教务的课，自建日程照常提醒
                     val isHoliday = holidayDates.containsKey(targetDate)
 
-                    val targetWeek = com.xjtu.toolbox.schedule.TermWeeks.weekOf(startDate, targetDate)
+                    val targetWeek = com.xjtu.toolbox.schedule.TermWeeks.weekOf(startDate.toKx(), targetDate.toKx())
                     if (targetWeek <= 0) continue
                     val daySchedules = allSchedules
                         .filter { it.dayOfWeek == targetDate.dayOfWeek.value && it.isInWeek(targetWeek) }

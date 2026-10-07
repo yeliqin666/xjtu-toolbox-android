@@ -1,10 +1,8 @@
 package com.xjtu.toolbox.schedule
 
+import com.xjtu.toolbox.util.todayInSystemZone
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalTime
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toLocalDateTime
-import kotlin.time.Clock
 
 /**
  * 西安交通大学作息时间表
@@ -25,11 +23,10 @@ object XjtuTime {
     )
 
     /** 判断当前是否为夏季时间（5-9月） */
-    fun isSummerTime(month: Int = today().month.ordinal + 1): Boolean =
+    fun isSummerTime(month: Int = todayInSystemZone().month.ordinal + 1): Boolean =
         month in 5..9
 
-    /** 本机时区的今天。`java.time.LocalDate.now()` 在 commonMain 不存在。 */
-    private fun today(): LocalDate = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()).date
+    // 「本机时区的今天」提成 :core 的 util/Today.kt（TermWeeks 也要），这里不再留私有副本
 
     /** 冬季时间表（10月-4月），每节50分钟 */
     private val WINTER_SCHEDULE = mapOf(
@@ -127,7 +124,7 @@ object XjtuTime {
      * 各系统的年份下拉多数只给 `2025` 这样的起始年，需要默认选中"本学年"时用它，
      * 不要各页面各自 `LocalDate.now().year` ——那样 1–8 月会整体错一年。
      */
-    fun currentAcademicYear(today: LocalDate = today()): Int =
+    fun currentAcademicYear(today: LocalDate = todayInSystemZone()): Int =
         if (today.month.ordinal + 1 >= 9) today.year else today.year - 1
 
     /**
@@ -137,7 +134,7 @@ object XjtuTime {
      * 分不清，返回 null。只当兜底：教务的「当前学期」接口在换季那几周常常还指着
      * 上一学期，或者干脆失败。
      */
-    fun expectedTermCode(today: LocalDate = today()): String? {
+    fun expectedTermCode(today: LocalDate = todayInSystemZone()): String? {
         val year = currentAcademicYear(today)
         return when (today.month.ordinal + 1) {
             9, 10, 11, 12, 1 -> "$year-${year + 1}-1"

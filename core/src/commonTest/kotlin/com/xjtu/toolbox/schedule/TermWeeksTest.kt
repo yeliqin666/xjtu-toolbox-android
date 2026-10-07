@@ -1,14 +1,20 @@
 package com.xjtu.toolbox.schedule
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Test
-import java.time.LocalDate
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
+import kotlinx.datetime.LocalDate
 
+/**
+ * 从 :app 搬进 :core 时只换了壳（JUnit → kotlin.test、`LocalDate.of(y,m,d)` → `LocalDate(y,m,d)`、
+ * `dayOfWeek.value` → `dayOfWeek.ordinal + 1`），断言逐条未动 —— 它们钉的是 issue #44 的两层成因
+ * （负数向零截断、周次没锚到周一）与「课表没拉到时不得判学期已结束」。
+ * 改 :core 的 [TermWeeks] 之前先看这里。
+ */
 class TermWeeksTest {
 
     /** 2026 秋季学期，开学日期是周一。 */
-    private val start = LocalDate.of(2026, 8, 31)
+    private val start = LocalDate(2026, 8, 31)
 
     @Test
     fun `开学当天是第一周`() {
@@ -17,12 +23,12 @@ class TermWeeksTest {
 
     @Test
     fun `开学那周周日仍是第一周`() {
-        assertEquals(1, TermWeeks.weekOf(start, LocalDate.of(2026, 9, 6)))
+        assertEquals(1, TermWeeks.weekOf(start, LocalDate(2026, 9, 6)))
     }
 
     @Test
     fun `下一个周一进入第二周`() {
-        assertEquals(2, TermWeeks.weekOf(start, LocalDate.of(2026, 9, 7)))
+        assertEquals(2, TermWeeks.weekOf(start, LocalDate(2026, 9, 7)))
     }
 
     /**
@@ -33,18 +39,18 @@ class TermWeeksTest {
      */
     @Test
     fun `开学前几天是第零周而不是第一周`() {
-        assertEquals(0, TermWeeks.weekOf(start, LocalDate.of(2026, 8, 26)))
-        assertEquals(0, TermWeeks.weekOf(start, LocalDate.of(2026, 8, 30)))
-        assertEquals(-1, TermWeeks.weekOf(start, LocalDate.of(2026, 8, 19)))
+        assertEquals(0, TermWeeks.weekOf(start, LocalDate(2026, 8, 26)))
+        assertEquals(0, TermWeeks.weekOf(start, LocalDate(2026, 8, 30)))
+        assertEquals(-1, TermWeeks.weekOf(start, LocalDate(2026, 8, 19)))
     }
 
     @Test
     fun `开学日期落在周中时锚到那周的周一`() {
         // 教务给的是周三，第 1 周仍应从这一周的周一算起。
-        val midWeekStart = LocalDate.of(2026, 9, 2)
-        assertEquals(1, TermWeeks.weekOf(midWeekStart, LocalDate.of(2026, 8, 31)))
-        assertEquals(1, TermWeeks.weekOf(midWeekStart, LocalDate.of(2026, 9, 6)))
-        assertEquals(2, TermWeeks.weekOf(midWeekStart, LocalDate.of(2026, 9, 7)))
+        val midWeekStart = LocalDate(2026, 9, 2)
+        assertEquals(1, TermWeeks.weekOf(midWeekStart, LocalDate(2026, 8, 31)))
+        assertEquals(1, TermWeeks.weekOf(midWeekStart, LocalDate(2026, 9, 6)))
+        assertEquals(2, TermWeeks.weekOf(midWeekStart, LocalDate(2026, 9, 7)))
     }
 
     /**
@@ -55,7 +61,7 @@ class TermWeeksTest {
      */
     @Test
     fun `课表未加载时不得判为学期已结束`() {
-        val status = TermWeeks.statusOf(start, totalWeeks = 0, today = LocalDate.of(2026, 9, 3))
+        val status = TermWeeks.statusOf(start, totalWeeks = 0, today = LocalDate(2026, 9, 3))
         assertEquals(TermWeeks.Status.Unknown(1), status)
         assertNull(TermWeeks.noteOf(status))
         assertEquals(1, TermWeeks.displayWeekOf(status))
@@ -63,14 +69,14 @@ class TermWeeksTest {
 
     @Test
     fun `开学前夕且课表未加载时提示距开学`() {
-        val status = TermWeeks.statusOf(start, totalWeeks = 0, today = LocalDate.of(2026, 8, 26))
+        val status = TermWeeks.statusOf(start, totalWeeks = 0, today = LocalDate(2026, 8, 26))
         assertEquals(TermWeeks.Status.BeforeTerm(1), status)
         assertEquals("距开学还有 1 周", TermWeeks.noteOf(status))
     }
 
     @Test
     fun `超出总周数才算学期结束`() {
-        val lastWeek = LocalDate.of(2026, 12, 21)   // 第 17 周
+        val lastWeek = LocalDate(2026, 12, 21)   // 第 17 周
         assertEquals(17, TermWeeks.weekOf(start, lastWeek))
         assertEquals(
             TermWeeks.Status.InTerm(17),
@@ -85,7 +91,7 @@ class TermWeeksTest {
     @Test
     fun `学期已开始但第一门课在后面时提示尚未开课`() {
         val status = TermWeeks.statusOf(
-            start, totalWeeks = 18, firstTeachWeek = 3, today = LocalDate.of(2026, 9, 3)
+            start, totalWeeks = 18, firstTeachWeek = 3, today = LocalDate(2026, 9, 3)
         )
         assertEquals(TermWeeks.Status.NotStartedYet(week = 1, firstTeachWeek = 3), status)
         assertEquals("尚未开课 · 第3周开始上课", TermWeeks.noteOf(status))
@@ -98,7 +104,7 @@ class TermWeeksTest {
             (1..7).forEach { dow ->
                 val date = TermWeeks.dateOf(start, week, dow)
                 assertEquals(week, TermWeeks.weekOf(start, date))
-                assertEquals(dow, date.dayOfWeek.value)
+                assertEquals(dow, date.dayOfWeek.ordinal + 1)
             }
         }
     }

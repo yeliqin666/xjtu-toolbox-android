@@ -114,7 +114,7 @@ internal object WelcomeFactsLoader {
         val start = schedule?.start
         fun on(date: LocalDate): List<CourseItem> {
             if (start == null || holidays.containsKey(date)) return emptyList()
-            val week = TermWeeks.weekOf(start, date)
+            val week = TermWeeks.weekOf(start.toKx(), date.toKx())
             return courses.filter { it.dayOfWeek == date.dayOfWeek.value && it.isInWeek(week) }
                 .distinctBy { Triple(it.courseName, it.startSection, it.location) }
                 .sortedBy { it.startSection }

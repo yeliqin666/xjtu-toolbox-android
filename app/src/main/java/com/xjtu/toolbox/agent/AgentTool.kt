@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.agent
 
+import com.xjtu.toolbox.util.toKx
 import kotlin.coroutines.resume
 import com.xjtu.toolbox.network.APP_UA
 import kotlinx.serialization.json.jsonObject
@@ -819,7 +820,7 @@ class AgentToolRegistry(
             cachedStartDate(it)?.let { sd ->
                 val startStr = sd.toString()
                 val daysSince = java.time.temporal.ChronoUnit.DAYS.between(sd, today).toInt()
-                val w = com.xjtu.toolbox.schedule.TermWeeks.weekOf(sd, today)
+                val w = com.xjtu.toolbox.schedule.TermWeeks.weekOf(sd.toKx(), today.toKx())
                 // 含起始日与已过天数，便于推算"整学期"区间（如校园卡整学期账单天数）
                 if (w in 1..25) "第${w}周（起始 $startStr，开学至今 $daysSince 天）" else null
             }
@@ -1093,7 +1094,7 @@ class AgentToolRegistry(
 
         if (dateStr != null) {
             val targetDate = runCatching { LocalDate.parse(dateStr) }.getOrElse { LocalDate.now() }
-            val weekNum = com.xjtu.toolbox.schedule.TermWeeks.weekOf(startDate, targetDate)
+            val weekNum = com.xjtu.toolbox.schedule.TermWeeks.weekOf(startDate.toKx(), targetDate.toKx())
             val targetSummer = XjtuTime.isSummerTime(targetDate.monthValue)
             val dayCourses = courses.filter { it.dayOfWeek == targetDate.dayOfWeek.value && it.isInWeek(weekNum) }
                 .sortedBy { it.clockMinutes(targetSummer).first }
@@ -1114,7 +1115,7 @@ class AgentToolRegistry(
             }.withChangeNote(changeNote)
         } else {
             val today = LocalDate.now()
-            val weekNum = com.xjtu.toolbox.schedule.TermWeeks.weekOf(startDate, today)
+            val weekNum = com.xjtu.toolbox.schedule.TermWeeks.weekOf(startDate.toKx(), today.toKx())
             if (weekNum <= 0) return "当前不在学期内。"
             // 每门课按它那天的日期算作息，跨月那周也不会错
             val monday = startDate.plusWeeks((weekNum - 1).toLong())
@@ -2635,7 +2636,7 @@ class AgentToolRegistry(
         val termStart = cachedStartDate(termCode)
             ?: return ToolReply.failed("add_schedule_event", "no_term_start_date")
         val maxWeeks = 20
-        val week = com.xjtu.toolbox.schedule.TermWeeks.weekOf(termStart, day)
+        val week = com.xjtu.toolbox.schedule.TermWeeks.weekOf(termStart.toKx(), day.toKx())
         if (week !in 1..maxWeeks) {
             return ToolReply.outOfRange("date", "current term $termCode, weeks 1-$maxWeeks (from $termStart)")
         }

@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.schedule
 
+import com.xjtu.toolbox.util.toKx
 import android.content.Context
 import android.util.Log
 import androidx.compose.runtime.derivedStateOf
@@ -300,7 +301,7 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
         startOfTerm = startDate
         try {
             val status = TermWeeks.statusOf(
-                startOfTerm = startDate,
+                startOfTerm = startDate.toKx(),
                 totalWeeks = totalWeeks,
                 firstTeachWeek = TermWeeks.firstTeachWeekOf(courses),
             )
@@ -779,7 +780,7 @@ internal class ScheduleViewModel(context: Context, private val login: AppLoginSt
             if (startDate != null) {
                 startOfTerm = startDate
                 if (api != null) saveTermStart(api, term, startDate)
-                val status = TermWeeks.statusOf(startOfTerm = startDate, totalWeeks = totalWeeks, firstTeachWeek = TermWeeks.firstTeachWeekOf(courses))
+                val status = TermWeeks.statusOf(startOfTerm = startDate.toKx(), totalWeeks = totalWeeks, firstTeachWeek = TermWeeks.firstTeachWeekOf(courses))
                 if (status is TermWeeks.Status.AfterTerm) showAllWeeks = true
                 currentWeek = TermWeeks.displayWeekOf(status)
                 weekNote = TermWeeks.noteOf(status)
