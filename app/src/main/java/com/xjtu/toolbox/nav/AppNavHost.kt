@@ -263,7 +263,20 @@ fun AppNavHost(
             com.xjtu.toolbox.inbox.InboxScreen(onBack = back, onOpen = { router.open(it) })
         }
         entry<AppRoute.Community>(transition = expand(AppRoute.Community::class)) {
-            CommunityScreen(onBack = back, onOpenLegacyFeedback = { router.open(AppRoute.Feedback) })
+            // 社区那几屏已搬进 :core：登录态（加密偏好）与设备码登录（okhttp）留在 :app，
+            // 由导航层注入 —— 与 GithubDiscussionsRepository 是同一条缝，界面不再自己 get(context)。
+            val communityContext = LocalContext.current
+            CommunityScreen(
+                session = remember { com.xjtu.toolbox.community.PrefsGithubSession.get(communityContext) },
+                deviceAuth = remember {
+                    com.xjtu.toolbox.community.GithubOAuthDeviceAuthRepository(
+                        com.xjtu.toolbox.community.GithubNetwork.client,
+                        com.xjtu.toolbox.community.CommunityRepo.CLIENT_ID,
+                    )
+                },
+                onBack = back,
+                onOpenLegacyFeedback = { router.open(AppRoute.Feedback) },
+            )
         }
         entry<AppRoute.Feedback>(transition = expand(AppRoute.Feedback::class)) {
             FeedbackScreen(onBack = back)

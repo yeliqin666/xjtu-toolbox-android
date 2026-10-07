@@ -20,14 +20,14 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** 本地先记上这一票，失败时调用方换回原来的。 */
-internal fun GithubPoll.votedFor(optionId: String) = copy(
+fun GithubPoll.votedFor(optionId: String) = copy(
     voted = true, canVote = false, total = total + 1,
     options = options.map { if (it.id == optionId) it.copy(votes = it.votes + 1, mine = true) else it },
 )
 
 /** 帖子里的投票：没投过时点选项投票，投过或不能投时显示结果。 */
 @Composable
-internal fun DiscussionPollCard(poll: GithubPoll, onVote: (GithubPollOption) -> Unit) {
+fun DiscussionPollCard(poll: GithubPoll, onVote: (GithubPollOption) -> Unit) {
     val colors = MiuixTheme.colorScheme
     val results = poll.voted || !poll.canVote
     Column(

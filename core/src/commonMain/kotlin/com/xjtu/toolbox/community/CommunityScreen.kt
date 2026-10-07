@@ -1,9 +1,8 @@
 package com.xjtu.toolbox.community
 
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
@@ -16,7 +15,6 @@ import androidx.compose.material.icons.outlined.Forum
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -33,26 +31,35 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 
 /**
- * 社区：本仓库的 GitHub Discussions。必须登录 GitHub 才能看，App 里不内置任何 token。
- *
- * 列表 / 详情 / 发帖 / 登录都在这一个路由里切换，返回键逐层退回。
- */
+* 社区：本仓库的 GitHub Discussions。必须登录 GitHub 才能看，App 里不内置任何 token。
+*
+* 列表 / 详情 / 发帖 / 登录都在这一个路由里切换，返回键逐层退回。
+*/
 @Composable
-fun CommunityScreen(onBack: () -> Unit, onOpenLegacyFeedback: () -> Unit) {
+fun CommunityScreen(
+    session: GithubSession,
+    /** 设备码登录的实现（okhttp，留在 :app）。由导航层注入，界面不再自己造。 */
+    deviceAuth: GithubDeviceAuthRepository,
+    onBack: () -> Unit,
+    onOpenLegacyFeedback: () -> Unit,
+) {
     // MIUIX 的 OverlayDialog 只在某个 Scaffold 底下才渲染得出来：账号弹窗、删除确认、放弃编辑这些
     // 都写在各页 Scaffold 的外面，这一层外壳给它们兜底，弹窗也就铺满全屏
-    Scaffold { _ -> CommunityContent(onBack, onOpenLegacyFeedback) }
+    Scaffold { _ -> CommunityContent(session, deviceAuth, onBack, onOpenLegacyFeedback) }
 }
 
 @Composable
-private fun CommunityContent(onBack: () -> Unit, onOpenLegacyFeedback: () -> Unit) {
-    val context = LocalContext.current
-    val session = remember { GithubSession.get(context) }
+private fun CommunityContent(
+    session: GithubSession,
+    deviceAuth: GithubDeviceAuthRepository,
+    onBack: () -> Unit,
+    onOpenLegacyFeedback: () -> Unit,
+) {
     val login by session.login.collectAsStateWithLifecycle()
     // 登录 / 退出时两套界面淡入淡出地换
     Crossfade(targetState = login, animationSpec = tween(300), label = "communityLogin") { signedIn ->
         if (signedIn == null) {
-            CommunityLoginScreen(session, onBack, onOpenLegacyFeedback)
+            CommunityLoginScreen(session, deviceAuth, onBack, onOpenLegacyFeedback)
         } else {
             CommunityForum(session, signedIn, onBack, onOpenLegacyFeedback)
         }
@@ -165,11 +172,18 @@ private fun CommunityForum(
 
 /** 设备码登录：拿到一次性验证码，用户去 github.com/login/device 输入，这边轮询等授权。 */
 @Composable
-private fun CommunityLoginScreen(session: GithubSession, onBack: () -> Unit, onOpenLegacyFeedback: () -> Unit) {
-    val context = LocalContext.current
+private fun CommunityLoginScreen(
+    session: GithubSession,
+    auth: GithubDeviceAuthRepository,
+    onBack: () -> Unit,
+    onOpenLegacyFeedback: () -> Unit,
+) {
     val uriHandler = LocalUriHandler.current
     val scope = rememberCoroutineScope()
-    val auth = remember { GithubOAuthDeviceAuthRepository(GithubNetwork.client, CommunityRepo.CLIENT_ID) }
+    // Compose 的多平台剪切板（Android 上它就是平台 ClipboardManager），所以这一屏不必再要 Context。
+    // 用的是已标 deprecated 的 LocalClipboardManager：新的 LocalClipboard 要平台自己的 ClipEntry，
+    // 把“复制一段文本”这件小事写成了三端各一份 —— 等它在所有端都好用了再迁。
+    val clipboard = LocalClipboardManager.current
     var authorization by remember { mutableStateOf<GithubDeviceAuthorization?>(null) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
@@ -249,7 +263,7 @@ private fun CommunityLoginScreen(session: GithubSession, onBack: () -> Unit, onO
                         )
                         Button(
                             onClick = {
-                                copyToClipboard(context, pending.userCode)
+                                clipboard.setText(AnnotatedString(pending.userCode))
                                 uriHandler.openUri(pending.verificationUri)
                             },
                             colors = ButtonDefaults.buttonColorsPrimary(),
@@ -274,13 +288,9 @@ private fun CommunityLoginScreen(session: GithubSession, onBack: () -> Unit, onO
 
 /** 旧的页内反馈（飞书多维表格）挪到社区里当二级入口，准备停用。 */
 @Composable
-internal fun LegacyFeedbackEntry(onClick: () -> Unit) =
+fun LegacyFeedbackEntry(onClick: () -> Unit) =
     com.xjtu.toolbox.ui.components.SecondaryEntry(
         androidx.compose.material.icons.Icons.Default.Info, MiuixTheme.colorScheme.onSurfaceVariantSummary,
         "旧版反馈", "不用登录的页内反馈，建议改到社区发帖", status = "即将停用", onClick = onClick,
     )
 
-private fun copyToClipboard(context: Context, text: String) {
-    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
-    clipboard.setPrimaryClip(ClipData.newPlainText("GitHub 验证码", text))
-}

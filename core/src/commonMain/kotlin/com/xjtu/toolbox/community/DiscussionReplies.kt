@@ -20,7 +20,7 @@ import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
-internal fun DiscussionReplies(
+fun DiscussionReplies(
     comment: GithubDiscussionComment,
     op: String?,
     refreshKey: Int,

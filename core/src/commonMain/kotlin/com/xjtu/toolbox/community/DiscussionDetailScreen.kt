@@ -30,8 +30,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import com.xjtu.toolbox.platform.rememberShareLink
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.components.AppCardColor
@@ -43,10 +43,10 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 /** 楼中楼里某条被编辑（[edited]）或删除（[deletedId]）了；[seq] 保证同一条连改两次也会触发。 */
-internal data class ReplyPatch(val edited: GithubDiscussionComment?, val deletedId: String?, val seq: Int)
+data class ReplyPatch(val edited: GithubDiscussionComment?, val deletedId: String?, val seq: Int)
 
 /** 编辑页正在写什么。 */
-internal sealed interface EditorTarget {
+sealed interface EditorTarget {
     data object NewComment : EditorTarget
     /** 引用某条回复发新楼。 */
     data class Quote(val comment: GithubDiscussionComment) : EditorTarget
@@ -65,7 +65,8 @@ fun DiscussionDetailScreen(
     onBack: () -> Unit,
 ) {
     val uriHandler = LocalUriHandler.current
-    val context = LocalContext.current
+    // 系统分享面板（Android = ACTION_SEND，见 platform/Share.kt）；这里不再需要 Context
+    val share = rememberShareLink()
     val vm: DiscussionDetailViewModel = viewModel(key = "discussion-${initial.id}") { DiscussionDetailViewModel(initial, repo) }
     val discussion = vm.discussion
     val loader = vm.loader
@@ -97,7 +98,7 @@ fun DiscussionDetailScreen(
     // 楼层和楼中楼共用的「…」菜单
     fun commentMenu(comment: GithubDiscussionComment) = buildList {
         add(MenuAction("引用回复") { editor = EditorTarget.Quote(comment) })
-        if (comment.url.isNotEmpty()) add(MenuAction("分享") { shareLink(context, discussion.title, comment.url) })
+        if (comment.url.isNotEmpty()) add(MenuAction("分享") { share(discussion.title, comment.url) })
         if (comment.canEdit) add(MenuAction("编辑") { editor = EditorTarget.EditComment(comment) })
         if (comment.canUnminimize && comment.minimized) add(MenuAction("取消折叠") { vm.unminimize(comment) })
         else if (comment.canMinimize && !comment.minimized) add(MenuAction("折叠") { minimizing = comment })
@@ -203,7 +204,7 @@ fun DiscussionDetailScreen(
         title = discussion.category.name,
         onBack = onBack,
         actions = {
-            CommunityBarAction(Icons.Outlined.Share, "分享") { shareLink(context, discussion.title, discussion.url) }
+            CommunityBarAction(Icons.Outlined.Share, "分享") { share(discussion.title, discussion.url) }
             CommunityBarAction(Icons.Outlined.OpenInBrowser, "在浏览器打开") { uriHandler.openUri(discussion.url) }
         },
         bottomBar = {
@@ -356,7 +357,7 @@ private fun OriginalPost(
 
 /** 已解答 / 已关闭 / 已锁定；都没有时不占位置。 */
 @Composable
-internal fun DiscussionStateTags(discussion: GithubDiscussion, modifier: Modifier = Modifier) {
+fun DiscussionStateTags(discussion: GithubDiscussion, modifier: Modifier = Modifier) {
     if (!discussion.answered && !discussion.closed && !discussion.locked && !discussion.pinned) return
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         if (discussion.pinned) CommunityTag("置顶", COMMUNITY_ORANGE)
@@ -368,7 +369,7 @@ internal fun DiscussionStateTags(discussion: GithubDiscussion, modifier: Modifie
 
 /** 👍：数量为 0 时显示 [empty]。 */
 @Composable
-internal fun LikeAction(reactions: List<GithubReaction>, canReact: Boolean, empty: String, onClick: () -> Unit) {
+fun LikeAction(reactions: List<GithubReaction>, canReact: Boolean, empty: String, onClick: () -> Unit) {
     val liked = reactions.mine(LIKE)
     val count = reactions.count(LIKE)
     CommunityAction(
@@ -448,7 +449,7 @@ private fun Floor(
 
 /** 头像 + 用户名 + 楼主 / 已采纳 + 时间，右边可带楼层号。 */
 @Composable
-internal fun AuthorLine(comment: GithubDiscussionComment, op: String?, avatar: androidx.compose.ui.unit.Dp, trailing: String? = null) {
+fun AuthorLine(comment: GithubDiscussionComment, op: String?, avatar: androidx.compose.ui.unit.Dp, trailing: String? = null) {
     val colors = MiuixTheme.colorScheme
     Row(verticalAlignment = Alignment.CenterVertically) {
         CommunityAvatar(comment.authorAvatar, comment.author, avatar)

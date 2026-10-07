@@ -10,9 +10,12 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
+import kotlin.time.Clock
+import com.xjtu.toolbox.platform.Log
+import com.xjtu.toolbox.platform.classifyNetworkFailure
 
 /** 帖子详情：主帖、楼层、楼中楼的读取和各种操作；提交中的回复、点赞不随旋转屏幕丢失。 */
-internal class DiscussionDetailViewModel(
+class DiscussionDetailViewModel(
     initial: GithubDiscussion,
     private val repo: GithubDiscussionsRepository,
 ) : ViewModel() {
@@ -34,11 +37,11 @@ internal class DiscussionDetailViewModel(
 
     /** 重新打开同一个帖子：隔了一阵子才重拉。 */
     fun onShown() {
-        if (System.currentTimeMillis() - loadedAt > 60_000) reloadAll()
+        if (Clock.System.now().toEpochMilliseconds() - loadedAt > 60_000) reloadAll()
     }
 
     fun reloadAll() {
-        loadedAt = System.currentTimeMillis()
+        loadedAt = Clock.System.now().toEpochMilliseconds()
         loader.fetch(true)
         viewModelScope.launch {
             repo.detail(CommunityRepo.OWNER, CommunityRepo.NAME, discussion.number).onSuccess { discussion = it }
@@ -132,8 +135,8 @@ internal class DiscussionDetailViewModel(
 }
 
 /** 失败提示：带上 GitHub 返回的原因（权限 / 限流 / 网络），并写日志。 */
-internal fun failureText(action: String, error: Throwable): String {
-    android.util.Log.w("Community", "$action failed", error)
+fun failureText(action: String, error: Throwable): String {
+    Log.w("Community", "$action failed", error)
     val reason = when (error) {
         is GithubSignedOutException -> "请先登录 GitHub"
         is GithubApiException -> when {
@@ -143,8 +146,10 @@ internal fun failureText(action: String, error: Throwable): String {
             else -> "GitHub 返回 HTTP ${error.statusCode}"
         }
         is GithubDiscussionException -> error.message
-        is java.io.IOException -> "网络不通，检查网络后重试"
-        else -> null
+        // 与搬迁前的 `is java.io.IOException` 等价：平台家族对 JVM 上任何 IOException 都返回非 null
+        // 落在最后：与搬迁前的 `is java.io.IOException ->` 同位置、同语义
+        // （平台家族对 JVM 上任何 IOException 都返回非 null；when 的 subject 是异常，条件分支放不进来）
+        else -> if (classifyNetworkFailure(error) != null) "网络不通，检查网络后重试" else null
     }
     return if (reason.isNullOrBlank()) "${action}没成功，稍后再试" else "${action}没成功：$reason"
 }

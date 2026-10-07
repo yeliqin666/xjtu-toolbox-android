@@ -1,10 +1,8 @@
 package com.xjtu.toolbox.community
 
-// 改编自 JoyinJoester/Etoile（GPL-3.0）：github/domain/GithubDeviceAuth.kt、
-// github/data/GithubOAuthDeviceAuthRepository.kt、github/data/GithubTokenExpiry.kt
+// 改编自 JoyinJoester/Etoile（GPL-3.0）：github/data/GithubOAuthDeviceAuthRepository.kt
 
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -15,91 +13,16 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
-data class GithubDeviceAuthorization(
-    val deviceCode: String,
-    val userCode: String,
-    val verificationUri: String,
-    val expiresAtEpochMillis: Long,
-    val intervalSeconds: Int
-) {
-    override fun toString(): String =
-        "GithubDeviceAuthorization(deviceCode=<redacted>, userCode=$userCode, verificationUri=$verificationUri, expiresAtEpochMillis=$expiresAtEpochMillis, intervalSeconds=$intervalSeconds)"
-}
-
-data class GithubDeviceAccessToken(
-    val accessToken: String,
-    val tokenType: String,
-    val scopes: Set<String>,
-    val refreshToken: String? = null,
-    val expiresAtEpochMillis: Long? = null,
-    val refreshExpiresAtEpochMillis: Long? = null,
-) {
-    override fun toString(): String =
-        "GithubDeviceAccessToken(accessToken=<redacted>, tokenType=$tokenType, scopes=$scopes)"
-}
-
-sealed interface GithubDevicePollResult {
-    data object Pending : GithubDevicePollResult
-    data object SlowDown : GithubDevicePollResult
-    data class Authorized(val token: GithubDeviceAccessToken) : GithubDevicePollResult
-    data object Expired : GithubDevicePollResult
-    data object Denied : GithubDevicePollResult
-}
-
-interface GithubDeviceAuthRepository {
-    val isConfigured: Boolean
-    suspend fun start(): Result<GithubDeviceAuthorization>
-    suspend fun poll(deviceCode: String): Result<GithubDevicePollResult>
-}
-
-class GithubDeviceFlowNotConfiguredException : IllegalStateException("GitHub OAuth device flow is not configured")
-class GithubDeviceAuthorizationDeniedException : IllegalStateException("GitHub device authorization was denied")
-class GithubDeviceAuthorizationExpiredException : IllegalStateException("GitHub device authorization expired")
-class GithubDeviceFlowProtocolException(val errorCode: String) :
-    IllegalStateException("GitHub device flow failed")
-
-class AwaitGithubDeviceAuthorizationUseCase(
-    private val repository: GithubDeviceAuthRepository,
-    private val nowEpochMillis: () -> Long = { System.currentTimeMillis() },
-    private val delayMillis: suspend (Long) -> Unit = { delay(it) }
-) {
-    suspend operator fun invoke(
-        authorization: GithubDeviceAuthorization
-    ): Result<GithubDeviceAccessToken> {
-        var intervalSeconds = authorization.intervalSeconds.coerceAtLeast(MINIMUM_INTERVAL_SECONDS)
-        while (nowEpochMillis() < authorization.expiresAtEpochMillis) {
-            delayMillis(intervalSeconds * 1_000L)
-            if (nowEpochMillis() >= authorization.expiresAtEpochMillis) {
-                return Result.failure(GithubDeviceAuthorizationExpiredException())
-            }
-            val result = repository.poll(authorization.deviceCode).getOrElse {
-                return Result.failure(it)
-            }
-            when (result) {
-                GithubDevicePollResult.Pending -> Unit
-                GithubDevicePollResult.SlowDown -> {
-                    intervalSeconds = (intervalSeconds + SLOW_DOWN_INCREMENT_SECONDS)
-                        .coerceAtMost(MAXIMUM_INTERVAL_SECONDS)
-                }
-                is GithubDevicePollResult.Authorized -> return Result.success(result.token)
-                GithubDevicePollResult.Expired -> {
-                    return Result.failure(GithubDeviceAuthorizationExpiredException())
-                }
-                GithubDevicePollResult.Denied -> {
-                    return Result.failure(GithubDeviceAuthorizationDeniedException())
-                }
-            }
-        }
-        return Result.failure(GithubDeviceAuthorizationExpiredException())
-    }
-
-    private companion object {
-        const val MINIMUM_INTERVAL_SECONDS = 5
-        const val SLOW_DOWN_INCREMENT_SECONDS = 5
-        const val MAXIMUM_INTERVAL_SECONDS = 300
-    }
-}
-
+/**
+ * [GithubDeviceAuthRepository] 的 okhttp 实现 —— **留在 :app**。
+ *
+ * 原来它和模型 / 用例同在一个 `GithubDeviceAuth.kt` 里；现在那一半（模型、结果、接口、用例、
+ * 两个 token 校验函数）在 :core 的 `community/GithubDeviceAuth.kt`。这里保存的是真正碰
+ * okhttp 的部分：两个 OAuth 端点、以及 GitHub 那两个报文的形状校验。
+ *
+ * 校验逻辑（`toDomain` 里的长度/主机/区间检查）**一行未动** —— 它挡的是畸形的 OAuth 报文，
+ * 换库也不该放松。
+ */
 class GithubOAuthDeviceAuthRepository(
     private val client: OkHttpClient,
     clientId: String,
@@ -129,7 +52,7 @@ class GithubOAuthDeviceAuthRepository(
                 .build()
             val request = oauthRequest("device/code").post(body).build()
             client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) throw GithubApiException.of(response)
+                if (!response.isSuccessful) throw githubApiExceptionOf(response)
                 val payload = json.decodeFromString(
                     DeviceCodeResponse.serializer(),
                     response.body.string()
@@ -150,7 +73,7 @@ class GithubOAuthDeviceAuthRepository(
                 .build()
             val request = oauthRequest("oauth/access_token").post(body).build()
             client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) throw GithubApiException.of(response)
+                if (!response.isSuccessful) throw githubApiExceptionOf(response)
                 json.decodeFromString(
                     AccessTokenResponse.serializer(),
                     response.body.string()
@@ -256,20 +179,4 @@ class GithubOAuthDeviceAuthRepository(
         fun isValidClientId(value: String): Boolean =
             value.length in 10..255 && value.none { it.isWhitespace() || it.isISOControl() }
     }
-}
-
-/** Missing expiry denotes a non-expiring OAuth token, never an already expired token. */
-internal fun githubTokenExpiry(now: Long, seconds: Long?): Long? {
-    if (seconds == null) return null
-    if (now < 0 || seconds <= 0 || seconds > (Long.MAX_VALUE - now) / 1000) {
-        throw GithubDeviceFlowProtocolException("invalid_token_expiry")
-    }
-    return now + seconds * 1000
-}
-
-internal fun validateGithubRefreshToken(token: String?): String? {
-    if (token != null && (token.length !in 20..255 || token.any { it.isWhitespace() || it.isISOControl() })) {
-        throw GithubDeviceFlowProtocolException("invalid_refresh_token")
-    }
-    return token
 }

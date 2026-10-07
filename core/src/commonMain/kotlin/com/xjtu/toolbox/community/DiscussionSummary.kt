@@ -9,7 +9,7 @@ import org.intellij.markdown.flavours.gfm.GFMFlavourDescriptor
 import org.intellij.markdown.parser.MarkdownParser
 
 /** A bounded list preview. The original body is always used by the detail reader. */
-internal fun discussionSummary(markdown: String): String {
+fun discussionSummary(markdown: String): String {
     val source = markdown.take(8_192)
     val tree = MarkdownParser(GFMFlavourDescriptor()).buildMarkdownTreeFromString(source)
     val plain = StringBuilder()

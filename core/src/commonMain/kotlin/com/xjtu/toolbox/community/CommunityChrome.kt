@@ -394,8 +394,8 @@ internal fun communityTimeOf(iso: String, now: Instant, zone: TimeZone): String 
         minutes < 60 -> "$minutes 分钟前"
         time.date.toEpochDays() == today.toEpochDays() -> "${minutes / 60} 小时前"
         time.date.toEpochDays() == today.toEpochDays() - 1 -> "昨天 ${pad2(time.hour)}:${pad2(time.minute)}"
-        time.year == today.year -> "${pad2(time.month.ordinal + 1)}-${pad2(time.dayOfMonth)}"
-        else -> "${time.year}-${pad2(time.month.ordinal + 1)}-${pad2(time.dayOfMonth)}"
+        time.year == today.year -> "${pad2(time.month.ordinal + 1)}-${pad2(time.day)}"
+        else -> "${time.year}-${pad2(time.month.ordinal + 1)}-${pad2(time.day)}"
     }
 }.getOrDefault("")
 

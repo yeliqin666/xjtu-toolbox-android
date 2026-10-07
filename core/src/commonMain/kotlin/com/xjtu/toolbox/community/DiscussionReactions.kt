@@ -27,19 +27,19 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** GitHub 支持的 8 种表情回应，顺序同网页。 */
-internal val REACTION_EMOJI = linkedMapOf(
+val REACTION_EMOJI = linkedMapOf(
     "THUMBS_UP" to "👍", "THUMBS_DOWN" to "👎", "LAUGH" to "😄", "HOORAY" to "🎉",
     "CONFUSED" to "😕", "HEART" to "❤️", "ROCKET" to "🚀", "EYES" to "👀",
 )
 
 /** 点赞就是 👍 回应。 */
-internal const val LIKE = "THUMBS_UP"
+const val LIKE = "THUMBS_UP"
 
-internal fun List<GithubReaction>.count(content: String) = firstOrNull { it.content == content }?.count ?: 0
-internal fun List<GithubReaction>.mine(content: String) = any { it.content == content && it.mine }
+fun List<GithubReaction>.count(content: String) = firstOrNull { it.content == content }?.count ?: 0
+fun List<GithubReaction>.mine(content: String) = any { it.content == content && it.mine }
 
 /** 本地先切换一次，失败时调用方再换回原列表。 */
-internal fun List<GithubReaction>.toggled(content: String): List<GithubReaction> {
+fun List<GithubReaction>.toggled(content: String): List<GithubReaction> {
     val old = firstOrNull { it.content == content }
     val next = if (old?.mine == true) old.copy(count = old.count - 1, mine = false)
     else GithubReaction(content, (old?.count ?: 0) + 1, mine = true)
@@ -51,7 +51,7 @@ internal fun List<GithubReaction>.toggled(content: String): List<GithubReaction>
 
 /** 👍 以外已有的表情回应，点一下加 / 撤自己那一份。 */
 @Composable
-internal fun ReactionChips(reactions: List<GithubReaction>, enabled: Boolean, onToggle: (String) -> Unit) {
+fun ReactionChips(reactions: List<GithubReaction>, enabled: Boolean, onToggle: (String) -> Unit) {
     val shown = reactions.filter { it.content != LIKE && it.count > 0 && it.content in REACTION_EMOJI }
     if (shown.isEmpty()) return
     val colors = MiuixTheme.colorScheme
@@ -77,7 +77,7 @@ internal fun ReactionChips(reactions: List<GithubReaction>, enabled: Boolean, on
 
 /** 动作栏里的「加表情」按钮，点开一排表情。 */
 @Composable
-internal fun ReactionButton(reactions: List<GithubReaction>, enabled: Boolean, onToggle: (String) -> Unit) {
+fun ReactionButton(reactions: List<GithubReaction>, enabled: Boolean, onToggle: (String) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
         CommunityAction(Icons.Outlined.AddReaction, "", enabled = enabled, onClick = { open = true })

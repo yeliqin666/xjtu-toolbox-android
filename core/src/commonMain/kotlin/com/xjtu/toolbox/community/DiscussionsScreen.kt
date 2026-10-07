@@ -216,9 +216,9 @@ private fun CountLabel(icon: ImageVector, text: String, active: Boolean = false)
 }
 
 /** GitHub 的「已解答」绿、「已关闭」紫、置顶橙。 */
-internal val COMMUNITY_GREEN = Color(0xFF2DA44E)
-internal val COMMUNITY_PURPLE = Color(0xFF8250DF)
-internal val COMMUNITY_ORANGE = Color(0xFFBC4C00)
+val COMMUNITY_GREEN = Color(0xFF2DA44E)
+val COMMUNITY_PURPLE = Color(0xFF8250DF)
+val COMMUNITY_ORANGE = Color(0xFFBC4C00)
 
 /** 发帖页：选分类、写标题和正文，可切到预览看 Markdown 效果。 */
 @Composable
@@ -322,11 +322,11 @@ fun DiscussionComposer(
 }
 
 /**
- * 编辑 / 预览两态的 Markdown 输入框，发帖和回帖共用。
- * 输入 @ 时在上方列出 [mentionCandidates] 里匹配的人，点一下补全成「@用户名 」。
- */
+* 编辑 / 预览两态的 Markdown 输入框，发帖和回帖共用。
+* 输入 @ 时在上方列出 [mentionCandidates] 里匹配的人，点一下补全成「@用户名 」。
+*/
 @Composable
-internal fun MarkdownEditor(
+fun MarkdownEditor(
     value: String,
     onValueChange: (String) -> Unit,
     preview: Boolean,

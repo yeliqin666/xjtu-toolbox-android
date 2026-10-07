@@ -116,6 +116,9 @@ kotlin {
             api(libs.coil.compose)
             api(libs.markdown.renderer)
             api(libs.markdown.renderer.coil3)
+            // markdown 解析器（org.intellij.markdown）：社区列表的摘要要拿 AST 去标记。
+            // 与 renderer 同源，所以版本跟着它走（见版本目录里的说明）。
+            api(libs.jetbrains.markdown)
         }
         commonTest.dependencies {
             implementation(kotlin("test"))

@@ -165,7 +165,7 @@ class HttpGithubDiscussionsRepository(
                 .post(body.toString().toRequestBody("application/json".toMediaType())).build()
             GithubNetwork.client.newCall(request).execute().use { response ->
                 if (response.code == 401) onUnauthorized()
-                if (!response.isSuccessful) throw GithubApiException.of(response)
+                if (!response.isSuccessful) throw githubApiExceptionOf(response)
                 val payload = Json.parseToJsonElement(response.body?.string().orEmpty()).jsonObject
                 val errors = payload["errors"]?.jsonArray
                 if (errors?.isNotEmpty() == true) {

@@ -14,6 +14,10 @@ miuix = "latest.release"
 composeBom = "2026.09.00"
 okhttp = "5.5.0"
 markdownRenderer = "0.45.0"
+# mikepenz 的 renderer 传递进来的 markdown 解析器（org.intellij.markdown）。
+# 社区列表的摘要（community/DiscussionSummary）直接用它的 AST 去标记，所以 :core 显式声明它；
+# 版本跟 renderer 0.45.0 的传递版本一致（0.7.9），免得「明明能编、换依赖就崩」。
+jetbrainsMarkdown = "0.7.9"
 coil = "3.6.3"
 jsoup = "1.23.2"
 flexmark = "0.64.8"
@@ -64,6 +68,7 @@ androidx-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
 androidx-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
 markdown-renderer = { group = "com.mikepenz", name = "multiplatform-markdown-renderer", version.ref = "markdownRenderer" }
 markdown-renderer-coil3 = { group = "com.mikepenz", name = "multiplatform-markdown-renderer-coil3", version.ref = "markdownRenderer" }
+jetbrains-markdown = { group = "org.jetbrains", name = "markdown", version.ref = "jetbrainsMarkdown" }
 coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
 coil-network-okhttp = { group = "io.coil-kt.coil3", name = "coil-network-okhttp", version.ref = "coil" }
 androidx-material-icons = { group = "androidx.compose.material", name = "material-icons-extended" }

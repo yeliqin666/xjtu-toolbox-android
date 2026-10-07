@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-internal data class DiscussionCommentsState(
+data class DiscussionCommentsState(
     val items: List<GithubDiscussionComment> = emptyList(),
     val cursor: String? = null,
     val loading: Boolean = false,
@@ -19,7 +19,7 @@ internal data class DiscussionCommentsState(
 )
 
 /** Main-thread owner of a comment connection, including mutations during an in-flight read. */
-internal class DiscussionCommentsLoader(
+class DiscussionCommentsLoader(
     private val scope: CoroutineScope,
     private val load: suspend (String?) -> Result<GithubDiscussionComments>
 ) {
