@@ -47,6 +47,8 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import coil3.compose.LocalPlatformContext
+import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.mikepenz.markdown.coil3.Coil3ImageTransformerImpl
 import com.mikepenz.markdown.compose.Markdown
@@ -65,16 +67,22 @@ import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import java.time.Duration
-import java.time.LocalDate
-import java.time.OffsetDateTime
-import java.time.ZoneId
-import java.time.ZonedDateTime
-import java.time.format.DateTimeFormatter
+import kotlin.time.Clock
+import kotlin.time.Instant
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 
 /**
  * 社区各页的外壳：App 自己的玻璃小标题栏，内容铺到顶栏下面做采样源。
  * [content] 拿到的 top 是要放进滚动内容里的顶部留白。
+ *
+ * 从 :app 的 `community/CommunityChrome.kt` 搬进 commonMain（交接文档 §5 里「挡住 23 屏」
+ * 的那个阻挡者）。搬迁时只动了三处：
+ *   - `communityTime` 的 `java.time` → `kotlinx-datetime`（见它的 KDoc）；
+ *   - Coil 的 `ImageRequest.Builder(LocalContext.current)` → `LocalPlatformContext.current`
+ *     （coil3 的多平台形状；Android 上它本来就是 `LocalContext.current`，行为不变）；
+ *   - [communitySlide] / [mentionQuery] / [MentionSuggestions] 的 `internal` 提成 public ——
+ *     `internal` 按模块生效，:app 的社区页看不见 :core 的 internal。
  */
 @Composable
 fun CommunityPage(
@@ -117,7 +125,7 @@ fun CommunityPage(
  * 社区里页与页之间的转场：往里走（列表 → 帖子 → 编辑）新页从右边推进来、旧页往左让一点并变淡；
  * 往回走反过来，退出的那页盖在上面滑走。
  */
-internal fun <S> AnimatedContentTransitionScope<S>.communitySlide(forward: Boolean): ContentTransform {
+fun <S> AnimatedContentTransitionScope<S>.communitySlide(forward: Boolean): ContentTransform {
     val slide = tween<IntOffset>(380, easing = FastOutSlowInEasing)
     val fade = tween<Float>(260)
     return if (forward) {
@@ -225,7 +233,7 @@ internal fun linkMentions(markdown: String): String {
 }
 
 /** 光标前正在输入的 @前缀（不含 @）；没在输 @ 时返回 null。 */
-internal fun mentionQuery(text: String, cursor: Int): String? {
+fun mentionQuery(text: String, cursor: Int): String? {
     val before = text.substring(0, cursor.coerceIn(0, text.length))
     val at = before.lastIndexOf('@')
     if (at < 0) return null
@@ -236,7 +244,7 @@ internal fun mentionQuery(text: String, cursor: Int): String? {
 
 /** @联想条：列出本帖参与者，点一下把正在输的 @前缀换成完整用户名。 */
 @Composable
-internal fun MentionSuggestions(
+fun MentionSuggestions(
     candidates: List<CommunityUser>,
     query: String,
     onPick: (CommunityUser) -> Unit,
@@ -284,7 +292,7 @@ fun CommunityAvatar(url: String?, login: String?, size: Dp) {
         )
         if (url != null) {
             AsyncImage(
-                model = coil3.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                model = ImageRequest.Builder(LocalPlatformContext.current)
                     .data(url)
                     .crossfade(true)
                     .build(),
@@ -363,18 +371,32 @@ fun CommunityAction(
     }
 }
 
-/** 相对时间：刚刚 / N 分钟前 / N 小时前 / 昨天 HH:mm / MM-dd / yyyy-MM-dd。解析不了返回空串。 */
-fun communityTime(iso: String): String = runCatching {
-    val zone = ZoneId.systemDefault()
-    val time = OffsetDateTime.parse(iso).atZoneSameInstant(zone)
-    val minutes = Duration.between(time, ZonedDateTime.now(zone)).toMinutes()
-    val today = LocalDate.now(zone)
+/**
+ * 相对时间：刚刚 / N 分钟前 / N 小时前 / 昨天 HH:mm / MM-dd / yyyy-MM-dd。解析不了返回空串。
+ *
+ * 从 :app 搬进 commonMain 时把 `java.time` 换成了 `kotlinx-datetime`：`DateTimeFormatter` 在
+ * 多平台上没有对应物，而且它也不是「同一件事」——它按 JVM 默认 Locale 取数字。所以
+ * `HH:mm` / `MM-dd` / `yyyy-MM-dd` 这三个固定形状改成手写补零；「昨天」改成比 `toEpochDays()`
+ * （等价于 `today.minusDays(1)`，不去构造那个日期）。**分支顺序与文案逐字未动**，包括看上去
+ * 奇怪的 `minutes < 1` —— 上游给未来时间时（服务器时钟快几秒）也该显示「刚刚」。
+ */
+fun communityTime(iso: String): String =
+    communityTimeOf(iso, Clock.System.now(), TimeZone.currentSystemDefault())
+
+/** [communityTime] 的可注入版本：`now` / `zone` 由调用方给，测试才能固定「今天」与「哪个时区的今天」。 */
+internal fun communityTimeOf(iso: String, now: Instant, zone: TimeZone): String = runCatching {
+    val instant = Instant.parse(iso)
+    val time = instant.toLocalDateTime(zone)
+    val today = now.toLocalDateTime(zone).date
+    val minutes = (now - instant).inWholeMinutes
     when {
         minutes < 1 -> "刚刚"
         minutes < 60 -> "$minutes 分钟前"
-        time.toLocalDate() == today -> "${minutes / 60} 小时前"
-        time.toLocalDate() == today.minusDays(1) -> "昨天 " + time.format(DateTimeFormatter.ofPattern("HH:mm"))
-        time.year == today.year -> time.format(DateTimeFormatter.ofPattern("MM-dd"))
-        else -> time.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))
+        time.date.toEpochDays() == today.toEpochDays() -> "${minutes / 60} 小时前"
+        time.date.toEpochDays() == today.toEpochDays() - 1 -> "昨天 ${pad2(time.hour)}:${pad2(time.minute)}"
+        time.year == today.year -> "${pad2(time.month.ordinal + 1)}-${pad2(time.dayOfMonth)}"
+        else -> "${time.year}-${pad2(time.month.ordinal + 1)}-${pad2(time.dayOfMonth)}"
     }
 }.getOrDefault("")
+
+private fun pad2(value: Int): String = value.toString().padStart(2, '0')

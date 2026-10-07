@@ -107,6 +107,15 @@ kotlin {
             // 用 api 而非 implementation：CourseTable.termStart 是公开的 LocalDate，
             // 消费方（:web / 将来的 :platform）必须能在自己的编译类路径上看到这个类型。
             api(libs.kotlinx.datetime)
+            // ── 社区屏（community/CommunityChrome）搬进来带来的两个多平台依赖 ──────────
+            // 社区壳用 Coil 加载头像、用 mikepenz 的 renderer 渲染 GFM。两个都是**全 KMP**
+            // （android 变体转发到同名 androidx/okhttp 实现，与 :app 的依赖同版同源，不会重复类；
+            // wasmJs 变体已在 Maven Central 上核实存在）。
+            // ⚠️ 只声明不依赖 okhttp 的那些：coil 的 `coil-network-okhttp` 留在 :app（那是
+            // Android 侧的取图引擎）。Web 端目前没注册取图引擎，远程图不显示 —— 属于已知降级。
+            api(libs.coil.compose)
+            api(libs.markdown.renderer)
+            api(libs.markdown.renderer.coil3)
         }
         commonTest.dependencies {
             implementation(kotlin("test"))
