@@ -74,7 +74,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.LocalDateTime
-import java.time.LocalTime
+import kotlinx.datetime.LocalTime
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -119,10 +119,11 @@ internal object WelcomeFactsLoader {
                 .distinctBy { Triple(it.courseName, it.startSection, it.location) }
                 .sortedBy { it.startSection }
         }
-        val nowTime = now.toLocalTime()
+        // XjtuTime 现在给 kotlinx 的 LocalTime → 先按同一套类型转换，再直接比大小
+        val nowTime = now.toLocalTime().toKx()
         val todayCourses = on(today)
         val upcoming = todayCourses.filter { c ->
-            XjtuTime.getClassTime(c.startSection)?.start?.isAfter(nowTime) ?: false
+            XjtuTime.getClassTime(c.startSection)?.start?.let { it > nowTime } ?: false
         }
         val prefs = com.xjtu.toolbox.card.CampusCardCache.cardPrefs(ctx)
         WelcomeFacts(
