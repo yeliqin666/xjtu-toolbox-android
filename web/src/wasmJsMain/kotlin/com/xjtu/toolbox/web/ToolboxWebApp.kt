@@ -3,6 +3,10 @@ package com.xjtu.toolbox.web
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.filled.CalendarMonth
@@ -39,6 +43,9 @@ import io.ktor.client.HttpClient
 import top.yukonga.miuix.kmp.basic.NavigationBar
 import top.yukonga.miuix.kmp.basic.NavigationBarDisplayMode
 import top.yukonga.miuix.kmp.basic.NavigationBarItem
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
  * Web 外壳：**导航与页面都改成 `:core` 的**，不再是自制的两格外壳。
@@ -157,7 +164,43 @@ private fun AppPage(route: AppRoute, client: HttpClient, session: WebGithubSessi
             onBack = back,
             onOpenLegacyFeedback = {},
         )
-        else -> ScheduleScreen()
+        // 其它路线的屏还在 :app：**如实说「没搬过来」，不拿课表冒充**（以前这里落回 ScheduleScreen，
+        // 深链 `?route=notification` 会静默显示课表 —— 看着像 bug，也让人分不清「没实现」与「坏了」）。
+        else -> NotPortedScreen(route, onNavigate)
+    }
+}
+
+/**
+ * “这一屏还没搬到 Web”的占位页 —— 只给 `:core` 里尚未存在的 AppRoute 用。
+ *
+ * 为什么要有它：Web 只能渲染 `:core/commonMain` 里的屏；`:app` 那 40 条路由里还有一大批
+ * （通知 / 空闲教室 / 全校课表 / 教师检索 / 图书馆 / 校园卡 / 成绩单 / 我的 …）因为取数挂着
+ * okhttp、Context、Room、BLE 而暂时搬不过来。这页把**具体哪一条没搬**、**它需不需要登录**
+ * 直接写在脸上，而不是落回课表假装能用 —— 交接文档里那条「只信工作区」的验收，看的就是这个。
+ */
+@Composable
+private fun NotPortedScreen(route: AppRoute, onNavigate: (WebTarget) -> Unit) {
+    val cs = MiuixTheme.colorScheme
+    Column(
+        modifier = Modifier.fillMaxSize().padding(24.dp),
+        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
+    ) {
+        Text("这一屏还没搬到 Web", color = cs.onSurface, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text("AppRoute.${route::class.simpleName ?: "?"}", color = cs.primary, fontSize = 13.sp)
+        Text("路由 id：${route.id}", color = cs.onBackgroundVariant, fontSize = 12.sp)
+        Text(
+            if (route.loginType != null) "它还需要 ${route.loginType} 的站点会话（浏览器没有 CAS 会话）。"
+            else "它的取数还在 :app（okhttp / Context / Room / BLE 那一批）。",
+            color = cs.onBackgroundVariant,
+            fontSize = 12.sp,
+        )
+        Text(
+            "Web 只渲染 :core/commonMain 里的屏：搬一屏 = 屏 + 模型 + 取数端口进 :core，两端各自注入取数。" +
+                "已搬过来的可以在下面底栏或 ?route= 里直接看。",
+            color = cs.onBackgroundVariant,
+            fontSize = 12.sp,
+        )
+        TextButton(text = "回课表", onClick = { onNavigate(WebTarget.App(AppRoute.Schedule)) }, minWidth = 96.dp)
     }
 }
 
