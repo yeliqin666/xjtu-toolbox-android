@@ -6,9 +6,9 @@ import com.xjtu.toolbox.agent.skin.PidaiMotionAction
 import com.xjtu.toolbox.agent.skin.PidaiMotionFrame
 import com.xjtu.toolbox.agent.skin.PidaiPaint
 import com.xjtu.toolbox.agent.skin.PidaiShape
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+import kotlin.test.Test
 import kotlin.math.abs
 
 class ImportedMotionEngineTest {
@@ -140,25 +140,7 @@ class ImportedMotionEngineTest {
         val mid = ImportedMotionEngine(motionOf(action)).actionLayers(action, 0.5).single()
         assertEquals(PidaiPaint.Solid(0xFF7F007FL), mid.fill)
     }
-
-    @Test
-    fun `v1 皮肤走屏幕轴压扁的旧姿态顺序`() {
-        val motion = com.xjtu.toolbox.agent.skin.PidaiSkinParser.parseFiles(
-            mapOf(
-                "manifest.json" to """{"format_version":1,"id":"legacy","name":"旧皮肤","version":"1","renderer":"radial-motion-v1"}""".toByteArray(),
-                "motion.json" to """
-                    {"skin_id":"legacy","shapes":{"ball":{"kind":"circle","radius":1.0}},
-                     "actions":[{"id":"idle","duration":1.0,"frames":[
-                       {"t":0,"shape":"ball","sx":2.0,"sy":1.0,"rot_deg":90},
-                       {"t":1.0,"shape":"ball","sx":2.0,"sy":1.0,"rot_deg":90}]}]}
-                """.trimIndent().toByteArray(),
-            )
-        ).motion
-        val draw = ImportedMotionEngine(motion).sample(0.0).layers.single()
-        val expected = SkinTransform.ofRadialV1(0.0, 0.0, 2.0, 1.0, Math.PI / 2).scaled(100.0)
-        assertEquals(expected.a, draw.transform.a, 1e-9)
-        assertEquals(expected.b, draw.transform.b, 1e-9)
-        assertEquals(expected.c, draw.transform.c, 1e-9)
-        assertEquals(expected.d, draw.transform.d, 1e-9)
-    }
+    // ⚠️ 「v1 皮肤走屏幕轴压扁的旧姿态顺序」一例（要 `PidaiSkinParser`，那是 :app 的）
+    // 已移到 :app 的 `agent/skin/PidaiSkinParserV1Test.kt`：引擎在本文件、解析器在那边，
+    // 夹在中间的测试只能放在其中一侧。
 }

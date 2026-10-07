@@ -213,8 +213,10 @@ private fun DrawScope.drawFrame(
     ink: Color,
     images: Map<String, ImageBitmap>,
 ) {
+    // 跨模块取不到 smart cast（BotFrame 现在住 :core）⇒ 先落成本地 val，后面都用它
+    val bodyPath = f.bodyPath
     // 导入皮肤：任意条自由图层，下标即 z 序，没有内置身体也没有眼洞。
-    if (f.bodyPath == null) {
+    if (bodyPath == null) {
         f.layers.forEach { drawSkinLayer(it, ink, images) }
         return
     }
@@ -255,9 +257,9 @@ private fun DrawScope.drawFrame(
 
     // 挖空身体轮廓：先把身后的粒子、彩带清掉，腾出一块干净区域，
     // 免得它们透过之后的 alpha 混合渗出到身体边缘。
-    drawPath(f.bodyPath, Color.Black, alpha = f.bodyAlpha.toFloat(), blendMode = BlendMode.Clear)
+    drawPath(bodyPath, Color.Black, alpha = f.bodyAlpha.toFloat(), blendMode = BlendMode.Clear)
 
-    clipPath(f.bodyPath) {
+    clipPath(bodyPath) {
         // 墨色身体：裁剪到轮廓，画满整个裁剪区即可
         drawRect(
             color = ink,

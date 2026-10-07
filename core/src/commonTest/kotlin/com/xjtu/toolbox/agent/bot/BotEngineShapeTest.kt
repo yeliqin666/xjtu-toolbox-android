@@ -1,10 +1,9 @@
 package com.xjtu.toolbox.agent.bot
 
-import org.junit.Assert.assertArrayEquals
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
+import kotlin.test.assertTrue
+import kotlin.test.Test
 import kotlin.math.abs
 
 /**
@@ -15,6 +14,16 @@ import kotlin.math.abs
  * 半径插值的事，正是这个函数在管，测它既准确又不依赖 Android 运行时。
  */
 class BotEngineShapeTest {
+
+    // kotlin.test 没有带容差的数组比较（`assertArrayEquals` 是 JUnit 的）——
+    // 补两个与 JUnit 同形的本地重载，下面的测试体因此一行都不用改。
+    private fun assertArrayEquals(expected: DoubleArray, actual: DoubleArray, tolerance: Double, message: String? = null) {
+        assertEquals(expected.size, actual.size, message)
+        for (i in expected.indices) assertEquals(expected[i], actual[i], tolerance, message)
+    }
+
+    private fun assertArrayEquals(message: String, expected: DoubleArray, actual: DoubleArray, tolerance: Double) =
+        assertArrayEquals(expected, actual, tolerance, message)
 
     private val triangle = botShapeById("triangle")!!.radii
     private val droplet = botShapeById("goutte")!!.radii
@@ -54,7 +63,7 @@ class BotEngineShapeTest {
             val hi = maxOf(circle[i], triangle[i])
             if (mid[i] > lo + 1e-9 && mid[i] < hi - 1e-9) between++
         }
-        assertTrue("中间帧应有大量分量落在两端之间，实得 $between", between > PROFILE_SAMPLES / 2)
+        assertTrue(between > PROFILE_SAMPLES / 2, "中间帧应有大量分量落在两端之间，实得 $between")
     }
 
     @Test
@@ -78,7 +87,7 @@ class BotEngineShapeTest {
         // 再回读形变中途：必须仍是插值，说明 shapePrev 没被清掉
         val mid = engine.shapeAtTime(1.0 + BotEngine.SHAPE_MORPH * 0.5)!!
         val isTriangle = mid.all { abs(it - triangle[0]) < 1e-9 }
-        assertTrue("回读应得到中间帧，不该直接是三角", !isTriangle)
+        assertTrue(!isTriangle, "回读应得到中间帧，不该直接是三角")
     }
 
     @Test
