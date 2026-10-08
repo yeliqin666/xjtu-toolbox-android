@@ -4,11 +4,11 @@ import com.xjtu.toolbox.game.net.OnlineMove
 import com.xjtu.toolbox.game.xiangqi.engine.Side
 import com.xjtu.toolbox.game.xiangqi.engine.XiangqiGame
 import com.xjtu.toolbox.game.xiangqi.rules.Piece
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+import kotlin.test.Test
 
 class XiangqiOnlineAdapterTest {
 

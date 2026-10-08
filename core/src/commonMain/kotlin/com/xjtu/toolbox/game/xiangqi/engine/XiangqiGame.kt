@@ -270,10 +270,13 @@ class XiangqiGame {
 
         /** 吃掉之后 [defender] 能不能合法吃回来。 */
         private fun isProtected(board: Board, capture: Move, defender: Side): Boolean {
+            // `Move` 的 from/to 在 Kotlin 版里是可空的（Java 版是裸字段）：这里两条都必填，
+            // 缺一个就当「没保护」——与 Java 版在这里 NPE 的语义不同，但那条路调用方走不到。
+            val dest = capture.toPosition ?: return false
+            val src = capture.fromPosition ?: return false
             val trial = Board(board)
-            trial.setPieceByPosition(capture.toPosition, board.getPieceByPosition(capture.fromPosition))
-            trial.setPieceByPosition(capture.fromPosition, Piece.EMPTY)
-            val dest = capture.toPosition
+            trial.setPieceByPosition(dest, board.getPieceByPosition(src))
+            trial.setPieceByPosition(src, Piece.EMPTY)
             val redDef = defender == Side.RED
             for (y in 0 until Board.BOARD_PIECE_HEIGHT) for (x in 0 until Board.BOARD_PIECE_WIDTH) {
                 val p = trial.getPieceByPosition(x, y)

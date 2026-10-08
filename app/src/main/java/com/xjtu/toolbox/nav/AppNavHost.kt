@@ -365,7 +365,7 @@ fun AppNavHost(
             GoScreen(onBack = back, onlineLobby = rememberAppOnlineLobby())
         }
         entry<AppRoute.GameXiangqi>(transition = expand(AppRoute.GameXiangqi::class), swipeDismiss = NavSwipeDirection.None) {
-            XiangqiScreen(onBack = back)
+            XiangqiScreen(onBack = back, onlineLobby = rememberAppOnlineLobby())
         }
         entry<AppRoute.Match>(transition = expand(AppRoute.Match::class)) {
             MatchScreen(onBack = back)

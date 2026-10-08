@@ -19,9 +19,9 @@ object AccountContext {
     // 原来这里是 `@Volatile @JvmField`。`@JvmField` 属于 `kotlin.jvm`——它在 JVM 上是**默认
     // 导入**，所以文件里根本没有 import 行，任何基于 import 的启发式都看不见它，只有把
     // commonMain 真的编一遍才会红（这就是 CI 门禁的价值）。
-    // 仓库里没有任何 Java 代码引用这两个字段（Java 只出现在 game/xiangqi/rules），也没有
-    // 反射/Gson 碰它们，所以 `@JvmField` 直接去掉；`@Volatile` 换成 kotlin.concurrent.Volatile，
-    // 跨线程可见性的语义不变。
+    // 仓库里现在**一行 Java 都没有**了：最后那批（`game/xiangqi/rules/*.java`）已翻成 Kotlin
+    // 搬进 :core 的 commonMain；也没有反射/Gson 碰这两个字段，所以 `@JvmField` 直接去掉；
+    // `@Volatile` 换成 kotlin.concurrent.Volatile，跨线程可见性的语义不变。
     @Volatile
     var activeAccountId: String? = null
 

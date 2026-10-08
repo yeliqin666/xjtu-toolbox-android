@@ -47,7 +47,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -64,12 +63,11 @@ import com.xjtu.toolbox.game.GameResult
 import com.xjtu.toolbox.game.GameSound
 import com.xjtu.toolbox.game.Sfx
 import com.xjtu.toolbox.game.GameStore
-import com.xjtu.toolbox.game.net.BleOnlineLobbyHost
 import com.xjtu.toolbox.game.net.GameKind
 import com.xjtu.toolbox.game.net.OnlineConnState
 import com.xjtu.toolbox.game.net.OnlineGameEvent
 import com.xjtu.toolbox.game.net.OnlineGameSession
-import com.xjtu.toolbox.game.net.OnlineLobbyContent
+import com.xjtu.toolbox.game.net.OnlineLobby
 import com.xjtu.toolbox.game.net.OnlineLobbyState
 import com.xjtu.toolbox.game.net.rememberOnlineLobbyState
 import com.xjtu.toolbox.game.net.OnlineMove
@@ -80,8 +78,8 @@ import com.xjtu.toolbox.game.xiangqi.engine.XiangqiStatus
 import com.xjtu.toolbox.game.xiangqi.rules.Board
 import com.xjtu.toolbox.game.xiangqi.rules.Piece
 import com.xjtu.toolbox.game.xiangqi.rules.Position
-import com.xjtu.toolbox.ui.WindowSize
-import com.xjtu.toolbox.ui.currentWindowSize
+import com.xjtu.toolbox.ui.isWideLayout
+import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Scaffold
@@ -98,9 +96,18 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  */
 private fun pieceText(piece: Int): String = Piece.getNameByValue(piece).toString()
 
+/**
+ * 象棋。与 :app 同一份屏与引擎（:core/game/xiangqi），联机那一格切成平台缝：
+ *
+ * - `onlineLobby` 由平台注入（Android = 蓝牙大厅），Web 传 null ⇒ 模式切换里**没有**
+ *   「联机对战」这一格（浏览器没有 BLE，不做假大厅）。
+ * - 引擎（`engine/XiangqiGame`）与规则（`rules/` 下的几个类）本来就是纯逻辑，原样搬进 commonMain。
+ *   规则里那 6 个 `.java` 翻成了 Kotlin（Java 编不了 commonMain），行为由原来那 3 个
+ *   单测钉住 —— 它们也一起搬到了 :core:jvmTest。
+ */
+
 @Composable
-fun XiangqiScreen(onBack: () -> Unit) {
-    val context = LocalContext.current
+fun XiangqiScreen(onBack: () -> Unit, onlineLobby: OnlineLobby? = null) {
     val game = remember { XiangqiGame() }
 
     // 棋盘是可变对象，Compose 看不见它内部的变化。用一个自增的 version 当重组触发器，
@@ -115,10 +122,11 @@ fun XiangqiScreen(onBack: () -> Unit) {
 
     // 联机对局和大厅挂在整页上：切到同屏双人再切回来，连接和棋局都还在。
     val match = remember { XiangqiOnlineMatch() }
-    val lobby = rememberOnlineLobbyState(scope, remember(context) { BleOnlineLobbyHost(context) })
+    // Web 端没有 BLE，onlineLobby 传 null ⇒ 模式切换里没有「联机对战」这一格。
+    val lobby = onlineLobby?.let { rememberOnlineLobbyState(scope, it.host) }
     DisposableEffect(match) { onDispose { match.session?.close() } }
     // 收对方着法也放在整页：人在别的 tab 时对方走子不能丢（events 没有重放）。
-    LaunchedEffect(match.session) { match.session?.let { match.collect(context, it) } }
+    LaunchedEffect(match.session) { match.session?.let { match.collect(it) } }
 
     val snapshot = remember(version) { game.snapshot() }
     val status = snapshot.status
@@ -148,7 +156,7 @@ fun XiangqiScreen(onBack: () -> Unit) {
         bump()
     }
 
-    val wide = currentWindowSize() != WindowSize.Compact
+    val wide = isWideLayout()
 
     Scaffold(
         topBar = {
@@ -162,15 +170,20 @@ fun XiangqiScreen(onBack: () -> Unit) {
         },
     ) { padding ->
       Column(Modifier.fillMaxSize().padding(padding)) {
-        AppSegmentedTabs(
-            tabs = listOf("同屏双人", "联机对战"),
-            selectedTabIndex = if (online) 1 else 0,
-            onTabSelected = { online = it == 1 },
-        )
+        // 联机这一格只有在平台提供联机入口时才出现（Web 没有 BLE ⇒ 只剩同屏双人，
+        // 单一模式不必占一条切换栏）。
+        if (onlineLobby != null) {
+            AppSegmentedTabs(
+                tabs = listOf("同屏双人", "联机对战"),
+                selectedTabIndex = if (online) 1 else 0,
+                onTabSelected = { online = it == 1 },
+            )
+        }
         if (online) {
             XiangqiOnlineSection(
                 match = match,
-                lobby = lobby,
+                lobby = lobby!!,
+                ui = onlineLobby,
                 scope = scope,
                 modifier = Modifier.fillMaxSize(),
             )
@@ -387,8 +400,9 @@ private fun XiangqiBoard(
                         val cell = minOf(size.width / 9f, size.height / 10f)
                         val originX = (size.width - cell * 8f) / 2f
                         val originY = (size.height - cell * 9f) / 2f
-                        val x = Math.round((offset.x - originX) / cell)
-                        val y = Math.round((offset.y - originY) / cell)
+                        // `Math.round` 是 JVM 专属（默认导入、grep import 抓不到）⇒ 换 kotlin.math
+                        val x = ((offset.x - originX) / cell).roundToInt()
+                        val y = ((offset.y - originY) / cell).roundToInt()
                         if (x in 0..8 && y in 0..9) onTap(Position(x, y))
                     }
                 }
@@ -563,7 +577,7 @@ private class XiangqiOnlineMatch {
 
     val peerSide: Side get() = if (mySide == Side.RED) Side.BLACK else Side.RED
 
-    fun recordIfFinished(context: android.content.Context) {
+    fun recordIfFinished() {
         val status = game.status()
         if (status !is XiangqiStatus.Over || recorded) return
         recorded = true
@@ -576,7 +590,7 @@ private class XiangqiOnlineMatch {
         GameStore.recordResult(GameIds.XIANGQI, "online", result)
     }
 
-    suspend fun collect(context: android.content.Context, s: OnlineGameSession): Unit = kotlinx.coroutines.coroutineScope {
+    suspend fun collect(s: OnlineGameSession): Unit = kotlinx.coroutines.coroutineScope {
         launch {
             s.state.collect { st ->
                 if (st is OnlineConnState.Disconnected) disconnectedReason = st.reason
@@ -605,7 +619,7 @@ private class XiangqiOnlineMatch {
                 }
                 else -> Unit
             }
-            recordIfFinished(context)
+            recordIfFinished()
         }
     }
 }
@@ -619,14 +633,14 @@ private class XiangqiOnlineMatch {
 private fun XiangqiOnlineSection(
     match: XiangqiOnlineMatch,
     lobby: OnlineLobbyState,
+    /** 平台提供的联机入口 UI（:app = 蓝牙大厅；Web 不会走到这里）。 */
+    ui: OnlineLobby,
     scope: kotlinx.coroutines.CoroutineScope,
     modifier: Modifier = Modifier,
 ) {
-    val context = LocalContext.current
-
     val activeSession = match.session
     if (activeSession == null) {
-        OnlineLobbyContent(
+        ui.Content(
             state = lobby,
             kind = GameKind.XIANGQI,
             ruleParam = null,
@@ -685,7 +699,7 @@ private fun XiangqiOnlineSection(
                     scope.launch { activeSession.answerDraw(true) }
                     game.agreeDraw()
                     match.version += 1
-                    match.recordIfFinished(context)
+                    match.recordIfFinished()
                 })
             }
         }
@@ -707,7 +721,7 @@ private fun XiangqiOnlineSection(
                         if (match.adapter.applyIfLegal(game, move, mySide.ordinal)) {
                             GameSound.play(Sfx.KNOCK, 0.8f)
                             match.version += 1
-                            match.recordIfFinished(context)
+                            match.recordIfFinished()
                             scope.launch { activeSession.sendLocalMove(match.adapter.encodeMove(move)) }
                         }
                     }
@@ -724,7 +738,7 @@ private fun XiangqiOnlineSection(
                         scope.launch { activeSession.resign() }
                         game.resign(mySide)
                         match.version += 1
-                        match.recordIfFinished(context)
+                        match.recordIfFinished()
                     },
                 ),
             )

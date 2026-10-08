@@ -5,10 +5,10 @@ import com.xjtu.toolbox.game.xiangqi.rules.Move
 import com.xjtu.toolbox.game.xiangqi.rules.Piece
 import com.xjtu.toolbox.game.xiangqi.rules.Position
 import com.xjtu.toolbox.game.xiangqi.rules.Rule
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+import kotlin.test.Test
 
 /**
  * 规则引擎的走法生成与终局判定。
@@ -162,8 +162,8 @@ class XiangqiRuleTest {
             Triple(4, 4, Piece.WBING),
         )
         val move = Move(Position(4, 4), Position(3, 4))
-        assertTrue("平兵本身符合过河兵的走法", Rule.isValidMove(move, b))
-        assertFalse("但走完两王对脸，不合法", Rule.isLegalMove(Piece.WSHUAI, move, b))
+        assertTrue(Rule.isValidMove(move, b), "平兵本身符合过河兵的走法")
+        assertFalse(Rule.isLegalMove(Piece.WSHUAI, move, b), "但走完两王对脸，不合法")
     }
 
     // ── 送将 ──
@@ -198,7 +198,7 @@ class XiangqiRuleTest {
     @Test
     fun `无子可动且未被将军是困毙`() {
         val b = stalemateBoard()
-        assertFalse("困毙的前提是没被将军", Rule.isInCheck(Piece.BJIANG, b))
+        assertFalse(Rule.isInCheck(Piece.BJIANG, b), "困毙的前提是没被将军")
         assertFalse(Rule.hasAnyLegalMove(Piece.BJIANG, b))
         assertTrue(Rule.isStalemate(Piece.BJIANG, b))
         assertFalse(Rule.isCheckmate(Piece.BJIANG, b))

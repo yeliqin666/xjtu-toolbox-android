@@ -45,6 +45,7 @@ import com.xjtu.toolbox.game.go.GoScreen
 import com.xjtu.toolbox.game.hop.HopScreen
 import com.xjtu.toolbox.game.blocks.BlocksScreen
 import com.xjtu.toolbox.game.g2048.Gpa2048Screen
+import com.xjtu.toolbox.game.xiangqi.XiangqiScreen
 import com.xjtu.toolbox.legal.EulaScreen
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.notification.NotificationScreen
@@ -184,6 +185,10 @@ private fun AppPage(route: AppRoute, client: HttpClient, session: WebGithubSessi
         AppRoute.GameGomoku -> GomokuScreen(onBack = back)
         // 围棋：与 Android 同一个屏（:core/game/go）。同样没有联机那一格（无 BLE）。
         AppRoute.GameGo -> GoScreen(onBack = back)
+        // 象棋：与 Android 同一个屏与引擎（:core/game/xiangqi）。规则引擎原来那 6 个
+        // `.java` 翻成了 Kotlin（Java 编不了 commonMain），行为由原来那 3 个单测钉住。
+        // 同样没有联机那一格（浏览器没有 BLE ⇒ onlineLobby 传 null）。
+        AppRoute.GameXiangqi -> XiangqiScreen(onBack = back)
         // 跳一跳：与 Android 同一个屏（:core/game/hop）。9 张地标图按端注入：Android 用
         // R.drawable、Web 用 :web 的 composeResources（同一份 webp 字节，见 WebHopLandmarks.kt）。
         AppRoute.GameHop -> HopScreen(
