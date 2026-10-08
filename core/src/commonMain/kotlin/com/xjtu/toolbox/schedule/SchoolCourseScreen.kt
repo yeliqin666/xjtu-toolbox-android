@@ -19,8 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import com.xjtu.toolbox.auth.LocalAppLoginState
-import com.xjtu.toolbox.auth.handleAuthExpired
+import com.xjtu.toolbox.auth.LocalAuthExpiry
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,7 +30,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.ui.glass.*
 import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.ErrorState
@@ -50,17 +48,14 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SchoolCourseScreen(
-    site: SiteSession?,
+    source: SchoolCourseSource,
     onBack: () -> Unit
 ) {
-    val appLoginState = LocalAppLoginState.current
-    if (site == null) {
-        LaunchedEffect(Unit) { onBack() }
-        return
-    }
+    val authExpiry = LocalAuthExpiry.current
 
-    val vm: SchoolCourseViewModel = viewModel(key = "school-course-${System.identityHashCode(site)}") { SchoolCourseViewModel(site) }
-    LaunchedEffect(vm) { vm.authExpired.collect { appLoginState.handleAuthExpired(AppRoute.SchoolCourse, onBack) } }
+    val vm: SchoolCourseViewModel = viewModel { SchoolCourseViewModel(source) }
+    LaunchedEffect(vm) { vm.authExpired.collect { authExpiry.onAuthExpired(AppRoute.SchoolCourse, onBack) } }
+
 
     // 搜索条件
     var selectedTermCode by rememberSaveable { mutableStateOf("") }
@@ -246,26 +241,29 @@ fun SchoolCourseScreen(
 
                                 Spacer(Modifier.height(12.dp))
 
-                                // 开课单位
-                                val deptEntries = buildList {
-                                    add(DropdownItem(title = "不限"))
-                                    vm.departmentList.forEach { add(DropdownItem(title = it.name)) }
-                                }
-                                val deptIdx = if (selectedDeptCode.isBlank()) 0
-                                    else (vm.departmentList.indexOfFirst { it.code == selectedDeptCode } + 1).coerceAtLeast(0)
-                                Card(Modifier.fillMaxWidth(), cornerRadius = 12.dp) {
-                                    OverlaySpinnerPreference(
-                                        items = deptEntries,
-                                        selectedIndex = deptIdx,
-                                        title = "开课单位",
-                                        onSelectedIndexChange = { idx ->
-                                            selectedDeptCode = if (idx == 0) "" else vm.departmentList.getOrNull(idx - 1)?.code ?: ""
-                                        },
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
+                                // 开课单位。**这一端筛不了就整块不出现**（campus-api 不给那张 id 表，
+                                // 见 SchoolCourseSource 的能力开关）——比「出现了却筛不动」诚实。
+                                if (source.supportsDepartmentFilter) {
+                                    val deptEntries = buildList {
+                                        add(DropdownItem(title = "不限"))
+                                        vm.departmentList.forEach { add(DropdownItem(title = it.name)) }
+                                    }
+                                    val deptIdx = if (selectedDeptCode.isBlank()) 0
+                                        else (vm.departmentList.indexOfFirst { it.code == selectedDeptCode } + 1).coerceAtLeast(0)
+                                    Card(Modifier.fillMaxWidth(), cornerRadius = 12.dp) {
+                                        OverlaySpinnerPreference(
+                                            items = deptEntries,
+                                            selectedIndex = deptIdx,
+                                            title = "开课单位",
+                                            onSelectedIndexChange = { idx ->
+                                                selectedDeptCode = if (idx == 0) "" else vm.departmentList.getOrNull(idx - 1)?.code ?: ""
+                                            },
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
                                 }
 
-                                Spacer(Modifier.height(12.dp))
+                                if (source.supportsDepartmentFilter) Spacer(Modifier.height(12.dp))
 
                                 // 校区筛选
                                 Text("校区", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium)
@@ -347,7 +345,9 @@ fun SchoolCourseScreen(
 
                                 Spacer(Modifier.height(12.dp))
 
-                                // 校公选课筛选
+                                // 校公选课筛选。**这一端筛不了就整块不出现**
+                                // （campus-api 不放行这两个条件，见 SchoolCourseSource 的能力开关）
+                                if (source.supportsElectiveFilter) {
                                 Text("课程类型", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium)
                                 Spacer(Modifier.height(6.dp))
                                 FlowRow(
@@ -401,6 +401,7 @@ fun SchoolCourseScreen(
                                             }
                                         }
                                     }
+                                }
                                 }
                             }
                         }
@@ -644,36 +645,40 @@ private fun CourseCard(course: SchoolCourse, onClick: () -> Unit) {
                     }
                 }
 
-                // 选课人数 / 容量
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    val fillColor = when {
-                        course.fillRatio >= 0.95f -> Color(0xFFD32F2F)
-                        course.fillRatio >= 0.8f -> Color(0xFFE65100)
-                        course.fillRatio >= 0.5f -> Color(0xFFF9A825)
-                        else -> Color(0xFF2E7D32)
-                    }
-                    Text(
-                        "${course.enrollCount}/${course.capacity}",
-                        style = MiuixTheme.textStyles.footnote1,
-                        fontWeight = FontWeight.Medium,
-                        color = fillColor
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    // 容量条
-                    Box(
-                        Modifier
-                            .width(40.dp)
-                            .height(4.dp)
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(MiuixTheme.colorScheme.surfaceVariant)
-                    ) {
+                // 选课人数 / 容量。**这一端不知道就不画**：campus-api 对人数类字段
+                // 刻意不投影（语义未证实），拿 0/0 冒充比不显示更糟。
+                val fillRatio = course.fillRatio
+                if (fillRatio != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        val fillColor = when {
+                            fillRatio >= 0.95f -> Color(0xFFD32F2F)
+                            fillRatio >= 0.8f -> Color(0xFFE65100)
+                            fillRatio >= 0.5f -> Color(0xFFF9A825)
+                            else -> Color(0xFF2E7D32)
+                        }
+                        Text(
+                            "${course.enrollCount}/${course.capacity}",
+                            style = MiuixTheme.textStyles.footnote1,
+                            fontWeight = FontWeight.Medium,
+                            color = fillColor
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        // 容量条
                         Box(
                             Modifier
-                                .fillMaxHeight()
-                                .fillMaxWidth(course.fillRatio)
+                                .width(40.dp)
+                                .height(4.dp)
                                 .clip(RoundedCornerShape(2.dp))
-                                .background(fillColor)
-                        )
+                                .background(MiuixTheme.colorScheme.surfaceVariant)
+                        ) {
+                            Box(
+                                Modifier
+                                    .fillMaxHeight()
+                                    .fillMaxWidth(fillRatio)
+                                    .clip(RoundedCornerShape(2.dp))
+                                    .background(fillColor)
+                            )
+                        }
                     }
                 }
             }
@@ -827,17 +832,20 @@ private fun CourseDetailSheet(
                     Spacer(Modifier.height(14.dp))
                     Row(Modifier.fillMaxWidth()) {
                         HeadlineStat("学分", "${course.credit}", Modifier.weight(1f))
-                        HeadlineStat("总学时", "${course.totalHours.toInt()}", Modifier.weight(1f))
-                        HeadlineStat(
-                            "剩余名额",
-                            "${course.remaining}",
-                            Modifier.weight(1f),
-                            valueColor = when {
-                                course.remaining <= 0 -> Color(0xFFD32F2F)
-                                course.remaining <= 5 -> Color(0xFFE65100)
-                                else -> null
-                            },
-                        )
+                        course.totalHours?.let { HeadlineStat("总学时", "${it.toInt()}", Modifier.weight(1f)) }
+                        // 容量/人数这一端不知道就不显示这一栏（campus-api 不投影人数类字段）
+                        course.remaining?.let { remaining ->
+                            HeadlineStat(
+                                "剩余名额",
+                                "$remaining",
+                                Modifier.weight(1f),
+                                valueColor = when {
+                                    remaining <= 0 -> Color(0xFFD32F2F)
+                                    remaining <= 5 -> Color(0xFFE65100)
+                                    else -> null
+                                },
+                            )
+                        }
                     }
                     Spacer(Modifier.height(14.dp))
                     CapacityBar(course)
@@ -848,10 +856,10 @@ private fun CourseDetailSheet(
             DetailCard {
                 DetailRow("开课单位", course.department)
                 DetailRow("教师", course.teacher.ifBlank { "未知" })
-                if (course.lectureHours > 0) DetailRow("授课学时", "${course.lectureHours.toInt()}")
-                if (course.labHours > 0) DetailRow("实验学时", "${course.labHours.toInt()}")
-                if (course.practiceHours > 0) DetailRow("实践学时", "${course.practiceHours.toInt()}")
-                if (course.weeklyHours > 0) DetailRow("周学时", "${course.weeklyHours}")
+                course.lectureHours?.takeIf { it > 0 }?.let { DetailRow("授课学时", "${it.toInt()}") }
+                course.labHours?.takeIf { it > 0 }?.let { DetailRow("实验学时", "${it.toInt()}") }
+                course.practiceHours?.takeIf { it > 0 }?.let { DetailRow("实践学时", "${it.toInt()}") }
+                course.weeklyHours?.takeIf { it > 0 }?.let { DetailRow("周学时", "$it") }
                 DetailRow("校区", course.campus.ifBlank { "未知" })
             }
 
@@ -880,11 +888,14 @@ private fun CourseDetailSheet(
                 }
             }
 
-            SmallTitle("选课情况")
-            DetailCard {
-                DetailRow("选课人数", "${course.enrollCount} / ${course.capacity}")
-                DetailRow("男生", "${course.maleEnrollCount} 人")
-                DetailRow("女生", "${course.femaleEnrollCount} 人")
+            // 「选课情况」整块依赖人数类字段；这一端不知道就整块不出现，不留空标题。
+            if (course.capacity != null && course.enrollCount != null) {
+                SmallTitle("选课情况")
+                DetailCard {
+                    DetailRow("选课人数", "${course.enrollCount} / ${course.capacity}")
+                    course.maleEnrollCount?.let { DetailRow("男生", "$it 人") }
+                    course.femaleEnrollCount?.let { DetailRow("女生", "$it 人") }
+                }
             }
 
             val hasExtra = course.isPublicElective ||
@@ -936,10 +947,12 @@ private fun HeadlineStat(
 
 @Composable
 private fun CapacityBar(course: SchoolCourse) {
+    // 这一端不知道容量就什么都不画（调用方已经在 null 时不进来，这里再兜一层）
+    val ratio = course.fillRatio ?: return
     val fillColor = when {
-        course.fillRatio >= 0.95f -> Color(0xFFD32F2F)
-        course.fillRatio >= 0.8f -> Color(0xFFE65100)
-        course.fillRatio >= 0.5f -> Color(0xFFF9A825)
+        ratio >= 0.95f -> Color(0xFFD32F2F)
+        ratio >= 0.8f -> Color(0xFFE65100)
+        ratio >= 0.5f -> Color(0xFFF9A825)
         else -> Color(0xFF2E7D32)
     }
     Column {
@@ -953,14 +966,14 @@ private fun CapacityBar(course: SchoolCourse) {
             Box(
                 Modifier
                     .fillMaxHeight()
-                    .fillMaxWidth(course.fillRatio.coerceIn(0f, 1f))
+                    .fillMaxWidth(ratio.coerceIn(0f, 1f))
                     .clip(RoundedCornerShape(3.dp))
                     .background(fillColor)
             )
         }
         Spacer(Modifier.height(6.dp))
         Text(
-            "已选 ${(course.fillRatio * 100).toInt()}%",
+            "已选 ${(ratio * 100).toInt()}%",
             style = MiuixTheme.textStyles.footnote2,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
         )

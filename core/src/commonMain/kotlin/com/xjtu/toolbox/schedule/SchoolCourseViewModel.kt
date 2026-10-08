@@ -1,6 +1,6 @@
 package com.xjtu.toolbox.schedule
 
-import android.util.Log
+import com.xjtu.toolbox.platform.Log
 import com.xjtu.toolbox.error.FriendlyError
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -8,38 +8,18 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.xjtu.toolbox.auth.AuthExpiredException
-import com.xjtu.toolbox.auth.SiteSession
+import com.xjtu.toolbox.error.SessionExpiredFailure
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
-/** 全校课程的查询条件；空串 / 0 / null 表示不限。 */
-internal data class SchoolCourseQuery(
-    val termCode: String,
-    val courseName: String = "",
-    val courseCode: String = "",
-    val teacher: String = "",
-    val departmentCode: String = "",
-    val className: String = "",
-    val campusCode: String = "",
-    val isPublicElective: Boolean? = null,
-    val electiveCategoryCode: String = "",
-    val weekday: Int = 0,
-    val startSection: Int = 0,
-    val endSection: Int = 0,
-)
-
-internal class SchoolCourseViewModel(site: SiteSession) : ViewModel() {
-    private val api = SchoolCourseApi(site)
-    val campusList = api.getCampusList()
-    val electiveCategories = api.getElectiveCategories()
+internal class SchoolCourseViewModel(private val source: SchoolCourseSource) : ViewModel() {
+    val campusList = SCHOOL_COURSE_CAMPUSES
+    val electiveCategories = SCHOOL_COURSE_ELECTIVE_CATEGORIES
     private val authExpiredChannel = Channel<Unit>(Channel.CONFLATED)
     val authExpired = authExpiredChannel.receiveAsFlow()
 
@@ -64,20 +44,24 @@ internal class SchoolCourseViewModel(site: SiteSession) : ViewModel() {
         viewModelScope.launch {
             try {
                 coroutineScope {
-                    val terms = async(Dispatchers.IO) { api.getTermList() }
-                    val departments = async(Dispatchers.IO) { api.getDepartments() }
-                    val current = async(Dispatchers.IO) { api.getCurrentTerm() }
+                    val terms = async { source.terms() }
+                    val departments = async { source.departments() }
+                    val current = async { source.currentTerm() }
                     termList = terms.await()
                     departmentList = departments.await()
                     currentTermCode = current.await()
                 }
             } catch (e: CancellationException) {
                 throw e
-            } catch (_: AuthExpiredException) {
-                authExpiredChannel.send(Unit)
             } catch (e: Exception) {
-                Log.e(TAG, "init failed", e)
-                initError = FriendlyError.of(e, "初始化")
+                // 会话失效的判据是 :core 的标记接口（:app 的 AuthExpiredException 实现了它）——
+                // `catch` 抓不了接口，所以先抓 Exception 再判。
+                if (e is SessionExpiredFailure) {
+                    authExpiredChannel.send(Unit)
+                } else {
+                    Log.e(TAG, "init failed", e)
+                    initError = FriendlyError.of(e, "初始化")
+                }
             } finally {
                 isInitializing = false
             }
@@ -93,31 +77,16 @@ internal class SchoolCourseViewModel(site: SiteSession) : ViewModel() {
         searchJob?.cancel()
         searchJob = viewModelScope.launch {
             try {
-                result = withContext(Dispatchers.IO) {
-                    api.queryCourses(
-                        termCode = query.termCode,
-                        courseName = query.courseName.ifBlank { null },
-                        courseCode = query.courseCode.ifBlank { null },
-                        teacher = query.teacher.ifBlank { null },
-                        departmentCode = query.departmentCode.ifBlank { null },
-                        className = query.className.ifBlank { null },
-                        campusCode = query.campusCode.ifBlank { null },
-                        isPublicElective = query.isPublicElective,
-                        electiveCategoryCode = query.electiveCategoryCode.ifBlank { null },
-                        weekday = query.weekday.takeIf { it > 0 },
-                        startSection = query.startSection.takeIf { it > 0 },
-                        endSection = query.endSection.takeIf { it > 0 },
-                        pageSize = 20,
-                        pageNumber = page,
-                    )
-                }
+                result = source.query(query, page = page, pageSize = 20)
             } catch (e: CancellationException) {
                 throw e
-            } catch (_: AuthExpiredException) {
-                authExpiredChannel.send(Unit)
             } catch (e: Exception) {
-                Log.e(TAG, "search failed", e)
-                searchError = FriendlyError.of(e, "查询")
+                if (e is SessionExpiredFailure) {
+                    authExpiredChannel.send(Unit)
+                } else {
+                    Log.e(TAG, "search failed", e)
+                    searchError = FriendlyError.of(e, "查询")
+                }
             } finally {
                 isSearching = false
             }

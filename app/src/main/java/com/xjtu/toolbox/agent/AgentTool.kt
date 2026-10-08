@@ -1008,8 +1008,13 @@ class AgentToolRegistry(
                     if (course.department.isNotBlank()) append(" · ${course.department}")
                     if (course.campus.isNotBlank()) append(" · ${course.campus}")
                     if (course.scheduleLocation.isNotBlank()) append("\n  ${course.scheduleLocation}")
-                    if (course.capacity > 0) {
-                        append("\n  已选${course.enrollCount}/${course.capacity}，剩余${course.remaining.coerceAtLeast(0)}")
+                    // 人数类字段现在是可空的（:core 的 SchoolCourse；campus-api 不投影它们）——
+                    // 这里本来就只在有值时输出，行为不变。
+                    val capacity = course.capacity
+                    val enrolled = course.enrollCount
+                    val remaining = course.remaining
+                    if (capacity != null && enrolled != null && remaining != null && capacity > 0) {
+                        append("\n  已选${enrolled}/${capacity}，剩余${remaining.coerceAtLeast(0)}")
                     }
                     append("\n")
                 }

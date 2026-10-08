@@ -51,6 +51,7 @@ import com.xjtu.toolbox.main.AppRouter
 import com.xjtu.toolbox.media.DownloadManagerScreen
 import com.xjtu.toolbox.notification.AppNoticeSource
 import com.xjtu.toolbox.notification.NotificationScreen
+import com.xjtu.toolbox.schedule.AppSchoolCourseSource
 import com.xjtu.toolbox.schedule.SchoolCourseScreen
 import com.xjtu.toolbox.score.ScoreReportScreen
 import com.xjtu.toolbox.score.appScoreReportCache
@@ -231,7 +232,18 @@ fun AppNavHost(
             }
         }
         entry<AppRoute.SchoolCourse>(transition = expand(AppRoute.SchoolCourse::class)) {
-            SchoolCourseScreen(site = loginState.sessionManager?.getSiteOrNull("jwxt"), onBack = back)
+            // 取数仍是原来的 SchoolCourseApi（AppSchoolCourseSource 只是把它包成 :core 的端口）；
+            // 上游给全字段 ⇒ 屏上的人数/学时那几块照旧都在（Web 端才缺）。
+            // 没会话就直接退回 —— 与搬迁前屏里 `site == null` 那一支逐字同义。
+            val jwxtSite = loginState.sessionManager?.getSiteOrNull("jwxt")
+            if (jwxtSite == null) {
+                LaunchedEffect(Unit) { back() }
+            } else {
+                SchoolCourseScreen(
+                    source = remember(jwxtSite) { AppSchoolCourseSource(jwxtSite) },
+                    onBack = back,
+                )
+            }
         }
         entry<AppRoute.SchoolCalendar>(transition = expand(AppRoute.SchoolCalendar::class)) {
             // 校历屏已搬进 :core；这里只注入取数实现与原图槽（见 calendar/SchoolCalendarImageSlot.kt）。

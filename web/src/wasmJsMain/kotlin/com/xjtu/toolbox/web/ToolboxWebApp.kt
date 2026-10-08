@@ -28,6 +28,7 @@ import com.xjtu.toolbox.community.CommunityScreen
 import com.xjtu.toolbox.community.GithubSession
 import com.xjtu.toolbox.calendar.SchoolCalendarScreen
 import com.xjtu.toolbox.core.net.CampusFitnessApi
+import com.xjtu.toolbox.core.net.CampusSchoolCourseApi
 import com.xjtu.toolbox.core.net.CampusFacultyApi
 import com.xjtu.toolbox.core.net.CampusNoticeApi
 import com.xjtu.toolbox.core.net.CampusGradesApi
@@ -47,6 +48,7 @@ import com.xjtu.toolbox.legal.EulaScreen
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.notification.NotificationScreen
 import com.xjtu.toolbox.nav.appRouteOf
+import com.xjtu.toolbox.schedule.SchoolCourseScreen
 import com.xjtu.toolbox.yellowpage.YellowPageScreen
 import io.ktor.client.HttpClient
 import top.yukonga.miuix.kmp.basic.NavigationBar
@@ -200,6 +202,13 @@ private fun AppPage(route: AppRoute, client: HttpClient, session: WebGithubSessi
             source = remember { CampusFacultyApi(client) },
             onBack = back,
             onOpenUrl = { openInNewTab(it) },
+        )
+        // 全校课表：与 Android 同一个屏与模型（:core/schedule）。campus-api 的投影**少一批字段**
+        // （人数/学时、YPSJDD、开课单位与公选筛选），逐条写在 CampusSchoolCourseApi 的 KDoc 里；
+        // 屏据能力开关把筛不了的那两档控件整个隐藏，人数/学时那几块不画 —— 不拿 0 冒充。
+        AppRoute.SchoolCourse -> SchoolCourseScreen(
+            source = remember { CampusSchoolCourseApi(client) },
+            onBack = back,
         )
         AppRoute.Community -> CommunityScreen(
             session = session,

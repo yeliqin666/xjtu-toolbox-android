@@ -25,72 +25,14 @@ private const val TAG = "SchoolCourseApi"
 private const val BASE_URL = "https://jwxt.xjtu.edu.cn"
 
 // ── 数据模型 ────────────────────────────────────────
-
-/** 学期选项 */
-data class TermOption(
-    val code: String,   // e.g. "2025-2026-2"
-    val name: String    // e.g. "2025-2026学年 第二学期"
-)
-
-/** 开课单位（院系）选项 */
-data class DepartmentOption(
-    val code: String,   // e.g. "13028000"
-    val name: String    // e.g. "物理学院"
-)
-
-/** 校区选项 */
-data class CampusOption(
-    val code: String,   // e.g. "1"
-    val name: String    // e.g. "兴庆校区"
-)
-
-/** 校公选课类别选项 */
-data class ElectiveCategoryOption(
-    val code: String,   // e.g. "06"
-    val name: String    // e.g. "基础通识类选修课"
-)
-
-/** 全校课程查询结果 */
-data class SchoolCourse(
-    val courseCode: String,          // KCH - 课程号
-    val courseName: String,          // KCM - 课程名
-    val sectionNumber: String,       // KXH - 课序号
-    val teacher: String,             // SKJS - 上课教师
-    val department: String,          // KKDWDM_DISPLAY - 开课单位
-    val credit: Double,              // XF - 学分
-    val totalHours: Double,          // XS - 总学时
-    val lectureHours: Double,        // SKXS - 授课学时
-    val labHours: Double,            // SYXS - 实验学时
-    val practiceHours: Double,       // SJXS - 实践学时
-    val enrollCount: Int,            // XKZRS - 选课人数
-    val capacity: Int,               // KRL - 课容量
-    val className: String,           // SKBJ - 上课班级
-    val scheduleLocation: String,    // YPSJDD - 已排时间地点
-    val campus: String,              // XXXQDM_DISPLAY - 校区
-    val isPublicElective: Boolean,   // SFXGXK - 是否校公选课
-    val electiveCategory: String,    // XGXKLBDM_DISPLAY - 校公选课类别
-    val weeklyHours: Double,         // KNZXS - 周学时
-    val maleEnrollCount: Int,        // NSXKRS - 男生选课人数
-    val femaleEnrollCount: Int,      // NVSXKRS - 女生选课人数
-    val teachingClassId: String,     // JXBID - 教学班ID
-    val termCode: String             // XNXQDM - 学年学期
-) {
-    /** 剩余容量 */
-    val remaining: Int get() = capacity - enrollCount
-
-    /** 容量比例 (0.0 ~ 1.0) */
-    val fillRatio: Float get() = if (capacity > 0) (enrollCount.toFloat() / capacity).coerceIn(0f, 1f) else 0f
-}
-
-/** 查询分页结果 */
-data class SchoolCourseResult(
-    val totalSize: Int,
-    val pageNumber: Int,
-    val pageSize: Int,
-    val courses: List<SchoolCourse>
-) {
-    val totalPages: Int get() = if (pageSize > 0) (totalSize + pageSize - 1) / pageSize else 0
-}
+//
+// 模型（TermOption / DepartmentOption / CampusOption / ElectiveCategoryOption / SchoolCourse /
+// SchoolCourseResult / SchoolCourseQuery）与取数端口 `SchoolCourseSource` 都搬到了 :core 的
+// `schedule/SchoolCourseModels.kt`（两端共用）。本文件只剩上游解析：`querySetting` 那个 JSON
+// 数组、`qxfbkccx.do` 的 POST、以及 `/jwapp/code/*` 的院系表。
+//
+// ⚠️ `SchoolCourse` 里人数/学时那几项现在是**可空**的（campus-api 不投影它们），
+// :app 的上游一直有值 ⇒ 这里照旧直接赋值，行为逐字不变。
 
 // ── API ─────────────────────────────────────────────
 
