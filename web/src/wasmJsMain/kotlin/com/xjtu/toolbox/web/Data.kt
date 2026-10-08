@@ -34,6 +34,15 @@ const val DIRECT_BASE: String = "http://127.0.0.1:3099"
 external fun browserSearch(): String
 
 /**
+ * 在新标签页打开一个外链。
+ *
+ * 用在那些「本端不解析、只能看原样页面」的出口：教师主页（详情页的「在浏览器中打开」）。
+ * `noopener` 是必要的 —— 不加的话新页面能通过 `window.opener` 反向操作本页。
+ */
+@JsFun("(url) => { window.open(url, '_blank', 'noopener'); }")
+external fun openInNewTab(url: String)
+
+/**
  * `?route=<id>` 的值（URL 解码过；没写或为空返回 null）。
  *
  * 解码用 `:core` 的 [decodeUrlComponentOrNull] —— 与 `AppRoute.id` 的**编码**同一套实现

@@ -28,11 +28,13 @@ import com.xjtu.toolbox.community.CommunityScreen
 import com.xjtu.toolbox.community.GithubSession
 import com.xjtu.toolbox.calendar.SchoolCalendarScreen
 import com.xjtu.toolbox.core.net.CampusFitnessApi
+import com.xjtu.toolbox.core.net.CampusFacultyApi
 import com.xjtu.toolbox.core.net.CampusNoticeApi
 import com.xjtu.toolbox.core.net.CampusGradesApi
 import com.xjtu.toolbox.core.net.CampusSchoolCalendarApi
 import com.xjtu.toolbox.core.net.CampusYellowPageApi
 import com.xjtu.toolbox.error.FriendlyError
+import com.xjtu.toolbox.faculty.FacultyScreen
 import com.xjtu.toolbox.fitness.FitnessScreen
 import com.xjtu.toolbox.score.ScoreReportScreen
 import com.xjtu.toolbox.game.GamesScreen
@@ -190,6 +192,14 @@ private fun AppPage(route: AppRoute, client: HttpClient, session: WebGithubSessi
             source = remember { CampusNoticeApi(client) },
             onBack = back,
             onNavigate = { onNavigate(WebTarget.App(it)) },
+        )
+        // 教师主页检索：与 Android 同一个屏与模型（:core/faculty），取数换成 campus-api 的
+        // `/api/info/faculty`（免登录、同一个上游 advancesearch.jsp）。三处刻意降级写在
+        // CampusFacultyApi 的 KDoc 里：筛选项表拿不到、主页不解析（改为新标签打开）、联系方式不取。
+        AppRoute.Faculty -> FacultyScreen(
+            source = remember { CampusFacultyApi(client) },
+            onBack = back,
+            onOpenUrl = { openInNewTab(it) },
         )
         AppRoute.Community -> CommunityScreen(
             session = session,

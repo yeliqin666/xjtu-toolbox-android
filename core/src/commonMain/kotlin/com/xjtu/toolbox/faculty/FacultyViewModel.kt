@@ -1,6 +1,6 @@
 package com.xjtu.toolbox.faculty
 
-import android.util.Log
+import com.xjtu.toolbox.platform.Log
 import com.xjtu.toolbox.error.FriendlyError
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -14,8 +14,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** 教师主页检索。跳去浏览器看主页再返回时本页还在栈里，条件、结果、打开的详情都原样保留。 */
-internal class FacultyViewModel : ViewModel() {
-    val api = FacultyApi()
+internal class FacultyViewModel(val source: FacultySource) : ViewModel() {
 
     var nameQuery by mutableStateOf(""); private set
     var college by mutableStateOf<FacultyOption?>(null); private set
@@ -52,7 +51,7 @@ internal class FacultyViewModel : ViewModel() {
 
     /** 筛选表只拉一次：页面 400 KB，学院 / 学科一年也变不了几次。失败要留日志。 */
     private fun loadFilters() = viewModelScope.launch {
-        runCatching { api.loadFilters() }
+        runCatching { source.filters() }
             .onSuccess { filters = it }
             .onFailure { Log.w(TAG, "筛选项加载失败", it) }
     }
@@ -73,7 +72,7 @@ internal class FacultyViewModel : ViewModel() {
             error = null
             page = 1
             try {
-                val result = api.search(query(), page = 1)
+                val result = source.search(query(), page = 1)
                 members = result.members
                 total = result.total
                 totalPage = result.totalPage
@@ -93,7 +92,7 @@ internal class FacultyViewModel : ViewModel() {
         loadingMore = true
         viewModelScope.launch {
             try {
-                val result = api.search(query(), page = page + 1)
+                val result = source.search(query(), page = page + 1)
                 val seen = members.mapTo(mutableSetOf()) { it.teacherId }
                 members = members + result.members.filter { seen.add(it.teacherId) }
                 page += 1

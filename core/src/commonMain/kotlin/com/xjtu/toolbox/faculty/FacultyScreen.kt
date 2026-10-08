@@ -88,10 +88,17 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
  */
 @Composable
 fun FacultyScreen(
+    source: FacultySource,
     onBack: () -> Unit,
     onOpenUrl: (String) -> Unit,
+    /**
+     * 头像槽位。[FacultyMember.picUrl] 是 `gr.xjtu.edu.cn` 上的相对路径，取图要平台本事：
+     * `:app` 传原来的 `FacultyAvatar`（BitmapFactory + LruCache），其余端用
+     * [InitialsFacultyAvatar]（首字圆，不给 CORS 的站点也至少不是空白）。
+     */
+    avatar: @Composable (FacultyMember, Int) -> Unit = { member, size -> InitialsFacultyAvatar(member, size) },
 ) {
-    val vm: FacultyViewModel = viewModel()
+    val vm: FacultyViewModel = viewModel { FacultyViewModel(source) }
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     val listState = rememberRetainedLazyListState("faculty_results")
     var picker by remember { mutableStateOf<PickerTarget?>(null) }
@@ -229,7 +236,7 @@ fun FacultyScreen(
                         )
                     }
                     items(members, key = { it.teacherId }) { member ->
-                        FacultyCard(member) { vm.detail = member }
+                        FacultyCard(member, avatar) { vm.detail = member }
                     }
                     if (vm.loadingMore) {
                         item { LoadingState("正在加载更多…") }
@@ -249,8 +256,9 @@ fun FacultyScreen(
                     androidx.compose.runtime.key(picked.teacherId) {
                         FacultyDetailPane(
                             member = picked,
-                            api = vm.api,
+                            source = vm.source,
                             onOpenUrl = onOpenUrl,
+                            avatar = avatar,
                             topPadding = padding.glassTop(glass),
                         )
                     }
@@ -274,8 +282,9 @@ fun FacultyScreen(
         // 宽屏详情在右栏，不弹窗
         FacultyDetailSheet(
             member = if (isWide) null else vm.detail,
-            api = vm.api,
+            source = vm.source,
             onOpenUrl = onOpenUrl,
+            avatar = avatar,
             onDismiss = { vm.detail = null },
         )
 
@@ -320,7 +329,7 @@ private enum class PickerTarget { COLLEGE, DISCIPLINE, PRO_RANK }
 // ==================== 列表条目 ====================
 
 @Composable
-private fun FacultyCard(member: FacultyMember, onClick: () -> Unit) {
+private fun FacultyCard(member: FacultyMember, avatar: @Composable (FacultyMember, Int) -> Unit, onClick: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         onClick = onClick,
@@ -332,7 +341,7 @@ private fun FacultyCard(member: FacultyMember, onClick: () -> Unit) {
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 11.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            FacultyAvatar(member, size = 52)
+            avatar(member, 52)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
@@ -383,8 +392,9 @@ private fun FacultyCard(member: FacultyMember, onClick: () -> Unit) {
 private fun FacultyDetailSheet(
     /** null 表示未选中任何教师；此时弹窗保持在组合树里但 show=false */
     member: FacultyMember?,
-    api: FacultyApi,
+    source: FacultySource,
     onOpenUrl: (String) -> Unit,
+    avatar: @Composable (FacultyMember, Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
     // 内容需要一个非空的 member 才能渲染。关闭动画期间 member 已经变 null，
@@ -396,7 +406,7 @@ private fun FacultyDetailSheet(
     var homepage by remember(shown.teacherId) { mutableStateOf<HomepageResult?>(null) }
     LaunchedEffect(member?.teacherId) {
         val target = member ?: return@LaunchedEffect
-        homepage = api.fetchHomepage(target)
+        homepage = source.homepage(target)
     }
 
     OverlayBottomSheet(
@@ -408,6 +418,7 @@ private fun FacultyDetailSheet(
             shown = shown,
             homepage = homepage,
             onOpenUrl = onOpenUrl,
+            avatar = avatar,
             modifier = Modifier
                 .fillMaxWidth()
                 .overScrollVertical()
@@ -424,13 +435,14 @@ private fun FacultyDetailSheet(
 @Composable
 private fun FacultyDetailPane(
     member: FacultyMember,
-    api: FacultyApi,
+    source: FacultySource,
     onOpenUrl: (String) -> Unit,
+    avatar: @Composable (FacultyMember, Int) -> Unit,
     topPadding: androidx.compose.ui.unit.Dp,
 ) {
     var homepage by remember(member.teacherId) { mutableStateOf<HomepageResult?>(null) }
     LaunchedEffect(member.teacherId) {
-        homepage = api.fetchHomepage(member)
+        homepage = source.homepage(member)
     }
     Column(
         Modifier
@@ -446,7 +458,7 @@ private fun FacultyDetailPane(
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(bottom = 12.dp),
         )
-        FacultyDetailBody(shown = member, homepage = homepage, onOpenUrl = onOpenUrl)
+        FacultyDetailBody(shown = member, homepage = homepage, onOpenUrl = onOpenUrl, avatar = avatar)
         Spacer(Modifier.height(24.dp))
     }
 }
@@ -457,6 +469,7 @@ private fun FacultyDetailBody(
     shown: FacultyMember,
     homepage: HomepageResult?,
     onOpenUrl: (String) -> Unit,
+    avatar: @Composable (FacultyMember, Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
         Column(modifier) {
@@ -469,7 +482,7 @@ private fun FacultyDetailBody(
                     Modifier.fillMaxWidth().padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    FacultyAvatar(shown, size = 64)
+                    avatar(shown, 64)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         val meta = buildList {

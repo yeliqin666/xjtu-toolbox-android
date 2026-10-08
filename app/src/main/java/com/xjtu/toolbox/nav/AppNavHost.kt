@@ -23,6 +23,8 @@ import com.xjtu.toolbox.data.CredentialStore
 import com.xjtu.toolbox.dzpz.TranscriptScreen
 import com.xjtu.toolbox.emptyroom.EmptyRoomScreen
 import com.xjtu.toolbox.error.FriendlyError
+import com.xjtu.toolbox.faculty.AppFacultySource
+import com.xjtu.toolbox.faculty.FacultyAvatar
 import com.xjtu.toolbox.faculty.FacultyScreen
 import com.xjtu.toolbox.feedback.FeedbackScreen
 import com.xjtu.toolbox.fitness.FitnessScreen
@@ -311,7 +313,14 @@ fun AppNavHost(
             FeedbackScreen(onBack = back)
         }
         entry<AppRoute.Faculty>(transition = expand(AppRoute.Faculty::class)) {
-            FacultyScreen(onBack = back, onOpenUrl = { url -> router.open(AppRoute.Browser(url)) })
+            // 取数仍是原来的 FacultyApi（AppFacultySource 只是把它包成 :core 的端口）；
+            // 头像仍是原来的 FacultyAvatar（BitmapFactory + LruCache），行为逐字不变。
+            FacultyScreen(
+                source = remember { AppFacultySource() },
+                onBack = back,
+                onOpenUrl = { url -> router.open(AppRoute.Browser(url)) },
+                avatar = { member, size -> FacultyAvatar(member, size) },
+            )
         }
 
         entry<AppRoute.Games>(transition = expand(AppRoute.Games::class)) {
