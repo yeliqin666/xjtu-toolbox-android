@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import com.xjtu.toolbox.community.CommunityScreen
 import com.xjtu.toolbox.community.GithubSession
 import com.xjtu.toolbox.calendar.SchoolCalendarScreen
+import com.xjtu.toolbox.core.net.CampusInboxApi
 import com.xjtu.toolbox.core.net.CampusFitnessApi
 import com.xjtu.toolbox.core.net.CampusSchoolCourseApi
 import com.xjtu.toolbox.core.net.CampusFacultyApi
@@ -48,6 +49,7 @@ import com.xjtu.toolbox.legal.EulaScreen
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.notification.NotificationScreen
 import com.xjtu.toolbox.nav.appRouteOf
+import com.xjtu.toolbox.inbox.InboxScreen
 import com.xjtu.toolbox.schedule.SchoolCourseScreen
 import com.xjtu.toolbox.yellowpage.YellowPageScreen
 import io.ktor.client.HttpClient
@@ -214,6 +216,20 @@ private fun AppPage(route: AppRoute, client: HttpClient, session: WebGithubSessi
         // **只读** —— campus-api 永不实现提交/撤销评教，所以屏上不出现「一键全部好评」
         // 与撤回按钮（JudgeSource.canSubmit=false）；能看「哪些课还没评」。
         AppRoute.Judge -> WebJudgeScreen(onBack = back)
+        // 消息收纳：与 Android 同一个屏与 store/rules（:core/inbox），取数换成 campus-api 的
+        // `/api/inbox`（同样四路）。点击行为：外链（`browser?url=`）新标签打开 —— 与 :app 的
+        // 内置浏览器同义；其余按 AppRoute 走站内导航。
+        AppRoute.Inbox -> InboxScreen(
+            source = remember { CampusInboxApi(client) },
+            onBack = back,
+            onOpen = { id ->
+                when (val r = appRouteOf(id)) {
+                    is AppRoute.Browser -> openInNewTab(r.url)
+                    null -> Unit
+                    else -> onNavigate(WebTarget.App(r))
+                }
+            },
+        )
         AppRoute.Community -> CommunityScreen(
             session = session,
             // Web 端只有「粘贴 token」这一条登录路（设备码流程在浏览器里拿不到 device code）；

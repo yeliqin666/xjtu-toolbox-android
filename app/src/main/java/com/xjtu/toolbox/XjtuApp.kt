@@ -65,7 +65,8 @@ class XjtuApp : Application() {
         CrashReporter.install(this)
         // CourseColors 不再需要 init：它已搬进 :core 的 commonMain，存储走 keyValueStore
         // （Android actual 仍是同一份 SharedPreferences 文件）。
-        com.xjtu.toolbox.inbox.InboxStore.init(this)
+        // InboxStore 也不再需要 init：它已搬进 :core 的 commonMain，存储走 keyValueStore
+        // （Android actual 仍是同一份 SharedPreferences 文件、同一个 "data" 键）。
         com.xjtu.toolbox.auth.CampusProbe.init(this)
         applicationScope.launch { CrashReporter.uploadPending(this@XjtuApp) }
         applicationScope.launch { removeRetiredFeatureData() }

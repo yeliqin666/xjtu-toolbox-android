@@ -1,13 +1,19 @@
 package com.xjtu.toolbox.inbox
 
-import android.content.Context
+import com.xjtu.toolbox.platform.keyValueStore
+import com.xjtu.toolbox.platform.synchronizedBlock
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.util.AppJson
 import kotlinx.serialization.Serializable
-import java.time.Instant
+import kotlin.time.Clock
+import kotlin.time.Instant
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.atStartOfDayIn
+import kotlinx.datetime.toLocalDateTime
+import com.xjtu.toolbox.util.todayInSystemZone
 
 /**
  * 收纳里的一条。待办和消息共用：待办以学校或别处的状态为准，办完挪进「已完成」；消息按已读和保留期管理。
@@ -196,37 +202,41 @@ object InboxRules {
  * 写入方在后台线程，界面读 [version] 订阅变化。
  */
 object InboxStore {
-    private lateinit var app: Context
     private var cached: Pair<String, InboxData>? = null
 
     var version by mutableIntStateOf(0)
         private set
 
-    fun init(context: Context) {
-        app = context.applicationContext
-    }
+    /**
+     * 持久化：`keyValueStore("inbox<账号后缀>")`。
+     *
+     * Android 上就是原来那个 `getSharedPreferences("inbox" + suffix)` 文件、同一个 `"data"` 键
+     * （见 :core 的 `platform/KeyValueStore.android.kt`）⇒ **老数据无缝沿用**，不需要迁移代码。
+     * Web 上是 localStorage 里的同名空间。
+     */
+    private fun prefs(account: String?) = keyValueStore("inbox${AccountContext.suffixFor(account)}")
 
-    private fun prefs(account: String?) =
-        app.getSharedPreferences("inbox${AccountContext.suffixFor(account)}", Context.MODE_PRIVATE)
+    // `@Synchronized` 是 JVM 专属（默认导入，import 判据抓不到）⇒ 换成 :core 的平台缝：
+    // Android/JVM 仍是 `synchronized`（逐字同义），Web 直跑（单线程）。
+    private val lock = Any()
 
-    @Synchronized
-    fun load(account: String? = AccountContext.activeAccountId): InboxData {
-        if (!::app.isInitialized) return InboxData()
+    fun load(account: String? = AccountContext.activeAccountId): InboxData =
+        synchronizedBlock(lock) { loadLocked(account) }
+
+    private fun loadLocked(account: String?): InboxData {
         val key = AccountContext.suffixFor(account)
         cached?.let { (k, d) -> if (k == key) return d }
-        val data = prefs(account).getString("data", null)
+        val data = prefs(account).getString("data")
             ?.let { runCatching { AppJson.decodeFromString<InboxData>(it) }.getOrNull() }
-            ?.let { InboxRules.migrate(it, System.currentTimeMillis()) }
+            ?.let { InboxRules.migrate(it, Clock.System.now().toEpochMilliseconds()) }
             ?: InboxData()
         cached = key to data
         return data
     }
 
-    @Synchronized
-    private fun update(account: String?, block: (InboxData) -> InboxData) {
-        if (!::app.isInitialized) return
+    private fun update(account: String?, block: (InboxData) -> InboxData) = synchronizedBlock(lock) {
         val next = block(load(account))
-        prefs(account).edit().putString("data", AppJson.encodeToString(next)).apply()
+        prefs(account).putString("data", AppJson.encodeToString(next))
         cached = AccountContext.suffixFor(account) to next
         version++
     }
@@ -239,7 +249,7 @@ object InboxStore {
 
     fun post(items: List<InboxItem>, account: String? = AccountContext.activeAccountId) {
         if (items.isEmpty()) return
-        update(account) { InboxRules.merge(it, items, System.currentTimeMillis()) }
+        update(account) { InboxRules.merge(it, items, Clock.System.now().toEpochMilliseconds()) }
     }
 
     fun post(item: InboxItem, account: String? = AccountContext.activeAccountId) = post(listOf(item), account)
@@ -249,16 +259,16 @@ object InboxStore {
         val keep = items.mapTo(HashSet()) { it.id }
         update(account) { d ->
             val pruned = d.copy(messages = d.messages.filter { it.category != category || it.id in keep })
-            InboxRules.merge(pruned, items, System.currentTimeMillis())
+            InboxRules.merge(pruned, items, Clock.System.now().toEpochMilliseconds())
         }
     }
 
     fun setTodos(category: String, items: List<InboxItem>, account: String? = AccountContext.activeAccountId) =
-        update(account) { InboxRules.replaceTodos(it, category, items, System.currentTimeMillis()) }
+        update(account) { InboxRules.replaceTodos(it, category, items, Clock.System.now().toEpochMilliseconds()) }
 
     fun markRead(ids: Collection<String>) {
         if (ids.isEmpty()) return
-        val now = System.currentTimeMillis()
+        val now = Clock.System.now().toEpochMilliseconds()
         update(AccountContext.activeAccountId) { d -> d.copy(readAt = ids.filter { it !in d.readAt }.associateWith { now } + d.readAt) }
     }
 
@@ -270,7 +280,7 @@ object InboxStore {
         if (ids.any { it !in d.seenTodos }) update(AccountContext.activeAccountId) { it.copy(seenTodos = it.seenTodos + ids) }
     }
 
-    fun ignoreTodo(id: String) = update(AccountContext.activeAccountId) { InboxRules.ignore(it, id, System.currentTimeMillis()) }
+    fun ignoreTodo(id: String) = update(AccountContext.activeAccountId) { InboxRules.ignore(it, id, Clock.System.now().toEpochMilliseconds()) }
 
     fun markBubbled(id: String) = update(AccountContext.activeAccountId) { it.copy(bubbled = it.bubbled + id) }
 
@@ -284,59 +294,3 @@ object InboxStore {
         data.messages.map { it.category }.filter(InboxCategories::isSchool).distinct().sorted()
 }
 
-/** 我们自己的提醒转成收纳条目，调用方一行搞定。 */
-object OwnInbox {
-    fun grade(newCount: Int, total: Int) = InboxItem(
-        id = "grade:$total", category = InboxCategories.GRADE, source = "成绩",
-        title = "出了 $newCount 门新成绩", body = "目前共 $total 门", time = System.currentTimeMillis(), route = "jwapp_score",
-    )
-
-    fun attendance(text: String) = InboxItem(
-        id = "attendance:${java.time.LocalDate.now()}:$text", category = InboxCategories.ATTENDANCE, source = "考勤",
-        title = text, time = System.currentTimeMillis(), route = "new_attendance",
-    )
-
-    fun scheduleChange(text: String) = InboxItem(
-        id = "schedule:${java.time.LocalDate.now()}:${text.hashCode()}", category = InboxCategories.SCHEDULE, source = "课表",
-        title = "课表有变动", body = text, time = System.currentTimeMillis(), route = "schedule",
-    )
-
-    fun notice(n: com.xjtu.toolbox.notification.Notification) = InboxItem(
-        id = "notice:${n.link}", category = InboxCategories.NOTICE, source = n.source.displayName,
-        title = n.title, time = System.currentTimeMillis(), route = com.xjtu.toolbox.nav.AppRoute.Browser(n.link).id,
-    )
-
-    /** 工具箱公告。时间取开始时间，没有就取 id 开头的日期（公告 id 都以发布日期开头），再没有就算现在。 */
-    fun bulletin(b: com.xjtu.toolbox.bulletin.Bulletin): InboxItem {
-        val dated = runCatching {
-            java.time.LocalDate.parse(b.id.take(10)).atStartOfDay(java.time.ZoneId.of("Asia/Shanghai")).toInstant().toEpochMilli()
-        }.getOrNull()
-        return InboxItem(
-            id = "bulletin:${b.id}", category = InboxCategories.BULLETIN, source = "工具箱",
-            title = b.title, body = b.body, time = b.startsAt?.toEpochMilli() ?: dated ?: System.currentTimeMillis(),
-            route = b.url?.let { com.xjtu.toolbox.nav.AppRoute.Browser(it).id },
-        )
-    }
-
-    /** 图书馆座位要马上做的事（入馆签到 / 中途返回），随每次查到的预约整块替换。 */
-    fun library(action: String, b: com.xjtu.toolbox.library.MyBookingInfo?) = InboxItem(
-        id = "library:$action", category = InboxCategories.LIBRARY, source = "图书馆",
-        title = listOfNotNull(b?.seatId?.takeIf { it.isNotBlank() }?.let { "座位 $it" }, "待$action").joinToString(" "),
-        body = listOfNotNull(b?.area?.takeIf { it.isNotBlank() }, b?.statusText?.takeIf { it.isNotBlank() }).joinToString(" · "),
-        time = System.currentTimeMillis(), route = com.xjtu.toolbox.nav.AppRoute.Library.id,
-    )
-
-    fun todo(category: String, id: String, source: String, title: String, route: String?, expiresAt: Long = 0L) =
-        InboxItem(id = id, category = category, source = source, title = title, time = System.currentTimeMillis(), route = route, expiresAt = expiresAt)
-
-    /** 思源学堂还没交、没过截止的作业。 */
-    fun lmsTodos(items: List<com.xjtu.toolbox.lms.LmsDue>): List<InboxItem> = items
-        .filter { !it.submitted }
-        .mapNotNull { d ->
-            val deadline = runCatching { Instant.parse(d.deadline).toEpochMilli() }.getOrNull() ?: return@mapNotNull null
-            InboxItem(
-                id = "lms:${d.courseId}:${d.activityId}", category = InboxCategories.LMS, source = d.courseName,
-                title = d.title, time = d.fetchedAt, route = com.xjtu.toolbox.nav.AppRoute.Lms(d.courseId).id, expiresAt = deadline,
-            )
-        }
-}

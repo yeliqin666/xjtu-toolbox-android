@@ -303,7 +303,15 @@ fun AppNavHost(
             SettingsScreen(credentialStore = credentialStore, onBack = back)
         }
         entry<AppRoute.Inbox>(transition = expand(AppRoute.Inbox::class)) {
-            com.xjtu.toolbox.inbox.InboxScreen(onBack = back, onOpen = { router.open(it) })
+            // 取数仍是原来的 SchoolInbox（AppInboxSource 只是把它包成 :core 的端口）；
+            // 屏与 store/rules 都在 :core。
+            val inboxContext = androidx.compose.ui.platform.LocalContext.current
+            com.xjtu.toolbox.inbox.InboxScreen(
+                source = remember(inboxContext) { com.xjtu.toolbox.inbox.AppInboxSource(loginState, inboxContext) },
+                onBack = back,
+                onOpen = { router.open(it) },
+                account = loginState.accountId.ifEmpty { null },
+            )
         }
         entry<AppRoute.Community>(transition = expand(AppRoute.Community::class)) {
             // 社区那几屏已搬进 :core：登录态（加密偏好）与设备码登录（okhttp）留在 :app，

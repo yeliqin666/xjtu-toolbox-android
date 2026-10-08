@@ -60,9 +60,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.auth.LoginType
-import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
@@ -95,21 +93,28 @@ import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.window.WindowDialog
-import java.time.Instant
-import java.time.LocalDate
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
+import com.xjtu.toolbox.util.todayInSystemZone
+import kotlin.time.Clock
+import kotlinx.datetime.Instant
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.minus
+import kotlinx.datetime.toLocalDateTime
 
 @Composable
-fun InboxScreen(onBack: () -> Unit, onOpen: (String) -> Unit) {
-    val loginState = LocalAppLoginState.current
-    val context = androidx.compose.ui.platform.LocalContext.current
+fun InboxScreen(
+    source: InboxSource,
+    onBack: () -> Unit,
+    onOpen: (String) -> Unit,
+    /** 收纳是**按账号**存的；null = 当前账号（:core 的 AccountContext）。 */
+    account: String? = null,
+) {
     val scope = rememberCoroutineScope()
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     val glass = rememberPageGlass()
 
     val data = InboxStore.snapshot()
-    val now = remember(data) { System.currentTimeMillis() }
+    val now = remember(data) { Clock.System.now().toEpochMilliseconds() }
     val todos = remember(data) { InboxRules.todos(data, now) }
     val finished = remember(data) { InboxRules.finished(data, now) }
     val groups = remember(data) { InboxRules.groups(data, now) }
@@ -130,17 +135,12 @@ fun InboxScreen(onBack: () -> Unit, onOpen: (String) -> Unit) {
     }
 
     fun refresh() = scope.launch {
-        val manager = loginState.sessionManager ?: return@launch
         refreshing = true
         error = null
         try {
-            SchoolInbox.refresh(manager.ensureSite(LoginType.YWTB, userInitiated = true), loginState.accountId.ifEmpty { null })
-            // 有座位待办时顺带现查一次，签过到的马上消失
-            if (!data.todos[InboxCategories.LIBRARY].isNullOrEmpty()) {
-                runCatching {
-                    com.xjtu.toolbox.library.LibraryApi(manager.ensureSite(LoginType.LIBRARY, userInitiated = true)).fetchMyBooking().getOrThrow()
-                }.onSuccess { com.xjtu.toolbox.library.LibraryStatus.publish(context, it) }
-            }
+            source.refresh(account)
+            // 本端专属的补拉（:app 现查图书馆座位；Web 空实现）
+            source.afterRefresh(data)
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -319,15 +319,19 @@ private fun todoSection(item: InboxItem, now: Long) =
     if (item.expiresAt > 0 && item.expiresAt - now < DAY_MS) "24 小时内截止" else "待办"
 
 private fun daySection(epoch: Long): String {
-    val day = Instant.ofEpochMilli(epoch).atZone(ZoneId.systemDefault()).toLocalDate()
-    val today = LocalDate.now()
+    val day = localDateOf(epoch)
+    val today = todayInSystemZone()
     return when {
-        !day.isBefore(today) -> "今天"
-        day == today.minusDays(1) -> "昨天"
-        day.isAfter(today.minusDays(7)) -> "本周"
+        day >= today -> "今天"
+        day == today.minus(1, kotlinx.datetime.DateTimeUnit.DAY) -> "昨天"
+        day > today.minus(7, kotlinx.datetime.DateTimeUnit.DAY) -> "本周"
         else -> "更早"
     }
 }
+
+/** `Instant.ofEpochMilli(epoch).atZone(systemDefault()).toLocalDate()` 的跨端等价。 */
+private fun localDateOf(epoch: Long): LocalDate =
+    Instant.fromEpochMilliseconds(epoch).toLocalDateTime(TimeZone.currentSystemDefault()).date
 
 /** 每类一个图标和颜色，扫一眼就知道是哪儿来的。 */
 private fun categoryStyle(category: String): Pair<ImageVector, Color> = when (category) {
@@ -349,7 +353,7 @@ private fun categoryStyle(category: String): Pair<ImageVector, Color> = when (ca
 @Composable
 fun InboxBell(onClick: () -> Unit) {
     val data = InboxStore.snapshot()
-    val count = remember(data) { InboxRules.badge(data, System.currentTimeMillis()) }
+    val count = remember(data) { InboxRules.badge(data, Clock.System.now().toEpochMilliseconds()) }
     Box {
         IconButton(onClick = onClick) {
             Icon(
@@ -381,29 +385,35 @@ fun InboxBell(onClick: () -> Unit) {
     }
 }
 
-private val DAY = DateTimeFormatter.ofPattern("M月d日")
-private val CLOCK = DateTimeFormatter.ofPattern("HH:mm")
+// `DateTimeFormatter.ofPattern("M月d日")` / `("HH:mm")` 是 JVM 专属 ⇒ 手写（:core 的既有做法）
+private fun dayText(date: LocalDate): String = "${date.monthNumber}月${date.dayOfMonth}日"
+
+private fun clockText(dateTime: kotlinx.datetime.LocalDateTime): String {
+    val h = dateTime.hour.toString().padStart(2, '0')
+    val m = dateTime.minute.toString().padStart(2, '0')
+    return "$h:$m"
+}
 
 /** 有截止时间的待办报还剩多久，其余报发生在什么时候。 */
 private fun timeLabel(item: InboxItem): String {
     if (item.expiresAt <= 0) return timeLabel(item.time)
-    val minutes = (item.expiresAt - System.currentTimeMillis()) / 60_000
+    val minutes = (item.expiresAt - Clock.System.now().toEpochMilliseconds()) / 60_000
     return when {
         minutes < 60 -> "$minutes 分钟后截止"
         minutes < 24 * 60 -> "${minutes / 60} 小时后截止"
-        else -> Instant.ofEpochMilli(item.expiresAt).atZone(ZoneId.systemDefault()).format(DAY) + "截止"
+        else -> dayText(localDateOf(item.expiresAt)) + "截止"
     }
 }
 
 private fun timeLabel(epoch: Long): String {
     if (epoch <= 0) return ""
-    val at = Instant.ofEpochMilli(epoch).atZone(ZoneId.systemDefault())
-    val minutes = (System.currentTimeMillis() - epoch) / 60_000
+    val at = Instant.fromEpochMilliseconds(epoch).toLocalDateTime(TimeZone.currentSystemDefault())
+    val minutes = (Clock.System.now().toEpochMilliseconds() - epoch) / 60_000
     return when {
         minutes < 1 -> "刚刚"
         minutes < 60 -> "$minutes 分钟前"
-        at.toLocalDate() == LocalDate.now() -> at.format(CLOCK)
-        else -> at.format(DAY)
+        at.date == todayInSystemZone() -> clockText(at)
+        else -> dayText(at.date)
     }
 }
 
@@ -414,7 +424,7 @@ private fun InboxRow(e: Entry) {
     val unread = e.unread
     val count = e.count
     val (icon, tint) = categoryStyle(item.category)
-    val urgent = !e.dimmed && item.expiresAt > 0 && item.expiresAt - System.currentTimeMillis() < DAY_MS
+    val urgent = !e.dimmed && item.expiresAt > 0 && item.expiresAt - Clock.System.now().toEpochMilliseconds() < DAY_MS
     Row(
         Modifier
             .fillMaxWidth()
