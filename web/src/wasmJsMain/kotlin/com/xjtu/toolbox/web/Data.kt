@@ -43,6 +43,17 @@ external fun browserSearch(): String
 external fun openInNewTab(url: String)
 
 /**
+ * 在当前标签页导航到一个外链。
+ *
+ * 用在 [com.xjtu.toolbox.nav.AppRoute.Browser] 这类「进页面就要跳走」的路由上：
+ * `window.open` 在没有用户手势时（比如深链 `?route=browser?url=…` 进页后的 LaunchedEffect）
+ * 会被浏览器的弹窗拦截器拦下 —— 用户看到的是「什么都没发生」。
+ * 同标签导航不受弹窗拦截影响；回来靠浏览器的后退键。
+ */
+@JsFun("(url) => { window.location.assign(url); }")
+external fun navigateSameTab(url: String)
+
+/**
  * `?route=<id>` 的值（URL 解码过；没写或为空返回 null）。
  *
  * 解码用 `:core` 的 [decodeUrlComponentOrNull] —— 与 `AppRoute.id` 的**编码**同一套实现

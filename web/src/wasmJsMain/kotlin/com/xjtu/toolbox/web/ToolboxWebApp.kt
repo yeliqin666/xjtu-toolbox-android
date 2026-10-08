@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.filled.Forum
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -145,6 +146,24 @@ private fun AppPage(route: AppRoute, client: HttpClient, session: WebGithubSessi
     val back = { onNavigate(WebTarget.App(AppRoute.Schedule)) }
     when (route) {
         AppRoute.Schedule -> ScheduleScreen()
+        // 内置浏览器：**Web 端的浏览器就是浏览器本身** —— 把 URL 交给它，同标签导航过去。
+        //
+        // :app 的 BrowserScreen 是个 WebView，它比普通浏览器多两件事：① 复用 App 已经登好的
+        // 站点会话（WebVPN / 校园卡那类），② `then=` 参数在登录完成后自动跳下一站（付款页先过登录）。
+        // 这两件在浏览器里都做不到（会话在 campus-api 的进程里，不在页面上），所以这里**只做
+        // 浏览器做得到的那件**：导航到那个网址，要登录就由站点自己的登录页处理。
+        // 这不算「许诺一个做不到的模式」—— 它本来就是浏览器打开一个网址。
+        //
+        // 同标签（navigateSameTab）而不是新标签：深链进页时没有用户手势，`window.open` 会被
+        // 弹窗拦截器拦下、用户看到「什么都没发生」。回来靠浏览器后退键。
+        //
+        // ⚠️ 必须写 `is`：`AppRoute.Browser` 的两个参数都有默认值，裸写它会被当成
+        // 「构造一个 Browser("", "") 再比相等」，既不匹配真实深链也不会智能转换类型。
+        is AppRoute.Browser -> {
+            LaunchedEffect(route.url) {
+                if (route.url.isNotBlank()) navigateSameTab(route.url) else back()
+            }
+        }
         // 校历：与 Android 同一个屏、同一份模型与算法（:core/calendar），只换取数——
         // 浏览器不能直连 workflow.xjtu.edu.cn（无 CORS 头），走 campus-api 同源反代。
         AppRoute.SchoolCalendar -> SchoolCalendarScreen(
