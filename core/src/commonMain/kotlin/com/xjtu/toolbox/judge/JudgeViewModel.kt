@@ -7,25 +7,29 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.xjtu.toolbox.auth.AuthExpiredException
-import com.xjtu.toolbox.auth.SessionManager
-import com.xjtu.toolbox.auth.SiteSession
-import com.xjtu.toolbox.auth.ensureSite
+import com.xjtu.toolbox.error.SessionExpiredFailure
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 
 /** 列表里一门课的展示内容。 */
-internal data class JudgeCard(val key: String, val course: String, val teacher: String, val tag: String)
+data class JudgeCard(val key: String, val course: String, val teacher: String, val tag: String)
 
 /** 评教的数据来源：本科走教务，研究生走 gste + gmis。 */
-internal interface JudgeSource<Q> {
+interface JudgeSource<Q> {
+    /**
+     * 这一端能不能**提交**评教。
+     *
+     * false 时屏上不出现「一键全部好评」与撤回按钮 —— 评教是写操作，Web 端
+     * （campus-api 的 evaluations 模块是**只读**的，它自己也写明「永不实现提交/撤销评教」）
+     * 只能看不能交，那就不要画一个点了会失败的按钮。:app 默认 true。
+     */
+    val canSubmit: Boolean get() = true
+
     /** 确认框里「将为 N 门课程全部提交好评」之后的话。 */
     val confirmText: String
     /** (未评, 已评)。 */
@@ -38,52 +42,7 @@ internal interface JudgeSource<Q> {
     val undo: (suspend (Q) -> String?)? get() = null
 }
 
-internal class UndergraduateJudgeSource(site: SiteSession, private val username: String) : JudgeSource<Questionnaire> {
-    private val api = JudgeApi(site)
-    override val confirmText get() = "，确定继续？"
-    override suspend fun load() = api.unfinishedQuestionnaires() to api.finishedQuestionnaires()
-    override fun card(q: Questionnaire) = JudgeCard(
-        key = "${q.WJDM}_${q.JXBID}_${q.BPR}",
-        course = q.KCM,
-        teacher = q.BPJS,
-        tag = when (q.PGLXDM) { "01" -> "期末评教"; "05" -> "过程评教"; else -> "评教" },
-    )
-    override suspend fun judge(q: Questionnaire) { api.submitQuestionnaire(q, api.autoFillQuestionnaire(q, username)) }
-    override val undo: suspend (Questionnaire) -> String? = { q ->
-        val (ok, msg) = api.editQuestionnaire(q, username)
-        if (ok) null else msg
-    }
-}
-
-/** 两个站都在用户进入本页时按需登录（允许弹短信验证），gmis 到一键评教时才登。 */
-internal class GraduateJudgeSource(private val sessions: SessionManager) : JudgeSource<GraduateQuestionnaire> {
-    private val mutex = Mutex()
-    private var api: GraduateJudgeApi? = null
-    private var degreeCourses: Set<String> = emptySet()
-
-    private suspend fun api(): GraduateJudgeApi = mutex.withLock {
-        api ?: GraduateJudgeApi(
-            gste = sessions.ensureSite("gste", userInitiated = true),
-            gmisProvider = { sessions.ensureSite("gmis", userInitiated = true) },
-        ).also { api = it }
-    }
-
-    override val confirmText get() = "（系统不允许全部「优秀」，会有一项自动改为「良好」），确定继续？"
-    override suspend fun load() = api().getQuestionnaires().let { all ->
-        all.filter { it.assessment == "allow" } to all.filter { it.finished }
-    }
-    override fun card(q: GraduateQuestionnaire) = JudgeCard(
-        key = q.key,
-        course = q.kcmc,
-        teacher = q.jsxm + if (q.skls_duty.isNotBlank()) "（${q.skls_duty}）" else "",
-        tag = q.termname,
-    )
-    // 学位课 / 选修课整张成绩页取一次，所有问卷共用
-    override suspend fun prepare() { degreeCourses = api().getDegreeCourseNames() }
-    override suspend fun judge(q: GraduateQuestionnaire) = api().autoJudge(q, degreeCourses)
-}
-
-internal class JudgeViewModel<Q>(private val source: JudgeSource<Q>) : ViewModel() {
+class JudgeViewModel<Q>(private val source: JudgeSource<Q>) : ViewModel() {
     var isLoading by mutableStateOf(true); private set
     var isRefreshing by mutableStateOf(false); private set
     var errorMessage by mutableStateOf<String?>(null); private set
@@ -99,6 +58,8 @@ internal class JudgeViewModel<Q>(private val source: JudgeSource<Q>) : ViewModel
 
     val confirmText get() = source.confirmText
     val canUndo get() = source.undo != null
+    /** 见 [JudgeSource.canSubmit]：false 时屏上不出现提交/撤回按钮。 */
+    val canSubmit get() = source.canSubmit
     fun card(q: Q) = source.card(q)
 
     private val authExpiredChannel = Channel<Unit>(Channel.CONFLATED)
@@ -112,15 +73,16 @@ internal class JudgeViewModel<Q>(private val source: JudgeSource<Q>) : ViewModel
         errorMessage = null
         viewModelScope.launch {
             try {
-                val (u, f) = withContext(Dispatchers.IO) { source.load() }
+                val (u, f) = source.load()
                 unfinished = u
                 finished = f
             } catch (e: CancellationException) {
                 throw e
-            } catch (_: AuthExpiredException) {
-                authExpiredChannel.send(Unit)
             } catch (e: Exception) {
-                errorMessage = FriendlyError.of(e, "加载")
+                // 会话失效判 :core 的标记接口（:app 的 AuthExpiredException 实现了它）——
+                // `catch` 抓不了接口，所以先抓 Exception 再判。
+                if (e is SessionExpiredFailure) authExpiredChannel.send(Unit)
+                else errorMessage = FriendlyError.of(e, "加载")
             } finally {
                 isLoading = false
                 isRefreshing = false
@@ -139,13 +101,13 @@ internal class JudgeViewModel<Q>(private val source: JudgeSource<Q>) : ViewModel
             var failed = 0
             var lastError = ""
             try {
-                withContext(Dispatchers.IO) { source.prepare() }
+                source.prepare()
                 for ((index, q) in list.withIndex()) {
                     val name = source.card(q).course
                     autoJudgeMessage = "正在评教: $name (${index + 1}/${list.size})"
                     progress = index
                     try {
-                        withContext(Dispatchers.IO) { source.judge(q) }
+                        source.judge(q)
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
@@ -172,7 +134,7 @@ internal class JudgeViewModel<Q>(private val source: JudgeSource<Q>) : ViewModel
         undoingKey = source.card(q).key
         viewModelScope.launch {
             try {
-                val error = withContext(Dispatchers.IO) { undo(q) }
+                val error = undo(q)
                 if (error == null) load() else errorMessage = "撤回失败: $error"
             } catch (e: CancellationException) {
                 throw e

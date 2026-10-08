@@ -210,6 +210,10 @@ private fun AppPage(route: AppRoute, client: HttpClient, session: WebGithubSessi
             source = remember { CampusSchoolCourseApi(client) },
             onBack = back,
         )
+        // 评教：与 Android 同一份屏与 ViewModel（:core/judge），取数换成 campus-api。
+        // **只读** —— campus-api 永不实现提交/撤销评教，所以屏上不出现「一键全部好评」
+        // 与撤回按钮（JudgeSource.canSubmit=false）；能看「哪些课还没评」。
+        AppRoute.Judge -> WebJudgeScreen(onBack = back)
         AppRoute.Community -> CommunityScreen(
             session = session,
             // Web 端只有「粘贴 token」这一条登录路（设备码流程在浏览器里拿不到 device code）；

@@ -17,10 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.xjtu.toolbox.auth.LocalAppLoginState
-import com.xjtu.toolbox.auth.SessionManager
-import com.xjtu.toolbox.auth.SiteSession
-import com.xjtu.toolbox.auth.handleAuthExpired
+import com.xjtu.toolbox.auth.LocalAuthExpiry
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import com.xjtu.toolbox.ui.adaptive.readableWidth
@@ -46,26 +43,20 @@ import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
-/** 本科评教。 */
+/**
+ * 评教列表的共享壳：两个 Tab（未评/已评）+ 课程卡。
+ *
+ * **数据源由调用方给**（[JudgeViewModel] 包着一个 [JudgeSource]）：本科走教务、研究生走 gste+gmis，
+ * 这两条都在 :app；Web 端走 campus-api 的 `/api/jwxt/evaluations`（只读）。
+ *
+ * 提交相关的那两处 UI（「一键全部好评」与撤回）由 [JudgeSource.canSubmit] 控制：
+ * Web 端是**只读**的（campus-api 的 evaluations 模块永不实现提交/撤销评教）⇒ 不画一个点了会失败的按钮。
+ */
 @Composable
-fun JudgeScreen(site: SiteSession, username: String, onBack: () -> Unit) {
-    val appLoginState = LocalAppLoginState.current
-    val vm: JudgeViewModel<Questionnaire> = viewModel(key = "judge-${System.identityHashCode(site)}") {
-        JudgeViewModel(UndergraduateJudgeSource(site, username))
-    }
-    LaunchedEffect(vm) { vm.authExpired.collect { appLoginState.handleAuthExpired(AppRoute.Judge, onBack) } }
-    JudgeContent("本科评教", vm, onBack)
-}
-
-/** 研究生评教：数据来自 gste，填问卷要用的课程信息来自 gmis。 */
-@Composable
-fun GraduateJudgeScreen(sessionManager: SessionManager, onBack: () -> Unit) {
-    val vm: JudgeViewModel<GraduateQuestionnaire> = viewModel { JudgeViewModel(GraduateJudgeSource(sessionManager)) }
-    JudgeContent("研究生评教", vm, onBack)
-}
-
-@Composable
-private fun <Q> JudgeContent(title: String, vm: JudgeViewModel<Q>, onBack: () -> Unit) {
+fun <Q> JudgeListScreen(title: String, vm: JudgeViewModel<Q>, onBack: () -> Unit) {
+    // 会话失效：与校历/体测/成绩同一条缝（:app 注入 AppLoginState.handleAuthExpired）
+    val authExpiry = LocalAuthExpiry.current
+    LaunchedEffect(vm) { vm.authExpired.collect { authExpiry.onAuthExpired(AppRoute.Judge, onBack) } }
     // 0=未评, 1=已评
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var confirming by remember { mutableStateOf(false) }
@@ -153,7 +144,9 @@ private fun <Q> JudgeContent(title: String, vm: JudgeViewModel<Q>, onBack: () ->
                                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp + glassTop, bottom = 12.dp)
                             ) {
                                 // 一键好评是「未评」列表的第一项，跟着列表滚
-                                if (tab == 0) fullLineItem(key = "auto_judge") { AutoJudgeBlock(vm) { confirming = true } }
+                                // 一键好评是「未评」列表的第一项，跟着列表滚。
+                                // 只读端（canSubmit=false）整块不出现 —— 不画一个点了会失败的按钮。
+                                if (tab == 0 && vm.canSubmit) fullLineItem(key = "auto_judge") { AutoJudgeBlock(vm) { confirming = true } }
                                 items(list, key = { vm.card(it).key }) { q ->
                                     val card = vm.card(q)
                                     QuestionnaireCard(
