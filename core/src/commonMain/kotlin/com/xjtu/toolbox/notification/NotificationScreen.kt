@@ -45,16 +45,20 @@ import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.AppSuggestionChip
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
-import java.time.LocalDate
-import java.time.temporal.ChronoUnit
+import com.xjtu.toolbox.util.todayInSystemZone
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.daysUntil
 import com.xjtu.toolbox.nav.AppRoute
 
 @Composable
 fun NotificationScreen(
+    source: NoticeSource,
     onBack: () -> Unit,
-    onNavigate: (AppRoute) -> Unit = {}
+    onNavigate: (AppRoute) -> Unit = {},
 ) {
-    val vm: NotificationViewModel = viewModel()
+    // 与 :app 同一个 ViewModel（只是取数换成了端口）；两端都用 androidx.lifecycle 的
+    // `viewModel { }`（:core 里是 JetBrains 版，同 API、同版本）。
+    val vm: NotificationViewModel = viewModel { NotificationViewModel(source) }
     val notifications = vm.notifications
     val searching = vm.searching
     val listState = androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState()
@@ -401,8 +405,8 @@ fun NotificationScreen(
 
 private fun formatRelativeDate(date: LocalDate): String {
     return try {
-        val today = LocalDate.now()
-        val days = ChronoUnit.DAYS.between(date, today)
+        val today = todayInSystemZone()
+        val days = date.daysUntil(today).toLong()
         when {
             days < -1L  -> "${-days}\u5929\u540e"   // \u672a\u6765\u8d85\u8fc71\u5929
             days == -1L -> "\u660e\u65e5"

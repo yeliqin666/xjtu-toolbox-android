@@ -9,21 +9,18 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /**
  * 通知：单个来源或多来源合并、翻页、站内搜索。
  * 选择项由界面直接改，这里监听变化：来源 / 模式变了重新加载，搜索词停手 0.5 秒后查全站。
  */
-internal class NotificationViewModel : ViewModel() {
-    private val api = NotificationApi()
+internal class NotificationViewModel(private val api: NoticeSource) : ViewModel() {
 
     var selectedCategory by mutableStateOf<SourceCategory?>(null)   // null = 全部分类
     var selectedSource by mutableStateOf(NotificationSource.JWC)
@@ -49,7 +46,9 @@ internal class NotificationViewModel : ViewModel() {
 
     /** 按来源组合缓存：切回去时先显示上次的内容。 */
     private val cache = mutableMapOf<Any, List<Notification>>()
-    private val cacheKey: Any get() = if (mergeMode) selectedSources.toSortedSet().joinToString(",") else selectedSource
+    // `toSortedSet()` 是 JVM 专属（默认导入，import 判据抓不到）⇒ 换成 `sorted()`：
+    // 枚举的自然序就是 ordinal 序，键的语义不变（它只是缓存 map 的键）。
+    private val cacheKey: Any get() = if (mergeMode) selectedSources.sorted().joinToString(",") else selectedSource
     val searching get() = searchQuery.isNotBlank()
     private var loadJob: Job? = null
 
@@ -108,12 +107,12 @@ internal class NotificationViewModel : ViewModel() {
         val sources = selectedSources.toList()
         val source = selectedSource
         try {
-            val fetched = withContext(Dispatchers.IO) {
+            val fetched = run {
                 if (merge) {
-                    api.getMergedNotificationsWithSkipped(sources, page)
+                    api.merged(sources, page)
                 } else {
                     val single = try {
-                        api.getNotificationPage(source, page)
+                        api.page(source, page)
                     } catch (e: CancellationException) {
                         throw e
                     } catch (_: Exception) {

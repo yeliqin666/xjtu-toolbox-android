@@ -47,6 +47,7 @@ import com.xjtu.toolbox.library.LibraryScreen
 import com.xjtu.toolbox.lms.LmsScreen
 import com.xjtu.toolbox.main.AppRouter
 import com.xjtu.toolbox.media.DownloadManagerScreen
+import com.xjtu.toolbox.notification.AppNoticeSource
 import com.xjtu.toolbox.notification.NotificationScreen
 import com.xjtu.toolbox.schedule.SchoolCourseScreen
 import com.xjtu.toolbox.score.ScoreReportScreen
@@ -106,7 +107,8 @@ fun AppNavHost(
             EmptyRoomScreen(onBack = back, sessionManager = loginState.sessionManager)
         }
         entry<AppRoute.Notification>(transition = expand(AppRoute.Notification::class)) {
-            NotificationScreen(onBack = back, onNavigate = router::open)
+            // 取数仍走原来的 jsoup 爬虫（AppNoticeSource 只是把它包成 :core 的端口）。
+            NotificationScreen(source = remember { AppNoticeSource() }, onBack = back, onNavigate = router::open)
         }
         entry<AppRoute.Attendance>(transition = expand(AppRoute.Attendance::class)) {
             WithSite("new_attendance") { site ->

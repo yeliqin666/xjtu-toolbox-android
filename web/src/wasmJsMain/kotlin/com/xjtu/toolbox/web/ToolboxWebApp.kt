@@ -28,6 +28,7 @@ import com.xjtu.toolbox.community.CommunityScreen
 import com.xjtu.toolbox.community.GithubSession
 import com.xjtu.toolbox.calendar.SchoolCalendarScreen
 import com.xjtu.toolbox.core.net.CampusFitnessApi
+import com.xjtu.toolbox.core.net.CampusNoticeApi
 import com.xjtu.toolbox.core.net.CampusGradesApi
 import com.xjtu.toolbox.core.net.CampusSchoolCalendarApi
 import com.xjtu.toolbox.core.net.CampusYellowPageApi
@@ -42,6 +43,7 @@ import com.xjtu.toolbox.game.blocks.BlocksScreen
 import com.xjtu.toolbox.game.g2048.Gpa2048Screen
 import com.xjtu.toolbox.legal.EulaScreen
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.notification.NotificationScreen
 import com.xjtu.toolbox.nav.appRouteOf
 import com.xjtu.toolbox.yellowpage.YellowPageScreen
 import io.ktor.client.HttpClient
@@ -181,6 +183,13 @@ private fun AppPage(route: AppRoute, client: HttpClient, session: WebGithubSessi
         AppRoute.GameHop -> HopScreen(
             onBack = back,
             landmarkImages = rememberWebHopLandmarkImages(),
+        )
+        // 通知公告：与 Android 同一个屏与模型（:core/notification），取数换成 campus-api ——
+        // 它覆盖同样 29 个源，两端拿到的是同一批通知（差别只在「谁去爬」）。
+        AppRoute.Notification -> NotificationScreen(
+            source = remember { CampusNoticeApi(client) },
+            onBack = back,
+            onNavigate = { onNavigate(WebTarget.App(it)) },
         )
         AppRoute.Community -> CommunityScreen(
             session = session,
