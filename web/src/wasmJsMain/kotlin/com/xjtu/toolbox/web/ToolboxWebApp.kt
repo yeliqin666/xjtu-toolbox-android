@@ -28,6 +28,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import com.xjtu.toolbox.community.CommunityScreen
 import com.xjtu.toolbox.community.GithubSession
 import com.xjtu.toolbox.calendar.SchoolCalendarScreen
+import com.xjtu.toolbox.card.CampusCardScreen
+import com.xjtu.toolbox.core.net.CampusCardNetApi
 import com.xjtu.toolbox.core.net.CampusInboxApi
 import com.xjtu.toolbox.core.net.CampusEmptyRoomApi
 import com.xjtu.toolbox.emptyroom.EmptyRoomScreen
@@ -272,6 +274,18 @@ private fun AppPage(route: AppRoute, client: HttpClient, session: WebGithubSessi
                 onCdnTipRead = { prefs.putBoolean("empty_room_cdn_tip", true) },
             )
         }
+        // 校园卡：与 Android 同一个屏与 ViewModel（:core/card），只换取数 —— campus-api 的
+        // `/api/card/balance` 与 `/api/card/transactions`（逐字段映射写在 CampusCardNetApi 的 KDoc 里，
+        // 尤其 `amount ← signed`、`description ← channel`、`cardType ← cardName`）。
+        // 四处**如实降级**（都写在 CampusCardScreen / CampusCardNetApi 的 KDoc 里）：
+        //  ① 没有落盘缓存 —— 只有本次会话内存里那一份，刷新页面就没有首屏秒开（不造假缓存）；
+        //  ② 没有首页 tab 的缓存版本号（onCacheUpdated 空）；③ 没有桌面小组件（onBalanceChanged 空）；
+        //  ④ 没有「加餐券」那一屏 ⇒ 那条入口整个不画（couponStat = null，不是画一条点了会落到占位页的）。
+        // 浏览器里也没有 SavedStateRegistryOwner ⇒ savedState 用屏的默认值（内存版 SavedStateHandle）。
+        AppRoute.CampusCard -> CampusCardScreen(
+            source = remember { CampusCardNetApi(client) },
+            onBack = back,
+        )
         AppRoute.Community -> CommunityScreen(
             session = session,
             // Web 端只有「粘贴 token」这一条登录路（设备码流程在浏览器里拿不到 device code）；
@@ -290,7 +304,7 @@ private fun AppPage(route: AppRoute, client: HttpClient, session: WebGithubSessi
  * “这一屏还没搬到 Web”的占位页 —— 只给 `:core` 里尚未存在的 AppRoute 用。
  *
  * 为什么要有它：Web 只能渲染 `:core/commonMain` 里的屏；`:app` 那 40 条路由里还有一大批
- * （通知 / 全校课表 / 教师检索 / 图书馆 / 校园卡 / 成绩单 / 我的 …）因为取数挂着
+ * （通知 / 全校课表 / 教师检索 / 图书馆 / 成绩单 / 我的 …）因为取数挂着
  * okhttp、Context、Room、BLE 而暂时搬不过来。这页把**具体哪一条没搬**、**它需不需要登录**
  * 直接写在脸上，而不是落回课表假装能用 —— 交接文档里那条「只信工作区」的验收，看的就是这个。
  */

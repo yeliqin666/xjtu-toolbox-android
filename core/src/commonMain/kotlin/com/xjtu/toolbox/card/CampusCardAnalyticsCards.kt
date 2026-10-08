@@ -45,7 +45,7 @@ private val MEAL_COLORS = linkedMapOf(
     "夜宵" to Color(0xFF5C6BC0),
 )
 
-/** 与 [CampusCardApi.analyzeMealTimes] 的时段划分一致；15、16 点不算正餐，给灰色。 */
+/** 与 [CampusCardAnalysis.analyzeMealTimes] 的时段划分一致；15、16 点不算正餐，给灰色。 */
 private fun mealOfHour(hour: Int): String? = when (hour) {
     in 5..10 -> "早餐"
     in 11..14 -> "午餐"
@@ -87,7 +87,7 @@ internal fun SpendingHeroCard(
             Spacer(Modifier.height(2.dp))
             RollingNumberText(
                 value = totalSpend,
-                format = { "¥%.0f".format(it) },
+                format = { "¥" + money0(it) },
                 style = MiuixTheme.textStyles.title1,
                 fontWeight = FontWeight.Bold,
                 color = MiuixTheme.colorScheme.onSurface,
@@ -96,9 +96,9 @@ internal fun SpendingHeroCard(
             val facts = buildList {
                 if (activeDays > 0) {
                     add("在校 $activeDays 天")
-                    add("日均 ¥%.1f".format(totalSpend / activeDays))
+                    add("日均 ¥" + money1(totalSpend / activeDays))
                 }
-                if (mealCount > 0 && foodSpend > 0) add("每顿 ¥%.1f".format(foodSpend / mealCount))
+                if (mealCount > 0 && foodSpend > 0) add("每顿 ¥" + money1(foodSpend / mealCount))
             }
             if (facts.isNotEmpty()) {
                 Spacer(Modifier.height(2.dp))
@@ -223,7 +223,7 @@ internal fun MealRhythmCard(hourly: List<Int>, mealStats: Map<String, MealTimeSt
                         ) {
                             Text(name, style = MiuixTheme.textStyles.footnote1, color = c, fontWeight = FontWeight.Medium)
                             Text(
-                                "¥%.1f".format(stat.avgAmount),
+                                "¥" + money1(stat.avgAmount),
                                 style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold,
                             )
                             Text("${stat.count} 天", style = MiuixTheme.textStyles.footnote2, color = summary)
@@ -295,7 +295,7 @@ internal fun TopMerchantsCard(monthlyStats: List<MonthlyStats>) {
                     Text("${m.count} 次", style = MiuixTheme.textStyles.footnote1, color = summary)
                     Spacer(Modifier.width(10.dp))
                     Text(
-                        "¥%.0f".format(m.totalAmount), style = MiuixTheme.textStyles.body2,
+                        "¥" + money0(m.totalAmount), style = MiuixTheme.textStyles.body2,
                         fontWeight = FontWeight.Bold, modifier = Modifier.width(56.dp), textAlign = TextAlign.End,
                     )
                 }
@@ -322,7 +322,7 @@ private fun PodiumColumn(m: MerchantStat, rank: Int, modifier: Modifier = Modifi
             maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
             minLines = 2,
         )
-        Text("¥%.0f".format(m.totalAmount), style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold)
+        Text("¥" + money0(m.totalAmount), style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold)
         Text(
             "${m.count} 次", style = MiuixTheme.textStyles.footnote2,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,

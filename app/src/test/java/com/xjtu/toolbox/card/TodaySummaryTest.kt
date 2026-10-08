@@ -2,7 +2,9 @@ package com.xjtu.toolbox.card
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
-import java.time.LocalDate
+import kotlinx.datetime.DateTimeUnit
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.minus
 
 class TodaySummaryTest {
 
@@ -11,7 +13,7 @@ class TodaySummaryTest {
 
     @Test
     fun splitsTodaySpendingIntoMeals() {
-        val today = LocalDate.of(2026, 9, 18)
+        val today = LocalDate(2026, 9, 18)
         val s = todaySummaryOf(
             listOf(
                 tx("2026-09-18 07:30:00", -5.0),   // 早餐
@@ -31,9 +33,9 @@ class TodaySummaryTest {
 
     @Test
     fun dailyRateDividesByDaysWithSpending() {
-        val today = LocalDate.of(2026, 9, 24)
+        val today = LocalDate(2026, 9, 24)
         // 近 30 天里隔天刷一次，每次 ¥20：日均应是 20，而不是被空着的那些天摊成 10
-        val spends = (0 until 14).map { tx(today.minusDays(it * 2L).toString() + " 12:00:00", -20.0) }
+        val spends = (0 until 14).map { tx(today.minus(it * 2, DateTimeUnit.DAY).toString() + " 12:00:00", -20.0) }
         val noise = listOf(
             Transaction("2026-09-20 09:00:00", "能源管理中心", -100.0, 0.0, "", "电费"),  // 水电不算
             tx("2026-09-21 10:00:00", 200.0),                                           // 充值不算
@@ -49,7 +51,7 @@ class TodaySummaryTest {
 
     @Test
     fun malformedTimeOnlyCountsTowardTotal() {
-        val s = todaySummaryOf(listOf(tx("2026-09-18", -8.0)), LocalDate.of(2026, 9, 18))
+        val s = todaySummaryOf(listOf(tx("2026-09-18", -8.0)), LocalDate(2026, 9, 18))
         assertEquals(8.0, s.total, 1e-9)
         assertEquals(0.0, s.breakfast + s.lunch + s.dinner, 1e-9)
     }

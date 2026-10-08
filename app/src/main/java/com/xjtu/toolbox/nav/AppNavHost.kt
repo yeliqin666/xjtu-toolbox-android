@@ -9,6 +9,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.lifecycle.createSavedStateHandle
 import com.xjtu.toolbox.account.AccountManager
 import com.xjtu.toolbox.account.AccountManagerScreen
 import com.xjtu.toolbox.attendance.AttendanceScreen
@@ -16,7 +17,9 @@ import com.xjtu.toolbox.auth.AppLoginState
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.browser.BrowserScreen
 import com.xjtu.toolbox.calendar.SchoolCalendarScreen
+import com.xjtu.toolbox.card.AppCampusCardSource
 import com.xjtu.toolbox.card.CampusCardScreen
+import com.xjtu.toolbox.card.CouponEntryStat
 import com.xjtu.toolbox.community.CommunityScreen
 import com.xjtu.toolbox.coupon.CouponScreen
 import com.xjtu.toolbox.data.CredentialStore
@@ -40,6 +43,7 @@ import com.xjtu.toolbox.game.hop.HopScreen
 import com.xjtu.toolbox.game.hop.rememberHopLandmarkImages
 import com.xjtu.toolbox.game.xiangqi.XiangqiScreen
 import com.xjtu.toolbox.iclassface.IclassfaceScreen
+import com.xjtu.toolbox.home.HomeStats
 import com.xjtu.toolbox.jiaocai.JiaocaiScreen
 import com.xjtu.toolbox.jiaocai1.Jiaocai1ReaderScreen
 import com.xjtu.toolbox.jiaocai1.Jiaocai1Screen
@@ -65,7 +69,9 @@ import com.xjtu.toolbox.dormpower.DormPowerScreen
 import com.xjtu.toolbox.webvpn.WebVpnConverterScreen
 import com.xjtu.toolbox.yellowpage.YellowPageScreen
 import com.xjtu.toolbox.yellowpage.appYellowPageApi
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.nav.core.NavBackStack
 import top.yukonga.miuix.kmp.nav.core.NavDisplay
 import top.yukonga.miuix.kmp.nav.core.rememberNavSystemCornerRadius
@@ -156,13 +162,33 @@ fun AppNavHost(
             WithSite("library") { LibraryScreen(site = it, onBack = back) }
         }
         entry<AppRoute.CampusCard>(transition = expand(AppRoute.CampusCard::class)) {
-            AwaitSite(loginState, "campus_card", onTimeout = back) {
+            AwaitSite(loginState, "campus_card", onTimeout = back) { site ->
+                // 屏与 ViewModel 都在 :core（`com.xjtu.toolbox.card.CampusCardScreen`），取数从那里挪到
+                // AppCampusCardSource（还是原来的 CampusCardApi + CampusCardCache，实现一行未改）。
+                // 四处宿主能力在这里注入，行为与搬之前一致：
+                //  1. savedState —— 与原来一样用 createSavedStateHandle()（时间范围能跟着进程恢复）；
+                //  2. onCacheUpdated —— 首页 tab 的缓存版本号（原来写在屏里直接读 LocalAppLoginState）；
+                //  3. onBalanceChanged —— 桌面小组件刷新（原来由 VM 直接调 CampusCardWidgetUpdater）；
+                //  4. couponStat —— 「加餐券」入口的状态（原来屏自己读 HomeStats.pushed）。
+                val cardContext = LocalContext.current
                 CampusCardScreen(
-                    site = it,
+                    source = remember(site) { AppCampusCardSource(site, cardContext) },
                     onBack = back,
                     // 跟着设置实时变：直接读存储只在进页那一刻读一次，页面开着时切风格不会跟过来
                     glass = com.xjtu.toolbox.ui.glass.LocalGlassStyle.current,
                     onOpenCoupon = { router.open(AppRoute.Coupon) },
+                    onCacheUpdated = { loginState.campusCardCacheVersion++ },
+                    onBalanceChanged = {
+                        com.xjtu.toolbox.widget.CampusCardWidgetUpdater.requestUpdate(cardContext)
+                    },
+                    couponStat = {
+                        withContext(Dispatchers.IO) {
+                            HomeStats.pushed(cardContext, AppRoute.Coupon)?.let { stat ->
+                                CouponEntryStat(stat.value, stat.detail)
+                            }
+                        }
+                    },
+                    savedState = { createSavedStateHandle() },
                 )
             }
         }

@@ -20,7 +20,10 @@ import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.ensureSite
+import com.xjtu.toolbox.card.AppCampusCardSource
 import com.xjtu.toolbox.card.CampusCardApi
+import com.xjtu.toolbox.card.allTransactions
+import com.xjtu.toolbox.util.toKx
 import com.xjtu.toolbox.emptyroom.CAMPUS_BUILDINGS
 import com.xjtu.toolbox.emptyroom.EmptyRoomApi
 import com.xjtu.toolbox.emptyroom.EmptyRoomCache
@@ -1425,9 +1428,14 @@ class AgentToolRegistry(
                 if (days != null) {
                     val d = days.coerceIn(1, 180)   // 放宽：用户可能要看整月/整学期账单
                     runCatching {
-                        CampusCardApi(site).getAllTransactions(
-                            startDate = LocalDate.now().minusDays(d.toLong()),
-                            endDate = LocalDate.now(),
+                        // 分页编排（allTransactions）搬进了 :core，是 CampusCardSource 上的扩展函数；
+                        // 这里走 AppCampusCardSource —— 与校园卡页同一条取数路径（同一个 ncard 接口、
+                        // 同样的 80 页上限与 allowIncomplete=false），结果与搬迁前一致。
+                        AppCampusCardSource(site, context).allTransactions(
+                            // :core 那条分页编排收 kotlinx-datetime 的日期，这里从 java.time 转过去
+                            //（本文件其余地方仍是 java.time，边界转换用 `:app` 的 toKx()，见 util/TimeBridge.kt）
+                            startDate = LocalDate.now().minusDays(d.toLong()).toKx(),
+                            endDate = LocalDate.now().toKx(),
                             maxPages = 80,
                             allowIncomplete = false,
                         )

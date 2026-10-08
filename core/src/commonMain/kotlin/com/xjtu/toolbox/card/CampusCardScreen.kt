@@ -1,8 +1,5 @@
 package com.xjtu.toolbox.card
 
-import com.xjtu.toolbox.util.toJavaTime
-import com.xjtu.toolbox.util.toKx
-
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.BackButton
@@ -15,8 +12,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import com.xjtu.toolbox.home.HomeStats
-import com.xjtu.toolbox.home.HomeStat
 import androidx.compose.runtime.produceState
 import androidx.compose.material.icons.automirrored.filled.TrendingDown
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
@@ -32,7 +27,6 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -40,9 +34,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
-import com.xjtu.toolbox.auth.LocalAppLoginState
-import com.xjtu.toolbox.auth.SiteSession
-import com.xjtu.toolbox.auth.handleAuthExpired
+import com.xjtu.toolbox.auth.LocalAuthExpiry
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import com.xjtu.toolbox.ui.components.AppDatePickerDialog
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
@@ -56,9 +48,15 @@ import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.ui.glass.followTopBar
 import com.xjtu.toolbox.ui.glass.glassBarSurface
 import com.xjtu.toolbox.ui.glass.glassBarTint
-import java.time.LocalDate
-import java.time.format.DateTimeFormatter
+import com.xjtu.toolbox.util.todayInSystemZone
 import kotlin.math.abs
+import kotlin.time.Clock
+import kotlinx.datetime.DateTimeUnit
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.minus
+import kotlinx.datetime.number
+import kotlinx.datetime.toLocalDateTime
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -86,44 +84,87 @@ import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import com.xjtu.toolbox.nav.AppRoute
-import androidx.lifecycle.createSavedStateHandle
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.viewmodel.CreationExtras
 import androidx.lifecycle.viewmodel.compose.viewModel
 
 // ==================== 时间范围枚举 ====================
 
-private val CardDateFmt: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy/M/d")
-private val CardDateChipFmt: DateTimeFormatter = DateTimeFormatter.ofPattern("M/d")
+// `DateTimeFormatter.ofPattern("yyyy/M/d")` / `("M/d")` 是 JVM 专属 ⇒ 手写（:core 的既有做法，
+// 见 SchoolCalendarScreen / InboxScreen）。口径逐个对齐：年不补零，月、日**不补零**（是 `M/d` 不是 `MM/dd`）。
+private fun slashDate(date: LocalDate): String = "${date.year}/${date.month.number}/${date.day}"
+
+private fun slashMonthDay(date: LocalDate): String = "${date.month.number}/${date.day}"
 
 private fun formatRangeChip(start: LocalDate, end: LocalDate): String {
     return if (start.year == end.year) {
-        "${start.format(CardDateChipFmt)}–${end.format(CardDateChipFmt)}"
+        "${slashMonthDay(start)}–${slashMonthDay(end)}"
     } else {
-        "${start.format(CardDateFmt)}–${end.format(CardDateFmt)}"
+        "${slashDate(start)}–${slashDate(end)}"
     }
 }
 
+/**
+ * 「加餐券」那条二级入口要的两行状态（值 + 说明）。
+ *
+ * 为什么不是 :app 的 `HomeStat`：那是首页自己的模型（连 `DataCache` 一起在 :app），
+ * 而这个屏只需要「一行值 + 一行说明」两句话。宿主在自己的 lambda 里把 `HomeStat` 拆成这两句，
+ * 屏就不必认识首页那一套。
+ */
+data class CouponEntryStat(val value: String = "", val detail: String? = null)
+
+/**
+ * 校园卡：概览 / 流水 / 分析三栏（宽屏左概览右「流水 / 分析」）。
+ *
+ * 从 `:app` 搬进 `:core`：屏与 [CampusCardViewModel] 是两端共用的同一份，只在**取数、落盘、
+ * 宿主能力**上切缝。下面每个参数都是「这一端有什么」，而不是「这一端是不是 Android」。
+ */
 @Composable
 fun CampusCardScreen(
-    site: SiteSession,
+    /** 本端的取数 + 落盘（Android = `AppCampusCardSource`，Web = `CampusCardNetApi`）。 */
+    source: CampusCardSource,
     onBack: () -> Unit,
     // 「界面风格：经典」时传 false，顶栏退回不透明——玻璃开关接口，见 plan2 §16.1
     // 第 5 条。默认 false，和 agent/ProactiveBubble.kt 的 glass 参数一个约定：
     // 接上设置项之前先按「经典」的不透明样式来，不在没接设置项的分支里提前显示玻璃。
     glass: Boolean = false,
     onOpenCoupon: () -> Unit = {},
+    /**
+     * 「余额和今日消费已落盘」——Android 用它给首页 tab 的缓存版本号 +1（首页 tab 一直留在组合里，
+     * 只认这个版本号：不递增的话充值后回到首页还是旧余额）；Web 没有那个首页缓存 ⇒ 空实现。
+     */
+    onCacheUpdated: () -> Unit = {},
+    /** 桌面小组件刷新（Android = `CampusCardWidgetUpdater.requestUpdate`）；Web 没有小组件 ⇒ 空。 */
+    onBalanceChanged: () -> Unit = {},
+    /**
+     * 「加餐券」那条二级入口的两行状态（值 + 说明），**由宿主读自己那份首页摘要**
+     *（Android = `HomeStats.pushed(context, AppRoute.Coupon)`，读的是 DataCache/SharedPreferences）。
+     *
+     * 传 null = 本端没有这份摘要 ⇒ 整条入口不画。Web 正是这一支：它还没有加餐券那一屏，
+     * 画一条点进去落到「这一屏还没搬到 Web」的入口不如不画（与空闲教室不列本端没有的数据源同一条口径）。
+     */
+    couponStat: (suspend () -> CouponEntryStat?)? = null,
+    /**
+     * 宿主的 saved state（「选的时间范围」在进程被回收后要还在）。
+     *
+     * 为什么要宿主给：Android 走 `createSavedStateHandle()`（与搬迁前同一个，范围照旧能恢复），
+     * 而**浏览器里没有 SavedStateRegistryOwner** —— 在 Web 上调它会直接抛（`:core` 里已有前例：
+     * community 那个屏的注释就记着这一条），所以 Web 传内存版 `SavedStateHandle()`：
+     * 刷新页面范围回到默认值，如实降级，不假装记住了。
+     */
+    savedState: CreationExtras.() -> SavedStateHandle = { SavedStateHandle() },
 ) {
-    val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
-    val appLoginState = LocalAppLoginState.current
-    val vm: CampusCardViewModel = viewModel(key = "card-${System.identityHashCode(site)}") {
-        CampusCardViewModel(context, site, createSavedStateHandle())
+    val authExpiry = LocalAuthExpiry.current
+    val vm: CampusCardViewModel = viewModel {
+        CampusCardViewModel(source, savedState(), onBalanceChanged)
     }
     LaunchedEffect(vm) {
         vm.events.collect { event ->
             when (event) {
-                CampusCardEvent.AuthExpired -> appLoginState.handleAuthExpired(AppRoute.CampusCard, onBack)
-                // 首页 tab 一直留在组合里，只认这个版本号：不递增的话充值后回到首页还是旧余额
-                CampusCardEvent.CacheUpdated -> appLoginState.campusCardCacheVersion++
+                // 会话失效：与校历/体测/成绩同一条缝（:app 注入 AppLoginState.handleAuthExpired）
+                CampusCardEvent.AuthExpired -> authExpiry.onAuthExpired(AppRoute.CampusCard, onBack)
+                CampusCardEvent.CacheUpdated -> onCacheUpdated()
                 is CampusCardEvent.Message -> snackbarHostState.showSnackbar(
                     event.text, duration = if (event.long) SnackbarDuration.Long else SnackbarDuration.Short,
                 )
@@ -309,6 +350,7 @@ fun CampusCardScreen(
                                     OverviewTab(
                                         cardInfo, stats.monthly, emptyList(), todaySummary, stats.dailyRate,
                                         stats.activeDays, rangeDates.first, rangeDates.second, topInset, onOpenCoupon,
+                                        couponStat,
                                     )
                                 }
                                 Box(Modifier.weight(0.58f).fillMaxHeight()) {
@@ -344,6 +386,7 @@ fun CampusCardScreen(
                                 0 -> OverviewTab(
                                     cardInfo, stats.monthly, transactions.take(5), todaySummary, stats.dailyRate,
                                     stats.activeDays, rangeDates.first, rangeDates.second, topContentPadding, onOpenCoupon,
+                                    couponStat,
                                 )
                                 1 -> TransactionTab(
                                     transactions, transactions.size, vm.isLoadingMore, searchQuery,
@@ -380,6 +423,8 @@ private fun OverviewTab(
     // 顶栏 + 标签行 + 时间选择器的高度，给列表让出来（plan2 §16.2）。
     topContentPadding: Dp = 0.dp,
     onOpenCoupon: () -> Unit = {},
+    /** 见 [CampusCardScreen] 的 [couponStat]：加餐券入口的状态，null = 本端没有这份摘要，不画。 */
+    couponStat: (suspend () -> CouponEntryStat?)? = null,
 ) {
     LazyColumn(
         // 左右留白放在 contentPadding 里而不是列表外面：余额卡有投影，
@@ -399,18 +444,20 @@ private fun OverviewTab(
             item { Box(Modifier.enterOnce(1)) { CardStatusPanel(info) } }
         }
         // 紧跟余额卡：放到最近交易后面就被长列表埋掉了
-        item {
-            Box(Modifier.enterOnce(1)) {
-                val context = LocalContext.current
-                // 状态用首页后台拉好的摘要：待领 / 可用张数、最近到期
-                val stat by produceState<HomeStat?>(null) { value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { HomeStats.pushed(context, AppRoute.Coupon) } }
-                com.xjtu.toolbox.ui.components.SecondaryEntry(
-                    Icons.Default.Restaurant, com.xjtu.toolbox.ui.theme.legacyColor(AppRoute.Coupon.id),
-                    "加餐券", stat?.detail ?: "领取和使用食堂加餐券",
-                    status = stat?.value,
-                    highlight = stat?.value?.contains("待领") == true || stat?.detail?.contains("到期") == true,
-                    onClick = onOpenCoupon,
-                )
+        // 加餐券入口：状态（待领 / 可用张数、最近到期）由宿主从首页摘要里读，见 [couponStat]。
+        // 宿主没给（Web）⇒ 整条不画 —— 不画一条点进去落到占位页的入口。
+        if (couponStat != null) {
+            item {
+                Box(Modifier.enterOnce(1)) {
+                    val stat by produceState<CouponEntryStat?>(null) { value = couponStat.invoke() }
+                    com.xjtu.toolbox.ui.components.SecondaryEntry(
+                        Icons.Default.Restaurant, com.xjtu.toolbox.ui.theme.legacyColor(AppRoute.Coupon.id),
+                        "加餐券", stat?.detail ?: "领取和使用食堂加餐券",
+                        status = stat?.value,
+                        highlight = stat?.value?.contains("待领") == true || stat?.detail?.contains("到期") == true,
+                        onClick = onOpenCoupon,
+                    )
+                }
             }
         }
         item { Box(Modifier.enterOnce(1)) { TodayMealsCard(today) } }
@@ -495,7 +542,7 @@ private fun BalanceCard(info: CardInfo, runway: Int?, dailyRate: Double?) {
                             // 进页面时从 0 滚到余额，刷新后从旧值滚到新值
                             com.xjtu.toolbox.ui.components.RollingNumberText(
                                 value = info.balance,
-                                format = { "%.2f".format(it) },
+                                format = { money2(it) },
                                 style = MiuixTheme.textStyles.title1,
                                 fontWeight = FontWeight.Bold,
                                 color = accent,
@@ -514,7 +561,7 @@ private fun BalanceCard(info: CardInfo, runway: Int?, dailyRate: Double?) {
                 }
                 if (info.pendingAmount > 0) {
                     Spacer(Modifier.height(8.dp))
-                    Text("待入账: ¥%.2f".format(info.pendingAmount),
+                    Text("待入账: ¥" + money2(info.pendingAmount),
                         style = MiuixTheme.textStyles.footnote1,
                         color = secondary)
                 }
@@ -528,7 +575,7 @@ private fun BalanceCard(info: CardInfo, runway: Int?, dailyRate: Double?) {
                         Spacer(Modifier.width(4.dp))
                         Text(runwayText(runway), style = MiuixTheme.textStyles.body2,
                             fontWeight = FontWeight.Medium, color = gauge, modifier = Modifier.weight(1f))
-                        Text("近 30 天日均 ¥%.1f".format(dailyRate),
+                        Text("近 30 天日均 ¥" + money1(dailyRate),
                             style = MiuixTheme.textStyles.footnote2, color = secondary)
                     }
                     Spacer(Modifier.height(6.dp))
@@ -598,7 +645,7 @@ private fun RangeSpendCard(summary: RangeSpendSummary, activeDays: Int) {
                                 else MiuixTheme.colorScheme.onSecondaryContainer)
                             Spacer(Modifier.width(2.dp))
                             Text(
-                                "${summary.changeCaption} %.0f%%".format(abs(change)),
+                                "${summary.changeCaption} " + percent0(abs(change)),
                                 style = MiuixTheme.textStyles.footnote1,
                                 fontWeight = FontWeight.Bold,
                                 color = if (isUp) MiuixTheme.colorScheme.onErrorContainer
@@ -610,18 +657,18 @@ private fun RangeSpendCard(summary: RangeSpendSummary, activeDays: Int) {
             }
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                StatColumn("总支出", "¥%.0f".format(summary.totalSpend),
+                StatColumn("总支出", "¥" + money0(summary.totalSpend),
                     MiuixTheme.colorScheme.error)
-                StatColumn("充值", "¥%.0f".format(summary.totalIncome),
+                StatColumn("充值", "¥" + money0(summary.totalIncome),
                     MiuixTheme.colorScheme.primary)
                 StatColumn("笔数", "${summary.transactionCount}",
                     MiuixTheme.colorScheme.primaryVariant)
                 // 按刷过卡的天数摊，和分析页头卡同一口径；放假的日子不算进分母
                 if (activeDays > 0) {
-                    StatColumn("在校日均", "¥%.1f".format(summary.totalSpend / activeDays),
+                    StatColumn("在校日均", "¥" + money1(summary.totalSpend / activeDays),
                         MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 } else {
-                    StatColumn("日均", "¥%.1f".format(summary.avgDailySpend),
+                    StatColumn("日均", "¥" + money1(summary.avgDailySpend),
                         MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 }
             }
@@ -635,7 +682,7 @@ private fun RangeSpendCard(summary: RangeSpendSummary, activeDays: Int) {
                         modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
                     Text(
-                        "消费最多: ${CampusCardAnalysis.formatPeakDay(summary.peakDay, spanYears = true)} ¥%.0f".format(summary.peakDayAmount),
+                        "消费最多: ${CampusCardAnalysis.formatPeakDay(summary.peakDay, spanYears = true)} ¥" + money0(summary.peakDayAmount),
                         style = MiuixTheme.textStyles.footnote1,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 }
@@ -657,7 +704,7 @@ private fun RangeSpendCard(summary: RangeSpendSummary, activeDays: Int) {
                         Text("${merchant.count}笔", style = MiuixTheme.textStyles.footnote1,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.6f))
                         Spacer(Modifier.width(8.dp))
-                        Text("¥%.0f".format(merchant.totalAmount),
+                        Text("¥" + money0(merchant.totalAmount),
                             style = MiuixTheme.textStyles.footnote1,
                             fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.error)
                     }
@@ -670,7 +717,8 @@ private fun RangeSpendCard(summary: RangeSpendSummary, activeDays: Int) {
 /** 今天三餐各花了多少。区间统计在分析页，概览页只管「现在」。 */
 @Composable
 private fun TodayMealsCard(today: TodaySpendSummary) {
-    val hour = java.time.LocalTime.now().hour
+    // `java.time.LocalTime.now().hour` → kotlinx 的「本机时区此刻的小时」（同一个系统默认时区）
+    val hour = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()).hour
     top.yukonga.miuix.kmp.basic.Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
         Column(Modifier.padding(20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -680,7 +728,7 @@ private fun TodayMealsCard(today: TodaySpendSummary) {
                 Text("今天", style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Medium)
                 Spacer(Modifier.weight(1f))
                 Text(
-                    if (today.total > 0) "共 ¥%.2f".format(today.total) else "还没刷卡",
+                    if (today.total > 0) "共 ¥" + money2(today.total) else "还没刷卡",
                     style = MiuixTheme.textStyles.footnote1,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
@@ -708,7 +756,7 @@ private fun TodayMealsCard(today: TodaySpendSummary) {
                             fontWeight = FontWeight.Medium)
                         Text(
                             when {
-                                eaten -> "¥%.1f".format(amount)
+                                eaten -> "¥" + money1(amount)
                                 hour > hours.last -> "没刷卡"
                                 hour >= hours.first -> "饭点中"
                                 else -> "—"
@@ -813,9 +861,13 @@ private fun TransactionTab(
                 tx.description.contains(searchQuery, ignoreCase = true)
         }
     }
+    // `Map.toSortedMap(compareByDescending { it })` 是 JVM 专属（`kotlin.collections` 里的 JVM 扩展，
+    // 默认导入 ⇒ import 判据看不见）⇒ 换成「按日期倒序排好的 entries 列表」，下面 forEachIndexed
+    // 的 `(date, txList)` 解构照样成立（`Map.Entry` 有 component1/component2）。
     val grouped = remember(filtered) {
         filtered.groupBy { it.time.substringBefore(" ") }
-            .toSortedMap(compareByDescending { it })
+            .entries
+            .sortedByDescending { it.key }
     }
 
     LazyColumn(
@@ -847,14 +899,14 @@ private fun TransactionTab(
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         val totalSpend = filtered.filter { it.amount < 0 }.sumOf { -it.amount }
                         val totalIncome = filtered.filter { it.amount > 0 }.sumOf { it.amount }
-                        Text("支出¥%.0f | 收入¥%.0f".format(totalSpend, totalIncome),
+                        Text("支出¥" + money0(totalSpend) + " | 收入¥" + money0(totalIncome),
                             style = MiuixTheme.textStyles.footnote1,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
                 }
             }
         }
-        grouped.entries.forEachIndexed { dayIndex, (date, txList) ->
+        grouped.forEachIndexed { dayIndex, (date, txList) ->
             item(key = "day_$date") {
                 Card(
                     modifier = Modifier.fillMaxWidth().enterOnce(dayIndex + 1),
@@ -871,7 +923,7 @@ private fun TransactionTab(
                                 fontWeight = FontWeight.Medium,
                                 color = MiuixTheme.colorScheme.primary)
                             if (dayTotal > 0) {
-                                Text("−¥%.2f".format(dayTotal),
+                                Text("−¥" + money2(dayTotal),
                                     style = MiuixTheme.textStyles.footnote1,
                                     color = MiuixTheme.colorScheme.error.copy(alpha = 0.7f))
                             }
@@ -933,11 +985,11 @@ private fun TransactionItem(tx: Transaction) {
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
             Column(horizontalAlignment = Alignment.End) {
-                Text((if (isExpense) "-" else "+") + "¥%.2f".format(abs(tx.amount)),
+                Text((if (isExpense) "-" else "+") + "¥" + money2(abs(tx.amount)),
                     style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Bold,
                     color = if (isExpense) MiuixTheme.colorScheme.error
                     else MiuixTheme.colorScheme.primary)
-                Text("余额 ¥%.2f".format(tx.balance),
+                Text("余额 ¥" + money2(tx.balance),
                     style = MiuixTheme.textStyles.footnote1,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.6f))
             }
@@ -1026,8 +1078,8 @@ private fun CustomRangeDialog(
     var draftStart by remember(show, initialStart) { mutableStateOf(initialStart) }
     var draftEnd by remember(show, initialEnd) { mutableStateOf(initialEnd) }
     var picking by remember(show) { mutableStateOf<String?>(null) }
-    val today = remember { LocalDate.now() }
-    val earliest = remember { today.minusYears(6) }
+    val today = remember { todayInSystemZone() }
+    val earliest = remember { today.minus(6, DateTimeUnit.YEAR) }
 
     BackHandler(enabled = show && picking == null) { onDismiss() }
     OverlayDialog(
@@ -1038,15 +1090,15 @@ private fun CustomRangeDialog(
     ) {
         ArrowPreference(
             title = "开始",
-            summary = draftStart.format(CardDateFmt),
+            summary = slashDate(draftStart),
             onClick = { picking = "start" }
         )
         ArrowPreference(
             title = "结束",
-            summary = draftEnd.format(CardDateFmt),
+            summary = slashDate(draftEnd),
             onClick = { picking = "end" }
         )
-        if (draftStart.isAfter(draftEnd)) {
+        if (draftStart > draftEnd) {
             Text(
                 "开始日晚于结束日时，确定后会自动对调。",
                 style = MiuixTheme.textStyles.footnote1,
@@ -1059,7 +1111,7 @@ private fun CustomRangeDialog(
             TextButton(
                 text = "确定",
                 onClick = {
-                    if (draftStart.isAfter(draftEnd)) onConfirm(draftEnd, draftStart)
+                    if (draftStart > draftEnd) onConfirm(draftEnd, draftStart)
                     else onConfirm(draftStart, draftEnd)
                 },
                 modifier = Modifier.weight(1f),
@@ -1070,13 +1122,14 @@ private fun CustomRangeDialog(
     AppDatePickerDialog(
         show = picking != null,
         title = if (picking == "end") "结束日期" else "开始日期",
-        date = (if (picking == "end") draftEnd else draftStart).toKx(),
-        minDate = earliest.toKx(),
-        maxDate = today.toKx(),
+        // `AppDatePickerDialog` 是 `:core` 的 expect（三端各有实现），本来就用 kotlinx-datetime 的
+        // `LocalDate` —— 搬进 :core 后省掉了 `toKx()` / `toJavaTime()` 这一对来回转换。
+        date = if (picking == "end") draftEnd else draftStart,
+        minDate = earliest,
+        maxDate = today,
         onDismiss = { picking = null },
         onConfirm = { picked ->
-            val day = picked.toJavaTime()
-            if (picking == "end") draftEnd = day else draftStart = day
+            if (picking == "end") draftEnd = picked else draftStart = picked
             picking = null
         }
     )
@@ -1105,7 +1158,7 @@ private fun CategoryCard(categories: Map<String, Double>) {
                 Text("消费类别", style = MiuixTheme.textStyles.subtitle,
                     fontWeight = FontWeight.Medium)
                 Spacer(Modifier.weight(1f))
-                Text("总计 ¥%.0f".format(total), style = MiuixTheme.textStyles.footnote1,
+                Text("总计 ¥" + money0(total), style = MiuixTheme.textStyles.footnote1,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
             Spacer(Modifier.height(16.dp))
@@ -1128,9 +1181,9 @@ private fun CategoryCard(categories: Map<String, Double>) {
                         )
                     Spacer(Modifier.width(8.dp))
                     Column(horizontalAlignment = Alignment.End) {
-                        Text("¥%.0f".format(amount), style = MiuixTheme.textStyles.footnote1,
+                        Text("¥" + money0(amount), style = MiuixTheme.textStyles.footnote1,
                             fontWeight = FontWeight.Medium)
-                        Text("%.0f%%".format(percent * 100), style = MiuixTheme.textStyles.footnote1,
+                        Text(percent0(percent * 100), style = MiuixTheme.textStyles.footnote1,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
                 }
@@ -1183,7 +1236,7 @@ private fun FoodBreakdownCard(breakdown: Map<String, Double>, mealCount: Int, fo
                 Text("主食构成", style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Medium)
                 Spacer(Modifier.weight(1f))
                 Text(
-                    "¥%.0f".format(if (foodSpend > 0) foodSpend else total),
+                    "¥" + money0(if (foodSpend > 0) foodSpend else total),
                     style = MiuixTheme.textStyles.footnote1,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                 )
@@ -1251,12 +1304,12 @@ private fun FoodBreakdownCard(breakdown: Map<String, Double>, mealCount: Int, fo
                             Spacer(Modifier.width(8.dp))
                             Text(name, style = MiuixTheme.textStyles.body2, modifier = Modifier.weight(1f))
                             Text(
-                                "¥%.0f".format(amount), style = MiuixTheme.textStyles.footnote1,
+                                "¥" + money0(amount), style = MiuixTheme.textStyles.footnote1,
                                 fontWeight = FontWeight.Medium,
                             )
                             Spacer(Modifier.width(8.dp))
                             Text(
-                                "%.0f%%".format(amount / total * 100),
+                                percent0(amount / total * 100),
                                 style = MiuixTheme.textStyles.footnote1,
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                 modifier = Modifier.width(34.dp),
@@ -1329,7 +1382,7 @@ private fun MonthlyTrendCard(stats: List<MonthlyStats>, rangeStart: LocalDate, r
                             height = 10.dp,
                         )
                         Spacer(Modifier.width(8.dp))
-                        Text("¥%.0f".format(monthStat.totalSpend),
+                        Text("¥" + money0(monthStat.totalSpend),
                             style = MiuixTheme.textStyles.footnote1,
                             modifier = Modifier.width(60.dp), color = MiuixTheme.colorScheme.error)
                     }
@@ -1344,7 +1397,7 @@ private fun MonthlyTrendCard(stats: List<MonthlyStats>, rangeStart: LocalDate, r
                             height = 6.dp,
                         )
                             Spacer(Modifier.width(8.dp))
-                            Text("¥%.0f".format(monthStat.totalIncome),
+                            Text("¥" + money0(monthStat.totalIncome),
                                 style = MiuixTheme.textStyles.footnote1,
                                 modifier = Modifier.width(60.dp), color = MiuixTheme.colorScheme.primary)
                         }
@@ -1425,13 +1478,13 @@ private fun getTransactionIcon(tx: Transaction): ImageVector {
 private fun formatDateHeader(dateStr: String): String {
     return try {
         val date = LocalDate.parse(dateStr)
-        val today = LocalDate.now()
+        val today = todayInSystemZone()
         when {
             date == today -> "今天"
-            date == today.minusDays(1) -> "昨天"
-            date == today.minusDays(2) -> "前天"
-            date.year == today.year -> "${date.monthValue}月${date.dayOfMonth}日"
-            else -> "${date.year}年${date.monthValue}月${date.dayOfMonth}日"
+            date == today.minus(1, DateTimeUnit.DAY) -> "昨天"
+            date == today.minus(2, DateTimeUnit.DAY) -> "前天"
+            date.year == today.year -> "${date.month.number}月${date.day}日"
+            else -> "${date.year}年${date.month.number}月${date.day}日"
         }
     } catch (_: Exception) { dateStr }
 }
@@ -1467,7 +1520,7 @@ private fun generateInsights(
         val diff = dinnerStats.avgAmount - lunchStats.avgAmount
         if (abs(diff) > 1.0) {
             insights.add(Icons.Default.Compare to
-                    (if (diff > 0) "晚餐比午餐平均贵 ¥%.1f" else "午餐比晚餐平均贵 ¥%.1f").format(abs(diff)))
+                    (if (diff > 0) "晚餐比午餐平均贵 ¥" else "午餐比晚餐平均贵 ¥") + money1(abs(diff)))
         }
     }
 
@@ -1480,8 +1533,8 @@ private fun generateInsights(
             maxOf(wdAvg, weAvg) / minOf(wdAvg, weAvg) >= 1.15
         ) {
             insights.add(Icons.Default.CalendarMonth to
-                    (if (weAvg > wdAvg) "周末单笔比工作日高（¥%.1f / ¥%.1f）" else "工作日单笔比周末高（¥%.1f / ¥%.1f）")
-                        .format(maxOf(wdAvg, weAvg), minOf(wdAvg, weAvg)))
+                    (if (weAvg > wdAvg) "周末单笔比工作日高（¥" else "工作日单笔比周末高（¥") +
+                        money1(maxOf(wdAvg, weAvg)) + " / ¥" + money1(minOf(wdAvg, weAvg)) + "）")
         }
     }
 
@@ -1491,17 +1544,17 @@ private fun generateInsights(
     val denominator = if (activeCampusDays > 3) activeCampusDays else calendarDays
     if (breakfast != null && denominator > 3) {
         val breakfastRate = (breakfast.count.toDouble() / denominator * 100).coerceAtMost(100.0)
-        insights.add(Icons.Default.WbSunny to "在校日里 %.0f%% 吃了早餐".format(breakfastRate))
+        insights.add(Icons.Default.WbSunny to "在校日里 " + percent0(breakfastRate) + " 吃了早餐")
     }
 
     val peakMonth = stats.maxByOrNull { it.peakDayAmount }
     if (peakMonth != null && peakMonth.peakDayAmount > 0) {
         insights.add(Icons.Default.LocalFireDepartment to
-                "单日最高：${CampusCardAnalysis.formatPeakDay(peakMonth.peakDay, spanYears)} ¥%.0f".format(peakMonth.peakDayAmount))
+                "单日最高：${CampusCardAnalysis.formatPeakDay(peakMonth.peakDay, spanYears)} ¥" + money0(peakMonth.peakDayAmount))
     }
 
     runwayDays(balance, dailyRate)?.let { days ->
-        insights.add(Icons.Default.AccountBalanceWallet to "余额 ¥%.0f，%s".format(balance, runwayText(days)))
+        insights.add(Icons.Default.AccountBalanceWallet to "余额 ¥" + money0(balance) + "，" + runwayText(days))
     }
 
     return insights

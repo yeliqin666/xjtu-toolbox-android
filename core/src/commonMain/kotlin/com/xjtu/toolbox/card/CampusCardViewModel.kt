@@ -1,7 +1,5 @@
 package com.xjtu.toolbox.card
 
-import android.content.Context
-import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -9,10 +7,9 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.xjtu.toolbox.account.AccountContext
-import com.xjtu.toolbox.auth.AuthExpiredException
-import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.error.FriendlyError
-import com.xjtu.toolbox.widget.CampusCardWidgetUpdater
+import com.xjtu.toolbox.error.SessionExpiredFailure
+import com.xjtu.toolbox.util.todayInSystemZone
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -21,7 +18,9 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.time.LocalDate
+import kotlinx.datetime.DateTimeUnit
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.minus
 
 internal enum class TimeRange(val label: String, val months: Int?) {
     ONE_MONTH("1个月", 1),
@@ -31,8 +30,11 @@ internal enum class TimeRange(val label: String, val months: Int?) {
     CUSTOM("自定义", null);
 
     fun resolve(customStart: LocalDate, customEnd: LocalDate): Pair<LocalDate, LocalDate> {
-        if (this == CUSTOM) return if (customStart.isAfter(customEnd)) customEnd to customStart else customStart to customEnd
-        return LocalDate.now().minusMonths((months ?: 1).toLong()) to LocalDate.now()
+        // `java.time` 的 `LocalDate.now().minusMonths(n)` → kotlinx-datetime 的
+        // `todayInSystemZone().minus(n, DateTimeUnit.MONTH)`（同一个系统默认时区、同一个日历减法）
+        if (this == CUSTOM) return if (customStart > customEnd) customEnd to customStart else customStart to customEnd
+        val today = todayInSystemZone()
+        return today.minus(months ?: 1, DateTimeUnit.MONTH) to today
     }
 }
 
@@ -57,13 +59,31 @@ internal sealed interface CampusCardEvent {
     data class Message(val text: String, val long: Boolean = false) : CampusCardEvent
 }
 
+/**
+ * 校园卡的 ViewModel。从 `:app` 搬进 `:core` 时**编排逻辑一行未改**，只换了四处"住址"：
+ *
+ *  - 取数从 `CampusCardApi(site)` 换成端口 [CampusCardSource]（卡面 / 流水 / 落盘快照，
+ *    见那个接口的 KDoc）—— 屏不再认识 `SiteSession`，也不再自己挑 `Dispatchers.IO`；
+ *  - 落盘从 `CampusCardCache`（Android 的 SharedPreferences）换成端口上的
+ *    [CampusCardSource.persistCard] / [CampusCardSource.persist]；
+ *  - `java.time` 换成 kotlinx-datetime（"今天"统一用 [todayInSystemZone]）；
+ *  - 会话失效由 `:core` 的标记接口 [SessionExpiredFailure] 认领（`:app` 的 `AuthExpiredException`
+ *    实现了它）——`catch` 抓不了接口，所以先抓 `Exception` 再判，与评教/成绩同一条缝。
+ *
+ * 还有两处**宿主能力**走参数而不是直接调（`:core` 里没有它们）：
+ *  - [onBalanceChanged]：余额/今日消费刚写进缓存，桌面小组件要刷一下。Android 传
+ *    `CampusCardWidgetUpdater.requestUpdate(context)`；Web 没有小组件，传空。
+ *    为什么不写在端口里：小组件是 Android 的宿主能力（RemoteViews + AppWidgetManager），
+ *    端口是「这一端怎么取数与落盘」，戳小组件是「这一端还有什么要跟着动」——两件事，分开注入。
+ *  - `android.util.Log` 那两行本地排障日志删掉了（`:core` 没有 `Log`，它不参与任何可观测行为）。
+ */
 internal class CampusCardViewModel(
-    context: Context,
-    site: SiteSession,
+    /** 本端的取数 + 落盘实现（Android = `AppCampusCardSource`，Web = `CampusCardNetApi`）。 */
+    private val source: CampusCardSource,
     private val saved: SavedStateHandle,
+    /** 见类 KDoc：Android = 刷新桌面小组件；Web = 空。 */
+    private val onBalanceChanged: () -> Unit = {},
 ) : ViewModel() {
-    private val context = context.applicationContext
-    private val api = CampusCardApi(site)
     private val eventChannel = Channel<CampusCardEvent>(Channel.BUFFERED)
     val events = eventChannel.receiveAsFlow()
 
@@ -77,8 +97,8 @@ internal class CampusCardViewModel(
     var stats by mutableStateOf(CardStats()); private set
 
     var timeRange by mutableStateOf(saved[KEY_RANGE] ?: TimeRange.ONE_MONTH); private set
-    private var customStart: LocalDate = saved.get<String>(KEY_START)?.let(LocalDate::parse) ?: LocalDate.now().minusMonths(1)
-    private var customEnd: LocalDate = saved.get<String>(KEY_END)?.let(LocalDate::parse) ?: LocalDate.now()
+    private var customStart: LocalDate = saved.get<String>(KEY_START)?.let(LocalDate::parse) ?: todayInSystemZone().minus(1, DateTimeUnit.MONTH)
+    private var customEnd: LocalDate = saved.get<String>(KEY_END)?.let(LocalDate::parse) ?: todayInSystemZone()
     private var generation = 0
 
     val range: Pair<LocalDate, LocalDate> get() = timeRange.resolve(customStart, customEnd)
@@ -86,11 +106,12 @@ internal class CampusCardViewModel(
     init {
         viewModelScope.launch {
             // 缓存覆盖的区间可能比当前范围宽：先裁到当前范围，首屏与网络结果一致，不会闪一下多出来的面板
-            val cached = withContext(Dispatchers.IO) { CampusCardCache.load(context) }
+            //（裁剪由端口做：`snapshot(from, to)` 返回的就是这一段）
+            val (start, end) = range
+            val cached = source.snapshot(start, end)
             if (cached != null) {
                 cardInfo = cached.cardInfo
-                val (start, end) = range
-                show(cached.transactions.filter { tx -> tx.date()?.let { it in start..end } == true })
+                show(cached.transactions)
                 isLoading = false
             }
             load(silent = transactions.isNotEmpty())
@@ -114,34 +135,41 @@ internal class CampusCardViewModel(
         load(silent = true)
     }
 
-    /** 换上新流水：统计在后台算好再一次性换上。 */
-    private suspend fun show(all: List<Transaction>, accountId: String? = AccountContext.activeAccountId, persist: Boolean = false) {
+    /**
+     * 换上新流水：统计在后台算好再一次性换上。
+     *
+     * [cardToPersist] 非 null = 这次是联网取到的新数据，要把「首页/小组件那份摘要」与「下次进屏的快照」
+     * 写下去（原来是 `persist: Boolean` + 从状态里读 cardInfo；现在由调用方把刚取到的卡面直接带进来 ——
+     * 写快照要用**这一次**取到的卡面，而不是状态里可能已被别处改过的那个）。
+     */
+    private suspend fun show(
+        all: List<Transaction>,
+        accountId: String? = AccountContext.activeAccountId,
+        cardToPersist: CardInfo? = null,
+    ) {
         val (start, end) = range
         val computed = withContext(Dispatchers.Default) { computeStats(all, start, end) }
         transactions = all
         stats = computed
-        if (persist) {
-            withContext(Dispatchers.IO) {
-                CampusCardCache.cardPrefs(context, accountId).edit()
-                    .putTodaySummary(todaySummaryOf(all))
-                    .putDailyRate(computed.dailyRate)
-                    .apply()
-            }
-            CampusCardWidgetUpdater.requestUpdate(context)
+        if (cardToPersist != null) {
+            // 搬迁前这里是两段：`cardPrefs.edit().putTodaySummary(...).putDailyRate(...)`（+ 戳小组件）
+            // 与 `CampusCardCache.save(...)`。现在合成端口上的一次 persist：同一组 key、同一份快照。
+            source.persist(cardToPersist, all, start, end, accountId)
+            onBalanceChanged()
         }
     }
 
     private fun computeStats(all: List<Transaction>, start: LocalDate, end: LocalDate): CardStats {
-        val (meals, days) = api.analyzeMealTimes(all)
+        val (meals, days) = analyzeMealTimes(all)
         return CardStats(
-            monthly = api.calculateMonthlyStats(all, start, end),
-            categories = api.categorizeSpending(all),
-            food = api.breakdownFood(all),
+            monthly = calculateMonthlyStats(all, start, end),
+            categories = categorizeSpending(all),
+            food = breakdownFood(all),
             mealTimes = meals,
             activeDays = days,
-            hourly = api.hourlyMeals(all),
+            hourly = hourlyMeals(all),
             dailyRate = dailySpendRate(all),
-            weekdayWeekend = api.analyzeWeekdayVsWeekend(all),
+            weekdayWeekend = analyzeWeekdayVsWeekend(all),
         )
     }
 
@@ -158,31 +186,33 @@ internal class CampusCardViewModel(
             try {
                 // 卡信息和流水互不依赖，一起发；余额先到先显示
                 val (info, all) = coroutineScope {
-                    val txs = async(Dispatchers.IO) { fetchRange(start, end, accountId) }
-                    val info = withContext(Dispatchers.IO) { api.getCardInfo() }
+                    // 原来是 `async(Dispatchers.IO)`：阻塞式 okhttp 由端口实现自己包 IO（见 CampusCardSource
+                    // 的 KDoc），这里只剩「把拉回来的列表和缓存合并/去重/排序」那点纯计算 —— 放到 Default，
+                    // 与统计计算同一档，不占主线程。
+                    val txs = async(Dispatchers.Default) { fetchRange(start, end, accountId) }
+                    val info = source.card()
                     if (!switched()) {
                         cardInfo = info
-                        withContext(Dispatchers.IO) {
-                            CampusCardCache.cardPrefs(context, accountId).edit()
-                                .putFloat("card_balance_cache", info.balance.toFloat())
-                                .putString("card_name_cache", info.name)
-                                .putLong("card_cache_time", System.currentTimeMillis())
-                                .apply()
-                        }
+                        // 余额先到先写：首页与小组件下一次读就能看到新余额（搬迁前这三行就写在这里，
+                        // 早于流水；流水失败时它照样落盘）
+                        source.persistCard(info, accountId)
                     }
                     info to txs.await()
                 }
                 if (mine != generation || switched()) return@launch
-                show(all, accountId, persist = true)
-                withContext(Dispatchers.IO) { CampusCardCache.save(context, info, all, start, end, accountId) }
+                show(all, accountId, cardToPersist = info)
                 eventChannel.send(CampusCardEvent.CacheUpdated)
             } catch (e: CancellationException) {
                 throw e
-            } catch (_: AuthExpiredException) {
-                eventChannel.send(CampusCardEvent.AuthExpired)
             } catch (e: Exception) {
-                errorMessage = FriendlyError.of(e, "加载校园卡")
-                if (transactions.isNotEmpty()) eventChannel.send(CampusCardEvent.Message("更新失败，当前显示上次缓存的数据", long = true))
+                // 会话失效判 :core 的标记接口（:app 的 AuthExpiredException 实现了它）——
+                // `catch` 抓不了接口，所以先抓 Exception 再判。这一支与搬迁前一样：不设 errorMessage。
+                if (e is SessionExpiredFailure) {
+                    eventChannel.send(CampusCardEvent.AuthExpired)
+                } else {
+                    errorMessage = FriendlyError.of(e, "加载校园卡")
+                    if (transactions.isNotEmpty()) eventChannel.send(CampusCardEvent.Message("更新失败，当前显示上次缓存的数据", long = true))
+                }
             } finally {
                 if (mine == generation) {
                     isLoading = false
@@ -197,13 +227,13 @@ internal class CampusCardViewModel(
      * 以前固定补最近 7 天，隔了一周以上没打开，中间那段就漏了。
      */
     private suspend fun fetchRange(start: LocalDate, end: LocalDate, accountId: String?): List<Transaction> {
-        val cached = CampusCardCache.load(context, accountId)
+        val cached = source.snapshot(start, end, accountId)
         val cachedStart = cached?.rangeStart?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
-        if (cached == null || cachedStart == null || cachedStart.isAfter(start) || cached.transactions.isEmpty()) {
-            return api.getAllTransactions(start, end, maxPages = 12, allowIncomplete = true)
+        if (cached == null || cachedStart == null || cachedStart > start || cached.transactions.isEmpty()) {
+            return source.allTransactions(start, end, maxPages = 12, allowIncomplete = true)
         }
         val known = cached.transactions.mapTo(HashSet()) { it.uniqueKey() }
-        val fresh = api.getTransactionsUntilKnown(start, end, maxPages = 12, pageSize = PAGE_SIZE) { it.uniqueKey() in known }
+        val fresh = source.transactionsUntilKnown(start, end, maxPages = 12, pageSize = PAGE_SIZE) { it.uniqueKey() in known }
         return (fresh + cached.transactions.filter { tx -> tx.date()?.let { it in start..end } == true })
             .distinctBy { it.uniqueKey() }
             .sortedByDescending { it.time }
@@ -218,9 +248,12 @@ internal class CampusCardViewModel(
             try {
                 // 服务端按 50 条一页排。已有列表可能是缓存合并出来的，条数不一定正好落在页边界：
                 // 从已有条数所在的那一页接着拉，重叠的几条靠唯一键去掉，既不跳页也不重复。
-                val (_, more) = withContext(Dispatchers.IO) {
-                    api.getTransactions(startDate = start, endDate = end, page = held.size / PAGE_SIZE + 1, pageSize = PAGE_SIZE)
-                }
+                val (_, more) = source.transactions(
+                    from = start,
+                    to = end,
+                    page = held.size / PAGE_SIZE + 1,
+                    pageSize = PAGE_SIZE,
+                )
                 val known = held.mapTo(HashSet()) { it.uniqueKey() }
                 val fresh = more.filter { known.add(it.uniqueKey()) }
                 // 拉的过程中换了范围或刷新过列表：这批结果对不上了，丢掉
@@ -231,11 +264,12 @@ internal class CampusCardViewModel(
                 }
             } catch (e: CancellationException) {
                 throw e
-            } catch (_: AuthExpiredException) {
-                eventChannel.send(CampusCardEvent.AuthExpired)
             } catch (e: Exception) {
-                Log.w(TAG, "loadMore failed: ${e.message}")
-                eventChannel.send(CampusCardEvent.Message("加载更多失败，请重试"))
+                if (e is SessionExpiredFailure) {
+                    eventChannel.send(CampusCardEvent.AuthExpired)
+                } else {
+                    eventChannel.send(CampusCardEvent.Message("加载更多失败，请重试"))
+                }
             } finally {
                 isLoadingMore = false
             }
@@ -243,7 +277,6 @@ internal class CampusCardViewModel(
     }
 
     private companion object {
-        const val TAG = "CampusCardViewModel"
         const val PAGE_SIZE = 50
         const val KEY_RANGE = "range"
         const val KEY_START = "customStart"

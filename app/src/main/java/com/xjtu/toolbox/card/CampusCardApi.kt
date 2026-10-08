@@ -11,100 +11,27 @@ import kotlinx.serialization.json.jsonPrimitive
 import android.util.Log
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.withTimeout
 import okhttp3.Request
-import java.time.LocalDate
-import java.time.YearMonth
-import java.time.format.DateTimeFormatter
+import com.xjtu.toolbox.util.todayInSystemZone
+import kotlinx.datetime.DateTimeUnit
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.minus
 
 private const val TAG = "CampusCardApi"
 
-// ==================== 数据类 ====================
-
-/** 校园卡基本信息 */
-@kotlinx.serialization.Serializable
-data class CardInfo(
-    val account: String = "",
-    val name: String = "",
-    val studentNo: String = "",
-    val balance: Double = 0.0,         // 电子钱包余额（元）
-    val pendingAmount: Double = 0.0,   // 待入账金额
-    val lostFlag: Boolean = false,     // 是否挂失
-    val frozenFlag: Boolean = false,   // 是否冻结
-    val expireDate: String = "",       // 过期日期
-    val cardType: String = "",         // 卡类型名称
-    val department: String = "",       // 学院（从 HTML 提取）
-)
-
-/**
- * 一笔流水的去重键：接口不给流水号，只能用这几个字段拼。不含 [Transaction.merchant]：
- * 它是解析出来的，解析规则一改，落盘缓存里的旧流水就和重新拉到的对不上了。
- */
-internal fun Transaction.uniqueKey(): String = "$time|$amount|$balance|$description"
-
-/** 单笔交易记录 */
-@kotlinx.serialization.Serializable
-data class Transaction(
-    val time: String = "",            // 交易时间
-    val merchant: String = "",        // 商户名称
-    val amount: Double = 0.0,         // 交易金额（负=支出，正=收入）
-    val balance: Double = 0.0,        // 交易后余额
-    val type: String = "",            // 交易类型
-    val description: String = "",     // 详细描述
-) {
-    /**
-     * 展示与统计一律用这个，不要直接读 [merchant]。
-     *
-     * 接口的 `toMerchant` 对扫码点餐、充值返回的是空字符串，解析时已经兜了一次；
-     * 但**落盘缓存里存的是解析后的结果**，老缓存里那批空串不会因为解析改好就自动变好。
-     * 在这里再兜一次，历史数据不用等刷新也能显示出名字。
-     */
-    val displayMerchant: String
-        get() = merchant.ifBlank { merchantFromResume(description) }
-}
-
-/**
- * 商户名缺失时从 `resume` 里取一个能看的名字。
- *
- * resume 的形状是「商户-渠道」（`珍念水饺-电子账户消费`）或只有渠道
- * （`电子账户消费`、`充值-支付宝转账`）。取第一段即可；只剩渠道时去掉「消费」后缀，
- * 免得流水里一行写着「电子账户消费」还配一个「消费」类型。
- */
-internal fun merchantFromResume(resume: String): String {
-    val head = resume.substringBefore("-").trim()
-    return head.removeSuffix("消费").trim().ifBlank { head.ifBlank { "未知商户" } }
-}
-
-/** 月度统计 */
-data class MonthlyStats(
-    val month: YearMonth,
-    val totalSpend: Double,      // 总支出（正数）
-    val totalIncome: Double,     // 总收入
-    val transactionCount: Int,   // 交易笔数
-    val topMerchants: List<MerchantStat>,  // 商户消费排行
-    val avgDailySpend: Double = 0.0,       // 按该月落在统计区间内的天数摊
-    val peakDay: String = "",              // 消费最多的一天
-    val peakDayAmount: Double = 0.0,       // 该天消费额
-    val daysCovered: Int = 0               // 该月与查询区间重叠的天数
-)
-
-/** 商户消费统计 */
-data class MerchantStat(
-    val name: String,
-    val totalAmount: Double,     // 总消费（正数）
-    val count: Int               // 消费次数
-)
-
-// ==================== API 类 ====================
+// ==================== ncard 取数（网络 + 解析） ====================
+//
+// 这个文件原来是「模型 + 纯统计 + 分页编排 + 网络」一锅端。屏与 ViewModel 搬进 :core 之后前三样跟着走了：
+// 模型在 `CampusCardModels.kt`、纯统计在 `CampusCardAnalysis.kt`、分页编排（allTransactions /
+// transactionsUntilKnown）是 `CampusCardSource` 上的扩展函数。这里**只剩网络与解析**：登 ncard 抓
+// HTML/JSON、按 `CampusCardContract` 的约定判成功与收支方向 —— 抓到的数据由 `AppCampusCardSource`
+// 交给 :core 的屏（那才是端口 `CampusCardSource` 在 Android 侧的实现）。
+//
+// 取数实现本身**一行未改**（含那两行 `Log.d` 与两个 `allowRetry` 包装）：搬位置不改行为。
 
 class CampusCardApi(private val site: SiteSession) {
 
     private val baseUrl = "https://ncard.xjtu.edu.cn"
-    private val dateFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd")
 
     private suspend fun execute(request: Request): String =
         site.executeWithReAuth(request).use { response ->
@@ -201,26 +128,6 @@ class CampusCardApi(private val site: SiteSession) {
     }
 
     /**
-     * 这笔餐饮属于哪类主食。不是餐饮、或认不出来时返回 null，调用方自行归入「其他」。
-     */
-    fun foodSubCategory(tx: Transaction): String? {
-        if (classifyMerchant(tx.displayMerchant, tx.description, tx.time) != "餐饮") return null
-        val m = tx.displayMerchant.lowercase()
-        return FOOD_SUB_RULES.firstOrNull { (_, keys) -> keys.any { m.contains(it) } }?.first
-    }
-
-    /** 餐饮支出按主食分类汇总，金额降序。 */
-    fun breakdownFood(transactions: List<Transaction>): Map<String, Double> {
-        val out = mutableMapOf<String, Double>()
-        for (tx in transactions) {
-            if (tx.amount >= 0) continue
-            val sub = foodSubCategory(tx) ?: continue
-            out[sub] = (out[sub] ?: 0.0) + (-tx.amount)
-        }
-        return out.toList().sortedByDescending { it.second }.toMap()
-    }
-
-    /**
      * 获取交易流水（分页）
      * @param startDate 开始日期
      * @param endDate 结束日期
@@ -229,8 +136,10 @@ class CampusCardApi(private val site: SiteSession) {
      * @return Pair<总条数, 当页交易列表>
      */
     suspend fun getTransactions(
-        startDate: LocalDate = LocalDate.now().minusMonths(3),
-        endDate: LocalDate = LocalDate.now(),
+        // 日期参数是 kotlinx-datetime 的（:core 的屏与端口都用它）；默认值与原 `LocalDate.now()`
+        // 同一个"本机时区的今天"，减三个月也一样是日历减法。
+        startDate: LocalDate = todayInSystemZone().minus(3, DateTimeUnit.MONTH),
+        endDate: LocalDate = todayInSystemZone(),
         page: Int = 1,
         pageSize: Int = 30
     ): Pair<Int, List<Transaction>> = getTransactionsInternal(startDate, endDate, page, pageSize, allowRetry = true)
@@ -247,7 +156,8 @@ class CampusCardApi(private val site: SiteSession) {
         }
         val url = "$baseUrl/berserker-search/search/personal/turnover" +
             "?size=$pageSize&current=$page" +
-            "&timeFrom=${startDate.format(dateFormat)}&timeTo=${endDate.format(dateFormat)}" +
+            // `LocalDate.toString()` 就是 ISO-8601 的 `yyyy-MM-dd`，与原来 `DateTimeFormatter.ofPattern("yyyy-MM-dd")` 逐字相同
+            "&timeFrom=$startDate&timeTo=$endDate" +
             "&synAccessSource=h5"
 
         val responseBody = execute(Request.Builder().url(url).get().build())
@@ -300,333 +210,8 @@ class CampusCardApi(private val site: SiteSession) {
         return total to transactions
     }
 
-    /**
-     * 按服务端总数拉全部分页。任一页失败或出现残页、重复页、总数变化时抛错，
-     * 不再静默丢掉中间页还当成查询成功。
-     *
-     * @param allowIncomplete 首页冷启动可以先拿前几页，其余走“加载更多”。
-     */
-    suspend fun getAllTransactions(
-        startDate: LocalDate = LocalDate.now().minusMonths(3),
-        endDate: LocalDate = LocalDate.now(),
-        maxPages: Int = 80,
-        pageSize: Int = 50,
-        allowIncomplete: Boolean = false,
-    ): List<Transaction> {
-        if (maxPages <= 0 || pageSize <= 0) {
-            throw RuntimeException("查询校园卡流水的分页参数必须为正数")
-        }
-        val (total, firstPage) = getTransactions(startDate, endDate, 1, pageSize)
-        if (total == 0) return emptyList()
-        if (firstPage.isEmpty()) {
-            if (allowIncomplete) return emptyList()
-            throw RuntimeException("查询校园卡流水返回了残缺流水数据")
-        }
-
-        val records = firstPage.toMutableList()
-        val seenPages = mutableSetOf(pageSignature(firstPage))
-        val computedPages = maxOf(1, (total + pageSize - 1) / pageSize)
-        val totalPages = minOf(computedPages, maxPages)
-        if (records.size > total) {
-            throw RuntimeException("查询校园卡流水返回的流水记录超过总数")
-        }
-        if (records.size == total || totalPages <= 1) return records
-
-        // 其余分页最多 3 路并发，每页 45 秒超时
-        val pageDispatcher = Dispatchers.IO.limitedParallelism(3)
-        coroutineScope {
-            val pages = (2..totalPages).map { page ->
-                page to async(pageDispatcher) { withTimeout(45_000) { getTransactions(startDate, endDate, page, pageSize) } }
-            }
-            for ((page, deferred) in pages) {
-                val (pageTotal, batch) = try {
-                    deferred.await()
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    throw RuntimeException("查询校园卡流水第${page}页失败，请检查网络后重试", e)
-                }
-                if (pageTotal != total) {
-                    throw RuntimeException("查询校园卡流水返回的总数在分页过程中发生变化")
-                }
-                if (batch.isNotEmpty()) {
-                    val signature = pageSignature(batch)
-                    if (!seenPages.add(signature)) {
-                        throw RuntimeException("查询校园卡流水返回了重复分页数据")
-                    }
-                    records += batch
-                }
-                if (records.size > total) {
-                    throw RuntimeException("查询校园卡流水返回的流水记录超过总数")
-                }
-            }
-        }
-        if (records.size == total) return records
-        if (allowIncomplete) return records
-        throw RuntimeException("查询校园卡流水返回了残缺流水数据")
-    }
-
-    /**
-     * 从第 1 页往后拉，拉到某页里出现 [isKnown] 的流水为止。服务端按入账时间倒序排
-     * （2026-09 实测一年 961 条无一例外），延迟上传的旧流水入账时间也是新的，同样排在前面，
-     * 所以接上已有数据之后的页不会再有新东西。
-     */
-    suspend fun getTransactionsUntilKnown(
-        startDate: LocalDate,
-        endDate: LocalDate,
-        maxPages: Int,
-        pageSize: Int = 50,
-        isKnown: (Transaction) -> Boolean,
-    ): List<Transaction> {
-        val records = mutableListOf<Transaction>()
-        for (page in 1..maxPages) {
-            val (total, batch) = getTransactions(startDate, endDate, page, pageSize)
-            records += batch
-            if (batch.any(isKnown) || batch.size < pageSize || records.size >= total) break
-        }
-        return records
-    }
-
-    private fun pageSignature(batch: List<Transaction>): String = batch.joinToString("\n") { it.uniqueKey() }
-
-    /**
-     * 按月汇总。传入查询起止日后：日均按该月落在区间内的天数摊，
-     * 区间内没有流水的月份也会占一位（支出为 0），避免跨年趋势把空月藏掉。
-     */
-    fun calculateMonthlyStats(
-        transactions: List<Transaction>,
-        rangeStart: LocalDate? = null,
-        rangeEnd: LocalDate? = null,
-    ): List<MonthlyStats> {
-        val byMonth = linkedMapOf<YearMonth, MutableList<Transaction>>()
-        for (tx in transactions) {
-            val date = runCatching {
-                LocalDate.parse(tx.time.substringBefore(" "), dateFormat)
-            }.getOrNull() ?: continue
-            byMonth.getOrPut(YearMonth.from(date)) { mutableListOf() }.add(tx)
-        }
-
-        val inferredStart = rangeStart
-            ?: byMonth.keys.minOrNull()?.atDay(1)
-            ?: return emptyList()
-        val inferredEnd = rangeEnd
-            ?: byMonth.keys.maxOrNull()?.atEndOfMonth()
-            ?: inferredStart
-        val startMonth = YearMonth.from(inferredStart)
-        val endMonth = YearMonth.from(inferredEnd)
-
-        val months = generateSequence(startMonth) { current ->
-            val next = current.plusMonths(1)
-            if (next.isAfter(endMonth)) null else next
-        }
-
-        return months.map { month ->
-            val txList = byMonth[month].orEmpty()
-            val spending = txList.filter { it.amount < 0 }
-            val income = txList.filter { it.amount > 0 }
-            val merchantStats = spending.groupBy { it.displayMerchant }
-                .map { (name, txs) ->
-                    MerchantStat(
-                        name = name,
-                        totalAmount = -txs.sumOf { it.amount },
-                        count = txs.size
-                    )
-                }
-                .sortedByDescending { it.totalAmount }
-                .take(10)
-            // 逐笔取反再求和，不写 -sumOf：没有消费的月份 -(0.0) 是 -0.0，趋势图上印成「¥-0」。
-            val totalSpend = spending.sumOf { -it.amount }
-            val overlapStart = maxOf(month.atDay(1), inferredStart)
-            val overlapEnd = minOf(month.atEndOfMonth(), inferredEnd)
-            val daysCovered = java.time.temporal.ChronoUnit.DAYS.between(overlapStart, overlapEnd).toInt() + 1
-            val safeDays = daysCovered.coerceAtLeast(1)
-            val dailySpend = spending.groupBy { it.time.substringBefore(" ") }
-                .mapValues { (_, txs) -> -txs.sumOf { it.amount } }
-            val peakEntry = dailySpend.maxByOrNull { it.value }
-            MonthlyStats(
-                month = month,
-                totalSpend = totalSpend,
-                totalIncome = income.sumOf { it.amount },
-                transactionCount = txList.size,
-                topMerchants = merchantStats,
-                avgDailySpend = totalSpend / safeDays,
-                peakDay = peakEntry?.key ?: "",
-                peakDayAmount = peakEntry?.value ?: 0.0,
-                daysCovered = safeDays
-            )
-        }.toList().sortedByDescending { it.month }
-    }
-
-    /**
-     * 消费类别分析（根据商户名 + 交易描述智能分类）
-     */
-    fun categorizeSpending(transactions: List<Transaction>): Map<String, Double> {
-        val categories = mutableMapOf<String, Double>()
-        for (tx in transactions) {
-            if (tx.amount >= 0) continue  // 只分析支出
-            val category = classifyMerchant(tx.displayMerchant, tx.description, tx.time)
-            categories[category] = (categories[category] ?: 0.0) + (-tx.amount)
-        }
-        return categories.toList().sortedByDescending { it.second }.toMap()
-    }
-
-    /**
-     * 用餐时段分析（早/中/晚/夜宵）
-     * 返回每个时段的次数由【天数】统计（同一天同时段多笔交易算一天）
-     * 同时返回"在校天数"——至少有一顿正餐记录的自然日数（用于早餐率分母）
-     */
-    /** 餐饮消费按钟点计笔数，下标即 0–23 点。 */
-    fun hourlyMeals(transactions: List<Transaction>): List<Int> {
-        val out = IntArray(24)
-        for (tx in transactions) {
-            if (tx.amount >= 0) continue
-            if (classifyMerchant(tx.displayMerchant, tx.description, tx.time) != "餐饮") continue
-            val hour = tx.time.substringAfter(" ").substringBefore(":").toIntOrNull() ?: continue
-            if (hour in 0..23) out[hour]++
-        }
-        return out.toList()
-    }
-
-    fun analyzeMealTimes(transactions: List<Transaction>): Pair<Map<String, MealTimeStats>, Int> {
-        // 先按时段收集所有交易，再按日期聚合
-        val rawMeals = mutableMapOf<String, MutableMap<String, MutableList<Double>>>()
-        for (period in listOf("早餐", "午餐", "晚餐", "夜宵")) {
-            rawMeals[period] = mutableMapOf()
-        }
-
-        for (tx in transactions) {
-            if (tx.amount >= 0) continue
-            val category = classifyMerchant(tx.displayMerchant, tx.description, tx.time)
-            if (category != "餐饮") continue
-
-            val hour = try {
-                tx.time.substringAfter(" ").substringBefore(":").toInt()
-            } catch (_: Exception) { continue }
-
-            // 时段划分：下午3-4点（15/16时）不归入正餐，避免把"买杯下午茶"算成晚餐
-            val period = when (hour) {
-                in 5..10 -> "早餐"   // 5am-10am
-                in 11..14 -> "午餐"  // 11am-2pm
-                in 17..21 -> "晚餐"  // 5pm-9pm
-                in 22..23, in 0..4 -> "夜宵"  // 10pm-4am
-                else -> null        // 3pm-4pm(15/16时) — 下午茶/零食，不计入
-            }
-            if (period == null) continue
-            val date = tx.time.substringBefore(" ")
-            rawMeals[period]?.getOrPut(date) { mutableListOf() }?.add(-tx.amount)
-        }
-
-        // 在校天数 = 任意正餐时段（早/午/晚）有消费记录的 distinct 日期数
-        val activeDates = (rawMeals["早餐"]?.keys.orEmpty() +
-                rawMeals["午餐"]?.keys.orEmpty() +
-                rawMeals["晚餐"]?.keys.orEmpty()).toSet()
-        val activeCampusDays = activeDates.size
-
-        val mealStats = rawMeals.filter { it.value.isNotEmpty() }.mapValues { (_, dateMap) ->
-            val dayCount = dateMap.size  // 有该时段用餐的天数
-            val totalAmount = dateMap.values.sumOf { it.sum() }
-            val avgPerDay = if (dayCount > 0) totalAmount / dayCount else 0.0
-            MealTimeStats(
-                count = dayCount,
-                totalAmount = totalAmount,
-                avgAmount = avgPerDay
-            )
-        }
-        return mealStats to activeCampusDays
-    }
-
-    /**
-     * 工作日 vs 周末消费分析
-     */
-    fun analyzeWeekdayVsWeekend(transactions: List<Transaction>): Pair<DayTypeStats, DayTypeStats> {
-        val weekday = mutableListOf<Pair<LocalDate, Double>>()
-        val weekend = mutableListOf<Pair<LocalDate, Double>>()
-
-        for (tx in transactions) {
-            if (tx.amount >= 0) continue
-            val date = try {
-                LocalDate.parse(tx.time.substringBefore(" "), dateFormat)
-            } catch (_: Exception) { continue }
-
-            val amount = -tx.amount
-            when (date.dayOfWeek.value) {
-                in 1..5 -> weekday.add(date to amount)
-                else -> weekend.add(date to amount)
-            }
-        }
-
-        return DayTypeStats.from("工作日", weekday) to DayTypeStats.from("周末", weekend)
-    }
-
-    /**
-     * 没有商户名的「电子账户消费」按时段判。
-     *
-     * 扫码点餐这类不回传档口名，只给一句「电子账户消费」，名字里没有任何餐饮特征词，
-     * 全部落进「其他」。但它们清一色出现在饭点、金额也在一餐的量级，当成餐饮比当成
-     * 「其他」贴近事实。落在饭点之外的仍旧算不出来，保持「其他」。
-     */
-    private fun mealHour(time: String): Boolean {
-        val h = time.substringAfter(" ").substringBefore(":").toIntOrNull() ?: return false
-        return h in 6..9 || h in 11..13 || h in 17..19
-    }
-
-    private fun classifyMerchant(merchant: String, description: String, time: String = ""): String {
-        val m = merchant.lowercase()
-        val d = description.lowercase()
-        fun hit(haystack: String, keys: Array<String>): Boolean = keys.any { haystack.contains(it) }
-        return when {
-            hit(m, arrayOf("浴室", "澡堂", "淋浴", "浴池")) -> "洗浴"
-            hit(m, arrayOf("能源", "电控", "水控", "电量")) ||
-                hit(d, arrayOf("电费", "水费", "能源")) -> "水电"
-            // 「超级市场」不含连续「超市」二字（松林超级市场曾漏进其他）
-            hit(m, arrayOf("超市", "超级市场", "便利", "商店", "售卖", "小卖", "便民", "百货", "卖场")) -> "超市"
-            hit(m, arrayOf("图书", "打印", "复印", "文印", "书店", "文具")) -> "学习"
-            hit(m, arrayOf("洗衣", "洗涤", "干洗", "洗鞋")) -> "洗衣"
-            hit(m, arrayOf("班车", "通勤", "校车")) -> "交通"
-            hit(m, FOOD_MERCHANT_KEYS) -> "餐饮"
-            hit(m, arrayOf("医院", "药", "诊所", "卫生")) -> "医疗"
-            hit(d, arrayOf("圈存", "充值", "转账")) -> "充值"
-            // 只有渠道名、没有档口名，且发生在饭点，见 [mealHour]
-            hit(m, arrayOf("电子账户")) && mealHour(time) -> "餐饮"
-            else -> "其他"
-        }
-    }
-
     private fun formatExpDate(raw: String): String {
         if (raw.length != 8) return raw
         return "${raw.substring(0, 4)}-${raw.substring(4, 6)}-${raw.substring(6, 8)}"
-    }
-}
-
-// ==================== 辅助数据类 ====================
-
-/** 用餐时段统计 */
-data class MealTimeStats(
-    val count: Int,
-    val totalAmount: Double,
-    val avgAmount: Double
-)
-
-/** 工作日/周末统计 */
-data class DayTypeStats(
-    val label: String,
-    val count: Int,
-    val totalAmount: Double,
-    val avgPerTransaction: Double,
-    val avgPerDay: Double
-) {
-    companion object {
-        /** dateAmountPairs: (date, amount) 列表，日期用于准确统计天数 */
-        fun from(label: String, dateAmountPairs: List<Pair<LocalDate, Double>>): DayTypeStats {
-            val distinctDays = dateAmountPairs.map { it.first }.toSet().size.coerceAtLeast(1)
-            val amounts = dateAmountPairs.map { it.second }
-            return DayTypeStats(
-                label = label,
-                count = amounts.size,
-                totalAmount = amounts.sum(),
-                avgPerTransaction = if (amounts.isNotEmpty()) amounts.average() else 0.0,
-                avgPerDay = amounts.sum() / distinctDays
-            )
-        }
     }
 }
