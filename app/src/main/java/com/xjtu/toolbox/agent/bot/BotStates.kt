@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.agent.bot
 
 import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.sin
 
 /**
@@ -67,7 +68,7 @@ class StateDef(
     val morph: Double,
     /** true = 入场由一次眨眼掩护 */
     val blinkIn: Boolean,
-    /** true = 身体是静息轮廓（圆），可被自定义形状替换（本移植只有圆形，恒等） */
+    /** true = 身体是静息轮廓，引擎换成云朵 */
     val baseBody: Boolean,
     /** true = 状态带静息脸 */
     val baseFace: Boolean,
@@ -154,6 +155,48 @@ val STATE_BURST = StateDef(
     },
 )
 
+/**
+ * 被戳一下：按扁、眯眼，阻尼回弹时睁大眼看过来，0.7s 收回静息脸。
+ * 自己设计的（不是参考视频实测），所以这里允许过冲。末帧就是静息脸，回 idle 无缝。
+ */
+val STATE_POKE = StateDef(
+    id = "poke",
+    duration = 0.7,
+    morph = 0.08,
+    blinkIn = false,
+    baseBody = true,
+    baseFace = false,
+    pose = { t ->
+        // 0.07s 压到底（矮 14%），随后阻尼振荡：过冲约 3% 变高，0.6s 内落定
+        val u = t - POKE_PRESS
+        val squash = if (u < 0.0) -0.14 * Easings.easeOutCubic(clamp01(t / POKE_PRESS))
+        else -0.14 * exp(-u * 9.0) * cos(u * 19.0)
+        val sy = 1.0 + squash
+        // 0.28s 起睁眼，0.45s 起从「看着你」放松回静息脸
+        val open =Easings.easeOutCubic(clamp01((t - 0.28) / 0.14))
+        val relax = Easings.easeInOutCubic(clamp01((t - 0.45) / 0.25))
+        fun eye(w: Double, h: Double) = EyeCfg(
+            w = lerp(lerp(0.36, w, open), EXPRESSION_ATTENTIF.eyes[0].w, relax),
+            h = lerp(lerp(0.09, h, open), EXPRESSION_ATTENTIF.eyes[0].h, relax),
+        )
+        val rest = EXPRESSION_ATTENTIF.gaze
+        base(
+            // 宽度反向补一半显得软；底边大致贴地，身体往下坐
+            sil = circle(1.0, cy = (1.0 - sy) * 0.6, sx = 1.0 - squash * 0.5, sy = sy),
+            // 眯眼时头微低，睁眼那下正对你，再回静息朝向
+            gaze = HeadGaze(
+                yaw = lerp(0.0, rest.yaw, relax),
+                pitch = lerp(lerp(-4.0, 2.0, open), rest.pitch, relax),
+                roll = lerp(0.0, rest.roll, relax),
+            ),
+            split = EXPRESSION_ATTENTIF.split,
+            eyes = listOf(eye(0.23, 0.48), eye(0.23, 0.48)),
+        )
+    },
+)
+
+private const val POKE_PRESS = 0.07
+
 val STATE_COMET = StateDef(
     id = "comet",
     duration = 2.4,
@@ -219,6 +262,7 @@ val BOT_STATES: Map<String, StateDef> = mapOf(
     STATE_NOTIFY.id to STATE_NOTIFY,
     STATE_BURST.id to STATE_BURST,
     STATE_COMET.id to STATE_COMET,
+    STATE_POKE.id to STATE_POKE,
 )
 
 /* ------------------------------------------------- 轨道用的旋转三角 */

@@ -194,6 +194,11 @@ class LmsApi(private val site: SiteSession) {
         return detail.mergeBrief(brief)
     }
 
+    /** 作业已提交次数。列表接口不给 `user_submit_count`，只有详情有。 */
+    suspend fun getUserSubmitCount(activityId: Int): Int =
+        (getJson("$baseUrl/api/activities/$activityId") ?: throw RuntimeException("获取活动详情失败"))
+            .get("user_submit_count").safeInt()
+
     // ── 内部方法 ──────────────────────
 
     private suspend fun injectMarkedAttachments(sub: LmsSubmissionItem): LmsSubmissionItem {

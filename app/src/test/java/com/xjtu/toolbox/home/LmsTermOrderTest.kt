@@ -72,8 +72,10 @@ class LmsTermOrderTest {
 
     @Test
     fun pick_realData_selectsCurrentTerm() {
-        val picked = newestTermCourses(realShaped, max = 6)
-        assertEquals(6, picked.size)
+        val picked = newestTermCourses(realShaped)
+        // 当前学期 11 门全选：不能截断，否则排第 9 的课（#121 的英语）作业进不了待办
+        assertEquals(11, picked.size)
+        assertTrue(picked.any { it.name == "当前学期8" })
         assertEquals(setOf("2026-1"), picked.map { it.semester.code }.toSet())
         // 学期元数据为 null 的课不该混进来
         assertTrue(picked.none { it.id == -1 })
@@ -88,22 +90,17 @@ class LmsTermOrderTest {
     }
 
     @Test
-    fun pick_respectsMax() {
-        assertEquals(3, newestTermCourses(realShaped, max = 3).size)
-    }
-
-    @Test
     fun pick_noTermMetadataAtAll_keepsCourses() {
         // 一门都认不出学期时不能把首页清空：退化成不筛
         val anonymous = listOf(
             LmsCourseSummary(id = 1, name = "A"),
             LmsCourseSummary(id = 2, name = "B"),
         )
-        assertEquals(listOf(1, 2), newestTermCourses(anonymous, max = 6).map { it.id })
+        assertEquals(listOf(1, 2), newestTermCourses(anonymous).map { it.id })
     }
 
     @Test
     fun pick_emptyList() {
-        assertTrue(newestTermCourses(emptyList(), max = 6).isEmpty())
+        assertTrue(newestTermCourses(emptyList()).isEmpty())
     }
 }

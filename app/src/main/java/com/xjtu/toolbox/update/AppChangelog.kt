@@ -34,6 +34,18 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "5.1.1" to VersionChangelog(
+            items = listOf(
+                "🪶" to "为学日益，为道日损。",
+                "🐣" to "屁岱新增 5 个角色，连戳 3 下有彩蛋",
+                "📌" to "待办补上漏掉的思源作业，交过的自动消失；新增待办小组件",
+                "💬" to "社区楼中楼回复自动带引用，置顶标签不再丢",
+                "🧑‍🏫" to "教师详情直接看主页简介，打不开、空白的修好了",
+                "🗓️" to "课表顶部直接写第几周，再点一下选周",
+                "🔒" to "经典屁岱固定为云朵，不再支持导入外部皮肤",
+                "🩹" to "修复屁岱久了不眨眼等问题",
+            )
+        ),
         "5.1.0" to VersionChangelog(
             items = listOf(
                 "🪶" to "知止而后有定。",

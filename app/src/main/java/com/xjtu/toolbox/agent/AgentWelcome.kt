@@ -347,7 +347,7 @@ internal fun AgentWelcome(
 private fun pickLine(facts: WelcomeFacts, now: LocalDateTime, avoid: String?): String? {
     repeat(6) {
         val l = ChatterPool.pick(now, emptyList(), facts.nextToday?.courseName, null, facts = facts.chatter)
-            ?.takeIf { !it.id.startsWith("app_") && it.action == null }
+            ?.takeIf { !it.id.startsWith("app_") }
             ?.text
         if (l != null && l != avoid) return l
     }
@@ -362,11 +362,11 @@ private fun Hero(title: String, facts: WelcomeFacts, now: LocalDateTime) {
     var line by remember(facts) {
         mutableStateOf(host.heroLine ?: pickLine(facts, now, null) ?: "课表、考试、空教室、饭卡，直接问我就行")
     }
-    // 进来先眨个眼打招呼，之后回到待命；点它一下换一句话、翻个跟头
+    // 进来先眨个眼打招呼，之后回到待命；戳它一下换一句话，连戳放彩蛋
     var beat by remember { mutableStateOf(PidaiBeat.IDLE) }
-    var pokes by remember { mutableStateOf(0) }
-    LaunchedEffect(pokes) {
-        delay(1600)
+    val pokes = remember { PidaiPokes() }
+    LaunchedEffect(pokes.serial) {
+        delay(beat.holdMs(look.cast) ?: return@LaunchedEffect)
         beat = PidaiBeat.REST
     }
     // 已经在屁岱页又点了底栏屁岱：那句闲话由这里说，不从底栏冒泡
@@ -375,8 +375,7 @@ private fun Hero(title: String, facts: WelcomeFacts, now: LocalDateTime) {
         if (host.heroPokes == seenPokes[0]) return@LaunchedEffect
         seenPokes[0] = host.heroPokes
         host.heroLine?.let { line = it }
-        beat = PidaiBeat.TAP
-        pokes++
+        beat = pokes.poke()
     }
     // 轻轻上下浮动：约 30 帧/秒推进相位，页面不可见就停（和底栏屁岱同一档开销）
     val visible = com.xjtu.toolbox.ui.components.LocalPageVisible.current
@@ -416,8 +415,7 @@ private fun Hero(title: String, facts: WelcomeFacts, now: LocalDateTime) {
                 .size(88.dp)
                 .clip(CircleShape)
                 .clickable {
-                    pokes++
-                    beat = PidaiBeat.TAP
+                    beat = pokes.poke()
                     pickLine(facts, LocalDateTime.now(), line)?.let { line = it }
                 },
             contentAlignment = Alignment.Center,
@@ -426,8 +424,8 @@ private fun Hero(title: String, facts: WelcomeFacts, now: LocalDateTime) {
                 beat = beat,
                 ink = look.ink,
                 paper = MiuixTheme.colorScheme.surface,
-                shape = look.shape,
-                skin = look.skin,
+                cast = look.cast,
+                pokeSerial = pokes.serial,
                 modifier = Modifier
                     .size(72.dp)
                     .graphicsLayer { translationY = -4.dp.toPx() + kotlin.math.sin(floatPhase.floatValue) * 4.dp.toPx() },

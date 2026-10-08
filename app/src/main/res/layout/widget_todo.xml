@@ -1,0 +1,278 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  待办小部件：标题行（名称 + 条数），下面最近 4 条一行一条：左边一道色条（作业按科目取课表的课程色，
+  其余按分类色，setColorFilter 着色，见 widget_schedule_course_accent_item），科目名同色，右边截止时间。
+  四行平分剩下的高度，卡片拉高拉矮都铺得满。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_todo_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/bg_schedule_widget"
+    android:orientation="vertical"
+    android:padding="12dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:maxLines="1"
+            android:text="@string/todo_widget_name"
+            android:textColor="@color/widget_on_surface"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/widget_todo_count"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:gravity="end"
+            android:maxLines="1"
+            android:textColor="@color/widget_on_surface_secondary"
+            android:textSize="10sp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/widget_todo_list"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginTop="4dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:id="@+id/widget_todo_row_0"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:baselineAligned="false"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:id="@+id/widget_todo_accent_0"
+                android:layout_width="3dp"
+                android:layout_height="14dp"
+                android:importantForAccessibility="no"
+                android:scaleType="fitXY"
+                android:src="@drawable/bg_widget_accent" />
+
+            <TextView
+                android:id="@+id/widget_todo_source_0"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="7dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:maxWidth="88dp"
+                android:textColor="@color/widget_on_surface_secondary"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/widget_todo_title_0"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/widget_on_surface"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/widget_todo_due_0"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:maxLines="1"
+                android:textColor="@color/widget_on_surface_secondary"
+                android:textSize="10sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/widget_todo_row_1"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:baselineAligned="false"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:id="@+id/widget_todo_accent_1"
+                android:layout_width="3dp"
+                android:layout_height="14dp"
+                android:importantForAccessibility="no"
+                android:scaleType="fitXY"
+                android:src="@drawable/bg_widget_accent" />
+
+            <TextView
+                android:id="@+id/widget_todo_source_1"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="7dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:maxWidth="88dp"
+                android:textColor="@color/widget_on_surface_secondary"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/widget_todo_title_1"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/widget_on_surface"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/widget_todo_due_1"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:maxLines="1"
+                android:textColor="@color/widget_on_surface_secondary"
+                android:textSize="10sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/widget_todo_row_2"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:baselineAligned="false"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:id="@+id/widget_todo_accent_2"
+                android:layout_width="3dp"
+                android:layout_height="14dp"
+                android:importantForAccessibility="no"
+                android:scaleType="fitXY"
+                android:src="@drawable/bg_widget_accent" />
+
+            <TextView
+                android:id="@+id/widget_todo_source_2"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="7dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:maxWidth="88dp"
+                android:textColor="@color/widget_on_surface_secondary"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/widget_todo_title_2"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/widget_on_surface"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/widget_todo_due_2"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:maxLines="1"
+                android:textColor="@color/widget_on_surface_secondary"
+                android:textSize="10sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/widget_todo_row_3"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:baselineAligned="false"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:id="@+id/widget_todo_accent_3"
+                android:layout_width="3dp"
+                android:layout_height="14dp"
+                android:importantForAccessibility="no"
+                android:scaleType="fitXY"
+                android:src="@drawable/bg_widget_accent" />
+
+            <TextView
+                android:id="@+id/widget_todo_source_3"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="7dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:maxWidth="88dp"
+                android:textColor="@color/widget_on_surface_secondary"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/widget_todo_title_3"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/widget_on_surface"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/widget_todo_due_3"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:maxLines="1"
+                android:textColor="@color/widget_on_surface_secondary"
+                android:textSize="10sp" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/widget_todo_empty"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:maxLines="1"
+            android:text="@string/todo_widget_empty_title"
+            android:textColor="@color/widget_on_surface"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:maxLines="1"
+            android:text="@string/todo_widget_empty_detail"
+            android:textColor="@color/widget_on_surface_secondary"
+            android:textSize="11sp" />
+    </LinearLayout>
+</LinearLayout>

@@ -27,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Campaign
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DirectionsBus
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.EditCalendar
@@ -63,6 +64,8 @@ import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.ensureSite
+import com.xjtu.toolbox.schedule.colorOf
+import com.xjtu.toolbox.schedule.rememberCourseColors
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
@@ -114,6 +117,10 @@ fun InboxScreen(onBack: () -> Unit, onOpen: (String) -> Unit) {
     val finished = remember(data) { InboxRules.finished(data, now) }
     val groups = remember(data) { InboxRules.groups(data, now) }
     val unread = groups.count { it.unread }
+    // 作业按科目取课表里那门课的颜色，和课表、思源学堂一致
+    val courseNames = remember(data) { (todos + finished.map { it.item }).filter { it.category == InboxCategories.LMS }.map { it.source }.distinct() }
+    val courseColors = rememberCourseColors(courseNames)
+    fun accentOf(item: InboxItem) = if (item.category == InboxCategories.LMS) courseColors.colorOf(item.source) else null
     // 这次进来之前没看过的待办标个红点；一看到就记成看过，首页红点随之熄掉，这页的红点留到下次进来
     val seenAtOpen = remember { data.seenTodos }
 
@@ -221,7 +228,7 @@ fun InboxScreen(onBack: () -> Unit, onOpen: (String) -> Unit) {
                         todos.groupBy { todoSection(it, now) }.forEach { (title, list) ->
                             section(title, list.map {
                                 Entry(
-                                    it, it.id, unread = it.id !in seenAtOpen, count = 1,
+                                    it, it.id, unread = it.id !in seenAtOpen, count = 1, accent = accentOf(it),
                                     onLongClick = { actions = RowActions(it, listOf("忽略这条待办" to { InboxStore.ignoreTodo(it.id) })) },
                                 ) { open(it) }
                             })
@@ -230,7 +237,7 @@ fun InboxScreen(onBack: () -> Unit, onOpen: (String) -> Unit) {
                         if (finished.isNotEmpty()) {
                             section("已完成", finished.map { f ->
                                 Entry(
-                                    f.item, "done:${f.item.id}", unread = false, count = 1, dimmed = true,
+                                    f.item, "done:${f.item.id}", unread = false, count = 1, dimmed = true, done = !f.ignored, accent = accentOf(f.item),
                                     timeText = (if (f.ignored) "已忽略 · " else "已完成 · ") + timeLabel(f.at),
                                 ) { open(f.item) }
                             })
@@ -270,8 +277,12 @@ private class Entry(
     val count: Int,
     /** 读过的消息、办完的待办：整行变灰。 */
     val dimmed: Boolean = false,
+    /** 办完的待办：图标角上打个勾。 */
+    val done: Boolean = false,
     /** 替换右上角的时间，比如「已完成 · 3 小时前」。 */
     val timeText: String? = null,
+    /** 作业按科目取课表里那门课的颜色，图标和科目名一起上色；为 null 用分类色。 */
+    val accent: Color? = null,
     val onLongClick: (() -> Unit)? = null,
     val onClick: () -> Unit,
 )
@@ -329,20 +340,20 @@ private fun daySection(epoch: Long): String {
     }
 }
 
-/** 每类一个图标和颜色，扫一眼就知道是哪儿来的。 */
-private fun categoryStyle(category: String): Pair<ImageVector, Color> = when (category) {
-    InboxCategories.SCHOOL_TODO -> Icons.AutoMirrored.Filled.Assignment to Color(0xFF3B82F6)
-    InboxCategories.BOOKING -> Icons.Default.DirectionsBus to Color(0xFF14B8A6)
-    InboxCategories.LIBRARY -> Icons.Default.EventSeat to Color(0xFF0D9488)
-    InboxCategories.LMS -> Icons.AutoMirrored.Filled.MenuBook to Color(0xFF8B5CF6)
-    InboxCategories.COUPON -> Icons.Default.Restaurant to Color(0xFFF97316)
-    InboxCategories.JUDGE -> Icons.Default.RateReview to Color(0xFFEC4899)
-    InboxCategories.GRADE -> Icons.Default.EmojiEvents to Color(0xFFEAB308)
-    InboxCategories.SCHEDULE -> Icons.Default.EditCalendar to Color(0xFF6366F1)
-    InboxCategories.ATTENDANCE -> Icons.Default.Warning to Color(0xFFEF4444)
-    InboxCategories.NOTICE -> Icons.Outlined.Newspaper to Color(0xFF10B981)
-    InboxCategories.BULLETIN -> Icons.Default.Campaign to Color(0xFF0EA5E9)
-    else -> Icons.Default.School to Color(0xFF64748B)
+/** 每类一个图标，颜色见 [InboxCategories.argb]，扫一眼就知道是哪儿来的。 */
+private fun categoryIcon(category: String): ImageVector = when (category) {
+    InboxCategories.SCHOOL_TODO -> Icons.AutoMirrored.Filled.Assignment
+    InboxCategories.BOOKING -> Icons.Default.DirectionsBus
+    InboxCategories.LIBRARY -> Icons.Default.EventSeat
+    InboxCategories.LMS -> Icons.AutoMirrored.Filled.MenuBook
+    InboxCategories.COUPON -> Icons.Default.Restaurant
+    InboxCategories.JUDGE -> Icons.Default.RateReview
+    InboxCategories.GRADE -> Icons.Default.EmojiEvents
+    InboxCategories.SCHEDULE -> Icons.Default.EditCalendar
+    InboxCategories.ATTENDANCE -> Icons.Default.Warning
+    InboxCategories.NOTICE -> Icons.Outlined.Newspaper
+    InboxCategories.BULLETIN -> Icons.Default.Campaign
+    else -> Icons.Default.School
 }
 
 /** 首页顶栏的铃铛：角标 = 未读消息组 + 没看过的待办。角标叠在按钮外面，不会被按钮的圆形裁掉。 */
@@ -413,7 +424,8 @@ private fun InboxRow(e: Entry) {
     val item = e.item
     val unread = e.unread
     val count = e.count
-    val (icon, tint) = categoryStyle(item.category)
+    val icon = categoryIcon(item.category)
+    val tint = e.accent ?: Color(InboxCategories.argb(item.category))
     val urgent = !e.dimmed && item.expiresAt > 0 && item.expiresAt - System.currentTimeMillis() < DAY_MS
     Row(
         Modifier
@@ -441,6 +453,20 @@ private fun InboxRow(e: Entry) {
                         .background(MiuixTheme.colorScheme.error, CircleShape),
                 )
             }
+            if (e.done) {
+                Box(
+                    Modifier
+                        .align(Alignment.BottomEnd)
+                        .offset(x = 4.dp, y = 4.dp)
+                        .size(16.dp)
+                        .background(MiuixTheme.colorScheme.surface, CircleShape)
+                        .padding(2.dp)
+                        .background(Color(0xFF22C55E), CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Default.Check, contentDescription = "已完成", tint = Color.White, modifier = Modifier.size(9.dp))
+                }
+            }
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
@@ -448,7 +474,8 @@ private fun InboxRow(e: Entry) {
                 Text(
                     item.source + if (count > 1) " · $count 条" else "",
                     style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    color = if (e.accent != null) tint else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    fontWeight = if (e.accent != null) FontWeight.Medium else FontWeight.Normal,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),

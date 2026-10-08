@@ -157,8 +157,7 @@ private fun PidaiTabButton(
         liftUp = liftUp,
         paper = paper,
         ink = style.ink,
-        shape = style.shape,
-        skin = style.skin,
+        cast = style.cast,
         gaze = look,
         glance = glance,
         modifier = modifier.onGloballyPositioned {

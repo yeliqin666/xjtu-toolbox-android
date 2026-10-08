@@ -50,8 +50,8 @@ internal sealed interface EditorTarget {
     data object NewComment : EditorTarget
     /** 引用某条回复发新楼。 */
     data class Quote(val comment: GithubDiscussionComment) : EditorTarget
-    /** 回复某一楼；[mention] 是回复楼中楼时预填的「@某人 」。 */
-    data class ReplyTo(val comment: GithubDiscussionComment, val mention: String?) : EditorTarget
+    /** 回复某一楼；[prefill] 是回复楼中楼某条时预填的引用和「@某人 」。 */
+    data class ReplyTo(val comment: GithubDiscussionComment, val prefill: String?) : EditorTarget
     data class EditComment(val comment: GithubDiscussionComment) : EditorTarget
     data object EditDiscussion : EditorTarget
 }
@@ -269,7 +269,7 @@ fun DiscussionDetailScreen(
                         canReply = canReply,
                         onReact = vm::reactComment,
                         onReactFloor = { content -> vm.reactComment(comment, content) { loader.edited(it) } },
-                        onReply = { mention -> editor = EditorTarget.ReplyTo(comment, mention) },
+                        onReply = { prefill -> editor = EditorTarget.ReplyTo(comment, prefill) },
                         menu = ::commentMenu,
                         onToggleAnswer = { vm.moderate("采纳") { markAnswer(comment.id, !comment.isAnswer) } },
                         patch = vm.patch,
@@ -393,7 +393,7 @@ private fun Floor(
     canReply: Boolean,
     onReact: (GithubDiscussionComment, String, (GithubDiscussionComment) -> Unit) -> Unit,
     onReactFloor: (String) -> Unit,
-    onReply: (mention: String?) -> Unit,
+    onReply: (prefill: String?) -> Unit,
     menu: (GithubDiscussionComment) -> List<MenuAction>,
     onToggleAnswer: () -> Unit,
     patch: ReplyPatch?,
@@ -437,7 +437,8 @@ private fun Floor(
                 load = { cursor -> repo.replies(comment.id, cursor) },
                 canReply = canReply,
                 onReact = onReact,
-                onReply = { reply -> onReply(reply.author?.let { "@$it " }) },
+                // GitHub 的楼中楼只有一层，回的是其中哪条只能靠引用说明
+                onReply = { reply -> onReply(quoteMarkdown(reply)) },
                 menu = menu,
                 patch = patch,
             )
@@ -510,7 +511,7 @@ private fun CommunityEditorPage(
     val initialBody = when (target) {
         EditorTarget.NewComment -> ""
         is EditorTarget.Quote -> quoteMarkdown(target.comment)
-        is EditorTarget.ReplyTo -> target.mention.orEmpty()
+        is EditorTarget.ReplyTo -> target.prefill.orEmpty()
         is EditorTarget.EditComment -> target.comment.body
         EditorTarget.EditDiscussion -> discussion.body
     }

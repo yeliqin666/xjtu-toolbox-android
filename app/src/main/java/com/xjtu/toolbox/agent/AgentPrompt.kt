@@ -6,7 +6,7 @@ package com.xjtu.toolbox.agent
  * 写法：交代场景和意图，少下禁令。模型不蠢，说清楚「在哪、为谁、为什么」它自己会拿捏；
  * 工具描述、画像、结果里已经有的信息，这里不再重复。
  *
- * **一段对话只在开头生成一次，之后不再改动**（见 AgentViewModel）：中途改名字、换皮肤、
+ * **一段对话只在开头生成一次，之后不再改动**（见 AgentViewModel）：中途改名字、
  * 记下新偏好，都从下一个新对话起生效。中途改写系统提示等于篡改上下文——前面几轮是按
  * 旧设定答的，前后人设对不上，前缀缓存也整段作废。
  * 所以这里只放一段对话里不会变的东西；会变的（实时时间、当前模型）放在每条用户消息头。
@@ -18,8 +18,6 @@ object AgentPrompt {
         userContext: String = "",
         /** 见 [AgentMemory.promptBlock]。没有偏好时为空串。 */
         memoryBlock: String = "",
-        /** 当前皮肤提供的低优先级角色语气；内容已由导入器校验。 */
-        skinPersonaBlock: String = "",
     ): String = listOf(
         """
 你是「$assistantName」，面向西安交大学生的非官方校园助手，运行在手机App里。
@@ -50,6 +48,5 @@ object AgentPrompt {
         """.trimIndent(),
         if (userContext.isBlank()) "" else "用户画像：\n$userContext",
         memoryBlock.trim(),
-        skinPersonaBlock.trim(),
     ).filter { it.isNotBlank() }.joinToString("\n\n")
 }

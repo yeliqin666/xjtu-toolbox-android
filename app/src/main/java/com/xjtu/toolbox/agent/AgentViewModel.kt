@@ -412,7 +412,7 @@ class AgentViewModel : ViewModel() {
                 val runner = AgentRunner(registry)
 
                 // 系统提示**一段对话只生成一次**：对话里还没有它（新对话，或老数据缺了）才生成，
-                // 之后原样复用。名字、皮肤、偏好、画像中途变了，都从下一个新对话起生效——
+                // 之后原样复用。名字、偏好、画像中途变了，都从下一个新对话起生效——
                 // 中途改写等于篡改上下文：前几轮按旧设定答的，前后人设对不上，前缀缓存也整段作废。
                 // 会变的时间和模型走每条消息头（nowTag），不在这里。
                 val hasSystem = llmHistory.size > 0 && runCatching {
@@ -424,13 +424,10 @@ class AgentViewModel : ViewModel() {
                     val loginKey = "${loginState.isLoggedIn}|${loginState.activeUsername}"
                     val allowProfileNetwork = userContextProbe != loginKey
                     if (allowProfileNetwork) userContextProbe = loginKey
-                    // 皮肤在时用皮肤的名字覆盖用户设置的名字，「你是」和皮肤语气块里用同一个值
-                    val resolvedAssistantName = PidaiAppearanceHost.effectiveAssistantName(config.effectiveName)
                     val systemPrompt = AgentPrompt.build(
-                        assistantName = resolvedAssistantName,
+                        assistantName = config.effectiveName,
                         userContext = registry.userContext(allowNetwork = allowProfileNetwork),
                         memoryBlock = registry.memoryBlock(),
-                        skinPersonaBlock = PidaiAppearanceHost.personaPromptBlock(resolvedAssistantName),
                     )
                     // system 必须待在第 0 位：整段历史是 provider 端 prefix cache 的比对前缀
                     val rebuilt = mutableListOf<JsonElement>()

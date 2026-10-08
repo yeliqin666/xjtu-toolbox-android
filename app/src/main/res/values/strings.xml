@@ -20,4 +20,9 @@
 
     <string name="notice_widget_name">教务通知</string>
     <string name="notice_widget_desc">显示所选来源的最近 4 条通知</string>
+
+    <string name="todo_widget_name">待办</string>
+    <string name="todo_widget_desc">显示最近 4 条待办，作业按科目上色</string>
+    <string name="todo_widget_empty_title">没有待办</string>
+    <string name="todo_widget_empty_detail">作业截止、学校事务都会出现在这里</string>
 </resources>

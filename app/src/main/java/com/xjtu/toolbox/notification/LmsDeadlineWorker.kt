@@ -10,10 +10,10 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.auth.LoginType
-import com.xjtu.toolbox.lms.LmsActivityType
 import com.xjtu.toolbox.lms.LmsApi
-import com.xjtu.toolbox.lms.deadlineInstant
+import com.xjtu.toolbox.lms.LmsDueCollector
 import com.xjtu.toolbox.lms.remaining
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -31,6 +31,8 @@ private const val AHEAD_HOURS = 48L
  * 后台盯思源学堂的作业截止时间。
  *
  * 要逐门课查活动列表，是这三类提醒里最费的一个，所以周期压到 4 小时并要求电量不低。
+ * 拉到的作业顺手写进待办读的截止缓存（不受 48 小时窗口限制）；关掉这条提醒后 Worker 不跑，
+ * 待办改由首页刷新一天一更。
  *
  * 每份作业只提醒一次：第一次落进 48 小时窗口时发，之后不再重复；已经过了截止时间的
  * 不发——那时候提醒除了添堵没有别的用。
@@ -47,7 +49,12 @@ class LmsDeadlineWorker(
         val due = try {
             // 需要短信验证 / 密码失效：这一轮直接放弃，等下次正常调度，别退避重试再提交一次密码
             val site = HeadlessSessions.site(app, LoginType.LMS) ?: return Result.success()
-            withContext(Dispatchers.IO) { collectDue(LmsApi(site)) }
+            val account = AccountContext.activeAccountId
+            withContext(Dispatchers.IO) {
+                val api = LmsApi(site)
+                val perCourse = LmsDueCollector.activities(api, api.getMyCourses())
+                LmsDueCollector.collect(app, api, perCourse, account.orEmpty()) { AccountContext.activeAccountId == account }
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -55,38 +62,21 @@ class LmsDeadlineWorker(
             return Result.retry()
         }
 
-        val fresh = due.filterNot { ReminderStore.hasSeen(app, ReminderKind.LMS, it.id) }
-        if (fresh.isEmpty()) return Result.success()
-
-        if (ReminderNotifier.notifyLmsDeadlines(app, fresh.map { it.line })) {
-            ReminderStore.markSeen(app, ReminderKind.LMS, fresh.map { it.id })
-        }
-        return Result.success()
-    }
-
-    private class Due(val id: String, val line: String)
-
-    private suspend fun collectDue(api: LmsApi): List<Due> {
         val now = Instant.now()
         val horizon = now.plus(Duration.ofHours(AHEAD_HOURS))
-        val result = mutableListOf<Pair<Instant, Due>>()
-        // 单门课查失败不该毁掉整轮：思源学堂对个别课程偶发 403（课程已归档等）。
-        for (course in api.getMyCourses()) {
-            runCatching {
-                api.getCourseActivities(course.id)
-                    .filter { it.type == LmsActivityType.HOMEWORK }
-                    .forEach { activity ->
-                        val deadline = activity.deadlineInstant() ?: return@forEach
-                        if (deadline.isBefore(now) || deadline.isAfter(horizon)) return@forEach
-                        if (activity.userSubmitCount > 0) return@forEach
-                        result += deadline to Due(
-                            id = "${course.id}-${activity.id}-$deadline",
-                            line = "[${course.name}] ${activity.title} · ${remaining(now, deadline)}",
-                        )
-                    }
-            }.onFailure { Log.w(TAG, "课程 ${course.name} 活动拉取失败：${it.message}") }
+        val fresh = due
+            .filter { !it.submitted }
+            .mapNotNull { d -> runCatching { Instant.parse(d.deadline) }.getOrNull()?.let { it to d } }
+            .filter { (deadline, _) -> !deadline.isBefore(now) && !deadline.isAfter(horizon) }
+            .sortedBy { it.first }
+            .map { (deadline, d) -> "${d.courseId}-${d.activityId}-$deadline" to "[${d.courseName}] ${d.title} · ${remaining(now, deadline)}" }
+            .filterNot { ReminderStore.hasSeen(app, ReminderKind.LMS, it.first) }
+        if (fresh.isEmpty()) return Result.success()
+
+        if (ReminderNotifier.notifyLmsDeadlines(app, fresh.map { it.second })) {
+            ReminderStore.markSeen(app, ReminderKind.LMS, fresh.map { it.first })
         }
-        return result.sortedBy { it.first }.map { it.second }
+        return Result.success()
     }
 }
 

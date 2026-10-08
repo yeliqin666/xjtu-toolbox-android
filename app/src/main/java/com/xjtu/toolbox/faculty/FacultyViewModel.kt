@@ -15,7 +15,7 @@ import kotlinx.coroutines.launch
 
 /** 教师主页检索。跳去浏览器看主页再返回时本页还在栈里，条件、结果、打开的详情都原样保留。 */
 internal class FacultyViewModel : ViewModel() {
-    val api = FacultyApi()
+    private val api = FacultyApi()
 
     var nameQuery by mutableStateOf(""); private set
     var college by mutableStateOf<FacultyOption?>(null); private set
@@ -35,6 +35,16 @@ internal class FacultyViewModel : ViewModel() {
     var searchGeneration by mutableIntStateOf(0); private set
     /** 正在查看的教师。 */
     var detail by mutableStateOf<FacultyMember?>(null)
+
+    /** 读过的主页按老师缓存：一次要抓主页加好几个栏目页，来回点同一位老师不必重抓。出错的不缓存，下次重试。 */
+    private val homepages = HashMap<Long, HomepageResult>()
+
+    fun cachedHomepage(member: FacultyMember): HomepageResult? = homepages[member.teacherId]
+
+    suspend fun homepage(member: FacultyMember): HomepageResult =
+        homepages[member.teacherId] ?: api.fetchHomepage(member).also {
+            if (it !is HomepageResult.Error) homepages[member.teacherId] = it
+        }
 
     private var searchJob: Job? = null
 

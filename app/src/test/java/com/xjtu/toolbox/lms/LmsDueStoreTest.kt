@@ -53,6 +53,29 @@ class LmsDueStoreTest {
     }
 
     @Test
+    fun 多门课的作业合并后一个都不丢() {
+        val existing = listOf(due(courseId = 1, activityId = 1), due(courseId = 2, activityId = 2))
+        val incoming = (1..11).map { due(courseId = it, activityId = 100 + it, fetchedAt = 5) }
+        val merged = LmsDueStore.mergeDue(existing, incoming, now)
+        assertEquals(13, merged.size)
+    }
+
+    @Test
+    fun 只收带截止的作业_资料和没截止的不收() {
+        val course = LmsCourseSummary(id = 9, name = "国际学术交流英语")
+        val acts = listOf(
+            LmsActivity(id = 1, type = LmsActivityType.HOMEWORK, title = "Self-introduction Video", deadline = "2026-10-25T15:59:00Z"),
+            LmsActivity(id = 2, type = LmsActivityType.HOMEWORK, title = "没截止", deadline = null),
+            LmsActivity(id = 3, type = LmsActivityType.MATERIAL, title = "课件", deadline = "2026-10-25T15:59:00Z"),
+            LmsActivity(id = 4, type = LmsActivityType.HOMEWORK, title = "只有 end_time", endTime = "2026-12-20T15:59:00Z"),
+        )
+        val items = LmsDueCollector.dueItems(listOf(course to acts), fetchedAt = 7)
+        assertEquals(listOf(1, 4), items.map { it.activityId })
+        assertTrue(items.all { it.courseId == 9 && it.courseName == "国际学术交流英语" && !it.submitted && it.fetchedAt == 7L })
+        assertEquals("2026-12-20T15:59:00Z", items[1].deadline)
+    }
+
+    @Test
     fun 截止时间解析不了的保留_宁可多显示不漏提醒() {
         val bad = due(deadline = "not-a-date")
         val merged = LmsDueStore.mergeDue(emptyList(), listOf(bad), now)

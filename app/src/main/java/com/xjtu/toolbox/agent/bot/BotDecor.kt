@@ -104,8 +104,9 @@ fun wheel(hue: Double, s: Double = 0.55, l: Double = 0.62): Color {
  *
  * 圆活在 u（在屏幕内）与 v（扎进深度）张成的平面里。z 分量用来把轨迹切成两半：
  * 后半段先画、被身体遮住。正是这个真实的深度排序让环读起来像轨道而不是平面画。
+ * 两段写进调用方复用的 [front] / [back]（先清空）。
  */
-fun arcRender(seed: ArcSeed, t: Double, scale: Double, opacity: Double): ArcRender {
+fun arcRender(seed: ArcSeed, t: Double, scale: Double, opacity: Double, front: Path, back: Path): ArcRender {
     val spin = seed.phase + t * seed.speed * TAU
     val cu = cos(seed.tilt)
     val su = sin(seed.tilt)
@@ -113,8 +114,8 @@ fun arcRender(seed: ArcSeed, t: Double, scale: Double, opacity: Double): ArcRend
 
     val N = 64
     val span = seed.sweep * TAU
-    val front = Path()
-    val back = Path()
+    front.rewind()
+    back.rewind()
     var prevBehind: Boolean? = null
 
     for (i in 0..N) {
