@@ -39,7 +39,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -50,6 +49,8 @@ import coil3.compose.AsyncImage
 import coil3.request.crossfade
 import com.mikepenz.markdown.coil3.Coil3ImageTransformerImpl
 import com.mikepenz.markdown.compose.Markdown
+import com.mikepenz.markdown.compose.components.markdownComponents
+import com.mikepenz.markdown.compose.elements.MarkdownBlockQuote
 import com.mikepenz.markdown.model.DefaultMarkdownColors
 import com.mikepenz.markdown.model.DefaultMarkdownTypography
 import com.mikepenz.markdown.model.markdownAlertColors
@@ -173,7 +174,7 @@ fun MarkdownText(markdown: String, modifier: Modifier = Modifier.fillMaxWidth())
         text = text,
         code = styles.body2.copy(color = colors.onSurface, fontFamily = FontFamily.Monospace),
         inlineCode = text.copy(fontFamily = FontFamily.Monospace, fontSize = TextUnit.Unspecified),
-        quote = text.copy(color = colors.onSurfaceVariantSummary).plus(SpanStyle(fontStyle = FontStyle.Italic)),
+        quote = styles.body2.copy(color = colors.onSurfaceVariantSummary, lineHeight = 22.sp),
         paragraph = text,
         ordered = text,
         bullet = text,
@@ -183,10 +184,20 @@ fun MarkdownText(markdown: String, modifier: Modifier = Modifier.fillMaxWidth())
         alertTitle = text.copy(fontWeight = FontWeight.Bold),
     )
     val linked = remember(markdown) { linkMentions(markdown) }
+    // 引用垫一层浅底圆角，和正文分得开；内容仍是标准的「> 」引用，只是这边画得像卡片
+    val quoteBackground = colors.onSurface.copy(alpha = 0.05f)
+    val components = markdownComponents(
+        blockQuote = { model ->
+            Box(Modifier.padding(vertical = 2.dp).fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(quoteBackground)) {
+                MarkdownBlockQuote(model.content, model.node, model.typography.quote)
+            }
+        },
+    )
     Markdown(
         content = linked,
         colors = markdownColors,
         typography = typography,
+        components = components,
         imageTransformer = Coil3ImageTransformerImpl,
         modifier = modifier,
     )
