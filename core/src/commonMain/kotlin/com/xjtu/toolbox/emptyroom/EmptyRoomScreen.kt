@@ -60,34 +60,23 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalContext
+import com.xjtu.toolbox.platform.showBriefMessage
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import java.time.LocalDate
-import java.time.LocalTime
-import java.time.format.DateTimeFormatter
+import kotlinx.datetime.LocalTime
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
+import kotlin.time.Clock
+import kotlin.time.Instant
+import com.xjtu.toolbox.util.todayInSystemZone
 import kotlin.math.roundToInt
 import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.AppSearchBar
 import com.xjtu.toolbox.auth.AccountType
-import com.xjtu.toolbox.data.CredentialStore
-
-/** 空闲教室的数据源。[key] 存进偏好，改名别动它。 */
-internal enum class RoomSource(val key: String) {
-    /** 智慧教室平台的此刻状态：含上课、没排课但有人（带人数）。默认。 */
-    LIVE("live"),
-    /** 预生成的课表数据，免登录，可看今天/明天。 */
-    CDN("cdn"),
-    /** 登录教务实时查课表，结果和 CDN 同源。 */
-    DIRECT("direct"),
-}
-
-/** 新键：旧的 empty_room_use_direct_query 是 CDN/直查二选一时代的，实时状态上线后默认改回实时，不沿用。 */
-internal const val SOURCE_PREF_KEY = "empty_room_source"
 
 /** 实时状态的快捷筛选。第一个是默认。 */
 private val LIVE_FILTERS = listOf("空闲", "其它使用", "上课中", "全部")
@@ -117,7 +106,8 @@ private val PERIOD_TIMES = listOf(
 
 /** 根据当前时间判断当前节次（0-based），返回 -1 表示不在上课时间 */
 private fun getCurrentPeriod(): Int {
-    val now = LocalTime.now()
+    // `LocalTime.now()`（java.time）是 JVM 专属 ⇒ kotlinx-datetime 的“本机时区的此刻”。
+    val now = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()).time
     PERIOD_TIMES.forEachIndexed { index, (start, end) ->
         val s = LocalTime.parse(start)
         val e = LocalTime.parse(end)
@@ -142,6 +132,12 @@ private fun consecutiveFree(status: List<Int>, startPeriod: Int): Int {
         if (status[i] == 0) count++ else break
     }
     return count
+}
+
+/** `SimpleDateFormat("HH:mm")` 是 JVM 专属 ⇒ 手写补零（:core 的既有做法）。 */
+private fun hhmm(millis: Long): String {
+    val at = Instant.fromEpochMilliseconds(millis).toLocalDateTime(TimeZone.currentSystemDefault())
+    return "${at.hour.toString().padStart(2, '0')}:${at.minute.toString().padStart(2, '0')}"
 }
 
 /** 分析教室的智能标签 */
@@ -172,21 +168,31 @@ private fun getSmartTags(room: RoomInfo, currentPeriod: Int): List<Pair<String, 
 
 @Composable
 fun EmptyRoomScreen(
+    /**
+     * 本端的三档取数（见 [EmptyRoomSource]）。屏只画 [EmptyRoomSource.availableSources] 里列出的档位 ——
+     * Web 只有 CDN，那两档“点了会失败”的选项根本不出现；Android 三档齐全，照旧。
+     */
+    source: EmptyRoomSource,
+    /**
+     * 身份。沿用原来的限制：研究生不提供直查教务。Web 端没有身份这回事 ⇒ 传 null。
+     */
+    accountType: AccountType?,
     onBack: () -> Unit,
     /**
-     * 会话管家。实时状态要登智慧教室、直查要登教务，都在页面里按需登录（入口不再先登教务）。
-     * 为 null（未初始化）时只剩 CDN 可用。
+     * 「Cloudflare CDN 查询说明」还没读过吗。**由宿主读自己那份持久化偏好**（Android = CredentialStore，
+     * Web = localStorage）—— 屏不碰任何平台的存储实现，它只知道“该不该弹”与“弹过了要回写”。
      */
-    sessionManager: com.xjtu.toolbox.auth.SessionManager? = null,
+    showCdnTip: Boolean,
+    onCdnTipRead: () -> Unit,
 ) {
-    val context = LocalContext.current
-    val credentialStore = remember(context) { CredentialStore(context) }
-    val accountType = remember { credentialStore.accountType }
-    val vm: EmptyRoomViewModel = viewModel { EmptyRoomViewModel(context, sessionManager, accountType) }
+    val vm: EmptyRoomViewModel = viewModel { EmptyRoomViewModel(source, accountType) }
     val rooms = vm.rooms
-    val source = vm.source
+    val sourceKind = vm.sourceKind
     val isLive = vm.isLive
-    var showCdnTip by remember { mutableStateOf(!credentialStore.hasReadEmptyRoomCdnTip && source == RoomSource.CDN) }
+    // 本地再记一份“读过了”：传进来的 showCdnTip 是组合那一刻的快照（宿主那份存储不是 State，
+    // 用户点掉后它不会自己变），所以“切走了再切回来要不要再弹”以本地这份为准。
+    var cdnTipRead by remember { mutableStateOf(!showCdnTip) }
+    var tipVisible by remember { mutableStateOf(!cdnTipRead && sourceKind == RoomSource.CDN) }
     val campusNames = vm.campusNames
     val selectedCampus = vm.campus
     val selectedCampusIndex = campusNames.indexOf(selectedCampus)
@@ -203,7 +209,7 @@ fun EmptyRoomScreen(
     var endPeriod by rememberSaveable { mutableIntStateOf(11) }
 
     val currentPeriod = remember { getCurrentPeriod() }
-    val isToday = selectedDate == LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
+    val isToday = selectedDate == todayInSystemZone().toString()
     val effectivePeriod = if (isToday) currentPeriod else -1
     val smartFilters = if (isToday) listOf("现在空闲", "刚解放", "大教室", "全部") else listOf("大教室", "全部")
     LaunchedEffect(isToday) {
@@ -287,6 +293,8 @@ fun EmptyRoomScreen(
                                 style = MiuixTheme.textStyles.footnote1,
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                             )
+                            // 只列本端真有取数的档位（[EmptyRoomSource.availableSources]）：Web 只有 CDN，
+                            // 于是“实时状态”“直查教务”两个选项根本不出现（在这端不是失败，是没有这条数据）。
                             val options = buildList {
                                 add(Triple(RoomSource.LIVE, "实时状态", "此刻哪间空、哪间有人"))
                                 add(Triple(RoomSource.CDN, "CDN 课表", "今明两天逐节安排，免登录"))
@@ -294,7 +302,7 @@ fun EmptyRoomScreen(
                                 if (accountType != AccountType.POSTGRADUATE) {
                                     add(Triple(RoomSource.DIRECT, "直查教务", "登录教务查课表，和 CDN 同源"))
                                 }
-                            }
+                            }.filter { (kind, _, _) -> kind in source.availableSources }
                             options.forEach { (option, label, hint) ->
                                 AppDropdownMenuItem(
                                     text = {
@@ -302,7 +310,7 @@ fun EmptyRoomScreen(
                                             Text(
                                                 label,
                                                 style = MiuixTheme.textStyles.body2,
-                                                fontWeight = if (source == option) FontWeight.Bold else FontWeight.Normal
+                                                fontWeight = if (sourceKind == option) FontWeight.Bold else FontWeight.Normal
                                             )
                                             Text(
                                                 hint,
@@ -313,15 +321,15 @@ fun EmptyRoomScreen(
                                     },
                                     onClick = {
                                         showActionsMenu = false
-                                        if (source != option) {
+                                        if (sourceKind != option) {
                                             vm.selectSource(option)
-                                            if (option == RoomSource.CDN && !credentialStore.hasReadEmptyRoomCdnTip) {
-                                                showCdnTip = true
+                                            if (option == RoomSource.CDN && !cdnTipRead) {
+                                                tipVisible = true
                                             }
                                         }
                                     },
                                     trailingIcon = {
-                                        if (source == option) {
+                                        if (sourceKind == option) {
                                             Icon(Icons.Default.Check, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.primary)
                                         }
                                     }
@@ -333,7 +341,7 @@ fun EmptyRoomScreen(
             )
         }
     ) { padding ->
-        if (showCdnTip) {
+        if (tipVisible) {
             OverlayDialog(
                 show = true,
                 title = "Cloudflare CDN 查询说明",
@@ -343,15 +351,17 @@ fun EmptyRoomScreen(
                     "无需登录，不发送账号信息。数据按课表定时生成，只知道哪节有课，不知道教室里此刻有没有人；想看实况请切回实时状态，查询失败可改用直查教务。"
                 },
                 onDismissRequest = {
-                    credentialStore.hasReadEmptyRoomCdnTip = true
-                    showCdnTip = false
+                    onCdnTipRead()
+                    cdnTipRead = true
+                    tipVisible = false
                 }
             ) {
                 TextButton(
                     text = "知道了",
                     onClick = {
-                        credentialStore.hasReadEmptyRoomCdnTip = true
-                        showCdnTip = false
+                        onCdnTipRead()
+                        cdnTipRead = true
+                        tipVisible = false
                     },
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -539,7 +549,7 @@ fun EmptyRoomScreen(
                                     val snap = vm.liveSnapshot?.takeIf { it.campus == selectedCampus }
                                     Text(
                                         if (snap == null) "实时"
-                                        else "实时 · " + java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(snap.fetchedAt),
+                                        else "实时 · " + hhmm(snap.fetchedAt),
                                         modifier = Modifier
                                             .padding(start = 6.dp)
                                             .clip(RoundedCornerShape(50))
@@ -727,7 +737,7 @@ fun EmptyRoomScreen(
                 }
                 val switchToCdn: () -> Unit = {
                     vm.selectSource(RoomSource.CDN)
-                    if (!credentialStore.hasReadEmptyRoomCdnTip) showCdnTip = true
+                    if (!cdnTipRead) tipVisible = true
                 }
                 if (isLive) when {
                     vm.isLoading && liveInScope.isEmpty() -> stateBox {
@@ -810,7 +820,7 @@ fun EmptyRoomScreen(
                     vm.errorMessage != null -> stateBox {
                         RoomStateBlock(
                             icon = Icons.Outlined.CloudOff,
-                            title = if (source == RoomSource.DIRECT) "直查教务失败" else "课表数据加载失败",
+                            title = if (sourceKind == RoomSource.DIRECT) "直查教务失败" else "课表数据加载失败",
                             detail = vm.errorMessage,
                             isError = true,
                             primaryLabel = "重试",
@@ -912,7 +922,6 @@ private fun SmartRoomCard(room: RoomInfo, currentPeriod: Int) {
     }
     var expanded by rememberSaveable(room.name) { mutableStateOf(false) }
     val clipboardManager = LocalClipboardManager.current
-    val context = LocalContext.current
 
     top.yukonga.miuix.kmp.basic.Card(
         modifier = Modifier
@@ -922,7 +931,7 @@ private fun SmartRoomCard(room: RoomInfo, currentPeriod: Int) {
                 onClick = { expanded = !expanded },
                 onLongClick = {
                     clipboardManager.setText(AnnotatedString(room.name))
-                    android.widget.Toast.makeText(context, "已复制：${room.name}", android.widget.Toast.LENGTH_SHORT).show()
+                    showBriefMessage("已复制：${room.name}")
                 }
             ),
         colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = if (isNowFree)
@@ -1038,7 +1047,6 @@ private val IN_USE_COLOR = Color(0xFFD9822B)
 @Composable
 private fun LiveRoomCard(room: LiveRoom, schedule: RoomInfo?, currentPeriod: Int) {
     val clipboardManager = LocalClipboardManager.current
-    val context = LocalContext.current
     val seats = room.seats.takeIf { it > 0 } ?: schedule?.size ?: 0
     val seatText = if (seats > 0) "$seats 座" else "座位数未知"
     val status = schedule?.status.orEmpty()
@@ -1070,7 +1078,7 @@ private fun LiveRoomCard(room: LiveRoom, schedule: RoomInfo?, currentPeriod: Int
                 onClick = {},
                 onLongClick = {
                     clipboardManager.setText(AnnotatedString(room.name))
-                    android.widget.Toast.makeText(context, "已复制：${room.name}", android.widget.Toast.LENGTH_SHORT).show()
+                    showBriefMessage("已复制：${room.name}")
                 }
             ),
         colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(

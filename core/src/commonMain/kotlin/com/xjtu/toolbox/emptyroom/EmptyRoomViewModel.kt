@@ -1,43 +1,38 @@
 package com.xjtu.toolbox.emptyroom
 
-import android.content.Context
-import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.xjtu.toolbox.auth.AccountType
-import com.xjtu.toolbox.auth.JsSession
-import com.xjtu.toolbox.auth.LoginType
-import com.xjtu.toolbox.auth.SessionManager
-import com.xjtu.toolbox.auth.ensureSite
+import com.xjtu.toolbox.platform.keyValueStore
+import com.xjtu.toolbox.util.todayInSystemZone
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.text.SimpleDateFormat
-import java.time.LocalDate
-import java.time.format.DateTimeFormatter
-import java.util.Locale
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
+import kotlin.time.Instant
 
 /**
  * 空教室：数据源（实时状态 / CDN 课表 / 直查教务）× 校区 × 楼 × 日期，任一变化就取消旧查询重查。
  * 实时状态一个校区一次请求，楼只在本地筛；课表数据按楼查，单楼结果当天内存缓存。
+ *
+ * 从 `:app` 搬进 `:core` 时**编排逻辑一行未改**，只换了三处"住址"：
+ *  - 三档取数（含"实时状态要哪个站点会话""直查要不要先登教务"）从 [source] 来 —— 那些是各端能力，
+ *    不是屏的逻辑（原来写在 `queryLive`/`queryRooms` 里，现在在 `AppEmptyRoomSource`）；
+ *  - 偏好（上次的校区 / 楼 / 数据源）走平台键值缝 [keyValueStore]：Android 侧仍是同一个
+ *    SharedPreferences 文件 `empty_room`（键名逐字未动，`AgentTool` 与屏读的还是同一份），Web 侧是 localStorage；
+ *  - `java.time` 换成 kotlinx-datetime（"今天"统一用 [todayInSystemZone]），`java.text.SimpleDateFormat` 手写补零。
  */
 internal class EmptyRoomViewModel(
-    context: Context,
-    private val sessionManager: SessionManager?,
+    /** 本端的三档取数实现；屏只画 [EmptyRoomSource.availableSources] 里的那几档。 */
+    private val source: EmptyRoomSource,
     private val accountType: AccountType?,
 ) : ViewModel() {
-    private val context = context.applicationContext
-    private val prefs = this.context.getSharedPreferences("empty_room", 0)
-    private val api = EmptyRoomApi(this.context)
-    private val uncachedApi = EmptyRoomApi()
-    private val cache = EmptyRoomCache(this.context)
-    private val liveApi = sessionManager?.getSiteOrNull(JsSession.SITE_KEY)?.let { LiveRoomApi(it, cache) }
+    private val prefs = keyValueStore("empty_room")
 
     var rooms by mutableStateOf<List<RoomInfo>>(emptyList()); private set
     var isLoading by mutableStateOf(false); private set
@@ -49,11 +44,12 @@ internal class EmptyRoomViewModel(
     /** 当天课表（CDN），按教室名对上实时状态，画节次条用；拿不到就不画。 */
     var liveSchedule by mutableStateOf<Map<String, RoomInfo>>(emptyMap()); private set
 
-    var source by mutableStateOf(initialSource()); private set
-    val isLive get() = source == RoomSource.LIVE
+    /** 当前选中哪一档。叫 sourceKind 而不是 source：`source` 这个名字留给取数端口。 */
+    var sourceKind by mutableStateOf(initialSource()); private set
+    val isLive get() = sourceKind == RoomSource.LIVE
 
     // 校区按名字记：实时状态只有三个校区，两套列表的下标对不上
-    private var campusName by mutableStateOf(prefs.getString(KEY_CAMPUS, null) ?: CAMPUS_BUILDINGS.keys.first())
+    private var campusName by mutableStateOf(prefs.getString(KEY_CAMPUS) ?: CAMPUS_BUILDINGS.keys.first())
     val campusNames get() = if (isLive) LIVE_CAMPUSES.keys.toList() else CAMPUS_BUILDINGS.keys.toList()
     /** 记住的校区不在当前数据源里时先落到第一个，不改记住的选择。 */
     val campus get() = campusName.takeIf { it in campusNames } ?: campusNames.first()
@@ -67,7 +63,7 @@ internal class EmptyRoomViewModel(
     val liveEffective: Set<String>
         get() = liveSelected.filter { it in liveBuildings }.toSet().takeIf { it.isNotEmpty() && it.size < liveBuildings.size } ?: emptySet()
 
-    val availableDates: List<String> = api.getAvailableDates()
+    val availableDates: List<String> = source.availableDates()
     var selectedDate by mutableStateOf(availableDates.firstOrNull().orEmpty()); private set
 
     /** 单楼结果：key = "source|campus|building|date"，value = (缓存那天, 教室)。 */
@@ -77,32 +73,40 @@ internal class EmptyRoomViewModel(
 
     init { query() }
 
+    /**
+     * 上次记住的档；没记住过就是实时状态（历史默认值）。
+     *
+     * 两处限制：研究生身份不提供直查教务（沿用原来的判断）；本端没有这一档时落到
+     * [EmptyRoomSource.availableSources] 的第一档 —— Web 只有 CDN，于是 Web 一进来就是 CDN；
+     * Android 三档齐全，这行不改变任何现有取值。
+     */
     private fun initialSource(): RoomSource {
-        val saved = RoomSource.entries.firstOrNull { it.key == prefs.getString(SOURCE_PREF_KEY, null) }
-        return when {
+        val saved = RoomSource.entries.firstOrNull { it.key == prefs.getString(SOURCE_PREF_KEY) }
+        val wanted = when {
             saved == null -> RoomSource.LIVE
             saved == RoomSource.DIRECT && accountType == AccountType.POSTGRADUATE -> RoomSource.CDN
             else -> saved
         }
+        return wanted.takeIf { it in source.availableSources } ?: source.availableSources.first()
     }
 
     private fun savedBuildings(campus: String): Set<String> {
         val all = CAMPUS_BUILDINGS[campus].orEmpty()
-        return prefs.getString("empty_room_last_buildings_$campus", null)
+        return prefs.getString("empty_room_last_buildings_$campus")
             ?.split("|")?.map { it.trim() }?.filter { it.isNotEmpty() && it in all }?.toSet()
             ?.takeIf { it.isNotEmpty() }
             ?: setOf(all.firstOrNull().orEmpty())
     }
 
     private fun savedLiveBuildings(campus: String): Set<String> =
-        prefs.getString("empty_room_live_buildings_$campus", null)
+        prefs.getString("empty_room_live_buildings_$campus")
             ?.split("|")?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet() ?: emptySet()
 
     fun selectSource(value: RoomSource) {
         val next = if (value == RoomSource.DIRECT && accountType == AccountType.POSTGRADUATE) RoomSource.CDN else value
-        if (next == source) return
-        source = next
-        prefs.edit().putString(SOURCE_PREF_KEY, next.key).apply()
+        if (next == sourceKind) return
+        sourceKind = next
+        prefs.putString(SOURCE_PREF_KEY, next.key)
         errorMessage = null
         staleNote = null
         campusChanged()
@@ -111,7 +115,7 @@ internal class EmptyRoomViewModel(
 
     fun selectCampus(index: Int) {
         campusName = campusNames.getOrElse(index) { campus }
-        prefs.edit().putString(KEY_CAMPUS, campusName).apply()
+        prefs.putString(KEY_CAMPUS, campusName)
         campusChanged()
         query()
     }
@@ -129,13 +133,11 @@ internal class EmptyRoomViewModel(
     fun setSheetSelected(value: Set<String>) {
         if (isLive) {
             liveSelected = if (value.size >= liveBuildings.size) emptySet() else value
-            prefs.edit().putString("empty_room_live_buildings_$campus", liveSelected.joinToString("|")).apply()
+            prefs.putString("empty_room_live_buildings_$campus", liveSelected.joinToString("|"))
         } else {
             selectedBuildings = value
-            prefs.edit()
-                .putString(KEY_CAMPUS, campus)
-                .putString("empty_room_last_buildings_$campus", value.filter { it.isNotBlank() }.joinToString("|"))
-                .apply()
+            prefs.putString(KEY_CAMPUS, campus)
+            prefs.putString("empty_room_last_buildings_$campus", value.filter { it.isNotBlank() }.joinToString("|"))
             query()
         }
     }
@@ -155,7 +157,7 @@ internal class EmptyRoomViewModel(
             try {
                 if (isLive) queryLive(gen, force) else queryRooms(gen, force)
             } catch (_: CancellationException) {
-                Log.d(TAG, "query gen=$gen superseded")
+                // 被新查询取代（也是正常路径：连续切楼、切校区都会走到这里），什么都不用做
             }
         }
     }
@@ -167,28 +169,22 @@ internal class EmptyRoomViewModel(
         errorMessage = null
         directProgress = null
         try {
-            val live = liveApi ?: throw RuntimeException("实时状态暂不可用，可在右上角切换到课表数据")
-            val snapshot = withContext(Dispatchers.IO) {
-                val mgr = sessionManager ?: throw RuntimeException("实时状态暂不可用")
-                if (mgr.credentials == null) throw RuntimeException("实时状态需要先登录统一身份认证，未登录可在右上角切换到 CDN 课表")
-                mgr.ensureSite(JsSession.SITE_KEY, userInitiated = true)
-                live.fetchCampus(campus, if (force) 0L else LiveRoomApi.FRESH_MS)
-            }
+            val snapshot = source.liveSnapshot(campus, force)
             if (!latest()) return
             liveSnapshot = snapshot
             staleNote = null
             // 当天课表只做点缀：拿不到照样显示实时状态
-            val today = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
-            val schedule = withContext(Dispatchers.IO) {
-                runCatching { api.getEmptyRoomsMulti(campus, snapshot.buildings.toSet(), today).associateBy { it.name } }
-                    .getOrDefault(emptyMap())
-            }
+            val today = todayInSystemZone().toString()
+            val schedule = runCatching {
+                source.rooms(campus, snapshot.buildings.toSet(), today, direct = false, force = false) { _, _ -> }
+                    .associateBy { it.name }
+            }.getOrDefault(emptyMap())
             if (latest()) liveSchedule = schedule
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             if (latest()) {
-                val stale = liveApi?.readStale(campus)
+                val stale = source.readStaleLive(campus)
                 if (stale != null) {
                     liveSnapshot = stale
                     staleNote = "实时状态没刷出来，下面是 ${hhmm(stale.fetchedAt)} 的状态（${rawError(e)}）"
@@ -210,7 +206,7 @@ internal class EmptyRoomViewModel(
         delay(350L)
         val campus = campus
         val date = selectedDate
-        val direct = source == RoomSource.DIRECT
+        val direct = sourceKind == RoomSource.DIRECT
         val sourceKey = if (direct) "direct" else "cdn"
         val active = selectedBuildings.filter { it.isNotEmpty() }.toSet()
         if (active.isEmpty()) {
@@ -220,7 +216,7 @@ internal class EmptyRoomViewModel(
             return
         }
         // 命中单楼缓存的不再请求
-        val cacheDay = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
+        val cacheDay = todayInSystemZone().toString()
         buildingCache.entries.removeAll { it.value.first != cacheDay || it.value.second.isEmpty() }
         val cachedRows = mutableListOf<RoomInfo>()
         val toFetch = mutableListOf<String>()
@@ -243,35 +239,39 @@ internal class EmptyRoomViewModel(
         errorMessage = null
         directProgress = null
         try {
-            val (result, fetched) = withContext(Dispatchers.IO) {
-                if (direct) {
-                    // 入口不先登教务（默认数据源是实时状态），切到直查时才登
-                    val mgr = sessionManager ?: throw RuntimeException("直查教务暂不可用，可切换到 CDN 缓存")
-                    if (mgr.credentials == null) throw RuntimeException("直查教务需要先登录，未登录可切换到 CDN 缓存")
-                    val client = mgr.ensureSite(LoginType.JWXT, userInitiated = true).client
-                    val query = if (force) EmptyRoomDirectQuery(client) else EmptyRoomDirectQuery(client, cache)
-                    val merged = cachedRows.toMutableList()
-                    val fetched = mutableListOf<Pair<String, List<RoomInfo>>>()
-                    toFetch.forEachIndexed { idx, building ->
-                        if (!latest()) throw CancellationException("superseded")
-                        try {
-                            val rows = query.queryDay(campus, building, date) { period, total ->
+            // 直查那一档逐楼查、逐楼报进度（楼之间互不影响：某楼查不到就当它没数据）；
+            // 课表那一档一次给全部选中的楼（"某楼不在当天数据里"只是少几间教室，不是整页失败）。
+            val (result, fetched) = if (direct) {
+                val merged = cachedRows.toMutableList()
+                val fetchedRows = mutableListOf<Pair<String, List<RoomInfo>>>()
+                toFetch.forEachIndexed { idx, building ->
+                    if (!latest()) throw CancellationException("superseded")
+                    try {
+                        val rows = source.rooms(
+                            campus = campus,
+                            buildings = setOf(building),
+                            date = date,
+                            direct = true,
+                            force = force,
+                            onProgress = { period, total ->
                                 if (latest()) {
                                     val progress = (idx * total + period) to (toFetch.size * total)
                                     viewModelScope.launch { if (latest()) directProgress = progress }
                                 }
-                            }
-                            fetched.add(building to rows)
-                            merged.addAll(rows)
-                        } catch (e: NoDataException) {
-                            Log.w(TAG, "direct skip $building: ${e.message}")
-                        }
+                            },
+                        )
+                        fetchedRows.add(building to rows)
+                        merged.addAll(rows)
+                    } catch (_: NoDataException) {
+                        // 这栋楼教务那边查不到（楼名对不上、当天没有教室数据）⇒ 跳过它。
+                        // 原来这里还有一行 Log.w：搬进 :core 后 VM 不再认识 android.util.Log，
+                        // 而这条信息只是排障用的，不值得为它把日志缝也拉进来。
                     }
-                    merged.sortedBy { it.name } to fetched
-                } else {
-                    val cdn = if (force) uncachedApi else api
-                    cdn.getEmptyRoomsMulti(campus, active, date) to emptyList<Pair<String, List<RoomInfo>>>()
                 }
+                merged.sortedBy { it.name } to fetchedRows
+            } else {
+                source.rooms(campus, active, date, direct = false, force = force) { _, _ -> } to
+                    emptyList<Pair<String, List<RoomInfo>>>()
             }
             if (latest()) {
                 fetched.forEach { (building, rows) ->
@@ -291,7 +291,7 @@ internal class EmptyRoomViewModel(
             // 有缓存就显示缓存（顶部黄条写明原因），没有才整页报错
             if (latest()) {
                 val reason = rawError(e)
-                errorMessage = if (fallbackToStale(sourceKey, campus, active, date, reason)) null else reason
+                errorMessage = if (fallbackToStale(direct, campus, active, date, reason)) null else reason
             }
         } finally {
             if (latest()) {
@@ -301,29 +301,23 @@ internal class EmptyRoomViewModel(
         }
     }
 
-    private fun fallbackToStale(sourceKey: String, campus: String, buildings: Collection<String>, date: String, reason: String): Boolean {
-        val merged = mutableListOf<RoomInfo>()
-        var newest = 0L
-        for (b in buildings) {
-            val key = "$sourceKey|$campus|$b|$date"
-            cache.readRoomListStale(key)?.let { stale ->
-                merged.addAll(stale)
-                newest = maxOf(newest, cache.savedAt(key))
-            }
-        }
-        if (merged.isEmpty()) {
+    private fun fallbackToStale(direct: Boolean, campus: String, buildings: Collection<String>, date: String, reason: String): Boolean {
+        val stale = source.readStaleRooms(campus, buildings.toSet(), date, direct) ?: run {
             staleNote = null
             return false
         }
-        rooms = merged.sortedBy { it.name }
-        staleNote = "数据可能不是最新 · 缓存于今天 ${hhmm(newest)} · $reason"
+        rooms = stale.first.sortedBy { it.name }
+        staleNote = "数据可能不是最新 · 缓存于今天 ${hhmm(stale.second)} · $reason"
         return true
     }
 
-    private fun hhmm(millis: Long) = SimpleDateFormat("HH:mm", Locale.getDefault()).format(millis)
+    /** `SimpleDateFormat("HH:mm")` 是 JVM 专属 ⇒ 手写补零（:core 的既有做法）。 */
+    private fun hhmm(millis: Long): String {
+        val at = Instant.fromEpochMilliseconds(millis).toLocalDateTime(TimeZone.currentSystemDefault())
+        return "${at.hour.toString().padStart(2, '0')}:${at.minute.toString().padStart(2, '0')}"
+    }
 
     private companion object {
-        const val TAG = "EmptyRoomViewModel"
         const val KEY_CAMPUS = "empty_room_last_campus"
     }
 }

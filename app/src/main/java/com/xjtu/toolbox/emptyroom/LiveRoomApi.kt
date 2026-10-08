@@ -18,87 +18,10 @@ import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 
-/**
- * 实时状态里的一间教室，来自智慧教室平台 `classroomStatus/classroomStatusList`。
- *
- * 会随屁岱的卡片（[com.xjtu.toolbox.agent.LiveRoomWidget]）存进会话记录，字段名即存盘格式。
- */
-@kotlinx.serialization.Serializable
-data class LiveRoom(
-    /** 教室全名，如 "东1东-303"、"1-2050"，和 CDN / 教务的教室名同一套写法。 */
-    val name: String = "",
-    /** 楼名，已换成 App 里的叫法（创新港 "1" → "1号巨构"），见 [liveBuildingName]。 */
-    val building: String = "",
-    /** [LiveRoomStatus] 之一。 */
-    val status: Int = 0,
-    /** 当前人数。使用中 = 平台统计的在场人数；上课中 = 这门课的人数；空闲为 0。 */
-    val people: Int = 0,
-    val seats: Int = 0,
-    val course: String? = null,
-    val teacher: String? = null,
-) {
-    val isFree: Boolean get() = status == LiveRoomStatus.FREE
-    val isInUse: Boolean get() = status == LiveRoomStatus.IN_USE
-    val isInClass: Boolean get() = status == LiveRoomStatus.IN_CLASS
-}
-
-/**
- * 平台的 status 取值（前端 chunk 里写死的）：
- * - 1 使用中：没排课，但有人（平台给出人数，实测大多 1–2 人；平台不区分自习、社团借用还是活动，界面上叫「其它使用」）
- * - 2 空闲
- * - 3 上课中：有课程名、教师、这门课的人数
- * - 0 前端有对应样式但抓包里没出现过，按"未知"处理，不当成空闲。
- */
-object LiveRoomStatus {
-    const val UNKNOWN = 0
-    const val IN_USE = 1
-    const val FREE = 2
-    const val IN_CLASS = 3
-}
-
-/** 一个校区某一刻的整体快照。平台一次就把整个校区全给了，楼的筛选在本地做。 */
-data class LiveSnapshot(
-    val campus: String,
-    /** 平台给的楼顺序（已换成 App 叫法）。 */
-    val buildings: List<String>,
-    val rooms: List<LiveRoom>,
-    /** 这份数据是什么时候从服务器拿到的（毫秒）。读缓存时是当初的时间，不是读盘时间。 */
-    val fetchedAt: Long,
-) {
-    val freeCount: Int get() = rooms.count { it.isFree }
-    val inUseCount: Int get() = rooms.count { it.isInUse }
-    val inClassCount: Int get() = rooms.count { it.isInClass }
-}
-
-/**
- * App 校区名 → 平台校区名。平台只有这三个校区（getBuildingByType 返回的就是这三个），
- * 曲江、苏州没有实时数据。
- */
-val LIVE_CAMPUSES: Map<String, String> = linkedMapOf(
-    "兴庆校区" to "兴庆校区",
-    "雁塔校区" to "雁塔校区",
-    "创新港校区" to "创新港",
-)
-
-/**
- * 平台楼名 → App 楼名。
- *
- * 2026-09-22 同一天对照 CDN 数据的结果（写在这里免得以后再比一遍）：
- * - 教室名两边一致（"东1东-303"、"1-2050"），可以直接按名字对上课表；
- * - 兴庆、雁塔楼名一致；创新港平台叫 "1"、"2"、"18"，App 叫 "1号巨构"……；
- * - 平台比 CDN 少：兴庆 328/453 间、创新港 311/341、雁塔 108/129。仲英楼、中1、主楼E座、
- *   计教中心、田家炳、工程坊，创新港的 9/21 号巨构、图书馆、绿楔和运动场，雁塔的附院教学楼、
- *   卫法楼都不在平台上；曲江、苏州整个校区没有。都是特殊场地，接受；
- * - 平台多出来的：国防中心、西1楼、音乐教室，以及 CDN 里没有的十几间（如 1-2054、3-2026）；
- * - 两边都有的教室里座位数不同的：兴庆 6 间、创新港 14 间，雁塔一致——以平台为准；
- * - 状态对得上：平台"上课中"和 CDN 当节占用吻合（兴庆 100/100、创新港 30/32），
- *   平台多出来的信息是"使用中"——课表上是空的，但实际有人（当时兴庆 92 间）。
- */
-fun liveBuildingName(campus: String, raw: String): String {
-    val trimmed = raw.trim()
-    if (campus == "创新港校区" && trimmed.isNotEmpty() && trimmed.all { it.isDigit() }) return "${trimmed}号巨构"
-    return trimmed
-}
+// ⚠️ 这里的 `LiveRoom` / `LiveRoomStatus` / `LiveSnapshot` / `LIVE_CAMPUSES` / `liveBuildingName`
+// 已搬进 `:core` 的 `com.xjtu.toolbox.emptyroom`（`EmptyRoomModels.kt`）—— 屏与 ViewModel 进了
+// `:core`，两端必须共用同一份模型。本文件只剩**实时状态的取数实现**，
+// 由 :app 的 `AppEmptyRoomSource` 包成 `EmptyRoomSource` 端口；**取数一行未改**。
 
 /**
  * 实时状态查询。只有"此刻"：接口虽然有 dayTime 参数，但网页从不赋值，给的永远是当前快照，

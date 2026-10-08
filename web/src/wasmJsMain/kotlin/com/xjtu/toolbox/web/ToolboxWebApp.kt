@@ -29,6 +29,9 @@ import com.xjtu.toolbox.community.CommunityScreen
 import com.xjtu.toolbox.community.GithubSession
 import com.xjtu.toolbox.calendar.SchoolCalendarScreen
 import com.xjtu.toolbox.core.net.CampusInboxApi
+import com.xjtu.toolbox.core.net.CampusEmptyRoomApi
+import com.xjtu.toolbox.emptyroom.EmptyRoomScreen
+import com.xjtu.toolbox.platform.keyValueStore
 import com.xjtu.toolbox.core.net.CampusFitnessApi
 import com.xjtu.toolbox.core.net.CampusSchoolCourseApi
 import com.xjtu.toolbox.core.net.CampusFacultyApi
@@ -254,6 +257,21 @@ private fun AppPage(route: AppRoute, client: HttpClient, session: WebGithubSessi
                 }
             },
         )
+        // 空闲教室：与 Android 同一个屏与 ViewModel（:core/emptyroom），只换取数 —— campus-api 只有
+        // CDN 那一档（`/api/emptyroom/cdn` 一次给全校区当天全部教室），所以 CampusEmptyRoomApi 的
+        // availableSources 只报 CDN，屏上「实时状态」「直查教务」两项整个不出现（见那个类的 KDoc）。
+        // Web 没有身份这回事 ⇒ accountType = null（研究生那条限制本来也走不到）。
+        // 「CDN 查询说明读没读过」在 Web 存 localStorage（:app 存 CredentialStore），键名与 :app 同一个。
+        AppRoute.EmptyRoom -> {
+            val prefs = remember { keyValueStore("empty_room") }
+            EmptyRoomScreen(
+                source = remember { CampusEmptyRoomApi(client) },
+                accountType = null,
+                onBack = back,
+                showCdnTip = !prefs.getBoolean("empty_room_cdn_tip", false),
+                onCdnTipRead = { prefs.putBoolean("empty_room_cdn_tip", true) },
+            )
+        }
         AppRoute.Community -> CommunityScreen(
             session = session,
             // Web 端只有「粘贴 token」这一条登录路（设备码流程在浏览器里拿不到 device code）；
@@ -272,7 +290,7 @@ private fun AppPage(route: AppRoute, client: HttpClient, session: WebGithubSessi
  * “这一屏还没搬到 Web”的占位页 —— 只给 `:core` 里尚未存在的 AppRoute 用。
  *
  * 为什么要有它：Web 只能渲染 `:core/commonMain` 里的屏；`:app` 那 40 条路由里还有一大批
- * （通知 / 空闲教室 / 全校课表 / 教师检索 / 图书馆 / 校园卡 / 成绩单 / 我的 …）因为取数挂着
+ * （通知 / 全校课表 / 教师检索 / 图书馆 / 校园卡 / 成绩单 / 我的 …）因为取数挂着
  * okhttp、Context、Room、BLE 而暂时搬不过来。这页把**具体哪一条没搬**、**它需不需要登录**
  * 直接写在脸上，而不是落回课表假装能用 —— 交接文档里那条「只信工作区」的验收，看的就是这个。
  */

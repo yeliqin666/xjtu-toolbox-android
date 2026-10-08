@@ -21,6 +21,7 @@ import com.xjtu.toolbox.community.CommunityScreen
 import com.xjtu.toolbox.coupon.CouponScreen
 import com.xjtu.toolbox.data.CredentialStore
 import com.xjtu.toolbox.dzpz.TranscriptScreen
+import com.xjtu.toolbox.emptyroom.AppEmptyRoomSource
 import com.xjtu.toolbox.emptyroom.EmptyRoomScreen
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.faculty.AppFacultySource
@@ -107,7 +108,17 @@ fun AppNavHost(
         entry<AppRoute.Main> { mainContent() }
 
         entry<AppRoute.EmptyRoom>(transition = expand(AppRoute.EmptyRoom::class)) {
-            EmptyRoomScreen(onBack = back, sessionManager = loginState.sessionManager)
+            // 取数从 `:core` 的 EmptyRoomScreen 里挪到这里的 AppEmptyRoomSource（三档全保留，行为不变）；
+            // 「CDN 说明读没读过」仍然存在 CredentialStore 里（与搬之前同一个键），屏只收一个初值 + 一个回写回调。
+            val context = LocalContext.current
+            val credentialStore = remember(context) { CredentialStore(context) }
+            EmptyRoomScreen(
+                source = remember { AppEmptyRoomSource(loginState.sessionManager, context) },
+                accountType = remember { credentialStore.accountType },
+                onBack = back,
+                showCdnTip = !credentialStore.hasReadEmptyRoomCdnTip,
+                onCdnTipRead = { credentialStore.hasReadEmptyRoomCdnTip = true },
+            )
         }
         entry<AppRoute.Notification>(transition = expand(AppRoute.Notification::class)) {
             // 取数仍走原来的 jsoup 爬虫（AppNoticeSource 只是把它包成 :core 的端口）。
