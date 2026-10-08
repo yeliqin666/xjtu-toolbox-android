@@ -10,13 +10,13 @@
       "block": false
     },
     {
-      "id": "2026-09-30-update-5.1.0",
-      "level": "update",
-      "title": "5.1.0 可以更新了",
-      "body": "登录快多了，冷启动、切网后点开即进；新增消息收纳、宿舍电费；桌面小组件重做。",
+      "id": "2026-10-08-force-5.1.1",
+      "level": "force_update",
+      "title": "请更新到 5.1.1",
+      "body": "待办补上了漏掉的思源作业，交过的自动消失；屁岱新增 5 个角色；新增待办小组件；教师详情直接看主页简介。",
       "url": "https://github.com/yeliqin666/xjtu-toolbox-android/releases/latest",
-      "targetVersion": "5.1.0",
-      "targetVersionCode": 88,
+      "targetVersion": "5.1.1",
+      "targetVersionCode": 89,
       "mustAck": false,
       "block": false
     }
