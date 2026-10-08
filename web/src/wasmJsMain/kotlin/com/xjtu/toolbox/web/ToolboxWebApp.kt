@@ -37,6 +37,7 @@ import com.xjtu.toolbox.score.ScoreReportScreen
 import com.xjtu.toolbox.game.GamesScreen
 import com.xjtu.toolbox.game.gomoku.GomokuScreen
 import com.xjtu.toolbox.game.go.GoScreen
+import com.xjtu.toolbox.game.hop.HopScreen
 import com.xjtu.toolbox.game.blocks.BlocksScreen
 import com.xjtu.toolbox.game.g2048.Gpa2048Screen
 import com.xjtu.toolbox.legal.EulaScreen
@@ -165,6 +166,8 @@ private fun AppPage(route: AppRoute, client: HttpClient, session: WebGithubSessi
         AppRoute.Games -> GamesScreen(
             onBack = back,
             onNavigate = { onNavigate(WebTarget.App(it)) },
+            // 浏览器没有 BLE ⇒ 棋类那几行不显示「联机」标签，也不许诺一个点了会失败的模式。
+            supportsOnline = false,
         )
         AppRoute.Game2048 -> Gpa2048Screen(onBack = back)
         AppRoute.GameBlocks -> BlocksScreen(onBack = back)
@@ -173,6 +176,12 @@ private fun AppPage(route: AppRoute, client: HttpClient, session: WebGithubSessi
         AppRoute.GameGomoku -> GomokuScreen(onBack = back)
         // 围棋：与 Android 同一个屏（:core/game/go）。同样没有联机那一格（无 BLE）。
         AppRoute.GameGo -> GoScreen(onBack = back)
+        // 跳一跳：与 Android 同一个屏（:core/game/hop）。9 张地标图按端注入：Android 用
+        // R.drawable、Web 用 :web 的 composeResources（同一份 webp 字节，见 WebHopLandmarks.kt）。
+        AppRoute.GameHop -> HopScreen(
+            onBack = back,
+            landmarkImages = rememberWebHopLandmarkImages(),
+        )
         AppRoute.Community -> CommunityScreen(
             session = session,
             // Web 端只有「粘贴 token」这一条登录路（设备码流程在浏览器里拿不到 device code）；

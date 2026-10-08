@@ -34,6 +34,7 @@ import com.xjtu.toolbox.game.net.rememberAppOnlineLobby
 import com.xjtu.toolbox.game.merge.MergeGameScreen
 import com.xjtu.toolbox.game.blocks.BlocksScreen
 import com.xjtu.toolbox.game.hop.HopScreen
+import com.xjtu.toolbox.game.hop.rememberHopLandmarkImages
 import com.xjtu.toolbox.game.xiangqi.XiangqiScreen
 import com.xjtu.toolbox.iclassface.IclassfaceScreen
 import com.xjtu.toolbox.jiaocai.JiaocaiScreen
@@ -324,7 +325,7 @@ fun AppNavHost(
             BlocksScreen(onBack = back)
         }
         entry<AppRoute.GameHop>(transition = expand(AppRoute.GameHop::class), swipeDismiss = NavSwipeDirection.None) {
-            HopScreen(onBack = back)
+            HopScreen(onBack = back, landmarkImages = rememberHopLandmarkImages())
         }
         entry<AppRoute.GameGomoku>(transition = expand(AppRoute.GameGomoku::class), swipeDismiss = NavSwipeDirection.None) {
             GomokuScreen(onBack = back, onlineLobby = rememberAppOnlineLobby())

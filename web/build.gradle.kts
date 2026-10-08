@@ -7,7 +7,6 @@
 //
 // 目标只有 wasmJs（浏览器）。桌面端要出时补 jvm("desktop") 即可。
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
-
 plugins {
     // 版本都在根工程钉死（KGP / CMP 都在 classpath 上），子工程只 bare id 引用。
     id("org.jetbrains.kotlin.multiplatform")
@@ -15,6 +14,24 @@ plugins {
     alias(libs.plugins.compose.multiplatform)
     alias(libs.plugins.kotlin.serialization)
 }
+
+// 多平台资源：跳一跳的 9 张地标图。
+//
+// **刻意放在 :web 而不是 :core**：AGP 9 的 KMP 库插件下，CMP 1.12.1 不会把
+// `commonMain/composeResources` 接到 Android 变体的 assets 上（实测：
+// `copyAndroidMainComposeResourcesToAndroidAssets` 的 outputDirectory 没人赋值，
+// 打出来的 AAR 里也没有 assets/）⇒ 放 :core 会让 **Android 端取不到图**，那是行为变化。
+// 所以同一份字节存两处：Android 继续用 `:app` 的 `R.drawable.hop_landmark_*`（逐字未变），
+// Web 用这里的 composeResources。共享屏只收 `landmarkImages: List<ImageBitmap>`。
+compose.resources {
+    publicResClass = true
+    packageOfResClass = "com.xjtu.toolbox.web.res"
+    // Auto（默认）在这个模块里不会生成 Res 类：实测 :web 的
+    // `generateResourceAccessorsFor*` / `generateComposeResClass` 的 onlyIf 判false（全 SKIPPED），
+    // 同一个工程里 :core 却能生成 —— 差别不在资源目录，只能显式要求总是生成。
+    generateResClass = always
+}
+
 
 kotlin {
     jvmToolchain(21)
@@ -39,6 +56,8 @@ kotlin {
             implementation(compose.runtime)
             implementation(compose.foundation)
             implementation(compose.ui)
+            // 跳一跳的地标图（compose.resources 块在上面）
+            implementation(compose.components.resources)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)
             // MIUIX：与 :app 同一套组件库（Apache-2.0）。用**多平台**坐标（无 -android 后缀），

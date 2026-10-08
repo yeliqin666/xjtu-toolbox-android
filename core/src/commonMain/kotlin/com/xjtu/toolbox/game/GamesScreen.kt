@@ -80,6 +80,13 @@ import com.xjtu.toolbox.nav.AppRoute
 fun GamesScreen(
     onBack: () -> Unit,
     onNavigate: (AppRoute) -> Unit,
+    /**
+     * 本端能不能联机（Android 有 BLE ⇒ true；Web 没有 ⇒ false）。
+     *
+     * 只影响棋类那几行的「联机」小标签与副标题 —— 免得在一台根本开不了房的设备上
+     * 许诺一个点了会失败的模式。:app 不传 = 默认 true，Android 行为逐字不变。
+     */
+    supportsOnline: Boolean = true,
 ) {
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     androidx.compose.runtime.LaunchedEffect(Unit) { GameSound.prepare() }
@@ -133,7 +140,7 @@ fun GamesScreen(
                 summary = "西交执黑，对面是上交 AI",
                 icon = Icons.Default.Dashboard,
                 color = Color(0xFF1F9E8F),
-                modes = listOf("人机", "同屏", "联机"),
+                modes = if (supportsOnline) listOf("人机", "同屏", "联机") else listOf("人机", "同屏"),
                 stat = battleRecord(GameIds.GOMOKU, listOf("easy", "hard", "hell", "local", "online")),
             ),
             GameEntry(
@@ -142,7 +149,7 @@ fun GamesScreen(
                 summary = "9 / 13 / 19 路",
                 icon = Icons.Default.Casino,
                 color = Color(0xFF4C5FD5),
-                modes = listOf("同屏", "联机"),
+                modes = if (supportsOnline) listOf("同屏", "联机") else listOf("同屏"),
                 stat = battleRecord(GameIds.GO, listOf("local", "online")),
             ),
             GameEntry(
@@ -151,7 +158,7 @@ fun GamesScreen(
                 summary = "红方西交、黑方上交",
                 icon = Icons.Default.School,
                 color = Color(0xFFB8322E),
-                modes = listOf("同屏", "联机"),
+                modes = if (supportsOnline) listOf("同屏", "联机") else listOf("同屏"),
                 stat = battleRecord(GameIds.XIANGQI, listOf("local", "online")),
             ),
         )
@@ -222,7 +229,7 @@ fun GamesScreen(
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    "同屏双人，或者两台手机扫码联机",
+                    if (supportsOnline) "同屏双人，或者两台手机扫码联机" else "同屏双人，两个人轮流点同一块屏幕",
                     style = MiuixTheme.textStyles.footnote1,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.padding(start = 4.dp),

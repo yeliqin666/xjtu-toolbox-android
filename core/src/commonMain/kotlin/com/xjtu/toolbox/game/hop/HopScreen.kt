@@ -37,7 +37,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalView
+import com.xjtu.toolbox.platform.KeepScreenOn
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
@@ -53,7 +53,6 @@ import com.xjtu.toolbox.game.GameStore
 import com.xjtu.toolbox.game.Sfx
 import com.xjtu.toolbox.game.ui.GameMenu
 import com.xjtu.toolbox.ui.rememberHaptics
-import com.xjtu.toolbox.R
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
@@ -63,7 +62,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.height
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.res.imageResource
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
@@ -91,17 +89,23 @@ private fun hint(game: HopGame): String = when {
     else -> ""
 }
 
-/** 远景地标，按出场顺序；分数每涨 [LANDMARK_EVERY] 换一座。 */
-private val LANDMARKS = listOf(
-    R.drawable.hop_landmark_library to "钱学森图书馆",
-    R.drawable.hop_landmark_gate to "交大北门",
-    R.drawable.hop_landmark_mainhall to "主楼",
-    R.drawable.hop_landmark_torch to "雁塔校区 · 火炬手",
-    R.drawable.hop_landmark_shell to "曲江校区 · 贝壳楼",
-    R.drawable.hop_landmark_monument to "饮水思源碑",
-    R.drawable.hop_landmark_sails to "创新港 · 风帆",
-    R.drawable.hop_landmark_ihub4 to "创新港 · 4 号楼",
-    R.drawable.hop_landmark_ihub5 to "创新港 · 5 号楼",
+/**
+ * 远景地标的名字，按出场顺序；分数每涨 [LANDMARK_EVERY] 换一座。
+ *
+ * **图不在这一层**：[HopScreen] 收 `landmarkImages`（与这张表同序）。
+ * Android 用 `R.drawable.hop_landmark_*` 解出来的那份（逐字未变），Web 用 :core 的
+ * `composeResources` 里那 9 张同样的 webp —— 两边读的是同一份图，只是取图的途径不同。
+ */
+val LANDMARK_NAMES = listOf(
+    "钱学森图书馆",
+    "交大北门",
+    "主楼",
+    "雁塔校区 · 火炬手",
+    "曲江校区 · 贝壳楼",
+    "饮水思源碑",
+    "创新港 · 风帆",
+    "创新港 · 4 号楼",
+    "创新港 · 5 号楼",
 )
 private const val LANDMARK_EVERY = 12
 private const val PREF_SKIN = "hop_skin"
@@ -111,7 +115,16 @@ private const val PREF_SKIN = "hop_skin"
  * 这里管输入、逐帧推进、镜头和各种一闪而过的效果。
  */
 @Composable
-fun HopScreen(onBack: () -> Unit) {
+fun HopScreen(
+    onBack: () -> Unit,
+    /**
+     * 远景地标的图，顺序与 [LANDMARK_NAMES] 一致。
+     *
+     * 取图是平台的事（Android = `R.drawable.hop_landmark_*`，Web = :core 的 composeResources），
+     * 屏本身只认 [ImageBitmap] —— 空列表 = 本端没图，就不画远景（游戏照常可玩）。
+     */
+    landmarkImages: List<ImageBitmap> = emptyList(),
+) {
     val haptics = rememberHaptics()
     var game by remember { mutableStateOf(HopGame()) }
     var frame by remember { mutableIntStateOf(0) }
@@ -124,8 +137,9 @@ fun HopScreen(onBack: () -> Unit) {
         mutableStateOf(GameStore.getString(PREF_SKIN)?.let { id -> HopSkin.entries.firstOrNull { it.id == id } } ?: HopSkin.PAWN)
     }
     var picking by remember { mutableStateOf(false) }
-    val landmarks = LANDMARKS.map { ImageBitmap.imageResource(it.first) }
-    val landmarkIndex = (score / LANDMARK_EVERY) % LANDMARKS.size
+    val landmarkCount = minOf(landmarkImages.size, LANDMARK_NAMES.size)
+    // -1 = 这一端没有地标图：不画远景、也不浮名字
+    val landmarkIndex = if (landmarkCount == 0) -1 else (score / LANDMARK_EVERY) % landmarkCount
     var landmarkShownAt by remember { mutableFloatStateOf(0f) }
     var streak by remember { mutableIntStateOf(0) }
     var over by remember { mutableStateOf(false) }
@@ -168,14 +182,11 @@ fun HopScreen(onBack: () -> Unit) {
     // 换地标时记下时刻：新的一座淡入，顶上浮出它的名字
     LaunchedEffect(landmarkIndex) { landmarkShownAt = fx.time }
 
-    val view = LocalView.current
-    DisposableEffect(over) {
-        view.keepScreenOn = !over
-        onDispose { view.keepScreenOn = false }
-    }
+    // 屏幕常亮：平台能力（Android = View.keepScreenOn，其余端空实现）
+    KeepScreenOn(enabled = !over)
 
     LaunchedEffect(game) {
-        val random = Random(System.nanoTime())
+        val random = Random.Default
         var last = withFrameNanos { it }
         var gain = game.gainSerial
         var land = game.landSerial
@@ -277,7 +288,9 @@ fun HopScreen(onBack: () -> Unit) {
             if (frame < 0) return@Canvas // 游戏状态不是 Compose state，读一下帧号让画布每帧重画
             drawSky(game.score, fx.time)
             val scale = size.width / VIEW_UNITS
-            drawLandmark(landmarks[landmarkIndex], (fx.time - landmarkShownAt) / 1.2f, night, -(camX - camZ) * scale * 0.05f)
+            if (landmarkIndex >= 0) {
+                drawLandmark(landmarkImages[landmarkIndex], (fx.time - landmarkShownAt) / 1.2f, night, -(camX - camZ) * scale * 0.05f)
+            }
             // 镜头对准的点落在屏幕中下部
             val iso = Iso(
                 size.width / 2 - (camX - camZ) * COS30 * scale,
@@ -391,9 +404,9 @@ fun HopScreen(onBack: () -> Unit) {
 
         // 换地标时，顶上浮出它的名字，两秒多后淡掉
         val sinceLandmark = fx.time - landmarkShownAt
-        if (frame >= 0 && score > 0 && sinceLandmark < 2.6f) {
+        if (frame >= 0 && score > 0 && landmarkIndex >= 0 && sinceLandmark < 2.6f) {
             Text(
-                LANDMARKS[landmarkIndex].second,
+                LANDMARK_NAMES[landmarkIndex],
                 fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = ink,
