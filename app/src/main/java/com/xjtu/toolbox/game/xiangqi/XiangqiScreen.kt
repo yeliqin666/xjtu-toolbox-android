@@ -64,6 +64,7 @@ import com.xjtu.toolbox.game.GameResult
 import com.xjtu.toolbox.game.GameSound
 import com.xjtu.toolbox.game.Sfx
 import com.xjtu.toolbox.game.GameStore
+import com.xjtu.toolbox.game.net.BleOnlineLobbyHost
 import com.xjtu.toolbox.game.net.GameKind
 import com.xjtu.toolbox.game.net.OnlineConnState
 import com.xjtu.toolbox.game.net.OnlineGameEvent
@@ -114,7 +115,7 @@ fun XiangqiScreen(onBack: () -> Unit) {
 
     // 联机对局和大厅挂在整页上：切到同屏双人再切回来，连接和棋局都还在。
     val match = remember { XiangqiOnlineMatch() }
-    val lobby = rememberOnlineLobbyState(scope)
+    val lobby = rememberOnlineLobbyState(scope, remember(context) { BleOnlineLobbyHost(context) })
     DisposableEffect(match) { onDispose { match.session?.close() } }
     // 收对方着法也放在整页：人在别的 tab 时对方走子不能丢（events 没有重放）。
     LaunchedEffect(match.session) { match.session?.let { match.collect(context, it) } }
@@ -633,7 +634,6 @@ private fun XiangqiOnlineSection(
                 match.begin(s, iAmFirst = isHost == hostFirst)
             },
             onCancel = {},
-            modifier = modifier,
         )
         return
     }

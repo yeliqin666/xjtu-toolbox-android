@@ -12,7 +12,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalDensity
-import com.xjtu.toolbox.home.GradientAppIcon
+import com.xjtu.toolbox.ui.components.GradientAppIcon
 import com.xjtu.toolbox.nav.expandOriginSource
 import com.xjtu.toolbox.nav.rememberExpandOriginSource
 import com.xjtu.toolbox.ui.components.AppCardColor
@@ -82,7 +82,7 @@ fun GamesScreen(
     onNavigate: (AppRoute) -> Unit,
 ) {
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
-    androidx.compose.runtime.LaunchedEffect(Unit) { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { GameSound.prepare() } }
+    androidx.compose.runtime.LaunchedEffect(Unit) { GameSound.prepare() }
 
     // 战绩每次进页面读一次即可：玩完一局是 pop 回来，会重新组合。
     val arcade = remember {

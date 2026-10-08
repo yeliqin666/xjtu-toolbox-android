@@ -54,7 +54,7 @@ object ExpandOrigins {
      * [AppNavigator] 每次压栈时调用：只有紧接在格子点击之后、去同一个路由的那一次才用起点，
      * 否则把这个类型的旧起点清掉，免得从搜索进同一页时从上次那一格飞出来。
      */
-    internal fun onPush(route: AppRoute) {
+    fun onPush(route: AppRoute) {
         val a = armed
         armed = null
         if (a != null && a.first == route.id) byType[route::class] = a.second

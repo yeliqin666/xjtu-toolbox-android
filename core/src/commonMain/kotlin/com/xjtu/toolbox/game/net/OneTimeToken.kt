@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.game.net
 
+import com.xjtu.toolbox.platform.secureRandomInt
+
 /**
  * 一次性口令：房主生成一个随机口令塞进二维码，第一个用它 hello 成功的设备"消费"掉它，
  * 之后同一网络/附近再有第三台设备拿同一份码来连，一律拒绝。
@@ -26,8 +28,7 @@ class OneTimeToken(private val expected: String) {
         fun generate(): String {
             val chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // 去掉容易看混的 0/O/1/I
             return buildString {
-                val random = java.security.SecureRandom()
-                repeat(8) { append(chars[random.nextInt(chars.length)]) }
+                repeat(8) { append(chars[secureRandomInt(chars.length)]) }
             }
         }
     }

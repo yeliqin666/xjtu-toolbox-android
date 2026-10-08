@@ -10,6 +10,9 @@ import java.util.UUID
  *
  * 只走蓝牙：以前是局域网 TCP 优先、蓝牙兜底，可校园网开了 AP 隔离，手机之间根本连不上，
  * 实测只有蓝牙可用；局域网那条路只会让加入方先白等一轮超时，房主还多开一个端口和 NSD 广播。
+ *
+ * 从 `OnlineLobby.kt` 拆出来的一部分：**协议流程**（[OnlineLobbyState]）与**界面**都进了 :core，
+ * 这里只剩「蓝牙怎么开、怎么连」，并实现 :core 的 [OnlineLobbyHost]（见 [BleOnlineLobbyHost]）。
  */
 object OnlineController {
 
@@ -33,18 +36,18 @@ object OnlineController {
      * 真正等人是 [awaitGuest]；用户取消或离开页面必须调 [close]，把蓝牙广播收回来。
      */
     class HostRoom internal constructor(
-        val qrText: String,
+        override val qrText: String,
         private val bleServer: BleGattHostServer,
         private val token: String,
         private val kind: GameKind,
         private val ruleParam: String?,
         private val hostFirst: Boolean,
         private val scope: CoroutineScope,
-    ) {
+    ) : HostedRoom {
         @Volatile private var closed = false
 
         /** 等对方连上并完成握手；超时、握手失败、房间被关都返回 null。 */
-        suspend fun awaitGuest(): OnlineGameSession? {
+        override suspend fun awaitGuest(): OnlineGameSession? {
             val transport = bleServer.waitForReady(HOST_WAIT_TIMEOUT_MS)
             if (transport == null || closed) {
                 transport?.close()
@@ -65,7 +68,7 @@ object OnlineController {
         }
 
         /** 关房间：停掉蓝牙广播。可重复调用；已经交出去的会话不受影响。 */
-        fun close() {
+        override fun close() {
             closed = true
             bleServer.stop()
         }
@@ -97,13 +100,6 @@ object OnlineController {
             hostFirst = hostFirst,
             scope = scope,
         )
-    }
-
-    sealed class JoinAttempt {
-        object Connecting : JoinAttempt()
-        object Handshaking : JoinAttempt()
-        data class Failed(val message: String) : JoinAttempt()
-        data class Success(val session: OnlineGameSession) : JoinAttempt()
     }
 
     /**
@@ -156,4 +152,32 @@ object OnlineController {
             onAttempt(JoinAttempt.Failed(reason ?: "连上了对方，但握手没有完成，请让房主重新开一次房间"))
         }
     }
+}
+
+/**
+ * :core 的 [OnlineLobbyHost] 的 Android 实现 —— 就是上面那个 BLE 编排。
+ *
+ * 这一层存在的唯一理由是「BLE 只有 Android 有」：把 [Context] 挡在共享层之外，
+ * 共享层的棋盘屏只认 [OnlineLobbyHost]。Web 端不提供这个实现，联机入口整个不出现。
+ */
+class BleOnlineLobbyHost(private val context: Context) : OnlineLobbyHost {
+
+    override fun canHost(): Boolean = OnlineController.bluetoothReady(context)
+
+    override fun hostFailureReason(): String =
+        if (!OnlinePermissions.hasAllBlePermissions(context)) {
+            "联机要用蓝牙，需要「附近设备」权限。请在系统设置里给本应用开启后重试。"
+        } else {
+            "蓝牙没开。打开蓝牙后再创建房间。"
+        }
+
+    override fun host(kind: GameKind, ruleParam: String?, hostFirst: Boolean, scope: CoroutineScope): HostedRoom? =
+        OnlineController.hostGame(context, kind, ruleParam, hostFirst, scope)
+
+    override suspend fun join(
+        payload: OnlineQrPayload,
+        kind: GameKind,
+        scope: CoroutineScope,
+        onAttempt: (JoinAttempt) -> Unit,
+    ) = OnlineController.joinGame(context, payload, kind, scope, onAttempt)
 }

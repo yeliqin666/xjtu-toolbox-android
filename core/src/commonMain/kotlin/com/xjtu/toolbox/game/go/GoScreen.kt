@@ -47,10 +47,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.game.GameIds
+import com.xjtu.toolbox.score.formatTwoDecimals
 import com.xjtu.toolbox.game.GameSound
 import com.xjtu.toolbox.game.Sfx
 import com.xjtu.toolbox.game.GameResult
@@ -61,7 +61,7 @@ import com.xjtu.toolbox.game.net.OnlineGameEvent
 import com.xjtu.toolbox.game.net.OnlineGameSession
 import com.xjtu.toolbox.game.net.LobbyChip
 import com.xjtu.toolbox.game.net.LobbyOptionRow
-import com.xjtu.toolbox.game.net.OnlineLobbyContent
+import com.xjtu.toolbox.game.net.OnlineLobby
 import com.xjtu.toolbox.game.net.OnlineLobbyState
 import com.xjtu.toolbox.game.net.rememberOnlineLobbyState
 import com.xjtu.toolbox.game.net.OnlineMove
@@ -86,18 +86,18 @@ import kotlin.math.roundToInt
  * [GoGameState] 里完全没有"电脑走一步"的接口，黑白双方从设计上就都是真人，轮流点同一块屏幕。
  */
 @Composable
-fun GoScreen(onBack: () -> Unit) {
-    val context = LocalContext.current
+fun GoScreen(onBack: () -> Unit, onlineLobby: OnlineLobby? = null) {
     val state = remember { GoGameState(9) }
     var online by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     // 联机对局和大厅挂在整页上：切到同屏双人再切回来，连接和棋局都还在。
     val match = remember { GoOnlineMatch() }
-    val lobby = rememberOnlineLobbyState(scope)
+    // Web 端没有 BLE，onlineLobby 传 null ⇒ 模式切换里没有「联机对战」这一格。
+    val lobby = onlineLobby?.let { rememberOnlineLobbyState(scope, it.host) }
     DisposableEffect(match) { onDispose { match.session?.close() } }
     // 收对方着法也放在整页：人在别的 tab 时对方落子不能丢（events 没有重放）。
-    LaunchedEffect(match.session) { match.session?.let { match.collect(context, it) } }
+    LaunchedEffect(match.session) { match.session?.let { match.collect(it) } }
 
     Scaffold(
         topBar = {
@@ -111,17 +111,21 @@ fun GoScreen(onBack: () -> Unit) {
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            AppSegmentedTabs(
-                tabs = listOf("同屏双人", "联机对战"),
-                selectedTabIndex = if (online) 1 else 0,
-                onTabSelected = { online = it == 1 },
-            )
+            // 联机这一格只有在平台提供联机入口时才出现（Web 没有 BLE ⇒ 只剩同屏双人，
+            // 单一模式不必占一条切换栏）。
+            if (onlineLobby != null) {
+                AppSegmentedTabs(
+                    tabs = listOf("同屏双人", "联机对战"),
+                    selectedTabIndex = if (online) 1 else 0,
+                    onTabSelected = { online = it == 1 },
+                )
+            }
             if (online) {
                 GoOnlineSection(
                     match = match,
-                    lobby = lobby,
+                    lobby = lobby!!,
+                    ui = onlineLobby,
                     scope = scope,
-                    modifier = Modifier.fillMaxSize(),
                 )
             } else if (isWideLayout()) {
                 // 宽屏（横屏平板/折叠屏展开）棋盘和操作面板并排
@@ -135,7 +139,7 @@ fun GoScreen(onBack: () -> Unit) {
                     Column(Modifier.width(300.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         GoVersus(state)
                         GoHintLine(state)
-                        GoActions(state, context)
+                        GoActions(state)
                         GoSizePicker(state)
                     }
                 }
@@ -151,7 +155,7 @@ fun GoScreen(onBack: () -> Unit) {
                     GoHintLine(state)
                     GoLocalBoard(state, Modifier.fillMaxWidth())
                     Spacer(Modifier.height(16.dp))
-                    GoActions(state, context)
+                    GoActions(state)
                     Spacer(Modifier.height(12.dp))
                     GoSizePicker(state)
                     Spacer(Modifier.height(24.dp))
@@ -160,7 +164,7 @@ fun GoScreen(onBack: () -> Unit) {
         }
 
         if (state.phase == GoPhase.FINISHED) {
-            GoResultDialog(state = state, context = context, onDismiss = { state.newGame() })
+            GoResultDialog(state = state, onDismiss = { state.newGame() })
         }
     }
 }
@@ -193,7 +197,7 @@ private fun GoHintLine(state: GoGameState) {
 }
 
 @Composable
-private fun GoActions(state: GoGameState, context: android.content.Context) {
+private fun GoActions(state: GoGameState) {
     // 读 version：GoBoard 是普通可变对象，canUndo() 的结果要跟着每一手刷新
     @Suppress("UNUSED_VARIABLE") val v = state.version
     when (state.phase) {
@@ -205,7 +209,7 @@ private fun GoActions(state: GoGameState, context: android.content.Context) {
             ),
         )
         GoPhase.SCORING -> GameActionRow(
-            listOf(GameAction("确认数子", primary = true) { finishScoring(state, context) }),
+            listOf(GameAction("确认数子", primary = true) { finishScoring(state) }),
         )
         GoPhase.FINISHED -> GameActionRow(
             listOf(GameAction("再来一局", primary = true) { state.newGame() }),
@@ -247,21 +251,21 @@ private fun GoSizePicker(state: GoGameState) {
     }
 }
 
-private fun finishScoring(state: GoGameState, context: android.content.Context) {
+private fun finishScoring(state: GoGameState) {
     val result = state.confirmScore()
-    recordResult(context, result.winner)
+    recordResult(result.winner)
 }
 
 // 同屏双人没有"哪一方是本机用户"的概念，两个人共用一台设备轮流下棋。
 // 战绩这里选择固定按"黑棋视角"记一胜一负——黑棋赢记 WIN，白棋赢（黑棋输）记 LOSS，
 // 没有平局（贴 3.75 子后不会打平）。
-private fun recordResult(context: android.content.Context, winner: Stone) {
+private fun recordResult(winner: Stone) {
     val result = if (winner == Stone.BLACK) GameResult.WIN else GameResult.LOSS
     GameStore.recordResult(GameIds.GO, "local", result)
 }
 
 @Composable
-private fun GoResultDialog(state: GoGameState, context: android.content.Context, onDismiss: () -> Unit) {
+private fun GoResultDialog(state: GoGameState, onDismiss: () -> Unit) {
     val r = state.result
     val winnerName = if (state.winner == Stone.BLACK) "黑棋（西交）" else "白棋（上交）"
     OverlayDialog(
@@ -272,8 +276,8 @@ private fun GoResultDialog(state: GoGameState, context: android.content.Context,
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(
                 if (r != null) {
-                    "黑 ${r.blackArea} 子，贴 3.75 子后 ${"%.2f".format(r.blackFinal)}\n" +
-                        "白 ${r.whiteArea} 子\n胜 ${"%.2f".format(r.margin)} 子"
+                    "黑 ${r.blackArea} 子，贴 3.75 子后 ${formatTwoDecimals(r.blackFinal)}\n" +
+                        "白 ${r.whiteArea} 子\n胜 ${formatTwoDecimals(r.margin)} 子"
                 } else {
                     "对方中途认输"
                 },
@@ -291,7 +295,7 @@ private fun GoResultDialog(state: GoGameState, context: android.content.Context,
     // 用 LaunchedEffect 只在赢家第一次确定时记一次，避免每次重组都重复写 SharedPreferences。
     if (r == null && state.winner != null) {
         LaunchedEffect(state.winner) {
-            recordResult(context, state.winner!!)
+            recordResult(state.winner!!)
         }
     }
 }
@@ -456,7 +460,7 @@ private class GoOnlineMatch {
 
     val peerColor: Stone get() = if (myColor == Stone.BLACK) Stone.WHITE else Stone.BLACK
 
-    fun recordIfFinished(context: android.content.Context) {
+    fun recordIfFinished() {
         val winner = result?.winner ?: resignedWinner ?: return
         if (recorded) return
         recorded = true
@@ -464,7 +468,7 @@ private class GoOnlineMatch {
         GameStore.recordResult(GameIds.GO, "online", if (winner == myColor) GameResult.WIN else GameResult.LOSS)
     }
 
-    suspend fun collect(context: android.content.Context, s: OnlineGameSession): Unit = kotlinx.coroutines.coroutineScope {
+    suspend fun collect(s: OnlineGameSession): Unit = kotlinx.coroutines.coroutineScope {
         launch {
             s.state.collect { st ->
                 if (st is OnlineConnState.Disconnected) disconnectedReason = st.reason
@@ -489,7 +493,7 @@ private class GoOnlineMatch {
                     if (result == null && turn == myColor && !board.hasLegalMove(myColor)) {
                         applyMyPass()
                         autoPassed = true
-                        recordIfFinished(context)
+                        recordIfFinished()
                         s.sendLocalMove(adapter.encodeMove(OnlineMove.Pass))
                     }
                 }
@@ -498,7 +502,7 @@ private class GoOnlineMatch {
                 is OnlineGameEvent.DrawAnswered -> if (ev.accepted) result = GoScoring.score(board, emptySet())
                 else -> Unit
             }
-            recordIfFinished(context)
+            recordIfFinished()
         }
     }
 }
@@ -517,14 +521,14 @@ private class GoOnlineMatch {
 private fun GoOnlineSection(
     match: GoOnlineMatch,
     lobby: OnlineLobbyState,
+    ui: OnlineLobby,
     scope: kotlinx.coroutines.CoroutineScope,
     modifier: Modifier = Modifier,
 ) {
-    val context = LocalContext.current
 
     val activeSession = match.session
     if (activeSession == null) {
-        OnlineLobbyContent(
+        ui.Content(
             state = lobby,
             kind = GameKind.GO,
             ruleParam = "${match.hostSize}",
@@ -534,7 +538,6 @@ private fun GoOnlineSection(
                 match.begin(s, iAmFirst = isHost == hostFirst, size = size)
             },
             onCancel = {},
-            modifier = modifier,
             hostOptions = {
                 LobbyOptionRow("棋盘") {
                     ONLINE_GO_SIZES.forEach { size ->
@@ -576,13 +579,13 @@ private fun GoOnlineSection(
         if (match.result != null || match.resignedWinner != null || match.turn != myColor || disconnectedReason != null) return
         match.autoPassed = false
         match.applyMyPass()
-        match.recordIfFinished(context)
+        match.recordIfFinished()
         sendMove(OnlineMove.Pass)
     }
 
     val statusText = when {
         disconnectedReason != null -> disconnectedReason
-        result != null -> "对局结束：${if (result.winner == Stone.BLACK) "黑棋" else "白棋"}胜 ${"%.2f".format(result.margin)} 子"
+        result != null -> "对局结束：${if (result.winner == Stone.BLACK) "黑棋" else "白棋"}胜 ${formatTwoDecimals(result.margin)} 子"
         resignedWinner != null -> "对局结束：${if (resignedWinner == Stone.BLACK) "黑棋" else "白棋"}胜（对方认输）"
         turn == myColor -> "轮到你落子 · ${board.size} 路"
         match.autoPassed -> "你已无处可下，自动虚手 · 等待对方"
@@ -626,7 +629,7 @@ private fun GoOnlineSection(
                     match.pendingDrawFromPeer = false
                     scope.launch { activeSession.answerDraw(true) }
                     match.result = GoScoring.score(board, emptySet())
-                    match.recordIfFinished(context)
+                    match.recordIfFinished()
                 })
             }
         }
@@ -647,7 +650,7 @@ private fun GoOnlineSection(
                     GameAction("认输") {
                         scope.launch { activeSession.resign() }
                         match.resignedWinner = match.peerColor
-                        match.recordIfFinished(context)
+                        match.recordIfFinished()
                     },
                 ),
             )

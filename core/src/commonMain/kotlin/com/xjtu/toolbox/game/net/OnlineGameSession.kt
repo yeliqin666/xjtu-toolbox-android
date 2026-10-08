@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.concurrent.Volatile
+import kotlin.time.Clock
 
 /** 我方在这局里的角色：房主先发 hello_ack，加入方先发 hello。 */
 enum class OnlineRole { HOST, GUEST }
@@ -53,7 +55,7 @@ class OnlineGameSession(
     private val hostFirst: Boolean,
     private var transport: OnlineTransport,
     private val scope: CoroutineScope,
-    private val now: () -> Long = { System.currentTimeMillis() },
+    private val now: () -> Long = { Clock.System.now().toEpochMilliseconds() },
 ) {
     private val moveLog = NetMoveLog()
     private val heartbeat = HeartbeatTracker()

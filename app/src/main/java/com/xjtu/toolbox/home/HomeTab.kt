@@ -48,6 +48,7 @@ import com.xjtu.toolbox.ui.theme.serviceColor
 import com.xjtu.toolbox.bulletin.Bulletin
 import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.ExpressiveIcon
+import com.xjtu.toolbox.ui.components.GradientAppIcon
 import com.xjtu.toolbox.ui.components.appCardShadow
 import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.data.CredentialStore
@@ -1131,39 +1132,6 @@ private fun HomeCategoryCard(
             }
             Spacer(Modifier.height(6.dp))
         }
-    }
-}
-
-/**
- * App 式图标：分类色的对角渐变铺满超椭圆，上半截一层柔和高光，字形用白色。
- * 不加投影：一屏二十几个图标，每个一层 dropShadow，滚动时帧率会掉。
- */
-@Composable
-internal fun GradientAppIcon(
-    icon: ImageVector,
-    color: Color,
-    size: androidx.compose.ui.unit.Dp = 48.dp,
-    iconSize: androidx.compose.ui.unit.Dp = 24.dp,
-) {
-    val radius = size * 0.3f
-    val top = androidx.compose.ui.graphics.lerp(color, Color.White, 0.22f)
-    val bottom = androidx.compose.ui.graphics.lerp(color, Color.Black, 0.10f)
-    Box(
-        Modifier
-            .size(size)
-            .squircleClip(radius)
-            .background(Brush.linearGradient(listOf(top, color, bottom)))
-            .drawBehind {
-                drawRect(
-                    Brush.verticalGradient(
-                        listOf(Color.White.copy(alpha = 0.26f), Color.Transparent),
-                        endY = this.size.height * 0.55f,
-                    )
-                )
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(iconSize))
     }
 }
 

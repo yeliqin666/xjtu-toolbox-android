@@ -51,7 +51,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -64,7 +63,7 @@ import com.xjtu.toolbox.game.net.GameKind
 import com.xjtu.toolbox.game.net.OnlineConnState
 import com.xjtu.toolbox.game.net.OnlineGameEvent
 import com.xjtu.toolbox.game.net.OnlineGameSession
-import com.xjtu.toolbox.game.net.OnlineLobbyContent
+import com.xjtu.toolbox.game.net.OnlineLobby
 import com.xjtu.toolbox.game.net.OnlineLobbyState
 import com.xjtu.toolbox.game.net.rememberOnlineLobbyState
 import com.xjtu.toolbox.game.net.OnlineMove
@@ -73,6 +72,8 @@ import com.xjtu.toolbox.ui.isWideLayout
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.TimeSource
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
@@ -100,8 +101,7 @@ private data class GomokuUiState(
 )
 
 @Composable
-fun GomokuScreen(onBack: () -> Unit) {
-    val context = LocalContext.current
+fun GomokuScreen(onBack: () -> Unit, onlineLobby: OnlineLobby? = null) {
     val scope = rememberCoroutineScope()
     val ai = remember { GomokuAi() }
 
@@ -118,10 +118,11 @@ fun GomokuScreen(onBack: () -> Unit) {
 
     // 联机对局和大厅挂在整页上：切到人机 / 同屏再切回来，连接和棋局都还在。
     val online = remember { GomokuOnlineMatch() }
-    val lobby = rememberOnlineLobbyState(scope)
+    // Web 端没有 BLE，onlineLobby 传 null ⇒ 模式切换里没有「联机对战」这一格。
+    val lobby = onlineLobby?.let { rememberOnlineLobbyState(scope, it.host) }
     DisposableEffect(online) { onDispose { online.session?.close() } }
     // 收对方着法也放在整页：人在别的 tab 时对方落子不能丢（events 没有重放）。
-    LaunchedEffect(online.session) { online.session?.let { online.collect(context, it) } }
+    LaunchedEffect(online.session) { online.session?.let { online.collect(it) } }
 
     val difficultyKey = if (mode == GomokuMode.LOCAL) "local" else when (difficulty) {
         GomokuDifficulty.EASY -> "easy"
@@ -176,7 +177,7 @@ fun GomokuScreen(onBack: () -> Unit) {
         val gen = generation
         scope.launch {
             val timeoutMillis = difficulty.timeoutMillis
-            val deadline = if (timeoutMillis > 0) System.nanoTime() + timeoutMillis * 1_000_000L else null
+            val deadline = if (timeoutMillis > 0) TimeSource.Monotonic.markNow() + timeoutMillis.milliseconds else null
             // 给 AI 一份拷贝去搜：它会在棋盘上反复试落/撤回，界面同时在读同一份就会崩
             val searchBoard = ui.board.copy()
             val startCount = searchBoard.moveCount()
@@ -247,12 +248,13 @@ fun GomokuScreen(onBack: () -> Unit) {
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             AppSegmentedTabs(
-                tabs = listOf("人机对战", "同屏双人", "联机对战"),
+                // 联机这一格只有在平台提供联机入口时才出现（Web 没有 BLE ⇒ 只有前两格）。
+                tabs = if (onlineLobby != null) listOf("人机对战", "同屏双人", "联机对战") else listOf("人机对战", "同屏双人"),
                 selectedTabIndex = mode.ordinal,
                 onTabSelected = { mode = GomokuMode.entries[it] },
             )
             if (mode == GomokuMode.ONLINE) {
-                GomokuOnlineSection(online, lobby, scope)
+                GomokuOnlineSection(online, lobby!!, onlineLobby, scope)
                 return@Column
             }
 
@@ -483,7 +485,7 @@ private class GomokuOnlineMatch {
         session = null
     }
 
-    fun recordIfFinished(context: android.content.Context, o: GomokuOutcome) {
+    fun recordIfFinished(o: GomokuOutcome) {
         if (o == GomokuOutcome.ONGOING) return
         val iWon = (o == GomokuOutcome.XJTU_WIN && myStone == GOMOKU_XJTU) ||
             (o == GomokuOutcome.SJTU_WIN && myStone == GOMOKU_SJTU)
@@ -496,7 +498,7 @@ private class GomokuOnlineMatch {
         GameStore.recordResult(GameIds.GOMOKU, "online", result)
     }
 
-    suspend fun collect(context: android.content.Context, s: OnlineGameSession): Unit = kotlinx.coroutines.coroutineScope {
+    suspend fun collect(s: OnlineGameSession): Unit = kotlinx.coroutines.coroutineScope {
         launch {
             s.state.collect { st ->
                 if (st is OnlineConnState.Disconnected) disconnectedReason = st.reason
@@ -518,17 +520,17 @@ private class GomokuOnlineMatch {
                     outcome = o
                     version++
                     GameSound.play(Sfx.KNOCK, 0.7f)
-                    recordIfFinished(context, o)
+                    recordIfFinished(o)
                 }
                 OnlineGameEvent.Resigned -> {
                     val o = if (myStone == GOMOKU_XJTU) GomokuOutcome.XJTU_WIN else GomokuOutcome.SJTU_WIN
                     outcome = o
-                    recordIfFinished(context, o)
+                    recordIfFinished(o)
                 }
                 OnlineGameEvent.DrawRequested -> pendingDrawFromPeer = true
                 is OnlineGameEvent.DrawAnswered -> if (ev.accepted) {
                     outcome = GomokuOutcome.DRAW
-                    recordIfFinished(context, GomokuOutcome.DRAW)
+                    recordIfFinished(GomokuOutcome.DRAW)
                 }
                 else -> Unit
             }
@@ -537,7 +539,7 @@ private class GomokuOnlineMatch {
 }
 
 /**
- * 联机对战：接入 `game/net` 模块。握手成功之前走 [OnlineLobbyContent]（选创建/
+ * 联机对战：接入 `game/net` 模块。握手成功之前走平台提供的联机大厅（选创建/
  * 加入房间、二维码/扫码），握手成功之后本地维护一份 [GomokuBoard]，对方的着法用
  * [GomokuOnlineAdapter] 校验后重放到这份棋盘上——这就是"双方各自用同一规则引擎校验每一步"。
  */
@@ -545,13 +547,13 @@ private class GomokuOnlineMatch {
 private fun GomokuOnlineSection(
     online: GomokuOnlineMatch,
     lobby: OnlineLobbyState,
+    ui: OnlineLobby,
     scope: kotlinx.coroutines.CoroutineScope,
 ) {
-    val context = LocalContext.current
 
     val activeSession = online.session
     if (activeSession == null) {
-        OnlineLobbyContent(
+        ui.Content(
             state = lobby,
             kind = GameKind.GOMOKU,
             ruleParam = null,
@@ -560,6 +562,7 @@ private fun GomokuOnlineSection(
                 online.begin(s, iAmFirst = isHost == hostFirst)
             },
             onCancel = {},
+            hostOptions = null,
         )
         return
     }
@@ -579,7 +582,7 @@ private fun GomokuOnlineSection(
         online.outcome = o
         online.version++
         GameSound.play(Sfx.KNOCK, 0.7f)
-        online.recordIfFinished(context, o)
+        online.recordIfFinished(o)
         scope.launch { activeSession.sendLocalMove(online.adapter.encodeMove(move)) }
     }
 
@@ -631,7 +634,7 @@ private fun GomokuOnlineSection(
                     online.pendingDrawFromPeer = false
                     scope.launch { activeSession.answerDraw(true) }
                     online.outcome = GomokuOutcome.DRAW
-                    online.recordIfFinished(context, GomokuOutcome.DRAW)
+                    online.recordIfFinished(GomokuOutcome.DRAW)
                 })
             }
         }
@@ -645,7 +648,7 @@ private fun GomokuOnlineSection(
                         scope.launch { activeSession.resign() }
                         val o = if (myStone == GOMOKU_XJTU) GomokuOutcome.SJTU_WIN else GomokuOutcome.XJTU_WIN
                         online.outcome = o
-                        online.recordIfFinished(context, o)
+                        online.recordIfFinished(o)
                     },
                 ),
             )

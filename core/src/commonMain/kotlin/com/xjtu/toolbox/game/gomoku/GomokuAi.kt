@@ -3,6 +3,7 @@ package com.xjtu.toolbox.game.gomoku
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.random.Random
+import kotlin.time.TimeMark
 
 /**
  * 「上交 AI」。纯 Kotlin，不碰 android 或 androidx 的任何包，好脱离设备跑 JVM 单测。
@@ -29,14 +30,14 @@ private class GomokuSearchTimeout : RuntimeException()
 class GomokuAi(private val random: Random = Random.Default) {
 
     /**
-     * 给出 AI 的落子坐标。[deadlineNanos] 为空时不做超时检查——单测里固定局面、不
+     * 给出 AI 的落子坐标。[deadline] 为空时不做超时检查——单测里固定局面、不
      * 依赖墙钟时间，传空才能保证「同局面同种子结果可复现」。
      */
     fun findMove(
         board: GomokuBoard,
         aiPlayer: Int,
         difficulty: GomokuDifficulty,
-        deadlineNanos: Long? = null,
+        deadline: TimeMark? = null,
     ): Pair<Int, Int> {
         val human = board.opponentOf(aiPlayer)
 
@@ -54,7 +55,7 @@ class GomokuAi(private val random: Random = Random.Default) {
 
         return when (difficulty) {
             GomokuDifficulty.EASY -> easyMove(board, aiPlayer, human)
-            GomokuDifficulty.HARD, GomokuDifficulty.HELL -> searchMove(board, aiPlayer, human, difficulty, deadlineNanos)
+            GomokuDifficulty.HARD, GomokuDifficulty.HELL -> searchMove(board, aiPlayer, human, difficulty, deadline)
         }
     }
 
@@ -95,7 +96,7 @@ class GomokuAi(private val random: Random = Random.Default) {
         ai: Int,
         human: Int,
         difficulty: GomokuDifficulty,
-        deadlineNanos: Long?,
+        deadline: TimeMark?,
     ): Pair<Int, Int> {
         val table = if (difficulty == GomokuDifficulty.HELL) HashMap<Long, TranspositionEntry>() else null
         var zobrist = if (table != null) ZobristTable.hashOf(board) else 0L
@@ -112,7 +113,7 @@ class GomokuAi(private val random: Random = Random.Default) {
                     zobrist = zobrist xor ZobristTable.keyFor(r, c, ai)
                     val score = -negamax(
                         board, human, ai, depth - 1,
-                        -SCORE_WIN, SCORE_WIN, table, zobrist, deadlineNanos,
+                        -SCORE_WIN, SCORE_WIN, table, zobrist, deadline,
                     )
                     zobrist = zobrist xor ZobristTable.keyFor(r, c, ai)
                     board.undoLast()
@@ -136,9 +137,9 @@ class GomokuAi(private val random: Random = Random.Default) {
         beta: Int,
         table: HashMap<Long, TranspositionEntry>?,
         zobrist: Long,
-        deadlineNanos: Long?,
+        deadline: TimeMark?,
     ): Int {
-        if (deadlineNanos != null && System.nanoTime() > deadlineNanos) throw GomokuSearchTimeout()
+        if (deadline?.hasPassedNow() == true) throw GomokuSearchTimeout()
 
         table?.get(zobrist)?.let { entry ->
             if (entry.depth >= depth) return entry.score
@@ -165,7 +166,7 @@ class GomokuAi(private val random: Random = Random.Default) {
         for ((r, c) in moves) {
             board.place(r, c, toMove)
             z = z xor ZobristTable.keyFor(r, c, toMove)
-            val score = -negamax(board, other, aiPlayer, depth - 1, -beta, -alpha, table, z, deadlineNanos)
+            val score = -negamax(board, other, aiPlayer, depth - 1, -beta, -alpha, table, z, deadline)
             z = z xor ZobristTable.keyFor(r, c, toMove)
             board.undoLast()
             if (score > best) best = score

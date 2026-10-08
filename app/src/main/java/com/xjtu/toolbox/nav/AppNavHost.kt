@@ -30,6 +30,7 @@ import com.xjtu.toolbox.game.GamesScreen
 import com.xjtu.toolbox.game.g2048.Gpa2048Screen
 import com.xjtu.toolbox.game.go.GoScreen
 import com.xjtu.toolbox.game.gomoku.GomokuScreen
+import com.xjtu.toolbox.game.net.rememberAppOnlineLobby
 import com.xjtu.toolbox.game.merge.MergeGameScreen
 import com.xjtu.toolbox.game.blocks.BlocksScreen
 import com.xjtu.toolbox.game.hop.HopScreen
@@ -326,10 +327,10 @@ fun AppNavHost(
             HopScreen(onBack = back)
         }
         entry<AppRoute.GameGomoku>(transition = expand(AppRoute.GameGomoku::class), swipeDismiss = NavSwipeDirection.None) {
-            GomokuScreen(onBack = back)
+            GomokuScreen(onBack = back, onlineLobby = rememberAppOnlineLobby())
         }
         entry<AppRoute.GameGo>(transition = expand(AppRoute.GameGo::class), swipeDismiss = NavSwipeDirection.None) {
-            GoScreen(onBack = back)
+            GoScreen(onBack = back, onlineLobby = rememberAppOnlineLobby())
         }
         entry<AppRoute.GameXiangqi>(transition = expand(AppRoute.GameXiangqi::class), swipeDismiss = NavSwipeDirection.None) {
             XiangqiScreen(onBack = back)

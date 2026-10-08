@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.Grade
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.filled.Forum
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -33,6 +34,9 @@ import com.xjtu.toolbox.core.net.CampusYellowPageApi
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.fitness.FitnessScreen
 import com.xjtu.toolbox.score.ScoreReportScreen
+import com.xjtu.toolbox.game.GamesScreen
+import com.xjtu.toolbox.game.gomoku.GomokuScreen
+import com.xjtu.toolbox.game.go.GoScreen
 import com.xjtu.toolbox.game.blocks.BlocksScreen
 import com.xjtu.toolbox.game.g2048.Gpa2048Screen
 import com.xjtu.toolbox.legal.EulaScreen
@@ -100,6 +104,7 @@ internal val WEB_TABS = listOf(
     WebTab(AppRoute.YellowPage, "黄页", Icons.Filled.Phone),
     WebTab(AppRoute.Game2048, "GPA2048", Icons.Filled.Psychology),
     WebTab(AppRoute.GameBlocks, "方块", Icons.Filled.Extension),
+    WebTab(AppRoute.Games, "游戏", Icons.Filled.SportsEsports),
     WebTab(AppRoute.Community, "社区", Icons.Filled.Forum),
 )
 
@@ -154,8 +159,20 @@ private fun AppPage(route: AppRoute, client: HttpClient, session: WebGithubSessi
             onBack = back,
             errorText = { FriendlyError.of(it, "加载黄页") },
         )
+        // 游戏合集：与 Android 同一个屏（:core/game/GamesScreen），战绩读同一份 GameStore
+        // （Web 走 localStorage，Android 走 SharedPreferences）。合集里没搬过来的那几条
+        // （合成西交大 = WebView）点进去会落到 NotPortedScreen —— 不冒充。
+        AppRoute.Games -> GamesScreen(
+            onBack = back,
+            onNavigate = { onNavigate(WebTarget.App(it)) },
+        )
         AppRoute.Game2048 -> Gpa2048Screen(onBack = back)
         AppRoute.GameBlocks -> BlocksScreen(onBack = back)
+        // 五子棋：与 Android 同一个屏（:core/game/gomoku）。联机那一格不出现 ——
+        // 浏览器没有 BLE，onlineLobby 传 null（不是做一个假大厅）。
+        AppRoute.GameGomoku -> GomokuScreen(onBack = back)
+        // 围棋：与 Android 同一个屏（:core/game/go）。同样没有联机那一格（无 BLE）。
+        AppRoute.GameGo -> GoScreen(onBack = back)
         AppRoute.Community -> CommunityScreen(
             session = session,
             // Web 端只有「粘贴 token」这一条登录路（设备码流程在浏览器里拿不到 device code）；
