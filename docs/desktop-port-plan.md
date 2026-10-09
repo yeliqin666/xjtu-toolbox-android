@@ -192,3 +192,49 @@ WebVPN 在桌面的复用（校外访问必需）· Linux 打包形态（`.deb`/
 **环境前置**（新机器/重装后必做）：`apt install libgl1 libglx0 libegl1`。缺它时 skiko 的 `libskiko-linux-x64.so` 连 `dlopen` 都过不去，`renderScreens` 与真窗口都会失败在加载动态库上（报错里出现 `libGL.so.1: cannot open shared object file`）。
 
 **这一轮没做的**（不在 Stage 0 范围内）：网络栈迁移、40/40 之外的清洁、serve 模式、桌面登录（Stage A 的 `:data` 会话内核）。
+
+---
+
+## 10. Stage A 第一步结果（2026-10-09 实做）：会话内核进 `:data`
+
+§6 Stage A 的第一件事 —— **数据层摘出 Android 依赖**里最硬的那一块（会话内核）—— 做完了，
+而且桌面端已经能**用自己登录的会话**跑通图书馆那条竖切。
+
+| 验收 | 结果 |
+|---|---|
+| 会话内核在 JVM 上编过并真登录 | ✓ `SiteSession` / `SessionBackend` / `SessionManager` / `XJTULogin` / `CasGate` / `CasSiteSession` / `SiteSnapshots` / `Jwt` / `LibraryLogin` 等搬进 `:data:commonMain`（jvm + android 共用一份） |
+| 「同一批断言、换成真会话」 | ✓ `LibraryLoginSessionJvmTest`（6 例，`:data:jvmTest`）：真 CAS 表单 POST（密码 `__RSA__` 加密，夹具用私钥解开比对）→ 种 TGC → 签 ticket 回跳 → 站点会话；冷启动从落盘快照恢复且不重登；读/写/会话失效自动重登重放，断言与 Stage 0 那条逐条相同 |
+| Android 行为不变 | ✓ `:app` 侧 diff 只有「搬走声明 + 引用改名」（`initDataPlatform`、`SessionManager()`、`PersistentCookieJar(name)`、`SessionBackend.wipe(suffix)`、一个 `onAccountSwitched` 钩子）+ 一处已论证的参数补救（见下）；`:app` 测试 521 → 515（6 条测试随被测代码搬进 `:data`） |
+
+**落地手法（下一步照抄）：**
+
+1. **同包搬**：`:data` 用与 `:app` **完全相同的包名与类型名**，于是 `:app` 侧几乎不用改 import；
+   `register(com.xjtu.toolbox.auth.LibrarySession())` 这种调用点在站点类搬迁时一行未动。
+2. **`android.*` 只换三个东西**：`Log` → `:core` 的跨端 `Log`；`SystemClock.elapsedRealtime` → 新缝
+   `elapsedRealtimeMs()`；`Base64` → `java.util.Base64`（`getMimeDecoder`/`getEncoder`，字节结果同）。
+   `android.os.Handler(HandlerThread)`（cookie 防抖写盘）→ `ScheduledThreadPoolExecutor`。
+3. **存储缝而不是 `Context`**：`secureKeyValueStore(name)` / `wipeSecureStore(name)` 两端各一份 actual
+   —— Android 就是原来的 `SecurePrefs` **同名文件**（`cookies_normal_default` / `sites_normal_default` …），
+   桌面是 `0600` 权限的 Properties 文件。于是 `SessionBackend.create(mode, suffix)`、
+   `SessionManager()`、`PersistentCookieJar(name)` 都不再需要 `Context`。
+4. **宿主能力留在宿主**：`CampusProbe`（要 `ConnectivityManager`）没跟内核搬，
+   内核需要它的**只有一处**（切账号时清一网通办令牌）⇒ 收成一个 `SessionManager.onAccountSwitched` 钩子，
+   由 `:app` 注入。这正是「缝照真正用到的那几处切」。
+5. **测试跟着代码走**：`internal` 是模块级的，`SiteSnapshotsTest`(4) 与 `CookieHostMatchTest`(2) 随被测代码进 `:data:jvmTest`；
+   `InMemorySharedPreferences` 改 public（Android-only，JVM 跑不了）。
+
+**一处碰生产行为的补救（已论证，待复核）**：`LibrarySession.createLogin` 现在把管家的
+`cachedRsaKey` 传给 `LibraryLogin` —— 搬迁前图书馆站点漏传（17 个站点里只有它和 campus_card 漏），
+于是每次登录都白取一次静态公钥（`GET https://login.xjtu.edu.cn/cas/jwt/publicKey`）。
+效果 = 少一次冗余请求，POST 出去的密文与今天逐字节相同，**解不出来时仍会重新取**（`encryptPassword` 的兜底只看函数入参）。
+若判定不能动，回退办法是给测试单开一个站点子类。
+
+**测试在 JVM 上真登录的传输手法**：本地 HTTP **代理**（`ProxySelector`）而不是重写 URL ——
+会话内核里有一批按 host 判断的判据（`XJTULogin.casPath` 只认 `login.xjtu.edu.cn`、
+`LibrarySession.validateLogin` 认 `rg.lib.xjtu.edu.cn`），重写 URL 会让它们全部落空，
+测的就不是真内核了。⚠️ 坑：`HttpClients.base` 是进程级 `by lazy`，会把当时的默认 `ProxySelector`
+**抄进自己的配置**，所以 selector 必须常驻、读一个可变端口，否则只有第一条测试生效。
+
+**这一轮没做的**：桌面端自身的登录界面与「把 `:desktop` 的脚手架数据源换成 `:data`」
+（窗口模式的下一步）；`Sites.kt` 里其余 18 个站点仍留在 `:app`（逐个搬，图书馆已搬完）；
+网络栈迁移、serve 模式、40/40 之外的清洁（理由同 §4/§8）。

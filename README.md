@@ -70,9 +70,14 @@ MIUIX 从 Maven Central 引入，始终跟随最新正式版（见 `gradle/libs.
 
 | 模块 | 目标 | 职责 |
 |---|---|---|
-| `:app` | Android | 宿主：`Context` / okhttp 会话内核 / Room / 相机 / BLE / 小组件 / 通知 |
-| `:core` | Android + jvm + wasmJs | **两端同一份**：模型、取数、路由表、主题与组件、周视图几何、游戏逻辑 |
+| `:app` | Android | 宿主：`Context` / Room / 相机 / BLE / 小组件 / 通知；把宿主机能适配成 `:core` 的端口 |
+| `:core` | Android + jvm + wasmJs | **三端同一份**：模型、屏、路由表、主题与组件、周视图几何、游戏逻辑 |
+| `:data` | Android + jvm | **数据层**：会话内核（CAS 登录 / cookie / 站点快照 / WebVPN）+ 取数与解析（okhttp + jsoup）；三端共用一份（桌面窗口与服务模式跑在 jvm 变体上） |
 | `:web` | wasmJs（浏览器） | 浏览器外壳：只渲染 `:core` 里的屏，数据经同源反代（`web/tools/serve-same-origin.py`）取自 campus-api |
+| `:desktop` | jvm（Compose Desktop） | 桌面窗口壳：只渲染 `:core` 里的屏，jpackage 出包；数据源正在从 campus-api 脚手架换成 `:data` |
+
+`:web` 不是独立客户端：它是 **serve 模式/本机后端**（`docs/desktop-port-plan.md` §3）的浏览器界面，
+数据来自同源 `/api/*`，不是自带会话的桌面/移动客户端。
 
 **一屏搬进 `:core` 的规矩**（也是“两端一致”的定义）：
 
